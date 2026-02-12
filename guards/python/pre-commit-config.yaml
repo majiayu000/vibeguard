@@ -1,0 +1,81 @@
+# VibeGuard Pre-commit Hooks Template
+#
+# 使用方法：
+#   1. 复制此文件到项目根目录并重命名为 .pre-commit-config.yaml
+#   2. 修改路径和配置以匹配你的项目结构
+#   3. 运行: pip install pre-commit && pre-commit install
+#   4. 手动运行: pre-commit run --all-files
+
+default_language_version:
+  python: python3.11
+
+repos:
+  # === 基础卫生 ===
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # === Python Linting + Formatting (Ruff) ===
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.2
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^(app|src|tests)/
+      - id: ruff-format
+        files: ^(app|src|tests)/
+
+  # === 自定义命名规范检查 ===
+  # 取消注释并修改路径以启用
+  # - repo: local
+  #   hooks:
+  #     - id: check-naming-convention
+  #       name: Check Python naming convention (snake_case)
+  #       entry: python scripts/check_naming_convention.py
+  #       language: python
+  #       types: [python]
+  #       files: ^(app|src)/
+  #       pass_filenames: true
+
+  # === Shell 脚本检查 ===
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [-x]
+
+  # === Secret 扫描 ===
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.22.1
+    hooks:
+      - id: gitleaks
+
+  # === 提交信息规范 ===
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [--strict, feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
+
+  # === TypeScript/JavaScript (取消注释以启用) ===
+  # - repo: local
+  #   hooks:
+  #     - id: eslint
+  #       name: eslint
+  #       entry: bash -c 'cd frontend && npm run lint'
+  #       language: system
+  #       files: ^frontend/src/.*\.(ts|tsx|js|jsx)$
+  #       pass_filenames: false

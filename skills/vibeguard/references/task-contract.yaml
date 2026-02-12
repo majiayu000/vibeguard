@@ -1,0 +1,58 @@
+# VibeGuard Task Contract
+# 每个开发任务启动前必须通过此清单
+
+task_contract:
+  required:
+    - objective: "明确的可验证目标"
+    - data_source: "数据来源（文件/API/数据库）"
+    - acceptance: "验收标准（至少 1 条可测试）"
+    - scope: "影响范围（文件列表或模块）"
+
+  forbidden:
+    - "先写再说"
+    - "大概/可能/应该能行"
+    - "直接复制一份"
+    - "先这样，后面再改"
+    - "应该不会有问题"
+
+  warnings:
+    no_search_before_create:
+      description: "新建文件/类/函数前未搜索已有实现"
+      severity: high
+      action: "立即执行搜索，确认无已有实现"
+
+    no_test_evidence:
+      description: "步骤完成但无测试证据"
+      severity: high
+      action: "补充测试命令和结果记录"
+
+    large_diff:
+      description: "单步超过 300 行净变更"
+      severity: medium
+      action: "拆分为多个小步骤"
+
+    no_spec:
+      description: "3+ 文件变更但未先写 spec"
+      severity: medium
+      action: "先写 spec 再实现"
+
+    mixed_naming:
+      description: "Python 内部混用 camelCase 和 snake_case"
+      severity: high
+      action: "统一为 snake_case，边界用转换函数"
+
+# 验证命令
+validation:
+  pre_task:
+    - command: "grep -rn 'class.*Protocol' app/ --include='*.py'"
+      purpose: "检查是否有类似 Protocol 已存在"
+    - command: "python scripts/check_duplicates.py"
+      purpose: "检查当前重复状态"
+
+  post_task:
+    - command: "pytest tests/architecture/ -v"
+      purpose: "运行架构守卫"
+    - command: "python scripts/check_naming_convention.py app/"
+      purpose: "检查命名规范"
+    - command: "python scripts/check_duplicates.py --strict"
+      purpose: "检查无新增重复"
