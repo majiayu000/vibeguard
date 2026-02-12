@@ -41,21 +41,30 @@ if [[ "${1:-}" == "--check" ]]; then
     red "[MISSING] VibeGuard rules not in ~/.claude/CLAUDE.md"
   fi
 
-  # Check Claude Code skill
-  if [[ -L "${CLAUDE_DIR}/skills/vibeguard" ]]; then
-    green "[OK] vibeguard skill symlinked to ~/.claude/skills/"
-  else
-    red "[MISSING] vibeguard skill not in ~/.claude/skills/"
-  fi
+  # Check Claude Code skills
+  for skill in vibeguard auto-optimize; do
+    if [[ -L "${CLAUDE_DIR}/skills/${skill}" ]]; then
+      green "[OK] ${skill} skill symlinked to ~/.claude/skills/"
+    else
+      red "[MISSING] ${skill} skill not in ~/.claude/skills/"
+    fi
+  done
 
   # Check Codex skills
-  for skill in plan-folw fixflow optflow plan-mode vibeguard; do
+  for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
       green "[OK] ${skill} skill symlinked to ~/.codex/skills/"
     else
       yellow "[MISSING] ${skill} skill not in ~/.codex/skills/"
     fi
   done
+
+  # Check AUTO_RUN_AGENT_DIR
+  if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
+    green "[OK] AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
+  else
+    yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
+  fi
 
   exit 0
 fi
@@ -76,7 +85,8 @@ if [[ "${1:-}" == "--clean" ]]; then
 
   # Remove symlinks
   rm -f "${CLAUDE_DIR}/skills/vibeguard"
-  for skill in plan-folw fixflow optflow plan-mode vibeguard; do
+  rm -f "${CLAUDE_DIR}/skills/auto-optimize"
+  for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
 
@@ -104,19 +114,22 @@ else
 fi
 echo
 
-# 2. Symlink vibeguard skill 到 Claude Code
+# 2. Symlink skills 到 Claude Code
 echo "Step 2: Install Claude Code skills"
 mkdir -p "${CLAUDE_DIR}/skills"
 
 safe_symlink "${REPO_DIR}/skills/vibeguard" "${CLAUDE_DIR}/skills/vibeguard"
 green "  vibeguard -> ~/.claude/skills/vibeguard"
+
+safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
+green "  auto-optimize -> ~/.claude/skills/auto-optimize"
 echo
 
 # 3. Symlink workflow skills 到 Codex
 echo "Step 3: Install Codex skills"
 mkdir -p "${CODEX_DIR}/skills"
 
-for skill in plan-folw fixflow optflow plan-mode; do
+for skill in plan-folw fixflow optflow plan-mode auto-optimize; do
   safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
   green "  ${skill} -> ~/.codex/skills/${skill}"
 done
@@ -126,21 +139,33 @@ safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
 green "  vibeguard -> ~/.codex/skills/vibeguard"
 echo
 
-# 4. 验证
+# 4. 检测 auto-run-agent 环境变量
+echo "Step 4: Check auto-run-agent"
+if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
+  green "  AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
+else
+  yellow "  AUTO_RUN_AGENT_DIR not set (optional, needed for auto-optimize Phase 4)"
+  yellow "  To set: export AUTO_RUN_AGENT_DIR=/path/to/auto-run-agent"
+fi
+echo
+
+# 5. 验证
 echo "=============================="
 echo "Verification"
 echo "=============================="
 
 errors=0
 
-if [[ -L "${CLAUDE_DIR}/skills/vibeguard" ]]; then
-  green "[OK] Claude Code: vibeguard skill"
-else
-  red "[FAIL] Claude Code: vibeguard skill"
-  ((errors++))
-fi
+for skill in vibeguard auto-optimize; do
+  if [[ -L "${CLAUDE_DIR}/skills/${skill}" ]]; then
+    green "[OK] Claude Code: ${skill} skill"
+  else
+    red "[FAIL] Claude Code: ${skill} skill"
+    ((errors++))
+  fi
+done
 
-for skill in plan-folw fixflow optflow plan-mode vibeguard; do
+for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
   if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
     green "[OK] Codex: ${skill} skill"
   else
@@ -163,7 +188,8 @@ if [[ ${errors} -eq 0 ]]; then
   echo "Next steps:"
   echo "  1. Open a new Claude Code session to verify rules are active"
   echo "  2. Run: /vibeguard to test the skill"
-  echo "  3. Run: bash ${REPO_DIR}/scripts/compliance_check.sh /path/to/project"
+  echo "  3. Run: /auto-optimize to start project optimization"
+  echo "  4. Run: bash ${REPO_DIR}/scripts/compliance_check.sh /path/to/project"
 else
   red "Setup completed with ${errors} errors."
   exit 1

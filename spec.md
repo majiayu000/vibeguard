@@ -151,6 +151,7 @@ LLM 的主要失效模式不是语法错误（IDE 能捕获），而是：
 | Skill | 功能 |
 |-------|------|
 | `vibeguard` | 完整防幻觉规范查阅 |
+| `auto-optimize` | 自主优化流程（守卫扫描 + LLM 深度分析 + 自动执行） |
 | `plan-folw` | 冗余分析 → 计划构建 → 步骤执行 |
 | `fixflow` | 工程交付流（计划 → 执行 → 测试 → 提交） |
 | `optflow` | 优化发现与执行 |
@@ -299,6 +300,14 @@ vibeguard/
 │       └── scoring-matrix.md           # risk-impact 评分矩阵
 │
 ├── workflows/
+│   ├── auto-optimize/                  # 自主优化（盾 + 矛）
+│   │   ├── SKILL.md                    # 整合 VibeGuard 守卫的优化流程
+│   │   └── rules/                      # LLM 扫描参考规则
+│   │       ├── universal.md
+│   │       ├── python.md               # 含守卫交叉引用
+│   │       ├── rust.md
+│   │       ├── typescript.md
+│   │       └── go.md
 │   ├── plan-folw/                      # 冗余分析 + 计划构建
 │   │   ├── SKILL.md
 │   │   ├── references/

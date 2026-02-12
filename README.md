@@ -21,6 +21,7 @@ bash ~/Desktop/code/AI/tools/vibeguard/setup.sh --check
 |------|------|
 | **CLAUDE.md 规则** | 自动追加防幻觉规则到全局 CLAUDE.md |
 | **vibeguard Skill** | 调用 `/vibeguard` 查阅完整规范 |
+| **auto-optimize** | 调用 `/auto-optimize` 自主扫描 + 修复项目问题（整合守卫体系） |
 | **Workflow Skills** | plan-folw / fixflow / optflow / plan-mode |
 | **Python Guards** | 架构守卫、命名检查、重复检测模板 |
 | **项目模板** | Python / TypeScript / Rust CLAUDE.md 模板 |
@@ -34,7 +35,12 @@ vibeguard/
 ├── setup.sh             # 一键部署
 ├── claude-md/           # CLAUDE.md 追加规则
 ├── skills/vibeguard/    # 防幻觉规范 Skill
-├── workflows/           # 执行流程 Skills（plan-folw/fixflow/optflow/plan-mode）
+├── workflows/           # 执行流程 Skills
+│   ├── plan-folw/       #   冗余分析 + 计划构建
+│   ├── fixflow/         #   工程交付流
+│   ├── optflow/         #   优化发现与执行
+│   ├── plan-mode/       #   计划落地
+│   └── auto-optimize/   #   自主优化（守卫扫描 + LLM 深度分析 + 自动执行）
 ├── guards/              # 通用守卫模板（Python / TypeScript）
 ├── project-templates/   # 新项目 CLAUDE.md 模板
 └── scripts/             # 合规检查 + 指标采集
