@@ -24,6 +24,7 @@ bash ~/Desktop/code/AI/tools/vibeguard/setup.sh --check
 | **auto-optimize** | 调用 `/auto-optimize` 自主扫描 + 修复项目问题（整合守卫体系） |
 | **Workflow Skills** | plan-folw / fixflow / optflow / plan-mode |
 | **Python Guards** | 架构守卫、命名检查、重复检测模板 |
+| **Rust Guards** | 嵌套锁检测 (RS-01)、unwrap 检测 (RS-03)、重复类型检测 (RS-05) |
 | **项目模板** | Python / TypeScript / Rust CLAUDE.md 模板 |
 | **合规检查** | 一键检查项目是否符合 VibeGuard 规范 |
 
@@ -41,7 +42,7 @@ vibeguard/
 │   ├── optflow/         #   优化发现与执行
 │   ├── plan-mode/       #   计划落地
 │   └── auto-optimize/   #   自主优化（守卫扫描 + LLM 深度分析 + 自动执行）
-├── guards/              # 通用守卫模板（Python / TypeScript）
+├── guards/              # 通用守卫模板（Python / Rust / TypeScript）
 ├── project-templates/   # 新项目 CLAUDE.md 模板
 └── scripts/             # 合规检查 + 指标采集
 ```

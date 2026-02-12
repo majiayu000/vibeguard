@@ -329,6 +329,10 @@ vibeguard/
 │   │   ├── check_naming_convention.py  # 通用版命名检查
 │   │   ├── check_duplicates.py         # 通用版重复检查
 │   │   └── pre-commit-config.yaml      # pre-commit 模板
+│   ├── rust/
+│   │   ├── check_nested_locks.sh       # RS-01: 嵌套锁检测
+│   │   ├── check_unwrap_in_prod.sh     # RS-03: unwrap/expect 检测
+│   │   └── check_duplicate_types.sh    # RS-05: 跨文件重复类型检测
 │   └── typescript/
 │       └── eslint-guards.ts            # TS 守卫模板
 │
@@ -429,7 +433,7 @@ vibeguard/
 **Phase 2（下一步）**：
 - 自动化指标采集（`metrics_collector.sh`）
 - TypeScript 架构守卫（`eslint-guards.ts`）
-- Rust 项目模板和守卫
+- ~~Rust 项目模板和守卫~~ ✅ Rust guards 已完成（RS-01/RS-03/RS-05）
 
 **Phase 3（未来）**：
 - LLM 辅助的语义重复检测
