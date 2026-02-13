@@ -20,6 +20,16 @@ elif [[ "${2:-}" == "--strict" ]]; then
   STRICT=true
 fi
 
+# 列出 .rs 源文件（优先 git ls-files，非 git 仓库降级 find）
+list_rs_files() {
+  local dir="$1"
+  if git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
+    git -C "${dir}" ls-files '*.rs' | while IFS= read -r f; do echo "${dir}/${f}"; done
+  else
+    find "${dir}" -name '*.rs' -not -path '*/target/*' -not -path '*/.git/*'
+  fi
+}
+
 # 允许列表
 ALLOWLIST_FILE="${TARGET_DIR}/.vibeguard-duplicate-types-allowlist"
 
@@ -34,66 +44,65 @@ fi
 TMPFILE=$(mktemp)
 trap 'rm -f "${TMPFILE}"' EXIT
 
-# 提取：类型名 文件路径:行号
-# 用 grep -oP 提取类型名（macOS 无 -P，改用 sed）
-grep -rn --include='*.rs' \
-  -E '^\s*pub\s+(struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*' \
-  "${TARGET_DIR}" \
+# 提取：类型名 文件路径:行号（逐文件处理，兼容空格路径和空输入）
+list_rs_files "${TARGET_DIR}" \
   | grep -v '/tests/' \
   | grep -v '/test_' \
-  | while IFS= read -r line; do
-    # line 格式: path:linenum:  pub struct FooBar ...
-    file_loc="${line%%:*}"                       # path
-    rest="${line#*:}"
-    linenum="${rest%%:*}"                        # linenum
-    code="${rest#*:}"                            # code part
-    # 从 code 中提取类型名（struct/enum 后的第一个标识符）
-    type_name=$(echo "${code}" | sed -E 's/.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\2/')
-    if [[ -n "${type_name}" && "${type_name}" != "${code}" ]]; then
-      echo "${type_name} ${file_loc}:${linenum}"
-    fi
-  done \
+  | while IFS= read -r f; do
+      [[ -f "${f}" ]] && grep -nE '^\s*pub\s+(struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
+        | sed -E "s|^([0-9]+):.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*|\3 ${f}:\1|"
+    done \
   | sort \
   > "${TMPFILE}"
 
-# 按类型名分组
-declare -A TYPE_FILES
-declare -A TYPE_LOCS
-
-while read -r name location; do
-  [[ -z "${name}" ]] && continue
-  file="${location%%:*}"
-  if [[ -n "${TYPE_FILES[${name}]:-}" ]]; then
-    if [[ "${TYPE_FILES[${name}]}" != *"${file}"* ]]; then
-      TYPE_FILES["${name}"]="${TYPE_FILES[${name}]} ${file}"
-      TYPE_LOCS["${name}"]="${TYPE_LOCS[${name}]}, ${location}"
-    fi
-  else
-    TYPE_FILES["${name}"]="${file}"
-    TYPE_LOCS["${name}"]="${location}"
-  fi
-done < "${TMPFILE}"
-
-# 报告重复
-FOUND=0
-for name in "${!TYPE_FILES[@]}"; do
-  file_count=$(echo "${TYPE_FILES[${name}]}" | tr ' ' '\n' | sort -u | wc -l | tr -d ' ')
-  if [[ "${file_count}" -gt 1 ]]; then
-    if [[ -n "${ALLOWLIST[${name}]:-}" ]]; then
-      continue
-    fi
-    echo "[RS-05] Duplicate type: ${name}"
-    echo "  Locations: ${TYPE_LOCS[${name}]}"
-    echo ""
-    ((FOUND++)) || true
-  fi
+# 构建允许列表参数给 awk
+ALLOWLIST_AWK=""
+for name in "${!ALLOWLIST[@]}"; do
+  ALLOWLIST_AWK="${ALLOWLIST_AWK}${name}\n"
 done
 
-if [[ ${FOUND} -eq 0 ]]; then
-  echo "No duplicate types found."
-else
-  echo "Found ${FOUND} duplicate type(s)."
-  if [[ "${STRICT}" == true ]]; then
-    exit 1
-  fi
+# 用 awk 单进程完成分组、去重、报告
+RESULT=$(awk -v allowlist="${ALLOWLIST_AWK}" '
+BEGIN {
+  n = split(allowlist, arr, "\n")
+  for (i = 1; i <= n; i++) if (arr[i] != "") skip[arr[i]] = 1
+}
+{
+  name = $1; loc = $2
+  split(loc, parts, ":")
+  file = parts[1]
+  if (!(name in first_file)) {
+    first_file[name] = file
+    seen[name, file] = 1
+    locs[name] = loc
+    file_count[name] = 1
+  } else if (!((name, file) in seen)) {
+    seen[name, file] = 1
+    locs[name] = locs[name] ", " loc
+    file_count[name]++
+  }
+}
+END {
+  found = 0
+  for (name in file_count) {
+    if (file_count[name] > 1 && !(name in skip)) {
+      printf "[RS-05] Duplicate type: %s\n  Locations: %s\n\n", name, locs[name]
+      found++
+    }
+  }
+  if (found == 0)
+    print "No duplicate types found."
+  else
+    printf "Found %d duplicate type(s).\n", found
+  print "EXIT_CODE=" (found > 0 ? "1" : "0")
+}
+' "${TMPFILE}")
+
+# 输出结果（去掉最后的 EXIT_CODE 行）
+echo "${RESULT}" | grep -v '^EXIT_CODE='
+
+# 提取退出码
+SHOULD_FAIL=$(echo "${RESULT}" | grep '^EXIT_CODE=' | cut -d= -f2)
+if [[ "${STRICT}" == true && "${SHOULD_FAIL}" == "1" ]]; then
+  exit 1
 fi

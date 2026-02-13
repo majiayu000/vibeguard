@@ -1,4 +1,4 @@
-
+<!-- vibeguard-start -->
 # VibeGuard — AI 辅助开发防幻觉规则
 
 > 以下规则由 VibeGuard 管理，自动追加到全局 CLAUDE.md。
@@ -10,6 +10,7 @@
 ### Layer 1: 先搜后写（反重复）
 
 - **新建文件/类/Protocol/函数前，必须先搜索项目中是否已有类似功能**
+- 新建文件/类前，必须调用 `mcp__vibeguard__guard_check(guard=duplicates)` 验证无重复
 - 已有就扩展，不新建
 - 跨模块共享的接口放 `core/interfaces/`，工具函数放 `core/`
 - 第 1 次直接写，第 2 次容忍重复，第 3 次提取公共代码
@@ -52,6 +53,8 @@
 - 每个修复必须带对应的测试
 - 使用 todolist/子 agent 分解复杂任务
 - 继续执行任务，不用每步都问确认
+- 任务完成前，调用 `mcp__vibeguard__compliance_report` 确认合规
+- 可用守卫工具：`mcp__vibeguard__guard_check`、`mcp__vibeguard__compliance_report`、`mcp__vibeguard__metrics_collect`
 
 ### Layer 7: 提交纪律
 
@@ -74,6 +77,8 @@
 □ 没有硬编码内容？
 □ 没有添加不必要的"改进"？
 □ 有对应的测试？
+□ 新建文件前调用了 guard_check(guard=duplicates)？
+□ 任务完成前调用了 compliance_report？
 ```
 
 ## 违规响应
@@ -86,3 +91,4 @@
 | 硬编码内容 | 改为从数据/配置获取 |
 | 添加向后兼容 | 直接删除旧代码 |
 | 过度设计 | 删除多余抽象，保持最小实现 |
+<!-- vibeguard-end -->

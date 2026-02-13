@@ -22,7 +22,13 @@ echo "--- M3: Duplicate Definitions ---"
 
 if [[ -f "${PROJECT_DIR}/scripts/check_duplicates.py" ]]; then
   dup_output=$(cd "${PROJECT_DIR}" && python scripts/check_duplicates.py 2>&1 || true)
-  dup_count=$(echo "${dup_output}" | grep -c "组重复定义\|groups of duplicates" || echo "0")
+  dup_count=$(python3 -c "
+import re, sys
+text = sys.stdin.read()
+# Match patterns like '3 组重复定义' or 'Found 3 groups of duplicates'
+m = re.search(r'(\d+)\s*(?:组重复定义|groups?\s+of\s+duplicat)', text)
+print(m.group(1) if m else '0')
+" <<< "${dup_output}")
   echo "  Duplicate groups: ${dup_count}"
   if [[ "${dup_count}" == "0" ]]; then
     echo "  Status: PASS (target: < 5)"
@@ -43,10 +49,13 @@ echo "--- M4: Naming Violations ---"
 
 if [[ -f "${PROJECT_DIR}/scripts/check_naming_convention.py" ]]; then
   naming_output=$(cd "${PROJECT_DIR}" && python scripts/check_naming_convention.py 2>&1 || true)
-  naming_count=$(echo "${naming_output}" | grep -oP '\d+ 个问题|\d+ issues' | grep -oP '\d+' || echo "0")
-  if [[ -z "${naming_count}" ]]; then
-    naming_count="0"
-  fi
+  naming_count=$(python3 -c "
+import re, sys
+text = sys.stdin.read()
+# Match patterns like '5 个问题' or '5 issues'
+m = re.search(r'(\d+)\s*(?:个问题|issues?)', text)
+print(m.group(1) if m else '0')
+" <<< "${naming_output}")
   echo "  Naming violations: ${naming_count}"
   if [[ "${naming_count}" == "0" ]]; then
     echo "  Status: PASS (target: 0)"

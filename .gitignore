@@ -4,3 +4,5 @@ __pycache__/
 *.swp
 *.swo
 *~
+node_modules/
+mcp-server/dist/

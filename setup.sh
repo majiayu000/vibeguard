@@ -24,7 +24,13 @@ safe_symlink() {
   local src="$1"
   local dst="$2"
   if [[ -d "${dst}" && ! -L "${dst}" ]]; then
-    rm -rf "${dst}"
+    # 非空真实目录：拒绝覆盖，避免误删用户数据
+    if [[ -n "$(ls -A "${dst}" 2>/dev/null)" ]]; then
+      red "  ERROR: ${dst} is a non-empty directory, refusing to overwrite."
+      red "  Please remove or rename it manually, then re-run setup.sh."
+      return 1
+    fi
+    rmdir "${dst}"
   fi
   ln -sfn "${src}" "${dst}"
 }
@@ -66,6 +72,40 @@ if [[ "${1:-}" == "--check" ]]; then
     yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
   fi
 
+  # Check MCP Server
+  if [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
+    green "[OK] MCP Server built"
+  else
+    red "[MISSING] MCP Server not built (run setup.sh to build)"
+  fi
+
+  # Check MCP Server config in settings.json
+  SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+  if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
+import json, sys
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+sys.exit(0 if 'vibeguard' in data.get('mcpServers', {}) else 1)
+" 2>/dev/null; then
+    green "[OK] MCP Server configured in settings.json"
+  else
+    red "[MISSING] MCP Server not in settings.json"
+  fi
+
+  # Check Hooks config
+  if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
+import json, sys
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+hooks = data.get('hooks', {}).get('PreToolUse', [])
+has_vibeguard = any('pre-write-guard' in str(h) for h in hooks)
+sys.exit(0 if has_vibeguard else 1)
+" 2>/dev/null; then
+    green "[OK] PreToolUse hook configured"
+  else
+    yellow "[MISSING] PreToolUse hook not configured"
+  fi
+
   exit 0
 fi
 
@@ -73,14 +113,39 @@ fi
 if [[ "${1:-}" == "--clean" ]]; then
   echo "Cleaning VibeGuard installation..."
 
-  # Remove CLAUDE.md VibeGuard section
+  # Remove CLAUDE.md VibeGuard section (marker-based, safe)
   if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
-    # Remove everything between VibeGuard markers
-    if grep -q "# VibeGuard" "${CLAUDE_DIR}/CLAUDE.md"; then
-      # Use sed to remove the VibeGuard block
-      sed -i '' '/^# VibeGuard/,/^# [^V]/{ /^# [^V]/!d; }' "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null || true
-      yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md (manual cleanup may be needed)"
-    fi
+    python3 -c "
+from pathlib import Path
+
+claude_md = Path('${CLAUDE_DIR}/CLAUDE.md')
+content = claude_md.read_text()
+
+START = '<!-- vibeguard-start -->'
+END = '<!-- vibeguard-end -->'
+start_idx = content.find(START)
+end_idx = content.find(END)
+
+if start_idx >= 0 and end_idx >= 0:
+    before = content[:start_idx].rstrip()
+    after = content[end_idx + len(END):].lstrip('\n')
+    content = before
+    if after:
+        content += '\n\n' + after
+    content = content.rstrip() + '\n'
+    claude_md.write_text(content)
+    print('REMOVED')
+else:
+    # Legacy fallback: remove from '# VibeGuard' to end
+    marker = '\n# VibeGuard'
+    idx = content.find(marker)
+    if idx >= 0:
+        content = content[:idx].rstrip() + '\n'
+        claude_md.write_text(content)
+        print('REMOVED_LEGACY')
+    else:
+        print('NOT_FOUND')
+" 2>/dev/null && yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md" || true
   fi
 
   # Remove symlinks
@@ -89,6 +154,43 @@ if [[ "${1:-}" == "--clean" ]]; then
   for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
+
+  # Remove MCP Server config and Hooks from settings.json
+  SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+  if [[ -f "${SETTINGS_FILE}" ]]; then
+    python3 -c "
+import json
+
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+
+changed = False
+
+# Remove MCP Server
+if 'vibeguard' in data.get('mcpServers', {}):
+    del data['mcpServers']['vibeguard']
+    if not data['mcpServers']:
+        del data['mcpServers']
+    changed = True
+
+# Remove PreToolUse hooks with pre-write-guard
+if 'hooks' in data and 'PreToolUse' in data['hooks']:
+    original = data['hooks']['PreToolUse']
+    filtered = [h for h in original if 'pre-write-guard' not in json.dumps(h)]
+    if len(filtered) != len(original):
+        data['hooks']['PreToolUse'] = filtered
+        if not filtered:
+            del data['hooks']['PreToolUse']
+        if not data['hooks']:
+            del data['hooks']
+        changed = True
+
+if changed:
+    with open('${SETTINGS_FILE}', 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+" 2>/dev/null && yellow "Removed MCP Server and Hooks from settings.json" || true
+  fi
 
   green "VibeGuard cleaned."
   exit 0
@@ -101,17 +203,10 @@ echo "Repository: ${REPO_DIR}"
 echo "=============================="
 echo
 
-# 1. 追加 VibeGuard 规则到 ~/.claude/CLAUDE.md
-echo "Step 1: Update ~/.claude/CLAUDE.md"
+# 1. 确保目录存在
+echo "Step 1: Prepare directories"
 mkdir -p "${CLAUDE_DIR}"
-
-if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]] && grep -q "VibeGuard" "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null; then
-  yellow "  VibeGuard rules already present, skipping"
-else
-  echo "" >> "${CLAUDE_DIR}/CLAUDE.md"
-  cat "${REPO_DIR}/claude-md/vibeguard-rules.md" >> "${CLAUDE_DIR}/CLAUDE.md"
-  green "  Appended VibeGuard rules to ~/.claude/CLAUDE.md"
-fi
+green "  ~/.claude/ ready"
 echo
 
 # 2. Symlink skills 到 Claude Code
@@ -149,7 +244,138 @@ else
 fi
 echo
 
-# 5. 验证
+# 5. Build MCP Server
+echo "Step 5: Build MCP Server"
+if ! command -v node &>/dev/null; then
+  yellow "  Node.js not found, skipping MCP Server build"
+  yellow "  Install Node.js >= 18 to enable MCP Server"
+elif [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]] && \
+     [[ "${REPO_DIR}/mcp-server/dist/index.js" -nt "${REPO_DIR}/mcp-server/src/index.ts" ]]; then
+  yellow "  MCP Server already built and up to date, skipping"
+else
+  (cd "${REPO_DIR}/mcp-server" && npm install --silent && npm run build --silent) 2>&1
+  green "  MCP Server built successfully"
+fi
+echo
+
+# 6. Configure MCP Server + Hooks in settings.json
+echo "Step 6: Configure MCP Server + Hooks"
+SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+
+python3 -c "
+import json
+from pathlib import Path
+
+settings_path = Path('${SETTINGS_FILE}')
+repo_dir = '${REPO_DIR}'
+
+# Load existing or create empty
+if settings_path.exists():
+    with open(settings_path) as f:
+        data = json.load(f)
+else:
+    data = {}
+
+changed = False
+
+# Add MCP Server config
+if 'mcpServers' not in data:
+    data['mcpServers'] = {}
+if 'vibeguard' not in data['mcpServers']:
+    data['mcpServers']['vibeguard'] = {
+        'type': 'stdio',
+        'command': 'node',
+        'args': [f'{repo_dir}/mcp-server/dist/index.js']
+    }
+    changed = True
+
+# Add PreToolUse hook
+if 'hooks' not in data:
+    data['hooks'] = {}
+if 'PreToolUse' not in data['hooks']:
+    data['hooks']['PreToolUse'] = []
+
+has_vibeguard_hook = any(
+    'pre-write-guard' in json.dumps(h)
+    for h in data['hooks']['PreToolUse']
+)
+if not has_vibeguard_hook:
+    data['hooks']['PreToolUse'].append({
+        'matcher': 'Write',
+        'hooks': [{
+            'type': 'command',
+            'command': f'bash {repo_dir}/hooks/pre-write-guard.sh'
+        }]
+    })
+    changed = True
+
+if changed:
+    with open(settings_path, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    print('CHANGED')
+else:
+    print('SKIP')
+" 2>/dev/null
+
+if [[ $? -eq 0 ]]; then
+  green "  MCP Server + Hooks configured in ~/.claude/settings.json"
+else
+  red "  Failed to configure settings.json"
+fi
+echo
+
+# 7. Re-inject CLAUDE.md (in case rules were updated)
+echo "Step 7: Update VibeGuard rules in CLAUDE.md"
+RULES_FILE="${REPO_DIR}/claude-md/vibeguard-rules.md"
+
+python3 -c "
+from pathlib import Path
+
+claude_md = Path('${CLAUDE_DIR}/CLAUDE.md')
+rules = Path('${RULES_FILE}').read_text()
+
+if claude_md.exists():
+    content = claude_md.read_text()
+else:
+    content = ''
+
+START = '<!-- vibeguard-start -->'
+END = '<!-- vibeguard-end -->'
+
+start_idx = content.find(START)
+end_idx = content.find(END)
+
+if start_idx >= 0 and end_idx >= 0:
+    # Replace existing block (preserve content before and after)
+    before = content[:start_idx].rstrip()
+    after = content[end_idx + len(END):].lstrip('\n')
+    content = before + '\n\n' + rules.strip() + '\n'
+    if after:
+        content += '\n' + after
+    action = 'UPDATED'
+else:
+    # Append (no existing block or legacy format without markers)
+    # Also handle legacy format: remove from '# VibeGuard' to end if no markers
+    legacy_marker = '\n# VibeGuard'
+    legacy_idx = content.find(legacy_marker)
+    if legacy_idx >= 0:
+        content = content[:legacy_idx].rstrip()
+    content = content.rstrip() + '\n\n' + rules.strip() + '\n'
+    action = 'APPENDED'
+
+claude_md.write_text(content)
+print(action)
+" 2>/dev/null
+
+if [[ $? -eq 0 ]]; then
+  green "  VibeGuard rules synced to ~/.claude/CLAUDE.md"
+else
+  red "  Failed to update CLAUDE.md"
+fi
+echo
+
+# 8. 验证
 echo "=============================="
 echo "Verification"
 echo "=============================="
@@ -181,6 +407,25 @@ else
   ((errors++))
 fi
 
+if [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
+  green "[OK] MCP Server built"
+else
+  red "[FAIL] MCP Server not built"
+  ((errors++))
+fi
+
+if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
+import json, sys
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+sys.exit(0 if 'vibeguard' in data.get('mcpServers', {}) else 1)
+" 2>/dev/null; then
+  green "[OK] MCP Server in settings.json"
+else
+  red "[FAIL] MCP Server not in settings.json"
+  ((errors++))
+fi
+
 echo
 if [[ ${errors} -eq 0 ]]; then
   green "Setup complete! All components installed."
@@ -189,7 +434,7 @@ if [[ ${errors} -eq 0 ]]; then
   echo "  1. Open a new Claude Code session to verify rules are active"
   echo "  2. Run: /vibeguard to test the skill"
   echo "  3. Run: /auto-optimize to start project optimization"
-  echo "  4. Run: bash ${REPO_DIR}/scripts/compliance_check.sh /path/to/project"
+  echo "  4. MCP Tools: guard_check, compliance_report, metrics_collect"
 else
   red "Setup completed with ${errors} errors."
   exit 1
