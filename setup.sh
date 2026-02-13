@@ -106,6 +106,19 @@ sys.exit(0 if has_vibeguard else 1)
     yellow "[MISSING] PreToolUse hook not configured"
   fi
 
+  if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
+import json, sys
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+hooks = data.get('hooks', {}).get('PostToolUse', [])
+has_hook = any('post-guard-check' in str(h) for h in hooks)
+sys.exit(0 if has_hook else 1)
+" 2>/dev/null; then
+    green "[OK] PostToolUse hook configured"
+  else
+    yellow "[MISSING] PostToolUse hook not configured"
+  fi
+
   exit 0
 fi
 
@@ -181,9 +194,20 @@ if 'hooks' in data and 'PreToolUse' in data['hooks']:
         data['hooks']['PreToolUse'] = filtered
         if not filtered:
             del data['hooks']['PreToolUse']
-        if not data['hooks']:
-            del data['hooks']
         changed = True
+
+# Remove PostToolUse hooks with post-guard-check
+if 'hooks' in data and 'PostToolUse' in data['hooks']:
+    original = data['hooks']['PostToolUse']
+    filtered = [h for h in original if 'post-guard-check' not in json.dumps(h)]
+    if len(filtered) != len(original):
+        data['hooks']['PostToolUse'] = filtered
+        if not filtered:
+            del data['hooks']['PostToolUse']
+        changed = True
+
+if 'hooks' in data and not data['hooks']:
+    del data['hooks']
 
 if changed:
     with open('${SETTINGS_FILE}', 'w') as f:
@@ -305,6 +329,24 @@ if not has_vibeguard_hook:
         'hooks': [{
             'type': 'command',
             'command': f'bash {repo_dir}/hooks/pre-write-guard.sh'
+        }]
+    })
+    changed = True
+
+# Add PostToolUse hook for guard_check
+if 'PostToolUse' not in data['hooks']:
+    data['hooks']['PostToolUse'] = []
+
+has_post_guard_hook = any(
+    'post-guard-check' in json.dumps(h)
+    for h in data['hooks']['PostToolUse']
+)
+if not has_post_guard_hook:
+    data['hooks']['PostToolUse'].append({
+        'matcher': 'mcp__vibeguard__guard_check',
+        'hooks': [{
+            'type': 'command',
+            'command': f'bash {repo_dir}/hooks/post-guard-check.sh'
         }]
     })
     changed = True
