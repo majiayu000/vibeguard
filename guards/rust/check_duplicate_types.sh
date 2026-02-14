@@ -46,11 +46,12 @@ trap 'rm -f "${TMPFILE}"' EXIT
 
 # 提取：类型名 文件路径:行号（逐文件处理，兼容空格路径和空输入）
 list_rs_files "${TARGET_DIR}" \
-  | grep -v '/tests/' \
-  | grep -v '/test_' \
+  | { grep -vE '(/tests/|/test_)' || true; } \
   | while IFS= read -r f; do
-      [[ -f "${f}" ]] && grep -nE '^\s*pub\s+(struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
-        | sed -E "s|^([0-9]+):.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*|\3 ${f}:\1|"
+      if [[ -f "${f}" ]]; then
+        grep -nE '^\s*pub\s+(struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
+          | sed -E "s@^([0-9]+):.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*@\3 ${f}:\1@" || true
+      fi
     done \
   | sort \
   > "${TMPFILE}"

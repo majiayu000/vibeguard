@@ -48,13 +48,16 @@
 
 ### Layer 6: 执行流程约束
 
+- **重大修改前（3+ 文件、新入口、数据层变更）先运行 `/vibeguard:preflight` 生成约束集**
 - 修改前先完整了解系统，分析后再动手
 - 复杂功能（3+ 文件或架构变更）先写 spec 再实现
 - 每个修复必须带对应的测试
 - 使用 todolist/子 agent 分解复杂任务
 - 继续执行任务，不用每步都问确认
+- 修改过程中/完成后运行 `/vibeguard:check` 验证守卫基线未恶化
 - 任务完成前，调用 `mcp__vibeguard__compliance_report` 确认合规
 - 可用守卫工具：`mcp__vibeguard__guard_check`、`mcp__vibeguard__compliance_report`、`mcp__vibeguard__metrics_collect`
+- 可用命令：`/vibeguard:preflight`（预防）、`/vibeguard:check`（验证）
 
 #### 守卫修复流程
 

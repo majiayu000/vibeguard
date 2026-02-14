@@ -88,19 +88,19 @@ echo "--- Layer 6: Prompt Rules ---"
 if [[ -f "${PROJECT_DIR}/CLAUDE.md" ]]; then
   check_pass "CLAUDE.md exists in project"
 
-  if grep -qi "search before create\|先搜后写" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "search before create|先搜后写" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "SEARCH BEFORE CREATE rule present"
   else
     check_warn "SEARCH BEFORE CREATE rule not found in CLAUDE.md"
   fi
 
-  if grep -qi "no backward\|不做.*向后兼容\|no.*backward.*compat" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "no backward|不做.*向后兼容|no.*backward.*compat" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "NO BACKWARD COMPATIBILITY rule present"
   else
     check_warn "NO BACKWARD COMPATIBILITY rule not found in CLAUDE.md"
   fi
 
-  if grep -qi "hardcod\|硬编码" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "hardcod|硬编码" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "NO HARDCODING rule present"
   else
     check_warn "NO HARDCODING rule not found in CLAUDE.md"
@@ -112,7 +112,7 @@ fi
 if [[ -f "${HOME}/.claude/CLAUDE.md" ]]; then
   check_pass "Global CLAUDE.md exists"
 
-  if grep -qi "vibeguard\|防幻觉" "${HOME}/.claude/CLAUDE.md"; then
+  if grep -qiE "vibeguard|防幻觉" "${HOME}/.claude/CLAUDE.md"; then
     check_pass "VibeGuard rules present in global CLAUDE.md"
   else
     check_warn "VibeGuard rules not found in global CLAUDE.md (run setup.sh)"

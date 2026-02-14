@@ -56,6 +56,13 @@ if [[ "${1:-}" == "--check" ]]; then
     fi
   done
 
+  # Check custom commands
+  if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
+    green "[OK] vibeguard commands symlinked to ~/.claude/commands/"
+  else
+    red "[MISSING] vibeguard commands not in ~/.claude/commands/"
+  fi
+
   # Check Codex skills
   for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
@@ -162,6 +169,7 @@ else:
   fi
 
   # Remove symlinks
+  rm -f "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || rm -rf "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || true
   rm -f "${CLAUDE_DIR}/skills/vibeguard"
   rm -f "${CLAUDE_DIR}/skills/auto-optimize"
   for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
@@ -244,8 +252,16 @@ safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-op
 green "  auto-optimize -> ~/.claude/skills/auto-optimize"
 echo
 
-# 3. Symlink workflow skills 到 Codex
-echo "Step 3: Install Codex skills"
+# 3. Install custom commands
+echo "Step 3: Install custom commands"
+mkdir -p "${CLAUDE_DIR}/commands"
+
+safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
+green "  /vibeguard:preflight, /vibeguard:check -> ~/.claude/commands/vibeguard"
+echo
+
+# 4. Symlink workflow skills 到 Codex
+echo "Step 4: Install Codex skills"
 mkdir -p "${CODEX_DIR}/skills"
 
 for skill in plan-folw fixflow optflow plan-mode auto-optimize; do
@@ -258,8 +274,8 @@ safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
 green "  vibeguard -> ~/.codex/skills/vibeguard"
 echo
 
-# 4. 检测 auto-run-agent 环境变量
-echo "Step 4: Check auto-run-agent"
+# 5. 检测 auto-run-agent 环境变量
+echo "Step 5: Check auto-run-agent"
 if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
   green "  AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
 else
@@ -268,8 +284,8 @@ else
 fi
 echo
 
-# 5. Build MCP Server
-echo "Step 5: Build MCP Server"
+# 6. Build MCP Server
+echo "Step 6: Build MCP Server"
 if ! command -v node &>/dev/null; then
   yellow "  Node.js not found, skipping MCP Server build"
   yellow "  Install Node.js >= 18 to enable MCP Server"
@@ -282,8 +298,8 @@ else
 fi
 echo
 
-# 6. Configure MCP Server + Hooks in settings.json
-echo "Step 6: Configure MCP Server + Hooks"
+# 7. Configure MCP Server + Hooks in settings.json
+echo "Step 7: Configure MCP Server + Hooks"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
 python3 -c "
@@ -367,8 +383,8 @@ else
 fi
 echo
 
-# 7. Re-inject CLAUDE.md (in case rules were updated)
-echo "Step 7: Update VibeGuard rules in CLAUDE.md"
+# 8. Re-inject CLAUDE.md (in case rules were updated)
+echo "Step 8: Update VibeGuard rules in CLAUDE.md"
 RULES_FILE="${REPO_DIR}/claude-md/vibeguard-rules.md"
 
 python3 -c "
@@ -433,6 +449,13 @@ for skill in vibeguard auto-optimize; do
   fi
 done
 
+if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
+  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check"
+else
+  red "[FAIL] Custom commands not installed"
+  ((errors++))
+fi
+
 for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
   if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
     green "[OK] Codex: ${skill} skill"
@@ -474,9 +497,10 @@ if [[ ${errors} -eq 0 ]]; then
   echo
   echo "Next steps:"
   echo "  1. Open a new Claude Code session to verify rules are active"
-  echo "  2. Run: /vibeguard to test the skill"
-  echo "  3. Run: /auto-optimize to start project optimization"
-  echo "  4. MCP Tools: guard_check, compliance_report, metrics_collect"
+  echo "  2. Run: /vibeguard:preflight <project_dir> — 修改前生成约束集（预防）"
+  echo "  3. Run: /vibeguard:check <project_dir> — 修改后运行守卫检查（验证）"
+  echo "  4. Run: /auto-optimize <project_dir> — 自主优化项目"
+  echo "  5. MCP Tools: guard_check, compliance_report, metrics_collect"
 else
   red "Setup completed with ${errors} errors."
   exit 1

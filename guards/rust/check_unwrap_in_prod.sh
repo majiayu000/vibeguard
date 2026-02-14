@@ -39,13 +39,12 @@ trap 'rm -f "${TMPFILE}"' EXIT
 
 # 搜索 .unwrap() 和 .expect()，逐文件处理兼容空格路径和空输入
 list_rs_files "${TARGET_DIR}" \
-  | grep -v '/tests/' \
-  | grep -v '/test_' \
-  | grep -v '_test\.rs$' \
-  | grep -v '/examples/' \
+  | { grep -vE '(/tests/|/test_|_test\.rs$|/examples/)' || true; } \
   | while IFS= read -r f; do
-      [[ -f "${f}" ]] && grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-        | sed "s|^|${f}:|"
+      if [[ -f "${f}" ]]; then
+        grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
+          | sed "s|^|${f}:|" || true
+      fi
     done \
   | grep -v 'unwrap_or' \
   | grep -v 'unwrap_or_else' \

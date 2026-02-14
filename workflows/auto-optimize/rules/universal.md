@@ -17,14 +17,62 @@
 | U-09 | 不一次性提交多个不相关的修复 | 原子 commit，方便 revert |
 | U-10 | 不猜测用户意图 | 不确定就标记为 DEFER |
 
+## 跨入口一致性检查
+
+Monorepo / workspace 中多个 binary 共享数据源时，必须检查配置收敛性。
+
+| ID | 类别 | 检查项 | 严重度 |
+|----|------|--------|--------|
+| U-11 | Data | 多 binary 默认 DB/缓存路径不一致（数据分裂） | 高 |
+| U-12 | Data | 共享数据源的 fallback 路径在首次使用时创建错误文件 | 高 |
+| U-13 | Config | 多入口的环境变量名不统一（如 `SERVER_DB_PATH` vs `DESKTOP_DB_PATH` 指向不同默认值） | 中 |
+| U-14 | Config | CLI 默认路径与 GUI/Server 默认路径基目录不同 | 中 |
+
+### 扫描方法
+
+1. 在 workspace 内搜索所有 `get_db_path` / `db_path` / `default_value` / `data_dir` 等数据源路径构造函数
+2. 对比各 binary 的默认值是否收敛到同一物理路径
+3. 检查 fallback 逻辑是否会在特定启动顺序下创建分裂文件
+
+### 典型案例（refine 项目）
+
+```
+Server:  ~/.local/share/refine/server.db    ← 总是写这里
+Desktop: ~/.local/share/refine/server.db    ← 仅当文件已存在时
+         ~/.local/share/refine/data.db      ← fallback，首次启动创建
+CLI:     ~/.refine/data.db                  ← 完全不同的基目录
+```
+
+用户先启动 Desktop → 创建 `data.db` → 再启动 Server → 创建 `server.db` → 数据分裂，Desktop 读旧库显示空。
+
+### 修复模式
+
+```
+// Before: 各入口各自硬编码
+fn get_db_path() -> PathBuf { base.join("server.db") }  // server
+fn get_db_path() -> PathBuf { base.join("data.db") }    // desktop fallback
+#[arg(default_value = "~/.refine/data.db")]              // CLI
+
+// After: 统一到 core 的公共函数
+pub fn default_db_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("refine")
+        .join("refine.db")
+}
+// 所有入口调用 core::default_db_path()，环境变量统一为 REFINE_DB_PATH
+```
+
 ## FIX/SKIP 判断矩阵
 
 | 条件 | 判定 |
 |------|------|
 | 逻辑 bug（死锁、TOCTOU、panic） | FIX — 高优先级 |
+| 多 binary 数据路径不一致导致数据分裂 | FIX — 高优先级 |
 | 代码重复 > 20 行且语义相同 | FIX — 中优先级 |
 | 代码重复但语义不同（如不同组件的相似方法） | SKIP — 不同语义 |
 | 命名冲突（同名不同义的类型） | FIX — 中优先级 |
+| 多入口环境变量名不统一（用户只配一个就分裂） | FIX — 中优先级 |
 | 性能问题但不在热路径 | SKIP — 收益不足 |
 | 性能问题在热路径（渲染循环、事件处理） | FIX — 中优先级 |
 | 缺少测试但代码稳定 | DEFER — 低优先级 |

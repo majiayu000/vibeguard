@@ -37,9 +37,11 @@ trap 'rm -f "${TMPFILE}"' EXIT
 
 # 查找包含锁获取的文件（排除 tests/，逐文件处理兼容空格路径）
 list_rs_files "${TARGET_DIR}" \
-  | grep -v '/tests/' \
+  | { grep -v '/tests/' || true; } \
   | while IFS= read -r f; do
-      [[ -f "${f}" ]] && grep -lE '\.(read|write|lock)\s*\(' "${f}" 2>/dev/null
+      if [[ -f "${f}" ]]; then
+        grep -lE '\.(read|write|lock)\s*\(' "${f}" 2>/dev/null || true
+      fi
     done \
 | while IFS= read -r file; do
   awk '
