@@ -190,7 +190,7 @@ if [[ ${#db_vars[@]} -gt 1 ]]; then
   for v in "${db_vars[@]}"; do
     echo "  - ${v}"
   done
-  echo "  Recommendation: Unify to a single primary env var (e.g. REFINE_DB_PATH)"
+  echo "  修复：统一到单个 env var（如 APP_DB_PATH），在 core 层提供 resolve_db_path() 公共函数，所有入口调用该函数。"
   echo
   FOUND=$((FOUND + 1))
 fi
@@ -239,7 +239,8 @@ if [[ ${#DB_FILE_MEMBERS[@]} -gt 1 ]]; then
   for dbf in "${!DB_FILE_MEMBERS[@]}"; do
     echo "  - ${dbf} → ${DB_FILE_MEMBERS[${dbf}]}"
   done
-  echo "  Risk: Different binaries may create separate databases, causing data split."
+  echo "  风险：不同 binary 创建各自的数据库文件，导致数据分裂。"
+  echo "  修复：在 core 层定义 default_db_path() 返回唯一路径，所有入口统一调用。参考 vibeguard/workflows/auto-optimize/rules/universal.md U-11。"
   echo
   FOUND=$((FOUND + 1))
 fi
@@ -250,7 +251,9 @@ if [[ ${FOUND} -eq 0 ]]; then
   echo "No cross-entry consistency issues detected."
 else
   echo "Found ${FOUND} potential consistency issue(s)."
-  echo "Review each to ensure all entry points converge to the same data sources."
+  echo ""
+  echo "总体修复策略：在 core/共享库 中创建统一的配置/路径解析函数，所有入口调用同一函数。"
+  echo "环境变量用统一前缀（如 APP_），数据路径用 dirs::data_local_dir() 统一基目录。"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

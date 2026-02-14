@@ -263,7 +263,7 @@ echo "Step 3: Install custom commands"
 mkdir -p "${CLAUDE_DIR}/commands"
 
 safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
-green "  /vibeguard:preflight, /vibeguard:check -> ~/.claude/commands/vibeguard"
+green "  /vibeguard:preflight, /vibeguard:check, /vibeguard:learn -> ~/.claude/commands/vibeguard"
 echo
 
 # 4. Symlink workflow skills 到 Codex
@@ -486,7 +486,7 @@ for skill in vibeguard auto-optimize; do
 done
 
 if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
-  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check"
+  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check, /vibeguard:learn"
 else
   red "[FAIL] Custom commands not installed"
   ((errors++))

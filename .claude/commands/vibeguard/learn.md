@@ -1,0 +1,129 @@
+---
+name: "VibeGuard: Learn"
+description: "从 Agent 犯错中学习，生成新的守卫规则或 hook，持续进化防御体系"
+category: VibeGuard
+tags: [vibeguard, learn, feedback, improvement]
+argument-hint: "<错误描述或相关文件>"
+---
+
+<!-- VIBEGUARD:LEARN:START -->
+**核心理念（来自 OpenAI Harness Engineering）**
+- Agent 犯错不是终点，是改进防御体系的信号
+- 每次错误都应该追问：缺了什么工具？缺了什么守卫？缺了什么文档？
+- 答案反馈到仓库本身，让同类错误不再发生
+- 目标：把一次性修复变成永久性预防
+
+**触发场景**
+- Agent 创建了重复文件/类型（L1 失效）
+- Agent 硬编码了路径/端口/URL（L4 失效）
+- Agent 引入了数据分裂（多入口不一致）
+- Agent 做了不必要的过度设计（L5 失效）
+- 守卫脚本存在假阳性或假阴性
+- 任何重复出现的 Agent 错误模式
+
+**Guardrails**
+- 不直接修复业务代码 — 只改进 VibeGuard 本身
+- 新规则必须可验证（能写脚本检测或测试断言）
+- 不做过度泛化 — 一个错误模式对应一条精确规则
+
+**Steps**
+
+1. **收集错误上下文**
+   - 用户描述了什么错误？（参数 `$ARGUMENTS` 或对话上下文）
+   - 错误发生在哪个文件/模块？
+   - 错误的具体表现（diff、截图、报错信息）
+   - 这是第几次出现类似错误？
+
+2. **根因分析（5-Why）**
+   - **表面原因**：Agent 做了什么错误操作？
+   - **直接原因**：为什么现有守卫没拦住？
+     - 守卫脚本不存在？→ 需要新守卫
+     - 守卫存在但模式匹配不够？→ 增强守卫
+     - Hook 没覆盖该操作？→ 新增 hook 规则
+     - 规则文件没提到？→ 补充规则
+   - **根本原因**：系统层面缺了什么？
+     - 缺少文档/地图？
+     - 缺少机械化检查？
+     - 约束不够具体？
+
+3. **确定改进类型**
+
+   根据根因分析，选择一个或多个改进方式：
+
+   | 改进类型 | 适用场景 | 产出 |
+   |----------|----------|------|
+   | 新守卫脚本 | 需要新的代码模式检测 | `guards/<lang>/check_xxx.sh` |
+   | 增强现有守卫 | 现有守卫漏检 | 修改 `guards/` 下的脚本 |
+   | 新 hook 规则 | 需要在操作前/后拦截 | 修改 `hooks/` 下的脚本 |
+   | 新规则条目 | 需要补充判断标准 | 修改 `rules/` 下的规则文件 |
+   | 新约束到 CLAUDE.md | 需要全局生效的约束 | 修改 `vibeguard-rules.md` |
+
+4. **实施改进**
+
+   按改进类型执行：
+
+   **新守卫脚本**：
+   - 参考 `guards/rust/check_unwrap_in_prod.sh` 的模板
+   - 必须包含：`--strict` 模式、`set -euo pipefail`、排除 tests/
+   - 输出格式：`[ID] 问题描述` + 修复方法（remediation）
+   - 注册到 `/vibeguard:check` 命令
+
+   **增强现有守卫**：
+   - 先运行现有守卫确认假阴性
+   - 增加新的检测模式
+   - 确保不破坏现有检测
+
+   **新 hook 规则**：
+   - PreToolUse hook 用于阻止操作（block）
+   - PostToolUse hook 用于事后警告（warn）
+   - 每个 block 消息必须包含替代方案
+   - 注册到 `setup.sh`
+
+   **新规则条目**：
+   - 分配新 ID（RS-XX / U-XX）
+   - 包含：类别、检查项、严重度、修复模式
+   - 添加到 FIX/SKIP 判断矩阵
+
+5. **验证改进**
+   - 用原始错误场景验证新守卫/hook 能检测到问题
+   - 运行现有所有守卫确认无回归
+   - 更新守卫 ID 索引（`vibeguard-rules.md`）
+
+6. **输出学习报告**
+
+   ```markdown
+   # VibeGuard Learn Report
+
+   ## 错误描述
+   <简述错误>
+
+   ## 根因分析
+   - 表面原因：...
+   - 直接原因：...
+   - 根本原因：...
+
+   ## 改进内容
+   - [ ] <改进类型>：<具体描述>
+
+   ## 验证结果
+   - 新守卫检测通过：✓/✗
+   - 现有守卫无回归：✓/✗
+
+   ## 防御体系变化
+   - 守卫数量：N → N+1
+   - Hook 规则数：M → M+1
+   - 规则条目数：K → K+1
+   ```
+
+**设计原则**
+- 精确优先：一条规则解决一类问题，不做笼统的"注意代码质量"
+- 机械化优先：能写脚本检测的就写脚本，不依赖 agent 自觉遵守
+- 错误消息即修复指令：守卫输出要告诉 agent HOW to fix，不只是 WHAT is wrong
+- 最小改动：不要因为一个边缘 case 重写整个守卫体系
+
+**Reference**
+- VibeGuard 守卫脚本模板：`vibeguard/guards/`
+- Hook 脚本模板：`vibeguard/hooks/`
+- 规则文件：`vibeguard/workflows/auto-optimize/rules/`
+- 规则索引：`vibeguard/claude-md/vibeguard-rules.md`
+<!-- VIBEGUARD:LEARN:END -->

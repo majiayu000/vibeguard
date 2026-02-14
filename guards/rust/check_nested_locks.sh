@@ -74,7 +74,12 @@ if [[ "${FOUND}" -eq 0 ]]; then
   echo "No nested lock patterns detected."
 else
   echo "Found ${FOUND} potential nested lock pattern(s)."
-  echo "Review each to ensure consistent lock ordering or reduce lock scope."
+  echo ""
+  echo "修复方法："
+  echo "  1. 合并多个锁到单个 RwLock<CombinedState>（消除嵌套）"
+  echo "  2. 如必须多锁，统一获取顺序（如按字母序）防止 ABBA 死锁"
+  echo "  3. 缩小锁作用域：let value = lock.read().clone(); drop(lock); 再处理"
+  echo "  4. 使用 try_lock() / try_read() 避免无限等待"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

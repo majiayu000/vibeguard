@@ -95,6 +95,13 @@ END {
     print "No duplicate types found."
   else
     printf "Found %d duplicate type(s).\n", found
+  if (found > 0) {
+    print ""
+    print "修复方法："
+    print "  1. 提取到共享模块：将类型定义移到 core/ 或 shared/，各入口 pub use 引入"
+    print "  2. 如果同名但不同义：重命名以区分语义（如 ServerConfig vs DesktopConfig）"
+    print "  3. 如果是 re-export 导致的假阳性：添加到 .vibeguard-duplicate-types-allowlist"
+  }
   print "EXIT_CODE=" (found > 0 ? "1" : "0")
 }
 ' "${TMPFILE}")

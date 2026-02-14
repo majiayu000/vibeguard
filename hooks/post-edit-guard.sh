@@ -44,7 +44,7 @@ if [[ "$FILE_PATH" == *.rs ]]; then
         SAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || echo 0)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
         if [[ $REAL_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()，建议使用 ? 或 map_err 替代。"
+          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。参考模式见 vibeguard/workflows/auto-optimize/rules/rust.md RS-03。"
         fi
       fi
       ;;
@@ -56,7 +56,7 @@ if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) ;;
     *)
-      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径，建议使用配置或公共函数。"
+      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径。修复：将路径提取到 core 层公共函数（如 default_db_path()），所有入口统一调用；环境变量覆盖用 env::var(\"APP_DB_PATH\").unwrap_or_else(|_| default_db_path())。参考 vibeguard/workflows/auto-optimize/rules/universal.md U-11。"
       ;;
   esac
 fi

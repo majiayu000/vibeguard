@@ -75,7 +75,7 @@ else
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：创建新源码文件前必须先搜索项目中是否已有类似实现。请先用 Grep/Glob 搜索同名或类似功能的文件，确认无重复后重新创建。如需跳过检查，设置 VIBEGUARD_WRITE_MODE=warn。"
+  "reason": "VIBEGUARD 拦截：创建新源码文件前必须先搜索已有实现。修复步骤：1) 用 Grep 搜索同名函数/类/结构体；2) 用 Glob 搜索同名或相似文件名；3) 如已有类似功能则扩展现有文件；4) 确认无重复后重新创建。跨模块共享代码放 core/ 目录。如需跳过：设置 VIBEGUARD_WRITE_MODE=warn。规则来源：VibeGuard Layer 1 先搜后写。"
 }
 EOF
 fi
