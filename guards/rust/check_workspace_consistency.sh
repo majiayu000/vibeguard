@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # VibeGuard Rust Guard: 检测 workspace 跨入口配置一致性 (RS-06)
 #
 # 扫描 Cargo workspace 中所有入口 (bin crate)，报告：
@@ -14,15 +12,8 @@ set -euo pipefail
 #   bash check_workspace_consistency.sh [workspace_dir]
 #   bash check_workspace_consistency.sh --strict [workspace_dir]
 
-TARGET_DIR="${1:-.}"
-STRICT=false
-
-if [[ "${1:-}" == "--strict" ]]; then
-  STRICT=true
-  TARGET_DIR="${2:-.}"
-elif [[ "${2:-}" == "--strict" ]]; then
-  STRICT=true
-fi
+source "$(dirname "$0")/common.sh"
+eval "$(parse_guard_args "$@")"
 
 CARGO_TOML="${TARGET_DIR}/Cargo.toml"
 if [[ ! -f "${CARGO_TOML}" ]]; then
@@ -35,9 +26,6 @@ if ! grep -qE '^\[workspace\]|^workspace\.members' "${CARGO_TOML}" 2>/dev/null; 
   echo "Not a Cargo workspace (no [workspace] section). Skipping."
   exit 0
 fi
-
-TMPFILE=$(mktemp)
-trap 'rm -f "${TMPFILE}"' EXIT
 
 echo "======================================"
 echo "VibeGuard RS-06: Workspace Consistency"
@@ -111,9 +99,7 @@ for member in "${MEMBERS[@]}"; do
 
   member_name=$(basename "${member}")
   paths=$(grep -rnoE '"[^"]*\.(db|sqlite|json|toml|yaml|yml|log)"' "${member_dir}/src/" 2>/dev/null \
-    | grep -v '/tests/' \
-    | grep -v '/test_' \
-    | grep -v '_test\.rs:') || true
+    | { grep -vE '(/tests/|/test_|_test\.rs:)' || true; }) || true
 
   if [[ -n "${paths}" ]]; then
     echo "  [${member_name}]"
@@ -134,7 +120,7 @@ for member in "${MEMBERS[@]}"; do
 
   member_name=$(basename "${member}")
   dir_calls=$(grep -rnoE '(data_local_dir|data_dir|home_dir|config_dir|config_local_dir)\s*\(' "${member_dir}/src/" 2>/dev/null \
-    | grep -v '/tests/') || true
+    | { grep -v '/tests/' || true; }) || true
 
   if [[ -n "${dir_calls}" ]]; then
     echo "  [${member_name}]"
@@ -221,7 +207,7 @@ for member in "${MEMBERS[@]}"; do
 
   member_name=$(basename "${member}")
   db_files=$(grep -rhoE '"[^"]*\.(db|sqlite)"' "${member_dir}/src/" 2>/dev/null \
-    | grep -v '/tests/' \
+    | { grep -v '/tests/' || true; } \
     | sort -u) || true
 
   while IFS= read -r dbf; do

@@ -82,7 +82,8 @@ def check_file(filepath: Path) -> list[tuple[int, str, str, str]]:
     issues = []
     try:
         content = filepath.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as e:
+        print(f"  Warning: Failed to read {filepath}: {e}", file=sys.stderr)
         return []
 
     in_docstring = False

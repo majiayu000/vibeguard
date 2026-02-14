@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # VibeGuard Rust Guard: 检测跨文件重复类型定义 (RS-05)
 #
 # 扫描 pub struct/enum 的名称，报告同名类型出现在多个文件中的情况。
@@ -10,25 +8,8 @@ set -euo pipefail
 #
 # 排除: tests/ 目录
 
-TARGET_DIR="${1:-.}"
-STRICT=false
-
-if [[ "${1:-}" == "--strict" ]]; then
-  STRICT=true
-  TARGET_DIR="${2:-.}"
-elif [[ "${2:-}" == "--strict" ]]; then
-  STRICT=true
-fi
-
-# 列出 .rs 源文件（优先 git ls-files，非 git 仓库降级 find）
-list_rs_files() {
-  local dir="$1"
-  if git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
-    git -C "${dir}" ls-files '*.rs' | while IFS= read -r f; do echo "${dir}/${f}"; done
-  else
-    find "${dir}" -name '*.rs' -not -path '*/target/*' -not -path '*/.git/*'
-  fi
-}
+source "$(dirname "$0")/common.sh"
+eval "$(parse_guard_args "$@")"
 
 # 允许列表
 ALLOWLIST_FILE="${TARGET_DIR}/.vibeguard-duplicate-types-allowlist"
@@ -41,8 +22,7 @@ if [[ -f "${ALLOWLIST_FILE}" ]]; then
   done < "${ALLOWLIST_FILE}"
 fi
 
-TMPFILE=$(mktemp)
-trap 'rm -f "${TMPFILE}"' EXIT
+TMPFILE=$(create_tmpfile)
 
 # 提取：类型名 文件路径:行号（逐文件处理，兼容空格路径和空输入）
 list_rs_files "${TARGET_DIR}" \

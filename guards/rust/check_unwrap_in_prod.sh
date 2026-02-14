@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # VibeGuard Rust Guard: 检测生产代码中的 unwrap()/expect() (RS-03)
 #
 # 扫描非测试 Rust 代码中的 .unwrap() 和 .expect() 调用。
@@ -14,28 +12,9 @@ set -euo pipefail
 #   - unwrap_or / unwrap_or_else / unwrap_or_default（安全的变体）
 #   - 注释行
 
-TARGET_DIR="${1:-.}"
-STRICT=false
-
-if [[ "${1:-}" == "--strict" ]]; then
-  STRICT=true
-  TARGET_DIR="${2:-.}"
-elif [[ "${2:-}" == "--strict" ]]; then
-  STRICT=true
-fi
-
-# 列出 .rs 源文件（优先 git ls-files，非 git 仓库降级 find）
-list_rs_files() {
-  local dir="$1"
-  if git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
-    git -C "${dir}" ls-files '*.rs' | while IFS= read -r f; do echo "${dir}/${f}"; done
-  else
-    find "${dir}" -name '*.rs' -not -path '*/target/*' -not -path '*/.git/*'
-  fi
-}
-
-TMPFILE=$(mktemp)
-trap 'rm -f "${TMPFILE}"' EXIT
+source "$(dirname "$0")/common.sh"
+eval "$(parse_guard_args "$@")"
+TMPFILE=$(create_tmpfile)
 
 # 搜索 .unwrap() 和 .expect()，逐文件处理兼容空格路径和空输入
 list_rs_files "${TARGET_DIR}" \
