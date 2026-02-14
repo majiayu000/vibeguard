@@ -105,12 +105,13 @@ import json, sys
 with open('${SETTINGS_FILE}') as f:
     data = json.load(f)
 hooks = data.get('hooks', {}).get('PreToolUse', [])
-has_vibeguard = any('pre-write-guard' in str(h) for h in hooks)
-sys.exit(0 if has_vibeguard else 1)
+has_write = any('pre-write-guard' in str(h) for h in hooks)
+has_bash = any('pre-bash-guard' in str(h) for h in hooks)
+sys.exit(0 if (has_write and has_bash) else 1)
 " 2>/dev/null; then
-    green "[OK] PreToolUse hook configured"
+    green "[OK] PreToolUse hooks configured (Write block + Bash block)"
   else
-    yellow "[MISSING] PreToolUse hook not configured"
+    yellow "[MISSING] PreToolUse hooks not fully configured"
   fi
 
   if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
@@ -118,12 +119,13 @@ import json, sys
 with open('${SETTINGS_FILE}') as f:
     data = json.load(f)
 hooks = data.get('hooks', {}).get('PostToolUse', [])
-has_hook = any('post-guard-check' in str(h) for h in hooks)
-sys.exit(0 if has_hook else 1)
+has_guard = any('post-guard-check' in str(h) for h in hooks)
+has_edit = any('post-edit-guard' in str(h) for h in hooks)
+sys.exit(0 if (has_guard and has_edit) else 1)
 " 2>/dev/null; then
-    green "[OK] PostToolUse hook configured"
+    green "[OK] PostToolUse hooks configured (guard_check + Edit quality)"
   else
-    yellow "[MISSING] PostToolUse hook not configured"
+    yellow "[MISSING] PostToolUse hooks not fully configured"
   fi
 
   exit 0
@@ -194,20 +196,24 @@ if 'vibeguard' in data.get('mcpServers', {}):
         del data['mcpServers']
     changed = True
 
-# Remove PreToolUse hooks with pre-write-guard
+# Remove PreToolUse hooks (pre-write-guard + pre-bash-guard)
 if 'hooks' in data and 'PreToolUse' in data['hooks']:
     original = data['hooks']['PreToolUse']
-    filtered = [h for h in original if 'pre-write-guard' not in json.dumps(h)]
+    filtered = [h for h in original if not any(
+        k in json.dumps(h) for k in ['pre-write-guard', 'pre-bash-guard']
+    )]
     if len(filtered) != len(original):
         data['hooks']['PreToolUse'] = filtered
         if not filtered:
             del data['hooks']['PreToolUse']
         changed = True
 
-# Remove PostToolUse hooks with post-guard-check
+# Remove PostToolUse hooks (post-guard-check + post-edit-guard)
 if 'hooks' in data and 'PostToolUse' in data['hooks']:
     original = data['hooks']['PostToolUse']
-    filtered = [h for h in original if 'post-guard-check' not in json.dumps(h)]
+    filtered = [h for h in original if not any(
+        k in json.dumps(h) for k in ['post-guard-check', 'post-edit-guard']
+    )]
     if len(filtered) != len(original):
         data['hooks']['PostToolUse'] = filtered
         if not filtered:
@@ -349,6 +355,21 @@ if not has_vibeguard_hook:
     })
     changed = True
 
+# Add PreToolUse hook for Bash (dangerous command blocking)
+has_bash_hook = any(
+    'pre-bash-guard' in json.dumps(h)
+    for h in data['hooks']['PreToolUse']
+)
+if not has_bash_hook:
+    data['hooks']['PreToolUse'].append({
+        'matcher': 'Bash',
+        'hooks': [{
+            'type': 'command',
+            'command': f'bash {repo_dir}/hooks/pre-bash-guard.sh'
+        }]
+    })
+    changed = True
+
 # Add PostToolUse hook for guard_check
 if 'PostToolUse' not in data['hooks']:
     data['hooks']['PostToolUse'] = []
@@ -363,6 +384,21 @@ if not has_post_guard_hook:
         'hooks': [{
             'type': 'command',
             'command': f'bash {repo_dir}/hooks/post-guard-check.sh'
+        }]
+    })
+    changed = True
+
+# Add PostToolUse hook for Edit (quality warnings)
+has_edit_hook = any(
+    'post-edit-guard' in json.dumps(h)
+    for h in data['hooks']['PostToolUse']
+)
+if not has_edit_hook:
+    data['hooks']['PostToolUse'].append({
+        'matcher': 'Edit',
+        'hooks': [{
+            'type': 'command',
+            'command': f'bash {repo_dir}/hooks/post-edit-guard.sh'
         }]
     })
     changed = True

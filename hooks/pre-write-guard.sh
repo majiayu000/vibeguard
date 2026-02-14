@@ -1,27 +1,69 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Write) Hook
-# 当 AI 尝试创建新文件时，注入提醒上下文
-# 如果文件已存在（编辑），不干扰
+#
+# 分级拦截策略：
+#   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 硬拦截（block）
+#   - 新建配置/文档/测试文件 → 放行
+#   - 编辑已有文件 → 放行
+#
+# 设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒模式
 
 set -euo pipefail
 
-# 从 stdin 读取 JSON
 INPUT=$(cat)
 
-# 提取 file_path（使用 python3 解析 JSON，避免依赖 jq）
 FILE_PATH=$(echo "$INPUT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 print(data.get('tool_input', {}).get('file_path', ''))
 " 2>/dev/null || echo "")
 
-# 如果无法解析或文件已存在，直接退出不干扰
+# 无法解析或文件已存在（编辑） → 放行
 if [[ -z "$FILE_PATH" ]] || [[ -e "$FILE_PATH" ]]; then
   exit 0
 fi
 
-# 新文件：输出提醒上下文
-cat <<'EOF'
+# 提取文件名和扩展名
+BASENAME=$(basename "$FILE_PATH")
+EXT="${BASENAME##*.}"
+
+# 放行列表：配置、文档、锁文件、测试文件
+case "$BASENAME" in
+  *.md|*.txt|*.json|*.yaml|*.yml|*.toml|*.lock|*.css|*.html|*.svg|*.png|*.jpg)
+    exit 0 ;;
+  *.test.*|*.spec.*|*_test.*|*_spec.*)
+    exit 0 ;;
+  test_*|spec_*)
+    exit 0 ;;
+  .gitignore|.env*|Makefile|Dockerfile|*.sh)
+    exit 0 ;;
+esac
+
+# 放行：测试目录下的文件
+case "$FILE_PATH" in
+  */tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*)
+    exit 0 ;;
+esac
+
+# 源码文件：检查是否需要拦截
+SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
+IS_SOURCE=false
+for ext in $SOURCE_EXTS; do
+  if [[ "$EXT" == "$ext" ]]; then
+    IS_SOURCE=true
+    break
+  fi
+done
+
+if [[ "$IS_SOURCE" != true ]]; then
+  exit 0
+fi
+
+# 源码文件 → 根据模式决定拦截或提醒
+MODE="${VIBEGUARD_WRITE_MODE:-block}"
+
+if [[ "$MODE" == "warn" ]]; then
+  cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
@@ -29,3 +71,11 @@ cat <<'EOF'
   }
 }
 EOF
+else
+  cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：创建新源码文件前必须先搜索项目中是否已有类似实现。请先用 Grep/Glob 搜索同名或类似功能的文件，确认无重复后重新创建。如需跳过检查，设置 VIBEGUARD_WRITE_MODE=warn。"
+}
+EOF
+fi
