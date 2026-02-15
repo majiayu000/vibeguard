@@ -22,6 +22,19 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
+# 剥离引号内容（commit message、echo 字符串等），避免文本内容触发误报
+# 保留命令结构，用空字符串替代引号内容
+COMMAND_STRIPPED=$(echo "$COMMAND" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+# 移除 heredoc 内容（cat <<'EOF'...EOF 或 cat <<EOF...EOF）
+cmd = re.sub(r\"<<'?(\w+)'?.*?\\n\\1\", '', cmd, flags=re.DOTALL)
+# 移除双引号和单引号内容
+cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
+cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
+print(cmd)
+" 2>/dev/null || echo "$COMMAND")
+
 block() {
   local reason="$1"
   cat <<BLOCK_EOF
@@ -34,27 +47,27 @@ BLOCK_EOF
 }
 
 # git push --force / -f（拦截所有 force push）
-if echo "$COMMAND" | grep -qE 'git\s+push\s+.*(-f|--force)'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(-f|--force)'; then
   block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
 fi
 
 # git reset --hard（丢弃所有未提交的改动）
-if echo "$COMMAND" | grep -qE 'git\s+reset\s+--hard'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+reset\s+--hard'; then
   block "禁止 git reset --hard（不可逆丢弃未提交改动）。替代方案：git stash（暂存可恢复）、git revert <commit>（创建反转 commit）、git reset --soft <commit>（保留改动在暂存区）。"
 fi
 
 # git checkout . / git restore .（丢弃所有改动）
-if echo "$COMMAND" | grep -qE 'git\s+(checkout|restore)\s+\.'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.'; then
   block "禁止 git checkout/restore .（批量丢弃所有改动）。替代方案：git checkout -- <具体文件> 指定要丢弃的文件；git stash 暂存所有改动（可恢复）；git diff 先查看改动再决定。"
 fi
 
 # git clean -f（删除未跟踪文件）
-if echo "$COMMAND" | grep -qE 'git\s+clean\s+.*-f'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
   block "禁止 git clean -f（永久删除未跟踪文件，不可恢复）。替代方案：git clean -n（dry run 预览）先查看会删什么；git stash --include-untracked 暂存未跟踪文件；手动 rm 指定文件。"
 fi
 
 # rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf 等变体）
-if echo "$COMMAND" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]'; then
   DANGEROUS=false
   # 危险路径：根目录、家目录（含 /Users/xxx、/home/xxx）、系统目录
   for pattern in \
@@ -64,7 +77,7 @@ if echo "$COMMAND" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|rm[[:space
     '[[:space:]]/Users(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/home(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/(etc|var|usr|bin|sbin|opt|System|Library)([[:space:];|&/]|$)'; do
-    if echo "$COMMAND" | grep -qE "$pattern"; then
+    if echo "$COMMAND_STRIPPED" | grep -qE "$pattern"; then
       DANGEROUS=true
       break
     fi
