@@ -395,7 +395,7 @@ def render_plan(
         lines.append("- 状态: `in_progress`")
         lines.append("- 目标: 补齐 evidence 后再进入实现。")
         lines.append("- 预计改动文件:")
-        lines.append("  - `docs/plan/<this-file>.md`")
+        lines.append("  - `plan/<this-file>.md`")
         lines.append("- 详细改动:")
         lines.append("  - 补充文件级证据、风险说明与 canonical 选择。")
         lines.append("- 步骤级测试命令:")

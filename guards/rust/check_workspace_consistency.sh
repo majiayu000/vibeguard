@@ -57,6 +57,21 @@ while IFS= read -r line; do
   fi
 done < "${CARGO_TOML}"
 
+# 展开 glob 模式（如 "crates/*" → crates/foo, crates/bar）
+EXPANDED=()
+for member in "${MEMBERS[@]}"; do
+  if [[ "${member}" == *"*"* || "${member}" == *"?"* ]]; then
+    for expanded in ${TARGET_DIR}/${member}; do
+      if [[ -d "${expanded}" && -f "${expanded}/Cargo.toml" ]]; then
+        EXPANDED+=("${expanded#${TARGET_DIR}/}")
+      fi
+    done
+  else
+    EXPANDED+=("${member}")
+  fi
+done
+MEMBERS=("${EXPANDED[@]}")
+
 if [[ ${#MEMBERS[@]} -eq 0 ]]; then
   echo "No workspace members found."
   exit 0

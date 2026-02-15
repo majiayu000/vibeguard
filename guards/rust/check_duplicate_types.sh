@@ -29,7 +29,7 @@ list_rs_files "${TARGET_DIR}" \
   | { grep -vE '(/tests/|/test_)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        grep -nE '^\s*pub\s+(struct|enum)\s+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
+        grep -nE '^[[:space:]]*pub[[:space:]]+(struct|enum)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
           | sed -E "s@^([0-9]+):.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*@\3 ${f}:\1@" || true
       fi
     done \

@@ -19,14 +19,14 @@ list_rs_files "${TARGET_DIR}" \
   | { grep -v '/tests/' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        grep -lE '\.(read|write|lock)\s*\(' "${f}" 2>/dev/null || true
+        grep -lE '\.(read|write|lock)[[:space:]]*\(' "${f}" 2>/dev/null || true
       fi
     done \
 | while IFS= read -r file; do
   awk '
-    /^\s*(pub\s+)?(async\s+)?fn\s+/ {
+    /^[[:space:]]*(pub[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+/ {
       func_name = $0
-      sub(/.*fn\s+/, "", func_name)
+      sub(/.*fn[[:space:]]+/, "", func_name)
       sub(/\(.*/, "", func_name)
       lock_count = 0
       brace_depth = 0
@@ -34,7 +34,7 @@ list_rs_files "${TARGET_DIR}" \
     }
     /{/ { brace_depth += gsub(/{/, "{") }
     /}/ { brace_depth -= gsub(/}/, "}") }
-    /\.(read|write|lock)\s*\(/ {
+    /\.(read|write|lock)[[:space:]]*\(/ {
       lock_count++
     }
     brace_depth == 0 && func_name != "" && lock_count > 2 {

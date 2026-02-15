@@ -40,15 +40,12 @@ description: 对目标项目进行自动化分析、评估、设计和优化。�
    - 检查 TODO/FIXME、#[allow(dead_code)] 等标记
 3. **运行 VibeGuard 守卫获取基线**（按项目语言选择）：
    ```bash
-   # Python 项目
-   python guards/python/test_code_quality_guards.py    # 架构守卫
-   python guards/python/check_naming_convention.py app/ # 命名检查
-   python guards/python/check_duplicates.py app/        # 重复检测
+   # 通过 MCP 调用（推荐，自动定位守卫脚本）
+   mcp__vibeguard__guard_check(target_dir="/path/to/project", language="python")
+   mcp__vibeguard__guard_check(target_dir="/path/to/project", language="rust")
 
    # 如果项目已集成守卫（tests/architecture/ 或 scripts/）
-   pytest tests/architecture/ -v                        # 直接用项目内守卫
-   python scripts/check_duplicates.py --strict
-   python scripts/check_naming_convention.py app/
+   pytest tests/architecture/ -v
    ```
 4. 按当前维度并行扫描（用 sub-agent 按模块分区扫描，加载 `rules/` 对应语言规则）
 5. **合并守卫结果 + LLM 扫描结果**，输出评估报告给用户，确认优化方向
@@ -163,7 +160,10 @@ cd "${AUTO_RUN_AGENT_DIR}"
 1. 所有 FIX 完成后，运行完整测试套件
 2. **运行 VibeGuard 合规检查**：
    ```bash
-   bash ~/Desktop/code/AI/tools/vibeguard/scripts/compliance_check.sh /path/to/project
+   # 通过 MCP 调用（推荐）
+   mcp__vibeguard__compliance_report(project_dir="/path/to/project")
+   # 或直接调用脚本（VIBEGUARD_ROOT 需已设置或通过相对路径定位）
+   bash "${VIBEGUARD_ROOT:-$(dirname "$0")/../..}/scripts/compliance_check.sh" /path/to/project
    ```
 3. 修复合规检查发现的问题（如有）
 4. bump version（patch for fixes, minor for new features）

@@ -334,7 +334,9 @@ def test_no_cross_module_private_access() -> None:
 # 5. 重复 Protocol 定义
 # ---------------------------------------------------------------------------
 
-_PROTOCOL_RE_PATTERN = re.compile(r"^class\s+(\w+)\s*\(\s*Protocol\s*\)")
+_PROTOCOL_RE_PATTERN = re.compile(
+    r"^class\s+(\w+)\s*\(\s*(?:typing(?:_extensions)?\.)?Protocol\s*\)"
+)
 
 
 def test_no_duplicate_protocol_definitions() -> None:

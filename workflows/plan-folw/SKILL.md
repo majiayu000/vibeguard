@@ -41,7 +41,7 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 3. Prioritize and convert analysis into executable plan.
 - Score each finding by impact/effort/risk/confidence.
 - Group into phases (`P0`, `P1`, `P2`) and sequence low-risk/high-signal steps first.
-- Create or update `docs/plan/<task>.md` from `references/plan-template.md`.
+- Create or update `plan/<task>.md` from `references/plan-template.md`.
 - Keep exactly one step in `in_progress`.
 - Use statuses: `pending` / `in_progress` / `completed` / `blocked`.
 - See `references/risk-impact-scoring.md`.
@@ -78,9 +78,9 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 
 - `scripts/redundancy_scan.sh <target_dir>`
   - Fast first-pass scan for duplicate symbol names, parallel factory/builders, and legacy/dead-code hints.
-- `scripts/findings_to_plan.py --target-dir src --output docs/plan/<name>.md`
+- `scripts/findings_to_plan.py --target-dir src --output plan/<name>.md`
   - Convert scan findings into a draft execution plan with scoring and phased order (`P0/P1/P2`).
-- `scripts/plan_lint.py <docs/plan/file.md>`
+- `scripts/plan_lint.py <plan/file.md>`
   - Validate plan state machine, test evidence, and execution-log completeness for completed steps.
 
 ## Trigger Cues

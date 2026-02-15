@@ -53,9 +53,25 @@ if echo "$COMMAND" | grep -qE 'git\s+clean\s+.*-f'; then
   block "禁止 git clean -f（永久删除未跟踪文件，不可恢复）。替代方案：git clean -n（dry run 预览）先查看会删什么；git stash --include-untracked 暂存未跟踪文件；手动 rm 指定文件。"
 fi
 
-# rm -rf / 或 rm -rf ~（灾难性删除）
-if echo "$COMMAND" | grep -qE 'rm\s+.*-[a-zA-Z]*r[a-zA-Z]*f.*\s+(/|~|/home|/Users)\s*$'; then
-  block "禁止 rm -rf 根目录或用户主目录（灾难性操作，系统不可恢复）。替代方案：rm -rf <具体子目录> 指定精确路径；rm -ri 交互式确认；先 ls 确认目标再删除。"
+# rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf 等变体）
+if echo "$COMMAND" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]'; then
+  DANGEROUS=false
+  # 危险路径：根目录、家目录（含 /Users/xxx、/home/xxx）、系统目录
+  for pattern in \
+    '[[:space:]]/([[:space:];|&]|$)' \
+    '[[:space:]]~([[:space:];|&/]|$)' \
+    '\$HOME' \
+    '[[:space:]]/Users(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
+    '[[:space:]]/home(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
+    '[[:space:]]/(etc|var|usr|bin|sbin|opt|System|Library)([[:space:];|&/]|$)'; do
+    if echo "$COMMAND" | grep -qE "$pattern"; then
+      DANGEROUS=true
+      break
+    fi
+  done
+  if [[ "$DANGEROUS" == true ]]; then
+    block "禁止 rm -rf 危险路径（根目录、家目录、系统目录不可恢复）。替代方案：rm -rf <具体深层子目录> 指定精确路径；rm -ri 交互式确认；先 ls 确认目标再删除。"
+  fi
 fi
 
 # 通过所有检查 → 放行

@@ -48,7 +48,7 @@ echo
 echo "--- M4: Naming Violations ---"
 
 if [[ -f "${PROJECT_DIR}/scripts/check_naming_convention.py" ]]; then
-  naming_output=$(cd "${PROJECT_DIR}" && python scripts/check_naming_convention.py 2>&1 || true)
+  naming_output=$(cd "${PROJECT_DIR}" && python3 scripts/check_naming_convention.py 2>&1 || true)
   naming_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()
@@ -74,7 +74,7 @@ echo "--- M5: Architecture Guard Pass Rate ---"
 
 guard_file=$(find "${PROJECT_DIR}" -path "*/architecture/test_code_quality_guards.py" -type f 2>/dev/null | head -1)
 if [[ -n "${guard_file}" ]]; then
-  guard_output=$(cd "${PROJECT_DIR}" && python -m pytest "${guard_file}" -v 2>&1 || true)
+  guard_output=$(cd "${PROJECT_DIR}" && python3 -m pytest "${guard_file}" -v 2>&1 || true)
   passed=$(echo "${guard_output}" | grep -c " PASSED" || echo "0")
   failed=$(echo "${guard_output}" | grep -c " FAILED" || echo "0")
   total=$((passed + failed))

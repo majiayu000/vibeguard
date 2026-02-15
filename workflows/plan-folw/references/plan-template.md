@@ -1,6 +1,6 @@
 # Plan Template (Step-Test-Update Loop)
 
-Use this template when creating `docs/plan/<name>.md`.
+Use this template when creating `plan/<name>.md`.
 
 ```md
 # <Task Name> 执行计划
