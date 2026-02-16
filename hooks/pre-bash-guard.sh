@@ -87,5 +87,41 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|r
   fi
 fi
 
+# --- dev-server-blocker：拦截长运行开发服务器命令 ---
+if echo "$COMMAND_STRIPPED" | grep -qE '(npm|yarn|pnpm|bun)\s+run\s+(dev|start|serve)\b'; then
+  block "禁止在 Agent 中启动开发服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
+fi
+
+if echo "$COMMAND_STRIPPED" | grep -qE '\b(next|nuxt|vite|webpack)\s+dev\b'; then
+  block "禁止在 Agent 中启动开发服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
+fi
+
+if echo "$COMMAND_STRIPPED" | grep -qE '\bcargo\s+watch\b'; then
+  block "禁止在 Agent 中启动 cargo watch（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行；如需单次构建用 cargo build。"
+fi
+
+if echo "$COMMAND_STRIPPED" | grep -qE '\b(uvicorn|gunicorn|flask\s+run|python\s+-m\s+http\.server)\b'; then
+  block "禁止在 Agent 中启动 Python 服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
+fi
+
+if echo "$COMMAND_STRIPPED" | grep -qE '\b(jest|vitest|pytest)\s+--watch\b'; then
+  block "禁止在 Agent 中启动 watch 模式测试（长运行进程会阻塞执行）。替代方案：使用 --run 标志单次执行，如 vitest --run。"
+fi
+
+# --- doc-file-blocker：检测创建非标准 .md 文件 ---
+# 允许的 .md 文件：README、CLAUDE、CONTRIBUTING、CHANGELOG、LICENSE、SKILL
+if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
+  if ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
+    # 输出警告而非阻止（可能是合理的文档创建）
+    cat <<WARN_EOF
+{
+  "decision": "warn",
+  "reason": "VIBEGUARD 警告：检测到创建非标准 .md 文件。只允许创建 README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md。如果确实需要，请确认文件用途。"
+}
+WARN_EOF
+    exit 0
+  fi
+fi
+
 # 通过所有检查 → 放行
 exit 0

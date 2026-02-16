@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# VibeGuard PreToolUse(Edit) Hook
+#
+# 编辑文件前的防幻觉检查：
+#   - 检测编辑的文件是否存在（防止 AI 编辑不存在的文件路径）
+#   - 检测 old_string 是否真的在文件中（防止 AI 幻觉编辑内容）
+
+set -euo pipefail
+
+INPUT=$(cat)
+
+RESULT=$(echo "$INPUT" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+tool_input = data.get('tool_input', {})
+file_path = tool_input.get('file_path', '')
+old_string = tool_input.get('old_string', '')
+print(file_path)
+print('---SEPARATOR---')
+print(old_string)
+" 2>/dev/null || echo "")
+
+FILE_PATH=$(echo "$RESULT" | head -1)
+OLD_STRING=$(echo "$RESULT" | sed '1,/---SEPARATOR---/d')
+
+if [[ -z "$FILE_PATH" ]]; then
+  exit 0
+fi
+
+# 检查文件是否存在
+if [[ ! -f "$FILE_PATH" ]]; then
+  cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：文件不存在 — ${FILE_PATH}。AI 可能幻觉了文件路径。请先用 Glob/Grep 搜索正确的文件路径。"
+}
+BLOCK_EOF
+  exit 0
+fi
+
+# 检查 old_string 是否在文件中（仅当 old_string 非空时）
+if [[ -n "$OLD_STRING" ]]; then
+  if ! python3 -c "
+import sys
+with open('${FILE_PATH}', 'r') as f:
+    content = f.read()
+old = sys.stdin.read()
+sys.exit(0 if old in content else 1)
+" <<< "$OLD_STRING" 2>/dev/null; then
+    cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：old_string 在文件中不存在 — AI 可能幻觉了文件内容。请先用 Read 工具读取文件，确认要替换的内容确实存在。"
+}
+BLOCK_EOF
+    exit 0
+  fi
+fi
+
+# 通过所有检查 → 放行
+exit 0

@@ -26,6 +26,11 @@
 | RS-06 | workspace 跨入口配置一致性 | Rust | `rules/universal.md` U-11~U-14 |
 | U-01~U-10 | 通用 NEVER 规则 | 全部 | `rules/universal.md` |
 | U-11~U-14 | 跨入口数据/配置一致性 | 全部 | `rules/universal.md` |
+| U-15~U-22 | 工程实践规则 | 全部 | `rules/universal.md` |
+| SEC-01~SEC-10 | 安全检查 | 全部 | `rules/security.md` |
+| TS-01~TS-12 | TypeScript 规则 | TS | `rules/typescript.md` |
+| PY-01~PY-12 | Python 规则 | Python | `rules/python.md` |
+| GO-01~GO-12 | Go 规则 | Go | `rules/go.md` |
 
 > 规则文件完整路径：`vibeguard/workflows/auto-optimize/rules/`
 
@@ -35,8 +40,11 @@
 |------|----------|------|
 | PreToolUse | Write 创建新源码文件 | **Block** — 先搜索已有实现 |
 | PreToolUse | Bash 危险命令（force push/reset --hard/rm -rf） | **Block** — 提供替代方案 |
+| PreToolUse | Bash 长运行命令（dev server/watch mode） | **Block** — 提示用户手动运行 |
+| PreToolUse | Edit 不存在的文件或幻觉内容 | **Block** — 先 Read 确认文件内容 |
 | PostToolUse | Edit .rs 文件新增 unwrap/expect | **Warn** — 输出修复方法 |
 | PostToolUse | Edit 新增硬编码 .db/.sqlite 路径 | **Warn** — 输出修复方法 |
+| PostToolUse | Edit 新增 console.log/print 调试语句 | **Warn** — 提示使用 logger |
 
 ## 命令和工具
 
@@ -45,12 +53,31 @@
 | `/vibeguard:preflight` | 修改前生成约束集（预防） |
 | `/vibeguard:check` | 运行全部守卫 + 合规检查（验证） |
 | `/vibeguard:learn` | Agent 犯错后生成新守卫规则（闭环改进） |
+| `/vibeguard:review` | 结构化代码审查（安全→逻辑→质量→性能） |
+| `/vibeguard:build-fix` | 构建错误快速修复 |
 | `guard_check` | MCP 工具：运行指定守卫 |
 | `compliance_report` | MCP 工具：合规检查报告 |
+
+## Agents（专项 agent）
+
+| Agent | 用途 | 模型 |
+|-------|------|------|
+| planner | 需求分析、任务分解、实施计划 | opus |
+| architect | 技术方案评估、系统架构设计 | opus |
+| tdd-guide | RED→GREEN→IMPROVE 测试驱动开发 | sonnet |
+| code-reviewer | 分层代码审查 | sonnet |
+| security-reviewer | OWASP Top 10 安全审查 | sonnet |
+| build-error-resolver | 构建错误快速修复 | sonnet |
+| e2e-runner | 端到端测试编写和执行 | sonnet |
+| refactor-cleaner | 重构清理（消除重复、简化逻辑） | sonnet |
+| doc-updater | 代码变更后同步文档 | sonnet |
+| go-reviewer / go-build-resolver | Go 专项审查和构建修复 | sonnet |
+| python-reviewer | Python 专项审查 | sonnet |
+| database-reviewer | 数据库代码审查 | sonnet |
 
 ## 守卫修复流程
 
 发现问题 → 读 `rules/` 对应语言规则 → 分类 FIX/SKIP/DEFER → 按优先级修复 → 重新 check 验证
 
-优先级：逻辑 bug > 数据分裂 > 重复类型 > unwrap > 命名
+优先级：安全漏洞 > 逻辑 bug > 数据分裂 > 重复类型 > unwrap > 命名
 <!-- vibeguard-end -->

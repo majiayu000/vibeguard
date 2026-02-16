@@ -48,7 +48,7 @@ if [[ "${1:-}" == "--check" ]]; then
   fi
 
   # Check Claude Code skills
-  for skill in vibeguard auto-optimize; do
+  for skill in vibeguard auto-optimize strategic-compact eval-harness iterative-retrieval; do
     if [[ -L "${CLAUDE_DIR}/skills/${skill}" ]]; then
       green "[OK] ${skill} skill symlinked to ~/.claude/skills/"
     else
@@ -61,6 +61,21 @@ if [[ "${1:-}" == "--check" ]]; then
     green "[OK] vibeguard commands symlinked to ~/.claude/commands/"
   else
     red "[MISSING] vibeguard commands not in ~/.claude/commands/"
+  fi
+
+  # Check agents
+  if [[ -d "${CLAUDE_DIR}/agents" ]] && [[ -n "$(ls -A "${CLAUDE_DIR}/agents" 2>/dev/null)" ]]; then
+    agent_count=$(ls "${CLAUDE_DIR}/agents"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    green "[OK] ${agent_count} agents installed in ~/.claude/agents/"
+  else
+    yellow "[MISSING] agents not in ~/.claude/agents/"
+  fi
+
+  # Check context profiles
+  if [[ -d "${CLAUDE_DIR}/context-profiles" ]] && [[ -n "$(ls -A "${CLAUDE_DIR}/context-profiles" 2>/dev/null)" ]]; then
+    green "[OK] context profiles installed in ~/.claude/context-profiles/"
+  else
+    yellow "[MISSING] context profiles not in ~/.claude/context-profiles/"
   fi
 
   # Check Codex skills
@@ -107,9 +122,10 @@ with open('${SETTINGS_FILE}') as f:
 hooks = data.get('hooks', {}).get('PreToolUse', [])
 has_write = any('pre-write-guard' in str(h) for h in hooks)
 has_bash = any('pre-bash-guard' in str(h) for h in hooks)
-sys.exit(0 if (has_write and has_bash) else 1)
+has_edit_pre = any('pre-edit-guard' in str(h) for h in hooks)
+sys.exit(0 if (has_write and has_bash and has_edit_pre) else 1)
 " 2>/dev/null; then
-    green "[OK] PreToolUse hooks configured (Write block + Bash block)"
+    green "[OK] PreToolUse hooks configured (Write block + Bash block + Edit guard)"
   else
     yellow "[MISSING] PreToolUse hooks not fully configured"
   fi
@@ -174,6 +190,11 @@ else:
   rm -f "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || rm -rf "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || true
   rm -f "${CLAUDE_DIR}/skills/vibeguard"
   rm -f "${CLAUDE_DIR}/skills/auto-optimize"
+  rm -f "${CLAUDE_DIR}/skills/strategic-compact"
+  rm -f "${CLAUDE_DIR}/skills/eval-harness"
+  rm -f "${CLAUDE_DIR}/skills/iterative-retrieval"
+  rm -rf "${CLAUDE_DIR}/agents" 2>/dev/null || true
+  rm -rf "${CLAUDE_DIR}/context-profiles" 2>/dev/null || true
   for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
@@ -200,7 +221,7 @@ if 'vibeguard' in data.get('mcpServers', {}):
 if 'hooks' in data and 'PreToolUse' in data['hooks']:
     original = data['hooks']['PreToolUse']
     filtered = [h for h in original if not any(
-        k in json.dumps(h) for k in ['pre-write-guard', 'pre-bash-guard']
+        k in json.dumps(h) for k in ['pre-write-guard', 'pre-bash-guard', 'pre-edit-guard']
     )]
     if len(filtered) != len(original):
         data['hooks']['PreToolUse'] = filtered
@@ -256,6 +277,34 @@ green "  vibeguard -> ~/.claude/skills/vibeguard"
 
 safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
 green "  auto-optimize -> ~/.claude/skills/auto-optimize"
+
+# New skills from ECC
+for skill in strategic-compact eval-harness iterative-retrieval; do
+  safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
+  green "  ${skill} -> ~/.claude/skills/${skill}"
+done
+echo
+
+# 2.5. Install agents
+echo "Step 2.5: Install agents"
+mkdir -p "${CLAUDE_DIR}/agents"
+for agent in "${REPO_DIR}"/agents/*.md; do
+  [[ -f "$agent" ]] || continue
+  name=$(basename "$agent")
+  cp "$agent" "${CLAUDE_DIR}/agents/${name}"
+  green "  ${name} -> ~/.claude/agents/${name}"
+done
+echo
+
+# 2.6. Install context profiles
+echo "Step 2.6: Install context profiles"
+mkdir -p "${CLAUDE_DIR}/context-profiles"
+for profile in "${REPO_DIR}"/context-profiles/*.md; do
+  [[ -f "$profile" ]] || continue
+  name=$(basename "$profile")
+  cp "$profile" "${CLAUDE_DIR}/context-profiles/${name}"
+  green "  ${name} -> ~/.claude/context-profiles/${name}"
+done
 echo
 
 # 3. Install custom commands
@@ -263,7 +312,7 @@ echo "Step 3: Install custom commands"
 mkdir -p "${CLAUDE_DIR}/commands"
 
 safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
-green "  /vibeguard:preflight, /vibeguard:check, /vibeguard:learn -> ~/.claude/commands/vibeguard"
+green "  /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:build-fix -> ~/.claude/commands/vibeguard"
 echo
 
 # 4. Symlink workflow skills 到 Codex
@@ -366,6 +415,21 @@ if not has_bash_hook:
         'hooks': [{
             'type': 'command',
             'command': f'bash {repo_dir}/hooks/pre-bash-guard.sh'
+        }]
+    })
+    changed = True
+
+# Add PreToolUse hook for Edit (hallucination prevention)
+has_edit_pre_hook = any(
+    'pre-edit-guard' in json.dumps(h)
+    for h in data['hooks']['PreToolUse']
+)
+if not has_edit_pre_hook:
+    data['hooks']['PreToolUse'].append({
+        'matcher': 'Edit',
+        'hooks': [{
+            'type': 'command',
+            'command': f'bash {repo_dir}/hooks/pre-edit-guard.sh'
         }]
     })
     changed = True
@@ -486,7 +550,7 @@ for skill in vibeguard auto-optimize; do
 done
 
 if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
-  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check, /vibeguard:learn"
+  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:build-fix"
 else
   red "[FAIL] Custom commands not installed"
   ((errors++))

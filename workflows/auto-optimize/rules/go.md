@@ -22,6 +22,16 @@ Go 项目扫描和修复的特定规则。
 | 导出但未使用的函数 | 检查 | 可能是公开 API，标记为 DEFER |
 | 缺少 godoc 注释 | SKIP | 独立处理 |
 
+## ECC 增强规则
+
+| ID | 类别 | 检查项 | 严重度 |
+|----|------|--------|--------|
+| GO-08 | Safety | defer 在循环内（资源泄漏风险） | 高 |
+| GO-09 | Design | 函数超过 80 行（应拆分） | 中 |
+| GO-10 | Design | 包级别 init() 有副作用（网络/文件 IO） | 中 |
+| GO-11 | Safety | context.Background() 在非入口函数中使用 | 中 |
+| GO-12 | Perf | 结构体字段未按大小排序（内存对齐浪费） | 低 |
+
 ## 验证命令
 ```bash
 go vet ./... && golangci-lint run && go test ./...

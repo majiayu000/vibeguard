@@ -24,6 +24,16 @@ Python 项目扫描和修复的特定规则。
 | 用 dict 而非 dataclass | SKIP | 除非 dict 结构在 > 3 处重复 |
 | 缺少 docstring | SKIP | 独立处理，不混入功能修复 |
 
+## ECC 增强规则
+
+| ID | 类别 | 检查项 | 严重度 |
+|----|------|--------|--------|
+| PY-08 | Safety | 使用 `eval()` / `exec()` / `__import__()` | 高 |
+| PY-09 | Design | 函数超过 50 行（应拆分） | 中 |
+| PY-10 | Design | 嵌套超过 4 层（应提前返回或提取函数） | 中 |
+| PY-11 | Safety | 文件操作未使用 `with` 上下文管理器 | 中 |
+| PY-12 | Perf | 循环内重复调用 `len()` / `keys()` / `values()` | 低 |
+
 ## 验证命令
 ```bash
 ruff check . && ruff format --check . && pytest

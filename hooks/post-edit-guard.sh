@@ -51,6 +51,36 @@ if [[ "$FILE_PATH" == *.rs ]]; then
   esac
 fi
 
+# --- JavaScript/TypeScript 检查：console.log/warn/error ---
+case "$FILE_PATH" in
+  *.ts|*.tsx|*.js|*.jsx)
+    case "$FILE_PATH" in
+      */tests/*|*_test.*|*.test.*|*.spec.*) ;;
+      *)
+        CONSOLE_COUNT=$(echo "$NEW_STRING" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null || echo 0)
+        if [[ $CONSOLE_COUNT -gt 0 ]]; then
+          WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+        fi
+        ;;
+    esac
+    ;;
+esac
+
+# --- Python 检查：print() 语句 ---
+case "$FILE_PATH" in
+  *.py)
+    case "$FILE_PATH" in
+      */tests/*|*test_*|*_test.py) ;;
+      *)
+        PRINT_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*print\(' 2>/dev/null || echo 0)
+        if [[ $PRINT_COUNT -gt 0 ]]; then
+          WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${PRINT_COUNT} 个 print() 语句。修复：使用 logging 模块替代 print；如果是临时调试，完成后删除。"
+        fi
+        ;;
+    esac
+    ;;
+esac
+
 # --- 通用检查：硬编码数据库路径 ---
 if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   case "$FILE_PATH" in

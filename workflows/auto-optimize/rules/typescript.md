@@ -22,6 +22,16 @@ TypeScript 项目扫描和修复的特定规则。
 | 缺少 JSDoc 但类型签名清晰 | SKIP | 类型即文档 |
 | 用 enum 而非 union type | SKIP | 除非造成 bundle size 问题 |
 
+## ECC 增强规则
+
+| ID | 类别 | 检查项 | 严重度 |
+|----|------|--------|--------|
+| TS-08 | Safety | 使用 `as any` 或 `@ts-ignore` 绕过类型检查 | 高 |
+| TS-09 | Design | 函数参数超过 4 个（应使用 options 对象） | 中 |
+| TS-10 | Design | 嵌套回调超过 3 层（应使用 async/await） | 中 |
+| TS-11 | Safety | 未处理的 null/undefined（缺少可选链或空值检查） | 中 |
+| TS-12 | Perf | 组件 props 传递整个对象而非必要字段 | 低 |
+
 ## 验证命令
 ```bash
 npx tsc --noEmit && npx eslint . && npm test

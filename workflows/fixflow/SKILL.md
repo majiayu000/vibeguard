@@ -56,6 +56,33 @@ Trigger this skill when the user asks for one or more of:
 
 Use BDD if user requests it, or if requirements are unclear.
 
+#### 3.0 TDD Mode (RED → GREEN → IMPROVE)
+
+When user requests TDD or test-driven delivery:
+
+1. **RED** — Write a failing test first
+   - Extract testable behavior from requirements
+   - Write minimal test case asserting expected behavior
+   - Run test, confirm it fails (red)
+   - If test passes unexpectedly → requirement already met or test is wrong
+
+2. **GREEN** — Write minimal implementation
+   - Write just enough code to make the test pass
+   - No extra improvements, no "while I'm here" changes
+   - Run test, confirm it passes (green)
+
+3. **IMPROVE** — Refactor under green tests
+   - Eliminate duplication, improve naming, simplify logic
+   - Run tests after each refactor to confirm no regression
+   - Refactoring must not change external behavior
+
+Coverage target: 80% line coverage for new code, 100% for critical paths.
+
+Trigger cues for TDD mode:
+- User says "TDD", "test-driven", "test first"
+- User says "write tests before code"
+- Requirements are well-defined with clear inputs/outputs
+
 If user says “I don't understand BDD”, explain first in simple terms:
 - BDD means defining expected behavior before coding.
 - Use `Given / When / Then`:
@@ -142,9 +169,15 @@ Minimum rule: every high-priority scenario must be covered by at least one autom
 - Treat breaking changes as intentional scope, not regressions.
 - Document breaking impact in final report.
 
-### 6. Validate with Test Matrix
+### 6. Validate with Test Matrix (Verification Loop)
 
-Run checks per step and again at the end.
+Run checks per step and again at the end. Use continuous verification — never assume a change is correct without evidence.
+
+Verification loop (per step):
+1. Run relevant checks immediately after code change.
+2. If any check fails → fix root cause → rerun ALL affected checks.
+3. Only proceed to next step when ALL checks pass.
+4. Maximum 3 fix attempts per check failure. If still failing after 3 attempts, stop and report.
 
 Minimum matrix:
 - Core logic: unit tests.
