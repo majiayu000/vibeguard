@@ -19,7 +19,19 @@ bash ~/vibeguard/setup.sh
 
 ### 1. 规则注入（开会话就生效）
 
-七层约束规则自动追加到 `~/.claude/CLAUDE.md`，AI 在每次会话中都会遵守：
+七层约束规则自动追加到 `~/.claude/CLAUDE.md`（用户级全局配置）。Claude Code 启动时会加载所有层级的 CLAUDE.md 并叠加生效，不会互相覆盖：
+
+```
+企业级  /Library/Application Support/ClaudeCode/CLAUDE.md   ← IT 部署
+用户级  ~/.claude/CLAUDE.md                                  ← VibeGuard 规则在这里
+项目级  ./CLAUDE.md 或 ./.claude/CLAUDE.md                   ← 项目特定约束
+本地    ./CLAUDE.local.md                                    ← 个人配置（自动 gitignore）
+子目录  ./subdir/CLAUDE.md                                   ← 懒加载，访问时才加载
+```
+
+所有层级全部 concatenate 进 AI 的 context，**VibeGuard 全局规则和项目规则天然共存**。项目的 CLAUDE.md 可以补充项目特定约束（比如"用 pnpm 不用 npm"），VibeGuard 继续保护底线。如果指令冲突，Claude 倾向于遵守更具体的那条。
+
+七层约束：
 
 | 层 | 约束 | 效果 |
 |----|------|------|
