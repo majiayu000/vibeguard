@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/log.sh"
+
 INPUT=$(cat)
 
 COMMAND=$(echo "$INPUT" | python3 -c "
@@ -37,6 +39,7 @@ print(cmd)
 
 block() {
   local reason="$1"
+  vg_log "pre-bash-guard" "Bash" "block" "$reason" "$COMMAND"
   cat <<BLOCK_EOF
 {
   "decision": "block",
@@ -113,6 +116,7 @@ fi
 if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
   if ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
     # 输出警告而非阻止（可能是合理的文档创建）
+    vg_log "pre-bash-guard" "Bash" "warn" "非标准 .md 文件" "$COMMAND"
     cat <<WARN_EOF
 {
   "decision": "warn",
@@ -124,4 +128,5 @@ WARN_EOF
 fi
 
 # 通过所有检查 → 放行
+vg_log "pre-bash-guard" "Bash" "pass" "" "$COMMAND"
 exit 0

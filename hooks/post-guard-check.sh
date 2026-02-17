@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/log.sh"
+
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # 从 stdin 读取 JSON
@@ -19,8 +21,11 @@ print(data.get('tool_result', ''))
 
 # 如果无法解析或没有发现问题，静默退出
 if [[ -z "$TOOL_RESULT" ]] || ! echo "$TOOL_RESULT" | grep -q "ISSUES FOUND"; then
+  vg_log "post-guard-check" "guard_check" "pass" "" ""
   exit 0
 fi
+
+vg_log "post-guard-check" "guard_check" "warn" "ISSUES FOUND" ""
 
 # 检测语言（从 tool_result 中提取）
 LANGUAGE=$(echo "$INPUT" | python3 -c "

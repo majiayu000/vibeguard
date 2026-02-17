@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/log.sh"
+
 INPUT=$(cat)
 
 RESULT=$(echo "$INPUT" | python3 -c "
@@ -29,6 +31,7 @@ fi
 
 # 检查文件是否存在
 if [[ ! -f "$FILE_PATH" ]]; then
+  vg_log "pre-edit-guard" "Edit" "block" "文件不存在" "$FILE_PATH"
   cat <<BLOCK_EOF
 {
   "decision": "block",
@@ -47,6 +50,7 @@ with open('${FILE_PATH}', 'r') as f:
 old = sys.stdin.read()
 sys.exit(0 if old in content else 1)
 " <<< "$OLD_STRING" 2>/dev/null; then
+    vg_log "pre-edit-guard" "Edit" "block" "old_string 不存在" "$FILE_PATH"
     cat <<BLOCK_EOF
 {
   "decision": "block",
@@ -58,4 +62,5 @@ BLOCK_EOF
 fi
 
 # 通过所有检查 → 放行
+vg_log "pre-edit-guard" "Edit" "pass" "" "$FILE_PATH"
 exit 0

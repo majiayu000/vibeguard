@@ -11,6 +11,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/log.sh"
+
 INPUT=$(cat)
 
 FILE_PATH=$(echo "$INPUT" | python3 -c "
@@ -65,6 +67,7 @@ fi
 MODE="${VIBEGUARD_WRITE_MODE:-warn}"
 
 if [[ "$MODE" == "block" ]]; then
+  vg_log "pre-write-guard" "Write" "block" "新源码文件未搜索" "$FILE_PATH"
   cat <<'EOF'
 {
   "decision": "block",
@@ -72,6 +75,7 @@ if [[ "$MODE" == "block" ]]; then
 }
 EOF
 else
+  vg_log "pre-write-guard" "Write" "warn" "新源码文件提醒" "$FILE_PATH"
   cat <<'EOF'
 {
   "hookSpecificOutput": {

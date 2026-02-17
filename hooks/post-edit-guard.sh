@@ -9,6 +9,8 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/log.sh"
+
 INPUT=$(cat)
 
 RESULT=$(echo "$INPUT" | python3 -c "
@@ -92,8 +94,11 @@ if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
 fi
 
 if [[ -z "$WARNINGS" ]]; then
+  vg_log "post-edit-guard" "Edit" "pass" "" "$FILE_PATH"
   exit 0
 fi
+
+vg_log "post-edit-guard" "Edit" "warn" "$WARNINGS" "$FILE_PATH"
 
 # 输出警告
 python3 -c "
