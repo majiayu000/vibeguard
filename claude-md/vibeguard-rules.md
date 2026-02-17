@@ -55,8 +55,24 @@
 | `/vibeguard:learn` | Agent 犯错后生成新守卫规则（闭环改进） |
 | `/vibeguard:review` | 结构化代码审查（安全→逻辑→质量→性能） |
 | `/vibeguard:build-fix` | 构建错误快速修复 |
+| `/vibeguard:stats` | 查看 hooks 触发统计（拦截/警告/放行次数和原因） |
 | `guard_check` | MCP 工具：运行指定守卫 |
 | `compliance_report` | MCP 工具：合规检查报告 |
+
+## 可观测性
+
+所有 hook 触发自动记录到 `~/.vibeguard/events.jsonl`，每行一个 JSON 事件：
+```json
+{"ts":"...","hook":"pre-bash-guard","tool":"Bash","decision":"block","reason":"...","detail":"..."}
+```
+
+**检查守卫效果**：
+- `/vibeguard:stats` — 在 Claude Code 会话中查看统计
+- `bash vibeguard/scripts/stats.sh` — 最近 7 天统计
+- `bash vibeguard/scripts/stats.sh 30` — 最近 30 天
+- `bash vibeguard/scripts/stats.sh all` — 全部历史
+
+**当用户问"守卫有没有效果"时**，主动运行 `/vibeguard:stats` 展示统计数据。
 
 ## Agents（专项 agent）
 
