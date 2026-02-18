@@ -49,9 +49,11 @@ BLOCK_EOF
   exit 0
 }
 
-# git push --force / -f（拦截所有 force push）
+# git push --force / -f（拦截 force push，放行更安全的 --force-with-lease / --force-if-includes）
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(-f|--force)'; then
-  block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
+  if ! echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(--force-with-lease|--force-if-includes)'; then
+    block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
+  fi
 fi
 
 # git reset --hard（丢弃所有未提交的改动）

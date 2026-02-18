@@ -51,7 +51,7 @@ FUNC_ALLOWLIST: set[str] = {
 
 MODULE_CLASS_RE = re.compile(r"^class\s+(\w+)\s*[\(:]")
 MODULE_FUNC_RE = re.compile(r"^def\s+(\w+)\s*\(")
-PROTOCOL_RE = re.compile(r"^class\s+(\w+)\s*\(\s*Protocol\s*\)")
+PROTOCOL_RE = re.compile(r"^class\s+(\w+)\s*\(\s*(?:typing(?:_extensions)?\.)?Protocol\s*\)")
 
 
 def collect_definitions(target_dir: Path) -> tuple[
