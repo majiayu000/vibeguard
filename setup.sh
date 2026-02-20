@@ -193,8 +193,18 @@ else:
   rm -f "${CLAUDE_DIR}/skills/strategic-compact"
   rm -f "${CLAUDE_DIR}/skills/eval-harness"
   rm -f "${CLAUDE_DIR}/skills/iterative-retrieval"
-  rm -rf "${CLAUDE_DIR}/agents" 2>/dev/null || true
-  rm -rf "${CLAUDE_DIR}/context-profiles" 2>/dev/null || true
+  # Remove only files installed by VibeGuard, never delete user-owned directories wholesale
+  for agent in "${REPO_DIR}"/agents/*.md; do
+    [[ -f "$agent" ]] || continue
+    rm -f "${CLAUDE_DIR}/agents/$(basename "$agent")"
+  done
+  rmdir "${CLAUDE_DIR}/agents" 2>/dev/null || true
+
+  for profile in "${REPO_DIR}"/context-profiles/*.md; do
+    [[ -f "$profile" ]] || continue
+    rm -f "${CLAUDE_DIR}/context-profiles/$(basename "$profile")"
+  done
+  rmdir "${CLAUDE_DIR}/context-profiles" 2>/dev/null || true
   for skill in plan-folw fixflow optflow plan-mode vibeguard auto-optimize; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
@@ -345,7 +355,9 @@ if ! command -v node &>/dev/null; then
   yellow "  Node.js not found, skipping MCP Server build"
   yellow "  Install Node.js >= 18 to enable MCP Server"
 elif [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]] && \
-     [[ "${REPO_DIR}/mcp-server/dist/index.js" -nt "${REPO_DIR}/mcp-server/src/index.ts" ]]; then
+     ! find "${REPO_DIR}/mcp-server/src" -type f -name "*.ts" -newer "${REPO_DIR}/mcp-server/dist/index.js" | grep -q . && \
+     [[ "${REPO_DIR}/mcp-server/package.json" -ot "${REPO_DIR}/mcp-server/dist/index.js" ]] && \
+     [[ "${REPO_DIR}/mcp-server/tsconfig.json" -ot "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
   yellow "  MCP Server already built and up to date, skipping"
 else
   (cd "${REPO_DIR}/mcp-server" && npm install --silent && npm run build --silent) 2>&1
@@ -364,110 +376,71 @@ from pathlib import Path
 settings_path = Path('${SETTINGS_FILE}')
 repo_dir = '${REPO_DIR}'
 
-# Load existing or create empty
 if settings_path.exists():
     with open(settings_path) as f:
         data = json.load(f)
 else:
     data = {}
 
-changed = False
+state = {'changed': False}
 
-# Add MCP Server config
-if 'mcpServers' not in data:
-    data['mcpServers'] = {}
-if 'vibeguard' not in data['mcpServers']:
-    data['mcpServers']['vibeguard'] = {
-        'type': 'stdio',
-        'command': 'node',
-        'args': [f'{repo_dir}/mcp-server/dist/index.js']
-    }
-    changed = True
+# Upsert MCP Server config (update stale paths as well)
+desired_server = {
+    'type': 'stdio',
+    'command': 'node',
+    'args': [f'{repo_dir}/mcp-server/dist/index.js']
+}
+if data.get('mcpServers', {}).get('vibeguard') != desired_server:
+    data.setdefault('mcpServers', {})['vibeguard'] = desired_server
+    state['changed'] = True
 
-# Add PreToolUse hook
-if 'hooks' not in data:
-    data['hooks'] = {}
-if 'PreToolUse' not in data['hooks']:
-    data['hooks']['PreToolUse'] = []
+hooks = data.setdefault('hooks', {})
 
-has_vibeguard_hook = any(
-    'pre-write-guard' in json.dumps(h)
-    for h in data['hooks']['PreToolUse']
-)
-if not has_vibeguard_hook:
-    data['hooks']['PreToolUse'].append({
-        'matcher': 'Write',
-        'hooks': [{
-            'type': 'command',
-            'command': f'bash {repo_dir}/hooks/pre-write-guard.sh'
-        }]
-    })
-    changed = True
+def upsert_hook(event: str, matcher: str, script_name: str) -> None:
+    entries = hooks.setdefault(event, [])
+    desired_command = f'bash {repo_dir}/hooks/{script_name}'
+    found = False
 
-# Add PreToolUse hook for Bash (dangerous command blocking)
-has_bash_hook = any(
-    'pre-bash-guard' in json.dumps(h)
-    for h in data['hooks']['PreToolUse']
-)
-if not has_bash_hook:
-    data['hooks']['PreToolUse'].append({
-        'matcher': 'Bash',
-        'hooks': [{
-            'type': 'command',
-            'command': f'bash {repo_dir}/hooks/pre-bash-guard.sh'
-        }]
-    })
-    changed = True
+    for entry in entries:
+        if entry.get('matcher') != matcher:
+            continue
 
-# Add PreToolUse hook for Edit (hallucination prevention)
-has_edit_pre_hook = any(
-    'pre-edit-guard' in json.dumps(h)
-    for h in data['hooks']['PreToolUse']
-)
-if not has_edit_pre_hook:
-    data['hooks']['PreToolUse'].append({
-        'matcher': 'Edit',
-        'hooks': [{
-            'type': 'command',
-            'command': f'bash {repo_dir}/hooks/pre-edit-guard.sh'
-        }]
-    })
-    changed = True
+        hook_entries = entry.get('hooks')
+        if not isinstance(hook_entries, list):
+            entry['hooks'] = [{'type': 'command', 'command': desired_command}]
+            state['changed'] = True
+            found = True
+            continue
 
-# Add PostToolUse hook for guard_check
-if 'PostToolUse' not in data['hooks']:
-    data['hooks']['PostToolUse'] = []
+        for hook in hook_entries:
+            if not isinstance(hook, dict):
+                continue
+            cmd = hook.get('command', '')
+            if script_name not in str(cmd):
+                continue
+            found = True
+            if hook.get('type') != 'command' or cmd != desired_command:
+                hook['type'] = 'command'
+                hook['command'] = desired_command
+                state['changed'] = True
 
-has_post_guard_hook = any(
-    'post-guard-check' in json.dumps(h)
-    for h in data['hooks']['PostToolUse']
-)
-if not has_post_guard_hook:
-    data['hooks']['PostToolUse'].append({
-        'matcher': 'mcp__vibeguard__guard_check',
-        'hooks': [{
-            'type': 'command',
-            'command': f'bash {repo_dir}/hooks/post-guard-check.sh'
-        }]
-    })
-    changed = True
+    if not found:
+        entries.append({
+            'matcher': matcher,
+            'hooks': [{
+                'type': 'command',
+                'command': desired_command
+            }]
+        })
+        state['changed'] = True
 
-# Add PostToolUse hook for Edit (quality warnings)
-has_edit_hook = any(
-    'post-edit-guard' in json.dumps(h)
-    for h in data['hooks']['PostToolUse']
-)
-if not has_edit_hook:
-    data['hooks']['PostToolUse'].append({
-        'matcher': 'Edit',
-        'hooks': [{
-            'type': 'command',
-            'command': f'bash {repo_dir}/hooks/post-edit-guard.sh'
-        }]
-    })
-    changed = True
+upsert_hook('PreToolUse', 'Write', 'pre-write-guard.sh')
+upsert_hook('PreToolUse', 'Bash', 'pre-bash-guard.sh')
+upsert_hook('PreToolUse', 'Edit', 'pre-edit-guard.sh')
+upsert_hook('PostToolUse', 'mcp__vibeguard__guard_check', 'post-guard-check.sh')
+upsert_hook('PostToolUse', 'Edit', 'post-edit-guard.sh')
 
-if changed:
+if state['changed']:
     with open(settings_path, 'w') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write('\n')
@@ -533,9 +506,8 @@ else
 fi
 echo
 
-# 8. 验证
-echo "=============================="
-echo "Verification"
+# 9. 验证
+echo "Step 9: Verification"
 echo "=============================="
 
 errors=0

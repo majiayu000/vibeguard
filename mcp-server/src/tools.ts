@@ -1,5 +1,5 @@
 import path from "node:path";
-import { exec_script, get_guards_dir, get_scripts_dir } from "./executor.js";
+import { exec_script, get_guards_dir, get_scripts_dir, get_vibeguard_root } from "./executor.js";
 
 interface GuardEntry {
   command: string;
@@ -61,7 +61,49 @@ const GUARD_REGISTRY: GuardRegistry = {
       },
     },
   },
+  typescript: {
+    eslint_guards: {
+      command: "__special_eslint__",
+      build_args: () => [],
+    },
+  },
+  go: {
+    vet: {
+      command: "go",
+      build_args: (target_dir, _strict) => {
+        return ["vet", "./..."];
+      },
+    },
+  },
 };
+
+async function run_eslint_guard(target_dir: string): Promise<string> {
+  // 检查项目中是否有 eslint 配置
+  const check = await exec_script("find", [
+    target_dir, "-maxdepth", "2",
+    "-name", "eslint.config.*", "-o", "-name", ".eslintrc*",
+  ]);
+  const configs = check.stdout.trim().split("\n").filter(Boolean);
+
+  const rules_path = path.join(
+    get_vibeguard_root(), "workflows", "auto-optimize", "rules", "typescript.md"
+  );
+  const template_path = path.join(get_guards_dir(), "typescript", "eslint-guards.ts");
+
+  if (configs.length === 0) {
+    return (
+      `[eslint_guards] INFO\n\n` +
+      `目标项目无 ESLint 配置。TypeScript 守卫以规则文件形式提供：\n` +
+      `  - 规则参考: ${rules_path}\n` +
+      `  - ESLint 插件模板: ${template_path}\n` +
+      `请将模板集成到项目 ESLint 配置中以启用自动检测。`
+    );
+  }
+
+  // 如果项目有 eslint，尝试运行
+  const result = await exec_script("npx", ["eslint", "--max-warnings=0", "."], target_dir, 120_000);
+  return format_output("eslint_guards", result.stdout, result.stderr, result.exit_code);
+}
 
 async function run_quality_guard(target_dir: string): Promise<string> {
   // quality guard 需要在目标项目中查找 test_code_quality_guards.py
@@ -131,8 +173,12 @@ export async function handle_guard_check(params: GuardCheckParams): Promise<stri
     if (entry.command === "__special_quality__") {
       return run_quality_guard(target_dir);
     }
+    if (entry.command === "__special_eslint__") {
+      return run_eslint_guard(target_dir);
+    }
     const args = entry.build_args(target_dir, strict);
-    const result = await exec_script(entry.command, args);
+    const cwd = language === "go" ? target_dir : undefined;
+    const result = await exec_script(entry.command, args, cwd);
     return format_output(name, result.stdout, result.stderr, result.exit_code);
   });
 

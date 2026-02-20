@@ -27,12 +27,12 @@ server.tool(
   "运行语言特定的守卫检查（重复检测、命名规范、代码质量、嵌套锁、unwrap 等）",
   {
     target_dir: z.string().describe("目标项目目录绝对路径"),
-    language: z.enum(["python", "rust"]).describe("项目语言"),
+    language: z.enum(["python", "rust", "typescript", "go"]).describe("项目语言"),
     guard: z
       .string()
       .optional()
       .describe(
-        "守卫名称。python: duplicates/naming/quality；rust: nested_locks/unwrap/duplicate_types。不指定则运行该语言全部守卫"
+        "守卫名称。python: duplicates/naming/quality；rust: nested_locks/unwrap/duplicate_types/workspace_consistency；typescript: eslint_guards；go: vet。不指定则运行该语言全部守卫"
       ),
     strict: z
       .boolean()

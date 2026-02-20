@@ -43,13 +43,13 @@ fi
 
 # 检查 old_string 是否在文件中（仅当 old_string 非空时）
 if [[ -n "$OLD_STRING" ]]; then
-  if ! python3 -c "
-import sys
-with open('${FILE_PATH}', 'r') as f:
+  if ! VG_FILE_PATH="$FILE_PATH" python3 -c '
+import sys, os
+with open(os.environ["VG_FILE_PATH"], "r") as f:
     content = f.read()
 old = sys.stdin.read()
 sys.exit(0 if old in content else 1)
-" <<< "$OLD_STRING" 2>/dev/null; then
+' <<< "$OLD_STRING" 2>/dev/null; then
     vg_log "pre-edit-guard" "Edit" "block" "old_string 不存在" "$FILE_PATH"
     cat <<BLOCK_EOF
 {

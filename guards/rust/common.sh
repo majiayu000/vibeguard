@@ -17,27 +17,52 @@ list_rs_files() {
 }
 
 # 解析 --strict 标志和 target_dir
-# 用法: eval "$(parse_guard_args "$@")"
+# 用法: parse_guard_args "$@"
 # 设置变量: TARGET_DIR, STRICT
 parse_guard_args() {
-  local target_dir="${1:-.}"
-  local strict=false
+  TARGET_DIR="."
+  STRICT=false
+  local positional_count=0
 
-  if [[ "${1:-}" == "--strict" ]]; then
-    strict=true
-    target_dir="${2:-.}"
-  elif [[ "${2:-}" == "--strict" ]]; then
-    strict=true
-  fi
-
-  echo "TARGET_DIR='${target_dir}'; STRICT=${strict}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --strict)
+        STRICT=true
+        ;;
+      --help|-h)
+        echo "Usage: $0 [--strict] [target_dir]" >&2
+        return 1
+        ;;
+      --*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *)
+        positional_count=$((positional_count + 1))
+        if [[ ${positional_count} -gt 1 ]]; then
+          echo "Too many positional arguments: $*" >&2
+          return 1
+        fi
+        TARGET_DIR="$1"
+        ;;
+    esac
+    shift
+  done
 }
 
-# 创建临时文件并注册清理
+# 临时文件清理目录：所有守卫共享同一清理 trap
+_VG_TMPDIR=""
+
+_vg_cleanup() {
+  [[ -n "$_VG_TMPDIR" && -d "$_VG_TMPDIR" ]] && rm -rf "$_VG_TMPDIR" || true
+}
+trap '_vg_cleanup' EXIT
+
+# 创建临时文件并自动在脚本退出时清理
 # 用法: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
-  local tmpfile
-  tmpfile=$(mktemp)
-  trap 'rm -f "'"${tmpfile}"'"' EXIT
-  echo "${tmpfile}"
+  if [[ -z "$_VG_TMPDIR" ]]; then
+    _VG_TMPDIR=$(mktemp -d)
+  fi
+  mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }

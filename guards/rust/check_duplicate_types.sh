@@ -9,7 +9,7 @@
 # 排除: tests/ 目录
 
 source "$(dirname "$0")/common.sh"
-eval "$(parse_guard_args "$@")"
+parse_guard_args "$@"
 
 # 允许列表
 ALLOWLIST_FILE="${TARGET_DIR}/.vibeguard-duplicate-types-allowlist"
@@ -30,7 +30,13 @@ list_rs_files "${TARGET_DIR}" \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
         grep -nE '^[[:space:]]*pub[[:space:]]+(struct|enum)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
-          | sed -E "s@^([0-9]+):.*pub[[:space:]]+(struct|enum)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*@\3 ${f}:\1@" || true
+          | awk -v file="${f}" '{
+              split($0, ln, ":")
+              s = $0
+              sub(/^[0-9]+:.*pub[[:space:]]+(struct|enum)[[:space:]]+/, "", s)
+              sub(/[^A-Za-z0-9_].*/, "", s)
+              if (s != "") print s " " file ":" ln[1]
+            }' || true
       fi
     done \
   | sort \

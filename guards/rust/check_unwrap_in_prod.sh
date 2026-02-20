@@ -13,7 +13,7 @@
 #   - 注释行
 
 source "$(dirname "$0")/common.sh"
-eval "$(parse_guard_args "$@")"
+parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
 # 搜索 .unwrap() 和 .expect()，逐文件处理兼容空格路径和空输入

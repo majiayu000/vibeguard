@@ -4,10 +4,10 @@
 # 分级策略：
 #   - 编辑已有文件 → 放行
 #   - 新建配置/文档/测试文件 → 放行
-#   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 注入上下文提醒
+#   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 拦截（要求先搜后写）
 #
-# 默认 warn 模式：注入 additionalContext 提醒 agent 先搜后写，不阻止操作
-# 设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截模式
+# 默认 block 模式：拦截新源码文件创建，强制先搜后写（L1 约束）
+# 设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒模式
 
 set -euo pipefail
 
@@ -62,9 +62,9 @@ if [[ "$IS_SOURCE" != true ]]; then
   exit 0
 fi
 
-# --- 源码文件：注入提醒，指导 agent 先搜后写 ---
-# 默认 warn（注入上下文提醒），设置 VIBEGUARD_WRITE_MODE=block 可硬拦截
-MODE="${VIBEGUARD_WRITE_MODE:-warn}"
+# --- 源码文件：拦截并要求先搜后写 ---
+# 默认 block（硬拦截），设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒
+MODE="${VIBEGUARD_WRITE_MODE:-block}"
 
 if [[ "$MODE" == "block" ]]; then
   vg_log "pre-write-guard" "Write" "block" "新源码文件未搜索" "$FILE_PATH"

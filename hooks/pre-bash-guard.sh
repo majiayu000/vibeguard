@@ -24,18 +24,29 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
-# 剥离引号内容（commit message、echo 字符串等），避免文本内容触发误报
-# 保留命令结构，用空字符串替代引号内容
-COMMAND_STRIPPED=$(echo "$COMMAND" | python3 -c "
+# 移除 heredoc 内容，避免多行文本造成误报
+# 覆盖变体: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' 等
+COMMAND_NO_HEREDOC=$(echo "$COMMAND" | python3 -c '
 import re, sys
 cmd = sys.stdin.read()
-# 移除 heredoc 内容（cat <<'EOF'...EOF 或 cat <<EOF...EOF）
-cmd = re.sub(r\"<<'?(\w+)'?.*?\\n\\1\", '', cmd, flags=re.DOTALL)
+# 匹配 <<[-]? 可选空格 可选引号 终止符 可选引号，直到行首终止符
+cmd = re.sub(r"<<-?\s*[\"'"'"']?(\w+)[\"'"'"']?.*?\n\1", "", cmd, flags=re.DOTALL)
+print(cmd)
+' 2>/dev/null || echo "$COMMAND")
+
+# 剥离引号内容（commit message、echo 字符串等），避免文本内容触发误报
+# 保留命令结构，用空字符串替代引号内容
+COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
 # 移除双引号和单引号内容
 cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
 cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
-" 2>/dev/null || echo "$COMMAND")
+" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
+
+# 路径扫描使用：去掉引号字符但保留内容，防止 rm -rf \"/Users/...\" 绕过
+COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
 
 block() {
   local reason="$1"
@@ -72,7 +83,8 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
 fi
 
 # rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf 等变体）
-if echo "$COMMAND_STRIPPED" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*[rR]'; then
+# 先在“去引号内容”的命令结构中识别 rm -rf 命令，再在保留路径内容的文本里做危险路径匹配
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?rm[[:space:]]+-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR])([[:space:]]|$)'; then
   DANGEROUS=false
   # 危险路径：根目录、家目录（含 /Users/xxx、/home/xxx）、系统目录
   for pattern in \
@@ -82,7 +94,7 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*f|r
     '[[:space:]]/Users(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/home(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/(etc|var|usr|bin|sbin|opt|System|Library)([[:space:];|&/]|$)'; do
-    if echo "$COMMAND_STRIPPED" | grep -qE "$pattern"; then
+    if echo "$COMMAND_PATH_SCAN" | grep -qE "$pattern"; then
       DANGEROUS=true
       break
     fi

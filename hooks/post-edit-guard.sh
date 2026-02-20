@@ -42,8 +42,8 @@ if [[ "$FILE_PATH" == *.rs ]]; then
       # 检测新增的 unwrap()/expect()
       if echo "$NEW_STRING" | grep -qE '\.(unwrap|expect)\(' 2>/dev/null; then
         # 排除安全变体
-        UNSAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || echo 0)
-        SAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || echo 0)
+        UNSAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || true)
+        SAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
         if [[ $REAL_COUNT -gt 0 ]]; then
           WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。参考模式见 vibeguard/workflows/auto-optimize/rules/rust.md RS-03。"
@@ -100,15 +100,15 @@ fi
 
 vg_log "post-edit-guard" "Edit" "warn" "$WARNINGS" "$FILE_PATH"
 
-# 输出警告
-python3 -c "
-import json
-warnings = '''$WARNINGS'''
+# 输出警告（通过环境变量传参，避免注入）
+VG_WARNINGS="$WARNINGS" python3 -c '
+import json, os
+warnings = os.environ.get("VG_WARNINGS", "")
 result = {
-    'hookSpecificOutput': {
-        'hookEventName': 'PostToolUse',
-        'additionalContext': 'VIBEGUARD 质量警告：' + warnings
+    "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": "VIBEGUARD 质量警告：" + warnings
     }
 }
 print(json.dumps(result, ensure_ascii=False))
-"
+'

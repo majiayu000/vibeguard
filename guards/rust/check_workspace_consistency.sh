@@ -13,7 +13,7 @@
 #   bash check_workspace_consistency.sh --strict [workspace_dir]
 
 source "$(dirname "$0")/common.sh"
-eval "$(parse_guard_args "$@")"
+parse_guard_args "$@"
 
 CARGO_TOML="${TARGET_DIR}/Cargo.toml"
 if [[ ! -f "${CARGO_TOML}" ]]; then

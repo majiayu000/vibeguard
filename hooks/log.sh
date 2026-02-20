@@ -22,17 +22,19 @@ vg_log() {
 
   mkdir -p "$VIBEGUARD_LOG_DIR"
 
-  python3 -c "
-import json, datetime
+  VG_HOOK="$hook" VG_TOOL="$tool" VG_DECISION="$decision" \
+  VG_REASON="$reason" VG_DETAIL="$detail" VG_LOG_FILE="$VIBEGUARD_LOG_FILE" \
+  python3 -c '
+import json, datetime, os
 event = {
-    'ts': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-    'hook': '$hook',
-    'tool': '$tool',
-    'decision': '$decision',
-    'reason': '''$reason'''.strip(),
-    'detail': '''$detail'''.strip()[:200]
+    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "hook": os.environ.get("VG_HOOK", ""),
+    "tool": os.environ.get("VG_TOOL", ""),
+    "decision": os.environ.get("VG_DECISION", ""),
+    "reason": os.environ.get("VG_REASON", "").strip(),
+    "detail": os.environ.get("VG_DETAIL", "").strip()[:200],
 }
-with open('$VIBEGUARD_LOG_FILE', 'a') as f:
-    f.write(json.dumps(event, ensure_ascii=False) + '\n')
-" 2>/dev/null || true
+with open(os.environ["VG_LOG_FILE"], "a") as f:
+    f.write(json.dumps(event, ensure_ascii=False) + "\n")
+' 2>/dev/null || true
 }

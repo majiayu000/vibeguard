@@ -11,7 +11,7 @@
 # 排除: tests/ 目录
 
 source "$(dirname "$0")/common.sh"
-eval "$(parse_guard_args "$@")"
+parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
 # 查找包含锁获取的文件（排除 tests/，逐文件处理兼容空格路径）
