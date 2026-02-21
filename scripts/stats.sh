@@ -17,13 +17,13 @@ if [[ ! -f "$LOG_FILE" ]]; then
   exit 0
 fi
 
-python3 -c "
-import json, sys
+VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" python3 -c "
+import json, sys, os
 from datetime import datetime, timezone, timedelta
 from collections import Counter
 
-days = '$DAYS'
-log_file = '$LOG_FILE'
+days = os.environ.get('VG_DAYS', '7')
+log_file = os.environ.get('VG_LOG_FILE', '')
 
 # 读取事件
 events = []

@@ -32,16 +32,16 @@
 | PY-01~PY-12 | Python 规则 | Python | `rules/python.md` |
 | GO-01~GO-12 | Go 规则 | Go | `rules/go.md` |
 
-> 规则文件完整路径：`vibeguard/workflows/auto-optimize/rules/`
+> 规则文件完整路径：`vibeguard/rules/`
 
 ## Hooks（自动执行）
 
 | 时机 | 触发条件 | 行为 |
 |------|----------|------|
-| PreToolUse | Write 创建新源码文件 | **Block** — 先搜索已有实现 |
+| PreToolUse | Write 创建新源码文件 | **Warn** — 提醒先搜后写（`VIBEGUARD_WRITE_MODE=block` 可升级为硬拦截） |
 | PreToolUse | Bash 危险命令（force push/reset --hard/rm -rf） | **Block** — 提供替代方案 |
-| PreToolUse | Bash 长运行命令（dev server/watch mode） | **Block** — 提示用户手动运行 |
 | PreToolUse | Edit 不存在的文件或幻觉内容 | **Block** — 先 Read 确认文件内容 |
+| PostToolUse | Write 新建源码文件 | **Warn** — 检测同名文件和重复定义（事后审查） |
 | PostToolUse | Edit .rs 文件新增 unwrap/expect | **Warn** — 输出修复方法 |
 | PostToolUse | Edit 新增硬编码 .db/.sqlite 路径 | **Warn** — 输出修复方法 |
 | PostToolUse | Edit 新增 console.log/print 调试语句 | **Warn** — 提示使用 logger |

@@ -51,7 +51,6 @@ bash ~/vibeguard/setup.sh
 |------|------|------|
 | AI 要创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | **拦截** — 必须先搜索是否已有类似实现 |
 | AI 要执行 `git push --force`、`rm -rf`、`reset --hard` | `pre-bash-guard` | **拦截** — 给出安全替代方案 |
-| AI 要执行 `npm run dev`、`flask run` 等长运行命令 | `pre-bash-guard` | **拦截** — 提示用户手动运行 |
 | AI 要编辑不存在的文件 | `pre-edit-guard` | **拦截** — 先 Read 确认文件内容 |
 | AI 编辑后新增了 `unwrap()`、硬编码路径 | `post-edit-guard` | **警告** — 给出具体修复方法 |
 | AI 编辑后新增了 `console.log` / `print()` 调试语句 | `post-edit-guard` | **警告** — 提示使用 logger |
@@ -168,7 +167,7 @@ python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  #
 
 ## 规则体系
 
-守卫脚本的检查规则定义在 `workflows/auto-optimize/rules/` 下：
+守卫脚本的检查规则定义在 `rules/` 下：
 
 | 文件 | 内容 |
 |------|------|
@@ -206,8 +205,9 @@ vibeguard/
 ├── .claude/commands/vibeguard/       # 5 个自定义命令
 ├── claude-md/vibeguard-rules.md      # 注入到 CLAUDE.md 的规则索引
 ├── mcp-server/                       # MCP Server
+├── rules/                            # 规则定义文件
 ├── skills/                           # 可复用工作流
-├── workflows/auto-optimize/rules/    # 规则定义文件
+├── workflows/                        # 工作流（auto-optimize 等）
 ├── context-profiles/                 # 上下文模式（dev/review/research）
 ├── scripts/ci/                       # CI 验证脚本
 └── spec.md                           # 完整规范

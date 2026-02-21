@@ -14,11 +14,7 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-COMMAND=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('tool_input', {}).get('command', ''))
-" 2>/dev/null || echo "")
+COMMAND=$(echo "$INPUT" | vg_json_field "tool_input.command")
 
 if [[ -z "$COMMAND" ]]; then
   exit 0
@@ -61,8 +57,9 @@ BLOCK_EOF
 }
 
 # git push --force / -f（拦截 force push，放行更安全的 --force-with-lease / --force-if-includes）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(-f|--force)'; then
-  if ! echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(--force-with-lease|--force-if-includes)'; then
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\b'; then
+  if echo "$COMMAND_STRIPPED" | grep -qE '(\s|^)(-f|--force)(\s|$)' && \
+     ! echo "$COMMAND_STRIPPED" | grep -qE '(\s|^)(--force-with-lease|--force-if-includes)(\s|$)'; then
     block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
   fi
 fi
@@ -82,9 +79,9 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
   block "禁止 git clean -f（永久删除未跟踪文件，不可恢复）。替代方案：git clean -n（dry run 预览）先查看会删什么；git stash --include-untracked 暂存未跟踪文件；手动 rm 指定文件。"
 fi
 
-# rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf 等变体）
-# 先在“去引号内容”的命令结构中识别 rm -rf 命令，再在保留路径内容的文本里做危险路径匹配
-if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?rm[[:space:]]+-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR])([[:space:]]|$)'; then
+# rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf, rm --recursive --force 等变体）
+# 先在"去引号内容"的命令结构中识别 rm -rf 命令，再在保留路径内容的文本里做危险路径匹配
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?(\\?rm)[[:space:]]+((-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR]))|(--(recursive|force)[[:space:]]+--(recursive|force)))([[:space:]]|$)'; then
   DANGEROUS=false
   # 危险路径：根目录、家目录（含 /Users/xxx、/home/xxx）、系统目录
   for pattern in \
@@ -104,26 +101,6 @@ if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?
   fi
 fi
 
-# --- dev-server-blocker：拦截长运行开发服务器命令 ---
-if echo "$COMMAND_STRIPPED" | grep -qE '(npm|yarn|pnpm|bun)\s+run\s+(dev|start|serve)\b'; then
-  block "禁止在 Agent 中启动开发服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
-fi
-
-if echo "$COMMAND_STRIPPED" | grep -qE '\b(next|nuxt|vite|webpack)\s+dev\b'; then
-  block "禁止在 Agent 中启动开发服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
-fi
-
-if echo "$COMMAND_STRIPPED" | grep -qE '\bcargo\s+watch\b'; then
-  block "禁止在 Agent 中启动 cargo watch（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行；如需单次构建用 cargo build。"
-fi
-
-if echo "$COMMAND_STRIPPED" | grep -qE '\b(uvicorn|gunicorn|flask\s+run|python\s+-m\s+http\.server)\b'; then
-  block "禁止在 Agent 中启动 Python 服务器（长运行进程会阻塞执行）。替代方案：请用户在终端手动运行此命令。"
-fi
-
-if echo "$COMMAND_STRIPPED" | grep -qE '\b(jest|vitest|pytest)\s+--watch\b'; then
-  block "禁止在 Agent 中启动 watch 模式测试（长运行进程会阻塞执行）。替代方案：使用 --run 标志单次执行，如 vitest --run。"
-fi
 
 # --- doc-file-blocker：检测创建非标准 .md 文件 ---
 # 允许的 .md 文件：README、CLAUDE、CONTRIBUTING、CHANGELOG、LICENSE、SKILL

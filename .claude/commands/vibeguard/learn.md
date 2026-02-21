@@ -143,6 +143,6 @@ argument-hint: "<错误描述或相关文件>"
 **Reference**
 - VibeGuard 守卫脚本模板：`vibeguard/guards/`
 - Hook 脚本模板：`vibeguard/hooks/`
-- 规则文件：`vibeguard/workflows/auto-optimize/rules/`
+- 规则文件：`vibeguard/rules/`
 - 规则索引：`vibeguard/claude-md/vibeguard-rules.md`
 <!-- VIBEGUARD:LEARN:END -->

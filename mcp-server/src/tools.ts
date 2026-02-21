@@ -1,5 +1,24 @@
 import path from "node:path";
+import fs from "node:fs";
 import { exec_script, get_guards_dir, get_scripts_dir, get_vibeguard_root } from "./executor.js";
+
+const FORBIDDEN_PREFIXES = ["/etc", "/usr", "/bin", "/sbin", "/var", "/System", "/Library", "/proc", "/sys"];
+
+function validate_target_dir(target_dir: string): string {
+  const resolved = path.resolve(target_dir);
+  if (!path.isAbsolute(resolved)) {
+    throw new Error(`路径必须是绝对路径: ${target_dir}`);
+  }
+  for (const prefix of FORBIDDEN_PREFIXES) {
+    if (resolved === prefix || resolved.startsWith(prefix + "/")) {
+      throw new Error(`禁止访问系统目录: ${resolved}`);
+    }
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`目录不存在: ${resolved}`);
+  }
+  return resolved;
+}
 
 interface GuardEntry {
   command: string;
@@ -86,7 +105,7 @@ async function run_eslint_guard(target_dir: string): Promise<string> {
   const configs = check.stdout.trim().split("\n").filter(Boolean);
 
   const rules_path = path.join(
-    get_vibeguard_root(), "workflows", "auto-optimize", "rules", "typescript.md"
+    get_vibeguard_root(), "rules", "typescript.md"
   );
   const template_path = path.join(get_guards_dir(), "typescript", "eslint-guards.ts");
 
@@ -153,7 +172,13 @@ export interface GuardCheckParams {
 }
 
 export async function handle_guard_check(params: GuardCheckParams): Promise<string> {
-  const { target_dir, language, guard, strict = false } = params;
+  let target_dir: string;
+  try {
+    target_dir = validate_target_dir(params.target_dir);
+  } catch (e) {
+    return (e as Error).message;
+  }
+  const { language, guard, strict = false } = params;
 
   const lang_guards = GUARD_REGISTRY[language];
   if (!lang_guards) {
@@ -191,13 +216,25 @@ export interface ProjectParams {
 }
 
 export async function handle_compliance_report(params: ProjectParams): Promise<string> {
+  let project_dir: string;
+  try {
+    project_dir = validate_target_dir(params.project_dir);
+  } catch (e) {
+    return (e as Error).message;
+  }
   const script = path.join(get_scripts_dir(), "compliance_check.sh");
-  const result = await exec_script("bash", [script, params.project_dir]);
+  const result = await exec_script("bash", [script, project_dir]);
   return format_output("compliance_report", result.stdout, result.stderr, result.exit_code);
 }
 
 export async function handle_metrics_collect(params: ProjectParams): Promise<string> {
+  let project_dir: string;
+  try {
+    project_dir = validate_target_dir(params.project_dir);
+  } catch (e) {
+    return (e as Error).message;
+  }
   const script = path.join(get_scripts_dir(), "metrics_collector.sh");
-  const result = await exec_script("bash", [script, params.project_dir]);
+  const result = await exec_script("bash", [script, project_dir]);
   return format_output("metrics_collect", result.stdout, result.stderr, result.exit_code);
 }

@@ -21,7 +21,7 @@ echo
 echo "--- M3: Duplicate Definitions ---"
 
 if [[ -f "${PROJECT_DIR}/scripts/check_duplicates.py" ]]; then
-  dup_output=$(cd "${PROJECT_DIR}" && python scripts/check_duplicates.py 2>&1 || true)
+  dup_output=$(cd "${PROJECT_DIR}" && python3 scripts/check_duplicates.py 2>&1 || true)
   dup_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()

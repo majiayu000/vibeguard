@@ -24,7 +24,7 @@ argument-hint: "<项目目录或文件路径>"
    - 如果无参数：审查当前 git 暂存区的文件
 
 3. **P0 — 安全审查**
-   - 参考 `vibeguard/workflows/auto-optimize/rules/security.md`
+   - 参考 `vibeguard/rules/security.md`
    - 检查 OWASP Top 10 相关问题
    - 检查密钥/凭证泄露
    - 检查输入验证和消毒
@@ -74,7 +74,7 @@ argument-hint: "<项目目录或文件路径>"
 - 审查报告中不包含 AI 生成标记
 
 **Reference**
-- 安全规则：`vibeguard/workflows/auto-optimize/rules/security.md`
-- 通用规则：`vibeguard/workflows/auto-optimize/rules/universal.md`
-- 语言规则：`vibeguard/workflows/auto-optimize/rules/<lang>.md`
+- 安全规则：`vibeguard/rules/security.md`
+- 通用规则：`vibeguard/rules/universal.md`
+- 语言规则：`vibeguard/rules/<lang>.md`
 <!-- VIBEGUARD:REVIEW:END -->

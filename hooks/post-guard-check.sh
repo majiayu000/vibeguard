@@ -13,11 +13,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INPUT=$(cat)
 
 # 提取 tool_result 文本
-TOOL_RESULT=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('tool_result', ''))
-" 2>/dev/null || echo "")
+TOOL_RESULT=$(echo "$INPUT" | vg_json_field "tool_result")
 
 # 如果无法解析或没有发现问题，静默退出
 if [[ -z "$TOOL_RESULT" ]] || ! echo "$TOOL_RESULT" | grep -q "ISSUES FOUND"; then
@@ -27,37 +23,33 @@ fi
 
 vg_log "post-guard-check" "guard_check" "warn" "ISSUES FOUND" ""
 
-# 检测语言（从 tool_result 中提取）
-LANGUAGE=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-tool_input = data.get('tool_input', {})
-print(tool_input.get('language', ''))
-" 2>/dev/null || echo "")
+# 检测语言（从 tool_input 中提取）
+LANGUAGE=$(echo "$INPUT" | vg_json_field "tool_input.language")
 
 RULES_HINT=""
-if [[ -n "$LANGUAGE" ]] && [[ -f "${REPO_DIR}/workflows/auto-optimize/rules/${LANGUAGE}.md" ]]; then
-  RULES_HINT="2. 读取 ${REPO_DIR}/workflows/auto-optimize/rules/${LANGUAGE}.md 了解 FIX/SKIP/DEFER 判断标准和修复模式"
+if [[ -n "$LANGUAGE" ]] && [[ -f "${REPO_DIR}/rules/${LANGUAGE}.md" ]]; then
+  RULES_HINT="2. 读取 ${REPO_DIR}/rules/${LANGUAGE}.md 了解 FIX/SKIP/DEFER 判断标准和修复模式"
 else
-  RULES_HINT="2. 读取 ${REPO_DIR}/workflows/auto-optimize/rules/ 下对应语言的规则文件，了解 FIX/SKIP/DEFER 判断标准和修复模式"
+  RULES_HINT="2. 读取 ${REPO_DIR}/rules/ 下对应语言的规则文件，了解 FIX/SKIP/DEFER 判断标准和修复模式"
 fi
 
-# 输出修复流程提醒
-python3 -c "
-import json
+# 输出修复流程提醒（通过环境变量传参，避免注入）
+VG_RULES_HINT="$RULES_HINT" python3 -c '
+import json, os
 
-context = '''VIBEGUARD 守卫发现了问题。请按以下流程处理：
+rules_hint = os.environ.get("VG_RULES_HINT", "")
+context = f"""VIBEGUARD 守卫发现了问题。请按以下流程处理：
 1. 分析上方发现，按文件和类型分组
-${RULES_HINT}
+{rules_hint}
 3. 基于发现和项目上下文，生成修复计划（FIX/SKIP/DEFER）
 4. 按计划逐项修复
-5. 修复后重新运行 guard_check 验证'''
+5. 修复后重新运行 guard_check 验证"""
 
 output = {
-    'hookSpecificOutput': {
-        'hookEventName': 'PostToolUse',
-        'additionalContext': context
+    "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": context
     }
 }
 print(json.dumps(output, ensure_ascii=False))
-"
+'

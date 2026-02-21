@@ -11,19 +11,10 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-RESULT=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-tool_input = data.get('tool_input', {})
-file_path = tool_input.get('file_path', '')
-old_string = tool_input.get('old_string', '')
-print(file_path)
-print('---SEPARATOR---')
-print(old_string)
-" 2>/dev/null || echo "")
+RESULT=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.old_string")
 
 FILE_PATH=$(echo "$RESULT" | head -1)
-OLD_STRING=$(echo "$RESULT" | sed '1,/---SEPARATOR---/d')
+OLD_STRING=$(echo "$RESULT" | tail -n +2)
 
 if [[ -z "$FILE_PATH" ]]; then
   exit 0

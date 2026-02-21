@@ -3,7 +3,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-RULES_DIR="${REPO_DIR}/workflows/auto-optimize/rules"
+RULES_DIR="${REPO_DIR}/rules"
 errors=0
 
 echo "Validating rule files..."

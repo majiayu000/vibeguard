@@ -274,6 +274,14 @@ echo
 
 # 1. 确保目录存在
 echo "Step 1: Prepare directories"
+
+# 检查 python3 是否可用（hooks 全部依赖 python3）
+if ! command -v python3 &>/dev/null; then
+  red "  ERROR: python3 not found. VibeGuard hooks require Python 3."
+  red "  Install Python 3 and re-run setup.sh."
+  exit 1
+fi
+
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
 echo
@@ -439,6 +447,7 @@ upsert_hook('PreToolUse', 'Bash', 'pre-bash-guard.sh')
 upsert_hook('PreToolUse', 'Edit', 'pre-edit-guard.sh')
 upsert_hook('PostToolUse', 'mcp__vibeguard__guard_check', 'post-guard-check.sh')
 upsert_hook('PostToolUse', 'Edit', 'post-edit-guard.sh')
+upsert_hook('PostToolUse', 'Write', 'post-write-guard.sh')
 
 if state['changed']:
     with open(settings_path, 'w') as f:
@@ -447,7 +456,7 @@ if state['changed']:
     print('CHANGED')
 else:
     print('SKIP')
-" 2>/dev/null
+"
 
 if [[ $? -eq 0 ]]; then
   green "  MCP Server + Hooks configured in ~/.claude/settings.json"
@@ -497,7 +506,7 @@ else:
 
 claude_md.write_text(content)
 print(action)
-" 2>/dev/null
+"
 
 if [[ $? -eq 0 ]]; then
   green "  VibeGuard rules synced to ~/.claude/CLAUDE.md"

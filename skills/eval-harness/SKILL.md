@@ -63,5 +63,5 @@ description: "评估驱动开发 — 用 pass@k / pass^k 指标量化代码生�
 ## VibeGuard 集成
 
 - 代码基础 Grader 可复用 `guard_check` 的输出
-- 安全 Grader 参考 `rules/security.md`
-- 质量 Grader 参考 `rules/universal.md`
+- 安全 Grader 参考 `vibeguard/rules/security.md`
+- 质量 Grader 参考 `vibeguard/rules/universal.md`

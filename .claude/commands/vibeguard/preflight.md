@@ -112,6 +112,6 @@ tags: [vibeguard, preflight, constraints, prevention]
 
 **Reference**
 - VibeGuard 守卫脚本：`vibeguard/guards/`
-- VibeGuard 规则：`vibeguard/workflows/auto-optimize/rules/`
+- VibeGuard 规则：`vibeguard/rules/`
 - VibeGuard 七层防幻觉框架：`vibeguard/spec.md`
 <!-- VIBEGUARD:PREFLIGHT:END -->

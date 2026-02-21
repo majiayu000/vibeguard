@@ -241,7 +241,7 @@ if [[ ${#DB_FILE_MEMBERS[@]} -gt 1 ]]; then
     echo "  - ${dbf} → ${DB_FILE_MEMBERS[${dbf}]}"
   done
   echo "  风险：不同 binary 创建各自的数据库文件，导致数据分裂。"
-  echo "  修复：在 core 层定义 default_db_path() 返回唯一路径，所有入口统一调用。参考 vibeguard/workflows/auto-optimize/rules/universal.md U-11。"
+  echo "  修复：在 core 层定义 default_db_path() 返回唯一路径，所有入口统一调用。参考 vibeguard/rules/universal.md U-11。"
   echo
   FOUND=$((FOUND + 1))
 fi

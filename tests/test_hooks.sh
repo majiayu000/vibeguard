@@ -123,25 +123,13 @@ assert_contains "$result" '"decision": "block"' "拦截 rm -rf /Users/foo"
 result=$(echo '{"tool_input":{"command":"rm -rf ./node_modules"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 rm -rf ./node_modules"
 
-# npm run dev 应被拦截
-result=$(echo '{"tool_input":{"command":"npm run dev"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 npm run dev"
-
 # npm run build 应放行
 result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 npm run build"
 
-# cargo watch 应被拦截
-result=$(echo '{"tool_input":{"command":"cargo watch -x test"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 cargo watch"
-
 # cargo build 应放行
 result=$(echo '{"tool_input":{"command":"cargo build --release"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 cargo build"
-
-# vitest --watch 应被拦截
-result=$(echo '{"tool_input":{"command":"vitest --watch"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 vitest --watch"
 
 # vitest --run 应放行
 result=$(echo '{"tool_input":{"command":"vitest --run"}}' | bash hooks/pre-bash-guard.sh)

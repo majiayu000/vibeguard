@@ -70,6 +70,6 @@ argument-hint: "<构建命令或错误信息>"
 - 修复后必须验证构建通过
 
 **Reference**
-- 通用规则：`vibeguard/workflows/auto-optimize/rules/universal.md`
-- 语言规则：`vibeguard/workflows/auto-optimize/rules/<lang>.md`
+- 通用规则：`vibeguard/rules/universal.md`
+- 语言规则：`vibeguard/rules/<lang>.md`
 <!-- VIBEGUARD:BUILD-FIX:END -->

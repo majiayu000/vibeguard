@@ -13,19 +13,10 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-RESULT=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-tool_input = data.get('tool_input', {})
-file_path = tool_input.get('file_path', '')
-new_string = tool_input.get('new_string', '')
-print(file_path)
-print('---SEPARATOR---')
-print(new_string)
-" 2>/dev/null || echo "")
+RESULT=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.new_string")
 
 FILE_PATH=$(echo "$RESULT" | head -1)
-NEW_STRING=$(echo "$RESULT" | sed '1,/---SEPARATOR---/d')
+NEW_STRING=$(echo "$RESULT" | tail -n +2)
 
 if [[ -z "$FILE_PATH" ]] || [[ -z "$NEW_STRING" ]]; then
   exit 0
@@ -46,7 +37,7 @@ if [[ "$FILE_PATH" == *.rs ]]; then
         SAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
         if [[ $REAL_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。参考模式见 vibeguard/workflows/auto-optimize/rules/rust.md RS-03。"
+          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。参考模式见 vibeguard/rules/rust.md RS-03。"
         fi
       fi
       ;;
@@ -88,7 +79,7 @@ if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) ;;
     *)
-      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径。修复：将路径提取到 core 层公共函数（如 default_db_path()），所有入口统一调用；环境变量覆盖用 env::var(\"APP_DB_PATH\").unwrap_or_else(|_| default_db_path())。参考 vibeguard/workflows/auto-optimize/rules/universal.md U-11。"
+      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径。修复：将路径提取到 core 层公共函数（如 default_db_path()），所有入口统一调用；环境变量覆盖用 env::var(\"APP_DB_PATH\").unwrap_or_else(|_| default_db_path())。参考 vibeguard/rules/universal.md U-11。"
       ;;
   esac
 fi

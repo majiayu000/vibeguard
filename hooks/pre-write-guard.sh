@@ -6,8 +6,8 @@
 #   - 新建配置/文档/测试文件 → 放行
 #   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 拦截（要求先搜后写）
 #
-# 默认 block 模式：拦截新源码文件创建，强制先搜后写（L1 约束）
-# 设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒模式
+# 默认 warn 模式：提醒先搜后写，不阻断创建（L1 约束由 PostToolUse 审查兜底）
+# 设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截模式
 
 set -euo pipefail
 
@@ -15,11 +15,7 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('tool_input', {}).get('file_path', ''))
-" 2>/dev/null || echo "")
+FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
 # 无法解析或文件已存在（编辑） → 放行
 if [[ -z "$FILE_PATH" ]] || [[ -e "$FILE_PATH" ]]; then
@@ -49,22 +45,13 @@ case "$FILE_PATH" in
 esac
 
 # 源码文件：检查是否需要拦截
-SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
-IS_SOURCE=false
-for ext in $SOURCE_EXTS; do
-  if [[ "$EXT" == "$ext" ]]; then
-    IS_SOURCE=true
-    break
-  fi
-done
-
-if [[ "$IS_SOURCE" != true ]]; then
+if ! vg_is_source_file "$FILE_PATH"; then
   exit 0
 fi
 
-# --- 源码文件：拦截并要求先搜后写 ---
-# 默认 block（硬拦截），设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒
-MODE="${VIBEGUARD_WRITE_MODE:-block}"
+# --- 源码文件：提醒先搜后写 ---
+# 默认 warn（提醒），设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截
+MODE="${VIBEGUARD_WRITE_MODE:-warn}"
 
 if [[ "$MODE" == "block" ]]; then
   vg_log "pre-write-guard" "Write" "block" "新源码文件未搜索" "$FILE_PATH"
