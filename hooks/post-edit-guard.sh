@@ -3,6 +3,7 @@
 #
 # 编辑源码后检测是否引入了质量问题：
 #   - Rust: 新增 unwrap()/expect() 到非测试代码
+#   - Rust: 新增 let _ = 静默丢弃 Result
 #   - 通用: 新增硬编码路径 (.db/.sqlite)
 #
 # 输出警告上下文，不阻止操作（事后提醒）
@@ -30,7 +31,7 @@ if [[ "$FILE_PATH" == *.rs ]]; then
   case "$FILE_PATH" in
     */tests/*|*_test.rs|*/test_*) ;;
     *)
-      # 检测新增的 unwrap()/expect()
+      # [RS-03] 检测新增的 unwrap()/expect()
       if echo "$NEW_STRING" | grep -qE '\.(unwrap|expect)\(' 2>/dev/null; then
         # 排除安全变体
         UNSAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || true)
@@ -39,6 +40,11 @@ if [[ "$FILE_PATH" == *.rs ]]; then
         if [[ $REAL_COUNT -gt 0 ]]; then
           WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。参考模式见 vibeguard/rules/rust.md RS-03。"
         fi
+      fi
+      # [RS-10] 检测静默丢弃 Result（let _ = expr）
+      SILENT_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null || echo 0)
+      if [[ $SILENT_COUNT -gt 0 ]]; then
+        WARNINGS="${WARNINGS:+${WARNINGS} }[RS-10] 新增了 ${SILENT_COUNT} 个 let _ = 静默丢弃。修复：用 if let Err(e) = expr { log::warn(...) } 记录错误，或用 .map_err() 传播。参考 vibeguard/rules/rust.md RS-10。"
       fi
       ;;
   esac

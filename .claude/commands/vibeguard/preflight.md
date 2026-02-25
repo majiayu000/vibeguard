@@ -12,7 +12,15 @@ tags: [vibeguard, preflight, constraints, prevention]
 - 约束集指导后续所有编码，让实现阶段不需要做架构决策
 - 每条约束必须可验证 — 要么能写 guard 脚本检测，要么能写测试断言
 
-**触发条件**
+**复杂度路由**（自动判断流程深度）
+
+| 规模 | 流程 | 行动 |
+|------|------|------|
+| 1-2 文件 | 直接实现 | 跳过 preflight，直接编码 |
+| 3-5 文件 | 轻量 preflight | 执行下方步骤 1-5，生成约束集 |
+| 6+ 文件 | 完整规划 | 先 `/vibeguard:interview` 生成 SPEC → 再执行 preflight |
+
+**触发条件**（3+ 文件级别）
 - 涉及 3+ 文件的改动
 - 新增入口点（binary / service / CLI subcommand）
 - 修改数据层（数据库、缓存、文件存储）

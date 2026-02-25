@@ -144,6 +144,20 @@ sys.exit(0 if (has_guard and has_edit) else 1)
     yellow "[MISSING] PostToolUse hooks not fully configured"
   fi
 
+  # Check Stop hook
+  if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
+import json, sys
+with open('${SETTINGS_FILE}') as f:
+    data = json.load(f)
+hooks = data.get('hooks', {}).get('Stop', [])
+has_stop = any('stop-guard' in str(h) for h in hooks)
+sys.exit(0 if has_stop else 1)
+" 2>/dev/null; then
+    green "[OK] Stop hook configured (verification gate)"
+  else
+    yellow "[MISSING] Stop hook not configured"
+  fi
+
   exit 0
 fi
 
@@ -251,6 +265,16 @@ if 'hooks' in data and 'PostToolUse' in data['hooks']:
             del data['hooks']['PostToolUse']
         changed = True
 
+# Remove Stop hooks (stop-guard)
+if 'hooks' in data and 'Stop' in data['hooks']:
+    original = data['hooks']['Stop']
+    filtered = [h for h in original if 'stop-guard' not in json.dumps(h)]
+    if len(filtered) != len(original):
+        data['hooks']['Stop'] = filtered
+        if not filtered:
+            del data['hooks']['Stop']
+        changed = True
+
 if 'hooks' in data and not data['hooks']:
     del data['hooks']
 
@@ -330,7 +354,7 @@ echo "Step 3: Install custom commands"
 mkdir -p "${CLAUDE_DIR}/commands"
 
 safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
-green "  /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:build-fix -> ~/.claude/commands/vibeguard"
+green "  /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:cross-review, /vibeguard:build-fix, /vibeguard:interview -> ~/.claude/commands/vibeguard"
 echo
 
 # 4. Symlink workflow skills 到 Codex
@@ -410,8 +434,15 @@ def upsert_hook(event: str, matcher: str, script_name: str) -> None:
     found = False
 
     for entry in entries:
-        if entry.get('matcher') != matcher:
-            continue
+        # 匹配条件：matcher 相同，或对于无 matcher 的 hook 按 script_name 查找
+        if matcher:
+            if entry.get('matcher') != matcher:
+                continue
+        else:
+            # 无 matcher 的 hook（如 Stop）：按 command 内容匹配
+            hook_entries = entry.get('hooks', [])
+            if not any(script_name in str(h.get('command', '')) for h in hook_entries if isinstance(h, dict)):
+                continue
 
         hook_entries = entry.get('hooks')
         if not isinstance(hook_entries, list):
@@ -433,13 +464,15 @@ def upsert_hook(event: str, matcher: str, script_name: str) -> None:
                 state['changed'] = True
 
     if not found:
-        entries.append({
-            'matcher': matcher,
+        new_entry = {
             'hooks': [{
                 'type': 'command',
                 'command': desired_command
             }]
-        })
+        }
+        if matcher:
+            new_entry['matcher'] = matcher
+        entries.append(new_entry)
         state['changed'] = True
 
 upsert_hook('PreToolUse', 'Write', 'pre-write-guard.sh')
@@ -448,6 +481,7 @@ upsert_hook('PreToolUse', 'Edit', 'pre-edit-guard.sh')
 upsert_hook('PostToolUse', 'mcp__vibeguard__guard_check', 'post-guard-check.sh')
 upsert_hook('PostToolUse', 'Edit', 'post-edit-guard.sh')
 upsert_hook('PostToolUse', 'Write', 'post-write-guard.sh')
+upsert_hook('Stop', '', 'stop-guard.sh')
 
 if state['changed']:
     with open(settings_path, 'w') as f:
@@ -531,7 +565,7 @@ for skill in vibeguard auto-optimize; do
 done
 
 if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
-  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:build-fix"
+  green "[OK] Custom commands: /vibeguard:preflight, /vibeguard:check, /vibeguard:learn, /vibeguard:review, /vibeguard:cross-review, /vibeguard:build-fix, /vibeguard:interview"
 else
   red "[FAIL] Custom commands not installed"
   ((errors++))
@@ -570,6 +604,13 @@ sys.exit(0 if 'vibeguard' in data.get('mcpServers', {}) else 1)
 else
   red "[FAIL] MCP Server not in settings.json"
   ((errors++))
+fi
+
+# Check Codex CLI (optional, for cross-review)
+if command -v codex &>/dev/null; then
+  green "[OK] Codex CLI available (enables /vibeguard:cross-review)"
+else
+  yellow "[INFO] Codex CLI not found (install: npm i -g @openai/codex for /vibeguard:cross-review)"
 fi
 
 echo

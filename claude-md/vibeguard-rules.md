@@ -1,99 +1,43 @@
 <!-- vibeguard-start -->
 # VibeGuard — AI 防幻觉规则
 
-> 这是规则索引（地图），不是完整手册。详细规则和修复模式按需查阅引用路径。
-> 仓库：~/Desktop/code/AI/tools/vibeguard/
+> 规则索引。详细规则按需查阅：`~/Desktop/code/AI/tools/vibeguard/rules/`
 
-## 核心约束（7 层精简版）
+## 核心约束
 
-| 层 | 约束 | 违反时 |
-|----|------|--------|
-| L1 先搜后写 | 新建文件/类/函数前先 Grep/Glob 搜索已有实现 | 立即搜索，扩展已有代码 |
-| L2 命名 | Python 内部 snake_case，API 边界 camelCase；禁止别名 | 改名并全局替换 |
-| L3 质量 | 禁止静默吞异常；公开方法禁 `Any` 类型 | 加 logging/re-raise |
-| L4 真实 | 无数据显示空白；不硬编码；不发明不存在的 API/字段 | 改为从数据源获取 |
-| L5 最小改动 | 只做被要求的事；不加额外改进/注释/抽象 | 删除多余部分 |
-| L6 流程 | 3+ 文件改动先 `/vibeguard:preflight`；完成后 `/vibeguard:check` | 运行对应命令 |
-| L7 提交 | 禁 AI 标记；禁 force push；禁向后兼容；禁密钥 | 删除违规内容 |
+| 层 | 规则 |
+|----|------|
+| L1 | 新建文件/类/函数前 **必须先搜索** 已有实现 |
+| L2 | Python snake_case，API 边界 camelCase |
+| L3 | 禁静默吞异常；公开方法禁 Any |
+| L4 | 无数据显示空白；不发明不存在的 API/字段 |
+| L5 | 只做被要求的事，不加额外改进/注释/抽象 |
+| L6 | 见下方复杂度路由 |
+| L7 | 禁 AI 标记 / force push / 密钥 |
 
-## 守卫 ID 索引
+## 复杂度路由
 
-| ID | 检查项 | 语言 | 详细规则路径 |
-|----|--------|------|-------------|
-| RS-01 | 嵌套锁获取（死锁风险） | Rust | `rules/rust.md` |
-| RS-03 | 生产代码 unwrap/expect | Rust | `rules/rust.md` |
-| RS-05 | 跨文件重复类型定义 | Rust | `rules/rust.md` |
-| RS-06 | workspace 跨入口配置一致性 | Rust | `rules/universal.md` U-11~U-14 |
-| U-01~U-10 | 通用 NEVER 规则 | 全部 | `rules/universal.md` |
-| U-11~U-14 | 跨入口数据/配置一致性 | 全部 | `rules/universal.md` |
-| U-15~U-22 | 工程实践规则 | 全部 | `rules/universal.md` |
-| SEC-01~SEC-10 | 安全检查 | 全部 | `rules/security.md` |
-| TS-01~TS-12 | TypeScript 规则 | TS | `rules/typescript.md` |
-| PY-01~PY-12 | Python 规则 | Python | `rules/python.md` |
-| GO-01~GO-12 | Go 规则 | Go | `rules/go.md` |
+| 规模 | 流程 |
+|------|------|
+| 1-2 文件 | 直接实现 |
+| 3-5 文件 | `/vibeguard:preflight` → 约束集 → 实现 |
+| 6+ 文件 | `/vibeguard:interview` → spec → `/vibeguard:preflight` → 实现 |
 
-> 规则文件完整路径：`vibeguard/rules/`
+## 上下文管理
 
-## Hooks（自动执行）
+- 同一问题纠正 **2 次后** → `/clear` 重来，不在脏上下文中挣扎
+- When compacting, **always preserve**: 已修改文件列表、约束集、测试命令、架构决策、修复优先级
 
-| 时机 | 触发条件 | 行为 |
-|------|----------|------|
-| PreToolUse | Write 创建新源码文件 | **Warn** — 提醒先搜后写（`VIBEGUARD_WRITE_MODE=block` 可升级为硬拦截） |
-| PreToolUse | Bash 危险命令（force push/reset --hard/rm -rf） | **Block** — 提供替代方案 |
-| PreToolUse | Edit 不存在的文件或幻觉内容 | **Block** — 先 Read 确认文件内容 |
-| PostToolUse | Write 新建源码文件 | **Warn** — 检测同名文件和重复定义（事后审查） |
-| PostToolUse | Edit .rs 文件新增 unwrap/expect | **Warn** — 输出修复方法 |
-| PostToolUse | Edit 新增硬编码 .db/.sqlite 路径 | **Warn** — 输出修复方法 |
-| PostToolUse | Edit 新增 console.log/print 调试语句 | **Warn** — 提示使用 logger |
+## 验证
 
-## 命令和工具
+完成前必须验证：Rust `cargo check` / TS `npx tsc --noEmit` / Go `go build ./...`
+提交前必须测试：Rust `cargo test` / TS 项目测试 / Go `go test ./...` / Python `pytest`
 
-| 命令/工具 | 用途 |
-|-----------|------|
-| `/vibeguard:preflight` | 修改前生成约束集（预防） |
-| `/vibeguard:check` | 运行全部守卫 + 合规检查（验证） |
-| `/vibeguard:learn` | Agent 犯错后生成新守卫规则（闭环改进） |
-| `/vibeguard:review` | 结构化代码审查（安全→逻辑→质量→性能） |
-| `/vibeguard:build-fix` | 构建错误快速修复 |
-| `/vibeguard:stats` | 查看 hooks 触发统计（拦截/警告/放行次数和原因） |
-| `guard_check` | MCP 工具：运行指定守卫 |
-| `compliance_report` | MCP 工具：合规检查报告 |
+## 命令
 
-## 可观测性
+`/vibeguard:preflight` 预防 · `/vibeguard:check` 验证 · `/vibeguard:review` 审查 · `/vibeguard:cross-review` 对抗审查 · `/vibeguard:build-fix` 构建修复 · `/vibeguard:learn` 闭环改进 · `/vibeguard:interview` 需求采访 · `/vibeguard:stats` 统计
 
-所有 hook 触发自动记录到 `~/.vibeguard/events.jsonl`，每行一个 JSON 事件：
-```json
-{"ts":"...","hook":"pre-bash-guard","tool":"Bash","decision":"block","reason":"...","detail":"..."}
-```
+## 修复优先级
 
-**检查守卫效果**：
-- `/vibeguard:stats` — 在 Claude Code 会话中查看统计
-- `bash vibeguard/scripts/stats.sh` — 最近 7 天统计
-- `bash vibeguard/scripts/stats.sh 30` — 最近 30 天
-- `bash vibeguard/scripts/stats.sh all` — 全部历史
-
-**当用户问"守卫有没有效果"时**，主动运行 `/vibeguard:stats` 展示统计数据。
-
-## Agents（专项 agent）
-
-| Agent | 用途 | 模型 |
-|-------|------|------|
-| planner | 需求分析、任务分解、实施计划 | opus |
-| architect | 技术方案评估、系统架构设计 | opus |
-| tdd-guide | RED→GREEN→IMPROVE 测试驱动开发 | sonnet |
-| code-reviewer | 分层代码审查 | sonnet |
-| security-reviewer | OWASP Top 10 安全审查 | sonnet |
-| build-error-resolver | 构建错误快速修复 | sonnet |
-| e2e-runner | 端到端测试编写和执行 | sonnet |
-| refactor-cleaner | 重构清理（消除重复、简化逻辑） | sonnet |
-| doc-updater | 代码变更后同步文档 | sonnet |
-| go-reviewer / go-build-resolver | Go 专项审查和构建修复 | sonnet |
-| python-reviewer | Python 专项审查 | sonnet |
-| database-reviewer | 数据库代码审查 | sonnet |
-
-## 守卫修复流程
-
-发现问题 → 读 `rules/` 对应语言规则 → 分类 FIX/SKIP/DEFER → 按优先级修复 → 重新 check 验证
-
-优先级：安全漏洞 > 逻辑 bug > 数据分裂 > 重复类型 > unwrap > 命名
+安全漏洞 > 逻辑 bug > 数据分裂 > 重复类型 > unwrap > 命名
 <!-- vibeguard-end -->

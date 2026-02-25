@@ -15,6 +15,8 @@ Rust 项目扫描和修复的特定规则。从 rnk 项目 30+ session 实战经
 | RS-07 | Dedup | 手动逐字段复制（应用 merge/apply 方法） | 低 |
 | RS-08 | Perf | 不必要的 clone()（Copy 类型用 clone、可借用却 clone） | 低 |
 | RS-09 | Perf | 热路径中的 format!() 分配（可用 push_str 或预分配） | 低 |
+| RS-10 | Bug | 静默丢弃有意义的 Result/Error（`let _ =`、`.ok()`、`.unwrap_or_default()` 吞掉错误） | 高 |
+| RS-11 | Design | 同一项目不同模块使用不同的基础设施（日志系统、配置路径、DB 连接方式） | 中 |
 
 ## SKIP 规则（Rust 特定）
 
@@ -69,6 +71,50 @@ fn to_ansi(self, background: bool) -> String {
 // Before: textarea/keymap.rs 和 viewport/keymap.rs 各定义 KeyBinding, KeyType, Modifiers
 // After: components/keymap.rs 定义一次，两处 pub use 引入
 pub use crate::components::keymap::{KeyBinding, KeyType, Modifiers};
+```
+
+### 静默错误丢弃 → 显式处理（RS-10）
+
+`let _ =`、`.ok()`、`.unwrap_or_default()` 在丢弃 `Result<T, E>` 时，错误信息永久消失。
+代码不会 panic，但数据会丢失、日志变黑洞、问题无法排查。
+
+```rust
+// BAD: 错误被静默丢弃
+let _ = db::update_last_accessed(&conn, &ids);
+let body = resp.text().await.unwrap_or_default();
+let path = std::fs::canonicalize(&abs).unwrap_or(abs);
+
+// GOOD: 至少记录错误
+if let Err(e) = db::update_last_accessed(&conn, &ids) {
+    log::warn("mcp", &format!("update_last_accessed failed: {}", e));
+}
+let body = resp.text().await.unwrap_or_else(|e| format!("<body read error: {}>", e));
+let path = std::fs::canonicalize(&abs).unwrap_or_else(|e| {
+    log::warn("db", &format!("canonicalize failed: {}", e));
+    abs
+});
+```
+
+**判定规则**：
+- `let _ = expr` 且 expr 返回 `Result` → **必须处理**
+- `.ok()` 丢弃 Error 且后续无 fallback 日志 → **必须处理**
+- `.unwrap_or_default()` 且默认值会导致数据异常（空字符串入库、路径分裂）→ **必须处理**
+- `.unwrap_or_default()` 且默认值是安全的无操作（如 `Vec::new()`）→ SKIP
+
+### 跨模块基础设施一致性（RS-11）
+
+同一项目所有入口（CLI 子命令、MCP server、hooks、worker 子进程）必须共享：
+- **日志系统**：统一写同一文件或同一 output
+- **DB 连接策略**：长驻进程复用连接，短命进程按需创建
+- **配置路径**：`db_path()`、`log_path()` 等只定义一次
+
+```rust
+// BAD: MCP 用 tracing 写 stderr，hooks 用自定义 log 写文件
+// MCP 失败时无日志，完全黑洞
+tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+
+// GOOD: 所有入口共享同一日志函数
+crate::log::info("mcp", "server started");
 ```
 
 ## 验证命令
