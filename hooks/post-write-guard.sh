@@ -49,24 +49,76 @@ fi
 
 WARNINGS=""
 
+# 扫描预算：避免在大仓库中每次写入都触发高开销全量扫描
+MAX_SCAN_FILES="${VG_SCAN_MAX_FILES:-5000}"
+MAX_SCAN_DEFS="${VG_SCAN_MAX_DEFS:-20}"
+MAX_MATCHES="${VG_SCAN_MATCH_LIMIT:-5}"
+HAS_RG=0
+if command -v rg >/dev/null 2>&1; then
+  HAS_RG=1
+fi
+
+RG_EXCLUDES=(
+  --glob '!**/node_modules/**'
+  --glob '!**/.git/**'
+  --glob '!**/target/**'
+  --glob '!**/vendor/**'
+  --glob '!**/dist/**'
+  --glob '!**/build/**'
+  --glob '!**/__pycache__/**'
+  --glob '!**/.venv/**'
+)
+
+SCAN_DEGRADED=0
+FILE_COUNT=0
+if [[ "${HAS_RG}" -eq 1 ]]; then
+  FILE_COUNT=$(rg --files "${RG_EXCLUDES[@]}" "$PROJECT_DIR" 2>/dev/null | wc -l | tr -d ' ')
+else
+  FILE_COUNT=$(find "$PROJECT_DIR" \
+    -type f \
+    -not -path "*/node_modules/*" \
+    -not -path "*/.git/*" \
+    -not -path "*/target/*" \
+    -not -path "*/vendor/*" \
+    -not -path "*/dist/*" \
+    -not -path "*/build/*" \
+    -not -path "*/__pycache__/*" \
+    -not -path "*/.venv/*" \
+    2>/dev/null | wc -l | tr -d ' ')
+fi
+
+if [[ "${FILE_COUNT}" -gt "${MAX_SCAN_FILES}" ]]; then
+  SCAN_DEGRADED=1
+fi
+
 # --- 检查 1: 同名文件 ---
 # 在项目中搜索同名文件（排除 node_modules、.git、target、vendor 等）
-SAME_NAME_FILES=$(find "$PROJECT_DIR" \
-  -name "$BASENAME" \
-  -not -path "$FILE_PATH" \
-  -not -path "*/node_modules/*" \
-  -not -path "*/.git/*" \
-  -not -path "*/target/*" \
-  -not -path "*/vendor/*" \
-  -not -path "*/dist/*" \
-  -not -path "*/build/*" \
-  -not -path "*/__pycache__/*" \
-  -not -path "*/.venv/*" \
-  2>/dev/null | head -5 || true)
+if [[ "${HAS_RG}" -eq 1 ]]; then
+  SAME_NAME_FILES=$(rg --files "${RG_EXCLUDES[@]}" -g "**/${BASENAME}" "$PROJECT_DIR" 2>/dev/null \
+    | grep -Fvx -- "$FILE_PATH" \
+    | head -"${MAX_MATCHES}" || true)
+else
+  SAME_NAME_FILES=$(find "$PROJECT_DIR" \
+    -name "$BASENAME" \
+    -not -path "$FILE_PATH" \
+    -not -path "*/node_modules/*" \
+    -not -path "*/.git/*" \
+    -not -path "*/target/*" \
+    -not -path "*/vendor/*" \
+    -not -path "*/dist/*" \
+    -not -path "*/build/*" \
+    -not -path "*/__pycache__/*" \
+    -not -path "*/.venv/*" \
+    2>/dev/null | head -"${MAX_MATCHES}" || true)
+fi
 
 if [[ -n "$SAME_NAME_FILES" ]]; then
   FILE_LIST=$(echo "$SAME_NAME_FILES" | tr '\n' ', ' | sed 's/,$//')
   WARNINGS="[L1-重复文件] 项目中已存在同名文件: ${FILE_LIST}。请确认是否应该扩展已有文件而非新建。"
+fi
+
+if [[ "${SCAN_DEGRADED}" -eq 1 ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }[L1-扫描降级] 项目文件数 ${FILE_COUNT} 超过阈值 ${MAX_SCAN_FILES}，已跳过重复定义深度扫描。"
 fi
 
 # --- 检查 2: 关键定义重复 ---
@@ -99,27 +151,43 @@ for name in sorted(names):
     print(name)
 " 2>/dev/null || true)
 
-if [[ -n "$DEFINITIONS" ]]; then
+if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
+  DEFINITIONS=$(echo "$DEFINITIONS" | head -n "${MAX_SCAN_DEFS}")
   DUPLICATE_DEFS=""
   while IFS= read -r defname; do
     # 在项目中搜索这个定义名（排除新文件自身）
-    FOUND=$(grep -rl --include="*.${EXT}" \
-      -e "struct ${defname}" \
-      -e "class ${defname}" \
-      -e "interface ${defname}" \
-      -e "type ${defname}" \
-      -e "fn ${defname}" \
-      -e "func ${defname}" \
-      -e "def ${defname}" \
-      -e "function ${defname}" \
-      "$PROJECT_DIR" 2>/dev/null \
-      | grep -v "$FILE_PATH" \
-      | grep -v node_modules \
-      | grep -v ".git/" \
-      | grep -v "/target/" \
-      | grep -v "/vendor/" \
-      | grep -v "/dist/" \
-      | head -3 || true)
+    if [[ "${HAS_RG}" -eq 1 ]]; then
+      FOUND=$(rg -l "${RG_EXCLUDES[@]}" -g "**/*.${EXT}" \
+        -e "struct[[:space:]]+${defname}\\b" \
+        -e "class[[:space:]]+${defname}\\b" \
+        -e "interface[[:space:]]+${defname}\\b" \
+        -e "type[[:space:]]+${defname}\\b" \
+        -e "fn[[:space:]]+${defname}\\b" \
+        -e "func[[:space:]]+${defname}\\b" \
+        -e "def[[:space:]]+${defname}\\b" \
+        -e "function[[:space:]]+${defname}\\b" \
+        "$PROJECT_DIR" 2>/dev/null \
+        | grep -Fvx -- "$FILE_PATH" \
+        | head -3 || true)
+    else
+      FOUND=$(grep -rl --include="*.${EXT}" \
+        -e "struct ${defname}" \
+        -e "class ${defname}" \
+        -e "interface ${defname}" \
+        -e "type ${defname}" \
+        -e "fn ${defname}" \
+        -e "func ${defname}" \
+        -e "def ${defname}" \
+        -e "function ${defname}" \
+        "$PROJECT_DIR" 2>/dev/null \
+        | grep -Fv -- "$FILE_PATH" \
+        | grep -v node_modules \
+        | grep -v ".git/" \
+        | grep -v "/target/" \
+        | grep -v "/vendor/" \
+        | grep -v "/dist/" \
+        | head -3 || true)
+    fi
 
     if [[ -n "$FOUND" ]]; then
       FOUND_LIST=$(echo "$FOUND" | tr '\n' ', ' | sed 's/,$//')

@@ -28,6 +28,27 @@ interface GuardEntry {
 
 type GuardRegistry = Record<string, Record<string, GuardEntry>>;
 
+const TS_JS_GUARDS: Record<string, GuardEntry> = {
+  eslint_guards: {
+    command: "__special_eslint__",
+    build_args: () => [],
+  },
+  any_abuse: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_any_abuse.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
+  console_residual: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_console_residual.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
+};
+
 const GUARD_REGISTRY: GuardRegistry = {
   python: {
     duplicates: {
@@ -80,27 +101,23 @@ const GUARD_REGISTRY: GuardRegistry = {
         return strict ? [script, "--strict", target_dir] : [script, target_dir];
       },
     },
-  },
-  typescript: {
-    eslint_guards: {
-      command: "__special_eslint__",
-      build_args: () => [],
-    },
-    any_abuse: {
+    single_source_of_truth: {
       command: "bash",
       build_args: (target_dir, strict) => {
-        const script = path.join(get_guards_dir(), "typescript", "check_any_abuse.sh");
+        const script = path.join(get_guards_dir(), "rust", "check_single_source_of_truth.sh");
         return strict ? [script, "--strict", target_dir] : [script, target_dir];
       },
     },
-    console_residual: {
+    semantic_effect: {
       command: "bash",
       build_args: (target_dir, strict) => {
-        const script = path.join(get_guards_dir(), "typescript", "check_console_residual.sh");
+        const script = path.join(get_guards_dir(), "rust", "check_semantic_effect.sh");
         return strict ? [script, "--strict", target_dir] : [script, target_dir];
       },
     },
   },
+  typescript: TS_JS_GUARDS,
+  javascript: TS_JS_GUARDS,
   go: {
     vet: {
       command: "go",
@@ -186,6 +203,39 @@ export interface GuardCheckParams {
   strict?: boolean;
 }
 
+function resolve_guard_concurrency(): number {
+  const raw = Number(process.env.VIBEGUARD_GUARD_CONCURRENCY ?? "2");
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(1, Math.floor(raw));
+}
+
+async function run_with_concurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = cursor++;
+      if (index >= tasks.length) {
+        return;
+      }
+      results[index] = await tasks[index]();
+    }
+  }
+
+  const worker_count = Math.min(concurrency, tasks.length);
+  await Promise.all(Array.from({ length: worker_count }, () => worker()));
+  return results;
+}
+
+function format_guard_runtime_error(guard_name: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `[${guard_name}] ISSUES FOUND (exit code: 1)\n\nruntime error:\n${message}\n`;
+}
+
 export async function handle_guard_check(params: GuardCheckParams): Promise<string> {
   let target_dir: string;
   try {
@@ -242,20 +292,24 @@ async function run_guards_for_language(
     return `不支持的守卫: ${guard}。${language} 可用守卫: ${available}`;
   }
 
-  const tasks = Object.entries(guards_to_run).map(async ([name, entry]) => {
-    if (entry.command === "__special_quality__") {
-      return run_quality_guard(target_dir);
+  const tasks = Object.entries(guards_to_run).map(([name, entry]) => async () => {
+    try {
+      if (entry.command === "__special_quality__") {
+        return await run_quality_guard(target_dir);
+      }
+      if (entry.command === "__special_eslint__") {
+        return await run_eslint_guard(target_dir);
+      }
+      const args = entry.build_args(target_dir, strict);
+      const cwd = language === "go" ? target_dir : undefined;
+      const result = await exec_script(entry.command, args, cwd);
+      return format_output(name, result.stdout, result.stderr, result.exit_code);
+    } catch (error) {
+      return format_guard_runtime_error(name, error);
     }
-    if (entry.command === "__special_eslint__") {
-      return run_eslint_guard(target_dir);
-    }
-    const args = entry.build_args(target_dir, strict);
-    const cwd = language === "go" ? target_dir : undefined;
-    const result = await exec_script(entry.command, args, cwd);
-    return format_output(name, result.stdout, result.stderr, result.exit_code);
   });
 
-  const results = await Promise.all(tasks);
+  const results = await run_with_concurrency(tasks, resolve_guard_concurrency());
   return results.join("\n---\n\n");
 }
 

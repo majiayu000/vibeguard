@@ -241,6 +241,45 @@ assert_not_contains "$result" "VIBEGUARD" "空 content 放行"
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
 
+# 同名源码文件应告警
+tmp_repo_same_name="$(mktemp -d)"
+git -C "$tmp_repo_same_name" init -q
+mkdir -p "$tmp_repo_same_name/src/existing" "$tmp_repo_same_name/src/new"
+cat >"$tmp_repo_same_name/src/existing/service.py" <<'EOF'
+def existing_service():
+    return True
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def create_service():\\n    return True"}}' "$tmp_repo_same_name/src/new/service.py")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_contains "$result" "L1-重复文件" "检测同名源码文件重复"
+rm -rf "$tmp_repo_same_name"
+
+# 重复定义应告警
+tmp_repo_dup_def="$(mktemp -d)"
+git -C "$tmp_repo_dup_def" init -q
+mkdir -p "$tmp_repo_dup_def/src/existing" "$tmp_repo_dup_def/src/new"
+cat >"$tmp_repo_dup_def/src/existing/handler.py" <<'EOF'
+def processOrder():
+    return 1
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def processOrder():\\n    return 2"}}' "$tmp_repo_dup_def/src/new/new_handler.py")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_contains "$result" "L1-重复定义" "检测重复定义"
+rm -rf "$tmp_repo_dup_def"
+
+# 超过扫描预算时应降级提示
+tmp_repo_budget="$(mktemp -d)"
+git -C "$tmp_repo_budget" init -q
+mkdir -p "$tmp_repo_budget/src"
+cat >"$tmp_repo_budget/src/existing.py" <<'EOF'
+def keepExisting():
+    return "ok"
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def keepExisting():\\n    return \\"new\\""}}' "$tmp_repo_budget/src/new_file.py")
+result=$(echo "$json_payload" | VG_SCAN_MAX_FILES=0 bash hooks/post-write-guard.sh)
+assert_contains "$result" "L1-扫描降级" "超过文件预算时降级"
+rm -rf "$tmp_repo_budget"
+
 # 新源码文件有同名文件时应 warn（使用当前仓库中已有的 log.sh）
 result=$(echo '{"tool_input":{"file_path":"'${REPO_DIR}'/hooks/subdir/log.sh","content":"#!/bin/bash\necho test"}}' | bash hooks/post-write-guard.sh)
 # log.sh 已存在于 hooks/ 目录，如果检测到应有 VIBEGUARD 输出

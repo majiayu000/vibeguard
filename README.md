@@ -61,6 +61,7 @@ bash ~/vibeguard/setup.sh
 AI 可在会话中主动调用这些工具检查代码质量：
 
 - `guard_check` — 运行指定语言的守卫脚本
+- `guard_check` 支持语言：`python | rust | typescript | javascript | go | auto`
 - `compliance_report` — 项目合规检查报告
 - `metrics_collect` — 采集代码指标
 
@@ -184,6 +185,9 @@ interview（采访）→ preflight（预防）→ 编码 → check（验证）�
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path/to/project   # 生产代码 unwrap/expect
 bash ~/vibeguard/guards/rust/check_duplicate_types.sh /path/to/project  # 跨文件重复类型
 bash ~/vibeguard/guards/rust/check_nested_locks.sh /path/to/project     # 嵌套锁（死锁风险）
+bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path/to/project  # 跨入口路径/环境变量一致性
+bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path/to/project  # Todo/Task 双轨与多状态源
+bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path/to/project   # done/update/delete 语义与副作用一致性
 ```
 
 **Python**
@@ -198,7 +202,7 @@ python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  #
 
 | 文件 | 内容 |
 |------|------|
-| `universal.md` | U-01 ~ U-22 通用规则 |
+| `universal.md` | U-01 ~ U-23 通用规则 |
 | `security.md` | SEC-01 ~ SEC-10 安全规则 |
 | `typescript.md` | TS-01 ~ TS-12 |
 | `python.md` | PY-01 ~ PY-12 |

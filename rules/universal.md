@@ -73,6 +73,7 @@ pub fn default_db_path() -> PathBuf {
 | 代码重复但语义不同（如不同组件的相似方法） | SKIP — 不同语义 |
 | 命名冲突（同名不同义的类型） | FIX — 中优先级 |
 | 多入口环境变量名不统一（用户只配一个就分裂） | FIX — 中优先级 |
+| 不支持配置被静默降级（silent fallback） | FIX — 高优先级 |
 | 性能问题但不在热路径 | SKIP — 收益不足 |
 | 性能问题在热路径（渲染循环、事件处理） | FIX — 中优先级 |
 | 缺少测试但代码稳定 | DEFER — 低优先级 |
@@ -92,6 +93,7 @@ pub fn default_db_path() -> PathBuf {
 | U-20 | API 响应格式 | 统一信封结构 `{ data, error, meta }`；错误码标准化 |
 | U-21 | 提交消息格式 | `<type>: <description>`，type 为 feat/fix/refactor/docs/test/chore |
 | U-22 | 测试覆盖率 | 新代码最低 80% 行覆盖率；关键路径 100% |
+| U-23 | 禁止静默降级 | 不支持的策略/配置必须显式报错或标记 DEFER，不得自动降级到默认策略 |
 
 ## 扫描策略
 

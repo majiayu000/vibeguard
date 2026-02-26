@@ -17,6 +17,8 @@ Rust 项目扫描和修复的特定规则。从 rnk 项目 30+ session 实战经
 | RS-09 | Perf | 热路径中的 format!() 分配（可用 push_str 或预分配） | 低 |
 | RS-10 | Bug | 静默丢弃有意义的 Result/Error（`let _ =`、`.ok()`、`.unwrap_or_default()` 吞掉错误） | 高 |
 | RS-11 | Design | 同一项目不同模块使用不同的基础设施（日志系统、配置路径、DB 连接方式） | 中 |
+| RS-12 | Design | 同一职责存在双系统并存（如 Todo* 与 TaskManagement* 双轨） | 高 |
+| RS-13 | Design | 动作语义函数（done/update/delete 等）缺少可见状态副作用 | 高 |
 
 ## SKIP 规则（Rust 特定）
 
@@ -115,6 +117,40 @@ tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
 // GOOD: 所有入口共享同一日志函数
 crate::log::info("mcp", "server started");
+```
+
+### 单一事实源收敛（RS-12）
+
+同一职责（特别是任务管理）不应并行维护两套工具族和两份状态存储。
+
+```rust
+// BAD: Todo* + TaskManagement* 并存，各自写不同状态
+registry.register(TodoWrite);
+registry.register(TaskDone);
+
+// GOOD: 收敛到单一任务域接口
+registry.register(TaskWrite);
+registry.register(TaskRead);
+// 所有动作只写 TaskRepository
+```
+
+### 语义副作用一致性（RS-13）
+
+动作语义函数（`mark_done` / `update_*` / `delete_*`）必须有可见副作用：
+- 写入状态（insert/update/remove）
+- 或发射事件（emit/dispatch/send）
+
+```rust
+// BAD: 仅返回文本，不落状态
+fn mark_done(id: &str) -> Result<String> {
+    Ok(format!("task {} done", id))
+}
+
+// GOOD: 先落状态，再返回结果
+fn mark_done(id: &str, repo: &TaskRepo) -> Result<String> {
+    repo.update_status(id, Status::Done)?;
+    Ok(format!("task {} done", id))
+}
 ```
 
 ## 验证命令

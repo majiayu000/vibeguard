@@ -1,0 +1,67 @@
+name: vibeguard-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate guard scripts
+        run: bash scripts/ci/validate-guards.sh
+
+      - name: Validate hook scripts
+        run: bash scripts/ci/validate-hooks.sh
+
+      - name: Validate rule files
+        run: bash scripts/ci/validate-rules.sh
+
+      - name: Validate MCP config contract
+        run: bash scripts/ci/validate-config-contract.sh
+
+      - name: Validate Rust guard wiring contract
+        run: bash scripts/ci/validate-wiring-contract.sh
+
+      - name: Hook regression tests
+        run: bash tests/test_hooks.sh
+
+      - name: Rust guard regression tests
+        run: bash tests/test_rust_guards.sh
+
+      - name: Setup regression tests
+        run: bash tests/test_setup.sh
+
+      - name: MCP install dependencies
+        working-directory: mcp-server
+        run: npm ci
+
+      - name: MCP build
+        working-directory: mcp-server
+        run: npm run build
+
+      - name: MCP tests
+        working-directory: mcp-server
+        run: npm test
