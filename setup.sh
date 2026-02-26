@@ -153,20 +153,6 @@ sys.exit(0 if (has_guard and has_edit) else 1)
     yellow "[MISSING] PostToolUse hooks not fully configured"
   fi
 
-  # Check Stop hook
-  if [[ -f "${SETTINGS_FILE}" ]] && python3 -c "
-import json, sys
-with open('${SETTINGS_FILE}') as f:
-    data = json.load(f)
-hooks = data.get('hooks', {}).get('Stop', [])
-has_stop = any('stop-guard' in str(h) for h in hooks)
-sys.exit(0 if has_stop else 1)
-" 2>/dev/null; then
-    green "[OK] Stop hook configured (verification gate)"
-  else
-    yellow "[MISSING] Stop hook not configured"
-  fi
-
   exit 0
 fi
 
@@ -490,7 +476,6 @@ upsert_hook('PreToolUse', 'Edit', 'pre-edit-guard.sh')
 upsert_hook('PostToolUse', 'mcp__vibeguard__guard_check', 'post-guard-check.sh')
 upsert_hook('PostToolUse', 'Edit', 'post-edit-guard.sh')
 upsert_hook('PostToolUse', 'Write', 'post-write-guard.sh')
-upsert_hook('Stop', '', 'stop-guard.sh')
 
 if state['changed']:
     with open(settings_path, 'w') as f:
