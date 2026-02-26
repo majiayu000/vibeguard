@@ -1,0 +1,36 @@
+{
+  "name": "standard-edit",
+  "description": "标准编辑流程：编辑前检查 → 编辑后质量检查 → 构建验证",
+  "trigger": "edit",
+  "nodes": [
+    {
+      "id": "pre-check",
+      "type": "deterministic",
+      "name": "文件存在性检查",
+      "command": "hooks/pre-edit-guard.sh",
+      "on_fail": "abort"
+    },
+    {
+      "id": "quality-check",
+      "type": "deterministic",
+      "name": "质量检查（unwrap/console.log/硬编码）",
+      "command": "hooks/post-edit-guard.sh",
+      "on_fail": "warn"
+    },
+    {
+      "id": "build-check",
+      "type": "deterministic",
+      "name": "构建检查",
+      "command": "auto",
+      "timeout": 30,
+      "on_fail": "warn"
+    },
+    {
+      "id": "semantic-review",
+      "type": "agent",
+      "name": "语义审查（大改动时触发）",
+      "condition": "changed_lines > 50",
+      "prompt": "审查本次修改的逻辑正确性和潜在副作用"
+    }
+  ]
+}

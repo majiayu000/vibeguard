@@ -37,36 +37,19 @@ Trigger this skill when the user asks for one or more of:
 
 ### 1. Define Ready Criteria (DoR)
 
-- Restate scope, constraints, and expected outputs.
-- Record backward-compatibility mode: `required` or `not required`.
-- Record validation scope:
-  - Step-level checks.
-  - Final full checks.
-- Record commit policy: `final_only` / `per_step` / `milestone`.
-- Commit policy mapping:
-  - If implementation is requested and commit style is not explicitly specified, use `per_step` (default).
-  - If user says "分步优化并测试后提交", "改完测试并提交", "进入下一个步骤", use `per_step`.
-  - If user asks grouped commits by stage, use `milestone`.
-  - If user explicitly asks one final commit, use `final_only`.
-- Record commit requirement and expected message style.
-- Record dirty-worktree baseline (what existed before this run).
-- Record blockers (permissions, missing env vars, unavailable services).
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
+
+Additional for optflow:
+- If implementation is requested and commit style is not explicitly specified, use `per_step` (default).
+- If user says "per step optimize and test then commit", use `per_step`.
 
 ### 2. Build Complete Plan Before Editing
 
-- Build a numbered plan covering all required changes.
-- Order by risk/dependency:
-  - Correctness/data integrity.
-  - Security.
-  - API/contract alignment.
-  - UX/docs/cleanup.
-- Define done condition for each step.
-- Keep only one `in_progress` step at any time.
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
 
 ### 3. Add BDD Layer When Needed
 
 Use BDD if user requests it, or if requirements are unclear.
-
 
 For BDD Lite, Scenario Quality Checklist, Scenario Outline, and Test Layer mapping, see the shared reference:
 
@@ -75,27 +58,22 @@ For BDD Lite, Scenario Quality Checklist, Scenario Outline, and Test Layer mappi
 
 ### 4. Execute Step by Step
 
-- Implement one step fully before moving to the next.
-- Include code, related config/docs, and immediate verification in the same step.
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
+
 - Treat one planned step as one feature boundary whenever possible.
 - If `commit_policy = per_step` (default for implementation):
   - Stage only files for current step/feature.
   - Run step-level checks first.
   - Commit immediately after step checks pass.
   - Record step -> commit hash mapping.
-- Update plan status after each completed step.
-- Continue automatically until all steps are done.
 
 ### 5. Apply No-Backward-Compatibility Mode (When Requested)
 
-- Remove old paths, shims, adapters, and dual contracts.
-- Prefer one clear implementation path.
-- Treat breaking changes as intentional scope, not regressions.
-- Document breaking impact in final report.
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
 
 ### 6. Validate with Test Matrix
 
-Run checks per step and again at the end.
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
 
 Per-step mandatory loop (when `commit_policy = per_step`):
 1. Implement current feature step.
@@ -103,69 +81,13 @@ Per-step mandatory loop (when `commit_policy = per_step`):
 3. If checks pass, commit this step immediately.
 4. Move to next feature step.
 
-Minimum matrix:
-- Core logic: unit tests.
-- Cross-module behavior: integration tests.
-- Build health: compile/typecheck/build.
-- Contract safety: API/serialization checks.
-- Regression smoke: key user flow.
-
-Failure loop:
-1. Capture exact failing command/output.
-2. Fix root cause.
-3. Rerun failed check.
-4. Rerun dependent checks.
-5. Continue only when green.
-
 ### 7. Commit and Handoff
 
-- Stage only relevant files from this run.
-- Use a clear, scope-aligned commit message format.
-- Commit behavior by policy:
-  - `final_only`: single commit after final validation passes.
-  - `per_step`: each step must already be committed before next step starts.
-  - `milestone`: commit at each planned milestone boundary.
-- Report:
-  - Change summary.
-  - Validation commands + outcomes.
-  - Breaking changes (if any).
-  - Commit list (ordered).
-  - Any remaining pre-existing dirty files (if not part of current scope).
+> See shared delivery base: [`workflows/references/delivery-base.md`](../references/delivery-base.md)
+
+- `per_step`: each step must already be committed before next step starts.
 
 ## Output Templates
-
-### Plan Template
-
-```text
-Goal:
-Constraints:
-- Backward compatibility: <required|not required>
-- Commit policy: <final_only|per_step|milestone>
-- Validation scope: <...>
-- Dirty baseline: <pre-existing files>
-
-Steps:
-1. <step> (done condition: <...>)
-2. <step> (done condition: <...>)
-...
-```
-
-### Final Report Template
-
-```text
-Completed:
-- <item>
-
-Validation:
-- <command>: <pass/fail + key result>
-
-Breaking Changes:
-- <none | list>
-
-Commits:
-- <hash> <message> (step/milestone/final)
-```
-
 
 ### Optimization Backlog Template
 

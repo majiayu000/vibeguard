@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { exec_script, get_guards_dir, get_scripts_dir, get_vibeguard_root } from "./executor.js";
+import { detect_languages } from "./detector.js";
 
 const FORBIDDEN_PREFIXES = ["/etc", "/usr", "/bin", "/sbin", "/var", "/System", "/Library", "/proc", "/sys"];
 
@@ -84,6 +85,20 @@ const GUARD_REGISTRY: GuardRegistry = {
     eslint_guards: {
       command: "__special_eslint__",
       build_args: () => [],
+    },
+    any_abuse: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "typescript", "check_any_abuse.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
+    console_residual: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "typescript", "check_console_residual.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
     },
   },
   go: {
@@ -180,9 +195,42 @@ export async function handle_guard_check(params: GuardCheckParams): Promise<stri
   }
   const { language, guard, strict = false } = params;
 
+  // auto 模式：检测项目语言，跑所有相关守卫
+  if (language === "auto") {
+    const detected = detect_languages(target_dir);
+    if (detected.length === 0) {
+      return `未检测到支持的语言。支持的语言: ${Object.keys(GUARD_REGISTRY).join(", ")}\n检测方式: Cargo.toml(rust), tsconfig.json(typescript), pyproject.toml/setup.py(python), go.mod(go)`;
+    }
+
+    const results: string[] = [];
+    results.push(`[auto] 检测到语言: ${detected.join(", ")}\n`);
+    for (const lang of detected) {
+      results.push(`== ${lang} ==`);
+      const sub_result = await run_guards_for_language(target_dir, lang, guard, strict);
+      results.push(sub_result);
+    }
+    return results.join("\n");
+  }
+
   const lang_guards = GUARD_REGISTRY[language];
   if (!lang_guards) {
-    return `不支持的语言: ${language}。支持的语言: ${Object.keys(GUARD_REGISTRY).join(", ")}`;
+    const detected = detect_languages(target_dir);
+    const hint = detected.length > 0 ? `\n提示: 检测到项目语言为 ${detected.join(", ")}，可使用 language: "auto" 自动选择` : "";
+    return `不支持的语言: ${language}。支持的语言: ${Object.keys(GUARD_REGISTRY).join(", ")}${hint}`;
+  }
+
+  return run_guards_for_language(target_dir, language, guard, strict);
+}
+
+async function run_guards_for_language(
+  target_dir: string,
+  language: string,
+  guard: string | undefined,
+  strict: boolean,
+): Promise<string> {
+  const lang_guards = GUARD_REGISTRY[language];
+  if (!lang_guards) {
+    return `不支持的语言: ${language}`;
   }
 
   const guards_to_run = guard

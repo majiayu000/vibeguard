@@ -25,6 +25,24 @@ for script in "${REPO_DIR}"/guards/rust/*.sh; do
   fi
 done
 
+# 检查 TypeScript 守卫（bash 脚本）
+for script in "${REPO_DIR}"/guards/typescript/*.sh; do
+  [[ -f "$script" ]] || continue
+  name=$(basename "$script")
+
+  if [[ ! -x "$script" ]]; then
+    echo "FAIL: ${name} is not executable"
+    ((errors++))
+  fi
+
+  if ! bash -n "$script" 2>/dev/null; then
+    echo "FAIL: ${name} has syntax errors"
+    ((errors++))
+  else
+    echo "OK: ${name}"
+  fi
+done
+
 # 检查 Python 守卫
 for script in "${REPO_DIR}"/guards/python/*.py; do
   [[ -f "$script" ]] || continue

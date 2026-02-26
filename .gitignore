@@ -6,3 +6,4 @@ __pycache__/
 *~
 node_modules/
 mcp-server/dist/
+.vibeguard/worktrees/

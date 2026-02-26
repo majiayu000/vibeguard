@@ -94,6 +94,15 @@ if [[ "${1:-}" == "--check" ]]; then
     yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
   fi
 
+  # Check TypeScript guards
+  for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
+    if [[ -x "${REPO_DIR}/guards/typescript/${guard}" ]]; then
+      green "[OK] TypeScript guard: ${guard}"
+    else
+      red "[MISSING] TypeScript guard: ${guard}"
+    fi
+  done
+
   # Check MCP Server
   if [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
     green "[OK] MCP Server built"
@@ -623,6 +632,10 @@ if [[ ${errors} -eq 0 ]]; then
   echo "  3. Run: /vibeguard:check <project_dir> — 修改后运行守卫检查（验证）"
   echo "  4. Run: /auto-optimize <project_dir> — 自主优化项目"
   echo "  5. MCP Tools: guard_check, compliance_report, metrics_collect"
+  echo
+  echo "Git Pre-Commit Guard:"
+  echo "  在目标项目中安装: vibeguard install-hook <project_dir>"
+  echo "  或手动: ln -sf ${REPO_DIR}/hooks/pre-commit-guard.sh <project>/.git/hooks/pre-commit"
 else
   red "Setup completed with ${errors} errors."
   exit 1

@@ -49,6 +49,7 @@ argument-hint: "<项目目录或文件路径>"
 
 7. **输出审查报告**
 
+   **Markdown 格式**（默认）:
    ```markdown
    ## 审查报告
 
@@ -66,6 +67,20 @@ argument-hint: "<项目目录或文件路径>"
    ### 建议
    - <改进建议（非必须）>
    ```
+
+   **JSON 格式**（可选，便于 check 命令消费做趋势对比）:
+   ```json
+   {
+     "command": "review",
+     "scope": "<审查范围>",
+     "findings": [
+       {"priority": "P0", "file": "file:line", "issue": "...", "suggestion": "...", "ruleId": "RS-03"}
+     ],
+     "passedItems": ["无安全漏洞", "..."],
+     "verdict": "pass | warn | fail"
+   }
+   ```
+   Schema 详见 `docs/command-schemas.md`。
 
 **Guardrails**
 - 不建议添加不必要的抽象（L5）

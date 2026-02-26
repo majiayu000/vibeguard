@@ -9,6 +9,14 @@
 #   vg_log "pre-bash-guard" "Bash" "block" "force push" "git push --force"
 #   vg_log "post-edit-guard" "Edit" "warn" "unwrap detected" "src/main.rs"
 #   vg_log "pre-write-guard" "Write" "pass" "" "src/lib.rs"
+#
+# 支持的 decision 类型：
+#   pass     — 检查通过，放行
+#   warn     — 检测到问题，警告但不阻止
+#   block    — 严重问题，阻止操作
+#   gate     — 门禁触发，需要用户确认
+#   escalate — 升级警告，同一问题多次 warn 后自动升级
+#   complete — 操作完成确认
 
 VIBEGUARD_LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
 VIBEGUARD_LOG_FILE="${VIBEGUARD_LOG_DIR}/events.jsonl"
@@ -79,6 +87,10 @@ print(f2)
 " 2>/dev/null || echo ""
 }
 
+# Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
+# 优先使用环境变量，否则按 PID 树推导（同一终端会话的父进程 PID 相同）
+VIBEGUARD_SESSION_ID="${VIBEGUARD_SESSION_ID:-$(echo "$$-$(date +%Y%m%d)" | shasum | cut -c1-8)}"
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -91,6 +103,7 @@ vg_log() {
 
   VG_HOOK="$hook" VG_TOOL="$tool" VG_DECISION="$decision" \
   VG_REASON="$reason" VG_DETAIL="$detail" VG_LOG_FILE="$VIBEGUARD_LOG_FILE" \
+  VG_SESSION_ID="$VIBEGUARD_SESSION_ID" \
   python3 -c '
 import json, datetime, os, re
 
@@ -106,6 +119,7 @@ detail = re.sub(
 
 event = {
     "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "session": os.environ.get("VG_SESSION_ID", ""),
     "hook": os.environ.get("VG_HOOK", ""),
     "tool": os.environ.get("VG_TOOL", ""),
     "decision": os.environ.get("VG_DECISION", ""),

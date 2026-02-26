@@ -27,7 +27,7 @@ server.tool(
   "运行语言特定的守卫检查（重复检测、命名规范、代码质量、嵌套锁、unwrap 等）",
   {
     target_dir: z.string().describe("目标项目目录绝对路径"),
-    language: z.enum(["python", "rust", "typescript", "go"]).describe("项目语言"),
+    language: z.enum(["python", "rust", "typescript", "go", "auto"]).describe("项目语言，auto 自动检测"),
     guard: z
       .string()
       .optional()

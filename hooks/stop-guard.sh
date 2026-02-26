@@ -67,10 +67,10 @@ FILE_LIST=$(echo "$SOURCE_CHANGES" | head -5 | tr '\n' ' ')
 
 vg_log "stop-guard" "Stop" "gate" "uncommitted source changes: ${FILE_COUNT} files" "$FILE_LIST"
 
-echo "VibeGuard Stop Gate: 检测到 ${FILE_COUNT} 个源码文件有未提交变更。"
-echo "请确认已完成验证后再结束。"
+echo "VibeGuard Stop Gate: 检测到 ${FILE_COUNT} 个源码文件有未提交变更。" >&2
+echo "请确认已完成验证后再结束。" >&2
 if [[ -n "$VERIFY_HINT" ]]; then
-  echo "建议验证: ${VERIFY_HINT}"
+  echo "建议验证: ${VERIFY_HINT}" >&2
 fi
-echo "变更文件: ${FILE_LIST}"
-exit 1
+echo "变更文件: ${FILE_LIST}" >&2
+exit 2

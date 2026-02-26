@@ -39,6 +39,12 @@ argument-hint: "[project_dir]"
    bash ${VIBEGUARD_DIR}/guards/rust/check_workspace_consistency.sh <project_dir>
    ```
 
+   **TypeScript/JavaScript 项目**：
+   ```bash
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_any_abuse.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_console_residual.sh <project_dir>
+   ```
+
    **Python 项目**：
    ```bash
    python3 ${VIBEGUARD_DIR}/guards/python/check_duplicates.py <project_dir>

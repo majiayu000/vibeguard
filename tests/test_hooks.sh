@@ -222,6 +222,52 @@ result=$(echo '{"tool_input":{"file_path":"src/config.rs","new_string":"let db =
 assert_contains "$result" "U-11" "检测硬编码 .db 路径"
 
 # =========================================================
+header "post-write-guard.sh — 重复检测"
+# =========================================================
+
+# 非源码文件（.md）应放行
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "非源码文件 (.md) 放行"
+
+# 无 git 项目时放行（使用 /tmp 下不存在的路径）
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_no_git_project/src/main.rs","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "无 git 项目时放行"
+
+# 空 content 放行
+result=$(echo '{"tool_input":{"file_path":"src/lib.rs","content":""}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "空 content 放行"
+
+# 空 file_path 放行
+result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
+
+# 新源码文件有同名文件时应 warn（使用当前仓库中已有的 log.sh）
+result=$(echo '{"tool_input":{"file_path":"'${REPO_DIR}'/hooks/subdir/log.sh","content":"#!/bin/bash\necho test"}}' | bash hooks/post-write-guard.sh)
+# log.sh 已存在于 hooks/ 目录，如果检测到应有 VIBEGUARD 输出
+# 但 .sh 不在 VG_SOURCE_EXTS 中，所以放行
+assert_not_contains "$result" "VIBEGUARD" "非源码扩展名 (.sh) 放行"
+
+# =========================================================
+header "post-build-check.sh — 构建检查"
+# =========================================================
+
+# 非构建语言文件（.py）应放行
+result=$(echo '{"tool_input":{"file_path":"src/main.py"}}' | bash hooks/post-build-check.sh)
+assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.py) 放行"
+
+# .md 文件应放行
+result=$(echo '{"tool_input":{"file_path":"README.md"}}' | bash hooks/post-build-check.sh)
+assert_not_contains "$result" "VIBEGUARD" "非源码文件 (.md) 放行"
+
+# 空 file_path 放行
+result=$(echo '{"tool_input":{"file_path":""}}' | bash hooks/post-build-check.sh)
+assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
+
+# .json 文件应放行
+result=$(echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-build-check.sh)
+assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.json) 放行"
+
+# =========================================================
 # 总结
 # =========================================================
 

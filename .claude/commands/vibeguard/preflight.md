@@ -57,8 +57,14 @@ tags: [vibeguard, preflight, constraints, prevention]
    - 根据语言选择对应的 vibeguard 守卫脚本：
      - **Rust**: `check_unwrap_in_prod.sh`, `check_duplicate_types.sh`, `check_nested_locks.sh`, `check_workspace_consistency.sh`
      - **Python**: `check_duplicates.py`, `check_naming_convention.py`, `test_code_quality_guards.py`
+     - **TypeScript**: `check_any_abuse.sh`, `check_console_residual.sh`
    - 记录当前违规数量作为基线（修改后不能增加）
    - 输出：`守卫基线`
+
+   **[Stop] 展示基线数据，等待用户确认后再生成约束集。**
+   - 展示步骤 1-4 的所有发现
+   - 用 AskUserQuestion 让用户确认基线数据和项目理解是否正确
+   - 如有 `[UNCLEAR]` 项，必须在此处用 AskUserQuestion 确认
 
 5. **生成约束集**
 

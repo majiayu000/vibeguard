@@ -1,0 +1,22 @@
+{
+  "name": "pre-commit",
+  "description": "提交前守卫流程：质量扫描 → 构建验证 → 提交放行",
+  "trigger": "git-commit",
+  "nodes": [
+    {
+      "id": "staged-quality",
+      "type": "deterministic",
+      "name": "Staged 文件质量扫描",
+      "command": "hooks/pre-commit-guard.sh",
+      "on_fail": "abort"
+    },
+    {
+      "id": "guard-check",
+      "type": "deterministic",
+      "name": "语言守卫检查（auto 模式）",
+      "command": "mcp:guard_check:auto",
+      "timeout": 60,
+      "on_fail": "warn"
+    }
+  ]
+}
