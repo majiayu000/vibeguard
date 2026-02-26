@@ -215,6 +215,8 @@ python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  #
 bash ~/vibeguard/setup.sh           # 安装 / 更新（pull 新版后重新运行）
 bash ~/vibeguard/setup.sh --check   # 检查安装状态
 bash ~/vibeguard/setup.sh --clean   # 卸载（清除所有注入的规则和 hooks）
+bash ~/vibeguard/scripts/ci/check-branch-protection.sh   # 检查 PR 必须通过 CI 门禁
+bash ~/vibeguard/scripts/ci/apply-branch-protection.sh   # 应用分支保护（需要 repo 管理权限）
 ```
 
 ## 仓库结构

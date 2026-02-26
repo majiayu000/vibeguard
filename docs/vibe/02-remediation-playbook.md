@@ -21,7 +21,8 @@
 - `DONE` P1 Guard: Rust 新增 `single_source_of_truth` / `semantic_effect` 守卫并接入 MCP
 - `DONE` P1 Test: 新增 `tests/test_rust_guards.sh` 并接入 CI
 - `DONE` P1 Wiring: 新增 `scripts/ci/validate-wiring-contract.sh`（Rust guard 实现/接线/文档一致性）
-- `TODO` Phase 4 / Step 4.2: 仓库设置中启用“PR 必须通过 CI 才可合并”
+- `DONE` Phase 4 / Step 4.2: 已为 `main` 启用分支保护（required check: `validate-and-test`，strict=true）
+- `DONE` Phase 4 / Step 4.2+: 新增 `scripts/ci/apply-branch-protection.sh` / `check-branch-protection.sh` 固化配置
 - `DONE` Phase 5 / Step 5.2（部分）: setup 增加 `plan-flow` 兼容别名，保留 `plan-folw` 向后兼容
 - `TODO` Phase 5: 公共库进一步收敛（hooks/scripts 共享库）与命名迁移文档
 
