@@ -1,9 +1,9 @@
 ---
-name: plan-folw
+name: plan-flow
 description: "Analyze repository-level duplicate/redundant design first, then build and execute a strict step-test-update plan in docs/plan. Use for deep architecture review, convergence planning, and traceable one-step-at-a-time delivery."
 ---
 
-# Plan Folw
+# Plan Flow
 
 ## Overview
 

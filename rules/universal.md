@@ -94,6 +94,7 @@ pub fn default_db_path() -> PathBuf {
 | U-21 | 提交消息格式 | `<type>: <description>`，type 为 feat/fix/refactor/docs/test/chore |
 | U-22 | 测试覆盖率 | 新代码最低 80% 行覆盖率；关键路径 100% |
 | U-23 | 禁止静默降级 | 不支持的策略/配置必须显式报错或标记 DEFER，不得自动降级到默认策略 |
+| U-24 | 禁止任何别名 | 禁止函数/类型/命令/目录别名与兼容命名；发现旧名应直接全量替换并删除旧名 |
 
 ## 扫描策略
 

@@ -23,7 +23,7 @@
 - `DONE` P1 Wiring: 新增 `scripts/ci/validate-wiring-contract.sh`（Rust guard 实现/接线/文档一致性）
 - `DONE` Phase 4 / Step 4.2: 已为 `main` 启用分支保护（required check: `validate-and-test`，strict=true）
 - `DONE` Phase 4 / Step 4.2+: 新增 `scripts/ci/apply-branch-protection.sh` / `check-branch-protection.sh` 固化配置
-- `DONE` Phase 5 / Step 5.2（部分）: setup 增加 `plan-flow` 兼容别名，保留 `plan-folw` 向后兼容
+- `DONE` Phase 5 / Step 5.2（部分）: setup 增加 `plan-flow` 兼容别名，保留 `plan-flow` 向后兼容
 - `TODO` Phase 5: 公共库进一步收敛（hooks/scripts 共享库）与命名迁移文档
 
 ## Step 0: 固化基线（必须先做）
@@ -209,11 +209,11 @@ bash scripts/ci/validate-rules.sh
   - 日志/脱敏
   - 通用错误处理
 
-### Step 5.2 `plan-folw` 兼容迁移
+### Step 5.2 `plan-flow` 兼容迁移
 
 ### 改动
 
-- 新增标准命名 `plan-flow`，保留 `plan-folw` 软链接与兼容检查提示。
+- 新增标准命名 `plan-flow`，保留 `plan-flow` 软链接与兼容检查提示。
 - 文档默认使用新名，旧名标注 deprecate 时间线。
 
 ### 通过标准

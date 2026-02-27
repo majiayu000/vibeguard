@@ -32,7 +32,7 @@ VibeGuard 是 AI 辅助开发的防幻觉框架，通过七层防御架构系统
 | L2 | 命名约束 | `check_naming_convention.py` / snake_case |
 | L3 | Pre-commit Hooks | ruff / gitleaks / shellcheck |
 | L4 | 架构守卫测试 | `test_code_quality_guards.py` 五条规则 |
-| L5 | Skill/Workflow | plan-folw / fixflow / optflow |
+| L5 | Skill/Workflow | plan-flow / fixflow / optflow |
 | L6 | Prompt 内嵌规则 | CLAUDE.md 强制规则 |
 | L7 | 周度复盘 | review-template.md |
 

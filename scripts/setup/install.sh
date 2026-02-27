@@ -97,7 +97,7 @@ if [[ "${1:-}" == "--check" ]]; then
   fi
 
   # Check Codex skills
-for skill in plan-folw plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
     if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
       green "[OK] ${skill} skill symlinked to ~/.codex/skills/"
     else
@@ -210,7 +210,7 @@ else:
     rm -f "${CLAUDE_DIR}/context-profiles/$(basename "$profile")"
   done
   rmdir "${CLAUDE_DIR}/context-profiles" 2>/dev/null || true
-  for skill in plan-folw plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
 
@@ -300,14 +300,10 @@ echo
 echo "Step 4: Install Codex skills"
 mkdir -p "${CODEX_DIR}/skills"
 
-for skill in plan-folw fixflow optflow plan-mode auto-optimize; do
+for skill in plan-flow fixflow optflow plan-mode auto-optimize; do
   safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
   green "  ${skill} -> ~/.codex/skills/${skill}"
 done
-
-# Naming alias: keep backward compatibility for historical typo plan-folw.
-safe_symlink "${REPO_DIR}/workflows/plan-folw" "${CODEX_DIR}/skills/plan-flow"
-green "  plan-flow -> ~/.codex/skills/plan-flow (alias of plan-folw)"
 
 # Also link vibeguard to Codex
 safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
@@ -423,7 +419,7 @@ else
   ((errors++))
 fi
 
-  for skill in plan-folw plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
   if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
     green "[OK] Codex: ${skill} skill"
   else

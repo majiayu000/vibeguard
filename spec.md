@@ -42,7 +42,7 @@ LLM 的主要失效模式不是语法错误（IDE 能捕获），而是：
 │   — CLAUDE.md / Codex instructions 中的强制规则           │
 ├─────────────────────────────────────────────────────────┤
 │ Layer 5: Skill / Workflow（执行流程约束）                  │
-│   — plan-folw / fixflow / optflow / vibeguard skill      │
+│   — plan-flow / fixflow / optflow / vibeguard skill      │
 ├─────────────────────────────────────────────────────────┤
 │ Layer 4: 架构守卫测试（AST 级自动检测）                    │
 │   — test_code_quality_guards.py 五条核心规则              │
@@ -152,7 +152,7 @@ LLM 的主要失效模式不是语法错误（IDE 能捕获），而是：
 |-------|------|
 | `vibeguard` | 完整防幻觉规范查阅 |
 | `auto-optimize` | 自主优化流程（守卫扫描 + LLM 深度分析 + 自动执行） |
-| `plan-folw` | 冗余分析 → 计划构建 → 步骤执行 |
+| `plan-flow` | 冗余分析 → 计划构建 → 步骤执行 |
 | `fixflow` | 工程交付流（计划 → 执行 → 测试 → 提交） |
 | `optflow` | 优化发现与执行 |
 | `plan-mode` | 结构化计划生成与文件落地 |
@@ -259,7 +259,7 @@ task_contract:
 
 ### 4.2 计划文件模板
 
-见 `workflows/plan-folw/references/plan-template.md`
+见 `workflows/plan-flow/references/plan-template.md`
 
 ### 4.3 复盘报告模板
 
@@ -308,7 +308,7 @@ vibeguard/
 │   │       ├── rust.md
 │   │       ├── typescript.md
 │   │       └── go.md
-│   ├── plan-folw/                      # 冗余分析 + 计划构建
+│   ├── plan-flow/                      # 冗余分析 + 计划构建
 │   │   ├── SKILL.md
 │   │   ├── references/
 │   │   │   ├── analysis-playbook.md

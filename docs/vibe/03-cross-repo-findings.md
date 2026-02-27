@@ -73,7 +73,7 @@
 - 本次新增：Rust 守卫 `single_source_of_truth` / `semantic_effect`，用于拦截双轨系统和动作语义失真。
 - 本次新增：`scripts/ci/validate-wiring-contract.sh`，防止“守卫实现了但未接入 MCP/文档”。
 - 已完成：仓库设置层启用“PR 必须通过 CI 才可合并”（required check=`validate-and-test`）。
-- 仍待完成：命名债务（`plan-folw` 到 `plan-flow` 的文档迁移收口）。
+- 仍待完成：命名债务（`plan-flow` 到 `plan-flow` 的文档迁移收口）。
 
 ## 推荐落地顺序
 
