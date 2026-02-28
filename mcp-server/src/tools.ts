@@ -71,6 +71,15 @@ const GUARD_REGISTRY: GuardRegistry = {
       command: "__special_quality__",
       build_args: () => [],
     },
+    dead_shims: {
+      command: "python3",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "python", "check_dead_shims.py");
+        const args = [script, target_dir];
+        if (strict) args.push("--strict");
+        return args;
+      },
+    },
   },
   rust: {
     nested_locks: {

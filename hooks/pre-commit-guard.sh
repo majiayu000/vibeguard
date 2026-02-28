@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-# VibeGuard Pre-Commit Guard — git commit 前自动守卫
+# VibeGuard Pre-Commit Guard — git commit 前自动守卫（Verifier 模式）
 #
 # 安装到 .git/hooks/pre-commit 后，每次 git commit 自动运行。
-# 只检查 staged 文件，只跑快速检查（< 10s），不跑完整 CI。
-#
-# 检查项：
-#   - Rust: unwrap()/expect() in non-test code
-#   - TS/JS: console.log/warn/error in non-test code
-#   - Python: print() in non-test code
-#   - 通用: 硬编码数据库路径
-#   - 构建检查: cargo check / tsc --noEmit / go build
+# 自动检测项目语言 → 调用 guards/ 下对应的守卫脚本 → 运行构建检查。
 #
 # exit 0 = 放行
 # exit 1 = 阻止提交
@@ -18,152 +11,183 @@
 
 set -euo pipefail
 
-# 允许跳过
 if [[ "${VIBEGUARD_SKIP_PRECOMMIT:-0}" == "1" ]]; then
   exit 0
 fi
 
-# 定位 log.sh（支持 symlink 安装和直接调用两种场景）
+# --- 定位资源 ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "${SCRIPT_DIR}/log.sh" ]]; then
   source "${SCRIPT_DIR}/log.sh"
 elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; then
   source "${VIBEGUARD_DIR}/hooks/log.sh"
 else
-  # 无 log.sh 时提供 fallback，不阻塞提交
   vg_log() { :; }
   VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
 fi
 
-# 超时硬限（秒）
-TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
+# 定位 guards 目录
+if [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -d "${VIBEGUARD_DIR}/guards" ]]; then
+  GUARDS_DIR="${VIBEGUARD_DIR}/guards"
+elif [[ -d "${SCRIPT_DIR}/../guards" ]]; then
+  GUARDS_DIR="$(cd "${SCRIPT_DIR}/../guards" && pwd)"
+else
+  GUARDS_DIR=""
+fi
 
-# 收集 staged 的源码文件
+TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
+TIMEOUT_CMD=""
+HAS_PYTHON3=0
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_CMD="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_CMD="gtimeout"
+fi
+command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
+
+# --- 收集 staged 源码文件 ---
 STAGED_FILES=""
 for ext in $VG_SOURCE_EXTS; do
   files=$(git diff --cached --name-only --diff-filter=ACM -- "*.${ext}" 2>/dev/null || true)
-  if [[ -n "$files" ]]; then
-    STAGED_FILES="${STAGED_FILES}${files}"$'\n'
-  fi
+  [[ -n "$files" ]] && STAGED_FILES="${STAGED_FILES}${files}"$'\n'
 done
 STAGED_FILES=$(echo "$STAGED_FILES" | sort -u | sed '/^$/d')
 
-# 无源码变更 → 放行
 if [[ -z "$STAGED_FILES" ]]; then
   exit 0
 fi
 
-WARNINGS=""
 FILE_COUNT=$(echo "$STAGED_FILES" | wc -l | tr -d ' ')
 
-# --- 逐文件质量检查（只检查 staged diff） ---
-while IFS= read -r file; do
-  [[ -z "$file" ]] && continue
-  [[ ! -f "$file" ]] && continue
+# --- 语言自动检测（Verifier 模式核心） ---
+DETECTED_LANGS=""
+[[ -f "Cargo.toml" ]]                                          && DETECTED_LANGS="${DETECTED_LANGS} rust"
+[[ -f "tsconfig.json" ]]                                       && DETECTED_LANGS="${DETECTED_LANGS} typescript"
+[[ -f "package.json" && ! -f "tsconfig.json" ]]                && DETECTED_LANGS="${DETECTED_LANGS} javascript"
+[[ -f "pyproject.toml" || -f "setup.py" || -f "setup.cfg" ]]  && DETECTED_LANGS="${DETECTED_LANGS} python"
+[[ -f "go.mod" ]]                                              && DETECTED_LANGS="${DETECTED_LANGS} go"
+DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
 
-  # 获取 staged 内容（不是工作区内容）
-  STAGED_CONTENT=$(git diff --cached -- "$file" | grep '^+' | grep -v '^+++' || true)
-  [[ -z "$STAGED_CONTENT" ]] && continue
-
-  # 判断是否测试文件
-  IS_TEST=0
-  case "$file" in
-    */tests/*|*/test/*|*_test.rs|*_test.go|*.test.ts|*.test.tsx|*.test.js|*.test.jsx|*.spec.ts|*.spec.tsx|*.spec.js|*.spec.jsx|*/test_*.py) IS_TEST=1 ;;
-  esac
-
-  # Rust 检查
-  if [[ "$file" == *.rs ]] && [[ $IS_TEST -eq 0 ]]; then
-    UNWRAP_COUNT=$(echo "$STAGED_CONTENT" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || true)
-    SAFE_COUNT=$(echo "$STAGED_CONTENT" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
-    REAL=$((UNWRAP_COUNT - SAFE_COUNT))
-    if [[ $REAL -gt 0 ]]; then
-      WARNINGS="${WARNINGS}  ${file}: ${REAL} 个 unwrap()/expect()\n"
-    fi
-  fi
-
-  # TS/JS 检查
-  case "$file" in
-    *.ts|*.tsx|*.js|*.jsx)
-      if [[ $IS_TEST -eq 0 ]]; then
-        CNT=$(echo "$STAGED_CONTENT" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null || true)
-        if [[ $CNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS}  ${file}: ${CNT} 个 console.log/warn/error\n"
-        fi
-      fi
-      ;;
-  esac
-
-  # Python 检查
-  if [[ "$file" == *.py ]] && [[ $IS_TEST -eq 0 ]]; then
-    CNT=$(echo "$STAGED_CONTENT" | grep -cE '^\+\s*print\(' 2>/dev/null || true)
-    if [[ $CNT -gt 0 ]]; then
-      WARNINGS="${WARNINGS}  ${file}: ${CNT} 个 print()\n"
-    fi
-  fi
-
-  # 通用：硬编码数据库路径
-  if [[ $IS_TEST -eq 0 ]]; then
-    if echo "$STAGED_CONTENT" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
-      WARNINGS="${WARNINGS}  ${file}: 硬编码数据库路径\n"
-    fi
-  fi
-done <<< "$STAGED_FILES"
-
-# --- 快速构建检查（带超时） ---
-BUILD_FAIL=""
-
+# --- 超时执行器 ---
 run_with_timeout() {
   local cmd="$1"
-  timeout "${TIMEOUT}" bash -c "$cmd" 2>&1 || {
-    local code=$?
-    if [[ $code -eq 124 ]]; then
-      # 超时 → 跳过，不阻塞
-      return 0
-    fi
-    return $code
-  }
+  local code=0
+
+  if [[ -n "${TIMEOUT_CMD}" ]]; then
+    "${TIMEOUT_CMD}" "${TIMEOUT}" bash -c "$cmd" 2>&1 && return 0
+    code=$?
+    [[ $code -eq 124 ]] && return 124
+    [[ $code -ne 127 ]] && return "$code"
+  fi
+
+  if [[ "${HAS_PYTHON3}" -eq 1 ]]; then
+    python3 - "${TIMEOUT}" "$cmd" <<'PY' && return 0
+import subprocess, sys
+try:
+    proc = subprocess.run(["bash", "-c", sys.argv[2]], timeout=int(sys.argv[1]))
+    sys.exit(proc.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+except Exception:
+    sys.exit(1)
+PY
+    return $?
+  fi
+
+  bash -c "$cmd" 2>&1 && return 0
+  return $?
 }
 
-if [[ -f "Cargo.toml" ]]; then
-  if ! run_with_timeout "cargo check --quiet 2>&1" >/dev/null 2>&1; then
-    BUILD_FAIL="cargo check 失败"
+# --- 质量守卫：调用 guards/ 脚本（取代内联 grep） ---
+GUARD_OUTPUT=""
+GUARD_FAIL=0
+
+run_guard() {
+  local label="$1"
+  local cmd="$2"
+  local output code=0
+
+  output=$(run_with_timeout "$cmd" 2>&1) || code=$?
+  [[ $code -eq 124 ]] && return 0  # 超时跳过
+
+  if [[ $code -ne 0 ]]; then
+    GUARD_FAIL=1
+    GUARD_OUTPUT="${GUARD_OUTPUT}\n[${label}]\n${output}\n"
   fi
-elif [[ -f "tsconfig.json" ]]; then
-  if ! run_with_timeout "npx tsc --noEmit 2>&1" >/dev/null 2>&1; then
-    BUILD_FAIL="tsc --noEmit 失败"
-  fi
-elif [[ -f "go.mod" ]]; then
-  if ! run_with_timeout "go build ./... 2>&1" >/dev/null 2>&1; then
-    BUILD_FAIL="go build 失败"
-  fi
+}
+
+if [[ -n "$GUARDS_DIR" ]]; then
+  for lang in $DETECTED_LANGS; do
+    case "$lang" in
+      rust)
+        [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
+          run_guard "rust/unwrap" "bash ${GUARDS_DIR}/rust/check_unwrap_in_prod.sh --strict ."
+        ;;
+      typescript|javascript)
+        [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
+          run_guard "ts/console" "bash ${GUARDS_DIR}/typescript/check_console_residual.sh --strict ."
+        [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
+          run_guard "ts/any" "bash ${GUARDS_DIR}/typescript/check_any_abuse.sh --strict ."
+        ;;
+      python)
+        [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
+          run_guard "py/naming" "python3 ${GUARDS_DIR}/python/check_naming_convention.py ."
+        [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
+          run_guard "py/dead_shims" "python3 ${GUARDS_DIR}/python/check_dead_shims.py --strict ."
+        ;;
+    esac
+  done
 fi
 
-# --- 汇总结果 ---
-if [[ -z "$WARNINGS" ]] && [[ -z "$BUILD_FAIL" ]]; then
-  vg_log "pre-commit-guard" "git-commit" "pass" "staged ${FILE_COUNT} files, all clean" ""
+# --- 构建检查：所有检测到的语言都跑（不是 elif） ---
+BUILD_FAILS=""
+
+run_build_check() {
+  local cmd="$1"
+  local fail_msg="$2"
+  local code=0
+
+  run_with_timeout "$cmd" >/dev/null 2>&1 || code=$?
+  if [[ $code -ne 0 && $code -ne 124 ]]; then
+    BUILD_FAILS="${BUILD_FAILS}  ${fail_msg}\n"
+  fi
+}
+
+for lang in $DETECTED_LANGS; do
+  case "$lang" in
+    rust)             run_build_check "cargo check --quiet"  "cargo check 失败" ;;
+    typescript)       run_build_check "npx tsc --noEmit"     "tsc --noEmit 失败" ;;
+    go)               run_build_check "go build ./..."       "go build 失败" ;;
+  esac
+done
+
+# --- 汇总 ---
+if [[ $GUARD_FAIL -eq 0 ]] && [[ -z "$BUILD_FAILS" ]]; then
+  vg_log "pre-commit-guard" "git-commit" "pass" "staged ${FILE_COUNT} files, all clean [${DETECTED_LANGS}]" ""
   exit 0
 fi
 
-# 有问题 → 输出并阻止
 echo "VibeGuard Pre-Commit Guard: 检测到问题"
 echo "======================================="
+echo "检测语言: ${DETECTED_LANGS:-none}"
 
-if [[ -n "$WARNINGS" ]]; then
+if [[ $GUARD_FAIL -ne 0 ]]; then
   echo ""
-  echo "质量问题："
-  echo -e "$WARNINGS"
+  echo "质量守卫："
+  echo -e "$GUARD_OUTPUT"
 fi
 
-if [[ -n "$BUILD_FAIL" ]]; then
+if [[ -n "$BUILD_FAILS" ]]; then
   echo ""
-  echo "构建失败：${BUILD_FAIL}"
+  echo "构建失败："
+  echo -e "$BUILD_FAILS"
 fi
 
 echo ""
 echo "修复后重新 git add && git commit"
 echo "紧急跳过：VIBEGUARD_SKIP_PRECOMMIT=1 git commit -m \"msg\""
 
-REASON="${WARNINGS:+quality issues}${BUILD_FAIL:+${WARNINGS:+, }${BUILD_FAIL}}"
+REASON="${GUARD_FAIL:+guard fail}${BUILD_FAILS:+${GUARD_FAIL:+, }build fail}"
 DETAIL=$(echo "$STAGED_FILES" | head -5 | tr '\n' ' ')
 vg_log "pre-commit-guard" "git-commit" "block" "$REASON" "$DETAIL"
 

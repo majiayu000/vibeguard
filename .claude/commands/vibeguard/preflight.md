@@ -53,6 +53,31 @@ tags: [vibeguard, preflight, constraints, prevention]
    - 模块职责划分（哪个模块管什么）
    - 输出：`模式清单`
 
+3.5. **目录语义校验**
+   - 列出项目所有子目录名（一级 + 二级），对照内置语义映射表判断职责一致性：
+
+     | 目录名 | 预期职责 |
+     |--------|----------|
+     | middleware | 请求拦截 / 中间件逻辑 |
+     | schemas | 模型定义 / 数据验证 |
+     | models | ORM / 数据模型 |
+     | services | 业务逻辑 |
+     | utils / helpers | 纯函数工具 |
+     | routes / api | 路由定义 / 端点处理 |
+     | controllers | 请求处理 / 调度 |
+     | core | 核心逻辑 / 共享接口 |
+     | config | 配置加载 |
+     | commands | CLI 命令定义 |
+
+   - 对命中映射表的目录，抽样检查 top-level class/function 名（前 3 个文件），判断是否与目录语义一致
+   - SKIP：文件数 < 3 的目录、`tests/`、`migrations/`、`__pycache__/`、未命中映射表的目录
+   - 输出 PASS/WARN 报告：
+     ```
+     [DIR-SEMANTIC] schemas/ — PASS（3/3 文件含 Schema/Model 定义）
+     [DIR-SEMANTIC] utils/ — WARN（utils/db_manager.py 含 class DBManager，疑似业务逻辑而非纯函数）
+     ```
+   - WARN 项在 Step 5 自动生成约束：`[C-XX] utils/ 仅存放无副作用纯函数，DBManager 应迁至 services/`
+
 4. **运行静态守卫获取基线**
    - 根据语言选择对应的 vibeguard 守卫脚本：
      - **Rust**: `check_unwrap_in_prod.sh`, `check_duplicate_types.sh`, `check_nested_locks.sh`, `check_workspace_consistency.sh`

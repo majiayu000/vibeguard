@@ -45,6 +45,9 @@ jobs:
       - name: Validate Rust guard wiring contract
         run: bash scripts/ci/validate-wiring-contract.sh
 
+      - name: Validate doc paths
+        run: bash scripts/ci/validate-doc-paths.sh
+
       - name: Hook regression tests
         run: bash tests/test_hooks.sh
 

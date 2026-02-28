@@ -1,0 +1,12 @@
+# 已知的断裂路径引用 — 这些是命令文件中使用的 vibeguard/ 前缀路径
+# 命令文件设计为从外部项目调用，vibeguard/ 前缀指向安装目录而非 repo root
+# TODO: 统一路径约定后移除
+vibeguard/rules/universal.md
+vibeguard/rules/security.md
+vibeguard/scripts/compliance_check.sh
+vibeguard/claude-md/vibeguard-rules.md
+vibeguard/resources/skill-template.md
+vibeguard/spec.md
+
+# 已删除但文档未更新的路径
+tests/test_post_write_perf.sh
