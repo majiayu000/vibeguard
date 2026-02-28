@@ -9,6 +9,7 @@ set -euo pipefail
 #   bash vibeguard/scripts/compliance_check.sh /path/to/my-project
 
 PROJECT_DIR="${1:-.}"
+VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 PASS=0
 FAIL=0
 WARN=0
@@ -27,19 +28,23 @@ echo
 # --- Layer 1: 反重复系统 ---
 echo "--- Layer 1: Anti-Duplication ---"
 
-if [[ -f "${PROJECT_DIR}/scripts/check_duplicates.py" ]]; then
-  check_pass "check_duplicates.py exists"
+if [[ -f "${VIBEGUARD_DIR}/guards/python/check_duplicates.py" ]]; then
+  check_pass "check_duplicates.py available (vibeguard guards)"
+elif [[ -f "${PROJECT_DIR}/scripts/check_duplicates.py" ]]; then
+  check_pass "check_duplicates.py exists (project-local)"
 else
-  check_warn "check_duplicates.py not found (recommended: copy from vibeguard/guards/python/)"
+  check_warn "check_duplicates.py not found (install vibeguard or copy guards/python/)"
 fi
 
 # --- Layer 2: 命名约束 ---
 echo "--- Layer 2: Naming Convention ---"
 
-if [[ -f "${PROJECT_DIR}/scripts/check_naming_convention.py" ]]; then
-  check_pass "check_naming_convention.py exists"
+if [[ -f "${VIBEGUARD_DIR}/guards/python/check_naming_convention.py" ]]; then
+  check_pass "check_naming_convention.py available (vibeguard guards)"
+elif [[ -f "${PROJECT_DIR}/scripts/check_naming_convention.py" ]]; then
+  check_pass "check_naming_convention.py exists (project-local)"
 else
-  check_warn "check_naming_convention.py not found (recommended: copy from vibeguard/guards/python/)"
+  check_warn "check_naming_convention.py not found (install vibeguard or copy guards/python/)"
 fi
 
 # --- Layer 3: Pre-commit Hooks ---

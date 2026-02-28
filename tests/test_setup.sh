@@ -83,12 +83,26 @@ assert_cmd "安装后 ~/.codex/skills/vibeguard 存在" test -L "${HOME}/.codex/
 assert_cmd "settings helper 检测 mcp 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target mcp
 assert_cmd "settings helper 检测 pre hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
 assert_cmd "settings helper 检测 post hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target post-hooks
+assert_cmd "默认 core profile 不启用 full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 
 header "setup --clean"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean 路由到清理流程"
 assert_cmd "清理后 ~/.claude/skills/vibeguard 已移除" test ! -e "${HOME}/.claude/skills/vibeguard"
 assert_cmd "清理后 settings mcp 已移除" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target mcp >/dev/null 2>&1; test \$? -ne 0"
+
+header "setup install --profile full"
+install_full_out="$(bash "${REPO_DIR}/setup.sh" --profile full)"
+assert_contains "${install_full_out}" "Profile: full" "full profile 参数生效"
+assert_cmd "full profile 配置 full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
+assert_cmd "full profile 启用 stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
+assert_cmd "full profile 启用 learn-evaluator" grep -q "learn-evaluator.sh" "${HOME}/.claude/settings.json"
+assert_cmd "full profile 启用 post-build-check" grep -q "post-build-check.sh" "${HOME}/.claude/settings.json"
+
+header "setup --clean (after full)"
+clean_full_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
+assert_contains "${clean_full_out}" "VibeGuard cleaned." "full profile 清理成功"
+assert_cmd "清理后 full hooks 已移除" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 
 echo
 echo "=============================="

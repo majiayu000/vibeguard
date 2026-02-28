@@ -54,6 +54,19 @@ def has_post_hooks(data: dict[str, Any]) -> bool:
     return (
         any(_entry_contains(entry, "post-guard-check") for entry in post)
         and any(_entry_contains(entry, "post-edit-guard") for entry in post)
+        and any(_entry_contains(entry, "post-write-guard") for entry in post)
+    )
+
+
+def has_full_hooks(data: dict[str, Any]) -> bool:
+    hooks = data.get("hooks", {})
+    post = hooks.get("PostToolUse", []) if isinstance(hooks, dict) else []
+    stop = hooks.get("Stop", []) if isinstance(hooks, dict) else []
+    return (
+        has_post_hooks(data)
+        and any(_entry_contains(entry, "post-build-check") for entry in post)
+        and any(_entry_contains(entry, "stop-guard") for entry in stop)
+        and any(_entry_contains(entry, "learn-evaluator") for entry in stop)
     )
 
 
@@ -118,6 +131,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 0 if has_pre_hooks(data) else 1
     if args.target == "post-hooks":
         return 0 if has_post_hooks(data) else 1
+    if args.target == "full-hooks":
+        return 0 if has_full_hooks(data) else 1
     return 1
 
 
@@ -152,6 +167,11 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "mcp__vibeguard__guard_check", "post-guard-check.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-edit-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-write-guard.sh", state)
+    if args.profile == "full":
+        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-build-check.sh", state)
+        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-build-check.sh", state)
+        upsert_hook(hooks, args.repo_dir, "Stop", "", "stop-guard.sh", state)
+        upsert_hook(hooks, args.repo_dir, "Stop", "", "learn-evaluator.sh", state)
 
     if state["changed"]:
         save_settings(settings_path, data)
@@ -201,7 +221,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
                 h for h in original
                 if not any(
                     _entry_contains(h, key)
-                    for key in ("post-guard-check", "post-edit-guard", "post-write-guard")
+                    for key in ("post-guard-check", "post-edit-guard", "post-write-guard", "post-build-check")
                 )
             ]
             if len(filtered) != len(original):
@@ -213,7 +233,10 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
 
         if "Stop" in hooks and isinstance(hooks["Stop"], list):
             original = hooks["Stop"]
-            filtered = [h for h in original if not _entry_contains(h, "stop-guard")]
+            filtered = [
+                h for h in original
+                if not any(_entry_contains(h, key) for key in ("stop-guard", "learn-evaluator"))
+            ]
             if len(filtered) != len(original):
                 if filtered:
                     hooks["Stop"] = filtered
@@ -239,12 +262,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="Check installed state")
     check.add_argument("--settings-file", required=True)
-    check.add_argument("--target", choices=["mcp", "pre-hooks", "post-hooks"], required=True)
+    check.add_argument("--target", choices=["mcp", "pre-hooks", "post-hooks", "full-hooks"], required=True)
     check.set_defaults(func=cmd_check)
 
     upsert = sub.add_parser("upsert-vibeguard", help="Upsert VibeGuard MCP/hooks config")
     upsert.add_argument("--settings-file", required=True)
     upsert.add_argument("--repo-dir", required=True)
+    upsert.add_argument("--profile", choices=["core", "full"], default="core")
     upsert.set_defaults(func=cmd_upsert_vibeguard)
 
     remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard MCP/hooks config")

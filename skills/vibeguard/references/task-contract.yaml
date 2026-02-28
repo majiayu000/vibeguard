@@ -44,15 +44,15 @@ task_contract:
 # 验证命令
 validation:
   pre_task:
-    - command: "grep -rn 'class.*Protocol' app/ --include='*.py'"
+    - command: "grep -rn 'class.*Protocol' <APP_ROOT>/ --include='*.py'"
       purpose: "检查是否有类似 Protocol 已存在"
-    - command: "python scripts/check_duplicates.py"
+    - command: "python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py"
       purpose: "检查当前重复状态"
 
   post_task:
     - command: "pytest tests/architecture/ -v"
       purpose: "运行架构守卫"
-    - command: "python scripts/check_naming_convention.py app/"
+    - command: "python ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <APP_ROOT>/"
       purpose: "检查命名规范"
-    - command: "python scripts/check_duplicates.py --strict"
+    - command: "python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py --strict"
       purpose: "检查无新增重复"

@@ -8,6 +8,7 @@ set -euo pipefail
 #   bash vibeguard/scripts/metrics_collector.sh [project_dir]
 
 PROJECT_DIR="${1:-.}"
+VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 TODAY=$(date '+%Y-%m-%d')
 
 echo "======================================"
@@ -20,8 +21,10 @@ echo
 # --- M3: 重复代码率 ---
 echo "--- M3: Duplicate Definitions ---"
 
-if [[ -f "${PROJECT_DIR}/scripts/check_duplicates.py" ]]; then
-  dup_output=$(cd "${PROJECT_DIR}" && python3 scripts/check_duplicates.py 2>&1 || true)
+DUP_CHECK="${VIBEGUARD_DIR}/guards/python/check_duplicates.py"
+[[ -f "${DUP_CHECK}" ]] || DUP_CHECK="${PROJECT_DIR}/scripts/check_duplicates.py"
+if [[ -f "${DUP_CHECK}" ]]; then
+  dup_output=$(cd "${PROJECT_DIR}" && python3 "${DUP_CHECK}" 2>&1 || true)
   dup_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()
@@ -47,8 +50,10 @@ echo
 # --- M4: 命名违规率 ---
 echo "--- M4: Naming Violations ---"
 
-if [[ -f "${PROJECT_DIR}/scripts/check_naming_convention.py" ]]; then
-  naming_output=$(cd "${PROJECT_DIR}" && python3 scripts/check_naming_convention.py 2>&1 || true)
+NAMING_CHECK="${VIBEGUARD_DIR}/guards/python/check_naming_convention.py"
+[[ -f "${NAMING_CHECK}" ]] || NAMING_CHECK="${PROJECT_DIR}/scripts/check_naming_convention.py"
+if [[ -f "${NAMING_CHECK}" ]]; then
+  naming_output=$(cd "${PROJECT_DIR}" && python3 "${NAMING_CHECK}" 2>&1 || true)
   naming_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()
@@ -65,7 +70,7 @@ print(m.group(1) if m else '0')
     echo "  Status: RED (target: 0)"
   fi
 else
-  echo "  check_naming_convention.py not found, skipping"
+  echo "  check_naming_convention.py not found (neither vibeguard guards nor project-local), skipping"
 fi
 echo
 

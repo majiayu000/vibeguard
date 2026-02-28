@@ -5,7 +5,8 @@ set -euo pipefail
 # 一键部署防幻觉规范到 ~/.claude/ 和 ~/.codex/
 #
 # 使用方法：
-#   bash setup.sh          # 安装
+#   bash setup.sh                         # 安装（默认 core）
+#   bash setup.sh --profile full          # 安装 full（含 Stop Gate/Build Check）
 #   bash setup.sh --check  # 仅检查状态
 #   bash setup.sh --clean  # 清理安装
 
@@ -28,7 +29,8 @@ settings_check() {
 
 settings_upsert() {
   local settings_file="$1"
-  python3 "${SETTINGS_HELPER}" upsert-vibeguard --settings-file "${settings_file}" --repo-dir "${REPO_DIR}"
+  local profile="$2"
+  python3 "${SETTINGS_HELPER}" upsert-vibeguard --settings-file "${settings_file}" --repo-dir "${REPO_DIR}" --profile "${profile}"
 }
 
 settings_remove() {
@@ -65,10 +67,15 @@ if [[ "${1:-}" == "--check" ]]; then
     red "[MISSING] VibeGuard rules not in ~/.claude/CLAUDE.md"
   fi
 
-  # Check Claude Code skills
+  # Check Claude Code skills (symlink exists AND target is valid)
   for skill in vibeguard auto-optimize strategic-compact eval-harness iterative-retrieval; do
-    if [[ -L "${CLAUDE_DIR}/skills/${skill}" ]]; then
-      green "[OK] ${skill} skill symlinked to ~/.claude/skills/"
+    link="${CLAUDE_DIR}/skills/${skill}"
+    if [[ -L "${link}" ]]; then
+      if [[ -e "${link}" ]]; then
+        green "[OK] ${skill} skill symlinked to ~/.claude/skills/"
+      else
+        red "[BROKEN] ${skill} symlink exists but target missing: $(readlink "${link}")"
+      fi
     else
       red "[MISSING] ${skill} skill not in ~/.claude/skills/"
     fi
@@ -96,10 +103,15 @@ if [[ "${1:-}" == "--check" ]]; then
     yellow "[MISSING] context profiles not in ~/.claude/context-profiles/"
   fi
 
-  # Check Codex skills
-for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
-    if [[ -L "${CODEX_DIR}/skills/${skill}" ]]; then
-      green "[OK] ${skill} skill symlinked to ~/.codex/skills/"
+  # Check Codex skills (symlink exists AND target is valid)
+  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+    link="${CODEX_DIR}/skills/${skill}"
+    if [[ -L "${link}" ]]; then
+      if [[ -e "${link}" ]]; then
+        green "[OK] ${skill} skill symlinked to ~/.codex/skills/"
+      else
+        red "[BROKEN] ${skill} symlink exists but target missing: $(readlink "${link}")"
+      fi
     else
       yellow "[MISSING] ${skill} skill not in ~/.codex/skills/"
     fi
@@ -144,9 +156,15 @@ for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
   fi
 
   if settings_check "${SETTINGS_FILE}" "post-hooks"; then
-    green "[OK] PostToolUse hooks configured (guard_check + Edit quality)"
+    green "[OK] PostToolUse hooks configured (guard_check + Edit quality + Write dedup)"
   else
     yellow "[MISSING] PostToolUse hooks not fully configured"
+  fi
+
+  if settings_check "${SETTINGS_FILE}" "full-hooks"; then
+    green "[OK] Full profile hooks configured (Stop gate + Build check + Learn evaluator)"
+  else
+    yellow "[INFO] Full profile hooks not configured (current install may be core profile)"
   fi
 
   exit 0
@@ -229,9 +247,41 @@ else:
 fi
 
 # --- Install Mode ---
+PROFILE="${VIBEGUARD_SETUP_PROFILE:-core}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile)
+      if [[ $# -lt 2 ]]; then
+        red "ERROR: --profile requires a value (core|full)"
+        exit 1
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE="${1#*=}"
+      shift
+      ;;
+    *)
+      red "ERROR: unknown argument: $1"
+      red "Usage: bash setup.sh [--profile core|full] | --check | --clean"
+      exit 1
+      ;;
+  esac
+done
+
+case "${PROFILE}" in
+  core|full) ;;
+  *)
+    red "ERROR: unsupported profile: ${PROFILE} (expected core|full)"
+    exit 1
+    ;;
+esac
+
 echo "=============================="
 echo "VibeGuard Setup"
 echo "Repository: ${REPO_DIR}"
+echo "Profile: ${PROFILE}"
 echo "=============================="
 echo
 
@@ -261,8 +311,12 @@ green "  auto-optimize -> ~/.claude/skills/auto-optimize"
 
 # New skills from ECC
 for skill in strategic-compact eval-harness iterative-retrieval; do
-  safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
-  green "  ${skill} -> ~/.claude/skills/${skill}"
+  if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
+    safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
+    green "  ${skill} -> ~/.claude/skills/${skill}"
+  else
+    yellow "  SKIP ${skill} (source not found: ${REPO_DIR}/skills/${skill})"
+  fi
 done
 echo
 
@@ -301,8 +355,12 @@ echo "Step 4: Install Codex skills"
 mkdir -p "${CODEX_DIR}/skills"
 
 for skill in plan-flow fixflow optflow plan-mode auto-optimize; do
-  safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
-  green "  ${skill} -> ~/.codex/skills/${skill}"
+  if [[ -d "${REPO_DIR}/workflows/${skill}" ]]; then
+    safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
+    green "  ${skill} -> ~/.codex/skills/${skill}"
+  else
+    yellow "  SKIP ${skill} (source not found: ${REPO_DIR}/workflows/${skill})"
+  fi
 done
 
 # Also link vibeguard to Codex
@@ -337,11 +395,11 @@ fi
 echo
 
 # 7. Configure MCP Server + Hooks in settings.json
-echo "Step 7: Configure MCP Server + Hooks"
+echo "Step 7: Configure MCP Server + Hooks (${PROFILE} profile)"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
-if settings_upsert "${SETTINGS_FILE}" >/dev/null 2>&1; then
-  green "  MCP Server + Hooks configured in ~/.claude/settings.json"
+if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null 2>&1; then
+  green "  MCP Server + Hooks configured in ~/.claude/settings.json (${PROFILE})"
 else
   red "  Failed to configure settings.json"
 fi
@@ -356,6 +414,7 @@ from pathlib import Path
 
 claude_md = Path('${CLAUDE_DIR}/CLAUDE.md')
 rules = Path('${RULES_FILE}').read_text()
+rules = rules.replace('__VIBEGUARD_DIR__', '${REPO_DIR}')
 
 if claude_md.exists():
     content = claude_md.read_text()
@@ -449,6 +508,29 @@ else
   ((errors++))
 fi
 
+if settings_check "${SETTINGS_FILE}" "pre-hooks"; then
+  green "[OK] Pre hooks in settings.json"
+else
+  red "[FAIL] Pre hooks not fully configured"
+  ((errors++))
+fi
+
+if settings_check "${SETTINGS_FILE}" "post-hooks"; then
+  green "[OK] Core post hooks in settings.json"
+else
+  red "[FAIL] Core post hooks not fully configured"
+  ((errors++))
+fi
+
+if [[ "${PROFILE}" == "full" ]]; then
+  if settings_check "${SETTINGS_FILE}" "full-hooks"; then
+    green "[OK] Full profile hooks in settings.json"
+  else
+    red "[FAIL] Full profile hooks not fully configured"
+    ((errors++))
+  fi
+fi
+
 # Check Codex CLI (optional, for cross-review)
 if command -v codex &>/dev/null; then
   green "[OK] Codex CLI available (enables /vibeguard:cross-review)"
@@ -462,10 +544,11 @@ if [[ ${errors} -eq 0 ]]; then
   echo
   echo "Next steps:"
   echo "  1. Open a new Claude Code session to verify rules are active"
-  echo "  2. Run: /vibeguard:preflight <project_dir> — 修改前生成约束集（预防）"
-  echo "  3. Run: /vibeguard:check <project_dir> — 修改后运行守卫检查（验证）"
-  echo "  4. Run: /auto-optimize <project_dir> — 自主优化项目"
-  echo "  5. MCP Tools: guard_check, compliance_report, metrics_collect"
+  echo "  2. Current install profile: ${PROFILE} (switch via: bash setup.sh --profile full|core)"
+  echo "  3. Run: /vibeguard:preflight <project_dir> — 修改前生成约束集（预防）"
+  echo "  4. Run: /vibeguard:check <project_dir> — 修改后运行守卫检查（验证）"
+  echo "  5. Run: /auto-optimize <project_dir> — 自主优化项目"
+  echo "  6. MCP Tools: guard_check, compliance_report, metrics_collect"
   echo
   echo "Git Pre-Commit Guard:"
   echo "  在目标项目中安装: vibeguard install-hook <project_dir>"

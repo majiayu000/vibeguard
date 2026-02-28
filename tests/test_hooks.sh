@@ -307,6 +307,51 @@ result=$(echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-bu
 assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.json) 放行"
 
 # =========================================================
+header "pre-commit-guard.sh — timeout 回退"
+# =========================================================
+
+tmp_repo_precommit="$(mktemp -d)"
+git -C "$tmp_repo_precommit" init -q
+mkdir -p "$tmp_repo_precommit/bin" "$tmp_repo_precommit/src"
+
+cat >"$tmp_repo_precommit/Cargo.toml" <<'EOF'
+[package]
+name = "vg-precommit-test"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_precommit/src/lib.rs" <<'EOF'
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+EOF
+
+cat >"$tmp_repo_precommit/bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+exit 127
+EOF
+
+cat >"$tmp_repo_precommit/bin/gtimeout" <<'EOF'
+#!/usr/bin/env bash
+exit 127
+EOF
+
+cat >"$tmp_repo_precommit/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "check" ]]; then
+  exit 0
+fi
+exit 1
+EOF
+
+chmod +x "$tmp_repo_precommit/bin/timeout" "$tmp_repo_precommit/bin/gtimeout" "$tmp_repo_precommit/bin/cargo"
+git -C "$tmp_repo_precommit" add Cargo.toml src/lib.rs
+
+assert_exit_zero "timeout/gtimeout 不可用时回退执行，不误报构建失败" bash -c "cd '$tmp_repo_precommit' && PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_repo_precommit"
+
+# =========================================================
 # 总结
 # =========================================================
 

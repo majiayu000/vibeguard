@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 # VibeGuard — AI 防幻觉规则
 
-> 规则索引。详细规则按需查阅：`~/Desktop/code/AI/tools/vibeguard/rules/`
+> 规则索引。详细规则按需查阅：`__VIBEGUARD_DIR__/rules/`
 
 ## 核心约束
 

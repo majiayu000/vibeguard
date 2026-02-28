@@ -214,7 +214,8 @@ interview（采访）→ preflight（预防）→ 编码 → check（验证）�
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-bash ~/vibeguard/setup.sh
+bash ~/vibeguard/setup.sh                 # 默认 core
+bash ~/vibeguard/setup.sh --profile full  # 额外启用 Stop Gate / Learn evaluator
 ```
 
-新开 Claude Code 会话即生效。七层规则注入、Hooks 注册、Stop Gate 就位。
+新开 Claude Code 会话即生效。默认 `core` profile 注入七层规则与核心 Hooks；`full` profile 额外启用 Stop Gate。

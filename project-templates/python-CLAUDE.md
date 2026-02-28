@@ -112,8 +112,8 @@ app/
 运行守卫：
 ```bash
 pytest tests/architecture/test_code_quality_guards.py -v
-python scripts/check_naming_convention.py app/
-python scripts/check_duplicates.py --strict
+python ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <APP_ROOT>/
+python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py --strict
 ```
 
 ---

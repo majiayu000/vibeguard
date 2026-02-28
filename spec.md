@@ -268,15 +268,15 @@ task_contract:
 ### 4.4 CI 配置建议
 
 ```yaml
-# GitHub Actions 示例
+# GitHub Actions 示例（路径根据项目实际结构调整）
 - name: Run architecture guards
   run: pytest tests/architecture/test_code_quality_guards.py -v
 
 - name: Check duplicates
-  run: python scripts/check_duplicates.py --strict
+  run: python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py --strict
 
 - name: Check naming convention
-  run: python scripts/check_naming_convention.py app/
+  run: python ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <APP_ROOT>/
 ```
 
 ---

@@ -8,7 +8,8 @@
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-bash ~/vibeguard/setup.sh
+bash ~/vibeguard/setup.sh                 # 默认 core（推荐）
+bash ~/vibeguard/setup.sh --profile full  # full：额外启用 Stop Gate + post-build-check
 ```
 
 安装完成后新开一个 Claude Code 会话即生效。运行 `bash ~/vibeguard/setup.sh --check` 验证安装状态。
@@ -54,7 +55,7 @@ bash ~/vibeguard/setup.sh
 | AI 要编辑不存在的文件 | `pre-edit-guard` | **拦截** — 先 Read 确认文件内容 |
 | AI 编辑后新增了 `unwrap()`、硬编码路径 | `post-edit-guard` | **警告** — 给出具体修复方法 |
 | AI 编辑后新增了 `console.log` / `print()` 调试语句 | `post-edit-guard` | **警告** — 提示使用 logger |
-| AI 想结束但有未验证的源码变更 | `stop-guard` | **门禁** — 提醒完成验证后再结束 |
+| AI 想结束但有未验证的源码变更（`full` profile） | `stop-guard` | **门禁** — 提醒完成验证后再结束 |
 
 ### 3. MCP 工具（按需调用）
 
@@ -212,7 +213,8 @@ python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  #
 ## 管理
 
 ```bash
-bash ~/vibeguard/setup.sh           # 安装 / 更新（pull 新版后重新运行）
+bash ~/vibeguard/setup.sh                    # 安装 / 更新（默认 core）
+bash ~/vibeguard/setup.sh --profile full     # 切换到 full profile
 bash ~/vibeguard/setup.sh --check   # 检查安装状态
 bash ~/vibeguard/setup.sh --clean   # 卸载（清除所有注入的规则和 hooks）
 bash ~/vibeguard/scripts/ci/check-branch-protection.sh   # 检查 PR 必须通过 CI 门禁
