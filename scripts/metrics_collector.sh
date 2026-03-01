@@ -101,6 +101,53 @@ else
 fi
 echo
 
+# --- M6: TypeScript Guard Violations ---
+echo "--- M6: TypeScript Guard Violations ---"
+
+if [[ -f "${PROJECT_DIR}/package.json" || -f "${PROJECT_DIR}/tsconfig.json" ]]; then
+  ts_guard_dir="${VIBEGUARD_DIR}/guards/typescript"
+  if [[ -d "${ts_guard_dir}" ]]; then
+    count_tag_issues() {
+      local text="$1"
+      local tag="$2"
+      local matches
+      matches=$(echo "${text}" | grep -E "^\\[${tag}\\]" | grep -vE "PASS|检测到|detected" || true)
+      echo "${matches}" | sed '/^$/d' | wc -l | tr -d ' '
+    }
+
+    any_out=$(bash "${ts_guard_dir}/check_any_abuse.sh" "${PROJECT_DIR}" 2>&1 || true)
+    any_count=$(count_tag_issues "${any_out}" "TS-01")
+
+    console_out=$(bash "${ts_guard_dir}/check_console_residual.sh" "${PROJECT_DIR}" 2>&1 || true)
+    console_count=$(count_tag_issues "${console_out}" "TS-03")
+
+    api_out=$(bash "${ts_guard_dir}/check_no_api_direct_ai_call.sh" "${PROJECT_DIR}" 2>&1 || true)
+    api_count=$(count_tag_issues "${api_out}" "TS-13")
+
+    fallback_out=$(bash "${ts_guard_dir}/check_no_dual_track_fallback.sh" "${PROJECT_DIR}" 2>&1 || true)
+    fallback_count=$(count_tag_issues "${fallback_out}" "TS-14")
+
+    total_ts=$((any_count + console_count + api_count + fallback_count))
+    echo "  any abuse (TS-01): ${any_count}"
+    echo "  console residual (TS-03): ${console_count}"
+    echo "  api direct ai call (TS-13): ${api_count}"
+    echo "  dual-track fallback (TS-14): ${fallback_count}"
+    echo "  Total TS violations: ${total_ts}"
+    if [[ "${total_ts}" == "0" ]]; then
+      echo "  Status: PASS (target: 0)"
+    elif [[ "${total_ts}" -lt 5 ]]; then
+      echo "  Status: YELLOW (target: 0)"
+    else
+      echo "  Status: RED (target: 0)"
+    fi
+  else
+    echo "  guards/typescript not found, skipping"
+  fi
+else
+  echo "  no package.json/tsconfig.json, skipping"
+fi
+echo
+
 # --- Commit Stats ---
 echo "--- Commit Statistics (last 7 days) ---"
 

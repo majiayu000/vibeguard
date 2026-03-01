@@ -64,8 +64,11 @@ if [[ -f "${PROJECT_DIR}/.pre-commit-config.yaml" ]]; then
   else
     check_warn "ruff not found in pre-commit config"
   fi
+elif [[ -f "${PROJECT_DIR}/.husky/pre-commit" || -f "${PROJECT_DIR}/lefthook.yml" || -f "${PROJECT_DIR}/.git/hooks/pre-commit" ]]; then
+  check_pass "git hook based pre-commit guard exists (husky/lefthook/.git/hooks)"
+  check_warn "no .pre-commit-config.yaml; ensure secret/lint hooks are covered in your hook implementation"
 else
-  check_fail ".pre-commit-config.yaml not found"
+  check_fail "no pre-commit guard found (.pre-commit-config.yaml / .husky/pre-commit / lefthook)"
 fi
 
 # --- Layer 4: 架构守卫 ---
@@ -90,28 +93,35 @@ fi
 # --- Layer 6: Prompt Rules ---
 echo "--- Layer 6: Prompt Rules ---"
 
+PROJECT_RULE_FILE=""
 if [[ -f "${PROJECT_DIR}/CLAUDE.md" ]]; then
+  PROJECT_RULE_FILE="${PROJECT_DIR}/CLAUDE.md"
   check_pass "CLAUDE.md exists in project"
+elif [[ -f "${PROJECT_DIR}/AGENTS.md" ]]; then
+  PROJECT_RULE_FILE="${PROJECT_DIR}/AGENTS.md"
+  check_pass "AGENTS.md exists in project (used as project-level rule source)"
+fi
 
-  if grep -qiE "search before create|先搜后写" "${PROJECT_DIR}/CLAUDE.md"; then
+if [[ -n "${PROJECT_RULE_FILE}" ]]; then
+  if grep -qiE "search before create|先搜后写" "${PROJECT_RULE_FILE}"; then
     check_pass "SEARCH BEFORE CREATE rule present"
   else
-    check_warn "SEARCH BEFORE CREATE rule not found in CLAUDE.md"
+    check_warn "SEARCH BEFORE CREATE rule not found in project rule file"
   fi
 
-  if grep -qiE "no backward|不做.*向后兼容|no.*backward.*compat" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "no backward|不做.*向后兼容|no.*backward.*compat|兼容旧代码|兼容层" "${PROJECT_RULE_FILE}"; then
     check_pass "NO BACKWARD COMPATIBILITY rule present"
   else
-    check_warn "NO BACKWARD COMPATIBILITY rule not found in CLAUDE.md"
+    check_warn "NO BACKWARD COMPATIBILITY rule not found in project rule file"
   fi
 
-  if grep -qiE "hardcod|硬编码" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "hardcod|硬编码" "${PROJECT_RULE_FILE}"; then
     check_pass "NO HARDCODING rule present"
   else
-    check_warn "NO HARDCODING rule not found in CLAUDE.md"
+    check_warn "NO HARDCODING rule not found in project rule file"
   fi
 else
-  check_fail "CLAUDE.md not found in project"
+  check_fail "project rule file not found (expected CLAUDE.md or AGENTS.md)"
 fi
 
 if [[ -f "${HOME}/.claude/CLAUDE.md" ]]; then

@@ -125,7 +125,7 @@ if [[ "${1:-}" == "--check" ]]; then
   fi
 
   # Check TypeScript guards
-  for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
+  for guard in check_any_abuse.sh check_console_residual.sh check_no_api_direct_ai_call.sh check_no_dual_track_fallback.sh check_duplicate_constants.sh common.sh; do
     if [[ -x "${REPO_DIR}/guards/typescript/${guard}" ]]; then
       green "[OK] TypeScript guard: ${guard}"
     else

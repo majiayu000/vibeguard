@@ -43,6 +43,9 @@ argument-hint: "[project_dir]"
    ```bash
    bash ${VIBEGUARD_DIR}/guards/typescript/check_any_abuse.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_console_residual.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_no_api_direct_ai_call.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_no_dual_track_fallback.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_duplicate_constants.sh <project_dir>
    ```
 
    **Python 项目**：

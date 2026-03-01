@@ -47,6 +47,27 @@ const TS_JS_GUARDS: Record<string, GuardEntry> = {
       return strict ? [script, "--strict", target_dir] : [script, target_dir];
     },
   },
+  no_api_direct_ai_call: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_no_api_direct_ai_call.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
+  no_dual_track_fallback: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_no_dual_track_fallback.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
+  duplicate_constants: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_duplicate_constants.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
 };
 
 const GUARD_REGISTRY: GuardRegistry = {

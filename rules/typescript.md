@@ -31,6 +31,9 @@ TypeScript 项目扫描和修复的特定规则。
 | TS-10 | Design | 嵌套回调超过 3 层（应使用 async/await） | 中 |
 | TS-11 | Safety | 未处理的 null/undefined（缺少可选链或空值检查） | 中 |
 | TS-12 | Perf | 组件 props 传递整个对象而非必要字段 | 低 |
+| TS-13 | Safety | API 路由直接 import/调用模型 SDK（绕过统一任务层） | 高 |
+| TS-14 | Safety | 双轨执行/隐式回退分支（sync fallback / dual-track marker） | 高 |
+| TS-15 | Dedup | 常量/类型/函数在多文件重复定义且未抽象 | 中 |
 
 ## 验证命令
 ```bash

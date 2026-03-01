@@ -82,7 +82,7 @@ tags: [vibeguard, preflight, constraints, prevention]
    - 根据语言选择对应的 vibeguard 守卫脚本：
      - **Rust**: `check_unwrap_in_prod.sh`, `check_duplicate_types.sh`, `check_nested_locks.sh`, `check_workspace_consistency.sh`
      - **Python**: `check_duplicates.py`, `check_naming_convention.py`, `test_code_quality_guards.py`
-     - **TypeScript**: `check_any_abuse.sh`, `check_console_residual.sh`
+     - **TypeScript**: `check_any_abuse.sh`, `check_console_residual.sh`, `check_no_api_direct_ai_call.sh`, `check_no_dual_track_fallback.sh`, `check_duplicate_constants.sh`
    - 记录当前违规数量作为基线（修改后不能增加）
    - 输出：`守卫基线`
 

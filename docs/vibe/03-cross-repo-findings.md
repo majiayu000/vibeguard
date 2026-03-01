@@ -80,3 +80,25 @@
 1. 先补 `P0`（合同一致性 + 禁止静默降级），优先阻断“配置可写但不生效”。
 2. 再补 `P1`（单一事实源 + 语义副作用 + 主链路接线），优先阻断“看起来修了但其实没接上”。
 3. 最后补 `P2`（资源预算统一与命名债务），降低长期维护成本。
+
+---
+
+## 2026-03-01 增量补强（waoowaoo 守卫回灌）
+
+本轮把跨库验证过的守卫模式抽象回灌到 VibeGuard（非项目私有逻辑直拷）：
+
+1. 新增 `TS-13`：`check_no_api_direct_ai_call.sh`
+- 目标：拦截 API 路由层直接 import/调用模型 SDK 的行为，强制经统一任务层。
+
+2. 新增 `TS-14`：`check_no_dual_track_fallback.sh`
+- 目标：拦截双轨执行标记（如 sync fallback 分支），防止“看起来可用、实际掩盖错误”。
+
+3. 升级 `TS-15`：`check_duplicate_constants.sh`
+- 修复计数作用域缺陷（明细和 summary 不一致）。
+- 忽略 Next.js Route Handler 的 `GET/POST/...` 合法重复导出，降低误报。
+
+4. 配套接线同步
+- MCP `guard_check` 新增 `no_api_direct_ai_call / no_dual_track_fallback / duplicate_constants`。
+- `/vibeguard:check` 与 `/vibeguard:preflight` 命令文档同步新增 TS 守卫。
+- `setup --check` 与 `metrics_collector.sh` 同步新增 TS 守卫可见性与指标输出。
+- `compliance_check.sh` 支持 `AGENTS.md` 作为项目级规则源（不再强依赖 `CLAUDE.md`）。

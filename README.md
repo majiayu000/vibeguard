@@ -197,6 +197,15 @@ python3 ~/vibeguard/guards/python/check_duplicates.py /path/to/project        # 
 python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  # camelCase 混用
 ```
 
+**TypeScript / JavaScript**
+```bash
+bash ~/vibeguard/guards/typescript/check_any_abuse.sh /path/to/project                 # any / as any / ts-ignore
+bash ~/vibeguard/guards/typescript/check_console_residual.sh /path/to/project           # console 残留
+bash ~/vibeguard/guards/typescript/check_no_api_direct_ai_call.sh /path/to/project      # API 路由直连模型 SDK
+bash ~/vibeguard/guards/typescript/check_no_dual_track_fallback.sh /path/to/project     # 双轨执行/隐式回退
+bash ~/vibeguard/guards/typescript/check_duplicate_constants.sh /path/to/project         # 常量/类型/函数重复定义
+```
+
 ## 规则体系
 
 守卫脚本的检查规则定义在 `rules/` 下：
@@ -205,7 +214,7 @@ python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project  #
 |------|------|
 | `universal.md` | U-01 ~ U-23 通用规则 |
 | `security.md` | SEC-01 ~ SEC-10 安全规则 |
-| `typescript.md` | TS-01 ~ TS-12 |
+| `typescript.md` | TS-01 ~ TS-15 |
 | `python.md` | PY-01 ~ PY-12 |
 | `go.md` | GO-01 ~ GO-12 |
 | `rust.md` | Rust 专项规则 |
@@ -237,7 +246,8 @@ vibeguard/
 │   └── stop-guard.sh                 #   完成前验证门禁
 ├── guards/                           # 静态检查脚本
 │   ├── rust/                         #   Rust 守卫
-│   └── python/                       #   Python 守卫
+│   ├── python/                       #   Python 守卫
+│   └── typescript/                   #   TypeScript/JavaScript 守卫
 ├── .claude/commands/vibeguard/       # 8 个自定义命令
 ├── templates/project-rules/          # 路径作用域规则模板（可选部署到项目）
 ├── claude-md/vibeguard-rules.md      # 注入到 CLAUDE.md 的规则索引

@@ -419,7 +419,7 @@ vibeguard/
 |---|------|------|--------|
 | G1 | 语义重复检测（名称不同但功能相似） | 无法捕获变体重复 | P1 |
 | G2 | 自动化指标采集 | 复盘依赖人工统计 | P1 |
-| G3 | TypeScript 守卫 | TS 代码缺少架构守卫 | P2 |
+| G3 | TypeScript 守卫语义覆盖 | 需持续补强 API 直连模型 / 双轨回退等业务级规则 | P1 |
 | G4 | 运行时数据验证 | 空页面问题需要集成测试 | P2 |
 | G5 | Workflow BDD 模块去重 | fixflow/optflow 中 BDD 段落重复 | P3 |
 
@@ -432,7 +432,7 @@ vibeguard/
 
 **Phase 2（下一步）**：
 - 自动化指标采集（`metrics_collector.sh`）
-- TypeScript 架构守卫（`eslint-guards.ts`）
+- TypeScript 守卫扩展（`eslint-guards.ts` + `TS-13/TS-14/TS-15`）
 - ~~Rust 项目模板和守卫~~ ✅ Rust guards 已完成（RS-01/RS-03/RS-05）
 
 **Phase 3（未来）**：

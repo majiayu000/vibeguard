@@ -113,3 +113,18 @@ test("guard_check: rust semantic_effect guard is wired", async () => {
     assert.doesNotMatch(text, /不支持的守卫/);
   });
 });
+
+test("guard_check: typescript guard list includes anti-fallback and anti-direct-ai guards", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    fs.writeFileSync(path.join(tmpdir, "package.json"), '{"name":"demo"}\n', "utf8");
+    const text = await handle_guard_check({
+      target_dir: tmpdir,
+      language: "typescript",
+      guard: "not_exists",
+      strict: false,
+    });
+    assert.match(text, /no_api_direct_ai_call/);
+    assert.match(text, /no_dual_track_fallback/);
+    assert.match(text, /duplicate_constants/);
+  });
+});
