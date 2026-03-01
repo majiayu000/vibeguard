@@ -88,8 +88,18 @@ print(f2)
 }
 
 # Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
-# 优先使用环境变量，否则按 PID 树推导（同一终端会话的父进程 PID 相同）
-VIBEGUARD_SESSION_ID="${VIBEGUARD_SESSION_ID:-$(echo "$$-$(date +%Y%m%d)" | shasum | cut -c1-8)}"
+# 文件持久化 + 30 分钟续期：同一会话的 hook 共享稳定 session_id
+if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
+  _vg_sf="${VIBEGUARD_LOG_DIR}/.session_id"
+  if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+    VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+    touch "$_vg_sf" 2>/dev/null || true
+  else
+    VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+    mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+    printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+  fi
+fi
 
 # 计时器：在 hook 开头调用 vg_start_timer，vg_log 自动计算耗时
 _VG_START_MS=""
@@ -110,14 +120,15 @@ vg_log() {
   local reason="${4:-}"
   local detail="${5:-}"
 
+  # Truncate detail to 200 chars
+  detail="${detail:0:200}"
+
   # 计算耗时
   local duration_ms=""
   if [[ -n "$_VG_START_MS" ]]; then
     local end_ms
     if command -v perl &>/dev/null; then
       end_ms=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000')
-    elif command -v python3 &>/dev/null; then
-      end_ms=$(python3 -c 'import time; print(int(time.time()*1000))')
     else
       end_ms=$(date +%s)000
     fi
@@ -125,47 +136,25 @@ vg_log() {
     _VG_START_MS=""
   fi
 
-  mkdir -p "$VIBEGUARD_LOG_DIR"
+  mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
   chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
-  VG_HOOK="$hook" VG_TOOL="$tool" VG_DECISION="$decision" \
-  VG_REASON="$reason" VG_DETAIL="$detail" VG_LOG_FILE="$VIBEGUARD_LOG_FILE" \
-  VG_SESSION_ID="$VIBEGUARD_SESSION_ID" VG_DURATION_MS="${duration_ms:-}" \
-  VG_AGENT_TYPE="${VIBEGUARD_AGENT_TYPE:-}" \
-  python3 -c '
-import json, datetime, os, re
+  # Pure bash JSON serialization（消除 python3 子进程）
+  local ts
+  ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-detail = os.environ.get("VG_DETAIL", "").strip()[:200]
-# 脱敏：移除 Bearer token、密钥、密码等敏感信息
-detail = re.sub(
-    r"(Authorization|Bearer|token|password|secret|key|apikey|api_key)"
-    r"[\s:=]+\S+",
-    r"\1=[REDACTED]",
-    detail,
-    flags=re.IGNORECASE,
-)
+  # JSON escape: reason 和 detail 可能含特殊字符
+  local esc_reason="${reason//\\/\\\\}" esc_detail="${detail//\\/\\\\}"
+  esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
+  esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
+  esc_reason="${esc_reason//$'\t'/\\t}" esc_detail="${esc_detail//$'\t'/\\t}"
 
-event = {
-    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "session": os.environ.get("VG_SESSION_ID", ""),
-    "hook": os.environ.get("VG_HOOK", ""),
-    "tool": os.environ.get("VG_TOOL", ""),
-    "decision": os.environ.get("VG_DECISION", ""),
-    "reason": os.environ.get("VG_REASON", "").strip(),
-    "detail": detail,
-}
-# 可选字段：仅在有值时写入
-duration = os.environ.get("VG_DURATION_MS", "")
-if duration:
-    event["duration_ms"] = int(duration)
-agent_type = os.environ.get("VG_AGENT_TYPE", "")
-if agent_type:
-    event["agent"] = agent_type
+  local json
+  json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
+  [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
+  [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
+  json="${json}}"
 
-log_file = os.environ["VG_LOG_FILE"]
-with open(log_file, "a") as f:
-    f.write(json.dumps(event, ensure_ascii=False) + "\n")
-import os as _os
-_os.chmod(log_file, 0o600)
-' 2>/dev/null || true
+  printf '%s\n' "$json" >> "$VIBEGUARD_LOG_FILE"
+  chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
 }

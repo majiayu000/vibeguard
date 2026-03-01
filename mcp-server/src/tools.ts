@@ -137,13 +137,31 @@ const GUARD_REGISTRY: GuardRegistry = {
   },
 };
 
+function find_eslint_configs(target_dir: string): string[] {
+  const configs: string[] = [];
+  const search = (dir: string, depth: number) => {
+    if (depth > 2) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith("eslint.config.") || entry.name.startsWith(".eslintrc")) {
+        configs.push(path.join(dir, entry.name));
+      }
+      if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
+        search(path.join(dir, entry.name), depth + 1);
+      }
+    }
+  };
+  search(target_dir, 0);
+  return configs;
+}
+
 async function run_eslint_guard(target_dir: string): Promise<string> {
-  // 检查项目中是否有 eslint 配置
-  const check = await exec_script("find", [
-    target_dir, "-maxdepth", "2",
-    "-name", "eslint.config.*", "-o", "-name", ".eslintrc*",
-  ]);
-  const configs = check.stdout.trim().split("\n").filter(Boolean);
+  const configs = find_eslint_configs(target_dir);
 
   const rules_path = path.join(
     get_vibeguard_root(), "rules", "typescript.md"
@@ -188,7 +206,7 @@ async function run_quality_guard(target_dir: string): Promise<string> {
     );
   }
 
-  const result = await exec_script("python3", ["-m", "pytest", files[0], "-v"], target_dir);
+  const result = await exec_script("python3", ["-m", "pytest", ...files, "-v"], target_dir);
   return format_output("quality", result.stdout, result.stderr, result.exit_code);
 }
 

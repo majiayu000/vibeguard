@@ -45,13 +45,20 @@ elif command -v gtimeout >/dev/null 2>&1; then
 fi
 command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 
-# --- 收集 staged 源码文件 ---
+# --- 收集 staged 源码文件（单次 git diff，按扩展名过滤） ---
+_ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
 STAGED_FILES=""
-for ext in $VG_SOURCE_EXTS; do
-  files=$(git diff --cached --name-only --diff-filter=ACM -- "*.${ext}" 2>/dev/null || true)
-  [[ -n "$files" ]] && STAGED_FILES="${STAGED_FILES}${files}"$'\n'
-done
-STAGED_FILES=$(echo "$STAGED_FILES" | sort -u | sed '/^$/d')
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  ext="${file##*.}"
+  for e in $VG_SOURCE_EXTS; do
+    if [[ "$ext" == "$e" ]]; then
+      STAGED_FILES="${STAGED_FILES}${file}"$'\n'
+      break
+    fi
+  done
+done <<< "$_ALL_STAGED"
+STAGED_FILES=$(echo "$STAGED_FILES" | sed '/^$/d')
 
 if [[ -z "$STAGED_FILES" ]]; then
   exit 0

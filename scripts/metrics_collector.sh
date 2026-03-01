@@ -9,6 +9,7 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+source "$(dirname "$0")/lib/guard_paths.sh"
 TODAY=$(date '+%Y-%m-%d')
 
 echo "======================================"
@@ -21,9 +22,8 @@ echo
 # --- M3: 重复代码率 ---
 echo "--- M3: Duplicate Definitions ---"
 
-DUP_CHECK="${VIBEGUARD_DIR}/guards/python/check_duplicates.py"
-[[ -f "${DUP_CHECK}" ]] || DUP_CHECK="${PROJECT_DIR}/scripts/check_duplicates.py"
-if [[ -f "${DUP_CHECK}" ]]; then
+DUP_CHECK=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
+if [[ -n "${DUP_CHECK}" ]]; then
   dup_output=$(cd "${PROJECT_DIR}" && python3 "${DUP_CHECK}" 2>&1 || true)
   dup_count=$(python3 -c "
 import re, sys
@@ -50,9 +50,8 @@ echo
 # --- M4: 命名违规率 ---
 echo "--- M4: Naming Violations ---"
 
-NAMING_CHECK="${VIBEGUARD_DIR}/guards/python/check_naming_convention.py"
-[[ -f "${NAMING_CHECK}" ]] || NAMING_CHECK="${PROJECT_DIR}/scripts/check_naming_convention.py"
-if [[ -f "${NAMING_CHECK}" ]]; then
+NAMING_CHECK=$(find_guard "python/check_naming_convention.py" "$PROJECT_DIR")
+if [[ -n "${NAMING_CHECK}" ]]; then
   naming_output=$(cd "${PROJECT_DIR}" && python3 "${NAMING_CHECK}" 2>&1 || true)
   naming_count=$(python3 -c "
 import re, sys
@@ -70,14 +69,14 @@ print(m.group(1) if m else '0')
     echo "  Status: RED (target: 0)"
   fi
 else
-  echo "  check_naming_convention.py not found (neither vibeguard guards nor project-local), skipping"
+  echo "  check_naming_convention.py not found, skipping"
 fi
 echo
 
 # --- M5: 架构守卫通过率 ---
 echo "--- M5: Architecture Guard Pass Rate ---"
 
-guard_file=$(find "${PROJECT_DIR}" -path "*/architecture/test_code_quality_guards.py" -type f 2>/dev/null | head -1)
+guard_file=$(find_quality_guard "$PROJECT_DIR")
 if [[ -n "${guard_file}" ]]; then
   guard_output=$(cd "${PROJECT_DIR}" && python3 -m pytest "${guard_file}" -v 2>&1 || true)
   passed=$(echo "${guard_output}" | grep -c " PASSED" || echo "0")

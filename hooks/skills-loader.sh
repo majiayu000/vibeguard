@@ -8,6 +8,14 @@
 # exit 0 = 始终放行（不阻止操作）
 set -euo pipefail
 
+# 共享 session ID（source log.sh 获取稳定的 VIBEGUARD_SESSION_ID）
+_VG_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${_VG_SCRIPT_DIR}/log.sh" ]]; then
+  source "${_VG_SCRIPT_DIR}/log.sh"
+elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; then
+  source "${VIBEGUARD_DIR}/hooks/log.sh"
+fi
+
 # 每会话只运行一次：检查标志文件
 SESSION_FLAG="${HOME}/.vibeguard/.skills_loaded_${VIBEGUARD_SESSION_ID:-$$}"
 
