@@ -326,6 +326,7 @@ mkdir -p "${CLAUDE_DIR}/agents"
 for agent in "${REPO_DIR}"/agents/*.md; do
   [[ -f "$agent" ]] || continue
   name=$(basename "$agent")
+  rm -f "${CLAUDE_DIR}/agents/${name}"
   cp "$agent" "${CLAUDE_DIR}/agents/${name}"
   green "  ${name} -> ~/.claude/agents/${name}"
 done

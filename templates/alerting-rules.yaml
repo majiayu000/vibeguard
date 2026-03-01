@@ -1,0 +1,67 @@
+# VibeGuard 告警规则 — Prometheus Alerting Rules
+#
+# 复制到 Prometheus alerting rules 目录使用。
+# 需要先通过 metrics-exporter.sh 导出指标。
+#
+# 用法：
+#   cp templates/alerting-rules.yaml /etc/prometheus/rules/vibeguard.yaml
+#   # 或集成到已有 alerting rules 配置
+
+groups:
+  - name: vibeguard
+    rules:
+      # 守卫违规率过高 — 可能代码质量下降或规则需要调整
+      - alert: HighViolationRate
+        expr: >
+          sum(rate(vibeguard_guard_violation_total[1h])) /
+          sum(rate(vibeguard_hook_trigger_total[1h])) > 0.3
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "VibeGuard 违规率超过 30%"
+          description: >
+            过去 1 小时内守卫违规率为 {{ $value | humanizePercentage }}。
+            检查是否有新引入的代码模式触发了过多警告。
+            运行 /vibeguard:stats 查看详情。
+
+      # Hook 执行超时 — 可能守卫脚本性能退化
+      - alert: SlowHookExecution
+        expr: >
+          vibeguard_hook_duration_seconds_sum /
+          vibeguard_hook_duration_seconds_count > 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "VibeGuard Hook {{ $labels.hook }} 平均耗时超过 10s"
+          description: >
+            Hook {{ $labels.hook }} 平均执行时间为 {{ $value | humanizeDuration }}。
+            检查守卫脚本是否有性能问题。
+
+      # Agent 不活跃 — 可能会话未正常运行
+      - alert: NoRecentEvents
+        expr: >
+          time() - vibeguard_events_total > 86400
+        for: 24h
+        labels:
+          severity: info
+        annotations:
+          summary: "VibeGuard 超过 24 小时无新事件"
+          description: >
+            events.jsonl 超过 24 小时未有新事件写入。
+            如果 AI agent 应在活跃使用中，检查 hooks 是否正常触发。
+
+      # Block 事件突增 — 可能有系统性问题
+      - alert: HighBlockRate
+        expr: >
+          sum(rate(vibeguard_hook_trigger_total{decision="block"}[1h])) > 5
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VibeGuard Block 事件突增"
+          description: >
+            过去 30 分钟内 Block 速率为 {{ $value }}/h。
+            可能存在系统性安全问题或配置错误。
+            运行 /vibeguard:stats 查看被拦截的操作详情。

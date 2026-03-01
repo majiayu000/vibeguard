@@ -91,6 +91,18 @@ print(f2)
 # 优先使用环境变量，否则按 PID 树推导（同一终端会话的父进程 PID 相同）
 VIBEGUARD_SESSION_ID="${VIBEGUARD_SESSION_ID:-$(echo "$$-$(date +%Y%m%d)" | shasum | cut -c1-8)}"
 
+# 计时器：在 hook 开头调用 vg_start_timer，vg_log 自动计算耗时
+_VG_START_MS=""
+vg_start_timer() {
+  if command -v perl &>/dev/null; then
+    _VG_START_MS=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000')
+  elif command -v python3 &>/dev/null; then
+    _VG_START_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
+  else
+    _VG_START_MS=$(date +%s)000
+  fi
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -98,12 +110,28 @@ vg_log() {
   local reason="${4:-}"
   local detail="${5:-}"
 
+  # 计算耗时
+  local duration_ms=""
+  if [[ -n "$_VG_START_MS" ]]; then
+    local end_ms
+    if command -v perl &>/dev/null; then
+      end_ms=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000')
+    elif command -v python3 &>/dev/null; then
+      end_ms=$(python3 -c 'import time; print(int(time.time()*1000))')
+    else
+      end_ms=$(date +%s)000
+    fi
+    duration_ms=$(( end_ms - _VG_START_MS ))
+    _VG_START_MS=""
+  fi
+
   mkdir -p "$VIBEGUARD_LOG_DIR"
   chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
   VG_HOOK="$hook" VG_TOOL="$tool" VG_DECISION="$decision" \
   VG_REASON="$reason" VG_DETAIL="$detail" VG_LOG_FILE="$VIBEGUARD_LOG_FILE" \
-  VG_SESSION_ID="$VIBEGUARD_SESSION_ID" \
+  VG_SESSION_ID="$VIBEGUARD_SESSION_ID" VG_DURATION_MS="${duration_ms:-}" \
+  VG_AGENT_TYPE="${VIBEGUARD_AGENT_TYPE:-}" \
   python3 -c '
 import json, datetime, os, re
 
@@ -126,6 +154,14 @@ event = {
     "reason": os.environ.get("VG_REASON", "").strip(),
     "detail": detail,
 }
+# 可选字段：仅在有值时写入
+duration = os.environ.get("VG_DURATION_MS", "")
+if duration:
+    event["duration_ms"] = int(duration)
+agent_type = os.environ.get("VG_AGENT_TYPE", "")
+if agent_type:
+    event["agent"] = agent_type
+
 log_file = os.environ["VG_LOG_FILE"]
 with open(log_file, "a") as f:
     f.write(json.dumps(event, ensure_ascii=False) + "\n")

@@ -195,6 +195,8 @@ interview（采访）→ preflight（预防）→ 编码 → check（验证）�
 | `/vibeguard:cross-review` | 双模型对抗审查（Claude + Codex） |
 | `/vibeguard:build-fix` | 构建错误修复 |
 | `/vibeguard:learn` | 从犯错中生成新守卫 |
+| `/vibeguard:exec-plan` | 长周期任务执行计划（跨会话恢复） |
+| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + 代码垃圾扫描） |
 | `/vibeguard:stats` | Hook 触发统计 |
 
 ---

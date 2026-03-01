@@ -14,7 +14,9 @@ Claude Code hooks 脚本，在 AI 操作前后自动触发。
 | `post-write-guard.sh` | PostToolUse(Write) | 新文件创建后检测重复定义和同名文件 |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | 编辑后自动运行语言对应的构建检查 |
 | `post-guard-check.sh` | PostToolUse(guard_check) | MCP guard_check 调用后的处理 |
+| `skills-loader.sh` | PreToolUse(Read) | 会话首次工具调用时自动加载匹配的 Skill（每会话一次） |
 | `stop-guard.sh` | Stop | 完成前验证门禁，检查未提交的源码变更 |
+| `learn-evaluator.sh` | Stop | 会话结束时深度分析事件日志，发现可提取信号时门禁暂停（exit 2） |
 | `pre-commit-guard.sh` | git pre-commit | 提交前自动守卫：质量检查 + 构建检查，10s 超时硬限 |
 
 ## Decision 类型

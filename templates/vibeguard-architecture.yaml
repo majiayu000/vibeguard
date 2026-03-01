@@ -1,0 +1,32 @@
+# VibeGuard 架构定义 — 依赖层方向约束
+#
+# 复制到项目根目录 .vibeguard-architecture.yaml，按项目实际结构修改。
+# 守卫 check_dependency_layers.py 读取此文件检测跨层违规。
+#
+# 规则：每层只能 import allowed_deps 中列出的层，违规会被守卫阻断。
+# 依赖方向：Types → Config → Repo → Service → Runtime → UI（单向流）
+
+layers:
+  - name: "types"
+    paths: ["src/types/", "src/models/", "src/schemas/"]
+    allowed_deps: []
+
+  - name: "config"
+    paths: ["src/config/"]
+    allowed_deps: ["types"]
+
+  - name: "repo"
+    paths: ["src/repo/", "src/dal/", "src/db/"]
+    allowed_deps: ["types", "config"]
+
+  - name: "service"
+    paths: ["src/service/", "src/services/", "src/business/"]
+    allowed_deps: ["types", "config", "repo"]
+
+  - name: "runtime"
+    paths: ["src/runtime/", "src/server/", "src/app/"]
+    allowed_deps: ["types", "config", "repo", "service"]
+
+  - name: "ui"
+    paths: ["src/ui/", "src/components/", "src/pages/", "src/views/"]
+    allowed_deps: ["types", "config", "service"]
