@@ -104,6 +104,24 @@ safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vi
 green "  vibeguard commands -> ~/.claude/commands/vibeguard"
 echo
 
+# 5.5. Install Claude Code native rules
+echo "Step 5.5: Install native rules"
+RULES_SRC="${REPO_DIR}/rules/claude-rules"
+RULES_DEST="${HOME}/.claude/rules/vibeguard"
+if [[ -d "${RULES_SRC}" ]]; then
+  mkdir -p "${RULES_DEST}"
+  for subdir in common rust golang typescript python; do
+    if [[ -d "${RULES_SRC}/${subdir}" ]]; then
+      mkdir -p "${RULES_DEST}/${subdir}"
+      cp -r "${RULES_SRC}/${subdir}/." "${RULES_DEST}/${subdir}/"
+      green "  ${subdir}/ -> ~/.claude/rules/vibeguard/${subdir}/"
+    fi
+  done
+else
+  yellow "  SKIP native rules (source not found: ${RULES_SRC})"
+fi
+echo
+
 # 6. Symlink workflow skills 到 Codex
 echo "Step 6: Install Codex skills"
 mkdir -p "${CODEX_DIR}/skills"
@@ -155,6 +173,26 @@ if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null 2>&1; then
   green "  MCP Server + Hooks configured in ~/.claude/settings.json (${PROFILE})"
 else
   red "  Failed to configure settings.json"
+fi
+echo
+
+# 9.5. Install scheduled GC (launchd)
+echo "Step 9.5: Install scheduled GC"
+PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
+PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+chmod +x "${REPO_DIR}/scripts/gc-scheduled.sh"
+if [[ "$(uname)" == "Darwin" ]] && [[ -f "${PLIST_SRC}" ]]; then
+  mkdir -p "${HOME}/Library/LaunchAgents"
+  # 先卸载旧的（忽略错误）
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  # 替换占位符并安装
+  sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
+    "${PLIST_SRC}" > "${PLIST_DEST}"
+  launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null \
+    && green "  Scheduled GC installed (every Sunday 3:00 AM)" \
+    || yellow "  Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
+else
+  yellow "  SKIP scheduled GC (non-macOS or plist not found)"
 fi
 echo
 

@@ -122,17 +122,102 @@ for score, name, desc in matches[:5]:
     print(f'{name}: {desc}')
 " 2>/dev/null || true)
 
-if [[ -z "$MATCHES" ]]; then
-  exit 0
+# ── 学习信号推荐（消费 learn-digest.jsonl，水位线去重） ──
+DIGEST_FILE="${HOME}/.vibeguard/learn-digest.jsonl"
+WATERMARK_FILE="${HOME}/.vibeguard/.learn-watermark"
+
+LEARN_HINTS=$(python3 -c "
+import json, os, sys
+
+digest = '${DIGEST_FILE}'
+watermark = '${WATERMARK_FILE}'
+
+if not os.path.exists(digest):
+    sys.exit(0)
+
+# 读水位线
+last_ts = ''
+if os.path.exists(watermark):
+    with open(watermark) as f:
+        last_ts = f.read().strip()
+
+# 读取水位线之后的新信号
+new_signals = []
+latest_ts = last_ts
+with open(digest) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = entry.get('ts', '')
+        if ts <= last_ts:
+            continue
+        if ts > latest_ts:
+            latest_ts = ts
+        for sig in entry.get('signals', []):
+            sig['project'] = entry.get('project', '')
+            new_signals.append(sig)
+
+if not new_signals:
+    sys.exit(0)
+
+# 按类型汇总，最多输出 5 条
+type_labels = {
+    'repeated_warn': '高频警告',
+    'chronic_block': '反复拦截',
+    'hot_files': '热点文件',
+    'slow_sessions': '慢操作密集',
+    'warn_escalation': '警告趋势上升',
+    'linter_violations': '代码违规',
+}
+output = []
+for sig in new_signals[:5]:
+    t = type_labels.get(sig['type'], sig['type'])
+    src = '[扫描]' if sig.get('source') == 'code_scan' else '[日志]'
+    if sig['type'] == 'linter_violations':
+        detail = sig.get('guard', '')
+        count = sig.get('count', '')
+    else:
+        detail = sig.get('reason', sig.get('file', ''))
+        count = sig.get('count', sig.get('edits', ''))
+    if detail and len(detail) > 55:
+        detail = '...' + detail[-52:]
+    output.append(f'{src} {t}: {detail} ({count}次)')
+
+# 更新水位线
+with open(watermark, 'w') as f:
+    f.write(latest_ts)
+
+for line in output:
+    print(line)
+" 2>/dev/null || true)
+
+# 输出
+HAS_OUTPUT=false
+
+if [[ -n "$LEARN_HINTS" ]]; then
+  HAS_OUTPUT=true
+  HINT_COUNT=$(echo "$LEARN_HINTS" | wc -l | tr -d ' ')
+  echo "[VibeGuard 学习推荐] 检测到 ${HINT_COUNT} 个跨会话学习信号："
+  echo "$LEARN_HINTS" | while IFS= read -r line; do
+    echo "  - ${line}"
+  done
+  echo "运行 /vibeguard:learn 可从这些信号中提取守卫规则或 Skill。"
+  echo
 fi
 
-MATCH_COUNT=$(echo "$MATCHES" | wc -l | tr -d ' ')
-
-# 输出匹配的 Skill（作为 hook 反馈注入会话）
-echo "[VibeGuard Skills] 检测到 ${MATCH_COUNT} 个相关 Skill："
-echo "$MATCHES" | while IFS= read -r line; do
-  echo "  - ${line}"
-done
-echo "使用 /skill-name 调用，或忽略此提示继续工作。"
+if [[ -n "$MATCHES" ]]; then
+  HAS_OUTPUT=true
+  MATCH_COUNT=$(echo "$MATCHES" | wc -l | tr -d ' ')
+  echo "[VibeGuard Skills] 检测到 ${MATCH_COUNT} 个相关 Skill："
+  echo "$MATCHES" | while IFS= read -r line; do
+    echo "  - ${line}"
+  done
+  echo "使用 /skill-name 调用，或忽略此提示继续工作。"
+fi
 
 exit 0

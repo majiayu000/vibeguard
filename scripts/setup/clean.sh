@@ -41,6 +41,20 @@ for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
   rm -f "${CODEX_DIR}/skills/${skill}"
 done
 
+# Unload scheduled GC
+PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+if [[ -f "${PLIST_DEST}" ]]; then
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  rm -f "${PLIST_DEST}"
+  yellow "Removed scheduled GC (com.vibeguard.gc)"
+fi
+
+# Remove native rules
+if [[ -d "${HOME}/.claude/rules/vibeguard" ]]; then
+  rm -rf "${HOME}/.claude/rules/vibeguard"
+  yellow "Removed native rules from ~/.claude/rules/vibeguard/"
+fi
+
 # Remove MCP Server config and Hooks from settings.json
 if [[ -f "${SETTINGS_FILE}" ]]; then
   if clean_result=$(settings_remove "${SETTINGS_FILE}" 2>/dev/null); then

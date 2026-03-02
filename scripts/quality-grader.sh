@@ -36,9 +36,11 @@ fi
 
 GUARDS_DIR="${REPO_DIR}/guards"
 RULES_DIR="${REPO_DIR}/rules"
+NATIVE_RULES_DIR="${HOME}/.claude/rules/vibeguard"
 
 VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" VG_GUARDS_DIR="$GUARDS_DIR" \
-  VG_RULES_DIR="$RULES_DIR" VG_JSON="$JSON_OUTPUT" python3 -c '
+  VG_RULES_DIR="$RULES_DIR" VG_NATIVE_RULES_DIR="$NATIVE_RULES_DIR" \
+  VG_JSON="$JSON_OUTPUT" python3 -c '
 import json, sys, os, glob
 from datetime import datetime, timezone, timedelta
 from collections import Counter
@@ -47,6 +49,7 @@ days = os.environ.get("VG_DAYS", "30")
 log_file = os.environ.get("VG_LOG_FILE", "")
 guards_dir = os.environ.get("VG_GUARDS_DIR", "")
 rules_dir = os.environ.get("VG_RULES_DIR", "")
+native_rules_dir = os.environ.get("VG_NATIVE_RULES_DIR", "")
 json_output = os.environ.get("VG_JSON", "false") == "true"
 
 # 读取事件
@@ -115,7 +118,28 @@ for guard_file in glob.glob(os.path.join(guards_dir, "**/*"), recursive=True):
         continue
 
 implemented = rule_ids & guard_ids
-coverage = (len(implemented) / len(rule_ids) * 100) if rule_ids else 0
+coverage_mechanical = (len(implemented) / len(rule_ids) * 100) if rule_ids else 0
+
+# AI 可见覆盖率: 规则 ID 出现在 ~/.claude/rules/vibeguard/
+ai_visible_ids = set()
+if native_rules_dir and os.path.isdir(native_rules_dir):
+    for nr_file in glob.glob(os.path.join(native_rules_dir, "**/*.md"), recursive=True):
+        try:
+            with open(nr_file) as f:
+                for line in f:
+                    import re
+                    for m in re.finditer(r"\b(RS|GO|TS|PY|U|SEC|TASTE)-[\w]+\b", line):
+                        ai_visible_ids.add(m.group())
+        except (UnicodeDecodeError, PermissionError):
+            continue
+
+ai_visible = rule_ids & ai_visible_ids
+coverage_ai = (len(ai_visible) / len(rule_ids) * 100) if rule_ids else 0
+dual_covered = implemented & ai_visible
+
+# 综合覆盖率: AI 可见 + 机械强制 (union)
+all_covered = implemented | ai_visible
+coverage = (len(all_covered) / len(rule_ids) * 100) if rule_ids else 0
 
 # performance: 慢操作占比越低越好（duration_ms > 5000）
 events_with_duration = [e for e in events if "duration_ms" in e]
@@ -153,11 +177,15 @@ if json_output:
             "security": round(security, 1),
             "stability": round(stability, 1),
             "coverage": round(coverage, 1),
+            "coverage_mechanical": round(coverage_mechanical, 1),
+            "coverage_ai_visible": round(coverage_ai, 1),
             "performance": round(performance, 1),
         },
         "events_analyzed": total,
         "rules_total": len(rule_ids),
         "rules_implemented": len(implemented),
+        "rules_ai_visible": len(ai_visible),
+        "rules_dual_covered": len(dual_covered),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 else:
@@ -171,14 +199,17 @@ VibeGuard 质量评分 ({period})
 分项指标:
   安全性 (×0.4):  {security:.1f}  (block {blocks}/{total})
   稳定性 (×0.3):  {stability:.1f}  (pass {passes}/{total})
-  覆盖率 (×0.2):  {coverage:.1f}  (守卫 {len(implemented)}/{len(rule_ids)} 条规则)
+  覆盖率 (×0.2):  {coverage:.1f}  (综合 {len(all_covered)}/{len(rule_ids)} 条规则)
+    机械强制:      {coverage_mechanical:.1f}  (守卫/hooks {len(implemented)} 条)
+    AI 可见:       {coverage_ai:.1f}  (~/.claude/rules/ {len(ai_visible)} 条)
+    双重覆盖:      {len(dual_covered)} 条
   性能   (×0.1):  {performance:.1f}  (慢操作 {slow_ops if events_with_duration else "N/A"}/{len(events_with_duration)} 次)
 
 事件总数: {total}
-规则总数: {len(rule_ids)} (已覆盖: {len(implemented)}, 未覆盖: {len(rule_ids - implemented)})""")
+规则总数: {len(rule_ids)} (综合覆盖: {len(all_covered)}, 未覆盖: {len(rule_ids - all_covered)})""")
 
-    if rule_ids - implemented:
-        uncovered = sorted(rule_ids - implemented)
+    if rule_ids - all_covered:
+        uncovered = sorted(rule_ids - all_covered)
         uncovered_str = ", ".join(uncovered[:10])
         extra = f" (+{len(uncovered)-10} 条)" if len(uncovered) > 10 else ""
         print(f"未覆盖规则: {uncovered_str}{extra}")

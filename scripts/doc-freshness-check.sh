@@ -21,6 +21,7 @@ done
 
 RULES_DIR="${REPO_DIR}/rules"
 GUARDS_DIR="${REPO_DIR}/guards"
+NATIVE_RULES_DIR="${HOME}/.claude/rules/vibeguard"
 
 if [[ ! -d "$RULES_DIR" ]]; then
   echo "规则目录不存在: ${RULES_DIR}"
@@ -32,11 +33,13 @@ if [[ ! -d "$GUARDS_DIR" ]]; then
   exit 1
 fi
 
-VG_RULES_DIR="$RULES_DIR" VG_GUARDS_DIR="$GUARDS_DIR" VG_STRICT="$STRICT" python3 -c '
+VG_RULES_DIR="$RULES_DIR" VG_GUARDS_DIR="$GUARDS_DIR" VG_NATIVE_RULES_DIR="$NATIVE_RULES_DIR" \
+  VG_STRICT="$STRICT" python3 -c '
 import os, re, sys, glob
 
 rules_dir = os.environ["VG_RULES_DIR"]
 guards_dir = os.environ["VG_GUARDS_DIR"]
+native_rules_dir = os.environ.get("VG_NATIVE_RULES_DIR", "")
 strict = os.environ.get("VG_STRICT", "false") == "true"
 
 id_pattern = re.compile(r"\b(RS|GO|TS|PY|U|SEC)-(\d+)\b")
@@ -83,44 +86,76 @@ if os.path.isdir(hooks_dir):
             gid = m.group()
             guard_ids.setdefault(gid, []).append(rel_path)
 
+# AI 可见规则: 从 ~/.claude/rules/vibeguard/ 扫描
+ai_visible_ids = {}  # id -> [files]
+if native_rules_dir and os.path.isdir(native_rules_dir):
+    for nr_file in sorted(glob.glob(os.path.join(native_rules_dir, "**/*.md"), recursive=True)):
+        try:
+            with open(nr_file) as f:
+                content = f.read()
+        except (UnicodeDecodeError, PermissionError):
+            continue
+        rel_path = os.path.relpath(nr_file, native_rules_dir)
+        for m in id_pattern.finditer(content):
+            aid = m.group()
+            ai_visible_ids.setdefault(aid, []).append(rel_path)
+
 # 计算缺口
-unimplemented = sorted(set(rule_ids.keys()) - set(guard_ids.keys()))
-undocumented = sorted(set(guard_ids.keys()) - set(rule_ids.keys()))
-implemented = sorted(set(rule_ids.keys()) & set(guard_ids.keys()))
+rule_set = set(rule_ids.keys())
+guard_set = set(guard_ids.keys())
+ai_set = set(ai_visible_ids.keys())
+
+implemented = sorted(rule_set & guard_set)
+ai_visible = sorted(rule_set & ai_set)
+dual_covered = sorted(rule_set & guard_set & ai_set)
+all_covered = sorted(rule_set & (guard_set | ai_set))
+unimplemented = sorted(rule_set - guard_set)
+not_ai_visible = sorted(rule_set - ai_set)
+fully_uncovered = sorted(rule_set - guard_set - ai_set)
+undocumented = sorted(guard_set - rule_set)
 
 total_rules = len(rule_ids)
-gap_count = len(unimplemented) + len(undocumented)
+gap_count = len(fully_uncovered) + len(undocumented)
 gap_rate = (gap_count / total_rules * 100) if total_rules > 0 else 0
 
 # 输出报告
 print(f"""
 VibeGuard 文档新鲜度报告
 {"=" * 40}
-规则总数: {total_rules}
-已实现:   {len(implemented)} ({len(implemented)/total_rules*100:.0f}%)
-未实现:   {len(unimplemented)}
-未文档化: {len(undocumented)}
-不一致率: {gap_rate:.1f}%
+规则总数:     {total_rules}
+综合覆盖:     {len(all_covered)} ({len(all_covered)/total_rules*100:.0f}%)
+  机械强制:   {len(implemented)} (守卫/hooks)
+  AI 可见:    {len(ai_visible)} (~/.claude/rules/)
+  双重覆盖:   {len(dual_covered)}
+完全未覆盖:   {len(fully_uncovered)}
+未文档化守卫: {len(undocumented)}
+不一致率:     {gap_rate:.1f}%
 """)
 
-if implemented:
-    print("已实现的规则:")
-    # 按前缀分组
+def print_by_prefix(ids, label):
+    if not ids:
+        return
+    print(f"{label}:")
     by_prefix = {}
-    for rid in implemented:
+    for rid in ids:
         prefix = rid.split("-")[0]
         by_prefix.setdefault(prefix, []).append(rid)
     for prefix in sorted(by_prefix.keys()):
-        ids = by_prefix[prefix]
-        ids_str = ", ".join(ids)
+        ids_str = ", ".join(by_prefix[prefix])
         print(f"  {prefix}: {ids_str}")
     print()
 
-if unimplemented:
-    print("未实现的规则（有规则定义，无守卫脚本）:")
-    for rid in unimplemented:
-        src_file, desc = rule_ids[rid]
-        print(f"  {rid} ({src_file})")
+dual_set = set(dual_covered)
+print_by_prefix(dual_covered, "双重覆盖（守卫 + AI 可见）")
+print_by_prefix([r for r in implemented if r not in dual_set], "仅机械强制（守卫/hooks）")
+print_by_prefix([r for r in ai_visible if r not in dual_set], "仅 AI 可见（~/.claude/rules/）")
+
+if fully_uncovered:
+    print("完全未覆盖的规则:")
+    for rid in fully_uncovered:
+        if rid in rule_ids:
+            src_file, desc = rule_ids[rid]
+            print(f"  {rid} ({src_file})")
     print()
 
 if undocumented:

@@ -46,8 +46,9 @@ argument-hint: "<错误描述 | 'extract' 提取经验 | 空=自动判断>"
 
 **Steps**
 
-1. **自动模式识别（从 events.jsonl 提取）**
-   - 读取 `~/.vibeguard/events.jsonl`，分析最近的事件记录
+1. **自动模式识别（从 events.jsonl + learn-digest.jsonl 提取）**
+   - 读取 `~/.vibeguard/projects/<hash>/events.jsonl`，分析最近的事件记录
+   - 读取 `~/.vibeguard/learn-digest.jsonl`，获取 GC 定期学习识别的跨会话信号（repeated_warn / chronic_block / hot_files / slow_sessions / warn_escalation）
    - 提取高频 warn 模式：被多次警告但仍重复发生的同类问题
    - 提取反复被 block 的同类操作：识别 agent 反复碰壁的操作模式
    - 按 hook + reason 分组，输出 top 5 高频问题

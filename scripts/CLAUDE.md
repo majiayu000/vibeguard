@@ -14,6 +14,7 @@ VibeGuard 工具脚本，提供统计、合规检查、指标收集等功能。
 | `gc-logs.sh` | 日志归档：events.jsonl 超过 10MB 时按月归档压缩，保留 3 个月 |
 | `gc-worktrees.sh` | Worktree 清理：删除不活跃 >7 天的 worktree，未合并变更只警告 |
 | `metrics-exporter.sh` | Prometheus 指标导出：从 events.jsonl 聚合生成 4 类指标 |
+| `gc-scheduled.sh` | 定期 GC + 学习：日志归档、worktree 清理、metrics 清理、跨会话学习信号检测 |
 | `quality-grader.sh` | 质量等级评分：从 events.jsonl 计算 A/B/C/D 等级，推荐 GC 频率 |
 | `doc-freshness-check.sh` | 文档新鲜度：交叉比对 rules/ 和 guards/ 的规则 ID 覆盖度 |
 | `log-capability-change.sh` | 能力进化日志：从 git log 提取守卫/规则/Skill 变更时间线 |

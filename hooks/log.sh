@@ -27,6 +27,11 @@ VIBEGUARD_PROJECT_LOG_DIR="${VIBEGUARD_LOG_DIR}/projects/${_vg_project_hash}"
 mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
 VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
 
+# 记录 hash → 项目路径映射（供 GC 学习阶段使用）
+if [[ "$_vg_repo_root" != "global" ]]; then
+  printf '%s' "$_vg_repo_root" > "$VIBEGUARD_PROJECT_LOG_DIR/.project-root" 2>/dev/null || true
+fi
+
 # 源码文件扩展名列表（共享常量）
 VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
 

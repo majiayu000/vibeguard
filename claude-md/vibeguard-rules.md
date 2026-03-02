@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 # VibeGuard — AI 防幻觉规则
 
-> 索引。详细规则：`__VIBEGUARD_DIR__/rules/`。这个项目**不存在** ORM、不存在前端框架、不存在微服务。
+> 83 条规则通过 `~/.claude/rules/vibeguard/` 原生加载。这个项目**不存在** ORM、不存在前端框架、不存在微服务。
 
 ## 约束（L1-L7 由 Hooks 强制执行）
 

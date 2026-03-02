@@ -50,6 +50,30 @@ else
   yellow "[MISSING] context profiles not in ~/.claude/context-profiles/"
 fi
 
+# Check scheduled GC
+if [[ "$(uname)" == "Darwin" ]]; then
+  if launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null; then
+    green "[OK] Scheduled GC active (com.vibeguard.gc)"
+  elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
+    yellow "[WARN] Scheduled GC plist exists but not loaded"
+  else
+    yellow "[INFO] Scheduled GC not installed (optional)"
+  fi
+fi
+
+# Check native rules
+RULES_DEST="${HOME}/.claude/rules/vibeguard"
+if [[ -d "${RULES_DEST}" ]]; then
+  rule_file_count=$(find "${RULES_DEST}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${rule_file_count}" -ge 7 ]]; then
+    green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/"
+  else
+    yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
+  fi
+else
+  red "[MISSING] Native rules not in ~/.claude/rules/vibeguard/"
+fi
+
 # Check Codex skills (symlink exists AND target is valid)
 for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
   link="${CODEX_DIR}/skills/${skill}"
