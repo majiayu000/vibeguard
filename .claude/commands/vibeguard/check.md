@@ -43,6 +43,7 @@ argument-hint: "[project_dir]"
    ```bash
    bash ${VIBEGUARD_DIR}/guards/typescript/check_any_abuse.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_console_residual.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/typescript/check_component_duplication.sh <project_dir>
    ```
 
    **Python 项目**：
