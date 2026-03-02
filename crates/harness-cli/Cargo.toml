@@ -1,0 +1,10 @@
+[package]
+name = "harness-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+harness-core = { path = "../harness-core" }
+harness-protocol = { path = "../harness-protocol" }
+harness-server = { path = "../harness-server" }
+serde_json = { workspace = true }

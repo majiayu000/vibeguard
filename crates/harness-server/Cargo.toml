@@ -1,0 +1,11 @@
+[package]
+name = "harness-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+harness-core = { path = "../harness-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

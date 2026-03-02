@@ -1,0 +1,9 @@
+[package]
+name = "harness-gc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+harness-rules = { path = "../harness-rules" }
+serde = { workspace = true }
+serde_json = { workspace = true }
