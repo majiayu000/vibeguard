@@ -93,7 +93,9 @@ tags: [vibeguard, preflight, constraints, prevention]
 
 5. **生成约束集**
 
-   基于步骤 1-4 的发现，为当前任务生成约束集。每条约束格式：
+   先运行约束推荐器获取初稿（`python3 ${VIBEGUARD_DIR:-vibeguard}/scripts/constraint-recommender.py <project_dir>`），然后基于步骤 1-4 的发现补充和调整。推荐器输出三级信心度：high（自动接受）/ medium（提示确认）/ low（需讨论）。
+
+   基于步骤 1-4 的发现和推荐器初稿，为当前任务生成约束集。每条约束格式：
 
    ```
    [C-XX] 约束描述

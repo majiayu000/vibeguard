@@ -10,7 +10,7 @@ Claude Code hooks 脚本，在 AI 操作前后自动触发。
 | `pre-bash-guard.sh` | PreToolUse(Bash) | 拦截危险命令：force push、rm -rf /、reset --hard 等 |
 | `pre-edit-guard.sh` | PreToolUse(Edit) | 拦截编辑不存在的文件（防幻觉） |
 | `pre-write-guard.sh` | PreToolUse(Write) | 新建源码文件前提醒先搜索已有实现 |
-| `post-edit-guard.sh` | PostToolUse(Edit) | 编辑后检测质量问题：unwrap、console.log、硬编码路径 |
+| `post-edit-guard.sh` | PostToolUse(Edit) | 编辑后检测质量问题：unwrap、console.log、硬编码路径、Go error 丢弃、超大 diff |
 | `post-write-guard.sh` | PostToolUse(Write) | 新文件创建后检测重复定义和同名文件 |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | 编辑后自动运行语言对应的构建检查 |
 | `post-guard-check.sh` | PostToolUse(guard_check) | MCP guard_check 调用后的处理 |

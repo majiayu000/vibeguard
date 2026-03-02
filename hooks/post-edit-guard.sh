@@ -101,6 +101,34 @@ if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   esac
 fi
 
+# --- Go 检查 ---
+case "$FILE_PATH" in
+  *.go)
+    case "$FILE_PATH" in
+      *_test.go|*/vendor/*) ;;
+      *)
+        # [GO-01] 检测 error 丢弃
+        ERR_DISCARD=$(echo "$NEW_STRING" | grep -cE '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null; true)
+        if [[ $ERR_DISCARD -gt 0 ]]; then
+          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-01] 新增了 ${ERR_DISCARD} 处 error 丢弃（_ = ...）。修复：用 if err != nil 处理错误。"
+        fi
+        # [GO-08] 检测 defer 在循环内
+        DEFER_LOOP=$(echo "$NEW_STRING" | awk '/^\s*for\s/ {in_loop=1} /^\s*defer\s/ && in_loop {count++} /^\s*\}/ {in_loop=0} END {print count+0}' 2>/dev/null; true)
+        DEFER_LOOP="${DEFER_LOOP:-0}"
+        if [[ $DEFER_LOOP -gt 0 ]]; then
+          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-08] 检测到 defer 在循环内，可能导致资源泄漏。修复：将 defer 所在逻辑提取为独立函数。"
+        fi
+        ;;
+    esac
+    ;;
+esac
+
+# --- 超大 diff 检测（可能是幻觉编辑） ---
+DIFF_LINES=$(echo "$NEW_STRING" | wc -l | tr -d ' ')
+if [[ $DIFF_LINES -gt 200 ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }[LARGE-EDIT] 单次编辑 ${DIFF_LINES} 行，超出 200 行阈值，请确认编辑内容正确。"
+fi
+
 if [[ -z "$WARNINGS" ]]; then
   vg_log "post-edit-guard" "Edit" "pass" "" "$FILE_PATH"
   exit 0

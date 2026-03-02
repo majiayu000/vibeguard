@@ -19,7 +19,13 @@
 #   complete — 操作完成确认
 
 VIBEGUARD_LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
-VIBEGUARD_LOG_FILE="${VIBEGUARD_LOG_DIR}/events.jsonl"
+
+# 按项目隔离日志：用 git repo 根目录路径的哈希区分不同项目
+_vg_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
+_vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 | cut -c1-8)
+VIBEGUARD_PROJECT_LOG_DIR="${VIBEGUARD_LOG_DIR}/projects/${_vg_project_hash}"
+mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
+VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
 
 # 源码文件扩展名列表（共享常量）
 VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"

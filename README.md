@@ -89,6 +89,8 @@ AI 可在会话中主动调用这些工具检查代码质量：
 | `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + 代码垃圾扫描） |
 | `/vibeguard:stats` | Hook 触发统计 |
 
+快捷别名：`/vg:pf`(preflight) `/vg:gc`(gc) `/vg:ck`(check) `/vg:lrn`(learn)
+
 ### 推荐工作流
 
 ```
@@ -240,6 +242,16 @@ Dispatcher 自动调度规则：
 ## 可观测栈
 
 ```bash
+# 质量等级评分（A/B/C/D，动态推荐 GC 频率）
+bash ~/vibeguard/scripts/quality-grader.sh          # 最近 30 天
+bash ~/vibeguard/scripts/quality-grader.sh --json   # JSON 格式
+
+# 文档新鲜度（规则-守卫覆盖度检测）
+bash ~/vibeguard/scripts/doc-freshness-check.sh
+
+# 能力进化日志（守卫/规则/Skill 变更时间线）
+bash ~/vibeguard/scripts/log-capability-change.sh --since 2026-02-01
+
 # Prometheus 指标导出
 bash ~/vibeguard/scripts/metrics-exporter.sh                     # 输出到 stdout
 bash ~/vibeguard/scripts/metrics-exporter.sh --push <gateway>    # Push 到 Pushgateway
@@ -251,6 +263,8 @@ bash ~/vibeguard/scripts/stats.sh 30    # 最近 30 天
 ```
 
 指标包括：`hook_trigger_total`、`tool_total`、`hook_duration_seconds`、`guard_violation_total`。
+
+质量评分公式：`security × 0.4 + stability × 0.3 + coverage × 0.2 + performance × 0.1`，等级 A(≥90)/B(70-89)/C(50-69)/D(<50) 对应 GC 频率 7天/3天/1天/实时。
 
 告警规则模板在 `templates/alerting-rules.yaml`，覆盖违规率过高、Hook 超时、不活跃、Block 突增四种场景。
 
@@ -299,6 +313,14 @@ bash ~/vibeguard/guards/rust/check_nested_locks.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path/to/project
+bash ~/vibeguard/guards/rust/check_taste_invariants.sh /path/to/project    # Harness 代码品味
+```
+
+**Go**
+```bash
+bash ~/vibeguard/guards/go/check_error_handling.sh /path/to/project       # GO-01: 未检查 error
+bash ~/vibeguard/guards/go/check_goroutine_leak.sh /path/to/project       # GO-02: goroutine 泄漏
+bash ~/vibeguard/guards/go/check_defer_in_loop.sh /path/to/project        # GO-08: defer-in-loop
 ```
 
 **Python**
@@ -345,10 +367,12 @@ vibeguard/
 │   └── learn-evaluator.sh                #   会话结束学习评估
 ├── guards/                               # 静态检查脚本
 │   ├── universal/                        #   通用守卫（代码垃圾、依赖层、循环依赖）
-│   ├── rust/                             #   Rust 守卫
+│   ├── rust/                             #   Rust 守卫（含 Taste Invariants）
+│   ├── go/                              #   Go 守卫（error 检查、goroutine 泄漏、defer-in-loop）
 │   ├── python/                           #   Python 守卫
 │   └── typescript/                       #   TypeScript 守卫
 ├── .claude/commands/vibeguard/           # 10 个自定义命令
+├── .claude/commands/vg/                 # 命令别名（pf/gc/ck/lrn）
 ├── templates/                            # 模板
 │   ├── project-rules/                    #   路径作用域规则
 │   ├── vibeguard-architecture.yaml       #   依赖层定义
@@ -362,6 +386,10 @@ vibeguard/
 ├── skills/                               # 可复用工作流
 ├── scripts/                              # 工具脚本
 │   ├── stats.sh                          #   统计分析
+│   ├── quality-grader.sh                 #   质量等级评分（A/B/C/D）
+│   ├── doc-freshness-check.sh            #   文档新鲜度检测
+│   ├── log-capability-change.sh          #   能力进化日志
+│   ├── constraint-recommender.py         #   preflight 约束自动推荐
 │   ├── gc-logs.sh                        #   日志归档
 │   ├── gc-worktrees.sh                   #   Worktree 清理
 │   └── metrics-exporter.sh              #   Prometheus 指标导出

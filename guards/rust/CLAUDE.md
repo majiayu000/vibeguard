@@ -12,6 +12,7 @@ Rust 语言守卫脚本，对 Rust 项目做静态模式检测。
 | `check_workspace_consistency.sh` | RS-06 | 跨入口路径一致性 |
 | `check_single_source_of_truth.sh` | RS-12 | 任务系统双轨并存/多状态源分裂 |
 | `check_semantic_effect.sh` | RS-13 | 动作语义与副作用不一致 |
+| `check_taste_invariants.sh` | TASTE-* | Harness 风格代码品味约束（ANSI 硬编码、async unwrap、panic 无消息） |
 
 ## common.sh 用法
 

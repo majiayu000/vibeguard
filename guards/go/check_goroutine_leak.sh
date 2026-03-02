@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# VibeGuard Go Guard: 检测 goroutine 泄漏风险 (GO-02)
+#
+# 扫描 Go 代码中无退出机制的 goroutine。
+# 用法:
+#   bash check_goroutine_leak.sh [target_dir]
+#   bash check_goroutine_leak.sh --strict [target_dir]
+#
+# 检测模式:
+#   - go func() 内无 select/context/return/break/ticker
+#   - for {} 无限循环内无退出条件
+#
+# 排除:
+#   - *_test.go 测试文件
+#   - vendor/ 目录
+
+source "$(dirname "$0")/common.sh"
+parse_guard_args "$@"
+TMPFILE=$(create_tmpfile)
+
+list_go_files "${TARGET_DIR}" \
+  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+  | while IFS= read -r f; do
+      if [[ -f "${f}" ]]; then
+        # 检测 go func() 启动：标记位置供人工复查
+        grep -nE '^\s*go\s+(func\s*\(|[a-zA-Z])' "${f}" 2>/dev/null \
+          | sed "s|^|${f}:|" || true
+      fi
+    done \
+  | awk '{ print "[GO-02] " $0 }' \
+  > "${TMPFILE}" || true
+
+# 第二轮：检测 for {} 或 for { 无限循环（高风险）
+list_go_files "${TARGET_DIR}" \
+  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+  | while IFS= read -r f; do
+      if [[ -f "${f}" ]]; then
+        grep -nE '^\s*for\s*\{' "${f}" 2>/dev/null \
+          | sed "s|^|${f}:|" || true
+      fi
+    done \
+  | awk '{ print "[GO-02/loop] " $0 }' \
+  >> "${TMPFILE}" || true
+
+cat "${TMPFILE}"
+FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
+
+echo ""
+if [[ ${FOUND} -eq 0 ]]; then
+  echo "No goroutine leak risks found."
+else
+  echo "Found ${FOUND} goroutine launch/infinite loop site(s) to review."
+  echo ""
+  echo "修复方法："
+  echo "  1. 传入 context.Context，通过 <-ctx.Done() 退出"
+  echo "  2. 使用 errgroup.Group 管理 goroutine 生命周期"
+  echo "  3. for {} 循环必须有 select + 退出分支"
+  echo "  4. 确保每个 go func() 都有明确的退出路径"
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
+fi

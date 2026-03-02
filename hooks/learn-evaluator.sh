@@ -1,40 +1,30 @@
 #!/usr/bin/env bash
-# VibeGuard Learn Evaluator — Stop 事件主动评估 + 自动 Skill 草拟
+# VibeGuard Session Metrics — Stop 事件指标采集
 #
-# 会话结束时深度分析 events.jsonl，识别可提取的经验。
-# 如果发现值得提取的模式，自动草拟 Skill 大纲并门禁暂停（exit 2）。
-# 第二次触发时放行（防无限循环）。
+# 对标 Harness 反馈循环的数据采集层：
+# 收集会话指标 → 写入项目级 metrics → 供 stats/gc/learn 消费
 #
-# 触发条件：Stop 事件（full profile）
-# exit 0 = 放行
-# exit 2 = 门禁暂停，stdout 作为反馈
+# 不做信号判断、不阻塞、不输出。纯采集。
 set -euo pipefail
 source "$(dirname "$0")/log.sh"
 
-FLAG_FILE="${HOME}/.vibeguard/.learn_eval_active"
-
-# 防无限循环：已触发过 → 直接放行
-if [[ -f "$FLAG_FILE" ]]; then
-  rm -f "$FLAG_FILE"
-  vg_log "learn-evaluator" "Stop" "pass" "evaluator already triggered once" ""
-  exit 0
-fi
-
-# 不在 git 仓库 → 放行
+# 不在 git 仓库 → 跳过
 if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   exit 0
 fi
 
-# 深度分析本次会话事件
-ANALYSIS=$(python3 -c "
+# 采集当前项目最近 30 分钟的会话指标
+python3 -c "
 import json, sys, os
-from collections import defaultdict, Counter
+from collections import Counter
+from datetime import datetime, timezone, timedelta
 
 log_file = '${VIBEGUARD_LOG_FILE}'
 if not os.path.exists(log_file):
     sys.exit(0)
 
-session_id = '${VIBEGUARD_SESSION_ID}'
+cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+skip_hooks = {'stop-guard', 'learn-evaluator'}
 events = []
 with open(log_file) as f:
     for line in f:
@@ -43,107 +33,49 @@ with open(log_file) as f:
             continue
         try:
             event = json.loads(line)
-            if event.get('session') == session_id or not session_id:
-                events.append(event)
-        except json.JSONDecodeError:
+            if event.get('hook', '') in skip_hooks:
+                continue
+            ts = event.get('ts', '')
+            if ts:
+                evt_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                if evt_time < cutoff:
+                    continue
+            events.append(event)
+        except (json.JSONDecodeError, ValueError):
             continue
 
-# 取最近 100 条作为本次会话的事件
-events = events[-100:]
-
 if len(events) < 3:
-    print('SKIP:session_too_short')
     sys.exit(0)
 
-# 信号检测
-signals = []
+# 聚合指标
+decisions = Counter(e.get('decision', 'unknown') for e in events)
+hooks = Counter(e.get('hook', 'unknown') for e in events)
+tools = Counter(e.get('tool', 'unknown') for e in events)
 
-# 1. 重复 warn 模式（同一 reason 出现 3+ 次 → 值得提取规避方法）
-warn_reasons = Counter(
-    e.get('reason', '') for e in events
-    if e.get('decision') == 'warn' and e.get('reason')
-)
-for reason, count in warn_reasons.most_common(3):
-    if count >= 3:
-        signals.append(f'REPEATED_WARN:{count}:{reason}')
-
-# 2. block 后成功模式（被拦截后换了方法成功 → 绕过方案值得记录）
-blocks = [e for e in events if e.get('decision') == 'block']
-if blocks:
-    for block in blocks:
-        block_idx = events.index(block)
-        # 后续有 pass 事件 → 说明找到了替代方案
-        subsequent_passes = [
-            e for e in events[block_idx+1:]
-            if e.get('decision') == 'pass' and e.get('hook') == block.get('hook')
-        ]
-        if subsequent_passes:
-            signals.append(f'BLOCK_THEN_PASS:{block.get(\"reason\", \"\")}')
-
-# 3. 长耗时操作（duration_ms > 5000 → 可能涉及复杂调试）
-slow_ops = [
-    e for e in events
-    if e.get('duration_ms', 0) > 5000
-]
-if slow_ops:
-    signals.append(f'SLOW_OPS:{len(slow_ops)}')
-
-# 4. 多次编辑同一文件（>5 次 → 可能在反复调试）
-edit_files = Counter(
+edited_files = Counter(
     e.get('detail', '').split()[-1] if e.get('detail') else ''
-    for e in events
-    if e.get('tool') == 'Edit' and e.get('detail')
+    for e in events if e.get('tool') == 'Edit' and e.get('detail')
 )
-for file, count in edit_files.most_common(3):
-    if count >= 5 and file:
-        signals.append(f'REPEATED_EDIT:{count}:{file}')
 
-# 5. gate 事件（门禁触发 → 说明有边界情况需要记录）
-gates = [e for e in events if e.get('decision') == 'gate']
-if gates:
-    signals.append(f'GATE_TRIGGERED:{len(gates)}')
+durations = [e.get('duration_ms', 0) for e in events if e.get('duration_ms')]
+avg_duration = sum(durations) // len(durations) if durations else 0
 
-if not signals:
-    print('SKIP:no_signals')
-    sys.exit(0)
+metrics = {
+    'ts': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'session': '${VIBEGUARD_SESSION_ID}',
+    'event_count': len(events),
+    'decisions': dict(decisions),
+    'hooks': dict(hooks),
+    'tools': dict(tools),
+    'top_edited_files': dict(edited_files.most_common(5)),
+    'avg_duration_ms': avg_duration,
+    'slow_ops': len([d for d in durations if d > 5000]),
+}
 
-# 输出信号
-for s in signals:
-    print(s)
-" 2>/dev/null || echo "SKIP:analysis_error")
+# 写入项目级指标文件
+metrics_file = '${VIBEGUARD_PROJECT_LOG_DIR}/session-metrics.jsonl'
+with open(metrics_file, 'a') as f:
+    f.write(json.dumps(metrics, ensure_ascii=False) + '\n')
+" 2>/dev/null || true
 
-# 无值得提取的信号 → 放行
-if echo "$ANALYSIS" | grep -q "^SKIP:"; then
-  REASON=$(echo "$ANALYSIS" | head -1 | cut -d: -f2)
-  vg_log "learn-evaluator" "Stop" "pass" "no extractable signals: ${REASON}" ""
-  exit 0
-fi
-
-# 有信号 → 设置门禁标志 + 输出 Skill 草案
-mkdir -p "$(dirname "$FLAG_FILE")"
-touch "$FLAG_FILE"
-
-SIGNAL_COUNT=$(echo "$ANALYSIS" | wc -l | tr -d ' ')
-SIGNAL_SUMMARY=$(echo "$ANALYSIS" | head -5 | tr '\n' '; ')
-
-vg_log "learn-evaluator" "Stop" "gate" "extractable signals found: ${SIGNAL_COUNT}" "$SIGNAL_SUMMARY"
-
-cat << EOF
-[VibeGuard Learn Evaluator] 检测到 ${SIGNAL_COUNT} 个可提取信号：
-
-$(echo "$ANALYSIS" | while IFS=: read -r type rest; do
-  case "$type" in
-    REPEATED_WARN)  echo "  - 重复警告: ${rest}" ;;
-    BLOCK_THEN_PASS) echo "  - 被拦截后找到替代方案: ${rest}" ;;
-    SLOW_OPS)       echo "  - 慢操作 (>5s): ${rest} 次" ;;
-    REPEATED_EDIT)  echo "  - 反复编辑: ${rest}" ;;
-    GATE_TRIGGERED) echo "  - 门禁触发: ${rest} 次" ;;
-    *)              echo "  - ${type}: ${rest}" ;;
-  esac
-done)
-
-请运行 /vibeguard:learn extract 提取为 Skill 再结束会话。
-或者如果没有值得提取的经验，再次尝试结束即可跳过。
-EOF
-
-exit 2
+exit 0
