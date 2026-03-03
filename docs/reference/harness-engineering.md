@@ -90,13 +90,88 @@ Types → Config → Repo → Service → Runtime → UI（单向依赖）。结
 
 ---
 
-## Golden Principles
+## Golden Principles（高层）
 
 1. **可执行制品优先** — 文档必须是机器可执行的（Markdown/JSON/Shell），讨论和设计不在 agent 视野内 = 不存在
 2. **诊断缺能力而非失败原因** — agent 卡住时问"缺什么"而不是"为什么失败"，用无聊技术让 agent 自己填补
 3. **机械执行胜于文档** — linter 错误消息直接给出修复指令，违规即学习
 4. **给 agent 一双眼睛** — 可观测性栈让 agent 从数据自动复现 bug
 5. **给地图不给手册** — 大而全的指令导致模式匹配到局部，渐进披露才能指导全局
+6. **Humans steer, agents execute** — 人类设定优先级和验收标准，agent 执行修改、跑检查、根据反馈迭代
+7. **Repository as system of record** — 所有知识推入仓库作为版本化制品；Slack 讨论、Google Docs、隐性知识对 agent 不可见 = 不存在
+
+---
+
+## Golden Principles（具体机械化规则）
+
+> OpenAI 未公开完整规则列表。以下从官方博客、Martin Fowler 分析、InfoQ 报道、第三方 agent-harness 仓库中拼凑的已知具体规则。
+
+### Taste Invariants（代码品味强制）
+
+| 规则 | 说明 |
+|------|------|
+| 结构化日志强制 | 禁止裸 print/console，必须使用结构化日志 |
+| Schema/类型命名规范 | schemas 和 types 的命名必须遵循统一规范 |
+| 文件大小限制 | 单文件不超过指定行数 |
+| Rust 平台特定约束 | 折叠 if、inline format!、method reference 优于闭包、match 穷举、避免 ANSI blue/yellow |
+| 共享工具包优先 | 使用共享 utility packages 而非手写 helpers，保持不变量集中 |
+| 禁止 YOLO 数据探测 | 不猜数据形状，必须在边界处验证或依赖 typed SDKs |
+
+### Architecture Invariants（架构约束强制）
+
+| 规则 | 说明 |
+|------|------|
+| 六层单向依赖 | Types → Config → Repo → Service → Runtime → UI，自定义 linter + 结构测试强制，构建违规即失败 |
+| 自定义 linter 含修复指令 | 错误消息直接注入 remediation instructions 到 agent 上下文 |
+| `src/lib/` 禁止 UI 导入 | 可复用核心逻辑不得引入 UI 组件 |
+| `src/server/` 薄边界层 | 服务端仅做委托，核心逻辑在 `src/lib/` |
+| 协议逻辑不进 UI 组件 | 通信/协议处理与视图层分离 |
+| 跨切面系统必须集中 | 新的跨切面系统必须显式集中管理，不得分散 |
+| 数据边界处验证 | tRPC procedures 必须定义 Zod input schemas |
+
+### GC 运行规则
+
+| 规则 | 说明 |
+|------|------|
+| 编码 golden principles 为可执行规则 | 每条原则对应可检测的 linter/test |
+| 后台 Codex agent 定期扫描偏差 | 扫描代码库对照规则，检测违规 |
+| 违规自动开定向重构 PR | 大部分 PR < 1 分钟自动审核合并 |
+| 每日执行 | 不让坏模式累积，清理吞吐量与生成吞吐量等比例扩展 |
+| 覆盖范围 | 文档不一致检测、架构约束违规检测、熵减少和衰减预防 |
+
+### 工作流规则
+
+| 规则 | 说明 |
+|------|------|
+| AGENTS.md ~100 行 | 充当目录（地图）而非百科全书，指向 docs/ 更深层文档 |
+| 渐进披露（Progressive Disclosure） | 全局 → 项目级 → 当前目录，后覆盖前 |
+| AGENTS.override.md | 允许临时指令优先，适合长周期实验 |
+| 密钥禁止硬编码 | 使用环境变量 `${VAR_NAME}` 或安全存储 |
+| 文档与配置同步更新 | 文档化的行为必须与实际系统配置一致 |
+| compact PR + 快速反馈 | 不为完美阻塞，follow-up 修正成本低 |
+| 每个 agent 需独立身份文档 | 非模板化的 identity、mission、tool 文档 |
+
+### 可观测性规则
+
+| 规则 | 说明 |
+|------|------|
+| Chrome DevTools Protocol 集成 | Agent 在 UI 变更前后捕获 DOM 快照，自主复现 bug |
+| 每 worktree 独立可观测栈 | Victoria Logs/Metrics/Traces 按 git 分支隔离 |
+| 可查询 API | LogQL（日志）、PromQL（指标）、TraceQL（追踪） |
+| 性能约束可 prompt 化 | 如 "确保服务启动在 800ms 内完成" 成为可执行指令 |
+
+### 信息来源标注
+
+| 来源 | 可信度 | 内容 |
+|------|--------|------|
+| [OpenAI 官方博客](https://openai.com/index/harness-engineering/) | 权威 | 高层原则、GC 概念、taste invariants 类别 |
+| [Martin Fowler 分析](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html) | 高 | 架构约束细节、依赖层设计 |
+| [engineering.fyi 镜像](https://www.engineering.fyi/article/harness-engineering-leveraging-codex-in-an-agent-first-world) | 高 | 规则执行方式、补充细节 |
+| [Tony Lee 解读](https://tonylee.im/en/blog/openai-harness-engineering-five-principles-codex) | 中 | ExecPlan 标准、结构化执行 |
+| [MattMagg/agent-harness](https://github.com/MattMagg/agent-harness) | 中（第三方） | 具体 invariants 实现（tRPC/Zod/ESLint） |
+| [InfoQ 报道](https://www.infoq.com/news/2026/02/openai-harness-engineering-codex/) | 中 | 量化数据、团队规模 |
+
+> **注意**：OpenAI 未公开完整规则列表。以上是从多个来源拼凑的已知规则，实际内部规则数量可能远大于此。
 
 ---
 

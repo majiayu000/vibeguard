@@ -24,10 +24,16 @@ while IFS= read -r file; do
 
   REL_PATH="${file#${TARGET_DIR}/}"
 
-  # 排除 logger 配置文件
+  # 排除合理使用 console 的文件
   case "$REL_PATH" in
     *logger*|*logging*|*log.config*) continue ;;
+    */debug.*|*/debug/*) continue ;;
   esac
+
+  # MCP 入口文件用 console.error 输出到 stderr 是协议标准做法，跳过
+  if grep -qE '(StdioServerTransport|new Server\(|McpServer)' "$file" 2>/dev/null; then
+    continue
+  fi
 
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue

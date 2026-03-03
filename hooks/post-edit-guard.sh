@@ -55,10 +55,16 @@ case "$FILE_PATH" in
   *.ts|*.tsx|*.js|*.jsx)
     case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*) ;;
+      */debug.*|*/debug/*|*logger*|*logging*) ;;
       *)
-        CONSOLE_COUNT=$(echo "$NEW_STRING" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null; true)
-        if [[ $CONSOLE_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+        # MCP 入口文件用 console.error 输出到 stderr 是协议标准做法，跳过
+        if [[ -f "$FILE_PATH" ]] && grep -qE '(StdioServerTransport|new Server\(|McpServer)' "$FILE_PATH" 2>/dev/null; then
+          : # MCP 入口文件，跳过 console 检测
+        else
+          CONSOLE_COUNT=$(echo "$NEW_STRING" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null; true)
+          if [[ $CONSOLE_COUNT -gt 0 ]]; then
+            WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+          fi
         fi
 
         # [U-HARDCODE] 检测硬编码默认值（字符串字面量作为 prop/参数默认值）
