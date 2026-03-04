@@ -37,7 +37,7 @@ fi
 
 REPORT=$(while IFS= read -r f; do
   [[ -f "${f}" ]] || continue
-  lower_path="${f,,}"
+  lower_path="$(printf '%s' "${f}" | tr '[:upper:]' '[:lower:]')"
   # 聚焦行为命令相关模块，减少纯函数误报
   if [[ "${lower_path}" != *task* && "${lower_path}" != *todo* && "${lower_path}" != *tool* && "${lower_path}" != *command* ]]; then
     continue
