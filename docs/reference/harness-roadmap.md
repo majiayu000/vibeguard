@@ -15,7 +15,7 @@
 **涉及文件**:
 - `hooks/post-edit-guard.sh` — 添加 hashline 验证
 - `mcp-server/src/tools.ts` — 新增 hashline 编辑工具
-- 新增: `scripts/test-edit-stability.sh`
+- 新增（规划中）: scripts/test-edit-stability.sh
 
 **方案**:
 1. post-edit-guard 计算编辑前文件的行级 SHA256
@@ -34,7 +34,7 @@
 **目标**: 长周期任务的状态恢复和并发隔离
 
 **涉及文件**:
-- 新增: `mcp-server/src/session_manager.ts`
+- 新增（规划中）: mcp-server/src/session_manager.ts
 - `mcp-server/src/index.ts` — 多 Turn 处理
 - `hooks/log.sh` — 扩展 turn_id/thread_id
 
@@ -116,7 +116,7 @@ GC 频率: A=7天 B=3天 C=1天 D=实时
 **目标**: agent 自动调用其他 agent 形成工作流链
 
 **涉及文件**:
-- 新增: `mcp-server/src/agent_connector.ts`
+- 新增（规划中）: mcp-server/src/agent_connector.ts
 - `agents/dispatcher.md` — 扩展链接规则
 
 **方案**:

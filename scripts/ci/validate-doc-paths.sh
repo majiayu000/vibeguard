@@ -60,6 +60,7 @@ def main() -> int:
     md_files = [
         f for f in md_files
         if "node_modules" not in f.parts and ".git" not in f.parts
+        and not (".claude" in f.parts and "worktrees" in f.parts)
     ]
 
     if not md_files:
