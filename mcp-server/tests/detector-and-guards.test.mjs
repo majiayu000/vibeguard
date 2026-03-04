@@ -99,6 +99,7 @@ test("guard_check: rust available guards include p1 semantic guards", async () =
     });
     assert.match(text, /single_source_of_truth/);
     assert.match(text, /semantic_effect/);
+    assert.match(text, /taste_invariants/);
   });
 });
 
@@ -108,6 +109,18 @@ test("guard_check: rust semantic_effect guard is wired", async () => {
       target_dir: tmpdir,
       language: "rust",
       guard: "semantic_effect",
+      strict: false,
+    });
+    assert.doesNotMatch(text, /不支持的守卫/);
+  });
+});
+
+test("guard_check: rust taste_invariants guard is wired", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    const text = await handle_guard_check({
+      target_dir: tmpdir,
+      language: "rust",
+      guard: "taste_invariants",
       strict: false,
     });
     assert.doesNotMatch(text, /不支持的守卫/);

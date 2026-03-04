@@ -124,6 +124,13 @@ const GUARD_REGISTRY: GuardRegistry = {
         return strict ? [script, "--strict", target_dir] : [script, target_dir];
       },
     },
+    taste_invariants: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "rust", "check_taste_invariants.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
   },
   typescript: TS_JS_GUARDS,
   javascript: TS_JS_GUARDS,
