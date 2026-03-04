@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { detect_languages } from "../dist/detector.js";
 import { set_vibeguard_root } from "../dist/executor.js";
-import { handle_guard_check } from "../dist/tools.js";
+import {
+  handle_guard_check,
+  handle_compliance_report,
+  handle_metrics_collect,
+} from "../dist/tools.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,5 +155,25 @@ test("guard_check: go error_handling guard is wired", async () => {
       strict: false,
     });
     assert.doesNotMatch(text, /不支持的守卫/);
+  });
+});
+
+test("compliance_report: returns normalized output envelope", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    const text = await handle_compliance_report({
+      project_dir: tmpdir,
+    });
+    assert.match(text, /\[compliance_report\]/);
+    assert.match(text, /VibeGuard Compliance Check/);
+  });
+});
+
+test("metrics_collect: returns normalized output envelope", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    const text = await handle_metrics_collect({
+      project_dir: tmpdir,
+    });
+    assert.match(text, /\[metrics_collect\]/);
+    assert.match(text, /VibeGuard Metrics Report/);
   });
 });
