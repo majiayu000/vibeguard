@@ -48,6 +48,9 @@ jobs:
       - name: Validate doc paths
         run: bash scripts/ci/validate-doc-paths.sh
 
+      - name: Validate doc freshness
+        run: bash scripts/doc-freshness-check.sh --strict
+
       - name: Hook regression tests
         run: bash tests/test_hooks.sh
 
