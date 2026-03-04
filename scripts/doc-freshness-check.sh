@@ -86,19 +86,27 @@ if os.path.isdir(hooks_dir):
             gid = m.group()
             guard_ids.setdefault(gid, []).append(rel_path)
 
-# AI 可见规则: 从 ~/.claude/rules/vibeguard/ 扫描
+# AI 可见规则: 优先 ~/.claude/rules/vibeguard/，缺失时回退到 repo rules/（CI 友好）
 ai_visible_ids = {}  # id -> [files]
 if native_rules_dir and os.path.isdir(native_rules_dir):
-    for nr_file in sorted(glob.glob(os.path.join(native_rules_dir, "**/*.md"), recursive=True)):
-        try:
-            with open(nr_file) as f:
-                content = f.read()
-        except (UnicodeDecodeError, PermissionError):
-            continue
-        rel_path = os.path.relpath(nr_file, native_rules_dir)
-        for m in id_pattern.finditer(content):
-            aid = m.group()
-            ai_visible_ids.setdefault(aid, []).append(rel_path)
+    ai_rules_dir = native_rules_dir
+    ai_source_label = "~/.claude/rules/"
+    ai_fallback_used = False
+else:
+    ai_rules_dir = rules_dir
+    ai_source_label = "repo/rules (fallback)"
+    ai_fallback_used = True
+
+for nr_file in sorted(glob.glob(os.path.join(ai_rules_dir, "**/*.md"), recursive=True)):
+    try:
+        with open(nr_file) as f:
+            content = f.read()
+    except (UnicodeDecodeError, PermissionError):
+        continue
+    rel_path = os.path.relpath(nr_file, ai_rules_dir)
+    for m in id_pattern.finditer(content):
+        aid = m.group()
+        ai_visible_ids.setdefault(aid, []).append(rel_path)
 
 # 计算缺口
 rule_set = set(rule_ids.keys())
@@ -125,12 +133,16 @@ VibeGuard 文档新鲜度报告
 规则总数:     {total_rules}
 综合覆盖:     {len(all_covered)} ({len(all_covered)/total_rules*100:.0f}%)
   机械强制:   {len(implemented)} (守卫/hooks)
-  AI 可见:    {len(ai_visible)} (~/.claude/rules/)
+  AI 可见:    {len(ai_visible)} ({ai_source_label})
   双重覆盖:   {len(dual_covered)}
 完全未覆盖:   {len(fully_uncovered)}
 未文档化守卫: {len(undocumented)}
 不一致率:     {gap_rate:.1f}%
 """)
+
+if ai_fallback_used:
+    print(f"NOTE: native rules dir 不存在，已回退到 {rules_dir}")
+    print()
 
 def print_by_prefix(ids, label):
     if not ids:
@@ -148,7 +160,7 @@ def print_by_prefix(ids, label):
 dual_set = set(dual_covered)
 print_by_prefix(dual_covered, "双重覆盖（守卫 + AI 可见）")
 print_by_prefix([r for r in implemented if r not in dual_set], "仅机械强制（守卫/hooks）")
-print_by_prefix([r for r in ai_visible if r not in dual_set], "仅 AI 可见（~/.claude/rules/）")
+print_by_prefix([r for r in ai_visible if r not in dual_set], f"仅 AI 可见（{ai_source_label}）")
 
 if fully_uncovered:
     print("完全未覆盖的规则:")
