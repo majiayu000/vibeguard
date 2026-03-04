@@ -141,6 +141,27 @@ const GUARD_REGISTRY: GuardRegistry = {
         return ["vet", "./..."];
       },
     },
+    error_handling: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "go", "check_error_handling.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
+    goroutine_leak: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "go", "check_goroutine_leak.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
+    defer_in_loop: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "go", "check_defer_in_loop.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
   },
 };
 

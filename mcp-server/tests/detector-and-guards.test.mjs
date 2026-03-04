@@ -126,3 +126,30 @@ test("guard_check: rust taste_invariants guard is wired", async () => {
     assert.doesNotMatch(text, /不支持的守卫/);
   });
 });
+
+test("guard_check: go available guards include script-based checks", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    const text = await handle_guard_check({
+      target_dir: tmpdir,
+      language: "go",
+      guard: "not_exists",
+      strict: false,
+    });
+    assert.match(text, /go 可用守卫/);
+    assert.match(text, /error_handling/);
+    assert.match(text, /goroutine_leak/);
+    assert.match(text, /defer_in_loop/);
+  });
+});
+
+test("guard_check: go error_handling guard is wired", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    const text = await handle_guard_check({
+      target_dir: tmpdir,
+      language: "go",
+      guard: "error_handling",
+      strict: false,
+    });
+    assert.doesNotMatch(text, /不支持的守卫/);
+  });
+});
