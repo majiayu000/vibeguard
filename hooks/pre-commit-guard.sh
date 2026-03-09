@@ -142,6 +142,14 @@ if [[ -n "$GUARDS_DIR" ]]; then
         [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
           run_guard "py/dead_shims" "python3 ${GUARDS_DIR}/python/check_dead_shims.py --strict ."
         ;;
+      go)
+        [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
+          run_guard "go/error_handling" "bash ${GUARDS_DIR}/go/check_error_handling.sh --strict ."
+        [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
+          run_guard "go/goroutine_leak" "bash ${GUARDS_DIR}/go/check_goroutine_leak.sh --strict ."
+        [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
+          run_guard "go/defer_in_loop" "bash ${GUARDS_DIR}/go/check_defer_in_loop.sh --strict ."
+        ;;
     esac
   done
 fi
@@ -164,6 +172,7 @@ for lang in $DETECTED_LANGS; do
   case "$lang" in
     rust)             run_build_check "cargo check --quiet"  "cargo check 失败" ;;
     typescript)       run_build_check "npx tsc --noEmit"     "tsc --noEmit 失败" ;;
+    javascript)       run_build_check 'if ! command -v node >/dev/null 2>&1; then exit 0; fi; FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E "\.(js|mjs|cjs)$" || true); [[ -z "$FILES" ]] && exit 0; while IFS= read -r f; do [[ -z "$f" || ! -f "$f" ]] && continue; node --check "$f" >/dev/null 2>&1 || exit 1; done <<< "$FILES"' "JavaScript 语法检查失败（node --check）" ;;
     go)               run_build_check "go build ./..."       "go build 失败" ;;
   esac
 done

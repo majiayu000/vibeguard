@@ -47,6 +47,13 @@ const TS_JS_GUARDS: Record<string, GuardEntry> = {
       return strict ? [script, "--strict", target_dir] : [script, target_dir];
     },
   },
+  component_duplication: {
+    command: "bash",
+    build_args: (target_dir, strict) => {
+      const script = path.join(get_guards_dir(), "typescript", "check_component_duplication.sh");
+      return strict ? [script, "--strict", target_dir] : [script, target_dir];
+    },
+  },
 };
 
 const GUARD_REGISTRY: GuardRegistry = {

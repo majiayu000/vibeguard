@@ -54,6 +54,19 @@ assert_exit_zero() {
   fi
 }
 
+assert_exit_nonzero() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    red "$desc (unexpected success)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 # 创建临时日志目录，避免污染真实日志
 export VIBEGUARD_LOG_DIR=$(mktemp -d)
 trap 'rm -rf "$VIBEGUARD_LOG_DIR"' EXIT
@@ -306,6 +319,24 @@ assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
 result=$(echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-build-check.sh)
 assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.json) 放行"
 
+# JavaScript 语法错误应警告
+tmp_js_bad="$(mktemp -d)"
+cat >"$tmp_js_bad/bad.js" <<'EOF'
+const value = ;
+EOF
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_bad/bad.js\"}}" | bash hooks/post-build-check.sh)
+assert_contains "$result" "VIBEGUARD" "JavaScript 语法错误触发构建检查警告"
+rm -rf "$tmp_js_bad"
+
+# JavaScript 语法正确应放行
+tmp_js_ok="$(mktemp -d)"
+cat >"$tmp_js_ok/good.js" <<'EOF'
+const value = 1;
+EOF
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_ok/good.js\"}}" | bash hooks/post-build-check.sh)
+assert_not_contains "$result" "VIBEGUARD" "JavaScript 语法正确放行"
+rm -rf "$tmp_js_ok"
+
 # =========================================================
 header "pre-commit-guard.sh — timeout 回退"
 # =========================================================
@@ -350,6 +381,39 @@ git -C "$tmp_repo_precommit" add Cargo.toml src/lib.rs
 
 assert_exit_zero "timeout/gtimeout 不可用时回退执行，不误报构建失败" bash -c "cd '$tmp_repo_precommit' && PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_precommit"
+
+# Go 项目应运行 Go 守卫（新增 _ = 丢弃 error 时阻止提交）
+tmp_repo_precommit_go="$(mktemp -d)"
+git -C "$tmp_repo_precommit_go" init -q
+mkdir -p "$tmp_repo_precommit_go/bin" "$tmp_repo_precommit_go/cmd"
+
+cat >"$tmp_repo_precommit_go/go.mod" <<'EOF'
+module vg-precommit-go-test
+
+go 1.22
+EOF
+
+cat >"$tmp_repo_precommit_go/cmd/main.go" <<'EOF'
+package main
+
+func doThing() error { return nil }
+
+func main() {
+	_ = doThing()
+}
+EOF
+
+cat >"$tmp_repo_precommit_go/bin/go" <<'EOF'
+#!/usr/bin/env bash
+# pre-commit 中 go build 只作为构建门禁，这里返回成功避免依赖本机 Go
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_go/bin/go"
+git -C "$tmp_repo_precommit_go" add go.mod cmd/main.go
+
+assert_exit_nonzero "Go 守卫可阻止 _= 丢弃 error 的提交" bash -c "cd '$tmp_repo_precommit_go' && PATH='$tmp_repo_precommit_go/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_repo_precommit_go"
 
 # =========================================================
 # 总结

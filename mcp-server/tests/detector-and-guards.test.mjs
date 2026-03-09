@@ -63,6 +63,7 @@ test("guard_check: javascript is a supported language", async () => {
       strict: false,
     });
     assert.match(text, /javascript 可用守卫/);
+    assert.match(text, /component_duplication/);
     assert.doesNotMatch(text, /不支持的语言/);
   });
 });
@@ -152,6 +153,19 @@ test("guard_check: go error_handling guard is wired", async () => {
       target_dir: tmpdir,
       language: "go",
       guard: "error_handling",
+      strict: false,
+    });
+    assert.doesNotMatch(text, /不支持的守卫/);
+  });
+});
+
+test("guard_check: typescript component_duplication guard is wired", async () => {
+  await with_tmpdir_async(async (tmpdir) => {
+    fs.writeFileSync(path.join(tmpdir, "tsconfig.json"), "{}\n", "utf8");
+    const text = await handle_guard_check({
+      target_dir: tmpdir,
+      language: "typescript",
+      guard: "component_duplication",
       strict: false,
     });
     assert.doesNotMatch(text, /不支持的守卫/);

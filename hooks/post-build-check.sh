@@ -4,6 +4,7 @@
 # 编辑源码文件后自动运行对应语言的构建检查：
 #   - Rust (.rs): cargo check
 #   - TypeScript (.ts/.tsx): npx tsc --noEmit
+#   - JavaScript (.js/.mjs/.cjs): node --check
 #   - Go (.go): go build ./...
 #
 # 只输出警告，不阻止操作。
@@ -27,7 +28,7 @@ EXT="${BASENAME##*.}"
 
 # 只处理需要构建检查的语言
 case "$EXT" in
-  rs|ts|tsx|go) ;;
+  rs|ts|tsx|go|js|mjs|cjs) ;;
   *) exit 0 ;;
 esac
 
@@ -57,6 +58,11 @@ case "$EXT" in
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "tsconfig.json") || exit 0
     # tsc 类型检查
     ERRORS=$(cd "$PROJECT_ROOT" && npx tsc --noEmit 2>&1 | grep -E "error TS" | head -10) || true
+    ;;
+  js|mjs|cjs)
+    # JavaScript 语法检查（不依赖 tsconfig）
+    command -v node >/dev/null 2>&1 || exit 0
+    ERRORS=$(node --check "$FILE_PATH" 2>&1 | head -10) || true
     ;;
   go)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "go.mod") || exit 0

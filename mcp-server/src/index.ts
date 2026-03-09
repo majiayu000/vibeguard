@@ -32,7 +32,7 @@ server.tool(
       .string()
       .optional()
       .describe(
-        "守卫名称。python: duplicates/naming/quality/dead_shims；rust: nested_locks/unwrap/duplicate_types/workspace_consistency/single_source_of_truth/semantic_effect/taste_invariants；typescript/javascript: eslint_guards/any_abuse/console_residual；go: vet/error_handling/goroutine_leak/defer_in_loop。不指定则运行该语言全部守卫"
+        "守卫名称。python: duplicates/naming/quality/dead_shims；rust: nested_locks/unwrap/duplicate_types/workspace_consistency/single_source_of_truth/semantic_effect/taste_invariants；typescript/javascript: eslint_guards/any_abuse/console_residual/component_duplication；go: vet/error_handling/goroutine_leak/defer_in_loop。不指定则运行该语言全部守卫"
       ),
     strict: z
       .boolean()

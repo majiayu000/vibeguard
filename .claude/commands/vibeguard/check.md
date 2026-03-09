@@ -37,10 +37,14 @@ argument-hint: "[project_dir]"
    bash ${VIBEGUARD_DIR}/guards/rust/check_duplicate_types.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/rust/check_nested_locks.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/rust/check_workspace_consistency.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/rust/check_single_source_of_truth.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/rust/check_semantic_effect.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/rust/check_taste_invariants.sh <project_dir>
    ```
 
    **TypeScript/JavaScript 项目**：
    ```bash
+   # eslint_guards: 项目存在 eslint 配置时自动运行 npx eslint --max-warnings=0 .
    bash ${VIBEGUARD_DIR}/guards/typescript/check_any_abuse.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_console_residual.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_component_duplication.sh <project_dir>
@@ -51,6 +55,14 @@ argument-hint: "[project_dir]"
    python3 ${VIBEGUARD_DIR}/guards/python/check_duplicates.py <project_dir>
    python3 ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <project_dir>
    python3 ${VIBEGUARD_DIR}/guards/python/test_code_quality_guards.py
+   ```
+
+   **Go 项目**：
+   ```bash
+   go vet ./...                                 # vet（MCP go.vet）
+   bash ${VIBEGUARD_DIR}/guards/go/check_error_handling.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/go/check_goroutine_leak.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/guards/go/check_defer_in_loop.sh <project_dir>
    ```
 
    每个守卫独立运行，一个失败不影响其他守卫。
