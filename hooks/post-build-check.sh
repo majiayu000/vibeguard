@@ -80,15 +80,48 @@ ERROR_COUNT=$(echo "$ERRORS" | wc -l | tr -d ' ')
 WARNINGS="[BUILD] 编辑 ${BASENAME} 后检测到 ${ERROR_COUNT} 个构建错误：
 ${ERRORS}"
 
-vg_log "post-build-check" "Edit" "warn" "构建错误 ${ERROR_COUNT} 个" "$FILE_PATH"
+# --- Escalation 检测：连续构建失败升级 ---
+DECISION="warn"
+CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" python3 -c '
+import json, os
+log_file = os.environ.get("VG_LOG_FILE", "")
+count = 0
+try:
+    with open(log_file) as f:
+        lines = f.readlines()
+    # 从末尾倒序读，遇到 pass 就停止计数
+    for line in reversed(lines):
+        line = line.strip()
+        if not line: continue
+        try:
+            e = json.loads(line)
+            if e.get("hook") != "post-build-check": continue
+            if e.get("decision") == "pass":
+                break
+            if e.get("decision") == "warn":
+                count += 1
+        except: continue
+except: pass
+print(count)
+' 2>/dev/null | tr -d '[:space:]' || echo "0")
+CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
 
-VG_WARNINGS="$WARNINGS" python3 -c '
+if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
+  DECISION="escalate"
+  WARNINGS="[U-25 ESCALATE] 连续 ${CONSECUTIVE_FAILS} 次构建失败！必须先修复构建错误再继续编辑。建议：运行完整构建命令查看全部错误，定位根因一次性修复。${WARNINGS}"
+fi
+
+vg_log "post-build-check" "Edit" "$DECISION" "构建错误 ${ERROR_COUNT} 个" "$FILE_PATH"
+
+VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
 import json, os
 warnings = os.environ.get("VG_WARNINGS", "")
+decision = os.environ.get("VG_DECISION", "warn")
+prefix = "VIBEGUARD 构建升级警告" if decision == "escalate" else "VIBEGUARD 构建检查"
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",
-        "additionalContext": "VIBEGUARD 构建检查：" + warnings
+        "additionalContext": prefix + "：" + warnings
     }
 }
 print(json.dumps(result, ensure_ascii=False))

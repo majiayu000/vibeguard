@@ -53,7 +53,22 @@ tags: [vibeguard, preflight, constraints, prevention]
    - 模块职责划分（哪个模块管什么）
    - 输出：`模式清单`
 
-3.5. **目录语义校验**
+3.5. **参考实现搜索（Skeleton Projects）**
+   - 实现新功能前，先搜索项目内外是否已有类似实现可参考
+   - **项目内搜索**：用 Grep/Glob 搜索关键词、函数名、模式名，确认没有已有实现被遗漏
+   - **项目外搜索**（仅限 6+ 文件的大改动）：
+     - 用 WebSearch 搜索 "battle-tested" 开源实现（如 `"<feature> implementation" site:github.com`）
+     - 评估候选实现的适用性（license 兼容、依赖量、维护活跃度）
+     - **不是照搬**，而是提取设计决策作为约束集的输入
+   - 输出：`参考实现清单`
+     ```
+     [REF-01] 项目内：src/core/xxx.ts 已有类似的 XX 逻辑，应扩展而非新建
+     [REF-02] 项目外：github.com/xxx/yyy 的 ZZ 模式值得参考（MIT，1.2k stars，活跃维护）
+     [REF-NONE] 未找到可参考实现，需从零设计
+     ```
+   - 如果找到项目内已有实现 → 生成 L1 约束："扩展 [REF-XX] 而非新建"
+
+3.6. **目录语义校验**
    - 列出项目所有子目录名（一级 + 二级），对照内置语义映射表判断职责一致性：
 
      | 目录名 | 预期职责 |

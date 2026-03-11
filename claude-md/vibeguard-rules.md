@@ -17,7 +17,9 @@
 
 ## 上下文 · 验证
 
-- 纠正 2 次 → `/clear`。Compacting 保留：文件列表、约束集、测试命令、决策、优先级
+- 纠正 2 次 → `/clear`
+- **Compaction 后必须保留**：(1) 已修改文件列表 (2) 约束集/SPEC (3) 测试命令 (4) 关键决策 (5) 当前优先级 (6) L1-L7 规则摘要
+- **Compaction 后必须重新读取**：进行中的 preflight 约束集或 exec-plan 文件（如有）
 - 完成前：Rust `cargo check` / TS `npx tsc --noEmit` / Go `go build ./...`
 - 提交前：Rust `cargo test` / TS 项目测试 / Go `go test ./...` / Python `pytest`
 
