@@ -71,6 +71,12 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
     )
 
 
+def _hook_command(repo_dir: str, script_name: str) -> str:
+    """Generate the hook command using the run-hook.sh wrapper."""
+    home = Path.home()
+    return f"bash {home}/.vibeguard/run-hook.sh {script_name}"
+
+
 def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, script_name: str, state: dict[str, bool]) -> None:
     entries = hooks.setdefault(event, [])
     if not isinstance(entries, list):
@@ -78,7 +84,7 @@ def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, 
         hooks[event] = entries
         state["changed"] = True
 
-    desired_command = f"bash {repo_dir}/hooks/{script_name}"
+    desired_command = _hook_command(repo_dir, script_name)
     found = False
 
     for entry in entries:

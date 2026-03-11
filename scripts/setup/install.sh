@@ -55,6 +55,13 @@ if ! command -v python3 &>/dev/null; then
 fi
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
+# 写入 repo 路径 + 安装 hook wrapper（全平台兼容，无 symlink 依赖）
+VIBEGUARD_HOME="${HOME}/.vibeguard"
+mkdir -p "${VIBEGUARD_HOME}"
+printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
+cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
+chmod +x "${VIBEGUARD_HOME}/run-hook.sh"
+green "  ~/.vibeguard/repo-path + run-hook.sh ready"
 echo
 
 # 2. Symlink skills 到 Claude Code

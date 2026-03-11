@@ -7,6 +7,19 @@ source "${SCRIPT_DIR}/lib.sh"
 echo "VibeGuard Installation Status"
 echo "=============================="
 
+# Check hook wrapper
+VIBEGUARD_HOME="${HOME}/.vibeguard"
+if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
+  _repo=$(<"${VIBEGUARD_HOME}/repo-path")
+  if [[ -d "$_repo/hooks" ]]; then
+    green "[OK] Hook wrapper ready (repo: ${_repo})"
+  else
+    red "[BROKEN] repo-path points to missing directory: ${_repo}"
+  fi
+else
+  yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
+fi
+
 # Check CLAUDE.md
 if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]] && grep -q "VibeGuard" "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null; then
   green "[OK] VibeGuard rules in ~/.claude/CLAUDE.md"
