@@ -75,3 +75,24 @@ bug fix 范围严格锁定，不顺便重构周围代码。
 - 连续 3 次构建失败后，运行完整构建命令（`cargo check` / `npx tsc --noEmit` / `go build ./...`）查看全貌
 - 定位根因（通常是类型不匹配、缺少 import、接口变更未同步），一次性修复而非逐个猜测
 - 禁止在构建红灯状态下新增不相关的功能代码
+
+## U-26: 声明-执行完整性（严格）
+声明框架组件（Config/Trait/持久化层/状态管理）后，**必须完成启动集成**。禁止"声明了但没接线"。
+
+**检查清单**：
+- Config 结构体 → 启动代码必须调用 `load()` 而非 `Default::default()`
+- Trait 声明 → 必须有至少一个 `impl` + 启动注册点（registry/builder）
+- 持久化方法（save/load/persist/restore）→ 启动代码必须调用恢复状态
+- 新字段加入 AppState/Context → 必须在所有构造点初始化
+
+**修复模式**：
+1. 审计所有声明点（`rg "struct.*Config"` / `rg "trait "` / `rg "fn.*(save|load|persist)"`）
+2. 验证对应的启动注册（`build_app_state()` / `main()` / `init()` / `new()`）
+3. 添加缺失的注册调用
+4. 实现 silent fallback（配置缺失 → 使用默认值，不崩溃启动）
+
+**反模式**：
+- SkillStore 有 `discover()` 方法但启动时从不调用 → 重启后 skills 丢失
+- RulesConfig 从 TOML 加载但消费者调用 `Default::default()` → 配置不生效
+- ThreadManager 有 `persist()` 方法但从不调用 → 死代码
+- GC 收到 `project_root` 但不传播给子任务 → 功能降级

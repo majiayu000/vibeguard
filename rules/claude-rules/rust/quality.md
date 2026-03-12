@@ -50,6 +50,35 @@ if let Err(e) = db::update(&conn, &ids) {
 ## RS-13: 动作语义函数缺少状态副作用（高）
 `mark_done` 只返回文本不落状态。修复：函数必须写入状态（insert/update/remove）或发射事件。
 
+## RS-14: 声明-执行鸿沟（高）
+Config/Trait/持久化层声明但启动时未集成。修复：审计声明点，验证启动注册，添加缺失调用。
+
+**检测模式**：
+- Config 结构体存在但启动调用 `Default::default()`
+- Trait 声明但无 `impl` 或未注册到 registry
+- `fn save/load/persist` 存在但启动时从不调用
+- 字段加入 struct 但构造函数未初始化
+
+**修复清单**：
+```rust
+// Bad: Config 声明但不加载
+let config = MyConfig::default();  // 配置文件被忽略
+
+// Good: 启动时显式加载
+let config = MyConfig::load_from_file("config.toml")
+    .unwrap_or_else(|_| MyConfig::default());  // silent fallback
+
+// Bad: 持久化方法存在但从不调用
+impl Store {
+    fn restore(&mut self) { /* 从 DB 恢复 */ }
+}
+// 启动代码：let store = Store::new();  // restore() 从未调用
+
+// Good: 启动时恢复状态
+let mut store = Store::new();
+store.restore()?;  // 显式恢复
+```
+
 ## TASTE-ANSI: 硬编码 ANSI 转义序列
 应使用 colored/termcolor crate 代替 `\x1b[` 硬编码。
 

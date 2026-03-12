@@ -322,6 +322,33 @@ date: YYYY-MM-DD
                       指导未来操作
 ```
 
+## 学习产出历史
+
+### 2026-03-11：构建错误循环分析
+
+**信号源**：57 个项目 3/5~3/11 事件聚合 + learn-digest 积压信号
+
+| 信号 | 次数 | 改进 |
+|------|------|------|
+| 构建错误 | 435x warn | U-25 规则 + post-build-check escalation |
+| L1 重复定义 | 82x warn | 已有检测，暂不升级 |
+| RS-03 unwrap | 37x warn | 消息强化（"立即修复"） |
+| 文件不存在 | 14x block | 已有效拦截，无需改进 |
+
+**产出**：
+- 新规则 **U-25**：构建失败修复优先（严格）
+- Hook 增强：`post-build-check.sh` 连续 5 次失败 → escalate
+- 新 Skill：`build-error-spiral-breaker`（`~/.claude/skills/`）
+
+**三层触发机制**：
+```
+U-25 规则（常驻，所有会话生效）
+  ↓ 构建失败时
+Skill 知识（提供具体的修复策略）
+  ↓ 连续 5 次失败
+Hook 升级（强制警告，打断 Agent 循环）
+```
+
 ## 文件清单
 
 | 文件 | 角色 |
@@ -329,6 +356,7 @@ date: YYYY-MM-DD
 | `hooks/log.sh` | 日志基础设施，提供 vg_log 函数 |
 | `hooks/learn-evaluator.sh` | Stop 事件时会话指标采集 |
 | `hooks/skills-loader.sh` | 首次 Read 时加载匹配 Skill |
+| `hooks/post-build-check.sh` | 构建检查 + 连续失败升级（U-25 机械化） |
 | `scripts/gc-scheduled.sh` | GC 定期学习（跨会话模式识别） |
 | `.claude/commands/vibeguard/learn.md` | /vibeguard:learn 命令（双模式路由） |
 | `resources/skill-template.md` | SKILL.md 写作模板 |
