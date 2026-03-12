@@ -324,6 +324,34 @@ date: YYYY-MM-DD
 
 ## 学习产出历史
 
+### 2026-03-11：Declaration-Execution Gap 模式学习
+
+**信号源**：Harness 项目跨会话记忆分析 + 用户提问
+
+**模式识别**：Config/Trait/持久化层声明但启动时未集成 → 配置不生效/状态丢失/功能降级
+
+| 案例 | 症状 | 根因 |
+|------|------|------|
+| SkillStore.discover() | 重启后 skills 丢失 | 启动时从不调用 discover() |
+| RulesConfig.load() | 配置文件不生效 | 消费者用 Default::default() |
+| ThreadManager.persist() | 死代码 | 启动时从不调用 persist() |
+| GC project_root | 功能降级 | 参数不传播给子任务 |
+
+**产出**：
+- 新规则 **U-26**：声明-执行完整性（严格）— 4 项检查清单 + silent fallback 模式
+- 新规则 **RS-14**：声明-执行鸿沟（高）— Rust 特定检测模式
+- 新守卫：`guards/rust/check_declaration_execution_gap.sh` — 检测 4 类鸿沟
+- 新 Skill：`declaration-execution-gap-detector`（`~/.claude/skills/`）
+
+**三层触发机制**：
+```
+U-26 规则（常驻，所有会话生效）
+  ↓ 发现声明但未集成
+Skill 知识（提供审计和修复策略）
+  ↓ Rust 项目
+RS-14 守卫（自动检测 4 类鸿沟）
+```
+
 ### 2026-03-11：构建错误循环分析
 
 **信号源**：57 个项目 3/5~3/11 事件聚合 + learn-digest 积压信号
