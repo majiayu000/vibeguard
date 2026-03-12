@@ -80,6 +80,45 @@ paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 
 ---
 
+## Hooks 系统
+
+### 7. Stop Hook exit 2 导致无限循环
+
+| 字段 | 值 |
+|------|------|
+| 发现日期 | 2026-03-12 |
+| 状态 | 已修复（VibeGuard 侧） |
+| 影响 | Stop hook 使用 `exit 2` 时触发无限循环，Claude Code 界面不断重复执行 |
+
+**根因**：
+
+Claude Code 的 hook exit code 语义：
+- `exit 0` — 静默通过，不反馈给模型
+- `exit 1` — hook 失败，不反馈给模型
+- `exit 2` — 将 stderr 作为反馈注入给 Claude，期望 Claude 处理后重试
+
+`stop-guard.sh` 在检测到未提交源码文件时使用 `exit 2`，触发以下死循环：
+
+```
+Claude 回复完成
+  → Stop hooks 执行
+    → stop-guard.sh 检测到未提交文件 → exit 2 + stderr
+      → Claude Code 把 stderr 反馈给 Claude
+        → Claude 生成回复（哪怕是空的）
+          → 回复完成 → Stop hooks 再次执行
+            → 未提交文件仍在 → exit 2 → 无限循环
+```
+
+**关键矛盾**：`exit 2` 期望 Claude 能解决问题，但 Claude 在 Stop 上下文中没有工具可用（无法调用 git commit），所以触发条件永远无法消除。
+
+**VibeGuard 修复**：
+
+`stop-guard.sh` 将 `exit 2` 改为 `exit 0`，仅通过 `vg_log` 记录未提交文件，不阻塞会话结束。
+
+**设计原则**：Stop hook 中不应使用 `exit 2`，除非触发条件可以被 Claude 在 Stop 上下文中自行解决。PreToolUse/PostToolUse 中使用 `exit 2` 是安全的，因为 Claude 在这些上下文中有完整的工具访问权限。
+
+---
+
 ## Skills 系统
 
 ### 5. SKILL.md 验证器拒绝扩展字段
@@ -115,6 +154,7 @@ paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 | #16299 项目级 paths 全局加载 | 低 | — 不影响用户级 |
 | #13905 YAML 语法无效 | 中 | ✅ CSV 格式 workaround |
 | #23569 Worktree paths 忽略 | 低 | — 不依赖此机制 |
+| #7 Stop hook exit 2 无限循环 | **高** | ✅ 改为 exit 0 仅记录 |
 | #25380 SKILL.md 验证器 | 低 | — 仅 VS Code 警告 |
 | #17688 插件 hooks 不触发 | 无 | — 不使用此机制 |
 
