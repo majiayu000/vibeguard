@@ -2,7 +2,7 @@
 # VibeGuard Stop Hook — 完成前验证门禁
 #
 # AI 会话结束时检查是否有未提交的源码变更。
-# 有未提交变更 → exit 2（非阻塞警告，提醒用户）
+# 有未提交变更 → exit 2（阻塞，stderr 反馈给 Claude）
 # 无变更或非 git 仓库 → exit 0（静默通过）
 
 set -euo pipefail
@@ -29,8 +29,9 @@ if [[ -n "$changed_source_files" ]]; then
 
   vg_log "stop-guard" "Stop" "gate" "uncommitted source changes: ${count} files" "$(echo "$changed_source_files" | head -5 | tr '\n' ' ')"
 
-  echo "⚠️  ${count} uncommitted source file(s). Consider committing or stashing before ending."
-  exit 2
+  # exit 0: log only, do not block — Claude cannot commit in Stop context,
+  # so exit 2 here causes an infinite loop (feedback → response → stop hooks → repeat)
+  exit 0
 fi
 
 vg_log "stop-guard" "Stop" "pass" "" ""

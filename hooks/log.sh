@@ -22,7 +22,7 @@ VIBEGUARD_LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
 
 # 按项目隔离日志：用 git repo 根目录路径的哈希区分不同项目
 _vg_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
-_vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 | cut -c1-8)
+_vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8) || _vg_project_hash="fallback0"
 VIBEGUARD_PROJECT_LOG_DIR="${VIBEGUARD_LOG_DIR}/projects/${_vg_project_hash}"
 mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
 VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
