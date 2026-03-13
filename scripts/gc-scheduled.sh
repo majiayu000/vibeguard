@@ -269,6 +269,182 @@ else:
 " 2>&1 || echo "[ERROR] learn-digest failed"
   echo
 
+  echo "--- 会话质量反思（Reflection Automation） ---"
+  REFLECTION_FILE="${LOG_DIR}/reflection-digest.md"
+  python3 -c "
+import json, os, sys
+from collections import Counter
+from datetime import datetime, timezone, timedelta
+
+log_dir = '${LOG_DIR}'
+projects_dir = os.path.join(log_dir, 'projects')
+output_file = '${REFLECTION_FILE}'
+
+if not os.path.isdir(projects_dir):
+    print('  无项目数据，跳过')
+    sys.exit(0)
+
+now = datetime.now(timezone.utc)
+cutoff_7d = (now - timedelta(days=7)).strftime('%Y-%m-%dT')
+
+# 收集所有项目的 session-metrics
+all_sessions = []
+project_names = {}
+for proj in os.listdir(projects_dir):
+    proj_dir = os.path.join(projects_dir, proj)
+    if not os.path.isdir(proj_dir):
+        continue
+    # 读项目名
+    root_file = os.path.join(proj_dir, '.project-root')
+    if os.path.exists(root_file):
+        project_names[proj] = open(root_file).read().strip().split('/')[-1]
+    else:
+        project_names[proj] = proj
+
+    metrics_file = os.path.join(proj_dir, 'session-metrics.jsonl')
+    if not os.path.exists(metrics_file):
+        continue
+    with open(metrics_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                m = json.loads(line)
+                if m.get('ts', '')[:10] >= cutoff_7d[:10]:
+                    m['_project'] = proj
+                    all_sessions.append(m)
+            except json.JSONDecodeError:
+                continue
+
+if not all_sessions:
+    print('  无近 7 天会话数据，跳过')
+    sys.exit(0)
+
+# 聚合分析
+total_sessions = len(all_sessions)
+total_events = sum(s.get('event_count', 0) for s in all_sessions)
+
+# 决策分布
+decision_totals = Counter()
+for s in all_sessions:
+    for d, c in s.get('decisions', {}).items():
+        decision_totals[d] += c
+
+# 纠正信号统计
+sessions_with_corrections = 0
+all_correction_signals = Counter()
+for s in all_sessions:
+    sigs = s.get('correction_signals', [])
+    if sigs:
+        sessions_with_corrections += 1
+        for sig in sigs:
+            # 归类信号
+            if '反复修正' in sig:
+                all_correction_signals['文件反复修正'] += 1
+            elif '高摩擦' in sig:
+                all_correction_signals['高摩擦会话'] += 1
+            elif '纠正检测' in sig:
+                all_correction_signals['实时纠正触发'] += 1
+            elif '升级警告' in sig:
+                all_correction_signals['升级警告'] += 1
+
+# Hook 触发频率
+hook_totals = Counter()
+for s in all_sessions:
+    for h, c in s.get('hooks', {}).items():
+        hook_totals[h] += c
+
+# 高 warn 比率会话
+high_friction = [s for s in all_sessions if s.get('warn_ratio', 0) > 0.4]
+
+# 最频繁编辑文件
+file_edits = Counter()
+for s in all_sessions:
+    for f, c in s.get('top_edited_files', {}).items():
+        if f:
+            file_edits[f] += c
+
+# 生成反思报告
+report = []
+report.append(f'# VibeGuard 周度反思报告')
+report.append(f'')
+report.append(f'> 生成时间: {now.strftime(\"%Y-%m-%d %H:%M UTC\")}')
+report.append(f'> 覆盖范围: 最近 7 天')
+report.append(f'')
+report.append(f'## 概览')
+report.append(f'')
+report.append(f'- 会话数: {total_sessions}')
+report.append(f'- 总事件数: {total_events}')
+report.append(f'- pass: {decision_totals.get(\"pass\", 0)} | warn: {decision_totals.get(\"warn\", 0)} | block: {decision_totals.get(\"block\", 0)} | escalate: {decision_totals.get(\"escalate\", 0)}')
+total_decisions = sum(decision_totals.values())
+overall_warn_rate = (decision_totals.get('warn', 0) + decision_totals.get('block', 0) + decision_totals.get('escalate', 0)) / max(total_decisions, 1)
+report.append(f'- 整体摩擦率: {overall_warn_rate:.0%}')
+report.append(f'')
+
+if sessions_with_corrections > 0 or high_friction:
+    report.append(f'## 纠正信号')
+    report.append(f'')
+    report.append(f'- 含纠正信号的会话: {sessions_with_corrections}/{total_sessions}')
+    report.append(f'- 高摩擦会话（>40% warn）: {len(high_friction)}')
+    if all_correction_signals:
+        report.append(f'- 信号类型:')
+        for sig, count in all_correction_signals.most_common():
+            report.append(f'  - {sig}: {count} 次')
+    report.append(f'')
+
+report.append(f'## Top 触发 Hook')
+report.append(f'')
+for hook, count in hook_totals.most_common(5):
+    report.append(f'- {hook}: {count} 次')
+report.append(f'')
+
+if file_edits:
+    report.append(f'## 热点文件（跨会话高频编辑）')
+    report.append(f'')
+    for f, c in file_edits.most_common(5):
+        basename = os.path.basename(f)
+        report.append(f'- {basename}: {c} 次编辑')
+    report.append(f'')
+
+# 改进建议
+suggestions = []
+if overall_warn_rate > 0.3:
+    suggestions.append('整体摩擦率偏高 → 检查 top warn 原因，考虑新增规则或增强 Hook 提示')
+if sessions_with_corrections > total_sessions * 0.3:
+    suggestions.append('超过 30% 会话有纠正信号 → 运行 /vibeguard:learn 批量提取模式')
+top_hook = hook_totals.most_common(1)
+if top_hook and top_hook[0][1] > total_events * 0.3:
+    suggestions.append(f'{top_hook[0][0]} 触发过于频繁 → 检查是否误报或规则过严')
+if file_edits:
+    top_file = file_edits.most_common(1)[0]
+    if top_file[1] > 30:
+        suggestions.append(f'{os.path.basename(top_file[0])} 编辑 {top_file[1]} 次 → 考虑拆分组件或审视架构')
+
+if suggestions:
+    report.append(f'## 改进建议')
+    report.append(f'')
+    for i, s in enumerate(suggestions, 1):
+        report.append(f'{i}. {s}')
+    report.append(f'')
+else:
+    report.append(f'## 改进建议')
+    report.append(f'')
+    report.append(f'本周无显著改进信号，系统运行正常。')
+    report.append(f'')
+
+# 写入文件
+with open(output_file, 'w') as f:
+    f.write('\n'.join(report))
+
+print(f'  生成反思报告: {output_file}')
+print(f'  会话: {total_sessions}, 事件: {total_events}, 摩擦率: {overall_warn_rate:.0%}')
+if suggestions:
+    for s in suggestions:
+        print(f'    - {s}')
+" 2>&1 || echo "[ERROR] reflection failed"
+  echo
+
   echo "GC 完成"
 } >> "${GC_LOG}" 2>&1
 

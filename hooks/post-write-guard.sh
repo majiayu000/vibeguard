@@ -143,7 +143,9 @@ patterns = [
 for p in patterns:
     for m in re.finditer(p, content):
         name = m.group(1)
-        # 过滤太短或太通用的名称
+        # 过滤太短、通用名称和 dunder 方法（__init__ 等）
+        if name.startswith('_'):
+            continue
         if len(name) > 3 and name not in ('self', 'init', 'main', 'test', 'None', 'True', 'False', 'this', 'super'):
             names.add(name)
 

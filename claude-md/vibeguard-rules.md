@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 # VibeGuard — AI 防幻觉规则
 
-> 83 条规则通过 `~/.claude/rules/vibeguard/` 原生加载。这个项目**不存在** ORM、不存在前端框架、不存在微服务。
+> 88 条规则通过 `~/.claude/rules/vibeguard/` 原生加载。这个项目**不存在** ORM、不存在前端框架、不存在微服务。
 
 ## 约束（L1-L7 由 Hooks 强制执行）
 
@@ -22,6 +22,25 @@
 - **Compaction 后必须重新读取**：进行中的 preflight 约束集或 exec-plan 文件（如有）
 - 完成前：Rust `cargo check` / TS `npx tsc --noEmit` / Go `go build ./...`
 - 提交前：Rust `cargo test` / TS 项目测试 / Go `go test ./...` / Python `pytest`
+
+## 任务四要素（模糊需求时主动追问）
+
+| 要素 | 问题 |
+|------|------|
+| Goal | 要改什么/建什么？ |
+| Context | 哪些文件/文档/错误相关？ |
+| Constraints | 哪些标准/架构/约定必须遵守？ |
+| Done-when | 什么条件证明完成？ |
+
+## 工作流成熟度阶梯
+
+**手动** → 验证有效后 → **Skill** → 稳定可靠后 → **Automation**
+
+- 手动阶段：直接在对话中执行，调整直到可靠
+- Skill 阶段：打包为 SKILL.md，可复用，`/skill-name` 调用
+- Automation 阶段：加入定时调度（launchd/cron），无需人工触发
+
+规则：未经手动验证的工作流禁止直接自动化。
 
 ## 命令
 

@@ -135,6 +135,41 @@ if [[ $DIFF_LINES -gt 200 ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS} }[LARGE-EDIT] 单次编辑 ${DIFF_LINES} 行，超出 200 行阈值，请确认编辑内容正确。"
 fi
 
+# --- Churn Detection（同文件反复编辑 → 可能在循环修正） ---
+# 同一会话同文件编辑 5+ 次 → 建议 /vibeguard:learn 提取模式
+CHURN_FLAG="${HOME}/.vibeguard/.churn_warned_${VIBEGUARD_SESSION_ID}_$(echo "$FILE_PATH" | shasum -a 256 | cut -c1-8)"
+if [[ ! -f "$CHURN_FLAG" ]]; then
+  CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, os
+log_file = os.environ.get("VG_LOG_FILE", "")
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+count = 0
+try:
+    with open(log_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+                if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
+                    count += 1
+            except (json.JSONDecodeError, KeyError):
+                continue
+except FileNotFoundError:
+    pass
+print(count)
+' 2>/dev/null | tr -d '[:space:]' || echo "0")
+  CHURN_COUNT="${CHURN_COUNT:-0}"
+
+  if [[ "$CHURN_COUNT" -ge 5 ]]; then
+    touch "$CHURN_FLAG"
+    WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN] ${FILE_PATH##*/} 已在本会话中编辑 ${CHURN_COUNT} 次，可能存在反复修正循环。建议：停下来审视方向，或运行 /vibeguard:learn 提取模式。"
+    vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
+  fi
+fi
+
 if [[ -z "$WARNINGS" ]]; then
   vg_log "post-edit-guard" "Edit" "pass" "" "$FILE_PATH"
   exit 0
