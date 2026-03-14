@@ -11,10 +11,21 @@ permissions:
 
 jobs:
   validate-and-test:
-    runs-on: ubuntu-latest
+    name: CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
+      # Must run before checkout so Windows does not convert LF→CRLF in .sh files
+      - name: Configure Git line endings (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -30,36 +41,62 @@ jobs:
         with:
           python-version: "3.11"
 
+      # --- Shell-based validation ---
+      # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
+      # which have no meaning on NTFS and would produce false-positive passes.
       - name: Validate guard scripts
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash scripts/ci/validate-guards.sh
 
       - name: Validate hook scripts
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash scripts/ci/validate-hooks.sh
 
       - name: Validate rule files
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash scripts/ci/validate-rules.sh
 
+      # --- Cross-platform contract validation (Python-embedded shell scripts) ---
+      # Uses Git Bash on Windows; Python 3 is available from setup-python above.
       - name: Validate MCP config contract
+        shell: bash
         run: bash scripts/ci/validate-config-contract.sh
 
       - name: Validate Rust guard wiring contract
+        shell: bash
         run: bash scripts/ci/validate-wiring-contract.sh
 
       - name: Validate doc paths
+        shell: bash
         run: bash scripts/ci/validate-doc-paths.sh
 
       - name: Validate doc freshness
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash scripts/doc-freshness-check.sh --strict
 
+      # --- Regression tests ---
+      # Skipped on Windows: the test harness uses Unix path assumptions,
+      # mktemp patterns, and hook scripts that rely on native bash behaviour.
       - name: Hook regression tests
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash tests/test_hooks.sh
 
       - name: Rust guard regression tests
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash tests/test_rust_guards.sh
 
       - name: Setup regression tests
+        if: runner.os != 'Windows'
+        shell: bash
         run: bash tests/test_setup.sh
 
+      # --- MCP server (cross-platform: Node.js) ---
       - name: MCP install dependencies
         working-directory: mcp-server
         run: npm ci

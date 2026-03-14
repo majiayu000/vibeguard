@@ -15,7 +15,7 @@ Examples:
   bash scripts/ci/check-branch-protection.sh majiayu000/vibeguard main
 
 Env:
-  VG_REQUIRED_CHECKS   Comma-separated required checks (default: validate-and-test)
+  VG_REQUIRED_CHECKS   Comma-separated required checks (default: CI (ubuntu-latest),CI (macos-latest),CI (windows-latest))
   VG_REQUIRE_STRICT    true/false (default: true)
 EOF
 }
@@ -46,7 +46,7 @@ infer_repo_slug() {
 
 REPO_SLUG="${1:-$(infer_repo_slug)}"
 BRANCH="${2:-main}"
-REQUIRED_CHECKS="${VG_REQUIRED_CHECKS:-validate-and-test}"
+REQUIRED_CHECKS="${VG_REQUIRED_CHECKS:-CI (ubuntu-latest),CI (macos-latest),CI (windows-latest)}"
 REQUIRE_STRICT="${VG_REQUIRE_STRICT:-true}"
 
 RAW_JSON="$(gh api "repos/${REPO_SLUG}/branches/${BRANCH}/protection" 2>/dev/null)" || {
