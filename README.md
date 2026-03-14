@@ -438,6 +438,42 @@ mkdir -p .claude/rules
 cp ~/vibeguard/templates/project-rules/*.md .claude/rules/
 ```
 
+## Docker
+
+The VibeGuard MCP server is published to GitHub Container Registry on every version tag.
+
+### Pull
+
+```bash
+docker pull ghcr.io/majiayu000/vibeguard:latest
+# or a specific version
+docker pull ghcr.io/majiayu000/vibeguard:1.0.0
+```
+
+### Run the MCP server
+
+```bash
+docker run --rm -i ghcr.io/majiayu000/vibeguard:latest
+```
+
+### Run a guard script against your project
+
+```bash
+# Mount your project directory and run a guard check
+docker run --rm \
+  -v /path/to/your/project:/workspace \
+  --entrypoint bash \
+  ghcr.io/majiayu000/vibeguard:latest \
+  guards/universal/check_code_slop.sh /workspace
+```
+
+### Build locally
+
+```bash
+docker build -t vibeguard .
+docker run --rm -i vibeguard
+```
+
 ## 设计理念
 
 | 原则 | 来源 | 实现 |

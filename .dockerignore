@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+tests
+docs
+node_modules
+mcp-server/node_modules
+mcp-server/dist
+*.md
+!README.md
