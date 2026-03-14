@@ -138,6 +138,13 @@ const GUARD_REGISTRY: GuardRegistry = {
         return strict ? [script, "--strict", target_dir] : [script, target_dir];
       },
     },
+    declaration_execution_gap: {
+      command: "bash",
+      build_args: (target_dir, strict) => {
+        const script = path.join(get_guards_dir(), "rust", "check_declaration_execution_gap.sh");
+        return strict ? [script, "--strict", target_dir] : [script, target_dir];
+      },
+    },
   },
   typescript: TS_JS_GUARDS,
   javascript: TS_JS_GUARDS,
