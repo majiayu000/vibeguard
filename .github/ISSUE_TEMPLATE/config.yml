@@ -1,1 +1,5 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/majiayu000/vibeguard/discussions
+    about: Ask questions, share ideas, and discuss VibeGuard
