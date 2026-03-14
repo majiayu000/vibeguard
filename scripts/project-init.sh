@@ -176,4 +176,23 @@ echo "## VibeGuard 守卫"
 echo "已激活 ${#ACTIVE_GUARDS[@]} 个守卫 + ${RULE_COUNT} 条规则"
 echo '```'
 echo
+# --- 自动安装 pre-commit hook ---
+echo "--- Pre-Commit Hook ---"
+PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
+GIT_HOOKS_DIR="${PROJECT_ROOT}/.git/hooks"
+if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+  mkdir -p "$GIT_HOOKS_DIR"
+  if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
+    echo "  已存在 .git/hooks/pre-commit，跳过（手动覆盖：ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit）"
+  else
+    ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
+    echo "  pre-commit hook 已安装"
+  fi
+elif [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
+  echo "  非 git 仓库，跳过"
+elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
+  echo "  ~/.vibeguard/pre-commit 不存在，请先运行 install.sh"
+fi
+echo
+
 echo "=== 完成 ==="

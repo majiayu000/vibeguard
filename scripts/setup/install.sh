@@ -203,6 +203,29 @@ else
 fi
 echo
 
+# 9.7. Install pre-commit hook wrapper
+echo "Step 9.7: Install pre-commit hook"
+PRE_COMMIT_WRAPPER="${VIBEGUARD_HOME}/pre-commit"
+cat > "${PRE_COMMIT_WRAPPER}" <<'WRAPPER'
+#!/usr/bin/env bash
+# VibeGuard Pre-Commit Hook Wrapper — auto-installed by install.sh
+set -euo pipefail
+VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh" ]]; then
+  export VIBEGUARD_DIR
+  exec bash "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh"
+fi
+WRAPPER
+chmod +x "${PRE_COMMIT_WRAPPER}"
+green "  ~/.vibeguard/pre-commit wrapper ready"
+# 自动安装到 VibeGuard 自身仓库
+VG_GIT_HOOKS="${REPO_DIR}/.git/hooks"
+if [[ -d "${VG_GIT_HOOKS}" ]]; then
+  ln -sf "${PRE_COMMIT_WRAPPER}" "${VG_GIT_HOOKS}/pre-commit"
+  green "  pre-commit hook installed to vibeguard repo"
+fi
+echo
+
 # 10. Re-inject CLAUDE.md
 echo "Step 10: Update VibeGuard rules in CLAUDE.md"
 RULES_FILE="${REPO_DIR}/claude-md/vibeguard-rules.md"
@@ -227,4 +250,5 @@ echo "  3. Run: /vibeguard:preflight <project_dir>"
 echo "  4. Run: /vibeguard:check <project_dir>"
 echo
 echo "Git Pre-Commit Guard:"
-echo "  ln -sf ${REPO_DIR}/hooks/pre-commit-guard.sh <project>/.git/hooks/pre-commit"
+echo "  已自动安装到 VibeGuard 仓库"
+echo "  其他项目：bash scripts/project-init.sh <project_dir>"

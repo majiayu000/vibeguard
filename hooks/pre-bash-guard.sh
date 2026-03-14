@@ -102,6 +102,30 @@ if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?
 fi
 
 
+# --- git commit 拦截：Claude Code 无 PreCommit 事件，通过 Bash hook 补位 ---
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
+  # 显式跳过
+  if ! echo "$COMMAND" | grep -qE 'VIBEGUARD_SKIP_PRECOMMIT=1'; then
+    HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PRECOMMIT_SCRIPT="${HOOK_DIR}/pre-commit-guard.sh"
+    if [[ -f "$PRECOMMIT_SCRIPT" ]]; then
+      PRECOMMIT_EXIT=0
+      PRECOMMIT_OUTPUT=$(VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$HOOK_DIR/.." && pwd)}" bash "$PRECOMMIT_SCRIPT" 2>&1) || PRECOMMIT_EXIT=$?
+      if [[ $PRECOMMIT_EXIT -ne 0 ]]; then
+        vg_log "pre-bash-guard" "Bash" "block" "pre-commit check failed" "$COMMAND"
+        echo "$PRECOMMIT_OUTPUT" >&2
+        cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD Pre-Commit 检查失败。修复问题后重新提交。跳过：VIBEGUARD_SKIP_PRECOMMIT=1 git commit ..."
+}
+BLOCK_EOF
+        exit 0
+      fi
+    fi
+  fi
+fi
+
 # --- doc-file-blocker：检测创建非标准 .md 文件 ---
 # 允许的 .md 文件：README、CLAUDE、CONTRIBUTING、CHANGELOG、LICENSE、SKILL
 if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
