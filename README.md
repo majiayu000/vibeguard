@@ -314,6 +314,7 @@ bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path/to/project
 bash ~/vibeguard/guards/rust/check_taste_invariants.sh /path/to/project    # Harness 代码品味
+bash ~/vibeguard/guards/rust/check_declaration_execution_gap.sh /path/to/project
 ```
 
 **Go**

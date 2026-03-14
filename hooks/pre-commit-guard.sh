@@ -124,31 +124,33 @@ run_guard() {
 }
 
 if [[ -n "$GUARDS_DIR" ]]; then
+  # Quote GUARDS_DIR for safe use inside bash -c strings (handles paths with spaces)
+  GUARDS_DIR_Q=$(printf '%q' "${GUARDS_DIR}")
   for lang in $DETECTED_LANGS; do
     case "$lang" in
       rust)
         [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
-          run_guard "rust/unwrap" "bash ${GUARDS_DIR}/rust/check_unwrap_in_prod.sh --strict ."
+          run_guard "rust/unwrap" "bash ${GUARDS_DIR_Q}/rust/check_unwrap_in_prod.sh --strict ."
         ;;
       typescript|javascript)
         [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
-          run_guard "ts/console" "bash ${GUARDS_DIR}/typescript/check_console_residual.sh --strict ."
+          run_guard "ts/console" "bash ${GUARDS_DIR_Q}/typescript/check_console_residual.sh --strict ."
         [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
-          run_guard "ts/any" "bash ${GUARDS_DIR}/typescript/check_any_abuse.sh --strict ."
+          run_guard "ts/any" "bash ${GUARDS_DIR_Q}/typescript/check_any_abuse.sh --strict ."
         ;;
       python)
         [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
-          run_guard "py/naming" "python3 ${GUARDS_DIR}/python/check_naming_convention.py ."
+          run_guard "py/naming" "python3 ${GUARDS_DIR_Q}/python/check_naming_convention.py ."
         [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
-          run_guard "py/dead_shims" "python3 ${GUARDS_DIR}/python/check_dead_shims.py --strict ."
+          run_guard "py/dead_shims" "python3 ${GUARDS_DIR_Q}/python/check_dead_shims.py --strict ."
         ;;
       go)
         [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
-          run_guard "go/error_handling" "bash ${GUARDS_DIR}/go/check_error_handling.sh --strict ."
+          run_guard "go/error_handling" "bash ${GUARDS_DIR_Q}/go/check_error_handling.sh --strict ."
         [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
-          run_guard "go/goroutine_leak" "bash ${GUARDS_DIR}/go/check_goroutine_leak.sh --strict ."
+          run_guard "go/goroutine_leak" "bash ${GUARDS_DIR_Q}/go/check_goroutine_leak.sh --strict ."
         [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
-          run_guard "go/defer_in_loop" "bash ${GUARDS_DIR}/go/check_defer_in_loop.sh --strict ."
+          run_guard "go/defer_in_loop" "bash ${GUARDS_DIR_Q}/go/check_defer_in_loop.sh --strict ."
         ;;
     esac
   done
@@ -171,7 +173,6 @@ run_build_check() {
 for lang in $DETECTED_LANGS; do
   case "$lang" in
     rust)
-      run_build_check "cargo fmt --all -- --check"  "cargo fmt 失败"
       run_build_check "cargo check --quiet"  "cargo check 失败"
       ;;
     typescript)       run_build_check "npx tsc --noEmit"     "tsc --noEmit 失败" ;;

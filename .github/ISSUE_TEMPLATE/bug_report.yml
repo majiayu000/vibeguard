@@ -1,0 +1,107 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in VibeGuard
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the sections below to help us diagnose and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior.
+      placeholder: |
+        1. Run command '...'
+        2. Trigger hook by '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: Describe what should have happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: Describe what actually happened, including any error messages.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS
+        - Linux (Ubuntu/Debian)
+        - Linux (Fedora/RHEL)
+        - Linux (Arch)
+        - Linux (Other)
+        - Windows (WSL2)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      description: Which shell are you using?
+      placeholder: "e.g., bash 5.2, zsh 5.9, fish 3.6"
+    validations:
+      required: true
+
+  - type: input
+    id: vibeguard-version
+    attributes:
+      label: VibeGuard Version
+      description: Run `git -C <vibeguard-repo-dir> log --oneline -1` to get the commit hash, or provide the installation date from `ls -la ~/.claude/rules/vibeguard/`.
+      placeholder: "e.g., a1c9502 or installation date"
+    validations:
+      required: true
+
+  - type: input
+    id: guard-script
+    attributes:
+      label: Guard Script Name
+      description: Which guard script triggered the issue? (e.g., `pre-write-guard.sh`, `pre-bash-guard.sh`, `post-edit-guard.sh`)
+      placeholder: "e.g., pre-write-guard.sh"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Output
+      description: Paste any relevant log output or error messages here.
+      render: shell
+      placeholder: Paste log output here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem (screenshots, config snippets, etc.).
+    validations:
+      required: false
