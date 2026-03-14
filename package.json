@@ -22,11 +22,12 @@
   },
   "license": "MIT",
   "author": "majiayu000",
-  "main": "setup.sh",
+  "main": "index.js",
   "bin": {
     "vibeguard": "./setup.sh"
   },
   "files": [
+    "index.js",
     "setup.sh",
     "install-hook.sh",
     "guards/",
@@ -53,6 +54,9 @@
     "scripts/quality-grader.sh",
     "scripts/stats.sh",
     "scripts/worktree-guard.sh",
+    "mcp-server/",
+    ".claude/commands/vibeguard",
+    "claude-md/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

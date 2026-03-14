@@ -7,9 +7,9 @@ docs/
 # GitHub-specific files
 .github/
 
-# Claude configuration
-.claude/
-claude-md/
+# Claude configuration (keep commands/vibeguard, exclude the rest)
+.claude/settings.json
+.claude/settings.local.json
 
 # CI scripts
 scripts/ci/
@@ -19,9 +19,6 @@ scripts/constraint-recommender.py
 spec.md
 CONTRIBUTING.md
 SECURITY.md
-
-# MCP server (separate package)
-mcp-server/
 
 # Development dotfiles
 .gitignore
