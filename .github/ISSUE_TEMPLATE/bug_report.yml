@@ -1,6 +1,6 @@
 name: Bug Report
 description: Report a bug or unexpected behavior in VibeGuard
-labels: ["bug", "needs-triage"]
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
@@ -74,8 +74,8 @@ body:
     id: vibeguard-version
     attributes:
       label: VibeGuard Version
-      description: Run `cat ~/.claude/rules/vibeguard/VERSION` or check the install date.
-      placeholder: "e.g., 1.2.3 or commit hash"
+      description: Run `git -C <vibeguard-repo-dir> log --oneline -1` to get the commit hash, or provide the installation date from `ls -la ~/.claude/rules/vibeguard/`.
+      placeholder: "e.g., a1c9502 or installation date"
     validations:
       required: true
 
@@ -83,8 +83,8 @@ body:
     id: guard-script
     attributes:
       label: Guard Script Name
-      description: Which guard script triggered the issue? (e.g., `pre-tool-use.sh`, `post-tool-use.sh`)
-      placeholder: "e.g., pre-tool-use.sh"
+      description: Which guard script triggered the issue? (e.g., `pre-write-guard.sh`, `pre-bash-guard.sh`, `post-edit-guard.sh`)
+      placeholder: "e.g., pre-write-guard.sh"
     validations:
       required: false
 

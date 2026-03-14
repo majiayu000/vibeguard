@@ -1,5 +1,1 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Discussions
-    url: https://github.com/majiayu000/vibeguard/discussions
-    about: Ask questions, share ideas, or discuss VibeGuard with the community.
+blank_issues_enabled: true
