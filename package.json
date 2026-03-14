@@ -1,0 +1,67 @@
+{
+  "name": "@vibeguard/core",
+  "version": "1.0.0",
+  "description": "AI anti-hallucination guard system for Claude Code — rule injection, real-time interception, and static scanning to prevent hallucinated APIs, over-engineering, and hardcoded values",
+  "keywords": [
+    "claude-code",
+    "ai-guard",
+    "anti-hallucination",
+    "vibeguard",
+    "llm",
+    "code-quality",
+    "hooks",
+    "pre-commit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/majiayu000/vibeguard.git"
+  },
+  "homepage": "https://github.com/majiayu000/vibeguard#readme",
+  "bugs": {
+    "url": "https://github.com/majiayu000/vibeguard/issues"
+  },
+  "license": "MIT",
+  "author": "majiayu000",
+  "main": "setup.sh",
+  "bin": {
+    "vibeguard": "./setup.sh"
+  },
+  "files": [
+    "setup.sh",
+    "install-hook.sh",
+    "guards/",
+    "hooks/",
+    "rules/",
+    "skills/",
+    "agents/",
+    "blueprints/",
+    "context-profiles/",
+    "resources/",
+    "templates/",
+    "workflows/",
+    "scripts/setup/",
+    "scripts/lib/",
+    "scripts/compliance_check.sh",
+    "scripts/doc-freshness-check.sh",
+    "scripts/gc-logs.sh",
+    "scripts/gc-scheduled.sh",
+    "scripts/gc-worktrees.sh",
+    "scripts/log-capability-change.sh",
+    "scripts/metrics-exporter.sh",
+    "scripts/metrics_collector.sh",
+    "scripts/project-init.sh",
+    "scripts/quality-grader.sh",
+    "scripts/stats.sh",
+    "scripts/worktree-guard.sh",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "bash tests/test_hooks.sh && bash tests/test_rust_guards.sh && bash tests/test_setup.sh",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

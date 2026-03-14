@@ -1,0 +1,28 @@
+# Tests
+tests/
+
+# Documentation source
+docs/
+
+# GitHub-specific files
+.github/
+
+# Claude configuration
+.claude/
+claude-md/
+
+# CI scripts
+scripts/ci/
+scripts/constraint-recommender.py
+
+# Spec and project-specific docs
+spec.md
+CONTRIBUTING.md
+SECURITY.md
+
+# MCP server (separate package)
+mcp-server/
+
+# Development dotfiles
+.gitignore
+.gitattributes
