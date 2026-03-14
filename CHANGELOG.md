@@ -58,10 +58,9 @@ _No unreleased changes yet. Add entries here as features are merged to `main` bu
 
 ---
 
-## [0.5.0] - 2026-03-02
+## [0.5.0] - 2026-03-03
 
 ### Added
-- Rust workspace with 10 crates and 30 unit tests (closes #3) (`mcp-server/src/`)
 - TypeScript runtime safety guards with full wiring (`guards/typescript/`, `mcp-server/`)
 - Data consistency rules (U-11 to U-14) and security rules (SEC-01 to SEC-10) (`rules/claude-rules/common/`)
 - TS-13 component/hook duplication detection at pattern level (`rules/claude-rules/typescript/`)
@@ -72,7 +71,6 @@ _No unreleased changes yet. Add entries here as features are merged to `main` bu
 - Harness golden principles documented; reduced `console.log` false positives
 
 ### Fixed
-- Builtin rule loading implemented via `include_str!` macro (closes #2) (`mcp-server/src/`)
 - Session ID stabilized; subprocess overhead reduced; `install.sh` split into profiles (`scripts/`)
 
 ---
@@ -87,7 +85,7 @@ _No unreleased changes yet. Add entries here as features are merged to `main` bu
 - CI branch-protection gate codified for required checks (`.github/workflows/`)
 
 ### Fixed
-- `pre-edit-guard` fully rewritten in shell; fixed old_string corruption from bash escaping (`hooks/pre-edit-guard.sh`)
+- `pre-edit-guard` rewritten as a shell wrapper delegating core edit checks to Python (`hooks/pre-edit-guard.sh`); fixed old_string corruption from bash escaping
 - Stop-guard auto-registration removed from `setup.sh` to prevent unintended installs (`setup.sh`)
 
 ### Changed
@@ -99,7 +97,7 @@ _No unreleased changes yet. Add entries here as features are merged to `main` bu
 
 ---
 
-## [0.3.0] - 2026-02-17
+## [0.3.0] - 2026-02-18
 
 ### Added
 - MCP server added (`mcp-server/`) — exposes VibeGuard guards as MCP tools
