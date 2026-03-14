@@ -4,6 +4,4 @@ Documentation=https://github.com/majiayu000/vibeguard
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash __VIBEGUARD_DIR__/scripts/gc-scheduled.sh
-StandardOutput=append:__HOME__/.vibeguard/gc-systemd.log
-StandardError=append:__HOME__/.vibeguard/gc-systemd.log
+ExecStart=/bin/bash -c 'mkdir -p "__HOME__/.vibeguard" && /bin/bash "__VIBEGUARD_DIR__/scripts/gc-scheduled.sh" >> "__HOME__/.vibeguard/gc-systemd.log" 2>&1'
