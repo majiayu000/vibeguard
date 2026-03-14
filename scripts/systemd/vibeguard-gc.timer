@@ -1,0 +1,13 @@
+[Unit]
+Description=VibeGuard Scheduled GC Timer
+Documentation=https://github.com/majiayu000/vibeguard
+
+[Timer]
+# Run every Sunday at 3:00 AM (matches macOS launchd schedule)
+OnCalendar=Sun *-*-* 03:00:00
+# Run immediately on next opportunity if last run was missed
+Persistent=true
+Unit=vibeguard-gc.service
+
+[Install]
+WantedBy=timers.target

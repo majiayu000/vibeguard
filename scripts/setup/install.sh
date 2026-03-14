@@ -183,23 +183,31 @@ else
 fi
 echo
 
-# 9.5. Install scheduled GC (launchd)
+# 9.5. Install scheduled GC (launchd on macOS, systemd on Linux)
 echo "Step 9.5: Install scheduled GC"
-PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
-PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
 chmod +x "${REPO_DIR}/scripts/gc-scheduled.sh"
-if [[ "$(uname)" == "Darwin" ]] && [[ -f "${PLIST_SRC}" ]]; then
-  mkdir -p "${HOME}/Library/LaunchAgents"
-  # 先卸载旧的（忽略错误）
-  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
-  # 替换占位符并安装
-  sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
-    "${PLIST_SRC}" > "${PLIST_DEST}"
-  launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null \
-    && green "  Scheduled GC installed (every Sunday 3:00 AM)" \
-    || yellow "  Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
+if [[ "$(uname)" == "Darwin" ]]; then
+  PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
+  PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  if [[ -f "${PLIST_SRC}" ]]; then
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    # 先卸载旧的（忽略错误）
+    launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+    # 替换占位符并安装
+    sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
+      "${PLIST_SRC}" > "${PLIST_DEST}"
+    launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null \
+      && green "  Scheduled GC installed via launchd (every Sunday 3:00 AM)" \
+      || yellow "  Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
+  else
+    yellow "  SKIP scheduled GC (plist not found)"
+  fi
+elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+  bash "${REPO_DIR}/scripts/install-systemd.sh" \
+    && green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)" \
+    || yellow "  Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"
 else
-  yellow "  SKIP scheduled GC (non-macOS or plist not found)"
+  yellow "  SKIP scheduled GC (unsupported OS or systemd not found)"
 fi
 echo
 
