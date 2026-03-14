@@ -113,7 +113,7 @@ Keep branch names lowercase with hyphens, and short enough to be readable.
 
 ### 3. Commit Message Format
 
-This project follows [Conventional Commits](https://www.conventionalcommits.org/). Every commit **must** include a `Signed-off-by` trailer to satisfy DCO verification.
+This project follows [Conventional Commits](https://www.conventionalcommits.org/). Every commit **should** include a `Signed-off-by` trailer as a project convention (note: this is not currently enforced by CI).
 
 ```
 <type>(<scope>): <short description>
@@ -162,7 +162,7 @@ reset command. Added a more precise regex to exclude stash operations.
 Signed-off-by: Bob <bob@example.com>
 ```
 
-#### DCO Sign-off
+#### Sign-off Convention
 
 Sign off automatically with:
 
@@ -175,6 +175,8 @@ Or configure Git to always sign off:
 ```bash
 git config --global format.signOff true
 ```
+
+> **Note:** `Signed-off-by` is a project convention; there is currently no automated DCO check in CI.
 
 > **Important:** Do not add `Co-Authored-By` or any AI-generated markers to commits.
 
@@ -213,10 +215,10 @@ Before requesting review, verify:
 - [ ] MCP server builds and tests pass (`cd mcp-server && npm run build && npm test`)
 - [ ] All CI validation scripts pass (see [Running Tests](#running-tests))
 - [ ] New guard scripts have corresponding regression tests in `tests/`
-- [ ] New rules are referenced in `rules/` and wired to a guard (checked by `validate-wiring-contract.sh`)
+- [ ] New rules are referenced in `rules/` and wired to a guard (`validate-wiring-contract.sh` checks Rust guards automatically; verify other languages manually)
 - [ ] Doc paths are valid (`validate-doc-paths.sh` passes)
 - [ ] Doc freshness check passes (`scripts/doc-freshness-check.sh --strict`)
-- [ ] Commits are signed off (`Signed-off-by` present in every commit)
+- [ ] Commits include `Signed-off-by` trailer (project convention; not CI-enforced)
 - [ ] No hardcoded secrets or credentials
 
 ### What Reviewers Look For
@@ -251,7 +253,7 @@ guards/
 └── typescript/         # TypeScript guards (TS-XX rules)
 ```
 
-Each language directory contains a `common.sh` (or `common.py`) with shared utilities.
+Bash-based language directories (`rust/`, `go/`, `typescript/`) each contain a `common.sh` with shared utilities. The `python/` directory has no shared helper — Python guards are standalone scripts.
 
 ### Step 1: Define the Rule
 
@@ -356,12 +358,12 @@ fi
 
 ### Step 3: Wire the Guard
 
-For guards that should run automatically, register them in **all** of the following locations (CI will fail if any is missing):
+For guards that should run automatically, register them in **all** of the following locations:
 
 - **MCP tool registry** — add detection logic to `mcp-server/src/tools.ts` (the `GUARD_REGISTRY` block for the relevant language)
 - **MCP index description** — add the guard name to the `rust:` (or relevant language) description list in `mcp-server/src/index.ts` so it appears in the tool's human-readable capability list
-- **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`; `validate-wiring-contract.sh` checks all three files
-- **Wiring contract** — ensure `scripts/ci/validate-wiring-contract.sh` passes end-to-end after your additions
+- **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`
+- **Wiring contract** — run `scripts/ci/validate-wiring-contract.sh` to verify your additions; note that this script currently validates **Rust guards only**. For Go, Python, and TypeScript guards, verify the three locations above manually before submitting your PR.
 - **Language detection** — update `mcp-server/src/detector.ts` if the guard targets a new language or file pattern
 
 ### Step 4: Write Regression Tests
