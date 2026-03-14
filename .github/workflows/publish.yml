@@ -1,0 +1,85 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Publish dry-run (PR only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Pack and smoke-test binary
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          TARBALL_PATH="$(pwd)/$TARBALL"
+          mkdir /tmp/smoke
+          cd /tmp/smoke
+          npm install "$TARBALL_PATH"
+          output=$(./node_modules/.bin/vibeguard --check 2>&1 || true)
+          if echo "$output" | grep -q "missing setup script"; then
+            echo "SMOKE TEST FAILED: binary cannot resolve setup scripts after tarball install"
+            echo "$output"
+            exit 1
+          fi
+          echo "Smoke test passed"
+
+      - name: Dry-run publish
+        run: npm publish --dry-run --access public
+
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Pack and smoke-test binary
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          TARBALL_PATH="$(pwd)/$TARBALL"
+          mkdir /tmp/smoke
+          cd /tmp/smoke
+          npm install "$TARBALL_PATH"
+          output=$(./node_modules/.bin/vibeguard --check 2>&1 || true)
+          if echo "$output" | grep -q "missing setup script"; then
+            echo "SMOKE TEST FAILED: binary cannot resolve setup scripts after tarball install"
+            echo "$output"
+            exit 1
+          fi
+          echo "Smoke test passed"
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
