@@ -1,5 +1,7 @@
 # VibeGuard
 
+[![CI](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml)
+
 让 AI 写代码时不再瞎编。
 
 用 Claude Code / Codex 写代码时，AI 经常凭空捏造 API、重复造轮子、硬编码假数据、过度设计。VibeGuard 通过**规则注入 + 实时拦截 + 静态扫描**三道防线，从源头阻止这些问题。
