@@ -8,7 +8,7 @@ The following versions of VibeGuard receive security updates:
 | ------- | ------------------ |
 | latest (main) | :white_check_mark: |
 
-VibeGuard is distributed as scripts and configuration files with no versioned releases. Security fixes are applied to the `main` branch and users are expected to re-run `setup.sh` to pick up updates.
+VibeGuard is distributed as scripts and configuration files with no versioned releases. Security fixes are applied to the `main` branch. To pick up updates, users must first pull the latest code (`git pull origin main`) and then re-run `setup.sh` — re-running the installer without pulling first will not apply any upstream fixes.
 
 ## Reporting a Vulnerability
 
@@ -34,7 +34,7 @@ Include the subject line: `[VibeGuard Security] <brief description>`
 | Acknowledgment | Within **48 hours** of receipt |
 | Initial assessment & severity triage | Within **7 days** |
 | Fix or mitigation patch | Within **30 days** for High/Critical; **90 days** for Medium/Low |
-| Public disclosure | After fix is available and coordinated with reporter |
+| Public disclosure | After fix is available **or** at the end of the 90-day window (whichever comes first), coordinated with reporter |
 
 If you do not receive acknowledgment within 48 hours, follow up at the same email address.
 
