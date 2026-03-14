@@ -13,7 +13,7 @@ RUN cd mcp-server && npm run build
 FROM node:22-alpine
 
 # Install runtime dependencies required by guard scripts and MCP tools
-RUN apk add --no-cache bash python3 go git
+RUN apk add --no-cache bash python3 py3-pytest go git ripgrep grep
 
 WORKDIR /app
 
