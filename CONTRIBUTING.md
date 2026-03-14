@@ -268,7 +268,9 @@ Rules follow the `<LANG>-<NN>` numbering scheme. Check existing rules to pick th
 
 ### Step 2: Write the Guard Script
 
-Create `guards/<language>/check_<rule_slug>.sh`. All Bash guards must begin with:
+The file format and integration path differ by language:
+
+**Bash guards (Rust, Go, TypeScript)** — create `guards/<language>/check_<rule_slug>.sh` and begin with:
 
 ```bash
 #!/usr/bin/env bash
@@ -282,6 +284,34 @@ set -euo pipefail
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
+```
+
+**Python guards** — create `guards/python/check_<rule_slug>.py`. Python guards are standalone scripts with no shared `common.sh`; they parse arguments directly from `sys.argv`:
+
+```python
+#!/usr/bin/env python3
+"""<Short description> (<RULE-ID>).
+
+Usage:
+    python3 check_<rule_slug>.py [target_dir]
+    python3 check_<rule_slug>.py [target_dir] --strict  # exit 1 on violations
+"""
+
+import sys
+from pathlib import Path
+
+def main() -> int:
+    strict = "--strict" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    target_dir = Path(args[0]) if args else Path(".")
+    # ... detection logic ...
+    if violations:
+        if strict:
+            return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
 #### Output Format
@@ -304,7 +334,7 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
     echo ""
     echo "Found ${FOUND} RS-14 violation(s)."
-    [[ "${STRICT:-0}" == "1" ]] && exit 1 || exit 0
+    [[ "${STRICT}" == "true" ]] && exit 1 || exit 0
 fi
 ```
 
@@ -326,10 +356,12 @@ fi
 
 ### Step 3: Wire the Guard
 
-For guards that should run automatically, register them in the appropriate config:
+For guards that should run automatically, register them in **all** of the following locations (CI will fail if any is missing):
 
-- **MCP tool** — add detection logic to `mcp-server/src/tools.ts`
-- **Wiring contract** — add an entry to the wiring contract validated by `scripts/ci/validate-wiring-contract.sh`
+- **MCP tool registry** — add detection logic to `mcp-server/src/tools.ts` (the `GUARD_REGISTRY` block for the relevant language)
+- **MCP index description** — add the guard name to the `rust:` (or relevant language) description list in `mcp-server/src/index.ts` so it appears in the tool's human-readable capability list
+- **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`; `validate-wiring-contract.sh` checks all three files
+- **Wiring contract** — ensure `scripts/ci/validate-wiring-contract.sh` passes end-to-end after your additions
 - **Language detection** — update `mcp-server/src/detector.ts` if the guard targets a new language or file pattern
 
 ### Step 4: Write Regression Tests
@@ -407,6 +439,6 @@ Fix any failures before opening your PR.
 
 This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you agree to uphold this standard.
 
-To report unacceptable behavior, open a private issue or contact the maintainers directly via the email listed in the repository.
+To report unacceptable behavior, open an issue on the [GitHub issue tracker](https://github.com/majiayu000/vibeguard/issues) with the label `conduct`. If the matter is sensitive and you prefer not to post publicly, send a direct message to the repository maintainer via their GitHub profile at [github.com/majiayu000](https://github.com/majiayu000).
 
 We are committed to a welcoming, inclusive, and respectful community for everyone, regardless of experience level, background, or identity.
