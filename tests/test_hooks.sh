@@ -370,7 +370,7 @@ EOF
 
 cat >"$tmp_repo_precommit/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "check" ]]; then
+if [[ "${1:-}" == "check" || "${1:-}" == "fmt" ]]; then
   exit 0
 fi
 exit 1
