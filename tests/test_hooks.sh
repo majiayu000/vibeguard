@@ -343,7 +343,7 @@ header "pre-commit-guard.sh — timeout 回退"
 
 tmp_repo_precommit="$(mktemp -d)"
 git -C "$tmp_repo_precommit" init -q
-mkdir -p "$tmp_repo_precommit/bin" "$tmp_repo_precommit/src"
+mkdir -p "$tmp_repo_precommit/bin" "$tmp_repo_precommit/src" "$tmp_repo_precommit/guards"
 
 cat >"$tmp_repo_precommit/Cargo.toml" <<'EOF'
 [package]
@@ -370,7 +370,7 @@ EOF
 
 cat >"$tmp_repo_precommit/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "check" ]]; then
+if [[ "${1:-}" == "check" || "${1:-}" == "fmt" ]]; then
   exit 0
 fi
 exit 1
@@ -379,7 +379,7 @@ EOF
 chmod +x "$tmp_repo_precommit/bin/timeout" "$tmp_repo_precommit/bin/gtimeout" "$tmp_repo_precommit/bin/cargo"
 git -C "$tmp_repo_precommit" add Cargo.toml src/lib.rs
 
-assert_exit_zero "timeout/gtimeout 不可用时回退执行，不误报构建失败" bash -c "cd '$tmp_repo_precommit' && PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+assert_exit_zero "timeout/gtimeout 不可用时回退执行，不误报构建失败" bash -c "cd '$tmp_repo_precommit' && VIBEGUARD_DIR='$tmp_repo_precommit' PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_precommit"
 
 # Go 项目应运行 Go 守卫（新增 _ = 丢弃 error 时阻止提交）
