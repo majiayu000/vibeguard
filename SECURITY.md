@@ -7,10 +7,8 @@ The following versions of VibeGuard receive security updates:
 | Version | Supported          |
 | ------- | ------------------ |
 | latest (main) | :white_check_mark: |
-| < 1 month old releases | :white_check_mark: |
-| Older releases | :x: |
 
-VibeGuard is distributed as scripts and configuration files rather than versioned binaries. Security fixes are applied to the `main` branch and users are expected to re-run `setup.sh` to pick up updates.
+VibeGuard is distributed as scripts and configuration files with no versioned releases. Security fixes are applied to the `main` branch and users are expected to re-run `setup.sh` to pick up updates.
 
 ## Reporting a Vulnerability
 
@@ -60,7 +58,6 @@ The following issues are considered **in scope** for VibeGuard:
 ### Guard & Hook Security
 - **Guard script bypass** — any technique that allows AI-generated code to pass through a pre/post hook without triggering the intended check (e.g., crafted filenames, encoding tricks, shell metacharacter injection into guard input).
 - **Hook injection** — injecting arbitrary shell commands through hook parameters, environment variables, or file content processed by hook scripts.
-- **Stop hook infinite loop exploitation** — abusing the `exit 2` re-prompt mechanism in `stop-guard.sh` to cause uncontrolled recursive invocations or resource exhaustion.
 
 ### Credential & Data Exposure
 - **Credential exposure in logs** — API keys, tokens, or secrets appearing in `hooks/log.sh` output or any VibeGuard log files.
@@ -75,7 +72,10 @@ The following issues are considered **in scope** for VibeGuard:
 - **Supply chain issues** — compromised dependencies or download sources in `setup.sh` (e.g., fetching remote scripts without integrity verification).
 
 ### Pre-commit Guard
-- **pre-commit-guard.sh bypass** — techniques that allow secrets, force-pushes, or AI markers to pass the pre-commit check undetected.
+- **pre-commit-guard.sh bypass** — techniques that allow language-quality guards or build checks to be silently skipped (e.g., bypassing the `VIBEGUARD_SKIP_PRECOMMIT` escape hatch in an unauthorized context).
+
+### Bash Pre-tool Guard
+- **pre-bash-guard.sh bypass** — techniques that evade the shell-level command interceptor in `pre-bash-guard.sh`, which blocks force-pushes (`git push --force`), destructive resets (`git reset --hard`), and dangerous `rm -rf` operations.
 
 ## Out of Scope
 
