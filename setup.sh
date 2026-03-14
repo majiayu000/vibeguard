@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks so this script works when invoked via npm's .bin/ shim
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+REPO_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SETUP_DIR="${REPO_DIR}/scripts/setup"
 
 run_setup() {

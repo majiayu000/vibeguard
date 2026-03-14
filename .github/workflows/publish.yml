@@ -27,6 +27,21 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Pack and smoke-test binary
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          TARBALL_PATH="$(pwd)/$TARBALL"
+          mkdir /tmp/smoke
+          cd /tmp/smoke
+          npm install "$TARBALL_PATH"
+          output=$(./node_modules/.bin/vibeguard --check 2>&1 || true)
+          if echo "$output" | grep -q "missing setup script"; then
+            echo "SMOKE TEST FAILED: binary cannot resolve setup scripts after tarball install"
+            echo "$output"
+            exit 1
+          fi
+          echo "Smoke test passed"
+
       - name: Dry-run publish
         run: npm publish --dry-run --access public
 
@@ -48,6 +63,21 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Pack and smoke-test binary
+        run: |
+          TARBALL=$(npm pack | tail -1)
+          TARBALL_PATH="$(pwd)/$TARBALL"
+          mkdir /tmp/smoke
+          cd /tmp/smoke
+          npm install "$TARBALL_PATH"
+          output=$(./node_modules/.bin/vibeguard --check 2>&1 || true)
+          if echo "$output" | grep -q "missing setup script"; then
+            echo "SMOKE TEST FAILED: binary cannot resolve setup scripts after tarball install"
+            echo "$output"
+            exit 1
+          fi
+          echo "Smoke test passed"
 
       - name: Publish
         run: npm publish --access public
