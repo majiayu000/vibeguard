@@ -34,6 +34,8 @@ elif [[ -d "${SCRIPT_DIR}/../guards" ]]; then
 else
   GUARDS_DIR=""
 fi
+# Shell-quote GUARDS_DIR for safe embedding in "bash -c" strings (handles spaces in path)
+GUARDS_DIR_Q="$(printf '%q' "${GUARDS_DIR}")"
 
 TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
 TIMEOUT_CMD=""
