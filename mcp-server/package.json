@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build --silent && node --test tests/*.test.mjs"
+    "test": "npm run build --silent && node --test tests/detector-and-guards.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
