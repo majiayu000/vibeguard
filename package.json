@@ -63,5 +63,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
   }
 }
