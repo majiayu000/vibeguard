@@ -53,13 +53,18 @@ fi
 
 mkdir -p "${UNIT_DIR}"
 
+# Escape values for use as sed replacement strings (|, &, and \ are metacharacters)
+_escape_sed() { printf '%s\n' "$1" | sed 's/[\\&|]/\\&/g'; }
+ESCAPED_REPO_DIR="$(_escape_sed "${REPO_DIR}")"
+ESCAPED_HOME="$(_escape_sed "${HOME}")"
+
 # Substitute placeholders and write unit files
-sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" \
-    -e "s|__HOME__|${HOME}|g" \
+sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
+    -e "s|__HOME__|${ESCAPED_HOME}|g" \
     "${SERVICE_SRC}" > "${SERVICE_DEST}"
 
-sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" \
-    -e "s|__HOME__|${HOME}|g" \
+sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
+    -e "s|__HOME__|${ESCAPED_HOME}|g" \
     "${TIMER_SRC}" > "${TIMER_DEST}"
 
 green "  Unit files written to ${UNIT_DIR}/"
