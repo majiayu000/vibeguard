@@ -1,6 +1,10 @@
 # VibeGuard
 
-[![CI](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml)
+| Platform | CI Status |
+|----------|-----------|
+| Linux (Ubuntu) | [![CI – Linux](https://img.shields.io/github/actions/workflow/status/majiayu000/vibeguard/ci.yml?label=ubuntu&logo=ubuntu&logoColor=white)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml) |
+| macOS | [![CI – macOS](https://img.shields.io/github/actions/workflow/status/majiayu000/vibeguard/ci.yml?label=macos&logo=apple&logoColor=white)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml) |
+| Windows | [![CI – Windows](https://img.shields.io/github/actions/workflow/status/majiayu000/vibeguard/ci.yml?label=windows&logo=windows&logoColor=white)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml) |
 
 让 AI 写代码时不再瞎编。
 

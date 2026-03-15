@@ -16,7 +16,8 @@ jobs:
     timeout-minutes: 20
 
     strategy:
-      fail-fast: false
+      # Cancel all in-progress platform jobs as soon as any one fails.
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -41,9 +42,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Windows: ensure Git Bash bin is on PATH and suppress MSYS2 path
+      # conversion so forward-slash script arguments are passed as-is.
+      - name: Configure Windows Git Bash environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBin = "C:\Program Files\Git\bin"
+          if (Test-Path $gitBin) {
+            "$gitBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          "MSYS_NO_PATHCONV=1"    | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSYS2_ARG_CONV_EXCL=*" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # --- Shell-based validation ---
-      # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
-      # which have no meaning on NTFS and would produce false-positive passes.
+      # Guard/hook scripts must carry Unix execute-permission bits ([ -x ]).
+      # NTFS does not track these bits, so this check is Linux/macOS only.
       - name: Validate guard scripts
         if: runner.os != 'Windows'
         shell: bash
@@ -54,8 +68,9 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-hooks.sh
 
+      # Rule-file validation is pure content-checking (grep + file existence).
+      # No permission-bit or Python-path dependencies — runs on all platforms.
       - name: Validate rule files
-        if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/ci/validate-rules.sh
 
@@ -73,24 +88,55 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-doc-paths.sh
 
+      # Doc-freshness check embeds Python that uses POSIX paths sourced from bash
+      # `pwd`; Windows Python does not understand the /c/... MSYS2 path format,
+      # so this step runs on Linux and macOS only.
       - name: Validate doc freshness
         if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/doc-freshness-check.sh --strict
 
+      # --- Linux-only: systemd unit file validation ---
+      # systemd is not available on macOS or Windows.  Validate unit files here
+      # to catch ExecStart path placeholders and required-section regressions.
+      - name: Validate systemd unit files
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          errors=0
+          for unit in scripts/systemd/*.service scripts/systemd/*.timer; do
+            [[ -f "$unit" ]] || continue
+            name=$(basename "$unit")
+            if ! grep -q '^\[Unit\]' "$unit"; then
+              echo "FAIL: ${name} missing [Unit] section"
+              errors=$((errors + 1))
+            elif grep -qF '__VIBEGUARD_DIR__' "$unit" && [[ "$name" != *.service ]]; then
+              echo "FAIL: ${name} contains unresolved __VIBEGUARD_DIR__ placeholder"
+              errors=$((errors + 1))
+            else
+              echo "OK: ${name}"
+            fi
+          done
+          if [[ $errors -gt 0 ]]; then
+            echo "FAILED: ${errors} systemd unit error(s)."
+            exit 1
+          fi
+          echo "All systemd unit files valid."
+
       # --- Regression tests ---
-      # Skipped on Windows: the test harness uses Unix path assumptions,
-      # mktemp patterns, and hook scripts that rely on native bash behaviour.
+      # Hook and Rust-guard tests use mktemp + bash + grep, all of which are
+      # available in Git Bash on Windows.  Run on all three platforms.
       - name: Hook regression tests
-        if: runner.os != 'Windows'
         shell: bash
         run: bash tests/test_hooks.sh
 
       - name: Rust guard regression tests
-        if: runner.os != 'Windows'
         shell: bash
         run: bash tests/test_rust_guards.sh
 
+      # Setup regression tests create symlinks (ln -s / test -L).  Symlink
+      # creation on Windows requires Developer Mode or elevated privileges,
+      # which is not guaranteed on all runners; skip on Windows.
       - name: Setup regression tests
         if: runner.os != 'Windows'
         shell: bash
