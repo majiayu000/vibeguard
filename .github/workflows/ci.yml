@@ -51,6 +51,9 @@ jobs:
       - name: Validate doc freshness
         run: bash scripts/doc-freshness-check.sh --strict
 
+      - name: Guard unit tests
+        run: bash tests/unit/run_all.sh
+
       - name: Hook regression tests
         run: bash tests/test_hooks.sh
 
