@@ -57,11 +57,18 @@ BLOCK_EOF
 }
 
 # git push --force / -f（拦截 force push，放行更安全的 --force-with-lease / --force-if-includes）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\b'; then
-  if echo "$COMMAND_STRIPPED" | grep -qE '(\s|^)(-f|--force)(\s|$)' && \
-     ! echo "$COMMAND_STRIPPED" | grep -qE '(\s|^)(--force-with-lease|--force-if-includes)(\s|$)'; then
-    block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
-  fi
+# 按子命令分割检查，避免 git add -f && git push 误判
+if echo "$COMMAND_STRIPPED" | python3 -c "
+import sys, re
+cmd = sys.stdin.read()
+for sub in re.split(r'\s*(?:&&|\|\||;)\s*', cmd):
+    if re.search(r'\bgit\s+push\b', sub) \
+       and re.search(r'(?:^|\s)(-f|--force)(?:\s|$)', sub) \
+       and not re.search(r'--force-with-lease|--force-if-includes', sub):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+  block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
 fi
 
 # git reset --hard（丢弃所有未提交的改动）

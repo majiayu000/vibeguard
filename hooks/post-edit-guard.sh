@@ -63,7 +63,16 @@ case "$FILE_PATH" in
         else
           CONSOLE_COUNT=$(echo "$NEW_STRING" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null; true)
           if [[ $CONSOLE_COUNT -gt 0 ]]; then
-            WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+            # 检查文件中已有的 console 残留总数
+            FILE_CONSOLE_TOTAL=0
+            if [[ -f "$FILE_PATH" ]]; then
+              FILE_CONSOLE_TOTAL=$(grep -cE '\bconsole\.(log|warn|error)\(' "$FILE_PATH" 2>/dev/null; true)
+            fi
+            if [[ $FILE_CONSOLE_TOTAL -ge 10 ]]; then
+              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG ESCALATE] 文件已有 ${FILE_CONSOLE_TOTAL} 处 console 残留，且仍在新增！必须立即清理：使用项目 logger 替代所有 console 调用。"
+            else
+              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+            fi
           fi
         fi
 
@@ -136,10 +145,8 @@ if [[ $DIFF_LINES -gt 200 ]]; then
 fi
 
 # --- Churn Detection（同文件反复编辑 → 可能在循环修正） ---
-# 同一会话同文件编辑 5+ 次 → 建议 /vibeguard:learn 提取模式
-CHURN_FLAG="${HOME}/.vibeguard/.churn_warned_${VIBEGUARD_SESSION_ID}_$(echo "$FILE_PATH" | shasum -a 256 | cut -c1-8)"
-if [[ ! -f "$CHURN_FLAG" ]]; then
-  CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+# 分级升级：5=提醒, 10=警告, 20+=强制停下
+CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
 file_path = os.environ.get("VG_FILE_PATH", "")
@@ -161,13 +168,17 @@ except FileNotFoundError:
     pass
 print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
-  CHURN_COUNT="${CHURN_COUNT:-0}"
+CHURN_COUNT="${CHURN_COUNT:-0}"
 
-  if [[ "$CHURN_COUNT" -ge 5 ]]; then
-    touch "$CHURN_FLAG"
-    WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN] ${FILE_PATH##*/} 已在本会话中编辑 ${CHURN_COUNT} 次，可能存在反复修正循环。建议：停下来审视方向，或运行 /vibeguard:learn 提取模式。"
-    vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
-  fi
+if [[ "$CHURN_COUNT" -ge 20 ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN CRITICAL] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次！你正处于 edit→fail→fix 死循环。必须立即停止当前方向，重新审视根因（W-02）。"
+  vg_log "post-edit-guard" "Edit" "escalate" "churn ${CHURN_COUNT}x critical" "$FILE_PATH"
+elif [[ "$CHURN_COUNT" -ge 10 ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN WARNING] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次，疑似循环修正。建议：停下来运行完整构建查看全貌，或 /vibeguard:learn 提取模式。"
+  vg_log "post-edit-guard" "Edit" "escalate" "churn ${CHURN_COUNT}x warning" "$FILE_PATH"
+elif [[ "$CHURN_COUNT" -ge 5 ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次，注意是否在循环修正。"
+  vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
 fi
 
 if [[ -z "$WARNINGS" ]]; then

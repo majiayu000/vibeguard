@@ -6,7 +6,7 @@
 #   - 新建配置/文档/测试文件 → 放行
 #   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 拦截（要求先搜后写）
 #
-# 默认 warn 模式：提醒先搜后写，不阻断创建（L1 约束由 PostToolUse 审查兜底）
+# 默认 warn 模式：提醒先搜后写（L1 约束由 PostToolUse 重复检测兜底）
 # 设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截模式
 
 set -euo pipefail

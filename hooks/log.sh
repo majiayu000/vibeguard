@@ -168,4 +168,11 @@ vg_log() {
 
   printf '%s\n' "$json" >> "$VIBEGUARD_LOG_FILE"
   chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
+
+  # 同步写入全局日志（供 stats.sh 聚合分析）
+  local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
+  if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
+    printf '%s\n' "$json" >> "$global_log"
+    chmod 600 "$global_log" 2>/dev/null || true
+  fi
 }
