@@ -68,6 +68,16 @@ fi
 
 FILE_COUNT=$(echo "$STAGED_FILES" | wc -l | tr -d ' ')
 
+# --- 导出 staged 文件列表供守卫脚本使用（只扫 staged 文件，不扫全量） ---
+_STAGED_TMPFILE=$(mktemp)
+_cleanup_staged() { rm -f "$_STAGED_TMPFILE" 2>/dev/null; }
+trap '_cleanup_staged' EXIT
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+while IFS= read -r f; do
+  [[ -n "$f" ]] && echo "${REPO_ROOT}/${f}"
+done <<< "$STAGED_FILES" > "$_STAGED_TMPFILE"
+export VIBEGUARD_STAGED_FILES="$_STAGED_TMPFILE"
+
 # --- 语言自动检测（Verifier 模式核心） ---
 DETECTED_LANGS=""
 [[ -f "Cargo.toml" ]]                                          && DETECTED_LANGS="${DETECTED_LANGS} rust"
@@ -211,6 +221,16 @@ echo "紧急跳过：VIBEGUARD_SKIP_PRECOMMIT=1 git commit -m \"msg\""
 
 REASON="${GUARD_FAIL:+guard fail}${BUILD_FAILS:+${GUARD_FAIL:+, }build fail}"
 DETAIL=$(echo "$STAGED_FILES" | head -5 | tr '\n' ' ')
-vg_log "pre-commit-guard" "git-commit" "block" "$REASON" "$DETAIL"
+# 把守卫输出摘要写入日志（截断前 500 字符避免日志膨胀）
+LOG_DETAIL="${DETAIL}"
+if [[ -n "$GUARD_OUTPUT" ]]; then
+  GUARD_SUMMARY=$(echo -e "$GUARD_OUTPUT" | head -20 | cut -c1-200 | tr '\n' '|')
+  LOG_DETAIL="${DETAIL}||guards: ${GUARD_SUMMARY}"
+fi
+if [[ -n "$BUILD_FAILS" ]]; then
+  BUILD_SUMMARY=$(echo -e "$BUILD_FAILS" | head -5 | tr '\n' '|')
+  LOG_DETAIL="${LOG_DETAIL}||build: ${BUILD_SUMMARY}"
+fi
+vg_log "pre-commit-guard" "git-commit" "block" "$REASON" "$LOG_DETAIL"
 
 exit 1

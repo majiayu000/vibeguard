@@ -12,6 +12,7 @@
     python check_naming_convention.py  # 默认检查 app/ 目录
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -126,26 +127,44 @@ def check_file(filepath: Path) -> list[tuple[int, str, str, str]]:
     return issues
 
 
+def _staged_py_files() -> list[Path] | None:
+    """If VIBEGUARD_STAGED_FILES is set, return only staged .py files."""
+    staged_path = os.environ.get("VIBEGUARD_STAGED_FILES", "")
+    if not staged_path or not Path(staged_path).is_file():
+        return None
+    files = []
+    for line in Path(staged_path).read_text().splitlines():
+        line = line.strip()
+        if line and line.endswith(".py"):
+            files.append(Path(line))
+    return files
+
+
 def main() -> None:
-    if len(sys.argv) > 1:
+    staged = _staged_py_files()
+    if staged is not None:
+        py_files = [f for f in staged if f.is_file()]
+    elif len(sys.argv) > 1:
         paths = [Path(p) for p in sys.argv[1:]]
+        py_files = []
+        for path in paths:
+            if path.is_file() and path.suffix == ".py":
+                py_files.append(path)
+            elif path.is_dir():
+                py_files.extend(
+                    f for f in path.rglob("*.py") if "__pycache__" not in str(f)
+                )
     else:
-        paths = [Path("app")]
+        py_files = [
+            f for f in Path("app").rglob("*.py") if "__pycache__" not in str(f)
+        ]
 
     all_issues: dict[Path, list] = {}
 
-    for path in paths:
-        if path.is_file() and path.suffix == ".py":
-            issues = check_file(path)
-            if issues:
-                all_issues[path] = issues
-        elif path.is_dir():
-            for py_file in path.rglob("*.py"):
-                if "__pycache__" in str(py_file):
-                    continue
-                issues = check_file(py_file)
-                if issues:
-                    all_issues[py_file] = issues
+    for py_file in py_files:
+        issues = check_file(py_file)
+        if issues:
+            all_issues[py_file] = issues
 
     if all_issues:
         print("=" * 70)

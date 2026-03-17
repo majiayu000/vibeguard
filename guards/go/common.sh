@@ -6,10 +6,13 @@
 
 set -euo pipefail
 
-# 列出 .go 源文件（优先 git ls-files，非 git 仓库降级 find）
+# 列出 .go 源文件
+# 优先级：VIBEGUARD_STAGED_FILES（pre-commit 模式，只扫 staged）> git ls-files > find
 list_go_files() {
   local dir="$1"
-  if git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
+  if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+    grep '\.go$' "${VIBEGUARD_STAGED_FILES}" || true
+  elif git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
     git -C "${dir}" ls-files '*.go' | while IFS= read -r f; do echo "${dir}/${f}"; done
   else
     find "${dir}" -name '*.go' -not -path '*/vendor/*' -not -path '*/.git/*'

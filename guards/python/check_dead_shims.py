@@ -10,6 +10,7 @@
 """
 
 import ast
+import os
 import sys
 from pathlib import Path
 
@@ -72,26 +73,46 @@ def is_dead_shim(filepath: Path) -> bool:
     return True
 
 
+def _staged_py_files() -> list[Path] | None:
+    """If VIBEGUARD_STAGED_FILES is set, return only staged .py files."""
+    staged_path = os.environ.get("VIBEGUARD_STAGED_FILES", "")
+    if not staged_path or not Path(staged_path).is_file():
+        return None
+    files = []
+    for line in Path(staged_path).read_text().splitlines():
+        line = line.strip()
+        if line and line.endswith(".py"):
+            files.append(Path(line))
+    return files
+
+
 def main() -> int:
     strict = "--strict" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     target_dir = Path(args[0]) if args else DEFAULT_TARGET_DIR
 
-    if not target_dir.exists():
-        print(f"[ERR] Target directory not found: {target_dir}")
-        return 1
+    # Pre-commit mode: only check staged files
+    staged = _staged_py_files()
+    if staged is not None:
+        py_files_to_check = [f for f in staged if f.is_file() and f.name not in SKIP_FILES]
+    else:
+        if not target_dir.exists():
+            print(f"[ERR] Target directory not found: {target_dir}")
+            return 1
+        py_files_to_check = [
+            f for f in sorted(target_dir.rglob("*.py"))
+            if not any(d in SKIP_DIRS for d in f.relative_to(target_dir).parts)
+            and f.name not in SKIP_FILES
+        ]
 
-    allowlist = load_allowlist(target_dir)
+    allowlist = load_allowlist(target_dir) if target_dir.exists() else set()
     shims: list[str] = []
 
-    for py_file in sorted(target_dir.rglob("*.py")):
-        parts = py_file.relative_to(target_dir).parts
-        if any(d in SKIP_DIRS for d in parts):
-            continue
-        if py_file.name in SKIP_FILES:
-            continue
-
-        rel_path = str(py_file.relative_to(target_dir))
+    for py_file in py_files_to_check:
+        try:
+            rel_path = str(py_file.relative_to(target_dir))
+        except ValueError:
+            rel_path = str(py_file)
         if rel_path in allowlist:
             continue
 
