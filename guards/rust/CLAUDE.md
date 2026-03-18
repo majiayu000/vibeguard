@@ -26,3 +26,21 @@ Rust 语言守卫脚本，对 Rust 项目做静态模式检测。
 ```
 [RS-XX] file:line 问题描述。修复：具体修复方法
 ```
+
+## RS-03 测试代码排除策略
+
+RS-03 (unwrap in prod) 的排除必须覆盖 Rust 的三种测试代码位置：
+
+1. **独立 test 文件**：`tests/*.rs`、`tests.rs`、`test_helpers.rs` — 通过路径 grep 排除
+2. **inline test module**：`#[cfg(test)] mod tests { ... }` 在 prod 文件末尾 — 通过 `#[cfg(test)]` 行号分界排除（该行之后的所有 unwrap 视为 test code）
+3. **合理的 expect 使用**：signal handler、main 入口等不可恢复场景 — 通过 `// vibeguard:allow` 行内注释白名单
+
+**设计决策**：
+- **Pre-commit 模式只扫 diff 新增行** — 不阻塞已有代码，只拦截本次新增的 unwrap。这是核心设计：guard 的职责是防止新增风险，不是追溯历史债务
+- **Standalone 模式保持全量扫描** — 用于手动审计（`/vibeguard:check`），报告完整画面
+
+**教训**：
+- 逐行 `grep -v '#[cfg(test)]'` 只排除包含该标记的行本身，不排除其 scope 内的代码 — 这是最初 155 个误报的根因
+- 文件名 `tests.rs` 不匹配 `_test\.rs$` pattern — Rust 用 `tests.rs` 不是 `_test.rs`
+- signal handler 的 `expect()` 是合理使用：OS 级故障时 crash 比静默继续更安全
+- **全量扫描做 pre-commit 是错误的** — 会把上游已有的 155 个 unwrap 全部拦截，导致任何 commit 都无法通过。Guard 应该只管"你刚写的代码"
