@@ -217,7 +217,7 @@ fi
 
 echo ""
 echo "修复后重新 git add && git commit"
-echo "紧急跳过：VIBEGUARD_SKIP_PRECOMMIT=1 git commit -m \"msg\""
+echo "紧急跳过（仅限人工操作）：VIBEGUARD_SKIP_PRECOMMIT=1 git commit -m \"msg\"" >&2
 
 REASON="${GUARD_FAIL:+guard fail}${BUILD_FAILS:+${GUARD_FAIL:+, }build fail}"
 DETAIL=$(echo "$STAGED_FILES" | head -5 | tr '\n' ' ')

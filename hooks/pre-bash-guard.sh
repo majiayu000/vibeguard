@@ -124,7 +124,7 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
         cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD Pre-Commit 检查失败。修复问题后重新提交。跳过：VIBEGUARD_SKIP_PRECOMMIT=1 git commit ..."
+  "reason": "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。"
 }
 BLOCK_EOF
         exit 0
