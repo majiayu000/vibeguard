@@ -6,17 +6,31 @@
 
 set -euo pipefail
 
+# Paths to always exclude from scanning (worktrees, build artifacts, IDE caches).
+VIBEGUARD_EXCLUDE_PATHS='(.harness/worktrees/|/target/|/.git/|/node_modules/)'
+
+# Test file patterns — files that are exclusively test code.
+VIBEGUARD_TEST_FILE_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
+
 # 列出 .rs 源文件
 # 优先级：VIBEGUARD_STAGED_FILES（pre-commit 模式，只扫 staged）> git ls-files > find
+# 自动排除 worktree 副本和构建目录。
 list_rs_files() {
   local dir="$1"
   if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-    grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" || true
+    grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; }
   elif git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
-    git -C "${dir}" ls-files '*.rs' | while IFS= read -r f; do echo "${dir}/${f}"; done
+    git -C "${dir}" ls-files '*.rs' \
+      | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \
+      | while IFS= read -r f; do echo "${dir}/${f}"; done
   else
-    find "${dir}" -name '*.rs' -not -path '*/target/*' -not -path '*/.git/*'
+    find "${dir}" -name '*.rs' -not -path '*/target/*' -not -path '*/.git/*' -not -path '*/.harness/worktrees/*'
   fi
+}
+
+# 列出非测试 .rs 文件（在 list_rs_files 基础上排除 test 文件）
+list_rs_prod_files() {
+  list_rs_files "$1" | { grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" || true; }
 }
 
 # 解析 --strict 标志和 target_dir

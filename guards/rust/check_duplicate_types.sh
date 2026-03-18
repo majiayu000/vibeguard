@@ -25,11 +25,13 @@ fi
 TMPFILE=$(create_tmpfile)
 
 # 提取：类型名 文件路径:行号（逐文件处理，兼容空格路径和空输入）
-list_rs_files "${TARGET_DIR}" \
-  | { grep -vE '(/tests/|/test_)' || true; } \
+# 使用 list_rs_prod_files 排除 test 文件和 worktree 副本。
+list_rs_prod_files "${TARGET_DIR}" \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
+        # 排除字符串字面量内的 struct/enum（r#"..."# 或 "..."）
         grep -nE '^[[:space:]]*pub[[:space:]]+(struct|enum)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
+          | grep -v 'r#"' \
           | awk -v file="${f}" '{
               split($0, ln, ":")
               s = $0
