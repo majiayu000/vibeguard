@@ -18,9 +18,16 @@ parse_guard_args "$@"
 RESULTS=$(create_tmpfile)
 COUNT=0
 
-# CLI 项目（package.json 含 bin 字段）允许使用 console，跳过整个检查
-if [[ -f "${TARGET_DIR}/package.json" ]] && grep -q '"bin"' "${TARGET_DIR}/package.json" 2>/dev/null; then
-  echo "[TS-03] SKIP: CLI 项目（package.json 含 bin），console 为正常输出方式"
+# CLI 项目允许使用 console，跳过整个检查
+# 检测方式：package.json 含 bin 字段 / 存在 src/cli.* 入口 / scripts 含 cli 关键词
+_IS_CLI=false
+if [[ -f "${TARGET_DIR}/package.json" ]]; then
+  grep -qE '"bin"' "${TARGET_DIR}/package.json" 2>/dev/null && _IS_CLI=true
+  grep -qE '"[^"]*":\s*"[^"]*cli[^"]*"' "${TARGET_DIR}/package.json" 2>/dev/null && _IS_CLI=true
+fi
+ls "${TARGET_DIR}/src/cli."* "${TARGET_DIR}/cli."* 2>/dev/null | grep -q . && _IS_CLI=true
+if [[ "$_IS_CLI" == true ]]; then
+  echo "[TS-03] SKIP: CLI 项目，console 为正常输出方式"
   exit 0
 fi
 

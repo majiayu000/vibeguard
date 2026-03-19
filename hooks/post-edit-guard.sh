@@ -57,13 +57,16 @@ case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*) ;;
       */debug.*|*/debug/*|*logger*|*logging*) ;;
       *)
-        # CLI 项目（package.json 含 bin 字段）允许 console，跳过
+        # CLI 项目允许 console，跳过（bin 字段 / src/cli.* / scripts 含 cli）
         _PKG_DIR=$(dirname "$FILE_PATH")
         _IS_CLI=false
         while [[ "$_PKG_DIR" != "/" ]]; do
-          if [[ -f "$_PKG_DIR/package.json" ]] && grep -q '"bin"' "$_PKG_DIR/package.json" 2>/dev/null; then
-            _IS_CLI=true; break
+          if [[ -f "$_PKG_DIR/package.json" ]]; then
+            grep -qE '"bin"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true
+            grep -qE '"[^"]*":\s*"[^"]*cli[^"]*"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true
           fi
+          ls "$_PKG_DIR/src/cli."* "$_PKG_DIR/cli."* 2>/dev/null | grep -q . && _IS_CLI=true
+          [[ "$_IS_CLI" == true ]] && break
           _PKG_DIR=$(dirname "$_PKG_DIR")
         done
         # MCP 入口文件用 console.error 输出到 stderr 是协议标准做法，跳过
