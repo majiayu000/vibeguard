@@ -34,12 +34,17 @@ while IFS= read -r file; do
   done < <(grep -n '\bas any\b' "$file" 2>/dev/null || true)
 
   # 检测 : any（函数参数、变量声明）
+  # 排除：行注释、块注释开头、字符串赋值（= "..." 内的 : any）
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
     echo "[TS-01] ${REL_PATH}:${LINE_NUM} ': any' 类型注解。修复：使用具体类型替代 any" >> "$RESULTS"
     COUNT=$((COUNT + 1))
-  done < <(grep -nE ':\s*any\b' "$file" 2>/dev/null | grep -vE '//.*:\s*any' || true)
+  done < <(grep -nE ':\s*any\b' "$file" 2>/dev/null \
+    | grep -vE '//.*:\s*any' \
+    | grep -vE '^\s*[0-9]+:\s*/?\*' \
+    | grep -vE '=\s*["\x27`].*:\s*any' \
+    || true)
 
   # 检测 @ts-ignore
   while IFS= read -r line_info; do

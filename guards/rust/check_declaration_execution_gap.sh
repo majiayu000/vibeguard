@@ -4,6 +4,13 @@
 
 set -euo pipefail
 
+# RS-14 暂时禁用：4 个子检测全有严重误报（struct field grep 计数、
+# 外部 crate trait、save/load 只查 main.rs、未接入 common.sh 且 cd 改变 cwd）。
+# 需要用 AST 工具重写后才能重新启用。
+# 详见 docs/known-false-positives.md#RS-14
+echo "[RS-14] SKIP: 守卫暂时禁用（检测精度不足，待重写）"
+exit 0
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${1:-.}"
 STRICT_MODE="${2:-false}"

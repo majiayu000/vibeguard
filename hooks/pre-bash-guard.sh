@@ -71,13 +71,11 @@ sys.exit(1)
   block "禁止 force push（覆盖远端历史，丢失他人工作）。替代方案：git push 正常推送；如需覆盖自己的 PR 分支，先用 git rebase 再 git push --force-with-lease（更安全）。"
 fi
 
-# git reset --hard（丢弃所有未提交的改动）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+reset\s+--hard'; then
-  block "禁止 git reset --hard（不可逆丢弃未提交改动）。替代方案：git stash（暂存可恢复）、git revert <commit>（创建反转 commit）、git reset --soft <commit>（保留改动在暂存区）。"
-fi
+# git reset --hard — 允许执行（用户需要在 rebase 冲突等场景中使用）
 
 # git checkout . / git restore .（丢弃所有改动）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.'; then
+# 只匹配纯 "." 结尾，排除 git checkout ./src/file 等合法路径操作
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
   block "禁止 git checkout/restore .（批量丢弃所有改动）。替代方案：git checkout -- <具体文件> 指定要丢弃的文件；git stash 暂存所有改动（可恢复）；git diff 先查看改动再决定。"
 fi
 

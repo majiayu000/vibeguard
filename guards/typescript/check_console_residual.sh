@@ -18,6 +18,12 @@ parse_guard_args "$@"
 RESULTS=$(create_tmpfile)
 COUNT=0
 
+# CLI 项目（package.json 含 bin 字段）允许使用 console，跳过整个检查
+if [[ -f "${TARGET_DIR}/package.json" ]] && grep -q '"bin"' "${TARGET_DIR}/package.json" 2>/dev/null; then
+  echo "[TS-03] SKIP: CLI 项目（package.json 含 bin），console 为正常输出方式"
+  exit 0
+fi
+
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
   [[ ! -f "$file" ]] && continue

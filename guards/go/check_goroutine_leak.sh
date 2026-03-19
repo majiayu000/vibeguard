@@ -22,9 +22,17 @@ list_go_files "${TARGET_DIR}" \
   | { grep -vE '(_test\.go$|/vendor/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 检测 go func() 启动：标记位置供人工复查
-        grep -nE '^\s*go\s+(func\s*\(|[a-zA-Z])' "${f}" 2>/dev/null \
-          | sed "s|^|${f}:|" || true
+        # 检测 go func() 启动，但排除有退出机制的 goroutine
+        while IFS= read -r match; do
+          [[ -z "$match" ]] && continue
+          LINE_NUM=$(echo "$match" | cut -d: -f1)
+          # 读取 goroutine 后 20 行，检查是否有退出机制
+          HAS_EXIT=$(sed -n "${LINE_NUM},$((LINE_NUM+20))p" "${f}" 2>/dev/null \
+            | grep -cE '(ctx\.Done|context\.WithCancel|wg\.(Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker)' 2>/dev/null || true)
+          if [[ "${HAS_EXIT:-0}" -eq 0 ]]; then
+            echo "${f}:${match}"
+          fi
+        done < <(grep -nE '^\s*go\s+(func\s*\(|[a-zA-Z])' "${f}" 2>/dev/null || true)
       fi
     done \
   | awk '{ print "[GO-02] " $0 }' \

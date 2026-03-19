@@ -19,9 +19,11 @@ list_go_files "${TARGET_DIR}" \
   | { grep -vE '(_test\.go$|/vendor/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 检测 _ = someFunc() 和 _, err := someFunc() 中 err 未使用的模式
-        # 主要检测: 直接丢弃 error（赋值给 _）
+        # 检测 _ = someFunc() 中直接丢弃 error
+        # 排除：for _, v := range（range 变量）、_, ok := m[key]（map 查找）
         grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
+          | grep -vE 'for\s+.*range' \
+          | grep -vE ',\s*(ok|found|exists)\s*:?=' \
           | sed "s|^|${f}:|" || true
       fi
     done \

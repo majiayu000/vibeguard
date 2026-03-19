@@ -57,8 +57,19 @@ case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*) ;;
       */debug.*|*/debug/*|*logger*|*logging*) ;;
       *)
+        # CLI 项目（package.json 含 bin 字段）允许 console，跳过
+        _PKG_DIR=$(dirname "$FILE_PATH")
+        _IS_CLI=false
+        while [[ "$_PKG_DIR" != "/" ]]; do
+          if [[ -f "$_PKG_DIR/package.json" ]] && grep -q '"bin"' "$_PKG_DIR/package.json" 2>/dev/null; then
+            _IS_CLI=true; break
+          fi
+          _PKG_DIR=$(dirname "$_PKG_DIR")
+        done
         # MCP 入口文件用 console.error 输出到 stderr 是协议标准做法，跳过
-        if [[ -f "$FILE_PATH" ]] && grep -qE '(StdioServerTransport|new Server\(|McpServer)' "$FILE_PATH" 2>/dev/null; then
+        if [[ "$_IS_CLI" == true ]]; then
+          : # CLI 项目，console 为正常输出方式
+        elif [[ -f "$FILE_PATH" ]] && grep -qE '(StdioServerTransport|new Server\(|McpServer)' "$FILE_PATH" 2>/dev/null; then
           : # MCP 入口文件，跳过 console 检测
         else
           CONSOLE_COUNT=$(echo "$NEW_STRING" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null; true)
@@ -76,16 +87,8 @@ case "$FILE_PATH" in
           fi
         fi
 
-        # [U-HARDCODE] 检测硬编码默认值（字符串字面量作为 prop/参数默认值）
-        HARDCODE_HITS=$(echo "$NEW_STRING" | grep -cE "=\s*['\"][A-Z][A-Za-z]+['\"]" 2>/dev/null; true)
-        if [[ $HARDCODE_HITS -gt 0 ]]; then
-          # 排除合理的默认值（空字符串、类型标注、常量定义）
-          REAL_HITS=$(echo "$NEW_STRING" | grep -E "=\s*['\"][A-Z][A-Za-z]+['\"]" 2>/dev/null \
-            | grep -cvE "(export const|type |interface |import |from |===|!==|==|case )" 2>/dev/null; true)
-          if [[ $REAL_HITS -gt 0 ]]; then
-            WARNINGS="${WARNINGS:+${WARNINGS} }[U-HARDCODE] 检测到 ${REAL_HITS} 处疑似硬编码默认值（如 userName='BOB'）。修复：默认值应为空字符串或从 context/props 获取真实数据，不要用假数据占位。"
-          fi
-        fi
+        # [U-HARDCODE] 已移除：信噪比过低，枚举赋值/React props/常量定义全误报
+        # 详见 docs/known-false-positives.md#U-HARDCODE
         ;;
     esac
     ;;
@@ -122,8 +125,9 @@ case "$FILE_PATH" in
     case "$FILE_PATH" in
       *_test.go|*/vendor/*) ;;
       *)
-        # [GO-01] 检测 error 丢弃
-        ERR_DISCARD=$(echo "$NEW_STRING" | grep -cE '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null; true)
+        # [GO-01] 检测 error 丢弃（排除 for range 和 map 查找）
+        ERR_DISCARD=$(echo "$NEW_STRING" | grep -E '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null \
+          | grep -cvE '(for\s+.*range|,\s*(ok|found|exists)\s*:?=)' 2>/dev/null; true)
         if [[ $ERR_DISCARD -gt 0 ]]; then
           WARNINGS="${WARNINGS:+${WARNINGS} }[GO-01] 新增了 ${ERR_DISCARD} 处 error 丢弃（_ = ...）。修复：用 if err != nil 处理错误。"
         fi
@@ -189,10 +193,11 @@ fi
 # --- Escalation 检测 ---
 # 同一文件在当前日志中被 warn 3 次以上 → 升级为 escalate
 DECISION="warn"
-WARN_COUNT_FOR_FILE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" python3 -c '
+WARN_COUNT_FOR_FILE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
 file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
 count = 0
 try:
     with open(log_file) as f:
@@ -202,7 +207,8 @@ try:
                 continue
             try:
                 e = json.loads(line)
-                if e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and file_path in e.get("detail", ""):
+                # 限定当前 session + 精确路径匹配（避免子路径误判）
+                if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
                     count += 1
             except (json.JSONDecodeError, KeyError):
                 continue

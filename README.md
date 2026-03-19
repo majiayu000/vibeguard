@@ -197,6 +197,17 @@ bash ~/vibeguard/setup.sh --check            # Verify installation
 bash ~/vibeguard/setup.sh --clean            # Uninstall
 ```
 
+## Known Issues
+
+Guard scripts use pattern matching (grep/awk), not AST parsing, which causes false positives in certain scenarios. **Read before contributing guards:**
+
+- [Known False Positives](docs/known-issues/false-positives.md) — all identified false positive scenarios, fixes, and lessons learned
+
+Key lessons:
+- **grep is not an AST parser** — nested scopes, multi-block structures need real language tools
+- **Guard fix messages are consumed by AI agents** — "use project logger" caused an agent to create a useless wrapper and refactor 11 files
+- **Project type awareness is essential** — CLI/Web/MCP/Library have different valid patterns for the same language
+
 ## References
 
 - [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/)

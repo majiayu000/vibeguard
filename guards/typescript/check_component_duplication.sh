@@ -35,7 +35,8 @@ list_ts_files "${TARGET_DIR}" | filter_non_test | while IFS= read -r f; do
   if [[ -f "$f" ]]; then
     has_label=$(grep -cE '<label' "$f" 2>/dev/null || true)
     has_children=$(grep -cE '\{children\}|\{props\.children\}' "$f" 2>/dev/null || true)
-    has_required=$(grep -cE 'required|isRequired|\*.*<\/label' "$f" 2>/dev/null || true)
+    # 只匹配 prop 级 required（排除 HTML 原生 <input required>）
+    has_required=$(grep -cE 'isRequired|required\s*[?:}]|props\.required' "$f" 2>/dev/null || true)
     if [[ "$has_label" -gt 0 && "$has_children" -gt 0 && "$has_required" -gt 0 ]]; then
       echo "$f" >> "$FORMFIELD_FILES"
     fi
@@ -63,7 +64,8 @@ echo "--- Checking table sort pattern duplication ---"
 SORT_TABLE_FILES=$(mktemp)
 list_ts_files "${TARGET_DIR}" | filter_non_test | while IFS= read -r f; do
   if [[ -f "$f" ]]; then
-    has_sort_state=$(grep -cE 'useState.*sort|sortKey|sortDir|sortOrder|sortField' "$f" 2>/dev/null || true)
+    # 收紧：要求 useState + sort 相关状态，排除 API 参数中的 sortKey
+    has_sort_state=$(grep -cE 'useState.*sort|setSortKey|setSortDir|setSortOrder' "$f" 2>/dev/null || true)
     has_table=$(grep -cE '<table|<Table|<th|<thead' "$f" 2>/dev/null || true)
     if [[ "$has_sort_state" -gt 0 && "$has_table" -gt 0 ]]; then
       echo "$f" >> "$SORT_TABLE_FILES"
@@ -97,7 +99,8 @@ list_ts_files "${TARGET_DIR}" | filter_non_test | grep -iE '(use[A-Z].*\.(ts|tsx
 done
 
 QUERY_COUNT=$(wc -l < "$QUERY_HOOK_FILES" | tr -d ' ')
-if [[ "$QUERY_COUNT" -ge 3 ]]; then
+# 提高阈值：3 → 4，减少标准 useQuery 模式的误报
+if [[ "$QUERY_COUNT" -ge 4 ]]; then
   echo "[TS-13] Query hook template pattern found in ${QUERY_COUNT} files (>=3 = must abstract):"
   sed 's/^/  - /' "$QUERY_HOOK_FILES"
   echo "  Remediation: 提取公共 useQueryTemplate<T> hook，参数化 queryKey/queryFn/返回类型"

@@ -79,12 +79,13 @@ done <<< "$STAGED_FILES" > "$_STAGED_TMPFILE"
 export VIBEGUARD_STAGED_FILES="$_STAGED_TMPFILE"
 
 # --- 语言自动检测（Verifier 模式核心） ---
+# 使用 REPO_ROOT 绝对路径，避免子目录 commit 时检测失败
 DETECTED_LANGS=""
-[[ -f "Cargo.toml" ]]                                          && DETECTED_LANGS="${DETECTED_LANGS} rust"
-[[ -f "tsconfig.json" ]]                                       && DETECTED_LANGS="${DETECTED_LANGS} typescript"
-[[ -f "package.json" && ! -f "tsconfig.json" ]]                && DETECTED_LANGS="${DETECTED_LANGS} javascript"
-[[ -f "pyproject.toml" || -f "setup.py" || -f "setup.cfg" ]]  && DETECTED_LANGS="${DETECTED_LANGS} python"
-[[ -f "go.mod" ]]                                              && DETECTED_LANGS="${DETECTED_LANGS} go"
+[[ -f "${REPO_ROOT}/Cargo.toml" ]]                                                      && DETECTED_LANGS="${DETECTED_LANGS} rust"
+[[ -f "${REPO_ROOT}/tsconfig.json" ]]                                                   && DETECTED_LANGS="${DETECTED_LANGS} typescript"
+[[ -f "${REPO_ROOT}/package.json" && ! -f "${REPO_ROOT}/tsconfig.json" ]]               && DETECTED_LANGS="${DETECTED_LANGS} javascript"
+[[ -f "${REPO_ROOT}/pyproject.toml" || -f "${REPO_ROOT}/setup.py" || -f "${REPO_ROOT}/setup.cfg" ]]  && DETECTED_LANGS="${DETECTED_LANGS} python"
+[[ -f "${REPO_ROOT}/go.mod" ]]                                                          && DETECTED_LANGS="${DETECTED_LANGS} go"
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
 
 # --- 超时执行器 ---
