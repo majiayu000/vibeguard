@@ -40,6 +40,7 @@ KNOWN_CAMEL_KEYS: dict[str, str] = {
 # 允许使用 camelCase 的文件/路径
 ALLOWED_PATHS: set[str] = {
     "tests/",
+    "scripts/",  # Tool scripts that define camelCase mapping tables
     # 在此添加你项目中允许 camelCase 的路径...
     # 例如 API schema 文件、前端数据构建文件等
 }
