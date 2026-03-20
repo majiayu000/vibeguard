@@ -188,7 +188,7 @@ for lang in $DETECTED_LANGS; do
     rust)
       run_build_check "cargo check --quiet"  "cargo check 失败"
       ;;
-    typescript)       run_build_check "npx tsc --noEmit"     "tsc --noEmit 失败" ;;
+    typescript)       run_build_check "if ! command -v tsc >/dev/null 2>&1 && ! [ -f node_modules/.bin/tsc ]; then exit 0; fi; npx tsc --noEmit" "tsc --noEmit 失败" ;;
     javascript)       run_build_check 'if ! command -v node >/dev/null 2>&1; then exit 0; fi; FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E "\.(js|mjs|cjs)$" || true); [[ -z "$FILES" ]] && exit 0; while IFS= read -r f; do [[ -z "$f" || ! -f "$f" ]] && continue; node --check "$f" >/dev/null 2>&1 || exit 1; done <<< "$FILES"' "JavaScript 语法检查失败（node --check）" ;;
     go)               run_build_check "go build ./..."       "go build 失败" ;;
   esac
