@@ -91,6 +91,26 @@ if [[ -d "${RULES_DEST}" ]]; then
   else
     yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
   fi
+
+  # Validate rule count in CLAUDE.md matches actual count
+  actual_rule_count=$(grep -c "^## [A-Z]*-[0-9]" "${RULES_DEST}"/common/*.md "${RULES_DEST}"/rust/*.md "${RULES_DEST}"/typescript/*.md "${RULES_DEST}"/golang/*.md "${RULES_DEST}"/python/*.md 2>/dev/null | awk -F: '{s+=$2} END {print s}')
+  claude_md="${CLAUDE_DIR}/CLAUDE.md"
+  if [[ -f "${claude_md}" ]]; then
+    declared_count=$(grep -o '[0-9]* 条规则' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
+    declared_count="${declared_count:-0}"
+    if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
+      green "[OK] Rule count in sync: ${actual_rule_count} rules"
+    else
+      yellow "[DRIFT] CLAUDE.md declares ${declared_count} rules, actual: ${actual_rule_count}"
+      # Auto-fix: update the count in CLAUDE.md
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s/${declared_count} 条规则/${actual_rule_count} 条规则/" "${claude_md}"
+      else
+        sed -i "s/${declared_count} 条规则/${actual_rule_count} 条规则/" "${claude_md}"
+      fi
+      green "[FIXED] Updated CLAUDE.md rule count to ${actual_rule_count}"
+    fi
+  fi
 else
   red "[MISSING] Native rules not in ~/.claude/rules/vibeguard/"
 fi
