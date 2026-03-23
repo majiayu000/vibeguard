@@ -9,6 +9,27 @@ set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
 
+# --- stop_hook_active 检查：防止 Stop hook 触发无限循环 (#10205, continue:true) ---
+# Claude Code 在 Stop hook 再次触发时会在 input JSON 中注入 stop_hook_active=true
+STOP_HOOK_INPUT=$(cat 2>/dev/null || true)
+if echo "$STOP_HOOK_INPUT" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    if d.get("stop_hook_active") == True:
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+' 2>/dev/null; then
+  exit 0
+fi
+
+# CI 环境跳过（与 post-build-check.sh 一致，防止 CI 中 hook 循环 #3573）
+if [[ -n "${CI:-}" ]]; then
+  exit 0
+fi
+
 # 不在 git 仓库 → 跳过
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 0

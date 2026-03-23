@@ -7,11 +7,20 @@
 #   - JavaScript (.js/.mjs/.cjs): node --check
 #   - Go (.go): go build ./...
 #
+# 安全层：
+#   - CI 守卫：$CI 环境下跳过（避免 CI 中的无限循环 #3573）
+#   - 断路器：连续 ≥3 次构建失败后进入 OPEN 状态，5分钟冷却期内自动放行
+#
 # 只输出警告，不阻止操作。
 
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+
+# --- CI 守卫：CI 环境跳过桌面 hook，防止 #3573 类无限循环 ---
+if [[ -n "${CI:-}" ]]; then
+  exit 0
+fi
 
 INPUT=$(cat)
 
@@ -32,6 +41,68 @@ case "$EXT" in
   *) exit 0 ;;
 esac
 
+# === 断路器（Circuit Breaker） ===
+# Martin Fowler 模式：CLOSED → OPEN（冷却期自动放行）→ HALF-OPEN（探测一次）
+# 状态持久化到项目日志目录，避免不同项目互相影响
+CB_STATE_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/cb_build_check.json"
+CB_COOLDOWN_SECS=300  # 5 分钟冷却期
+CB_THRESHOLD=3        # 连续失败次数触发阈值
+
+cb_get_state() {
+  CB_STATE_FILE="$CB_STATE_FILE" CB_COOLDOWN_SECS="$CB_COOLDOWN_SECS" python3 - <<'PYEOF'
+import json, time, os
+f = os.environ.get("CB_STATE_FILE", "")
+cooldown = int(os.environ.get("CB_COOLDOWN_SECS", "300"))
+try:
+    with open(f) as fh:
+        d = json.load(fh)
+    state = d.get("state", "closed")
+    if state == "open":
+        if time.time() - d.get("opened_at", 0) >= cooldown:
+            print("half-open")
+        else:
+            print("open")
+    else:
+        print(state)
+except Exception:
+    print("closed")
+PYEOF
+}
+
+cb_set_open() {
+  CB_STATE_FILE="$CB_STATE_FILE" CB_COOLDOWN_SECS="$CB_COOLDOWN_SECS" python3 - <<'PYEOF'
+import json, time, os
+f = os.environ.get("CB_STATE_FILE", "")
+cooldown = int(os.environ.get("CB_COOLDOWN_SECS", "300"))
+try:
+    with open(f, "w") as fh:
+        json.dump({"state": "open", "opened_at": time.time(), "cooldown_secs": cooldown}, fh)
+except Exception:
+    pass
+PYEOF
+}
+
+cb_set_closed() {
+  CB_STATE_FILE="$CB_STATE_FILE" python3 - <<'PYEOF'
+import json, os
+f = os.environ.get("CB_STATE_FILE", "")
+try:
+    with open(f, "w") as fh:
+        json.dump({"state": "closed", "opened_at": 0}, fh)
+except Exception:
+    pass
+PYEOF
+}
+
+# 检查当前断路器状态
+CB_CURRENT_STATE=$(cb_get_state)
+
+if [[ "$CB_CURRENT_STATE" == "open" ]]; then
+  # 断路器开启，冷却期内自动放行（避免分析瘫痪）
+  vg_log "post-build-check" "Edit" "pass" "[CB:OPEN] 断路器冷却中，自动放行" "$FILE_PATH"
+  exit 0
+fi
+
 # 向上查找项目根目录（根据语言查找不同的标记文件）
 find_project_root() {
   local dir="$1"
@@ -51,27 +122,27 @@ ERRORS=""
 case "$EXT" in
   rs)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "Cargo.toml") || exit 0
-    # cargo check，限制输出
     ERRORS=$(cd "$PROJECT_ROOT" && cargo check --message-format=short 2>&1 | grep -E "^error" | head -10) || true
     ;;
   ts|tsx)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "tsconfig.json") || exit 0
-    # tsc 类型检查
     ERRORS=$(cd "$PROJECT_ROOT" && npx tsc --noEmit 2>&1 | grep -E "error TS" | head -10) || true
     ;;
   js|mjs|cjs)
-    # JavaScript 语法检查（不依赖 tsconfig）
     command -v node >/dev/null 2>&1 || exit 0
     ERRORS=$(node --check "$FILE_PATH" 2>&1 | head -10) || true
     ;;
   go)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "go.mod") || exit 0
-    # go build 检查
     ERRORS=$(cd "$PROJECT_ROOT" && go build ./... 2>&1 | head -10) || true
     ;;
 esac
 
 if [[ -z "$ERRORS" ]]; then
+  # 构建通过：如果当前是 half-open 探测，关闭断路器
+  if [[ "$CB_CURRENT_STATE" == "half-open" ]]; then
+    cb_set_closed
+  fi
   vg_log "post-build-check" "Edit" "pass" "" "$FILE_PATH"
   exit 0
 fi
@@ -80,8 +151,7 @@ ERROR_COUNT=$(echo "$ERRORS" | wc -l | tr -d ' ')
 WARNINGS="[BUILD] 编辑 ${BASENAME} 后检测到 ${ERROR_COUNT} 个构建错误：
 ${ERRORS}"
 
-# --- Escalation 检测：连续构建失败升级 ---
-DECISION="warn"
+# --- 连续失败计数（用于断路器和 escalation）---
 CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
@@ -89,7 +159,6 @@ count = 0
 try:
     with open(log_file) as f:
         lines = f.readlines()
-    # 从末尾倒序读，遇到 pass 就停止计数
     for line in reversed(lines):
         line = line.strip()
         if not line: continue
@@ -98,7 +167,7 @@ try:
             if e.get("hook") != "post-build-check": continue
             if e.get("decision") == "pass":
                 break
-            if e.get("decision") == "warn":
+            if e.get("decision") in ("warn", "escalate"):
                 count += 1
         except: continue
 except: pass
@@ -106,18 +175,32 @@ print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
 CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
 
-if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
+DECISION="warn"
+
+# --- 断路器：half-open 探测失败 → 重新开启；CLOSED 连续失败 ≥ 阈值 → 开启 ---
+if [[ "$CB_CURRENT_STATE" == "half-open" ]]; then
+  cb_set_open
+  DECISION="escalate"
+  WARNINGS="[CB:HALF-OPEN→OPEN] 断路器探测失败，重新进入冷却期（${CB_COOLDOWN_SECS}s）。${WARNINGS}"
+elif [[ "$CONSECUTIVE_FAILS" -ge "$CB_THRESHOLD" ]]; then
+  cb_set_open
+  DECISION="escalate"
+  WARNINGS="[CB:CLOSED→OPEN] 连续 ${CONSECUTIVE_FAILS} 次构建失败，断路器开启。冷却期 ${CB_COOLDOWN_SECS}s 内后续编辑自动放行，避免无限循环。${WARNINGS}"
+elif [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
   DECISION="escalate"
   WARNINGS="[U-25 ESCALATE] 连续 ${CONSECUTIVE_FAILS} 次构建失败！必须先修复构建错误再继续编辑。建议：运行完整构建命令查看全部错误，定位根因一次性修复。${WARNINGS}"
 fi
 
-vg_log "post-build-check" "Edit" "$DECISION" "构建错误 ${ERROR_COUNT} 个" "$FILE_PATH"
+vg_log "post-build-check" "Edit" "$DECISION" "构建错误 ${ERROR_COUNT} 个（连续 ${CONSECUTIVE_FAILS} 次）" "$FILE_PATH"
 
 VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
 import json, os
 warnings = os.environ.get("VG_WARNINGS", "")
 decision = os.environ.get("VG_DECISION", "warn")
-prefix = "VIBEGUARD 构建升级警告" if decision == "escalate" else "VIBEGUARD 构建检查"
+if decision == "escalate":
+    prefix = "VIBEGUARD 构建升级警告"
+else:
+    prefix = "VIBEGUARD 构建检查"
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",
