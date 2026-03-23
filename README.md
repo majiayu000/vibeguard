@@ -68,7 +68,7 @@ No manual steps needed. Hooks trigger automatically during AI operations:
 
 AI can proactively call these tools to check code quality:
 
-- `guard_check` — run language-specific guard scripts (`python | rust | typescript | javascript | go | auto`)
+- `guard_check` — run language-specific guard scripts (`python | rust | typescript | javascript | go | auto`); `guard_check` 支持语言: python, rust, typescript, javascript, go, auto
 - `compliance_report` — project compliance check
 - `metrics_collect` — collect code metrics
 
