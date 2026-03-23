@@ -50,7 +50,7 @@ CB_THRESHOLD=3        # 连续失败次数触发阈值
 
 cb_get_state() {
   CB_STATE_FILE="$CB_STATE_FILE" CB_COOLDOWN_SECS="$CB_COOLDOWN_SECS" python3 - <<'PYEOF'
-import json, time, os
+import json, time, os, sys
 f = os.environ.get("CB_STATE_FILE", "")
 cooldown = int(os.environ.get("CB_COOLDOWN_SECS", "300"))
 try:
@@ -64,33 +64,36 @@ try:
             print("open")
     else:
         print(state)
-except Exception:
-    print("closed")
+except FileNotFoundError:
+    print("closed")  # 首次运行，正常情况
+except Exception as e:
+    print(f"[post-build-check] cb_get_state: state-file={f!r} error={e}", file=sys.stderr)
+    print("closed")  # 降级为安全默认值，但已记录错误
 PYEOF
 }
 
 cb_set_open() {
   CB_STATE_FILE="$CB_STATE_FILE" CB_COOLDOWN_SECS="$CB_COOLDOWN_SECS" python3 - <<'PYEOF'
-import json, time, os
+import json, time, os, sys
 f = os.environ.get("CB_STATE_FILE", "")
 cooldown = int(os.environ.get("CB_COOLDOWN_SECS", "300"))
 try:
     with open(f, "w") as fh:
         json.dump({"state": "open", "opened_at": time.time(), "cooldown_secs": cooldown}, fh)
-except Exception:
-    pass
+except Exception as e:
+    print(f"[post-build-check] cb_set_open: state-file={f!r} error={e}", file=sys.stderr)
 PYEOF
 }
 
 cb_set_closed() {
   CB_STATE_FILE="$CB_STATE_FILE" python3 - <<'PYEOF'
-import json, os
+import json, os, sys
 f = os.environ.get("CB_STATE_FILE", "")
 try:
     with open(f, "w") as fh:
         json.dump({"state": "closed", "opened_at": 0}, fh)
-except Exception:
-    pass
+except Exception as e:
+    print(f"[post-build-check] cb_set_closed: state-file={f!r} error={e}", file=sys.stderr)
 PYEOF
 }
 

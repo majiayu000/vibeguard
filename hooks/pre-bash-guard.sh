@@ -72,7 +72,21 @@ BLOCK_EOF
 
 # git push --force（覆盖远端历史，不可恢复）
 # 使用 COMMAND_FOR_FLAGS 确保 "--force" 引号变体和 git -c ... push --force 全局选项变体均被检测
-if echo "$COMMAND_FOR_FLAGS" | grep -qE 'git\s+.*\bpush\b.*(-f\b|--force\b)' && ! echo "$COMMAND_FOR_FLAGS" | grep -qE -- '--force-with-lease'; then
+# 逐段检查（;/&&/||），防止 --force-with-lease 出现在其他命令段而绕过检测
+_force_push_blocked() {
+  VG_CMD="$COMMAND_FOR_FLAGS" python3 - <<'PYEOF'
+import re, sys, os
+cmd = os.environ.get("VG_CMD", "")
+# 按 ;、&&、|| 分割为独立命令段，逐段独立判断
+segments = re.split(r';|&&|\|\|', cmd)
+for seg in segments:
+    if re.search(r'git\s+.*\bpush\b.*(-f\b|--force\b)', seg):
+        if not re.search(r'--force-with-lease', seg):
+            sys.exit(0)  # 该段有 --force 且无 --force-with-lease 保护
+sys.exit(1)
+PYEOF
+}
+if _force_push_blocked 2>/dev/null; then
   block "禁止 git push --force（覆盖远端历史，不可恢复）。替代方案：git push --force-with-lease（安全覆盖，保护他人提交）；git log --oneline origin/main..HEAD 先确认提交内容。"
 fi
 
