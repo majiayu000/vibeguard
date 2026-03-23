@@ -153,7 +153,17 @@ if modes:
 if total > ingested + 5:
     lines.append(f"提示: 有 {total - ingested} 个 session 未分析，运行 refine ingest-sessions")
 
-lines.append("提醒: 开始前先写下你的预测（根因、路径、风险）再让 AI 回应")
+# Read LLM advice from mirror cache
+advice_path = Path(os.path.expanduser("~/.mirror/advice.json"))
+try:
+    advice_data = json.loads(advice_path.read_text())
+    advice = advice_data.get("advice", "")
+    if advice:
+        lines.append(f"建议: {advice}")
+    else:
+        lines.append("提醒: 开始前先写下你的预测（根因、路径、风险）再让 AI 回应")
+except (json.JSONDecodeError, FileNotFoundError):
+    lines.append("提醒: 开始前先写下你的预测（根因、路径、风险）再让 AI 回应")
 
 print("\n".join(lines))
 PYEOF
