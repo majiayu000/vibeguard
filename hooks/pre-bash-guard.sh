@@ -41,6 +41,20 @@ cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
 " 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
 
+# 用于标志检测：先移除 commit message 内容，再去除引号标记但保留内容
+# 这样 git push "--force" 中的 --force 仍能被检测到，而提交信息中的危险词不会误报
+COMMAND_FOR_FLAGS=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+# 先移除 commit message 内容（-m 或 --message 后的引号字符串）
+cmd = re.sub(r'(-m\\s*)(\"[^\"]*\"|\x27[^\x27]*\x27)', r'\\1\"\"', cmd)
+cmd = re.sub(r'(--message[= ]?)(\"[^\"]*\"|\x27[^\x27]*\x27)', r'\\1\"\"', cmd)
+# 移除引号标记，保留内容（\"--force\" → --force）
+cmd = re.sub(r'\"([^\"]*)\"', r'\\1', cmd)
+cmd = re.sub(r\"'([^']*)'\" , r'\\1', cmd)
+print(cmd)
+" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
+
 # 路径扫描使用：去掉引号字符但保留内容，防止 rm -rf \"/Users/...\" 绕过
 COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
 
@@ -57,12 +71,14 @@ BLOCK_EOF
 }
 
 # git push --force（覆盖远端历史，不可恢复）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+push\s+.*(-f\b|--force\b)' && ! echo "$COMMAND_STRIPPED" | grep -qE -- '--force-with-lease'; then
+# 使用 COMMAND_FOR_FLAGS 确保 "--force" 引号变体和 git -c ... push --force 全局选项变体均被检测
+if echo "$COMMAND_FOR_FLAGS" | grep -qE 'git\s+.*\bpush\b.*(-f\b|--force\b)' && ! echo "$COMMAND_FOR_FLAGS" | grep -qE -- '--force-with-lease'; then
   block "禁止 git push --force（覆盖远端历史，不可恢复）。替代方案：git push --force-with-lease（安全覆盖，保护他人提交）；git log --oneline origin/main..HEAD 先确认提交内容。"
 fi
 
 # git reset --hard（丢弃未提交改动，不可恢复）
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+reset\s+--hard'; then
+# 使用 COMMAND_FOR_FLAGS 确保 git reset -q --hard 等标志顺序变体均被检测
+if echo "$COMMAND_FOR_FLAGS" | grep -qE 'git\s+.*\breset\b.*--hard'; then
   block "禁止 git reset --hard（丢弃未提交改动，不可恢复）。替代方案：git stash 暂存改动（可恢复）；git reset --soft HEAD~ 只移动指针不丢改动；git diff 先查看改动再决定。"
 fi
 

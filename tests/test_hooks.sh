@@ -156,6 +156,18 @@ assert_not_contains "$result" '"decision": "block"' "commit message 含 force �
 result=$(echo '{"tool_input":{"command":"cat <<'\''EOF'\''\ngit push --force\nEOF"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "heredoc 内含 force push 不误报"
 
+# quoted flag 绕过：git push "--force" origin main 应被拦截
+result=$(echo '{"tool_input":{"command":"git push \"--force\" origin main"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截 git push quoted --force 变体"
+
+# git global option 绕过：git -c core.hooksPath=/tmp push --force 应被拦截
+result=$(echo '{"tool_input":{"command":"git -c core.hooksPath=/tmp push --force origin main"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截 git -c ... push --force 全局选项变体"
+
+# flag 顺序变体：git reset -q --hard HEAD~1 应被拦截
+result=$(echo '{"tool_input":{"command":"git reset -q --hard HEAD~1"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截 git reset -q --hard 顺序变体"
+
 # =========================================================
 header "pre-edit-guard.sh — 防幻觉编辑"
 # =========================================================
