@@ -18,11 +18,10 @@ parse_guard_args "$@"
 RESULTS=$(create_tmpfile)
 COUNT=0
 
-# CLI 项目允许使用 console，跳过整个检查
-# 检测方式：package.json 含 bin 字段 / 存在 src/cli.* 入口 / scripts 含 cli 关键词
+# CLI 项目允许使用 console，跳过整个检查。
+# 仅当检测到显式 CLI 入口时才跳过，避免把仅带 bin 字段的库项目误判为 CLI。
 _IS_CLI=false
 if [[ -f "${TARGET_DIR}/package.json" ]]; then
-  grep -qE '"bin"' "${TARGET_DIR}/package.json" 2>/dev/null && _IS_CLI=true
   grep -qE '"[^"]*":\s*"[^"]*cli[^"]*"' "${TARGET_DIR}/package.json" 2>/dev/null && _IS_CLI=true
 fi
 ls "${TARGET_DIR}/src/cli."* "${TARGET_DIR}/cli."* 2>/dev/null | grep -q . && _IS_CLI=true

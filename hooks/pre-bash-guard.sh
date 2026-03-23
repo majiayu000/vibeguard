@@ -56,7 +56,18 @@ BLOCK_EOF
   exit 0
 }
 
-# git reset --hard — 允许执行（用户需要在 rebase 冲突等场景中使用）
+# git push --force / -f（覆盖远端历史）
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+push\b' \
+  && echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])(--force|-f)([[:space:]]|$)' \
+  && ! echo "$COMMAND_STRIPPED" | grep -q -- '--force-with-lease'; then
+  block "禁止 git push --force/-f（覆盖远端历史）。替代方案：git push --force-with-lease（带租约保护）；git revert 回滚提交并正常 push。"
+fi
+
+# git reset --hard（丢弃未提交改动）
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+reset\b' \
+  && echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])--hard([[:space:]]|$)'; then
+  block "禁止 git reset --hard（会丢弃未提交改动）。替代方案：git restore --source <commit> <file> 精确恢复；git stash 暂存改动后再处理。"
+fi
 
 # git checkout . / git restore .（丢弃所有改动）
 # 只匹配纯 "." 结尾，排除 git checkout ./src/file 等合法路径操作

@@ -23,6 +23,12 @@ if [[ -z "$FILE_PATH" ]] || [[ -z "$NEW_STRING" ]]; then
   exit 0
 fi
 
+if [[ "$FILE_PATH" == /* ]]; then
+  FILE_PATH_ABS="$FILE_PATH"
+else
+  FILE_PATH_ABS="$(pwd)/$FILE_PATH"
+fi
+
 WARNINGS=""
 
 # --- Rust 检查 ---
@@ -57,12 +63,16 @@ case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*) ;;
       */debug.*|*/debug/*|*logger*|*logging*) ;;
       *)
-        # CLI 项目允许 console，跳过（bin 字段 / src/cli.* / scripts 含 cli）
-        _PKG_DIR=$(dirname "$FILE_PATH")
+        # CLI 项目允许 console，跳过（避免把带 bin 字段的普通库误判为 CLI）
+        _PKG_DIR=$(dirname "$FILE_PATH_ABS")
         _IS_CLI=false
         while [[ "$_PKG_DIR" != "/" ]]; do
           if [[ -f "$_PKG_DIR/package.json" ]]; then
-            grep -qE '"bin"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true
+            if grep -qE '"bin"' "$_PKG_DIR/package.json" 2>/dev/null; then
+              case "$FILE_PATH_ABS" in
+                "$_PKG_DIR"/src/cli.*|"$_PKG_DIR"/cli.*|*/bin/*) _IS_CLI=true ;;
+              esac
+            fi
             grep -qE '"[^"]*":\s*"[^"]*cli[^"]*"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true
           fi
           ls "$_PKG_DIR/src/cli."* "$_PKG_DIR/cli."* 2>/dev/null | grep -q . && _IS_CLI=true
