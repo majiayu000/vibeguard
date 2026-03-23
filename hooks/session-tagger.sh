@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Session Tagger — Stop 事件：从真实数据源更新 growth-tracker.json
 #
-# 不再简单 +1，而是：
-# 1. 从 ~/.claude/projects/ 统计本周实际 JSONL 文件数（真实 session 数）
+# 1. 统计本周实际 JSONL 文件数（真实 session 数）
 # 2. 从 refine DB 统计本周已 ingest 的协作模式分布
+# 3. 标记未 ingest 的新 session 数量（供 mirror score 检测）
 #
 # exit 0 = 始终放行
 set -euo pipefail
 
 TRACKER_FILE="${HOME}/.refine/growth-tracker.json"
-DB_PATH="${HOME}/Library/Application Support/refine/refine.db"
 
 if [[ ! -f "$TRACKER_FILE" ]]; then
   exit 0
@@ -35,6 +34,7 @@ monday_str = monday.isoformat()
 # 1. Count real JSONL files modified this week (excluding subagents)
 projects_dir = Path.home() / ".claude" / "projects"
 total = 0
+week_files = []
 if projects_dir.exists():
     for project_dir in projects_dir.iterdir():
         if not project_dir.is_dir():
@@ -50,10 +50,12 @@ if projects_dir.exists():
                 mtime = date.fromtimestamp(f.stat().st_mtime)
                 if mtime >= monday:
                     total += 1
+                    week_files.append(str(f))
 
 data["total_sessions"] = total
 
-# 2. Query DB for this week's collaboration modes
+# 2. Query DB for this week's collaboration modes + count ingested sessions
+ingested = 0
 if Path(db_path).exists():
     try:
         sql = (
@@ -77,8 +79,23 @@ if Path(db_path).exists():
         data["exploration_sessions"] = modes.get("exploration", 0)
         data["deep_inquiry_sessions"] = modes.get("deep_inquiry", 0)
         data["delegation_sessions"] = modes.get("delegation", 0)
+
+        # Count total ingested this week
+        sql2 = (
+            "SELECT COUNT(DISTINCT document_id) FROM items "
+            "WHERE item_type='observation' AND length(content) > 200 "
+            f"AND created_at >= '{monday_str}T00:00:00'"
+        )
+        result2 = subprocess.run(
+            ["sqlite3", db_path, sql2],
+            capture_output=True, text=True, timeout=5
+        )
+        ingested = int(result2.stdout.strip() or "0")
     except Exception:
         pass
+
+data["ingested_sessions"] = ingested
+data["pending_ingest"] = max(0, total - ingested)
 
 tracker_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 PYEOF
