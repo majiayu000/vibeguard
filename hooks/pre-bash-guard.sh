@@ -94,10 +94,35 @@ def normalize_flags(seg):
     seg = re.sub(r"\x27(--?[a-z][a-z0-9-]*)\x27", r"\1", seg)
     return seg
 
+GIT_OPTS_WITH_ARG = {"-C", "--git-dir", "--work-tree", "--namespace",
+                      "-c", "--exec-path", "--super-prefix", "--list-cmds"}
+
+def find_git_subcommand(seg):
+    """Return the git subcommand token (e.g. 'push') in seg, or None.
+    Skips git global options like -C /repo, --git-dir=..., etc."""
+    tokens = seg.split()
+    git_found = False
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if not git_found:
+            if t == "git" or t.endswith("/git"):
+                git_found = True
+            i += 1
+        else:
+            if t in GIT_OPTS_WITH_ARG:
+                i += 2  # skip option and its value argument
+            elif t.startswith("-") and "=" not in t:
+                i += 1  # skip standalone flag like --no-pager
+            else:
+                return t  # first non-option token is the subcommand
+    return None
+
 cmd = sys.stdin.read()
 for seg in split_segments(cmd):
     n = normalize_flags(seg.strip())
-    if re.search(r"\bgit\s+push\b", n):
+    sub = find_git_subcommand(n)
+    if sub == "push":
         has_force = bool(re.search(r"(?:^|[\s])(--force|-f)(?:[\s]|$)", n))
         has_lease = bool(re.search(r"--force-with-lease", n))
         if has_force and not has_lease:

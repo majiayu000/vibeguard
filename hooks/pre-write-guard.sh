@@ -45,15 +45,18 @@ case "$FILE_PATH" in
 esac
 
 # --- 库遮蔽检测（W-12 攻击向量 7）---
-# 检测新建文件名是否与标准库/知名第三方库模块同名
-PY_STDLIB=("os.py" "sys.py" "re.py" "io.py" "json.py" "math.py" "time.py" "datetime.py"
-            "pathlib.py" "typing.py" "abc.py" "copy.py" "random.py" "string.py"
-            "subprocess.py" "threading.py" "collections.py" "functools.py" "itertools.py"
-            "logging.py" "hashlib.py" "base64.py" "struct.py" "socket.py" "http.py"
-            "urllib.py" "email.py" "xml.py" "csv.py" "sqlite3.py" "pickle.py"
-            "pandas.py" "numpy.py" "requests.py" "flask.py" "django.py")
-for _shadow in "${PY_STDLIB[@]}"; do
-  if [[ "$BASENAME" == "$_shadow" ]]; then
+# 检测新建文件名是否与标准库/知名第三方库模块同名（含 package 形式 os/__init__.py）
+PY_SHADOW_MODULES=("os" "sys" "re" "io" "json" "math" "time" "datetime"
+                   "pathlib" "typing" "abc" "copy" "random" "string"
+                   "subprocess" "threading" "collections" "functools" "itertools"
+                   "logging" "hashlib" "base64" "struct" "socket" "http"
+                   "urllib" "email" "xml" "csv" "sqlite3" "pickle"
+                   "pandas" "numpy" "requests" "flask" "django")
+
+# Build flat-file names for comparison (e.g. "os.py")
+for _mod in "${PY_SHADOW_MODULES[@]}"; do
+  # Flat-file form: os.py
+  if [[ "$BASENAME" == "${_mod}.py" ]]; then
     vg_log "pre-write-guard" "Write" "block" "库遮蔽：$BASENAME" "$FILE_PATH"
     cat <<EOF
 {
@@ -62,6 +65,20 @@ for _shadow in "${PY_STDLIB[@]}"; do
 }
 EOF
     exit 0
+  fi
+  # Package form: os/__init__.py  — check if parent dir matches module name
+  if [[ "$BASENAME" == "__init__.py" ]]; then
+    _PARENT=$(basename "$(dirname "$FILE_PATH")")
+    if [[ "$_PARENT" == "$_mod" ]]; then
+      vg_log "pre-write-guard" "Write" "block" "库遮蔽(package)：${_PARENT}/__init__.py" "$FILE_PATH"
+      cat <<EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：目录 ${_PARENT}/__init__.py 会以 package 形式遮蔽 Python 标准库模块 '${_PARENT}'（W-12 库遮蔽攻击）。请重命名目录以避免 import 劫持。"
+}
+EOF
+      exit 0
+    fi
   fi
 done
 

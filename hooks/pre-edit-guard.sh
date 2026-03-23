@@ -50,17 +50,47 @@ _PROTECTED = {
     "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
     "jest.config.json",
 }
-# 解析真实路径以防止通过符号链接/硬链接绕过（basename 检测失效问题）
+
+def _inode_key(p):
+    try:
+        s = os.stat(p)
+        return (s.st_dev, s.st_ino)
+    except OSError:
+        return None
+
+def _is_hardlink_to_protected(path, protected_names):
+    """Return True if path shares an inode with any protected file found
+    by walking up to 5 parent directories. Catches hard-link bypasses."""
+    try:
+        st = os.stat(path)
+        if st.st_nlink < 2:
+            return False  # single link cannot be a hard link to another file
+        target_key = (st.st_dev, st.st_ino)
+    except OSError:
+        return False
+    check_dir = os.path.dirname(os.path.abspath(path))
+    for _ in range(5):
+        for pname in protected_names:
+            k = _inode_key(os.path.join(check_dir, pname))
+            if k and k == target_key:
+                return True
+        parent = os.path.dirname(check_dir)
+        if parent == check_dir:
+            break
+        check_dir = parent
+    return False
+
+# Use symlink-resolved path for basename check (handles symlinks),
+# plus inode comparison for hard-link bypass detection.
 _real_path = os.path.realpath(file_path)
 _real_bn = os.path.basename(_real_path)
-# tsconfig.json：仅当路径中有完整路径段 test/spec/__tests__ 时才拦截，
-# 避免 /workspace/contest/app/tsconfig.json 等路径中子字符串误触发
 _is_test_tsconfig = (
     _real_bn == "tsconfig.json" and
     bool(_re.search(r"(?:^|[/\\])(test|spec|__tests__)(?:[/\\]|$)",
                     _real_path, _re.IGNORECASE))
 )
-if _real_bn in _PROTECTED or _is_test_tsconfig:
+if (_real_bn in _PROTECTED or _is_test_tsconfig
+        or _is_hardlink_to_protected(file_path, _PROTECTED)):
     print("PROTECTED_INFRA")
     sys.exit(0)
 
