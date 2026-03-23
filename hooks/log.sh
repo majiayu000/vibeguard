@@ -101,13 +101,13 @@ print(f2)
 # Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
 # 文件持久化 + 30 分钟续期：同一会话的 hook 共享稳定 session_id
 if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
-  _vg_sf="${VIBEGUARD_LOG_DIR}/.session_id"
+  _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_id"
   if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
     VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
     touch "$_vg_sf" 2>/dev/null || true
   else
     VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-    mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+    mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
     printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
   fi
 fi

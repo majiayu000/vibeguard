@@ -97,6 +97,26 @@ result=$(
 assert_contains "$result" '"decision": "block"' "Python 注入 payload 在 reason 中被安全记录"
 
 # =========================================================
+header "log.sh — session ID 项目隔离（#19）"
+# =========================================================
+
+# session ID 文件应存储在 VIBEGUARD_PROJECT_LOG_DIR（项目目录），不在全局 VIBEGUARD_LOG_DIR
+# 验证 _vg_sf 包含项目 hash 路径而非全局路径
+result2=$(
+  unset VIBEGUARD_SESSION_ID
+  export VIBEGUARD_LOG_DIR
+  source hooks/log.sh
+  # _vg_sf 必须在 VIBEGUARD_PROJECT_LOG_DIR 下，不能直接在 VIBEGUARD_LOG_DIR 下
+  if [[ "$_vg_sf" == "${VIBEGUARD_LOG_DIR}/.session_id" ]]; then
+    echo "GLOBAL_PATH"
+  else
+    echo "PROJECT_SCOPED"
+  fi
+)
+assert_contains "$result2" "PROJECT_SCOPED" "session ID 文件存储在项目目录而非全局目录"
+assert_not_contains "$result2" "GLOBAL_PATH" "session ID 文件不在全局 VIBEGUARD_LOG_DIR 根目录"
+
+# =========================================================
 header "pre-bash-guard.sh — 危险命令拦截"
 # =========================================================
 
