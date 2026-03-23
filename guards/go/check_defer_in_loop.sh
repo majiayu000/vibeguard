@@ -51,6 +51,7 @@ else
     > "${TMPFILE}" || true
 fi
 
+filter_suppressed < "${TMPFILE}" > "${TMPFILE}.filtered" && mv "${TMPFILE}.filtered" "${TMPFILE}" || true
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 

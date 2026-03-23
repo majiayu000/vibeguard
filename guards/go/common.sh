@@ -69,3 +69,43 @@ create_tmpfile() {
   fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
+
+# check_suppression FILE LINE_NUM RULE_ID
+# Returns 0 if the line is suppressed by a vibeguard-disable-next-line comment, 1 otherwise.
+check_suppression() {
+  local file="$1" line="$2" rule="$3"
+  local prev=$((line - 1))
+  [[ $prev -lt 1 ]] && return 1
+  local resolved="$file"
+  if [[ ! -f "$resolved" && -n "${TARGET_DIR:-}" && -f "${TARGET_DIR}/${file}" ]]; then
+    resolved="${TARGET_DIR}/${file}"
+  fi
+  [[ ! -f "$resolved" ]] && return 1
+  local prev_content
+  prev_content=$(sed -n "${prev}p" "${resolved}" 2>/dev/null || true)
+  echo "${prev_content}" | grep -qE "vibeguard-disable-next-line[[:space:]].*${rule}" && return 0
+  return 1
+}
+
+# filter_suppressed: reads "[RULE-ID] file:linenum ..." lines from stdin,
+# removes any line whose previous line in the source file contains
+# "vibeguard-disable-next-line RULE-ID".
+filter_suppressed() {
+  while IFS= read -r violation; do
+    [[ -z "$violation" ]] && continue
+    local rule rest file linenum
+    rule=$(echo "$violation" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
+    if [[ -z "$rule" ]]; then
+      echo "$violation"; continue
+    fi
+    rest=$(echo "$violation" | sed "s/^\[${rule}\][[:space:]]*//")
+    file=$(echo "$rest" | cut -d: -f1)
+    linenum=$(echo "$rest" | cut -d: -f2 | grep -oE '^[0-9]+' || true)
+    if [[ -n "$file" && -n "$linenum" ]]; then
+      if check_suppression "$file" "$linenum" "$rule"; then
+        continue
+      fi
+    fi
+    echo "$violation"
+  done
+}

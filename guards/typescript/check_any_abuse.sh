@@ -109,6 +109,11 @@ else
   done < <(list_ts_files "$TARGET_DIR" | filter_non_test)
 fi
 
+# Apply suppression filter before counting
+FILTERED=$(create_tmpfile)
+filter_suppressed < "$RESULTS" > "$FILTERED" || true
+COUNT=$(wc -l < "$FILTERED" | tr -d ' ')
+
 if [[ $COUNT -eq 0 ]]; then
   echo "[TS-01] PASS: 未检测到 any 类型滥用"
   exit 0
@@ -116,7 +121,7 @@ fi
 
 echo "[TS-01] 检测到 ${COUNT} 处 any 类型滥用:"
 echo
-cat "$RESULTS"
+cat "$FILTERED"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

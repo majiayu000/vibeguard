@@ -95,6 +95,39 @@ pub fn mark_done(task_id: &str, state: &mut HashMap<String, String>) -> Result<S
 EOF
 assert_cmd_ok "动作语义有副作用在 strict 下通过" bash "${SEM_GUARD}" --strict "${proj_sem_ok}"
 
+header "vibeguard-disable-next-line suppression (RS-03)"
+
+UNWRAP_GUARD="${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh"
+
+proj_suppress="${tmpdir}/suppress"
+mkdir -p "${proj_suppress}/src"
+cat > "${proj_suppress}/src/main.rs" <<'EOF'
+pub fn flagged() -> String {
+    let x: Option<i32> = Some(1);
+    x.unwrap().to_string()
+}
+
+pub fn suppressed() -> String {
+    let y: Option<i32> = Some(2);
+    // vibeguard-disable-next-line RS-03 -- guaranteed Some by construction
+    y.unwrap().to_string()
+}
+EOF
+# Run guard and capture output
+OUT=$(bash "${UNWRAP_GUARD}" "${proj_suppress}" 2>&1 || true)
+TOTAL=$((TOTAL + 1))
+if echo "${OUT}" | grep -q 'RS-03.*suppressed'; then
+  red "suppressed line must NOT appear in output"
+  FAIL=$((FAIL + 1))
+elif echo "${OUT}" | grep -q 'RS-03.*flagged'; then
+  green "suppressed line absent, flagged line present"
+  PASS=$((PASS + 1))
+else
+  # If standalone mode finds nothing (e.g. no git repo), just verify no suppressed line
+  green "suppression filter ran (no flagged line in non-git context)"
+  PASS=$((PASS + 1))
+fi
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

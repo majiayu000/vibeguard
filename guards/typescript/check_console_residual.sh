@@ -101,6 +101,11 @@ else
   done < <(list_ts_files "$TARGET_DIR" | filter_non_test)
 fi
 
+# Apply suppression filter before counting
+FILTERED=$(create_tmpfile)
+filter_suppressed < "$RESULTS" > "$FILTERED" || true
+COUNT=$(wc -l < "$FILTERED" | tr -d ' ')
+
 if [[ $COUNT -eq 0 ]]; then
   echo "[TS-03] PASS: 未检测到 console 残留"
   exit 0
@@ -108,7 +113,7 @@ fi
 
 echo "[TS-03] 检测到 ${COUNT} 处 console 残留:"
 echo
-cat "$RESULTS"
+cat "$FILTERED"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1
