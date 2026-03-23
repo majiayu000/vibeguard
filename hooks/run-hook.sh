@@ -26,4 +26,8 @@ if [[ ! -f "$HOOK_PATH" ]]; then
   exit 1
 fi
 
+# Ensure Python writes UTF-8 regardless of the terminal's default encoding (fixes Windows CP-1252)
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+
 exec bash "$HOOK_PATH" "$@"

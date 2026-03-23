@@ -1,0 +1,7 @@
+# Force LF line endings for scripts — prevents Windows CRLF breaking bash execution
+*.sh text eol=lf
+*.py text eol=lf
+*.bash text eol=lf
+
+# Normalise all text files to LF in the repo; allow checkout to be OS-native for others
+* text=auto
