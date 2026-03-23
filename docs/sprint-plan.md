@@ -12,9 +12,7 @@
 | #21 | `guards/*/check_*.sh` |
 | #22 | `guards/*/check_*.sh`, `rules/` |
 | #23 | `hooks/post-build-check.sh` |
-| #24 | `package.json` |
 | #25 | `.gitattributes`, shell scripts |
-| #26 | `docs/reference/` |
 | #27 | `hooks/pre-edit-guard.sh` |
 | #28 | `guards/*/check_*.sh` |
 | #29 | `guards/*/check_*.sh` |
@@ -38,9 +36,7 @@ SPRINT_PLAN_START
     {"issue": 20, "depends_on": []},
     {"issue": 21, "depends_on": []},
     {"issue": 22, "depends_on": []},
-    {"issue": 24, "depends_on": []},
     {"issue": 25, "depends_on": []},
-    {"issue": 26, "depends_on": []},
     {"issue": 18, "depends_on": [19]},
     {"issue": 23, "depends_on": [18, 19]},
     {"issue": 27, "depends_on": [20]},
@@ -49,6 +45,9 @@ SPRINT_PLAN_START
     {"issue": 30, "depends_on": [22]},
     {"issue": 31, "depends_on": [20]}
   ],
-  "skip": []
+  "skip": [
+    {"issue": 24, "reason": "not in pending issues list"},
+    {"issue": 26, "reason": "not in pending issues list"}
+  ]
 }
 SPRINT_PLAN_END
