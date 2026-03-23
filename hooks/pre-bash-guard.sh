@@ -59,7 +59,7 @@ BLOCK_EOF
 # git push --force / -f（覆盖远端历史）
 # 允许 --force-with-lease（更安全的并发保护）
 # 匹配 git [global-opts] push 变体，防止 git -C /repo push -f 或 git -c k=v push -f 绕过
-if echo "$COMMAND_STRIPPED" | grep -qE 'git(\s+(-[a-zA-Z][a-zA-Z0-9]*(\s+\S+)?|--[a-zA-Z0-9][a-zA-Z0-9-]*(=\S+)?))*\s+push\b'; then
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[^[:alnum:]_])git(\s+(-[a-zA-Z][a-zA-Z0-9]*(\s+\S+)?|--[a-zA-Z0-9][a-zA-Z0-9-]*(=\S+|\s+\S+)?))*\s+push\b'; then
   if echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])(--force|-f)([[:space:]]|$)' \
     && ! echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])--force-with-lease([[:space:]]|$)'; then
     block "禁止 git push --force/-f（会覆盖远端历史，影响团队协作）。替代方案：git push --force-with-lease（带并发保护）；或通过 revert / 新提交修复问题。"
@@ -68,7 +68,7 @@ fi
 
 # git reset --hard（丢弃未提交改动）
 # 匹配 git [global-opts] reset [reset-opts] --hard 变体，防止 git -C /repo reset --hard 或 git reset -q --hard 绕过
-if echo "$COMMAND_STRIPPED" | grep -qE 'git(\s+(-[a-zA-Z][a-zA-Z0-9]*(\s+\S+)?|--[a-zA-Z0-9][a-zA-Z0-9-]*(=\S+)?))*\s+reset\b' \
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[^[:alnum:]_])git(\s+(-[a-zA-Z][a-zA-Z0-9]*(\s+\S+)?|--[a-zA-Z0-9][a-zA-Z0-9-]*(=\S+|\s+\S+)?))*\s+reset\b' \
   && echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])--hard([[:space:]]|$)'; then
   block "禁止 git reset --hard（会丢弃工作区和暂存区改动）。替代方案：git restore --staged <file> + git checkout -- <file> 精确回退；或 git stash 暂存后再处理。"
 fi
