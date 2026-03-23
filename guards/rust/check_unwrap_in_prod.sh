@@ -93,14 +93,9 @@ echo ""
 if [[ ${FOUND} -eq 0 ]]; then
   echo "No unwrap()/expect() in production code."
 else
-  echo "Found ${FOUND} unwrap()/expect() call(s) in production code."
-  echo ""
-  echo "修复方法："
-  echo "  1. .unwrap() → .map_err(|e| YourError::from(e))? （向上传播错误）"
-  echo "  2. .unwrap() → .unwrap_or_default() （提供默认值）"
-  echo "  3. .unwrap() → .unwrap_or_else(|| fallback()) （延迟计算默认值）"
-  echo "  4. .expect(\"msg\") → match / if let （自定义处理逻辑）"
-  echo "  5. main() 中 → 使用 anyhow::Result<()> 配合 ? 操作符"
+  echo "[RS-03] [review] [this-edit] Found ${FOUND} unwrap()/expect() call(s) in production code."
+  echo "FIX: Replace .unwrap() with .map_err(|e| YourError::from(e))?, .unwrap_or_default(), or match/if let; in main() use anyhow::Result<()>"
+  echo "DO NOT: Add new error types, refactor error handling across other files, or change function signatures outside the flagged call site"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

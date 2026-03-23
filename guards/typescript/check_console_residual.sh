@@ -57,7 +57,7 @@ while IFS= read -r file; do
     case "$TRIMMED" in
       //*|'*'*) continue ;;
     esac
-    echo "[TS-03] ${REL_PATH}:${LINE_NUM} console 残留。修复：使用项目 logger 替代，或删除调试代码" >> "$RESULTS"
+    printf '[TS-03] [review] [this-line] OBSERVATION: %s:%s uses console.log/warn/error\nFIX: Remove this console call, or replace with the project logger if this is a logging site (check for existing logger import)\nDO NOT: Create new logger modules, modify other files, or fix console usage outside this edit\n\n' "${REL_PATH}" "${LINE_NUM}" >> "$RESULTS"
     COUNT=$((COUNT + 1))
   done < <(grep -nE '\bconsole\.(log|warn|error|debug|info)\(' "$file" 2>/dev/null || true)
 

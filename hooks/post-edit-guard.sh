@@ -38,13 +38,13 @@ if [[ "$FILE_PATH" == *.rs ]]; then
         SAFE_COUNT=$(echo "$NEW_STRING" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
         if [[ $REAL_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。立即修复，不要留到后面。参考 vibeguard/rules/rust.md RS-03。"
+          WARNINGS="${WARNINGS}[RS-03] [review] [this-edit] OBSERVATION: ${REAL_COUNT} new unwrap()/expect() call(s) added in this edit. FIX: Replace .unwrap() with .map_err(|e| YourError::from(e))?, .unwrap_or_default(), or match/if let; in main() use anyhow::Result<()>. DO NOT: Add new error types, refactor error handling across other files, or change function signatures outside the flagged call site."
         fi
       fi
       # [RS-10] 检测静默丢弃 Result（let _ = expr）
       SILENT_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null; true)
       if [[ $SILENT_COUNT -gt 0 ]]; then
-        WARNINGS="${WARNINGS:+${WARNINGS} }[RS-10] 新增了 ${SILENT_COUNT} 个 let _ = 静默丢弃。修复：用 if let Err(e) = expr { log::warn(...) } 记录错误，或用 .map_err() 传播。参考 vibeguard/rules/rust.md RS-10。"
+        WARNINGS="${WARNINGS:+${WARNINGS} }[RS-10] [review] [this-edit] OBSERVATION: ${SILENT_COUNT} new 'let _ =' silent discard(s) added in this edit. FIX: Replace with 'if let Err(e) = expr { log::warn!(...)  }' or propagate with .map_err(). DO NOT: Refactor error handling outside the flagged lines."
       fi
       ;;
   esac
@@ -76,9 +76,9 @@ case "$FILE_PATH" in
               FILE_CONSOLE_TOTAL=$(grep -cE '\bconsole\.(log|warn|error)\(' "$FILE_PATH" 2>/dev/null; true)
             fi
             if [[ $FILE_CONSOLE_TOTAL -ge 10 ]]; then
-              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG ESCALATE] 文件已有 ${FILE_CONSOLE_TOTAL} 处 console 残留，且仍在新增！必须立即清理：使用项目 logger 替代所有 console 调用。"
+              WARNINGS="${WARNINGS:+${WARNINGS} }[TS-03] [review] [this-file] OBSERVATION: file already has ${FILE_CONSOLE_TOTAL} console calls and this edit adds more. FIX: Remove the console calls added in this edit. DO NOT: Refactor logging across the whole file, create a logger module, or touch files other than the one being edited."
             else
-              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+              WARNINGS="${WARNINGS:+${WARNINGS} }[TS-03] [review] [this-edit] OBSERVATION: ${CONSOLE_COUNT} new console.log/warn/error call(s) added in this edit. FIX: Remove this console call, or replace with the project logger if one exists (check bin field in package.json for CLI projects). DO NOT: Create new logger modules, modify other files, or fix console usage outside this edit."
             fi
           fi
         fi
@@ -98,7 +98,7 @@ case "$FILE_PATH" in
       *)
         PRINT_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*print\(' 2>/dev/null; true)
         if [[ $PRINT_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${PRINT_COUNT} 个 print() 语句。修复：使用 logging 模块替代 print；如果是临时调试，完成后删除。"
+          WARNINGS="${WARNINGS:+${WARNINGS} }[PY-01] [review] [this-edit] OBSERVATION: ${PRINT_COUNT} new print() statement(s) added in this edit. FIX: Remove the print() if it is debug output, or replace with logging.getLogger(__name__) if this is a logging site. DO NOT: Add a logging framework, modify other files, or replace print() calls outside this edit."
         fi
         ;;
     esac
@@ -110,7 +110,7 @@ if echo "$NEW_STRING" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) ;;
     *)
-      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径。修复：将路径提取到 core 层公共函数（如 default_db_path()），所有入口统一调用；环境变量覆盖用 env::var(\"APP_DB_PATH\").unwrap_or_else(|_| default_db_path())。参考 vibeguard/rules/universal.md U-11。"
+      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] [review] [this-edit] OBSERVATION: hardcoded database path detected in this edit. FIX: Extract the path to a shared default_db_path() function in core and call it here. DO NOT: Move paths from other files, change the database file name, or refactor unrelated startup code."
       ;;
   esac
 fi
@@ -125,13 +125,13 @@ case "$FILE_PATH" in
         ERR_DISCARD=$(echo "$NEW_STRING" | grep -E '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null \
           | grep -cvE '(for\s+.*range|,\s*(ok|found|exists)\s*:?=)' 2>/dev/null; true)
         if [[ $ERR_DISCARD -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-01] 新增了 ${ERR_DISCARD} 处 error 丢弃（_ = ...）。修复：用 if err != nil 处理错误。"
+          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-01] [review] [this-edit] OBSERVATION: ${ERR_DISCARD} new error discard(s) ('_ = ...') added in this edit. FIX: Replace with 'err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }'. DO NOT: Create error handling utilities or modify callers outside the flagged site."
         fi
         # [GO-08] 检测 defer 在循环内
         DEFER_LOOP=$(echo "$NEW_STRING" | awk '/^\s*for\s/ {in_loop=1} /^\s*defer\s/ && in_loop {count++} /^\s*\}/ {in_loop=0} END {print count+0}' 2>/dev/null; true)
         DEFER_LOOP="${DEFER_LOOP:-0}"
         if [[ $DEFER_LOOP -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-08] 检测到 defer 在循环内，可能导致资源泄漏。修复：将 defer 所在逻辑提取为独立函数。"
+          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-08] [review] [this-edit] OBSERVATION: defer inside a loop detected in this edit — may cause resource leak. FIX: Extract the loop body that uses defer into a separate function. DO NOT: Refactor unrelated loop or defer usage in other parts of the file."
         fi
         ;;
     esac

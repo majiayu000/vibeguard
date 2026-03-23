@@ -194,13 +194,13 @@ assert_not_contains "$result" "VIBEGUARD" "新建测试文件放行"
 
 # 新建源码文件应触发提醒/拦截
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_service.py"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .py 源码文件触发 guard"
+assert_contains "$result" "L1" "新建 .py 源码文件触发 guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_main.rs"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .rs 源码文件触发 guard"
+assert_contains "$result" "L1" "新建 .rs 源码文件触发 guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_app.tsx"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .tsx 源码文件触发 guard"
+assert_contains "$result" "L1" "新建 .tsx 源码文件触发 guard"
 
 # tests/ 目录下的源码文件应放行
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test/tests/helper.py"}}' | bash hooks/pre-write-guard.sh)
@@ -224,11 +224,11 @@ assert_not_contains "$result" "RS-03" "测试文件 unwrap 不警告"
 
 # TS 文件新增 console.log 应警告
 result=$(echo '{"tool_input":{"file_path":"src/app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "DEBUG" "检测 TS console.log"
+assert_contains "$result" "TS-03" "检测 TS console.log"
 
 # Python 文件新增 print 应警告
 result=$(echo '{"tool_input":{"file_path":"src/main.py","new_string":"  print(data)"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "DEBUG" "检测 Python print()"
+assert_contains "$result" "PY-01" "检测 Python print()"
 
 # 硬编码 .db 路径应警告
 result=$(echo '{"tool_input":{"file_path":"src/config.rs","new_string":"let db = \"app.db\";"}}' | bash hooks/post-edit-guard.sh)
@@ -277,7 +277,7 @@ def processOrder():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def processOrder():\\n    return 2"}}' "$tmp_repo_dup_def/src/new/new_handler.py")
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
-assert_contains "$result" "L1-重复定义" "检测重复定义"
+assert_contains "$result" "L1" "检测重复定义"
 rm -rf "$tmp_repo_dup_def"
 
 # 超过扫描预算时应降级提示

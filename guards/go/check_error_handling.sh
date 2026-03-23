@@ -38,12 +38,9 @@ echo ""
 if [[ ${FOUND} -eq 0 ]]; then
   echo "No unchecked error returns found."
 else
-  echo "Found ${FOUND} unchecked error return(s)."
-  echo ""
-  echo "修复方法："
-  echo "  1. _ = fn() → err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }"
-  echo "  2. 确实不需要错误 → 添加注释说明原因"
-  echo "  3. defer 场景 → defer func() { _ = f.Close() }() 可接受，但建议记录日志"
+  echo "[GO-01] [review] [this-edit] Found ${FOUND} unchecked error return(s)."
+  echo "FIX: Replace '_ = fn()' with 'err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }'; if truly ignorable add an explanatory comment"
+  echo "DO NOT: Create error handling utilities, modify callers outside the flagged site, or change function signatures"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

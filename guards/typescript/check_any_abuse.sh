@@ -29,7 +29,7 @@ while IFS= read -r file; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
     LINE_CONTENT=$(echo "$line_info" | cut -d: -f2-)
-    echo "[TS-01] ${REL_PATH}:${LINE_NUM} 'as any' 绕过类型检查。修复：使用具体类型或类型断言 'as SpecificType'" >> "$RESULTS"
+    printf '[TS-01] [review] [this-line] OBSERVATION: %s:%s uses "as any" bypassing type safety\nFIX: Replace "as any" with a specific type or "as SpecificType"\nDO NOT: Refactor other files, create type utility modules, or fix any usage outside this line\n\n' "${REL_PATH}" "${LINE_NUM}" >> "$RESULTS"
     COUNT=$((COUNT + 1))
   done < <(grep -n '\bas any\b' "$file" 2>/dev/null || true)
 
@@ -38,7 +38,7 @@ while IFS= read -r file; do
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
-    echo "[TS-01] ${REL_PATH}:${LINE_NUM} ': any' 类型注解。修复：使用具体类型替代 any" >> "$RESULTS"
+    printf '[TS-01] [review] [this-line] OBSERVATION: %s:%s uses ": any" type annotation\nFIX: Replace ": any" with a specific type\nDO NOT: Refactor other files or create type utility modules\n\n' "${REL_PATH}" "${LINE_NUM}" >> "$RESULTS"
     COUNT=$((COUNT + 1))
   done < <(grep -nE ':\s*any\b' "$file" 2>/dev/null \
     | grep -vE '//.*:\s*any' \
@@ -50,7 +50,7 @@ while IFS= read -r file; do
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
-    echo "[TS-02] ${REL_PATH}:${LINE_NUM} '@ts-ignore' 禁用类型检查。修复：修复类型错误而非忽略" >> "$RESULTS"
+    printf '[TS-02] [review] [this-line] OBSERVATION: %s:%s uses @ts-ignore suppressing a type error\nFIX: Fix the underlying type error on the suppressed line\nDO NOT: Suppress additional lines, create ignore lists, or modify other files\n\n' "${REL_PATH}" "${LINE_NUM}" >> "$RESULTS"
     COUNT=$((COUNT + 1))
   done < <(grep -n '@ts-ignore' "$file" 2>/dev/null || true)
 
@@ -58,7 +58,7 @@ while IFS= read -r file; do
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
-    echo "[TS-02] ${REL_PATH}:${LINE_NUM} '@ts-nocheck' 禁用整个文件类型检查。修复：逐个修复类型错误" >> "$RESULTS"
+    printf '[TS-02] [review] [this-file] OBSERVATION: %s:%s uses @ts-nocheck disabling type checking for the whole file\nFIX: Remove @ts-nocheck and fix the type errors it was hiding, one at a time\nDO NOT: Move @ts-nocheck to other files or create a tsconfig exclude entry\n\n' "${REL_PATH}" "${LINE_NUM}" >> "$RESULTS"
     COUNT=$((COUNT + 1))
   done < <(grep -n '@ts-nocheck' "$file" 2>/dev/null || true)
 

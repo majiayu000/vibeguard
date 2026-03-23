@@ -58,7 +58,7 @@ if [[ "$MODE" == "block" ]]; then
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：创建新源码文件前必须先搜索已有实现。修复步骤：1) 用 Grep 搜索同名函数/类/结构体；2) 用 Glob 搜索同名或相似文件名；3) 如已有类似功能则扩展现有文件。设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒模式。"
+  "reason": "[L1] [auto-fix] [this-file] OBSERVATION: new source file created without prior search. FIX: (1) Grep for the function/class/struct name; (2) Glob for similar file names; (3) if similar functionality exists, extend the existing file instead. DO NOT: Create the new file, add abstractions, or refactor existing code during the search step."
 }
 EOF
 else
@@ -67,7 +67,7 @@ else
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "VIBEGUARD 先搜后写：你正在创建新源码文件。如果还没搜索过，请先用 Grep/Glob 确认项目中无类似实现再继续。如已搜索确认无重复，可忽略此提醒。"
+    "additionalContext": "[L1] [info] [this-file] OBSERVATION: new source file about to be created. FIX: Use Grep/Glob to confirm no similar implementation exists before proceeding. DO NOT: Create utility modules, add abstractions, or refactor existing code as part of this search."
   }
 }
 EOF

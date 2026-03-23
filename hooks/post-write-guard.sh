@@ -198,7 +198,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
   done <<< "$DEFINITIONS"
 
   if [[ -n "$DUPLICATE_DEFS" ]]; then
-    WARNINGS="${WARNINGS:+${WARNINGS} }[L1-重复定义] 以下定义在项目中已存在: ${DUPLICATE_DEFS}。请确认是否重复实现，考虑复用已有代码。"
+    WARNINGS="${WARNINGS:+${WARNINGS} }[L1] [review] [this-file] OBSERVATION: the following definitions already exist in the project: ${DUPLICATE_DEFS}. FIX: Reuse the existing implementation instead of creating a new one. DO NOT: Delete the existing definition, rename it, or refactor callers in other files."
   fi
 fi
 
