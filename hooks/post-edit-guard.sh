@@ -155,6 +155,35 @@ case "$FILE_PATH" in
     ;;
 esac
 
+# --- 断言密度检查（W-12 攻击向量 3：空桩实现）---
+# 检测测试文件中的函数是否缺少断言（0 断言 = 空桩）
+case "$FILE_PATH" in
+  *.test.ts|*.test.tsx|*.test.js|*.test.jsx|*.spec.ts|*.spec.tsx|*.spec.js|*.spec.jsx|\
+  *_test.py|*/tests/*.py|tests/*.py|*/test/*.py|test/*.py|test_*.py)
+    STUB_FUNCS=$(echo "$NEW_STRING" | python3 -c '
+import sys, re
+content = sys.stdin.read()
+# Split on function/test boundaries (non-capturing so delimiter not in results)
+blocks = re.split(r"(?m)^\s*(?:def test_\w+|it\([^,]+,|test\([^,]+,|describe\([^,]+,)", content)
+assert_pattern = re.compile(
+    r"(assert[A-Z\w]|expect\(|assert\s+|self\.assert|should\.)"
+)
+stub_count = 0
+for block in blocks[1:]:
+    lines = block.strip().splitlines()
+    # Take up to 50 lines as the function body
+    body = "\n".join(lines[:50])
+    if not assert_pattern.search(body):
+        stub_count += 1
+print(stub_count)
+' 2>/dev/null || echo "0")
+    STUB_FUNCS="${STUB_FUNCS:-0}"
+    if [[ "$STUB_FUNCS" -gt 0 ]]; then
+      WARNINGS="${WARNINGS:+${WARNINGS} }[W-12] 检测到 ${STUB_FUNCS} 个测试函数/块缺少断言（空桩实现）。修复：每个 test/it/def test_ 中至少包含一个 assert*/expect() 断言。空桩会让测试套件始终通过而不验证任何行为。"
+    fi
+    ;;
+esac
+
 # --- 超大 diff 检测（可能是幻觉编辑） ---
 DIFF_LINES=$(echo "$NEW_STRING" | wc -l | tr -d ' ')
 if [[ $DIFF_LINES -gt 200 ]]; then

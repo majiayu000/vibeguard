@@ -172,6 +172,37 @@ assert_contains "$result" '"decision": "block"' "路径含单引号安全处理"
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "已存在文件+空 old_string 放行"
 
+# ---- W-12 受保护测试基础设施文件 ----
+# conftest.py 应被拦截
+tmp_conftest=$(mktemp /tmp/conftest.py.XXXXXX)
+mv "$tmp_conftest" "${tmp_conftest%.*}" 2>/dev/null || true
+tmp_conftest_dir=$(mktemp -d)
+cp /dev/null "$tmp_conftest_dir/conftest.py"
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_conftest_dir/conftest.py\",\"old_string\":\"\"}}" | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截编辑 conftest.py"
+rm -rf "$tmp_conftest_dir"
+
+# jest.config.ts 应被拦截
+tmp_jest_dir=$(mktemp -d)
+cp /dev/null "$tmp_jest_dir/jest.config.ts"
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_jest_dir/jest.config.ts\",\"old_string\":\"\"}}" | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截编辑 jest.config.ts"
+rm -rf "$tmp_jest_dir"
+
+# pytest.ini 应被拦截
+tmp_pytest_dir=$(mktemp -d)
+cp /dev/null "$tmp_pytest_dir/pytest.ini"
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_pytest_dir/pytest.ini\",\"old_string\":\"\"}}" | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截编辑 pytest.ini"
+rm -rf "$tmp_pytest_dir"
+
+# 普通业务文件 tsconfig.json 不应被拦截
+tmp_tsconfig_dir=$(mktemp -d)
+cp /dev/null "$tmp_tsconfig_dir/tsconfig.json"
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_tsconfig_dir/tsconfig.json\",\"old_string\":\"\"}}" | bash hooks/pre-edit-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "普通 tsconfig.json 不拦截"
+rm -rf "$tmp_tsconfig_dir"
+
 # =========================================================
 header "pre-write-guard.sh — 先搜后写"
 # =========================================================
@@ -191,6 +222,22 @@ assert_not_contains "$result" "VIBEGUARD" "新建 .json 文件放行"
 # 新建测试文件应放行
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_foo.test.ts"}}' | bash hooks/pre-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "新建测试文件放行"
+
+# ---- W-12 库遮蔽检测 ----
+# 创建与标准库同名的文件应被拦截（basename 必须精确匹配，用子目录路径确保文件不存在）
+_shadow_dir="/tmp/vg_shadow_nonexist_$$"
+result=$(echo "{\"tool_input\":{\"file_path\":\"${_shadow_dir}/os.py\"}}" | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截创建 os.py（标准库遮蔽）"
+
+result=$(echo "{\"tool_input\":{\"file_path\":\"${_shadow_dir}/pandas.py\"}}" | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截创建 pandas.py（第三方库遮蔽）"
+
+result=$(echo "{\"tool_input\":{\"file_path\":\"${_shadow_dir}/requests.py\"}}" | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "拦截创建 requests.py（第三方库遮蔽）"
+
+# 普通自定义名称不应被拦截（不是标准库名）
+result=$(echo "{\"tool_input\":{\"file_path\":\"${_shadow_dir}/my_utils.py\"}}" | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "自定义 my_utils.py 不拦截"
 
 # 新建源码文件应触发提醒/拦截
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_service.py"}}' | bash hooks/pre-write-guard.sh)
@@ -233,6 +280,19 @@ assert_contains "$result" "DEBUG" "检测 Python print()"
 # 硬编码 .db 路径应警告
 result=$(echo '{"tool_input":{"file_path":"src/config.rs","new_string":"let db = \"app.db\";"}}' | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "U-11" "检测硬编码 .db 路径"
+
+# ---- W-12 断言密度检查 ----
+# 测试文件中含有 0 断言的测试函数应触发警告
+result=$(echo '{"tool_input":{"file_path":"tests/test_foo.py","new_string":"def test_something():\n    x = 1 + 1\n    pass"}}' | bash hooks/post-edit-guard.sh)
+assert_contains "$result" "W-12" "检测无断言的测试函数（空桩）"
+
+# 测试文件中含有断言的函数不应触发
+result=$(echo '{"tool_input":{"file_path":"tests/test_foo.py","new_string":"def test_something():\n    x = 1 + 1\n    assert x == 2"}}' | bash hooks/post-edit-guard.sh)
+assert_not_contains "$result" "W-12" "有断言的测试函数不触发 W-12"
+
+# 非测试文件不应触发断言密度检查
+result=$(echo '{"tool_input":{"file_path":"src/main.py","new_string":"def do_something():\n    x = 1 + 1\n    pass"}}' | bash hooks/post-edit-guard.sh)
+assert_not_contains "$result" "W-12" "非测试文件不触发 W-12"
 
 # =========================================================
 header "post-write-guard.sh — 重复检测"

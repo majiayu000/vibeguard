@@ -43,6 +43,18 @@ if not os.path.isfile(file_path):
     print("FILE_NOT_FOUND")
     sys.exit(0)
 
+# Protected test infrastructure files (W-12 attack vectors 5-7)
+import re as _re
+_PROTECTED = {
+    "conftest.py", "pytest.ini", ".coveragerc",
+    "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
+    "jest.config.json",
+}
+_bn = os.path.basename(file_path)
+if _bn in _PROTECTED or (_bn == "tsconfig.json" and _re.search(r"(test|spec)", file_path, _re.IGNORECASE)):
+    print("PROTECTED_INFRA")
+    sys.exit(0)
+
 if old_string:
     with open(file_path, "r") as f:
         content = f.read()
@@ -79,6 +91,17 @@ if [[ "$DETAIL" == "OLD_STRING_NOT_FOUND" ]]; then
 {
   "decision": "block",
   "reason": "VIBEGUARD 拦截：old_string 在文件中不存在 — AI 可能幻觉了文件内容。请先用 Read 工具读取文件，确认要替换的内容确实存在。"
+}
+BLOCK_EOF
+  exit 0
+fi
+
+if [[ "$DETAIL" == "PROTECTED_INFRA" ]]; then
+  vg_log "pre-edit-guard" "Edit" "block" "受保护的测试基础设施文件" "$FILE_PATH"
+  cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：${FILE_PATH} 是受保护的测试基础设施文件（W-12）。AI 代理不得修改 conftest.py / jest.config.* / pytest.ini / .coveragerc 等文件，以防止 reward hacking（Baker et al. 攻击向量 5-7）。如需合法修改，请用户直接编辑。"
 }
 BLOCK_EOF
   exit 0

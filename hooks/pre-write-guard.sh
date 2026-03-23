@@ -44,6 +44,27 @@ case "$FILE_PATH" in
     exit 0 ;;
 esac
 
+# --- 库遮蔽检测（W-12 攻击向量 7）---
+# 检测新建文件名是否与标准库/知名第三方库模块同名
+PY_STDLIB=("os.py" "sys.py" "re.py" "io.py" "json.py" "math.py" "time.py" "datetime.py"
+            "pathlib.py" "typing.py" "abc.py" "copy.py" "random.py" "string.py"
+            "subprocess.py" "threading.py" "collections.py" "functools.py" "itertools.py"
+            "logging.py" "hashlib.py" "base64.py" "struct.py" "socket.py" "http.py"
+            "urllib.py" "email.py" "xml.py" "csv.py" "sqlite3.py" "pickle.py"
+            "pandas.py" "numpy.py" "requests.py" "flask.py" "django.py")
+for _shadow in "${PY_STDLIB[@]}"; do
+  if [[ "$BASENAME" == "$_shadow" ]]; then
+    vg_log "pre-write-guard" "Write" "block" "库遮蔽：$BASENAME" "$FILE_PATH"
+    cat <<EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD 拦截：文件名 ${BASENAME} 与 Python 标准库或知名第三方库模块同名（W-12 库遮蔽攻击）。请重命名文件以避免遮蔽标准库，例如 app_${BASENAME} 或 my_${BASENAME}。"
+}
+EOF
+    exit 0
+  fi
+done
+
 # 源码文件：检查是否需要拦截
 if ! vg_is_source_file "$FILE_PATH"; then
   exit 0
