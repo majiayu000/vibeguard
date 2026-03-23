@@ -103,3 +103,20 @@
   }
 }
 ```
+
+## guard_check MCP 工具输入 Schema
+
+```json
+{
+  "target_dir": "/absolute/path/to/project",
+  "language": "rust | typescript | python | go | auto",
+  "guard": "(可选) 单个守卫名称，如 unwrap、any_abuse",
+  "strict": false,
+  "baseline_commit": "(可选) git commit SHA，仅报告该 commit 引入的新问题"
+}
+```
+
+`baseline_commit` 说明：
+- 传入 git commit SHA（如 `HEAD~1` 或完整 SHA）时，守卫通过 `VIBEGUARD_BASELINE_COMMIT` 环境变量接收该值
+- 守卫可利用此值与基准 commit 对比，只报告新增违规，过滤已有的存量问题
+- 不传时与以前行为相同（全量扫描）

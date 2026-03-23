@@ -15,21 +15,42 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-list_go_files "${TARGET_DIR}" \
-  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
-  | while IFS= read -r f; do
-      if [[ -f "${f}" ]]; then
-        # 检测 _ = someFunc() 中直接丢弃 error
-        # 排除：for _, v := range（range 变量）、_, ok := m[key]（map 查找）
-        grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
-          | grep -vE 'for\s+.*range' \
-          | grep -vE ',\s*(ok|found|exists)\s*:?=' \
-          | sed "s|^|${f}:|" || true
-      fi
-    done \
-  | grep -v '^\s*//' \
-  | awk '!/^[[:space:]]*\/\// { print "[GO-01] " $0 }' \
-  > "${TMPFILE}" || true
+# Pre-commit diff-only mode: only check lines added in staged diff
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+  STAGED_GO=$(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" \
+    | grep -vE '(_test\.go$|/vendor/)' || true)
+  if [[ -n "${STAGED_GO}" ]]; then
+    while IFS= read -r f; do
+      [[ -z "$f" || ! -f "$f" ]] && continue
+      git diff --cached -U0 -- "${f}" 2>/dev/null \
+        | grep '^+' | grep -v '^+++' \
+        | grep -E '^\+\s*_\s*(,\s*_)?\s*[:=]+' \
+        | grep -vE 'for\s+.*range' \
+        | grep -vE ',\s*(ok|found|exists)\s*:?=' \
+        | grep -v '^\+[[:space:]]*//' \
+        | while IFS= read -r line; do
+            echo "[GO-01] ${f}: ${line}"
+          done
+    done <<< "${STAGED_GO}"
+  fi > "${TMPFILE}" || true
+else
+  # Full-file scan mode
+  list_go_files "${TARGET_DIR}" \
+    | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+    | while IFS= read -r f; do
+        if [[ -f "${f}" ]]; then
+          # 检测 _ = someFunc() 中直接丢弃 error
+          # 排除：for _, v := range（range 变量）、_, ok := m[key]（map 查找）
+          grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
+            | grep -vE 'for\s+.*range' \
+            | grep -vE ',\s*(ok|found|exists)\s*:?=' \
+            | sed "s|^|${f}:|" || true
+        fi
+      done \
+    | grep -v '^\s*//' \
+    | awk '!/^[[:space:]]*\/\// { print "[GO-01] " $0 }' \
+    > "${TMPFILE}" || true
+fi
 
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')

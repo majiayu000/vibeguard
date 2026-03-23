@@ -29,13 +29,15 @@ export function exec_script(
   command: string,
   args: string[],
   cwd?: string,
-  timeout_ms: number = 60_000
+  timeout_ms: number = 60_000,
+  env?: Record<string, string>
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     let resolved = false;
     const proc = spawn(command, args, {
       cwd: cwd ?? vibeguard_root,
       stdio: ["ignore", "pipe", "pipe"],
+      env: env ? { ...process.env, ...env } : process.env,
     });
 
     const stdout_chunks: Buffer[] = [];

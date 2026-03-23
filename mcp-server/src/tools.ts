@@ -270,6 +270,7 @@ export interface GuardCheckParams {
   language: string;
   guard?: string;
   strict?: boolean;
+  baseline_commit?: string;
 }
 
 function resolve_guard_concurrency(): number {
@@ -312,7 +313,7 @@ export async function handle_guard_check(params: GuardCheckParams): Promise<stri
   } catch (e) {
     return (e as Error).message;
   }
-  const { language, guard, strict = false } = params;
+  const { language, guard, strict = false, baseline_commit } = params;
 
   // auto 模式：检测项目语言，跑所有相关守卫
   if (language === "auto") {
@@ -325,7 +326,7 @@ export async function handle_guard_check(params: GuardCheckParams): Promise<stri
     results.push(`[auto] 检测到语言: ${detected.join(", ")}\n`);
     for (const lang of detected) {
       results.push(`== ${lang} ==`);
-      const sub_result = await run_guards_for_language(target_dir, lang, guard, strict);
+      const sub_result = await run_guards_for_language(target_dir, lang, guard, strict, baseline_commit);
       results.push(sub_result);
     }
     return results.join("\n");
@@ -338,7 +339,7 @@ export async function handle_guard_check(params: GuardCheckParams): Promise<stri
     return `不支持的语言: ${language}。支持的语言: ${Object.keys(GUARD_REGISTRY).join(", ")}${hint}`;
   }
 
-  return run_guards_for_language(target_dir, language, guard, strict);
+  return run_guards_for_language(target_dir, language, guard, strict, baseline_commit);
 }
 
 async function run_guards_for_language(
@@ -346,6 +347,7 @@ async function run_guards_for_language(
   language: string,
   guard: string | undefined,
   strict: boolean,
+  baseline_commit?: string,
 ): Promise<string> {
   const lang_guards = GUARD_REGISTRY[language];
   if (!lang_guards) {
@@ -361,6 +363,11 @@ async function run_guards_for_language(
     return `不支持的守卫: ${guard}。${language} 可用守卫: ${available}`;
   }
 
+  const baseline_env: Record<string, string> = {};
+  if (baseline_commit) {
+    baseline_env["VIBEGUARD_BASELINE_COMMIT"] = baseline_commit;
+  }
+
   const tasks = Object.entries(guards_to_run).map(([name, entry]) => async () => {
     try {
       if (entry.command === "__special_quality__") {
@@ -371,7 +378,8 @@ async function run_guards_for_language(
       }
       const args = entry.build_args(target_dir, strict);
       const cwd = language === "go" ? target_dir : undefined;
-      const result = await exec_script(entry.command, args, cwd);
+      const env = Object.keys(baseline_env).length > 0 ? baseline_env : undefined;
+      const result = await exec_script(entry.command, args, cwd, 60_000, env);
       return format_output(name, result.stdout, result.stderr, result.exit_code);
     } catch (error) {
       return format_guard_runtime_error(name, error);

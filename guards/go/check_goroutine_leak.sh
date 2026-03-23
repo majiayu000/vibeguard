@@ -18,37 +18,64 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-list_go_files "${TARGET_DIR}" \
-  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
-  | while IFS= read -r f; do
-      if [[ -f "${f}" ]]; then
-        # 检测 go func() 启动，但排除有退出机制的 goroutine
-        while IFS= read -r match; do
-          [[ -z "$match" ]] && continue
-          LINE_NUM=$(echo "$match" | cut -d: -f1)
-          # 读取 goroutine 后 20 行，检查是否有退出机制
-          HAS_EXIT=$(sed -n "${LINE_NUM},$((LINE_NUM+20))p" "${f}" 2>/dev/null \
-            | grep -cE '(ctx\.Done|context\.WithCancel|wg\.(Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker)' 2>/dev/null || true)
-          if [[ "${HAS_EXIT:-0}" -eq 0 ]]; then
-            echo "${f}:${match}"
-          fi
-        done < <(grep -nE '^\s*go\s+(func\s*\(|[a-zA-Z])' "${f}" 2>/dev/null || true)
-      fi
-    done \
-  | awk '{ print "[GO-02] " $0 }' \
-  > "${TMPFILE}" || true
+# Pre-commit diff-only mode: only check lines added in staged diff
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+  STAGED_GO=$(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" \
+    | grep -vE '(_test\.go$|/vendor/)' || true)
+  if [[ -n "${STAGED_GO}" ]]; then
+    while IFS= read -r f; do
+      [[ -z "$f" || ! -f "$f" ]] && continue
+      DIFF_LINES=$(git diff --cached -U0 -- "${f}" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
+      [[ -z "${DIFF_LINES}" ]] && continue
 
-# 第二轮：检测 for {} 或 for { 无限循环（高风险）
-list_go_files "${TARGET_DIR}" \
-  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
-  | while IFS= read -r f; do
-      if [[ -f "${f}" ]]; then
-        grep -nE '^\s*for\s*\{' "${f}" 2>/dev/null \
-          | sed "s|^|${f}:|" || true
-      fi
-    done \
-  | awk '{ print "[GO-02/loop] " $0 }' \
-  >> "${TMPFILE}" || true
+      # Check for new goroutine launches in diff
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "[GO-02] ${f}: ${line}"
+      done < <(echo "${DIFF_LINES}" | grep -E '^\+\s*go\s+(func\s*\(|[a-zA-Z])' || true)
+
+      # Check for new bare infinite loops in diff
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "[GO-02/loop] ${f}: ${line}"
+      done < <(echo "${DIFF_LINES}" | grep -E '^\+\s*for\s*\{' || true)
+
+    done <<< "${STAGED_GO}"
+  fi > "${TMPFILE}" || true
+else
+  # Full-file scan mode
+  list_go_files "${TARGET_DIR}" \
+    | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+    | while IFS= read -r f; do
+        if [[ -f "${f}" ]]; then
+          # 检测 go func() 启动，但排除有退出机制的 goroutine
+          while IFS= read -r match; do
+            [[ -z "$match" ]] && continue
+            LINE_NUM=$(echo "$match" | cut -d: -f1)
+            # 读取 goroutine 后 20 行，检查是否有退出机制
+            HAS_EXIT=$(sed -n "${LINE_NUM},$((LINE_NUM+20))p" "${f}" 2>/dev/null \
+              | grep -cE '(ctx\.Done|context\.WithCancel|wg\.(Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker)' 2>/dev/null || true)
+            if [[ "${HAS_EXIT:-0}" -eq 0 ]]; then
+              echo "${f}:${match}"
+            fi
+          done < <(grep -nE '^\s*go\s+(func\s*\(|[a-zA-Z])' "${f}" 2>/dev/null || true)
+        fi
+      done \
+    | awk '{ print "[GO-02] " $0 }' \
+    > "${TMPFILE}" || true
+
+  # 第二轮：检测 for {} 或 for { 无限循环（高风险）
+  list_go_files "${TARGET_DIR}" \
+    | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+    | while IFS= read -r f; do
+        if [[ -f "${f}" ]]; then
+          grep -nE '^\s*for\s*\{' "${f}" 2>/dev/null \
+            | sed "s|^|${f}:|" || true
+        fi
+      done \
+    | awk '{ print "[GO-02/loop] " $0 }' \
+    >> "${TMPFILE}" || true
+fi
 
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')

@@ -16,22 +16,40 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# 使用 awk 检测 for 循环内的 defer
-list_go_files "${TARGET_DIR}" \
-  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
-  | while IFS= read -r f; do
-      if [[ -f "${f}" ]]; then
-        awk '
-          /^\s*for\s/ { in_loop++; loop_depth++ }
-          /\{/ { if (in_loop) brace_depth++ }
-          /\}/ { if (in_loop) { brace_depth--; if (brace_depth <= 0) { in_loop=0; loop_depth--; brace_depth=0 } } }
-          /^\s*defer\s/ && in_loop > 0 {
-            printf "[GO-08] %s:%d %s\n", FILENAME, NR, $0
-          }
-        ' "${f}" 2>/dev/null || true
-      fi
-    done \
-  > "${TMPFILE}" || true
+# Pre-commit diff-only mode: only check lines added in staged diff
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+  STAGED_GO=$(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" \
+    | grep -vE '(_test\.go$|/vendor/)' || true)
+  if [[ -n "${STAGED_GO}" ]]; then
+    while IFS= read -r f; do
+      [[ -z "$f" || ! -f "$f" ]] && continue
+      DIFF_LINES=$(git diff --cached -U0 -- "${f}" 2>/dev/null | grep '^+' | grep -v '^+++' || true)
+      [[ -z "${DIFF_LINES}" ]] && continue
+      # Flag any new defer lines added inside what looks like a loop context
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "[GO-08] ${f}: ${line}"
+      done < <(echo "${DIFF_LINES}" | grep -E '^\+\s*defer\s' || true)
+    done <<< "${STAGED_GO}"
+  fi > "${TMPFILE}" || true
+else
+  # Full-file scan mode: use awk to detect defer inside for loops
+  list_go_files "${TARGET_DIR}" \
+    | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+    | while IFS= read -r f; do
+        if [[ -f "${f}" ]]; then
+          awk '
+            /^\s*for\s/ { in_loop++; loop_depth++ }
+            /\{/ { if (in_loop) brace_depth++ }
+            /\}/ { if (in_loop) { brace_depth--; if (brace_depth <= 0) { in_loop=0; loop_depth--; brace_depth=0 } } }
+            /^\s*defer\s/ && in_loop > 0 {
+              printf "[GO-08] %s:%d %s\n", FILENAME, NR, $0
+            }
+          ' "${f}" 2>/dev/null || true
+        fi
+      done \
+    > "${TMPFILE}" || true
+fi
 
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
