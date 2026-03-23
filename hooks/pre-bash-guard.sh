@@ -57,9 +57,54 @@ BLOCK_EOF
 }
 
 # git push --force / -f（覆盖远端历史）
-if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+push\b' \
-  && echo "$COMMAND_STRIPPED" | grep -qE '(^|[[:space:]])(--force|-f)([[:space:]]|$)' \
-  && ! echo "$COMMAND_STRIPPED" | grep -q -- '--force-with-lease'; then
+# 使用 Python 按命令段独立解析，解决两类缺陷：
+#   1. 跨段误判："git push origin main && rm -f tmp" 中 -f 属于 rm，不属于 git push
+#   2. 引号绕过：git push "--force" 在 COMMAND_STRIPPED 中被剥除，需在归一化后检测
+_FORCE_CHECK=$(echo "$COMMAND_NO_HEREDOC" | python3 -c '
+import re, sys
+
+def split_segments(cmd):
+    """按 &&、||、; 分割复合命令，忽略引号内的分隔符。"""
+    segs, cur, in_q = [], [], None
+    i = 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c in ("\"" , "\x27") and in_q is None:
+            in_q = c
+            cur.append(c)
+        elif c == in_q:
+            in_q = None
+            cur.append(c)
+        elif in_q is None and c in ("&", "|", ";"):
+            if i + 1 < len(cmd) and cmd[i+1] == c and c in ("&", "|"):
+                segs.append("".join(cur)); cur = []; i += 2; continue
+            elif c == ";":
+                segs.append("".join(cur)); cur = []
+            else:
+                cur.append(c)
+        else:
+            cur.append(c)
+        i += 1
+    segs.append("".join(cur))
+    return segs
+
+def normalize_flags(seg):
+    """将引号包裹的 flag 解除引号（如 "--force" 或 '\''--force'\'') 以便后续检测。"""
+    seg = re.sub(r"\"(--?[a-z][a-z0-9-]*)\"", r"\1", seg)
+    seg = re.sub(r"\x27(--?[a-z][a-z0-9-]*)\x27", r"\1", seg)
+    return seg
+
+cmd = sys.stdin.read()
+for seg in split_segments(cmd):
+    n = normalize_flags(seg.strip())
+    if re.search(r"\bgit\s+push\b", n):
+        has_force = bool(re.search(r"(?:^|[\s])(--force|-f)(?:[\s]|$)", n))
+        has_lease = bool(re.search(r"--force-with-lease", n))
+        if has_force and not has_lease:
+            print("BLOCK"); sys.exit(0)
+print("OK")
+' 2>/dev/null || echo "OK")
+if [[ "$_FORCE_CHECK" == "BLOCK" ]]; then
   block "禁止 git push --force/-f（覆盖远端历史）。替代方案：git push --force-with-lease（带租约保护）；git revert 回滚提交并正常 push。"
 fi
 

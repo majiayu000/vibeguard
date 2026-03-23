@@ -50,8 +50,17 @@ _PROTECTED = {
     "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs",
     "jest.config.json",
 }
-_bn = os.path.basename(file_path)
-if _bn in _PROTECTED or (_bn == "tsconfig.json" and _re.search(r"(test|spec)", file_path, _re.IGNORECASE)):
+# 解析真实路径以防止通过符号链接/硬链接绕过（basename 检测失效问题）
+_real_path = os.path.realpath(file_path)
+_real_bn = os.path.basename(_real_path)
+# tsconfig.json：仅当路径中有完整路径段 test/spec/__tests__ 时才拦截，
+# 避免 /workspace/contest/app/tsconfig.json 等路径中子字符串误触发
+_is_test_tsconfig = (
+    _real_bn == "tsconfig.json" and
+    bool(_re.search(r"(?:^|[/\\])(test|spec|__tests__)(?:[/\\]|$)",
+                    _real_path, _re.IGNORECASE))
+)
+if _real_bn in _PROTECTED or _is_test_tsconfig:
     print("PROTECTED_INFRA")
     sys.exit(0)
 
