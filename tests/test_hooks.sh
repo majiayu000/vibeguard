@@ -222,8 +222,8 @@ assert_not_contains "$result" "RS-03" "不误报 unwrap_or_default"
 result=$(echo '{"tool_input":{"file_path":"tests/test_main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
 assert_not_contains "$result" "RS-03" "测试文件 unwrap 不警告"
 
-# TS 文件新增 console.log 应警告
-result=$(echo '{"tool_input":{"file_path":"src/app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
+# TS 文件新增 console.log 应警告（使用非 CLI 路径，避免根目录 package.json 的 bin 豁免）
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_non_cli_project/src/app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "DEBUG" "检测 TS console.log"
 
 # Python 文件新增 print 应警告
