@@ -223,8 +223,10 @@ result=$(echo '{"tool_input":{"file_path":"tests/test_main.rs","new_string":"let
 assert_not_contains "$result" "RS-03" "测试文件 unwrap 不警告"
 
 # TS 文件新增 console.log 应警告
-result=$(echo '{"tool_input":{"file_path":"src/app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
+tmp_non_cli_ts="$(mktemp -d)"
+result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_non_cli_ts/app.ts\",\"new_string\":\"console.log(data);\"}}" | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "DEBUG" "检测 TS console.log"
+rm -rf "$tmp_non_cli_ts"
 
 # Python 文件新增 print 应警告
 result=$(echo '{"tool_input":{"file_path":"src/main.py","new_string":"  print(data)"}}' | bash hooks/post-edit-guard.sh)
