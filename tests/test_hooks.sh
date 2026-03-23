@@ -100,17 +100,17 @@ assert_contains "$result" '"decision": "block"' "Python 注入 payload 在 reaso
 header "pre-bash-guard.sh — 危险命令拦截"
 # =========================================================
 
-# git push --force 已允许（97348b9 移除了该拦截）
+# git push --force 已放行（intentionally removed in fix: remove force push blocking）
 result=$(echo '{"tool_input":{"command":"git push --force origin main"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 git push --force（已放开限制）"
+assert_not_contains "$result" '"decision": "block"' "放行 git push --force（已移除拦截）"
 
 # git push --force-with-lease 应放行
 result=$(echo '{"tool_input":{"command":"git push --force-with-lease origin main"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 git push --force-with-lease"
 
-# git reset --hard 已允许（rebase 场景需要，已在 guard 中注释放行）
+# git reset --hard 已放行（用户需要在 rebase 冲突等场景中使用）
 result=$(echo '{"tool_input":{"command":"git reset --hard HEAD~1"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 git reset --hard（已放开限制）"
+assert_not_contains "$result" '"decision": "block"' "放行 git reset --hard（已移除拦截）"
 
 # git checkout . 应被拦截
 result=$(echo '{"tool_input":{"command":"git checkout ."}}' | bash hooks/pre-bash-guard.sh)
@@ -222,11 +222,10 @@ assert_not_contains "$result" "RS-03" "不误报 unwrap_or_default"
 result=$(echo '{"tool_input":{"file_path":"tests/test_main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
 assert_not_contains "$result" "RS-03" "测试文件 unwrap 不警告"
 
-# TS 文件新增 console.log 应警告（用 /tmp 下独立目录，避免 CLI package.json 干扰）
-_tmp_ts_dir=$(mktemp -d)
-mkdir -p "$_tmp_ts_dir/src"
-result=$(echo "{\"tool_input\":{\"file_path\":\"$_tmp_ts_dir/src/app.ts\",\"new_string\":\"console.log(data);\"}}" | bash hooks/post-edit-guard.sh)
-rm -rf "$_tmp_ts_dir"
+# TS 文件新增 console.log 应警告（使用 /tmp 路径避免触发工作区 bin 字段的 CLI 检测）
+_ts_tmp=$(mktemp -d)
+result=$(echo "{\"tool_input\":{\"file_path\":\"${_ts_tmp}/app.ts\",\"new_string\":\"console.log(data);\"}}" | bash hooks/post-edit-guard.sh)
+rm -rf "$_ts_tmp"
 assert_contains "$result" "DEBUG" "检测 TS console.log"
 
 # Python 文件新增 print 应警告

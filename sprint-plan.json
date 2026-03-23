@@ -2,51 +2,27 @@
   "meta": {
     "generated": "2026-03-23",
     "project": "majiayu000/vibeguard",
-    "issues_total": 14,
-    "issues_active": 13,
-    "issues_skipped": 1
+    "issues_analyzed": "18-31"
   },
-  "rounds": [
-    {
-      "round": 1,
-      "issues": [19, 18],
-      "reason": "P0 bugs touching separate files — run in parallel. #19 fixes session_id to be project-scoped in hooks/log.sh; #18 adds session filter to consecutive-fail counter in hooks/post-build-check.sh. Both are prerequisites for correctness of higher-level features."
-    },
-    {
-      "round": 2,
-      "issues": [20, 24],
-      "reason": "P0 guard message format v2 (#20, many hook scripts) + P1 npm publish verification (#24, package.json only). No file overlap — safe to parallelize."
-    },
-    {
-      "round": 3,
-      "issues": [23, 22, 21],
-      "reason": "P1 trio with no file overlap: #23 adds circuit-breaker logic to hooks/post-build-check.sh (now stable after Round 1+2); #22 creates new rule-graduation infrastructure files + hooks/log.sh severity field; #21 migrates high-FP guards to ast-grep touching guards/**/*.sh only."
-    },
-    {
-      "round": 4,
-      "issues": [28],
-      "reason": "P2 false-positive fixes across multiple guard scripts and docs/known-issues/false-positives.md. Isolated round prevents merge conflicts with #27 and #25 which also modify guard scripts."
-    },
-    {
-      "round": 5,
-      "issues": [27],
-      "reason": "P2 test-infrastructure protection — adds test-file exclusion patterns to hook scripts and guard scripts. Must follow Round 4 to avoid conflicts on shared guard files."
-    },
-    {
-      "round": 6,
-      "issues": [25],
-      "reason": "P2 cross-platform shell hardening (.gitattributes + PYTHONUTF8 + #!/usr/bin/env bash) touches every shell script in hooks/ and guards/. Placed last among P2 rounds so prior guard edits are merged first."
-    },
-    {
-      "round": 7,
-      "issues": [31, 30, 29],
-      "reason": "P3 DX improvements — parallel-safe: #31 targets hooks/post-guard-check.sh or hooks/learn-evaluator.sh (transparent correction); #30 targets hooks/pre-commit-guard.sh (baseline scanning); #29 modifies individual guard scripts only (per-guard suppression comment parsing). No pairwise file overlap."
-    }
+  "tasks": [
+    {"issue": 19, "depends_on": []},
+    {"issue": 20, "depends_on": []},
+    {"issue": 21, "depends_on": []},
+    {"issue": 24, "depends_on": []},
+    {"issue": 25, "depends_on": []},
+    {"issue": 18, "depends_on": [19]},
+    {"issue": 22, "depends_on": [19]},
+    {"issue": 27, "depends_on": [20]},
+    {"issue": 28, "depends_on": [21]},
+    {"issue": 23, "depends_on": [18, 25]},
+    {"issue": 29, "depends_on": [20, 21]},
+    {"issue": 30, "depends_on": [20, 25]},
+    {"issue": 31, "depends_on": [23, 25]}
   ],
   "skip": [
     {
       "issue": 26,
-      "reason": "Already implemented. docs/reference/claude-code-known-issues.md exists and documents 7 Claude Code platform bugs with workarounds (last updated 2026-03-02). No further work required."
+      "reason": "Already implemented. docs/reference/claude-code-known-issues.md documents 6 Claude Code platform bugs with workarounds. No further work required."
     }
   ]
 }
