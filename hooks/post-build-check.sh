@@ -173,7 +173,8 @@ try:
 except: pass
 print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
-CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
+# +1 to count the current failure (not yet written to log at this point)
+CONSECUTIVE_FAILS=$(( ${CONSECUTIVE_FAILS:-0} + 1 ))
 
 DECISION="warn"
 
@@ -186,7 +187,10 @@ elif [[ "$CONSECUTIVE_FAILS" -ge "$CB_THRESHOLD" ]]; then
   cb_set_open
   DECISION="escalate"
   WARNINGS="[CB:CLOSED→OPEN] 连续 ${CONSECUTIVE_FAILS} 次构建失败，断路器开启。冷却期 ${CB_COOLDOWN_SECS}s 内后续编辑自动放行，避免无限循环。${WARNINGS}"
-elif [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
+fi
+
+# --- U-25 escalation: 独立检查，不受断路器阈值屏蔽 ---
+if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
   DECISION="escalate"
   WARNINGS="[U-25 ESCALATE] 连续 ${CONSECUTIVE_FAILS} 次构建失败！必须先修复构建错误再继续编辑。建议：运行完整构建命令查看全部错误，定位根因一次性修复。${WARNINGS}"
 fi
