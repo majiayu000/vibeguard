@@ -136,9 +136,26 @@ assert_contains "$result" '"decision": "block"' "拦截 rm -rf /Users/foo"
 result=$(echo '{"tool_input":{"command":"rm -rf ./node_modules"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 rm -rf ./node_modules"
 
-# npm run build 应放行
+# npm install 应被透明纠正为 pnpm install
+result=$(echo '{"tool_input":{"command":"npm install"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "allow"' "npm install 纠正为 allow"
+assert_contains "$result" 'pnpm install' "npm install 纠正命令包含 pnpm"
+assert_not_contains "$result" '"decision": "block"' "npm install 不被 block"
+
+# npm install pkg 应被透明纠正
+result=$(echo '{"tool_input":{"command":"npm install lodash"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "allow"' "npm install pkg 纠正为 allow"
+assert_contains "$result" 'pnpm install lodash' "npm install pkg 纠正命令正确"
+
+# yarn install 应被透明纠正
+result=$(echo '{"tool_input":{"command":"yarn install"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "allow"' "yarn install 纠正为 allow"
+assert_contains "$result" 'pnpm install' "yarn install 纠正命令包含 pnpm"
+
+# npm run build 应放行（非 install，不触发纠正）
 result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 npm run build"
+assert_not_contains "$result" '"decision": "allow"' "npm run build 不触发纠正"
 
 # cargo build 应放行
 result=$(echo '{"tool_input":{"command":"cargo build --release"}}' | bash hooks/pre-bash-guard.sh)

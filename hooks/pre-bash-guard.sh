@@ -56,6 +56,18 @@ BLOCK_EOF
   exit 0
 }
 
+correct() {
+  local new_command="$1"
+  local reason="$2"
+  vg_log "pre-bash-guard" "Bash" "correction" "$reason" "$new_command"
+  python3 -c "
+import json, sys
+out = {'decision': 'allow', 'updatedInput': {'command': sys.argv[1]}}
+print(json.dumps(out))
+" "$new_command"
+  exit 0
+}
+
 # git push --force / -f（覆盖远端历史）
 # 允许 --force-with-lease（更安全的并发保护）
 # 匹配 git [global-opts] push 变体，防止 git -C /repo push -f 或 git -c k=v push -f 绕过
@@ -145,6 +157,19 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
 WARN_EOF
     exit 0
   fi
+fi
+
+# --- updatedInput 透明纠正：包管理器替换 ---
+# npm install → pnpm install
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)npm[[:space:]]+(install|i)(([[:space:]]|$))'; then
+  NEW_CMD=$(python3 -c "import re,sys; print(re.sub(r'\\bnpm\\b','pnpm',sys.stdin.read().rstrip()))" <<< "$COMMAND")
+  correct "$NEW_CMD" "自动将 npm install 替换为 pnpm install（项目规范：禁止使用 npm/yarn）"
+fi
+
+# yarn install / yarn add → pnpm
+if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)yarn[[:space:]]+(install|add)(([[:space:]]|$))'; then
+  NEW_CMD=$(python3 -c "import re,sys; print(re.sub(r'\\byarn\\b','pnpm',sys.stdin.read().rstrip()))" <<< "$COMMAND")
+  correct "$NEW_CMD" "自动将 yarn install/add 替换为 pnpm（项目规范：禁止使用 npm/yarn）"
 fi
 
 # 通过所有检查 → 放行
