@@ -21,16 +21,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 TMPFILE=$(create_tmpfile)
 
-TEST_PATH_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
+TEST_PATH_PATTERN='((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)'
 
 # 检测 *Config::default() 使用（排除测试路径）
+# 仅当对应的 Config 类型有 load() 方法时才报告，避免合法的 default-only Config 误报
+export VG_TARGET_DIR="${TARGET_DIR}"
 ast-grep scan \
   --rule "${RULES_DIR}/rs-14-config-default.yml" \
   --json \
   "${TARGET_DIR}" 2>/dev/null \
 | python3 -c '
-import json, sys, re
-TEST_PATH = re.compile(r"(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)")
+import json, sys, re, subprocess, os
+
+TEST_PATH = re.compile(r"((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)")
+target_dir = os.environ.get("VG_TARGET_DIR", ".")
+
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -38,12 +43,45 @@ try:
     matches = json.loads(data)
 except Exception:
     sys.exit(0)
+
+load_cache = {}
+
+def has_load_method(config_type, search_dir):
+    if config_type in load_cache:
+        return load_cache[config_type]
+    try:
+        # Find files containing "impl <ConfigType>" using fixed-string match (macOS-safe)
+        impl_files = subprocess.run(
+            ["grep", "-rFl", f"impl {config_type}", "--include=*.rs", search_dir],
+            capture_output=True, text=True
+        ).stdout.strip().splitlines()
+        for impl_file in impl_files:
+            try:
+                with open(impl_file, "r", errors="ignore") as fh:
+                    content = fh.read()
+                if re.search(r"\bfn\s+load\s*\(", content):
+                    load_cache[config_type] = True
+                    return True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    load_cache[config_type] = False
+    return False
+
 for m in matches:
     f = m.get("file", "")
     if TEST_PATH.search(f):
         continue
+    text = m.get("text", "").strip()
+    # Handle path-qualified types: e.g. config::AppConfig::default() -> AppConfig
+    config_match = re.search(r"(\w+)::default\(\)\s*$", text)
+    if not config_match:
+        continue
+    config_type = config_match.group(1)
+    if not has_load_method(config_type, target_dir):
+        continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
-    text = m.get("text", "")
     msg = m.get("message", "")
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
 ' > "$TMPFILE" 2>/dev/null || true

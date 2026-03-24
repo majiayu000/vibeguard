@@ -21,13 +21,22 @@ RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
 if command -v ast-grep >/dev/null 2>&1; then
   # AST 级别检测：仅匹配真实的 _ = expr 赋值，不匹配 for range 子句
+  #
+  # staged 模式：只扫 staged Go 文件，避免全仓扫描阻塞无关提交
+  if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+    mapfile -t _ASG_TARGETS < <(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null || true)
+  else
+    _ASG_TARGETS=("${TARGET_DIR}")
+  fi
+
+  if [[ ${#_ASG_TARGETS[@]} -gt 0 ]]; then
   ast-grep scan \
     --rule "${RULES_DIR}/go-01-error.yml" \
     --json \
-    "${TARGET_DIR}" 2>/dev/null \
+    "${_ASG_TARGETS[@]}" 2>/dev/null \
   | python3 -c '
 import json, sys, re
-TEST_PATH = re.compile(r"(_test\.go$|/vendor/)")
+TEST_PATH = re.compile(r"(_test\.go$|(^|/)vendor/)")
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -43,6 +52,7 @@ for m in matches:
     msg = m.get("message", "error 返回值被丢弃")
     print("[GO-01] " + f + ":" + str(line) + " " + msg)
 ' > "${TMPFILE}" 2>/dev/null || true
+  fi
 
 else
   # Fallback: grep（ast-grep 不可用）

@@ -36,14 +36,23 @@ fi
 RESULTS=$(create_tmpfile)
 
 # AST 级别检测：仅匹配真实的 console 调用表达式，不匹配注释或字符串
+#
+# staged 模式：只扫 staged TS 文件，避免全仓扫描阻塞无关提交
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+  mapfile -t _ASG_TARGETS < <(grep -E '\.(ts|tsx|js|jsx)$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null || true)
+else
+  _ASG_TARGETS=("${TARGET_DIR}")
+fi
+
+if [[ ${#_ASG_TARGETS[@]} -gt 0 ]]; then
 ast-grep scan \
   --rule "${RULES_DIR}/ts-03-console.yml" \
   --json \
-  "${TARGET_DIR}" 2>/dev/null \
+  "${_ASG_TARGETS[@]}" 2>/dev/null \
 | python3 -c '
 import json, sys, re
 
-TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|/tests/|/__tests__/|/test/)")
+TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)tests/|(^|/)__tests__/|(^|/)test/|(^|/)vendor/)")
 LOGGER_PATTERN = re.compile(r"(logger|logging|log\.config|/debug\.|/debug/)")
 MCP_MARKERS = {"StdioServerTransport", "new Server(", "McpServer"}
 
@@ -79,6 +88,7 @@ for m in matches:
     msg = m.get("message", "console 残留")
     print("[TS-03] " + f + ":" + str(line) + " " + msg)
 ' >> "$RESULTS" 2>/dev/null || true
+fi
 
 COUNT=$(wc -l < "$RESULTS" | tr -d ' ')
 

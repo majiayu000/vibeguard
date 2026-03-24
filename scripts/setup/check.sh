@@ -150,6 +150,13 @@ else
   yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
 fi
 
+# Check ast-grep (required by TS and Rust AST-level guards)
+if command -v ast-grep >/dev/null 2>&1; then
+  green "[OK] ast-grep: $(ast-grep --version 2>/dev/null | head -1)"
+else
+  yellow "[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP (install: brew install ast-grep)"
+fi
+
 # Check TypeScript guards
 for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
   if [[ -x "${REPO_DIR}/guards/typescript/${guard}" ]]; then

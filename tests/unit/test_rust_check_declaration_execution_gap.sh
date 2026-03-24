@@ -89,8 +89,8 @@ assert_output_contains "output contains RS-14 tag" "[RS-14]" \
 assert_output_contains "output contains AppConfig::default()" "AppConfig::default()" \
   bash "$GUARD" --strict "$proj_default"
 
-# --- FAIL: ServerConfig::default() detected ---
-proj_server="${tmpdir}/fail_server_config"
+# --- PASS: ServerConfig::default() without load() method is not flagged ---
+proj_server="${tmpdir}/pass_server_no_load"
 mkdir -p "${proj_server}/src"
 cat > "${proj_server}/src/main.rs" <<'EOF'
 fn main() {
@@ -98,7 +98,7 @@ fn main() {
     start(cfg);
 }
 EOF
-assert_fail "ServerConfig::default() fails --strict" \
+assert_ok "ServerConfig::default() without load() passes --strict" \
   bash "$GUARD" --strict "$proj_server"
 
 # --- PASS: Config::default() only in test files ---
