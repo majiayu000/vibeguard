@@ -233,6 +233,157 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "无效 triage 行被隔离（issue-1：schema 校验）"
+TRIAGE_BAD="${TMPDIR_TEST}/triage_bad.jsonl"
+SCORECARD_BAD="${TMPDIR_TEST}/scorecard_bad.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'RS-04': {
+      'stage': 'experimental', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_BAD"
+printf '%s\n' \
+  '{"ts":"2026-03-01T00:00:00Z","rule":"RS-04","verdict":"tp"}' \
+  '[]' \
+  '42' \
+  '{"rule":{"bad":1},"verdict":"tp"}' \
+  '{"ts":"2026-03-01T00:00:00Z","rule":"RS-04","verdict":"unknown_verdict"}' \
+  '{"ts":"2026-03-01T00:00:00Z","rule":"RS-04","verdict":"fp"}' \
+  > "$TRIAGE_BAD"
+
+bad_stderr=$(python3 "$TRACKER" \
+  --triage-file "$TRIAGE_BAD" \
+  --scorecard-file "$SCORECARD_BAD" \
+  --update-scorecard 2>&1 >/dev/null)
+assert_contains "$bad_stderr" "[ERROR]" "无效行产生 ERROR 输出"
+
+valid_samples=$(python3 -c "
+import json, sys
+sc = json.load(open('$SCORECARD_BAD'))
+print(sc['rules']['RS-04']['samples'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$valid_samples" == "2" ]]; then
+  green "有效记录正确计入（2 条，跳过无效行）"
+  PASS=$((PASS + 1))
+else
+  red "有效记录数量错误（期望 2，实际 $valid_samples）"
+  FAIL=$((FAIL + 1))
+fi
+
+header "原子写保证 scorecard 格式完整（issue-2：atomic write）"
+SCORECARD_ATOMIC="${TMPDIR_TEST}/scorecard_atomic.json"
+TRIAGE_ATOMIC="${TMPDIR_TEST}/triage_atomic.jsonl"
+python3 -c "
+import json
+scorecard = {'rules': {'AT-01': {'stage': 'experimental', 'precision': None, 'samples': 0,
+  'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+  'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''}}}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_ATOMIC"
+printf '{"ts":"2026-03-01T00:00:00Z","rule":"AT-01","verdict":"tp"}\n' > "$TRIAGE_ATOMIC"
+python3 "$TRACKER" \
+  --triage-file "$TRIAGE_ATOMIC" \
+  --scorecard-file "$SCORECARD_ATOMIC" \
+  --update-scorecard >/dev/null 2>&1
+# Verify the output is valid JSON (atomic write should never leave a partial file)
+python3 -c "import json; json.load(open('$SCORECARD_ATOMIC'))" 2>/dev/null && {
+  TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+  green "update-scorecard 后 scorecard 是合法 JSON"
+} || {
+  TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+  red "update-scorecard 后 scorecard 不是合法 JSON"
+}
+# Verify no stray .tmp files remain
+tmp_count=$(find "${TMPDIR_TEST}" -maxdepth 1 -name '.scorecard-*.tmp' 2>/dev/null | wc -l | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [[ "$tmp_count" == "0" ]]; then
+  green "无残留临时文件"
+  PASS=$((PASS + 1))
+else
+  red "发现残留临时文件（$tmp_count 个）"
+  FAIL=$((FAIL + 1))
+fi
+
+header "triage 清理后旧规则统计被重置（issue-3：stale rule reset）"
+TRIAGE4="${TMPDIR_TEST}/triage4.jsonl"
+SCORECARD4="${TMPDIR_TEST}/scorecard4.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'STALE-01': {
+      'stage': 'warn', 'precision': 0.95, 'samples': 50,
+      'tp': 45, 'fp': 5, 'acceptable': 0, 'last_fp_ts': '2026-01-01T00:00:00Z',
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': 'stale rule'
+    },
+    'ACTIVE-01': {
+      'stage': 'experimental', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': 'active rule'
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD4"
+# Only ACTIVE-01 has triage records; STALE-01 has been archived
+printf '{"ts":"2026-03-01T00:00:00Z","rule":"ACTIVE-01","verdict":"tp"}\n' > "$TRIAGE4"
+
+python3 "$TRACKER" \
+  --triage-file "$TRIAGE4" \
+  --scorecard-file "$SCORECARD4" \
+  --update-scorecard >/dev/null 2>&1
+
+stale_samples=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD4'))
+print(sc['rules']['STALE-01']['samples'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$stale_samples" == "0" ]]; then
+  green "triage 清理后旧规则 samples 被重置为 0"
+  PASS=$((PASS + 1))
+else
+  red "旧规则 samples 未被重置（期望 0，实际 $stale_samples）"
+  FAIL=$((FAIL + 1))
+fi
+
+stale_precision=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD4'))
+print(sc['rules']['STALE-01']['precision'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$stale_precision" == "None" ]]; then
+  green "triage 清理后旧规则 precision 被重置为 None"
+  PASS=$((PASS + 1))
+else
+  red "旧规则 precision 未被重置（期望 None，实际 $stale_precision）"
+  FAIL=$((FAIL + 1))
+fi
+
+# Active rule should still have correct stats
+active_samples=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD4'))
+print(sc['rules']['ACTIVE-01']['samples'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$active_samples" == "1" ]]; then
+  green "活跃规则统计不受影响（samples=1）"
+  PASS=$((PASS + 1))
+else
+  red "活跃规则统计异常（期望 1，实际 $active_samples）"
+  FAIL=$((FAIL + 1))
+fi
+
 # =========================================================
 echo
 echo "=============================="

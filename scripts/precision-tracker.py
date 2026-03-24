@@ -28,9 +28,11 @@ import argparse
 import json
 import os
 import sys
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 # ---------------------------------------------------------------------------
 # Paths (relative to repo root, resolved from script location)
@@ -53,6 +55,8 @@ WARN_TO_ERROR_NO_FP_DAYS = 30
 DEMOTION_PRECISION = 0.80
 DEMOTION_MIN_SAMPLES = 20
 
+VALID_VERDICTS = {"tp", "fp", "acceptable"}
+
 # Severity × Confidence → stage mapping
 # Used only as documentation; actual graduation is data-driven.
 SEVERITY_CONFIDENCE_MATRIX = {
@@ -69,11 +73,72 @@ SEVERITY_CONFIDENCE_MATRIX = {
 
 
 # ---------------------------------------------------------------------------
+# File locking (Unix: fcntl; Windows: no-op — atomic os.replace still guards
+# against truncated files, but concurrent lost-update is not prevented)
+# ---------------------------------------------------------------------------
+
+try:
+    import fcntl as _fcntl
+
+    @contextmanager
+    def _scorecard_write_lock(scorecard_path: Path) -> Generator[None, None, None]:
+        lock_path = scorecard_path.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a") as lock_fh:
+            _fcntl.flock(lock_fh, _fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                _fcntl.flock(lock_fh, _fcntl.LOCK_UN)
+
+except ImportError:
+    @contextmanager
+    def _scorecard_write_lock(scorecard_path: Path) -> Generator[None, None, None]:  # type: ignore[misc]
+        yield
+
+
+# ---------------------------------------------------------------------------
+# Triage record validation
+# ---------------------------------------------------------------------------
+
+def _validate_triage_record(rec: Any, lineno: int) -> bool:
+    """Return True if rec is a valid triage record; print [ERROR] and return False otherwise."""
+    if not isinstance(rec, dict):
+        print(
+            f"[ERROR] triage.jsonl line {lineno}: expected object, got {type(rec).__name__}",
+            file=sys.stderr,
+        )
+        return False
+    rule = rec.get("rule")
+    if not isinstance(rule, str) or not rule:
+        print(
+            f"[ERROR] triage.jsonl line {lineno}: 'rule' must be a non-empty string, got {rule!r}",
+            file=sys.stderr,
+        )
+        return False
+    verdict = rec.get("verdict")
+    if verdict not in VALID_VERDICTS:
+        print(
+            f"[ERROR] triage.jsonl line {lineno}: 'verdict' must be one of {sorted(VALID_VERDICTS)}, got {verdict!r}",
+            file=sys.stderr,
+        )
+        return False
+    ts = rec.get("ts")
+    if ts is not None and not isinstance(ts, str):
+        print(
+            f"[ERROR] triage.jsonl line {lineno}: 'ts' must be a string if present, got {type(ts).__name__}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Triage loading
 # ---------------------------------------------------------------------------
 
 def load_triage(path: Path) -> list[dict[str, Any]]:
-    """Load triage.jsonl; skip comment lines and blank lines."""
+    """Load triage.jsonl; skip comment/blank lines and reject malformed records."""
     records: list[dict[str, Any]] = []
     if not path.exists():
         return records
@@ -87,7 +152,8 @@ def load_triage(path: Path) -> list[dict[str, Any]]:
             except json.JSONDecodeError as exc:
                 print(f"[WARN] triage.jsonl line {lineno}: {exc}", file=sys.stderr)
                 continue
-            records.append(rec)
+            if _validate_triage_record(rec, lineno):
+                records.append(rec)
     return records
 
 
@@ -103,10 +169,23 @@ def load_scorecard(path: Path) -> dict[str, Any]:
 
 
 def save_scorecard(scorecard: dict[str, Any], path: Path) -> None:
+    """Write scorecard atomically: temp file in same dir + os.replace()."""
     scorecard["_updated_ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(scorecard, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    content = json.dumps(scorecard, indent=2, ensure_ascii=False) + "\n"
+    dir_path = path.parent
+    dir_path.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path_str = tempfile.mkstemp(dir=dir_path, prefix=".scorecard-", suffix=".tmp")
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +285,11 @@ def update_scorecard(
 ) -> tuple[dict[str, Any], list[str]]:
     """
     Recompute stats from triage records, apply lifecycle transitions.
+
+    Rules present in scorecard but absent from triage have their counters
+    reset to zero so that the scorecard stays consistent with triage truth
+    (e.g. after a triage window rotation or manual cleanup).
+
     Returns (updated_scorecard, list of transition messages).
     """
     stats = compute_rule_stats(triage_records)
@@ -235,6 +319,18 @@ def update_scorecard(
         entry["last_fp_ts"] = s["last_fp_ts"]
         prec = precision_of(s["tp"], s["fp"])
         entry["precision"] = round(prec, 4) if prec is not None else None
+
+    # Reset stats for rules no longer present in triage (window rotation /
+    # manual cleanup).  Stage and notes are preserved so the history is
+    # visible, but counters reflect the current triage truth.
+    for rule, entry in rules.items():
+        if rule not in stats:
+            entry["tp"] = 0
+            entry["fp"] = 0
+            entry["acceptable"] = 0
+            entry["samples"] = 0
+            entry["last_fp_ts"] = None
+            entry["precision"] = None
 
     # Apply lifecycle transitions for all rules
     for rule, entry in rules.items():
@@ -328,7 +424,7 @@ def record_verdict(
     context: str | None,
     triage_path: Path,
 ) -> None:
-    if verdict not in ("tp", "fp", "acceptable"):
+    if verdict not in VALID_VERDICTS:
         print(f"[ERROR] verdict must be tp, fp, or acceptable; got: {verdict}", file=sys.stderr)
         sys.exit(1)
 
@@ -394,12 +490,12 @@ def main(argv: list[str] | None = None) -> int:
     # --record verdict rule
     if args.record:
         verdict, rule = args.record
-        record_verdict(rule, verdict, args.context, triage_path)
-        # Auto-update scorecard after recording
-        triage = load_triage(triage_path)
-        scorecard = load_scorecard(scorecard_path)
-        scorecard, transitions = update_scorecard(scorecard, triage)
-        save_scorecard(scorecard, scorecard_path)
+        with _scorecard_write_lock(scorecard_path):
+            record_verdict(rule, verdict, args.context, triage_path)
+            triage = load_triage(triage_path)
+            scorecard = load_scorecard(scorecard_path)
+            scorecard, transitions = update_scorecard(scorecard, triage)
+            save_scorecard(scorecard, scorecard_path)
         if transitions:
             print("Lifecycle transitions:")
             for t in transitions:
@@ -408,10 +504,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # --update-scorecard
     if args.update_scorecard:
-        triage = load_triage(triage_path)
-        scorecard = load_scorecard(scorecard_path)
-        scorecard, transitions = update_scorecard(scorecard, triage)
-        save_scorecard(scorecard, scorecard_path)
+        with _scorecard_write_lock(scorecard_path):
+            triage = load_triage(triage_path)
+            scorecard = load_scorecard(scorecard_path)
+            scorecard, transitions = update_scorecard(scorecard, triage)
+            save_scorecard(scorecard, scorecard_path)
         if transitions:
             print("Lifecycle transitions:")
             for t in transitions:
