@@ -125,7 +125,21 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     # Two parallel sessions within 30 minutes will have different PIDs → different session IDs.
     _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
     if [[ -f "$_vg_sf" ]]; then
-      VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+      # Validate the PID still belongs to a Claude process before reusing the session.
+      # Without this check, OS PID recycling would cause a new session to inherit an
+      # old session_id, polluting skills-loaded flags and warn/escalate counters.
+      _vg_live_comm=$(ps -o comm= -p "$_vg_claude_pid" 2>/dev/null | tr -d ' ')
+      case "${_vg_live_comm}" in
+        node|*claude*|*Claude*|*electron*|*Electron*)
+          VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+          ;;
+        *)
+          # PID recycled or process gone — create a fresh session and overwrite the stale file.
+          VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+          mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+          printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+          ;;
+      esac
     else
       VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
       mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null

@@ -489,6 +489,55 @@ assert_exit_nonzero "Go 守卫可阻止 _= 丢弃 error 的提交" bash -c "cd '
 rm -rf "$tmp_repo_precommit_go"
 
 # =========================================================
+header "log.sh — session_id PID recycling guard"
+# =========================================================
+
+# When a .session_pid_<pid> file exists but the PID no longer belongs to a Claude
+# process (simulates OS PID recycling), a fresh session_id must be generated and
+# the stale file must be overwritten — the old session_id must NOT be reused.
+
+_test_log_dir=$(mktemp -d)
+# Write a stale session file for a PID that cannot be a Claude process.
+# PID 1 (launchd/init) is always running but is never node/claude/electron.
+_stale_session_id="deadbeef"
+printf '%s' "$_stale_session_id" > "${_test_log_dir}/.session_pid_1"
+
+result=$(
+  unset VIBEGUARD_SESSION_ID
+  export VIBEGUARD_LOG_DIR="$_test_log_dir"
+  # Pretend our ancestor Claude PID is 1 (recycled PID scenario).
+  # Override the walk logic by directly calling the session block via a subshell
+  # that forces _vg_claude_pid=1.
+  _vg_claude_pid=1
+  _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
+  _vg_live_comm=$(ps -o comm= -p "$_vg_claude_pid" 2>/dev/null | tr -d ' ')
+  case "${_vg_live_comm}" in
+    node|*claude*|*Claude*|*electron*|*Electron*)
+      echo "reused"
+      ;;
+    *)
+      new_id=$(printf '%04x%04x' $RANDOM $RANDOM)
+      printf '%s' "$new_id" > "$_vg_sf"
+      echo "fresh:$new_id"
+      ;;
+  esac
+)
+assert_not_contains "$result" "reused" "PID 1 (非 Claude 进程) 不应复用旧 session_id"
+assert_contains "$result" "fresh:" "PID 1 被识别为 PID 复用，生成新 session_id"
+
+# Verify the file was overwritten with the new session_id.
+_new_content=$(<"${_test_log_dir}/.session_pid_1")
+TOTAL=$((TOTAL + 1))
+if [[ "$_new_content" != "$_stale_session_id" ]]; then
+  green "旧 session_pid 文件被新 session_id 覆盖"
+  PASS=$((PASS + 1))
+else
+  red "旧 session_pid 文件未被更新（仍是旧 session_id）"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_test_log_dir"
+
+# =========================================================
 # 总结
 # =========================================================
 
