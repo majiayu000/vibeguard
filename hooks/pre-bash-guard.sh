@@ -2,11 +2,12 @@
 # VibeGuard PreToolUse(Bash) Hook
 #
 # 硬拦截不可逆的危险命令：
-#   - git push --force / -f（覆盖远端历史）
-#   - git reset --hard（丢弃未提交改动）
 #   - git checkout . / git restore .（丢弃所有改动）
 #   - git clean -f（删除未跟踪文件）
 #   - rm -rf 项目根目录或敏感路径
+#
+# 注意：force push 检测已移至 hooks/git/pre-push（git 原生 hook），
+# 该 hook 通过 install-hook.sh 安装到各项目 .git/hooks/pre-push。
 
 set -euo pipefail
 

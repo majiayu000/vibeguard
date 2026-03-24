@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# VibeGuard Git Pre-Push Hook
+#
+# Blocks force pushes at the git level — this is the correct separation of
+# concerns vs. regex-matching git commands in the bash guard.
+#
+# Install via install-hook.sh:
+#   bash install-hook.sh <project_dir>
+#
+# The hook receives push refs on stdin:
+#   <local-ref> <local-sha> <remote-ref> <remote-sha>
+#
+# Remote sha is 40 zeros when the remote branch does not yet exist.
+# Local sha is 40 zeros when a remote branch is being deleted.
+
+set -euo pipefail
+
+ZEROS="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deleting a remote branch — treated as a destructive force operation
+  if [[ "$local_sha" == "$ZEROS" ]]; then
+    echo "vibeguard: force push blocked — branch deletion on $remote_ref" >&2
+    echo "  Use 'git push origin --delete <branch>' only after explicit confirmation." >&2
+    exit 1
+  fi
+
+  # Remote branch already exists — check for non-fast-forward push
+  if [[ "$remote_sha" != "$ZEROS" ]]; then
+    merge_base=$(git merge-base "$remote_sha" "$local_sha" 2>/dev/null || true)
+    if [[ "$merge_base" != "$remote_sha" ]]; then
+      echo "vibeguard: force push blocked — non-fast-forward push to $remote_ref" >&2
+      echo "  The remote ref ($remote_sha) is not an ancestor of your local commit." >&2
+      echo "  Use --force-with-lease if you intentionally need to rewrite history." >&2
+      exit 1
+    fi
+  fi
+done
+
+# Also inspect push options passed via --push-option (e.g. git push --push-option=force)
+if [[ -n "${GIT_PUSH_OPTION_COUNT:-}" ]]; then
+  for i in $(seq 0 $((GIT_PUSH_OPTION_COUNT - 1))); do
+    opt_var="GIT_PUSH_OPTION_${i}"
+    opt="${!opt_var:-}"
+    if [[ "$opt" == force* ]]; then
+      echo "vibeguard: force push blocked — push option '$opt' detected" >&2
+      exit 1
+    fi
+  done
+fi
+
+exit 0
