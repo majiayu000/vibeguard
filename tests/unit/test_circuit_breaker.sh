@@ -172,7 +172,8 @@ fi
 teardown
 
 # ── 6. HALF-OPEN block → back to OPEN ───────────────────────────────────────
-# Inject HALF-OPEN state directly to avoid cooldown=0 re-expiry race
+# Inject HALF-OPEN state directly to avoid cooldown=0 re-expiry race.
+# Use _vg_cb_state_file to resolve the per-project path rather than hardcoding it.
 setup
 REOPEN_TEST=$(bash -c "
   export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
@@ -180,10 +181,11 @@ REOPEN_TEST=$(bash -c "
   export VG_CB_THRESHOLD=2
   export VG_CB_COOLDOWN=9999
   source '${CB_SCRIPT}'
-  # Directly write HALF-OPEN state (old timestamp, same session)
-  mkdir -p '${CB_TMPDIR}/circuit-breaker'
+  # Resolve the per-project state file path and inject HALF-OPEN state
+  STATE_FILE=\$(_vg_cb_state_file 'test-hook')
+  mkdir -p \"\$(dirname \"\$STATE_FILE\")\"
   printf 'CB_STATE=HALF-OPEN\nCB_BLOCKS=2\nCB_LAST_BLOCK=1\nCB_SESSION=testsession01\n' \
-    > '${CB_TMPDIR}/circuit-breaker/test-hook.cb'
+    > \"\$STATE_FILE\"
   # Block during probe → circuit returns to OPEN
   vg_cb_record_block 'test-hook'
   # vg_cb_check: OPEN with long cooldown → auto-pass (return 1)
@@ -276,13 +278,41 @@ STATEDIR_TEST=$(bash -c "
   export VIBEGUARD_SESSION_ID='testsession01'
   source '${CB_SCRIPT}'
   vg_cb_record_block 'statedir-hook'
-  ls '${CB_TMPDIR}/circuit-breaker/statedir-hook.cb' 2>/dev/null && echo 'FILE_EXISTS' || echo 'MISSING'
+  # State file is now under a per-project subdirectory; find it anywhere under circuit-breaker/
+  find '${CB_TMPDIR}/circuit-breaker' -name 'statedir-hook.cb' 2>/dev/null | grep -q . && echo 'FILE_EXISTS' || echo 'MISSING'
 " 2>&1 || true)
 TOTAL=$((TOTAL+1))
 if echo "$STATEDIR_TEST" | grep -q "FILE_EXISTS"; then
   green "State file created after record_block"; PASS=$((PASS+1))
 else
   red "State file: expected FILE_EXISTS, got: $STATEDIR_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+# ── 11. Cross-project isolation: OPEN in one project does not affect another ──
+printf '\n--- Cross-project isolation ---\n'
+
+setup
+# Write OPEN state for project-A slug directly, then verify project-B (different slug) starts CLOSED.
+NOW_TS=$(date +%s)
+mkdir -p "${CB_TMPDIR}/circuit-breaker/aaaaaaaa"
+printf 'CB_STATE=OPEN\nCB_BLOCKS=3\nCB_LAST_BLOCK=%s\nCB_SESSION=shared-session\n' "$NOW_TS" \
+  > "${CB_TMPDIR}/circuit-breaker/aaaaaaaa/test-hook.cb"
+
+XPROJECT_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='shared-session'
+  export VG_CB_COOLDOWN=9999
+  # Simulate project-B by setting a different hash (bbbbbbbb has no state file)
+  export _vg_project_hash='bbbbbbbb'
+  source '${CB_SCRIPT}'
+  vg_cb_check 'test-hook' && echo 'PROJECT_B_FRESH' || echo 'PROJECT_B_BLOCKED'
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$XPROJECT_TEST" | grep -q "PROJECT_B_FRESH"; then
+  green "Cross-project isolation: OPEN in project-A does not affect project-B"; PASS=$((PASS+1))
+else
+  red "Cross-project isolation: expected PROJECT_B_FRESH, got: $XPROJECT_TEST"; FAIL=$((FAIL+1))
 fi
 teardown
 

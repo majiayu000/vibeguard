@@ -38,10 +38,27 @@ _vg_cb_log() {
   fi
 }
 
+# Return the per-project state file path for <hook>.
+# Reuses _vg_project_hash from log.sh if already computed in this shell;
+# otherwise computes it fresh from git so state is isolated per repository.
+_vg_cb_state_file() {
+  local hook="$1"
+  local slug
+  if [[ -n "${_vg_project_hash:-}" ]]; then
+    slug="$_vg_project_hash"
+  else
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
+    slug=$(printf '%s' "$root" | shasum -a 256 2>/dev/null | cut -c1-8) || slug="fallback0"
+  fi
+  printf '%s/%s/%s.cb' "$CB_DIR" "$slug" "$hook"
+}
+
 # Load state for <hook> into CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION
 _vg_cb_load() {
   local hook="$1"
-  local state_file="${CB_DIR}/${hook}.cb"
+  local state_file
+  state_file=$(_vg_cb_state_file "$hook")
   CB_STATE="CLOSED"
   CB_BLOCKS=0
   CB_LAST_BLOCK=0
@@ -60,16 +77,21 @@ _vg_cb_load() {
   fi
 }
 
-# Persist CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION for <hook>
+# Persist CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION for <hook>.
+# Writes to a temp file then renames for atomicity, preventing concurrent
+# readers from seeing a partial/empty state file.
 _vg_cb_save() {
   local hook="$1"
-  local state_file="${CB_DIR}/${hook}.cb"
+  local state_file tmp_file
+  state_file=$(_vg_cb_state_file "$hook")
+  mkdir -p "$(dirname "$state_file")" 2>/dev/null || true
+  tmp_file="${state_file}.tmp.$$"
   {
     printf 'CB_STATE=%s\n' "$CB_STATE"
     printf 'CB_BLOCKS=%s\n' "$CB_BLOCKS"
     printf 'CB_LAST_BLOCK=%s\n' "$CB_LAST_BLOCK"
     printf 'CB_SESSION=%s\n' "${VIBEGUARD_SESSION_ID:-}"
-  } > "$state_file" 2>/dev/null || true
+  } > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$state_file" 2>/dev/null || true
 }
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -162,14 +184,17 @@ vg_is_ci() {
 # Returns 0 (true) if the Stop hook input JSON has stop_hook_active == true,
 # indicating this invocation was triggered by another Stop hook and should not block.
 # Usage:  vg_stop_hook_active "$INPUT" && exit 0
+#
+# Passes JSON via stdin (pipe) instead of an environment variable to avoid
+# hitting execve env-size limits when the input contains a long last_assistant_message.
 vg_stop_hook_active() {
   local input="$1"
-  VG_CB_INPUT="$input" python3 -c "
-import json, os, sys
+  printf '%s' "$input" | python3 -c "
+import json, sys
 try:
-    data = json.loads(os.environ.get('VG_CB_INPUT', '{}'))
+    data = json.loads(sys.stdin.read())
     sys.exit(0 if data.get('stop_hook_active', False) else 1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null
+"
 }
