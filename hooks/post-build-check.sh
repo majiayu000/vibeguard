@@ -82,9 +82,10 @@ ${ERRORS}"
 
 # --- Escalation 检测：连续构建失败升级 ---
 DECISION="warn"
-CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" python3 -c '
+CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
+session = os.environ.get("VG_SESSION", "")
 count = 0
 try:
     with open(log_file) as f:
@@ -96,6 +97,7 @@ try:
         try:
             e = json.loads(line)
             if e.get("hook") != "post-build-check": continue
+            if e.get("session") != session: continue
             if e.get("decision") == "pass":
                 break
             if e.get("decision") == "warn":
