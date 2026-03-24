@@ -67,7 +67,7 @@ else
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "VIBEGUARD 先搜后写：你正在创建新源码文件。如果还没搜索过，请先用 Grep/Glob 确认项目中无类似实现再继续。如已搜索确认无重复，可忽略此提醒。"
+    "additionalContext": "VIBEGUARD 先搜后写（L1）：你正在创建新源码文件。在继续之前，你必须先执行以下搜索：1) Grep 搜索同名函数/类/结构体 2) Glob 搜索同名或相似文件名。只有搜索结果确认无重复后才能继续创建。"
   }
 }
 EOF

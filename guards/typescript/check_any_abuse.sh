@@ -69,9 +69,16 @@ if [[ $COUNT -eq 0 ]]; then
   exit 0
 fi
 
+# 紧凑输出：按文件分组，每文件一行列出行号
 echo "[TS-01] 检测到 ${COUNT} 处 any 类型滥用:"
-echo
-cat "$RESULTS"
+awk -F'[][ :]+' '{
+  # 提取文件路径和行号
+  match($0, /\] ([^:]+):([0-9]+)/, m)
+  if (m[1] != "") files[m[1]] = files[m[1]] ? files[m[1]] "," m[2] : m[2]
+}
+END {
+  for (f in files) printf "  %s (L%s)\n", f, files[f]
+}' "$RESULTS"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

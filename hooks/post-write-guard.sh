@@ -202,6 +202,38 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
   fi
 fi
 
+# --- Anti-Stub 检测（GSD 借鉴：三级制品验证 Level 2 — Substantiveness） ---
+STUB_WARNINGS=""
+case "$FILE_PATH" in
+  *.rs)
+    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符（todo!/unimplemented!）。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+  *.ts|*.tsx|*.js|*.jsx)
+    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+  *.py)
+    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+  *.go)
+    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+esac
+if [[ -n "$STUB_WARNINGS" ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }${STUB_WARNINGS}"
+fi
+
 if [[ -z "$WARNINGS" ]]; then
   vg_log "post-write-guard" "Write" "pass" "" "$FILE_PATH"
   exit 0

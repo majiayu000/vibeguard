@@ -145,6 +145,38 @@ case "$FILE_PATH" in
     ;;
 esac
 
+# --- Anti-Stub 检测（GSD 借鉴：三级制品验证 Level 2 — Substantiveness） ---
+STUB_WARNINGS=""
+case "$FILE_PATH" in
+  *.rs)
+    STUB_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（todo!/unimplemented!）。必须在当前任务内替换为真实实现，或标记 DEFER 并说明原因。"
+    fi
+    ;;
+  *.ts|*.tsx|*.js|*.jsx)
+    STUB_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（throw not implemented / TODO）。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+  *.py)
+    STUB_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（pass/NotImplementedError/TODO）。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+  *.go)
+    STUB_COUNT=$(echo "$NEW_STRING" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
+    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
+      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（panic not implemented / TODO）。必须替换为真实实现或标记 DEFER。"
+    fi
+    ;;
+esac
+if [[ -n "$STUB_WARNINGS" ]]; then
+  WARNINGS="${WARNINGS:+${WARNINGS} }${STUB_WARNINGS}"
+fi
+
 # --- 超大 diff 检测（可能是幻觉编辑） ---
 DIFF_LINES=$(echo "$NEW_STRING" | wc -l | tr -d ' ')
 if [[ $DIFF_LINES -gt 200 ]]; then
