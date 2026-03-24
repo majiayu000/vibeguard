@@ -99,16 +99,50 @@ print(f2)
 }
 
 # Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
-# 文件持久化 + 30 分钟续期：同一会话的 hook 共享稳定 session_id
+# 按祖先 Claude Code 进程 PID 隔离，防止并行会话共享同一 session_id
 if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
-  _vg_sf="${VIBEGUARD_LOG_DIR}/.session_id"
-  if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
-    VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
-    touch "$_vg_sf" 2>/dev/null || true
+  # Walk up the process tree to find the ancestor Claude Code (node/Electron) process.
+  # Each parallel Claude Code instance has a unique PID, so this gives true per-instance isolation.
+  _vg_claude_pid=""
+  _vg_walk_pid="$$"
+  _vg_depth=0
+  while [[ $_vg_depth -lt 8 ]]; do
+    _vg_ppid=$(ps -o ppid= -p "$_vg_walk_pid" 2>/dev/null | tr -d ' ') || break
+    [[ -z "$_vg_ppid" || "$_vg_ppid" == "0" || "$_vg_ppid" == "1" ]] && break
+    _vg_comm=$(ps -o comm= -p "$_vg_ppid" 2>/dev/null | tr -d ' ') || break
+    case "$_vg_comm" in
+      node|*claude*|*Claude*|*electron*|*Electron*)
+        _vg_claude_pid="$_vg_ppid"
+        break
+        ;;
+    esac
+    _vg_walk_pid="$_vg_ppid"
+    _vg_depth=$((_vg_depth + 1))
+  done
+
+  if [[ -n "$_vg_claude_pid" ]]; then
+    # Per-process isolation: each Claude Code instance gets its own session file keyed by PID.
+    # Two parallel sessions within 30 minutes will have different PIDs → different session IDs.
+    _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
+    if [[ -f "$_vg_sf" ]]; then
+      VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+    else
+      VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+      mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+      printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+    fi
   else
-    VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-    mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
-    printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+    # Fallback for non-Claude Code environments (CI, manual invocation, etc.):
+    # time-based 30-minute session window (original behavior).
+    _vg_sf="${VIBEGUARD_LOG_DIR}/.session_id"
+    if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+      VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+      touch "$_vg_sf" 2>/dev/null || true
+    else
+      VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+      mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+      printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+    fi
   fi
 fi
 
