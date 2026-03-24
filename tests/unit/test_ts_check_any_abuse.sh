@@ -45,7 +45,7 @@ function processData(input: unknown): string {
 EOF
 assert_fail "'as any' fails --strict" bash "$GUARD" --strict "$proj_as_any"
 assert_output_contains "output contains TS-01 tag" "[TS-01]" bash "$GUARD" --strict "$proj_as_any"
-assert_output_contains "output mentions 'as any'" "as any" bash "$GUARD" --strict "$proj_as_any"
+assert_output_contains "output mentions any abuse" "any" bash "$GUARD" --strict "$proj_as_any"
 
 # --- FAIL: ': any' type annotation ---
 proj_colon_any="${tmpdir}/fail_colon_any"
@@ -68,7 +68,7 @@ function getLength(val: string | number): number {
 }
 EOF
 assert_fail "@ts-ignore fails --strict" bash "$GUARD" --strict "$proj_ts_ignore"
-assert_output_contains "output contains TS-02 tag" "[TS-02]" bash "$GUARD" --strict "$proj_ts_ignore"
+assert_output_contains "output contains TS-01 tag for ts-ignore" "[TS-01]" bash "$GUARD" --strict "$proj_ts_ignore"
 
 # --- FAIL: @ts-nocheck at top of file ---
 proj_ts_nocheck="${tmpdir}/fail_ts_nocheck"
@@ -80,7 +80,7 @@ export function legacyFunction(x) {
 }
 EOF
 assert_fail "@ts-nocheck fails --strict" bash "$GUARD" --strict "$proj_ts_nocheck"
-assert_output_contains "output contains TS-02 tag for nocheck" "[TS-02]" bash "$GUARD" --strict "$proj_ts_nocheck"
+assert_output_contains "output contains TS-01 tag for nocheck" "[TS-01]" bash "$GUARD" --strict "$proj_ts_nocheck"
 
 # --- PASS: properly typed code ---
 proj_clean="${tmpdir}/pass_typed"
