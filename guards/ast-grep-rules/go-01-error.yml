@@ -1,0 +1,6 @@
+id: go-01-error-discard
+language: Go
+severity: warning
+rule:
+  pattern: _ = $CALL
+message: "error 返回值被丢弃。修复：检查错误返回值"

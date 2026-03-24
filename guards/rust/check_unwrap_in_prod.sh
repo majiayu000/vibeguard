@@ -3,11 +3,10 @@
 #
 # 两种模式:
 #   Pre-commit 模式 (VIBEGUARD_STAGED_FILES 已设置):
-#     只扫描 git diff --cached 新增行 (以 + 开头) 中的 unwrap/expect。
-#     已有代码不阻塞提交，只检查本次新增的风险。
+#     grep diff 新增行（+开头），保留原有逻辑（diff 不是文件，ast-grep 无法处理）。
 #
 #   Standalone 模式 (手动运行):
-#     扫描全量代码中非测试区域的 unwrap/expect。
+#     使用 ast-grep AST 级别扫描，消除注释中的误报，精确排除 unwrap_or* 变体。
 #
 # 用法:
 #   bash check_unwrap_in_prod.sh [target_dir]
@@ -17,8 +16,6 @@
 #   - tests/ 目录、benches/ 目录、examples/ 目录
 #   - 文件名为 tests.rs、test_helpers.rs、或包含 test_ / _test 的文件
 #   - #[cfg(test)] 行之后的所有代码
-#   - unwrap_or / unwrap_or_else / unwrap_or_default（安全的变体）
-#   - 注释行
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
@@ -27,23 +24,21 @@ TMPFILE=$(create_tmpfile)
 # 路径排除 pattern（test 文件）
 TEST_PATH_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
 
-# unwrap 安全变体 pattern
-SAFE_VARIANT_PATTERN='unwrap_or|unwrap_or_else|unwrap_or_default'
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
-# --- Pre-commit 模式：只扫 staged diff 新增行 ---
+# --- Pre-commit 模式：grep diff 新增行（ast-grep 不处理 diff 文本）---
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-  # 获取 staged rs 文件，排除 test 路径
   STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | { grep -vE "${TEST_PATH_PATTERN}" || true; })
 
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
-      # git diff --cached -U0: 只看新增行，不带上下文
       git diff --cached -U0 -- "${f}" 2>/dev/null \
         | grep '^+' \
         | grep -v '^+++' \
         | grep -E '\.(unwrap|expect)\(' \
-        | grep -v "${SAFE_VARIANT_PATTERN}" \
+        | grep -v 'unwrap_or\|unwrap_or_else\|unwrap_or_default' \
         | grep -v '^\+[[:space:]]*//' \
         | while IFS= read -r line; do
             echo "[RS-03] ${f}: ${line}"
@@ -51,34 +46,54 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
-# --- Standalone 模式：全量扫描（排除 test scope）---
+# --- Standalone 模式：ast-grep AST 扫描（精确识别调用表达式，跳过注释）---
+elif command -v ast-grep >/dev/null 2>&1; then
+  list_rs_files "${TARGET_DIR}" \
+    | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+    | while IFS= read -r f; do
+        [[ -f "${f}" ]] || continue
+        # 获取 #[cfg(test)] 分界线（该行及之后视为测试代码）
+        CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+        CFG_LINE="${CFG_LINE:-0}"
+
+        ast-grep scan \
+          --rule "${RULES_DIR}/rs-03-unwrap.yml" \
+          --json "${f}" 2>/dev/null \
+        | python3 -c "
+import json, sys
+cfg_line = int(sys.argv[1])
+data = sys.stdin.read().strip()
+if not data:
+    sys.exit(0)
+try:
+    matches = json.loads(data)
+except Exception:
+    sys.exit(0)
+for m in matches:
+    l = m.get('range', {}).get('start', {}).get('line', 0) + 1
+    if cfg_line > 0 and l >= cfg_line:
+        continue
+    fname = m.get('file', '')
+    msg = m.get('message', '')
+    print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
+" "${CFG_LINE}" 2>/dev/null || true
+      done > "${TMPFILE}" || true
+
+# --- Fallback: ast-grep 不可用时使用 grep ---
 else
-  # filter_test_scope: #[cfg(test)] 行之后的代码视为 test
-  filter_test_scope() {
-    local file="$1"
-    local cfg_test_line
-    cfg_test_line=$(grep -n '#\[cfg(test)\]' "${file}" 2>/dev/null | head -1 | cut -d: -f1)
-
-    while IFS= read -r hit; do
-      if [[ -z "${cfg_test_line}" ]]; then
-        echo "${hit}"
-      else
-        local hit_line
-        hit_line=$(echo "${hit}" | cut -d: -f1)
-        if [[ "${hit_line}" -lt "${cfg_test_line}" ]]; then
-          echo "${hit}"
-        fi
-      fi
-    done
-  }
-
   list_rs_files "${TARGET_DIR}" \
     | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
     | while IFS= read -r f; do
         if [[ -f "${f}" ]]; then
+          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
           grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-            | grep -vE "${SAFE_VARIANT_PATTERN}" \
-            | filter_test_scope "${f}" \
+            | grep -vE 'unwrap_or|unwrap_or_else|unwrap_or_default' \
+            | while IFS= read -r hit; do
+                HIT_LINE=$(echo "${hit}" | cut -d: -f1)
+                if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
+                  echo "${hit}"
+                fi
+              done \
             | sed "s|^|${f}:|" || true
         fi
       done \

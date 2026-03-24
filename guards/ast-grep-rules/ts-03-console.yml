@@ -1,0 +1,27 @@
+id: ts-03-console-ts
+language: TypeScript
+severity: warning
+rule:
+  pattern: console.$METHOD($$$ARGS)
+message: "console 残留。修复：使用项目 logger 替代，或删除调试代码"
+---
+id: ts-03-console-tsx
+language: Tsx
+severity: warning
+rule:
+  pattern: console.$METHOD($$$ARGS)
+message: "console 残留。修复：使用项目 logger 替代，或删除调试代码"
+---
+id: ts-03-console-js
+language: JavaScript
+severity: warning
+rule:
+  pattern: console.$METHOD($$$ARGS)
+message: "console 残留。修复：使用项目 logger 替代，或删除调试代码"
+---
+id: ts-03-console-jsx
+language: Jsx
+severity: warning
+rule:
+  pattern: console.$METHOD($$$ARGS)
+message: "console 残留。修复：使用项目 logger 替代，或删除调试代码"

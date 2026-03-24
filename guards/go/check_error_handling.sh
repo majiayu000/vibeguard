@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # VibeGuard Go Guard: 检测未检查的 error 返回值 (GO-01)
 #
-# 扫描 Go 代码中赋值给 _ 的 error 返回值。
+# 使用 ast-grep AST 级别扫描，精确识别 `_ = func()` 赋值语句。
+# ast-grep 自动区分代码结构，不会误报 for range 子句中的 _ 变量。
+#
 # 用法:
 #   bash check_error_handling.sh [target_dir]
 #   bash check_error_handling.sh --strict [target_dir]
@@ -9,27 +11,55 @@
 # 排除:
 #   - *_test.go 测试文件
 #   - vendor/ 目录
-#   - 注释行
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-list_go_files "${TARGET_DIR}" \
-  | { grep -vE '(_test\.go$|/vendor/)' || true; } \
-  | while IFS= read -r f; do
-      if [[ -f "${f}" ]]; then
-        # 检测 _ = someFunc() 中直接丢弃 error
-        # 排除：for _, v := range（range 变量）、_, ok := m[key]（map 查找）
-        grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
-          | grep -vE 'for\s+.*range' \
-          | grep -vE ',\s*(ok|found|exists)\s*:?=' \
-          | sed "s|^|${f}:|" || true
-      fi
-    done \
-  | grep -v '^\s*//' \
-  | awk '!/^[[:space:]]*\/\// { print "[GO-01] " $0 }' \
-  > "${TMPFILE}" || true
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
+
+if command -v ast-grep >/dev/null 2>&1; then
+  # AST 级别检测：仅匹配真实的 _ = expr 赋值，不匹配 for range 子句
+  ast-grep scan \
+    --rule "${RULES_DIR}/go-01-error.yml" \
+    --json \
+    "${TARGET_DIR}" 2>/dev/null \
+  | python3 -c '
+import json, sys, re
+TEST_PATH = re.compile(r"(_test\.go$|/vendor/)")
+data = sys.stdin.read().strip()
+if not data:
+    sys.exit(0)
+try:
+    matches = json.loads(data)
+except Exception:
+    sys.exit(0)
+for m in matches:
+    f = m.get("file", "")
+    if TEST_PATH.search(f):
+        continue
+    line = m.get("range", {}).get("start", {}).get("line", 0) + 1
+    msg = m.get("message", "error 返回值被丢弃")
+    print("[GO-01] " + f + ":" + str(line) + " " + msg)
+' > "${TMPFILE}" 2>/dev/null || true
+
+else
+  # Fallback: grep（ast-grep 不可用）
+  list_go_files "${TARGET_DIR}" \
+    | { grep -vE '(_test\.go$|/vendor/)' || true; } \
+    | while IFS= read -r f; do
+        if [[ -f "${f}" ]]; then
+          grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
+            | grep -vE 'for\s+.*range' \
+            | grep -vE ',\s*(ok|found|exists)\s*:?=' \
+            | sed "s|^|${f}:|" || true
+        fi
+      done \
+    | grep -v '^\s*//' \
+    | awk '!/^[[:space:]]*\/\// { print "[GO-01] " $0 }' \
+    > "${TMPFILE}" || true
+fi
 
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')

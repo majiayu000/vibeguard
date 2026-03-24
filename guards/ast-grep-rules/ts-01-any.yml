@@ -1,0 +1,33 @@
+id: ts-01-as-any-ts
+language: TypeScript
+severity: warning
+rule:
+  pattern: $X as any
+message: "'as any' 绕过类型检查。修复：使用具体类型或类型断言 'as SpecificType'"
+---
+id: ts-01-colon-any-ts
+language: TypeScript
+severity: warning
+rule:
+  kind: type_annotation
+  has:
+    kind: predefined_type
+    regex: "^any$"
+message: "': any' 类型注解。修复：使用具体类型替代 any"
+---
+id: ts-01-as-any-tsx
+language: Tsx
+severity: warning
+rule:
+  pattern: $X as any
+message: "'as any' 绕过类型检查。修复：使用具体类型或类型断言 'as SpecificType'"
+---
+id: ts-01-colon-any-tsx
+language: Tsx
+severity: warning
+rule:
+  kind: type_annotation
+  has:
+    kind: predefined_type
+    regex: "^any$"
+message: "': any' 类型注解。修复：使用具体类型替代 any"

@@ -46,6 +46,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install ast-grep
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if command -v ast-grep >/dev/null 2>&1; then
+            echo "ast-grep already installed: $(ast-grep --version)"
+            exit 0
+          fi
+          if [[ "$(uname -s)" == "Darwin" ]]; then
+            brew install ast-grep
+          else
+            # Linux: compile from source (Rust is pre-installed on GitHub Actions)
+            cargo install ast-grep --locked
+          fi
+          echo "Installed: $(ast-grep --version)"
+
       # --- Shell-based validation ---
       # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
       # which have no meaning on NTFS and would produce false-positive passes.
