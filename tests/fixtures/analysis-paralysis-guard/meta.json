@@ -1,0 +1,20 @@
+{
+  "hook": "analysis-paralysis-guard.sh",
+  "hook_type": "PostToolUse",
+  "tool_name": "Read",
+  "input_format": "paralysis_script",
+  "cases": {
+    "tp/7-consecutive-reads.sh": {
+      "rule": "W-13",
+      "expect": "warn",
+      "keyword": "ANALYSIS PARALYSIS",
+      "description": "连续 7+ 次只读操作触发分析瘫痪警告"
+    },
+    "fp/reads-with-edit.sh": {
+      "rule": "W-13",
+      "expect": "pass",
+      "keyword": "ANALYSIS PARALYSIS",
+      "description": "中间有 Edit 打断的 Read 序列不触发"
+    }
+  }
+}

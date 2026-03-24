@@ -44,7 +44,7 @@ if not os.path.isfile(file_path):
     sys.exit(0)
 
 if old_string:
-    with open(file_path, "r") as f:
+    with open(file_path, "r", errors="replace") as f:
         content = f.read()
     if old_string not in content:
         print("OLD_STRING_NOT_FOUND")

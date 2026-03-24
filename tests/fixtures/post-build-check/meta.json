@@ -1,0 +1,48 @@
+{
+  "hook": "post-build-check.sh",
+  "hook_type": "PostToolUse",
+  "tool_name": "Edit",
+  "input_format": "build_file",
+  "cases": {
+    "tp/js-syntax-error.js": {
+      "rule": "BUILD",
+      "expect": "warn",
+      "keyword": "VIBEGUARD",
+      "description": "JavaScript 语法错误触发构建检查警告"
+    },
+    "fp/js-valid.js": {
+      "rule": "BUILD",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "JavaScript 语法正确放行"
+    },
+    "fp/python-file.py": {
+      "rule": "BUILD",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "file_path_override": "src/main.py",
+      "description": "非构建语言 (.py) 放行"
+    },
+    "fp/markdown-file.md": {
+      "rule": "BUILD",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "file_path_override": "README.md",
+      "description": "非源码文件 (.md) 放行"
+    },
+    "fp/json-file.json": {
+      "rule": "BUILD",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "file_path_override": "package.json",
+      "description": "非构建语言 (.json) 放行"
+    },
+    "fp/empty-path.txt": {
+      "rule": "BUILD",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "file_path_override": "",
+      "description": "空 file_path 放行"
+    }
+  }
+}

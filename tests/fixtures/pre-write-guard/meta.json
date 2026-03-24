@@ -1,0 +1,56 @@
+{
+  "hook": "pre-write-guard.sh",
+  "hook_type": "PreToolUse",
+  "tool_name": "Write",
+  "input_format": "write_path",
+  "cases": {
+    "tp/new-py-source.txt": {
+      "rule": "L1",
+      "expect": "warn",
+      "keyword": "VIBEGUARD",
+      "description": "新建 .py 源码文件触发 guard"
+    },
+    "tp/new-rs-source.txt": {
+      "rule": "L1",
+      "expect": "warn",
+      "keyword": "VIBEGUARD",
+      "description": "新建 .rs 源码文件触发 guard"
+    },
+    "tp/new-tsx-source.txt": {
+      "rule": "L1",
+      "expect": "warn",
+      "keyword": "VIBEGUARD",
+      "description": "新建 .tsx 源码文件触发 guard"
+    },
+    "fp/existing-file.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "已存在文件直接放行"
+    },
+    "fp/new-markdown.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "新建 .md 文件放行"
+    },
+    "fp/new-json.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "新建 .json 文件放行"
+    },
+    "fp/new-test-file.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "新建测试文件放行"
+    },
+    "fp/tests-dir-source.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "description": "tests/ 目录下源码文件放行"
+    }
+  }
+}

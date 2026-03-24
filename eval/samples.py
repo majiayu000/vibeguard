@@ -407,6 +407,181 @@ fn main() {
         ),
         "description": "File exceeds 800 line limit",
     },
+    {
+        "rule": "U-25",
+        "severity": "high",
+        "lang": "rust",
+        "code": '''
+// cargo check shows 3 errors but developer continues adding new features
+fn new_feature() -> Result<(), Error> {
+    let config = load_config()?;  // type mismatch error from previous edit
+    let db = connect_db(&config)?;  // unresolved import
+    process_data(&db)
+}
+
+// Instead of fixing the build errors above, adding yet another function:
+fn another_new_feature() {
+    println!("adding more code while build is broken");
+}
+''',
+        "description": "Adding new code while build errors exist (U-25: fix build first)",
+    },
+    {
+        "rule": "U-26",
+        "severity": "high",
+        "lang": "python",
+        "code": '''
+class CacheConfig(BaseModel):
+    ttl: int = 3600
+    max_size: int = 1000
+    backend: str = "redis"
+
+    @classmethod
+    def from_file(cls, path: str) -> "CacheConfig":
+        with open(path) as f:
+            return cls(**json.load(f))
+
+def create_app():
+    # Bug: CacheConfig.from_file() exists but never called
+    cache = CacheConfig()  # always uses defaults, config file ignored
+    app = App(cache=cache)
+    return app
+''',
+        "description": "Declaration-execution gap: from_file() exists but create_app uses defaults",
+    },
+    {
+        "rule": "U-29",
+        "severity": "high",
+        "lang": "python",
+        "code": '''
+def generate_report(user_id: int) -> Report:
+    try:
+        data = fetch_user_data(user_id)
+        sections = build_sections(data)
+        return Report(sections=sections)
+    except Exception as e:
+        logger.warning("Report generation failed for user %s: %s", user_id, e)
+        return Report(sections=[])  # returns empty report as if successful
+''',
+        "description": "Silent degradation: error returns empty report instead of raising (U-29)",
+    },
+    {
+        "rule": "W-01",
+        "severity": "high",
+        "lang": "python",
+        "code": '''
+# Bug report: "login fails intermittently"
+# Developer's fix attempt without investigating root cause:
+def login(username, password):
+    try:
+        user = db.get_user(username)
+        if user.check_password(password):
+            return create_session(user)
+    except Exception:
+        pass
+    # "Fix": just retry if it fails
+    time.sleep(1)
+    return login(username, password)  # recursive retry without understanding why
+''',
+        "description": "Fix without root cause analysis — blind retry instead of debugging (W-01)",
+    },
+    {
+        "rule": "W-03",
+        "severity": "high",
+        "lang": "python",
+        "code": '''
+def migrate_database():
+    """Run database migration."""
+    # Changed the migration SQL
+    run_sql("ALTER TABLE users ADD COLUMN role VARCHAR(50)")
+    # Developer claims: "Migration is done, tested locally"
+    # But never actually ran `python manage.py migrate` or checked the output
+''',
+        "description": "Claiming completion without verification evidence (W-03)",
+    },
+    {
+        "rule": "W-12",
+        "severity": "high",
+        "lang": "python",
+        "code": '''
+# Test was failing, so developer "fixed" it by weakening the assertion
+def test_calculate_total():
+    result = calculate_total([10, 20, 30])
+    # Was: assert result == 60
+    # "Fixed" to:
+    assert result > 0  # weakened assertion to make test pass
+    assert isinstance(result, (int, float))  # type check instead of value check
+''',
+        "description": "Weakening test assertions to make failing test pass (W-12)",
+    },
+
+    # === Additional Python Rules ===
+    {
+        "rule": "PY-04",
+        "severity": "medium",
+        "lang": "python",
+        "code": '''
+class DataProcessor:
+    def fetch_data(self): pass
+    def validate_data(self): pass
+    def transform_data(self): pass
+    def filter_data(self): pass
+    def aggregate_data(self): pass
+    def format_output(self): pass
+    def send_notification(self): pass
+    def log_results(self): pass
+    def cleanup(self): pass
+    def retry_failed(self): pass
+    def generate_report(self): pass
+    def export_csv(self): pass
+    def export_json(self): pass
+    def backup_data(self): pass
+''',
+        "description": "God class with 14 public methods (PY-04: >10 methods)",
+    },
+    {
+        "rule": "PY-09",
+        "severity": "medium",
+        "lang": "python",
+        "code": "def process_order(order):\n"
+        + "\n".join([f"    step_{i} = do_step_{i}(order)" for i in range(60)]),
+        "description": "Function exceeds 50 lines (PY-09)",
+    },
+    {
+        "rule": "PY-10",
+        "severity": "medium",
+        "lang": "python",
+        "code": '''
+def process(data):
+    for item in data:
+        if item.is_valid():
+            for sub in item.children:
+                if sub.needs_processing():
+                    for field in sub.fields:
+                        if field.value is not None:
+                            for rule in field.rules:
+                                if rule.applies(field):
+                                    result = rule.execute(field)
+''',
+        "description": "Nesting exceeds 4 levels (PY-10)",
+    },
+
+    # === Additional Rust Rules ===
+    {
+        "rule": "RS-06",
+        "severity": "medium",
+        "lang": "rust",
+        "code": '''
+fn process_items(items: &[Item]) -> Vec<String> {
+    let mut result = String::new();
+    for item in items {
+        result = result + &item.name + ", ";
+    }
+    vec![result]
+}
+''',
+        "description": "String concatenation in loop instead of push_str or collect (RS-06)",
+    },
 
     # === False Positives (should NOT trigger) ===
     {

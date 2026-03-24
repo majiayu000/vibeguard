@@ -1,0 +1,3 @@
+cat <<'EOF'
+git push --force
+EOF

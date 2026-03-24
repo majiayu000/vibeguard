@@ -1,0 +1,26 @@
+{
+  "hook": "pre-edit-guard.sh",
+  "hook_type": "PreToolUse",
+  "tool_name": "Edit",
+  "input_format": "raw_json",
+  "cases": {
+    "tp/nonexistent-file.json": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "编辑不存在的文件应被拦截"
+    },
+    "tp/path-with-quotes.json": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "路径含单引号安全处理并拦截"
+    },
+    "fp/existing-file.json": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "已存在文件+空 old_string 放行"
+    }
+  }
+}
