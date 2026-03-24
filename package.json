@@ -41,6 +41,7 @@
     "templates/",
     "workflows/",
     "scripts/setup/",
+    "scripts/codex/",
     "scripts/lib/",
     "scripts/compliance_check.sh",
     "scripts/doc-freshness-check.sh",
@@ -57,6 +58,9 @@
     "mcp-server/",
     ".claude/commands/vibeguard",
     "claude-md/",
+    "manifests/",
+    "schemas/",
+    "docs/rule-reference.md",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

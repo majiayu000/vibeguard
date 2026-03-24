@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeGuard Project Configuration",
+  "description": "Project-level .vibeguard.json configuration — overrides global defaults for this repository",
+  "type": "object",
+  "properties": {
+    "profile": {
+      "type": "string",
+      "enum": ["minimal", "standard", "strict"],
+      "default": "standard",
+      "description": "Runtime enforcement profile. minimal=pre-hooks only, standard=core+full, strict=all+extra checks"
+    },
+    "enforcement": {
+      "type": "string",
+      "enum": ["block", "warn", "off"],
+      "default": "block",
+      "description": "Enforcement level. block=hard stop, warn=downgrade to warnings, off=skip all hooks"
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["rust", "python", "go", "typescript", "javascript"]
+      },
+      "description": "Languages active in this project. Affects which guard scripts and rules are applied"
+    },
+    "disabled_hooks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]"
+    },
+    "disabled_rules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Rule IDs to suppress. e.g. [\"U-02\", \"W-13\"]"
+    },
+    "disabled_guards": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Guard script names to skip. e.g. [\"check_unwrap_in_prod\", \"check_any_abuse\"]"
+    }
+  },
+  "additionalProperties": false
+}

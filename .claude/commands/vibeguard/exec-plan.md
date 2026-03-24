@@ -58,6 +58,7 @@ tags: [vibeguard, execplan, long-horizon, planning]
    - Purpose 直接从 SPEC 概述提取
    - Progress 映射为带 checkbox 的里程碑列表
    - Concrete Steps 对齐 plan-template.md 的 Step 格式（状态/目标/文件/改动/测试/判定）
+   - **Nyquist 规则**：每个 Step 必须包含 `verify_cmd` 字段 — 一个可在 60 秒内执行完的验证命令（如 `cargo test --lib`、`curl localhost:8080/health`）。无法在 60s 内验证的步骤标记为 `unverifiable`，需拆分或补充验证手段
    - Validation 从 SPEC 验收标准（AC-XX）转化
    - Decision Log 初始为空，记录生成时的选型决策
 

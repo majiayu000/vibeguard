@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "description": "VibeGuard install modules — declares all installable components with metadata",
+  "modules": [
+    {
+      "id": "rules-common",
+      "kind": "rules",
+      "description": "Common rules (U-01 to U-31, W-01 to W-13, SEC-01 to SEC-13)",
+      "paths": [
+        "rules/claude-rules/common/coding-style.md",
+        "rules/claude-rules/common/data-consistency.md",
+        "rules/claude-rules/common/fact-inference-separation.md",
+        "rules/claude-rules/common/no-silent-degradation.md",
+        "rules/claude-rules/common/publish-action-confirmation.md",
+        "rules/claude-rules/common/security.md",
+        "rules/claude-rules/common/workflow.md"
+      ],
+      "target": "~/.claude/rules/vibeguard/common/",
+      "defaultInstall": true,
+      "languages": [],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "rules-rust",
+      "kind": "rules",
+      "description": "Rust-specific quality rules",
+      "paths": ["rules/claude-rules/rust/quality.md"],
+      "target": "~/.claude/rules/vibeguard/rust/",
+      "defaultInstall": true,
+      "languages": ["rust"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "rules-python",
+      "kind": "rules",
+      "description": "Python-specific quality rules (Pydantic boundary, naming, caching)",
+      "paths": [
+        "rules/claude-rules/python/quality.md",
+        "rules/claude-rules/python/pydantic-boundary.md"
+      ],
+      "target": "~/.claude/rules/vibeguard/python/",
+      "defaultInstall": true,
+      "languages": ["python"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "rules-typescript",
+      "kind": "rules",
+      "description": "TypeScript-specific quality rules",
+      "paths": ["rules/claude-rules/typescript/quality.md"],
+      "target": "~/.claude/rules/vibeguard/typescript/",
+      "defaultInstall": true,
+      "languages": ["typescript"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "rules-golang",
+      "kind": "rules",
+      "description": "Go-specific quality rules",
+      "paths": ["rules/claude-rules/golang/quality.md"],
+      "target": "~/.claude/rules/vibeguard/golang/",
+      "defaultInstall": true,
+      "languages": ["go"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "hooks-pre",
+      "kind": "hooks",
+      "description": "Pre-tool hooks (write guard, edit guard, bash guard)",
+      "paths": [
+        "hooks/pre-write-guard.sh",
+        "hooks/pre-edit-guard.sh",
+        "hooks/pre-bash-guard.sh"
+      ],
+      "target": "settings.json:PreToolUse",
+      "defaultInstall": true,
+      "profiles": ["minimal", "core", "full", "strict"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "hooks-post",
+      "kind": "hooks",
+      "description": "Post-tool hooks (edit quality, write dedup, guard check, skills loader)",
+      "paths": [
+        "hooks/post-edit-guard.sh",
+        "hooks/post-write-guard.sh",
+        "hooks/post-guard-check.sh",
+        "hooks/skills-loader.sh",
+        "hooks/analysis-paralysis-guard.sh"
+      ],
+      "target": "settings.json:PostToolUse",
+      "defaultInstall": true,
+      "profiles": ["core", "full", "strict"],
+      "cost": "medium",
+      "stability": "stable"
+    },
+    {
+      "id": "hooks-full",
+      "kind": "hooks",
+      "description": "Full profile hooks (stop gate, learn evaluator, build check)",
+      "paths": [
+        "hooks/stop-guard.sh",
+        "hooks/learn-evaluator.sh",
+        "hooks/post-build-check.sh"
+      ],
+      "target": "settings.json:Stop+PostToolUse",
+      "defaultInstall": false,
+      "profiles": ["full", "strict"],
+      "cost": "medium",
+      "stability": "stable"
+    },
+    {
+      "id": "hooks-strict",
+      "kind": "hooks",
+      "description": "Strict profile hooks (session tagger, cognitive reminder)",
+      "paths": [
+        "hooks/session-tagger.sh",
+        "hooks/cognitive-reminder.sh"
+      ],
+      "target": "settings.json:Stop+PostToolUse",
+      "defaultInstall": false,
+      "profiles": ["strict"],
+      "cost": "light",
+      "stability": "beta"
+    },
+    {
+      "id": "agents-core",
+      "kind": "agents",
+      "description": "14 specialized agents (dispatcher, planner, reviewer, etc.)",
+      "paths": [
+        "agents/dispatcher.md",
+        "agents/planner.md",
+        "agents/architect.md",
+        "agents/tdd-guide.md",
+        "agents/code-reviewer.md",
+        "agents/security-reviewer.md",
+        "agents/build-error-resolver.md",
+        "agents/go-build-resolver.md",
+        "agents/go-reviewer.md",
+        "agents/python-reviewer.md",
+        "agents/database-reviewer.md",
+        "agents/refactor-cleaner.md",
+        "agents/doc-updater.md",
+        "agents/e2e-runner.md"
+      ],
+      "target": "~/.claude/agents/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "skills-core",
+      "kind": "skills",
+      "description": "Core skills (vibeguard, strategic-compact, eval-harness, iterative-retrieval)",
+      "paths": [
+        "skills/vibeguard/",
+        "skills/strategic-compact/",
+        "skills/eval-harness/",
+        "skills/iterative-retrieval/"
+      ],
+      "target": "~/.claude/skills/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "workflows",
+      "kind": "skills",
+      "description": "Workflow skills (plan-flow, fixflow, optflow, auto-optimize)",
+      "paths": [
+        "workflows/plan-flow/",
+        "workflows/fixflow/",
+        "workflows/optflow/",
+        "workflows/plan-mode/",
+        "workflows/auto-optimize/"
+      ],
+      "target": "~/.codex/skills/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "commands",
+      "kind": "commands",
+      "description": "VibeGuard slash commands (10 commands)",
+      "paths": [".claude/commands/vibeguard/"],
+      "target": "~/.claude/commands/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "guards-universal",
+      "kind": "guards",
+      "description": "Universal guard scripts (code slop, dependency layers, circular deps)",
+      "paths": [
+        "guards/universal/check_code_slop.sh",
+        "guards/universal/check_dependency_layers.py",
+        "guards/universal/check_circular_deps.py"
+      ],
+      "defaultInstall": true,
+      "languages": [],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "guards-rust",
+      "kind": "guards",
+      "description": "Rust guard scripts (8 scripts: unwrap, nested locks, declaration gap, etc.)",
+      "paths": ["guards/rust/"],
+      "defaultInstall": true,
+      "languages": ["rust"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "guards-python",
+      "kind": "guards",
+      "description": "Python guard scripts (duplicates, naming, dead shims)",
+      "paths": ["guards/python/"],
+      "defaultInstall": true,
+      "languages": ["python"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "guards-typescript",
+      "kind": "guards",
+      "description": "TypeScript guard scripts (any abuse, console residual, duplication)",
+      "paths": ["guards/typescript/"],
+      "defaultInstall": true,
+      "languages": ["typescript"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "guards-go",
+      "kind": "guards",
+      "description": "Go guard scripts (error handling, goroutine leak, defer in loop)",
+      "paths": ["guards/go/"],
+      "defaultInstall": true,
+      "languages": ["go"],
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "mcp-server",
+      "kind": "platform",
+      "description": "MCP Server (guard_check, compliance_report, metrics_collect)",
+      "paths": ["mcp-server/"],
+      "target": "settings.json:mcpServers",
+      "defaultInstall": true,
+      "cost": "heavy",
+      "stability": "stable",
+      "dependencies": ["guards-universal"]
+    },
+    {
+      "id": "context-profiles",
+      "kind": "platform",
+      "description": "Claude Code context profiles",
+      "paths": ["context-profiles/"],
+      "target": "~/.claude/context-profiles/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    }
+  ],
+  "profiles": {
+    "minimal": {
+      "description": "Pre-hooks only — lightweight interception",
+      "modules": ["rules-common", "hooks-pre", "commands"]
+    },
+    "core": {
+      "description": "Standard development — rules + core hooks + agents + skills",
+      "modules": [
+        "rules-common", "rules-rust", "rules-python", "rules-typescript", "rules-golang",
+        "hooks-pre", "hooks-post",
+        "agents-core", "skills-core", "workflows", "commands",
+        "guards-universal", "guards-rust", "guards-python", "guards-typescript", "guards-go",
+        "mcp-server", "context-profiles"
+      ]
+    },
+    "full": {
+      "description": "Full defense — core + stop gate + learn evaluator + build check",
+      "extends": "core",
+      "modules": ["hooks-full"]
+    },
+    "strict": {
+      "description": "Maximum enforcement — full + session tagger + cognitive reminder",
+      "extends": "full",
+      "modules": ["hooks-strict"]
+    }
+  }
+}
