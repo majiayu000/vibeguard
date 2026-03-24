@@ -43,6 +43,8 @@
     "scripts/setup/",
     "scripts/codex/",
     "scripts/lib/",
+    "data/rule-scorecard.json",
+    "scripts/precision-tracker.py",
     "scripts/compliance_check.sh",
     "scripts/doc-freshness-check.sh",
     "scripts/gc-logs.sh",
@@ -66,7 +68,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "bash tests/test_hooks.sh && bash tests/test_rust_guards.sh && bash tests/test_setup.sh",
+    "test": "bash tests/test_hooks.sh && bash tests/test_rust_guards.sh && bash tests/test_setup.sh && bash tests/test_precision_tracker.sh",
     "prepublishOnly": "npm test"
   },
   "engines": {

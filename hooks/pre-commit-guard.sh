@@ -70,13 +70,31 @@ FILE_COUNT=$(echo "$STAGED_FILES" | wc -l | tr -d ' ')
 
 # --- 导出 staged 文件列表供守卫脚本使用（只扫 staged 文件，不扫全量） ---
 _STAGED_TMPFILE=$(mktemp)
-_cleanup_staged() { rm -f "$_STAGED_TMPFILE" 2>/dev/null; }
+_DIFF_ADDED_TMPFILE=$(mktemp)
+_cleanup_staged() {
+  rm -f "$_STAGED_TMPFILE" "$_DIFF_ADDED_TMPFILE" 2>/dev/null
+}
 trap '_cleanup_staged' EXIT
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 while IFS= read -r f; do
   [[ -n "$f" ]] && echo "${REPO_ROOT}/${f}"
 done <<< "$STAGED_FILES" > "$_STAGED_TMPFILE"
 export VIBEGUARD_STAGED_FILES="$_STAGED_TMPFILE"
+
+# --- 导出 diff 新增行内容（Baseline Scanning）---
+# VIBEGUARD_DIFF_ONLY=1  — 告知守卫当前处于 pre-commit 差量扫描模式
+# VIBEGUARD_DIFF_ADDED_LINES — 指向包含所有 staged 新增行（+ 前缀已去除）的临时文件
+# 守卫脚本可选择读取此文件而非扫描整个文件，从而只检查本次新增的代码行。
+export VIBEGUARD_DIFF_ONLY=1
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  git diff --cached -U0 -- "${REPO_ROOT}/${f}" 2>/dev/null \
+    | grep '^+' \
+    | grep -v '^+++' \
+    | sed 's/^+//' \
+    >> "$_DIFF_ADDED_TMPFILE" || true
+done <<< "$STAGED_FILES"
+export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
 # --- 语言自动检测（Verifier 模式核心） ---
 # 使用 REPO_ROOT 绝对路径，避免子目录 commit 时检测失败

@@ -1,0 +1,14 @@
+# VibeGuard Triage Log — user feedback per guard warning
+# Each line is a JSON object with the following fields:
+#   ts        ISO-8601 timestamp
+#   rule      Rule ID, e.g. "RS-03"
+#   verdict   "tp" | "fp" | "acceptable"
+#   file      Source file path (optional)
+#   context   Short snippet or note (optional)
+#   session   Session ID from VIBEGUARD_SESSION_ID (optional)
+#
+# Record feedback with:
+#   echo '{"ts":"2026-03-24T11:00:00Z","rule":"RS-03","verdict":"fp","context":"signal handler"}' >> data/triage.jsonl
+#
+# Then regenerate scorecard:
+#   python3 scripts/precision-tracker.py --update-scorecard
