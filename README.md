@@ -115,6 +115,11 @@ python3 ~/vibeguard/guards/universal/check_circular_deps.py /path          # cir
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path                 # unwrap/expect in prod
 bash ~/vibeguard/guards/rust/check_nested_locks.sh /path                   # deadlock risk
 bash ~/vibeguard/guards/rust/check_declaration_execution_gap.sh /path      # declared but not wired
+bash ~/vibeguard/guards/rust/check_duplicate_types.sh /path                # duplicate type definitions
+bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path                # semantic side effects
+bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path         # single source of truth
+bash ~/vibeguard/guards/rust/check_taste_invariants.sh /path               # taste/style invariants
+bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path          # workspace dep consistency
 
 # Go
 bash ~/vibeguard/guards/go/check_error_handling.sh /path                   # unchecked errors

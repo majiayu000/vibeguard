@@ -2,7 +2,8 @@
 # VibeGuard CI: 校验 MCP 配置合同（schema/runtime/docs）一致性
 set -euo pipefail
 
-# Force UTF-8 output on Windows (cp1252 cannot encode non-ASCII characters)
+# Force UTF-8 on Windows (cp1252 cannot encode non-ASCII characters)
+export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"

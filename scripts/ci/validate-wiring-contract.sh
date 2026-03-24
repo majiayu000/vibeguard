@@ -2,6 +2,9 @@
 # VibeGuard CI: 校验 Rust guards 接线完整性（实现 -> MCP -> 文档）
 set -euo pipefail
 
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TOOLS_TS="${REPO_DIR}/mcp-server/src/tools.ts"
 INDEX_TS="${REPO_DIR}/mcp-server/src/index.ts"
