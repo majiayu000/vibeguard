@@ -1,0 +1,92 @@
+{
+  "hook": "pre-bash-guard.sh",
+  "hook_type": "PreToolUse",
+  "tool_name": "Bash",
+  "input_format": "command",
+  "cases": {
+    "tp/checkout-dot.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git checkout . 应被拦截"
+    },
+    "tp/clean-fd.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git clean -fd 应被拦截"
+    },
+    "tp/rm-rf-root.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "rm -rf / 应被拦截"
+    },
+    "tp/rm-rf-home.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "rm -rf ~/ 应被拦截"
+    },
+    "tp/rm-rf-users.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "rm -rf /Users/foo 应被拦截"
+    },
+    "fp/push-force.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git push --force 不由 pre-bash-guard 拦截（已移至 pre-push hook）"
+    },
+    "fp/push-force-lease.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git push --force-with-lease 放行"
+    },
+    "fp/reset-hard.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git reset --hard 放行"
+    },
+    "fp/rm-node-modules.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "rm -rf ./node_modules 放行（深层子目录）"
+    },
+    "fp/npm-build.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "npm run build 放行"
+    },
+    "fp/cargo-build.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "cargo build --release 放行"
+    },
+    "fp/vitest-run.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "vitest --run 放行"
+    },
+    "fp/commit-with-force.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "commit message 含 force 不误报"
+    },
+    "fp/heredoc-force.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "heredoc 内含 force push 不误报"
+    }
+  }
+}

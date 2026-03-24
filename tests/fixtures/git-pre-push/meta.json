@@ -1,0 +1,27 @@
+{
+  "hook": "hooks/git/pre-push",
+  "hook_type": "git-hook",
+  "input_format": "pre_push_script",
+  "cases": {
+    "tp/delete-branch.sh": {
+      "rule": "FORCE-PUSH",
+      "expect": "block",
+      "description": "拦截删除远端分支（local_sha=0000）"
+    },
+    "tp/non-fast-forward.sh": {
+      "rule": "FORCE-PUSH",
+      "expect": "block",
+      "description": "拦截非快进推送（force push）"
+    },
+    "fp/new-branch.sh": {
+      "rule": "FORCE-PUSH",
+      "expect": "pass",
+      "description": "新建远端分支放行（remote_sha=0000）"
+    },
+    "fp/fast-forward.sh": {
+      "rule": "FORCE-PUSH",
+      "expect": "pass",
+      "description": "快进推送放行"
+    }
+  }
+}

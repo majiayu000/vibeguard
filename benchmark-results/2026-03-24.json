@@ -1,0 +1,80 @@
+{
+  "date": "2026-03-24",
+  "mode": "fast",
+  "score": 98.8,
+  "grade": "A",
+  "layer1": {
+    "tp": 22,
+    "fp": 1,
+    "fn": 0,
+    "tn": 35,
+    "precision": 95.7,
+    "recall": 100.0,
+    "f1": 97.8,
+    "layer1_score": 98.8,
+    "by_hook": {
+      "analysis-paralysis-guard": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1
+      },
+      "git-pre-push": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 2
+      },
+      "post-build-check": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 5
+      },
+      "post-edit-guard": {
+        "tp": 4,
+        "fp": 1,
+        "fn": 0,
+        "tn": 6
+      },
+      "post-write-guard": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "tn": 5
+      },
+      "pre-bash-guard": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "tn": 9
+      },
+      "pre-commit-guard": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1
+      },
+      "pre-edit-guard": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 1
+      },
+      "pre-write-guard": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "tn": 5
+      }
+    },
+    "total_cases": 58
+  },
+  "layer2": {
+    "layer2_score": 0,
+    "sws": 0,
+    "fpr": 0,
+    "detection_rate": 0,
+    "total_samples": 0
+  }
+}

@@ -1,0 +1,1 @@
+/tmp/vg_no_git_project/src/main.rs

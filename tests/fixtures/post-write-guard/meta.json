@@ -1,0 +1,70 @@
+{
+  "hook": "post-write-guard.sh",
+  "hook_type": "PostToolUse",
+  "tool_name": "Write",
+  "input_format": "mixed",
+  "cases": {
+    "tp/same-name-source.sh": {
+      "rule": "L1-重复文件",
+      "expect": "warn",
+      "keyword": "L1-重复文件",
+      "input_format": "script",
+      "description": "检测同名源码文件重复"
+    },
+    "tp/dup-definition.sh": {
+      "rule": "L1-重复定义",
+      "expect": "warn",
+      "keyword": "L1-重复定义",
+      "input_format": "script",
+      "description": "检测重复定义"
+    },
+    "tp/scan-budget-exceeded.sh": {
+      "rule": "L1-扫描降级",
+      "expect": "warn",
+      "keyword": "L1-扫描降级",
+      "input_format": "script",
+      "description": "超过文件预算时降级"
+    },
+    "fp/non-source-md.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "input_format": "write_json",
+      "content": "# test",
+      "description": "非源码文件 (.md) 放行"
+    },
+    "fp/no-git-project.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "input_format": "write_json",
+      "content": "fn main() {}",
+      "description": "无 git 项目时放行"
+    },
+    "fp/empty-content.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "input_format": "write_json",
+      "content": "",
+      "description": "空 content 放行"
+    },
+    "fp/empty-filepath.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "input_format": "write_json",
+      "file_path_override": "",
+      "content": "fn main() {}",
+      "description": "空 file_path 放行"
+    },
+    "fp/non-source-sh.txt": {
+      "rule": "L1",
+      "expect": "pass",
+      "keyword": "VIBEGUARD",
+      "input_format": "write_json",
+      "content": "#!/bin/bash\necho test",
+      "description": "非源码扩展名 (.sh) 放行"
+    }
+  }
+}

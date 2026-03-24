@@ -176,6 +176,12 @@ def run_eval(args):
             if s["rule"].startswith(prefix) or s["rule"] == "NONE"
         ]
         print(f"过滤后样本数: {len(samples)} (前缀: {prefix})")
+    if args.type:
+        if args.type == "tp":
+            samples = [s for s in samples if s["rule"] != "NONE"]
+        elif args.type == "fp":
+            samples = [s for s in samples if s["rule"] == "NONE"]
+        print(f"类型过滤后样本数: {len(samples)} (类型: {args.type})")
 
     model = MODELS.get(args.model, args.model)
     client = anthropic.Anthropic()
@@ -288,11 +294,35 @@ def print_report(results: list[dict], model: str):
                     print(f"  误报: {r['description']}")
                     print(f"    Claude 回复: {r['response'][:200]}")
 
+    # SWS (Severity-Weighted Score)
+    if tp_results:
+        sev_weights = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for r in tp_results:
+            w = sev_weights.get(r.get("severity", "medium"), 2)
+            weight_total += w
+            if r["detected"]:
+                weighted_sum += w
+        sws = weighted_sum / weight_total * 100 if weight_total else 0
+
+        fpr = 0.0
+        if fp_results:
+            fpr = sum(1 for r in fp_results if r["detected_fp"]) / len(fp_results)
+        fpr_penalty = max(0, 1 - fpr)
+
+        layer2_score = sws * fpr_penalty
+        print(f"\n[Layer 2 Score]")
+        print(f"  SWS (Severity-Weighted): {sws:.1f}")
+        print(f"  FPR penalty: ×{fpr_penalty:.2f}")
+        print(f"  Layer2_Score: {layer2_score:.1f}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="VibeGuard LLM-as-Judge 评估")
     parser.add_argument("--model", default="haiku", help="模型: haiku/sonnet/opus 或完整 ID")
     parser.add_argument("--rules", help="规则前缀过滤 (如 SEC, PY, TS, GO, RS)")
+    parser.add_argument("--type", choices=["tp", "fp"], help="样本类型过滤: tp=违规, fp=合法")
     parser.add_argument("--dry-run", action="store_true", help="只显示样本不调 API")
     args = parser.parse_args()
     run_eval(args)

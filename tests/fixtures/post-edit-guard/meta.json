@@ -1,0 +1,85 @@
+{
+  "hook": "post-edit-guard.sh",
+  "hook_type": "PostToolUse",
+  "tool_name": "Edit",
+  "input_format": "edit_content",
+  "cases": {
+    "tp/rs-03-unwrap.rs": {
+      "rule": "RS-03",
+      "expect": "warn",
+      "keyword": "RS-03",
+      "file_path": "src/main.rs",
+      "description": "Rust 文件新增 unwrap 应警告"
+    },
+    "tp/ts-debug-console.ts": {
+      "rule": "DEBUG",
+      "expect": "warn",
+      "keyword": "DEBUG",
+      "file_path": "/tmp/vg_test_app.ts",
+      "description": "TS 文件新增 console.log 应警告"
+    },
+    "tp/py-debug-print.py": {
+      "rule": "DEBUG",
+      "expect": "warn",
+      "keyword": "DEBUG",
+      "file_path": "src/main.py",
+      "description": "Python 文件新增 print() 应警告"
+    },
+    "tp/u-11-hardcoded-db.rs": {
+      "rule": "U-11",
+      "expect": "warn",
+      "keyword": "U-11",
+      "file_path": "src/config.rs",
+      "description": "硬编码 .db 路径应警告"
+    },
+    "fp/rs-03-unwrap-or.rs": {
+      "rule": "RS-03",
+      "expect": "pass",
+      "keyword": "RS-03",
+      "file_path": "src/main.rs",
+      "description": "unwrap_or_default 不应误报 RS-03"
+    },
+    "fp/rs-03-test-file.rs": {
+      "rule": "RS-03",
+      "expect": "pass",
+      "keyword": "RS-03",
+      "file_path": "tests/test_main.rs",
+      "description": "测试文件中的 unwrap 不应警告"
+    },
+    "fp/rs-03-comment-unwrap.rs": {
+      "rule": "RS-03",
+      "expect": "pass",
+      "keyword": "RS-03",
+      "file_path": "src/main.rs",
+      "description": "注释中的 unwrap 不应误报"
+    },
+    "fp/rs-03-string-unwrap.rs": {
+      "rule": "RS-03",
+      "expect": "pass",
+      "keyword": "RS-03",
+      "file_path": "src/main.rs",
+      "description": "字符串中的 unwrap 不应误报"
+    },
+    "fp/rs-03-expect.rs": {
+      "rule": "RS-03",
+      "expect": "pass",
+      "keyword": "RS-03",
+      "file_path": "src/main.rs",
+      "description": "expect() 不应误报 RS-03"
+    },
+    "fp/ts-debug-comment.ts": {
+      "rule": "DEBUG",
+      "expect": "pass",
+      "keyword": "DEBUG",
+      "file_path": "/tmp/vg_test_app.ts",
+      "description": "注释中的 console.log 不应误报"
+    },
+    "fp/ts-debug-string.ts": {
+      "rule": "DEBUG",
+      "expect": "pass",
+      "keyword": "DEBUG",
+      "file_path": "/tmp/vg_test_app.ts",
+      "description": "字符串中的 console.log 不应误报"
+    }
+  }
+}
