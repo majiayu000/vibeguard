@@ -126,6 +126,11 @@ jobs:
         working-directory: mcp-server
         run: npm run build
 
-      - name: MCP tests
+      - name: MCP unit tests
         working-directory: mcp-server
-        run: npm test
+        run: npm run test:unit
+
+      - name: MCP integration tests
+        if: runner.os != 'Windows'
+        working-directory: mcp-server
+        run: npm run test:integration
