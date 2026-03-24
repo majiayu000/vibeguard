@@ -99,7 +99,10 @@ print(f2)
 }
 
 # Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
-# 按祖先 Claude Code 进程 PID 隔离，防止并行会话共享同一 session_id
+# 策略：祖先进程 PID + 30 分钟不活跃窗口 + 进程启动时间锚定
+# - PID 隔离：并行 Claude 实例各有独立 session_id
+# - 30min TTL：同一进程的不同任务（间隔 >30min）产生新 session_id，防止跨任务污染
+# - 进程启动时间锚定：防止 PID 回收导致旧 session_id 被继承（ps -o comm 无法区分同名新进程）
 if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   # Walk up the process tree to find the ancestor Claude Code (node/Electron) process.
   # Each parallel Claude Code instance has a unique PID, so this gives true per-instance isolation.
@@ -121,30 +124,42 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   done
 
   if [[ -n "$_vg_claude_pid" ]]; then
-    # Per-process isolation: each Claude Code instance gets its own session file keyed by PID.
-    # Two parallel sessions within 30 minutes will have different PIDs → different session IDs.
+    # Capture the process start time as a stable identity anchor.
+    # ps -o lstart= returns a fixed timestamp for the process lifetime, unlike comm which only
+    # checks the name — a recycled PID can have a new process with the same name but a different
+    # start time, allowing us to detect the recycling and create a fresh session.
+    _vg_proc_start=$(ps -o lstart= -p "$_vg_claude_pid" 2>/dev/null | xargs || echo "unknown")
+
     _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
-    if [[ -f "$_vg_sf" ]]; then
-      # Validate the PID still belongs to a Claude process before reusing the session.
-      # Without this check, OS PID recycling would cause a new session to inherit an
-      # old session_id, polluting skills-loaded flags and warn/escalate counters.
-      _vg_live_comm=$(ps -o comm= -p "$_vg_claude_pid" 2>/dev/null | tr -d ' ')
-      case "${_vg_live_comm}" in
-        node|*claude*|*Claude*|*electron*|*Electron*)
-          VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
-          ;;
-        *)
-          # PID recycled or process gone — create a fresh session and overwrite the stale file.
-          VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-          mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
-          printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
-          ;;
-      esac
+
+    # Reuse conditions (all three must hold):
+    # 1. Session file exists
+    # 2. Within 30-minute inactivity window — long-lived Claude processes run many tasks; the TTL
+    #    ensures separate conversations (idle gap > 30 min) get distinct session IDs so that
+    #    warn/escalate counters and skills-loaded flags do not leak across tasks.
+    # 3. Stored start time matches current process start time — guards against PID recycling where
+    #    a new Claude/node process inherits the same PID as the previous one.
+    _vg_reuse=false
+    if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+      _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
+      if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
+        _vg_reuse=true
+      fi
+    fi
+
+    if [[ "$_vg_reuse" == "true" ]]; then
+      VIBEGUARD_SESSION_ID=$(tail -1 "$_vg_sf" 2>/dev/null)
+      touch "$_vg_sf" 2>/dev/null || true
     else
+      # New session: first use, 30-min TTL expired, or PID recycled (start time mismatch).
       VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
       mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
-      printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+      # File format: line 1 = process start time anchor, line 2 = session_id
+      printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
     fi
+
+    # Clean up PID session files older than 2 hours to prevent unbounded disk growth.
+    find "${VIBEGUARD_LOG_DIR}" -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
   else
     # Fallback for non-Claude Code environments (CI, manual invocation, etc.):
     # time-based 30-minute session window (original behavior).

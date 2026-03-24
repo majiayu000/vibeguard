@@ -489,52 +489,93 @@ assert_exit_nonzero "Go 守卫可阻止 _= 丢弃 error 的提交" bash -c "cd '
 rm -rf "$tmp_repo_precommit_go"
 
 # =========================================================
-header "log.sh — session_id PID recycling guard"
+header "log.sh — session_id: start-time anchor + 30-min TTL"
 # =========================================================
 
-# When a .session_pid_<pid> file exists but the PID no longer belongs to a Claude
-# process (simulates OS PID recycling), a fresh session_id must be generated and
-# the stale file must be overwritten — the old session_id must NOT be reused.
+# The session block in log.sh uses three conditions to decide whether to reuse a session file:
+# 1. File exists
+# 2. Within 30-minute inactivity window (mtime < 30 min ago)
+# 3. Stored start time (line 1) matches current process start time
+#
+# These tests verify that condition 2 (TTL expiry) and condition 3 (start time mismatch /
+# PID recycling) each independently trigger creation of a fresh session_id.
 
 _test_log_dir=$(mktemp -d)
-# Write a stale session file for a PID that cannot be a Claude process.
-# PID 1 (launchd/init) is always running but is never node/claude/electron.
 _stale_session_id="deadbeef"
-printf '%s' "$_stale_session_id" > "${_test_log_dir}/.session_pid_1"
 
-result=$(
-  unset VIBEGUARD_SESSION_ID
-  export VIBEGUARD_LOG_DIR="$_test_log_dir"
-  # Pretend our ancestor Claude PID is 1 (recycled PID scenario).
-  # Override the walk logic by directly calling the session block via a subshell
-  # that forces _vg_claude_pid=1.
-  _vg_claude_pid=1
-  _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
-  _vg_live_comm=$(ps -o comm= -p "$_vg_claude_pid" 2>/dev/null | tr -d ' ')
-  case "${_vg_live_comm}" in
-    node|*claude*|*Claude*|*electron*|*Electron*)
-      echo "reused"
-      ;;
-    *)
-      new_id=$(printf '%04x%04x' $RANDOM $RANDOM)
-      printf '%s' "$new_id" > "$_vg_sf"
-      echo "fresh:$new_id"
-      ;;
-  esac
+# --- Test A: start time mismatch (PID recycling detection) ---
+# File format: line 1 = start time anchor, line 2 = session_id.
+# Simulate a recycled PID: the session file records a start time that does NOT match
+# the current process start time, so the start time check should fail → fresh session.
+_fake_pid="99998"
+_vg_sf_a="${_test_log_dir}/.session_pid_${_fake_pid}"
+printf 'Mon Jan  1 00:00:00 1970\n%s\n' "$_stale_session_id" > "$_vg_sf_a"
+
+_result_a=$(
+  _vg_sf="$_vg_sf_a"
+  _vg_proc_start="Mon Mar 24 10:00:00 2026"  # different from stored anchor
+  _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
+  _vg_reuse=false
+  # TTL check passes (file is fresh); start time check must fail
+  if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+    if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
+      _vg_reuse=true
+    fi
+  fi
+  if [[ "$_vg_reuse" == "true" ]]; then
+    echo "reused:$(tail -1 "$_vg_sf")"
+  else
+    new_id=$(printf '%04x%04x' $RANDOM $RANDOM)
+    printf '%s\n%s\n' "$_vg_proc_start" "$new_id" > "$_vg_sf"
+    echo "fresh:$new_id"
+  fi
 )
-assert_not_contains "$result" "reused" "PID 1 (非 Claude 进程) 不应复用旧 session_id"
-assert_contains "$result" "fresh:" "PID 1 被识别为 PID 复用，生成新 session_id"
+assert_not_contains "$_result_a" "reused" "start time 不匹配（PID 回收）时不应复用旧 session_id"
+assert_contains "$_result_a" "fresh:" "start time 不匹配时应生成新 session_id"
 
-# Verify the file was overwritten with the new session_id.
-_new_content=$(<"${_test_log_dir}/.session_pid_1")
+# Verify file was overwritten with new two-line format (line 2 = new session_id, not old one).
+_file_line2=$(tail -1 "$_vg_sf_a" 2>/dev/null)
 TOTAL=$((TOTAL + 1))
-if [[ "$_new_content" != "$_stale_session_id" ]]; then
-  green "旧 session_pid 文件被新 session_id 覆盖"
+if [[ "$_file_line2" != "$_stale_session_id" ]]; then
+  green "PID 回收场景：session 文件已用新 session_id 覆盖"
   PASS=$((PASS + 1))
 else
-  red "旧 session_pid 文件未被更新（仍是旧 session_id）"
+  red "PID 回收场景：session 文件未更新，仍为旧 session_id"
   FAIL=$((FAIL + 1))
 fi
+
+# --- Test B: 30-min TTL expiry (long-lived process, new task) ---
+# When the session file's mtime is older than 30 minutes, a fresh session must be created
+# even if the start time matches — this prevents cross-task pollution in long-lived processes.
+_fake_pid2="99999"
+_vg_sf_b="${_test_log_dir}/.session_pid_${_fake_pid2}"
+_current_start="Mon Mar 24 10:00:00 2026"
+printf '%s\n%s\n' "$_current_start" "$_stale_session_id" > "$_vg_sf_b"
+# Make the file appear older than 30 minutes.
+touch -t "$(date -v -40M '+%Y%m%d%H%M' 2>/dev/null || date --date='40 minutes ago' '+%Y%m%d%H%M' 2>/dev/null || echo '200001010000')" "$_vg_sf_b" 2>/dev/null || \
+  touch -d "40 minutes ago" "$_vg_sf_b" 2>/dev/null || true
+
+_result_b=$(
+  _vg_sf="$_vg_sf_b"
+  _vg_proc_start="$_current_start"  # start time would match, but TTL has expired
+  _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
+  _vg_reuse=false
+  if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+    if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
+      _vg_reuse=true
+    fi
+  fi
+  if [[ "$_vg_reuse" == "true" ]]; then
+    echo "reused:$(tail -1 "$_vg_sf")"
+  else
+    new_id=$(printf '%04x%04x' $RANDOM $RANDOM)
+    printf '%s\n%s\n' "$_vg_proc_start" "$new_id" > "$_vg_sf"
+    echo "fresh:$new_id"
+  fi
+)
+assert_not_contains "$_result_b" "reused" "TTL 过期（>30min）时不应复用旧 session_id"
+assert_contains "$_result_b" "fresh:" "TTL 过期时应生成新 session_id（防止长进程跨任务污染）"
+
 rm -rf "$_test_log_dir"
 
 # =========================================================
