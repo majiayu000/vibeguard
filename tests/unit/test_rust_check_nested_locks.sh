@@ -103,7 +103,7 @@ impl Two {
     }
 }
 EOF
-assert_ok "two lock acquisitions passes (threshold is >2)" bash "$GUARD" --strict "$proj4"
+assert_fail "two lock acquisitions in same function fails --strict" bash "$GUARD" --strict "$proj4"
 
 # --- PASS: no lock calls at all ---
 proj5="${tmpdir}/pass_no_locks"

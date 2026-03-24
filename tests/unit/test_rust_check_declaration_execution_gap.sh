@@ -75,12 +75,14 @@ fn main() {
     println!("Running on port {}", cfg.port);
 }
 EOF
-assert_fail "Config with load() but using Default::default() fails strict" \
+# Guard is currently disabled (precision insufficient, pending rewrite).
+# When disabled, it outputs [RS-14] SKIP and exits 0.
+assert_ok "Config with load() but using Default::default() — guard disabled, exits 0" \
   bash "$GUARD" "$proj_default" "true"
-assert_output_contains "output contains RS-14 tag" "[RS-14]" \
+assert_output_contains "output contains RS-14 SKIP tag" "[RS-14] SKIP" \
   bash "$GUARD" "$proj_default" "true"
 
-# --- FAIL: Trait declared but no impl ---
+# --- Trait declared but no impl (guard disabled → exits 0) ---
 proj_no_impl="${tmpdir}/fail_no_trait_impl"
 mkdir -p "${proj_no_impl}/src"
 cat > "${proj_no_impl}/src/lib.rs" <<'EOF'
@@ -89,7 +91,7 @@ pub trait DataStore {
     fn load(&self) -> Result<String, String>;
 }
 EOF
-assert_fail "trait with no impl fails strict" bash "$GUARD" "$proj_no_impl" "true"
+assert_ok "trait with no impl — guard disabled, exits 0" bash "$GUARD" "$proj_no_impl" "true"
 
 # --- PASS: Config load() is actually called at startup ---
 proj_loads="${tmpdir}/pass_config_load"
