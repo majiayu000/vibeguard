@@ -4,9 +4,11 @@
 
 **Stop AI from hallucinating code.**
 
-[中文文档](README_CN.md)
+[中文文档](README_CN.md) | [Rule Reference](docs/rule-reference.md)
 
 When using Claude Code or Codex, AI frequently invents non-existent APIs, reinvents the wheel, hardcodes fake data, and over-engineers solutions. VibeGuard prevents these problems at the source through **rule injection + real-time interception + static scanning** — three layers of defense.
+
+> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit (28 agents, 119 skills). VibeGuard is a specialized **defense system** — 88+ rules, 16 hooks with hard interception, churn loop detection, analysis paralysis guard, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing wrong. Install both.
 
 Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
 
@@ -184,18 +186,102 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 | Tool | How |
 |------|-----|
-| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` |
+| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex MCP config) |
 | **Docker** | `docker pull ghcr.io/majiayu000/vibeguard:latest` |
 | **Any project** | `cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md` (rules only, no hooks) |
 
 ## Installation Options
 
 ```bash
-bash ~/vibeguard/setup.sh                    # Install (default: core profile)
-bash ~/vibeguard/setup.sh --profile full     # Full: adds Stop Gate + Build Check + Pre-Commit
-bash ~/vibeguard/setup.sh --check            # Verify installation
-bash ~/vibeguard/setup.sh --clean            # Uninstall
+# Profiles
+bash ~/vibeguard/setup.sh                           # Install (default: core profile)
+bash ~/vibeguard/setup.sh --profile minimal          # Minimal: pre-hooks only (lightweight)
+bash ~/vibeguard/setup.sh --profile full             # Full: adds Stop Gate + Build Check + Pre-Commit
+bash ~/vibeguard/setup.sh --profile strict           # Strict: all hooks + extra checks
+
+# Language selection (only install rules/guards for specified languages)
+bash ~/vibeguard/setup.sh --languages rust,python
+bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
+
+# Verify / Uninstall
+bash ~/vibeguard/setup.sh --check                    # Verify installation
+bash ~/vibeguard/setup.sh --clean                    # Uninstall
 ```
+
+### Codex Integration
+
+VibeGuard now includes a Codex adapter layer that is **decoupled** from Claude setup:
+
+- `scripts/lib/codex_mcp.py` uses a strategy pattern:
+  - `CodexCliMcpStrategy` (preferred): configures MCP via `codex mcp add/get/remove`
+  - `TomlFileMcpStrategy` (fallback): updates `~/.codex/config.toml` directly
+- Claude-specific hooks in `~/.claude/settings.json` are unchanged.
+
+Verify Codex MCP config:
+
+```bash
+codex mcp get vibeguard --json
+```
+
+For Codex app-server orchestrators (Symphony-style), use the optional wrapper:
+
+```bash
+python3 ~/vibeguard/scripts/codex/app_server_wrapper.py \
+  --codex-command "codex app-server"
+```
+
+Wrapper strategy modes:
+
+- `--strategy vibeguard` (default): applies pre/stop/post gates externally
+- `--strategy noop`: pure pass-through (debug mode)
+
+Example `WORKFLOW.md` snippet:
+
+```yaml
+codex:
+  command: python3 ~/vibeguard/scripts/codex/app_server_wrapper.py --codex-command "codex app-server"
+```
+
+### Profiles
+
+| Profile | Hooks Installed | Use Case |
+|---------|----------------|----------|
+| `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
+| `core` (default) | minimal + post-edit, post-write, skills-loader, analysis-paralysis | Standard development |
+| `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
+| `strict` | full + all hooks active at runtime | Maximum enforcement |
+
+### Runtime Configuration
+
+Override behavior without re-running setup — via environment variables or project config:
+
+```bash
+# Environment variables (highest priority)
+VIBEGUARD_PROFILE=minimal        # Runtime profile: minimal | standard | strict
+VIBEGUARD_ENFORCEMENT=warn       # Enforcement: block | warn | off
+VIBEGUARD_DISABLED_HOOKS=post-edit-guard,analysis-paralysis-guard  # Disable specific hooks
+```
+
+### Project-Level Config (.vibeguard.json)
+
+Place a `.vibeguard.json` in your project root for per-project overrides:
+
+```json
+{
+  "profile": "strict",
+  "enforcement": "block",
+  "languages": ["rust", "python"],
+  "disabled_hooks": ["analysis-paralysis-guard"],
+  "disabled_rules": ["U-02"],
+  "disabled_guards": ["check_unwrap_in_prod"]
+}
+```
+
+Priority: env vars > `.vibeguard.json` > global defaults. Schema: [`schemas/vibeguard-project.schema.json`](schemas/vibeguard-project.schema.json).
+
+### Custom Rules
+
+Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there are automatically installed to `~/.claude/rules/vibeguard/custom/` on next setup run. Format: standard Claude Code rule files with YAML frontmatter.
 
 ## Known Issues
 

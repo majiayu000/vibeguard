@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
+source "${SCRIPT_DIR}/../lib/install-state.sh"
 
 echo "VibeGuard Installation Status"
 echo "=============================="
@@ -92,8 +93,14 @@ if [[ -d "${RULES_DEST}" ]]; then
     yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
   fi
 
-  # Validate rule count in CLAUDE.md matches actual count
-  actual_rule_count=$(grep -c "^## [A-Z]*-[0-9]" "${RULES_DEST}"/common/*.md "${RULES_DEST}"/rust/*.md "${RULES_DEST}"/typescript/*.md "${RULES_DEST}"/golang/*.md "${RULES_DEST}"/python/*.md 2>/dev/null | awk -F: '{s+=$2} END {print s}')
+  # Validate rule count in CLAUDE.md matches actual count.
+  # Use find to avoid failing when some language directories are intentionally absent
+  # (for example, setup.sh --languages rust).
+  actual_rule_count=0
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
+    actual_rule_count=$((actual_rule_count + file_count))
+  done < <(find "${RULES_DEST}" -type f -name "*.md" 2>/dev/null)
   claude_md="${CLAUDE_DIR}/CLAUDE.md"
   if [[ -f "${claude_md}" ]]; then
     declared_count=$(grep -o '[0-9]* 条规则' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
@@ -128,6 +135,13 @@ for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
     yellow "[MISSING] ${skill} skill not in ~/.codex/skills/"
   fi
 done
+
+# Check Codex MCP config (separate from Claude settings.json)
+if codex_mcp_check; then
+  green "[OK] Codex MCP configured in ~/.codex/config.toml"
+else
+  yellow "[MISSING] Codex MCP not configured in ~/.codex/config.toml"
+fi
 
 # Check AUTO_RUN_AGENT_DIR
 if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
@@ -183,4 +197,21 @@ if command -v codex &>/dev/null; then
   green "[OK] Codex CLI available (enables /vibeguard:cross-review)"
 else
   yellow "[INFO] Codex CLI not found (install: npm i -g @openai/codex for /vibeguard:cross-review)"
+fi
+
+# Check install state (drift detection)
+echo
+echo "Install State"
+echo "------------------------------"
+drift_output=$(state_check_drift 2>/dev/null)
+if [[ "$drift_output" == "NO_STATE" ]]; then
+  yellow "[INFO] No install state found (re-run setup.sh to enable state tracking)"
+elif echo "$drift_output" | grep -q "STATUS: CLEAN"; then
+  tracked=$(echo "$drift_output" | grep "Total tracked" | head -1)
+  green "[OK] ${tracked}"
+else
+  echo "$drift_output" | grep -E "^(MISSING|DRIFT):" | while read -r line; do
+    red "  ${line}"
+  done
+  yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
 fi

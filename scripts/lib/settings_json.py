@@ -175,11 +175,19 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "mcp__vibeguard__guard_check", "post-guard-check.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-edit-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-write-guard.sh", state)
-    if args.profile == "full":
+    # analysis-paralysis-guard for core and above
+    if args.profile in ("core", "full", "strict"):
+        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Read|Glob|Grep", "analysis-paralysis-guard.sh", state)
+
+    if args.profile in ("full", "strict"):
         upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-build-check.sh", state)
         upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-build-check.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "stop-guard.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "learn-evaluator.sh", state)
+
+    if args.profile == "strict":
+        upsert_hook(hooks, args.repo_dir, "Stop", "", "session-tagger.sh", state)
+        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write|Edit|NotebookEdit|Bash|Task", "cognitive-reminder.sh", state)
 
     if state["changed"]:
         save_settings(settings_path, data)
@@ -276,7 +284,7 @@ def build_parser() -> argparse.ArgumentParser:
     upsert = sub.add_parser("upsert-vibeguard", help="Upsert VibeGuard MCP/hooks config")
     upsert.add_argument("--settings-file", required=True)
     upsert.add_argument("--repo-dir", required=True)
-    upsert.add_argument("--profile", choices=["core", "full"], default="core")
+    upsert.add_argument("--profile", choices=["minimal", "core", "full", "strict"], default="core")
     upsert.set_defaults(func=cmd_upsert_vibeguard)
 
     remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard MCP/hooks config")

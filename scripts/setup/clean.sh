@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
+source "${SCRIPT_DIR}/../lib/install-state.sh"
 
 echo "Cleaning VibeGuard installation..."
 
@@ -41,6 +42,13 @@ for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
   rm -f "${CODEX_DIR}/skills/${skill}"
 done
 
+# Remove Codex MCP config (strategy-based; independent from Claude settings)
+if codex_clean_result=$(codex_mcp_remove 2>/dev/null); then
+  if [[ "${codex_clean_result}" == *"CHANGED"* ]]; then
+    yellow "Removed VibeGuard MCP from ~/.codex/config.toml"
+  fi
+fi
+
 # Unload scheduled GC
 PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
 if [[ -f "${PLIST_DEST}" ]]; then
@@ -73,5 +81,9 @@ if [[ -f "${SETTINGS_FILE}" ]]; then
     fi
   fi
 fi
+
+# Remove install state
+state_clean
+yellow "Removed install state"
 
 green "VibeGuard cleaned."

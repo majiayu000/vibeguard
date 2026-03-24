@@ -6,6 +6,7 @@ REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && p
 CLAUDE_DIR="${HOME}/.claude"
 CODEX_DIR="${HOME}/.codex"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
+CODEX_MCP_HELPER="${REPO_DIR}/scripts/lib/codex_mcp.py"
 CLAUDE_MD_HELPER="${REPO_DIR}/scripts/lib/claude_md.py"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 
@@ -27,6 +28,18 @@ settings_upsert() {
 settings_remove() {
   local settings_file="$1"
   python3 "${SETTINGS_HELPER}" remove-vibeguard --settings-file "${settings_file}"
+}
+
+codex_mcp_check() {
+  python3 "${CODEX_MCP_HELPER}" check --repo-dir "${REPO_DIR}" >/dev/null 2>&1
+}
+
+codex_mcp_upsert() {
+  python3 "${CODEX_MCP_HELPER}" upsert --repo-dir "${REPO_DIR}"
+}
+
+codex_mcp_remove() {
+  python3 "${CODEX_MCP_HELPER}" remove --repo-dir "${REPO_DIR}"
 }
 
 safe_symlink() {

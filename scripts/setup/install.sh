@@ -5,13 +5,18 @@ set -euo pipefail
 # 一键部署防幻觉规范到 ~/.claude/ 和 ~/.codex/
 #
 # 使用方法：
-#   bash install.sh                         # 安装（默认 core）
-#   bash install.sh --profile full          # 安装 full（含 Stop Gate/Build Check）
-#   bash install.sh --check  # 仅检查状态
-#   bash install.sh --clean  # 清理安装
+#   bash install.sh                                    # 安装（默认 core）
+#   bash install.sh --profile full                     # 安装 full（含 Stop Gate/Build Check）
+#   bash install.sh --profile minimal                  # 最小安装（仅 pre-hooks）
+#   bash install.sh --profile strict                   # 严格模式（全部 + 额外检查）
+#   bash install.sh --languages rust,python            # 只安装指定语言的规则和守卫
+#   bash install.sh --profile full --languages rust    # 组合使用
+#   bash install.sh --check                            # 仅检查状态
+#   bash install.sh --clean                            # 清理安装
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
+source "${SCRIPT_DIR}/../lib/install-state.sh"
 
 # --- Mode dispatch ---
 case "${1:-}" in
@@ -19,31 +24,64 @@ case "${1:-}" in
   --clean) exec bash "${SCRIPT_DIR}/clean.sh" ;;
 esac
 
-# --- Profile parsing ---
+# --- Argument parsing ---
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-core}"
+LANGUAGES=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile)
-      [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (core|full)"; exit 1; }
+      [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 1; }
       PROFILE="$2"; shift 2 ;;
     --profile=*)
       PROFILE="${1#*=}"; shift ;;
+    --languages)
+      [[ $# -lt 2 ]] && { red "ERROR: --languages requires a value (e.g. rust,python,go,typescript)"; exit 1; }
+      LANGUAGES="$2"; shift 2 ;;
+    --languages=*)
+      LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash install.sh [--profile core|full] | --check | --clean"
+      red "Usage: bash install.sh [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
 
 case "${PROFILE}" in
-  core|full) ;;
-  *) red "ERROR: unsupported profile: ${PROFILE} (expected core|full)"; exit 1 ;;
+  minimal|core|full|strict) ;;
+  *) red "ERROR: unsupported profile: ${PROFILE} (expected minimal|core|full|strict)"; exit 1 ;;
 esac
+
+# Parse languages into array
+declare -a LANG_FILTER=()
+if [[ -n "$LANGUAGES" ]]; then
+  IFS=',' read -ra LANG_FILTER <<< "$LANGUAGES"
+fi
+
+# Check if a language is in the filter (empty filter = install all)
+lang_selected() {
+  local lang="$1"
+  if [[ ${#LANG_FILTER[@]} -eq 0 ]]; then
+    return 0  # no filter = all selected
+  fi
+  for l in "${LANG_FILTER[@]}"; do
+    l="${l// /}"  # trim spaces
+    # normalize: golang -> go in filter
+    [[ "$l" == "golang" ]] && l="go"
+    [[ "$lang" == "golang" ]] && lang="go"
+    if [[ "$l" == "$lang" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 echo "=============================="
 echo "VibeGuard Setup"
 echo "Repository: ${REPO_DIR}"
 echo "Profile: ${PROFILE}"
+if [[ -n "$LANGUAGES" ]]; then
+  echo "Languages: ${LANGUAGES}"
+fi
 echo "=============================="
 echo
 
@@ -62,18 +100,31 @@ printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
 chmod +x "${VIBEGUARD_HOME}/run-hook.sh"
 green "  ~/.vibeguard/repo-path + run-hook.sh ready"
+
+# Create user-rules directory for custom rules
+mkdir -p "${VIBEGUARD_HOME}/user-rules"
+green "  ~/.vibeguard/user-rules/ ready (add custom .md rules here)"
+
+# Initialize install state tracking
+state_init "$PROFILE" "$LANGUAGES"
+state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
+state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
+green "  Install state tracker initialized"
 echo
 
 # 2. Symlink skills 到 Claude Code
 echo "Step 2: Install Claude Code skills"
 mkdir -p "${CLAUDE_DIR}/skills"
 safe_symlink "${REPO_DIR}/skills/vibeguard" "${CLAUDE_DIR}/skills/vibeguard"
+state_record_file "${CLAUDE_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
 green "  vibeguard -> ~/.claude/skills/vibeguard"
 safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
+state_record_file "${CLAUDE_DIR}/skills/auto-optimize" "workflows/auto-optimize" "symlink"
 green "  auto-optimize -> ~/.claude/skills/auto-optimize"
 for skill in strategic-compact eval-harness iterative-retrieval; do
   if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
     safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
+    state_record_file "${CLAUDE_DIR}/skills/${skill}" "skills/${skill}" "symlink"
     green "  ${skill} -> ~/.claude/skills/${skill}"
   else
     yellow "  SKIP ${skill} (source not found)"
@@ -89,6 +140,7 @@ for agent in "${REPO_DIR}"/agents/*.md; do
   name=$(basename "$agent")
   rm -f "${CLAUDE_DIR}/agents/${name}"
   cp "$agent" "${CLAUDE_DIR}/agents/${name}"
+  state_record_file "${CLAUDE_DIR}/agents/${name}" "agents/${name}" "copy"
   green "  ${name} -> ~/.claude/agents/${name}"
 done
 echo
@@ -100,6 +152,7 @@ for profile in "${REPO_DIR}"/context-profiles/*.md; do
   [[ -f "$profile" ]] || continue
   name=$(basename "$profile")
   cp "$profile" "${CLAUDE_DIR}/context-profiles/${name}"
+  state_record_file "${CLAUDE_DIR}/context-profiles/${name}" "context-profiles/${name}" "copy"
   green "  ${name} -> ~/.claude/context-profiles/${name}"
 done
 echo
@@ -108,22 +161,52 @@ echo
 echo "Step 5: Install custom commands"
 mkdir -p "${CLAUDE_DIR}/commands"
 safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
+state_record_file "${CLAUDE_DIR}/commands/vibeguard" ".claude/commands/vibeguard" "symlink"
 green "  vibeguard commands -> ~/.claude/commands/vibeguard"
 echo
 
-# 5.5. Install Claude Code native rules
+# 5.5. Install Claude Code native rules (with language filter)
 echo "Step 5.5: Install native rules"
 RULES_SRC="${REPO_DIR}/rules/claude-rules"
 RULES_DEST="${HOME}/.claude/rules/vibeguard"
 if [[ -d "${RULES_SRC}" ]]; then
   mkdir -p "${RULES_DEST}"
-  for subdir in common rust golang typescript python; do
+  # common rules always installed
+  if [[ -d "${RULES_SRC}/common" ]]; then
+    mkdir -p "${RULES_DEST}/common"
+    cp -r "${RULES_SRC}/common/." "${RULES_DEST}/common/"
+    state_record_tree "${RULES_DEST}/common" "rules/claude-rules/common"
+    green "  common/ -> ~/.claude/rules/vibeguard/common/"
+  fi
+  # language-specific rules: respect --languages filter
+  for subdir in rust golang typescript python; do
     if [[ -d "${RULES_SRC}/${subdir}" ]]; then
-      mkdir -p "${RULES_DEST}/${subdir}"
-      cp -r "${RULES_SRC}/${subdir}/." "${RULES_DEST}/${subdir}/"
-      green "  ${subdir}/ -> ~/.claude/rules/vibeguard/${subdir}/"
+      if lang_selected "$subdir"; then
+        mkdir -p "${RULES_DEST}/${subdir}"
+        cp -r "${RULES_SRC}/${subdir}/." "${RULES_DEST}/${subdir}/"
+        state_record_tree "${RULES_DEST}/${subdir}" "rules/claude-rules/${subdir}"
+        green "  ${subdir}/ -> ~/.claude/rules/vibeguard/${subdir}/"
+      else
+        # Remove previously installed rules for unselected languages
+        if [[ -d "${RULES_DEST}/${subdir}" ]]; then
+          rm -rf "${RULES_DEST}/${subdir}"
+          yellow "  ${subdir}/ removed (not in --languages filter)"
+        else
+          yellow "  SKIP ${subdir}/ (not in --languages filter)"
+        fi
+      fi
     fi
   done
+  # Install user custom rules (merge from ~/.vibeguard/user-rules/)
+  if [[ -d "${VIBEGUARD_HOME}/user-rules" ]]; then
+    local_rules_count=$(find "${VIBEGUARD_HOME}/user-rules" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$local_rules_count" -gt 0 ]]; then
+      mkdir -p "${RULES_DEST}/custom"
+      cp "${VIBEGUARD_HOME}/user-rules/"*.md "${RULES_DEST}/custom/" 2>/dev/null || true
+      state_record_tree "${RULES_DEST}/custom" "user-rules"
+      green "  custom/ -> ~/.claude/rules/vibeguard/custom/ (${local_rules_count} user rules)"
+    fi
+  fi
 else
   yellow "  SKIP native rules (source not found: ${RULES_SRC})"
 fi
@@ -135,12 +218,14 @@ mkdir -p "${CODEX_DIR}/skills"
 for skill in plan-flow fixflow optflow plan-mode auto-optimize; do
   if [[ -d "${REPO_DIR}/workflows/${skill}" ]]; then
     safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
+    state_record_file "${CODEX_DIR}/skills/${skill}" "workflows/${skill}" "symlink"
     green "  ${skill} -> ~/.codex/skills/${skill}"
   else
     yellow "  SKIP ${skill} (source not found)"
   fi
 done
 safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
+state_record_file "${CODEX_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
 green "  vibeguard -> ~/.codex/skills/vibeguard"
 echo
 
@@ -176,10 +261,35 @@ echo
 
 # 9. Configure MCP Server + Hooks in settings.json
 echo "Step 9: Configure MCP Server + Hooks (${PROFILE} profile)"
-if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null 2>&1; then
+# Map 4 profiles to settings_json.py's profile parameter
+SETTINGS_PROFILE="$PROFILE"
+# minimal maps to core for hook registration, with runtime profile controlling behavior
+case "$PROFILE" in
+  minimal) SETTINGS_PROFILE="core" ;;
+esac
+if settings_upsert "${SETTINGS_FILE}" "${SETTINGS_PROFILE}" >/dev/null 2>&1; then
+  state_record_file "${SETTINGS_FILE}" "generated/settings.json" "copy"
   green "  MCP Server + Hooks configured in ~/.claude/settings.json (${PROFILE})"
 else
   red "  Failed to configure settings.json"
+fi
+echo
+
+# 9.2. Configure Codex MCP server (strategy-based; does not affect Claude setup)
+echo "Step 9.2: Configure Codex MCP Server"
+if codex_output=$(codex_mcp_upsert 2>&1); then
+  if [[ -f "${CODEX_DIR}/config.toml" ]]; then
+    state_record_file "${CODEX_DIR}/config.toml" "generated/codex-config.toml" "copy"
+  fi
+  codex_strategy=$(echo "${codex_output}" | awk -F: '/^STRATEGY:/{print $2}' | head -1)
+  codex_strategy="${codex_strategy:-unknown}"
+  if echo "${codex_output}" | grep -q "CHANGED"; then
+    green "  Codex MCP configured in ~/.codex/config.toml (${codex_strategy})"
+  else
+    green "  Codex MCP already up to date (${codex_strategy})"
+  fi
+else
+  yellow "  SKIP Codex MCP config (reason: ${codex_output})"
 fi
 echo
 
@@ -225,6 +335,7 @@ if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh"
 fi
 WRAPPER
 chmod +x "${PRE_COMMIT_WRAPPER}"
+state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
 green "  ~/.vibeguard/pre-commit wrapper ready"
 # 自动安装到 VibeGuard 自身仓库
 VG_GIT_HOOKS="${REPO_DIR}/.git/hooks"
@@ -238,6 +349,9 @@ echo
 echo "Step 10: Update VibeGuard rules in CLAUDE.md"
 RULES_FILE="${REPO_DIR}/claude-md/vibeguard-rules.md"
 if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${RULES_FILE}" "${REPO_DIR}" 2>&1); then
+  if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
+    state_record_file "${CLAUDE_DIR}/CLAUDE.md" "generated/CLAUDE.md" "copy"
+  fi
   green "  VibeGuard rules synced to ~/.claude/CLAUDE.md (${result})"
 else
   red "  Failed to update CLAUDE.md"
@@ -253,9 +367,14 @@ green "Setup complete! All components installed."
 echo
 echo "Next steps:"
 echo "  1. Open a new Claude Code session to verify rules are active"
-echo "  2. Switch profile: bash install.sh --profile full|core"
+echo "  2. Switch profile: bash install.sh --profile minimal|core|full|strict"
 echo "  3. Run: /vibeguard:preflight <project_dir>"
 echo "  4. Run: /vibeguard:check <project_dir>"
+echo
+echo "Runtime configuration (env vars or .vibeguard.json):"
+echo "  VIBEGUARD_PROFILE=minimal|standard|strict    Runtime profile"
+echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
+echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo
 echo "Git Pre-Commit Guard:"
 echo "  已自动安装到 VibeGuard 仓库"

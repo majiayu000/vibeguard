@@ -449,7 +449,7 @@ vibeguard/
 │   ├── gc-logs.sh                        #   日志归档
 │   ├── gc-worktrees.sh                   #   Worktree 清理
 │   ├── gc-scheduled.sh                   #   定期 GC（launchd 调度，每周日 3:00）
-│   ├── project-init.sh                   #   项目级脚手架（语言检测 + 守卫激活 + pre-commit 安装）
+│   ├── project-init.sh                   #   项目级脚手架（语言检测 + 守卫激活 + pre-commit/pre-push 安装）
 │   ├── metrics-exporter.sh               #   Prometheus 指标导出
 │   └── ci/                               #   CI 验证脚本
 ├── context-profiles/                     # 上下文模式（dev/review/research）
@@ -482,9 +482,37 @@ cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md
 
 ```bash
 cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md
+bash ~/vibeguard/setup.sh
 ```
 
-等价于 CLAUDE.md 的约束，适配 Codex agent 格式。
+等价于 CLAUDE.md 的约束，适配 Codex agent 格式。`setup.sh` 还会自动安装 Codex skills，并配置 `~/.codex/config.toml` 中的 VibeGuard MCP。
+
+### Codex 适配层（解耦 + 策略模式）
+
+VibeGuard 对 Codex 的接入与 Claude 配置解耦，不会影响 `~/.claude/settings.json` 现有链路：
+
+- `scripts/lib/codex_mcp.py` 采用策略模式：
+  - `CodexCliMcpStrategy`：优先走 `codex mcp add/get/remove`
+  - `TomlFileMcpStrategy`：CLI 不可用时回退编辑 `~/.codex/config.toml`
+- Claude hooks 仍按原逻辑工作，互不影响。
+
+验证 Codex MCP：
+
+```bash
+codex mcp get vibeguard --json
+```
+
+对于 Symphony 这类 `codex app-server` 编排场景，可选使用外层 wrapper：
+
+```bash
+python3 ~/vibeguard/scripts/codex/app_server_wrapper.py \
+  --codex-command "codex app-server"
+```
+
+策略模式参数：
+
+- `--strategy vibeguard`（默认）：启用外层 pre/stop/post gate
+- `--strategy noop`：纯透传（调试）
 
 **方式四：路径作用域规则（可选）**
 
