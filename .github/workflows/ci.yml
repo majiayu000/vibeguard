@@ -110,7 +110,7 @@ jobs:
       - name: Hook precision tests
         if: runner.os != 'Windows'
         shell: bash
-        run: bash tests/run_precision.sh --all
+        run: bash tests/run_precision.sh --all --csv
 
       - name: VibeGuard Benchmark (fast)
         if: runner.os != 'Windows'
