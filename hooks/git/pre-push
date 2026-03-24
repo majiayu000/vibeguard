@@ -15,7 +15,13 @@
 
 set -euo pipefail
 
-ZEROS="0000000000000000000000000000000000000000"
+# Construct zero OID matching current repo's object format (SHA-1: 40, SHA-256: 64)
+_obj_format=$(git rev-parse --show-object-format 2>/dev/null || echo sha1)
+if [[ "$_obj_format" == "sha256" ]]; then
+  ZEROS="0000000000000000000000000000000000000000000000000000000000000000"
+else
+  ZEROS="0000000000000000000000000000000000000000"
+fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   # Deleting a remote branch — treated as a destructive force operation
@@ -38,8 +44,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 
 # Also inspect push options passed via --push-option (e.g. git push --push-option=force)
-if [[ -n "${GIT_PUSH_OPTION_COUNT:-}" ]]; then
-  for i in $(seq 0 $((GIT_PUSH_OPTION_COUNT - 1))); do
+if [[ -n "${GIT_PUSH_OPTION_COUNT:-}" ]] && (( GIT_PUSH_OPTION_COUNT > 0 )); then
+  for ((i=0; i<GIT_PUSH_OPTION_COUNT; i++)); do
     opt_var="GIT_PUSH_OPTION_${i}"
     opt="${!opt_var:-}"
     if [[ "$opt" == force* ]]; then

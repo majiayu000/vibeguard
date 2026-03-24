@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--remove" ]]; then
   fi
 
   PREPUSH_PATH="${HOOK_DIR}/pre-push"
-  if [[ -L "$PREPUSH_PATH" ]] && readlink "$PREPUSH_PATH" | grep -q "vibeguard"; then
+  if [[ -L "$PREPUSH_PATH" ]] && [[ "$(readlink "$PREPUSH_PATH")" == "$PREPUSH_SCRIPT" ]]; then
     rm -f "$PREPUSH_PATH"
     green "已移除: ${PREPUSH_PATH}"
   else
