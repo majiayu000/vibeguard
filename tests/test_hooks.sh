@@ -180,7 +180,9 @@ fi
 TOTAL=$((TOTAL + 1))
 
 # 删除远端分支（local_sha 全零）应被拦截
-if ! run_prepush "$ZEROS refs/heads/feature abc123 refs/heads/feature" 2>/dev/null; then
+# 格式: <local-ref> <local-sha> <remote-ref> <remote-sha>
+# 删除时 local-sha 为全零，local-ref 用 (delete) 标记
+if ! run_prepush "refs/heads/feature $ZEROS refs/heads/feature abc123" 2>/dev/null; then
   green "拦截删除远端分支（local_sha=0000）"
   PASS=$((PASS + 1))
 else

@@ -51,24 +51,27 @@ fi
 HOOK_DIR="${PROJECT_DIR}/.git/hooks"
 mkdir -p "$HOOK_DIR"
 
-# --- pre-commit hook ---
+# --- 预检查：所有冲突在任何安装之前统一验证 ---
 PRECOMMIT_PATH="${HOOK_DIR}/pre-commit"
+PREPUSH_PATH="${HOOK_DIR}/pre-push"
+
 if [[ -f "$PRECOMMIT_PATH" ]] && [[ ! -L "$PRECOMMIT_PATH" ]]; then
   red "错误: ${PRECOMMIT_PATH} 已存在且不是 symlink"
   red "请手动处理后重试，或在现有 hook 中添加:"
   echo "  VIBEGUARD_DIR=\"${REPO_DIR}\" bash \"${PRECOMMIT_SCRIPT}\""
   exit 1
 fi
-ln -sf "$PRECOMMIT_SCRIPT" "$PRECOMMIT_PATH"
-green "已安装: ${PRECOMMIT_PATH} -> ${PRECOMMIT_SCRIPT}"
 
-# --- pre-push hook ---
-PREPUSH_PATH="${HOOK_DIR}/pre-push"
 if [[ -f "$PREPUSH_PATH" ]] && [[ ! -L "$PREPUSH_PATH" ]]; then
   red "错误: ${PREPUSH_PATH} 已存在且不是 symlink"
   red "请手动处理后重试，或手动合并 ${PREPUSH_SCRIPT} 的逻辑"
   exit 1
 fi
+
+# --- 安装（预检查已通过，无中间失败态）---
+ln -sf "$PRECOMMIT_SCRIPT" "$PRECOMMIT_PATH"
+green "已安装: ${PRECOMMIT_PATH} -> ${PRECOMMIT_SCRIPT}"
+
 ln -sf "$PREPUSH_SCRIPT" "$PREPUSH_PATH"
 green "已安装: ${PREPUSH_PATH} -> ${PREPUSH_SCRIPT}"
 
