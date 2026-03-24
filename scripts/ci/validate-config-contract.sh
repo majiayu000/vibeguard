@@ -51,7 +51,8 @@ def parse_language_enum(index_text: str) -> list[str]:
 
 
 def parse_readme_guard_languages(readme_text: str) -> list[str]:
-    m = re.search(r"`?guard_check`?\s*支持语言[:：]\s*([^\n]+)", readme_text)
+    # 支持中英文两种 README 格式
+    m = re.search(r"`?guard_check`?\s*(?:支持语言|—[^\n]*?\()[:：]?\s*([^\n\)]+)", readme_text)
     if not m:
         die("README 缺少 guard_check 支持语言说明")
     return re.findall(r"[a-z]+", m.group(1))

@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build --silent && node --test tests/detector-and-guards.test.mjs"
+    "test": "npm run build --silent && node --test tests/detector-and-guards.test.mjs tests/integration/test_mcp_server.mjs",
+    "test:unit": "npm run build --silent && node --test tests/detector-and-guards.test.mjs",
+    "test:integration": "npm run build --silent && node --test tests/integration/test_mcp_server.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

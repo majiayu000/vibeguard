@@ -96,6 +96,21 @@ jobs:
         shell: bash
         run: bash tests/test_setup.sh
 
+      - name: Guard unit tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/unit/run_all.sh
+
+      - name: Hook precision tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/run_precision.sh --all
+
+      - name: VibeGuard Benchmark (fast)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/benchmark.sh --mode=fast
+
       # --- MCP server (cross-platform: Node.js) ---
       - name: MCP install dependencies
         working-directory: mcp-server
