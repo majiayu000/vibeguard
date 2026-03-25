@@ -74,6 +74,7 @@ _vg_cb_load() {
     CB_BLOCKS=0
     CB_LAST_BLOCK=0
     CB_SESSION=""
+    _vg_cb_save "$hook"
   fi
 }
 
@@ -114,6 +115,7 @@ vg_cb_check() {
       local elapsed=$(( now - CB_LAST_BLOCK ))
       if [[ "$elapsed" -ge "$CB_COOLDOWN" ]]; then
         CB_STATE="HALF-OPEN"
+        CB_LAST_BLOCK=$(_vg_cb_now)
         _vg_cb_save "$hook"
         return 0  # Let one probe through
       else
