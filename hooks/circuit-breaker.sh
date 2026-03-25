@@ -59,6 +59,19 @@ _vg_cb_state_file() {
   printf '%s/%s/%s.cb' "$CB_DIR" "$slug" "$hook"
 }
 
+# Return the exclusive lock file path for <hook> (sibling of the state file).
+_vg_cb_lock_file() {
+  local hook="$1"
+  printf '%s.lock' "$(_vg_cb_state_file "$hook")"
+}
+
+# Acquire an exclusive flock on fd <n>, waiting up to 5 seconds.
+# Silently skips if flock(1) is unavailable (e.g., macOS without util-linux).
+# Always returns 0 so callers under set -euo pipefail are not aborted.
+_vg_cb_try_flock() {
+  command -v flock >/dev/null 2>&1 && flock -x -w 5 "$1" 2>/dev/null || true
+}
+
 # Load state for <hook> into CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION
 _vg_cb_load() {
   local hook="$1"
@@ -129,83 +142,115 @@ _vg_cb_save() {
 # Returns 0 if the hook should run normally.
 # Returns 1 if the circuit is OPEN and the call should be auto-passed.
 # Transitions OPEN → HALF-OPEN when the cooldown has expired.
+# The entire read-decide-write cycle runs inside an exclusive flock to prevent
+# concurrent hook invocations from racing on the state file.
 vg_cb_check() {
   local hook="$1"
-  _vg_cb_load "$hook"
-  local now
-  now=$(_vg_cb_now)
+  local lock_file
+  lock_file=$(_vg_cb_lock_file "$hook")
+  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
+  (
+    _vg_cb_try_flock 9
+    _vg_cb_load "$hook"
+    now=$(_vg_cb_now)
 
-  case "$CB_STATE" in
-    CLOSED)
-      return 0
-      ;;
-    OPEN)
-      local elapsed=$(( now - CB_LAST_BLOCK ))
-      if [[ "$elapsed" -ge "$CB_COOLDOWN" ]]; then
-        CB_STATE="HALF-OPEN"
-        CB_LAST_BLOCK=$(_vg_cb_now)
+    case "$CB_STATE" in
+      CLOSED)
+        exit 0
+        ;;
+      OPEN)
+        elapsed=$(( now - CB_LAST_BLOCK ))
+        if [[ "$elapsed" -ge "$CB_COOLDOWN" ]]; then
+          CB_STATE="HALF-OPEN"
+          CB_LAST_BLOCK=$(_vg_cb_now)
+          _vg_cb_save "$hook"
+          exit 0  # Let one probe through
+        else
+          remaining=$(( CB_COOLDOWN - elapsed ))
+          _vg_cb_log "$hook" "circuit-breaker" "pass" \
+            "CB OPEN: auto-pass (${remaining}s remaining, ${CB_BLOCKS} consecutive blocks)" ""
+          exit 1  # Auto-pass: caller should skip hook logic and exit 0
+        fi
+        ;;
+      HALF-OPEN)
+        exit 0  # Probe attempt: let it through
+        ;;
+      *)
+        CB_STATE="CLOSED"; CB_BLOCKS=0
         _vg_cb_save "$hook"
-        return 0  # Let one probe through
-      else
-        local remaining=$(( CB_COOLDOWN - elapsed ))
-        _vg_cb_log "$hook" "circuit-breaker" "pass" \
-          "CB OPEN: auto-pass (${remaining}s remaining, ${CB_BLOCKS} consecutive blocks)" ""
-        return 1  # Auto-pass: caller should skip hook logic and exit 0
-      fi
-      ;;
-    HALF-OPEN)
-      return 0  # Probe attempt: let it through
-      ;;
-    *)
-      CB_STATE="CLOSED"; CB_BLOCKS=0
-      _vg_cb_save "$hook"
-      return 0
-      ;;
-  esac
+        exit 0
+        ;;
+    esac
+  ) 9>"$lock_file"
 }
 
 # vg_cb_record_block <hook>
 # Records one block/warn event. Trips circuit to OPEN after CB_THRESHOLD consecutive events.
+# Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_block() {
   local hook="$1"
-  _vg_cb_load "$hook"
-  CB_BLOCKS=$(( CB_BLOCKS + 1 ))
-  CB_LAST_BLOCK=$(_vg_cb_now)
+  local lock_file
+  lock_file=$(_vg_cb_lock_file "$hook")
+  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
+  (
+    _vg_cb_try_flock 9
+    _vg_cb_load "$hook"
+    CB_BLOCKS=$(( CB_BLOCKS + 1 ))
+    CB_LAST_BLOCK=$(_vg_cb_now)
 
-  if [[ "$CB_STATE" == "HALF-OPEN" ]] || [[ "$CB_BLOCKS" -ge "$CB_THRESHOLD" ]]; then
-    CB_STATE="OPEN"
-    _vg_cb_log "$hook" "circuit-breaker" "warn" \
-      "CB tripped OPEN: ${CB_BLOCKS} consecutive blocks, cooldown ${CB_COOLDOWN}s" ""
-  fi
-  _vg_cb_save "$hook"
+    if [[ "$CB_STATE" == "HALF-OPEN" ]] || [[ "$CB_BLOCKS" -ge "$CB_THRESHOLD" ]]; then
+      CB_STATE="OPEN"
+      _vg_cb_log "$hook" "circuit-breaker" "warn" \
+        "CB tripped OPEN: ${CB_BLOCKS} consecutive blocks, cooldown ${CB_COOLDOWN}s" ""
+    fi
+    _vg_cb_save "$hook"
+  ) 9>"$lock_file"
 }
 
 # vg_cb_record_pass <hook>
 # Records a successful (non-blocking) result. Resets circuit to CLOSED.
+# Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_pass() {
   local hook="$1"
-  _vg_cb_load "$hook"
-  if [[ "$CB_STATE" != "CLOSED" ]] || [[ "$CB_BLOCKS" -gt 0 ]]; then
-    CB_STATE="CLOSED"
-    CB_BLOCKS=0
-    CB_LAST_BLOCK=0
-    _vg_cb_save "$hook"
-  fi
+  local lock_file
+  lock_file=$(_vg_cb_lock_file "$hook")
+  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
+  (
+    _vg_cb_try_flock 9
+    _vg_cb_load "$hook"
+    if [[ "$CB_STATE" != "CLOSED" ]] || [[ "$CB_BLOCKS" -gt 0 ]]; then
+      CB_STATE="CLOSED"
+      CB_BLOCKS=0
+      CB_LAST_BLOCK=0
+      _vg_cb_save "$hook"
+    fi
+  ) 9>"$lock_file"
 }
 
 # ── CI guard ─────────────────────────────────────────────────────────────────
 
+# _vg_is_truthy <value>
+# Returns 0 if the value is a recognized truthy CI flag: true, True, TRUE, 1, yes, Yes, YES.
+# This prevents CI=false or CI=0 from being misread as "running in CI".
+_vg_is_truthy() {
+  case "${1:-}" in
+    true|True|TRUE|1|yes|Yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # vg_is_ci
 # Returns 0 (true) if running inside a CI environment.
+# Only truthy values (true/1/yes) are accepted; CI=false or CI=0 are treated as "not CI".
 # Hooks that rely on desktop-only context should call:  vg_is_ci && exit 0
 vg_is_ci() {
-  [[ -n "${CI:-}" ]] \
-    || [[ -n "${GITHUB_ACTIONS:-}" ]] \
-    || [[ -n "${TRAVIS:-}" ]] \
-    || [[ -n "${CIRCLECI:-}" ]] \
+  _vg_is_truthy "${CI:-}" \
+    || _vg_is_truthy "${GITHUB_ACTIONS:-}" \
+    || _vg_is_truthy "${TRAVIS:-}" \
+    || _vg_is_truthy "${CIRCLECI:-}" \
     || [[ -n "${JENKINS_URL:-}" ]] \
-    || [[ -n "${GITLAB_CI:-}" ]] \
-    || [[ -n "${TF_BUILD:-}" ]]
+    || _vg_is_truthy "${GITLAB_CI:-}" \
+    || _vg_is_truthy "${TF_BUILD:-}"
 }
 
 # ── stop_hook_active guard ────────────────────────────────────────────────────

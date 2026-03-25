@@ -228,6 +228,8 @@ printf '\n--- CI guard ---\n'
 setup
 assert_ok "vg_is_ci: detects CI=true" \
   bash -c "source '${CB_SCRIPT}'; CI=true vg_is_ci"
+assert_ok "vg_is_ci: detects CI=1" \
+  bash -c "source '${CB_SCRIPT}'; CI=1 vg_is_ci"
 assert_ok "vg_is_ci: detects GITHUB_ACTIONS=true" \
   bash -c "source '${CB_SCRIPT}'; GITHUB_ACTIONS=true vg_is_ci"
 assert_fail "vg_is_ci: returns 1 when no CI vars set" \
@@ -235,6 +237,18 @@ assert_fail "vg_is_ci: returns 1 when no CI vars set" \
     unset CI GITHUB_ACTIONS TRAVIS CIRCLECI JENKINS_URL GITLAB_CI TF_BUILD
     source '${CB_SCRIPT}'
     vg_is_ci
+  "
+assert_fail "vg_is_ci: returns 1 when CI=false" \
+  bash -c "
+    unset GITHUB_ACTIONS TRAVIS CIRCLECI JENKINS_URL GITLAB_CI TF_BUILD
+    source '${CB_SCRIPT}'
+    CI=false vg_is_ci
+  "
+assert_fail "vg_is_ci: returns 1 when CI=0" \
+  bash -c "
+    unset GITHUB_ACTIONS TRAVIS CIRCLECI JENKINS_URL GITLAB_CI TF_BUILD
+    source '${CB_SCRIPT}'
+    CI=0 vg_is_ci
   "
 teardown
 
