@@ -7,6 +7,7 @@ Claude Code hooks 脚本，在 AI 操作前后自动触发。
 | 文件 | 触发时机 | 职责 |
 |------|----------|------|
 | `log.sh` | 被其他 hook source | 日志模块，提供 `vg_log`、JSON 解析、源码判断等共享函数 |
+| `circuit-breaker.sh` | 被其他 hook source | 断路器库：CLOSED→OPEN→HALF-OPEN 状态机、CI guard（`vg_is_ci`）、stop_hook_active 检查（`vg_stop_hook_active`） |
 | `pre-bash-guard.sh` | PreToolUse(Bash) | 拦截危险命令：force push、rm -rf /、reset --hard 等 |
 | `pre-edit-guard.sh` | PreToolUse(Edit) | 拦截编辑不存在的文件（防幻觉） |
 | `pre-write-guard.sh` | PreToolUse(Write) | 新建源码文件前提醒先搜索已有实现 |

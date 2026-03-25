@@ -11,6 +11,14 @@
 # 检测到显著信号时输出建议（不阻塞）
 set -euo pipefail
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/circuit-breaker.sh"
+
+# CI guard: skip in automated environments
+vg_is_ci && exit 0
+
+# Read stdin; check stop_hook_active to break Stop-hook chain loops
+INPUT=$(cat 2>/dev/null || true)
+vg_stop_hook_active "$INPUT" && exit 0
 
 # 不在 git 仓库 → 跳过
 if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then

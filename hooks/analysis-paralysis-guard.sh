@@ -6,10 +6,18 @@
 #
 # Mechanism: count recent events in session log. If the last N tool uses are all
 # Read/Glob/Grep (research tools) with no Write/Edit/Bash interleaved, trigger warning.
+#
+# Circuit breaker: after CB_THRESHOLD consecutive warns (default 3), the hook
+# auto-passes for CB_COOLDOWN seconds (default 5 min) to prevent alert fatigue
+# and the 716x warn loop documented in GitHub issue #10205.
 
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/circuit-breaker.sh"
+
+# CI guard: analysis-paralysis warnings are not actionable in CI
+vg_is_ci && exit 0
 
 THRESHOLD="${VG_PARALYSIS_THRESHOLD:-7}"
 
@@ -63,15 +71,19 @@ print(consecutive)
 
 CONSECUTIVE="${CONSECUTIVE:-0}"
 
-# Log the Read event itself
+# Log the Read event itself (always, regardless of circuit breaker state)
 vg_log "analysis-paralysis-guard" "Read" "pass" "consecutive_reads=${CONSECUTIVE}" ""
 
 if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
-  WARNING="[ANALYSIS PARALYSIS] 已连续 ${CONSECUTIVE} 次只读操作（Read/Glob/Grep）没有任何写入。你可能陷入了"读了又读"循环。必须选择：(1) 动手写代码/编辑文件 (2) 向用户报告 blocker 并说明卡在哪里。"
+  # Circuit breaker check: if this hook has been firing repeatedly without
+  # resolution, open the circuit and auto-pass to prevent 716x warn loops.
+  if vg_cb_check "analysis-paralysis-guard"; then
+    WARNING="[ANALYSIS PARALYSIS] 已连续 ${CONSECUTIVE} 次只读操作（Read/Glob/Grep）没有任何写入。你可能陷入了"读了又读"循环。必须选择：(1) 动手写代码/编辑文件 (2) 向用户报告 blocker 并说明卡在哪里。"
 
-  vg_log "analysis-paralysis-guard" "Read" "warn" "paralysis ${CONSECUTIVE}x" ""
+    vg_log "analysis-paralysis-guard" "Read" "warn" "paralysis ${CONSECUTIVE}x" ""
+    vg_cb_record_block "analysis-paralysis-guard"
 
-  VG_WARNINGS="$WARNING" python3 -c '
+    VG_WARNINGS="$WARNING" python3 -c '
 import json, os
 warnings = os.environ.get("VG_WARNINGS", "")
 result = {
@@ -82,4 +94,9 @@ result = {
 }
 print(json.dumps(result, ensure_ascii=False))
 '
+  fi
+  # If circuit is OPEN, vg_cb_check returned 1 and already logged the auto-pass.
+  # We silently skip the warn to break the loop.
+else
+  vg_cb_record_pass "analysis-paralysis-guard"
 fi
