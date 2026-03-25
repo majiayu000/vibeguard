@@ -68,7 +68,7 @@ function getLength(val: string | number): number {
 }
 EOF
 assert_fail "@ts-ignore fails --strict" bash "$GUARD" --strict "$proj_ts_ignore"
-assert_output_contains "output contains TS-01 tag for ts-ignore" "[TS-01]" bash "$GUARD" --strict "$proj_ts_ignore"
+assert_output_contains "output contains TS-02 tag for ts-ignore" "[TS-02]" bash "$GUARD" --strict "$proj_ts_ignore"
 
 # --- FAIL: @ts-nocheck at top of file ---
 proj_ts_nocheck="${tmpdir}/fail_ts_nocheck"
@@ -80,7 +80,7 @@ export function legacyFunction(x) {
 }
 EOF
 assert_fail "@ts-nocheck fails --strict" bash "$GUARD" --strict "$proj_ts_nocheck"
-assert_output_contains "output contains TS-01 tag for nocheck" "[TS-01]" bash "$GUARD" --strict "$proj_ts_nocheck"
+assert_output_contains "output contains TS-02 tag for nocheck" "[TS-02]" bash "$GUARD" --strict "$proj_ts_nocheck"
 
 # --- PASS: properly typed code ---
 proj_clean="${tmpdir}/pass_typed"

@@ -36,7 +36,7 @@ _ASG_TMPOUT=$(create_tmpfile)
 if ! ast-grep scan \
     --rule "${RULES_DIR}/rs-14-config-default.yml" \
     --json \
-    "${TARGET_DIR}" > "${_ASG_TMPOUT}" 2>/dev/null; then
+    "${TARGET_DIR}" > "${_ASG_TMPOUT}"; then
   echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
   exit 0
 fi

@@ -39,7 +39,7 @@ if command -v ast-grep >/dev/null 2>&1; then
       if ast-grep scan \
           --rule "${RULES_DIR}/ts-01-any.yml" \
           --json \
-          "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
+          "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}"; then
         python3 -c '
 import json, sys, re
 TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)tests/|(^|/)__tests__/|(^|/)test/|(^|/)vendor/)")
@@ -107,15 +107,24 @@ while IFS= read -r file; do
 
 done < <(list_ts_files "$TARGET_DIR" | filter_non_test)
 
-COUNT=$(wc -l < "$RESULTS" | tr -d ' ')
+COUNT_01=$(grep -cE '^\[TS-01\]' "$RESULTS" || true)
+COUNT_02=$(grep -cE '^\[TS-02\]' "$RESULTS" || true)
+COUNT=$((COUNT_01 + COUNT_02))
 
 if [[ "$COUNT" -eq 0 ]]; then
   echo "[TS-01] PASS: 未检测到 any 类型滥用"
   exit 0
 fi
 
-echo "[TS-01] 检测到 ${COUNT} 处 any 类型/ts-ignore 问题:"
-cat "$RESULTS"
+if [[ "$COUNT_01" -gt 0 ]]; then
+  echo "[TS-01] 检测到 ${COUNT_01} 处 any 类型问题:"
+  grep -E '^\[TS-01\]' "$RESULTS"
+fi
+
+if [[ "$COUNT_02" -gt 0 ]]; then
+  echo "[TS-02] 检测到 ${COUNT_02} 处 ts-ignore/ts-nocheck 问题:"
+  grep -E '^\[TS-02\]' "$RESULTS"
+fi
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

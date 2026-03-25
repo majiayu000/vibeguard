@@ -38,7 +38,7 @@ if command -v ast-grep >/dev/null 2>&1; then
       if ast-grep scan \
           --rule "${RULES_DIR}/go-01-error.yml" \
           --json \
-          "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
+          "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}"; then
         python3 -c '
 import json, sys, re
 TEST_PATH = re.compile(r"(_test\.go$|(^|/)vendor/)")
