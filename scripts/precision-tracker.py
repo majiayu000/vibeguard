@@ -133,7 +133,13 @@ def _validate_triage_record(rec: Any, lineno: int) -> bool:
     # Validate ts is parseable ISO-8601 when present
     if isinstance(ts, str) and ts:
         try:
-            datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                print(
+                    f"[ERROR] triage.jsonl line {lineno}: 'ts' must include timezone offset (e.g. 2026-03-01T10:00:00Z): {ts!r}",
+                    file=sys.stderr,
+                )
+                return False
         except ValueError:
             print(
                 f"[ERROR] triage.jsonl line {lineno}: 'ts' is not a valid ISO-8601 timestamp: {ts!r}",
@@ -230,11 +236,15 @@ def compute_rule_stats(
             if ts:
                 try:
                     ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if ts_dt.tzinfo is None:
+                        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
                     last_fp_ts = stats[rule]["last_fp_ts"]
                     if last_fp_ts is None:
                         stats[rule]["last_fp_ts"] = ts
                     else:
                         last_dt = datetime.fromisoformat(last_fp_ts.replace("Z", "+00:00"))
+                        if last_dt.tzinfo is None:
+                            last_dt = last_dt.replace(tzinfo=timezone.utc)
                         if ts_dt > last_dt:
                             stats[rule]["last_fp_ts"] = ts
                 except ValueError:
@@ -261,6 +271,8 @@ def days_since(ts_str: str | None) -> float | None:
         return None
     try:
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - dt).total_seconds() / 86400
     except ValueError:
         return None

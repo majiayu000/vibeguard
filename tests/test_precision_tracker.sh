@@ -523,7 +523,7 @@ header "Issue-3: 抑制规则边界 — RS-03X 不误匹配 RS-03"
 suppress_out=$(python3 -c "
 import sys, re
 rule = 'RS-03'
-suppress_pat = re.compile(r'(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
 lines = [
     '// vibeguard-disable-next-line RS-03X -- wrong rule',
     'should_appear_1',
@@ -542,13 +542,13 @@ assert_contains "$suppress_out" "should_appear_1" "RS-03X 注释不抑制 RS-03 
 assert_not_contains "$suppress_out" "should_not_appear" "RS-03 注释正确抑制下一行"
 assert_not_contains "$suppress_out" "also_not_appear" "无 reason 的 RS-03 注释也正确抑制"
 
-# Code strings must not suppress
+# Code strings containing // must not suppress (reviewer bypass scenario)
 suppress_out2=$(python3 -c "
 import sys, re
 rule = 'RS-03'
-suppress_pat = re.compile(r'(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
 lines = [
-    'let s = \"vibeguard-disable-next-line RS-03 in string\";',
+    'let s = \"// vibeguard-disable-next-line RS-03 in string\";',
     'should_appear_2',
 ]
 for i, line in enumerate(lines):
@@ -557,7 +557,49 @@ for i, line in enumerate(lines):
         continue
     print(line)
 ")
-assert_contains "$suppress_out2" "should_appear_2" "代码字符串中的标记不抑制（无注释前缀）"
+assert_contains "$suppress_out2" "should_appear_2" "字符串中的 // 标记不抑制（非行首注释）"
+
+header "Issue-4: 无时区时间戳被校验拒绝（防 naive vs aware TypeError）"
+TRIAGE_NAIVE="${TMPDIR_TEST}/triage_naive.jsonl"
+SCORECARD_NAIVE="${TMPDIR_TEST}/scorecard_naive.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'NZ-01': {
+      'stage': 'warn', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_NAIVE"
+# naive timestamp (no Z / offset) must be rejected; tz-aware tp must be accepted
+printf '%s\n' \
+  '{"ts":"2026-03-01T10:00:00","rule":"NZ-01","verdict":"fp"}' \
+  '{"ts":"2026-03-01T11:00:00Z","rule":"NZ-01","verdict":"tp"}' \
+  > "$TRIAGE_NAIVE"
+
+naive_stderr=$(python3 "$TRACKER" \
+  --triage-file "$TRIAGE_NAIVE" \
+  --scorecard-file "$SCORECARD_NAIVE" \
+  --update-scorecard 2>&1 >/dev/null)
+assert_contains "$naive_stderr" "[ERROR]" "无时区 fp ts 产生 ERROR 输出"
+
+naive_samples=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD_NAIVE'))
+print(sc['rules']['NZ-01']['samples'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$naive_samples" == "1" ]]; then
+  green "无时区 fp 被拒绝，仅 tp 计入 samples=1"
+  PASS=$((PASS + 1))
+else
+  red "samples 错误（期望 1，实际 $naive_samples）"
+  FAIL=$((FAIL + 1))
+fi
 
 # =========================================================
 echo
