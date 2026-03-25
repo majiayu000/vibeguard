@@ -431,6 +431,134 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "Issue-1: fp 缺失 ts 被拒绝，不计入 fp 统计"
+TRIAGE_NO_TS="${TMPDIR_TEST}/triage_no_ts.jsonl"
+SCORECARD_NO_TS="${TMPDIR_TEST}/scorecard_no_ts.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'TS-01': {
+      'stage': 'warn', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_NO_TS"
+# fp without ts must be rejected; tp with ts is valid; total samples should be 1
+printf '%s\n' \
+  '{"ts":"2026-03-01T00:00:00Z","rule":"TS-01","verdict":"tp"}' \
+  '{"rule":"TS-01","verdict":"fp"}' \
+  > "$TRIAGE_NO_TS"
+
+no_ts_stderr=$(python3 "$TRACKER" \
+  --triage-file "$TRIAGE_NO_TS" \
+  --scorecard-file "$SCORECARD_NO_TS" \
+  --update-scorecard 2>&1 >/dev/null)
+assert_contains "$no_ts_stderr" "[ERROR]" "fp 缺失 ts 时产生 ERROR 输出"
+
+# last_fp_ts must remain None (fp was rejected), so warn→error must not fire
+no_ts_last_fp=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD_NO_TS'))
+print(sc['rules']['TS-01']['last_fp_ts'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$no_ts_last_fp" == "None" ]]; then
+  green "fp 缺失 ts 时 last_fp_ts 保持 None（不误晋级）"
+  PASS=$((PASS + 1))
+else
+  red "last_fp_ts 不应被更新（期望 None，实际 $no_ts_last_fp）"
+  FAIL=$((FAIL + 1))
+fi
+
+header "Issue-2: 跨时区 fp ts 比较使用 datetime 而非字符串"
+TRIAGE_TZ="${TMPDIR_TEST}/triage_tz.jsonl"
+SCORECARD_TZ="${TMPDIR_TEST}/scorecard_tz.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'TZ-01': {
+      'stage': 'warn', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_TZ"
+# +09:00 record is 2026-03-01T12:00:00+09:00 = 2026-03-01T03:00:00Z
+# Z record is 2026-03-01T10:00:00Z  (later in UTC)
+# String sort: "+09:00" < "Z" is wrong; datetime comparison must pick the Z record
+printf '%s\n' \
+  '{"ts":"2026-03-01T12:00:00+09:00","rule":"TZ-01","verdict":"fp"}' \
+  '{"ts":"2026-03-01T10:00:00Z","rule":"TZ-01","verdict":"fp"}' \
+  > "$TRIAGE_TZ"
+
+python3 "$TRACKER" \
+  --triage-file "$TRIAGE_TZ" \
+  --scorecard-file "$SCORECARD_TZ" \
+  --update-scorecard >/dev/null 2>&1
+
+tz_last_fp=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD_TZ'))
+print(sc['rules']['TZ-01']['last_fp_ts'])
+")
+TOTAL=$((TOTAL + 1))
+# 10:00Z is 10:00 UTC; 12:00+09:00 is 03:00 UTC — so 10:00Z is the later one
+if [[ "$tz_last_fp" == "2026-03-01T10:00:00Z" ]]; then
+  green "跨时区 fp 比较正确选出最新 ts（UTC 10:00Z 晚于 +09:00 的 03:00Z）"
+  PASS=$((PASS + 1))
+else
+  red "跨时区比较错误（期望 2026-03-01T10:00:00Z，实际 $tz_last_fp）"
+  FAIL=$((FAIL + 1))
+fi
+
+header "Issue-3: 抑制规则边界 — RS-03X 不误匹配 RS-03"
+# Verify vg_filter_suppressed only suppresses the exact rule ID
+suppress_out=$(python3 -c "
+import sys, re
+rule = 'RS-03'
+suppress_pat = re.compile(r'(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+lines = [
+    '// vibeguard-disable-next-line RS-03X -- wrong rule',
+    'should_appear_1',
+    '// vibeguard-disable-next-line RS-03 -- correct',
+    'should_not_appear',
+    '// vibeguard-disable-next-line RS-03',
+    'also_not_appear',
+]
+for i, line in enumerate(lines):
+    prev = lines[i - 1] if i > 0 else ''
+    if suppress_pat.search(prev):
+        continue
+    print(line)
+")
+assert_contains "$suppress_out" "should_appear_1" "RS-03X 注释不抑制 RS-03 规则"
+assert_not_contains "$suppress_out" "should_not_appear" "RS-03 注释正确抑制下一行"
+assert_not_contains "$suppress_out" "also_not_appear" "无 reason 的 RS-03 注释也正确抑制"
+
+# Code strings must not suppress
+suppress_out2=$(python3 -c "
+import sys, re
+rule = 'RS-03'
+suppress_pat = re.compile(r'(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+lines = [
+    'let s = \"vibeguard-disable-next-line RS-03 in string\";',
+    'should_appear_2',
+]
+for i, line in enumerate(lines):
+    prev = lines[i - 1] if i > 0 else ''
+    if suppress_pat.search(prev):
+        continue
+    print(line)
+")
+assert_contains "$suppress_out2" "should_appear_2" "代码字符串中的标记不抑制（无注释前缀）"
+
 # =========================================================
 echo
 echo "=============================="

@@ -130,6 +130,23 @@ def _validate_triage_record(rec: Any, lineno: int) -> bool:
             file=sys.stderr,
         )
         return False
+    # Validate ts is parseable ISO-8601 when present
+    if isinstance(ts, str) and ts:
+        try:
+            datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            print(
+                f"[ERROR] triage.jsonl line {lineno}: 'ts' is not a valid ISO-8601 timestamp: {ts!r}",
+                file=sys.stderr,
+            )
+            return False
+    # fp records must have a parseable ts so last_fp_ts is always tracked
+    if verdict == "fp" and not (isinstance(ts, str) and ts):
+        print(
+            f"[ERROR] triage.jsonl line {lineno}: 'ts' is required for fp records",
+            file=sys.stderr,
+        )
+        return False
     return True
 
 
@@ -210,8 +227,18 @@ def compute_rule_stats(
             stats[rule]["tp"] += 1
         elif verdict == "fp":
             stats[rule]["fp"] += 1
-            if ts and (stats[rule]["last_fp_ts"] is None or ts > stats[rule]["last_fp_ts"]):
-                stats[rule]["last_fp_ts"] = ts
+            if ts:
+                try:
+                    ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    last_fp_ts = stats[rule]["last_fp_ts"]
+                    if last_fp_ts is None:
+                        stats[rule]["last_fp_ts"] = ts
+                    else:
+                        last_dt = datetime.fromisoformat(last_fp_ts.replace("Z", "+00:00"))
+                        if ts_dt > last_dt:
+                            stats[rule]["last_fp_ts"] = ts
+                except ValueError:
+                    pass  # ts already validated; should not reach here
         elif verdict == "acceptable":
             stats[rule]["acceptable"] += 1
 

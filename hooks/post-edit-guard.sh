@@ -40,7 +40,7 @@ vg_filter_suppressed() {
   python3 -c "
 import sys, re
 rule = sys.argv[1]
-suppress_pat = re.compile(r'vibeguard-disable-next-line\s+' + re.escape(rule))
+suppress_pat = re.compile(r'(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
 lines = sys.stdin.read().splitlines()
 for i, line in enumerate(lines):
     prev = lines[i - 1] if i > 0 else ''
