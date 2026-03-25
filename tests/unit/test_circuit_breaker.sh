@@ -171,6 +171,30 @@ else
 fi
 teardown
 
+# ── 5b. HALF-OPEN subsequent callers are auto-passed (single-probe semantics) ─
+# Inject HALF-OPEN state directly; vg_cb_check should return 1 (auto-pass)
+# since the probe slot was already consumed by the OPEN→HALF-OPEN transition.
+setup
+HALFOPEN_INFLIGHT_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  export VG_CB_THRESHOLD=2
+  export VG_CB_COOLDOWN=9999
+  source '${CB_SCRIPT}'
+  STATE_FILE=\$(_vg_cb_state_file 'test-hook')
+  mkdir -p \"\$(dirname \"\$STATE_FILE\")\"
+  printf 'CB_STATE=HALF-OPEN\nCB_BLOCKS=2\nCB_LAST_BLOCK=1\nCB_SESSION=testsession01\n' \
+    > \"\$STATE_FILE\"
+  vg_cb_check 'test-hook' && echo 'PASSED_THROUGH' || echo 'AUTO_PASSED'
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$HALFOPEN_INFLIGHT_TEST" | grep -q "AUTO_PASSED"; then
+  green "HALF-OPEN probe in-flight: subsequent callers are auto-passed"; PASS=$((PASS+1))
+else
+  red "HALF-OPEN in-flight: expected AUTO_PASSED, got: $HALFOPEN_INFLIGHT_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
 # ── 6. HALF-OPEN block → back to OPEN ───────────────────────────────────────
 # Inject HALF-OPEN state directly to avoid cooldown=0 re-expiry race.
 # Use _vg_cb_state_file to resolve the per-project path rather than hardcoding it.

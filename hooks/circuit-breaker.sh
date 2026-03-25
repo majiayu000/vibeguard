@@ -173,7 +173,12 @@ vg_cb_check() {
         fi
         ;;
       HALF-OPEN)
-        exit 0  # Probe attempt: let it through
+        # Probe already in flight (dispatched when OPEN→HALF-OPEN transition
+        # ran exit 0 above).  Auto-pass subsequent callers until
+        # vg_cb_record_pass/block transitions state back to CLOSED or OPEN.
+        _vg_cb_log "$hook" "circuit-breaker" "pass" \
+          "CB HALF-OPEN: probe in-flight, auto-passing (${CB_BLOCKS} prior blocks)" ""
+        exit 1
         ;;
       *)
         CB_STATE="CLOSED"; CB_BLOCKS=0
