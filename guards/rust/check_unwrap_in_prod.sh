@@ -100,7 +100,19 @@ for m in matches:
     fname = m.get('file', '')
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
-" "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || true
+" "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
+            echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
+            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
+              | while IFS= read -r hit; do
+                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
+                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
+                    echo "${hit}"
+                  fi
+                done \
+              | sed "s|^|${f}:|" \
+              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+              >> "${_ASG_PER_FILE}" || true
+          }
           else
             echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
             grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \

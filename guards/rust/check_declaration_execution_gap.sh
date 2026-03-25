@@ -14,11 +14,17 @@ parse_guard_args "$@"
 
 if ! command -v ast-grep >/dev/null 2>&1; then
   echo "[RS-14] SKIP: ast-grep 未安装（安装方法: brew install ast-grep）"
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
   exit 0
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[RS-14] SKIP: python3 不可用"
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -145,6 +151,9 @@ for m in matches:
     if not config_match:
         continue
     full_type_path = config_match.group(1)  # e.g. "config::AppConfig" or "AppConfig"
+    bare_type = full_type_path.split("::")[-1]
+    if not bare_type.endswith("Config"):
+        continue
     if not has_load_method(full_type_path, target_dir):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
