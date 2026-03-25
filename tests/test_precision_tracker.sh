@@ -233,6 +233,53 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "实验阶段规则精度不足时不直接降级 — experimental 不走 demoted 快捷路径"
+TRIAGE_EXP="${TMPDIR_TEST}/triage_exp.jsonl"
+SCORECARD_EXP="${TMPDIR_TEST}/scorecard_exp.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'EXP-01': {
+      'stage': 'experimental', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': 'test'
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_EXP"
+# 5 tp, 20 fp → precision = 5/25 = 20% < 80%; samples = 25 ≥ 20
+# experimental rule with poor precision must NOT be demoted directly
+python3 -c "
+import json
+lines = []
+for _ in range(5):
+    lines.append(json.dumps({'ts': '2026-03-01T00:00:00Z', 'rule': 'EXP-01', 'verdict': 'tp'}))
+for _ in range(20):
+    lines.append(json.dumps({'ts': '2026-03-02T00:00:00Z', 'rule': 'EXP-01', 'verdict': 'fp'}))
+print('\n'.join(lines))
+" > "$TRIAGE_EXP"
+
+python3 "$TRACKER" \
+  --triage-file "$TRIAGE_EXP" \
+  --scorecard-file "$SCORECARD_EXP" \
+  --update-scorecard >/dev/null 2>&1
+
+exp_stage=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD_EXP'))
+print(sc['rules']['EXP-01']['stage'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$exp_stage" == "experimental" ]]; then
+  green "精度不足的 experimental 规则保持 experimental（不直接降级）"
+  PASS=$((PASS + 1))
+else
+  red "experimental 规则不应直接降级，应保持 experimental，实际: $exp_stage"
+  FAIL=$((FAIL + 1))
+fi
+
 header "无效 triage 行被隔离（issue-1：schema 校验）"
 TRIAGE_BAD="${TMPDIR_TEST}/triage_bad.jsonl"
 SCORECARD_BAD="${TMPDIR_TEST}/scorecard_bad.json"

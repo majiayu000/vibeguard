@@ -251,9 +251,11 @@ def next_stage(rule_entry: dict[str, Any]) -> str | None:
     samples = tp + fp + acceptable
     prec = precision_of(tp, fp)
 
-    # Demotion takes priority: if we have enough data and precision is poor
+    # Demotion applies only to rules that have graduated past experimental.
+    # experimental rules must go through the normal promotion path first
+    # (experimental → warn) before they can be demoted.
     if samples >= DEMOTION_MIN_SAMPLES and prec is not None and prec < DEMOTION_PRECISION:
-        if stage not in ("demoted", "disabled"):
+        if stage not in ("demoted", "disabled", "experimental"):
             return "demoted"
 
     if stage == "experimental":
