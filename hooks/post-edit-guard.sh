@@ -41,10 +41,16 @@ vg_filter_suppressed() {
 import sys, re
 rule = sys.argv[1]
 suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+
+def _in_multiline_string(lines, idx):
+    # Count triple-quote delimiters before this line; odd count means we are inside one.
+    text_before = '\n'.join(lines[:idx])
+    return (text_before.count('\"\"\"') % 2 == 1) or (text_before.count(\"'''\") % 2 == 1)
+
 lines = sys.stdin.read().splitlines()
 for i, line in enumerate(lines):
     prev = lines[i - 1] if i > 0 else ''
-    if suppress_pat.search(prev):
+    if suppress_pat.search(prev) and not _in_multiline_string(lines, i - 1):
         continue
     print(line)
 " "$rule"

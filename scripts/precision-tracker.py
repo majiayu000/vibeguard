@@ -389,13 +389,28 @@ def update_scorecard(
 # Report rendering
 # ---------------------------------------------------------------------------
 
-STAGE_SYMBOL = {
+def _stdout_supports_unicode() -> bool:
+    enc = getattr(sys.stdout, "encoding", None) or ""
+    return enc.lower().replace("-", "") in {"utf8", "utf16", "utf32"}
+
+
+_STAGE_SYMBOL_UNICODE: dict[str, str] = {
     "experimental": "🧪",
     "warn": "⚠️ ",
     "error": "🔴",
     "demoted": "⬇️ ",
     "disabled": "⏸️ ",
 }
+
+_STAGE_SYMBOL_ASCII: dict[str, str] = {
+    "experimental": "[EXP]",
+    "warn": "[WRN]",
+    "error": "[ERR]",
+    "demoted": "[DEM]",
+    "disabled": "[DIS]",
+}
+
+STAGE_SYMBOL = _STAGE_SYMBOL_UNICODE if _stdout_supports_unicode() else _STAGE_SYMBOL_ASCII
 
 
 def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> str:
