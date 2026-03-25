@@ -38,7 +38,6 @@ if ! ast-grep scan \
     --json \
     "${TARGET_DIR}" > "${_ASG_TMPOUT}" 2>/dev/null; then
   echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
-  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
   exit 0
 fi
 
@@ -63,21 +62,34 @@ def has_load_method(config_type, search_dir):
     if config_type in load_cache:
         return load_cache[config_type]
     try:
-        # Use ERE (-E) to match path-qualified and generic impls:
-        #   impl AppConfig          (direct)
-        #   impl crate::mod::AppConfig  (path-qualified)
-        #   impl<T> AppConfig<T>    (generic)
         impl_files = subprocess.run(
             ["grep", "-rEl", r"impl.*\b" + config_type + r"\b", "--include=*.rs", search_dir],
             capture_output=True, text=True
         ).stdout.strip().splitlines()
+        # Match impl blocks specifically for this Config type (inherent or trait impls).
+        # Brace-count to stay within the block, preventing false positives from
+        # other types defined in the same file.
+        impl_pat = re.compile(
+            r"^\s*impl(?:<[^>]*>)?\s+(?:[\w:]+(?:<[^>]*>)?\s+for\s+)?(?:\w+::)*"
+            + re.escape(config_type) + r"(?:<[^>]*>)?\s*\{"
+        )
+        load_pat = re.compile(r"\bfn\s+load\s*\(")
         for impl_file in impl_files:
             try:
                 with open(impl_file, "r", errors="ignore") as fh:
-                    content = fh.read()
-                if re.search(r"\bfn\s+load\s*\(", content):
-                    load_cache[config_type] = True
-                    return True
+                    lines = fh.readlines()
+                i = 0
+                while i < len(lines):
+                    if impl_pat.search(lines[i]):
+                        depth = lines[i].count("{") - lines[i].count("}")
+                        j = i + 1
+                        while j < len(lines) and depth > 0:
+                            depth += lines[j].count("{") - lines[j].count("}")
+                            if load_pat.search(lines[j]):
+                                load_cache[config_type] = True
+                                return True
+                            j += 1
+                    i += 1
             except Exception:
                 pass
     except Exception:
@@ -102,7 +114,6 @@ for m in matches:
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
 ' < "${_ASG_TMPOUT}" > "$TMPFILE" || {
   echo "[RS-14] WARN: python3 处理失败，跳过检测" >&2
-  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
   exit 0
 }
 

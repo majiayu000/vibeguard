@@ -38,7 +38,6 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
         | grep '^+' \
         | grep -v '^+++' \
         | grep -E '\.(unwrap|expect)\(' \
-        | grep -v 'unwrap_or\|unwrap_or_else\|unwrap_or_default' \
         | grep -v '^\+[[:space:]]*//' \
         | while IFS= read -r line; do
             echo "[RS-03] ${f}: ${line}"
@@ -102,6 +101,18 @@ for m in matches:
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
 " "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || true
+          else
+            echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
+            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
+              | while IFS= read -r hit; do
+                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
+                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
+                    echo "${hit}"
+                  fi
+                done \
+              | sed "s|^|${f}:|" \
+              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+              >> "${_ASG_PER_FILE}" || true
           fi
         done
     cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
