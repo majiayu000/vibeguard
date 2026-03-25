@@ -51,7 +51,7 @@ for m in matches:
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
     msg = m.get("message", "error 返回值被丢弃")
     print("[GO-01] " + f + ":" + str(line) + " " + msg)
-' > "${TMPFILE}" 2>/dev/null || true
+' > "${TMPFILE}" || true
   fi
 
 else

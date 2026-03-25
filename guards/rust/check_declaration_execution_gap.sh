@@ -84,7 +84,7 @@ for m in matches:
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
     msg = m.get("message", "")
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
-' > "$TMPFILE" 2>/dev/null || true
+' > "$TMPFILE" || true
 
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
