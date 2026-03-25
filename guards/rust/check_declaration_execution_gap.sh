@@ -94,9 +94,12 @@ def has_load_method(full_type_path, search_dir):
         # Match impl blocks specifically for this Config type (inherent or trait impls).
         # Brace-count to stay within the block, preventing false positives from
         # other types defined in the same file.
+        # Match impl header line: allow { on same line, or where clause, or bare line-break.
+        # [^<>]*(?:<[^<>]*>[^<>]*)* handles one level of nested generics in the type params.
+        _nested_generic = r"[^<>]*(?:<[^<>]*>[^<>]*)*"
         impl_pat = re.compile(
-            r"^\s*impl(?:<[^>]*>)?\s+(?:[\w:]+(?:<[^>]*>)?\s+for\s+)?(?:\w+::)*"
-            + re.escape(bare_type) + r"(?:<[^>]*>)?\s*\{"
+            r"^\s*impl(?:<" + _nested_generic + r">)?\s+(?:[\w:]+(?:<" + _nested_generic + r">)?\s+for\s+)?(?:\w+::)*"
+            + re.escape(bare_type) + r"(?:<" + _nested_generic + r">)?\s*(?:\{|where\b|$)"
         )
         load_pat = re.compile(r"\bfn\s+load\s*\(")
         for impl_file in impl_files:
@@ -108,6 +111,11 @@ def has_load_method(full_type_path, search_dir):
                     if impl_pat.search(lines[i]):
                         depth = lines[i].count("{") - lines[i].count("}")
                         j = i + 1
+                        # Handle where clause / line-broken brace: scan until we enter the block.
+                        while j < len(lines) and depth <= 0:
+                            depth += lines[j].count("{") - lines[j].count("}")
+                            j += 1
+                        # Scan inside the impl block for fn load.
                         while j < len(lines) and depth > 0:
                             depth += lines[j].count("{") - lines[j].count("}")
                             if load_pat.search(lines[j]):
@@ -133,7 +141,7 @@ for m in matches:
     #   config::AppConfig::default()
     #   AppConfig::<Prod>::default()          (turbofish pattern in yml)
     #   config::AppConfig::<Prod>::default()
-    config_match = re.search(r"((?:\w+::)*\w+)::(?:<[^>]*>::)?default\(\)\s*$", text)
+    config_match = re.search(r"((?:\w+::)*\w+)::(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>::)?default\(\)\s*$", text)
     if not config_match:
         continue
     full_type_path = config_match.group(1)  # e.g. "config::AppConfig" or "AppConfig"
