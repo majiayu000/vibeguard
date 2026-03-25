@@ -173,10 +173,13 @@ def load_triage(path: Path) -> list[dict[str, Any]]:
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
-                print(f"[WARN] triage.jsonl line {lineno}: {exc}", file=sys.stderr)
-                continue
-            if _validate_triage_record(rec, lineno):
-                records.append(rec)
+                print(f"[ERROR] triage.jsonl line {lineno}: {exc}", file=sys.stderr)
+                print("[ERROR] Aborting: corrupted triage line could cause incorrect lifecycle transitions.", file=sys.stderr)
+                sys.exit(1)
+            if not _validate_triage_record(rec, lineno):
+                print("[ERROR] Aborting: invalid triage record could cause incorrect lifecycle transitions.", file=sys.stderr)
+                sys.exit(1)
+            records.append(rec)
     return records
 
 
@@ -471,34 +474,6 @@ def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> 
 
 
 # ---------------------------------------------------------------------------
-# Record a verdict
-# ---------------------------------------------------------------------------
-
-def record_verdict(
-    rule: str,
-    verdict: str,
-    context: str | None,
-    triage_path: Path,
-) -> None:
-    if verdict not in VALID_VERDICTS:
-        print(f"[ERROR] verdict must be tp, fp, or acceptable; got: {verdict}", file=sys.stderr)
-        sys.exit(1)
-
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    session = os.environ.get("VIBEGUARD_SESSION_ID", "")
-    rec: dict[str, Any] = {"ts": ts, "rule": rule, "verdict": verdict}
-    if context:
-        rec["context"] = context
-    if session:
-        rec["session"] = session
-
-    with triage_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-    print(f"Recorded {verdict} for {rule} at {ts}")
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -546,12 +521,29 @@ def main(argv: list[str] | None = None) -> int:
     # --record verdict rule
     if args.record:
         verdict, rule = args.record
+        if verdict not in VALID_VERDICTS:
+            print(f"[ERROR] verdict must be tp, fp, or acceptable; got: {verdict}", file=sys.stderr)
+            return 1
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        session = os.environ.get("VIBEGUARD_SESSION_ID", "")
+        new_rec: dict[str, Any] = {"ts": ts, "rule": rule, "verdict": verdict}
+        if args.context:
+            new_rec["context"] = args.context
+        if session:
+            new_rec["session"] = session
         with _scorecard_write_lock(scorecard_path):
-            record_verdict(rule, verdict, args.context, triage_path)
             triage = load_triage(triage_path)
             scorecard = load_scorecard(scorecard_path)
-            scorecard, transitions = update_scorecard(scorecard, triage)
+            # Include new_rec in memory so scorecard and triage stay consistent.
+            # Scorecard is written first (atomic); triage append follows.
+            # If scorecard write fails nothing is persisted — safe to retry.
+            # If triage append fails after scorecard write, --update-scorecard
+            # will recompute the correct scorecard from triage on next run.
+            scorecard, transitions = update_scorecard(scorecard, triage + [new_rec])
             save_scorecard(scorecard, scorecard_path)
+            with triage_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(new_rec, ensure_ascii=False) + "\n")
+        print(f"Recorded {verdict} for {rule} at {ts}")
         if transitions:
             print("Lifecycle transitions:")
             for t in transitions:

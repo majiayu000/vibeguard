@@ -43,9 +43,15 @@ rule = sys.argv[1]
 suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
 
 def _in_multiline_string(lines, idx):
-    # Count triple-quote delimiters before this line; odd count means we are inside one.
+    # Count multi-line string delimiters before this line; odd count means inside one.
     text_before = '\n'.join(lines[:idx])
-    return (text_before.count('\"\"\"') % 2 == 1) or (text_before.count(\"'''\") % 2 == 1)
+    # Python triple-quoted strings
+    if (text_before.count('\"\"\"') % 2 == 1) or (text_before.count(\"'''\") % 2 == 1):
+        return True
+    # Go/JS/TS backtick raw/template strings (backtick cannot be escaped inside)
+    if text_before.count('\`') % 2 == 1:
+        return True
+    return False
 
 lines = sys.stdin.read().splitlines()
 for i, line in enumerate(lines):
