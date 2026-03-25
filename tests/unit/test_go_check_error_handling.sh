@@ -49,7 +49,22 @@ EOF
 assert_fail "discarded error fails --strict" bash "$GUARD" --strict "$proj_discard"
 assert_output_contains "output contains GO-01 tag" "[GO-01]" bash "$GUARD" --strict "$proj_discard"
 
-# --- FAIL: multiple return values both discarded ---
+# --- FAIL: multiple return values both discarded (only _, _ = pattern, no _ =) ---
+proj_multi_only="${tmpdir}/fail_multi_only"
+mkdir -p "${proj_multi_only}"
+cat > "${proj_multi_only}/handler.go" <<'EOF'
+package handler
+
+import "strconv"
+
+func Run() {
+    _, _ = strconv.Atoi("123")
+}
+EOF
+assert_fail "only _, _ = pattern fails --strict" bash "$GUARD" --strict "$proj_multi_only"
+assert_output_contains "_, _ = pattern output contains GO-01 tag" "[GO-01]" bash "$GUARD" --strict "$proj_multi_only"
+
+# --- FAIL: multiple return values both discarded (mixed with _ =) ---
 proj_multi="${tmpdir}/fail_multi_discard"
 mkdir -p "${proj_multi}"
 cat > "${proj_multi}/handler.go" <<'EOF'

@@ -51,9 +51,10 @@ if command -v ast-grep >/dev/null 2>&1; then
           --rule "${RULES_DIR}/ts-03-console.yml" \
           --json \
           "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
-        python3 -c '
-import json, sys, re
+        VIBEGUARD_TARGET_DIR="${TARGET_DIR}" python3 -c '
+import json, sys, re, os
 
+TARGET_DIR_PY = os.environ.get("VIBEGUARD_TARGET_DIR", "")
 TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)tests/|(^|/)__tests__/|(^|/)test/|(^|/)vendor/)")
 LOGGER_PATTERN = re.compile(r"(logger|logging|log\.config|/debug\.|/debug/)")
 MCP_MARKERS = {"StdioServerTransport", "new Server(", "McpServer"}
@@ -83,7 +84,8 @@ for m in matches:
     f = m.get("file", "")
     if TEST_PATTERN.search(f):
         continue
-    if LOGGER_PATTERN.search(f):
+    rel_f = os.path.relpath(f, TARGET_DIR_PY) if TARGET_DIR_PY else f
+    if LOGGER_PATTERN.search(rel_f):
         continue
     if is_mcp(f):
         continue
@@ -110,9 +112,11 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
   MCP_MARKERS_PATTERN='StdioServerTransport|new Server\(|McpServer'
   list_ts_files "${TARGET_DIR}" \
     | filter_non_test \
-    | grep -vE '(logger|logging|log\.config|/debug\.|/debug/)' \
     | while IFS= read -r f; do
         [[ -f "$f" ]] || continue
+        # 用相对路径过滤 logger/debug 工具文件，避免父目录名污染
+        _rel_f="${f#${TARGET_DIR}/}"
+        echo "${_rel_f}" | grep -qE '(logger|logging|log\.config|/debug\.|/debug/)' && continue
         # 跳过 MCP 文件
         grep -qE "${MCP_MARKERS_PATTERN}" "$f" 2>/dev/null && continue
         grep -nE '\bconsole\.(log|warn|error|info|debug|trace)\b' "$f" 2>/dev/null \
