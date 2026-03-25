@@ -616,6 +616,56 @@ else
 fi
 
 rm -rf "$_test_log_dir"
+header "post-edit-guard — vibeguard-disable-next-line 抑制"
+# =========================================================
+
+# RS-03 不带抑制注释 → 应产生警告
+result=$(python3 -c "
+import json
+content = 'let x = foo.unwrap();'
+print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_contains "$result" "RS-03" "RS-03: unwrap() 无抑制注释时产生警告"
+
+# RS-03 带抑制注释 → 应抑制该行警告
+result=$(python3 -c "
+import json
+content = '// vibeguard-disable-next-line RS-03 -- signal handler\nlet x = foo.unwrap();'
+print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_not_contains "$result" "RS-03" "RS-03: vibeguard-disable-next-line 抑制 unwrap() 警告"
+
+# RS-10 带抑制注释 → 应抑制
+result=$(python3 -c "
+import json
+content = '// vibeguard-disable-next-line RS-10 -- intentional drop\nlet _ = sender.send(msg);'
+print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_not_contains "$result" "RS-10" "RS-10: vibeguard-disable-next-line 抑制 let _ = 警告"
+
+# DEBUG 带抑制注释 → 应抑制 console 警告
+result=$(python3 -c "
+import json
+content = '// vibeguard-disable-next-line DEBUG -- intentional stderr\nconsole.log(\"debug info\");'
+print(json.dumps({'tool_input': {'file_path': 'src/service.ts', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_not_contains "$result" "DEBUG" "DEBUG: vibeguard-disable-next-line 抑制 console.log 警告"
+
+# U-11 带抑制注释 → 应抑制硬编码路径警告
+result=$(python3 -c "
+import json
+content = '// vibeguard-disable-next-line U-11 -- test fixture\nconst DB = \"test.db\";'
+print(json.dumps({'tool_input': {'file_path': 'src/config.ts', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_not_contains "$result" "U-11" "U-11: vibeguard-disable-next-line 抑制硬编码路径警告"
+
+# 抑制注释只作用于紧接下一行（第三行的 unwrap 仍应报警）
+result=$(python3 -c "
+import json
+content = '// vibeguard-disable-next-line RS-03 -- ok\nlet a = safe.unwrap();\nlet b = other.unwrap();'
+print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
+" | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
+assert_contains "$result" "RS-03" "RS-03: 抑制注释仅作用于紧接的下一行，第三行 unwrap 仍报警"
 
 # =========================================================
 # 总结

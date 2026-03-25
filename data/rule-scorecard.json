@@ -1,0 +1,138 @@
+{
+  "_comment": "VibeGuard rule lifecycle scorecard. Managed by scripts/precision-tracker.py",
+  "_schema": {
+    "stage": "experimental | warn | error | demoted | disabled",
+    "precision": "TP / (TP + FP), null if no samples",
+    "samples": "total triage verdicts (tp + fp + acceptable)",
+    "tp": "true positive count",
+    "fp": "false positive count",
+    "acceptable": "acceptable (borderline) count",
+    "last_fp_ts": "ISO-8601 timestamp of most recent FP verdict, null if none",
+    "stage_entered_ts": "ISO-8601 timestamp when current stage was entered",
+    "notes": "human-readable notes"
+  },
+  "rules": {
+    "RS-03": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "unwrap()/expect() in production Rust code"
+    },
+    "RS-10": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "let _ = silent Result discard"
+    },
+    "RS-14": {
+      "stage": "experimental",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-03-11T00:00:00Z",
+      "notes": "declaration-execution gap; disabled pending precision data"
+    },
+    "TS-01": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "any type abuse in TypeScript"
+    },
+    "DEBUG": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "console.log/print() debug residue"
+    },
+    "U-11": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "hardcoded database paths"
+    },
+    "GO-01": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "error discard in Go"
+    },
+    "GO-08": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "defer in loop"
+    },
+    "STUB": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "stub/todo placeholder in production code"
+    },
+    "LARGE-EDIT": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "single edit exceeds 200 lines"
+    },
+    "CHURN": {
+      "stage": "warn",
+      "precision": null,
+      "samples": 0,
+      "tp": 0,
+      "fp": 0,
+      "acceptable": 0,
+      "last_fp_ts": null,
+      "stage_entered_ts": "2026-01-01T00:00:00Z",
+      "notes": "same file edited 5+ times in one session"
+    }
+  },
+  "_updated_ts": "2026-03-24T00:00:00Z"
+}
