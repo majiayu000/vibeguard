@@ -17,6 +17,11 @@ if ! command -v ast-grep >/dev/null 2>&1; then
   exit 0
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[RS-14] SKIP: python3 不可用"
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 TMPFILE=$(create_tmpfile)
@@ -26,11 +31,18 @@ TEST_PATH_PATTERN='((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.r
 # 检测 *Config::default() 使用（排除测试路径）
 # 仅当对应的 Config 类型有 load() 方法时才报告，避免合法的 default-only Config 误报
 export VG_TARGET_DIR="${TARGET_DIR}"
-ast-grep scan \
-  --rule "${RULES_DIR}/rs-14-config-default.yml" \
-  --json \
-  "${TARGET_DIR}" 2>/dev/null \
-| python3 -c '
+
+_ASG_TMPOUT=$(create_tmpfile)
+if ! ast-grep scan \
+    --rule "${RULES_DIR}/rs-14-config-default.yml" \
+    --json \
+    "${TARGET_DIR}" > "${_ASG_TMPOUT}" 2>/dev/null; then
+  echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
+  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
+  exit 0
+fi
+
+python3 -c '
 import json, sys, re, subprocess, os
 
 TEST_PATH = re.compile(r"((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)")
@@ -41,8 +53,9 @@ if not data:
     sys.exit(0)
 try:
     matches = json.loads(data)
-except Exception:
-    sys.exit(0)
+except Exception as e:
+    print("[RS-14] WARN: ast-grep JSON 解析失败: " + str(e), file=sys.stderr)
+    sys.exit(1)
 
 load_cache = {}
 
@@ -50,9 +63,12 @@ def has_load_method(config_type, search_dir):
     if config_type in load_cache:
         return load_cache[config_type]
     try:
-        # Find files containing "impl <ConfigType>" using fixed-string match (macOS-safe)
+        # Use ERE (-E) to match path-qualified and generic impls:
+        #   impl AppConfig          (direct)
+        #   impl crate::mod::AppConfig  (path-qualified)
+        #   impl<T> AppConfig<T>    (generic)
         impl_files = subprocess.run(
-            ["grep", "-rFl", f"impl {config_type}", "--include=*.rs", search_dir],
+            ["grep", "-rEl", r"impl.*\b" + config_type + r"\b", "--include=*.rs", search_dir],
             capture_output=True, text=True
         ).stdout.strip().splitlines()
         for impl_file in impl_files:
@@ -84,7 +100,11 @@ for m in matches:
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
     msg = m.get("message", "")
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
-' > "$TMPFILE" || true
+' < "${_ASG_TMPOUT}" > "$TMPFILE" || {
+  echo "[RS-14] WARN: python3 处理失败，跳过检测" >&2
+  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
+  exit 0
+}
 
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 

@@ -48,18 +48,42 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
 
 # --- Standalone 模式：ast-grep AST 扫描（精确识别调用表达式，跳过注释）---
 elif command -v ast-grep >/dev/null 2>&1; then
-  list_rs_files "${TARGET_DIR}" \
-    | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
-    | while IFS= read -r f; do
-        [[ -f "${f}" ]] || continue
-        # 获取 #[cfg(test)] 分界线（该行及之后视为测试代码）
-        CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-        CFG_LINE="${CFG_LINE:-0}"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "[RS-03] WARN: python3 不可用，使用 grep fallback" >&2
+    # fall through to grep fallback below
+    list_rs_files "${TARGET_DIR}" \
+      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+      | while IFS= read -r f; do
+          if [[ -f "${f}" ]]; then
+            CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
+              | grep -vE 'unwrap_or|unwrap_or_else|unwrap_or_default' \
+              | while IFS= read -r hit; do
+                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
+                  if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
+                    echo "${hit}"
+                  fi
+                done \
+              | sed "s|^|${f}:|" || true
+          fi
+        done \
+      | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+      > "${TMPFILE}" || true
+  else
+    _ASG_PER_FILE=$(create_tmpfile)
+    list_rs_files "${TARGET_DIR}" \
+      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+      | while IFS= read -r f; do
+          [[ -f "${f}" ]] || continue
+          # 获取 #[cfg(test)] 分界线（该行及之后视为测试代码）
+          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+          CFG_LINE="${CFG_LINE:-0}"
 
-        ast-grep scan \
-          --rule "${RULES_DIR}/rs-03-unwrap.yml" \
-          --json "${f}" 2>/dev/null \
-        | python3 -c "
+          _ASG_FILE_OUT=$(create_tmpfile)
+          if ast-grep scan \
+              --rule "${RULES_DIR}/rs-03-unwrap.yml" \
+              --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
+            python3 -c "
 import json, sys
 cfg_line = int(sys.argv[1])
 data = sys.stdin.read().strip()
@@ -67,8 +91,9 @@ if not data:
     sys.exit(0)
 try:
     matches = json.loads(data)
-except Exception:
-    sys.exit(0)
+except Exception as e:
+    print('[RS-03] WARN: JSON 解析失败: ' + str(e), file=sys.stderr)
+    sys.exit(1)
 for m in matches:
     l = m.get('range', {}).get('start', {}).get('line', 0) + 1
     if cfg_line > 0 and l >= cfg_line:
@@ -76,8 +101,11 @@ for m in matches:
     fname = m.get('file', '')
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
-" "${CFG_LINE}" 2>/dev/null || true
-      done > "${TMPFILE}" || true
+" "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || true
+          fi
+        done
+    cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
+  fi
 
 # --- Fallback: ast-grep 不可用时使用 grep ---
 else

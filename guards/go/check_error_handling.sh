@@ -19,22 +19,27 @@ TMPFILE=$(create_tmpfile)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
-if command -v ast-grep >/dev/null 2>&1; then
-  # AST 级别检测：仅匹配真实的 _ = expr 赋值，不匹配 for range 子句
-  #
-  # staged 模式：只扫 staged Go 文件，避免全仓扫描阻塞无关提交
-  if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-    mapfile -t _ASG_TARGETS < <(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null || true)
-  else
-    _ASG_TARGETS=("${TARGET_DIR}")
-  fi
+_USE_GREP_FALLBACK=false
 
-  if [[ ${#_ASG_TARGETS[@]} -gt 0 ]]; then
-  ast-grep scan \
-    --rule "${RULES_DIR}/go-01-error.yml" \
-    --json \
-    "${_ASG_TARGETS[@]}" 2>/dev/null \
-  | python3 -c '
+if command -v ast-grep >/dev/null 2>&1; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "[GO-01] WARN: python3 不可用，使用 grep fallback" >&2
+    _USE_GREP_FALLBACK=true
+  else
+    # staged 模式：只扫 staged Go 文件，避免全仓扫描阻塞无关提交
+    if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
+      mapfile -t _ASG_TARGETS < <(grep -E '\.go$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null || true)
+    else
+      _ASG_TARGETS=("${TARGET_DIR}")
+    fi
+
+    if [[ ${#_ASG_TARGETS[@]} -gt 0 ]]; then
+      _ASG_TMPOUT=$(create_tmpfile)
+      if ast-grep scan \
+          --rule "${RULES_DIR}/go-01-error.yml" \
+          --json \
+          "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
+        python3 -c '
 import json, sys, re
 TEST_PATH = re.compile(r"(_test\.go$|(^|/)vendor/)")
 data = sys.stdin.read().strip()
@@ -42,8 +47,9 @@ if not data:
     sys.exit(0)
 try:
     matches = json.loads(data)
-except Exception:
-    sys.exit(0)
+except Exception as e:
+    print("[GO-01] WARN: ast-grep JSON 解析失败: " + str(e), file=sys.stderr)
+    sys.exit(1)
 for m in matches:
     f = m.get("file", "")
     if TEST_PATH.search(f):
@@ -51,11 +57,21 @@ for m in matches:
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
     msg = m.get("message", "error 返回值被丢弃")
     print("[GO-01] " + f + ":" + str(line) + " " + msg)
-' > "${TMPFILE}" || true
+' < "${_ASG_TMPOUT}" > "${TMPFILE}" || {
+          echo "[GO-01] WARN: python3 处理失败，使用 grep fallback" >&2
+          _USE_GREP_FALLBACK=true
+        }
+      else
+        echo "[GO-01] WARN: ast-grep 扫描失败（规则文件可能缺失），使用 grep fallback" >&2
+        _USE_GREP_FALLBACK=true
+      fi
+    fi
   fi
-
 else
-  # Fallback: grep（ast-grep 不可用）
+  _USE_GREP_FALLBACK=true
+fi
+
+if [[ "$_USE_GREP_FALLBACK" == true ]]; then
   list_go_files "${TARGET_DIR}" \
     | { grep -vE '(_test\.go$|/vendor/)' || true; } \
     | while IFS= read -r f; do
