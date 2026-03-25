@@ -2,8 +2,13 @@ id: rs-14-config-default
 language: Rust
 severity: warning
 rule:
-  pattern: $T::default()
-constraints:
-  T:
-    regex: "Config$"
+  any:
+    - pattern: $T::default()
+      constraints:
+        T:
+          regex: "Config$"
+    - pattern: $T::<$ARGS>::default()
+      constraints:
+        T:
+          regex: "Config$"
 message: "Config 类型通过 Default::default() 初始化。若 Config 有 load() 方法，应使用 Config::load() 加载配置"

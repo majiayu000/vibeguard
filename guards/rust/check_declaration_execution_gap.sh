@@ -38,6 +38,9 @@ if ! ast-grep scan \
     --json \
     "${TARGET_DIR}" > "${_ASG_TMPOUT}"; then
   echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
   exit 0
 fi
 
@@ -58,20 +61,42 @@ except Exception as e:
 
 load_cache = {}
 
-def has_load_method(config_type, search_dir):
-    if config_type in load_cache:
-        return load_cache[config_type]
+def has_load_method(full_type_path, search_dir):
+    """Check if the Config type has a load() method.
+
+    full_type_path preserves module namespace (e.g. "config::AppConfig") so that
+    same-named Config types in different modules do not pollute each other cache
+    entries or impl-file search results.
+    """
+    if full_type_path in load_cache:
+        return load_cache[full_type_path]
+
+    bare_type = full_type_path.split("::")[-1]
+    module_parts = full_type_path.split("::")[:-1]
+
     try:
-        impl_files = subprocess.run(
-            ["grep", "-rEl", r"impl.*\b" + config_type + r"\b", "--include=*.rs", search_dir],
+        all_impl_files = subprocess.run(
+            ["grep", "-rEl", r"impl.*\b" + re.escape(bare_type) + r"\b", "--include=*.rs", search_dir],
             capture_output=True, text=True
         ).stdout.strip().splitlines()
+
+        # Narrow to files whose path is consistent with the module namespace to
+        # avoid cross-module pollution when multiple modules define same-named
+        # Config types.  Fall back to the full list only when filtering yields
+        # nothing (e.g. re-exported types with path aliases).
+        if module_parts:
+            module_suffix = os.path.join(*module_parts)
+            narrowed = [f for f in all_impl_files if module_suffix in f]
+            impl_files = narrowed if narrowed else all_impl_files
+        else:
+            impl_files = all_impl_files
+
         # Match impl blocks specifically for this Config type (inherent or trait impls).
         # Brace-count to stay within the block, preventing false positives from
         # other types defined in the same file.
         impl_pat = re.compile(
             r"^\s*impl(?:<[^>]*>)?\s+(?:[\w:]+(?:<[^>]*>)?\s+for\s+)?(?:\w+::)*"
-            + re.escape(config_type) + r"(?:<[^>]*>)?\s*\{"
+            + re.escape(bare_type) + r"(?:<[^>]*>)?\s*\{"
         )
         load_pat = re.compile(r"\bfn\s+load\s*\(")
         for impl_file in impl_files:
@@ -86,7 +111,7 @@ def has_load_method(config_type, search_dir):
                         while j < len(lines) and depth > 0:
                             depth += lines[j].count("{") - lines[j].count("}")
                             if load_pat.search(lines[j]):
-                                load_cache[config_type] = True
+                                load_cache[full_type_path] = True
                                 return True
                             j += 1
                     i += 1
@@ -94,7 +119,7 @@ def has_load_method(config_type, search_dir):
                 pass
     except Exception:
         pass
-    load_cache[config_type] = False
+    load_cache[full_type_path] = False
     return False
 
 for m in matches:
@@ -102,18 +127,26 @@ for m in matches:
     if TEST_PATH.search(f):
         continue
     text = m.get("text", "").strip()
-    # Handle path-qualified types: e.g. config::AppConfig::default() -> AppConfig
-    config_match = re.search(r"(\w+)::default\(\)\s*$", text)
+    # Extract full qualified path before ::default(), preserving module namespace.
+    # Handles plain, path-qualified, and turbofish forms:
+    #   AppConfig::default()
+    #   config::AppConfig::default()
+    #   AppConfig::<Prod>::default()          (turbofish pattern in yml)
+    #   config::AppConfig::<Prod>::default()
+    config_match = re.search(r"((?:\w+::)*\w+)::(?:<[^>]*>::)?default\(\)\s*$", text)
     if not config_match:
         continue
-    config_type = config_match.group(1)
-    if not has_load_method(config_type, target_dir):
+    full_type_path = config_match.group(1)  # e.g. "config::AppConfig" or "AppConfig"
+    if not has_load_method(full_type_path, target_dir):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
     msg = m.get("message", "")
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
 ' < "${_ASG_TMPOUT}" > "$TMPFILE" || {
   echo "[RS-14] WARN: python3 处理失败，跳过检测" >&2
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
   exit 0
 }
 
