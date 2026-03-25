@@ -267,6 +267,18 @@ assert_fail "stop_hook_active: returns 1 on invalid JSON" \
     source '${CB_SCRIPT}'
     vg_stop_hook_active 'not-json'
   "
+# String "false" is truthy in Python — must be treated as false (not active)
+assert_fail "stop_hook_active: returns 1 when value is string \"false\"" \
+  bash -c "
+    source '${CB_SCRIPT}'
+    vg_stop_hook_active '{\"stop_hook_active\": \"false\"}'
+  "
+# String "true" is not the boolean true literal — must also be treated as false
+assert_fail "stop_hook_active: returns 1 when value is string \"true\"" \
+  bash -c "
+    source '${CB_SCRIPT}'
+    vg_stop_hook_active '{\"stop_hook_active\": \"true\"}'
+  "
 teardown
 
 # ── 10. State directory is created automatically ─────────────────────────────

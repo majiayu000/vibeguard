@@ -22,8 +22,13 @@
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CB_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/circuit-breaker"
-CB_COOLDOWN="${VG_CB_COOLDOWN:-300}"   # seconds until OPEN → HALF-OPEN (5 min)
-CB_THRESHOLD="${VG_CB_THRESHOLD:-3}"   # consecutive blocks before tripping to OPEN
+
+# Validate that a value is a non-negative integer; fall back to default if not.
+# Prevents arithmetic errors under set -euo pipefail when env vars are misconfigured.
+_vg_cb_to_int() { local v="$1" d="$2"; [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v" || printf '%s' "$d"; }
+
+CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)   # seconds until OPEN → HALF-OPEN (5 min)
+CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)     # consecutive blocks before tripping to OPEN
 
 mkdir -p "$CB_DIR" 2>/dev/null || true
 
@@ -64,8 +69,31 @@ _vg_cb_load() {
   CB_LAST_BLOCK=0
   CB_SESSION=""
   if [[ -f "$state_file" ]]; then
-    # shellcheck source=/dev/null
-    source "$state_file" 2>/dev/null || true
+    # Safe key=value parser — never executes the file as shell code.
+    # Each field is validated before assignment to prevent injection via a
+    # tampered state file (e.g. malicious VIBEGUARD_SESSION_ID).
+    local _line _key _val
+    while IFS= read -r _line; do
+      _key="${_line%%=*}"
+      _val="${_line#*=}"
+      case "$_key" in
+        CB_STATE)
+          case "$_val" in
+            CLOSED|OPEN|HALF-OPEN) CB_STATE="$_val" ;;
+          esac
+          ;;
+        CB_BLOCKS)
+          [[ "$_val" =~ ^[0-9]+$ ]] && CB_BLOCKS="$_val"
+          ;;
+        CB_LAST_BLOCK)
+          [[ "$_val" =~ ^[0-9]+$ ]] && CB_LAST_BLOCK="$_val"
+          ;;
+        CB_SESSION)
+          # Allow only characters safe for a session ID (UUID / slug)
+          [[ "$_val" =~ ^[a-zA-Z0-9_=-]*$ ]] && CB_SESSION="$_val"
+          ;;
+      esac
+    done < "$state_file"
   fi
   # Reset if the state belongs to a different session
   local cur_session="${VIBEGUARD_SESSION_ID:-}"
@@ -195,7 +223,9 @@ vg_stop_hook_active() {
 import json, sys
 try:
     data = json.loads(sys.stdin.read())
-    sys.exit(0 if data.get('stop_hook_active', False) else 1)
+    val = data.get('stop_hook_active', False)
+    # Require the boolean literal true, not a truthy string like 'false'
+    sys.exit(0 if val is True else 1)
 except Exception:
     sys.exit(1)
 "
