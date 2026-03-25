@@ -12,14 +12,19 @@ set -euo pipefail
 HOOK_NAME="${1:?Usage: run-hook.sh <hook-name>}"
 shift
 
-REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
-if [[ ! -f "$REPO_PATH_FILE" ]]; then
-  echo "ERROR: ${REPO_PATH_FILE} not found. Re-run: bash <vibeguard-repo>/scripts/setup/install.sh" >&2
-  exit 1
-fi
+INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
+HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
 
-REPO_DIR=$(<"$REPO_PATH_FILE")
-HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+if [[ ! -d "$INSTALLED_DIR" ]]; then
+  # Fallback: legacy direct-repo mode
+  REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+  if [[ ! -f "$REPO_PATH_FILE" ]]; then
+    echo "ERROR: ${REPO_PATH_FILE} not found. Re-run: bash <vibeguard-repo>/scripts/setup/install.sh" >&2
+    exit 1
+  fi
+  REPO_DIR=$(<"$REPO_PATH_FILE")
+  HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   echo "ERROR: hook not found: ${HOOK_PATH}" >&2

@@ -105,6 +105,15 @@ green "  ~/.vibeguard/repo-path + run-hook.sh ready"
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
 green "  ~/.vibeguard/user-rules/ ready (add custom .md rules here)"
 
+# Install hooks and guards snapshot (isolated from dev repo — prevents dirty state from breaking hooks)
+INSTALLED_DIR="${VIBEGUARD_HOME}/installed"
+mkdir -p "${INSTALLED_DIR}/hooks" "${INSTALLED_DIR}/guards"
+rm -rf "${INSTALLED_DIR}/hooks" "${INSTALLED_DIR}/guards"
+cp -r "${REPO_DIR}/hooks" "${INSTALLED_DIR}/"
+cp -r "${REPO_DIR}/guards" "${INSTALLED_DIR}/"
+printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${INSTALLED_DIR}/version"
+green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
+
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
