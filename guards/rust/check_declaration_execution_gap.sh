@@ -1,122 +1,187 @@
 #!/usr/bin/env bash
-# RS-14: 声明-执行鸿沟检测
-# 检测 Config/Trait/持久化层声明但启动时未集成的情况
+# RS-14: 声明-执行鸿沟检测 (ast-grep 版本)
+#
+# 检测 Config 类型通过 Default::default() 初始化而非 load() 方法的情况。
+# 使用 ast-grep AST 级别扫描，消除之前 grep 版本的全量误报问题。
+#
+# 用法:
+#   bash check_declaration_execution_gap.sh [--strict] [target_dir]
 
 set -euo pipefail
 
-# RS-14 暂时禁用：4 个子检测全有严重误报（struct field grep 计数、
-# 外部 crate trait、save/load 只查 main.rs、未接入 common.sh 且 cd 改变 cwd）。
-# 需要用 AST 工具重写后才能重新启用。
-# 详见 docs/known-false-positives.md#RS-14
-echo "[RS-14] SKIP: 守卫暂时禁用（检测精度不足，待重写）"
-exit 0
+source "$(dirname "$0")/common.sh"
+parse_guard_args "$@"
+
+if ! command -v ast-grep >/dev/null 2>&1; then
+  echo "[RS-14] SKIP: ast-grep 未安装（安装方法: brew install ast-grep）"
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
+  exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[RS-14] SKIP: python3 不可用"
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
+  exit 0
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${1:-.}"
-STRICT_MODE="${2:-false}"
+RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
+TMPFILE=$(create_tmpfile)
 
-cd "$PROJECT_ROOT"
+TEST_PATH_PATTERN='((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)'
 
-VIOLATIONS=()
+# 检测 *Config::default() 使用（排除测试路径）
+# 仅当对应的 Config 类型有 load() 方法时才报告，避免合法的 default-only Config 误报
+export VG_TARGET_DIR="${TARGET_DIR}"
 
-# 检测 1: Config 结构体存在但启动时用 Default::default()
-check_config_default_usage() {
-    local config_structs=$(rg -t rust 'struct\s+\w*Config\s*\{' --no-heading -o | sed 's/struct \(.*\)Config.*/\1Config/g' | sort -u)
+_ASG_TMPOUT=$(create_tmpfile)
+if ! ast-grep scan \
+    --rule "${RULES_DIR}/rs-14-config-default.yml" \
+    --json \
+    "${TARGET_DIR}" > "${_ASG_TMPOUT}"; then
+  echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
+  exit 0
+fi
 
-    for config in $config_structs; do
-        # 检查是否有 load/from_file 方法
-        local has_load=$(rg -t rust "impl.*${config}" -A 20 | rg -q 'fn (load|from_file|read)' && echo "yes" || echo "no")
+python3 -c '
+import json, sys, re, subprocess, os
 
-        if [[ "$has_load" == "yes" ]]; then
-            # 检查启动代码是否调用 Default::default() 而非 load()
-            local uses_default=$(rg -t rust "${config}::default\(\)" --no-heading | head -1)
-            if [[ -n "$uses_default" ]]; then
-                VIOLATIONS+=("[RS-14] Config 声明了 load() 但启动时用 Default::default(): ${config}")
-            fi
-        fi
-    done
+TEST_PATH = re.compile(r"((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)")
+target_dir = os.environ.get("VG_TARGET_DIR", ".")
+
+data = sys.stdin.read().strip()
+if not data:
+    sys.exit(0)
+try:
+    matches = json.loads(data)
+except Exception as e:
+    print("[RS-14] WARN: ast-grep JSON 解析失败: " + str(e), file=sys.stderr)
+    sys.exit(1)
+
+load_cache = {}
+
+def has_load_method(full_type_path, search_dir):
+    """Check if the Config type has a load() method.
+
+    full_type_path preserves module namespace (e.g. "config::AppConfig") so that
+    same-named Config types in different modules do not pollute each other cache
+    entries or impl-file search results.
+    """
+    if full_type_path in load_cache:
+        return load_cache[full_type_path]
+
+    bare_type = full_type_path.split("::")[-1]
+    module_parts = full_type_path.split("::")[:-1]
+
+    try:
+        all_impl_files = subprocess.run(
+            ["grep", "-rEl", r"impl.*\b" + re.escape(bare_type) + r"\b", "--include=*.rs", search_dir],
+            capture_output=True, text=True
+        ).stdout.strip().splitlines()
+
+        # Narrow to files whose path is consistent with the module namespace to
+        # avoid cross-module pollution when multiple modules define same-named
+        # Config types.  Fall back to the full list only when filtering yields
+        # nothing (e.g. re-exported types with path aliases).
+        if module_parts:
+            module_suffix = os.path.join(*module_parts)
+            narrowed = [f for f in all_impl_files if module_suffix in f]
+            impl_files = narrowed if narrowed else all_impl_files
+        else:
+            impl_files = all_impl_files
+
+        # Match impl blocks specifically for this Config type (inherent or trait impls).
+        # Brace-count to stay within the block, preventing false positives from
+        # other types defined in the same file.
+        # Match impl header line: allow { on same line, or where clause, or bare line-break.
+        # [^<>]*(?:<[^<>]*>[^<>]*)* handles one level of nested generics in the type params.
+        _nested_generic = r"[^<>]*(?:<[^<>]*>[^<>]*)*"
+        impl_pat = re.compile(
+            r"^\s*impl(?:<" + _nested_generic + r">)?\s+(?:[\w:]+(?:<" + _nested_generic + r">)?\s+for\s+)?(?:\w+::)*"
+            + re.escape(bare_type) + r"(?:<" + _nested_generic + r">)?\s*(?:\{|where\b|$)"
+        )
+        load_pat = re.compile(r"\bfn\s+load\s*\(")
+        for impl_file in impl_files:
+            try:
+                with open(impl_file, "r", errors="ignore") as fh:
+                    lines = fh.readlines()
+                i = 0
+                while i < len(lines):
+                    if impl_pat.search(lines[i]):
+                        depth = lines[i].count("{") - lines[i].count("}")
+                        j = i + 1
+                        # Handle where clause / line-broken brace: scan until we enter the block.
+                        while j < len(lines) and depth <= 0:
+                            depth += lines[j].count("{") - lines[j].count("}")
+                            j += 1
+                        # Scan inside the impl block for fn load.
+                        while j < len(lines) and depth > 0:
+                            depth += lines[j].count("{") - lines[j].count("}")
+                            if load_pat.search(lines[j]):
+                                load_cache[full_type_path] = True
+                                return True
+                            j += 1
+                    i += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    load_cache[full_type_path] = False
+    return False
+
+for m in matches:
+    f = m.get("file", "")
+    if TEST_PATH.search(f):
+        continue
+    text = m.get("text", "").strip()
+    # Extract full qualified path before ::default(), preserving module namespace.
+    # Handles plain, path-qualified, and turbofish forms:
+    #   AppConfig::default()
+    #   config::AppConfig::default()
+    #   AppConfig::<Prod>::default()          (turbofish pattern in yml)
+    #   config::AppConfig::<Prod>::default()
+    config_match = re.search(r"((?:\w+::)*\w+)::(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>::)?default\(\)\s*$", text)
+    if not config_match:
+        continue
+    full_type_path = config_match.group(1)  # e.g. "config::AppConfig" or "AppConfig"
+    bare_type = full_type_path.split("::")[-1]
+    if not bare_type.endswith("Config"):
+        continue
+    if not has_load_method(full_type_path, target_dir):
+        continue
+    line = m.get("range", {}).get("start", {}).get("line", 0) + 1
+    msg = m.get("message", "")
+    print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
+' < "${_ASG_TMPOUT}" > "$TMPFILE" || {
+  echo "[RS-14] WARN: python3 处理失败，跳过检测" >&2
+  if [[ "${STRICT}" == true ]]; then
+    exit 1
+  fi
+  exit 0
 }
 
-# 检测 2: Trait 声明但无 impl 或未注册
-check_trait_implementation() {
-    local traits=$(rg -t rust '^pub trait \w+' --no-heading -o | sed 's/pub trait //g' | sort -u)
+FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
-    for trait in $traits; do
-        local impl_count=$(rg -t rust "impl.*${trait}" --count-matches 2>/dev/null | awk '{s+=$1} END {print s+0}')
+if [[ $FOUND -eq 0 ]]; then
+  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
+  exit 0
+fi
 
-        if [[ "$impl_count" -eq 0 ]]; then
-            VIOLATIONS+=("[RS-14] Trait 声明但无任何 impl: ${trait}")
-        fi
-    done
-}
+cat "$TMPFILE"
+echo ""
+echo "Found ${FOUND} potential Config declaration-execution gap(s)."
+echo ""
+echo "修复方法："
+echo "  1. Config 若有 load() 方法，启动时应调用 Config::load() 而非 Config::default()"
+echo "  2. 若 Default::default() 确为预期行为（如测试或默认配置），添加注释说明"
 
-# 检测 3: 持久化方法存在但启动时从不调用
-check_persistence_methods() {
-    local persist_methods=$(rg -t rust 'fn (save|load|persist|restore)\(' --no-heading | grep -v 'test' | head -10)
-
-    if [[ -n "$persist_methods" ]]; then
-        # 检查 main.rs 或 lib.rs 是否调用这些方法
-        local startup_files=$(find . -name 'main.rs' -o -name 'lib.rs' | head -5)
-
-        for method in save load persist restore; do
-            local has_method=$(echo "$persist_methods" | rg -q "fn ${method}\(" && echo "yes" || echo "no")
-            if [[ "$has_method" == "yes" ]]; then
-                local called_at_startup="no"
-                for file in $startup_files; do
-                    if rg -q "${method}\(" "$file" 2>/dev/null; then
-                        called_at_startup="yes"
-                        break
-                    fi
-                done
-
-                if [[ "$called_at_startup" == "no" ]]; then
-                    VIOLATIONS+=("[RS-14] 持久化方法 ${method}() 存在但启动时从不调用")
-                fi
-            fi
-        done
-    fi
-}
-
-# 检测 4: 新字段加入 struct 但构造函数未初始化
-check_struct_field_initialization() {
-    # 查找带有 new() 方法的 struct
-    local structs_with_new=$(rg -t rust 'impl.*\{' -A 30 | rg -B 5 'fn new\(' | rg 'impl' | sed 's/impl \(.*\) {/\1/g' | sort -u)
-
-    for struct_name in $structs_with_new; do
-        # 获取 struct 定义的字段数
-        local field_count=$(rg -t rust "struct ${struct_name}" -A 20 | rg '^\s+\w+:' | wc -l | tr -d ' ')
-
-        # 获取 new() 方法中初始化的字段数
-        local init_count=$(rg -t rust "impl.*${struct_name}" -A 50 | rg 'fn new\(' -A 30 | rg '^\s+\w+:' | wc -l | tr -d ' ')
-
-        if [[ "$field_count" -gt 0 ]] && [[ "$init_count" -lt "$field_count" ]]; then
-            VIOLATIONS+=("[RS-14] ${struct_name} 有 ${field_count} 个字段但 new() 只初始化 ${init_count} 个")
-        fi
-    done
-}
-
-# 执行检测
-check_config_default_usage
-check_trait_implementation
-check_persistence_methods
-check_struct_field_initialization
-
-# 输出结果
-if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
-    echo "=== RS-14: 声明-执行鸿沟检测 ==="
-    for violation in "${VIOLATIONS[@]}"; do
-        echo "$violation"
-    done
-    echo ""
-    echo "修复方法："
-    echo "1. Config: 启动时显式调用 Config::load_from_file() 而非 Default::default()"
-    echo "2. Trait: 添加至少一个 impl 或删除未使用的 trait"
-    echo "3. 持久化: 在 main.rs 启动代码中调用 restore()/load()"
-    echo "4. 字段初始化: 在所有构造函数中初始化新增字段"
-
-    if [[ "$STRICT_MODE" == "true" ]]; then
-        exit 1
-    fi
-else
-    echo "[RS-14] ✓ 无声明-执行鸿沟"
+if [[ "${STRICT}" == true ]]; then
+  exit 1
 fi

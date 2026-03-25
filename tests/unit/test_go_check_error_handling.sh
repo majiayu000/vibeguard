@@ -49,7 +49,21 @@ EOF
 assert_fail "discarded error fails --strict" bash "$GUARD" --strict "$proj_discard"
 assert_output_contains "output contains GO-01 tag" "[GO-01]" bash "$GUARD" --strict "$proj_discard"
 
-# --- FAIL: multiple return values both discarded ---
+# --- FAIL: multi-return regular assignment both discarded (_, _ = CALL) ---
+proj_multi_assign="${tmpdir}/fail_multi_assign"
+mkdir -p "${proj_multi_assign}"
+cat > "${proj_multi_assign}/handler.go" <<'EOF'
+package handler
+
+import "strconv"
+
+func Run() {
+    _, _ = strconv.Atoi("123")
+}
+EOF
+assert_fail "_, _ = CALL discards both values fails --strict" bash "$GUARD" --strict "$proj_multi_assign"
+
+# --- FAIL: multiple return values both discarded (mixed _ := and _ =) ---
 proj_multi="${tmpdir}/fail_multi_discard"
 mkdir -p "${proj_multi}"
 cat > "${proj_multi}/handler.go" <<'EOF'

@@ -103,6 +103,20 @@ export function warn(msg: string): void {
 EOF
 assert_ok "console in logger.ts is excluded" bash "$GUARD" --strict "$proj_logger"
 
+# --- FAIL: business file under parent dir whose name contains 'logger' must still be detected ---
+# Regression for: LOGGER_PATTERN was matched against full absolute path, causing files under
+# any ancestor dir named "logger" / "logging" to be silently skipped (TS-03 漏检).
+proj_logger_parent="${tmpdir}/logging_service"
+mkdir -p "${proj_logger_parent}/src"
+cat > "${proj_logger_parent}/src/handler.ts" <<'EOF'
+export function processRequest(input: string): string {
+  console.log("processing:", input);
+  return input.toUpperCase();
+}
+EOF
+assert_fail "console.log in file under 'logging' parent dir fails --strict" bash "$GUARD" --strict "$proj_logger_parent"
+assert_output_contains "path-contamination: output contains TS-03 tag" "[TS-03]" bash "$GUARD" --strict "$proj_logger_parent"
+
 # --- PASS: MCP entry point with console.error is excluded ---
 proj_mcp="${tmpdir}/pass_mcp"
 mkdir -p "${proj_mcp}/src"
