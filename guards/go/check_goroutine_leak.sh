@@ -47,7 +47,7 @@ list_go_files "${TARGET_DIR}" \
           | sed "s|^|${f}:|" || true
       fi
     done \
-  | awk '{ print "[GO-02/loop] " $0 }' \
+  | awk '{ print "[GO-02] " $0 " (infinite loop — ensure select + exit branch)" }' \
   >> "${TMPFILE}" || true
 
 apply_suppression_filter "${TMPFILE}"

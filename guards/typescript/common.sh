@@ -84,13 +84,36 @@ create_tmpfile() {
 
 # check_suppression FILE LINE_NUM RULE_ID
 # Returns 0 (suppressed) if the line before LINE_NUM has a disable comment for RULE_ID.
+# In staged mode (VIBEGUARD_STAGED_FILES set), reads from the git index so that
+# unstaged working-tree changes don't cause line-number skew.
 check_suppression() {
   local file="$1" line_num="$2" rule_id="$3"
   local prev=$((line_num - 1))
   [[ $prev -lt 1 ]] && return 1
-  [[ ! -f "$file" ]] && return 1
-  if sed -n "${prev}p" "$file" 2>/dev/null \
-      | grep -qE "^[[:space:]]*//.*vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
+
+  local prev_line=""
+  if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]]; then
+    # Read from the staged index to match the line numbers produced by git diff --cached.
+    local git_root
+    git_root=$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null) || true
+    if [[ -n "$git_root" ]]; then
+      local rel="${file#${git_root}/}"
+      prev_line=$(git show ":${rel}" 2>/dev/null | sed -n "${prev}p") || prev_line=""
+    fi
+    # Fallback to working tree for new files not yet tracked in the index.
+    if [[ -z "$prev_line" ]]; then
+      [[ ! -f "$file" ]] && return 1
+      prev_line=$(sed -n "${prev}p" "$file" 2>/dev/null) || prev_line=""
+    fi
+  else
+    [[ ! -f "$file" ]] && return 1
+    prev_line=$(sed -n "${prev}p" "$file" 2>/dev/null) || prev_line=""
+  fi
+
+  # Use //[[:space:]]* (not //.*) to avoid matching doc comments that merely
+  # mention the directive (e.g. "// To suppress, use vibeguard-disable-next-line TS-01").
+  if printf '%s' "$prev_line" \
+      | grep -qE "^[[:space:]]*//[[:space:]]*vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
     return 0
   fi
   return 1
