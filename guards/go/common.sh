@@ -69,3 +69,70 @@ create_tmpfile() {
   fi
   mktemp "$_VG_TMPDIR/vg.XXXXXX"
 }
+
+# ---------------------------------------------------------------------------
+# Inline suppression: // vibeguard-disable-next-line <RULE-ID> [-- reason]
+# ---------------------------------------------------------------------------
+
+# check_suppression FILE LINE_NUM RULE_ID
+# Returns 0 (suppressed) if the line before LINE_NUM has a disable comment for RULE_ID.
+check_suppression() {
+  local file="$1" line_num="$2" rule_id="$3"
+  local prev=$((line_num - 1))
+  [[ $prev -lt 1 ]] && return 1
+  [[ ! -f "$file" ]] && return 1
+  if sed -n "${prev}p" "$file" 2>/dev/null \
+      | grep -qE "vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
+    return 0
+  fi
+  return 1
+}
+
+# apply_suppression_filter TMPFILE
+# Reads findings from TMPFILE in format "[RULE-ID] file:line ..." and removes those
+# suppressed by a vibeguard-disable-next-line comment on the preceding source line.
+# Modifies TMPFILE in-place.
+apply_suppression_filter() {
+  local tmpfile="$1"
+  [[ ! -s "$tmpfile" ]] && return 0
+
+  local filtered_file
+  filtered_file=$(create_tmpfile)
+
+  while IFS= read -r finding; do
+    local rule_id
+    rule_id=$(printf '%s' "$finding" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
+
+    if [[ -z "$rule_id" ]]; then
+      printf '%s\n' "$finding" >> "$filtered_file"
+      continue
+    fi
+
+    local rest
+    rest="${finding#\[${rule_id}\] }"
+
+    local line_num
+    line_num=$(printf '%s' "$rest" | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+
+    if [[ -z "$line_num" ]]; then
+      printf '%s\n' "$finding" >> "$filtered_file"
+      continue
+    fi
+
+    local file_path
+    file_path=$(printf '%s' "$rest" | sed "s/:${line_num}.*$//")
+
+    if [[ ! -f "$file_path" ]]; then
+      printf '%s\n' "$finding" >> "$filtered_file"
+      continue
+    fi
+
+    if check_suppression "$file_path" "$line_num" "$rule_id"; then
+      continue  # suppressed — skip this finding
+    fi
+
+    printf '%s\n' "$finding" >> "$filtered_file"
+  done < "$tmpfile"
+
+  cp "$filtered_file" "$tmpfile"
+}
