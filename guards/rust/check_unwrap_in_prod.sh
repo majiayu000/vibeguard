@@ -34,14 +34,26 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
+      # Track actual line numbers from @@ hunk headers so suppression can work
       git diff --cached -U0 -- "${f}" 2>/dev/null \
-        | grep '^+' \
-        | grep -v '^+++' \
-        | grep -E '\.(unwrap|expect)\(' \
-        | grep -v '^\+[[:space:]]*//' \
-        | while IFS= read -r line; do
-            echo "[RS-03] ${f}: ${line}"
-          done
+        | awk -v file="${f}" '
+          /^\+\+\+/ { next }
+          /^@@ / {
+            match($0, /\+[0-9]+/)
+            cur_line = substr($0, RSTART+1, RLENGTH-1) + 0
+            next
+          }
+          /^-/ { next }
+          /^\+/ {
+            content = substr($0, 2)
+            if (content ~ /\.(unwrap|expect)\(/ &&
+                content !~ /unwrap_or|unwrap_or_else|unwrap_or_default/ &&
+                content !~ /^[[:space:]]*\/\//) {
+              print "[RS-03] " file ":" cur_line " " content
+            }
+            cur_line++
+          }
+        '
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 

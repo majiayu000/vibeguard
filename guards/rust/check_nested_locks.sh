@@ -25,15 +25,32 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
+      # Track actual line numbers from @@ hunk headers so suppression can work
       git diff --cached -U0 -- "${f}" 2>/dev/null \
-        | grep '^+' \
-        | grep -v '^+++' \
-        | grep -cE '\.(read|write|lock)[[:space:]]*\(' \
-        | while IFS= read -r count; do
-            if [[ "$count" -gt 2 ]]; then
-              echo "[RS-01] ${f}: ${count} lock acquisitions in staged diff (review manually)"
-            fi
-          done
+        | awk -v file="${f}" '
+          /^\+\+\+/ { next }
+          /^@@ / {
+            match($0, /\+[0-9]+/)
+            cur_line = substr($0, RSTART+1, RLENGTH-1) + 0
+            next
+          }
+          /^-/ { next }
+          /^\+/ {
+            content = substr($0, 2)
+            if (content ~ /\.(read|write|lock)[[:space:]]*\(/) {
+              lock_count++
+              if (lock_count == 1) first_line = cur_line
+              if (lock_count == 2) second_line = cur_line
+            }
+            cur_line++
+          }
+          END {
+            if (lock_count > 2) {
+              report_line = (second_line > 0) ? second_line : first_line
+              printf "[RS-01] %s:%d %d lock acquisitions in staged diff (review manually)\n", file, report_line, lock_count
+            }
+          }
+        '
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
@@ -58,6 +75,7 @@ else
         active_locks = 0
         max_concurrent = 0
         func_line = NR
+        first_bad_line = 0
         brace_depth = 0
       }
       /{/ {
@@ -74,6 +92,8 @@ else
         lock_count++
         active_locks++
         if (active_locks > max_concurrent) max_concurrent = active_locks
+        # Record the line where concurrent nesting first occurs (second concurrent lock)
+        if (active_locks > 1 && first_bad_line == 0) first_bad_line = NR
       }
       # .clone() after lock typically means extracting value and dropping guard
       /\.clone\(\)/ {
@@ -81,12 +101,14 @@ else
       }
       brace_depth == 0 && func_name != "" {
         if (max_concurrent > 1) {
-          printf "[RS-01] %s:%d fn %s — %d concurrent lock acquisitions (of %d total)\n", FILENAME, func_line, func_name, max_concurrent, lock_count
+          report_line = (first_bad_line > 0) ? first_bad_line : func_line
+          printf "[RS-01] %s:%d fn %s — %d concurrent lock acquisitions (of %d total)\n", FILENAME, report_line, func_name, max_concurrent, lock_count
         }
         func_name = ""
         lock_count = 0
         active_locks = 0
         max_concurrent = 0
+        first_bad_line = 0
       }
     ' "${file}"
   done > "${TMPFILE}"
