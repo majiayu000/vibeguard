@@ -308,7 +308,7 @@ printf '%s\n' \
 bad_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_BAD" \
   --scorecard-file "$SCORECARD_BAD" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$bad_stderr" "[ERROR]" "无效行产生 ERROR 输出"
 
 valid_samples=$(python3 -c "
@@ -456,7 +456,7 @@ printf '%s\n' \
 no_ts_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NO_TS" \
   --scorecard-file "$SCORECARD_NO_TS" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$no_ts_stderr" "[ERROR]" "fp 缺失 ts 时产生 ERROR 输出"
 
 # last_fp_ts must remain None (fp was rejected), so warn→error must not fire
@@ -584,7 +584,7 @@ printf '%s\n' \
 naive_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NAIVE" \
   --scorecard-file "$SCORECARD_NAIVE" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$naive_stderr" "[ERROR]" "无时区 fp ts 产生 ERROR 输出"
 
 naive_samples=$(python3 -c "
