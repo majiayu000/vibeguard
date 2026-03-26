@@ -47,13 +47,21 @@ class HookRunner:
         if not hook_path.exists():
             return HookResult(decision="pass", output="")
 
-        proc = subprocess.run(
-            ["bash", str(hook_path)],
-            input=json.dumps(payload, ensure_ascii=False),
-            text=True,
-            capture_output=True,
-            cwd=cwd,
-        )
+        try:
+            proc = subprocess.run(
+                ["bash", str(hook_path)],
+                input=json.dumps(payload, ensure_ascii=False),
+                text=True,
+                capture_output=True,
+                cwd=cwd,
+            )
+        except OSError as exc:
+            print(
+                f"[vibeguard-codex-wrapper] hook {hook_name} skipped"
+                f" (cwd={cwd!r} unavailable): {exc}",
+                file=sys.stderr,
+            )
+            return HookResult(decision="pass", output="")
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
         decision = self._extract_decision(output) or "pass"
         updated_command = self._extract_updated_command(output) if decision == "allow" else None
