@@ -6,6 +6,11 @@
 #   - git clean -f（删除未跟踪文件）
 #   - rm -rf 项目根目录或敏感路径
 #
+# 透明纠正（updatedInput）机械性可预测的命令：
+#   - npm install / yarn install → pnpm install
+#   - npm install <pkg> / yarn add <pkg> → pnpm add <pkg>
+#   - pip install / pip3 install / python -m pip install → uv pip install
+#
 # 注意：force push 检测已移至 hooks/git/pre-push（git 原生 hook），
 # 该 hook 通过 install-hook.sh 安装到各项目 .git/hooks/pre-push。
 
@@ -136,6 +141,61 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
 WARN_EOF
     exit 0
   fi
+fi
+
+# --- 包管理器透明纠正（updatedInput）---
+# 机械性可预测的命令直接重写，无需 block+retry。
+# 仅针对简单的单条命令（含 && 等链式命令不纠正，避免误改复杂流水线）。
+_PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 -c '
+import sys, re
+
+cmd = sys.stdin.read().strip()
+corrected = None
+
+# 跳过链式命令（&&, ||, ;）— 复杂流水线不做自动重写
+if not re.search(r"&&|\|\||;", cmd):
+
+    # npm install (无参数) → pnpm install
+    if re.match(r"^npm\s+(?:install|i)\s*$", cmd):
+        corrected = "pnpm install"
+
+    # npm install/add <packages>（排除 -g 全局安装）→ pnpm add <packages>
+    elif re.match(r"^npm\s+(?:install|i|add)\s+(?!-?-?global\b|-g\b)", cmd):
+        rest = re.sub(r"^npm\s+(?:install|i|add)\s+", "", cmd)
+        rest = re.sub(r"--save-dev", "-D", rest)
+        rest = re.sub(r"(?:--save\b|-S\b)\s*", "", rest).strip()
+        corrected = "pnpm add " + rest
+
+    # yarn install (无参数) → pnpm install
+    elif re.match(r"^yarn\s+install\s*$", cmd):
+        corrected = "pnpm install"
+
+    # yarn add <packages> → pnpm add <packages>
+    elif re.match(r"^yarn\s+add\s+", cmd):
+        rest = re.sub(r"^yarn\s+add\s+", "", cmd)
+        corrected = "pnpm add " + rest
+
+    # pip install / pip3 install → uv pip install
+    elif re.match(r"^pip3?\s+install\s+", cmd):
+        rest = re.sub(r"^pip3?\s+install\s+", "", cmd)
+        corrected = "uv pip install " + rest
+
+    # python -m pip install / python3 -m pip install → uv pip install
+    elif re.match(r"^python3?\s+-m\s+pip\s+install\s+", cmd):
+        rest = re.sub(r"^python3?\s+-m\s+pip\s+install\s+", "", cmd)
+        corrected = "uv pip install " + rest
+
+print(corrected or "")
+' 2>/dev/null || echo "")
+
+if [[ -n "$_PKG_CORRECTION" ]]; then
+  vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
+  python3 -c "
+import json, sys
+corrected = sys.argv[1]
+print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
+" "$_PKG_CORRECTION"
+  exit 0
 fi
 
 # 通过所有检查 → 放行

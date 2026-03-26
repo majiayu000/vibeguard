@@ -148,6 +148,68 @@ assert_not_contains "$result" '"decision": "block"' "放行 cargo build"
 result=$(echo '{"tool_input":{"command":"vitest --run"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "放行 vitest --run"
 
+# =========================================================
+header "pre-bash-guard.sh — 包管理器透明纠正（updatedInput）"
+# =========================================================
+
+# npm install (无参数) → pnpm install
+result=$(echo '{"tool_input":{"command":"npm install"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "allow"' "npm install → updatedInput allow"
+assert_contains "$result" '"updatedInput"' "npm install → 包含 updatedInput"
+assert_contains "$result" "pnpm install" "npm install → 重写为 pnpm install"
+
+# npm i (shorthand) → pnpm install
+result=$(echo '{"tool_input":{"command":"npm i"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm install" "npm i → 重写为 pnpm install"
+
+# npm install <package> → pnpm add <package>
+result=$(echo '{"tool_input":{"command":"npm install lodash"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm add lodash" "npm install <pkg> → pnpm add <pkg>"
+
+# npm install --save-dev <package> → pnpm add -D <package>
+result=$(echo '{"tool_input":{"command":"npm install --save-dev typescript"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm add -D typescript" "npm install --save-dev → pnpm add -D <pkg>"
+
+# npm add <package> → pnpm add <package>
+result=$(echo '{"tool_input":{"command":"npm add axios"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm add axios" "npm add <pkg> → pnpm add <pkg>"
+
+# npm install -g 不应纠正（全局安装另行处理）
+result=$(echo '{"tool_input":{"command":"npm install -g pnpm"}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"updatedInput"' "npm install -g 不触发纠正"
+
+# yarn install → pnpm install
+result=$(echo '{"tool_input":{"command":"yarn install"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm install" "yarn install → 重写为 pnpm install"
+
+# yarn add <package> → pnpm add <package>
+result=$(echo '{"tool_input":{"command":"yarn add react"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "pnpm add react" "yarn add <pkg> → pnpm add <pkg>"
+
+# pip install <package> → uv pip install <package>
+result=$(echo '{"tool_input":{"command":"pip install requests"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "uv pip install requests" "pip install → uv pip install"
+
+# pip3 install → uv pip install
+result=$(echo '{"tool_input":{"command":"pip3 install numpy pandas"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "uv pip install numpy pandas" "pip3 install → uv pip install"
+
+# python -m pip install → uv pip install
+result=$(echo '{"tool_input":{"command":"python -m pip install fastapi"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "uv pip install fastapi" "python -m pip install → uv pip install"
+
+# python3 -m pip install → uv pip install
+result=$(echo '{"tool_input":{"command":"python3 -m pip install -r requirements.txt"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" "uv pip install -r requirements.txt" "python3 -m pip install -r → uv pip install -r"
+
+# 链式命令不纠正（npm install && npm run build）
+result=$(echo '{"tool_input":{"command":"npm install && npm run build"}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"updatedInput"' "链式命令不触发包管理器纠正"
+
+# npm run build 不应被纠正（非安装命令）
+result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"updatedInput"' "npm run build 不触发纠正"
+
 # commit message 含 force 不应误报
 result=$(echo '{"tool_input":{"command":"git commit -m \"fix: force push guard\""}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "commit message 含 force 不误报"
