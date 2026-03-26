@@ -148,7 +148,6 @@ class VibeGuardGateStrategy(GateStrategy):
         state: SessionState,
         write_to_server: Callable[[dict[str, Any]], None],
     ) -> bool:
-        del state
         method = message.get("method")
         if method != "item/commandExecution/requestApproval":
             return False
@@ -162,8 +161,11 @@ class VibeGuardGateStrategy(GateStrategy):
         if not isinstance(command, str) or not command.strip():
             return False
 
+        thread_id = params.get("threadId")
+        cwd = state.thread_cwd.get(thread_id) if isinstance(thread_id, str) else None
+
         payload = {"tool_input": {"command": command}}
-        result = self.hooks.run("pre-bash-guard.sh", payload)
+        result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd)
 
         if result.decision == "block":
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
