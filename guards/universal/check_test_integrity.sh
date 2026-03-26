@@ -51,6 +51,14 @@ for mod in "${PYTHON_STDLIB_MODULES[@]}"; do
     SHADOW_FOUND=$((SHADOW_FOUND + 1))
     ISSUES=$((ISSUES + 1))
   fi
+  # Also check package-style shadow: json/__init__.py can shadow the 'json' module
+  shadow_pkg="${TARGET_DIR}/${mod}/__init__.py"
+  if [[ -f "$shadow_pkg" ]]; then
+    rel_path="${shadow_pkg#${TARGET_DIR}/}"
+    red "库影子包: ${rel_path} (shadows '${mod}' package)"
+    SHADOW_FOUND=$((SHADOW_FOUND + 1))
+    ISSUES=$((ISSUES + 1))
+  fi
 done
 
 # JavaScript/TypeScript 库影子检测
@@ -79,7 +87,8 @@ fi
 # =========================================================
 echo "检查空断言测试函数 (Python)..."
 
-EMPTY_STUBS=$(python3 -c '
+_SCAN_ERR=$(mktemp)
+if ! EMPTY_STUBS=$(python3 -c '
 import ast
 import sys
 import os
@@ -136,7 +145,14 @@ for fpath in find_test_files(target):
 
 for v in violations:
     print(v)
-' "$TARGET_DIR" 2>/dev/null || true)
+' "$TARGET_DIR" 2>"$_SCAN_ERR"); then
+  red "扫描器错误：Python 空断言检测失败，测试完整性检测中止（fail-safe）"
+  cat "$_SCAN_ERR" >&2
+  rm -f "$_SCAN_ERR"
+  ISSUES=$((ISSUES + 1))
+else
+  rm -f "$_SCAN_ERR"
+fi
 
 if [[ -n "$EMPTY_STUBS" ]]; then
   COUNT=$(echo "$EMPTY_STUBS" | wc -l | tr -d ' ')
@@ -153,20 +169,34 @@ fi
 # =========================================================
 echo "检查空断言测试函数 (TypeScript/JavaScript)..."
 
-JS_EMPTY_STUBS=$(grep -rn \
+_GREP_ERR=$(mktemp)
+_GREP_OUT=""
+_GREP_EXIT=0
+_GREP_OUT=$(grep -rn \
   --include='*.test.ts' --include='*.test.js' \
   --include='*.spec.ts' --include='*.spec.js' \
   --include='*.test.tsx' --include='*.spec.tsx' \
   --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git \
   -E '^\s*(it|test)\s*\(' \
-  "$TARGET_DIR" 2>/dev/null | while IFS= read -r line; do
+  "$TARGET_DIR" 2>"$_GREP_ERR") || _GREP_EXIT=$?
+# grep exit 1 = no matches (normal); exit 2+ = real error (fail-safe)
+if [[ "$_GREP_EXIT" -gt 1 ]]; then
+  red "扫描器错误：grep JS/TS 空断言检测失败 (exit ${_GREP_EXIT})，测试完整性检测中止（fail-safe）"
+  cat "$_GREP_ERR" >&2
+  rm -f "$_GREP_ERR"
+  ISSUES=$((ISSUES + 1))
+  JS_EMPTY_STUBS=""
+else
+  rm -f "$_GREP_ERR"
+  JS_EMPTY_STUBS=$(echo "$_GREP_OUT" | while IFS= read -r line; do
     file=$(echo "$line" | cut -d: -f1)
     lineno=$(echo "$line" | cut -d: -f2)
-    # Check the next 10 lines for expect(
+    # Check the next 15 lines for expect(
     if ! sed -n "${lineno},$((lineno + 15))p" "$file" 2>/dev/null | grep -qE 'expect\s*\(|assert\s*\(|should\.|\.toBe|\.toEqual|\.toContain|\.toThrow'; then
       echo "${file#${TARGET_DIR}/}:${lineno}"
     fi
-  done 2>/dev/null | head -20 || true)
+  done | head -20)
+fi
 
 if [[ -n "$JS_EMPTY_STUBS" ]]; then
   COUNT=$(echo "$JS_EMPTY_STUBS" | wc -l | tr -d ' ')
