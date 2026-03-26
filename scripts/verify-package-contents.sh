@@ -13,7 +13,12 @@ REQUIRED=(
   "hooks"
   "guards"
   "rules"
-  "scripts"
+  "scripts/setup"
+  "scripts/lib"
+  "skills"
+  "workflows"
+  "agents"
+  "context-profiles"
   "mcp-server"
   ".claude/commands/vibeguard"
 )
