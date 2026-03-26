@@ -82,10 +82,13 @@ ${ERRORS}"
 
 # --- Escalation 检测：连续构建失败升级 ---
 DECISION="warn"
-CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+# Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
+# not accumulated across projects within the same session.
+CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
 session = os.environ.get("VG_SESSION", "")
+project = os.environ.get("VG_PROJECT", "")
 count = 0
 try:
     with open(log_file) as f:
@@ -98,6 +101,10 @@ try:
             e = json.loads(line)
             if e.get("hook") != "post-build-check": continue
             if e.get("session") != session: continue
+            # Project isolation: only count failures for the same project root
+            detail = e.get("detail", "")
+            if project and detail and not detail.startswith(project):
+                continue
             if e.get("decision") == "pass":
                 break
             if e.get("decision") == "warn":

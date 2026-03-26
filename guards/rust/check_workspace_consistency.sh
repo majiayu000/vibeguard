@@ -113,8 +113,11 @@ for member in "${MEMBERS[@]}"; do
   [[ -d "${member_dir}/src" ]] || continue
 
   member_name=$(basename "${member}")
+  # Fix RS-06: exclude comment lines (// ...) and const/static definitions which
+  # are intentional named constants, not hardcoded paths.
   paths=$(grep -rnoE '"[^"]*\.(db|sqlite|json|toml|yaml|yml|log)"' "${member_dir}/src/" 2>/dev/null \
-    | { grep -vE '(/tests/|/test_|_test\.rs:)' || true; }) || true
+    | { grep -vE '(/tests/|/test_|_test\.rs:|^\s*//|:[[:space:]]*//)' || true; } \
+    | { grep -vE '(const[[:space:]]|static[[:space:]])' || true; }) || true
 
   if [[ -n "${paths}" ]]; then
     echo "  [${member_name}]"
@@ -221,8 +224,11 @@ for member in "${MEMBERS[@]}"; do
   [[ -d "${member_dir}/src" ]] || continue
 
   member_name=$(basename "${member}")
-  db_files=$(grep -rhoE '"[^"]*\.(db|sqlite)"' "${member_dir}/src/" 2>/dev/null \
-    | { grep -v '/tests/' || true; } \
+  # Fix RS-06: also exclude comment lines and const/static definitions
+  db_files=$(grep -rnoE '"[^"]*\.(db|sqlite)"' "${member_dir}/src/" 2>/dev/null \
+    | { grep -vE '(/tests/|:[[:space:]]*//)' || true; } \
+    | { grep -vE '(const[[:space:]]|static[[:space:]])' || true; } \
+    | sed -E 's/[^:]+:[0-9]+:"([^"]+)"/\1/' \
     | sort -u) || true
 
   while IFS= read -r dbf; do

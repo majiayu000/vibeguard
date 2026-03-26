@@ -12,7 +12,9 @@
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 
-TODO_PATTERN='\b(TodoWrite|TodoRead|TodoList|Todo[A-Z][A-Za-z0-9_]*)\b'
+# Fix RS-12: only match Claude Code-specific tool names, not generic data structures
+# like TodoList, TodoItem, TodoTask which are common application types.
+TODO_PATTERN='\b(TodoWrite|TodoRead)\b'
 TASK_PATTERN='\b(ViewTasks?|AddTask|UpdateTask|ReorganizeTasks?|TaskDone|TaskList|TaskManagement)\b'
 
 TMP_RS=$(create_tmpfile)

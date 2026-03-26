@@ -99,20 +99,23 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
-            CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-            # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
-            # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" || true
+            awk '
+              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                n = split($0, a, "{"); brace_depth += n - 1
+                n = split($0, a, "}"); brace_depth -= n - 1
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print NR ": " $0 }
+            ' "${f}" | sed "s|^|${f}:|" || true
           fi
         done \
-      | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+      | awk '{ print "[RS-03] " $0 }' \
       > "${TMPFILE}" || true
   else
     _ASG_PER_FILE=$(create_tmpfile)
@@ -148,29 +151,37 @@ for m in matches:
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
 " "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" \
-              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
-              >> "${_ASG_PER_FILE}" || true
+            awk '
+              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                n = split($0, a, "{"); brace_depth += n - 1
+                n = split($0, a, "}"); brace_depth -= n - 1
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+            ' "${f}" >> "${_ASG_PER_FILE}" || true
           }
           else
             echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" \
-              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
-              >> "${_ASG_PER_FILE}" || true
+            awk '
+              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                n = split($0, a, "{"); brace_depth += n - 1
+                n = split($0, a, "}"); brace_depth -= n - 1
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+            ' "${f}" >> "${_ASG_PER_FILE}" || true
           fi
         done
     cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
@@ -182,20 +193,25 @@ else
     | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
     | while IFS= read -r f; do
         if [[ -f "${f}" ]]; then
-          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-          # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
-          # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
-          grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-            | while IFS= read -r hit; do
-                HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                  echo "${hit}"
-                fi
-              done \
-            | sed "s|^|${f}:|" || true
+          # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track
+          # test module scope (brace depth), not just the first occurrence.
+          awk '
+            /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+            pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+              in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+            }
+            pending_test_attr { pending_test_attr = 0 }
+            in_test_mod {
+              n = split($0, a, "{"); brace_depth += n - 1
+              n = split($0, a, "}"); brace_depth -= n - 1
+              if (brace_depth <= 0) in_test_mod = 0
+              next
+            }
+            /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print NR ": " $0 }
+          ' "${f}" | sed "s|^|${f}:|" || true
         fi
       done \
-    | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+    | awk '{ print "[RS-03] " $0 }' \
     > "${TMPFILE}" || true
 fi
 

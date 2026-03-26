@@ -73,25 +73,35 @@ else
         max_concurrent = 0
         func_line = NR
         brace_depth = 0
+        lock_idx = 0
+        delete lock_depths
       }
       /{/ {
         n = gsub(/{/, "{")
         brace_depth += n
       }
-      /}/ {
-        n = gsub(/}/, "}")
-        brace_depth -= n
-        # Closing brace may drop a lock guard — reduce active count
-        if (active_locks > 0) active_locks--
-      }
       /\.(read|write|lock)[[:space:]]*\(/ {
+        # Only count RwLock/Mutex-style lock methods, not arbitrary .read()/.write()
+        # Require the call to end with () — already enforced by the pattern
         lock_count++
+        lock_depths[lock_idx] = brace_depth
+        lock_idx++
         active_locks++
         if (active_locks > max_concurrent) max_concurrent = active_locks
       }
-      # .clone() after lock typically means extracting value and dropping guard
-      /\.clone\(\)/ {
-        if (active_locks > 0) active_locks--
+      /}/ {
+        n = gsub(/}/, "}")
+        brace_depth -= n
+        # Release lock guards that went out of scope: their acquisition brace_depth
+        # is now greater than the current brace_depth, meaning their block closed.
+        # Iterate from newest to oldest lock to release in LIFO order.
+        for (i = lock_idx - 1; i >= 0; i--) {
+          if (lock_depths[i] > brace_depth) {
+            active_locks--
+            delete lock_depths[i]
+            lock_idx--
+          }
+        }
       }
       brace_depth == 0 && func_name != "" {
         if (max_concurrent > 1) {
@@ -101,6 +111,8 @@ else
         lock_count = 0
         active_locks = 0
         max_concurrent = 0
+        lock_idx = 0
+        delete lock_depths
       }
     ' "${file}"
   done > "${TMPFILE}"
