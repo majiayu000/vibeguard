@@ -15,12 +15,15 @@ REQUIRED=(
   "rules"
   "scripts/setup"
   "scripts/lib"
+  "scripts/install-systemd.sh"
+  "scripts/systemd"
   "skills"
   "workflows"
   "agents"
   "context-profiles"
   "mcp-server"
   ".claude/commands/vibeguard"
+  "claude-md/vibeguard-rules.md"
 )
 
 WORK=$(mktemp -d)

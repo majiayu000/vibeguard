@@ -43,6 +43,8 @@
     "scripts/setup/",
     "scripts/codex/",
     "scripts/lib/",
+    "scripts/install-systemd.sh",
+    "scripts/systemd/",
     "data/rule-scorecard.json",
     "scripts/precision-tracker.py",
     "scripts/compliance_check.sh",
