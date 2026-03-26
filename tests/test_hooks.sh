@@ -195,8 +195,8 @@ TOTAL=$((TOTAL + 1))
 # stdin 格式: <local-ref> <local-sha> <remote-ref> <remote-sha>
 tmp_repo_push="$(mktemp -d)"
 git -C "$tmp_repo_push" init -q
-git -C "$tmp_repo_push" config user.email "test@example.com"
-git -C "$tmp_repo_push" config user.name "Test User"
+git -C "$tmp_repo_push" config user.email "test@vibeguard.test"
+git -C "$tmp_repo_push" config user.name "VibeGuard Test"
 git -C "$tmp_repo_push" commit --allow-empty -m "base"
 BASE_SHA=$(git -C "$tmp_repo_push" rev-parse HEAD)
 git -C "$tmp_repo_push" commit --allow-empty -m "local"
