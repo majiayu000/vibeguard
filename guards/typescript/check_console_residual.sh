@@ -31,6 +31,13 @@ fi
 
 RESULTS=$(create_tmpfile)
 
+# --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
+_LINEMAP=""
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _LINEMAP=$(create_tmpfile)
+  vg_build_diff_linemap "$_LINEMAP" '\.(ts|tsx|js|jsx)$' || _LINEMAP=""
+fi
+
 _USE_GREP_FALLBACK=false
 
 if command -v ast-grep >/dev/null 2>&1; then
@@ -51,10 +58,17 @@ if command -v ast-grep >/dev/null 2>&1; then
           --rule "${RULES_DIR}/ts-03-console.yml" \
           --json \
           "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
-        VIBEGUARD_TARGET_DIR="${TARGET_DIR}" python3 -c '
+        VIBEGUARD_TARGET_DIR="${TARGET_DIR}" VG_DIFF_LINEMAP="$_LINEMAP" python3 -c '
 import json, sys, re, os
 
 TARGET_DIR_PY = os.environ.get("VIBEGUARD_TARGET_DIR", "")
+linemap_path = os.environ.get("VG_DIFF_LINEMAP", "")
+added_set = set()
+if linemap_path and os.path.isfile(linemap_path):
+    with open(linemap_path) as lm:
+        for entry in lm:
+            added_set.add(entry.strip())
+
 TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)tests/|(^|/)__tests__/|(^|/)test/|(^|/)vendor/)")
 LOGGER_PATTERN = re.compile(r"(logger|logging|log\.config|/debug\.|/debug/)")
 MCP_MARKERS = {"StdioServerTransport", "new Server(", "McpServer"}
@@ -90,6 +104,9 @@ for m in matches:
     if is_mcp(f):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
+    # Baseline 过滤：只报告 diff 新增行上的问题
+    if added_set and (f + ":" + str(line)) not in added_set:
+        continue
     msg = m.get("message", "console 残留")
     print("[TS-03] " + f + ":" + str(line) + " " + msg)
 ' < "${_ASG_TMPOUT}" >> "$RESULTS" || {
@@ -123,6 +140,10 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
           | grep -v '^\s*//' \
           | while IFS= read -r line_info; do
               LINE_NUM=$(echo "$line_info" | cut -d: -f1)
+              # Baseline 过滤：只报告新增行上的问题
+              if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+                grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+              fi
               echo "[TS-03] ${f}:${LINE_NUM} console 残留（grep fallback）"
             done
       done >> "$RESULTS" || true

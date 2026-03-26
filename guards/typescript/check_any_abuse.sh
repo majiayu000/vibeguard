@@ -19,6 +19,13 @@ parse_guard_args "$@"
 
 RESULTS=$(create_tmpfile)
 
+# --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
+_LINEMAP=""
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _LINEMAP=$(create_tmpfile)
+  vg_build_diff_linemap "$_LINEMAP" '\.(ts|tsx|js|jsx)$' || _LINEMAP=""
+fi
+
 # --- TS-01: as any 和 : any 类型注解 ---
 _USE_GREP_FALLBACK=false
 
@@ -40,9 +47,15 @@ if command -v ast-grep >/dev/null 2>&1; then
           --rule "${RULES_DIR}/ts-01-any.yml" \
           --json \
           "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}"; then
-        python3 -c '
-import json, sys, re
+        VG_DIFF_LINEMAP="$_LINEMAP" python3 -c '
+import json, sys, re, os
 TEST_PATTERN = re.compile(r"(\.(test|spec)\.(ts|tsx|js|jsx)$|(^|/)tests/|(^|/)__tests__/|(^|/)test/|(^|/)vendor/)")
+linemap_path = os.environ.get("VG_DIFF_LINEMAP", "")
+added_set = set()
+if linemap_path and os.path.isfile(linemap_path):
+    with open(linemap_path) as lm:
+        for entry in lm:
+            added_set.add(entry.strip())
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -56,6 +69,9 @@ for m in matches:
     if TEST_PATTERN.search(f):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
+    # Baseline 过滤：只报告 diff 新增行上的问题
+    if added_set and (f + ":" + str(line)) not in added_set:
+        continue
     msg = m.get("message", "any 类型使用")
     print("[TS-01] " + f + ":" + str(line) + " " + msg)
 ' < "${_ASG_TMPOUT}" >> "$RESULTS" || {
@@ -81,6 +97,10 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
           | grep -v '^\s*//' \
           | while IFS= read -r line_info; do
               LINE_NUM=$(echo "$line_info" | cut -d: -f1)
+              # Baseline 过滤：只报告新增行上的问题
+              if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+                grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+              fi
               echo "[TS-01] ${f}:${LINE_NUM} any 类型使用（grep fallback）"
             done
       done >> "$RESULTS" || true
@@ -94,12 +114,20 @@ while IFS= read -r file; do
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
+    # Baseline 过滤：只报告新增行上的问题
+    if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+      grep -qxF "${file}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+    fi
     echo "[TS-02] ${file}:${LINE_NUM} '@ts-ignore' 禁用类型检查。修复：修复类型错误而非忽略" >> "$RESULTS"
   done < <(grep -n '@ts-ignore' "$file" 2>/dev/null || true)
 
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
+    # Baseline 过滤：只报告新增行上的问题
+    if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+      grep -qxF "${file}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+    fi
     echo "[TS-02] ${file}:${LINE_NUM} '@ts-nocheck' 禁用整个文件类型检查。修复：逐个修复类型错误" >> "$RESULTS"
   done < <(grep -n '@ts-nocheck' "$file" 2>/dev/null || true)
 
