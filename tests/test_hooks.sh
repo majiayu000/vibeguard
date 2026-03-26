@@ -247,6 +247,31 @@ assert_contains "$result" '"decision": "block"' "路径含单引号安全处理"
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "已存在文件+空 old_string 放行"
 
+# W-12: 测试基础设施文件应被拦截（conftest.py）
+result=$(echo '{"tool_input":{"file_path":"/any/path/conftest.py","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 conftest.py"
+assert_contains "$result" "W-12" "W-12: 错误消息包含规则编号"
+
+# W-12: jest.config.ts 应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/jest.config.ts","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 jest.config.ts"
+
+# W-12: jest.config.js 应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/jest.config.js","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 jest.config.js"
+
+# W-12: pytest.ini 应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/pytest.ini","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 pytest.ini"
+
+# W-12: .coveragerc 应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/.coveragerc","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 .coveragerc"
+
+# W-12: 普通源码文件不应被测试基础设施规则拦截
+result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
+assert_not_contains "$result" "W-12" "W-12: 普通文件不触发测试基础设施保护"
+
 # =========================================================
 header "pre-write-guard.sh — 先搜后写"
 # =========================================================
@@ -280,6 +305,31 @@ assert_contains "$result" "VIBEGUARD" "新建 .tsx 源码文件触发 guard"
 # tests/ 目录下的源码文件应放行
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test/tests/helper.py"}}' | bash hooks/pre-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "tests/ 目录下源码文件放行"
+
+# W-12: 写入 conftest.py 应被拦截（新文件，正确 basename）
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_dir/conftest.py"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截写入新 conftest.py"
+assert_contains "$result" "W-12" "W-12: write guard 错误消息包含规则编号"
+
+# W-12: 写入已有 conftest.py 路径（含目录）也应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/tests/conftest.py"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截写入已有 conftest.py 路径（含目录）"
+
+# W-12: jest.config.ts 写入应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/jest.config.ts"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 jest.config.ts"
+
+# W-12: vitest.config.ts 写入应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/vitest.config.ts"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 vitest.config.ts"
+
+# W-12: babel.config.js 写入应被拦截
+result=$(echo '{"tool_input":{"file_path":"/project/babel.config.js"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 babel.config.js"
+
+# W-12: 普通 config.json 不应被测试基础设施规则拦截
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_myconfig.json"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "W-12" "W-12: 普通 config.json 不触发测试基础设施保护"
 
 # =========================================================
 header "post-edit-guard.sh — 质量警告"

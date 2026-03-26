@@ -17,8 +17,34 @@ INPUT=$(cat)
 
 FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
-# 无法解析或文件已存在（编辑） → 放行
-if [[ -z "$FILE_PATH" ]] || [[ -e "$FILE_PATH" ]]; then
+if [[ -z "$FILE_PATH" ]]; then
+  exit 0
+fi
+
+# W-12: Block writes to test infrastructure files (new or existing)
+BASENAME=$(basename "$FILE_PATH")
+_is_test_infra=false
+case "$BASENAME" in
+  conftest.py|pytest.ini|.coveragerc|setup.cfg|\
+  jest.config.js|jest.config.ts|jest.config.cjs|jest.config.mjs|jest.config.json|\
+  vitest.config.js|vitest.config.ts|vitest.config.mts|\
+  karma.config.js|karma.config.ts|\
+  babel.config.js|babel.config.ts|babel.config.cjs|babel.config.json)
+    _is_test_infra=true ;;
+esac
+if [[ "$_is_test_infra" == "true" ]]; then
+  vg_log "pre-write-guard" "Write" "block" "测试基础设施文件保护 (W-12)" "$FILE_PATH"
+  cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "VIBEGUARD W-12 拦截：禁止写入测试基础设施文件。AI 代理不得创建或覆盖 conftest.py/jest.config/pytest.ini/.coveragerc/babel.config 等测试框架配置文件，此类修改可能导致测试被绕过而非真正修复代码问题。请修复被测代码，而非操纵测试框架。"
+}
+EOF
+  exit 0
+fi
+
+# 文件已存在（编辑） → 放行
+if [[ -e "$FILE_PATH" ]]; then
   exit 0
 fi
 

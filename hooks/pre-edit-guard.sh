@@ -14,7 +14,7 @@ INPUT=$(cat)
 # 直接在 Python 中完成全部检查，避免 bash 变量传递破坏 old_string
 # （<<<heredoc 追加 \n、$() 吞尾部换行、echo 转义特殊字符）
 CHECK_RESULT=$(python3 -c '
-import json, sys
+import json, sys, os, re
 
 data = json.load(sys.stdin)
 
@@ -38,7 +38,20 @@ if not file_path:
 print("CHECK")
 print(file_path)
 
-import os
+# W-12: Block edits to test infrastructure files
+basename = os.path.basename(file_path)
+PROTECTED_EXACT = {"conftest.py", "pytest.ini", ".coveragerc", "setup.cfg"}
+PROTECTED_PATTERNS = [
+    r"^jest\.config\.",
+    r"^vitest\.config\.",
+    r"^karma\.config\.",
+    r"^babel\.config\.",
+]
+is_protected = basename in PROTECTED_EXACT or any(re.match(p, basename) for p in PROTECTED_PATTERNS)
+if is_protected:
+    print("TEST_INFRA_PROTECTED")
+    sys.exit(0)
+
 if not os.path.isfile(file_path):
     print("FILE_NOT_FOUND")
     sys.exit(0)
@@ -59,6 +72,17 @@ DETAIL=$(echo "$CHECK_RESULT" | sed -n '3p')
 
 # 无 file_path 或解析错误 → 放行
 if [[ "$CHECK_STATUS" != "CHECK" ]]; then
+  exit 0
+fi
+
+if [[ "$DETAIL" == "TEST_INFRA_PROTECTED" ]]; then
+  vg_log "pre-edit-guard" "Edit" "block" "测试基础设施文件保护 (W-12)" "$FILE_PATH"
+  cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD W-12 拦截：禁止修改测试基础设施文件 — ${FILE_PATH}。AI 代理不得修改 conftest.py/jest.config/pytest.ini/.coveragerc 等测试框架配置文件，此类修改可能导致测试被绕过而非真正修复代码问题。请修复被测代码，而非操纵测试框架。"
+}
+BLOCK_EOF
   exit 0
 fi
 
