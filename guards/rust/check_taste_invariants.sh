@@ -52,6 +52,10 @@ list_rs_files "${TARGET_DIR}" \
             n = split($0, a, "{"); brace_depth += n - 1
             n = split($0, a, "}"); brace_depth -= n - 1
             matched_open = 1
+            # Check for unwrap on this same line (single-line async fn or opening-brace
+            # on the same line as fn signature), before deciding in_async state.
+            if (/\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\//)
+              print NR ": " $0
             if (brace_depth <= 0) { pending_async = 0; in_async = 0 }
             else in_async = 1
             next

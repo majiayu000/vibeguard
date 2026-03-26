@@ -100,7 +100,14 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
             awk '
-              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/mod[[:space:]]/) {
+                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
+                  n = split($0, _a, "}"); brace_depth -= n - 1
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
               pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
@@ -141,8 +148,15 @@ try:
     for _i, _ln in enumerate(_all, 1):
         _s = _ln.strip()
         if _s.startswith('#[cfg(test)]'):
-            _pending = True
             test_lines.add(_i)
+            # Inline form: #[cfg(test)] mod tests { ... } on one line
+            if 'mod ' in _s:
+                _in_mod = True
+                _depth = _s.count('{') - _s.count('}')
+                if _depth <= 0:
+                    _in_mod = False
+            else:
+                _pending = True
             continue
         if _pending:
             _pending = False
@@ -179,7 +193,14 @@ for m in matches:
 " "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
             awk '
-              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/mod[[:space:]]/) {
+                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
+                  n = split($0, _a, "}"); brace_depth -= n - 1
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
               pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
@@ -196,7 +217,14 @@ for m in matches:
           else
             echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
             awk '
-              /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/mod[[:space:]]/) {
+                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
+                  n = split($0, _a, "}"); brace_depth -= n - 1
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
               pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
@@ -223,7 +251,14 @@ else
           # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track
           # test module scope (brace depth), not just the first occurrence.
           awk '
-            /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
+            /^[[:space:]]*#\[cfg\(test\)\]/ {
+              if (/mod[[:space:]]/) {
+                in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
+                n = split($0, _a, "}"); brace_depth -= n - 1
+                if (brace_depth <= 0) in_test_mod = 0
+              } else { pending_test_attr = 1 }
+              next
+            }
             pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
               in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
             }

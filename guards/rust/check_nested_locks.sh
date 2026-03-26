@@ -84,10 +84,17 @@ else
         # Only count RwLock/Mutex-style lock methods, not arbitrary .read()/.write()
         # Require the call to end with () — already enforced by the pattern
         lock_count++
-        lock_depths[lock_idx] = brace_depth
-        lock_idx++
-        active_locks++
-        if (active_locks > max_concurrent) max_concurrent = active_locks
+        # Statement-scoped temporary guard: lock call is immediately chained with another
+        # method on the same line (e.g. .read().clone(), .lock().map()), meaning the
+        # MutexGuard/RwLockReadGuard is never bound to a variable and is dropped at the
+        # end of the expression — not at the next closing brace.
+        _is_temp = (/\.(read|write|lock)[[:space:]]*\([^)]*\)\./)
+        if (!_is_temp) {
+          lock_depths[lock_idx] = brace_depth
+          lock_idx++
+          active_locks++
+          if (active_locks > max_concurrent) max_concurrent = active_locks
+        }
       }
       /}/ {
         n = gsub(/}/, "}")

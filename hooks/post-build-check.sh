@@ -22,6 +22,13 @@ if [[ -z "$FILE_PATH" ]]; then
   exit 0
 fi
 
+# Normalize to absolute path so project-isolation filter in escalation detection
+# works correctly regardless of whether Claude passes relative or absolute paths.
+if [[ "$FILE_PATH" != /* ]]; then
+  FILE_PATH="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd)/$(basename "$FILE_PATH")" \
+    || FILE_PATH="$(pwd)/$FILE_PATH"
+fi
+
 # 获取文件扩展名
 BASENAME=$(basename "$FILE_PATH")
 EXT="${BASENAME##*.}"
