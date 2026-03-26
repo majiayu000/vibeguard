@@ -96,7 +96,7 @@ check_suppression() {
   [[ $prev -lt 1 ]] && return 1
   [[ ! -f "$file" ]] && return 1
   if sed -n "${prev}p" "$file" 2>/dev/null \
-      | grep -qE "vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
+      | grep -qE "^[[:space:]]*//.*vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
     return 0
   fi
   return 1
@@ -129,7 +129,7 @@ apply_suppression_filter() {
 
     # Extract line number: first :digits sequence (file:line separator)
     local line_num
-    line_num=$(printf '%s' "$rest" | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+    line_num=$(printf '%s' "$rest" | grep -oE ':[0-9]+' | head -1 | tr -d ':' || true)
 
     if [[ -z "$line_num" ]]; then
       printf '%s\n' "$finding" >> "$filtered_file"
