@@ -100,21 +100,24 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
             awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
               /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/mod[[:space:]]/) {
-                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
-                  n = split($0, _a, "}"); brace_depth -= n - 1
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
                   if (brace_depth <= 0) in_test_mod = 0
                 } else { pending_test_attr = 1 }
                 next
               }
-              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
-                n = split($0, a, "{"); brace_depth += n - 1
-                n = split($0, a, "}"); brace_depth -= n - 1
+                brace_depth += net_braces($0)
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
@@ -135,10 +138,21 @@ elif command -v ast-grep >/dev/null 2>&1; then
               --rule "${RULES_DIR}/rs-03-unwrap.yml" \
               --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
             python3 -c "
-import json, sys
+import json, sys, re
 
 file_path = sys.argv[1]
 test_lines = set()
+
+def _count_braces(s):
+    # Strip string literals and line comments before counting braces to avoid
+    # counting braces inside  let x = "{";  or  // { comment
+    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove "..." literals
+    s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove '...' char literals
+    s = re.sub(r'//.*$', '', s)               # remove line comments
+    return s.count('{') - s.count('}')
+
+_ITEM_KW = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
+
 try:
     with open(file_path) as _src:
         _all = _src.readlines()
@@ -150,26 +164,30 @@ try:
         if _s.startswith('#[cfg(test)]'):
             test_lines.add(_i)
             # Inline form: #[cfg(test)] mod tests { ... } on one line
-            if 'mod ' in _s:
+            if _ITEM_KW.search(_s[len('#[cfg(test)]'):]):
                 _in_mod = True
-                _depth = _s.count('{') - _s.count('}')
+                _depth = _count_braces(_s)
                 if _depth <= 0:
                     _in_mod = False
             else:
                 _pending = True
             continue
         if _pending:
+            # Keep pending through additional attribute lines (#[allow(...)], #[tokio::test], etc.)
+            if _s.startswith('#['):
+                test_lines.add(_i)
+                continue
             _pending = False
-            if 'mod ' in _s:
+            if _ITEM_KW.search(_s):
                 _in_mod = True
-                _depth = _s.count('{') - _s.count('}')
+                _depth = _count_braces(_s)
                 test_lines.add(_i)
                 if _depth <= 0:
                     _in_mod = False
             continue
         if _in_mod:
             test_lines.add(_i)
-            _depth += _s.count('{') - _s.count('}')
+            _depth += _count_braces(_s)
             if _depth <= 0:
                 _in_mod = False
 except Exception:
@@ -193,21 +211,24 @@ for m in matches:
 " "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
             awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
               /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/mod[[:space:]]/) {
-                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
-                  n = split($0, _a, "}"); brace_depth -= n - 1
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
                   if (brace_depth <= 0) in_test_mod = 0
                 } else { pending_test_attr = 1 }
                 next
               }
-              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
-                n = split($0, a, "{"); brace_depth += n - 1
-                n = split($0, a, "}"); brace_depth -= n - 1
+                brace_depth += net_braces($0)
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
@@ -217,21 +238,24 @@ for m in matches:
           else
             echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
             awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
               /^[[:space:]]*#\[cfg\(test\)\]/ {
-                if (/mod[[:space:]]/) {
-                  in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
-                  n = split($0, _a, "}"); brace_depth -= n - 1
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
                   if (brace_depth <= 0) in_test_mod = 0
                 } else { pending_test_attr = 1 }
                 next
               }
-              pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
                 in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
-                n = split($0, a, "{"); brace_depth += n - 1
-                n = split($0, a, "}"); brace_depth -= n - 1
+                brace_depth += net_braces($0)
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
@@ -251,21 +275,24 @@ else
           # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track
           # test module scope (brace depth), not just the first occurrence.
           awk '
+            function net_braces(line,    _t, _o, _c) {
+              _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+              _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+            }
             /^[[:space:]]*#\[cfg\(test\)\]/ {
-              if (/mod[[:space:]]/) {
-                in_test_mod = 1; n = split($0, _a, "{"); brace_depth = n - 1
-                n = split($0, _a, "}"); brace_depth -= n - 1
+              if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                in_test_mod = 1; brace_depth = net_braces($0)
                 if (brace_depth <= 0) in_test_mod = 0
               } else { pending_test_attr = 1 }
               next
             }
-            pending_test_attr && /[[:space:]]*mod[[:space:]]/ {
+            pending_test_attr && /^[[:space:]]*#\[/ { next }
+            pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
               in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
             }
             pending_test_attr { pending_test_attr = 0 }
             in_test_mod {
-              n = split($0, a, "{"); brace_depth += n - 1
-              n = split($0, a, "}"); brace_depth -= n - 1
+              brace_depth += net_braces($0)
               if (brace_depth <= 0) in_test_mod = 0
               next
             }

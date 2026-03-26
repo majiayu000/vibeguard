@@ -48,6 +48,9 @@ list_rs_files "${TARGET_DIR}" \
         awk '
           # Detect start of async fn; wait for the opening brace
           /async[[:space:]]+fn[[:space:]]+/ { pending_async = 1; brace_depth = 0; matched_open = 0 }
+          # Trait/interface method declarations end with ; and have no body — clear pending
+          # so the next real function'"'"'s { is not mistaken for this async fn'"'"'s body.
+          pending_async && /;/ && !/{/ { pending_async = 0; next }
           pending_async && /{/ {
             n = split($0, a, "{"); brace_depth += n - 1
             n = split($0, a, "}"); brace_depth -= n - 1

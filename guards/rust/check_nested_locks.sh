@@ -81,18 +81,28 @@ else
         brace_depth += n
       }
       /\.(read|write|lock)[[:space:]]*\(/ {
-        # Only count RwLock/Mutex-style lock methods, not arbitrary .read()/.write()
-        # Require the call to end with () — already enforced by the pattern
-        lock_count++
-        # Statement-scoped temporary guard: lock call is immediately chained with another
-        # method on the same line (e.g. .read().clone(), .lock().map()), meaning the
-        # MutexGuard/RwLockReadGuard is never bound to a variable and is dropped at the
-        # end of the expression — not at the next closing brace.
-        _is_temp = (/\.(read|write|lock)[[:space:]]*\([^)]*\)\./)
-        if (!_is_temp) {
-          lock_depths[lock_idx] = brace_depth
-          lock_idx++
-          active_locks++
+        # Count all lock acquisitions on this line using gsub so multiple calls on one
+        # line (e.g. the two .lock() calls in self.a.lock().map(|_a| { self.b.lock() }))
+        # are each tracked individually.
+        _tmp = $0
+        gsub(/\/\/.*$/, "", _tmp)        # strip line comments
+        gsub(/"[^"]*"/, "", _tmp)        # strip simple string literals
+        _n = gsub(/\.(read|write|lock)[[:space:]]*\(/, "", _tmp)
+        if (_n < 1) _n = 1              # at least one matched (pattern fired)
+        lock_count += _n
+        # A chained call like .lock().clone() / .lock().to_string() drops the guard
+        # immediately (value extracted, guard never bound to a variable).  Only apply
+        # this exemption for known value-extraction methods; closure-passing methods
+        # like .lock().map(|g| { ... }) HOLD the guard through the closure body.
+        _value_chain = /\.(read|write|lock)[[:space:]]*\([^)]*\)\.(clone|to_owned|to_string|len|is_empty|contains)\(/
+        if (_value_chain && _n == 1) {
+          # guard is immediately consumed — do not add to active set
+        } else {
+          for (_k = 0; _k < _n; _k++) {
+            lock_depths[lock_idx] = brace_depth
+            lock_idx++
+            active_locks++
+          }
           if (active_locks > max_concurrent) max_concurrent = active_locks
         }
       }
