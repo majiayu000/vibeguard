@@ -128,16 +128,8 @@ for fpath in find_test_files(target):
             continue
         if not node.name.startswith("test_") and node.name != "test":
             continue
-        # Skip functions with only pass/... body (explicit stubs)
-        body = node.body
-        if all(
-            isinstance(s, (ast.Pass, ast.Expr)) and (
-                isinstance(s, ast.Pass) or
-                (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and s.value.value in (None, ...))
-            )
-            for s in body
-        ):
-            continue
+        # Flag functions with only pass/... body — emptied test body is a direct
+        # forgery pattern (W-12); treat the same as no-assertion functions.
         if not has_assertion(node):
             rel = os.path.relpath(fpath, target)
             violations.append(f"{rel}:{node.lineno}: {node.name}() has no assertions")
@@ -180,7 +172,9 @@ if [[ -n "$JS_EMPTY_STUBS" ]]; then
   COUNT=$(echo "$JS_EMPTY_STUBS" | wc -l | tr -d ' ')
   yellow "无断言测试块 (JS/TS): ${COUNT} 处 (需人工确认)"
   echo "$JS_EMPTY_STUBS" | head -10
-  # Don't increment ISSUES for JS — heuristic is less reliable
+  ISSUES=$((ISSUES + COUNT))
+else
+  echo "  未发现无断言测试块 (JS/TS)"
 fi
 
 # =========================================================

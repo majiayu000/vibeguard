@@ -23,13 +23,15 @@ fi
 
 # W-12: Block writes to test infrastructure files (new or existing)
 BASENAME=$(basename "$FILE_PATH")
+# Normalise to lowercase for case-insensitive filesystem safety (e.g. default macOS HFS+)
+BASENAME_LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
 _is_test_infra=false
-case "$BASENAME" in
+case "$BASENAME_LOWER" in
   conftest.py|pytest.ini|.coveragerc|setup.cfg|\
-  jest.config.js|jest.config.ts|jest.config.cjs|jest.config.mjs|jest.config.json|\
-  vitest.config.js|vitest.config.ts|vitest.config.mts|\
-  karma.config.js|karma.config.ts|\
-  babel.config.js|babel.config.ts|babel.config.cjs|babel.config.json)
+  jest.config.js|jest.config.ts|jest.config.cjs|jest.config.mjs|jest.config.cts|jest.config.json|\
+  vitest.config.js|vitest.config.ts|vitest.config.mts|vitest.config.cjs|vitest.config.mjs|vitest.config.cts|\
+  karma.config.js|karma.config.ts|karma.config.mjs|\
+  babel.config.js|babel.config.ts|babel.config.cjs|babel.config.mjs|babel.config.json)
     _is_test_infra=true ;;
 esac
 if [[ "$_is_test_infra" == "true" ]]; then

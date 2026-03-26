@@ -39,7 +39,8 @@ print("CHECK")
 print(file_path)
 
 # W-12: Block edits to test infrastructure files
-basename = os.path.basename(file_path)
+# Use lowercased basename for case-insensitive filesystem safety (e.g. default macOS HFS+)
+basename = os.path.basename(file_path).lower()
 PROTECTED_EXACT = {"conftest.py", "pytest.ini", ".coveragerc", "setup.cfg"}
 PROTECTED_PATTERNS = [
     r"^jest\.config\.",
