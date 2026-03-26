@@ -189,6 +189,112 @@ EOF
 assert_output_contains "wrong rule does not suppress TS-01" "[TS-01]" \
   bash "$TS_GUARD" "$tsproj3"
 
+printf '\n=== Issue 1: loose regex — directive mentioned mid-comment must NOT suppress ===\n'
+
+# A comment that merely mentions the directive phrase (not as the first token
+# after "//") must not be treated as a suppression instruction.
+proj_mention="${tmpdir}/rs03_mention_only"
+mkdir -p "${proj_mention}/src"
+cat > "${proj_mention}/src/main.rs" <<'EOF'
+fn main() {
+    // Do NOT add vibeguard-disable-next-line RS-03 without a good reason
+    let val = std::env::var("HOME").unwrap();
+    println!("{}", val);
+}
+EOF
+assert_output_contains "directive mentioned mid-comment still flags RS-03" "[RS-03]" \
+  bash "$RUST_GUARD" "$proj_mention"
+
+printf '\n=== Issue 2: staged vs working-tree mismatch ===\n'
+
+# Build a tiny git repo so we can exercise pre-commit mode properly.
+git_proj="${tmpdir}/rs03_staged_mismatch"
+mkdir -p "${git_proj}/src"
+(
+  cd "${git_proj}"
+  git init -q
+  git config user.email "test@test.com"
+  git config user.name "Test"
+
+  # Initial commit — clean file, no violation.
+  cat > src/main.rs <<'RUST'
+fn main() {
+    println!("hello");
+}
+RUST
+  git add src/main.rs
+  git commit -q -m "init"
+
+  # Stage a version that has the violation but NO suppression comment.
+  cat > src/main.rs <<'RUST'
+fn main() {
+    let val = std::env::var("HOME").unwrap();
+    println!("{}", val);
+}
+RUST
+  git add src/main.rs
+
+  # Now add a suppression comment in the working tree only (do NOT re-stage).
+  cat > src/main.rs <<'RUST'
+fn main() {
+    // vibeguard-disable-next-line RS-03 -- only in working tree, not staged
+    let val = std::env::var("HOME").unwrap();
+    println!("{}", val);
+}
+RUST
+)
+
+staged_list="${tmpdir}/staged_list_mismatch.txt"
+printf '%s/src/main.rs\n' "${git_proj}" > "${staged_list}"
+out_mismatch=$(cd "${git_proj}" && VIBEGUARD_STAGED_FILES="${staged_list}" bash "$RUST_GUARD" 2>&1 || true)
+
+TOTAL=$((TOTAL+1))
+if echo "$out_mismatch" | grep -qF '[RS-03]'; then
+  green "unstaged suppression does not bypass staged violation"; PASS=$((PASS+1))
+else
+  red "unstaged suppression does not bypass staged violation (expected [RS-03] but got none)"; FAIL=$((FAIL+1))
+fi
+
+# Positive case: suppression comment IS staged → violation must be suppressed.
+git_proj2="${tmpdir}/rs03_staged_match"
+mkdir -p "${git_proj2}/src"
+(
+  cd "${git_proj2}"
+  git init -q
+  git config user.email "test@test.com"
+  git config user.name "Test"
+
+  # Initial commit — clean file.
+  cat > src/main.rs <<'RUST'
+fn main() {
+    println!("hello");
+}
+RUST
+  git add src/main.rs
+  git commit -q -m "init"
+
+  # Stage both the suppression comment and the violation together.
+  cat > src/main.rs <<'RUST'
+fn main() {
+    // vibeguard-disable-next-line RS-03 -- staged alongside the call
+    let val = std::env::var("HOME").unwrap();
+    println!("{}", val);
+}
+RUST
+  git add src/main.rs
+)
+
+staged_list2="${tmpdir}/staged_list_match.txt"
+printf '%s/src/main.rs\n' "${git_proj2}" > "${staged_list2}"
+out_match=$(cd "${git_proj2}" && VIBEGUARD_STAGED_FILES="${staged_list2}" bash "$RUST_GUARD" 2>&1 || true)
+
+TOTAL=$((TOTAL+1))
+if echo "$out_match" | grep -qF '[RS-03]'; then
+  red "staged suppression comment should suppress violation"; FAIL=$((FAIL+1))
+else
+  green "staged suppression comment correctly suppresses violation"; PASS=$((PASS+1))
+fi
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

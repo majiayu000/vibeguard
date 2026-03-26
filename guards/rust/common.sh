@@ -90,13 +90,34 @@ create_tmpfile() {
 
 # check_suppression FILE LINE_NUM RULE_ID
 # Returns 0 (suppressed) if the line before LINE_NUM has a disable comment for RULE_ID.
+# In pre-commit mode (VIBEGUARD_STAGED_FILES set) reads from staged content so that
+# unstaged suppression comments cannot bypass checks on staged violations.
 check_suppression() {
   local file="$1" line_num="$2" rule_id="$3"
   local prev=$((line_num - 1))
   [[ $prev -lt 1 ]] && return 1
-  [[ ! -f "$file" ]] && return 1
-  if sed -n "${prev}p" "$file" 2>/dev/null \
-      | grep -qE "^[[:space:]]*//.*vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
+  local prev_line
+  if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]]; then
+    # Pre-commit mode: read from staged content, not the working tree.
+    # git show ":path" requires a path relative to the repo root.
+    # Use python3 realpath resolution to handle macOS /var→/private/var symlinks.
+    local rel_file="$file"
+    if [[ "$file" == /* ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        rel_file=$(python3 -c "import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(os.getcwd())))" "$file" 2>/dev/null || echo "$file")
+      else
+        local git_root
+        git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+        [[ -n "$git_root" && "$file" == "$git_root/"* ]] && rel_file="${file#$git_root/}"
+      fi
+    fi
+    prev_line=$(git show ":${rel_file}" 2>/dev/null | sed -n "${prev}p" || true)
+  else
+    [[ ! -f "$file" ]] && return 1
+    prev_line=$(sed -n "${prev}p" "$file" 2>/dev/null || true)
+  fi
+  if printf '%s' "$prev_line" \
+      | grep -qE "^[[:space:]]*//[[:space:]]*vibeguard-disable-next-line[[:space:]]+${rule_id}([[:space:]]|--|$)"; then
     return 0
   fi
   return 1
