@@ -152,8 +152,8 @@ import sys, re
 cmd = sys.stdin.read().strip()
 corrected = None
 
-# 跳过复杂命令（&&, ||, ;, 管道, 重定向, 换行）— 复杂流水线不做自动重写
-if not re.search(r"&&|\|\||;|[|<>\n\r]", cmd):
+# 跳过复杂命令（&&, &, ||, ;, 管道, 重定向, 换行）— 复杂流水线不做自动重写
+if not re.search(r"&&|&|\|\||;|[|<>\n\r]", cmd):
 
     # npm install (无参数) → pnpm install
     if re.match(r"^npm\s+(?:install|i)\s*$", cmd):

@@ -68,14 +68,19 @@ class HookRunner:
 
     @staticmethod
     def _extract_updated_command(output: str) -> str | None:
-        try:
-            match = re.search(r'\{[^{}]*"updatedInput"[^{}]*\}', output)
-            if match:
-                data = json.loads(match.group(0))
-                cmd = data.get("updatedInput", {}).get("command")
-                return cmd if isinstance(cmd, str) else None
-        except (json.JSONDecodeError, AttributeError):
-            return None
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict):
+                    updated = data.get("updatedInput")
+                    if isinstance(updated, dict):
+                        cmd = updated.get("command")
+                        return cmd if isinstance(cmd, str) else None
+            except json.JSONDecodeError:
+                continue
         return None
 
 
