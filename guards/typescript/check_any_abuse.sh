@@ -107,6 +107,7 @@ while IFS= read -r file; do
 
 done < <(list_ts_files "$TARGET_DIR" | filter_non_test)
 
+apply_suppression_filter "$RESULTS"
 COUNT_01=$(grep -cE '^\[TS-01\]' "$RESULTS" || true)
 COUNT_02=$(grep -cE '^\[TS-02\]' "$RESULTS" || true)
 COUNT=$((COUNT_01 + COUNT_02))

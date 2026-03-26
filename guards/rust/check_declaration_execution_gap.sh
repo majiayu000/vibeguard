@@ -167,6 +167,7 @@ for m in matches:
   exit 0
 }
 
+apply_suppression_filter "$TMPFILE"
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
 if [[ $FOUND -eq 0 ]]; then

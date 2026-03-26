@@ -87,6 +87,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
     > "${TMPFILE}" || true
 fi
 
+apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 

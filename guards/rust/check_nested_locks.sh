@@ -92,6 +92,7 @@ else
   done > "${TMPFILE}"
 fi
 
+apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 
