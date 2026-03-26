@@ -69,7 +69,7 @@
   ],
   "scripts": {
     "test": "bash tests/test_hooks.sh && bash tests/test_rust_guards.sh && bash tests/test_setup.sh && bash tests/test_precision_tracker.sh",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "bash scripts/verify-package-contents.sh && npm test"
   },
   "engines": {
     "node": ">=18"
