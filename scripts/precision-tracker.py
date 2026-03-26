@@ -537,7 +537,13 @@ def main(argv: list[str] | None = None) -> int:
         if session:
             new_rec["session"] = session
         with _scorecard_write_lock(scorecard_path):
-            triage, _ = load_triage(triage_path)
+            triage, triage_errors = load_triage(triage_path)
+            if triage_errors:
+                print(
+                    f"[ERROR] {triage_errors} invalid triage record(s) — cannot safely update scorecard.",
+                    file=sys.stderr,
+                )
+                return 1
             scorecard = load_scorecard(scorecard_path)
             # Include new_rec in memory so scorecard and triage stay consistent.
             # Scorecard is written first (atomic); triage append follows.

@@ -34,14 +34,45 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
-      git diff --cached -U0 -- "${f}" 2>/dev/null \
-        | grep '^+' \
-        | grep -v '^+++' \
-        | grep -E '\.(unwrap|expect)\(' \
-        | grep -v '^\+[[:space:]]*//' \
-        | while IFS= read -r line; do
-            echo "[RS-03] ${f}: ${line}"
-          done
+      if command -v python3 >/dev/null 2>&1; then
+        # Parse hunk headers to include real line numbers so apply_suppression_filter
+        # can honour vibeguard-disable-next-line comments in the committed file.
+        git diff --cached -U0 -- "${f}" 2>/dev/null \
+          | python3 -c "
+import sys, re
+fname = sys.argv[1]
+unwrap_pat  = re.compile(r'\.(unwrap|expect)\(')
+safe_pat    = re.compile(r'\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(')
+comment_pat = re.compile(r'^\s*//')
+hunk_pat    = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
+current_line = 0
+for raw in sys.stdin:
+    line = raw.rstrip('\n')
+    m = hunk_pat.match(line)
+    if m:
+        current_line = int(m.group(1)) - 1
+        continue
+    if line.startswith('+++') or line.startswith('---'):
+        continue
+    if line.startswith('+'):
+        current_line += 1
+        content = line[1:]
+        if unwrap_pat.search(content) and not safe_pat.search(content) and not comment_pat.match(content):
+            print('[RS-03] ' + fname + ':' + str(current_line) + ' ' + line)
+    elif not line.startswith('-'):
+        current_line += 1
+" "${f}" || true
+      else
+        # Fallback when python3 is unavailable: no line numbers; suppression won't apply.
+        git diff --cached -U0 -- "${f}" 2>/dev/null \
+          | grep '^+' \
+          | grep -v '^+++' \
+          | grep -E '\.(unwrap|expect)\(' \
+          | grep -v '^\+[[:space:]]*//' \
+          | while IFS= read -r line; do
+              echo "[RS-03] ${f}: ${line}"
+            done
+      fi
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
