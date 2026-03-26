@@ -60,7 +60,7 @@ list_rs_files "${TARGET_DIR}" \
             n = split($0, a, "{"); brace_depth += n - 1
             n = split($0, a, "}"); brace_depth -= n - 1
             if (brace_depth <= 0) { in_async = 0; pending_async = 0 }
-            if (/\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\//)
+            if (/\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\//)
               print NR ": " $0
           }
         ' "${f}" | sed "s|^|${f}:|" || true

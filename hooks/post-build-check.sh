@@ -47,6 +47,7 @@ find_project_root() {
 }
 
 ERRORS=""
+PROJECT_ROOT=""
 
 case "$EXT" in
   rs)
@@ -62,6 +63,7 @@ case "$EXT" in
   js|mjs|cjs)
     # JavaScript 语法检查（不依赖 tsconfig）
     command -v node >/dev/null 2>&1 || exit 0
+    PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "package.json") || true
     ERRORS=$(node --check "$FILE_PATH" 2>&1 | head -10) || true
     ;;
   go)

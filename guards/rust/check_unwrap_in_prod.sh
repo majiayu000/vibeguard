@@ -111,7 +111,7 @@ elif command -v ast-grep >/dev/null 2>&1; then
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print NR ": " $0 }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
             ' "${f}" | sed "s|^|${f}:|" || true
           fi
         done \
@@ -123,17 +123,44 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
       | while IFS= read -r f; do
           [[ -f "${f}" ]] || continue
-          # 获取 #[cfg(test)] 分界线（该行及之后视为测试代码）
-          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-          CFG_LINE="${CFG_LINE:-0}"
-
           _ASG_FILE_OUT=$(create_tmpfile)
           if ast-grep scan \
               --rule "${RULES_DIR}/rs-03-unwrap.yml" \
               --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
             python3 -c "
 import json, sys
-cfg_line = int(sys.argv[1])
+
+file_path = sys.argv[1]
+test_lines = set()
+try:
+    with open(file_path) as _src:
+        _all = _src.readlines()
+    _pending = False
+    _in_mod = False
+    _depth = 0
+    for _i, _ln in enumerate(_all, 1):
+        _s = _ln.strip()
+        if _s.startswith('#[cfg(test)]'):
+            _pending = True
+            test_lines.add(_i)
+            continue
+        if _pending:
+            _pending = False
+            if 'mod ' in _s:
+                _in_mod = True
+                _depth = _s.count('{') - _s.count('}')
+                test_lines.add(_i)
+                if _depth <= 0:
+                    _in_mod = False
+            continue
+        if _in_mod:
+            test_lines.add(_i)
+            _depth += _s.count('{') - _s.count('}')
+            if _depth <= 0:
+                _in_mod = False
+except Exception:
+    pass
+
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -144,12 +171,12 @@ except Exception as e:
     sys.exit(1)
 for m in matches:
     l = m.get('range', {}).get('start', {}).get('line', 0) + 1
-    if cfg_line > 0 and l >= cfg_line:
+    if l in test_lines:
         continue
     fname = m.get('file', '')
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
-" "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
+" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
             awk '
               /^[[:space:]]*#\[cfg\(test\)\]/ { pending_test_attr = 1; next }
@@ -163,7 +190,7 @@ for m in matches:
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
             ' "${f}" >> "${_ASG_PER_FILE}" || true
           }
           else
@@ -180,7 +207,7 @@ for m in matches:
                 if (brace_depth <= 0) in_test_mod = 0
                 next
               }
-              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
             ' "${f}" >> "${_ASG_PER_FILE}" || true
           fi
         done
@@ -207,7 +234,7 @@ else
               if (brace_depth <= 0) in_test_mod = 0
               next
             }
-            /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/\/\// { print NR ": " $0 }
+            /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
           ' "${f}" | sed "s|^|${f}:|" || true
         fi
       done \

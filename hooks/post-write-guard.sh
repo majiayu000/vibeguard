@@ -132,7 +132,7 @@ fi
 
 # --- 检查 2: 关键定义重复 ---
 # 从新文件内容中提取关键定义名称
-DEFINITIONS=$(EXT="$EXT" echo "$CONTENT" | python3 -c "
+DEFINITIONS=$(echo "$CONTENT" | EXT="$EXT" python3 -c "
 import sys, re, os
 
 content = sys.stdin.read()
