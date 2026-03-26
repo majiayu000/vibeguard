@@ -152,19 +152,37 @@ import sys, re
 cmd = sys.stdin.read().strip()
 corrected = None
 
-# 跳过链式命令（&&, ||, ;）— 复杂流水线不做自动重写
-if not re.search(r"&&|\|\||;", cmd):
+# 跳过复杂命令（&&, ||, ;, 管道, 重定向, 换行）— 复杂流水线不做自动重写
+if not re.search(r"&&|\|\||;|[|<>\n\r]", cmd):
 
     # npm install (无参数) → pnpm install
     if re.match(r"^npm\s+(?:install|i)\s*$", cmd):
         corrected = "pnpm install"
 
-    # npm install/add <packages>（排除 -g 全局安装）→ pnpm add <packages>
-    elif re.match(r"^npm\s+(?:install|i|add)\s+(?!-?-?global\b|-g\b)", cmd):
-        rest = re.sub(r"^npm\s+(?:install|i|add)\s+", "", cmd)
-        rest = re.sub(r"--save-dev", "-D", rest)
-        rest = re.sub(r"(?:--save\b|-S\b)\s*", "", rest).strip()
-        corrected = "pnpm add " + rest
+    # npm install/add <packages>
+    # 只在有实际包名且所有 flag 均可翻译时纠正，排除全局安装和不兼容 flag
+    elif re.match(r"^npm\s+(?:install|i|add)\s+", cmd):
+        rest = re.sub(r"^npm\s+(?:install|i|add)\s+", "", cmd).strip()
+        tokens = rest.split()
+
+        # 已知可翻译的 npm flag
+        KNOWN_FLAGS = {"--save-dev", "-D", "--save", "-S", "--save-optional", "-O", "--save-exact", "-E"}
+
+        is_global = any(t in ("-g", "--global") or t.startswith("--location=global") for t in tokens)
+        unknown_flags = [t for t in tokens if t.startswith("-") and t not in KNOWN_FLAGS]
+        packages = [t for t in tokens if not t.startswith("-")]
+
+        if packages and not is_global and not unknown_flags:
+            pnpm_flags = []
+            for t in tokens:
+                if t in ("--save-dev", "-D"):
+                    pnpm_flags.append("-D")
+                elif t in ("--save-optional", "-O"):
+                    pnpm_flags.append("-O")
+                elif t in ("--save-exact", "-E"):
+                    pnpm_flags.append("--save-exact")
+                # --save/-S is pnpm default, skip
+            corrected = "pnpm add " + " ".join(pnpm_flags + packages).strip()
 
     # yarn install (无参数) → pnpm install
     elif re.match(r"^yarn\s+install\s*$", cmd):
