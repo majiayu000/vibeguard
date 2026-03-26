@@ -187,19 +187,20 @@ result=$(echo '{"tool_input":{"command":"yarn add react"}}' | bash hooks/pre-bas
 assert_contains "$result" "pnpm add react" "yarn add <pkg> → pnpm add <pkg>"
 
 # pip install <package> → uv pip install <package>
-result=$(echo '{"tool_input":{"command":"pip install requests"}}' | bash hooks/pre-bash-guard.sh)
+# VIRTUAL_ENV simulates an active virtual environment (uv pip guard requires it)
+result=$(VIRTUAL_ENV=/fake/venv echo '{"tool_input":{"command":"pip install requests"}}' | VIRTUAL_ENV=/fake/venv bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "uv pip install requests" "pip install → uv pip install"
 
 # pip3 install → uv pip install
-result=$(echo '{"tool_input":{"command":"pip3 install numpy pandas"}}' | bash hooks/pre-bash-guard.sh)
+result=$(VIRTUAL_ENV=/fake/venv echo '{"tool_input":{"command":"pip3 install numpy pandas"}}' | VIRTUAL_ENV=/fake/venv bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "uv pip install numpy pandas" "pip3 install → uv pip install"
 
 # python -m pip install → uv pip install
-result=$(echo '{"tool_input":{"command":"python -m pip install fastapi"}}' | bash hooks/pre-bash-guard.sh)
+result=$(VIRTUAL_ENV=/fake/venv echo '{"tool_input":{"command":"python -m pip install fastapi"}}' | VIRTUAL_ENV=/fake/venv bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "uv pip install fastapi" "python -m pip install → uv pip install"
 
 # python3 -m pip install → uv pip install
-result=$(echo '{"tool_input":{"command":"python3 -m pip install -r requirements.txt"}}' | bash hooks/pre-bash-guard.sh)
+result=$(VIRTUAL_ENV=/fake/venv echo '{"tool_input":{"command":"python3 -m pip install -r requirements.txt"}}' | VIRTUAL_ENV=/fake/venv bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "uv pip install -r requirements.txt" "python3 -m pip install -r → uv pip install -r"
 
 # 链式命令不纠正（npm install && npm run build）
@@ -209,6 +210,37 @@ assert_not_contains "$result" '"updatedInput"' "链式命令不触发包管理�
 # npm run build 不应被纠正（非安装命令）
 result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"updatedInput"' "npm run build 不触发纠正"
+
+# =========================================================
+header "pre-bash-guard.sh — 目标工具不可用时不触发纠正"
+# =========================================================
+
+# 构造一个不含 pnpm/uv 的临时 PATH，保留 python3 和基础工具
+_tmpbin=$(mktemp -d)
+_py3=$(command -v python3 2>/dev/null || true)
+[[ -n "$_py3" ]] && ln -sf "$_py3" "$_tmpbin/python3"
+_CLEAN_PATH="/usr/bin:/bin:$_tmpbin"
+
+# pnpm 不可用时，npm install 不应被纠正
+result=$(PATH="$_CLEAN_PATH" bash hooks/pre-bash-guard.sh \
+  <<< '{"tool_input":{"command":"npm install"}}' 2>/dev/null || true)
+assert_not_contains "$result" '"updatedInput"' "pnpm 不可用时 npm install 不触发纠正"
+
+# uv 不可用时，pip install 不应被纠正
+result=$(PATH="$_CLEAN_PATH" bash hooks/pre-bash-guard.sh \
+  <<< '{"tool_input":{"command":"pip install requests"}}' 2>/dev/null || true)
+assert_not_contains "$result" '"updatedInput"' "uv 不可用时 pip install 不触发纠正"
+
+rm -rf "$_tmpbin"
+
+# uv 可用但无 .venv 时，pip install 不应被纠正
+if command -v uv &>/dev/null; then
+  _tmpdir_novenv=$(mktemp -d)
+  result=$(cd "$_tmpdir_novenv" && bash "$REPO_DIR/hooks/pre-bash-guard.sh" \
+    <<< '{"tool_input":{"command":"pip install requests"}}' 2>/dev/null || true)
+  assert_not_contains "$result" '"updatedInput"' "uv 可用但无 .venv 时 pip install 不触发纠正"
+  rm -rf "$_tmpdir_novenv"
+fi
 
 # commit message 含 force 不应误报
 result=$(echo '{"tool_input":{"command":"git commit -m \"fix: force push guard\""}}' | bash hooks/pre-bash-guard.sh)

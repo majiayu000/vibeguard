@@ -103,6 +103,16 @@ jobs:
         shell: bash
         run: bash scripts/doc-freshness-check.sh --strict
 
+      # Install pnpm and uv so that the hook rewrite tests (npm→pnpm,
+      # pip→uv) exercise the tool-availability guard added in pre-bash-guard.sh.
+      - name: Install pnpm and uv (hook rewrite tests)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          npm install -g pnpm
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       # --- Regression tests ---
       # Skipped on Windows: the test harness uses Unix path assumptions,
       # mktemp patterns, and hook scripts that rely on native bash behaviour.

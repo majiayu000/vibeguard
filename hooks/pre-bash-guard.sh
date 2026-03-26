@@ -207,6 +207,20 @@ print(corrected or "")
 ' 2>/dev/null || echo "")
 
 if [[ -n "$_PKG_CORRECTION" ]]; then
+  # Verify target tool is actually installed before rewriting — avoids turning
+  # a working command into one that will always fail (e.g. no pnpm/uv on PATH).
+  _target_tool="${_PKG_CORRECTION%% *}"
+  if ! command -v "$_target_tool" &>/dev/null; then
+    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (${_target_tool} not found)" "${COMMAND:0:120}"
+    exit 0
+  fi
+  # For uv pip install, also require an active or local virtual environment;
+  # without one uv pip fails immediately, making the rewrite harmful.
+  if [[ "$_PKG_CORRECTION" == uv\ pip\ install* ]] \
+      && [[ -z "${VIRTUAL_ENV:-}" ]] && [[ ! -d ".venv" ]]; then
+    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (no active venv for uv pip)" "${COMMAND:0:120}"
+    exit 0
+  fi
   vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
   python3 -c "
 import json, sys
