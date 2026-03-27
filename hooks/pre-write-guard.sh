@@ -17,8 +17,36 @@ INPUT=$(cat)
 
 FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
-# 无法解析或文件已存在（编辑） → 放行
-if [[ -z "$FILE_PATH" ]] || [[ -e "$FILE_PATH" ]]; then
+if [[ -z "$FILE_PATH" ]]; then
+  exit 0
+fi
+
+# W-12: Block writes to test infrastructure files (new or existing)
+# Resolve symlinks first to prevent bypass via aliases (e.g. safe.txt -> conftest.py)
+_REAL_PATH=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+BASENAME=$(basename "$_REAL_PATH")
+# Normalise to lowercase for case-insensitive filesystem safety (e.g. default macOS HFS+)
+BASENAME_LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
+_is_test_infra=false
+case "$BASENAME_LOWER" in
+  conftest.py|pytest.ini|.coveragerc|setup.cfg)
+    _is_test_infra=true ;;
+  jest.config.*|vitest.config.*|karma.config.*|babel.config.*)
+    _is_test_infra=true ;;
+esac
+if [[ "$_is_test_infra" == "true" ]]; then
+  vg_log "pre-write-guard" "Write" "block" "测试基础设施文件保护 (W-12)" "$FILE_PATH"
+  cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "VIBEGUARD W-12 拦截：禁止写入测试基础设施文件。AI 代理不得创建或覆盖 conftest.py/jest.config/pytest.ini/.coveragerc/babel.config 等测试框架配置文件，此类修改可能导致测试被绕过而非真正修复代码问题。请修复被测代码，而非操纵测试框架。"
+}
+EOF
+  exit 0
+fi
+
+# 文件已存在（编辑） → 放行
+if [[ -e "$FILE_PATH" ]]; then
   exit 0
 fi
 
