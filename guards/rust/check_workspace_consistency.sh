@@ -113,8 +113,13 @@ for member in "${MEMBERS[@]}"; do
   [[ -d "${member_dir}/src" ]] || continue
 
   member_name=$(basename "${member}")
-  paths=$(grep -rnoE '"[^"]*\.(db|sqlite|json|toml|yaml|yml|log)"' "${member_dir}/src/" 2>/dev/null \
-    | { grep -vE '(/tests/|/test_|_test\.rs:)' || true; }) || true
+  # Fix RS-06: exclude comment lines (// ...) and const/static definitions which
+  # are intentional named constants, not hardcoded paths.
+  # Use -n (no -o) so the full source line is available for the downstream filters;
+  # -o would strip context and make the const/static/comment exclusions ineffective.
+  paths=$(grep -rnE '"[^"]*\.(db|sqlite|json|toml|yaml|yml|log)"' "${member_dir}/src/" 2>/dev/null \
+    | { grep -vE '(/tests/|/test_|_test\.rs:|^\s*//|:[[:space:]]*//)' || true; } \
+    | { grep -vE '(const[[:space:]]|static[[:space:]])' || true; }) || true
 
   if [[ -n "${paths}" ]]; then
     echo "  [${member_name}]"
@@ -221,8 +226,15 @@ for member in "${MEMBERS[@]}"; do
   [[ -d "${member_dir}/src" ]] || continue
 
   member_name=$(basename "${member}")
-  db_files=$(grep -rhoE '"[^"]*\.(db|sqlite)"' "${member_dir}/src/" 2>/dev/null \
-    | { grep -v '/tests/' || true; } \
+  # Fix RS-06: also exclude comment lines and const/static definitions.
+  # Filter on full source lines (no -o), then extract the string literal value.
+  # Using -o before filtering discards the line context that the exclusion
+  # patterns (const/static/comments) rely on, making those filters ineffective.
+  db_files=$(grep -rnE '"[^"]*\.(db|sqlite)"' "${member_dir}/src/" 2>/dev/null \
+    | { grep -vE '(/tests/|:[[:space:]]*//)' || true; } \
+    | { grep -vE '(const[[:space:]]|static[[:space:]])' || true; } \
+    | grep -oE '"[^"]*\.(db|sqlite)"' \
+    | tr -d '"' \
     | sort -u) || true
 
   while IFS= read -r dbf; do

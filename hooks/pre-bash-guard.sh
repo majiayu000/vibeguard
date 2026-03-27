@@ -119,8 +119,13 @@ fi
 
 # --- doc-file-blocker：检测创建非标准 .md 文件 ---
 # 允许的 .md 文件：README、CLAUDE、CONTRIBUTING、CHANGELOG、LICENSE、SKILL
+# Fix doc-file-blocker: exclude temp file paths and paths containing numbers
+# (e.g. /tmp/doc123.md, mktemp output) which are not persistent documentation.
 if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
-  if ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
+  # Skip if writing to a temp/system directory (not a project doc)
+  if echo "$COMMAND_STRIPPED" | grep -qE ">.*(/tmp/|/var/|/proc/|\$TMPDIR|\$TEMP|mktemp)" 2>/dev/null; then
+    true  # temp path — pass through
+  elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
     # 输出警告而非阻止（可能是合理的文档创建）
     vg_log "pre-bash-guard" "Bash" "warn" "非标准 .md 文件" "$COMMAND"
     cat <<WARN_EOF

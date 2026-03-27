@@ -37,22 +37,43 @@ ANSI_COUNT=$(wc -l < "${ANSI_TMP}" | tr -d ' ')
 TOTAL=$((TOTAL + ANSI_COUNT))
 
 # --- TASTE-ASYNC-UNWRAP: async fn 内 .unwrap() ---
+# Fix: use awk to track async fn scope so we only flag unwrap() calls that are
+# actually inside an async function body, not any unwrap() in a file that happens
+# to contain an async fn somewhere else.
 ASYNC_TMP=$(create_tmpfile)
 list_rs_files "${TARGET_DIR}" \
   | { grep -vE '(/tests/|/test_|_test\.rs$|/examples/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 简单检测：同文件有 async fn 且有 .unwrap()
-        if grep -qE 'async\s+fn' "${f}" 2>/dev/null; then
-          grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-            | grep -v 'unwrap_or' \
-            | grep -v 'unwrap_or_else' \
-            | grep -v 'unwrap_or_default' \
-            | sed "s|^|${f}:|" || true
-        fi
+        awk '
+          # Detect start of async fn; wait for the opening brace
+          /async[[:space:]]+fn[[:space:]]+/ { pending_async = 1; brace_depth = 0; matched_open = 0 }
+          # Trait/interface method declarations end with ; and have no body — clear pending
+          # so the next real function'"'"'s { is not mistaken for this async fn'"'"'s body.
+          pending_async && /;/ && !/{/ { pending_async = 0; next }
+          pending_async && /{/ {
+            n = split($0, a, "{"); brace_depth += n - 1
+            n = split($0, a, "}"); brace_depth -= n - 1
+            matched_open = 1
+            # Check for unwrap on this same line (single-line async fn or opening-brace
+            # on the same line as fn signature), before deciding in_async state.
+            if (/\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\//)
+              print NR ": " $0
+            if (brace_depth <= 0) { pending_async = 0; in_async = 0 }
+            else in_async = 1
+            next
+          }
+          in_async {
+            n = split($0, a, "{"); brace_depth += n - 1
+            n = split($0, a, "}"); brace_depth -= n - 1
+            if (brace_depth <= 0) { in_async = 0; pending_async = 0 }
+            if (/\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\//)
+              print NR ": " $0
+          }
+        ' "${f}" | sed "s|^|${f}:|" || true
       fi
     done \
-  | awk '!/^[[:space:]]*\/\// { print "[TASTE-ASYNC-UNWRAP] " $0 }' \
+  | awk '{ print "[TASTE-ASYNC-UNWRAP] " $0 }' \
   > "${ASYNC_TMP}" || true
 
 cat "${ASYNC_TMP}" >> "${TMPFILE}"

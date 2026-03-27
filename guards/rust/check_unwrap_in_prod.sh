@@ -99,38 +99,94 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
-            CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-            # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
-            # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" || true
+            awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                brace_depth += net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
+            ' "${f}" | sed "s|^|${f}:|" || true
           fi
         done \
-      | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+      | awk '{ print "[RS-03] " $0 }' \
       > "${TMPFILE}" || true
   else
     _ASG_PER_FILE=$(create_tmpfile)
-    list_rs_files "${TARGET_DIR}" \
-      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
-      | while IFS= read -r f; do
-          [[ -f "${f}" ]] || continue
-          # 获取 #[cfg(test)] 分界线（该行及之后视为测试代码）
-          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-          CFG_LINE="${CFG_LINE:-0}"
+    _PY_SCRIPT=$(create_tmpfile)
+    cat > "${_PY_SCRIPT}" << 'PYEOF'
+import json, sys, re
 
-          _ASG_FILE_OUT=$(create_tmpfile)
-          if ast-grep scan \
-              --rule "${RULES_DIR}/rs-03-unwrap.yml" \
-              --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
-            python3 -c "
-import json, sys
-cfg_line = int(sys.argv[1])
+file_path = sys.argv[1]
+test_lines = set()
+
+def _count_braces(s):
+    # Strip string literals and line comments before counting braces
+    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove double-quoted string literals
+    s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove single-quoted char literals
+    s = re.sub(r'//.*$', '', s)               # remove line comments
+    return s.count('{') - s.count('}')
+
+_ITEM_KW = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
+
+try:
+    with open(file_path) as _src:
+        _all = _src.readlines()
+    _pending = False
+    _in_mod = False
+    _depth = 0
+    for _i, _ln in enumerate(_all, 1):
+        _s = _ln.strip()
+        if _s.startswith('#[cfg(test)]'):
+            test_lines.add(_i)
+            # Inline form: #[cfg(test)] mod tests { ... } on one line
+            if _ITEM_KW.search(_s[len('#[cfg(test)]'):]):
+                _in_mod = True
+                _depth = _count_braces(_s)
+                if _depth <= 0:
+                    _in_mod = False
+            else:
+                _pending = True
+            continue
+        if _pending:
+            # Keep pending through additional attribute lines (#[allow(...)], #[tokio::test], etc.)
+            if _s.startswith('#['):
+                test_lines.add(_i)
+                continue
+            _pending = False
+            if _ITEM_KW.search(_s):
+                _in_mod = True
+                _depth = _count_braces(_s)
+                test_lines.add(_i)
+                if _depth <= 0:
+                    _in_mod = False
+            continue
+        if _in_mod:
+            test_lines.add(_i)
+            _depth += _count_braces(_s)
+            if _depth <= 0:
+                _in_mod = False
+except Exception:
+    pass
+
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -141,36 +197,77 @@ except Exception as e:
     sys.exit(1)
 for m in matches:
     l = m.get('range', {}).get('start', {}).get('line', 0) + 1
-    if cfg_line > 0 and l >= cfg_line:
+    if l in test_lines:
         continue
     fname = m.get('file', '')
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
-" "${CFG_LINE}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
+PYEOF
+    list_rs_files "${TARGET_DIR}" \
+      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+      | while IFS= read -r f; do
+          [[ -f "${f}" ]] || continue
+          _ASG_FILE_OUT=$(create_tmpfile)
+          if ast-grep scan \
+              --rule "${RULES_DIR}/rs-03-unwrap.yml" \
+              --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
+            python3 "${_PY_SCRIPT}" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" \
-              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
-              >> "${_ASG_PER_FILE}" || true
+            awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                brace_depth += net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+            ' "${f}" >> "${_ASG_PER_FILE}" || true
           }
           else
             echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
-            grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | while IFS= read -r hit; do
-                  HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                  if [[ "${CFG_LINE}" -eq 0 ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                    echo "${hit}"
-                  fi
-                done \
-              | sed "s|^|${f}:|" \
-              | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
-              >> "${_ASG_PER_FILE}" || true
+            awk '
+              function net_braces(line,    _t, _o, _c) {
+                _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+                _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+              }
+              /^[[:space:]]*#\[cfg\(test\)\]/ {
+                if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                  in_test_mod = 1; brace_depth = net_braces($0)
+                  if (brace_depth <= 0) in_test_mod = 0
+                } else { pending_test_attr = 1 }
+                next
+              }
+              pending_test_attr && /^[[:space:]]*#\[/ { next }
+              pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              pending_test_attr { pending_test_attr = 0 }
+              in_test_mod {
+                brace_depth += net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+                next
+              }
+              /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print "[RS-03] " FILENAME ":" NR ": " $0 }
+            ' "${f}" >> "${_ASG_PER_FILE}" || true
           fi
         done
     cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
@@ -182,20 +279,35 @@ else
     | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
     | while IFS= read -r f; do
         if [[ -f "${f}" ]]; then
-          CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
-          # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
-          # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
-          grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-            | while IFS= read -r hit; do
-                HIT_LINE=$(echo "${hit}" | cut -d: -f1)
-                if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
-                  echo "${hit}"
-                fi
-              done \
-            | sed "s|^|${f}:|" || true
+          # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track
+          # test module scope (brace depth), not just the first occurrence.
+          awk '
+            function net_braces(line,    _t, _o, _c) {
+              _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
+              _o = gsub(/{/, "", _t); _c = gsub(/}/, "", _t); return _o - _c
+            }
+            /^[[:space:]]*#\[cfg\(test\)\]/ {
+              if (/(mod|fn|impl|struct|enum|type|trait)[[:space:]]/) {
+                in_test_mod = 1; brace_depth = net_braces($0)
+                if (brace_depth <= 0) in_test_mod = 0
+              } else { pending_test_attr = 1 }
+              next
+            }
+            pending_test_attr && /^[[:space:]]*#\[/ { next }
+            pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
+              in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
+            }
+            pending_test_attr { pending_test_attr = 0 }
+            in_test_mod {
+              brace_depth += net_braces($0)
+              if (brace_depth <= 0) in_test_mod = 0
+              next
+            }
+            /\.(unwrap|expect)\(/ && !/unwrap_or/ && !/^[[:space:]]*\/\// { print NR ": " $0 }
+          ' "${f}" | sed "s|^|${f}:|" || true
         fi
       done \
-    | awk '!/^[[:space:]]*\/\// { print "[RS-03] " $0 }' \
+    | awk '{ print "[RS-03] " $0 }' \
     > "${TMPFILE}" || true
 fi
 

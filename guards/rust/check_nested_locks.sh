@@ -73,25 +73,53 @@ else
         max_concurrent = 0
         func_line = NR
         brace_depth = 0
+        lock_idx = 0
+        delete lock_depths
       }
       /{/ {
         n = gsub(/{/, "{")
         brace_depth += n
       }
+      /\.(read|write|lock)[[:space:]]*\(/ {
+        # Count all lock acquisitions on this line using gsub so multiple calls on one
+        # line (e.g. the two .lock() calls in self.a.lock().map(|_a| { self.b.lock() }))
+        # are each tracked individually.
+        _tmp = $0
+        gsub(/\/\/.*$/, "", _tmp)        # strip line comments
+        gsub(/"[^"]*"/, "", _tmp)        # strip simple string literals
+        _n = gsub(/\.(read|write|lock)[[:space:]]*\(/, "", _tmp)
+        # Do NOT use next when _n < 1: pattern fired on comment/string only,
+        # but the /}/ rule below must still run to keep brace_depth accurate.
+        if (_n >= 1) {
+          lock_count += _n
+          # A chained call like .lock().clone() / .lock().to_string() drops the guard
+          # immediately (value extracted, guard never bound to a variable).  Only apply
+          # this exemption for known value-extraction methods; closure-passing methods
+          # like .lock().map(|g| { ... }) HOLD the guard through the closure body.
+          _value_chain = /\.(read|write|lock)[[:space:]]*\([^)]*\)\.(clone|to_owned|to_string|len|is_empty|contains)\(/
+          if (!(_value_chain && _n == 1)) {
+            for (_k = 0; _k < _n; _k++) {
+              lock_depths[lock_idx] = brace_depth
+              lock_idx++
+              active_locks++
+            }
+            if (active_locks > max_concurrent) max_concurrent = active_locks
+          }
+        }
+      }
       /}/ {
         n = gsub(/}/, "}")
         brace_depth -= n
-        # Closing brace may drop a lock guard — reduce active count
-        if (active_locks > 0) active_locks--
-      }
-      /\.(read|write|lock)[[:space:]]*\(/ {
-        lock_count++
-        active_locks++
-        if (active_locks > max_concurrent) max_concurrent = active_locks
-      }
-      # .clone() after lock typically means extracting value and dropping guard
-      /\.clone\(\)/ {
-        if (active_locks > 0) active_locks--
+        # Release lock guards that went out of scope: their acquisition brace_depth
+        # is now greater than the current brace_depth, meaning their block closed.
+        # Iterate from newest to oldest lock to release in LIFO order.
+        for (i = lock_idx - 1; i >= 0; i--) {
+          if (lock_depths[i] > brace_depth) {
+            active_locks--
+            delete lock_depths[i]
+            lock_idx--
+          }
+        }
       }
       brace_depth == 0 && func_name != "" {
         if (max_concurrent > 1) {
@@ -101,6 +129,8 @@ else
         lock_count = 0
         active_locks = 0
         max_concurrent = 0
+        lock_idx = 0
+        delete lock_depths
       }
     ' "${file}"
   done > "${TMPFILE}"

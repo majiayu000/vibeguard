@@ -22,6 +22,13 @@ if [[ -z "$FILE_PATH" ]]; then
   exit 0
 fi
 
+# Normalize to absolute path so project-isolation filter in escalation detection
+# works correctly regardless of whether Claude passes relative or absolute paths.
+if [[ "$FILE_PATH" != /* ]]; then
+  FILE_PATH="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd)/$(basename "$FILE_PATH")" \
+    || FILE_PATH="$(pwd)/$FILE_PATH"
+fi
+
 # 获取文件扩展名
 BASENAME=$(basename "$FILE_PATH")
 EXT="${BASENAME##*.}"
@@ -47,6 +54,7 @@ find_project_root() {
 }
 
 ERRORS=""
+PROJECT_ROOT=""
 
 case "$EXT" in
   rs)
@@ -62,6 +70,7 @@ case "$EXT" in
   js|mjs|cjs)
     # JavaScript 语法检查（不依赖 tsconfig）
     command -v node >/dev/null 2>&1 || exit 0
+    PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "package.json") || true
     ERRORS=$(node --check "$FILE_PATH" 2>&1 | head -10) || true
     ;;
   go)
@@ -82,10 +91,13 @@ ${ERRORS}"
 
 # --- Escalation 检测：连续构建失败升级 ---
 DECISION="warn"
-CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+# Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
+# not accumulated across projects within the same session.
+CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
 session = os.environ.get("VG_SESSION", "")
+project = os.environ.get("VG_PROJECT", "")
 count = 0
 try:
     with open(log_file) as f:
@@ -98,6 +110,10 @@ try:
             e = json.loads(line)
             if e.get("hook") != "post-build-check": continue
             if e.get("session") != session: continue
+            # Project isolation: only count failures for the same project root
+            detail = e.get("detail", "")
+            if project and detail and not detail.startswith(project.rstrip('/') + '/'):
+                continue
             if e.get("decision") == "pass":
                 break
             if e.get("decision") == "warn":

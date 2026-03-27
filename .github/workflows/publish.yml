@@ -27,6 +27,11 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Configure Git identity (for tests that create commits)
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@vibeguard.test"
+
       - name: Pack and smoke-test binary
         run: |
           TARBALL=$(npm pack | tail -1)

@@ -67,6 +67,11 @@ RG_EXCLUDES=(
   --glob '!**/build/**'
   --glob '!**/__pycache__/**'
   --glob '!**/.venv/**'
+  # Fix post-write: exclude tests directories from same-name search
+  --glob '!**/tests/**'
+  --glob '!**/__tests__/**'
+  --glob '!**/test/**'
+  --glob '!**/spec/**'
 )
 
 SCAN_DEGRADED=0
@@ -109,6 +114,10 @@ else
     -not -path "*/build/*" \
     -not -path "*/__pycache__/*" \
     -not -path "*/.venv/*" \
+    -not -path "*/tests/*" \
+    -not -path "*/__tests__/*" \
+    -not -path "*/test/*" \
+    -not -path "*/spec/*" \
     2>/dev/null | head -"${MAX_MATCHES}" || true)
 fi
 
@@ -123,30 +132,50 @@ fi
 
 # --- 检查 2: 关键定义重复 ---
 # 从新文件内容中提取关键定义名称
-DEFINITIONS=$(echo "$CONTENT" | python3 -c "
-import sys, re
+DEFINITIONS=$(echo "$CONTENT" | EXT="$EXT" python3 -c "
+import sys, re, os
 
 content = sys.stdin.read()
+ext = os.environ.get('EXT', '')
 names = set()
 
-# 提取各语言的关键定义
-patterns = [
-    r'(?:pub\s+)?(?:struct|enum|trait)\s+(\w+)',    # Rust
-    r'(?:class|interface)\s+(\w+)',                   # Python/TS/Java/Go
-    r'(?:type)\s+(\w+)\s+(?:struct|interface)',       # Go
-    r'(?:export\s+)?(?:function|const|class)\s+(\w+)',# JS/TS
-    r'(?:def)\s+(\w+)\s*\(',                          # Python
-    r'(?:pub\s+)?(?:fn)\s+(\w+)',                     # Rust
-    r'(?:func)\s+(\w+)',                              # Go
-]
+# Fix post-write: use language-specific patterns to avoid cross-language pollution.
+# Each language only extracts definitions that are syntactically meaningful for it.
+if ext == 'rs':
+    patterns = [
+        r'(?:pub\s+(?:\w+\s+)?)?(?:struct|enum|trait|union)\s+(\w+)',
+        r'(?:pub\s+(?:\w+\s+)?)?fn\s+(\w+)',
+    ]
+elif ext in ('ts', 'tsx', 'js', 'jsx'):
+    patterns = [
+        r'(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)',
+        r'(?:export\s+)?interface\s+(\w+)',
+        r'(?:export\s+)?(?:async\s+)?function\s+(\w+)',
+        r'(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\(',
+    ]
+elif ext == 'py':
+    patterns = [
+        r'class\s+(\w+)',
+        r'def\s+(\w+)\s*\(',
+    ]
+elif ext == 'go':
+    patterns = [
+        r'type\s+(\w+)\s+(?:struct|interface)',
+        r'func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(',
+    ]
+else:
+    # Minimal fallback for other languages
+    patterns = [
+        r'(?:class|interface)\s+(\w+)',
+        r'(?:function|func|def)\s+(\w+)',
+    ]
 
 for p in patterns:
     for m in re.finditer(p, content):
         name = m.group(1)
-        # 过滤太短、通用名称和 dunder 方法（__init__ 等）
         if name.startswith('_'):
             continue
-        if len(name) > 3 and name not in ('self', 'init', 'main', 'test', 'None', 'True', 'False', 'this', 'super'):
+        if len(name) > 3 and name not in ('self', 'init', 'main', 'test', 'None', 'True', 'False', 'this', 'super', 'impl', 'type', 'move', 'async'):
             names.add(name)
 
 for name in sorted(names):
