@@ -102,7 +102,7 @@ vg_build_diff_linemap() {
   local baseline="${BASELINE_COMMIT:-}"
   [[ -z "$staged" && -z "$baseline" ]] && return 1
 
-  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" \
+  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" \
   python3 -c '
 import sys, re, subprocess, os
 
@@ -110,6 +110,7 @@ staged     = os.environ.get("VG_STAGED", "")
 baseline   = os.environ.get("VG_BASELINE", "")
 ext_filter = os.environ.get("VG_EXT", "")
 out_path   = os.environ.get("VG_OUT", "")
+target_dir = os.environ.get("VG_TARGET_DIR", ".")
 
 _git_root_cache = {}
 
@@ -132,7 +133,7 @@ def iter_files():
                 if p and (not ext_filter or re.search(ext_filter, p)):
                     yield p
     elif baseline:
-        root = get_git_root(".")
+        root = get_git_root(target_dir)
         if not root:
             return
         result = subprocess.run(
