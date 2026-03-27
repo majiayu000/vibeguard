@@ -43,8 +43,11 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
         if ! python3 -c "
 import sys, re
 fname = sys.argv[1]
-unwrap_pat  = re.compile(r'\.(unwrap|expect)\(')
-safe_pat    = re.compile(r'\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(')
+# \.(unwrap\(|expect\() matches .unwrap( and .expect( but NOT .unwrap_or*(
+# because after 'unwrap' the next char must be '(' not '_'.
+# Using safe_pat + 'not safe_pat.search()' would exclude lines that have both
+# .expect('msg') and .unwrap_or_default() chained, causing false negatives.
+danger_pat  = re.compile(r'\.(unwrap\(|expect\()')
 comment_pat = re.compile(r'^\s*//')
 hunk_pat    = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
 current_line = 0
@@ -59,7 +62,7 @@ for raw in sys.stdin:
     if line.startswith('+'):
         current_line += 1
         content = line[1:]
-        if unwrap_pat.search(content) and not safe_pat.search(content) and not comment_pat.match(content):
+        if danger_pat.search(content) and not comment_pat.match(content):
             print('[RS-03] ' + fname + ':' + str(current_line) + ' ' + line)
     elif not line.startswith('-'):
         current_line += 1
