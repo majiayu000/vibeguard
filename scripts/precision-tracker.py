@@ -565,6 +565,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_scorecard:
         with _scorecard_write_lock(scorecard_path):
             triage, triage_errors = load_triage(triage_path)
+            if triage_errors:
+                return 1
             scorecard = load_scorecard(scorecard_path)
             scorecard, transitions = update_scorecard(scorecard, triage)
             save_scorecard(scorecard, scorecard_path)
@@ -575,8 +577,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("No lifecycle transitions.")
         print(f"Scorecard saved to {scorecard_path}")
-        if triage_errors:
-            return 1
 
     # Always print report
     scorecard = load_scorecard(scorecard_path)
