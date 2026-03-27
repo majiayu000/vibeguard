@@ -30,8 +30,12 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 echo "🔍  Packing tarball for verification…"
-npm pack --pack-destination "$WORK" --quiet
-TARBALL=$(ls "$WORK"/*.tgz)
+# npm pack --pack-destination is unreliable inside prepublishOnly lifecycle scripts
+# (the tarball lands in CWD regardless of the flag on some npm versions).
+# Pack to CWD and move the result into WORK so the rest of the script is stable.
+TARBALL_NAME=$(npm pack --quiet 2>&1 | tail -1)
+mv "$TARBALL_NAME" "$WORK/"
+TARBALL="$WORK/$TARBALL_NAME"
 
 echo "📦  Unpacking $TARBALL"
 tar -xzf "$TARBALL" -C "$WORK"
