@@ -50,6 +50,7 @@ list_go_files "${TARGET_DIR}" \
   | awk '{ print "[GO-02/loop] " $0 }' \
   >> "${TMPFILE}" || true
 
+apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 

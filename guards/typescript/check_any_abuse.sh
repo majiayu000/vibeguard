@@ -91,22 +91,21 @@ while IFS= read -r file; do
   [[ -z "$file" ]] && continue
   [[ ! -f "$file" ]] && continue
 
-  REL_PATH="${file#${TARGET_DIR}/}"
-
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
-    echo "[TS-02] ${REL_PATH}:${LINE_NUM} '@ts-ignore' 禁用类型检查。修复：修复类型错误而非忽略" >> "$RESULTS"
+    echo "[TS-02] ${file}:${LINE_NUM} '@ts-ignore' 禁用类型检查。修复：修复类型错误而非忽略" >> "$RESULTS"
   done < <(grep -n '@ts-ignore' "$file" 2>/dev/null || true)
 
   while IFS= read -r line_info; do
     [[ -z "$line_info" ]] && continue
     LINE_NUM=$(echo "$line_info" | cut -d: -f1)
-    echo "[TS-02] ${REL_PATH}:${LINE_NUM} '@ts-nocheck' 禁用整个文件类型检查。修复：逐个修复类型错误" >> "$RESULTS"
+    echo "[TS-02] ${file}:${LINE_NUM} '@ts-nocheck' 禁用整个文件类型检查。修复：逐个修复类型错误" >> "$RESULTS"
   done < <(grep -n '@ts-nocheck' "$file" 2>/dev/null || true)
 
 done < <(list_ts_files "$TARGET_DIR" | filter_non_test)
 
+apply_suppression_filter "$RESULTS"
 COUNT_01=$(grep -cE '^\[TS-01\]' "$RESULTS" || true)
 COUNT_02=$(grep -cE '^\[TS-02\]' "$RESULTS" || true)
 COUNT=$((COUNT_01 + COUNT_02))

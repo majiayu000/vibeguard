@@ -160,11 +160,16 @@ def _validate_triage_record(rec: Any, lineno: int) -> bool:
 # Triage loading
 # ---------------------------------------------------------------------------
 
-def load_triage(path: Path) -> list[dict[str, Any]]:
-    """Load triage.jsonl; skip comment/blank lines and reject malformed records."""
+def load_triage(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """Load triage.jsonl; skip comment/blank lines and skip malformed records.
+
+    Returns (records, error_count). Invalid lines are logged as [ERROR] and
+    skipped so that valid records are still processed.
+    """
     records: list[dict[str, Any]] = []
+    error_count = 0
     if not path.exists():
-        return records
+        return records, 0
     with path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
             line = line.strip()
@@ -174,13 +179,13 @@ def load_triage(path: Path) -> list[dict[str, Any]]:
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
                 print(f"[ERROR] triage.jsonl line {lineno}: {exc}", file=sys.stderr)
-                print("[ERROR] Aborting: corrupted triage line could cause incorrect lifecycle transitions.", file=sys.stderr)
-                sys.exit(1)
+                error_count += 1
+                continue
             if not _validate_triage_record(rec, lineno):
-                print("[ERROR] Aborting: invalid triage record could cause incorrect lifecycle transitions.", file=sys.stderr)
-                sys.exit(1)
+                error_count += 1
+                continue
             records.append(rec)
-    return records
+    return records, error_count
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +537,13 @@ def main(argv: list[str] | None = None) -> int:
         if session:
             new_rec["session"] = session
         with _scorecard_write_lock(scorecard_path):
-            triage = load_triage(triage_path)
+            triage, triage_errors = load_triage(triage_path)
+            if triage_errors:
+                print(
+                    f"[ERROR] {triage_errors} invalid triage record(s) — cannot safely update scorecard.",
+                    file=sys.stderr,
+                )
+                return 1
             scorecard = load_scorecard(scorecard_path)
             # Include new_rec in memory so scorecard and triage stay consistent.
             # Scorecard is written first (atomic); triage append follows.
@@ -553,7 +564,9 @@ def main(argv: list[str] | None = None) -> int:
     # --update-scorecard
     if args.update_scorecard:
         with _scorecard_write_lock(scorecard_path):
-            triage = load_triage(triage_path)
+            triage, triage_errors = load_triage(triage_path)
+            if triage_errors:
+                return 1
             scorecard = load_scorecard(scorecard_path)
             scorecard, transitions = update_scorecard(scorecard, triage)
             save_scorecard(scorecard, scorecard_path)

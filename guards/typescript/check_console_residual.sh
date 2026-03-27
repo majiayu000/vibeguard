@@ -128,6 +128,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
       done >> "$RESULTS" || true
 fi
 
+apply_suppression_filter "$RESULTS"
 COUNT=$(wc -l < "$RESULTS" | tr -d ' ')
 
 if [[ "$COUNT" -eq 0 ]]; then

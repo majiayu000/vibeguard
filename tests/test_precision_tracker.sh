@@ -308,7 +308,7 @@ printf '%s\n' \
 bad_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_BAD" \
   --scorecard-file "$SCORECARD_BAD" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$bad_stderr" "[ERROR]" "无效行产生 ERROR 输出"
 
 valid_samples=$(python3 -c "
@@ -317,11 +317,11 @@ sc = json.load(open('$SCORECARD_BAD'))
 print(sc['rules']['RS-04']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
-if [[ "$valid_samples" == "2" ]]; then
-  green "有效记录正确计入（2 条，跳过无效行）"
+if [[ "$valid_samples" == "0" ]]; then
+  green "含错误行时 scorecard 未被修改（拒绝部分提交）"
   PASS=$((PASS + 1))
 else
-  red "有效记录数量错误（期望 2，实际 $valid_samples）"
+  red "含错误行时 scorecard 不应被修改（期望 samples=0，实际 $valid_samples）"
   FAIL=$((FAIL + 1))
 fi
 
@@ -456,7 +456,7 @@ printf '%s\n' \
 no_ts_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NO_TS" \
   --scorecard-file "$SCORECARD_NO_TS" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$no_ts_stderr" "[ERROR]" "fp 缺失 ts 时产生 ERROR 输出"
 
 # last_fp_ts must remain None (fp was rejected), so warn→error must not fire
@@ -584,7 +584,7 @@ printf '%s\n' \
 naive_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NAIVE" \
   --scorecard-file "$SCORECARD_NAIVE" \
-  --update-scorecard 2>&1 >/dev/null)
+  --update-scorecard 2>&1 >/dev/null) || true
 assert_contains "$naive_stderr" "[ERROR]" "无时区 fp ts 产生 ERROR 输出"
 
 naive_samples=$(python3 -c "
@@ -593,11 +593,11 @@ sc = json.load(open('$SCORECARD_NAIVE'))
 print(sc['rules']['NZ-01']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
-if [[ "$naive_samples" == "1" ]]; then
-  green "无时区 fp 被拒绝，仅 tp 计入 samples=1"
+if [[ "$naive_samples" == "0" ]]; then
+  green "含错误行时 scorecard 未被修改（拒绝部分提交）"
   PASS=$((PASS + 1))
 else
-  red "samples 错误（期望 1，实际 $naive_samples）"
+  red "含错误行时 scorecard 不应被修改（期望 samples=0，实际 $naive_samples）"
   FAIL=$((FAIL + 1))
 fi
 

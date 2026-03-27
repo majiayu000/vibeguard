@@ -25,15 +25,29 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do
       [[ -z "$f" || ! -f "$f" ]] && continue
-      git diff --cached -U0 -- "${f}" 2>/dev/null \
-        | grep '^+' \
-        | grep -v '^+++' \
-        | grep -cE '\.(read|write|lock)[[:space:]]*\(' \
-        | while IFS= read -r count; do
-            if [[ "$count" -gt 2 ]]; then
-              echo "[RS-01] ${f}: ${count} lock acquisitions in staged diff (review manually)"
-            fi
-          done
+      diff_out=$(git diff --cached -U0 -- "${f}" 2>/dev/null)
+      count=$(printf '%s\n' "$diff_out" | grep '^+' | grep -v '^+++' \
+        | grep -cE '\.(read|write|lock)[[:space:]]*\(') || count=0
+      if [[ "$count" -gt 2 ]]; then
+        # Find first new-file line number of a lock acquisition so
+        # apply_suppression_filter can match vibeguard-disable-next-line.
+        first_line=$(printf '%s\n' "$diff_out" | awk '
+          /^@@ / {
+            tmp = $0
+            sub(/^.*\+/, "", tmp)
+            sub(/[^0-9].*/, "", tmp)
+            cur = tmp + 0 - 1
+          }
+          /^\+[^+]/ {
+            cur++
+            if ($0 ~ /\.(read|write|lock)[[:space:]]*\(/) {
+              print cur; exit
+            }
+          }
+        ')
+        [[ -z "$first_line" ]] && first_line=1
+        echo "[RS-01] ${f}:${first_line}: ${count} lock acquisitions in staged diff (review manually)"
+      fi
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
@@ -92,6 +106,7 @@ else
   done > "${TMPFILE}"
 fi
 
+apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 

@@ -33,6 +33,7 @@ list_go_files "${TARGET_DIR}" \
     done \
   > "${TMPFILE}" || true
 
+apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 
