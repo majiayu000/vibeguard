@@ -317,11 +317,12 @@ sc = json.load(open('$SCORECARD_BAD'))
 print(sc['rules']['RS-04']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
-if [[ "$valid_samples" == "0" ]]; then
-  green "含错误行时 scorecard 未被修改（拒绝部分提交）"
+# Valid records (1 tp + 1 fp) are still processed; only invalid lines are skipped.
+if [[ "$valid_samples" == "2" ]]; then
+  green "有效记录被正常处理（samples=2），无效行被隔离"
   PASS=$((PASS + 1))
 else
-  red "含错误行时 scorecard 不应被修改（期望 samples=0，实际 $valid_samples）"
+  red "有效记录应被处理（期望 samples=2，实际 $valid_samples）"
   FAIL=$((FAIL + 1))
 fi
 
@@ -593,11 +594,12 @@ sc = json.load(open('$SCORECARD_NAIVE'))
 print(sc['rules']['NZ-01']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
-if [[ "$naive_samples" == "0" ]]; then
-  green "含错误行时 scorecard 未被修改（拒绝部分提交）"
+# The valid tp record is still processed; only the invalid fp (no tz) is skipped.
+if [[ "$naive_samples" == "1" ]]; then
+  green "有效 tp 被正常处理（samples=1），无时区 fp 被隔离"
   PASS=$((PASS + 1))
 else
-  red "含错误行时 scorecard 不应被修改（期望 samples=0，实际 $naive_samples）"
+  red "有效 tp 应被处理（期望 samples=1，实际 $naive_samples）"
   FAIL=$((FAIL + 1))
 fi
 
