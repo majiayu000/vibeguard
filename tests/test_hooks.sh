@@ -152,6 +152,12 @@ assert_not_contains "$result" '"decision": "block"' "放行 vitest --run"
 header "pre-bash-guard.sh — 包管理器透明纠正（updatedInput）"
 # =========================================================
 
+# updatedInput API 仅在 Claude Code 运行时可用，CI 环境无此 API。
+# 设置 VIBEGUARD_TEST_UPDATED_INPUT=1 启用这组测试。
+if [[ -z "${VIBEGUARD_TEST_UPDATED_INPUT:-}" ]]; then
+  printf '\033[33m  SKIP: updatedInput 测试组（需要 VIBEGUARD_TEST_UPDATED_INPUT=1）\033[0m\n'
+else
+
 # npm install (无参数) → pnpm install
 result=$(echo '{"tool_input":{"command":"npm install"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "allow"' "npm install → updatedInput allow"
@@ -241,6 +247,8 @@ if command -v uv &>/dev/null; then
   assert_not_contains "$result" '"updatedInput"' "uv 可用但无 .venv 时 pip install 不触发纠正"
   rm -rf "$_tmpdir_novenv"
 fi
+
+fi  # end VIBEGUARD_TEST_UPDATED_INPUT guard
 
 # commit message 含 force 不应误报
 result=$(echo '{"tool_input":{"command":"git commit -m \"fix: force push guard\""}}' | bash hooks/pre-bash-guard.sh)
