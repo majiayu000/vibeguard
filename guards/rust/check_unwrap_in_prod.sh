@@ -37,8 +37,10 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
       if command -v python3 >/dev/null 2>&1; then
         # Parse hunk headers to include real line numbers so apply_suppression_filter
         # can honour vibeguard-disable-next-line comments in the committed file.
-        git diff --cached -U0 -- "${f}" 2>/dev/null \
-          | python3 -c "
+        # Save diff to a temp file so we can re-read it on Python failure.
+        _diff_tmp=$(create_tmpfile)
+        git diff --cached -U0 -- "${f}" 2>/dev/null > "${_diff_tmp}"
+        if ! python3 -c "
 import sys, re
 fname = sys.argv[1]
 unwrap_pat  = re.compile(r'\.(unwrap|expect)\(')
@@ -61,7 +63,16 @@ for raw in sys.stdin:
             print('[RS-03] ' + fname + ':' + str(current_line) + ' ' + line)
     elif not line.startswith('-'):
         current_line += 1
-" "${f}" || true
+" "${f}" < "${_diff_tmp}" 2>/dev/null; then
+          echo "[RS-03] WARN: python3 解析失败 ${f}，使用 grep fallback" >&2
+          <"${_diff_tmp}" grep '^+' \
+            | grep -v '^+++' \
+            | grep -E '\.(unwrap|expect)\(' \
+            | grep -v '^\+[[:space:]]*//' \
+            | while IFS= read -r line; do
+                echo "[RS-03] ${f}: ${line}"
+              done || true
+        fi
       else
         # Fallback when python3 is unavailable: no line numbers; suppression won't apply.
         git diff --cached -U0 -- "${f}" 2>/dev/null \
@@ -71,7 +82,7 @@ for raw in sys.stdin:
           | grep -v '^\+[[:space:]]*//' \
           | while IFS= read -r line; do
               echo "[RS-03] ${f}: ${line}"
-            done
+            done || true
       fi
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true

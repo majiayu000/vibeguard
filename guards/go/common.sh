@@ -89,12 +89,14 @@ check_suppression() {
     # Use python3 realpath resolution to handle macOS /var→/private/var symlinks.
     local rel_file="$file"
     if [[ "$file" == /* ]]; then
-      if command -v python3 >/dev/null 2>&1; then
-        rel_file=$(python3 -c "import os,sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(os.getcwd())))" "$file" 2>/dev/null || echo "$file")
-      else
-        local git_root
-        git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
-        [[ -n "$git_root" && "$file" == "$git_root/"* ]] && rel_file="${file#$git_root/}"
+      local git_root
+      git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      if [[ -n "$git_root" ]]; then
+        if command -v python3 >/dev/null 2>&1; then
+          rel_file=$(python3 -c "import os,sys; f=os.path.realpath(sys.argv[1]); r=os.path.realpath(sys.argv[2]); print(f[len(r)+1:] if f.startswith(r+os.sep) else sys.argv[1])" "$file" "$git_root" 2>/dev/null || echo "$file")
+        else
+          [[ "$file" == "$git_root/"* ]] && rel_file="${file#$git_root/}"
+        fi
       fi
     fi
     prev_line=$(git show ":${rel_file}" 2>/dev/null | sed -n "${prev}p" || true)
