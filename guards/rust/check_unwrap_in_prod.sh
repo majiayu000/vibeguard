@@ -129,25 +129,17 @@ elif command -v ast-grep >/dev/null 2>&1; then
       > "${TMPFILE}" || true
   else
     _ASG_PER_FILE=$(create_tmpfile)
-    list_rs_files "${TARGET_DIR}" \
-      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
-      | while IFS= read -r f; do
-          [[ -f "${f}" ]] || continue
-          _ASG_FILE_OUT=$(create_tmpfile)
-          if ast-grep scan \
-              --rule "${RULES_DIR}/rs-03-unwrap.yml" \
-              --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
-            python3 -c "
+    _PY_SCRIPT=$(create_tmpfile)
+    cat > "${_PY_SCRIPT}" << 'PYEOF'
 import json, sys, re
 
 file_path = sys.argv[1]
 test_lines = set()
 
 def _count_braces(s):
-    # Strip string literals and line comments before counting braces to avoid
-    # counting braces inside  let x = "{";  or  // { comment
-    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove "..." literals
-    s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove '...' char literals
+    # Strip string literals and line comments before counting braces
+    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)   # remove double-quoted string literals
+    s = re.sub(r"'(?:[^'\\]|\\.)*'", '', s)   # remove single-quoted char literals
     s = re.sub(r'//.*$', '', s)               # remove line comments
     return s.count('{') - s.count('}')
 
@@ -208,7 +200,16 @@ for m in matches:
     fname = m.get('file', '')
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
-" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
+PYEOF
+    list_rs_files "${TARGET_DIR}" \
+      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+      | while IFS= read -r f; do
+          [[ -f "${f}" ]] || continue
+          _ASG_FILE_OUT=$(create_tmpfile)
+          if ast-grep scan \
+              --rule "${RULES_DIR}/rs-03-unwrap.yml" \
+              --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
+            python3 "${_PY_SCRIPT}" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
             echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
             awk '
               function net_braces(line,    _t, _o, _c) {
