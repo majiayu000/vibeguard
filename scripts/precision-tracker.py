@@ -331,6 +331,7 @@ def next_stage(rule_entry: dict[str, Any]) -> str | None:
 def update_scorecard(
     scorecard: dict[str, Any],
     triage_records: list[dict[str, Any]],
+    has_parse_errors: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """
     Recompute stats from triage records, apply lifecycle transitions.
@@ -338,6 +339,10 @@ def update_scorecard(
     Rules present in scorecard but absent from triage have their counters
     reset to zero so that the scorecard stays consistent with triage truth
     (e.g. after a triage window rotation or manual cleanup).
+
+    When *has_parse_errors* is True the reset pass is skipped: some records
+    may have been lost to parse failures, so absence from triage is
+    ambiguous and must not be treated as "zero samples".
 
     Returns (updated_scorecard, list of transition messages).
     """
@@ -372,14 +377,18 @@ def update_scorecard(
     # Reset stats for rules no longer present in triage (window rotation /
     # manual cleanup).  Stage and notes are preserved so the history is
     # visible, but counters reflect the current triage truth.
-    for rule, entry in rules.items():
-        if rule not in stats:
-            entry["tp"] = 0
-            entry["fp"] = 0
-            entry["acceptable"] = 0
-            entry["samples"] = 0
-            entry["last_fp_ts"] = None
-            entry["precision"] = None
+    # Skip this pass when parse errors exist: absent rules may simply have
+    # had their records lost to corrupt lines, so zeroing them would
+    # silently pollute the scorecard and misfire lifecycle transitions.
+    if not has_parse_errors:
+        for rule, entry in rules.items():
+            if rule not in stats:
+                entry["tp"] = 0
+                entry["fp"] = 0
+                entry["acceptable"] = 0
+                entry["samples"] = 0
+                entry["last_fp_ts"] = None
+                entry["precision"] = None
 
     # Apply lifecycle transitions for all rules
     for rule, entry in rules.items():
@@ -566,15 +575,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_scorecard:
         with _scorecard_write_lock(scorecard_path):
             triage, invalid_count = load_triage(triage_path)
-            if invalid_count > 0:
+            # Invalid lines are already logged as [ERROR] by load_triage;
+            # valid records are still processed so callers don't block.
+            # Pass has_parse_errors so update_scorecard skips the reset-to-zero
+            # pass — absent rules may reflect lost records, not zero samples.
+            if invalid_count:
                 print(
-                    f"[ERROR] triage.jsonl contains {invalid_count} invalid record(s); "
-                    "refusing to update scorecard to avoid incorrect lifecycle transitions.",
+                    f"[WARN] {invalid_count} invalid triage line(s) detected; "
+                    "missing-rule reset skipped to prevent data corruption. "
+                    "Fix or remove the invalid lines and re-run.",
                     file=sys.stderr,
                 )
-                return 1
             scorecard = load_scorecard(scorecard_path)
-            scorecard, transitions = update_scorecard(scorecard, triage)
+            scorecard, transitions = update_scorecard(
+                scorecard, triage, has_parse_errors=bool(invalid_count)
+            )
             save_scorecard(scorecard, scorecard_path)
         if transitions:
             print("Lifecycle transitions:")

@@ -188,14 +188,17 @@ if [[ "$_GREP_EXIT" -gt 1 ]]; then
   JS_EMPTY_STUBS=""
 else
   rm -f "$_GREP_ERR"
-  JS_EMPTY_STUBS=$(echo "$_GREP_OUT" | while IFS= read -r line; do
-    file=$(echo "$line" | cut -d: -f1)
-    lineno=$(echo "$line" | cut -d: -f2)
-    # Check the next 15 lines for expect(
-    if ! sed -n "${lineno},$((lineno + 15))p" "$file" 2>/dev/null | grep -qE 'expect\s*\(|assert\s*\(|should\.|\.toBe|\.toEqual|\.toContain|\.toThrow'; then
-      echo "${file#${TARGET_DIR}/}:${lineno}"
-    fi
-  done | head -20)
+  JS_EMPTY_STUBS=""
+  if [[ -n "$_GREP_OUT" ]]; then
+    JS_EMPTY_STUBS=$(echo "$_GREP_OUT" | while IFS= read -r line; do
+      file=$(echo "$line" | cut -d: -f1)
+      lineno=$(echo "$line" | cut -d: -f2)
+      # Check the next 15 lines for expect(
+      if ! sed -n "${lineno},$((lineno + 15))p" "$file" 2>/dev/null | grep -qE 'expect\s*\(|assert\s*\(|should\.|\.toBe|\.toEqual|\.toContain|\.toThrow'; then
+        echo "${file#${TARGET_DIR}/}:${lineno}"
+      fi
+    done | head -20)
+  fi
 fi
 
 if [[ -n "$JS_EMPTY_STUBS" ]]; then
