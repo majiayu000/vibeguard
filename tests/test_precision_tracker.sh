@@ -601,6 +601,53 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "parse errors 时生命周期迁移被冻结（issue: lifecycle freeze）"
+# When triage has parse errors, lifecycle transitions must NOT fire even if
+# stats would normally trigger a promotion/demotion, to prevent stage pollution.
+TRIAGE_PERR="${TMPDIR_TEST}/triage_perr.jsonl"
+SCORECARD_PERR="${TMPDIR_TEST}/scorecard_perr.json"
+python3 -c "
+import json
+scorecard = {
+  'rules': {
+    'RS-LC': {
+      'stage': 'experimental', 'precision': None, 'samples': 0,
+      'tp': 0, 'fp': 0, 'acceptable': 0, 'last_fp_ts': None,
+      'stage_entered_ts': '2026-01-01T00:00:00Z', 'notes': ''
+    }
+  }
+}
+print(json.dumps(scorecard, indent=2))
+" > "$SCORECARD_PERR"
+# 10 valid tp records (enough to trigger experimental→warn) + 1 corrupt line
+{
+  for i in $(seq 1 10); do
+    printf '{"ts":"2026-03-0%dT00:00:00Z","rule":"RS-LC","verdict":"tp"}\n' "$((i % 9 + 1))"
+  done
+  printf 'NOT_JSON\n'
+} > "$TRIAGE_PERR"
+
+perr_out=$(python3 "$TRACKER" \
+  --triage-file "$TRIAGE_PERR" \
+  --scorecard-file "$SCORECARD_PERR" \
+  --update-scorecard 2>&1)
+# Warn message must mention transitions skipped
+assert_contains "$perr_out" "lifecycle transitions skipped" "parse errors 时警告包含 transitions skipped"
+# Stage must remain experimental — transition must not have fired
+perr_stage=$(python3 -c "
+import json
+sc = json.load(open('$SCORECARD_PERR'))
+print(sc['rules']['RS-LC']['stage'])
+")
+TOTAL=$((TOTAL + 1))
+if [[ "$perr_stage" == "experimental" ]]; then
+  green "parse errors 时生命周期迁移被冻结（stage 保持 experimental）"
+  PASS=$((PASS + 1))
+else
+  red "parse errors 时 stage 意外变更（期望 experimental，实际 $perr_stage）"
+  FAIL=$((FAIL + 1))
+fi
+
 # =========================================================
 echo
 echo "=============================="

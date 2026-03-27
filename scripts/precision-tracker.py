@@ -340,9 +340,11 @@ def update_scorecard(
     reset to zero so that the scorecard stays consistent with triage truth
     (e.g. after a triage window rotation or manual cleanup).
 
-    When *has_parse_errors* is True the reset pass is skipped: some records
-    may have been lost to parse failures, so absence from triage is
-    ambiguous and must not be treated as "zero samples".
+    When *has_parse_errors* is True two passes are skipped:
+    - the reset pass: absent rules may simply have had records lost to corrupt
+      lines, so zeroing them would silently pollute the scorecard.
+    - lifecycle transitions: stats computed from incomplete data could
+      spuriously trigger warn→error or warn→demoted, polluting rule stages.
 
     Returns (updated_scorecard, list of transition messages).
     """
@@ -390,14 +392,18 @@ def update_scorecard(
                 entry["last_fp_ts"] = None
                 entry["precision"] = None
 
-    # Apply lifecycle transitions for all rules
-    for rule, entry in rules.items():
-        new_stage = next_stage(entry)
-        if new_stage is not None:
-            old_stage = entry["stage"]
-            entry["stage"] = new_stage
-            entry["stage_entered_ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            transitions.append(f"{rule}: {old_stage} → {new_stage}")
+    # Apply lifecycle transitions for all rules.
+    # Skipped when parse errors exist: stats computed from incomplete triage
+    # data could spuriously trigger warn→error or warn→demoted transitions
+    # and pollute production rule stages.
+    if not has_parse_errors:
+        for rule, entry in rules.items():
+            new_stage = next_stage(entry)
+            if new_stage is not None:
+                old_stage = entry["stage"]
+                entry["stage"] = new_stage
+                entry["stage_entered_ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                transitions.append(f"{rule}: {old_stage} → {new_stage}")
 
     return scorecard, transitions
 
@@ -582,7 +588,8 @@ def main(argv: list[str] | None = None) -> int:
             if invalid_count:
                 print(
                     f"[WARN] {invalid_count} invalid triage line(s) detected; "
-                    "missing-rule reset skipped to prevent data corruption. "
+                    "missing-rule reset and lifecycle transitions skipped to "
+                    "prevent data corruption. "
                     "Fix or remove the invalid lines and re-run.",
                     file=sys.stderr,
                 )

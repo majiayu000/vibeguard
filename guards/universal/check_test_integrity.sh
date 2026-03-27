@@ -190,14 +190,20 @@ else
   rm -f "$_GREP_ERR"
   JS_EMPTY_STUBS=""
   if [[ -n "$_GREP_OUT" ]]; then
-    JS_EMPTY_STUBS=$(echo "$_GREP_OUT" | while IFS= read -r line; do
+    # Write to a temp file first to avoid SIGPIPE (141) under set -euo pipefail:
+    # piping a while loop into `head -20` causes head to exit early, sending
+    # SIGPIPE to the upstream while, which the shell treats as an error.
+    _JS_TMP=$(mktemp)
+    echo "$_GREP_OUT" | while IFS= read -r line; do
       file=$(echo "$line" | cut -d: -f1)
       lineno=$(echo "$line" | cut -d: -f2)
       # Check the next 15 lines for expect(
       if ! sed -n "${lineno},$((lineno + 15))p" "$file" 2>/dev/null | grep -qE 'expect\s*\(|assert\s*\(|should\.|\.toBe|\.toEqual|\.toContain|\.toThrow'; then
         echo "${file#${TARGET_DIR}/}:${lineno}"
       fi
-    done | head -20)
+    done > "$_JS_TMP"
+    JS_EMPTY_STUBS=$(head -20 "$_JS_TMP")
+    rm -f "$_JS_TMP"
   fi
 fi
 
