@@ -72,10 +72,13 @@ parse_guard_args() {
   fi
 }
 
-# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER]
+# vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER] [OUT_DELETED]
 #
 # 构建 diff 新增行号索引文件（每行格式: "filepath:linenum"）。
 # 用于 baseline 扫描：只报告本次 diff 新增的问题，不报告既有问题。
+#
+# 可选第三参数 OUT_DELETED: 文件路径，写入删除行附近的新侧行号（格式同 OUTPUT_FILE）。
+# 用于检测"删除退出机制"场景——goroutine 行未变但 ctx.Done 等被删除。
 #
 # pre-commit 模式（VIBEGUARD_STAGED_FILES 已设置）: 读取 git diff --cached
 # baseline  模式（BASELINE_COMMIT 已设置）        : 读取 git diff BASELINE..HEAD
@@ -84,7 +87,9 @@ parse_guard_args() {
 vg_build_diff_linemap() {
   local out="$1"
   local ext_filter="${2:-}"
+  local out_deleted="${3:-}"
   : > "$out"
+  [[ -n "$out_deleted" ]] && : > "$out_deleted"
 
   command -v python3 >/dev/null 2>&1 || return 1
 
@@ -92,15 +97,20 @@ vg_build_diff_linemap() {
   local baseline="${BASELINE_COMMIT:-}"
   [[ -z "$staged" && -z "$baseline" ]] && return 1
 
-  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" \
+  VG_STAGED="$staged" VG_BASELINE="$baseline" VG_EXT="$ext_filter" VG_OUT="$out" VG_TARGET_DIR="${TARGET_DIR:-.}" VG_OUT_DELETED="${out_deleted}" \
   python3 -c '
 import sys, re, subprocess, os
 
-staged     = os.environ.get("VG_STAGED", "")
-baseline   = os.environ.get("VG_BASELINE", "")
-ext_filter = os.environ.get("VG_EXT", "")
-out_path   = os.environ.get("VG_OUT", "")
-target_dir = os.environ.get("VG_TARGET_DIR", ".")
+staged      = os.environ.get("VG_STAGED", "")
+baseline    = os.environ.get("VG_BASELINE", "")
+ext_filter  = os.environ.get("VG_EXT", "")
+out_path    = os.environ.get("VG_OUT", "")
+out_deleted = os.environ.get("VG_OUT_DELETED", "")
+target_dir  = os.environ.get("VG_TARGET_DIR", ".")
+
+EXIT_PATTERN = re.compile(
+    r"ctx\.Done|context\.WithCancel|wg\.(?:Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker"
+)
 
 _git_root_cache = {}
 
@@ -134,18 +144,24 @@ def iter_files():
             if fname and (not ext_filter or re.search(ext_filter, fname)):
                 yield os.path.join(root, fname)
 
-def added_linenos(fpath):
+def diff_linenos(fpath):
+    """Return (added_nums, deleted_exit_nums).
+
+    added_nums: new-side line numbers that were added.
+    deleted_exit_nums: new-side positions where exit-mechanism lines were deleted.
+    """
     file_dir = os.path.dirname(fpath) or "."
     git_root = get_git_root(file_dir)
     if not git_root:
-        return []
+        return [], []
     if baseline:
         cmd = ["git", "-C", git_root, "diff", "-U0", baseline + "..HEAD", "--", fpath]
     else:
         cmd = ["git", "-C", git_root, "diff", "--cached", "-U0", "--", fpath]
     result = subprocess.run(cmd, capture_output=True, text=True)
     cur = 0
-    nums = []
+    added_nums = []
+    deleted_exit_nums = []
     for line in result.stdout.splitlines():
         if line.startswith("@@"):
             m = re.search(r"\+(\d+)(?:,(\d+))?", line)
@@ -158,19 +174,33 @@ def added_linenos(fpath):
             continue
         elif line.startswith("+"):
             if cur > 0:
-                nums.append(cur)
+                added_nums.append(cur)
                 cur += 1
-        elif not line.startswith("-") and not line.startswith("\\\\"):
+        elif line.startswith("-"):
+            # Deleted line: cur is NOT incremented.
+            # Record new-side position if it matches exit pattern.
+            if cur > 0 and EXIT_PATTERN.search(line[1:]):
+                deleted_exit_nums.append(cur)
+        elif not line.startswith("\\\\"):
             if cur > 0:
                 cur += 1
-    return nums
+    return added_nums, deleted_exit_nums
 
-with open(out_path, "w") as out:
-    for fpath in iter_files():
-        if not os.path.isfile(fpath):
-            continue
-        for n in added_linenos(fpath):
-            out.write(fpath + ":" + str(n) + "\n")
+with open(out_path, "w") as out_f:
+    del_f = open(out_deleted, "w") if out_deleted else None
+    try:
+        for fpath in iter_files():
+            if not os.path.isfile(fpath):
+                continue
+            added, deleted_exits = diff_linenos(fpath)
+            for n in added:
+                out_f.write(fpath + ":" + str(n) + "\n")
+            if del_f is not None:
+                for n in deleted_exits:
+                    del_f.write(fpath + ":" + str(n) + "\n")
+    finally:
+        if del_f is not None:
+            del_f.close()
 '
   local _py_rc=$?
   if [[ $_py_rc -ne 0 ]]; then

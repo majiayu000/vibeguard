@@ -20,11 +20,13 @@ TMPFILE=$(create_tmpfile)
 
 # --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
 _LINEMAP=""
+_LINEMAP_DELETED=""
 _IN_DIFF_MODE=false
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
   _IN_DIFF_MODE=true
   _LINEMAP=$(create_tmpfile)
-  vg_build_diff_linemap "$_LINEMAP" '\.go$'
+  _LINEMAP_DELETED=$(create_tmpfile)
+  vg_build_diff_linemap "$_LINEMAP" '\.go$' "$_LINEMAP_DELETED"
 fi
 
 # _in_diff_mode: 检测是否处于 diff 模式，不依赖 linemap 非空。
@@ -41,9 +43,23 @@ list_go_files "${TARGET_DIR}" \
         while IFS= read -r match; do
           [[ -z "$match" ]] && continue
           LINE_NUM=$(echo "$match" | cut -d: -f1)
-          # Baseline 过滤：只报告 goroutine 启动行本身是新增的情况
+          # Baseline 过滤：报告 goroutine 启动行是新增的，或退出机制被删除的情况
           if _in_diff_mode; then
-            grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+            if ! grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null; then
+              _body_del=false
+              if [[ -s "$_LINEMAP_DELETED" ]]; then
+                while IFS= read -r _dl; do
+                  case "$_dl" in
+                    "${f}:"*)
+                      _dl_num="${_dl#"${f}:"}"
+                      if [[ "$_dl_num" -ge "$LINE_NUM" ]] && [[ "$_dl_num" -le "$((LINE_NUM+20))" ]]; then
+                        _body_del=true; break
+                      fi ;;
+                  esac
+                done < "$_LINEMAP_DELETED"
+              fi
+              [[ "$_body_del" == true ]] || continue
+            fi
           fi
           # 读取 goroutine 后 20 行，检查是否有退出机制
           HAS_EXIT=$(sed -n "${LINE_NUM},$((LINE_NUM+20))p" "${f}" 2>/dev/null \
@@ -65,9 +81,23 @@ list_go_files "${TARGET_DIR}" \
         while IFS= read -r match; do
           [[ -z "$match" ]] && continue
           LINE_NUM=$(echo "$match" | cut -d: -f1)
-          # Baseline 过滤：只报告新增的 for{} 行
+          # Baseline 过滤：报告 for{} 行是新增的，或退出机制被删除的情况
           if _in_diff_mode; then
-            grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+            if ! grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null; then
+              _body_del=false
+              if [[ -s "$_LINEMAP_DELETED" ]]; then
+                while IFS= read -r _dl; do
+                  case "$_dl" in
+                    "${f}:"*)
+                      _dl_num="${_dl#"${f}:"}"
+                      if [[ "$_dl_num" -ge "$LINE_NUM" ]] && [[ "$_dl_num" -le "$((LINE_NUM+20))" ]]; then
+                        _body_del=true; break
+                      fi ;;
+                  esac
+                done < "$_LINEMAP_DELETED"
+              fi
+              [[ "$_body_del" == true ]] || continue
+            fi
           fi
           echo "${f}:${match}"
         done < <(grep -nE '^\s*for\s*\{' "${f}" 2>/dev/null || true)

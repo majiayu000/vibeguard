@@ -411,6 +411,153 @@ else
 fi
 rm -f "$staged8"
 
+printf '\n=== Baseline Scanning: Issue fixes — deleted exit mechanism, wrapped defer, tab parsing ===\n'
+
+# ---- Test A: goroutine with <-ctx.Done() removed IS reported (Issue 1) ----
+repoA="${tmpdir}/go02_deleted_exit"
+init_repo "$repoA"
+
+cat > "${repoA}/worker.go" <<'EOF'
+package worker
+
+import "context"
+
+func StartWorker(ctx context.Context) {
+    go func() {
+        for {
+            select {
+            case <-ctx.Done():
+                return
+            default:
+                doWork()
+            }
+        }
+    }()
+}
+
+func doWork() {}
+EOF
+git -C "$repoA" add worker.go
+git -C "$repoA" commit -q -m "initial with ctx.Done exit"
+
+# Remove the ctx.Done exit mechanism lines
+cat > "${repoA}/worker.go" <<'EOF'
+package worker
+
+import "context"
+
+func StartWorker(ctx context.Context) {
+    go func() {
+        for {
+            doWork()
+        }
+    }()
+}
+
+func doWork() {}
+EOF
+git -C "$repoA" add worker.go
+stagedA=$(staged_list "$repoA" worker.go)
+
+TOTAL=$((TOTAL+1))
+outA=$(VIBEGUARD_STAGED_FILES="$stagedA" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" "$repoA" 2>&1 || true)
+if echo "$outA" | grep -q '\[GO-02\]'; then
+  green "deleted ctx.Done exit mechanism IS reported (Issue 1 fix)"
+  PASS=$((PASS+1))
+else
+  red "goroutine with deleted ctx.Done should be reported (got: $outA)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$stagedA"
+
+# ---- Test B: for loop added wrapping existing defer IS reported (Issue 2) ----
+repoB="${tmpdir}/go08_wrapped_defer"
+init_repo "$repoB"
+
+cat > "${repoB}/files.go" <<'EOF'
+package files
+
+import "os"
+
+func ProcessFile(path string) error {
+    f, err := os.Open(path)
+    if err != nil { return err }
+    defer f.Close()
+    return nil
+}
+EOF
+git -C "$repoB" add files.go
+git -C "$repoB" commit -q -m "initial with defer outside loop"
+
+# Add a for loop wrapping the existing defer
+cat > "${repoB}/files.go" <<'EOF'
+package files
+
+import "os"
+
+func ProcessFiles(paths []string) error {
+    for _, path := range paths {
+        f, err := os.Open(path)
+        if err != nil { return err }
+        defer f.Close()
+    }
+    return nil
+}
+EOF
+git -C "$repoB" add files.go
+stagedB=$(staged_list "$repoB" files.go)
+
+TOTAL=$((TOTAL+1))
+if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoB}/files.go" 2>/dev/null; then
+  outB=$(VIBEGUARD_STAGED_FILES="$stagedB" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoB" 2>&1 || true)
+  if echo "$outB" | grep -q '\[GO-08\]'; then
+    green "for loop added wrapping existing defer IS reported (Issue 2 fix)"
+    PASS=$((PASS+1))
+  else
+    red "wrapping defer with new for loop should be reported (got: $outB)"
+    FAIL=$((FAIL+1))
+  fi
+else
+  yellow "awk lacks \\s support — skipping wrapped-defer test"
+  SKIP=$((SKIP+1))
+fi
+rm -f "$stagedB"
+
+# ---- Test C: output format filepath:linenum is correct with tab-based parsing (Issue 3) ----
+repoC="${tmpdir}/go08_tab_parsing"
+init_repo "$repoC"
+
+cat > "${repoC}/resource.go" <<'EOF'
+package resource
+
+import "os"
+
+func OpenAll(paths []string) {
+    for _, p := range paths {
+        f, _ := os.Open(p)
+        defer f.Close()
+    }
+}
+EOF
+git -C "$repoC" add resource.go
+git -C "$repoC" commit -q -m "initial"
+
+TOTAL=$((TOTAL+1))
+if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repoC}/resource.go" 2>/dev/null; then
+  outC=$(bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" "$repoC" 2>&1 || true)
+  # Verify output format is [GO-08] filepath:linenum content (not broken by tab parsing)
+  if echo "$outC" | grep -qE '\[GO-08\] .+:[0-9]+ '; then
+    green "tab-based parsing produces correct filepath:linenum output format (Issue 3 fix)"
+    PASS=$((PASS+1))
+  else
+    red "output format should be [GO-08] filepath:linenum content (got: $outC)"
+    FAIL=$((FAIL+1))
+  fi
+else
+  yellow "awk lacks \\s support — skipping tab-parsing format test"
+  SKIP=$((SKIP+1))
+fi
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
