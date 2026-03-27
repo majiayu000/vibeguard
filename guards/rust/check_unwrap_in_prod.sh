@@ -97,8 +97,9 @@ elif command -v ast-grep >/dev/null 2>&1; then
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
             CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+            # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
+            # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
             grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-              | grep -vE 'unwrap_or|unwrap_or_else|unwrap_or_default' \
               | while IFS= read -r hit; do
                   HIT_LINE=$(echo "${hit}" | cut -d: -f1)
                   if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
@@ -179,8 +180,9 @@ else
     | while IFS= read -r f; do
         if [[ -f "${f}" ]]; then
           CFG_LINE=$(grep -n '#\[cfg(test)\]' "${f}" 2>/dev/null | head -1 | cut -d: -f1 || true)
+          # NOTE: \.(unwrap|expect)\( already excludes .unwrap_or* (next char is _ not ();
+          # do NOT add grep -v 'unwrap_or' here — it would hide .expect("msg").unwrap_or_default() chains.
           grep -nE '\.(unwrap|expect)\(' "${f}" 2>/dev/null \
-            | grep -vE 'unwrap_or|unwrap_or_else|unwrap_or_default' \
             | while IFS= read -r hit; do
                 HIT_LINE=$(echo "${hit}" | cut -d: -f1)
                 if [[ -z "${CFG_LINE}" ]] || [[ "${HIT_LINE}" -lt "${CFG_LINE}" ]]; then
