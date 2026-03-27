@@ -88,22 +88,23 @@ else
         gsub(/\/\/.*$/, "", _tmp)        # strip line comments
         gsub(/"[^"]*"/, "", _tmp)        # strip simple string literals
         _n = gsub(/\.(read|write|lock)[[:space:]]*\(/, "", _tmp)
-        if (_n < 1) next                # pattern fired on comment/string only — no real lock
-        lock_count += _n
-        # A chained call like .lock().clone() / .lock().to_string() drops the guard
-        # immediately (value extracted, guard never bound to a variable).  Only apply
-        # this exemption for known value-extraction methods; closure-passing methods
-        # like .lock().map(|g| { ... }) HOLD the guard through the closure body.
-        _value_chain = /\.(read|write|lock)[[:space:]]*\([^)]*\)\.(clone|to_owned|to_string|len|is_empty|contains)\(/
-        if (_value_chain && _n == 1) {
-          # guard is immediately consumed — do not add to active set
-        } else {
-          for (_k = 0; _k < _n; _k++) {
-            lock_depths[lock_idx] = brace_depth
-            lock_idx++
-            active_locks++
+        # Do NOT use next when _n < 1: pattern fired on comment/string only,
+        # but the /}/ rule below must still run to keep brace_depth accurate.
+        if (_n >= 1) {
+          lock_count += _n
+          # A chained call like .lock().clone() / .lock().to_string() drops the guard
+          # immediately (value extracted, guard never bound to a variable).  Only apply
+          # this exemption for known value-extraction methods; closure-passing methods
+          # like .lock().map(|g| { ... }) HOLD the guard through the closure body.
+          _value_chain = /\.(read|write|lock)[[:space:]]*\([^)]*\)\.(clone|to_owned|to_string|len|is_empty|contains)\(/
+          if (!(_value_chain && _n == 1)) {
+            for (_k = 0; _k < _n; _k++) {
+              lock_depths[lock_idx] = brace_depth
+              lock_idx++
+              active_locks++
+            }
+            if (active_locks > max_concurrent) max_concurrent = active_locks
           }
-          if (active_locks > max_concurrent) max_concurrent = active_locks
         }
       }
       /}/ {
