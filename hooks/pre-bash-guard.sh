@@ -6,6 +6,11 @@
 #   - git clean -f（删除未跟踪文件）
 #   - rm -rf 项目根目录或敏感路径
 #
+# 透明纠正（updatedInput）机械性可预测的命令：
+#   - npm install / yarn install → pnpm install
+#   - npm install <pkg> / yarn add <pkg> → pnpm add <pkg>
+#   - pip install / pip3 install / python -m pip install → uv pip install
+#
 # 注意：force push 检测已移至 hooks/git/pre-push（git 原生 hook），
 # 该 hook 通过 install-hook.sh 安装到各项目 .git/hooks/pre-push。
 
@@ -136,6 +141,130 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
 WARN_EOF
     exit 0
   fi
+fi
+
+# --- 包管理器透明纠正（updatedInput）---
+# 机械性可预测的命令直接重写，无需 block+retry。
+# 仅针对简单的单条命令（含 && 等链式命令不纠正，避免误改复杂流水线）。
+_PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 -c '
+import sys, re
+
+cmd = sys.stdin.read().strip()
+corrected = None
+
+# 跳过复杂命令（&&, &, ||, ;, 管道, 重定向, 换行, $() 展开, 反引号）— 复杂流水线不做自动重写
+if not re.search(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`", cmd):
+
+    # npm install (无参数) → pnpm install
+    if re.match(r"^npm\s+(?:install|i)\s*$", cmd):
+        corrected = "pnpm install"
+
+    # npm install/add <packages>
+    # 只在有实际包名且所有 flag 均可翻译时纠正，排除全局安装和不兼容 flag
+    elif re.match(r"^npm\s+(?:install|i|add)\s+", cmd):
+        rest = re.sub(r"^npm\s+(?:install|i|add)\s+", "", cmd).strip()
+        tokens = rest.split()
+
+        # 已知可翻译的 npm flag
+        KNOWN_FLAGS = {"--save-dev", "-D", "--save", "-S", "--save-optional", "-O", "--save-exact", "-E"}
+
+        is_global = any(t in ("-g", "--global") or t.startswith("--location=global") for t in tokens)
+        unknown_flags = [t for t in tokens if t.startswith("-") and t not in KNOWN_FLAGS]
+        packages = [t for t in tokens if not t.startswith("-")]
+
+        if packages and not is_global and not unknown_flags:
+            pnpm_flags = []
+            for t in tokens:
+                if t in ("--save-dev", "-D"):
+                    pnpm_flags.append("-D")
+                elif t in ("--save-optional", "-O"):
+                    pnpm_flags.append("-O")
+                elif t in ("--save-exact", "-E"):
+                    pnpm_flags.append("--save-exact")
+                # --save/-S is pnpm default, skip
+            corrected = "pnpm add " + " ".join(pnpm_flags + packages).strip()
+
+    # yarn install (无参数) → pnpm install
+    elif re.match(r"^yarn\s+install\s*$", cmd):
+        corrected = "pnpm install"
+
+    # yarn add <packages> → pnpm add <packages>
+    # Only rewrite when all flags are known pnpm-compatible; unknown flags fall through.
+    elif re.match(r"^yarn\s+add\s+", cmd):
+        rest = re.sub(r"^yarn\s+add\s+", "", cmd)
+        tokens = rest.split()
+        YARN_KNOWN_FLAGS = {"-D", "--dev", "--save-dev", "-O", "--optional",
+                            "-E", "--exact", "-P", "--save-peer",
+                            "-W", "--ignore-workspace-root-check"}
+        packages = [t for t in tokens if not t.startswith("-")]
+        unknown_flags = [t for t in tokens if t.startswith("-") and t not in YARN_KNOWN_FLAGS]
+        if packages and not unknown_flags:
+            pnpm_flags = []
+            for t in tokens:
+                if t in ("-D", "--dev", "--save-dev"):
+                    pnpm_flags.append("-D")
+                elif t in ("-O", "--optional"):
+                    pnpm_flags.append("-O")
+                elif t in ("-E", "--exact"):
+                    pnpm_flags.append("--save-exact")
+                elif t in ("-P", "--save-peer"):
+                    pnpm_flags.append("--save-peer")
+                elif t in ("-W", "--ignore-workspace-root-check"):
+                    pnpm_flags.append("-w")
+            corrected = "pnpm add " + " ".join(pnpm_flags + packages).strip()
+
+    # pip install / pip3 install → uv pip install
+    # Only rewrite when all flags are known uv-pip-compatible; unknown flags fall through.
+    elif re.match(r"^pip3?\s+install\s+", cmd):
+        rest = re.sub(r"^pip3?\s+install\s+", "", cmd)
+        tokens = rest.split()
+        PIP_KNOWN_FLAGS = {"-r", "--requirement", "-e", "--editable",
+                           "-U", "--upgrade", "--pre", "--no-deps",
+                           "-i", "--index-url", "--extra-index-url", "--no-index",
+                           "-f", "--find-links", "-c", "--constraint",
+                           "-v", "--verbose", "-q", "--quiet", "-t", "--target"}
+        unknown_flags = [t for t in tokens if t.startswith("-") and t not in PIP_KNOWN_FLAGS]
+        if not unknown_flags:
+            corrected = "uv pip install " + rest
+
+    # python -m pip install / python3 -m pip install → uv pip install
+    elif re.match(r"^python3?\s+-m\s+pip\s+install\s+", cmd):
+        rest = re.sub(r"^python3?\s+-m\s+pip\s+install\s+", "", cmd)
+        tokens = rest.split()
+        PIP_KNOWN_FLAGS = {"-r", "--requirement", "-e", "--editable",
+                           "-U", "--upgrade", "--pre", "--no-deps",
+                           "-i", "--index-url", "--extra-index-url", "--no-index",
+                           "-f", "--find-links", "-c", "--constraint",
+                           "-v", "--verbose", "-q", "--quiet", "-t", "--target"}
+        unknown_flags = [t for t in tokens if t.startswith("-") and t not in PIP_KNOWN_FLAGS]
+        if not unknown_flags:
+            corrected = "uv pip install " + rest
+
+print(corrected or "")
+' 2>/dev/null || echo "")
+
+if [[ -n "$_PKG_CORRECTION" ]]; then
+  # Verify target tool is actually installed before rewriting — avoids turning
+  # a working command into one that will always fail (e.g. no pnpm/uv on PATH).
+  _target_tool="${_PKG_CORRECTION%% *}"
+  if ! command -v "$_target_tool" &>/dev/null; then
+    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (${_target_tool} not found)" "${COMMAND:0:120}"
+    exit 0
+  fi
+  # For uv pip install, also require an active or local virtual environment;
+  # without one uv pip fails immediately, making the rewrite harmful.
+  if [[ "$_PKG_CORRECTION" == uv\ pip\ install* ]] \
+      && [[ -z "${VIRTUAL_ENV:-}" ]] && [[ ! -d ".venv" ]]; then
+    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (no active venv for uv pip)" "${COMMAND:0:120}"
+    exit 0
+  fi
+  vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
+  python3 -c "
+import json, sys
+corrected = sys.argv[1]
+print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
+" "$_PKG_CORRECTION"
+  exit 0
 fi
 
 # 通过所有检查 → 放行

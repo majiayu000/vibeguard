@@ -34,6 +34,7 @@ class SessionState:
 class HookResult:
     decision: str
     output: str
+    updated_command: str | None = None
 
 
 class HookRunner:
@@ -46,22 +47,48 @@ class HookRunner:
         if not hook_path.exists():
             return HookResult(decision="pass", output="")
 
-        proc = subprocess.run(
-            ["bash", str(hook_path)],
-            input=json.dumps(payload, ensure_ascii=False),
-            text=True,
-            capture_output=True,
-            cwd=cwd,
-        )
+        try:
+            proc = subprocess.run(
+                ["bash", str(hook_path)],
+                input=json.dumps(payload, ensure_ascii=False),
+                text=True,
+                capture_output=True,
+                cwd=cwd,
+            )
+        except OSError as exc:
+            print(
+                f"[vibeguard-codex-wrapper] hook {hook_name} skipped"
+                f" (cwd={cwd!r} unavailable): {exc}",
+                file=sys.stderr,
+            )
+            return HookResult(decision="pass", output="")
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
         decision = self._extract_decision(output) or "pass"
-        return HookResult(decision=decision, output=output.strip())
+        updated_command = self._extract_updated_command(output) if decision == "allow" else None
+        return HookResult(decision=decision, output=output.strip(), updated_command=updated_command)
 
     @staticmethod
     def _extract_decision(output: str) -> str | None:
         match = re.search(r'"decision"\s*:\s*"([a-zA-Z_-]+)"', output)
         if match:
             return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_updated_command(output: str) -> str | None:
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict):
+                    updated = data.get("updatedInput")
+                    if isinstance(updated, dict):
+                        cmd = updated.get("command")
+                        return cmd if isinstance(cmd, str) else None
+            except json.JSONDecodeError:
+                continue
         return None
 
 
@@ -129,7 +156,6 @@ class VibeGuardGateStrategy(GateStrategy):
         state: SessionState,
         write_to_server: Callable[[dict[str, Any]], None],
     ) -> bool:
-        del state
         method = message.get("method")
         if method != "item/commandExecution/requestApproval":
             return False
@@ -143,18 +169,31 @@ class VibeGuardGateStrategy(GateStrategy):
         if not isinstance(command, str) or not command.strip():
             return False
 
-        payload = {"tool_input": {"command": command}}
-        result = self.hooks.run("pre-bash-guard.sh", payload)
-        if result.decision != "block":
-            return False
+        thread_id = params.get("threadId")
+        cwd = state.thread_cwd.get(thread_id) if isinstance(thread_id, str) else None
 
-        # Decline command execution when guard says block.
-        write_to_server({"id": msg_id, "result": {"decision": "decline"}})
-        print(
-            f"[vibeguard-codex-wrapper] blocked command approval: {command}",
-            file=sys.stderr,
-        )
-        return True
+        payload = {"tool_input": {"command": command}}
+        result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd)
+
+        if result.decision == "block":
+            write_to_server({"id": msg_id, "result": {"decision": "decline"}})
+            print(
+                f"[vibeguard-codex-wrapper] blocked command approval: {command}",
+                file=sys.stderr,
+            )
+            return True
+
+        if result.updated_command is not None:
+            write_to_server(
+                {"id": msg_id, "result": {"decision": "approve", "updatedInput": {"command": result.updated_command}}}
+            )
+            print(
+                f"[vibeguard-codex-wrapper] corrected command: {command!r} → {result.updated_command!r}",
+                file=sys.stderr,
+            )
+            return True
+
+        return False
 
     def on_server_notification(self, message: dict[str, Any], state: SessionState) -> None:
         if message.get("method") != "turn/completed":

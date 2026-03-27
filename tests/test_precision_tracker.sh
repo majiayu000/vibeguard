@@ -633,8 +633,8 @@ perr_out=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_PERR" \
   --scorecard-file "$SCORECARD_PERR" \
   --update-scorecard 2>&1)
-# Warn message must mention transitions skipped
-assert_contains "$perr_out" "lifecycle transitions skipped" "parse errors 时警告包含 transitions skipped"
+# Error message must mention transitions suppressed
+assert_contains "$perr_out" "lifecycle transitions and counter resets suppressed" "parse errors 时警告包含 transitions suppressed"
 # Stage must remain experimental — transition must not have fired
 perr_stage=$(python3 -c "
 import json
