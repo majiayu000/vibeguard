@@ -20,13 +20,17 @@ TMPFILE=$(create_tmpfile)
 
 # --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
 _LINEMAP=""
+_IN_DIFF_MODE=false
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _IN_DIFF_MODE=true
   _LINEMAP=$(create_tmpfile)
   vg_build_diff_linemap "$_LINEMAP" '\.go$' || _LINEMAP=""
 fi
 
+# _in_diff_mode: 检测是否处于 diff 模式，不依赖 linemap 非空。
+# 仅删除行时 linemap 为空，此时应静默通过而非回退到全量扫描。
 _in_diff_mode() {
-  [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]
+  [[ "$_IN_DIFF_MODE" == true ]]
 }
 
 list_go_files "${TARGET_DIR}" \

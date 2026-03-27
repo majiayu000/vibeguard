@@ -18,7 +18,9 @@ TMPFILE=$(create_tmpfile)
 
 # --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
 _LINEMAP=""
+_IN_DIFF_MODE=false
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _IN_DIFF_MODE=true
   _LINEMAP=$(create_tmpfile)
   vg_build_diff_linemap "$_LINEMAP" '\.go$' || _LINEMAP=""
 fi
@@ -42,16 +44,16 @@ list_go_files "${TARGET_DIR}" \
   > "${_AWK_RAW}" || true
 
 # Linemap 过滤：提取 file:linenum，只保留新增行
-if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+# 当 _IN_DIFF_MODE=true 且 linemap 为空（仅删除行）时，静默通过而非全量扫描。
+if [[ "$_IN_DIFF_MODE" == true ]]; then
   while IFS= read -r result_line; do
     [[ -z "$result_line" ]] && continue
-    # 格式: [GO-08] /path/to/file:LINENUM content
-    # 提取 filepath 和 linenum（linenum 是紧跟 : 后的第一个数字序列）
+    # 格式: [GO-08] /path/to/file:LINENUM content（awk printf "%s:%d %s"）
+    # 取第一个 :<digits> 作为行号，避免 defer 行内含 :<数字> 时（如 URL 端口）tail -1 取错位置
     stripped="${result_line#\[GO-08\] }"
-    # 反向查找最后一个冒号前的数字序列作为 linenum
-    linenum=$(echo "$stripped" | grep -oE ':[0-9]+' | tail -1 | tr -d ':')
-    filepath=$(echo "$stripped" | sed "s/:${linenum} .*$//")
-    if [[ -n "$linenum" ]] && grep -qxF "${filepath}:${linenum}" "$_LINEMAP" 2>/dev/null; then
+    linenum=$(echo "$stripped" | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+    filepath=$(echo "$stripped" | cut -d: -f1)
+    if [[ -n "$linenum" ]] && [[ -n "$_LINEMAP" ]] && grep -qxF "${filepath}:${linenum}" "$_LINEMAP" 2>/dev/null; then
       echo "$result_line"
     fi
   done < "${_AWK_RAW}" > "${TMPFILE}" || true

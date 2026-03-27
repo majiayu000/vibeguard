@@ -33,7 +33,9 @@ RESULTS=$(create_tmpfile)
 
 # --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
 _LINEMAP=""
+_IN_DIFF_MODE=false
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _IN_DIFF_MODE=true
   _LINEMAP=$(create_tmpfile)
   vg_build_diff_linemap "$_LINEMAP" '\.(ts|tsx|js|jsx)$' || _LINEMAP=""
 fi
@@ -58,11 +60,12 @@ if command -v ast-grep >/dev/null 2>&1; then
           --rule "${RULES_DIR}/ts-03-console.yml" \
           --json \
           "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}" 2>/dev/null; then
-        VIBEGUARD_TARGET_DIR="${TARGET_DIR}" VG_DIFF_LINEMAP="$_LINEMAP" python3 -c '
+        VIBEGUARD_TARGET_DIR="${TARGET_DIR}" VG_DIFF_LINEMAP="$_LINEMAP" VG_IN_DIFF_MODE="$_IN_DIFF_MODE" python3 -c '
 import json, sys, re, os
 
 TARGET_DIR_PY = os.environ.get("VIBEGUARD_TARGET_DIR", "")
 linemap_path = os.environ.get("VG_DIFF_LINEMAP", "")
+in_diff_mode = os.environ.get("VG_IN_DIFF_MODE", "false") == "true"
 added_set = set()
 if linemap_path and os.path.isfile(linemap_path):
     with open(linemap_path) as lm:
@@ -104,8 +107,10 @@ for m in matches:
     if is_mcp(f):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
-    # Baseline 过滤：只报告 diff 新增行上的问题
-    if added_set and (f + ":" + str(line)) not in added_set:
+    # Baseline 过滤：只报告 diff 新增行上的问题。
+    # 用 in_diff_mode 而非 added_set 非空来判断 diff 模式，
+    # 避免仅删除行时 added_set 为空导致回退到全量扫描。
+    if in_diff_mode and (f + ":" + str(line)) not in added_set:
         continue
     msg = m.get("message", "console 残留")
     print("[TS-03] " + f + ":" + str(line) + " " + msg)
@@ -141,7 +146,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
           | while IFS= read -r line_info; do
               LINE_NUM=$(echo "$line_info" | cut -d: -f1)
               # Baseline 过滤：只报告新增行上的问题
-              if [[ -n "$_LINEMAP" ]] && [[ -s "$_LINEMAP" ]]; then
+              if [[ "$_IN_DIFF_MODE" == true ]]; then
                 grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
               fi
               echo "[TS-03] ${f}:${LINE_NUM} console 残留（grep fallback）"

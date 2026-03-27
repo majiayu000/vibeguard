@@ -299,6 +299,118 @@ else
   FAIL=$((FAIL+1))
 fi
 
+printf '\n=== Baseline Scanning: deletion-only commit (empty linemap) ===\n'
+
+# ---- Test 7: deletion-only staged change should NOT trigger full scan ----
+# When staged changes contain only deletions, vg_build_diff_linemap produces an empty
+# linemap. Guards must not fall back to full-scan in this case — they should report
+# nothing, because the pre-existing goroutine was not introduced by this commit.
+repo7="${tmpdir}/go02_deletion_only"
+init_repo "$repo7"
+
+cat > "${repo7}/worker.go" <<'EOF'
+package worker
+
+func StartWorker() {
+    go func() {
+        for {
+            doWork()
+        }
+    }()
+}
+
+func doWork() {}
+
+func ExtraHelper() string { return "extra" }
+EOF
+git -C "$repo7" add worker.go
+git -C "$repo7" commit -q -m "initial with goroutine and helper"
+
+# Stage a deletion-only change (remove ExtraHelper)
+cat > "${repo7}/worker.go" <<'EOF'
+package worker
+
+func StartWorker() {
+    go func() {
+        for {
+            doWork()
+        }
+    }()
+}
+
+func doWork() {}
+EOF
+git -C "$repo7" add worker.go
+staged7=$(staged_list "$repo7" worker.go)
+
+TOTAL=$((TOTAL+1))
+out7=$(VIBEGUARD_STAGED_FILES="$staged7" bash "${REPO_DIR}/guards/go/check_goroutine_leak.sh" --strict "$repo7" 2>&1 || true)
+if echo "$out7" | grep -q '\[GO-02\]'; then
+  red "deletion-only commit should NOT report pre-existing goroutine leak via full scan (got: $out7)"
+  FAIL=$((FAIL+1))
+else
+  green "deletion-only commit: empty linemap correctly suppresses full scan"
+  PASS=$((PASS+1))
+fi
+rm -f "$staged7"
+
+# ---- Test 8: defer-in-loop: deletion-only staged change should NOT trigger full scan ----
+repo8="${tmpdir}/go08_deletion_only"
+init_repo "$repo8"
+
+cat > "${repo8}/files.go" <<'EOF'
+package files
+
+import "os"
+
+func ProcessFiles(paths []string) error {
+    for _, path := range paths {
+        f, err := os.Open(path)
+        if err != nil { return err }
+        defer f.Close()
+    }
+    return nil
+}
+
+func ExtraHelper() string { return "extra" }
+EOF
+git -C "$repo8" add files.go
+git -C "$repo8" commit -q -m "initial with defer-in-loop and helper"
+
+# Stage a deletion-only change (remove ExtraHelper)
+cat > "${repo8}/files.go" <<'EOF'
+package files
+
+import "os"
+
+func ProcessFiles(paths []string) error {
+    for _, path := range paths {
+        f, err := os.Open(path)
+        if err != nil { return err }
+        defer f.Close()
+    }
+    return nil
+}
+EOF
+git -C "$repo8" add files.go
+staged8=$(staged_list "$repo8" files.go)
+
+TOTAL=$((TOTAL+1))
+if awk '/^\s*for\s/ { found=1 } END { exit !found }' "${repo8}/files.go" 2>/dev/null; then
+  out8=$(VIBEGUARD_STAGED_FILES="$staged8" bash "${REPO_DIR}/guards/go/check_defer_in_loop.sh" --strict "$repo8" 2>&1 || true)
+  if echo "$out8" | grep -q '\[GO-08\]'; then
+    red "deletion-only commit should NOT report pre-existing defer-in-loop via full scan (got: $out8)"
+    FAIL=$((FAIL+1))
+  else
+    green "deletion-only commit: defer-in-loop empty linemap correctly suppresses full scan"
+    PASS=$((PASS+1))
+  fi
+else
+  yellow "awk lacks \\s support — skipping defer-in-loop deletion-only test"
+  SKIP=$((SKIP+1))
+fi
+rm -f "$staged8"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m  Skip: \033[33m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
