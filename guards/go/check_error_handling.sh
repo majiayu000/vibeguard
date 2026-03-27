@@ -19,6 +19,15 @@ TMPFILE=$(create_tmpfile)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
+# --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
+_LINEMAP=""
+_IN_DIFF_MODE=false
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _IN_DIFF_MODE=true
+  _LINEMAP=$(create_tmpfile)
+  vg_build_diff_linemap "$_LINEMAP" '\.go$'
+fi
+
 _USE_GREP_FALLBACK=false
 
 if command -v ast-grep >/dev/null 2>&1; then
@@ -39,9 +48,18 @@ if command -v ast-grep >/dev/null 2>&1; then
           --rule "${RULES_DIR}/go-01-error.yml" \
           --json \
           "${_ASG_TARGETS[@]}" > "${_ASG_TMPOUT}"; then
-        python3 -c '
-import json, sys, re
+        VG_DIFF_LINEMAP="$_LINEMAP" VG_IN_DIFF_MODE="$_IN_DIFF_MODE" python3 -c '
+import json, sys, re, os
+
 TEST_PATH = re.compile(r"(_test\.go$|(^|/)vendor/)")
+linemap_path = os.environ.get("VG_DIFF_LINEMAP", "")
+in_diff_mode = os.environ.get("VG_IN_DIFF_MODE", "false") == "true"
+added_set = set()
+if linemap_path and os.path.isfile(linemap_path):
+    with open(linemap_path) as lm:
+        for entry in lm:
+            added_set.add(entry.strip())
+
 data = sys.stdin.read().strip()
 if not data:
     sys.exit(0)
@@ -55,6 +73,11 @@ for m in matches:
     if TEST_PATH.search(f):
         continue
     line = m.get("range", {}).get("start", {}).get("line", 0) + 1
+    # Baseline 过滤：只报告 diff 新增行上的问题。
+    # 用 in_diff_mode 而非 added_set 非空来判断 diff 模式，
+    # 避免仅删除行时 added_set 为空导致回退到全量扫描。
+    if in_diff_mode and (f + ":" + str(line)) not in added_set:
+        continue
     msg = m.get("message", "error 返回值被丢弃")
     print("[GO-01] " + f + ":" + str(line) + " " + msg)
 ' < "${_ASG_TMPOUT}" > "${TMPFILE}" || {
@@ -79,7 +102,14 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
           grep -nE '^\s*_\s*(,\s*_)?\s*[:=]+' "${f}" 2>/dev/null \
             | grep -vE 'for\s+.*range' \
             | grep -vE ',\s*(ok|found|exists)\s*:?=' \
-            | sed "s|^|${f}:|" || true
+            | while IFS= read -r hit; do
+                LINE_NUM=$(echo "$hit" | cut -d: -f1)
+                # Baseline 过滤：只报告新增行上的问题
+                if [[ "$_IN_DIFF_MODE" == true ]]; then
+                  grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
+                fi
+                echo "${f}:${hit}"
+              done
         fi
       done \
     | grep -v '^\s*//' \

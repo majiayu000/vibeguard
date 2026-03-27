@@ -16,22 +16,62 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# 使用 awk 检测 for 循环内的 defer
+# --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
+_LINEMAP=""
+_IN_DIFF_MODE=false
+if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
+  _IN_DIFF_MODE=true
+  _LINEMAP=$(create_tmpfile)
+  vg_build_diff_linemap "$_LINEMAP" '\.go$'
+fi
+
+# 使用 awk 检测 for 循环内的 defer，再对结果做 linemap 过滤
+# 输出格式（tab 分隔）: [GO-08] filepath\tdefer_linenum\tfor_linenum\tcontent
+_AWK_RAW=$(create_tmpfile)
 list_go_files "${TARGET_DIR}" \
   | { grep -vE '(_test\.go$|/vendor/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
         awk '
-          /^\s*for\s/ { in_loop++; loop_depth++ }
+          /^\s*for\s/ { in_loop++; loop_depth++; loop_starts[loop_depth]=NR }
           /\{/ { if (in_loop) brace_depth++ }
           /\}/ { if (in_loop) { brace_depth--; if (brace_depth <= 0) { in_loop=0; loop_depth--; brace_depth=0 } } }
           /^\s*defer\s/ && in_loop > 0 {
-            printf "[GO-08] %s:%d %s\n", FILENAME, NR, $0
+            printf "[GO-08] %s\t%d\t%d\t%s\n", FILENAME, NR, loop_starts[loop_depth], $0
           }
         ' "${f}" 2>/dev/null || true
       fi
     done \
-  > "${TMPFILE}" || true
+  > "${_AWK_RAW}" || true
+
+# Linemap 过滤：提取 file:linenum，只保留新增行
+# 当 _IN_DIFF_MODE=true 且 linemap 为空（仅删除行）时，静默通过而非全量扫描。
+# 检查 defer 行 OR for 循环起始行是否是新增行（捕获"已有 defer 被新 for 包裹"情况）。
+if [[ "$_IN_DIFF_MODE" == true ]]; then
+  while IFS= read -r result_line; do
+    [[ -z "$result_line" ]] && continue
+    stripped="${result_line#\[GO-08\] }"
+    filepath=$(printf '%s' "$stripped" | cut -f1)
+    defer_linenum=$(printf '%s' "$stripped" | cut -f2)
+    for_linenum=$(printf '%s' "$stripped" | cut -f3)
+    content=$(printf '%s' "$stripped" | cut -f4-)
+    if [[ -n "$defer_linenum" ]] && [[ -n "$_LINEMAP" ]] && {
+      grep -qxF "${filepath}:${defer_linenum}" "$_LINEMAP" 2>/dev/null || \
+      grep -qxF "${filepath}:${for_linenum}" "$_LINEMAP" 2>/dev/null
+    }; then
+      echo "[GO-08] ${filepath}:${defer_linenum} ${content}"
+    fi
+  done < "${_AWK_RAW}" > "${TMPFILE}" || true
+else
+  while IFS= read -r result_line; do
+    [[ -z "$result_line" ]] && continue
+    stripped="${result_line#\[GO-08\] }"
+    filepath=$(printf '%s' "$stripped" | cut -f1)
+    defer_linenum=$(printf '%s' "$stripped" | cut -f2)
+    content=$(printf '%s' "$stripped" | cut -f4-)
+    echo "[GO-08] ${filepath}:${defer_linenum} ${content}"
+  done < "${_AWK_RAW}" > "${TMPFILE}" || true
+fi
 
 apply_suppression_filter "${TMPFILE}"
 cat "${TMPFILE}"
