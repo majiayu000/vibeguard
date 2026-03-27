@@ -37,7 +37,7 @@ _IN_DIFF_MODE=false
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; then
   _IN_DIFF_MODE=true
   _LINEMAP=$(create_tmpfile)
-  vg_build_diff_linemap "$_LINEMAP" '\.(ts|tsx|js|jsx)$' || _LINEMAP=""
+  vg_build_diff_linemap "$_LINEMAP" '\.(ts|tsx|js|jsx)$'
 fi
 
 _USE_GREP_FALLBACK=false

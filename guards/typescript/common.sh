@@ -45,7 +45,11 @@ parse_guard_args() {
         ;;
       --baseline)
         shift
-        BASELINE_COMMIT="${1:-}"
+        if [[ $# -eq 0 || -z "${1:-}" ]]; then
+          echo "Error: --baseline requires a commit argument" >&2
+          return 1
+        fi
+        BASELINE_COMMIT="$1"
         ;;
       --help|-h)
         echo "Usage: $0 [--strict] [--baseline <commit>] [target_dir]" >&2
@@ -68,6 +72,14 @@ parse_guard_args() {
   done
   # 解析为绝对规范路径（消除 . / 相对路径 / macOS /var→/private/var 符号链接歧义）
   TARGET_DIR="$(cd "${TARGET_DIR}" 2>/dev/null && pwd -P || echo "${TARGET_DIR}")"
+
+  # 验证 baseline commit 存在，防止无效 commit 导致空 linemap 并静默放过所有检查
+  if [[ -n "$BASELINE_COMMIT" ]]; then
+    if ! git -C "${TARGET_DIR}" rev-parse --verify "${BASELINE_COMMIT}" >/dev/null 2>&1; then
+      echo "Error: --baseline '${BASELINE_COMMIT}' is not a valid commit in '${TARGET_DIR}'" >&2
+      return 1
+    fi
+  fi
 }
 
 # vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER]
@@ -168,7 +180,12 @@ with open(out_path, "w") as out:
             continue
         for n in added_linenos(fpath):
             out.write(fpath + ":" + str(n) + "\n")
-' 2>/dev/null || true
+'
+  local _py_rc=$?
+  if [[ $_py_rc -ne 0 ]]; then
+    echo "Error: vg_build_diff_linemap failed (exit ${_py_rc})" >&2
+    return $_py_rc
+  fi
   return 0
 }
 

@@ -161,13 +161,13 @@ def _validate_triage_record(rec: Any, lineno: int) -> bool:
 # ---------------------------------------------------------------------------
 
 def load_triage(path: Path) -> tuple[list[dict[str, Any]], int]:
-    """Load triage.jsonl; skip comment/blank lines and skip malformed records.
+    """Load triage.jsonl; skip comment/blank lines and reject malformed records.
 
-    Returns (records, error_count). Invalid lines are logged as [ERROR] and
-    skipped so that valid records are still processed.
+    Returns (records, invalid_count). Callers must treat invalid_count > 0 as an
+    error when scorecard writes or lifecycle transitions are involved.
     """
     records: list[dict[str, Any]] = []
-    error_count = 0
+    invalid_count = 0
     if not path.exists():
         return records, 0
     with path.open(encoding="utf-8") as fh:
@@ -179,13 +179,13 @@ def load_triage(path: Path) -> tuple[list[dict[str, Any]], int]:
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
                 print(f"[ERROR] triage.jsonl line {lineno}: {exc}", file=sys.stderr)
-                error_count += 1
+                invalid_count += 1
                 continue
             if not _validate_triage_record(rec, lineno):
-                error_count += 1
+                invalid_count += 1
                 continue
             records.append(rec)
-    return records, error_count
+    return records, invalid_count
 
 
 # ---------------------------------------------------------------------------
@@ -537,10 +537,11 @@ def main(argv: list[str] | None = None) -> int:
         if session:
             new_rec["session"] = session
         with _scorecard_write_lock(scorecard_path):
-            triage, triage_errors = load_triage(triage_path)
-            if triage_errors:
+            triage, invalid_count = load_triage(triage_path)
+            if invalid_count > 0:
                 print(
-                    f"[ERROR] {triage_errors} invalid triage record(s) — cannot safely update scorecard.",
+                    f"[ERROR] triage.jsonl contains {invalid_count} invalid record(s); "
+                    "refusing to update scorecard to avoid incorrect lifecycle transitions.",
                     file=sys.stderr,
                 )
                 return 1
@@ -564,8 +565,13 @@ def main(argv: list[str] | None = None) -> int:
     # --update-scorecard
     if args.update_scorecard:
         with _scorecard_write_lock(scorecard_path):
-            triage, triage_errors = load_triage(triage_path)
-            if triage_errors:
+            triage, invalid_count = load_triage(triage_path)
+            if invalid_count > 0:
+                print(
+                    f"[ERROR] triage.jsonl contains {invalid_count} invalid record(s); "
+                    "refusing to update scorecard to avoid incorrect lifecycle transitions.",
+                    file=sys.stderr,
+                )
                 return 1
             scorecard = load_scorecard(scorecard_path)
             scorecard, transitions = update_scorecard(scorecard, triage)
