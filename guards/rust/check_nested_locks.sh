@@ -27,14 +27,16 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
       [[ -z "$f" || ! -f "$f" ]] && continue
       diff_out=$(git diff --cached -U0 -- "${f}" 2>/dev/null)
       count=$(printf '%s\n' "$diff_out" | grep '^+' | grep -v '^+++' \
-        | grep -cE '\.(read|write|lock)[[:space:]]*\(' || echo 0)
+        | grep -cE '\.(read|write|lock)[[:space:]]*\(') || count=0
       if [[ "$count" -gt 2 ]]; then
         # Find first new-file line number of a lock acquisition so
         # apply_suppression_filter can match vibeguard-disable-next-line.
         first_line=$(printf '%s\n' "$diff_out" | awk '
           /^@@ / {
-            match($0, /\+([0-9]+)/, arr)
-            cur = arr[1] - 1
+            tmp = $0
+            sub(/^.*\+/, "", tmp)
+            sub(/[^0-9].*/, "", tmp)
+            cur = tmp + 0 - 1
           }
           /^\+[^+]/ {
             cur++
