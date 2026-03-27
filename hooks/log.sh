@@ -133,7 +133,7 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     # whether hooks inherit different TZ values across invocations.
     _vg_proc_start=$(TZ=UTC ps -o lstart= -p "$_vg_claude_pid" 2>/dev/null | xargs || echo "unknown")
 
-    _vg_sf="${VIBEGUARD_LOG_DIR}/.session_pid_${_vg_claude_pid}"
+    _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_pid_${_vg_claude_pid}"
 
     # Reuse conditions (all three must hold):
     # 1. Session file exists
@@ -156,14 +156,14 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     else
       # New session: first use, 30-min TTL expired, or PID recycled (start time mismatch).
       VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-      mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+      mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
       # Atomic write: write to a temp file then rename so concurrent hook invocations
       # sharing the same Claude parent PID never observe a partially-written file.
       # Without this, a reader that runs between the open(O_TRUNC) and the final write
       # of the second line would see an empty or single-line file and use the start-time
       # string (line 1) as the session_id, corrupting all per-session counters/flags.
       # File format: line 1 = process start time anchor (UTC), line 2 = session_id
-      _vg_tmp=$(mktemp "${VIBEGUARD_LOG_DIR}/.session_tmp_XXXXXX" 2>/dev/null) \
+      _vg_tmp=$(mktemp "${VIBEGUARD_PROJECT_LOG_DIR}/.session_tmp_XXXXXX" 2>/dev/null) \
         || _vg_tmp="${_vg_sf}.tmp.$$"
       printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_tmp" \
         && mv "$_vg_tmp" "$_vg_sf" 2>/dev/null \
@@ -171,17 +171,17 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     fi
 
     # Clean up PID session files older than 2 hours to prevent unbounded disk growth.
-    find "${VIBEGUARD_LOG_DIR}" -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
+    find "${VIBEGUARD_PROJECT_LOG_DIR}" -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
   else
     # Fallback for non-Claude Code environments (CI, manual invocation, etc.):
     # time-based 30-minute session window (original behavior).
-    _vg_sf="${VIBEGUARD_LOG_DIR}/.session_id"
+    _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_id"
     if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
       VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
       touch "$_vg_sf" 2>/dev/null || true
     else
       VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-      mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+      mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
       printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
     fi
   fi
