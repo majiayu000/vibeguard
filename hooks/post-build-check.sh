@@ -112,7 +112,7 @@ try:
             if e.get("session") != session: continue
             # Project isolation: only count failures for the same project root
             detail = e.get("detail", "")
-            if project and detail and not detail.startswith(project):
+            if project and detail and not detail.startswith(project.rstrip('/') + '/'):
                 continue
             if e.get("decision") == "pass":
                 break

@@ -88,7 +88,7 @@ else
         gsub(/\/\/.*$/, "", _tmp)        # strip line comments
         gsub(/"[^"]*"/, "", _tmp)        # strip simple string literals
         _n = gsub(/\.(read|write|lock)[[:space:]]*\(/, "", _tmp)
-        if (_n < 1) _n = 1              # at least one matched (pattern fired)
+        if (_n < 1) next                # pattern fired on comment/string only — no real lock
         lock_count += _n
         # A chained call like .lock().clone() / .lock().to_string() drops the guard
         # immediately (value extracted, guard never bound to a variable).  Only apply

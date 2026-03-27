@@ -113,7 +113,7 @@ elif command -v ast-grep >/dev/null 2>&1; then
               }
               pending_test_attr && /^[[:space:]]*#\[/ { next }
               pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
@@ -225,7 +225,7 @@ PYEOF
               }
               pending_test_attr && /^[[:space:]]*#\[/ { next }
               pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
@@ -252,7 +252,7 @@ PYEOF
               }
               pending_test_attr && /^[[:space:]]*#\[/ { next }
               pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-                in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+                in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
               }
               pending_test_attr { pending_test_attr = 0 }
               in_test_mod {
@@ -289,7 +289,7 @@ else
             }
             pending_test_attr && /^[[:space:]]*#\[/ { next }
             pending_test_attr && /(mod|fn|impl|struct|enum|type|trait)[[:space:]]/ {
-              in_test_mod = 1; pending_test_attr = 0; brace_depth = 0; next
+              in_test_mod = 1; pending_test_attr = 0; brace_depth = net_braces($0); next
             }
             pending_test_attr { pending_test_attr = 0 }
             in_test_mod {
