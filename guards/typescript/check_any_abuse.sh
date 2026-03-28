@@ -78,7 +78,7 @@ for m in matches:
     if in_diff_mode and (f + ":" + str(line)) not in added_set:
         continue
     msg = m.get("message", "'any' type usage")
-    print("[TS-01] [review] [this-line] OBSERVATION: " + f + ":" + str(line) + " " + msg)
+    print("[TS-01] " + f + ":" + str(line) + " [review] [this-line] OBSERVATION: " + msg)
 ' < "${_ASG_TMPOUT}" >> "$RESULTS" || {
           echo "[TS-01] WARN: python3 处理失败，使用 grep fallback" >&2
           _USE_GREP_FALLBACK=true
@@ -106,7 +106,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
               if [[ "$_IN_DIFF_MODE" == true ]]; then
                 grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
               fi
-              echo "[TS-01] [review] [this-line] OBSERVATION: ${f}:${LINE_NUM} 'any' type usage"
+              echo "[TS-01] ${f}:${LINE_NUM} [review] [this-line] OBSERVATION: 'any' type usage"
             done
       done >> "$RESULTS" || true
 fi
@@ -123,7 +123,7 @@ while IFS= read -r file; do
     if [[ "$_IN_DIFF_MODE" == true ]]; then
       grep -qxF "${file}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
     fi
-    echo "[TS-02] [review] [this-line] OBSERVATION: ${file}:${LINE_NUM} uses '@ts-ignore' to suppress type check" >> "$RESULTS"
+    echo "[TS-02] ${file}:${LINE_NUM} [review] [this-line] OBSERVATION: uses '@ts-ignore' to suppress type check" >> "$RESULTS"
   done < <(grep -n '@ts-ignore' "$file" 2>/dev/null || true)
 
   while IFS= read -r line_info; do
@@ -133,7 +133,7 @@ while IFS= read -r file; do
     if [[ "$_IN_DIFF_MODE" == true ]]; then
       grep -qxF "${file}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
     fi
-    echo "[TS-02] [review] [this-line] OBSERVATION: ${file}:${LINE_NUM} uses '@ts-nocheck' to disable type checking for entire file" >> "$RESULTS"
+    echo "[TS-02] ${file}:${LINE_NUM} [review] [this-line] OBSERVATION: uses '@ts-nocheck' to disable type checking for entire file" >> "$RESULTS"
   done < <(grep -n '@ts-nocheck' "$file" 2>/dev/null || true)
 
 done < <(list_ts_files "$TARGET_DIR" | filter_non_test)

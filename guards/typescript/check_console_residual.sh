@@ -113,7 +113,7 @@ for m in matches:
     if in_diff_mode and (f + ":" + str(line)) not in added_set:
         continue
     msg = m.get("message", "console residual")
-    print("[TS-03] [review] [this-line] OBSERVATION: " + f + ":" + str(line) + " " + msg)
+    print("[TS-03] " + f + ":" + str(line) + " [review] [this-line] OBSERVATION: " + msg)
 ' < "${_ASG_TMPOUT}" >> "$RESULTS" || {
           echo "[TS-03] WARN: python3 处理失败，使用 grep fallback" >&2
           _USE_GREP_FALLBACK=true
@@ -149,7 +149,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
               if [[ "$_IN_DIFF_MODE" == true ]]; then
                 grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
               fi
-              echo "[TS-03] [review] [this-line] OBSERVATION: ${f}:${LINE_NUM} console residual"
+              echo "[TS-03] ${f}:${LINE_NUM} [review] [this-line] OBSERVATION: console residual"
             done
       done >> "$RESULTS" || true
 fi
