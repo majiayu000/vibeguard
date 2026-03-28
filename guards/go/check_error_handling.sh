@@ -118,7 +118,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
 fi
 
 apply_suppression_filter "${TMPFILE}"
-cat "${TMPFILE}"
+sed 's/^\[GO-01\] /[GO-01] [auto-fix] [this-line] OBSERVATION: /' "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 
 echo ""
@@ -127,10 +127,8 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
   echo "Found ${FOUND} unchecked error return(s)."
   echo ""
-  echo "修复方法："
-  echo "  1. _ = fn() → err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }"
-  echo "  2. 确实不需要错误 → 添加注释说明原因"
-  echo "  3. defer 场景 → defer func() { _ = f.Close() }() 可接受，但建议记录日志"
+  echo "FIX: Replace _ = fn() with err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }"
+  echo "DO NOT: Modify function signatures or upstream callers"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

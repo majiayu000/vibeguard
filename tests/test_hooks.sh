@@ -396,13 +396,13 @@ assert_not_contains "$result" "VIBEGUARD" "新建测试文件放行"
 
 # 新建源码文件应触发提醒/拦截
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_service.py"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .py 源码文件触发 guard"
+assert_contains "$result" "[L1]" "新建 .py 源码文件触发 guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_main.rs"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .rs 源码文件触发 guard"
+assert_contains "$result" "[L1]" "新建 .rs 源码文件触发 guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_app.tsx"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "VIBEGUARD" "新建 .tsx 源码文件触发 guard"
+assert_contains "$result" "[L1]" "新建 .tsx 源码文件触发 guard"
 
 # tests/ 目录下的源码文件应放行
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test/tests/helper.py"}}' | bash hooks/pre-write-guard.sh)
@@ -491,7 +491,7 @@ def existing_service():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def create_service():\\n    return True"}}' "$tmp_repo_same_name/src/new/service.py")
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
-assert_contains "$result" "L1-重复文件" "检测同名源码文件重复"
+assert_contains "$result" "[L1]" "检测同名源码文件重复"
 rm -rf "$tmp_repo_same_name"
 
 # 重复定义应告警
@@ -504,7 +504,7 @@ def processOrder():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def processOrder():\\n    return 2"}}' "$tmp_repo_dup_def/src/new/new_handler.py")
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
-assert_contains "$result" "L1-重复定义" "检测重复定义"
+assert_contains "$result" "[L1]" "检测重复定义"
 rm -rf "$tmp_repo_dup_def"
 
 # 超过扫描预算时应降级提示
@@ -517,7 +517,7 @@ def keepExisting():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def keepExisting():\\n    return \\"new\\""}}' "$tmp_repo_budget/src/new_file.py")
 result=$(echo "$json_payload" | VG_SCAN_MAX_FILES=0 bash hooks/post-write-guard.sh)
-assert_contains "$result" "L1-扫描降级" "超过文件预算时降级"
+assert_contains "$result" "[L1]" "超过文件预算时降级"
 rm -rf "$tmp_repo_budget"
 
 # 新源码文件有同名文件时应 warn（使用当前仓库中已有的 log.sh）

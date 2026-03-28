@@ -123,11 +123,17 @@ fi
 
 if [[ -n "$SAME_NAME_FILES" ]]; then
   FILE_LIST=$(echo "$SAME_NAME_FILES" | tr '\n' ', ' | sed 's/,$//')
-  WARNINGS="[L1-重复文件] 项目中已存在同名文件: ${FILE_LIST}。请确认是否应该扩展已有文件而非新建。"
+  WARNINGS="[L1] [review] [this-edit] OBSERVATION: duplicate filename found in project: ${FILE_LIST}
+FIX: Extend the existing file instead of creating a new one
+DO NOT: Delete existing files or merge code without confirming intent"
 fi
 
 if [[ "${SCAN_DEGRADED}" -eq 1 ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }[L1-扫描降级] 项目文件数 ${FILE_COUNT} 超过阈值 ${MAX_SCAN_FILES}，已跳过重复定义深度扫描。"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[L1] [info] [this-edit] OBSERVATION: project has ${FILE_COUNT} files, exceeding ${MAX_SCAN_FILES} threshold — deep duplicate scan skipped
+FIX: Manually verify no duplicate definitions exist for the new file
+DO NOT: Take any action — this is informational only"
 fi
 
 # --- 检查 2: 关键定义重复 ---
@@ -227,7 +233,11 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
   done <<< "$DEFINITIONS"
 
   if [[ -n "$DUPLICATE_DEFS" ]]; then
-    WARNINGS="${WARNINGS:+${WARNINGS} }[L1-重复定义] 以下定义在项目中已存在: ${DUPLICATE_DEFS}。请确认是否重复实现，考虑复用已有代码。"
+    WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[L1] [review] [this-edit] OBSERVATION: duplicate definition(s) found in project: ${DUPLICATE_DEFS}
+FIX: Reuse the existing definition instead of creating a new one
+DO NOT: Delete existing definitions or merge code without confirming intent"
   fi
 fi
 
@@ -237,30 +247,40 @@ case "$FILE_PATH" in
   *.rs)
     STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符（todo!/unimplemented!）。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (todo!/unimplemented!)
+FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.ts|*.tsx|*.js|*.jsx)
     STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (throw not implemented / TODO)
+FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.py)
     STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (pass/NotImplementedError/TODO)
+FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.go)
     STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 文件包含 ${STUB_COUNT} 个 stub 占位符。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (panic not implemented / TODO)
+FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
 esac
 if [[ -n "$STUB_WARNINGS" ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }${STUB_WARNINGS}"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}${STUB_WARNINGS}"
 fi
 
 if [[ -z "$WARNINGS" ]]; then
