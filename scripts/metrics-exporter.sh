@@ -108,7 +108,7 @@ print()
 print('# HELP vibeguard_guard_violation_total Total guard violations by reason')
 print('# TYPE vibeguard_guard_violation_total counter')
 for reason, count in sorted(violation_total.items()):
-    safe_reason = reason.replace('\"', '').replace('\\\\', '')[:80]
+    safe_reason = reason.replace('\"', '').replace('\\\\', '').replace('\n', ' ').replace('\r', '')[:80]
     print(f'vibeguard_guard_violation_total{{reason=\"{safe_reason}\"}} {count}')
 
 print()
