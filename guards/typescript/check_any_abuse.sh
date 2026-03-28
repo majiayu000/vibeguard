@@ -159,8 +159,8 @@ if [[ "$COUNT_02" -gt 0 ]]; then
 fi
 
 echo ""
-echo "FIX: Fix the type error that required the 'any' cast or @ts-ignore directive"
-echo "DO NOT: Modify tsconfig.json, disable type checking globally, or use broader suppressions than this line"
+echo "SCOPE: this-line only — do not modify tsconfig.json, disable type checking globally, or broaden suppressions"
+echo "ACTION: REVIEW"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

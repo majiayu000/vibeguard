@@ -79,8 +79,8 @@ if [[ "$FILE_PATH" == *.rs ]]; then
           WARNINGS="${WARNINGS:+${WARNINGS}
 ---
 }[RS-03] [review] [this-edit] OBSERVATION: ${REAL_COUNT} new unwrap()/expect() call(s) added
-FIX: Replace .unwrap() with .map_err(|e| YourError::from(e))? or .unwrap_or_default(); in main() use anyhow::Result<()>
-DO NOT: Fix unwrap calls outside this edit, add new error types, or change function signatures"
+SCOPE: this-edit only — do not propagate changes beyond this edit, add error types, or change signatures
+ACTION: REVIEW"
         fi
       fi
       # [RS-10] 检测静默丢弃 Result（let _ = expr）
@@ -89,8 +89,8 @@ DO NOT: Fix unwrap calls outside this edit, add new error types, or change funct
         WARNINGS="${WARNINGS:+${WARNINGS}
 ---
 }[RS-10] [review] [this-edit] OBSERVATION: ${SILENT_COUNT} new let _ = silent discard(s) added
-FIX: Use if let Err(e) = expr { log::warn!(...) } to log errors, or propagate with .map_err()
-DO NOT: Refactor calling code or add new error types"
+SCOPE: this-edit only — do not refactor calling code or add new error types
+ACTION: REVIEW"
       fi
       ;;
   esac

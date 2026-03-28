@@ -127,8 +127,8 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
   echo "Found ${FOUND} unchecked error return(s)."
   echo ""
-  echo "FIX: Replace _ = fn() with err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }"
-  echo "DO NOT: Modify function signatures or upstream callers"
+  echo "SCOPE: this-line only — do not modify function signatures or upstream callers"
+  echo "ACTION: REVIEW"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

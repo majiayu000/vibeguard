@@ -86,7 +86,7 @@ if [[ "$MODE" == "block" ]]; then
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "[L1] [block] [this-edit] OBSERVATION: new source file creation blocked — required search not performed\nFIX: 1) Use Grep to search for same-named functions/classes/structs 2) Use Glob to search for same-named files 3) If similar functionality exists, extend the existing file\nDO NOT: Create this file without completing the required search"
+  "reason": "[L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
 }
 EOF
 else
@@ -95,7 +95,7 @@ else
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "[L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nFIX: 1) Use Grep to search for same-named functions/classes/structs 2) Use Glob to search for same-named files. Only proceed after confirming no duplicates exist\nDO NOT: Create this file without completing the search steps above"
+    "additionalContext": "[L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nSCOPE: search before proceeding — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
   }
 }
 EOF

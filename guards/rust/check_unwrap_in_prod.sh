@@ -321,8 +321,8 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
   echo "Found ${FOUND} unwrap()/expect() call(s) in production code."
   echo ""
-  echo "FIX: Replace .unwrap()/.expect() with .map_err(|e| YourError::from(e))? or .unwrap_or_default(); in main() use anyhow::Result<()>"
-  echo "DO NOT: Fix unwrap calls outside this edit, add new error types, or change function signatures"
+  echo "SCOPE: this-line only — do not fix other unwrap calls, add error types, or change function signatures"
+  echo "ACTION: REVIEW"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

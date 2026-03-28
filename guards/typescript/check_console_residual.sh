@@ -166,8 +166,8 @@ echo "[TS-03] ${COUNT} console residual instance(s):"
 echo
 cat "$RESULTS"
 echo ""
-echo "FIX: Remove this console.log/warn/error call; keep only if this is a CLI project (check bin field in package.json)"
-echo "DO NOT: Create new logger modules, modify other files, or fix console usage outside this line"
+echo "SCOPE: this-line only — do not create logger modules, modify other files, or fix console usage outside this line"
+echo "ACTION: REVIEW — skip if this is a CLI project (check bin field in package.json)"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

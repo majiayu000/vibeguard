@@ -124,16 +124,16 @@ fi
 if [[ -n "$SAME_NAME_FILES" ]]; then
   FILE_LIST=$(echo "$SAME_NAME_FILES" | tr '\n' ', ' | sed 's/,$//')
   WARNINGS="[L1] [review] [this-edit] OBSERVATION: duplicate filename found in project: ${FILE_LIST}
-FIX: Extend the existing file instead of creating a new one
-DO NOT: Delete existing files or merge code without confirming intent"
+SCOPE: REVIEW-ONLY — do not delete existing files or auto-merge; confirm intent before acting
+ACTION: REVIEW"
 fi
 
 if [[ "${SCAN_DEGRADED}" -eq 1 ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS}
 ---
 }[L1] [info] [this-edit] OBSERVATION: project has ${FILE_COUNT} files, exceeding ${MAX_SCAN_FILES} threshold — deep duplicate scan skipped
-FIX: Manually verify no duplicate definitions exist for the new file
-DO NOT: Take any action — this is informational only"
+SCOPE: informational only — no action required
+ACTION: SKIP"
 fi
 
 # --- 检查 2: 关键定义重复 ---
