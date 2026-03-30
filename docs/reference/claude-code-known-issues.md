@@ -1,7 +1,7 @@
 # Claude Code 已知问题与 VibeGuard 应对
 
 > 影响 VibeGuard 规则/hooks/skills 加载的 Claude Code 平台级 bug。
-> 最后更新：2026-03-02
+> 最后更新：2026-03-28
 
 ## 规则系统 (Rules)
 
@@ -80,6 +80,45 @@ paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 
 ---
 
+### 8. paths 规则在 Write/Edit 时不触发
+
+| 字段 | 值 |
+|------|------|
+| Issue | [#23478](https://github.com/anthropics/claude-code/issues/23478) |
+| 状态 | OPEN（未修复） |
+| 严重度 | **中** |
+| 影响 | `paths:` 过滤仅在 Claude 读取文件时生效，Write/Edit 操作不触发路径作用域规则 |
+
+**问题说明**：路径作用域规则只在 Read 工具调用时加载并评估，而非在 Write/Edit 时。这意味着路径限定的规则在最关键的操作（写入代码）时可能不生效。
+
+**VibeGuard 影响**：中。语言特定规则（如 `typescript/*.md`）期望在 TS 文件被修改时生效，但 Write/Edit 会绕过路径过滤。
+
+**VibeGuard 应对**：PreToolUse hook 在 Write/Edit 前强制执行 Read，间接触发规则加载。在 `scripts/compliance_check.sh` Layer 7 中检测此问题的根因（YAML array 和 quoted paths 语法）。
+
+---
+
+### 9. 带引号的 paths 值被原样保留
+
+| 字段 | 值 |
+|------|------|
+| Issue | [#17204](https://github.com/anthropics/claude-code/issues/17204) |
+| 状态 | OPEN（未修复） |
+| 严重度 | 中 |
+| 影响 | `paths: "**/*.ts"` 中的引号被保留到 glob 字符串中，导致匹配失败 |
+
+**触发条件**：
+
+```yaml
+# ❌ 不生效 — 引号被保留，glob 无法匹配
+---
+paths: "**/*.ts,**/*.tsx"
+---
+```
+
+**VibeGuard 应对**：同 #1，CSV 格式不加任何引号。`compliance_check.sh` Layer 7 自动检测此问题。
+
+---
+
 ## Hooks 系统
 
 ### 7. Stop Hook exit 2 导致无限循环
@@ -119,6 +158,29 @@ Claude 回复完成
 
 ---
 
+### 10. exit 2 在 UI 中显示为"Error"而非阻断提示
+
+| 字段 | 值 |
+|------|------|
+| Issue | [#34600](https://github.com/anthropics/claude-code/issues/34600) |
+| 状态 | OPEN（未修复） |
+| 严重度 | 低 |
+| 影响 | Hook 返回 `exit 2` 时，Claude Code UI 将其显示为红色"Error"，而非预期的阻断反馈提示 |
+
+**问题说明**：`exit 2` 的设计意图是将 stderr 作为反馈注入给 Claude 并阻断当前操作。但在 UI 层，这被渲染为错误状态，可能让用户误以为 hook 本身出错。
+
+**VibeGuard 应对**：在 hook stderr 中添加 `[BLOCKED]` 前缀，让 UI 显示更清晰：
+
+```bash
+# 在 hook 脚本中
+echo "[BLOCKED] 检测到危险操作: ${tool_name}" >&2
+exit 2
+```
+
+**VibeGuard 影响**：低。功能正常，仅影响 UI 展示。PreToolUse hooks 已统一使用 `[BLOCKED]` 前缀。
+
+---
+
 ## Skills 系统
 
 ### 5. SKILL.md 验证器拒绝扩展字段
@@ -154,7 +216,10 @@ Claude 回复完成
 | #16299 项目级 paths 全局加载 | 低 | — 不影响用户级 |
 | #13905 YAML 语法无效 | 中 | ✅ CSV 格式 workaround |
 | #23569 Worktree paths 忽略 | 低 | — 不依赖此机制 |
+| #23478 paths 在 Write/Edit 不触发 | **中** | ✅ PreToolUse hook 强制 Read 前置 |
+| #17204 带引号 paths 匹配失败 | 中 | ✅ CSV 不加引号 + Layer 7 检测 |
 | #7 Stop hook exit 2 无限循环 | **高** | ✅ 改为 exit 0 仅记录 |
+| #34600 exit 2 UI 显示为 Error | 低 | ✅ [BLOCKED] 前缀 workaround |
 | #25380 SKILL.md 验证器 | 低 | — 仅 VS Code 警告 |
 | #17688 插件 hooks 不触发 | 无 | — 不使用此机制 |
 
@@ -162,5 +227,17 @@ Claude 回复完成
 
 定期检查以下 issue 的修复状态：
 - **#21858** — 修复后可改回 YAML 数组格式（更易读）
+- **#23478** — 修复后 paths 规则将在 Write/Edit 时正确触发
 - **#16299** — 修复后项目级规则的上下文开销会降低
 - **#17688** — 若 VibeGuard 计划做插件分发需关注
+
+## 自动化监控
+
+`scripts/compliance_check.sh` Layer 7 自动检测常见的规则语法问题：
+
+```bash
+bash scripts/compliance_check.sh
+# 输出：--- Layer 7: Rule YAML Syntax ---
+#   [PASS] No YAML array syntax in paths frontmatter
+#   [PASS] No quoted paths in rules frontmatter
+```

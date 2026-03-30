@@ -125,6 +125,42 @@ else
   check_fail "Global CLAUDE.md not found"
 fi
 
+# --- Layer 7: Rule YAML Syntax ---
+echo "--- Layer 7: Rule YAML Syntax ---"
+
+RULES_DIR="${HOME}/.claude/rules/vibeguard"
+if [[ -d "${RULES_DIR}" ]]; then
+  check_pass "VibeGuard rules directory exists: ${RULES_DIR}"
+
+  # Check for broken YAML array syntax (bug #21858: paths: array breaks rule loading)
+  if command -v rg >/dev/null 2>&1; then
+    yaml_array_files=$(rg -l --multiline 'paths:\s*\n\s+-' "${RULES_DIR}" 2>/dev/null || true)
+  else
+    yaml_array_files=$(find "${RULES_DIR}" -name "*.md" -exec \
+      awk '/^paths:/{p=1;next} p && /^[[:space:]]+-/{print FILENAME; exit} {p=0}' {} \; \
+      2>/dev/null || true)
+  fi
+  if [[ -n "${yaml_array_files}" ]]; then
+    check_fail "YAML array syntax in paths: (breaks rule loading, use CSV format) — ${yaml_array_files}"
+  else
+    check_pass "No YAML array syntax in paths frontmatter"
+  fi
+
+  # Check for quoted paths (bug #17204: quoted values preserved verbatim in glob)
+  if command -v rg >/dev/null 2>&1; then
+    quoted_files=$(rg -l "^paths:\\s+[\"']" "${RULES_DIR}" 2>/dev/null || true)
+  else
+    quoted_files=$(grep -rlE "^paths:[[:space:]]+[\"']" "${RULES_DIR}" 2>/dev/null || true)
+  fi
+  if [[ -n "${quoted_files}" ]]; then
+    check_fail "Quoted paths detected (breaks glob matching, remove quotes) — ${quoted_files}"
+  else
+    check_pass "No quoted paths in rules frontmatter"
+  fi
+else
+  check_warn "VibeGuard rules directory not found: ${RULES_DIR} (run setup.sh to install)"
+fi
+
 # --- Summary ---
 echo
 echo "======================================"
