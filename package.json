@@ -61,7 +61,6 @@
     "scripts/worktree-guard.sh",
     "scripts/install-systemd.sh",
     "scripts/systemd/",
-    "mcp-server/",
     ".claude/commands/vibeguard",
     "claude-md/",
     "manifests/",

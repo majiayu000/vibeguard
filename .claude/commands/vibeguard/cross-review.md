@@ -40,7 +40,7 @@ argument-hint: "<项目目录或文件路径>"
    - 如果可用，继续双模型流程
 
 2. **获取守卫基线**
-   - 运行 `mcp__vibeguard__guard_check` 获取当前守卫状态
+   - 运行 `bash guards/<language>/check_*.sh <target_dir>` 获取当前守卫状态
    - 记录已有问题作为基线（不重复报告）
 
 3. **确定审查范围和镜头**
