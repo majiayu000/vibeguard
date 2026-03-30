@@ -76,13 +76,21 @@ if [[ "$FILE_PATH" == *.rs ]]; then
         SAFE_COUNT=$(echo "$_RS03_FILTERED" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
         if [[ $REAL_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS}[RS-03] 新增了 ${REAL_COUNT} 个 unwrap()/expect()。修复：将 .unwrap() 替换为 .map_err(|e| YourError::from(e))? 或 .unwrap_or_default()；在 main() 入口可用 anyhow::Result<()>。立即修复，不要留到后面。参考 vibeguard/rules/rust.md RS-03。"
+          WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[RS-03] [review] [this-edit] OBSERVATION: ${REAL_COUNT} new unwrap()/expect() call(s) added
+SCOPE: this-edit only — do not propagate changes beyond this edit, add error types, or change signatures
+ACTION: REVIEW"
         fi
       fi
       # [RS-10] 检测静默丢弃 Result（let _ = expr）
       SILENT_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "RS-10" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null; true)
       if [[ $SILENT_COUNT -gt 0 ]]; then
-        WARNINGS="${WARNINGS:+${WARNINGS} }[RS-10] 新增了 ${SILENT_COUNT} 个 let _ = 静默丢弃。修复：用 if let Err(e) = expr { log::warn(...) } 记录错误，或用 .map_err() 传播。参考 vibeguard/rules/rust.md RS-10。"
+        WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[RS-10] [review] [this-edit] OBSERVATION: ${SILENT_COUNT} new let _ = silent discard(s) added
+SCOPE: this-edit only — do not refactor calling code or add new error types
+ACTION: REVIEW"
       fi
       ;;
   esac
@@ -121,9 +129,17 @@ case "$FILE_PATH" in
               FILE_CONSOLE_TOTAL=$(grep -cE '\bconsole\.(log|warn|error)\(' "$FILE_PATH" 2>/dev/null; true)
             fi
             if [[ $FILE_CONSOLE_TOTAL -ge 10 ]]; then
-              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG ESCALATE] 文件已有 ${FILE_CONSOLE_TOTAL} 处 console 残留，且仍在新增！必须立即清理：使用项目 logger 替代所有 console 调用。"
+              WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[DEBUG] [review] [this-file] OBSERVATION: file has ${FILE_CONSOLE_TOTAL} console residuals and new ones are being added
+FIX: Remove this console.log/warn/error call; keep only if this is intentional debug output
+DO NOT: Create logger modules, modify other files, or fix console usage outside this file"
             else
-              WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${CONSOLE_COUNT} 个 console.log/warn/error。修复：使用项目的 logger 替代 console 调用；如果是临时调试，完成后删除。"
+              WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[DEBUG] [review] [this-edit] OBSERVATION: ${CONSOLE_COUNT} new console.log/warn/error call(s) added
+FIX: Remove this console.log/warn/error call; keep only if this is a CLI project (check bin field in package.json)
+DO NOT: Create new logger modules, modify other files, or fix console usage outside this edit"
             fi
           fi
         fi
@@ -143,7 +159,11 @@ case "$FILE_PATH" in
       *)
         PRINT_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "DEBUG" | grep -cE '^\s*print\(' 2>/dev/null; true)
         if [[ $PRINT_COUNT -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[DEBUG] 新增了 ${PRINT_COUNT} 个 print() 语句。修复：使用 logging 模块替代 print；如果是临时调试，完成后删除。"
+          WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[DEBUG] [review] [this-edit] OBSERVATION: ${PRINT_COUNT} new print() statement(s) added
+FIX: Remove this print() call, or replace with logging.getLogger(__name__).debug() for permanent logging
+DO NOT: Modify logging configuration or other files"
         fi
         ;;
     esac
@@ -155,7 +175,11 @@ if echo "$NEW_STRING" | vg_filter_suppressed "U-11" | grep -qE '"[^"]*\.(db|sqli
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) ;;
     *)
-      WARNINGS="${WARNINGS:+${WARNINGS} }[U-11] 检测到硬编码数据库路径。修复：将路径提取到 core 层公共函数（如 default_db_path()），所有入口统一调用；环境变量覆盖用 env::var(\"APP_DB_PATH\").unwrap_or_else(|_| default_db_path())。参考 vibeguard/rules/universal.md U-11。"
+      WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[U-11] [review] [this-line] OBSERVATION: hardcoded database path (.db/.sqlite) detected
+FIX: Extract to a shared default_db_path() function in core layer; use env var APP_DB_PATH for override
+DO NOT: Refactor path functions, move code to another file, or change other hardcoded paths"
       ;;
   esac
 fi
@@ -170,13 +194,21 @@ case "$FILE_PATH" in
         ERR_DISCARD=$(echo "$NEW_STRING" | vg_filter_suppressed "GO-01" | grep -E '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null \
           | grep -cvE '(for\s+.*range|,\s*(ok|found|exists)\s*:?=)' 2>/dev/null; true)
         if [[ $ERR_DISCARD -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-01] 新增了 ${ERR_DISCARD} 处 error 丢弃（_ = ...）。修复：用 if err != nil 处理错误。"
+          WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[GO-01] [auto-fix] [this-line] OBSERVATION: ${ERR_DISCARD} new error discard(s) (\"_ = ...\") added
+FIX: Replace _ = fn() with err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }
+DO NOT: Modify function signatures or upstream callers"
         fi
         # [GO-08] 检测 defer 在循环内
         DEFER_LOOP=$(echo "$NEW_STRING" | vg_filter_suppressed "GO-08" | awk '/^\s*for\s/ {in_loop=1} /^\s*defer\s/ && in_loop {count++} /^\s*\}/ {in_loop=0} END {print count+0}' 2>/dev/null; true)
         DEFER_LOOP="${DEFER_LOOP:-0}"
         if [[ $DEFER_LOOP -gt 0 ]]; then
-          WARNINGS="${WARNINGS:+${WARNINGS} }[GO-08] 检测到 defer 在循环内，可能导致资源泄漏。修复：将 defer 所在逻辑提取为独立函数。"
+          WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[GO-08] [review] [this-edit] OBSERVATION: defer inside a loop detected, may cause resource leak
+FIX: Extract the loop body containing defer into a separate function
+DO NOT: Extract to a separate file or refactor loop logic beyond the current edit"
         fi
         ;;
     esac
@@ -189,36 +221,50 @@ case "$FILE_PATH" in
   *.rs)
     STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（todo!/unimplemented!）。必须在当前任务内替换为真实实现，或标记 DEFER 并说明原因。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (todo!/unimplemented!)
+FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.ts|*.tsx|*.js|*.jsx)
     STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（throw not implemented / TODO）。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (throw not implemented / TODO)
+FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.py)
     STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（pass/NotImplementedError/TODO）。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (pass/NotImplementedError/TODO)
+FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
   *.go)
     STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
     if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] 新增了 ${STUB_COUNT} 个 stub 占位符（panic not implemented / TODO）。必须替换为真实实现或标记 DEFER。"
+      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (panic not implemented / TODO)
+FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
+DO NOT: Add DEFER markers to stubs in other files"
     fi
     ;;
 esac
 if [[ -n "$STUB_WARNINGS" ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }${STUB_WARNINGS}"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}${STUB_WARNINGS}"
 fi
 
 # --- 超大 diff 检测（可能是幻觉编辑） ---
 DIFF_LINES=$(echo "$NEW_STRING" | wc -l | tr -d ' ')
 if [[ $DIFF_LINES -gt 200 ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }[LARGE-EDIT] 单次编辑 ${DIFF_LINES} 行，超出 200 行阈值，请确认编辑内容正确。"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[LARGE-EDIT] [info] [this-edit] OBSERVATION: single edit contains ${DIFF_LINES} lines, exceeding 200-line threshold
+FIX: Verify the edit content is correct and intentional
+DO NOT: Take any action — this is informational only"
 fi
 
 # --- Churn Detection（同文件反复编辑 → 可能在循环修正） ---
@@ -248,13 +294,25 @@ print(count)
 CHURN_COUNT="${CHURN_COUNT:-0}"
 
 if [[ "$CHURN_COUNT" -ge 20 ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN CRITICAL] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次！你正处于 edit→fail→fix 死循环。必须立即停止当前方向，重新审视根因（W-02）。"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[CHURN CRITICAL] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${CHURN_COUNT} times — possible edit→fail→fix loop
+FIX: Stop current direction, review full build output, re-examine root cause (W-02)
+DO NOT: Continue editing this file until root cause is confirmed"
   vg_log "post-edit-guard" "Edit" "escalate" "churn ${CHURN_COUNT}x critical" "$FILE_PATH"
 elif [[ "$CHURN_COUNT" -ge 10 ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN WARNING] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次，疑似循环修正。建议：停下来运行完整构建查看全貌，或 /vibeguard:learn 提取模式。"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[CHURN WARNING] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${CHURN_COUNT} times, possible correction loop
+FIX: Run full build to see the complete picture, or use /vibeguard:learn to extract patterns
+DO NOT: Take any action — monitor and decide whether to continue"
   vg_log "post-edit-guard" "Edit" "escalate" "churn ${CHURN_COUNT}x warning" "$FILE_PATH"
 elif [[ "$CHURN_COUNT" -ge 5 ]]; then
-  WARNINGS="${WARNINGS:+${WARNINGS} }[CHURN] ${FILE_PATH##*/} 已编辑 ${CHURN_COUNT} 次，注意是否在循环修正。"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[CHURN] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${CHURN_COUNT} times
+FIX: Check if you are in a correction loop before continuing
+DO NOT: Take any action — this is informational only"
   vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
 fi
 
@@ -293,7 +351,11 @@ WARN_COUNT_FOR_FILE="${WARN_COUNT_FOR_FILE:-0}"
 
 if [[ "$WARN_COUNT_FOR_FILE" -ge 3 ]]; then
   DECISION="escalate"
-  WARNINGS="[ESCALATE] 该文件已被警告 ${WARN_COUNT_FOR_FILE} 次，建议用户主动介入审查。${WARNINGS}"
+  WARNINGS="[ESCALATE] [review] [this-file] OBSERVATION: this file has triggered ${WARN_COUNT_FOR_FILE} warnings — user intervention recommended
+FIX: Stop and review the warnings below before continuing
+DO NOT: Continue editing this file without reviewing all warnings
+---
+${WARNINGS}"
 fi
 
 vg_log "post-edit-guard" "Edit" "$DECISION" "$WARNINGS" "$FILE_PATH"

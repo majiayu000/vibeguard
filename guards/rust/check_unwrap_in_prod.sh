@@ -312,7 +312,7 @@ else
 fi
 
 apply_suppression_filter "${TMPFILE}"
-cat "${TMPFILE}"
+sed 's/^\[RS-03\] /[RS-03] [review] [this-edit] OBSERVATION: /' "${TMPFILE}"
 FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
 
 echo ""
@@ -321,12 +321,8 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
   echo "Found ${FOUND} unwrap()/expect() call(s) in production code."
   echo ""
-  echo "修复方法："
-  echo "  1. .unwrap() → .map_err(|e| YourError::from(e))? （向上传播错误）"
-  echo "  2. .unwrap() → .unwrap_or_default() （提供默认值）"
-  echo "  3. .unwrap() → .unwrap_or_else(|| fallback()) （延迟计算默认值）"
-  echo "  4. .expect(\"msg\") → match / if let （自定义处理逻辑）"
-  echo "  5. main() 中 → 使用 anyhow::Result<()> 配合 ? 操作符"
+  echo "SCOPE: this-line only — do not fix other unwrap calls, add error types, or change function signatures"
+  echo "ACTION: REVIEW"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

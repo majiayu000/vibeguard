@@ -39,7 +39,7 @@ if [[ "$_is_test_infra" == "true" ]]; then
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "VIBEGUARD W-12 拦截：禁止写入测试基础设施文件。AI 代理不得创建或覆盖 conftest.py/jest.config/pytest.ini/.coveragerc/babel.config 等测试框架配置文件，此类修改可能导致测试被绕过而非真正修复代码问题。请修复被测代码，而非操纵测试框架。"
+  "reason": "[W-12] [block] [this-edit] OBSERVATION: writing to test infrastructure file blocked (conftest.py/jest.config/pytest.ini/.coveragerc/babel.config)\nFIX: Fix the production code that is failing — do not manipulate test framework configuration"
 }
 EOF
   exit 0
@@ -86,7 +86,7 @@ if [[ "$MODE" == "block" ]]; then
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：创建新源码文件前必须先搜索已有实现。修复步骤：1) 用 Grep 搜索同名函数/类/结构体；2) 用 Glob 搜索同名或相似文件名；3) 如已有类似功能则扩展现有文件。设置 VIBEGUARD_WRITE_MODE=warn 可降级为提醒模式。"
+  "reason": "[L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
 }
 EOF
 else
@@ -95,7 +95,7 @@ else
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "VIBEGUARD 先搜后写（L1）：你正在创建新源码文件。在继续之前，你必须先执行以下搜索：1) Grep 搜索同名函数/类/结构体 2) Glob 搜索同名或相似文件名。只有搜索结果确认无重复后才能继续创建。"
+    "additionalContext": "[L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nSCOPE: search before proceeding — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
   }
 }
 EOF

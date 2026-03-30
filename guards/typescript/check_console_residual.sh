@@ -112,8 +112,8 @@ for m in matches:
     # 避免仅删除行时 added_set 为空导致回退到全量扫描。
     if in_diff_mode and (f + ":" + str(line)) not in added_set:
         continue
-    msg = m.get("message", "console 残留")
-    print("[TS-03] " + f + ":" + str(line) + " " + msg)
+    msg = m.get("message", "console residual")
+    print("[TS-03] " + f + ":" + str(line) + " [review] [this-line] OBSERVATION: " + msg)
 ' < "${_ASG_TMPOUT}" >> "$RESULTS" || {
           echo "[TS-03] WARN: python3 处理失败，使用 grep fallback" >&2
           _USE_GREP_FALLBACK=true
@@ -149,7 +149,7 @@ if [[ "$_USE_GREP_FALLBACK" == true ]]; then
               if [[ "$_IN_DIFF_MODE" == true ]]; then
                 grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null || continue
               fi
-              echo "[TS-03] ${f}:${LINE_NUM} console 残留（grep fallback）"
+              echo "[TS-03] ${f}:${LINE_NUM} [review] [this-line] OBSERVATION: console residual"
             done
       done >> "$RESULTS" || true
 fi
@@ -162,9 +162,12 @@ if [[ "$COUNT" -eq 0 ]]; then
   exit 0
 fi
 
-echo "[TS-03] 检测到 ${COUNT} 处 console 残留:"
+echo "[TS-03] ${COUNT} console residual instance(s):"
 echo
 cat "$RESULTS"
+echo ""
+echo "SCOPE: this-line only — do not create logger modules, modify other files, or fix console usage outside this line"
+echo "ACTION: REVIEW — skip if this is a CLI project (check bin field in package.json)"
 
 if [[ "$STRICT" == "true" ]]; then
   exit 1

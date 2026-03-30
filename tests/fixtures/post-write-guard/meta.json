@@ -5,23 +5,23 @@
   "input_format": "mixed",
   "cases": {
     "tp/same-name-source.sh": {
-      "rule": "L1-重复文件",
+      "rule": "L1",
       "expect": "warn",
-      "keyword": "L1-重复文件",
+      "keyword": "[L1]",
       "input_format": "script",
       "description": "检测同名源码文件重复"
     },
     "tp/dup-definition.sh": {
-      "rule": "L1-重复定义",
+      "rule": "L1",
       "expect": "warn",
-      "keyword": "L1-重复定义",
+      "keyword": "[L1]",
       "input_format": "script",
       "description": "检测重复定义"
     },
     "tp/scan-budget-exceeded.sh": {
-      "rule": "L1-扫描降级",
+      "rule": "L1",
       "expect": "warn",
-      "keyword": "L1-扫描降级",
+      "keyword": "[L1]",
       "input_format": "script",
       "description": "超过文件预算时降级"
     },
