@@ -24,13 +24,13 @@ tags: [vibeguard, gc, cleanup, maintenance]
 **Steps**
 
 1. **日志归档**
-   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc-logs.sh`
+   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc/gc-logs.sh`
    - events.jsonl 超过 10MB 时按月归档（gzip）
    - 保留最近 3 个月，更老的自动删除
    - 输出归档统计
 
 2. **Worktree 清理**
-   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc-worktrees.sh`
+   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc/gc-worktrees.sh`
    - 删除超过 7 天未活跃且无未合并变更的 worktree
    - 有未合并变更的只警告，列出需要手动处理的
 
@@ -59,7 +59,7 @@ tags: [vibeguard, gc, cleanup, maintenance]
    - 修复后运行 `/vibeguard:check` 验证
 
 **Reference**
-- 日志归档: `scripts/gc-logs.sh`
-- Worktree 清理: `scripts/gc-worktrees.sh`
+- 日志归档: `scripts/gc/gc-logs.sh`
+- Worktree 清理: `scripts/gc/gc-worktrees.sh`
 - 代码垃圾检测: `guards/universal/check_code_slop.sh`
 <!-- VIBEGUARD:GC:END -->

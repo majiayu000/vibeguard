@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULTS_DIR="$REPO_DIR/benchmark-results"
+RESULTS_DIR="$REPO_DIR/data"
 DATE=$(date +%Y-%m-%d)
 MODE="fast"
 L2_MODEL="haiku"

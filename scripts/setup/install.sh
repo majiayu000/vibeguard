@@ -164,7 +164,7 @@ configure_codex_home_runtime
 
 # 9.5. Install scheduled GC (launchd on macOS, systemd on Linux)
 echo "Step 9.5: Install scheduled GC"
-chmod +x "${REPO_DIR}/scripts/gc-scheduled.sh"
+chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
 if [[ "$(uname)" == "Darwin" ]]; then
   PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"

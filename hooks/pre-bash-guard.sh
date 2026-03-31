@@ -12,7 +12,7 @@
 #   - pip install / pip3 install / python -m pip install → uv pip install
 #
 # 注意：force push 检测已移至 hooks/git/pre-push（git 原生 hook），
-# 该 hook 通过 install-hook.sh 安装到各项目 .git/hooks/pre-push。
+# 该 hook 通过 scripts/install-hook.sh 安装到各项目 .git/hooks/pre-push。
 
 set -euo pipefail
 

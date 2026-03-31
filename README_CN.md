@@ -437,23 +437,23 @@ vibeguard/
 │   └── claude-rules/                     #   原生规则（部署到 ~/.claude/rules/vibeguard/）
 │       ├── common/                       #     coding-style(U-01~U-26) + data-consistency + security + workflow(W-01~W-05)
 │       ├── rust/ golang/ typescript/ python/  #  语言质量规则（带 paths 作用域）
-├── resources/skill-template.md           # Skill 提取模板
+├── templates/skill-template.md           # Skill 提取模板
 ├── skills/                               # 可复用工作流
 ├── scripts/                              # 工具脚本
 │   ├── setup/                            #   安装/卸载/检查脚本
 │   ├── stats.sh                          #   统计分析
 │   ├── quality-grader.sh                 #   质量等级评分（A/B/C/D）
-│   ├── doc-freshness-check.sh            #   文档新鲜度检测
+│   ├── verify/doc-freshness-check.sh     #   文档新鲜度检测
 │   ├── log-capability-change.sh          #   能力进化日志
 │   ├── constraint-recommender.py         #   preflight 约束自动推荐
-│   ├── gc-logs.sh                        #   日志归档
-│   ├── gc-worktrees.sh                   #   Worktree 清理
-│   ├── gc-scheduled.sh                   #   定期 GC（launchd 调度，每周日 3:00）
+│   ├── gc/gc-logs.sh                     #   日志归档
+│   ├── gc/gc-worktrees.sh                #   Worktree 清理
+│   ├── gc/gc-scheduled.sh                #   定期 GC（launchd 调度，每周日 3:00）
 │   ├── project-init.sh                   #   项目级脚手架（语言检测 + 守卫激活 + pre-commit/pre-push 安装）
-│   ├── metrics-exporter.sh               #   Prometheus 指标导出
+│   ├── metrics/metrics-exporter.sh       #   Prometheus 指标导出
 │   └── ci/                               #   CI 验证脚本
 ├── context-profiles/                     # 上下文模式（dev/review/research）
-└── spec.md                               # 完整规范
+└── docs/spec.md                          # 完整规范
 ```
 
 ## CLAUDE.md 模板

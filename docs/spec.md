@@ -285,7 +285,7 @@ task_contract:
 
 ```
 vibeguard/
-├── spec.md                             # 本文件（~500行）- 完整规范
+├── docs/spec.md                        # 本文件（~500行）- 完整规范
 ├── README.md                           # 快速开始（~50行）
 ├── setup.sh                            # 一键部署（~30行）
 │
@@ -336,7 +336,7 @@ vibeguard/
 │   └── typescript/
 │       └── eslint-guards.ts            # TS 守卫模板
 │
-├── project-templates/
+├── templates/language/
 │   ├── python-CLAUDE.md                # Python 项目 CLAUDE.md 模板
 │   ├── typescript-CLAUDE.md            # TS 项目 CLAUDE.md 模板
 │   └── rust-CLAUDE.md                  # Rust 项目 CLAUDE.md 模板

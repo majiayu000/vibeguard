@@ -342,13 +342,13 @@ bash scripts/benchmark.sh --mode=full
 ### 6.4 历史存档
 
 ```
-benchmark-results/
+data/
   2026-03-23.json
   2026-03-16.json
   ...
 ```
 
-每次运行追加结果到 `benchmark-results/`，`scripts/benchmark.sh` 自动对比上次结果输出 delta。
+每次运行追加结果到 `data/`，`scripts/benchmark.sh` 自动对比上次结果输出 delta。
 
 ---
 

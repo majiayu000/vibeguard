@@ -352,6 +352,6 @@ argument-hint: "<错误描述 | 'extract' 提取经验 | 空=自动判断>"
 - Hook 脚本模板：`vibeguard/hooks/`
 - 规则文件：`vibeguard/rules/`
 - 规则索引：`vibeguard/claude-md/vibeguard-rules.md`
-- Skill 模板：`vibeguard/resources/skill-template.md`
+- Skill 模板：`vibeguard/templates/skill-template.md`
 - 学术参考：Voyager (skill libraries), CASCADE (meta-skills), Reflexion (self-reflection)
 <!-- VIBEGUARD:LEARN:END -->

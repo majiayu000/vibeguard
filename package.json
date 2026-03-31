@@ -29,7 +29,7 @@
   "files": [
     "index.js",
     "setup.sh",
-    "install-hook.sh",
+    "scripts/install-hook.sh",
     "guards/",
     "hooks/",
     "rules/",
@@ -37,7 +37,6 @@
     "agents/",
     "blueprints/",
     "context-profiles/",
-    "resources/",
     "templates/",
     "workflows/",
     "scripts/setup/",
@@ -47,14 +46,10 @@
     "scripts/systemd/",
     "data/rule-scorecard.json",
     "scripts/precision-tracker.py",
-    "scripts/compliance_check.sh",
-    "scripts/doc-freshness-check.sh",
-    "scripts/gc-logs.sh",
-    "scripts/gc-scheduled.sh",
-    "scripts/gc-worktrees.sh",
+    "scripts/verify/",
+    "scripts/gc/",
     "scripts/log-capability-change.sh",
-    "scripts/metrics-exporter.sh",
-    "scripts/metrics_collector.sh",
+    "scripts/metrics/",
     "scripts/project-init.sh",
     "scripts/quality-grader.sh",
     "scripts/stats.sh",
@@ -63,7 +58,6 @@
     "scripts/systemd/",
     ".claude/commands/vibeguard",
     "claude-md/",
-    "manifests/",
     "schemas/",
     "docs/rule-reference.md",
     "README.md",
@@ -72,7 +66,7 @@
   ],
   "scripts": {
     "test": "bash tests/test_hooks.sh && bash tests/test_rust_guards.sh && bash tests/test_setup.sh && bash tests/test_precision_tracker.sh",
-    "prepublishOnly": "bash scripts/verify-package-contents.sh && npm test"
+    "prepublishOnly": "bash scripts/verify/verify-package-contents.sh && npm test"
   },
   "engines": {
     "node": ">=18"

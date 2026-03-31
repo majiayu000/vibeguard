@@ -73,7 +73,7 @@ VibeGuard 是 AI 辅助开发的防幻觉框架，通过七层防御架构系统
 - `references/task-contract.yaml` — 任务启动 Checklist（机器校验格式）
 - `references/review-template.md` — 周度复盘模板
 - `references/scoring-matrix.md` — risk-impact 评分矩阵
-- `spec.md`（仓库根目录）— 完整规范文档
+- `docs/spec.md`（仓库根目录）— 完整规范文档
 
 ## 执行规则
 

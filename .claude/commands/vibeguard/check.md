@@ -69,7 +69,7 @@ argument-hint: "[project_dir]"
 
 3. **运行合规检查**
    ```bash
-   bash ${VIBEGUARD_DIR}/scripts/compliance_check.sh <project_dir>
+   bash ${VIBEGUARD_DIR}/scripts/verify/compliance_check.sh <project_dir>
    ```
 
 4. **汇总报告**
@@ -126,6 +126,6 @@ argument-hint: "[project_dir]"
 
 **Reference**
 - VibeGuard 守卫脚本：`vibeguard/guards/`
-- VibeGuard 合规检查：`vibeguard/scripts/compliance_check.sh`
+- VibeGuard 合规检查：`vibeguard/scripts/verify/compliance_check.sh`
 - 配合 `/vibeguard:preflight` 使用效果最佳
 <!-- VIBEGUARD:CHECK:END -->

@@ -6,11 +6,11 @@
 #   pre-push    → hooks/git/pre-push        （force push 拦截）
 #
 # 用法：
-#   bash install-hook.sh <project_dir>    # 安装
-#   bash install-hook.sh --remove <dir>   # 卸载
+#   bash scripts/install-hook.sh <project_dir>    # 安装
+#   bash scripts/install-hook.sh --remove <dir>   # 卸载
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PRECOMMIT_SCRIPT="${REPO_DIR}/hooks/pre-commit-guard.sh"
 PREPUSH_SCRIPT="${REPO_DIR}/hooks/git/pre-push"
 
@@ -19,7 +19,7 @@ yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 if [[ "${1:-}" == "--remove" ]]; then
-  PROJECT_DIR="${2:?用法: install-hook.sh --remove <project_dir>}"
+  PROJECT_DIR="${2:?用法: scripts/install-hook.sh --remove <project_dir>}"
   HOOK_DIR="${PROJECT_DIR}/.git/hooks"
 
   PRECOMMIT_PATH="${HOOK_DIR}/pre-commit"
@@ -41,7 +41,7 @@ if [[ "${1:-}" == "--remove" ]]; then
   exit 0
 fi
 
-PROJECT_DIR="${1:?用法: install-hook.sh <project_dir>}"
+PROJECT_DIR="${1:?用法: scripts/install-hook.sh <project_dir>}"
 
 if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
   red "错误: ${PROJECT_DIR} 不是 git 仓库"
@@ -79,4 +79,4 @@ echo ""
 echo "提示："
 echo "  跳过 pre-commit 检查: VIBEGUARD_SKIP_PRECOMMIT=1 git commit -m \"msg\""
 echo "  调整超时: VIBEGUARD_PRECOMMIT_TIMEOUT=15 git commit -m \"msg\""
-echo "  卸载: bash ${REPO_DIR}/install-hook.sh --remove ${PROJECT_DIR}"
+echo "  卸载: bash scripts/install-hook.sh --remove ${PROJECT_DIR}"

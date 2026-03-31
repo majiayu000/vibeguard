@@ -4,8 +4,8 @@
 # Blocks force pushes at the git level — this is the correct separation of
 # concerns vs. regex-matching git commands in the bash guard.
 #
-# Install via install-hook.sh:
-#   bash install-hook.sh <project_dir>
+# Install via scripts/install-hook.sh:
+#   bash scripts/install-hook.sh <project_dir>
 #
 # The hook receives push refs on stdin:
 #   <local-ref> <local-sha> <remote-ref> <remote-sha>
