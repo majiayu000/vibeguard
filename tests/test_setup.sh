@@ -46,14 +46,9 @@ assert_cmd() {
 
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
-CREATED_DIST=0
 
 cleanup() {
   export HOME="${ORIG_HOME}"
-  if [[ "${CREATED_DIST}" -eq 1 ]]; then
-    rm -f "${REPO_DIR}/mcp-server/dist/index.js"
-    rmdir "${REPO_DIR}/mcp-server/dist" 2>/dev/null || true
-  fi
   rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
@@ -82,14 +77,6 @@ fallback_out="$(HOME="${HOME}" PATH="${TMP_BIN}:${PYTHON_DIR}:/usr/bin:/bin" pyt
 assert_contains "${fallback_out}" "STRATEGY:toml-file" "codex mcp 不可用时自动回退 toml-file"
 assert_cmd "toml 回退后 check 可识别" bash -c "HOME='${HOME}' PATH='${TMP_BIN}:${PYTHON_DIR}:/usr/bin:/bin' python3 '${CODEX_MCP_HELPER}' check --repo-dir '${REPO_DIR}'"
 rm -rf "${TMP_BIN}"
-
-# 保证 install 测试可跳过构建（如果 dist 不存在则放一个最小占位）
-if [[ ! -f "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
-  mkdir -p "${REPO_DIR}/mcp-server/dist"
-  printf '%s\n' 'console.log("vibeguard test stub");' > "${REPO_DIR}/mcp-server/dist/index.js"
-  CREATED_DIST=1
-fi
-touch "${REPO_DIR}/mcp-server/dist/index.js"
 
 header "setup --check"
 check_out="$(bash "${REPO_DIR}/setup.sh" --check)"

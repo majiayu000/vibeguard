@@ -74,7 +74,7 @@
 
 | 维度 | 状态 | 实现文件 |
 |------|------|----------|
-| Agent 调度器 | ✅ | `agents/dispatcher.md` + `mcp-server/src/detector.ts` |
+| Agent 调度器 | ✅ | `agents/dispatcher.md` + `mcp-server/src/detector.ts`（已移除） |
 | 推理预算分配 | ✅ | 规划用 opus、执行用 sonnet、验证用 opus |
 | Agent-to-Agent 审查 | ⚠️ | 有审查 agent，无自动链式调用协议 |
 | 会话状态模型 | ❌ | 无 Turn/Thread 原语，仅日志级追踪 |
@@ -130,7 +130,7 @@
 
 | 维度 | 状态 | 实现文件 | 备注 |
 |------|------|----------|------|
-| MCP 通信协议 | ✅ | `mcp-server/src/index.ts` — 3 个工具接口 | 有意选择 MCP 而非 JSON-RPC |
+| MCP 通信协议 | ✅（已移除） | `mcp-server/src/index.ts`（已移除）— 3 个工具接口 | 已替换为直接守卫脚本 |
 | 结构化原语 | ✅ | decision: pass/warn/block/gate/escalate/complete | |
 | Turn/Thread 模型 | ❌ | 仅日志级 session 追踪 | |
 | 多表面集成 | ⚠️ | Claude Code 集成完整，无 Web/IDE 独立支持 | |

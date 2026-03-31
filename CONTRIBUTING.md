@@ -22,9 +22,7 @@ Thank you for your interest in contributing to VibeGuard — the AI anti-halluci
 |------|----------------|---------|
 | Git  | 2.30+          | Version control |
 | Bash | 5.0+           | Hook and guard scripts |
-| Node.js | 20.x        | MCP server |
 | Python | 3.11+         | Analysis scripts |
-| npm  | 10+            | MCP server dependencies |
 
 > **macOS users:** The system Bash (3.x) is too old. Install a modern Bash via `brew install bash`.
 
@@ -41,10 +39,6 @@ git remote add upstream https://github.com/majiayu000/vibeguard.git
 # 3. Run the setup script (installs VibeGuard into ~/.claude/)
 bash setup.sh
 
-# 4. Install MCP server dependencies
-cd mcp-server
-npm ci
-cd ..
 ```
 
 ### Running Tests
@@ -56,12 +50,6 @@ All test suites should pass before submitting a PR.
 bash tests/test_hooks.sh
 bash tests/test_rust_guards.sh
 bash tests/test_setup.sh
-
-# MCP server: build and test
-cd mcp-server
-npm run build
-npm test
-cd ..
 
 # CI validation scripts (mirrors what GitHub Actions runs)
 bash scripts/ci/validate-guards.sh
@@ -136,7 +124,6 @@ Signed-off-by: Your Name <your@email.com>
 | `guards/universal` | Language-agnostic guards |
 | `hooks` | Hook scripts in `hooks/` |
 | `rules` | Rule definitions in `rules/` |
-| `mcp` | MCP server in `mcp-server/` |
 | `scripts` | Automation scripts |
 | `agents` | Agent definitions |
 | `docs` | Documentation |
@@ -212,7 +199,6 @@ git config --global format.signOff true
 Before requesting review, verify:
 
 - [ ] All existing tests pass (`bash tests/test_hooks.sh`, `bash tests/test_rust_guards.sh`, `bash tests/test_setup.sh`)
-- [ ] MCP server builds and tests pass (`cd mcp-server && npm run build && npm test`)
 - [ ] All CI validation scripts pass (see [Running Tests](#running-tests))
 - [ ] New guard scripts have corresponding regression tests in `tests/`
 - [ ] New rules are referenced in `rules/` and wired to a guard (`validate-wiring-contract.sh` checks Rust guards automatically; verify other languages manually)
@@ -360,11 +346,8 @@ fi
 
 For guards that should run automatically, register them in **all** of the following locations:
 
-- **MCP tool registry** — add detection logic to `mcp-server/src/tools.ts` (the `GUARD_REGISTRY` block for the relevant language)
-- **MCP index description** — add the guard name to the `rust:` (or relevant language) description list in `mcp-server/src/index.ts` so it appears in the tool's human-readable capability list
 - **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`
-- **Wiring contract** — run `scripts/ci/validate-wiring-contract.sh` to verify your additions; note that this script currently validates **Rust guards only**. For Go, Python, and TypeScript guards, verify the three locations above manually before submitting your PR.
-- **Language detection** — update `mcp-server/src/detector.ts` if the guard targets a new language or file pattern
+- **Wiring contract** — run `scripts/ci/validate-wiring-contract.sh` to verify your additions; note that this script currently validates **Rust guards only**. For Go, Python, and TypeScript guards, verify the README guard table manually before submitting your PR.
 
 ### Step 4: Write Regression Tests
 

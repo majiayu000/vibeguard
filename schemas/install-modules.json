@@ -249,18 +249,7 @@
       "cost": "light",
       "stability": "stable"
     },
-    {
-      "id": "mcp-server",
-      "kind": "platform",
-      "description": "MCP Server (guard_check, compliance_report, metrics_collect)",
-      "paths": ["mcp-server/"],
-      "target": "settings.json:mcpServers",
-      "defaultInstall": true,
-      "cost": "heavy",
-      "stability": "stable",
-      "dependencies": ["guards-universal"]
-    },
-    {
+{
       "id": "context-profiles",
       "kind": "platform",
       "description": "Claude Code context profiles",
@@ -283,7 +272,7 @@
         "hooks-pre", "hooks-post",
         "agents-core", "skills-core", "workflows", "commands",
         "guards-universal", "guards-rust", "guards-python", "guards-typescript", "guards-go",
-        "mcp-server", "context-profiles"
+        "context-profiles"
       ]
     },
     "full": {

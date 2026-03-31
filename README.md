@@ -4,7 +4,7 @@
 
 **Stop AI from hallucinating code.**
 
-[中文文档](README_CN.md) | [Rule Reference](docs/rule-reference.md)
+[中文文档](docs/README_CN.md) | [Rule Reference](docs/rule-reference.md)
 
 When using Claude Code or Codex, AI frequently invents non-existent APIs, reinvents the wheel, hardcodes fake data, and over-engineers solutions. VibeGuard prevents these problems at the source through **rule injection + real-time interception + static scanning** — three layers of defense.
 
@@ -307,4 +307,4 @@ Key lessons:
 
 ---
 
-[中文文档 / Chinese Documentation →](README_CN.md)
+[中文文档 / Chinese Documentation →](docs/README_CN.md)

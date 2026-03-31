@@ -67,11 +67,11 @@
 
 ## 与当前仓库已做改动的关系
 
-- 已完成：`setup` 入口拆分、`post-write` 扫描预算、`mcp` 增加 `javascript` 支持、`setup` 最小回归测试。
-- 已完成：`mcp` 并发上限与异常隔离、`mcp-server` 基础测试、CI workflow（含 build/test）。
+- 已完成：`setup` 入口拆分、`post-write` 扫描预算、`mcp` 增加 `javascript` 支持（已移除：mcp-server 已删除）、`setup` 最小回归测试。
+- 已完成：`mcp` 并发上限与异常隔离、`mcp-server` 基础测试（已移除：mcp-server 已删除）、CI workflow（含 build/test）。
 - 本次新增：`scripts/ci/validate-config-contract.sh`（合同一致性守卫）与 `U-23`（禁止静默降级）规则落地。
 - 本次新增：Rust 守卫 `single_source_of_truth` / `semantic_effect`，用于拦截双轨系统和动作语义失真。
-- 本次新增：`scripts/ci/validate-wiring-contract.sh`，防止“守卫实现了但未接入 MCP/文档”。
+- 本次新增：`scripts/ci/validate-wiring-contract.sh`，防止“守卫实现了但未接入 MCP/文档”（已移除：mcp-server 已删除，接线验证仍适用于守卫脚本）。
 - 已完成：仓库设置层启用“PR 必须通过 CI 才可合并”（required check=`validate-and-test`）。
 - 仍待完成：命名债务（`plan-flow` 到 `plan-flow` 的文档迁移收口）。
 

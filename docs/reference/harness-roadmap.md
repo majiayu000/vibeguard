@@ -14,7 +14,7 @@
 
 **涉及文件**:
 - `hooks/post-edit-guard.sh` — 添加 hashline 验证
-- `mcp-server/src/tools.ts` — 新增 hashline 编辑工具
+- `mcp-server/src/tools.ts`（已移除）— 新增 hashline 编辑工具
 - 新增（规划中）: scripts/test-edit-stability.sh
 
 **方案**:
@@ -34,8 +34,8 @@
 **目标**: 长周期任务的状态恢复和并发隔离
 
 **涉及文件**:
-- 新增（规划中）: mcp-server/src/session_manager.ts
-- `mcp-server/src/index.ts` — 多 Turn 处理
+- 新增（规划中）: mcp-server/src/session_manager.ts（已移除）
+- `mcp-server/src/index.ts`（已移除）— 多 Turn 处理
 - `hooks/log.sh` — 扩展 turn_id/thread_id
 
 **方案**:
@@ -116,7 +116,7 @@ GC 频率: A=7天 B=3天 C=1天 D=实时
 **目标**: agent 自动调用其他 agent 形成工作流链
 
 **涉及文件**:
-- 新增（规划中）: mcp-server/src/agent_connector.ts
+- 新增（规划中）: mcp-server/src/agent_connector.ts（已移除）
 - `agents/dispatcher.md` — 扩展链接规则
 
 **方案**:
@@ -234,7 +234,7 @@ P3:    未开始（映射文档 + 集成指南）
 
 ## 设计原则
 
-1. **因地制宜**: 不照搬 Harness 的 JSON-RPC，基于 Claude Code 的 Hook + MCP 生态
+1. **因地制宜**: 不照搬 Harness 的 JSON-RPC，基于 Claude Code 的 Hook + MCP 生态（MCP server 已移除，改用直接守卫脚本）
 2. **安全优先**: P0 集中在防幻觉直接有效性
 3. **可测试**: 每个任务有明确验收标准
 4. **增量交付**: 每个 Phase 独立可发布

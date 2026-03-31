@@ -12,9 +12,9 @@
 - `DONE` Phase 1 / Step 1.3: 新增 `tests/test_setup.sh`，覆盖 `check/install/clean` 最小回归
 - `DONE` Phase 2 / Step 2.1-2.2: `post-write-guard` 改为 `rg` 快路径并加入扫描预算降级
 - `DONE` Phase 2 / Step 2.3: 新增 `post-write` 关键测试用例（同名、重复定义、降级）
-- `DONE` Phase 3 / Step 3.1: MCP 守卫执行增加并发上限（`VIBEGUARD_GUARD_CONCURRENCY`）+ 单守卫异常隔离
-- `DONE` Phase 3 / Step 3.2（部分）: MCP 增加 `javascript` 语言支持并与 TS 守卫对齐
-- `DONE` Phase 3 / Step 3.3（基础）: 新增 `mcp-server` 测试（语言检测与 javascript 支持）
+- `DONE` Phase 3 / Step 3.1: MCP 守卫执行增加并发上限（`VIBEGUARD_GUARD_CONCURRENCY`）+ 单守卫异常隔离（已移除：mcp-server 已删除）
+- `DONE` Phase 3 / Step 3.2（部分）: MCP 增加 `javascript` 语言支持并与 TS 守卫对齐（已移除：mcp-server 已删除）
+- `DONE` Phase 3 / Step 3.3（基础）: 新增 `mcp-server` 测试（语言检测与 javascript 支持）（已移除：mcp-server 已删除）
 - `DONE` Phase 4 / Step 4.1: 接入 `.github/workflows/ci.yml`（validate + hooks/setup 测试 + MCP build/test）
 - `DONE` P0 Contract: 新增 `scripts/ci/validate-config-contract.sh`，校验 `index.ts schema` / `tools.ts runtime` / `README` 三方一致
 - `DONE` P0 Rule: `rules/universal.md` 新增 `U-23`（禁止静默降级）
@@ -125,33 +125,35 @@ bash tests/test_post_write_perf.sh
 
 ---
 
-## Phase 3（P1）: MCP 稳定性与语言模型一致性
+## Phase 3（P1）: MCP 稳定性与语言模型一致性（已移除）
+
+> **注**：mcp-server 已于后续版本删除，改用直接守卫脚本。以下步骤仅作历史记录。
 
 ### Step 3.1 并发治理
 
 ### 改动
 
-- `mcp-server/src/tools.ts` 引入并发上限（如 2）。
+- `mcp-server/src/tools.ts`（已移除）引入并发上限（如 2）。
 - 为重守卫增加超时与失败隔离（单守卫失败不影响其余守卫结果输出）。
 
 ### Step 3.2 语言模型统一
 
 ### 改动
 
-- `index.ts` 入参支持 `javascript`（或显式 `js` 别名）。
-- `detector.ts` 增加 JS 判定策略（例如 `package.json + 无 tsconfig + js 文件存在`）。
+- `index.ts`（已移除）入参支持 `javascript`（或显式 `js` 别名）。
+- `detector.ts`（已移除）增加 JS 判定策略（例如 `package.json + 无 tsconfig + js 文件存在`）。
 - README 与规则文档同步。
 
 ### Step 3.3 MCP 测试补齐
 
 ### 改动
 
-- 新增 `mcp-server` 的最小单元测试（语言检测、守卫调度、错误路径）。
+- 新增 `mcp-server`（已移除）的最小单元测试（语言检测、守卫调度、错误路径）。
 
 ### 验收命令
 
 ```bash
-cd mcp-server
+cd mcp-server  # 已移除
 npm run build
 # 如果新增 test script:
 # npm test

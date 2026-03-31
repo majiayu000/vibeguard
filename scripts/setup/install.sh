@@ -136,26 +136,6 @@ else
 fi
 echo
 
-# 8. Build MCP Server
-echo "Step 8: Build MCP Server"
-if ! command -v node &>/dev/null; then
-  yellow "  Node.js not found, skipping MCP Server build"
-elif [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]] && \
-     ! find "${REPO_DIR}/mcp-server/src" -type f -name "*.ts" -newer "${REPO_DIR}/mcp-server/dist/index.js" | grep -q . && \
-     [[ "${REPO_DIR}/mcp-server/package.json" -ot "${REPO_DIR}/mcp-server/dist/index.js" ]] && \
-     [[ "${REPO_DIR}/mcp-server/tsconfig.json" -ot "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
-  yellow "  MCP Server already built and up to date, skipping"
-else
-  if command -v bun &>/dev/null; then
-    (cd "${REPO_DIR}/mcp-server" && bun install --frozen-lockfile 2>/dev/null || bun install && bun run build) 2>&1
-  elif [[ -f "${REPO_DIR}/mcp-server/package-lock.json" ]]; then
-    (cd "${REPO_DIR}/mcp-server" && npm ci --silent && npm run build --silent) 2>&1
-  else
-    (cd "${REPO_DIR}/mcp-server" && npm install --silent && npm run build --silent) 2>&1
-  fi
-  green "  MCP Server built successfully"
-fi
-echo
 
 configure_claude_home_runtime
 
