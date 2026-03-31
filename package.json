@@ -22,12 +22,10 @@
   },
   "license": "MIT",
   "author": "majiayu000",
-  "main": "index.js",
   "bin": {
     "vibeguard": "./setup.sh"
   },
   "files": [
-    "index.js",
     "setup.sh",
     "scripts/install-hook.sh",
     "guards/",
@@ -71,7 +69,5 @@
   "engines": {
     "node": ">=18"
   },
-  "devDependencies": {
-    "typescript": "^5.7.0"
-  }
+  "devDependencies": {}
 }
