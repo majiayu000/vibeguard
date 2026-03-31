@@ -8,7 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Future changes go here
+- Guard message v2 format: OBSERVATION/FIX/DO NOT structure (`guards/`)
+- Baseline scanning: only report issues on newly added lines (`guards/`)
+- Test infrastructure protection rule W-12 (`guards/`)
+- `updatedInput` transparent package manager correction (`hooks/`)
+- Hook circuit breaker for runaway failures (`hooks/circuit-breaker.sh`)
+- AST-grep precision guards with YAML rule definitions (`guards/ast-grep-rules/`)
+- Prepublish tarball verification (`scripts/verify/verify-package-contents.sh`)
+- Platform bug tracking for known Claude Code issues (`docs/known-issues/`)
+
+### Fixed
+- Session ID scoped to project directory, prevents cross-project pollution (`hooks/log.sh`)
+- 9 known false positive patterns resolved (`guards/`)
+- Suppression regex tightened; staged content used in pre-commit mode (`guards/`)
+- GO-01 multi-discard miss and TS-03 path-contamination false negatives (`guards/`)
+- Compliance check YAML array detection and single-quote paths (`scripts/verify/`)
+- Metrics exporter Prometheus label newline stripping (`scripts/metrics/`)
+- Skills-loader disabled by default to reduce startup overhead (`hooks/`)
+- CI cross-platform Windows compatibility with `defaults shell:bash`
+
+### Changed
+- Setup targets split by platform (`scripts/setup/targets/`)
+- Root directory reorganized: removed 4 single-file directories, grouped scripts into `gc/`, `metrics/`, `verify/` subdirectories
+- Removed unused MCP server, replaced with direct guard scripts
+- Removed: `package.json`, `Dockerfile`, `blueprints/`, `mcp-server/`, `index.js`, `index.ts`
+- `README_CN.md` moved to `docs/`
+- Runtime hooks isolated from dev repo via installed snapshot
 
 ---
 
