@@ -17,6 +17,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 source "${SCRIPT_DIR}/../lib/install-state.sh"
+source "${SCRIPT_DIR}/targets/claude-home.sh"
+source "${SCRIPT_DIR}/targets/codex-home.sh"
 
 # --- Mode dispatch ---
 case "${1:-}" in
@@ -121,122 +123,9 @@ state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
 green "  Install state tracker initialized"
 echo
 
-# 2. Symlink skills 到 Claude Code
-echo "Step 2: Install Claude Code skills"
-mkdir -p "${CLAUDE_DIR}/skills"
-safe_symlink "${REPO_DIR}/skills/vibeguard" "${CLAUDE_DIR}/skills/vibeguard"
-state_record_file "${CLAUDE_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
-green "  vibeguard -> ~/.claude/skills/vibeguard"
-safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
-state_record_file "${CLAUDE_DIR}/skills/auto-optimize" "workflows/auto-optimize" "symlink"
-green "  auto-optimize -> ~/.claude/skills/auto-optimize"
-for skill in strategic-compact eval-harness iterative-retrieval; do
-  if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
-    safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
-    state_record_file "${CLAUDE_DIR}/skills/${skill}" "skills/${skill}" "symlink"
-    green "  ${skill} -> ~/.claude/skills/${skill}"
-  else
-    yellow "  SKIP ${skill} (source not found)"
-  fi
-done
-echo
+install_claude_home_assets
 
-# 3. Install agents
-echo "Step 3: Install agents"
-mkdir -p "${CLAUDE_DIR}/agents"
-for agent in "${REPO_DIR}"/agents/*.md; do
-  [[ -f "$agent" ]] || continue
-  name=$(basename "$agent")
-  rm -f "${CLAUDE_DIR}/agents/${name}"
-  cp "$agent" "${CLAUDE_DIR}/agents/${name}"
-  state_record_file "${CLAUDE_DIR}/agents/${name}" "agents/${name}" "copy"
-  green "  ${name} -> ~/.claude/agents/${name}"
-done
-echo
-
-# 4. Install context profiles
-echo "Step 4: Install context profiles"
-mkdir -p "${CLAUDE_DIR}/context-profiles"
-for profile in "${REPO_DIR}"/context-profiles/*.md; do
-  [[ -f "$profile" ]] || continue
-  name=$(basename "$profile")
-  cp "$profile" "${CLAUDE_DIR}/context-profiles/${name}"
-  state_record_file "${CLAUDE_DIR}/context-profiles/${name}" "context-profiles/${name}" "copy"
-  green "  ${name} -> ~/.claude/context-profiles/${name}"
-done
-echo
-
-# 5. Install custom commands
-echo "Step 5: Install custom commands"
-mkdir -p "${CLAUDE_DIR}/commands"
-safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
-state_record_file "${CLAUDE_DIR}/commands/vibeguard" ".claude/commands/vibeguard" "symlink"
-green "  vibeguard commands -> ~/.claude/commands/vibeguard"
-echo
-
-# 5.5. Install Claude Code native rules (with language filter)
-echo "Step 5.5: Install native rules"
-RULES_SRC="${REPO_DIR}/rules/claude-rules"
-RULES_DEST="${HOME}/.claude/rules/vibeguard"
-if [[ -d "${RULES_SRC}" ]]; then
-  mkdir -p "${RULES_DEST}"
-  # common rules always installed
-  if [[ -d "${RULES_SRC}/common" ]]; then
-    mkdir -p "${RULES_DEST}/common"
-    cp -r "${RULES_SRC}/common/." "${RULES_DEST}/common/"
-    state_record_tree "${RULES_DEST}/common" "rules/claude-rules/common"
-    green "  common/ -> ~/.claude/rules/vibeguard/common/"
-  fi
-  # language-specific rules: respect --languages filter
-  for subdir in rust golang typescript python; do
-    if [[ -d "${RULES_SRC}/${subdir}" ]]; then
-      if lang_selected "$subdir"; then
-        mkdir -p "${RULES_DEST}/${subdir}"
-        cp -r "${RULES_SRC}/${subdir}/." "${RULES_DEST}/${subdir}/"
-        state_record_tree "${RULES_DEST}/${subdir}" "rules/claude-rules/${subdir}"
-        green "  ${subdir}/ -> ~/.claude/rules/vibeguard/${subdir}/"
-      else
-        # Remove previously installed rules for unselected languages
-        if [[ -d "${RULES_DEST}/${subdir}" ]]; then
-          rm -rf "${RULES_DEST}/${subdir}"
-          yellow "  ${subdir}/ removed (not in --languages filter)"
-        else
-          yellow "  SKIP ${subdir}/ (not in --languages filter)"
-        fi
-      fi
-    fi
-  done
-  # Install user custom rules (merge from ~/.vibeguard/user-rules/)
-  if [[ -d "${VIBEGUARD_HOME}/user-rules" ]]; then
-    local_rules_count=$(find "${VIBEGUARD_HOME}/user-rules" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
-    if [[ "$local_rules_count" -gt 0 ]]; then
-      mkdir -p "${RULES_DEST}/custom"
-      cp "${VIBEGUARD_HOME}/user-rules/"*.md "${RULES_DEST}/custom/" 2>/dev/null || true
-      state_record_tree "${RULES_DEST}/custom" "user-rules"
-      green "  custom/ -> ~/.claude/rules/vibeguard/custom/ (${local_rules_count} user rules)"
-    fi
-  fi
-else
-  yellow "  SKIP native rules (source not found: ${RULES_SRC})"
-fi
-echo
-
-# 6. Symlink workflow skills 到 Codex
-echo "Step 6: Install Codex skills"
-mkdir -p "${CODEX_DIR}/skills"
-for skill in plan-flow fixflow optflow plan-mode auto-optimize; do
-  if [[ -d "${REPO_DIR}/workflows/${skill}" ]]; then
-    safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
-    state_record_file "${CODEX_DIR}/skills/${skill}" "workflows/${skill}" "symlink"
-    green "  ${skill} -> ~/.codex/skills/${skill}"
-  else
-    yellow "  SKIP ${skill} (source not found)"
-  fi
-done
-safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
-state_record_file "${CODEX_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
-green "  vibeguard -> ~/.codex/skills/vibeguard"
-echo
+install_codex_home_assets
 
 # 7. 检测 auto-run-agent 环境变量
 echo "Step 7: Check auto-run-agent"
@@ -268,39 +157,10 @@ else
 fi
 echo
 
-# 9. Configure MCP Server + Hooks in settings.json
-echo "Step 9: Configure MCP Server + Hooks (${PROFILE} profile)"
-# Map 4 profiles to settings_json.py's profile parameter
-SETTINGS_PROFILE="$PROFILE"
-# minimal maps to core for hook registration, with runtime profile controlling behavior
-case "$PROFILE" in
-  minimal) SETTINGS_PROFILE="core" ;;
-esac
-if settings_upsert "${SETTINGS_FILE}" "${SETTINGS_PROFILE}" >/dev/null 2>&1; then
-  state_record_file "${SETTINGS_FILE}" "generated/settings.json" "copy"
-  green "  MCP Server + Hooks configured in ~/.claude/settings.json (${PROFILE})"
-else
-  red "  Failed to configure settings.json"
-fi
-echo
+configure_claude_home_runtime
 
 # 9.2. Configure Codex MCP server (strategy-based; does not affect Claude setup)
-echo "Step 9.2: Configure Codex MCP Server"
-if codex_output=$(codex_mcp_upsert 2>&1); then
-  if [[ -f "${CODEX_DIR}/config.toml" ]]; then
-    state_record_file "${CODEX_DIR}/config.toml" "generated/codex-config.toml" "copy"
-  fi
-  codex_strategy=$(echo "${codex_output}" | awk -F: '/^STRATEGY:/{print $2}' | head -1)
-  codex_strategy="${codex_strategy:-unknown}"
-  if echo "${codex_output}" | grep -q "CHANGED"; then
-    green "  Codex MCP configured in ~/.codex/config.toml (${codex_strategy})"
-  else
-    green "  Codex MCP already up to date (${codex_strategy})"
-  fi
-else
-  yellow "  SKIP Codex MCP config (reason: ${codex_output})"
-fi
-echo
+configure_codex_home_runtime
 
 # 9.5. Install scheduled GC (launchd on macOS, systemd on Linux)
 echo "Step 9.5: Install scheduled GC"
@@ -354,18 +214,7 @@ if [[ -d "${VG_GIT_HOOKS}" ]]; then
 fi
 echo
 
-# 10. Re-inject CLAUDE.md
-echo "Step 10: Update VibeGuard rules in CLAUDE.md"
-RULES_FILE="${REPO_DIR}/claude-md/vibeguard-rules.md"
-if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${RULES_FILE}" "${REPO_DIR}" 2>&1); then
-  if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
-    state_record_file "${CLAUDE_DIR}/CLAUDE.md" "generated/CLAUDE.md" "copy"
-  fi
-  green "  VibeGuard rules synced to ~/.claude/CLAUDE.md (${result})"
-else
-  red "  Failed to update CLAUDE.md"
-fi
-echo
+inject_claude_home_rules
 
 # 11. 验证
 echo "Step 11: Verification"
