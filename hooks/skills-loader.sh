@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard Skills Loader — 会话首次工具调用时加载匹配 Skill
+# VibeGuard Skills Loader — 可选的 Skill/学习提示加载器
 #
-# 挂在 PreToolUse(Read) 上，每会话只触发一次。
+# 默认不注册；如需启用，可手动挂在 PreToolUse(Read) 上，每会话只触发一次。
 # 扫描 ~/.claude/skills/ 和 .claude/skills/ 中的 SKILL.md，
 # 按项目语言和当前目录匹配，输出相关 Skill 摘要。
 #

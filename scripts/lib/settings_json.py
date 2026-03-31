@@ -45,7 +45,6 @@ def has_pre_hooks(data: dict[str, Any]) -> bool:
         any(_entry_contains(entry, "pre-write-guard") for entry in pre)
         and any(_entry_contains(entry, "pre-bash-guard") for entry in pre)
         and any(_entry_contains(entry, "pre-edit-guard") for entry in pre)
-        and any(_entry_contains(entry, "skills-loader") for entry in pre)
     )
 
 
@@ -171,7 +170,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Write", "pre-write-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Bash", "pre-bash-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Edit", "pre-edit-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PreToolUse", "Read", "skills-loader.sh", state)
+    upsert_hook(hooks, args.repo_dir, "PostToolUse", "mcp__vibeguard__guard_check", "post-guard-check.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-edit-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-write-guard.sh", state)
     # analysis-paralysis-guard for core and above

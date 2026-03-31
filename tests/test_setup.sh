@@ -104,6 +104,8 @@ assert_cmd "安装后 Codex MCP 已配置" python3 "${CODEX_MCP_HELPER}" check -
 assert_cmd "settings helper 检测 mcp 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target mcp
 assert_cmd "settings helper 检测 pre hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
 assert_cmd "settings helper 检测 post hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target post-hooks
+assert_cmd "默认安装启用 post-guard-check" grep -q "post-guard-check.sh" "${HOME}/.claude/settings.json"
+assert_cmd "默认安装不启用 skills-loader" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
 assert_cmd "默认 core profile 不启用 full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 
 header "setup --clean"

@@ -53,7 +53,7 @@ Rules use **negative constraints** ("X does not exist") to implicitly guide AI �
 
 ### 2. Hooks — Real-Time Interception
 
-No manual steps needed. Hooks trigger automatically during AI operations:
+Most hooks trigger automatically during AI operations; `skills-loader` remains an optional manual hook:
 
 | Scenario | Hook | Result |
 |----------|------|--------|
@@ -252,7 +252,7 @@ codex:
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|
 | `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
-| `core` (default) | minimal + post-edit, post-write, skills-loader, analysis-paralysis | Standard development |
+| `core` (default) | minimal + post-edit, post-write, post-guard-check, analysis-paralysis | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | full + all hooks active at runtime | Maximum enforcement |
 

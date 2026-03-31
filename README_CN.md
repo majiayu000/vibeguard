@@ -58,7 +58,7 @@ VibeGuard 通过两条路径注入规则：
 
 ### 2. Hooks 实时拦截（写代码时自动触发）
 
-不需要手动运行，AI 操作时自动拦截：
+大多数 Hook 不需要手动运行，AI 操作时自动拦截；`skills-loader` 为保留的可选脚本：
 
 | 场景 | 触发 | 结果 |
 |------|------|------|
@@ -69,7 +69,7 @@ VibeGuard 通过两条路径注入规则：
 | AI 编辑后新增了 `console.log` / `print()` 调试语句 | `post-edit-guard` | **警告** — 提示使用 logger |
 | AI 新建文件后存在重复定义或同名文件 | `post-write-guard` | **警告** — 检测重复定义 |
 | AI 编辑后构建检查失败（`full` profile） | `post-build-check` | **警告** — 自动运行对应语言构建检查 |
-| 会话首次工具调用时 | `skills-loader` | **加载** — 自动匹配并加载相关 Skill |
+| 需要时手动启用 | `skills-loader` | **可选** — 首次 Read 时输出 Skill/学习提示，默认不启用 |
 | `git commit` 时 | `pre-commit-guard` | **拦截** — 质量检查 + 构建检查，10s 超时硬限 |
 | AI 想结束但有未验证的源码变更（`full` profile） | `stop-guard` | **门禁** — 提醒完成验证后再结束 |
 | 会话结束时 | `learn-evaluator` | **评估** — 采集指标 + 检测纠正信号，有信号时建议 /learn |
@@ -411,7 +411,7 @@ vibeguard/
 │   ├── post-write-guard.sh               #   新文件重复检测
 │   ├── post-build-check.sh               #   构建检查（full profile）
 │   ├── post-guard-check.sh               #   MCP guard_check 后处理
-│   ├── skills-loader.sh                  #   会话首次自动加载 Skill
+│   ├── skills-loader.sh                  #   可选的首次 Read Skill/学习提示脚本（默认不启用）
 │   ├── stop-guard.sh                     #   完成前验证门禁
 │   └── learn-evaluator.sh                #   会话结束学习评估
 ├── guards/                               # 静态检查脚本（支持 // vibeguard:ignore 行内排除）
