@@ -148,6 +148,7 @@ Supports `// vibeguard:ignore` inline comments to skip specific lines.
 ```bash
 bash ~/vibeguard/scripts/quality-grader.sh          # Quality grade (A/B/C/D)
 bash ~/vibeguard/scripts/stats.sh                    # Hook trigger stats (7 days)
+bash ~/vibeguard/scripts/hook-health.sh 24           # Hook health snapshot (risk rate + top hooks + recent risks)
 bash ~/vibeguard/scripts/metrics-exporter.sh         # Prometheus metrics export
 bash ~/vibeguard/scripts/doc-freshness-check.sh      # Rule-guard coverage check
 ```

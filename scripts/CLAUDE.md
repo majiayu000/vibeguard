@@ -17,6 +17,7 @@ VibeGuard 工具脚本，提供统计、合规检查、指标收集等功能。
 | `gc/gc-scheduled.sh` | 定期 GC + 学习 + 反思：日志归档、worktree 清理、metrics 清理、跨会话学习信号检测、会话质量反思报告 |
 | `project-init.sh` | 项目级脚手架：检测语言/框架 → 列出激活守卫/规则 → 生成 CLAUDE.md 片段建议，并安装 pre-commit/pre-push hook |
 | `quality-grader.sh` | 质量等级评分：从 events.jsonl 计算 A/B/C/D 等级，推荐 GC 频率 |
+| `hook-health.sh` | Hook 健康快照：最近 N 小时风险率、Top 风险 hook、最近风险事件 Top 10 |
 | `verify/doc-freshness-check.sh` | 文档新鲜度：交叉比对 rules/ 和 guards/ 的规则 ID 覆盖度 |
 | `log-capability-change.sh` | 能力进化日志：从 git log 提取守卫/规则/Skill 变更时间线 |
 | `constraint-recommender.py` | 约束推荐器：基于项目语言/框架自动生成 preflight 约束初稿 |
@@ -35,4 +36,5 @@ VibeGuard 工具脚本，提供统计、合规检查、指标收集等功能。
 bash scripts/stats.sh          # 最近 7 天统计
 bash scripts/stats.sh 30       # 最近 30 天
 bash scripts/stats.sh all      # 全部历史
+bash scripts/hook-health.sh 24 # 最近 24 小时健康快照
 ```

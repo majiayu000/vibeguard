@@ -121,6 +121,11 @@ jobs:
         shell: bash
         run: bash tests/test_setup.sh
 
+      - name: Hook health regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_hook_health.sh
+
       - name: Guard unit tests
         if: runner.os != 'Windows'
         continue-on-error: true

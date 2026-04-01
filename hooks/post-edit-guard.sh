@@ -106,7 +106,7 @@ case "$FILE_PATH" in
         # CLI 项目允许 console，跳过（bin 字段 / src/cli.* / scripts 含 cli）
         _PKG_DIR=$(dirname "$FILE_PATH")
         _IS_CLI=false
-        while [[ "$_PKG_DIR" != "/" ]]; do
+        while [[ "$_PKG_DIR" != "/" && "$_PKG_DIR" != "." ]]; do
           if [[ -f "$_PKG_DIR/package.json" ]]; then
             grep -qE '"bin"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true
             grep -qE '"[^"]*":\s*"[^"]*cli[^"]*"' "$_PKG_DIR/package.json" 2>/dev/null && _IS_CLI=true

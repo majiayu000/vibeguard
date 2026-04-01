@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Codex CLI hooks support: 4 hooks deployed via `~/.codex/hooks.json` with output format adapter (`hooks/run-hook-codex.sh`)
 - Guard message v2 format: OBSERVATION/FIX/DO NOT structure (`guards/`)
 - Baseline scanning: only report issues on newly added lines (`guards/`)
 - Test infrastructure protection rule W-12 (`guards/`)

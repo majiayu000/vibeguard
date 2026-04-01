@@ -40,16 +40,54 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
         # Save diff to a temp file so we can re-read it on Python failure.
         _diff_tmp=$(create_tmpfile)
         git diff --cached -U0 -- "${f}" 2>/dev/null > "${_diff_tmp}"
-        if ! python3 -c "
+        # Write Python script to temp file to avoid bash escaping issues with regex
+        _diff_py=$(create_tmpfile)
+        cat > "${_diff_py}" << 'DIFFPYEOF'
 import sys, re
+
 fname = sys.argv[1]
-# \.(unwrap\(|expect\() matches .unwrap( and .expect( but NOT .unwrap_or*(
-# because after 'unwrap' the next char must be '(' not '_'.
-# Using safe_pat + 'not safe_pat.search()' would exclude lines that have both
-# .expect('msg') and .unwrap_or_default() chained, causing false negatives.
 danger_pat  = re.compile(r'\.(unwrap\(|expect\()')
 comment_pat = re.compile(r'^\s*//')
 hunk_pat    = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
+_ITEM_KW    = re.compile(r'\b(mod|fn|impl|struct|enum|type|trait)\b')
+
+# --- Build test_lines set from original file (reuse standalone logic) ---
+def _count_braces(s):
+    s = re.sub(r'"(?:[^"\\]|\\.)*"', '', s)
+    s = re.sub(r"'(?:[^'\\\\]|\\\\.)*'", '', s)
+    s = re.sub(r'//.*$', '', s)
+    return s.count('{') - s.count('}')
+
+test_lines = set()
+try:
+    with open(fname) as _src:
+        _all = _src.readlines()
+    _pending = False; _in_mod = False; _depth = 0
+    for _i, _ln in enumerate(_all, 1):
+        _s = _ln.strip()
+        if _s.startswith('#[cfg(test)]'):
+            test_lines.add(_i)
+            if _ITEM_KW.search(_s[len('#[cfg(test)]'):]):
+                _in_mod = True; _depth = _count_braces(_s)
+                if _depth <= 0: _in_mod = False
+            else:
+                _pending = True
+            continue
+        if _pending:
+            if _s.startswith('#['):
+                test_lines.add(_i); continue
+            _pending = False
+            if _ITEM_KW.search(_s):
+                _in_mod = True; _depth = _count_braces(_s); test_lines.add(_i)
+                if _depth <= 0: _in_mod = False
+            continue
+        if _in_mod:
+            test_lines.add(_i); _depth += _count_braces(_s)
+            if _depth <= 0: _in_mod = False
+except Exception:
+    pass
+
+# --- Scan diff lines, skip test_lines ---
 current_line = 0
 for raw in sys.stdin:
     line = raw.rstrip('\n')
@@ -61,12 +99,15 @@ for raw in sys.stdin:
         continue
     if line.startswith('+'):
         current_line += 1
+        if current_line in test_lines:
+            continue
         content = line[1:]
         if danger_pat.search(content) and not comment_pat.match(content):
             print('[RS-03] ' + fname + ':' + str(current_line) + ' ' + line)
     elif not line.startswith('-'):
         current_line += 1
-" "${f}" < "${_diff_tmp}" 2>/dev/null; then
+DIFFPYEOF
+        if ! python3 "${_diff_py}" "${f}" < "${_diff_tmp}" 2>/dev/null; then
           echo "[RS-03] WARN: python3 解析失败 ${f}，使用 grep fallback" >&2
           <"${_diff_tmp}" grep '^+' \
             | grep -v '^+++' \
