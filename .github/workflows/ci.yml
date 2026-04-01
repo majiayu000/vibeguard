@@ -42,8 +42,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: mcp-server/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -86,14 +84,6 @@ jobs:
 
       # --- Cross-platform contract validation (Python-embedded shell scripts) ---
       # Uses Git Bash on Windows; Python 3 is available from setup-python above.
-      - name: Validate MCP config contract
-        shell: bash
-        run: bash scripts/ci/validate-config-contract.sh
-
-      - name: Validate Rust guard wiring contract
-        shell: bash
-        run: bash scripts/ci/validate-wiring-contract.sh
-
       - name: Validate doc paths
         shell: bash
         run: bash scripts/ci/validate-doc-paths.sh
@@ -146,21 +136,3 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/benchmark.sh --mode=fast
-
-      # --- MCP server (cross-platform: Node.js) ---
-      - name: MCP install dependencies
-        working-directory: mcp-server
-        run: npm ci
-
-      - name: MCP build
-        working-directory: mcp-server
-        run: npm run build
-
-      - name: MCP unit tests
-        working-directory: mcp-server
-        run: npm run test:unit
-
-      - name: MCP integration tests
-        if: runner.os != 'Windows'
-        working-directory: mcp-server
-        run: npm run test:integration

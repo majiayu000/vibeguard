@@ -69,13 +69,6 @@ for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
   fi
 done
 
-# Check MCP Server
-if [[ -f "${REPO_DIR}/mcp-server/dist/index.js" ]]; then
-  green "[OK] MCP Server built"
-else
-  red "[MISSING] MCP Server not built (run setup.sh to build)"
-fi
-
 # Check Codex CLI (optional)
 if command -v codex &>/dev/null; then
   green "[OK] Codex CLI available (enables /vibeguard:cross-review)"

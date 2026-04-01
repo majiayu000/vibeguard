@@ -8,7 +8,7 @@
 
 When using Claude Code or Codex, AI frequently invents non-existent APIs, reinvents the wheel, hardcodes fake data, and over-engineers solutions. VibeGuard prevents these problems at the source through **rule injection + real-time interception + static scanning** — three layers of defense.
 
-> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit (28 agents, 119 skills). VibeGuard is a specialized **defense system** — 88+ rules, 16 hooks with hard interception, churn loop detection, analysis paralysis guard, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing wrong. Install both.
+> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit (28 agents, 119 skills). VibeGuard is a specialized **defense system** — 88+ rules, 15 hooks with hard interception, churn loop detection, analysis paralysis guard, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing wrong. Install both.
 
 Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
 
@@ -65,14 +65,6 @@ Most hooks trigger automatically during AI operations; `skills-loader` remains a
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics, detect correction signals |
-
-### 3. MCP Tools (on-demand)
-
-AI can proactively call these tools to check code quality:
-
-- `guard_check` — run language-specific guard scripts (`python | rust | typescript | javascript | go | auto`)
-- `compliance_report` — project compliance check
-- `metrics_collect` — collect code metrics
 
 ## Slash Commands
 
@@ -191,8 +183,7 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 | Tool | How |
 |------|-----|
-| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex MCP config) |
-| **Docker** | `docker pull ghcr.io/majiayu000/vibeguard:latest` |
+| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex hooks) |
 | **Any project** | `cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md` (rules only, no hooks) |
 
 ## Installation Options
@@ -202,7 +193,7 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 bash ~/vibeguard/setup.sh                           # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal          # Minimal: pre-hooks only (lightweight)
 bash ~/vibeguard/setup.sh --profile full             # Full: adds Stop Gate + Build Check + Pre-Commit
-bash ~/vibeguard/setup.sh --profile strict           # Strict: all hooks + extra checks
+bash ~/vibeguard/setup.sh --profile strict           # Strict: same hook set as full, for stricter runtime policy
 
 # Language selection (only install rules/guards for specified languages)
 bash ~/vibeguard/setup.sh --languages rust,python
@@ -215,46 +206,43 @@ bash ~/vibeguard/setup.sh --clean                    # Uninstall
 
 ### Codex Integration
 
-VibeGuard now includes a Codex adapter layer that is **decoupled** from Claude setup:
+VibeGuard deploys hooks and skills to both Claude Code and Codex CLI:
 
-- `scripts/lib/codex_mcp.py` uses a strategy pattern:
-  - `CodexCliMcpStrategy` (preferred): configures MCP via `codex mcp add/get/remove`
-  - `TomlFileMcpStrategy` (fallback): updates `~/.codex/config.toml` directly
-- Claude-specific hooks in `~/.claude/settings.json` are unchanged.
+**Hooks** (`~/.codex/hooks.json`, requires `codex_hooks = true` in config.toml):
 
-Verify Codex MCP config:
+| Event | Hook | Function |
+|-------|------|----------|
+| PreToolUse(Bash) | pre-bash-guard.sh | Dangerous command interception + package manager correction |
+| PostToolUse(Bash) | post-build-check.sh | Build failure detection |
+| Stop | stop-guard.sh | Uncommitted changes gate |
+| Stop | learn-evaluator.sh | Session metrics collection |
+
+> **Note:** Codex PreToolUse/PostToolUse currently only supports `Bash` matcher. Edit/Write guards (pre-edit, post-edit, post-write) are not yet deployable.
+
+Output format differences are handled by `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`).
 
 ```bash
-codex mcp get vibeguard --json
+bash setup.sh --check             # Verify full installation
 ```
 
-For Codex app-server orchestrators (Symphony-style), use the optional wrapper:
+**App-server wrapper** (Symphony-style orchestrators):
 
 ```bash
 python3 ~/vibeguard/scripts/codex/app_server_wrapper.py \
   --codex-command "codex app-server"
 ```
 
-Wrapper strategy modes:
-
 - `--strategy vibeguard` (default): applies pre/stop/post gates externally
 - `--strategy noop`: pure pass-through (debug mode)
-
-Example `WORKFLOW.md` snippet:
-
-```yaml
-codex:
-  command: python3 ~/vibeguard/scripts/codex/app_server_wrapper.py --codex-command "codex app-server"
-```
 
 ### Profiles
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|
 | `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
-| `core` (default) | minimal + post-edit, post-write, post-guard-check, analysis-paralysis | Standard development |
+| `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
-| `strict` | full + all hooks active at runtime | Maximum enforcement |
+| `strict` | same hook set as full | Maximum enforcement |
 
 ### Runtime Configuration
 

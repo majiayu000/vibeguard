@@ -97,14 +97,14 @@ install_claude_home_assets() {
 }
 
 configure_claude_home_runtime() {
-  echo "Step 9: Configure MCP Server + Hooks (${PROFILE} profile)"
+  echo "Step 9: Configure Claude hooks (${PROFILE} profile)"
   local settings_profile="${PROFILE}"
   case "${PROFILE}" in
     minimal) settings_profile="core" ;;
   esac
   if settings_upsert "${SETTINGS_FILE}" "${settings_profile}" >/dev/null 2>&1; then
     state_record_file "${SETTINGS_FILE}" "generated/settings.json" "copy"
-    green "  MCP Server + Hooks configured in ~/.claude/settings.json (${PROFILE})"
+    green "  Hooks configured in ~/.claude/settings.json (${PROFILE})"
   else
     red "  Failed to configure settings.json"
   fi
@@ -201,12 +201,6 @@ check_claude_home_installation() {
     red "[MISSING] Native rules not in ~/.claude/rules/vibeguard/"
   fi
 
-  if settings_check "${SETTINGS_FILE}" "mcp"; then
-    green "[OK] MCP Server configured in settings.json"
-  else
-    red "[MISSING] MCP Server not in settings.json"
-  fi
-
   if settings_check "${SETTINGS_FILE}" "pre-hooks"; then
     green "[OK] PreToolUse hooks configured (Write block + Bash block + Edit guard)"
   else
@@ -214,7 +208,7 @@ check_claude_home_installation() {
   fi
 
   if settings_check "${SETTINGS_FILE}" "post-hooks"; then
-    green "[OK] PostToolUse hooks configured (guard_check + Edit quality + Write dedup)"
+    green "[OK] PostToolUse hooks configured (Edit quality + Write dedup)"
   else
     yellow "[MISSING] PostToolUse hooks not fully configured"
   fi
@@ -267,7 +261,7 @@ clean_claude_home_installation() {
     local clean_result
     if clean_result=$(settings_remove "${SETTINGS_FILE}" 2>/dev/null); then
       if [[ "${clean_result}" == "CHANGED" ]]; then
-        yellow "Removed MCP Server and Hooks from settings.json"
+        yellow "Removed VibeGuard hooks and legacy MCP entries from settings.json"
       fi
     fi
   fi

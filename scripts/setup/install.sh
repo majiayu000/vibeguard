@@ -8,7 +8,7 @@ set -euo pipefail
 #   bash install.sh                                    # 安装（默认 core）
 #   bash install.sh --profile full                     # 安装 full（含 Stop Gate/Build Check）
 #   bash install.sh --profile minimal                  # 最小安装（仅 pre-hooks）
-#   bash install.sh --profile strict                   # 严格模式（全部 + 额外检查）
+#   bash install.sh --profile strict                   # 严格模式（与 full 相同的 hook 集合）
 #   bash install.sh --languages rust,python            # 只安装指定语言的规则和守卫
 #   bash install.sh --profile full --languages rust    # 组合使用
 #   bash install.sh --check                            # 仅检查状态
@@ -100,8 +100,9 @@ VIBEGUARD_HOME="${HOME}/.vibeguard"
 mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
-chmod +x "${VIBEGUARD_HOME}/run-hook.sh"
-green "  ~/.vibeguard/repo-path + run-hook.sh ready"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
+chmod +x "${VIBEGUARD_HOME}/run-hook.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
+green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
 
 # Create user-rules directory for custom rules
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
@@ -139,7 +140,7 @@ echo
 
 configure_claude_home_runtime
 
-# 9.2. Configure Codex MCP server (strategy-based; does not affect Claude setup)
+# 9.2. Remove legacy Codex MCP config from previous installs
 configure_codex_home_runtime
 
 # 9.5. Install scheduled GC (launchd on macOS, systemd on Linux)

@@ -76,15 +76,6 @@ VibeGuard 通过两条路径注入规则：
 
 每个 Hook 执行自动记录耗时（`duration_ms`）和 agent 类型到日志，支持性能监控。
 
-### 3. MCP 工具（按需调用）
-
-AI 可在会话中主动调用这些工具检查代码质量：
-
-- `guard_check` — 运行指定语言的守卫脚本
-- `guard_check` 支持语言：`python | rust | typescript | javascript | go | auto`
-- `compliance_report` — 项目合规检查报告
-- `metrics_collect` — 采集代码指标
-
 ## 命令
 
 10 个自定义命令，覆盖从需求到运维的全生命周期：
@@ -410,7 +401,6 @@ vibeguard/
 │   ├── post-edit-guard.sh                #   质量警告（含 churn 检测）
 │   ├── post-write-guard.sh               #   新文件重复检测
 │   ├── post-build-check.sh               #   构建检查（full profile）
-│   ├── post-guard-check.sh               #   MCP guard_check 后处理
 │   ├── skills-loader.sh                  #   可选的首次 Read Skill/学习提示脚本（默认不启用）
 │   ├── stop-guard.sh                     #   完成前验证门禁
 │   └── learn-evaluator.sh                #   会话结束学习评估
@@ -429,7 +419,6 @@ vibeguard/
 │   └── AGENTS.md                         #   OpenAI Codex 等价约束
 ├── workflows/plan-flow/                  # 工作流 + ExecPlan 模板
 ├── claude-md/vibeguard-rules.md          # 注入到 CLAUDE.md 的规则索引
-├── mcp-server/                           # MCP Server（语言检测 + 任务调度）
 ├── rules/                                # 规则定义文件
 │   ├── universal.md                      #   U-01 ~ U-24 通用规则
 │   ├── security.md                       #   SEC-01 ~ SEC-10
@@ -485,22 +474,9 @@ cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md
 bash ~/vibeguard/setup.sh
 ```
 
-等价于 CLAUDE.md 的约束，适配 Codex agent 格式。`setup.sh` 还会自动安装 Codex skills，并配置 `~/.codex/config.toml` 中的 VibeGuard MCP。
+等价于 CLAUDE.md 的约束，适配 Codex agent 格式。`setup.sh` 还会自动安装 Codex skills 和 `~/.codex/hooks.json`。
 
-### Codex 适配层（解耦 + 策略模式）
-
-VibeGuard 对 Codex 的接入与 Claude 配置解耦，不会影响 `~/.claude/settings.json` 现有链路：
-
-- `scripts/lib/codex_mcp.py` 采用策略模式：
-  - `CodexCliMcpStrategy`：优先走 `codex mcp add/get/remove`
-  - `TomlFileMcpStrategy`：CLI 不可用时回退编辑 `~/.codex/config.toml`
-- Claude hooks 仍按原逻辑工作，互不影响。
-
-验证 Codex MCP：
-
-```bash
-codex mcp get vibeguard --json
-```
+### Codex 适配层（hooks + wrapper）
 
 对于 Symphony 这类 `codex app-server` 编排场景，可选使用外层 wrapper：
 
@@ -519,42 +495,6 @@ python3 ~/vibeguard/scripts/codex/app_server_wrapper.py \
 ```bash
 mkdir -p .claude/rules
 cp ~/vibeguard/templates/project-rules/*.md .claude/rules/
-```
-
-## Docker
-
-The VibeGuard MCP server is published to GitHub Container Registry on every version tag.
-
-### Pull
-
-```bash
-docker pull ghcr.io/majiayu000/vibeguard:latest
-# or a specific version
-docker pull ghcr.io/majiayu000/vibeguard:1.0.0
-```
-
-### Run the MCP server
-
-```bash
-docker run --rm -i ghcr.io/majiayu000/vibeguard:latest
-```
-
-### Run a guard script against your project
-
-```bash
-# Mount your project directory and run a guard check
-docker run --rm \
-  -v /path/to/your/project:/workspace \
-  --entrypoint bash \
-  ghcr.io/majiayu000/vibeguard:latest \
-  guards/universal/check_code_slop.sh /workspace
-```
-
-### Build locally
-
-```bash
-docker build -t vibeguard .
-docker run --rm -i vibeguard
 ```
 
 ## 设计理念
@@ -582,7 +522,7 @@ docker run --rm -i vibeguard
 | Harness: 否定约束引导 | 规则中"不存在 X" + AGENTS.md 模板 |
 | Stripe: 蓝图编排 | blueprints/*.json + blueprint-runner.sh |
 | Stripe: 反馈左移 | pre-commit-guard.sh |
-| Stripe: 工具子集分配 | MCP detector 按语言动态分配守卫 |
+| Stripe: 工具子集分配 | 按语言选择对应守卫脚本 |
 
 ---
 

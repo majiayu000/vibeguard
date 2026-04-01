@@ -86,11 +86,10 @@
     {
       "id": "hooks-post",
       "kind": "hooks",
-      "description": "Post-tool hooks (edit quality, write dedup, guard check, skills loader)",
+      "description": "Post-tool hooks (edit quality, write dedup, analysis paralysis)",
       "paths": [
         "hooks/post-edit-guard.sh",
         "hooks/post-write-guard.sh",
-        "hooks/post-guard-check.sh",
         "hooks/skills-loader.sh",
         "hooks/analysis-paralysis-guard.sh"
       ],
@@ -114,20 +113,6 @@
       "profiles": ["full", "strict"],
       "cost": "medium",
       "stability": "stable"
-    },
-    {
-      "id": "hooks-strict",
-      "kind": "hooks",
-      "description": "Strict profile hooks (session tagger, cognitive reminder)",
-      "paths": [
-        "hooks/session-tagger.sh",
-        "hooks/cognitive-reminder.sh"
-      ],
-      "target": "settings.json:Stop+PostToolUse",
-      "defaultInstall": false,
-      "profiles": ["strict"],
-      "cost": "light",
-      "stability": "beta"
     },
     {
       "id": "agents-core",

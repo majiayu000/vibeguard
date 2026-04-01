@@ -62,7 +62,7 @@ try:
             consecutive += 1
         elif tool in action_tools:
             break
-        # Skip other hooks (post-guard-check, etc.)
+        # Skip other hook bookkeeping entries
 except FileNotFoundError:
     pass
 

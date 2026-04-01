@@ -33,11 +33,6 @@ def _entry_contains(entry: Any, needle: str) -> bool:
         return False
 
 
-def has_mcp(data: dict[str, Any]) -> bool:
-    servers = data.get("mcpServers", {})
-    return isinstance(servers, dict) and "vibeguard" in servers
-
-
 def has_pre_hooks(data: dict[str, Any]) -> bool:
     hooks = data.get("hooks", {})
     pre = hooks.get("PreToolUse", []) if isinstance(hooks, dict) else []
@@ -52,8 +47,7 @@ def has_post_hooks(data: dict[str, Any]) -> bool:
     hooks = data.get("hooks", {})
     post = hooks.get("PostToolUse", []) if isinstance(hooks, dict) else []
     return (
-        any(_entry_contains(entry, "post-guard-check") for entry in post)
-        and any(_entry_contains(entry, "post-edit-guard") for entry in post)
+        any(_entry_contains(entry, "post-edit-guard") for entry in post)
         and any(_entry_contains(entry, "post-write-guard") for entry in post)
     )
 
@@ -74,6 +68,49 @@ def _hook_command(repo_dir: str, script_name: str) -> str:
     """Generate the hook command using the run-hook.sh wrapper."""
     home = Path.home()
     return f"bash {home}/.vibeguard/run-hook.sh {script_name}"
+
+
+def _remove_legacy_mcp_server(data: dict[str, Any]) -> bool:
+    mcp_servers = data.get("mcpServers")
+    if not isinstance(mcp_servers, dict) or "vibeguard" not in mcp_servers:
+        return False
+
+    del mcp_servers["vibeguard"]
+    if not mcp_servers:
+        data.pop("mcpServers", None)
+    return True
+
+
+def _remove_legacy_hook_entries(data: dict[str, Any]) -> bool:
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+
+    changed = False
+    legacy_keys = ("post-guard-check", "session-tagger", "cognitive-reminder")
+
+    for event in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
+        entries = hooks.get(event)
+        if not isinstance(entries, list):
+            continue
+
+        filtered = [
+            entry for entry in entries
+            if not any(_entry_contains(entry, key) for key in legacy_keys)
+        ]
+        if len(filtered) == len(entries):
+            continue
+
+        changed = True
+        if filtered:
+            hooks[event] = filtered
+        else:
+            hooks.pop(event, None)
+
+    if not hooks:
+        data.pop("hooks", None)
+
+    return changed
 
 
 def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, script_name: str, state: dict[str, bool]) -> None:
@@ -131,8 +168,6 @@ def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, 
 
 def cmd_check(args: argparse.Namespace) -> int:
     data = load_settings(Path(args.settings_file))
-    if args.target == "mcp":
-        return 0 if has_mcp(data) else 1
     if args.target == "pre-hooks":
         return 0 if has_pre_hooks(data) else 1
     if args.target == "post-hooks":
@@ -147,18 +182,9 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     data = load_settings(settings_path)
     state = {"changed": False}
 
-    desired_server = {
-        "type": "stdio",
-        "command": "node",
-        "args": [f"{args.repo_dir}/mcp-server/dist/index.js"],
-    }
-    mcp_servers = data.setdefault("mcpServers", {})
-    if not isinstance(mcp_servers, dict):
-        mcp_servers = {}
-        data["mcpServers"] = mcp_servers
+    if _remove_legacy_mcp_server(data):
         state["changed"] = True
-    if mcp_servers.get("vibeguard") != desired_server:
-        mcp_servers["vibeguard"] = desired_server
+    if _remove_legacy_hook_entries(data):
         state["changed"] = True
 
     hooks = data.setdefault("hooks", {})
@@ -170,7 +196,6 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Write", "pre-write-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Bash", "pre-bash-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PreToolUse", "Edit", "pre-edit-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PostToolUse", "mcp__vibeguard__guard_check", "post-guard-check.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-edit-guard.sh", state)
     upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-write-guard.sh", state)
     # analysis-paralysis-guard for core and above
@@ -182,10 +207,6 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-build-check.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "stop-guard.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "learn-evaluator.sh", state)
-
-    if args.profile == "strict":
-        upsert_hook(hooks, args.repo_dir, "Stop", "", "session-tagger.sh", state)
-        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write|Edit|NotebookEdit|Bash|Task", "cognitive-reminder.sh", state)
 
     if state["changed"]:
         save_settings(settings_path, data)
@@ -204,11 +225,9 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
     data = load_settings(settings_path)
     changed = False
 
-    mcp_servers = data.get("mcpServers")
-    if isinstance(mcp_servers, dict) and "vibeguard" in mcp_servers:
-        del mcp_servers["vibeguard"]
-        if not mcp_servers:
-            data.pop("mcpServers", None)
+    if _remove_legacy_mcp_server(data):
+        changed = True
+    if _remove_legacy_hook_entries(data):
         changed = True
 
     hooks = data.get("hooks")
@@ -276,16 +295,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="Check installed state")
     check.add_argument("--settings-file", required=True)
-    check.add_argument("--target", choices=["mcp", "pre-hooks", "post-hooks", "full-hooks"], required=True)
+    check.add_argument("--target", choices=["pre-hooks", "post-hooks", "full-hooks"], required=True)
     check.set_defaults(func=cmd_check)
 
-    upsert = sub.add_parser("upsert-vibeguard", help="Upsert VibeGuard MCP/hooks config")
+    upsert = sub.add_parser("upsert-vibeguard", help="Upsert VibeGuard hooks config")
     upsert.add_argument("--settings-file", required=True)
     upsert.add_argument("--repo-dir", required=True)
     upsert.add_argument("--profile", choices=["minimal", "core", "full", "strict"], default="core")
     upsert.set_defaults(func=cmd_upsert_vibeguard)
 
-    remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard MCP/hooks config")
+    remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hooks config and legacy MCP entries")
     remove.add_argument("--settings-file", required=True)
     remove.set_defaults(func=cmd_remove_vibeguard)
 

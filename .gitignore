@@ -5,5 +5,4 @@ __pycache__/
 *.swo
 *~
 node_modules/
-mcp-server/dist/
 .vibeguard/worktrees/
