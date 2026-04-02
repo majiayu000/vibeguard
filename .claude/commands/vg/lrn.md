@@ -1,1 +1,1 @@
-执行 `/vibeguard:learn` 命令。$ARGUMENTS
+Execute the `/vibeguard:learn` command. $ARGUMENTS

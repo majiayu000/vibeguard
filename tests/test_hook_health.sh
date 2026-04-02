@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard hook-health 回归测试
+# VibeGuard hook-health regression testing
 #
-# 用法：bash tests/test_hook_health.sh
+# Usage: bash tests/test_hook_health.sh
 
 set -euo pipefail
 
@@ -46,11 +46,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-header "无日志文件"
+header "No log file"
 no_log_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/missing" bash "${SCRIPT}" 2>&1 || true)"
-assert_contains "${no_log_out}" "没有日志数据" "缺失日志时给出提示"
+assert_contains "${no_log_out}" "No log data" "Prompt when logs are missing"
 
-header "最近 24 小时健康快照"
+header "Health snapshot of the last 24 hours"
 mkdir -p "${TMP_DIR}/log"
 python3 - "${TMP_DIR}/log/events.jsonl" <<'PY'
 import json
@@ -85,7 +85,7 @@ events = [
         "hook": "pre-bash-guard",
         "tool": "Bash",
         "decision": "warn",
-        "reason": "非标准 .md 文件",
+        "reason": "Non-standard .md file",
         "detail": "echo hi > notes.md",
     },
     {
@@ -114,22 +114,22 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 
 health_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" 24 2>&1)"
-assert_contains "${health_out}" "VibeGuard Hook Health (最近 24 小时)" "标题正确"
-assert_contains "${health_out}" "总触发: 4" "过滤出 24 小时内事件"
-assert_contains "${health_out}" "通过(pass): 1" "pass 统计正确"
-assert_contains "${health_out}" "风险(非 pass): 3" "风险统计正确"
-assert_contains "${health_out}" "风险率: 75.0%" "风险率计算正确"
-assert_contains "${health_out}" "风险 Hook Top 5:" "输出风险 hook 排名"
-assert_contains "${health_out}" "最近风险事件 Top 10:" "输出最近风险事件"
-assert_contains "${health_out}" "stop-guard | gate" "风险事件包含 gate"
+assert_contains "${health_out}" "VibeGuard Hook Health (last 24 hours)" "Title is correct"
+assert_contains "${health_out}" "Total triggers: 4" "Filter out events within 24 hours"
+assert_contains "${health_out}" "Pass: 1" "Pass statistics are correct"
+assert_contains "${health_out}" "Risk (non-pass): 3" "Risk statistics are correct"
+assert_contains "${health_out}" "Risk rate: 75.0%" "Risk rate calculation is correct"
+assert_contains "${health_out}" "Risk Hook Top 5:" "Output risk hook ranking"
+assert_contains "${health_out}" "Top 10 recent risk events:" "Output the latest risk events"
+assert_contains "${health_out}" "stop-guard | gate" "Risk event contains gate"
 
-header "非法参数"
+header "illegal parameter"
 set +e
 bad_arg_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" abc 2>&1)"
 bad_arg_code=$?
 set -e
-assert_exit_nonzero "${bad_arg_code}" "非法参数返回非零"
-assert_contains "${bad_arg_out}" "参数必须是正整数小时数" "非法参数错误信息"
+assert_exit_nonzero "${bad_arg_code}" "Illegal argument returns non-zero"
+assert_contains "${bad_arg_out}" "The argument must be a positive integer number of hours" "Illegal parameter error message"
 
 echo
 echo "=============================="

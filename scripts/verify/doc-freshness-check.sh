@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# VibeGuard 文档新鲜度检测
+# VibeGuard document freshness detection
 #
-# 交叉比对 rules/*.md 定义的规则 ID 和 guards/ 实现的规则 ID。
-# 输出：未实现的规则（有规则无守卫）和未文档化的守卫（有守卫无规则）。
+# Cross compare the rule ID defined by rules/*.md and the rule ID implemented by guards/.
+# Output: Unimplemented rules (with rules and no guards) and undocumented guards (with guards and no rules).
 #
-# 用法：
-#   bash doc-freshness-check.sh             # 默认检查
-#   bash doc-freshness-check.sh --strict    # >10% 不一致返回退出码 1
+# Usage:
+# bash doc-freshness-check.sh #Default check
+# bash doc-freshness-check.sh --strict # >10% inconsistency returns exit code 1
 
 set -euo pipefail
 
@@ -24,12 +24,12 @@ GUARDS_DIR="${REPO_DIR}/guards"
 NATIVE_RULES_DIR="${HOME}/.claude/rules/vibeguard"
 
 if [[ ! -d "$RULES_DIR" ]]; then
-  echo "规则目录不存在: ${RULES_DIR}"
+  echo "The rules directory does not exist: ${RULES_DIR}"
   exit 1
 fi
 
 if [[ ! -d "$GUARDS_DIR" ]]; then
-  echo "守卫目录不存在: ${GUARDS_DIR}"
+  echo "Guards directory does not exist: ${GUARDS_DIR}"
   exit 1
 fi
 
@@ -44,7 +44,7 @@ strict = os.environ.get("VG_STRICT", "false") == "true"
 
 id_pattern = re.compile(r"\b(RS|GO|TS|PY|U|SEC)-(\d+)\b")
 
-# 从规则文件提取规则 ID 及其描述
+# Extract the rule ID and its description from the rules file
 rule_ids = {}  # id -> (file, description)
 for md_file in sorted(glob.glob(os.path.join(rules_dir, "*.md"))):
     basename = os.path.basename(md_file)
@@ -53,11 +53,11 @@ for md_file in sorted(glob.glob(os.path.join(rules_dir, "*.md"))):
             for m in id_pattern.finditer(line):
                 rule_id = m.group()
                 if rule_id not in rule_ids:
-                    # 取行内容作简要描述
+                    # Get a brief description of the row content
                     desc = line.strip()[:80]
                     rule_ids[rule_id] = (basename, desc)
 
-# 从守卫脚本提取已实现的规则 ID
+# Extract the implemented rule ID from the guard script
 guard_ids = {}  # id -> [files]
 for guard_file in sorted(glob.glob(os.path.join(guards_dir, "**/*"), recursive=True)):
     if not os.path.isfile(guard_file):
@@ -72,7 +72,7 @@ for guard_file in sorted(glob.glob(os.path.join(guards_dir, "**/*"), recursive=T
         gid = m.group()
         guard_ids.setdefault(gid, []).append(rel_path)
 
-# 从 hooks 目录也扫描（hooks 中也实现了部分规则）
+# Also scan from the hooks directory (some rules are also implemented in hooks)
 hooks_dir = os.path.join(os.path.dirname(guards_dir), "hooks")
 if os.path.isdir(hooks_dir):
     for hook_file in sorted(glob.glob(os.path.join(hooks_dir, "*.sh"))):
@@ -86,7 +86,7 @@ if os.path.isdir(hooks_dir):
             gid = m.group()
             guard_ids.setdefault(gid, []).append(rel_path)
 
-# AI 可见规则: 优先 ~/.claude/rules/vibeguard/，缺失时回退到 repo rules/（CI 友好）
+# AI visible rules: Prioritize ~/.claude/rules/vibeguard/, fall back to repo rules/ if missing (CI friendly)
 ai_visible_ids = {}  # id -> [files]
 if native_rules_dir and os.path.isdir(native_rules_dir):
     ai_rules_dir = native_rules_dir
@@ -108,7 +108,7 @@ for nr_file in sorted(glob.glob(os.path.join(ai_rules_dir, "**/*.md"), recursive
         aid = m.group()
         ai_visible_ids.setdefault(aid, []).append(rel_path)
 
-# 计算缺口
+# Calculate the gap
 rule_set = set(rule_ids.keys())
 guard_set = set(guard_ids.keys())
 ai_set = set(ai_visible_ids.keys())
@@ -126,22 +126,22 @@ total_rules = len(rule_ids)
 gap_count = len(fully_uncovered) + len(undocumented)
 gap_rate = (gap_count / total_rules * 100) if total_rules > 0 else 0
 
-# 输出报告
+# Output report
 print(f"""
-VibeGuard 文档新鲜度报告
+VibeGuard Document Freshness Report
 {"=" * 40}
-规则总数:     {total_rules}
-综合覆盖:     {len(all_covered)} ({len(all_covered)/total_rules*100:.0f}%)
-  机械强制:   {len(implemented)} (守卫/hooks)
-  AI 可见:    {len(ai_visible)} ({ai_source_label})
-  双重覆盖:   {len(dual_covered)}
-完全未覆盖:   {len(fully_uncovered)}
-未文档化守卫: {len(undocumented)}
-不一致率:     {gap_rate:.1f}%
+Total number of rules: {total_rules}
+Comprehensive coverage: {len(all_covered)} ({len(all_covered)/total_rules*100:.0f}%)
+  Mechanical enforcement: {len(implemented)} (guards/hooks)
+  AI visible: {len(ai_visible)} ({ai_source_label})
+  Double coverage: {len(dual_covered)}
+Fully uncovered: {len(fully_uncovered)}
+Undocumented guard: {len(undocumented)}
+Inconsistency rate: {gap_rate:.1f}%
 """)
 
 if ai_fallback_used:
-    print(f"NOTE: native rules dir 不存在，已回退到 {rules_dir}")
+    print(f"NOTE: native rules dir does not exist and has fallen back to {rules_dir}")
     print()
 
 def print_by_prefix(ids, label):
@@ -158,12 +158,12 @@ def print_by_prefix(ids, label):
     print()
 
 dual_set = set(dual_covered)
-print_by_prefix(dual_covered, "双重覆盖（守卫 + AI 可见）")
-print_by_prefix([r for r in implemented if r not in dual_set], "仅机械强制（守卫/hooks）")
-print_by_prefix([r for r in ai_visible if r not in dual_set], f"仅 AI 可见（{ai_source_label}）")
+print_by_prefix(dual_covered, "Double coverage (guard + AI visible)")
+print_by_prefix([r for r in implemented if r not in dual_set], "Only mechanical forcing (guards/hooks)")
+print_by_prefix([r for r in ai_visible if r not in dual_set], f"Only AI visible ({ai_source_label})")
 
 if fully_uncovered:
-    print("完全未覆盖的规则:")
+    print("Completely uncovered rules:")
     for rid in fully_uncovered:
         if rid in rule_ids:
             src_file, desc = rule_ids[rid]
@@ -171,22 +171,22 @@ if fully_uncovered:
     print()
 
 if undocumented:
-    print("未文档化的守卫（守卫中引用，无规则定义）:")
+    print("Undocumented guard (referenced in guard, no rule definition):")
     for gid in undocumented:
         files = guard_ids[gid]
         files_str = ", ".join(files)
         print(f"  {gid} → {files_str}")
     print()
 
-# 判定
+# Judgment
 if gap_rate > 20:
-    print("FAIL: 不一致率 > 20%，建议立即补齐")
+    print("FAIL: Inconsistency rate > 20%, it is recommended to complete it immediately")
     status = 2
 elif gap_rate > 10:
-    print("WARN: 不一致率 > 10%，建议安排补齐")
+    print("WARN: Inconsistency rate > 10%, it is recommended to arrange for completion")
     status = 1
 else:
-    print("PASS: 规则-守卫一致性良好")
+    print("PASS: Rule-Guard Consistency Good")
     status = 0
 
 if strict and status > 0:

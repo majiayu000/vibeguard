@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# VibeGuard — 守卫脚本路径探测（共享函数）
-# 被 compliance_check.sh 和 metrics_collector.sh source
+# VibeGuard — guard script path detection (shared function)
+# Sourced by compliance_check.sh and metrics_collector.sh
 
-# 查找守卫脚本：优先 VIBEGUARD_DIR/guards/，fallback 项目本地
-# 用法: path=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
+# Find guard scripts: VIBEGUARD_DIR/guards/ first, fallback project local
+# Usage: path=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
 find_guard() {
   local relative_path="$1"
   local project_dir="${2:-.}"
@@ -17,8 +17,8 @@ find_guard() {
   fi
 }
 
-# 查找项目中的 test_code_quality_guards.py
-# 用法: path=$(find_quality_guard "$PROJECT_DIR")
+# Find test_code_quality_guards.py in the project
+# Usage: path=$(find_quality_guard "$PROJECT_DIR")
 find_quality_guard() {
   local project_dir="${1:-.}"
   find "${project_dir}" -path "*/architecture/test_code_quality_guards.py" -type f 2>/dev/null | head -1

@@ -1,114 +1,114 @@
 ---
 name: auto-optimize
-description: 对目标项目进行自动化分析、评估、设计和优化。整合 VibeGuard 守卫作为基线扫描，修复过程遵守 VibeGuard 规范，收尾时运行合规检查。支持 auto-run-agent 自主执行。
+description: Automate analysis, evaluation, design and optimization of target projects. Integrate VibeGuard as a baseline scan, the remediation process adheres to VibeGuard specifications, and a compliance check is run at the end. Support auto-run-agent autonomous execution.
 ---
-# Auto-Optimize：自主优化流程
+# Auto-Optimize: Autonomous optimization process
 
-整合 VibeGuard 守卫体系的项目自主优化工作流。
+Integrate the project autonomous optimization workflow of the VibeGuard guard system.
 
-## 核心原则（从 30+ 实战 session 提炼）
+## Core principles (extracted from 30+ practical sessions)
 
-1. **不修比乱修重要** — 每个发现必须分类为 FIX / SKIP / DEFER，SKIP 必须附理由
-2. **扫描维度轮换** — 不要每次只找同一类问题，按维度轮换扫描
-3. **原子验证** — 每个 fix 独立验证，不攒到最后一起跑
-4. **经验持久化** — 踩过的坑写入 MEMORY.md，避免跨 session 重复犯错
-5. **守卫优先** — 先跑 VibeGuard 确定性守卫获取基线，再用 LLM 深度扫描
+1. **Not repairing is more important than repairing indiscriminately** — Each finding must be classified as FIX / SKIP / DEFER, and SKIP must be accompanied by a reason
+2. **Scan Dimension Rotation** — Don’t just look for the same type of problems every time, rotate scans by dimension.
+3. **Atomic Verification** — Each fix is independently verified and is not run until the end.
+4. **Experience Persistence** — Write the pitfalls you have stepped on into MEMORY.md to avoid repeated mistakes across sessions
+5. **Guard Priority** — Run VibeGuard deterministic guard first to obtain the baseline, and then use LLM deep scanning
 
-## 扫描维度（按轮次轮换）
+## Scan dimensions (rotate by round)
 
-| 轮次 | 维度 | 扫描目标 |
+| Round | Dimension | Scan Target |
 |------|------|----------|
-| 1 | Bug | 逻辑错误、死锁、TOCTOU、panic 路径、边界条件 |
-| 2 | 架构 | 命名冲突、职责混乱、模块耦合、类型设计缺陷 |
-| 3 | 重复 | 代码重复、可提取的公共逻辑、copy-paste 痕迹 |
-| 4 | 性能 | 不必要的 clone/alloc、O(n²) 路径、阻塞调用 |
-| 5 | 测试 | 缺失覆盖、脆弱断言、缺少边界用例 |
-| 6 | API | 对标竞品的功能缺口、易用性问题、文档缺失 |
-| 7 | 一致性 | 多入口数据路径收敛、环境变量统一、配置默认值对齐、共享状态 schema 一致 |
+| 1 | Bug | Logic errors, deadlocks, TOCTOU, panic paths, boundary conditions |
+| 2 | Architecture | Naming conflicts, confusion of responsibilities, module coupling, type design defects |
+| 3 | Duplication | Code duplication, extractable common logic, copy-paste traces |
+| 4 | Performance | Unnecessary clone/alloc, O(n2) paths, blocking calls |
+| 5 | Testing | Missing coverage, fragile assertions, missing edge cases |
+| 6 | API | Functional gaps, usability issues, and lack of documentation in competing products |
+| 7 | Consistency | Multi-entry data path convergence, environment variable unification, configuration default value alignment, shared state schema consistency |
 
-用户可指定维度，否则按项目当前状态自动选择最需要的维度。
+The user can specify the dimensions, otherwise the most needed dimensions will be automatically selected based on the current status of the project.
 
-## 完整流程
+## Complete process
 
-### Phase 1：探索与评估（整合 VibeGuard 守卫）
+### Phase 1: Exploration and Assessment (Integrating VibeGuard)
 
-1. 确认目标项目路径（用户提供或当前目录）
-2. 深度探索项目：
-   - 读取 README、CLAUDE.md 等项目规范
-   - 分析项目结构、技术栈、依赖
-   - 阅读核心源码，理解架构
-   - 检查 TODO/FIXME、#[allow(dead_code)] 等标记
-3. **运行 VibeGuard 守卫获取基线**（按项目语言选择）：
+1. Confirm the target project path (user-provided or current directory)
+2. In-depth exploration project:
+   - Read README, CLAUDE.md and other project specifications
+   - Analyze project structure, technology stack, and dependencies
+   - Read the core source code and understand the architecture
+   - Check TODO/FIXME, #[allow(dead_code)] and other tags
+3. **Run VibeGuard to get a baseline** (select by project language):
    ```bash
-   # 直接调用守卫脚本
+   # Directly call the guard script
    for guard in guards/python/check_*.sh; do bash "$guard" /path/to/project; done
    for guard in guards/rust/check_*.sh; do bash "$guard" /path/to/project; done
    ```
-4. 按当前维度并行扫描（用 sub-agent 按模块分区扫描，加载 `rules/` 对应语言规则）
-5. **合并守卫结果 + LLM 扫描结果**，输出评估报告给用户，确认优化方向
+4. Scan in parallel according to the current dimension (use sub-agent to scan by module partition, load `rules/` corresponding language rules)
+5. **Merge guard results + LLM scan results**, output the evaluation report to the user, and confirm the optimization direction
 
-### Phase 2：分类与设计（遵守 VibeGuard 规范）
+### Phase 2: Classification and design (comply with VibeGuard specification)
 
-对每个发现进行三分类：
+Classify each finding into three categories:
 
 ```
-FIX  — 有明确方案，不破坏公开 API，收益 > 风险
-SKIP — 附理由：breaking change / over-engineering / not a bug / intentional design
-DEFER — 需要更多信息或用户决策，记录到 TASKS.md 的 backlog 区
+FIX — Have a clear plan, don’t break the public API, benefits > risks
+SKIP — with reasons: breaking change / over-engineering / not a bug / intentional design
+DEFER — More information or user decisions are required, logged in the backlog area of TASKS.md
 ```
 
-SKIP 判断标准（加载 rules/ 目录下对应语言的规则 + VibeGuard 规范）：
-- 触及公开 API 签名 → SKIP（除非用户明确要求 breaking change）
-- 只有 1 处使用的"重复" → SKIP（提取抽象是过度设计 — VibeGuard Layer 5 最小改动）
-- 不同语义的相似代码 → SKIP（如 Span 内联样式 vs Text 全局样式）
-- 宏能解决但会降低可读性 → SKIP
-- 新建文件/类/函数前未搜索已有实现 → 违反 VibeGuard Layer 1，先搜后写
+SKIP judgment criteria (load the rules of the corresponding language in the rules/ directory + VibeGuard specifications):
+- Breaking public API signature → SKIP (unless user explicitly asks for breaking change)
+- Only 1 use of "duplicate" → SKIP (extracting abstractions is over-engineering - VibeGuard Layer 5 minimal changes)
+- Similar code with different semantics → SKIP (such as Span inline style vs Text global style)
+- Macros can solve it but will reduce readability → SKIP
+- Do not search for existing implementations before creating new files/classes/functions → Violates VibeGuard Layer 1, search first and then write
 
-FIX 任务按依赖排序，生成结构化任务列表：
+FIX tasks are sorted by dependencies and generate a structured task list:
 ```markdown
-## 高优先级
-- [ ] [BUG] 描述 | 文件 | 方案摘要
+## High priority
+- [ ] [BUG] Description | Documentation | Solution Summary
 - [ ] [BUG] ...
 
-## 中优先级
-- [ ] [DEDUP] 描述 | 文件 | 方案摘要
+## Medium priority
+- [ ] [DEDUP] Description | Documentation | Solution Summary
 - [ ] [DESIGN] ...
 
-## 架构审查（高/中完成后触发）
-- [ ] [ARCH] 全面审查架构合理性，发现问题追加新任务
+## Architecture review (triggered after high/medium completion)
+- [ ] [ARCH] Comprehensively review the rationality of the architecture, and add new tasks if problems are found
 
-## 低优先级
+## Low priority
 - [ ] [STYLE] ...
 
 ## Backlog（DEFER）
-- [ ] [DEFER] 描述 | 需要的信息
+- [ ] [DEFER] Description | Required information
 ```
 
-### Phase 3：创建 Runner 环境
+### Phase 3: Create Runner environment
 
-1. 在目标项目中 commit 当前状态并创建新分支（如 `auto-optimize`）
-2. 创建 runner 目录结构：
+1. Commit the current status and create a new branch in the target project (such as `auto-optimize`)
+2. Create the runner directory structure:
 ```
 <runner-dir>/
 ├── memory/
-│   ├── TASKS.md      # Phase 2 设计的任务列表
-│   ├── CONTEXT.md    # 项目背景、技术栈、规范、架构概览
-│   └── DONE.md       # 自动生成
-├── workspace/        # 软链接到目标项目
+│ ├── TASKS.md # Task list for Phase 2 design
+│ ├── CONTEXT.md # Project background, technology stack, specifications, architecture overview
+│ └── DONE.md # Automatically generated
+├── workspace/ # Soft link to the target project
 ├── logs/
 └── config.yaml
 ```
 
-3. CONTEXT.md 必须包含：
-   - 项目概述和技术栈
-   - 架构概览（关键模块和职责）
-   - 项目规范（引用项目自身的 CLAUDE.md 或编码规范）
-   - **VibeGuard 规范引用**（提醒 worker 遵守先搜后写、命名约束、最小改动等规则）
-   - 构建和测试命令（每次修改后必须验证）
-   - commit 规范（如有 DCO 要求等）
-   - 当前扫描维度和轮次记录
+3. CONTEXT.md must contain:
+   - Project overview and technology stack
+   - Architecture overview (key modules and responsibilities)
+   - Project specifications (reference the project's own CLAUDE.md or coding specifications)
+   - **VibeGuard specification reference** (remind workers to abide by the rules of search before writing, naming constraints, minimum changes, etc.)
+   - Build and test commands (must be verified after every modification)
+   - Commit specifications (if there are DCO requirements, etc.)
+   - Current scanning dimensions and round records
 
-4. config.yaml 默认配置：
+4. config.yaml default configuration:
 ```yaml
 max_iterations: 50
 max_cost_usd: 0
@@ -120,80 +120,80 @@ worker_timeout: 30m
 use_git_detection: true
 ```
 
-5. runner 目录默认路径：`~/<project-name>-runner/`
+5. Default path of runner directory: `~/<project-name>-runner/`
 
-### Phase 4：执行与验证
+### Phase 4: Execution and Verification
 
-**前提检查**：`AUTO_RUN_AGENT_DIR` 环境变量必须设置且目录存在。
+**Prerequisite Check**: The `AUTO_RUN_AGENT_DIR` environment variable must be set and the directory must exist.
 
 ```bash
-# 检测 auto-run-agent
+# Detect auto-run-agent
 if [[ -z "${AUTO_RUN_AGENT_DIR:-}" ]]; then
-  echo "AUTO_RUN_AGENT_DIR 未设置，跳过 Phase 4"
-  echo "设置方法：export AUTO_RUN_AGENT_DIR=/path/to/auto-run-agent"
+  echo "AUTO_RUN_AGENT_DIR is not set, skip Phase 4"
+  echo "Setting method: export AUTO_RUN_AGENT_DIR=/path/to/auto-run-agent"
   exit 0
 fi
 ```
 
-1. 使用 auto-run-agent 启动：
+1. Start using auto-run-agent:
 ```bash
 cd "${AUTO_RUN_AGENT_DIR}"
 ./orchestrator --dir <runner-dir> --max-iterations 50 --max-cost 0 --max-duration 6
 ```
-2. Worker 执行规则：
-   - 每个 fix 完成后立即运行验证命令（从 CONTEXT.md 读取）
-   - 验证失败 → 立即回滚该 fix，标记为 DEFER，继续下一个
-   - 验证通过 → commit，标记为 DONE，更新 DONE.md
-   - 每完成一个 fix，检查是否触发了新问题（回归检测）
-3. 监控命令：
-   - `tail -f <runner-dir>/logs/orchestrator_*.log` — 实时日志
-   - `cat <runner-dir>/memory/DONE.md` — 查看完成记录
-   - `cat <runner-dir>/memory/TASKS.md` — 查看剩余任务
+2. Worker execution rules:
+   - Run verification command (read from CONTEXT.md) immediately after each fix is completed
+   - Verification failed → Roll back the fix immediately, mark it as DEFER, and continue with the next one
+   - Verification passed → commit, marked as DONE, update DONE.md
+   - Every time a fix is completed, check whether a new problem is triggered (regression detection)
+3. Monitoring commands:
+   - `tail -f <runner-dir>/logs/orchestrator_*.log` — real-time log
+   - `cat <runner-dir>/memory/DONE.md` — View completion records
+   - `cat <runner-dir>/memory/TASKS.md` — View remaining tasks
 
-> **注意**：Phase 1-3 不依赖 auto-run-agent，可在无 agent 环境下独立使用（手动执行 TASKS.md）。
+> **Note**: Phase 1-3 does not depend on auto-run-agent and can be used independently in an agent-less environment (manually execute TASKS.md).
 
-### Phase 5：收尾与学习（VibeGuard 合规检查）
+### Phase 5: Closing and Learning (VibeGuard Compliance Check)
 
-1. 所有 FIX 完成后，运行完整测试套件
-2. **运行 VibeGuard 合规检查**：
+1. After all FIX are completed, run the full test suite
+2. **Run VibeGuard Compliance Check**:
    ```bash
    bash "${VIBEGUARD_ROOT:-$(dirname "$0")/../..}/scripts/compliance_check.sh" /path/to/project
    ```
-3. 修复合规检查发现的问题（如有）
+3. Fix the problems found in the compliance check (if any)
 4. bump version（patch for fixes, minor for new features）
-5. 更新项目 MEMORY.md，记录本轮发现的模式和教训
-6. 记录本轮扫描维度，下次自动切换到下一个维度
+5. Update the project MEMORY.md to record the patterns and lessons discovered in this round
+6. Record the scanning dimensions of this round and automatically switch to the next dimension next time
 
-## 规则系统
+## Rule system
 
-规则文件位于 `rules/` 目录，按语言分类。扫描时自动加载对应语言的规则。
+Rule files are located in the `rules/` directory and are organized by language. Rules corresponding to the language are automatically loaded during scanning.
 
 ```
 auto-optimize/
 ├── SKILL.md
 └── rules/
-    ├── universal.md   ← 通用规则（所有语言适用）
-    ├── python.md      ← Python 特定规则（含 VibeGuard 守卫交叉引用）
-    ├── rust.md        ← Rust 特定规则
-    ├── typescript.md  ← TypeScript 特定规则
-    └── go.md          ← Go 特定规则
+    ├── universal.md ← Universal rules (applicable to all languages)
+    ├── python.md ← Python-specific rules (with VibeGuard cross-references)
+    ├── rust.md ← Rust-specific rules
+    ├── typescript.md ← TypeScript specific rules
+    └── go.md ← Go specific rules
 ```
 
-规则格式：每条规则有 ID、类别、描述、示例。Worker 在扫描和修复时参考这些规则来判断 FIX/SKIP。
+Rule format: Each rule has ID, category, description, and example. Workers refer to these rules to determine FIX/SKIP when scanning and repairing.
 
-**与 VibeGuard guards/ 的关系**：
-- `guards/` = 确定性检测工具（AST 脚本，集成到 CI/pre-commit）
-- `rules/` = LLM 扫描参考（Markdown，指导 worker 判断 FIX/SKIP/DEFER）
-- 重叠部分（如 PY-02 裸异常）通过交叉引用处理，不合并
+**Relationship to VibeGuard guards/**:
+- `guards/` = deterministic detection tool (AST script, integrated into CI/pre-commit)
+- `rules/` = LLM scanning reference (Markdown, guides workers to determine FIX/SKIP/DEFER)
+- Overlapping parts (such as PY-02 naked exceptions) are processed through cross-reference and are not merged
 
-## 用户交互要点
-- Phase 1 完成后必须向用户展示评估报告（含守卫基线 + LLM 扫描结果），确认优化方向
-- Phase 2 的任务列表展示给用户确认后再创建文件
-- 启动前询问用户：迭代次数、时间限制、是否有成本限制
-- 用户可随时编辑 TASKS.md 插入新任务或调整优先级
+## User interaction points
+- After the completion of Phase 1, the evaluation report (including guard baseline + LLM scan results) must be shown to the user to confirm the optimization direction
+- The task list of Phase 2 is displayed to the user for confirmation before creating the file.
+- Ask the user before starting: number of iterations, time limit, and whether there is a cost limit
+- Users can edit TASKS.md at any time to insert new tasks or adjust priorities
 
-## 注意事项
-- `AUTO_RUN_AGENT_DIR` 环境变量指定 auto-run-agent 路径，Phase 4 运行时检测
-- 目标项目必须先 commit 干净再切分支，确保可回滚
-- workspace 用软链接，不复制代码
-- 多个项目可同时运行，互不影响（注意 API rate limit）
+## Notes
+- `AUTO_RUN_AGENT_DIR` environment variable specifies the auto-run-agent path, Phase 4 runtime detection
+- The target project must be committed cleanly before branching to ensure that it can be rolled back
+- Workspace uses soft links and does not copy code
+- Multiple projects can run at the same time without affecting each other (note the API rate limit)

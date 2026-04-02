@@ -1,6 +1,6 @@
 #!/bin/bash
-# 预填充 7 次连续 Read 事件（达到阈值 7）
-# 必须写到与 log.sh 一致的项目日志路径
+# Prepopulate 7 consecutive Read events (threshold 7 is reached)
+# Must be written to the project log path consistent with log.sh
 SID="test-session-$$"
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
 HASH=$(printf '%s' "$REPO_ROOT" | shasum -a 256 2>/dev/null | cut -c1-8)

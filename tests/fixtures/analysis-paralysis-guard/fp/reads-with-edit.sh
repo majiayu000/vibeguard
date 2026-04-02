@@ -1,5 +1,5 @@
 #!/bin/bash
-# 预填充 3 次 Read + 1 次 Edit + 2 次 Read（不超过连续阈值）
+# Prefill 3 Reads + 1 Edit + 2 Reads (not exceeding the continuous threshold)
 SID="test-session-$$"
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
 HASH=$(printf '%s' "$REPO_ROOT" | shasum -a 256 2>/dev/null | cut -c1-8)

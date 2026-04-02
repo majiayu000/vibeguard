@@ -105,7 +105,7 @@ assert_ok "console in logger.ts is excluded" bash "$GUARD" --strict "$proj_logge
 
 # --- FAIL: business file under parent dir whose name contains 'logger' must still be detected ---
 # Regression for: LOGGER_PATTERN was matched against full absolute path, causing files under
-# any ancestor dir named "logger" / "logging" to be silently skipped (TS-03 漏检).
+# any ancestor dir named "logger" / "logging" to be silently skipped (TS-03 missed detection).
 proj_logger_parent="${tmpdir}/logging_service"
 mkdir -p "${proj_logger_parent}/src"
 cat > "${proj_logger_parent}/src/handler.ts" <<'EOF'

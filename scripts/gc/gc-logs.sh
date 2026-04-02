@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# VibeGuard GC — 日志归档
+# VibeGuard GC — Log Archiving
 #
-# events.jsonl 超过阈值时按月归档（gzip），保留最近 3 个月。
+# events.jsonl Archives (gzip) monthly when threshold is exceeded, retaining the last 3 months.
 #
-# 用法：
-#   bash gc-logs.sh              # 默认 10MB 阈值
-#   bash gc-logs.sh --threshold 5  # 5MB 阈值
-#   bash gc-logs.sh --dry-run    # 只报告，不执行
+# Usage:
+# bash gc-logs.sh # Default 10MB threshold
+# bash gc-logs.sh --threshold 5 # 5MB threshold
+# bash gc-logs.sh --dry-run # Only report, not execute
 
 set -euo pipefail
 
@@ -31,18 +31,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -f "$LOG_FILE" ]]; then
-  yellow "日志文件不存在: ${LOG_FILE}"
+  yellow "Log file does not exist: ${LOG_FILE}"
   exit 0
 fi
 
 FILE_SIZE_MB=$(du -m "$LOG_FILE" | cut -f1)
-echo "当前日志大小: ${FILE_SIZE_MB}MB (阈值: ${THRESHOLD_MB}MB)"
+echo "Current log size: ${FILE_SIZE_MB}MB (Threshold: ${THRESHOLD_MB}MB)"
 
-# 归档：超过阈值时按月拆分并压缩
+# Archive: Split and compress by month when threshold is exceeded
 if [[ "$FILE_SIZE_MB" -ge "$THRESHOLD_MB" ]]; then
   mkdir -p "$ARCHIVE_DIR"
 
-  # 按月份分组归档
+  #Group and archive by month
   python3 -c "
 import json, sys, os
 from collections import defaultdict
@@ -73,7 +73,7 @@ with open(log_file) as f:
         except json.JSONDecodeError:
             kept.append(line)
 
-# 保留当月数据在主文件
+# Keep the current month’s data in the main file
 sorted_months = sorted(months.keys())
 if sorted_months:
     current_month = sorted_months[-1]
@@ -83,7 +83,7 @@ archived = 0
 for month, lines in sorted(months.items()):
     archive_path = os.path.join(archive_dir, f'events-{month}.jsonl')
     if dry_run:
-        print(f'  [DRY-RUN] 归档 {len(lines)} 条 → {archive_path}')
+        print(f' [DRY-RUN] Archive {len(lines)} → {archive_path}')
     else:
         with open(archive_path, 'a') as af:
             af.write('\n'.join(lines) + '\n')
@@ -94,21 +94,21 @@ if not dry_run and archived > 0:
         f.write('\n'.join(kept) + '\n' if kept else '')
     os.chmod(log_file, 0o600)
 
-print(f'总计 {total} 条，归档 {archived} 条，保留 {len(kept)} 条')
+print(f'Total {total} items, archive {archived} items, retain {len(kept)} items')
 "
 
-  # 压缩归档文件
+  # Compress archive file
   if [[ "$DRY_RUN" == "false" ]]; then
     for f in "${ARCHIVE_DIR}"/events-*.jsonl; do
       [[ -f "$f" ]] || continue
-      gzip -f "$f" 2>/dev/null && green "已压缩: $(basename "$f").gz"
+      gzip -f "$f" 2>/dev/null && green "Compressed: $(basename "$f").gz"
     done
   fi
 else
-  green "日志大小未超阈值，无需归档"
+  green "Log size does not exceed the threshold, no need to archive"
 fi
 
-# 清理过期归档：删除超过 RETAIN_MONTHS 的归档
+# Clean up expired archives: delete archives that exceed RETAIN_MONTHS
 if [[ -d "$ARCHIVE_DIR" ]]; then
   CUTOFF=$(date -v-${RETAIN_MONTHS}m +%Y-%m 2>/dev/null || date -d "${RETAIN_MONTHS} months ago" +%Y-%m 2>/dev/null || echo "")
   if [[ -n "$CUTOFF" ]]; then
@@ -117,14 +117,14 @@ if [[ -d "$ARCHIVE_DIR" ]]; then
       MONTH=$(basename "$f" | sed 's/events-\(.*\)\.jsonl\.gz/\1/')
       if [[ "$MONTH" < "$CUTOFF" ]]; then
         if [[ "$DRY_RUN" == "true" ]]; then
-          yellow "  [DRY-RUN] 删除过期归档: $(basename "$f")"
+          yellow " [DRY-RUN] Delete expired archives: $(basename "$f")"
         else
           rm "$f"
-          yellow "已删除过期归档: $(basename "$f")"
+          yellow "Expired archive deleted: $(basename "$f")"
         fi
       fi
     done
   fi
 fi
 
-green "日志 GC 完成"
+green "Log GC completed"

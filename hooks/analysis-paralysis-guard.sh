@@ -78,7 +78,7 @@ if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   # Circuit breaker check: if this hook has been firing repeatedly without
   # resolution, open the circuit and auto-pass to prevent 716x warn loops.
   if vg_cb_check "analysis-paralysis-guard"; then
-    WARNING="[ANALYSIS PARALYSIS] 已连续 ${CONSECUTIVE} 次只读操作（Read/Glob/Grep）没有任何写入。你可能陷入了"读了又读"循环。必须选择：(1) 动手写代码/编辑文件 (2) 向用户报告 blocker 并说明卡在哪里。"
+    WARNING="[ANALYSIS PARALYSIS] There have been ${CONSECUTIVE} consecutive read-only operations (Read/Glob/Grep) without any writes. You may be stuck in a \"read-read\" loop. You must choose: (1) Start writing code/editing files (2) Report the blocker to the user and explain where it is stuck."
 
     vg_log "analysis-paralysis-guard" "Read" "warn" "paralysis ${CONSECUTIVE}x" ""
     vg_cb_record_block "analysis-paralysis-guard"
@@ -89,7 +89,7 @@ warnings = os.environ.get("VG_WARNINGS", "")
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",
-        "additionalContext": "VIBEGUARD 分析瘫痪警告：" + warnings
+        "additionalContext": "VIBEGUARD analysis paralysis warning:" + warnings
     }
 }
 print(json.dumps(result, ensure_ascii=False))

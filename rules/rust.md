@@ -1,92 +1,92 @@
-# Rust Rules（Rust 特定规则）
+# Rust Rules (Rust specific rules)
 
-Rust 项目扫描和修复的特定规则。从 rnk 项目 30+ session 实战经验提炼。
+Specific rules for scanning and repairing Rust projects. Extracted from practical experience of 30+ sessions in rnk project.
 
-## 扫描检查项
+## Scan check items
 
-| ID | 类别 | 检查项 | 严重度 |
+| ID | Category | Check Item | Severity |
 |----|------|--------|--------|
-| RS-01 | Bug | 嵌套 RwLock/Mutex 获取（死锁风险） | 高 |
-| RS-02 | Bug | TOCTOU：get() 后 insert()，中间释放了锁 | 高 |
-| RS-03 | Bug | unwrap() 在非测试代码中（panic 风险） | 中 |
-| RS-04 | Design | 多个 Signal/Arc 管理同一逻辑状态（应合并为单个） | 中 |
-| RS-05 | Design | 同名不同义的类型（如两个 RenderHandle） | 中 |
-| RS-06 | Dedup | 相同 match 臂在多个方法中重复 | 中 |
-| RS-07 | Dedup | 手动逐字段复制（应用 merge/apply 方法） | 低 |
-| RS-08 | Perf | 不必要的 clone()（Copy 类型用 clone、可借用却 clone） | 低 |
-| RS-09 | Perf | 热路径中的 format!() 分配（可用 push_str 或预分配） | 低 |
-| RS-10 | Bug | 静默丢弃有意义的 Result/Error（`let _ =`、`.ok()`、`.unwrap_or_default()` 吞掉错误） | 高 |
-| RS-11 | Design | 同一项目不同模块使用不同的基础设施（日志系统、配置路径、DB 连接方式） | 中 |
-| RS-12 | Design | 同一职责存在双系统并存（如 Todo* 与 TaskManagement* 双轨） | 高 |
-| RS-13 | Design | 动作语义函数（done/update/delete 等）缺少可见状态副作用 | 高 |
+| RS-01 | Bug | Nested RwLock/Mutex acquisitions (deadlock risk) | High |
+| RS-02 | Bug | TOCTOU: get() followed by insert(), the lock was released in the middle | High |
+| RS-03 | Bug | unwrap() in non-test code (panic risk) | Medium |
+| RS-04 | Design | Multiple Signal/Arcs managing the same logic state (should be combined into a single) | Medium |
+| RS-05 | Design | Types with the same name but different synonyms (such as two RenderHandles) | Medium |
+| RS-06 | Dedup | Same match arm repeated in multiple methods | Medium |
+| RS-07 | Dedup | Manual field-by-field copy (apply merge/apply method) | Low |
+| RS-08 | Perf | Unnecessary clone() (use clone for Copy type, clone for borrow type) | Low |
+| RS-09 | Perf | format!() allocation in hot path (can use push_str or preallocation) | Low |
+| RS-10 | Bug | Silently discard meaningful Result/Error (`let _ =`, `.ok()`, `.unwrap_or_default()` swallow errors) | High |
+| RS-11 | Design | Different modules of the same project use different infrastructure (logging system, configuration path, DB connection method) | Medium |
+| RS-12 | Design | Dual systems coexist for the same responsibility (such as Todo* and TaskManagement* dual tracks) | High |
+| RS-13 | Design | Action semantic functions (done/update/delete, etc.) lack visible state side effects | High |
 
-## SKIP 规则（Rust 特定）
+## SKIP rules (Rust specific)
 
-| 条件 | 判定 | 理由 |
+| Conditions | Judgment | Reasons |
 |------|------|------|
-| 用 std::thread 但 cleanup 需要同步 | SKIP | use_effect cleanup 是 FnOnce + Send，不能用 async |
-| Signal<T> clone 看起来像"复制" | SKIP | Signal 是 Arc<RwLock>，clone 共享状态，不是复制 |
-| 集合 hooks 有相似模式（list/set/map） | SKIP | 各有领域特定方法，宏化是过度设计 |
-| derive(Clone) 看起来多余 | 检查 | Signal<T> 要求 T: Clone |
-| #[allow(dead_code)] | 检查 | 可能是 WIP 功能，标记为 DEFER 而非删除 |
+| Use std::thread but cleanup needs to be synchronized | SKIP | use_effect cleanup is FnOnce + Send, cannot use async |
+| Signal<T> clone looks like "copy" | SKIP | Signal is Arc<RwLock>, clone shares state, not clones |
+| Set hooks have similar patterns (list/set/map) | SKIP | Each has domain-specific methods, macros are over-engineering |
+| derive(Clone) seems redundant | check | Signal<T> requires T: Clone |
+| #[allow(dead_code)] | Check | Possibly a WIP feature, marked DEFER instead of DELETE |
 
-## 修复模式（经验证有效）
+## Repair mode (verified to be effective)
 
-### 多 Signal → 单 Signal
+### Multiple Signal → Single Signal
 ```rust
-// Before: 3 个 Signal，嵌套锁风险
+// Before: 3 Signals, risk of nested locks
 struct History<T> {
     past: Signal<Vec<T>>,
     present: Signal<T>,
     future: Signal<Vec<T>>,
 }
 
-// After: 单 Signal，原子操作
+// After: single Signal, atomic operation
 struct History<T> {
     state: Signal<HistoryState<T>>,
 }
 struct HistoryState<T> { past: Vec<T>, present: T, future: Vec<T> }
-// 所有操作用 state.update(|s| { ... }) 一次完成
+// All operations are completed at once using state.update(|s| { ... })
 ```
 
 ### TOCTOU → entry API
 ```rust
-// Before: get() 释放锁后 insert()
+// Before: get() insert() after releasing the lock
 if !map.get(&key).is_some() { map.insert(key, val); }
 
-// After: 单次 update + entry
+// After: single update + entry
 signal.update(|m| { m.entry(key).or_insert(val); });
 ```
 
-### 重复 match → 参数化
+### Repeat match → parameterize
 ```rust
-// Before: to_ansi_fg() 和 to_ansi_bg() 各 18 个 match 臂
-// After: to_ansi(self, background: bool) 共享一个 match
+// Before: 18 match arms each for to_ansi_fg() and to_ansi_bg()
+// After: to_ansi(self, background: bool) share a match
 fn to_ansi(self, background: bool) -> String {
     let base: u8 = if background { 40 } else { 30 };
     match self { Color::Red => format!("\x1b[{}m", base + 1), ... }
 }
 ```
 
-### 重复类型 → 提取共享模块
+### Repeating type → Extract shared module
 ```rust
-// Before: textarea/keymap.rs 和 viewport/keymap.rs 各定义 KeyBinding, KeyType, Modifiers
-// After: components/keymap.rs 定义一次，两处 pub use 引入
+// Before: textarea/keymap.rs and viewport/keymap.rs each define KeyBinding, KeyType, Modifiers
+// After: components/keymap.rs is defined once and pub use is introduced twice.
 pub use crate::components::keymap::{KeyBinding, KeyType, Modifiers};
 ```
 
-### 静默错误丢弃 → 显式处理（RS-10）
+### Silent error discarding → explicit handling (RS-10)
 
-`let _ =`、`.ok()`、`.unwrap_or_default()` 在丢弃 `Result<T, E>` 时，错误信息永久消失。
-代码不会 panic，但数据会丢失、日志变黑洞、问题无法排查。
+`let _ =`, `.ok()`, `.unwrap_or_default()` make the error message disappear permanently when discarding `Result<T, E>`.
+The code will not panic, but the data will be lost, the log will become a black hole, and the problem will not be troubleshooted.
 
 ```rust
-// BAD: 错误被静默丢弃
+// BAD: Errors are silently discarded
 let _ = db::update_last_accessed(&conn, &ids);
 let body = resp.text().await.unwrap_or_default();
 let path = std::fs::canonicalize(&abs).unwrap_or(abs);
 
-// GOOD: 至少记录错误
+// GOOD: At least log errors
 if let Err(e) = db::update_last_accessed(&conn, &ids) {
     log::warn("mcp", &format!("update_last_accessed failed: {}", e));
 }
@@ -97,64 +97,64 @@ let path = std::fs::canonicalize(&abs).unwrap_or_else(|e| {
 });
 ```
 
-**判定规则**：
-- `let _ = expr` 且 expr 返回 `Result` → **必须处理**
-- `.ok()` 丢弃 Error 且后续无 fallback 日志 → **必须处理**
-- `.unwrap_or_default()` 且默认值会导致数据异常（空字符串入库、路径分裂）→ **必须处理**
-- `.unwrap_or_default()` 且默认值是安全的无操作（如 `Vec::new()`）→ SKIP
+**Judgment Rules**:
+- `let _ = expr` and expr returns `Result` → **must be processed**
+- `.ok()` discards Error and no subsequent fallback log → **must be processed**
+- `.unwrap_or_default()` and the default value will cause data exceptions (empty string storage, path splitting) → **must be processed**
+- `.unwrap_or_default()` and the default is a safe no-op (like `Vec::new()`) → SKIP
 
-### 跨模块基础设施一致性（RS-11）
+### Cross-module infrastructure consistency (RS-11)
 
-同一项目所有入口（CLI 子命令、MCP server、hooks、worker 子进程）必须共享：
-- **日志系统**：统一写同一文件或同一 output
-- **DB 连接策略**：长驻进程复用连接，短命进程按需创建
-- **配置路径**：`db_path()`、`log_path()` 等只定义一次
+All entries (CLI subcommands, MCP server, hooks, worker subprocesses) of the same project must share:
+- **Log system**: write the same file or the same output uniformly
+- **DB connection strategy**: long-lived processes reuse connections, short-lived processes are created on demand
+- **Configuration path**: `db_path()`, `log_path()`, etc. are only defined once
 
 ```rust
-// BAD: MCP 用 tracing 写 stderr，hooks 用自定义 log 写文件
-// MCP 失败时无日志，完全黑洞
+// BAD: MCP uses tracing to write stderr, hooks uses custom log to write files
+// There is no log when MCP fails, a complete black hole
 tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
-// GOOD: 所有入口共享同一日志函数
+// GOOD: All entries share the same log function
 crate::log::info("mcp", "server started");
 ```
 
-### 单一事实源收敛（RS-12）
+### Single Source of Truth Convergence (RS-12)
 
-同一职责（特别是任务管理）不应并行维护两套工具族和两份状态存储。
+The same responsibility (especially task management) should not maintain two tool families and two state stores in parallel.
 
 ```rust
-// BAD: Todo* + TaskManagement* 并存，各自写不同状态
+// BAD: Todo* + TaskManagement* coexist, each writing different states
 registry.register(TodoWrite);
 registry.register(TaskDone);
 
-// GOOD: 收敛到单一任务域接口
+// GOOD: Convergence to a single task domain interface
 registry.register(TaskWrite);
 registry.register(TaskRead);
-// 所有动作只写 TaskRepository
+// All actions only write TaskRepository
 ```
 
-### 语义副作用一致性（RS-13）
+### Semantic Side Effect Consistency (RS-13)
 
-动作语义函数（`mark_done` / `update_*` / `delete_*`）必须有可见副作用：
-- 写入状态（insert/update/remove）
-- 或发射事件（emit/dispatch/send）
+Action semantic functions (`mark_done` / `update_*` / `delete_*`) must have visible side effects:
+- Write status (insert/update/remove)
+- or emit events (emit/dispatch/send)
 
 ```rust
-// BAD: 仅返回文本，不落状态
+// BAD: only returns text, no status
 fn mark_done(id: &str) -> Result<String> {
     Ok(format!("task {} done", id))
 }
 
-// GOOD: 先落状态，再返回结果
+// GOOD: Drop the state first, then return the result
 fn mark_done(id: &str, repo: &TaskRepo) -> Result<String> {
     repo.update_status(id, Status::Done)?;
     Ok(format!("task {} done", id))
 }
 ```
 
-## 验证命令
+## Verification command
 ```bash
 cargo fmt && cargo clippy && cargo test --lib
 ```
-每个 fix 完成后必须运行。clippy warning 视为失败。
+Each fix must be run after completion. clippy warning is considered a failure.

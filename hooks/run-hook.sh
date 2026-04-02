@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# VibeGuard Hook Wrapper — 全平台兼容的 hook 分发器
+# VibeGuard Hook Wrapper — A hook distributor compatible with all platforms
 #
-# settings.json 中所有 hook 通过此 wrapper 间接调用，
-# 避免硬编码绝对路径。repo 搬家只需更新 ~/.vibeguard/repo-path。
+# All hooks in settings.json are called indirectly through this wrapper.
+# Avoid hardcoding absolute paths. Repo relocation only requires updating ~/.vibeguard/repo-path.
 #
-# 用法: bash ~/.vibeguard/run-hook.sh <hook-script-name> [args...]
-# 示例: bash ~/.vibeguard/run-hook.sh stop-guard.sh
+# Usage: bash ~/.vibeguard/run-hook.sh <hook-script-name> [args...]
+# Example: bash ~/.vibeguard/run-hook.sh stop-guard.sh
 
 set -euo pipefail
 

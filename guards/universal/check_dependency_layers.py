@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""VibeGuard Guard — 依赖层方向检查
+"""VibeGuard Guard — Dependency layer direction check
 
-根据 .vibeguard-architecture.yaml 定义的分层架构，检测跨层引用违规。
-违规时输出包含修复指令的错误信息（Golden Principle #3: 机械执行 > 文档描述）。
+Detect cross-layer reference violations based on the layered architecture defined in .vibeguard-architecture.yaml.
+Outputs an error message containing repair instructions when a violation occurs (Golden Principle #3: Mechanical Execution > Document Description).
 
-用法：
+usage:
     python3 check_dependency_layers.py [target_dir]
     python3 check_dependency_layers.py --config path/to/.vibeguard-architecture.yaml
 
-退出码：
-    0 — 无违规
-    1 — 发现违规
-    2 — 配置错误
+Exit code:
+    0 — No violation
+    1 — Violation found
+    2 — Configuration error
 """
 
 import ast
@@ -27,13 +27,13 @@ except ImportError:
 
 
 def load_config(target_dir: str) -> dict:
-    """加载架构配置文件"""
+    """Load architecture configuration file"""
     config_path = os.path.join(target_dir, ".vibeguard-architecture.yaml")
     if not os.path.exists(config_path):
         return {}
 
     if yaml is None:
-        # Fallback: 简易 YAML 解析
+        # Fallback: Simple YAML parsing
         return _parse_yaml_simple(config_path)
 
     with open(config_path) as f:
@@ -41,7 +41,7 @@ def load_config(target_dir: str) -> dict:
 
 
 def _parse_yaml_simple(path: str) -> dict:
-    """无 PyYAML 依赖的简易解析"""
+    """Simple parsing without PyYAML dependencies"""
     layers = []
     current_layer = None
 
@@ -66,7 +66,7 @@ def _parse_yaml_simple(path: str) -> dict:
 
 
 def resolve_layer(file_path: str, layers: list[dict]) -> str | None:
-    """确定文件所属层"""
+    """Determine the layer to which the file belongs"""
     normalized = file_path.replace("\\", "/")
     for layer in layers:
         for pattern in layer.get("paths", []):
@@ -79,7 +79,7 @@ def resolve_layer(file_path: str, layers: list[dict]) -> str | None:
 
 
 def extract_imports_python(file_path: str) -> list[str]:
-    """提取 Python import 路径"""
+    """Extract Python import path"""
     try:
         with open(file_path) as f:
             tree = ast.parse(f.read(), filename=file_path)
@@ -98,7 +98,7 @@ def extract_imports_python(file_path: str) -> list[str]:
 
 
 def extract_imports_typescript(file_path: str) -> list[str]:
-    """提取 TypeScript/JavaScript import 路径"""
+    """Extract TypeScript/JavaScript import path"""
     imports = []
     try:
         with open(file_path) as f:
@@ -116,7 +116,7 @@ def extract_imports_typescript(file_path: str) -> list[str]:
 
 
 def extract_imports_go(file_path: str) -> list[str]:
-    """提取 Go import 路径"""
+    """Extract Go import path"""
     imports = []
     try:
         with open(file_path) as f:
@@ -132,7 +132,7 @@ def extract_imports_go(file_path: str) -> list[str]:
 
 
 def extract_imports_rust(file_path: str) -> list[str]:
-    """提取 Rust use 路径"""
+    """Extract Rust use path"""
     imports = []
     try:
         with open(file_path) as f:
@@ -148,14 +148,14 @@ def extract_imports_rust(file_path: str) -> list[str]:
 def import_to_layer(
     import_path: str, file_path: str, layers: list[dict]
 ) -> str | None:
-    """将 import 路径映射到层"""
-    # 相对路径 import（TypeScript/Python）
+    """Map import paths to layers"""
+    # Relative path import (TypeScript/Python)
     if import_path.startswith("."):
         dir_path = os.path.dirname(file_path)
         resolved = os.path.normpath(os.path.join(dir_path, import_path))
         return resolve_layer(resolved, layers)
 
-    # 模块名匹配
+    #Module name matching
     for layer in layers:
         for pattern in layer.get("paths", []):
             pattern_clean = pattern.rstrip("/").replace("/", ".")
@@ -192,13 +192,13 @@ SKIP_DIRS = {
 
 
 def check_directory(target_dir: str) -> list[dict]:
-    """扫描目录检测依赖违规"""
+    """Scan directories to detect dependency violations"""
     config = load_config(target_dir)
     layers = config.get("layers", [])
     if not layers:
         return []
 
-    # 构建层的允许依赖映射
+    # Allow dependency mapping of build layer
     allowed = {}
     for layer in layers:
         name = layer["name"]
@@ -249,10 +249,10 @@ def main():
     config = load_config(target_dir)
     if not config.get("layers"):
         print(
-            "未找到 .vibeguard-architecture.yaml 或层定义为空。"
+            ".vibeguard-architecture.yaml not found or layer definition is empty."
         )
         print(
-            "创建配置: cp ${VIBEGUARD_DIR}/templates/vibeguard-architecture.yaml "
+            "Create configuration: cp ${VIBEGUARD_DIR}/templates/vibeguard-architecture.yaml "
             ".vibeguard-architecture.yaml"
         )
         sys.exit(0)
@@ -260,17 +260,17 @@ def main():
     violations = check_directory(target_dir)
 
     if not violations:
-        print("\033[32m依赖层检查通过 — 无跨层违规\033[0m")
+        print("\033[32m dependency layer check passed - no cross-layer violation\033[0m")
         sys.exit(0)
 
-    print(f"\033[31m发现 {len(violations)} 个依赖层违规:\033[0m\n")
+    print(f"\033[31m Found {len(violations)} dependency layer violations:\033[0m\n")
     for v in violations:
         print(f"  {v['file']}")
-        print(f"    违规: {v['source_layer']} → {v['target_layer']} (import {v['import']})")
-        print(f"    允许: {v['source_layer']} → {v['allowed']}")
+        print(f" Violation: {v['source_layer']} → {v['target_layer']} (import {v['import']})")
+        print(f" Allowed: {v['source_layer']} → {v['allowed']}")
         print(
-            f"    修复: 将 {v['import']} 的功能移到 {v['source_layer']} 层可访问的层，"
-            f"或通过接口解耦"
+            f" Fix: Move functionality of {v['import']} to a layer accessible by {v['source_layer']},"
+            f"or decoupling through interfaces"
         )
         print()
 

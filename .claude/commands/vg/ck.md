@@ -1,1 +1,1 @@
-执行 `/vibeguard:check` 命令。$ARGUMENTS
+Execute the `/vibeguard:check` command. $ARGUMENTS

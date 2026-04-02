@@ -1,50 +1,50 @@
-# hooks/ 目录
+# hooks/ directory
 
-AI 编码代理 hooks 脚本，在操作前后自动触发。同时支持 Claude Code 和 Codex CLI。
+AI coded agent hooks script, automatically triggered before and after the operation. Both Claude Code and Codex CLI are supported.
 
-## 文件说明
+## File description
 
-| 文件 | 触发时机 | 职责 | Codex |
+| Documentation | Trigger Timing | Responsibilities | Codex |
 |------|----------|------|-------|
-| `log.sh` | 被其他 hook source | 日志模块，提供 `vg_log`、JSON 解析、源码判断等共享函数 | — |
-| `circuit-breaker.sh` | 被其他 hook source | 断路器库：CLOSED→OPEN→HALF-OPEN 状态机、CI guard、stop_hook_active 检查 | — |
-| `run-hook-codex.sh` | Codex wrapper | Codex 输出格式适配器（`decision:block` → `permissionDecision:deny`） | — |
-| `pre-bash-guard.sh` | PreToolUse(Bash) | 拦截危险命令：force push、rm -rf /、reset --hard 等 | ✅ |
-| `pre-edit-guard.sh` | PreToolUse(Edit) | 拦截编辑不存在的文件（防幻觉） | ❌ |
-| `pre-write-guard.sh` | PreToolUse(Write) | 新建源码文件前提醒先搜索已有实现 | ❌ |
-| `post-edit-guard.sh` | PostToolUse(Edit) | 编辑后检测质量问题：unwrap、console.log、硬编码路径、Go error 丢弃、超大 diff、同文件反复编辑（churn） | ❌ |
-| `post-write-guard.sh` | PostToolUse(Write) | 新文件创建后检测重复定义和同名文件 | ❌ |
-| `post-build-check.sh` | PostToolUse(Edit/Write) | 编辑后自动运行语言对应的构建检查 | ✅ |
-| `skills-loader.sh` | 手动可选 | 可选的首次 Read 提示脚本；默认不注册到 hooks | ❌ |
-| `stop-guard.sh` | Stop | 完成前验证门禁，检查未提交的源码变更 | ✅ |
-| `learn-evaluator.sh` | Stop | 会话结束时采集指标 + 检测纠正信号（高 warn 率、文件 churn、escalate），有信号时建议 /learn | ✅ |
-| `pre-commit-guard.sh` | git pre-commit | 提交前自动守卫：质量检查 + 构建检查，10s 超时硬限 | — |
+| `log.sh` | Used by other hook sources | Log module, providing shared functions such as `vg_log`, JSON parsing, source code judgment, etc. | — |
+| `circuit-breaker.sh` | Checked by other hook source | Circuit breaker library: CLOSED→OPEN→HALF-OPEN state machine, CI guard, stop_hook_active | — |
+| `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (`decision:block` → `permissionDecision:deny`) | — |
+| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept dangerous commands: force push, rm -rf /, reset --hard, etc. | ✅ |
+| `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination) | ❌ |
+| `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file | ❌ |
+| `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn) | ❌ |
+| `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file | ❌ |
+| `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing | ✅ |
+| `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default | ❌ |
+| `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes | ✅ |
+| `learn-evaluator.sh` | Stop | Collect metrics at the end of session + detect corrective signals (high warn rate, file churn, escalate), suggest /learn when there are signals | ✅ |
+| `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check + build check, 10s timeout hard limit | — |
 
-**Codex 列说明**：✅ = 已部署到 `~/.codex/hooks.json`，❌ = Codex 暂不支持该 matcher，— = 不适用
+**Codex column description**: ✅ = Deployed to `~/.codex/hooks.json`, ❌ = Codex does not support this matcher yet, — = Not applicable
 
-## 双平台部署架构
+## Dual platform deployment architecture
 
 ```
 Claude Code                          Codex CLI
 ~/.claude/settings.json              ~/.codex/hooks.json
   ↓                                    ↓
-run-hook.sh (wrapper)                run-hook-codex.sh (wrapper + 格式适配)
+run-hook.sh (wrapper) run-hook-codex.sh (wrapper + format adaptation)
   ↓                                    ↓
-~/.vibeguard/installed/hooks/*       ~/.vibeguard/installed/hooks/* (共享)
+~/.vibeguard/installed/hooks/* ~/.vibeguard/installed/hooks/* (shared)
 ```
 
-- Claude Code: hooks 注册在 `settings.json`，通过 `run-hook.sh` 分发
-- Codex CLI: hooks 注册在 `hooks.json`，通过 `run-hook-codex.sh` 分发并适配输出格式
-- 两者共享同一份 hook 脚本快照（`~/.vibeguard/installed/hooks/`）
+- Claude Code: hooks are registered in `settings.json` and distributed through `run-hook.sh`
+- Codex CLI: hooks are registered in `hooks.json`, distributed through `run-hook-codex.sh` and adapted to the output format
+- Both share the same hook script snapshot (`~/.vibeguard/installed/hooks/`)
 
-## Decision 类型
+## Decision type
 
-hooks 使用以下 decision 类型记录到 events.jsonl：
+Hooks are logged to events.jsonl using the following decision types:
 `pass` / `warn` / `block` / `gate` / `escalate` / `correction` / `complete`
 
-## 开发规范
+## Development specifications
 
-- 所有 hook 必须 `source log.sh` 引入共享函数
-- 使用 `vg_log` 记录事件，不直接写文件
-- 通过环境变量传递数据给 python3，避免注入风险
-- 新增 hook 时同步检查是否可部署到 Codex（看 matcher 支持）
+- All hooks must introduce shared functions in `source log.sh`
+- Use `vg_log` to record events instead of writing to files directly
+- Pass data to python3 through environment variables to avoid injection risks
+- When adding a hook, synchronously check whether it can be deployed to Codex (see matcher support)

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# VibeGuard 质量等级自动评分
+# VibeGuard quality level automatic scoring
 #
-# 从 events.jsonl 计算质量等级（A/B/C/D），输出分数和推荐 GC 频率。
+# Calculate the quality grade (A/B/C/D) from events.jsonl, output the score and recommended GC frequency.
 #
-# 评分公式：
+# Scoring formula:
 #   grade = security × 0.4 + stability × 0.3 + coverage × 0.2 + performance × 0.1
-#   等级: A(≥90) B(70-89) C(50-69) D(<50)
-#   GC 频率: A=7天 B=3天 C=1天 D=实时
+# Grade: A(≥90) B(70-89) C(50-69) D(<50)
+# GC frequency: A=7 days B=3 days C=1 day D=real time
 #
-# 用法：
-#   bash quality-grader.sh           # 分析最近 30 天
-#   bash quality-grader.sh 7         # 分析最近 7 天
-#   bash quality-grader.sh all       # 全部历史
-#   bash quality-grader.sh --json    # JSON 格式输出
+# Usage:
+# bash quality-grader.sh # Analyze the last 30 days
+# bash quality-grader.sh 7 # Analyze the last 7 days
+# bash quality-grader.sh all # All history
+# bash quality-grader.sh --json # JSON format output
 
 set -euo pipefail
 
@@ -30,7 +30,7 @@ done
 LOG_FILE="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/events.jsonl"
 
 if [[ ! -f "$LOG_FILE" ]]; then
-  echo "没有日志数据。hooks 触发后会自动记录到 $LOG_FILE"
+  echo "No log data. Hooks will be automatically logged to $LOG_FILE after being triggered"
   exit 0
 fi
 
@@ -52,7 +52,7 @@ rules_dir = os.environ.get("VG_RULES_DIR", "")
 native_rules_dir = os.environ.get("VG_NATIVE_RULES_DIR", "")
 json_output = os.environ.get("VG_JSON", "false") == "true"
 
-# 读取事件
+#Read events
 events = []
 with open(log_file) as f:
     for line in f:
@@ -65,17 +65,17 @@ with open(log_file) as f:
             continue
 
 if not events:
-    print("没有日志数据。")
+    print("No log data.")
     sys.exit(0)
 
-# 时间过滤
+# Time filter
 if days != "all":
     cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
     cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
     events = [e for e in events if e.get("ts", "") >= cutoff_str]
 
 if not events:
-    print(f"最近 {days} 天没有日志数据。")
+    print(f"There is no log data in the last {days} days.")
     sys.exit(0)
 
 total = len(events)
@@ -85,21 +85,21 @@ blocks = by_decision.get("block", 0)
 warns = by_decision.get("warn", 0)
 passes = by_decision.get("pass", 0)
 
-# --- 指标计算 ---
+# --- Indicator calculation ---
 
-# security: block 拦截率越低越好（说明代码质量高，很少触发严重拦截）
-# 计算方式：100 - (block / total * 100)
+# security: block The lower the interception rate, the better (indicating that the code quality is high and serious interceptions are rarely triggered)
+# Calculation method: 100 - (block / total * 100)
 security = max(0, 100 - (blocks / total * 100)) if total > 0 else 100
 
-# stability: pass 率越高越好
+# stability: The higher the pass rate, the better
 stability = (passes / total * 100) if total > 0 else 100
 
-# coverage: 守卫脚本覆盖的规则占比
+# coverage: Proportion of rules covered by guard scripts
 rule_ids = set()
 for md_file in glob.glob(os.path.join(rules_dir, "*.md")):
     with open(md_file) as f:
         for line in f:
-            # 提取 RS-XX, GO-XX, TS-XX, PY-XX, U-XX, SEC-XX 格式
+            # Extract RS-XX, GO-XX, TS-XX, PY-XX, U-XX, SEC-XX formats
             import re
             for m in re.finditer(r"\b(RS|GO|TS|PY|U|SEC)-\d+\b", line):
                 rule_ids.add(m.group())
@@ -120,7 +120,7 @@ for guard_file in glob.glob(os.path.join(guards_dir, "**/*"), recursive=True):
 implemented = rule_ids & guard_ids
 coverage_mechanical = (len(implemented) / len(rule_ids) * 100) if rule_ids else 0
 
-# AI 可见覆盖率: 规则 ID 出现在 ~/.claude/rules/vibeguard/
+# AI visible coverage: rule ID appears in ~/.claude/rules/vibeguard/
 ai_visible_ids = set()
 if native_rules_dir and os.path.isdir(native_rules_dir):
     for nr_file in glob.glob(os.path.join(native_rules_dir, "**/*.md"), recursive=True):
@@ -137,19 +137,19 @@ ai_visible = rule_ids & ai_visible_ids
 coverage_ai = (len(ai_visible) / len(rule_ids) * 100) if rule_ids else 0
 dual_covered = implemented & ai_visible
 
-# 综合覆盖率: AI 可见 + 机械强制 (union)
+# Comprehensive coverage: AI visible + mechanical force (union)
 all_covered = implemented | ai_visible
 coverage = (len(all_covered) / len(rule_ids) * 100) if rule_ids else 0
 
-# performance: 慢操作占比越低越好（duration_ms > 5000）
+# performance: The lower the proportion of slow operations, the better (duration_ms > 5000)
 events_with_duration = [e for e in events if "duration_ms" in e]
 if events_with_duration:
     slow_ops = sum(1 for e in events_with_duration if e.get("duration_ms", 0) > 5000)
     performance = max(0, 100 - (slow_ops / len(events_with_duration) * 100))
 else:
-    performance = 100  # 无耗时数据，默认满分
+    performance = 100 # No time-consuming data, default full score
 
-# --- 加权评分 ---
+# --- Weighted Rating ---
 grade_score = security * 0.4 + stability * 0.3 + coverage * 0.2 + performance * 0.1
 grade_score = round(grade_score, 1)
 
@@ -164,9 +164,9 @@ elif grade_score >= 50:
     gc_days = 1
 else:
     grade = "D"
-    gc_days = 0  # 实时
+    gc_days = 0 # real-time
 
-gc_freq = f"{gc_days}天" if gc_days > 0 else "实时"
+gc_freq = f"{gc_days} days" if gc_days > 0 else "real time"
 
 if json_output:
     result = {
@@ -189,29 +189,29 @@ if json_output:
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 else:
-    period = "全部历史" if days == "all" else f"最近 {days} 天"
+    period = "all history" if days == "all" else f"last {days} days"
     print(f"""
-VibeGuard 质量评分 ({period})
+VibeGuard quality score ({period})
 {"=" * 40}
-等级: {grade} ({grade_score} 分)
-推荐 GC 频率: {gc_freq}
+Grade: {grade} ({grade_score} points)
+Recommended GC frequency: {gc_freq}
 
-分项指标:
-  安全性 (×0.4):  {security:.1f}  (block {blocks}/{total})
-  稳定性 (×0.3):  {stability:.1f}  (pass {passes}/{total})
-  覆盖率 (×0.2):  {coverage:.1f}  (综合 {len(all_covered)}/{len(rule_ids)} 条规则)
-    机械强制:      {coverage_mechanical:.1f}  (守卫/hooks {len(implemented)} 条)
-    AI 可见:       {coverage_ai:.1f}  (~/.claude/rules/ {len(ai_visible)} 条)
-    双重覆盖:      {len(dual_covered)} 条
-  性能   (×0.1):  {performance:.1f}  (慢操作 {slow_ops if events_with_duration else "N/A"}/{len(events_with_duration)} 次)
+Sub-indicators:
+  Security (×0.4): {security:.1f} (block {blocks}/{total})
+  Stability (×0.3): {stability:.1f} (pass {passes}/{total})
+  Coverage (×0.2): {coverage:.1f} (combined {len(all_covered)}/{len(rule_ids)} rules)
+    Mechanical enforcement: {coverage_mechanical:.1f} (guards/hooks {len(implemented)})
+    AI visible: {coverage_ai:.1f} (~/.claude/rules/ {len(ai_visible)} items)
+    Double coverage: {len(dual_covered)} items
+  Performance (×0.1): {performance:.1f} ({slow_ops if events_with_duration else "N/A"}/{len(events_with_duration)} times)
 
-事件总数: {total}
-规则总数: {len(rule_ids)} (综合覆盖: {len(all_covered)}, 未覆盖: {len(rule_ids - all_covered)})""")
+Total number of events: {total}
+Total number of rules: {len(rule_ids)} (Comprehensive coverage: {len(all_covered)}, Uncovered: {len(rule_ids - all_covered)})""")
 
     if rule_ids - all_covered:
         uncovered = sorted(rule_ids - all_covered)
         uncovered_str = ", ".join(uncovered[:10])
-        extra = f" (+{len(uncovered)-10} 条)" if len(uncovered) > 10 else ""
-        print(f"未覆盖规则: {uncovered_str}{extra}")
+        extra = f" (+{len(uncovered)-10} items)" if len(uncovered) > 10 else ""
+        print(f"Uncovered rule: {uncovered_str}{extra}")
     print()
 '

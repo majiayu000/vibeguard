@@ -1,6 +1,6 @@
-# Delivery Base — 共享交付流程
+# Delivery Base — shared delivery process
 
-fixflow 和 optflow 共享的交付步骤基础。两者通过引用本文件复用通用流程。
+Delivery step base shared by fixflow and optflow. Both reuse common processes by referencing this document.
 
 ## Define Ready Criteria (DoR)
 

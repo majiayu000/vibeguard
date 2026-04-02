@@ -183,16 +183,16 @@ check_claude_home_installation() {
     done < <(find "${rules_dest}" -type f -name "*.md" 2>/dev/null)
     claude_md="${CLAUDE_DIR}/CLAUDE.md"
     if [[ -f "${claude_md}" ]]; then
-      declared_count=$(grep -o '[0-9]* 条规则' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
+      declared_count=$(grep -o '[0-9]* rules' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
       declared_count="${declared_count:-0}"
       if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
         green "[OK] Rule count in sync: ${actual_rule_count} rules"
       else
         yellow "[DRIFT] CLAUDE.md declares ${declared_count} rules, actual: ${actual_rule_count}"
         if [[ "$(uname)" == "Darwin" ]]; then
-          sed -i '' "s/${declared_count} 条规则/${actual_rule_count} 条规则/" "${claude_md}"
+          sed -i '' "s/${declared_count} rules/${actual_rule_count} rules/" "${claude_md}"
         else
-          sed -i "s/${declared_count} 条规则/${actual_rule_count} 条规则/" "${claude_md}"
+          sed -i "s/${declared_count} rules/${actual_rule_count} rules/" "${claude_md}"
         fi
         green "[FIXED] Updated CLAUDE.md rule count to ${actual_rule_count}"
       fi

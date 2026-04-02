@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 验证所有守卫脚本可执行且语法正确
+# VibeGuard CI: Verify that all guard scripts are executable and have correct syntax
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -7,7 +7,7 @@ errors=0
 
 echo "Validating guard scripts..."
 
-# 检查 Rust 守卫
+# Check for Rust guards
 for script in "${REPO_DIR}"/guards/rust/*.sh; do
   [[ -f "$script" ]] || continue
   name=$(basename "$script")
@@ -25,7 +25,7 @@ for script in "${REPO_DIR}"/guards/rust/*.sh; do
   fi
 done
 
-# 检查 TypeScript 守卫（bash 脚本）
+# Check TypeScript guards (bash script)
 for script in "${REPO_DIR}"/guards/typescript/*.sh; do
   [[ -f "$script" ]] || continue
   name=$(basename "$script")
@@ -43,7 +43,7 @@ for script in "${REPO_DIR}"/guards/typescript/*.sh; do
   fi
 done
 
-# 检查 Go 守卫（bash 脚本）
+# Check Go guards (bash script)
 for script in "${REPO_DIR}"/guards/go/*.sh; do
   [[ -f "$script" ]] || continue
   name=$(basename "$script")
@@ -61,7 +61,7 @@ for script in "${REPO_DIR}"/guards/go/*.sh; do
   fi
 done
 
-# 检查 Python 守卫
+# Check Python guards
 for script in "${REPO_DIR}"/guards/python/*.py; do
   [[ -f "$script" ]] || continue
   name=$(basename "$script")

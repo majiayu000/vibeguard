@@ -1,12 +1,12 @@
 ---
-description: "配置文件和环境变量的保护规则"
+description: "Protection rules for configuration files and environment variables"
 globs: ["**/.env*", "**/config/**", "**/*.yaml", "**/*.yml", "**/*.toml", "**/docker-compose*"]
 ---
 
 # Config Protection
 
-- .env 文件修改前必须征得用户同意
-- 禁止在配置文件中硬编码密钥、token、密码
-- 新增环境变量必须在 .env.example 中添加对应条目（不含真实值）
-- Docker/K8s 配置变更前确认不影响现有部署
-- 端口分配检查冲突：修改前用 lsof 确认端口空闲
+- User consent must be obtained before modifying the .env file
+- It is prohibited to hardcode keys, tokens, and passwords in configuration files
+- New environment variables must add corresponding entries (excluding real values) in .env.example
+- Confirm before changing Docker/K8s configuration that it will not affect existing deployments
+- Port allocation check conflict: use lsof to confirm that the port is free before modification

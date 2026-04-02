@@ -9,21 +9,21 @@
       "expect": "warn",
       "keyword": "[L1]",
       "input_format": "script",
-      "description": "检测同名源码文件重复"
+      "description": "Detect duplicate source files with the same name"
     },
     "tp/dup-definition.sh": {
       "rule": "L1",
       "expect": "warn",
       "keyword": "[L1]",
       "input_format": "script",
-      "description": "检测重复定义"
+      "description": "Detect duplicate definitions"
     },
     "tp/scan-budget-exceeded.sh": {
       "rule": "L1",
       "expect": "warn",
       "keyword": "[L1]",
       "input_format": "script",
-      "description": "超过文件预算时降级"
+      "description": "Downgrade when file budget exceeded"
     },
     "fp/non-source-md.txt": {
       "rule": "L1",
@@ -31,7 +31,7 @@
       "keyword": "VIBEGUARD",
       "input_format": "write_json",
       "content": "# test",
-      "description": "非源码文件 (.md) 放行"
+      "description": "Non-source files (.md) are released"
     },
     "fp/no-git-project.txt": {
       "rule": "L1",
@@ -39,7 +39,7 @@
       "keyword": "VIBEGUARD",
       "input_format": "write_json",
       "content": "fn main() {}",
-      "description": "无 git 项目时放行"
+      "description": "Release when there is no git project"
     },
     "fp/empty-content.txt": {
       "rule": "L1",
@@ -47,7 +47,7 @@
       "keyword": "VIBEGUARD",
       "input_format": "write_json",
       "content": "",
-      "description": "空 content 放行"
+      "description": "Empty content is allowed"
     },
     "fp/empty-filepath.txt": {
       "rule": "L1",
@@ -56,7 +56,7 @@
       "input_format": "write_json",
       "file_path_override": "",
       "content": "fn main() {}",
-      "description": "空 file_path 放行"
+      "description": "Empty file_path is allowed"
     },
     "fp/non-source-sh.txt": {
       "rule": "L1",
@@ -64,7 +64,7 @@
       "keyword": "VIBEGUARD",
       "input_format": "write_json",
       "content": "#!/bin/bash\necho test",
-      "description": "非源码扩展名 (.sh) 放行"
+      "description": "Non-source extension (.sh) allowed"
     }
   }
 }

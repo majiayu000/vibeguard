@@ -1,15 +1,15 @@
-# claude-md/ 目录
+# claude-md/ directory
 
-VibeGuard 规则注入机制。此目录包含将 VibeGuard 规则注入到用户 `~/.claude/CLAUDE.md` 的模板文件。
+VibeGuard rule injection mechanism. This directory contains template files that inject VibeGuard rules into users `~/.claude/CLAUDE.md`.
 
-## 工作方式
+## How to work
 
-1. `vibeguard-rules.md` 包含注入到 CLAUDE.md 的规则内容
-2. `setup.sh` 通过 `<!-- vibeguard-start -->` / `<!-- vibeguard-end -->` 标记管理注入区域
-3. 重新运行 `setup.sh` 会更新已有标记区域内的内容，不影响用户自定义内容
+1. `vibeguard-rules.md` contains the rule content injected into CLAUDE.md
+2. `setup.sh` manages the injection area through `<!-- vibeguard-start -->` / `<!-- vibeguard-end -->` tags
+3. Rerunning `setup.sh` will update the content in the existing marked area and will not affect user-defined content.
 
-## 修改规则
+## Modify rules
 
-1. 编辑 `vibeguard-rules.md`
-2. 运行 `bash setup.sh` 重新注入
-3. 新 Claude Code 会话中生效
+1. Edit `vibeguard-rules.md`
+2. Run `bash setup.sh` to re-inject
+3. Valid in new Claude Code session

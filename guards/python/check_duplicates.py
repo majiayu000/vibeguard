@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""通用重复定义检测器 — 检测 Protocol、类、函数重复。
+"""Universal duplicate definition detector — detects Protocol, class, function duplication.
 
-从 VibeGuard 框架泛化，扫描项目目录找出：
-1. 重复的 Protocol 定义（跨文件同名接口）
-2. 重复的类名（跨文件同名类）
-3. 重复的模块级函数（跨模块同名顶层函数）
+Generalizing from the VibeGuard framework, scan the project directory to find:
+1. Duplicate Protocol definitions (interfaces with the same name across files)
+2. Duplicate class names (classes with the same name across files)
+3. Duplicate module-level functions (top-level functions with the same name across modules)
 
-配置方式：
-  修改下方 CONFIG 部分的目录和豁免列表。
+Configuration method:
+  Modify the directory and exemption list in the CONFIG section below.
 
-使用方法：
+How to use:
     python check_duplicates.py [target_dir]
-    python check_duplicates.py --strict    # 有重复 Protocol 则退出码 1
+    python check_duplicates.py --strict # If there are duplicate protocols, exit code 1
 """
 
 import re
@@ -20,23 +20,23 @@ from collections import defaultdict
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# CONFIG — 根据项目需求修改以下配置
+# CONFIG — Modify the following configuration according to project needs
 # ---------------------------------------------------------------------------
 
-# 默认扫描目录（从命令行参数获取，或使用默认值）
+#Default scan directory (obtained from command line parameters, or use default value)
 DEFAULT_TARGET_DIR = Path(__file__).resolve().parent.parent / "app"
 
-# 跳过的目录和文件
+# Directories and files to skip
 SKIP_DIRS: set[str] = {"__pycache__", ".git", "archive", "tests"}
 SKIP_FILES: set[str] = {"__init__.py"}
 
-# Protocol 允许同名的豁免列表
+# Protocol allows exemption lists with the same name
 PROTOCOL_ALLOWLIST: set[str] = set()
 
-# 类名允许重复的豁免列表
+# Exemption list that allows duplicate class names
 CLASS_ALLOWLIST: set[str] = set()
 
-# 模块级函数允许同名的豁免列表（标准模式函数名）
+# Module-level functions allow exemption lists with the same name (standard mode function names)
 FUNC_ALLOWLIST: set[str] = {
     "configure",
     "setup",
@@ -46,7 +46,7 @@ FUNC_ALLOWLIST: set[str] = {
 
 
 # ---------------------------------------------------------------------------
-# 检测逻辑
+# Detection logic
 # ---------------------------------------------------------------------------
 
 MODULE_CLASS_RE = re.compile(r"^class\s+(\w+)\s*[\(:]")

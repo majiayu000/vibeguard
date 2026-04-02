@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard TypeScript Guards — 共享函数库
+# VibeGuard TypeScript Guards — Shared function library
 #
-# 所有 TypeScript 守卫脚本通过 source common.sh 引入，消除重复代码。
-# 提供：list_ts_files、参数解析、临时文件管理
-# 模式参考：guards/rust/common.sh
+# All TypeScript guard scripts are introduced through source common.sh to eliminate duplicate code.
+# Provide: list_ts_files, parameter parsing, temporary file management
+# Pattern reference: guards/rust/common.sh
 
 set -euo pipefail
 
-# 列出 .ts/.tsx/.js/.jsx 源文件
-# 优先级：VIBEGUARD_STAGED_FILES（pre-commit 模式，只扫 staged）> git ls-files > find
+# List .ts/.tsx/.js/.jsx source files
+# Priority: VIBEGUARD_STAGED_FILES (pre-commit mode, only scan staged) > git ls-files > find
 list_ts_files() {
   local dir="$1"
   if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
@@ -24,14 +24,14 @@ list_ts_files() {
   fi
 }
 
-# 过滤掉测试文件
+# Filter out test files
 filter_non_test() {
   grep -vE '(\.(test|spec)\.(ts|tsx|js|jsx)$|/tests/|/__tests__/|/test/)' || true
 }
 
-# 解析 --strict / --baseline 标志和 target_dir
-# 用法: parse_guard_args "$@"
-# 设置变量: TARGET_DIR, STRICT, BASELINE_COMMIT
+# Parse --strict / --baseline flags and target_dir
+# Usage: parse_guard_args "$@"
+# Set variables: TARGET_DIR, STRICT, BASELINE_COMMIT
 parse_guard_args() {
   TARGET_DIR="."
   STRICT=false
@@ -70,10 +70,10 @@ parse_guard_args() {
     esac
     shift
   done
-  # 解析为绝对规范路径（消除 . / 相对路径 / macOS /var→/private/var 符号链接歧义）
+  # Resolve to absolute canonical path (disambiguation of . / relative path / macOS /var→/private/var symbolic link)
   TARGET_DIR="$(cd "${TARGET_DIR}" 2>/dev/null && pwd -P || echo "${TARGET_DIR}")"
 
-  # 验证 baseline commit 存在，防止无效 commit 导致空 linemap 并静默放过所有检查
+  # Verify that baseline commit exists to prevent invalid commits from causing empty linemaps and silently pass all checks
   if [[ -n "$BASELINE_COMMIT" ]]; then
     if ! git -C "${TARGET_DIR}" rev-parse --verify "${BASELINE_COMMIT}" >/dev/null 2>&1; then
       echo "Error: --baseline '${BASELINE_COMMIT}' is not a valid commit in '${TARGET_DIR}'" >&2
@@ -84,13 +84,13 @@ parse_guard_args() {
 
 # vg_build_diff_linemap OUTPUT_FILE [EXT_FILTER]
 #
-# 构建 diff 新增行号索引文件（每行格式: "filepath:linenum"）。
-# 用于 baseline 扫描：只报告本次 diff 新增的问题，不报告既有问题。
+# Build diff and add new line number index file (each line format: "filepath:linenum").
+# Used for baseline scanning: only new problems added to this diff will be reported, existing problems will not be reported.
 #
-# pre-commit 模式（VIBEGUARD_STAGED_FILES 已设置）: 读取 git diff --cached
-# baseline  模式（BASELINE_COMMIT 已设置）        : 读取 git diff BASELINE..HEAD
+# pre-commit mode (VIBEGUARD_STAGED_FILES is set): read git diff --cached
+# baseline mode (BASELINE_COMMIT is set): read git diff BASELINE..HEAD
 #
-# 返回: 0 = 成功（linemap 可能为空）；1 = 不在任何 diff 模式
+# Returns: 0 = success (linemap may be empty); 1 = not in any diff mode
 vg_build_diff_linemap() {
   local out="$1"
   local ext_filter="${2:-}"
@@ -190,7 +190,7 @@ with open(out_path, "w") as out:
   return 0
 }
 
-# 临时文件清理目录
+# Temporary file cleaning directory
 _VG_TMPDIR=""
 
 _vg_cleanup() {

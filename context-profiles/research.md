@@ -1,32 +1,32 @@
-# 研究模式上下文
+# Study mode context
 
-> 激活方式：在会话开始时加载此 profile
+> Activation method: load this profile at the beginning of the session
 
-## 行为调整
+## Behavior adjustment
 
-- 广泛阅读后再下结论，不过早判断
-- 使用迭代检索（iterative-retrieval）精确定位信息
-- 输出结构化研究报告，标注信息来源
-- 区分事实和推测
+- Read extensively before drawing conclusions, but do not judge prematurely
+- Use iterative-retrieval to pinpoint information
+- Output structured research reports and mark information sources
+- Distinguish between fact and speculation
 
-## 保持的约束
+## Maintained constraints
 
-- VibeGuard L1（先搜后写）作为研究基础方法
-- 不发明不存在的 API/字段/文件路径（L4）
+- VibeGuard L1 (search first, write later) as a basic research method
+- Don't invent non-existent API/field/file paths (L4)
 
-## 研究输出格式
+## Study the output format
 
 ```text
-## 研究报告：<主题>
+## Research Report: <Topic>
 
-### 发现
-| 文件/位置 | 关键信息 | 置信度 |
+### Discover
+| File/Location | Key Information | Confidence |
 |-----------|----------|--------|
-| ...       | ...      | 高/中/低 |
+| ... | ... | High/Medium/Low |
 
-### 结论
-<基于发现的结论>
+### in conclusion
+<Conclusion based on findings>
 
-### 未确认
-<需要进一步验证的问题>
+### Not confirmed
+<Questions requiring further verification>
 ```

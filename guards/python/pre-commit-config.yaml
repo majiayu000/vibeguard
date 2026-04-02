@@ -1,16 +1,16 @@
 # VibeGuard Pre-commit Hooks Template
 #
-# 使用方法：
-#   1. 复制此文件到项目根目录并重命名为 .pre-commit-config.yaml
-#   2. 修改路径和配置以匹配你的项目结构
-#   3. 运行: pip install pre-commit && pre-commit install
-#   4. 手动运行: pre-commit run --all-files
+# How to use:
+# 1. Copy this file to the project root directory and rename it to .pre-commit-config.yaml
+# 2. Modify paths and configuration to match your project structure
+# 3. Run: pip install pre-commit && pre-commit install
+# 4. Manual operation: pre-commit run --all-files
 
 default_language_version:
   python: python3.11
 
 repos:
-  # === 基础卫生 ===
+  # === Basic Hygiene ===
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -37,8 +37,8 @@ repos:
       - id: ruff-format
         files: ^(app|src|tests)/
 
-  # === 自定义命名规范检查 ===
-  # 取消注释并修改路径以启用
+  # === Custom naming convention check ===
+  # Uncomment and modify the path to enable
   # - repo: local
   #   hooks:
   #     - id: check-naming-convention
@@ -49,20 +49,20 @@ repos:
   #       files: ^(app|src)/
   #       pass_filenames: true
 
-  # === Shell 脚本检查 ===
+  # === Shell script check ===
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
         args: [-x]
 
-  # === Secret 扫描 ===
+  # === Secret scan ===
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.22.1
     hooks:
       - id: gitleaks
 
-  # === 提交信息规范 ===
+  # === Submission information specifications ===
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.0.0
     hooks:
@@ -70,7 +70,7 @@ repos:
         stages: [commit-msg]
         args: [--strict, feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert]
 
-  # === TypeScript/JavaScript (取消注释以启用) ===
+  # === TypeScript/JavaScript (uncomment to enable) ===
   # - repo: local
   #   hooks:
   #     - id: eslint

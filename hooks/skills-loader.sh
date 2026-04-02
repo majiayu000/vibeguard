@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard Skills Loader — 可选的 Skill/学习提示加载器
+# VibeGuard Skills Loader — Optional Skill/Learning Tips Loader
 #
-# 默认不注册；如需启用，可手动挂在 PreToolUse(Read) 上，每会话只触发一次。
-# 扫描 ~/.claude/skills/ 和 .claude/skills/ 中的 SKILL.md，
-# 按项目语言和当前目录匹配，输出相关 Skill 摘要。
+# Not registered by default; if you need to enable it, you can manually hang it on PreToolUse(Read), which is only triggered once per session.
+# Scan ~/.claude/skills/ and .claude/skills/ for SKILL.md,
+# Match the project language and current directory and output the relevant Skill summary.
 #
-# exit 0 = 始终放行（不阻止操作）
+# exit 0 = always let (do not block operation)
 set -euo pipefail
 
-# 共享 session ID（source log.sh 获取稳定的 VIBEGUARD_SESSION_ID）
+# Share session ID (source log.sh to obtain stable VIBEGUARD_SESSION_ID)
 _VG_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "${_VG_SCRIPT_DIR}/log.sh" ]]; then
   source "${_VG_SCRIPT_DIR}/log.sh"
@@ -16,21 +16,21 @@ elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; 
   source "${VIBEGUARD_DIR}/hooks/log.sh"
 fi
 
-# 每会话只运行一次：检查标志文件
+# Run only once per session: check flags file
 SESSION_FLAG="${HOME}/.vibeguard/.skills_loaded_${VIBEGUARD_SESSION_ID:-$$}"
 
 if [[ -f "$SESSION_FLAG" ]]; then
   exit 0
 fi
 
-# 标记已加载
+# mark loaded
 mkdir -p "$(dirname "$SESSION_FLAG")"
 touch "$SESSION_FLAG"
 
-# 清理过期标志文件（>24h）
+# Clean up expired flag files (>24h)
 find "${HOME}/.vibeguard/" -name ".skills_loaded_*" -mtime +1 -delete 2>/dev/null || true
 
-# 收集 Skill 目录
+# Collect Skill directory
 SKILL_DIRS=()
 [[ -d "${HOME}/.claude/skills" ]] && SKILL_DIRS+=("${HOME}/.claude/skills")
 [[ -d ".claude/skills" ]] && SKILL_DIRS+=(".claude/skills")
@@ -39,7 +39,7 @@ if [[ ${#SKILL_DIRS[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# 检测当前项目语言（快速检查）
+# Detect current project language (quick check)
 LANGS=""
 [[ -f "Cargo.toml" ]] && LANGS="${LANGS}rust "
 [[ -f "pyproject.toml" || -f "requirements.txt" ]] && LANGS="${LANGS}python "
@@ -47,7 +47,7 @@ LANGS=""
 [[ -f "package.json" ]] && LANGS="${LANGS}javascript "
 [[ -f "go.mod" ]] && LANGS="${LANGS}go "
 
-# 搜索匹配的 Skill
+# Search for matching Skills
 MATCHES=$(python3 -c "
 import os, sys, re
 
@@ -64,18 +64,18 @@ for skill_dir in skill_dirs:
     for entry in os.listdir(skill_dir):
         skill_path = os.path.join(skill_dir, entry, 'SKILL.md')
         if not os.path.isfile(skill_path):
-            # 也检查直接的 .md 文件
+            # Also check direct .md files
             skill_path = os.path.join(skill_dir, entry)
             if not skill_path.endswith('.md') or not os.path.isfile(skill_path):
                 continue
 
         try:
             with open(skill_path) as f:
-                content = f.read(2000)  # 只读前 2000 字符
+                content = f.read(2000) # Read only the first 2000 characters
         except (OSError, UnicodeDecodeError):
             continue
 
-        # 提取 frontmatter
+        # Extract frontmatter
         name = ''
         description = ''
         fm_match = re.search(r'^---\n(.*?)\n---', content, re.DOTALL)
@@ -91,20 +91,20 @@ for skill_dir in skill_dirs:
         if not name:
             continue
 
-        # 匹配规则：语言、项目名、关键词
+        # Matching rules: language, project name, keywords
         content_lower = content.lower()
         score = 0
 
-        # 语言匹配
+        # Language matching
         for lang in langs:
             if lang.lower() in content_lower:
                 score += 2
 
-        # 项目名匹配
+        # Project name match
         if cwd_name.lower() in content_lower:
             score += 3
 
-        # 触发条件中的关键词匹配
+        # Keyword matching in trigger conditions
         trigger_section = ''
         trigger_match = re.search(r'##\s*(Context|Trigger)', content, re.IGNORECASE)
         if trigger_match:
@@ -116,13 +116,13 @@ for skill_dir in skill_dirs:
         if score > 0:
             matches.append((score, name, description[:100]))
 
-# 按分数排序，输出 top 5
+# Sort by score and output top 5
 matches.sort(key=lambda x: -x[0])
 for score, name, desc in matches[:5]:
     print(f'{name}: {desc}')
 " 2>/dev/null || true)
 
-# ── 学习信号推荐（消费 learn-digest.jsonl，水位线去重） ──
+# ── Learning signal recommendation (consume learn-digest.jsonl, water level deduplication) ──
 DIGEST_FILE="${HOME}/.vibeguard/learn-digest.jsonl"
 WATERMARK_FILE="${HOME}/.vibeguard/.learn-watermark"
 
@@ -135,13 +135,13 @@ watermark = '${WATERMARK_FILE}'
 if not os.path.exists(digest):
     sys.exit(0)
 
-# 读水位线
+# Read water level
 last_ts = ''
 if os.path.exists(watermark):
     with open(watermark) as f:
         last_ts = f.read().strip()
 
-# 读取水位线之后的新信号
+# Read the new signal after the water mark
 new_signals = []
 latest_ts = last_ts
 with open(digest) as f:
@@ -165,19 +165,19 @@ with open(digest) as f:
 if not new_signals:
     sys.exit(0)
 
-# 按类型汇总，最多输出 5 条
+# Summarize by type, output up to 5 items
 type_labels = {
-    'repeated_warn': '高频警告',
-    'chronic_block': '反复拦截',
-    'hot_files': '热点文件',
-    'slow_sessions': '慢操作密集',
-    'warn_escalation': '警告趋势上升',
-    'linter_violations': '代码违规',
+    'repeated_warn': 'High frequency warning',
+    'chronic_block': 'Repeated interception',
+    'hot_files': 'hot files',
+    'slow_sessions': 'Slow operation intensive',
+    'warn_escalation': 'Warning trend rising',
+    'linter_violations': 'Code violations',
 }
 output = []
 for sig in new_signals[:5]:
     t = type_labels.get(sig['type'], sig['type'])
-    src = '[扫描]' if sig.get('source') == 'code_scan' else '[日志]'
+    src = '[scan]' if sig.get('source') == 'code_scan' else '[log]'
     if sig['type'] == 'linter_violations':
         detail = sig.get('guard', '')
         count = sig.get('count', '')
@@ -186,9 +186,9 @@ for sig in new_signals[:5]:
         count = sig.get('count', sig.get('edits', ''))
     if detail and len(detail) > 55:
         detail = '...' + detail[-52:]
-    output.append(f'{src} {t}: {detail} ({count}次)')
+    output.append(f'{src} {t}: {detail} ({count} times)')
 
-# 更新水位线
+# Update water level
 with open(watermark, 'w') as f:
     f.write(latest_ts)
 
@@ -196,28 +196,28 @@ for line in output:
     print(line)
 " 2>/dev/null || true)
 
-# 输出
+# output
 HAS_OUTPUT=false
 
 if [[ -n "$LEARN_HINTS" ]]; then
   HAS_OUTPUT=true
   HINT_COUNT=$(echo "$LEARN_HINTS" | wc -l | tr -d ' ')
-  echo "[VibeGuard 学习推荐] 检测到 ${HINT_COUNT} 个跨会话学习信号："
+  echo "[VibeGuard Learning Recommendations] ${HINT_COUNT} cross-session learning signals detected:"
   echo "$LEARN_HINTS" | while IFS= read -r line; do
     echo "  - ${line}"
   done
-  echo "运行 /vibeguard:learn 可从这些信号中提取守卫规则或 Skill。"
+  echo "Run /vibeguard:learn to extract guard rules or skills from these signals."
   echo
 fi
 
 if [[ -n "$MATCHES" ]]; then
   HAS_OUTPUT=true
   MATCH_COUNT=$(echo "$MATCHES" | wc -l | tr -d ' ')
-  echo "[VibeGuard Skills] 检测到 ${MATCH_COUNT} 个相关 Skill："
+  echo "[VibeGuard Skills] detected ${MATCH_COUNT} related Skills:"
   echo "$MATCHES" | while IFS= read -r line; do
     echo "  - ${line}"
   done
-  echo "使用 /skill-name 调用，或忽略此提示继续工作。"
+  echo "Invoke with /skill-name, or ignore this prompt and continue working."
 fi
 
 exit 0

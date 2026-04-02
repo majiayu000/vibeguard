@@ -6,4 +6,4 @@ rule:
     - pattern: _ = $CALL
     - pattern: $_, _ := $CALL
     - pattern: _, _ = $CALL
-message: "error 返回值被丢弃。修复：检查错误返回值"
+message: "error return value was discarded. Fix: Check error return value"

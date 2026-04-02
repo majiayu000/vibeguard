@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# VibeGuard Guard — 测试完整性检测 (W-12)
+# VibeGuard Guard — Test Integrity Detection (W-12)
 #
-# 检测 AI 代理可能用于伪造测试通过的攻击向量：
-#   1. 库影子文件 (Library Shadowing) — 本地文件覆盖标准库模块
-#   2. 空断言测试函数 (Empty Stub Detection) — 无断言的测试函数
+# Detect attack vectors that an AI agent might use to fake test passes:
+# 1. Library Shadowing - local files overwrite standard library modules
+# 2. Empty Stub Detection — Test function without assertions
 #
-# 用法：
-#   bash check_test_integrity.sh [target_dir]    # 扫描指定目录
-#   bash check_test_integrity.sh                 # 扫描当前目录
+# Usage:
+# bash check_test_integrity.sh [target_dir] # Scan the specified directory
+# bash check_test_integrity.sh # Scan the current directory
 #
-# 退出码：
-#   0 — 无问题
-#   1 — 发现问题
+#Exit code:
+# 0 — No problem
+#1 — Find the problem
 
 set -euo pipefail
 
@@ -22,15 +22,15 @@ yellow() { printf '\033[33m[W-12] %s\033[0m\n' "$1"; }
 red()    { printf '\033[31m[W-12] %s\033[0m\n' "$1"; }
 green()  { printf '\033[32m%s\033[0m\n' "$1"; }
 
-echo "测试完整性检测 (W-12): ${TARGET_DIR}"
+echo "Test Integrity Check (W-12): ${TARGET_DIR}"
 echo "---"
 
 # =========================================================
-# 1. 库影子文件检测
+# 1. Library shadow file detection
 # =========================================================
-echo "检查库影子文件..."
+echo "Check library shadow files..."
 
-# Python 标准库模块名（最常见的 shadow 目标）
+# Python standard library module name (the most common shadow target)
 PYTHON_STDLIB_MODULES=(
   os sys re io json math time copy enum abc
   abc ast builtins collections datetime decimal
@@ -47,7 +47,7 @@ for mod in "${PYTHON_STDLIB_MODULES[@]}"; do
   shadow_file="${TARGET_DIR}/${mod}.py"
   if [[ -f "$shadow_file" ]]; then
     rel_path="${shadow_file#${TARGET_DIR}/}"
-    red "库影子文件: ${rel_path} (shadows '${mod}' module)"
+    red "Library shadow file: ${rel_path} (shadows '${mod}' module)"
     SHADOW_FOUND=$((SHADOW_FOUND + 1))
     ISSUES=$((ISSUES + 1))
   fi
@@ -55,13 +55,13 @@ for mod in "${PYTHON_STDLIB_MODULES[@]}"; do
   shadow_pkg="${TARGET_DIR}/${mod}/__init__.py"
   if [[ -f "$shadow_pkg" ]]; then
     rel_path="${shadow_pkg#${TARGET_DIR}/}"
-    red "库影子包: ${rel_path} (shadows '${mod}' package)"
+    red "Library shadow package: ${rel_path} (shadows '${mod}' package)"
     SHADOW_FOUND=$((SHADOW_FOUND + 1))
     ISSUES=$((ISSUES + 1))
   fi
 done
 
-# JavaScript/TypeScript 库影子检测
+# JavaScript/TypeScript library shadow detection
 JS_STDLIB_MODULES=(
   path fs os crypto http https url util events
   assert stream buffer process child_process
@@ -71,7 +71,7 @@ for mod in "${JS_STDLIB_MODULES[@]}"; do
     shadow_file="${TARGET_DIR}/${mod}.${ext}"
     if [[ -f "$shadow_file" ]]; then
       rel_path="${shadow_file#${TARGET_DIR}/}"
-      red "库影子文件: ${rel_path} (shadows Node.js '${mod}' module)"
+      red "Library shadow file: ${rel_path} (shadows Node.js '${mod}' module)"
       SHADOW_FOUND=$((SHADOW_FOUND + 1))
       ISSUES=$((ISSUES + 1))
     fi
@@ -79,13 +79,13 @@ for mod in "${JS_STDLIB_MODULES[@]}"; do
 done
 
 if [[ "$SHADOW_FOUND" -eq 0 ]]; then
-  echo "  未发现库影子文件"
+  echo "Library shadow file not found"
 fi
 
 # =========================================================
-# 2. 空断言测试函数检测 (Python)
+# 2. Null assertion test function detection (Python)
 # =========================================================
-echo "检查空断言测试函数 (Python)..."
+echo "Check for null assertion test function (Python)..."
 
 _SCAN_ERR=$(mktemp)
 if ! EMPTY_STUBS=$(python3 -c '
@@ -146,7 +146,7 @@ for fpath in find_test_files(target):
 for v in violations:
     print(v)
 ' "$TARGET_DIR" 2>"$_SCAN_ERR"); then
-  red "扫描器错误：Python 空断言检测失败，测试完整性检测中止（fail-safe）"
+  red "Scanner error: Python null assertion check failed, test integrity check aborted (fail-safe)"
   cat "$_SCAN_ERR" >&2
   rm -f "$_SCAN_ERR"
   ISSUES=$((ISSUES + 1))
@@ -156,18 +156,18 @@ fi
 
 if [[ -n "$EMPTY_STUBS" ]]; then
   COUNT=$(echo "$EMPTY_STUBS" | wc -l | tr -d ' ')
-  yellow "无断言测试函数: ${COUNT} 处"
+  yellow "Test function without assertion: ${COUNT}"
   echo "$EMPTY_STUBS" | head -10
-  [[ "$COUNT" -gt 10 ]] && echo "  ... 还有 $((COUNT - 10)) 处"
+  [[ "$COUNT" -gt 10 ]] && echo " ... and $((COUNT - 10))"
   ISSUES=$((ISSUES + COUNT))
 else
-  echo "  未发现无断言测试函数"
+  echo "No assertion test function found"
 fi
 
 # =========================================================
-# 3. 空断言测试函数检测 (TypeScript/JavaScript)
+# 3. Null assertion test function detection (TypeScript/JavaScript)
 # =========================================================
-echo "检查空断言测试函数 (TypeScript/JavaScript)..."
+echo "Check for null assertion test function (TypeScript/JavaScript)..."
 
 _GREP_ERR=$(mktemp)
 _GREP_OUT=""
@@ -181,7 +181,7 @@ _GREP_OUT=$(grep -rn \
   "$TARGET_DIR" 2>"$_GREP_ERR") || _GREP_EXIT=$?
 # grep exit 1 = no matches (normal); exit 2+ = real error (fail-safe)
 if [[ "$_GREP_EXIT" -gt 1 ]]; then
-  red "扫描器错误：grep JS/TS 空断言检测失败 (exit ${_GREP_EXIT})，测试完整性检测中止（fail-safe）"
+  red "Scanner error: grep JS/TS null assertion check failed (exit ${_GREP_EXIT}), test integrity check aborted (fail-safe)"
   cat "$_GREP_ERR" >&2
   rm -f "$_GREP_ERR"
   ISSUES=$((ISSUES + 1))
@@ -209,22 +209,22 @@ fi
 
 if [[ -n "$JS_EMPTY_STUBS" ]]; then
   COUNT=$(echo "$JS_EMPTY_STUBS" | wc -l | tr -d ' ')
-  yellow "无断言测试块 (JS/TS): ${COUNT} 处 (需人工确认)"
+  yellow "No assertion test block (JS/TS): ${COUNT} (manual confirmation required)"
   echo "$JS_EMPTY_STUBS" | head -10
   ISSUES=$((ISSUES + COUNT))
 else
-  echo "  未发现无断言测试块 (JS/TS)"
+  echo "No assertion test block (JS/TS) found"
 fi
 
 # =========================================================
-# 总结
+# Summarize
 # =========================================================
 echo ""
 echo "---"
 if [[ "$ISSUES" -gt 0 ]]; then
-  red "发现 ${ISSUES} 个测试完整性问题 (W-12)"
+  red "${ISSUES} test integrity issues found (W-12)"
   exit 1
 else
-  green "测试完整性检测通过"
+  green "Test integrity check passed"
   exit 0
 fi

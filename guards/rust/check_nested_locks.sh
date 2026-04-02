@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测嵌套锁获取 (RS-01)
+# VibeGuard Rust Guard: Detect nested lock acquisitions (RS-01)
 #
-# 检测同一函数内在持有一个锁 guard 的同时获取另一个锁的模式。
-# 仅当两次 lock/read/write 调用在同一 brace depth（未被 {} 块分隔）
-# 时才报告，排除顺序获取（先获取再释放再获取）的安全模式。
+# Detect the pattern of acquiring another lock while holding one lock guard in the same function.
+# Only if two lock/read/write calls are at the same brace depth (not separated by {} blocks)
+# Report only when required, excluding the safe mode of sequential acquisition (first acquire, then release, then acquire).
 #
-# Pre-commit 模式: 只检查 staged 文件中的新增行
-# Standalone 模式: 全量扫描
+# Pre-commit mode: only check new lines in staged files
+# Standalone mode: full scan
 #
-# 用法:
+# Usage:
 #   bash check_nested_locks.sh [target_dir]
 #   bash check_nested_locks.sh --strict [target_dir]
 
@@ -16,7 +16,7 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# Pre-commit 模式：只扫 staged diff 新增行
+# Pre-commit mode: only scan new lines in staged diff
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
   STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" \
     | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \
@@ -51,7 +51,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
-# Standalone 模式：全量扫描，改进的嵌套检测
+# Standalone mode: full scan, improved nesting detection
 else
   list_rs_prod_files "${TARGET_DIR}" \
     | while IFS= read -r f; do
@@ -60,9 +60,9 @@ else
         fi
       done \
   | while IFS= read -r file; do
-    # 改进的 awk: 追踪 block scope，只在同一 scope 内多次获取锁时报告。
-    # 当遇到 {} 块边界时重置当前 scope 的锁计数。
-    # 排除 .read().await 后跟 } (scope drop) 再跟新 .read() 的模式。
+    # Improved awk: Track block scope and only report when locks are acquired multiple times in the same scope.
+    #Reset the current scope's lock count when encountering a {} block boundary.
+    # Exclude the pattern of .read().await followed by } (scope drop) followed by a new .read().
     awk '
       /^[[:space:]]*(pub[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+/ {
         func_name = $0
@@ -146,11 +146,11 @@ if [[ "${FOUND}" -eq 0 ]]; then
 else
   echo "Found ${FOUND} potential nested lock pattern(s)."
   echo ""
-  echo "修复方法："
-  echo "  1. 合并多个锁到单个 RwLock<CombinedState>（消除嵌套）"
-  echo "  2. 如必须多锁，统一获取顺序（如按字母序）防止 ABBA 死锁"
-  echo "  3. 缩小锁作用域：let value = lock.read().clone(); drop(lock); 再处理"
-  echo "  4. 使用 try_lock() / try_read() 避免无限等待"
+  echo "Repair method:"
+  echo " 1. Combine multiple locks into a single RwLock<CombinedState> (eliminate nesting)"
+  echo "2. If multiple locks are necessary, unify the acquisition order (such as alphabetical order) to prevent ABBA deadlock"
+  echo "3. Reduce the lock scope: let value = lock.read().clone(); drop(lock); and then process"
+  echo "4. Use try_lock() / try_read() to avoid infinite waiting"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

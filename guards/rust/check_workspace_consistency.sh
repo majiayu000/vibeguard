@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测 workspace 跨入口配置一致性 (RS-06)
+# VibeGuard Rust Guard: Detect workspace cross-entry configuration consistency (RS-06)
 #
-# 扫描 Cargo workspace 中所有入口 (bin crate)，报告：
-# 1. 各入口使用的环境变量名（env::var / env::var_os / option_env!）
-# 2. 各入口的硬编码路径后缀（.db / .sqlite / .json 等）
-# 3. 核心库 vs 各入口是否共享路径构建逻辑
+# Scan all entries (bin crates) in the Cargo workspace and report:
+# 1. The environment variable name used by each entry (env::var / env::var_os / option_env!)
+# 2. Hardcoded path suffix of each entry (.db / .sqlite / .json, etc.)
+# 3. Whether the core library vs. each entry shares path construction logic
 #
-# 目的：防止多个 binary 使用不同的路径/env var 导致数据分裂
+#Purpose: To prevent multiple binaries from using different paths/env var, causing data splitting
 #
-# 用法:
+# Usage:
 #   bash check_workspace_consistency.sh [workspace_dir]
 #   bash check_workspace_consistency.sh --strict [workspace_dir]
 
@@ -21,7 +21,7 @@ if [[ ! -f "${CARGO_TOML}" ]]; then
   exit 0
 fi
 
-# 检查是否是 workspace（有 [workspace] 或 workspace.members）
+# Check if it is a workspace (there is [workspace] or workspace.members)
 if ! grep -qE '^\[workspace\]|^workspace\.members' "${CARGO_TOML}" 2>/dev/null; then
   echo "Not a Cargo workspace (no [workspace] section). Skipping."
   exit 0
@@ -33,11 +33,11 @@ echo "Workspace: ${TARGET_DIR}"
 echo "======================================"
 echo
 
-# 提取 workspace members（简单解析，处理 "members = [...]" 格式）
+# Extract workspace members (simple parsing, processing "members = [...]" format)
 MEMBERS=()
 in_members=false
 while IFS= read -r line; do
-  # 跳过注释
+  # Skip comments
   [[ "${line}" =~ ^[[:space:]]*# ]] && continue
 
   if [[ "${line}" =~ members[[:space:]]*= ]]; then
@@ -45,19 +45,19 @@ while IFS= read -r line; do
   fi
 
   if [[ "${in_members}" == true ]]; then
-    # 提取引号中的路径
+    #Extract the path in quotes
     while [[ "${line}" =~ \"([^\"]+)\" ]]; do
       MEMBERS+=("${BASH_REMATCH[1]}")
       line="${line#*\"${BASH_REMATCH[1]}\"}"
     done
-    # 检查是否到了数组结束
+    # Check if the end of the array is reached
     if [[ "${line}" =~ \] ]]; then
       in_members=false
     fi
   fi
 done < "${CARGO_TOML}"
 
-# 展开 glob 模式（如 "crates/*" → crates/foo, crates/bar）
+# Expand glob patterns (such as "crates/*" → crates/foo, crates/bar)
 EXPANDED=()
 for member in "${MEMBERS[@]}"; do
   if [[ "${member}" == *"*"* || "${member}" == *"?"* ]]; then
@@ -82,7 +82,7 @@ echo
 
 FOUND=0
 
-# --- 检查 1: 环境变量使用 ---
+# --- Check 1: Environment variable usage ---
 echo "--- Environment Variables ---"
 echo
 
@@ -104,7 +104,7 @@ for member in "${MEMBERS[@]}"; do
   fi
 done
 
-# --- 检查 2: 硬编码文件路径 ---
+# --- Check 2: Hardcoded file path ---
 echo "--- Hardcoded File Paths ---"
 echo
 
@@ -130,7 +130,7 @@ for member in "${MEMBERS[@]}"; do
   fi
 done
 
-# --- 检查 3: 数据目录构建方式 ---
+# --- Check 3: Data directory construction method ---
 echo "--- Data Directory Construction ---"
 echo
 
@@ -151,11 +151,11 @@ for member in "${MEMBERS[@]}"; do
   fi
 done
 
-# --- 检查 4: 跨入口一致性分析 ---
+# --- Check 4: Cross-entry consistency analysis ---
 echo "--- Consistency Analysis ---"
 echo
 
-# 收集所有入口的 env var
+# Collect env var of all entries
 declare -A ENV_VAR_MEMBERS
 for member in "${MEMBERS[@]}"; do
   member_dir="${TARGET_DIR}/${member}"
@@ -176,7 +176,7 @@ for member in "${MEMBERS[@]}"; do
   done <<< "${envvars}"
 done
 
-# 找出语义相似但名称不同的 env var（如 *_DB_PATH, *_DATABASE_URL）
+# Find env vars with similar semantics but different names (such as *_DB_PATH, *_DATABASE_URL)
 db_vars=()
 port_vars=()
 host_vars=()
@@ -196,7 +196,7 @@ if [[ ${#db_vars[@]} -gt 1 ]]; then
   for v in "${db_vars[@]}"; do
     echo "  - ${v}"
   done
-  echo "  修复：统一到单个 env var（如 APP_DB_PATH），在 core 层提供 resolve_db_path() 公共函数，所有入口调用该函数。"
+  echo "Repair: Unify to a single env var (such as APP_DB_PATH), provide the resolve_db_path() public function in the core layer, and call this function at all entrances."
   echo
   FOUND=$((FOUND + 1))
 fi
@@ -219,7 +219,7 @@ if [[ ${#host_vars[@]} -gt 1 ]]; then
   FOUND=$((FOUND + 1))
 fi
 
-# 检查硬编码的数据库文件名是否一致
+# Check whether the hardcoded database file names are consistent
 declare -A DB_FILE_MEMBERS
 for member in "${MEMBERS[@]}"; do
   member_dir="${TARGET_DIR}/${member}"
@@ -252,21 +252,21 @@ if [[ ${#DB_FILE_MEMBERS[@]} -gt 1 ]]; then
   for dbf in "${!DB_FILE_MEMBERS[@]}"; do
     echo "  - ${dbf} → ${DB_FILE_MEMBERS[${dbf}]}"
   done
-  echo "  风险：不同 binary 创建各自的数据库文件，导致数据分裂。"
-  echo "  修复：在 core 层定义 default_db_path() 返回唯一路径，所有入口统一调用。参考 vibeguard/rules/universal.md U-11。"
+  echo "Risk: Different binaries create their own database files, resulting in data fragmentation."
+  echo "Repair: Define default_db_path() in the core layer to return a unique path and call it uniformly for all entries. Refer to vibeguard/rules/universal.md U-11."
   echo
   FOUND=$((FOUND + 1))
 fi
 
-# --- 总结 ---
+# --- Summarize ---
 echo "======================================"
 if [[ ${FOUND} -eq 0 ]]; then
   echo "No cross-entry consistency issues detected."
 else
   echo "Found ${FOUND} potential consistency issue(s)."
   echo ""
-  echo "总体修复策略：在 core/共享库 中创建统一的配置/路径解析函数，所有入口调用同一函数。"
-  echo "环境变量用统一前缀（如 APP_），数据路径用 dirs::data_local_dir() 统一基目录。"
+  echo "Overall repair strategy: Create a unified configuration/path parsing function in core/shared library, and all entries call the same function."
+  echo "Environment variables use a unified prefix (such as APP_), and data paths use dirs::data_local_dir() to unify the base directory."
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

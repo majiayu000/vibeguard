@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
-# VibeGuard Hook 日志模块
+# VibeGuard Hook log module
 #
-# 所有 hook 脚本 source 此文件，使用 vg_log 记录事件到 JSONL 文件。
-# 日志路径：~/.vibeguard/events.jsonl
+# All hook scripts source this file and use vg_log to record events to a JSONL file.
+# Log path: ~/.vibeguard/events.jsonl
 #
-# 用法：
+# Usage:
 #   source "$(dirname "$0")/log.sh"
 #   vg_log "pre-bash-guard" "Bash" "block" "force push" "git push --force"
 #   vg_log "post-edit-guard" "Edit" "warn" "unwrap detected" "src/main.rs"
 #   vg_log "pre-write-guard" "Write" "pass" "" "src/lib.rs"
 #
-# 支持的 decision 类型：
-#   pass     — 检查通过，放行
-#   warn     — 检测到问题，警告但不阻止
-#   block    — 严重问题，阻止操作
-#   gate     — 门禁触发，需要用户确认
-#   escalate — 升级警告，同一问题多次 warn 后自动升级
-#   complete — 操作完成确认
+#Supported decision types:
+# pass — pass the inspection and release
+# warn — Problem detected, warns but does not prevent
+# block — serious problem, blocking operation
+# gate - access control trigger, user confirmation is required
+# escalate — Escalation warning, the same issue will automatically escalate after multiple warns
+# complete — Operation completion confirmation
 
 VIBEGUARD_LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
 
-# 按项目隔离日志：用 git repo 根目录路径的哈希区分不同项目
+#Isolate logs by project: use the hash of the git repo root directory path to distinguish different projects
 _vg_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
 _vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8) || _vg_project_hash="fallback0"
 VIBEGUARD_PROJECT_LOG_DIR="${VIBEGUARD_LOG_DIR}/projects/${_vg_project_hash}"
 mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
 VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
 
-# 记录 hash → 项目路径映射（供 GC 学习阶段使用）
+# Record hash → project path mapping (for use in the GC learning phase)
 if [[ "$_vg_repo_root" != "global" ]]; then
   printf '%s' "$_vg_repo_root" > "$VIBEGUARD_PROJECT_LOG_DIR/.project-root" 2>/dev/null || true
 fi
 
-# 源码文件扩展名列表（共享常量）
+# Source file extension list (shared constant)
 VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
 
-# 判断文件是否为源码文件
-# 用法: vg_is_source_file "path/to/file.rs" && echo "是源码"
+# Determine whether the file is a source code file
+# Usage: vg_is_source_file "path/to/file.rs" && echo "is source code"
 vg_is_source_file() {
   local file_path="$1"
   local basename ext
@@ -50,8 +50,8 @@ vg_is_source_file() {
   return 1
 }
 
-# 从 stdin JSON 中提取指定字段
-# 用法: value=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
+#Extract specified fields from stdin JSON
+# Usage: value=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 vg_json_field() {
   local field_path="$1"
   python3 -c "
@@ -69,8 +69,8 @@ print(val if isinstance(val, str) else '')
 " 2>/dev/null || echo ""
 }
 
-# 从 stdin JSON 中提取两个字段，用 NUL 分隔（安全替代 ---SEPARATOR---）
-# 用法: read_result=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.content")
+# Extract two fields from stdin JSON, separated by NUL (safe alternative to ---SEPARATOR---)
+# Usage: read_result=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.content")
 #        FILE_PATH=$(echo "$read_result" | head -1)
 #        CONTENT=$(echo "$read_result" | tail -n +2)
 vg_json_two_fields() {
@@ -92,17 +92,17 @@ def get_nested(d, path):
 
 f1 = get_nested(data, '${field1}')
 f2 = get_nested(data, '${field2}')
-# 第一行是 field1，其余是 field2（field2 可能多行）
+# The first line is field1, the rest are field2 (field2 may have multiple lines)
 print(f1)
 print(f2)
 " 2>/dev/null || echo ""
 }
 
-# Session ID：同一个 Claude Code 会话内的事件共享同一个 session_id
-# 策略：祖先进程 PID + 30 分钟不活跃窗口 + 进程启动时间锚定
-# - PID 隔离：并行 Claude 实例各有独立 session_id
-# - 30min TTL：同一进程的不同任务（间隔 >30min）产生新 session_id，防止跨任务污染
-# - 进程启动时间锚定：防止 PID 回收导致旧 session_id 被继承（ps -o comm 无法区分同名新进程）
+# Session ID: Events within the same Claude Code session share the same session_id
+# Strategy: ancestor process PID + 30-minute inactivity window + process startup time anchor
+# - PID isolation: parallel Claude instances each have an independent session_id
+# - 30min TTL: Different tasks in the same process (interval >30min) generate new session_id to prevent cross-task pollution
+# - Process startup time anchoring: prevent PID recycling from causing the old session_id to be inherited (ps -o comm cannot distinguish new processes with the same name)
 if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   # Walk up the process tree to find the ancestor Claude Code (node/Electron) process.
   # Each parallel Claude Code instance has a unique PID, so this gives true per-instance isolation.
@@ -187,7 +187,7 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   fi
 fi
 
-# 计时器：在 hook 开头调用 vg_start_timer，vg_log 自动计算耗时
+#Timer: call vg_start_timer at the beginning of the hook, vg_log automatically calculates the time consumption
 _VG_START_MS=""
 vg_start_timer() {
   if command -v perl &>/dev/null; then
@@ -209,7 +209,7 @@ vg_log() {
   # Truncate detail to 200 chars
   detail="${detail:0:200}"
 
-  # 计算耗时
+  # Calculation time
   local duration_ms=""
   if [[ -n "$_VG_START_MS" ]]; then
     local end_ms
@@ -225,11 +225,11 @@ vg_log() {
   mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
   chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
-  # Pure bash JSON serialization（消除 python3 子进程）
+  # Pure bash JSON serialization (eliminates python3 subprocess)
   local ts
   ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-  # JSON escape: reason 和 detail 可能含特殊字符
+  # JSON escape: reason and detail may contain special characters
   local esc_reason="${reason//\\/\\\\}" esc_detail="${detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
@@ -244,7 +244,7 @@ vg_log() {
   printf '%s\n' "$json" >> "$VIBEGUARD_LOG_FILE"
   chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
 
-  # 同步写入全局日志（供 stats.sh 聚合分析）
+  # Synchronously write to the global log (for stats.sh aggregation analysis)
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
     printf '%s\n' "$json" >> "$global_log"

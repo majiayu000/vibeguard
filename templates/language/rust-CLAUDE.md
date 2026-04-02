@@ -1,8 +1,8 @@
-# [项目名] — Claude Code Guidelines
+# [Project Name] — Claude Code Guidelines
 
 ## Project Overview
 
-[项目简述]
+[Project Brief]
 
 | Component | Location | Tech Stack |
 |-----------|----------|------------|
@@ -14,31 +14,31 @@
 
 ### 1. NO BACKWARD COMPATIBILITY
 
-直接删除旧代码。
+Just delete the old code.
 
 ```rust
 // ❌ BAD
 #[deprecated(note = "Use new_function instead")]
 pub fn old_function() { new_function() }
 
-// ✅ GOOD - 直接删除，更新所有调用方
+// ✅ GOOD - delete directly, update all callers
 ```
 
 ### 2. NO DEAD CODE
 
-不留 `#[allow(dead_code)]`。
+Do not leave out `#[allow(dead_code)]`.
 
 ```rust
 // ❌ BAD
 #[allow(dead_code)]
 fn unused_helper() { ... }
 
-// ✅ GOOD - 直接删除
+// ✅ GOOD - delete directly
 ```
 
 ### 3. NO HARDCODING
 
-配置值来自环境变量或配置文件。
+Configuration values come from environment variables or configuration files.
 
 ```rust
 // ❌ BAD
@@ -50,14 +50,14 @@ let port = config.port;
 
 ### 4. NAMING CONVENTION
 
-- 类型/Trait：PascalCase（`HttpClient`）
-- 函数/变量：snake_case（`get_user`）
-- 常量：UPPER_SNAKE_CASE（`MAX_RETRIES`）
-- 模块/文件：snake_case（`http_client.rs`）
+- Type/Trait: PascalCase(`HttpClient`)
+- Function/Variable: snake_case(`get_user`)
+- Constant: UPPER_SNAKE_CASE(`MAX_RETRIES`)
+- module/file: snake_case (`http_client.rs`)
 
 ### 5. SEARCH BEFORE CREATE
 
-新建 struct/trait/函数前必须先搜索。
+You must search before creating a new struct/trait/function.
 
 ```bash
 rg "pub (struct|enum|trait) <Name>" src/
@@ -66,7 +66,7 @@ rg "pub fn <name>" src/
 
 ### 6. ERROR HANDLING
 
-使用具体错误类型，不滥用 `.unwrap()`。
+Use specific error types and don't abuse `.unwrap()`.
 
 ```rust
 // ❌ BAD
@@ -84,37 +84,37 @@ let value = map.get("key").ok_or(AppError::KeyNotFound("key"))?;
 src/
 ├── main.rs
 ├── lib.rs
-├── config/              # 配置
-├── core/                # 核心领域
+├── config/ # Configuration
+├── core/ # core area
 │   ├── models/
 │   └── traits/
-├── services/            # 业务逻辑
-├── adapters/            # 外部适配
+├── services/ # Business logic
+├── adapters/ # External adaptation
 │   ├── http/
 │   └── storage/
-└── utils/               # 工具函数
+└── utils/ # Utility function
 ```
 
 ---
 
 ## Code Quality
 
-### 检查命令
+### Check command
 
 ```bash
-# 编译检查
+# Compilation check
 cargo check --lib
 
-# 测试
+# test
 cargo test --lib
 
 # Clippy lint
 cargo clippy -- -D warnings
 
-# 格式化
+# format
 cargo fmt --check
 
-# 重复定义扫描
+# Repeat definition scan
 rg -n 'pub (struct|enum|trait) [A-Za-z_]+' src/ \
   | sed -E 's/.*(struct|enum|trait) ([A-Za-z_]+).*/\2/' \
   | sort | uniq -d
@@ -126,15 +126,15 @@ rg -n 'pub (struct|enum|trait) [A-Za-z_]+' src/ \
 
 ```bash
 cargo run
-cargo watch -x run  # 热重载
+cargo watch -x run # Hot reload
 ```
 
 ---
 
 ## Key Principles
 
-1. 所有权明确：借用优于克隆
-2. 错误处理：`Result` 优于 `panic`
-3. 先搜后写：新建前必须搜索
-4. 最小改动：只做被要求的事
-5. 每个修复带测试
+1. Clear ownership: borrowing is better than cloning
+2. Error handling: `Result` is better than `panic`
+3. Search first and then write: you must search before creating a new one.
+4. Minimal changes: only do what is asked
+5. Test each repair tape

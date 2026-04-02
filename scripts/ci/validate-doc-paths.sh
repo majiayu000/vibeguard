@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 校验 markdown 文档中反引号路径引用的真实存在性
+# VibeGuard CI: Verify the true existence of backtick path references in markdown documents
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -42,10 +42,10 @@ def should_skip(path_str: str) -> bool:
         return True
     if any(c in path_str for c in SKIP_CONTAINS):
         return True
-    # 跳过裸文件名（无 / 路径分隔符）— 这些是目录上下文中的文件名引用，不是路径引用
+    # Skip bare filenames (without / path separator) - these are filename references in directory context, not path references
     if "/" not in path_str:
         return True
-    # 跳过以 . 开头的隐藏文件/扩展名列表（如 .py/.ts/.rs）
+    # Skip hidden file/extension lists starting with . (e.g. .py/.ts/.rs)
     if path_str.startswith("."):
         return True
     return False
@@ -54,9 +54,9 @@ def should_skip(path_str: str) -> bool:
 def main() -> int:
     allowlist = load_allowlist()
 
-    # 收集 markdown 文件
+    # Collect markdown files
     md_files = sorted(docs_dir.rglob("*.md"))
-    # 排除 node_modules 和 .git
+    # Exclude node_modules and .git
     md_files = [
         f for f in md_files
         if "node_modules" not in f.parts and ".git" not in f.parts
@@ -90,7 +90,7 @@ def main() -> int:
 
                 ref_count += 1
                 full_path = repo_root / path_str
-                # 也尝试相对于 markdown 文件所在目录解析
+                # Also try to parse relative to the directory where the markdown file is located
                 rel_path = md_file.parent / path_str
                 if not full_path.exists() and not rel_path.exists():
                     rel_md = md_file.relative_to(docs_dir) if docs_dir != repo_root else md_file.relative_to(repo_root)

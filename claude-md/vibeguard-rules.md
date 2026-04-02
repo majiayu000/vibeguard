@@ -1,53 +1,53 @@
 <!-- vibeguard-start -->
-# VibeGuard — AI 防幻觉规则
+#VibeGuard — AI anti-hallucination rules
 
-> 88 条规则通过 `~/.claude/rules/vibeguard/` 原生加载。这个项目**不存在** ORM、不存在前端框架、不存在微服务。
+> 88 rules loaded natively via `~/.claude/rules/vibeguard/`. There is no ORM, no front-end framework, and no microservices in this project.
 
-## 约束（L1-L7 由 Hooks 强制执行）
+## Constraints (L1-L7 are enforced by Hooks)
 
-| 层 | 规则 |
+| Layers | Rules |
 |----|------|
-| L1 | 新建前 **必须先搜索**；不存在"类似的文件可以新建" |
-| L2 | snake_case（API 边界 camelCase）；不存在别名 |
-| L3 | 禁静默吞异常；不存在 Any 类型的公开方法 |
-| L4 | 无数据=空白；不存在未声明的 API/字段 |
-| L5 | 只做被要求的事；不存在"顺手改进" |
-| L6 | 1-2 文件直接做 · 3-5 `/vibeguard:preflight` · 6+ `/vibeguard:interview` → spec |
-| L7 | 不存在 AI 标记 / force push / 密钥提交 |
+| L1 | **Must search first** before creating a new one; there is no "Similar files can be created" |
+| L2 | snake_case(API boundary camelCase); alias does not exist |
+| L3 | Disable silent swallowing of exceptions; there is no public method of Any type |
+| L4 | No data = blank; no undeclared API/field exists |
+| L5 | Just do what is asked; there is no "easy improvement" |
+| L6 | 1-2 file directly · 3-5 `/vibeguard:preflight` · 6+ `/vibeguard:interview` → spec |
+| L7 | AI tag does not exist / force push / key submission |
 
-## 上下文 · 验证
+## Context · Validation
 
-- 纠正 2 次 → `/clear`
-- **Compaction 后必须保留**：(1) 已修改文件列表 (2) 约束集/SPEC (3) 测试命令 (4) 关键决策 (5) 当前优先级 (6) L1-L7 规则摘要
-- **Compaction 后必须重新读取**：进行中的 preflight 约束集或 exec-plan 文件（如有）
-- 完成前：Rust `cargo check` / TS `npx tsc --noEmit` / Go `go build ./...`
-- 提交前：Rust `cargo test` / TS 项目测试 / Go `go test ./...` / Python `pytest`
+- Corrected 2 times → `/clear`
+- **Must be preserved after Compaction**: (1) List of modified files (2) Constraint set/SPEC (3) Test command (4) Key decisions (5) Current priority (6) L1-L7 rule summary
+- **Must be re-read after Compaction**: ongoing preflight constraint set or exec-plan file (if any)
+- Before completion: Rust `cargo check` / TS `npx tsc --noEmit` / Go `go build ./...`
+- Before submission: Rust `cargo test` / TS project test / Go `go test ./...` / Python `pytest`
 
-## 任务四要素（模糊需求时主动追问）
+## Four elements of the task (ask proactively when there are vague requirements)
 
-| 要素 | 问题 |
+| Elements | Questions |
 |------|------|
-| Goal | 要改什么/建什么？ |
-| Context | 哪些文件/文档/错误相关？ |
-| Constraints | 哪些标准/架构/约定必须遵守？ |
-| Done-when | 什么条件证明完成？ |
+| Goal | What to change/build? |
+| Context | Which files/documents/errors are relevant? |
+| Constraints | What standards/architectures/conventions must be followed? |
+| Done-when | What conditions prove completion? |
 
-## 工作流成熟度阶梯
+## Workflow maturity ladder
 
-**手动** → 验证有效后 → **Skill** → 稳定可靠后 → **Automation**
+**Manual** → After verification → **Skill** → After stable and reliable → **Automation**
 
-- 手动阶段：直接在对话中执行，调整直到可靠
-- Skill 阶段：打包为 SKILL.md，可复用，`/skill-name` 调用
-- Automation 阶段：加入定时调度（launchd/cron），无需人工触发
+- Manual phase: execute directly in the dialog, adjust until reliable
+- Skill stage: packaged as SKILL.md, reusable, called by `/skill-name`
+- Automation stage: Add scheduled scheduling (launchd/cron) without manual triggering
 
-规则：未经手动验证的工作流禁止直接自动化。
+Rule: Workflows without manual validation are prohibited from direct automation.
 
-## 命令
+## Order
 
-`preflight` 预防 · `check` 验证 · `review` 审查 · `cross-review` 对抗 · `build-fix` 构建 · `learn` 进化 · `interview` 采访 · `exec-plan` 长周期 · `gc` 清理 · `stats` 统计
-（前缀 `/vibeguard:`）
+`preflight` prevention · `check` verification · `review` review · `cross-review` confrontation · `build-fix` build · `learn` evolution · `interview` interview · `exec-plan` long cycle · `gc` cleanup · `stats` statistics
+(prefix `/vibeguard:`)
 
-## 优先级
+## Priority
 
-安全 > 逻辑 > 数据分裂 > 重复类型 > unwrap > 命名
+Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 <!-- vibeguard-end -->

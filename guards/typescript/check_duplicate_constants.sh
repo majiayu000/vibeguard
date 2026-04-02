@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # VibeGuard Guard: check_duplicate_constants.sh
-# 检测 TypeScript/JavaScript 项目中跨文件的常量和类型重复定义
+# Detect repeated definitions of constants and types across files in TypeScript/JavaScript projects
 #
-# 用法:
+# Usage:
 #   bash check_duplicate_constants.sh [project_dir]
 #   bash check_duplicate_constants.sh --strict [project_dir]
 #
-# 检测规则:
-#   1. const XXX = [...] 在多个文件中定义
-#   2. type/interface XXX 在多个文件中定义
-#   3. 同名函数在多个非测试文件中定义
+# Detection rules:
+# 1. const XXX = [...] defined in multiple files
+# 2. type/interface XXX is defined in multiple files
+# 3. Functions with the same name are defined in multiple non-test files
 
 set -euo pipefail
 
@@ -38,10 +38,10 @@ ISSUES=0
 echo "=== VibeGuard: Duplicate Constants Check ==="
 echo ""
 
-# --- 检查 1: const 常量重复 ---
+# --- Check 1: const constant duplication ---
 echo "--- Checking duplicate const definitions ---"
 
-# 提取所有 export const XXX 定义
+# Extract all export const XXX definitions
 CONST_DEFS=$(grep -rn "export const [A-Z][A-Z_]*\b" "$SRC_DIR" \
   --include="*.ts" --include="*.tsx" \
   | grep -v node_modules \
@@ -51,7 +51,7 @@ CONST_DEFS=$(grep -rn "export const [A-Z][A-Z_]*\b" "$SRC_DIR" \
   | sed 's/:.*//' \
   | sort || true)
 
-# 提取常量名并检查重复
+# Extract constant names and check for duplicates
 grep -roh "export const [A-Z][A-Z_]*" "$SRC_DIR" \
   --include="*.ts" --include="*.tsx" \
   | grep -v node_modules \
@@ -68,14 +68,14 @@ grep -roh "export const [A-Z][A-Z_]*" "$SRC_DIR" \
       if [[ "$FILE_COUNT" -gt 1 ]]; then
         echo "[DUP-CONST] ${CONST_NAME} defined in ${FILE_COUNT} files:"
         echo "$FILES" | sed 's/^/  - /'
-        echo "  Remediation: 保留一处定义，其他文件改为 import"
+        echo "Remediation: Keep one definition and change other files to import"
         echo ""
         ISSUES=$((ISSUES + 1))
       fi
     fi
   done
 
-# --- 检查 2: type/interface 重复 ---
+# --- Check 2: type/interface duplicate ---
 echo "--- Checking duplicate type/interface definitions ---"
 
 grep -roh "export \(type\|interface\) [A-Z][A-Za-z]*" "$SRC_DIR" \
@@ -93,14 +93,14 @@ grep -roh "export \(type\|interface\) [A-Z][A-Za-z]*" "$SRC_DIR" \
       if [[ "$FILE_COUNT" -gt 1 ]]; then
         echo "[DUP-TYPE] ${TYPE_NAME} defined in ${FILE_COUNT} files:"
         echo "$FILES" | sed 's/^/  - /'
-        echo "  Remediation: 集中到 src/types/ 下统一导出"
+        echo "Remediation: centralized and exported under src/types/"
         echo ""
         ISSUES=$((ISSUES + 1))
       fi
     fi
   done
 
-# --- 检查 3: 同名工具函数重复 ---
+# --- Check 3: Duplicate tool function with the same name ---
 echo "--- Checking duplicate function definitions ---"
 
 grep -roh "function [a-z][A-Za-z]*" "$SRC_DIR" \
@@ -119,7 +119,7 @@ grep -roh "function [a-z][A-Za-z]*" "$SRC_DIR" \
       if [[ "$FILE_COUNT" -ge 3 ]]; then
         echo "[DUP-FUNC] ${FUNC_NAME} defined in ${FILE_COUNT} files (>=3 = must abstract):"
         echo "$FILES" | sed 's/^/  - /'
-        echo "  Remediation: 提取到 src/lib/utils/ 下共享"
+        echo "Remediation: Extract to share under src/lib/utils/"
         echo ""
         ISSUES=$((ISSUES + 1))
       fi

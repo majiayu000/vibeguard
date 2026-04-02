@@ -1,65 +1,65 @@
 ---
 name: "VibeGuard: GC"
-description: "垃圾回收 — 日志归档、Worktree 清理、代码垃圾扫描"
+description: "Garbage collection - log archiving, Worktree cleaning, code garbage scanning"
 category: VibeGuard
 tags: [vibeguard, gc, cleanup, maintenance]
 ---
 
 <!-- VIBEGUARD:GC:START -->
-**核心理念**（来自 OpenAI Harness Engineering）
-- AI 生成的代码会产生"垃圾"（slop）：空 catch 块、遗留调试代码、过期 TODO、死代码
-- 手动清理消耗大量工时（Harness 团队曾每周五花 20% 时间清理）
-- 自动化 GC 让清理吞吐量与代码生成吞吐量等比例扩展
+**Core Concept** (from OpenAI Harness Engineering)
+- AI-generated code produces "slop": empty catch blocks, legacy debugging code, expired TODOs, dead code
+- Manual cleaning consumes a lot of man-hours (the Harness team once spent 20% of their time cleaning every Friday)
+- Automated GC allows cleaning throughput to scale proportionally with code generation throughput
 
-**触发条件**
-- 定期维护（建议每周一次）
-- 日志文件过大时
-- 项目代码量增长后
+**Trigger condition**
+- Regular maintenance (once a week is recommended)
+- When the log file is too large
+- After the project code volume increases
 
 **Guardrails**
-- 有未合并变更的 Worktree 只警告不删除
-- 日志归档前验证 JSON 格式，损坏行保留在主文件
-- 代码垃圾扫描只报告不自动修复（修复需用户确认）
+- Worktrees with unmerged changes will only be warned but not deleted
+- Verify JSON format before log archiving, and retain damaged lines in the main file
+- Code junk scan only reports and does not automatically repair (repair requires user confirmation)
 
 **Steps**
 
-1. **日志归档**
-   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc/gc-logs.sh`
-   - events.jsonl 超过 10MB 时按月归档（gzip）
-   - 保留最近 3 个月，更老的自动删除
-   - 输出归档统计
+1. **Log Archive**
+   - Run `bash ${VIBEGUARD_DIR}/scripts/gc/gc-logs.sh`
+   - events.jsonl archived monthly (gzip) when larger than 10MB
+   - Keep the last 3 months, older ones will be automatically deleted
+   - Output archive statistics
 
-2. **Worktree 清理**
-   - 运行 `bash ${VIBEGUARD_DIR}/scripts/gc/gc-worktrees.sh`
-   - 删除超过 7 天未活跃且无未合并变更的 worktree
-   - 有未合并变更的只警告，列出需要手动处理的
+2. **Worktree Cleanup**
+   - Run `bash ${VIBEGUARD_DIR}/scripts/gc/gc-worktrees.sh`
+   - Delete worktrees that have been inactive for more than 7 days and have no unmerged changes
+   - Only warnings about unmerged changes, listing those that need to be handled manually
 
-3. **代码垃圾扫描**
-   - 运行 `bash ${VIBEGUARD_DIR}/guards/universal/check_code_slop.sh <项目目录>`
-   - 检测 5 类 AI 垃圾模式：空异常处理、遗留调试代码、过期 TODO、死代码标记、超长文件
-   - 输出结构化报告
+3. **Code Junk Scanning**
+   - Run `bash ${VIBEGUARD_DIR}/guards/universal/check_code_slop.sh <project directory>`
+   - Detect 5 types of AI garbage patterns: null exception handling, legacy debugging code, expired TODO, dead code marking, overlong files
+   - Output structured reports
 
-4. **汇总报告**
+4. **Summary Report**
    ```
-   VibeGuard GC 报告
+   VibeGuard GC Report
    ==================
-   日志: 归档 XX 条，当前 XX 条
-   Worktree: 清理 X 个，警告 X 个
-   代码垃圾: X 个问题
-     - 空异常处理: X
-     - 遗留调试代码: X
-     - 过期 TODO: X
-     - 死代码标记: X
-     - 超长文件: X
+   Log: Archive XX items, current XX items
+   Worktree: Clean X, warn X
+   Code garbage: X problems
+     - Null exception handling: X
+     - Legacy debug code: X
+     - Expired TODO: X
+     - Dead code mark: X
+     - Extra long files: X
    ```
 
-5. **建议修复**
-   - 对每类垃圾问题给出修复建议
-   - 用户确认后可逐项修复
-   - 修复后运行 `/vibeguard:check` 验证
+5. **Recommended fix**
+   - Provide repair suggestions for each type of garbage problem
+   - Can be repaired item by item after user confirmation
+   - Run `/vibeguard:check` to verify after fixing
 
 **Reference**
-- 日志归档: `scripts/gc/gc-logs.sh`
-- Worktree 清理: `scripts/gc/gc-worktrees.sh`
-- 代码垃圾检测: `guards/universal/check_code_slop.sh`
+- Log archive: `scripts/gc/gc-logs.sh`
+- Worktree cleanup: `scripts/gc/gc-worktrees.sh`
+- Code garbage detection: `guards/universal/check_code_slop.sh`
 <!-- VIBEGUARD:GC:END -->

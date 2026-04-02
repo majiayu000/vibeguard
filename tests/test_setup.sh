@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard setup 回归测试
+# VibeGuard setup regression testing
 #
-# 用法：bash tests/test_setup.sh
+# Usage: bash tests/test_setup.sh
 
 set -euo pipefail
 
@@ -53,11 +53,11 @@ trap cleanup EXIT
 export HOME="${TMP_HOME}"
 
 header "setup scripts syntax"
-assert_cmd "setup.sh 语法正确" bash -n "${REPO_DIR}/setup.sh"
-assert_cmd "scripts/setup/install.sh 语法正确" bash -n "${REPO_DIR}/scripts/setup/install.sh"
-assert_cmd "scripts/setup/check.sh 语法正确" bash -n "${REPO_DIR}/scripts/setup/check.sh"
-assert_cmd "scripts/setup/clean.sh 语法正确" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
-assert_cmd "scripts/lib/settings_json.py 语法正确" python3 -m py_compile "${SETTINGS_HELPER}"
+assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
+assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
+assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/check.sh"
+assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
+assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
 
 header "seed legacy config"
 mkdir -p "${HOME}/.claude" "${HOME}/.codex"
@@ -108,71 +108,71 @@ cat > "${HOME}/.codex/config.toml" <<'TOML'
 command = "node"
 args = ["/legacy/mcp-server/dist/index.js"]
 TOML
-assert_cmd "已写入 legacy Claude MCP 配置" grep -q "mcp-server/dist/index.js" "${HOME}/.claude/settings.json"
-assert_cmd "已写入 legacy Codex MCP 配置" grep -q '^\[mcp_servers\.vibeguard\]' "${HOME}/.codex/config.toml"
+assert_cmd "Legacy Claude MCP configuration has been written" grep -q "mcp-server/dist/index.js" "${HOME}/.claude/settings.json"
+assert_cmd "Legacy Codex MCP configuration written" grep -q '^\[mcp_servers\.vibeguard\]' "${HOME}/.codex/config.toml"
 
 header "setup --check"
 check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
-assert_contains "${check_out}" "VibeGuard Installation Status" "--check 路由到状态检查"
+assert_contains "${check_out}" "VibeGuard Installation Status" "--check route to status check"
 
 header "setup install"
 install_out="$(bash "${REPO_DIR}/setup.sh")"
-assert_contains "${install_out}" "Setup complete! All components installed." "默认路由到安装流程"
-assert_cmd "安装后 ~/.claude/skills/vibeguard 存在" test -L "${HOME}/.claude/skills/vibeguard"
-assert_cmd "安装后 ~/.codex/skills/vibeguard 存在" test -L "${HOME}/.codex/skills/vibeguard"
-assert_cmd "安装后清理 legacy Claude MCP block" bash -c "! grep -q 'mcp-server/dist/index.js' '${HOME}/.claude/settings.json'"
-assert_cmd "安装后不再写入 mcpServers" bash -c "! grep -q 'mcpServers' '${HOME}/.claude/settings.json'"
-assert_cmd "settings helper 检测 pre hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
-assert_cmd "settings helper 检测 post hooks 已配置" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target post-hooks
-assert_cmd "默认安装不启用 post-guard-check" bash -c "! grep -q 'post-guard-check.sh' '${HOME}/.claude/settings.json'"
-assert_cmd "默认安装不启用 skills-loader" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
-assert_cmd "默认 core profile 不启用 full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
-assert_cmd "安装后存在 ~/.codex/hooks.json" test -f "${HOME}/.codex/hooks.json"
-assert_cmd "安装后启用 codex_hooks feature" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
-assert_cmd "安装后清理 legacy Codex MCP block" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
-assert_cmd "Codex hooks 不包含 cognitive-reminder" bash -c "! grep -q 'cognitive-reminder.sh' '${HOME}/.codex/hooks.json'"
-assert_cmd "Codex hooks 不包含 session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
-assert_cmd "Codex hooks 数量为 4" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values()); raise SystemExit(0 if total == 4 else 1)"
+assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
+assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
+assert_cmd "Clean legacy Claude MCP block after installation" bash -c "! grep -q 'mcp-server/dist/index.js' '${HOME}/.claude/settings.json'"
+assert_cmd "No longer write to mcpServers after installation" bash -c "! grep -q 'mcpServers' '${HOME}/.claude/settings.json'"
+assert_cmd "settings helper detects pre hooks configured" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
+assert_cmd "settings helper detects post hooks configured" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target post-hooks
+assert_cmd "post-guard-check is not enabled in the default installation" bash -c "! grep -q 'post-guard-check.sh' '${HOME}/.claude/settings.json'"
+assert_cmd "skills-loader is not enabled in the default installation" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
+assert_cmd "The default core profile does not enable full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
+assert_cmd "~/.codex/hooks.json exists after installation" test -f "${HOME}/.codex/hooks.json"
+assert_cmd "Enable codex_hooks feature after installation" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
+assert_cmd "Clean legacy Codex MCP block after installation" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
+assert_cmd "Codex hooks do not contain cognitive-reminder" bash -c "! grep -q 'cognitive-reminder.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "The number of Codex hooks is 4" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values()); raise SystemExit(0 if total == 4 else 1)"
 
 header "setup --clean"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
-assert_contains "${clean_out}" "VibeGuard cleaned." "--clean 路由到清理流程"
-assert_cmd "清理后 ~/.claude/skills/vibeguard 已移除" test ! -e "${HOME}/.claude/skills/vibeguard"
-assert_cmd "清理后 ~/.codex/hooks.json 已移除" test ! -e "${HOME}/.codex/hooks.json"
-assert_cmd "清理后 legacy Codex MCP block 已移除" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
+assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
+assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
+assert_cmd "~/.codex/hooks.json has been removed after cleaning" test ! -e "${HOME}/.codex/hooks.json"
+assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --profile core --languages rust)"
-assert_contains "${install_lang_out}" "Languages: rust" "--languages 参数生效"
-assert_cmd "--languages 安装后 --check 可执行" bash -c "bash '${REPO_DIR}/setup.sh' --check >/dev/null 2>&1"
+assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
+assert_cmd "--languages after installation --check executable" bash -c "bash '${REPO_DIR}/setup.sh' --check >/dev/null 2>&1"
 
 header "setup --clean (after --languages)"
 clean_lang_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
-assert_contains "${clean_lang_out}" "VibeGuard cleaned." "languages profile 清理成功"
+assert_contains "${clean_lang_out}" "VibeGuard cleaned." "languages profile cleaned successfully"
 
 header "setup install --profile full"
 install_full_out="$(bash "${REPO_DIR}/setup.sh" --profile full)"
-assert_contains "${install_full_out}" "Profile: full" "full profile 参数生效"
-assert_cmd "full profile 配置 full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
-assert_cmd "full profile 启用 stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
-assert_cmd "full profile 启用 learn-evaluator" grep -q "learn-evaluator.sh" "${HOME}/.claude/settings.json"
-assert_cmd "full profile 启用 post-build-check" grep -q "post-build-check.sh" "${HOME}/.claude/settings.json"
+assert_contains "${install_full_out}" "Profile: full" "full profile parameter takes effect"
+assert_cmd "full profile configuration full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
+assert_cmd "full profile enable stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
+assert_cmd "full profile enable learn-evaluator" grep -q "learn-evaluator.sh" "${HOME}/.claude/settings.json"
+assert_cmd "full profile enable post-build-check" grep -q "post-build-check.sh" "${HOME}/.claude/settings.json"
 
 header "setup --clean (after full)"
 clean_full_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
-assert_contains "${clean_full_out}" "VibeGuard cleaned." "full profile 清理成功"
-assert_cmd "清理后 full hooks 已移除" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
+assert_contains "${clean_full_out}" "VibeGuard cleaned." "full profile cleaned successfully"
+assert_cmd "full hooks have been removed after cleaning" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 
 header "setup install --profile strict"
 install_strict_out="$(bash "${REPO_DIR}/setup.sh" --profile strict)"
-assert_contains "${install_strict_out}" "Profile: strict" "strict profile 参数生效"
-assert_cmd "strict profile 仍配置 full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
-assert_cmd "strict profile 不启用 session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.claude/settings.json' && ! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
-assert_cmd "strict profile 不启用 cognitive-reminder" bash -c "! grep -q 'cognitive-reminder.sh' '${HOME}/.claude/settings.json' && ! grep -q 'cognitive-reminder.sh' '${HOME}/.codex/hooks.json'"
+assert_contains "${install_strict_out}" "Profile: strict" "strict profile parameter takes effect"
+assert_cmd "strict profile still configures full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
+assert_cmd "strict profile does not enable session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.claude/settings.json' && ! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "strict profile does not enable cognitive-reminder" bash -c "! grep -q 'cognitive-reminder.sh' '${HOME}/.claude/settings.json' && ! grep -q 'cognitive-reminder.sh' '${HOME}/.codex/hooks.json'"
 
 header "setup --clean (after strict)"
 clean_strict_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
-assert_contains "${clean_strict_out}" "VibeGuard cleaned." "strict profile 清理成功"
+assert_contains "${clean_strict_out}" "VibeGuard cleaned." "strict profile cleaned successfully"
 
 echo
 echo "=============================="

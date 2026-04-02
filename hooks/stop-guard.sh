@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# VibeGuard Stop Hook — 完成前验证门禁
+# VibeGuard Stop Hook — Verify access control before completion
 #
-# AI 会话结束时检查是否有未提交的源码变更。
-# 有未提交变更 → exit 0（log only; exit 2 在 Stop 上下文会触发无限循环）
-# 无变更或非 git 仓库 → exit 0（静默通过）
+# Check if there are any uncommitted source code changes at the end of the AI session.
+# There are uncommitted changes → exit 0 (log only; exit 2 will trigger an infinite loop in the Stop context)
+# No changes or non-git repository → exit 0 (pass silently)
 
 set -euo pipefail
 
@@ -20,12 +20,12 @@ INPUT=$(cat 2>/dev/null || true)
 # Checking it breaks the feedback → Stop hook → feedback → Stop hook infinite loop.
 vg_stop_hook_active "$INPUT" && exit 0
 
-# 不在 git 仓库 → 跳过
+# Not in git repository → skip
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 0
 fi
 
-# 检查是否有未提交的源码变更（staged + unstaged）
+# Check if there are any uncommitted source code changes (staged + unstaged)
 changed_source_files=""
 while IFS= read -r file; do
   if [[ -n "$file" ]] && vg_is_source_file "$file"; then
@@ -33,7 +33,7 @@ while IFS= read -r file; do
   fi
 done < <(git diff --name-only HEAD 2>/dev/null; git diff --name-only --cached 2>/dev/null)
 
-# 去重
+# Remove duplicates
 if [[ -n "$changed_source_files" ]]; then
   changed_source_files=$(echo "$changed_source_files" | sort -u)
   count=$(echo "$changed_source_files" | grep -c . || true)

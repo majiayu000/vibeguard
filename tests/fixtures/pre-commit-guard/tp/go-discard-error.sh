@@ -1,7 +1,7 @@
 #!/bin/bash
-# Go 项目：_ = doThing() 丢弃 error 应被拦截
+# Go project: _ = doThing() discard error should be intercepted
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理 CWD
+# Note: There is no trap, the runner is responsible for cleaning up CWD
 git -C "$tmp" init -q
 mkdir -p "$tmp/bin" "$tmp/cmd"
 

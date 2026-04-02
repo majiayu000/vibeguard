@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 检测源码中泄露的个人路径
-# 防止 /Users/<username>/ 或 /home/<username>/ 硬编码进入仓库
+# VibeGuard CI: Detect leaked personal paths in source code
+# Prevent /Users/<username>/ or /home/<username>/ from being hardcoded into the warehouse
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"

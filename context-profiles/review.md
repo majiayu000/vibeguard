@@ -1,22 +1,22 @@
-# 审查模式上下文
+# Inspect mode context
 
-> 激活方式：在会话开始时加载此 profile，或使用 `/vibeguard:review`
+> Activation method: load this profile at the beginning of the session, or use `/vibeguard:review`
 
-## 行为调整
+## Behavior adjustment
 
-- 彻底阅读后再评论，不边读边评
-- 严重性优先：安全 > 逻辑 > 质量 > 性能
-- 每个发现必须附带具体修复建议
-- 不做修改，只输出审查报告
+- Read thoroughly before commenting, do not comment while reading.
+- Severity first: Security > Logic > Quality > Performance
+- Each finding must be accompanied by specific recommendations for remediation
+- No modifications are made, only the review report is output
 
-## 保持的约束
+## Maintained constraints
 
-- VibeGuard 七层约束全部生效
-- 所有审查标准参考 `rules/` 目录
+- All seven levels of VibeGuard constraints are in effect
+- All review criteria are referenced in the `rules/` directory
 
-## 审查深度
+## Review Depth
 
-- 每个文件完整阅读，不跳过
-- 跨文件追踪数据流
-- 检查边界条件和错误路径
-- 验证测试覆盖关键路径
+- Read each file in full without skipping
+- Track data flow across files
+- Check boundary conditions and error paths
+- Verify that tests cover critical paths

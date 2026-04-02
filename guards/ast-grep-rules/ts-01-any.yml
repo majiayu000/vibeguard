@@ -3,7 +3,7 @@ language: TypeScript
 severity: warning
 rule:
   pattern: $X as any
-message: "'as any' 绕过类型检查。修复：使用具体类型或类型断言 'as SpecificType'"
+message: "'as any' bypasses type checking. Fix: Use concrete types or type assertion 'as SpecificType'"
 ---
 id: ts-01-colon-any-ts
 language: TypeScript
@@ -13,14 +13,14 @@ rule:
   has:
     kind: predefined_type
     regex: "^any$"
-message: "': any' 类型注解。修复：使用具体类型替代 any"
+message: "': any' type annotation. Fix: use concrete type instead of any"
 ---
 id: ts-01-as-any-tsx
 language: Tsx
 severity: warning
 rule:
   pattern: $X as any
-message: "'as any' 绕过类型检查。修复：使用具体类型或类型断言 'as SpecificType'"
+message: "'as any' bypasses type checking. Fix: Use concrete types or type assertion 'as SpecificType'"
 ---
 id: ts-01-colon-any-tsx
 language: Tsx
@@ -30,4 +30,4 @@ rule:
   has:
     kind: predefined_type
     regex: "^any$"
-message: "': any' 类型注解。修复：使用具体类型替代 any"
+message: "': any' type annotation. Fix: use concrete type instead of any"

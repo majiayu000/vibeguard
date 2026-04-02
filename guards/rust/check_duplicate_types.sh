@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测跨文件重复类型定义 (RS-05)
+# VibeGuard Rust Guard: Detect duplicate type definitions across files (RS-05)
 #
-# 扫描 pub struct/enum 的名称，报告同名类型出现在多个文件中的情况。
-# 用法:
+# Scan the names of pub struct/enum and report when types with the same name appear in multiple files.
+# Usage:
 #   bash check_duplicate_types.sh [target_dir]
-#   bash check_duplicate_types.sh --strict [target_dir]  # 有重复则退出码 1
+# bash check_duplicate_types.sh --strict [target_dir] # If there are duplicates, exit code 1
 #
-# 排除: tests/ 目录
+#Exclude: tests/ directory
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 
-# 允许列表
+# Allow list
 ALLOWLIST_FILE="${TARGET_DIR}/.vibeguard-duplicate-types-allowlist"
 
 declare -A ALLOWLIST
@@ -24,12 +24,12 @@ fi
 
 TMPFILE=$(create_tmpfile)
 
-# 提取：类型名 文件路径:行号（逐文件处理，兼容空格路径和空输入）
-# 使用 list_rs_prod_files 排除 test 文件和 worktree 副本。
+# Extraction: type name file path: line number (processed file by file, compatible with space paths and empty input)
+# Use list_rs_prod_files to exclude test files and worktree copies.
 list_rs_prod_files "${TARGET_DIR}" \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 排除字符串字面量内的 struct/enum（r#"..."# 或 "..."）
+        # Exclude struct/enum within string literals (r#"..."# or "...")
         grep -nE '^[[:space:]]*pub[[:space:]]+(struct|enum)[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' "${f}" 2>/dev/null \
           | grep -v 'r#"' \
           | awk -v file="${f}" '{
@@ -44,13 +44,13 @@ list_rs_prod_files "${TARGET_DIR}" \
   | sort \
   > "${TMPFILE}"
 
-# 构建允许列表参数给 awk
+# Construct allowed list parameters to awk
 ALLOWLIST_AWK=""
 for name in "${!ALLOWLIST[@]}"; do
   ALLOWLIST_AWK="${ALLOWLIST_AWK}${name}\n"
 done
 
-# 用 awk 单进程完成分组、去重、报告
+#Use awk single process to complete grouping, deduplication and reporting
 RESULT=$(awk -v allowlist="${ALLOWLIST_AWK}" '
 BEGIN {
   n = split(allowlist, arr, "\n")
@@ -85,19 +85,19 @@ END {
     printf "Found %d duplicate type(s).\n", found
   if (found > 0) {
     print ""
-    print "修复方法："
-    print "  1. 提取到共享模块：将类型定义移到 core/ 或 shared/，各入口 pub use 引入"
-    print "  2. 如果同名但不同义：重命名以区分语义（如 ServerConfig vs DesktopConfig）"
-    print "  3. 如果是 re-export 导致的假阳性：添加到 .vibeguard-duplicate-types-allowlist"
+    print "Repair method:"
+    print "1. Extract to the shared module: move the type definition to core/ or shared/, and introduce pub use at each entrance"
+    print "2. If they have the same name but different synonyms: rename to distinguish semantics (such as ServerConfig vs DesktopConfig)"
+    print "3. If it is a false positive caused by re-export: add to .vibeguard-duplicate-types-allowlist"
   }
   print "EXIT_CODE=" (found > 0 ? "1" : "0")
 }
 ' "${TMPFILE}")
 
-# 输出结果（去掉最后的 EXIT_CODE 行）
+# Output the results (remove the last EXIT_CODE line)
 echo "${RESULT}" | grep -v '^EXIT_CODE='
 
-# 提取退出码
+# Extract exit code
 SHOULD_FAIL=$(echo "${RESULT}" | grep '^EXIT_CODE=' | cut -d= -f2)
 if [[ "${STRICT}" == true && "${SHOULD_FAIL}" == "1" ]]; then
   exit 1

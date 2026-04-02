@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # VibeGuard PostToolUse(Edit) Hook
 #
-# 编辑源码后检测是否引入了质量问题：
-#   - Rust: 新增 unwrap()/expect() 到非测试代码
-#   - Rust: 新增 let _ = 静默丢弃 Result
-#   - 通用: 新增硬编码路径 (.db/.sqlite)
+# After editing the source code, check whether quality problems have been introduced:
+# - Rust: Add unwrap()/expect() to non-test code
+# - Rust: Added let _ = silently discard Result
+# - General: Added hardcoded paths (.db/.sqlite)
 #
-# 输出警告上下文，不阻止操作（事后提醒）
+# Output warning context, do not prevent operations (post-event reminder)
 #
-# 抑制单行警告：在被检测行的上一行添加：
+# Suppress single-line warnings: add the following line before the detected line:
 #   // vibeguard-disable-next-line RS-03 -- reason   (Rust/TS/JS/Go)
 #   # vibeguard-disable-next-line RS-03 -- reason    (Python/Shell)
 
@@ -62,16 +62,16 @@ for i, line in enumerate(lines):
 " "$rule"
 }
 
-# --- Rust 检查 ---
+# --- Rust inspection ---
 if [[ "$FILE_PATH" == *.rs ]]; then
-  # 排除测试文件
+  #Exclude test files
   case "$FILE_PATH" in
     */tests/*|*_test.rs|*/test_*) ;;
     *)
-      # [RS-03] 检测新增的 unwrap()/expect()
+      # [RS-03] Detect new unwrap()/expect()
       _RS03_FILTERED=$(echo "$NEW_STRING" | vg_filter_suppressed "RS-03")
       if echo "$_RS03_FILTERED" | grep -qE '\.(unwrap|expect)\(' 2>/dev/null; then
-        # 排除安全变体
+        # Exclude safe variants
         UNSAFE_COUNT=$(echo "$_RS03_FILTERED" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || true)
         SAFE_COUNT=$(echo "$_RS03_FILTERED" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
         REAL_COUNT=$((UNSAFE_COUNT - SAFE_COUNT))
@@ -83,7 +83,7 @@ SCOPE: this-edit only — do not propagate changes beyond this edit, add error t
 ACTION: REVIEW"
         fi
       fi
-      # [RS-10] 检测静默丢弃 Result（let _ = expr）
+      # [RS-10] Detect silent discard Result (let _ = expr)
       SILENT_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "RS-10" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null; true)
       if [[ $SILENT_COUNT -gt 0 ]]; then
         WARNINGS="${WARNINGS:+${WARNINGS}
@@ -96,14 +96,14 @@ ACTION: REVIEW"
   esac
 fi
 
-# --- JavaScript/TypeScript 检查：console.log/warn/error ---
+# --- JavaScript/TypeScript check: console.log/warn/error ---
 case "$FILE_PATH" in
   *.ts|*.tsx|*.js|*.jsx)
     case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*) ;;
       */debug.*|*/debug/*|*logger*|*logging*) ;;
       *)
-        # CLI 项目允许 console，跳过（bin 字段 / src/cli.* / scripts 含 cli）
+        # CLI project allows console, skip (bin field / src/cli.* / scripts including cli)
         _PKG_DIR=$(dirname "$FILE_PATH")
         _IS_CLI=false
         while [[ "$_PKG_DIR" != "/" && "$_PKG_DIR" != "." ]]; do
@@ -115,15 +115,15 @@ case "$FILE_PATH" in
           [[ "$_IS_CLI" == true ]] && break
           _PKG_DIR=$(dirname "$_PKG_DIR")
         done
-        # MCP 入口文件用 console.error 输出到 stderr 是协议标准做法，跳过
+        # It is a protocol standard practice to use console.error to output the MCP entry file to stderr, so skip it.
         if [[ "$_IS_CLI" == true ]]; then
-          : # CLI 项目，console 为正常输出方式
+          : # CLI project, console is the normal output mode
         elif [[ -f "$FILE_PATH" ]] && grep -qE '(StdioServerTransport|new Server\(|McpServer)' "$FILE_PATH" 2>/dev/null; then
-          : # MCP 入口文件，跳过 console 检测
+          : # MCP entry file, skip console detection
         else
           CONSOLE_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "DEBUG" | grep -cE '\bconsole\.(log|warn|error)\(' 2>/dev/null; true)
           if [[ $CONSOLE_COUNT -gt 0 ]]; then
-            # 检查文件中已有的 console 残留总数
+            # Check the total number of console residues already in the file
             FILE_CONSOLE_TOTAL=0
             if [[ -f "$FILE_PATH" ]]; then
               FILE_CONSOLE_TOTAL=$(grep -cE '\bconsole\.(log|warn|error)\(' "$FILE_PATH" 2>/dev/null; true)
@@ -144,14 +144,14 @@ DO NOT: Create new logger modules, modify other files, or fix console usage outs
           fi
         fi
 
-        # [U-HARDCODE] 已移除：信噪比过低，枚举赋值/React props/常量定义全误报
-        # 详见 docs/known-false-positives.md#U-HARDCODE
+        # [U-HARDCODE] Removed: signal-to-noise ratio is too low, enumeration assignment/React props/constant definition all false positives
+        # See docs/known-false-positives.md#U-HARDCODE for details
         ;;
     esac
     ;;
 esac
 
-# --- Python 检查：print() 语句 ---
+# --- Python check: print() statement ---
 case "$FILE_PATH" in
   *.py)
     case "$FILE_PATH" in
@@ -170,7 +170,7 @@ DO NOT: Modify logging configuration or other files"
     ;;
 esac
 
-# --- 通用检查：硬编码数据库路径 ---
+# --- Generic check: hardcoded database path ---
 if echo "$NEW_STRING" | vg_filter_suppressed "U-11" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null; then
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) ;;
@@ -184,13 +184,13 @@ DO NOT: Refactor path functions, move code to another file, or change other hard
   esac
 fi
 
-# --- Go 检查 ---
+# --- Go check ---
 case "$FILE_PATH" in
   *.go)
     case "$FILE_PATH" in
       *_test.go|*/vendor/*) ;;
       *)
-        # [GO-01] 检测 error 丢弃（排除 for range 和 map 查找）
+        # [GO-01] Detect error and discard (exclude for range and map searches)
         ERR_DISCARD=$(echo "$NEW_STRING" | vg_filter_suppressed "GO-01" | grep -E '^\s*_\s*(,\s*_)?\s*[:=]+' 2>/dev/null \
           | grep -cvE '(for\s+.*range|,\s*(ok|found|exists)\s*:?=)' 2>/dev/null; true)
         if [[ $ERR_DISCARD -gt 0 ]]; then
@@ -200,7 +200,7 @@ case "$FILE_PATH" in
 FIX: Replace _ = fn() with err := fn(); if err != nil { return fmt.Errorf(\"context: %w\", err) }
 DO NOT: Modify function signatures or upstream callers"
         fi
-        # [GO-08] 检测 defer 在循环内
+        # [GO-08] Detect defer inside loop
         DEFER_LOOP=$(echo "$NEW_STRING" | vg_filter_suppressed "GO-08" | awk '/^\s*for\s/ {in_loop=1} /^\s*defer\s/ && in_loop {count++} /^\s*\}/ {in_loop=0} END {print count+0}' 2>/dev/null; true)
         DEFER_LOOP="${DEFER_LOOP:-0}"
         if [[ $DEFER_LOOP -gt 0 ]]; then
@@ -215,7 +215,7 @@ DO NOT: Extract to a separate file or refactor loop logic beyond the current edi
     ;;
 esac
 
-# --- Anti-Stub 检测（GSD 借鉴：三级制品验证 Level 2 — Substantiveness） ---
+# --- Anti-Stub detection (GSD reference: Level 2 product verification Level 2 — Substantiveness) ---
 STUB_WARNINGS=""
 case "$FILE_PATH" in
   *.rs)
@@ -257,7 +257,7 @@ if [[ -n "$STUB_WARNINGS" ]]; then
 }${STUB_WARNINGS}"
 fi
 
-# --- 超大 diff 检测（可能是幻觉编辑） ---
+# --- Super large diff detection (possibly hallucinatory editing) ---
 DIFF_LINES=$(echo "$NEW_STRING" | wc -l | tr -d ' ')
 if [[ $DIFF_LINES -gt 200 ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS}
@@ -267,8 +267,8 @@ FIX: Verify the edit content is correct and intentional
 DO NOT: Take any action — this is informational only"
 fi
 
-# --- Churn Detection（同文件反复编辑 → 可能在循环修正） ---
-# 分级升级：5=提醒, 10=警告, 20+=强制停下
+# --- Churn Detection (the same file is edited repeatedly → may be corrected in a loop) ---
+#Grading upgrade: 5=reminder, 10=warning, 20+=forced stop
 CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, os
 log_file = os.environ.get("VG_LOG_FILE", "")
@@ -321,8 +321,8 @@ if [[ -z "$WARNINGS" ]]; then
   exit 0
 fi
 
-# --- Escalation 检测 ---
-# 同一文件在当前日志中被 warn 3 次以上 → 升级为 escalate
+# --- Escalation detection ---
+# The same file is warned more than 3 times in the current log → upgrade to escalate
 DECISION="warn"
 WARN_COUNT_FOR_FILE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, os
@@ -338,7 +338,7 @@ try:
                 continue
             try:
                 e = json.loads(line)
-                # 限定当前 session + 精确路径匹配（避免子路径误判）
+                #Limit the current session + exact path matching (to avoid misjudgment of sub-paths)
                 if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
                     count += 1
             except (json.JSONDecodeError, KeyError):
@@ -360,12 +360,12 @@ fi
 
 vg_log "post-edit-guard" "Edit" "$DECISION" "$WARNINGS" "$FILE_PATH"
 
-# 输出警告（通过环境变量传参，避免注入）
+# Output warnings (pass parameters through environment variables to avoid injection)
 VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
 import json, os
 warnings = os.environ.get("VG_WARNINGS", "")
 decision = os.environ.get("VG_DECISION", "warn")
-prefix = "VIBEGUARD 升级警告" if decision == "escalate" else "VIBEGUARD 质量警告"
+prefix = "VIBEGUARD upgrade warning" if decision == "escalate" else "VIBEGUARD quality warning"
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 验证规则文件格式正确
+# VibeGuard CI: Verify that the rule file is in the correct format
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -8,7 +8,7 @@ errors=0
 
 echo "Validating rule files..."
 
-# 检查所有规则文件存在且非空
+# Check that all rule files exist and are not empty
 for rule_file in universal.md python.md typescript.md go.md rust.md security.md; do
   path="${RULES_DIR}/${rule_file}"
   if [[ ! -f "$path" ]]; then
@@ -22,7 +22,7 @@ for rule_file in universal.md python.md typescript.md go.md rust.md security.md;
   fi
 done
 
-# 检查规则文件包含必要的表格结构
+# Check that the rule file contains the necessary table structure
 echo
 echo "Checking rule file structure..."
 for rule_file in "${RULES_DIR}"/*.md; do
@@ -34,12 +34,12 @@ for rule_file in "${RULES_DIR}"/*.md; do
     echo "WARN: ${name} missing ID column in table"
   fi
 
-  if ! grep -q '严重度\|严重\|高\|中\|低' "$rule_file" 2>/dev/null; then
+  if ! grep -q 'Severity\|Severe\|High\|Medium\|Low' "$rule_file" 2>/dev/null; then
     echo "WARN: ${name} missing severity indicators"
   fi
 done
 
-# 检查 vibeguard-rules.md 索引文件
+# Check vibeguard-rules.md index file
 RULES_INDEX="${REPO_DIR}/claude-md/vibeguard-rules.md"
 if [[ -f "$RULES_INDEX" ]]; then
   if grep -q 'vibeguard-start' "$RULES_INDEX" && grep -q 'vibeguard-end' "$RULES_INDEX"; then

@@ -115,7 +115,7 @@ def parse_duplicate_findings(lines: Sequence[str]) -> List[Finding]:
                 finding_id="",
                 step_id="",
                 category="same-concept multi-def",
-                title=f"收敛重复类型 `{current_symbol}` 定义",
+                title=f"Convergence repetition type `{current_symbol}` definition",
                 symbol=current_symbol,
                 files=files,
                 evidence=current_evidence[:3],
@@ -321,27 +321,27 @@ def render_plan(
     today = now.strftime("%Y-%m-%d")
     lines: List[str] = []
 
-    lines.append(f"# {task_name} 执行计划（自动生成草案）")
+    lines.append(f"# {task_name} execution plan (automatically generated draft)")
     lines.append("")
-    lines.append("- 计划版本: v1-draft")
-    lines.append(f"- 创建时间: {today}")
-    lines.append(f"- 适用仓库: `{repo_path}`")
-    lines.append("- 生成方式: `findings_to_plan.py` from redundancy scan")
-    lines.append("- 执行模式: 每步改动 -> 立即测试 -> 回写计划 -> 下一步")
+    lines.append("- planned version: v1-draft")
+    lines.append(f"- Creation time: {today}")
+    lines.append(f"-Applicable repositories: `{repo_path}`")
+    lines.append("- Generation method: `findings_to_plan.py` from redundancy scan")
+    lines.append("- Execution mode: Change each step -> Test now -> Write back plan -> Next step")
     lines.append("")
-    lines.append("## 0. 执行约束（DoR）")
+    lines.append("## 0. Execution constraints (DoR)")
     lines.append("")
-    lines.append("- 目标: 收敛重复/冗余设计并保持主流程稳定。")
-    lines.append("- 兼容性: required（默认向后兼容，除非步骤中明确说明）。")
-    lines.append("- 提交策略: per_step（每步测试通过后再提交，可按用户要求调整）。")
-    lines.append("- 测试策略:")
-    lines.append("  - 步骤级: 每步至少 1 条定向测试 + 1 条健康检查。")
-    lines.append("  - 阶段级: 每阶段完成后运行更广泛检查。")
-    lines.append("  - 最终: 运行全量或可行最大范围回归。")
+    lines.append("- Goal: Convergence of duplicate/redundant designs and keeping main flow stable.")
+    lines.append("-Compatibility: required (default backwards compatible unless explicitly stated in the step).")
+    lines.append("- Submission strategy: per_step (submit after each step of test passes, can be adjusted according to user requirements).")
+    lines.append("- Test strategy:")
+    lines.append(" - step level: at least 1 directed test + 1 health check per step.")
+    lines.append(" - Stage level: Runs more extensive checks after each stage is completed.")
+    lines.append(" - Final: Run full or feasible maximum range regression.")
     lines.append("")
-    lines.append("## 1. 分析结果（自动提取 + 评分）")
+    lines.append("## 1. Analysis results (automatic extraction + scoring)")
     lines.append("")
-    lines.append("| id | 类别 | 文件与符号 | impact | effort | risk | confidence | score | phase | 证据 | 建议收敛方向 |")
+    lines.append("| id | category | files and symbols | impact | effort | risk | confidence | score | phase | evidence | suggested convergence direction |")
     lines.append("|----|------|------------|--------|--------|------|------------|-------|-------|------|--------------|")
 
     if not findings:
@@ -369,7 +369,7 @@ def render_plan(
             )
 
     lines.append("")
-    lines.append("## 2. 分阶段执行顺序（P0 -> P1 -> P2）")
+    lines.append("## 2. Phased execution sequence (P0 -> P1 -> P2)")
     lines.append("")
     if not findings:
         lines.append("- P0: 0 steps")
@@ -386,22 +386,22 @@ def render_plan(
                 )
 
     lines.append("")
-    lines.append("## 3. 详细步骤（按 phase 排序）")
+    lines.append("## 3. Detailed steps (sorted by phase)")
     lines.append("")
 
     if not findings:
-        lines.append("### Step A1 补充分析证据并生成 findings")
+        lines.append("### Step A1 Supplement analysis evidence and generate findings")
         lines.append("")
-        lines.append("- 状态: `in_progress`")
-        lines.append("- 目标: 补齐 evidence 后再进入实现。")
-        lines.append("- 预计改动文件:")
+        lines.append("- status: `in_progress`")
+        lines.append("- Goal: Complete evidence before entering implementation.")
+        lines.append("- Files expected to be changed:")
         lines.append("  - `plan/<this-file>.md`")
-        lines.append("- 详细改动:")
-        lines.append("  - 补充文件级证据、风险说明与 canonical 选择。")
-        lines.append("- 步骤级测试命令:")
+        lines.append("- Detailed changes:")
+        lines.append(" - Supplement document-level evidence, risk statements, and canonical choices.")
+        lines.append("- step-level test command:")
         lines.append("  - `cargo check --lib`")
-        lines.append("- 完成判定:")
-        lines.append("  - 至少 3 个高置信 findings 可映射到明确改动步骤。")
+        lines.append("-Complete judgment:")
+        lines.append(" - At least 3 high-confidence findings map to explicit change steps.")
         lines.append("")
     else:
         first_step = True
@@ -409,58 +409,58 @@ def render_plan(
             phase_items = phase_summary(findings, phase)
             if not phase_items:
                 continue
-            lines.append(f"#### 阶段 {phase}")
+            lines.append(f"#### Phase {phase}")
             lines.append("")
             for finding in phase_items:
                 status = "in_progress" if first_step else "pending"
                 first_step = False
                 lines.append(f"### Step {finding.step_id} {finding.title}")
                 lines.append("")
-                lines.append(f"- 状态: `{status}`")
-                lines.append(f"- 关联 finding: `{finding.finding_id}`")
-                lines.append(f"- 优先级阶段: `{finding.phase}`")
+                lines.append(f"- status: `{status}`")
+                lines.append(f"- association finding: `{finding.finding_id}`")
+                lines.append(f"-priority phase: `{finding.phase}`")
                 lines.append(
-                    "- 评分: "
+                    "- Rating: "
                     f"`impact={label_score(finding.impact)}`, "
                     f"`effort={finding.effort}`, "
                     f"`risk={label_score(finding.risk)}`, "
                     f"`confidence={finding.confidence}`, "
                     f"`score={finding.priority_score}`"
                 )
-                lines.append("- 目标: 收敛该 finding 对应的重复/冗余路径，并保持行为一致。")
-                lines.append("- 预计改动文件:")
+                lines.append("- Goal: Convergence of duplicate/redundant paths corresponding to this finding and maintain consistent behavior.")
+                lines.append("- Files expected to be changed:")
                 if finding.files:
                     for path in finding.files[:4]:
                         lines.append(f"  - `{path}`")
                 else:
                     lines.append("  - `<to-identify>`")
-                lines.append("- 详细改动:")
-                lines.append("  - 选定 canonical 定义/入口，并将其余路径改为复用或弃用。")
-                lines.append("  - 为该收敛点补充守护测试，防止后续再次漂移。")
-                lines.append("- 步骤级测试命令:")
+                lines.append("- Detailed changes:")
+                lines.append(" - Select the canonical definition/entry and change the remaining paths to reuse or deprecate.")
+                lines.append(" - Supplement guard tests for this convergence point to prevent subsequent drift again.")
+                lines.append("- step-level test command:")
                 lines.append(f"  - `{suggest_test_command(finding.files)}`")
                 lines.append("  - `cargo check --lib`")
-                lines.append("- 完成判定:")
-                lines.append("  - 仅保留一条主路径，旧路径已迁移或明确标注兼容层。")
-                lines.append("  - 目标测试和健康检查均通过。")
+                lines.append("-Complete judgment:")
+                lines.append(" - Only one main path remains, the old path has been migrated or the compatibility layer is clearly marked.")
+                lines.append(" - Target tests and health checks passed.")
                 lines.append("")
 
-    lines.append("## 4. 回归测试矩阵")
+    lines.append("## 4. Regression test matrix")
     lines.append("")
-    lines.append("- 阶段完成检查:")
+    lines.append("- Phase completion check:")
     lines.append("  - `cargo check --lib`")
-    lines.append("- 最终检查:")
+    lines.append("- Final check:")
     lines.append("  - `cargo test --lib`")
     lines.append("")
-    lines.append("## 5. 执行日志（每步完成后追加）")
+    lines.append("## 5. Execution log (append after each step is completed)")
     lines.append("")
     lines.append("- <YYYY-MM-DD>")
     lines.append("  - Step <ID>: `completed`")
-    lines.append("    - 修改文件:")
+    lines.append(" - Modify file:")
     lines.append("      - `<file>`")
-    lines.append("    - 主要改动:")
+    lines.append(" - Main changes:")
     lines.append("      - <summary>")
-    lines.append("    - 执行测试:")
+    lines.append(" - Execute test:")
     lines.append("      - `<command>` -> pass/fail")
     lines.append("")
 
@@ -472,7 +472,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scan-report", type=Path, help="Path to markdown scan report.")
     parser.add_argument("--target-dir", help="Target dir for running redundancy scan (e.g. src).")
     parser.add_argument("--output", type=Path, required=True, help="Output plan file path.")
-    parser.add_argument("--task-name", default="冗余设计收敛", help="Plan title.")
+    parser.add_argument("--task-name", default="Redundant design convergence", help="Plan title.")
     parser.add_argument("--repo-path", type=Path, default=Path.cwd(), help="Repository root path.")
     parser.add_argument("--max-findings", type=int, default=12, help="Max findings to include.")
     return parser.parse_args()
@@ -501,14 +501,14 @@ def main() -> int:
     factory_findings = parse_single_line_findings(
         factory_lines,
         category="parallel-implementation",
-        title_prefix="收敛并行构造路径",
+        title_prefix="Convergent parallel construction path",
         impact="medium",
         risk="medium",
     )
     legacy_findings = parse_single_line_findings(
         legacy_lines,
         category="legacy-or-dead-code",
-        title_prefix="清理 legacy/dead-code 线索",
+        title_prefix="Clean up legacy/dead-code clues",
         impact="low",
         risk="low",
     )

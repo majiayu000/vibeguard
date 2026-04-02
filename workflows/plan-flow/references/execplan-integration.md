@@ -1,81 +1,81 @@
-# ExecPlan 集成说明
+# ExecPlan Integration Instructions
 
-> ExecPlan 如何与 VibeGuard 现有的 plan-flow 和 plan-mode 协作。
+> How ExecPlan works with VibeGuard’s existing plan-flow and plan-mode.
 
-## 何时用 ExecPlan vs plan-flow vs plan-mode
+## When to use ExecPlan vs plan-flow vs plan-mode
 
-| 工具 | 适用场景 | 生命周期 | 产出 |
+| Tools | Applicable scenarios | Life cycle | Output |
 |------|----------|----------|------|
-| **plan-mode** | 单会话任务，需要用户审批方案 | 当前会话 | 实现方案（会话内消费） |
-| **plan-flow** | 存量代码整理，冗余分析+逐步收敛 | 1-3 会话 | plan/*.md（分析+步骤+日志） |
-| **ExecPlan** | 长周期功能开发，从 SPEC 驱动的跨会话执行 | 2+ 会话 | *-execplan.md（自包含恢复文档） |
+| **plan-mode** | Single session task, user approval of the plan is required | Current session | Implementation plan (in-session consumption) |
+| **plan-flow** | Stock code organization, redundancy analysis + gradual convergence | 1-3 sessions | plan/*.md (analysis + steps + logs) |
+| **ExecPlan** | Long-term feature development, cross-session execution driven from SPEC | 2+ sessions | *-execplan.md (self-contained recovery document) |
 
-### 决策树
+### Decision tree
 
 ```
-任务到手
-├── 能一个会话做完？
-│   ├── 是 → 1-2 文件直接做 / 3-5 文件 plan-mode
-│   └── 否 ↓
-├── 是存量代码整理/重构？
-│   ├── 是 → plan-flow（冗余扫描 + 逐步收敛）
-│   └── 否 ↓
-└── 是新功能开发/长周期任务？
-    └── 是 → interview → SPEC → exec-plan → preflight → 执行
+Mission accomplished
+├── Can it be completed in one session?
+│ ├── Yes → 1-2 file directly / 3-5 file plan-mode
+│ └── No ↓
+├──Is it the stock code organization/refactoring?
+│ ├── Yes → plan-flow (redundant scan + gradual convergence)
+│ └── No ↓
+└──Is it new feature development/long-term task?
+    └── yes → interview → SPEC → exec-plan → preflight → execution
 ```
 
-## plan-flow 如何识别 ExecPlan
+## How plan-flow identifies ExecPlan
 
-plan-flow 的 redundancy_scan.sh 扫描时，遇到 `*-execplan.md` 文件应跳过冗余分析。原因：ExecPlan 的 Concrete Steps 与 plan-flow 的 Step 格式相同但语义不同 — ExecPlan 步骤描述的是未来要做的事，不是已完成的冗余收敛记录。
+When plan-flow's redundancy_scan.sh scans, redundancy analysis should be skipped when encountering `*-execplan.md` files. Reason: ExecPlan's Concrete Steps have the same format as plan-flow's Step but have different semantics - ExecPlan steps describe what is to be done in the future, not redundant convergence records that have been completed.
 
-识别规则：
-- 文件名匹配 `*-execplan.md`
-- 或文件头包含 `状态: draft | active | completed | abandoned`
+Identification rules:
+- Filename matches `*-execplan.md`
+- or the file header contains `status: draft | active | completed | abandoned`
 
-## 完整流水线
+## Complete pipeline
 
 ```
 /vibeguard:interview
     │
     ▼
-  SPEC.md（需求合同）
+  SPEC.md (Requirements Contract)
     │
     ▼
 /vibeguard:exec-plan init
     │
     ▼
-  *-execplan.md（执行计划）
+  *-execplan.md (execution plan)
     │
     ▼
-/vibeguard:preflight（约束集）
+/vibeguard:preflight (constraint set)
     │
     ▼
-  执行（按 Concrete Steps 逐步推进）
+  Execution (progress step by step according to Concrete Steps)
     │
-    ├── 每步完成 → /vibeguard:exec-plan update
-    ├── 新会话恢复 → /vibeguard:exec-plan status
-    └── 验证 → /vibeguard:check
+    ├── Complete each step → /vibeguard:exec-plan update
+    ├── New session recovery → /vibeguard:exec-plan status
+    └── Verification → /vibeguard:check
     │
     ▼
-  完成 → /vibeguard:exec-plan update（标记 completed）
+  Completed → /vibeguard:exec-plan update (mark completed)
 ```
 
-## 与 preflight 的关系
+## Relationship with preflight
 
-ExecPlan 和 preflight 是互补的：
+ExecPlan and preflight are complementary:
 
-- **ExecPlan** 定义"做什么" — 里程碑、步骤、验证标准
-- **preflight** 定义"不可做什么" — 约束集、守卫基线、防护边界
+- **ExecPlan** defines "what to do" - milestones, steps, verification criteria
+- **preflight** defines "what not to do" - constraint sets, guard baselines, guard boundaries
 
-推荐流程：先生成 ExecPlan（明确执行路径），再运行 preflight（建立防护边界），然后按 ExecPlan 步骤执行时对照 preflight 约束集自检。
+Recommended process: First generate ExecPlan (clear execution path), then run preflight (establish protection boundary), and then perform self-check against preflight constraint set when executing ExecPlan steps.
 
-## 跨会话恢复协议
+## Cross-session recovery protocol
 
-新会话恢复执行时：
+When execution resumes with a new session:
 
-1. 读取 `*-execplan.md`
-2. 运行 `/vibeguard:exec-plan status` 查看进度
-3. 找到第一个 `in_progress` 或 `pending` 的步骤
-4. 读取 Context 章节恢复项目上下文
-5. 读取 Decision Log 了解已有决策
-6. 继续执行
+1. Read `*-execplan.md`
+2. Run `/vibeguard:exec-plan status` to view the progress
+3. Find the first `in_progress` or `pending` step
+4. Read the Context chapter to restore the project context
+5. Read the Decision Log to understand the existing decisions
+6. Continue execution

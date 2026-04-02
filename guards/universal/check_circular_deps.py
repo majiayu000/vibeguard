@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""VibeGuard Guard — 循环依赖检测
+"""VibeGuard Guard — circular dependency detection
 
-构建模块级依赖图，检测环路。
-区分硬环（直接 import）和软环（可通过接口解耦）。
+Build module-level dependency graphs and detect loops.
+Distinguish between hard loops (direct import) and soft loops (can be decoupled through interfaces).
 
-用法：
+usage:
     python3 check_circular_deps.py [target_dir]
 
-退出码：
-    0 — 无循环依赖
-    1 — 发现循环依赖
+Exit code:
+    0 — no cyclic dependencies
+    1 — Circular dependencies found
 """
 
 import os
@@ -45,7 +45,7 @@ IMPORT_PATTERNS = {
         re.compile(r"""require\s*\(\s*['"](\.[^'"]+)['"]\s*\)"""),
     ],
     ".go": [
-        # Go 使用绝对路径，模块间循环由 compiler 检测，这里跳过
+        # Go uses absolute paths, and loops between modules are detected by the compiler and skipped here.
     ],
     ".rs": [
         re.compile(r"^\s*(?:pub\s+)?use\s+(crate::[\w:]+)", re.MULTILINE),
@@ -55,10 +55,10 @@ IMPORT_PATTERNS = {
 
 
 def get_module_name(file_path: str, base_dir: str) -> str:
-    """将文件路径转为模块名（取第一级目录作为模块）"""
+    """Convert the file path to the module name (take the first-level directory as the module)"""
     rel = os.path.relpath(file_path, base_dir)
     parts = rel.replace("\\", "/").split("/")
-    # 模块 = 第一级目录（src/ 下的第二级）
+    #Module = first-level directory (second level under src/)
     if parts[0] == "src" and len(parts) > 1:
         return parts[1]
     return parts[0]
@@ -67,24 +67,24 @@ def get_module_name(file_path: str, base_dir: str) -> str:
 def resolve_import_module(
     import_path: str, file_path: str, base_dir: str
 ) -> str | None:
-    """将 import 路径解析为模块名"""
+    """Resolve import path to module name"""
     if import_path.startswith("."):
-        # 相对路径
+        # Relative path
         dir_path = os.path.dirname(file_path)
         resolved = os.path.normpath(os.path.join(dir_path, import_path))
         return get_module_name(resolved, base_dir)
     elif import_path.startswith("crate::"):
-        # Rust crate 内部
+        # Inside the Rust crate
         parts = import_path.replace("crate::", "").split("::")
         return parts[0] if parts else None
     else:
-        # 包名 → 取第一段作为模块
+        # Package name → Take the first paragraph as the module
         parts = import_path.split(".")
         return parts[0] if parts else None
 
 
 def build_dependency_graph(target_dir: str) -> dict[str, set[str]]:
-    """构建模块级依赖图"""
+    """Building a module-level dependency graph"""
     graph: dict[str, set[str]] = defaultdict(set)
 
     for root, dirs, files in os.walk(target_dir):
@@ -122,7 +122,7 @@ def build_dependency_graph(target_dir: str) -> dict[str, set[str]]:
 
 
 def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
-    """DFS 检测所有环路"""
+    """DFS detects all loops"""
     cycles = []
     visited = set()
     path = []
@@ -132,7 +132,7 @@ def find_cycles(graph: dict[str, set[str]]) -> list[list[str]]:
         if node in path_set:
             cycle_start = path.index(node)
             cycle = path[cycle_start:] + [node]
-            # 规范化：最小元素开头
+            #Normalization: Start with the smallest element
             min_idx = cycle[:-1].index(min(cycle[:-1]))
             normalized = cycle[min_idx:-1] + cycle[min_idx : min_idx + 1]
             if normalized not in cycles:
@@ -163,39 +163,39 @@ def main():
     target_dir = sys.argv[1] if len(sys.argv) > 1 else "."
     target_dir = os.path.abspath(target_dir)
 
-    print(f"扫描目录: {target_dir}")
+    print(f"Scan directory: {target_dir}")
 
     graph = build_dependency_graph(target_dir)
 
     if not graph:
-        print("\033[33m未检测到模块间依赖关系\033[0m")
+        print("\033[33mNo inter-module dependencies detected\033[0m")
         sys.exit(0)
 
-    # 输出依赖图摘要
-    print(f"模块数: {len(graph)}")
-    print(f"依赖边数: {sum(len(v) for v in graph.values())}")
+    # Output dependency graph summary
+    print(f"Number of modules: {len(graph)}")
+    print(f"Depending on the number of edges: {sum(len(v) for v in graph.values())}")
     print()
 
     cycles = find_cycles(graph)
 
     if not cycles:
-        print("\033[32m循环依赖检查通过 — 无环路\033[0m")
+        print("\033[32m circular dependency check passed - no loop\033[0m")
         sys.exit(0)
 
-    print(f"\033[31m发现 {len(cycles)} 个循环依赖:\033[0m\n")
+    print(f"\033[31m Found {len(cycles)} cyclic dependencies:\033[0m\n")
     for i, cycle in enumerate(cycles, 1):
         chain = " → ".join(cycle)
         print(f"  [{i}] {chain}")
 
-        # 判断是否可通过接口解耦
+        # Determine whether it can be decoupled through the interface
         if len(cycle) == 2:
             print(
-                f"      修复: 提取 {cycle[0]} 和 {cycle[1]} 的共享接口到独立模块 "
-                f"(如 core/interfaces/)"
+                f" Fix: Extract shared interfaces of {cycle[0]} and {cycle[1]} to independent modules"
+                f"(such as core/interfaces/)"
             )
         else:
             print(
-                f"      修复: 分析环路中最弱的依赖边，通过依赖注入或事件驱动解耦"
+                f" Fix: Analyze the weakest dependency edge in the loop, via dependency injection or event-driven decoupling"
             )
         print()
 

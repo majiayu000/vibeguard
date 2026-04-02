@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# VibeGuard Hook 精度测试运行器
+# VibeGuard Hook accuracy test runner
 #
-# 用法：
-#   bash tests/run_precision.sh --all              # 跑所有 hook
-#   bash tests/run_precision.sh post-edit-guard     # 跑单个 hook
-#   bash tests/run_precision.sh --csv               # 输出 CSV 格式
+# Usage:
+# bash tests/run_precision.sh --all # Run all hooks
+# bash tests/run_precision.sh post-edit-guard # Run a single hook
+# bash tests/run_precision.sh --csv # Output CSV format
 #
-# 输出：每个守卫的 Precision / Recall / F1，以及汇总
+# Output: Precision / Recall / F1 for each guard, and summary
 
 set -euo pipefail
 
@@ -37,19 +37,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# macOS 兼容的毫秒时间戳
+# macOS compatible millisecond timestamp
 now_ms() {
   python3 -c "import time; print(int(time.time()*1000))"
 }
 
-# 从 meta.json 读取字段的 helper
+# Helper for reading fields from meta.json
 meta_get() {
   local meta_file="$1" case_rel="$2" field="$3" default="${4:-}"
   python3 -c "
 import json, sys
 m = json.load(open(sys.argv[1]))
 c = m['cases'][sys.argv[2]]
-# case 级别优先，然后 hook 级别
+# case level first, then hook level
 val = c.get(sys.argv[3], m.get(sys.argv[3], sys.argv[4]))
 print(val)
 " "$meta_file" "$case_rel" "$field" "$default"
@@ -69,18 +69,18 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --all) TARGET_HOOK="ALL"; shift ;;
     --csv) CSV_MODE=1; shift ;;
-    --help|-h) echo "用法: bash tests/run_precision.sh [--all | --csv | <hook-name>]"; exit 0 ;;
+    --help|-h) echo "Usage: bash tests/run_precision.sh [--all | --csv | <hook-name>]"; exit 0 ;;
     *) TARGET_HOOK="$1"; shift ;;
   esac
 done
 [[ -z "$TARGET_HOOK" ]] && TARGET_HOOK="ALL"
 
 # ============================================================
-# JSON 构造（通过 python3 安全转义）
+# JSON construction (via python3 safe escaping)
 # ============================================================
 
 build_json() {
-  # 通用 JSON 构造: key=value pairs
+  # Common JSON construct: key=value pairs
   python3 -c "
 import json, sys
 pairs = {}
@@ -92,7 +92,7 @@ print(json.dumps({'tool_input': pairs}))
 }
 
 # ============================================================
-# 运行单个 fixture case
+# Run a single fixture case
 # ============================================================
 
 run_case() {
@@ -185,7 +185,7 @@ print(json.dumps({'tool_input': {'file_path': '''$fpath_to_use''', 'content': ''
     script)
       local script_output
       script_output=$(bash "$case_file" </dev/null 2>/dev/null) || true
-      # 提取 ENV= 行设置环境变量，剩余作为 JSON payload
+      # Extract the ENV= line to set environment variables, and use the rest as JSON payload
       local env_vars="" json_payload=""
       while IFS= read -r line; do
         if [[ "$line" == ENV=* ]]; then
@@ -195,7 +195,7 @@ print(json.dumps({'tool_input': {'file_path': '''$fpath_to_use''', 'content': ''
           json_payload="${json_payload}${line}"
         fi
       done <<< "$script_output"
-      # 从 JSON 中提取 tmp.XXXXX 目录用于清理
+      # Extract the tmp.XXXXX directory from JSON for cleaning
       local tmp_path
       tmp_path=$(echo "$json_payload" | python3 -c "
 import json, sys, re
@@ -208,7 +208,7 @@ except: print('')
 " 2>/dev/null || echo "")
       [[ -n "$tmp_path" && -d "$tmp_path" ]] && CLEANUP_DIRS+=("$tmp_path")
       output=$(echo "$json_payload" | bash "$hook_script" 2>&1) || exit_code=$?
-      # 清理环境变量
+      # Clean up environment variables
       for ev in $env_vars; do
         unset "${ev%%=*}"
       done
@@ -244,7 +244,7 @@ except: print('')
       ;;
 
     paralysis_script)
-      # analysis-paralysis-guard: 脚本预填充 events.jsonl 并输出 ENV= 行
+      # analysis-paralysis-guard: script prepopulates events.jsonl and outputs ENV= lines
       local script_output env_vars=""
       script_output=$(bash "$case_file" </dev/null 2>/dev/null) || true
       while IFS= read -r line; do
@@ -253,7 +253,7 @@ except: print('')
           env_vars="${env_vars} ${line#ENV=}"
         fi
       done <<< "$script_output"
-      # hook 期望从 stdin 读取 tool JSON
+      # hook expects to read tool JSON from stdin
       output=$(echo '{}' | bash "$hook_script" 2>&1) || exit_code=$?
       for ev in $env_vars; do
         unset "${ev%%=*}"
@@ -269,7 +269,7 @@ except: print('')
   end_ms=$(now_ms)
   latency_ms=$((end_ms - start_ms))
 
-  # 判断是否检出
+  # Determine whether to check out
   # Claude Code hooks: exit 2 = block
   # Git hooks: exit != 0 = block
   local detected=0
@@ -277,10 +277,10 @@ except: print('')
   hook_type=$(meta_get "$meta_file" "$case_rel" "hook_type" "")
 
   if [[ "$hook_type" == "git-hook" ]]; then
-    # git hooks: 非零退出码 = 拦截
+    # git hooks: non-zero exit code = intercept
     [[ $exit_code -ne 0 ]] && detected=1
   else
-    # Claude Code hooks: exit 2 = block, 或 output 含 keyword
+    # Claude Code hooks: exit 2 = block, or output containing keyword
     if [[ $exit_code -eq 2 ]]; then
       detected=1
     elif [[ -n "$keyword" ]] && echo "$output" | grep -qF "$keyword"; then
@@ -321,7 +321,7 @@ except: print('')
 }
 
 # ============================================================
-# 运行单个 hook 的所有 fixture
+# Run all fixtures for a single hook
 # ============================================================
 
 run_hook() {
@@ -348,11 +348,11 @@ for k in sorted(m['cases'].keys()):
 }
 
 # ============================================================
-# 精度报告
+# Accuracy report
 # ============================================================
 
 print_precision_report() {
-  printf "\n${BOLD}====== Layer 1 精度报告 ======${RESET}\n"
+  printf "\n${BOLD}====== Layer 1 Accuracy Report ======${RESET}\n"
 
   declare -A hook_tp hook_fp hook_fn hook_tn
   for result in "${RESULTS[@]}"; do
@@ -457,7 +457,7 @@ else
   if [[ -d "$hook_dir" ]]; then
     run_hook "$hook_dir"
   else
-    echo "ERROR: fixture 目录不存在: $hook_dir"
+    echo "ERROR: fixture directory does not exist: $hook_dir"
     exit 1
   fi
 fi

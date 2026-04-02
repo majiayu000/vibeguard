@@ -1,67 +1,67 @@
 ---
 name: eval-harness
-description: "评估驱动开发 — 用 pass@k / pass^k 指标量化代码生成质量，通过 Grader 自动评分。"
+description: "Assessment-driven development — Quantify code generation quality with pass@k / pass^k metrics, automatically scored by Grader."
 ---
 
 # Eval Harness
 
-## 概述
+## Overview
 
-评估驱动开发：不只是"代码能跑"，而是量化"代码有多好"。
+Evaluation-driven development: Not just "can the code run", but quantify "how good is the code".
 
-## 核心指标
+## Core indicators
 
-### pass@k（单次成功率）
+### pass@k (single success rate)
 
-- 生成 k 个候选方案，至少 1 个通过的概率
-- 用于评估单个任务的完成质量
-- 目标：pass@1 > 80%
+- Generate k candidate solutions, with a probability of at least 1 passing
+- Used to evaluate the completion quality of a single task
+- Target: pass@1 > 80%
 
-### pass^k（连续成功率）
+### pass^k (continuous success rate)
 
-- 连续 k 个任务全部一次通过的概率
-- 用于评估整体工作流的可靠性
-- 目标：pass^5 > 50%（连续 5 个任务全部一次通过）
+- The probability of passing all k consecutive tasks at once
+- Used to evaluate overall workflow reliability
+- Goal: pass^5 > 50% (pass all 5 consecutive tasks in one go)
 
-## Grader 类型
+## Grader type
 
-### 代码基础 Grader（确定性）
+### Code Basics Grader (deterministic)
 
-| Grader | 检查内容 | 通过条件 |
+| Grader | Check content | Pass conditions |
 |--------|----------|----------|
-| 编译检查 | 代码能否编译/类型检查通过 | 零错误 |
-| 测试检查 | 测试是否全部通过 | 全绿 |
-| Lint 检查 | 代码风格是否符合规范 | 零警告（或仅允许的警告） |
-| 覆盖率检查 | 测试覆盖率是否达标 | ≥ 80% |
+| Compilation check | Whether the code can be compiled / type check passed | Zero errors |
+| Test check | Whether all tests passed | Full green |
+| Lint check | Whether the code style conforms to the specification | Zero warnings (or only allowed warnings) |
+| Coverage check | Check whether the test coverage reaches the standard | ≥ 80% |
 
-### 模型基础 Grader（概率性）
+### Model base Grader (probabilistic)
 
-| Grader | 检查内容 | 评分方式 |
+| Grader | Check content | How to grade |
 |--------|----------|----------|
-| 代码审查 | 代码质量、可读性、安全性 | 0-10 分 |
-| 需求匹配 | 实现是否满足需求 | 0-1 匹配度 |
-| 架构评估 | 设计是否合理 | 0-10 分 |
+| Code review | Code quality, readability, security | 0-10 points |
+| Requirements matching | Whether the implementation meets the requirements | 0-1 matching degree |
+| Architecture evaluation | Is the design reasonable | 0-10 points |
 
-## 使用流程
+## Usage process
 
-1. **定义评估标准**
-   - 从需求提取可验证的通过条件
-   - 选择合适的 Grader 组合
+1. **Define Evaluation Criteria**
+   - Extract verifiable passing conditions from requirements
+   - Choose the right grader combination
 
-2. **运行评估**
-   - 代码基础 Grader 先行（快速、确定性）
-   - 模型基础 Grader 补充（深度、概率性）
+2. **Run the evaluation**
+   - Code base Grader first (fast, deterministic)
+   - Model basics Grader supplement (depth, probabilistic)
 
-3. **分析结果**
-   - pass@1 < 80% → 需求不清晰或实现策略有问题
-   - pass^5 < 50% → 工作流有系统性问题
+3. **Analysis results**
+   - pass@1 < 80% → Unclear requirements or problematic implementation strategies
+   - pass^5 < 50% → There is a systemic problem with the workflow
 
-4. **改进**
-   - 根据失败模式调整策略
-   - 更新 Grader 规则
+4. **Improvements**
+   - Adjust strategies based on failure patterns
+   - Updated Grader rules
 
-## VibeGuard 集成
+## VibeGuard Integration
 
-- 代码基础 Grader 可复用守卫脚本输出（如 `guards/<lang>/check_*.sh`）
-- 安全 Grader 参考 `vibeguard/rules/security.md`
-- 质量 Grader 参考 `vibeguard/rules/universal.md`
+- Code base Grader can reuse guard script output (such as `guards/<lang>/check_*.sh`)
+- Security Grader reference `vibeguard/rules/security.md`
+- Quality Grader reference `vibeguard/rules/universal.md`

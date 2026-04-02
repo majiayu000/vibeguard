@@ -1,274 +1,274 @@
-# VibeGuard 规范 — AI 辅助开发防幻觉框架
+#VibeGuard Specification — AI-assisted development of an anti-hallucination framework
 
-> 版本: 1.0 | 更新日期: 2026-02-12
+> Version: 1.0 | Update date: 2026-02-12
 
-## 1. 设计哲学
+## 1. Design philosophy
 
-### 1.1 核心洞察：反转传统防线
+### 1.1 Core Insight: Reversing the Traditional Line of Defense
 
-传统代码质量关注"开发者不犯错"；VibeGuard 关注"AI 辅助开发不产生幻觉"。
+Traditional code quality focuses on "developers do not make mistakes"; VibeGuard focuses on "AI-assisted development does not produce hallucinations".
 
-LLM 的主要失效模式不是语法错误（IDE 能捕获），而是：
-- **凭空捏造**：发明不存在的 API、文件路径、数据字段
-- **重复造轮子**：不搜索就新建，导致同一功能多份实现
-- **命名混乱**：混用 camelCase/snake_case，创建别名
-- **空壳交付**：生成看起来正确但数据为空/硬编码的页面
-- **过度设计**：添加不需要的抽象、兼容层、deprecated 标记
+The main failure mode of LLM is not syntax errors (which the IDE can catch), but:
+- **Fabricated**: Invent non-existent APIs, file paths, data fields
+- **Reinventing the wheel**: Create a new one without searching, resulting in multiple implementations of the same function
+- **Naming confusion**: Mix camelCase/snake_case to create aliases
+- **Empty Shell Delivery**: Generates a page that looks correct but has empty/hardcoded data
+- **Over-engineering**: Adding unnecessary abstractions, compatibility layers, deprecated tags
 
-### 1.2 核心原则
+### 1.2 Core Principles
 
 ```
-防幻觉 = 约束输入 + 验证输出 + 自动拦截
+Anti-hallucination = constraint input + verification output + automatic interception
 ```
 
-| 原则 | 含义 |
+| Principle | Meaning |
 |------|------|
-| 数据驱动 | 没有数据就显示空白，永远不用假数据 |
-| 先搜后写 | 新建任何东西前必须搜索已有实现 |
-| 单一命名 | 一个概念一个名字，禁止别名 |
-| 最小改动 | 只做被要求的事，不添加额外"改进" |
-| 自动拦截 | CI 守卫自动阻断已知失效模式 |
+| Data-driven | Display blank if there is no data, never use fake data |
+| Search first, then write | Before creating anything new, you must search for existing implementations |
+| Single naming | One name for one concept, no aliases |
+| Minimal changes | Just do what is asked, no additional "improvements" |
+| Automatic blocking | CI guard automatically blocks known failure modes |
 
 ---
 
-## 2. 七层防御架构
+## 2. Seven-layer defense architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Layer 7: 周度复盘（人工）                                 │
-│   — 回顾回归事件、更新规则、调整指标目标                    │
+│ Layer 7: Weekly review (manual) │
+│ — Review regression events, update rules, and adjust indicator targets │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 6: Prompt 内嵌规则（LLM 行为约束）                  │
-│   — CLAUDE.md / Codex instructions 中的强制规则           │
+│ Layer 6: Prompt embedded rules (LLM behavior constraints) │
+│ — Enforcement rules in CLAUDE.md / Codex instructions │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 5: Skill / Workflow（执行流程约束）                  │
+│ Layer 5: Skill / Workflow (execution process constraints) │
 │   — plan-flow / fixflow / optflow / vibeguard skill      │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 4: 架构守卫测试（AST 级自动检测）                    │
-│   — test_code_quality_guards.py 五条核心规则              │
+│ Layer 4: Architecture guard testing (AST level automatic detection) │
+│ — test_code_quality_guards.py Five Core Rules │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 3: Pre-commit Hooks（提交前拦截）                   │
-│   — 命名检查、重复检查、secret 扫描、linting              │
+│ Layer 3: Pre-commit Hooks (interception before submission) │
+│ — Name checking, duplicate checking, secret scanning, linting │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 2: 命名约束系统（snake_case 强制）                  │
-│   — check_naming_convention.py + 边界转换规范             │
+│ Layer 2: Named constraint system (snake_case mandatory) │
+│ — check_naming_convention.py + boundary conversion specification │
 ├─────────────────────────────────────────────────────────┤
-│ Layer 1: 反重复系统（先搜后写强制）                        │
-│   — check_duplicates.py + SEARCH BEFORE CREATE 规则       │
+│ Layer 1: Anti-duplication system (search first and write later) │
+│ — check_duplicates.py + SEARCH BEFORE CREATE rule │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Layer 1: 反重复系统
+### Layer 1: Anti-duplication system
 
-**意图**：阻止 LLM 最常见的失效模式——不搜索就新建。
+**Intent**: To prevent the most common failure mode of LLM - creating new without searching.
 
-**规则**：
-1. 新建文件/类/Protocol/函数前，必须先搜索项目中是否已有类似功能
-2. 已有就扩展，不新建
-3. 跨模块共享的接口放 `core/interfaces/`
-4. 跨模块共享的工具函数放 `core/`
-5. 第三次重复时必须抽象
+**rule**:
+1. Before creating a new file/class/Protocol/function, you must first search whether there is a similar function in the project
+2. Expand if it already exists, don’t create a new one
+3. Interfaces shared across modules are placed in `core/interfaces/`
+4. Tool functions shared across modules are placed in `core/`
+5. The third repetition must be abstract
 
-**检测工具**：`check_duplicates.py`
-- 扫描 Protocol 定义重复
-- 扫描同名类跨文件
-- 扫描同名模块级函数
-- 支持 `--strict` 模式（CI 阻断）
+**Detection Tool**: `check_duplicates.py`
+- Scan for duplicate Protocol definitions
+- Scan across files of the same class
+- Scan module-level functions with the same name
+- Support `--strict` mode (CI blocking)
 
-**缺口**：
-- 仅检测名称重复，不检测语义重复（两个功能相似但名称不同的函数）
-- 升级路径：集成 LLM 语义相似度分析
+**gap**:
+- Only detects name duplication, not semantic duplication (two functions with similar functionality but different names)
+- Upgrade path: Integrate LLM semantic similarity analysis
 
-### Layer 2: 命名约束系统
+### Layer 2: Named constraint system
 
-**意图**：消除 Python 内部混用 camelCase 的问题。
+**Intent**: Eliminate the problem of mixing camelCase internally in Python.
 
-**规则**：
-- Python 内部一律 snake_case
-- API 边界（请求/响应/快照）使用 camelCase
-- 入口用 `snakeize_obj()` 转换，出口用 `camelize_obj()` 转换
-- 禁止函数/类别名
+**rule**:
+- Python internally always uses snake_case
+- API boundaries (request/response/snapshot) use camelCase
+- Use `snakeize_obj()` to convert the entry, and use `camelize_obj()` to convert the exit
+- Ban function/class names
 
-**检测工具**：`check_naming_convention.py`
-- 检测已知 camelCase 键名在 Python 代码中的直接使用
-- 支持路径豁免（API 输出、测试文件、前端数据构建等）
-- 支持上下文豁免（Pydantic alias、camelize_obj 调用等）
+**Detection Tool**: `check_naming_convention.py`
+- Detect direct use of known camelCase key names in Python code
+- Support path exemptions (API output, test files, front-end data construction, etc.)
+- Support context exemptions (Pydantic alias, camelize_obj calls, etc.)
 
-**缺口**：
-- 仅检查已知键名列表，无法捕获新增的 camelCase 键
-- 升级路径：改为 AST 级检测，匹配 `dict.get("camelCase")` 通用模式
+**gap**:
+- Only checks the list of known key names and cannot capture new camelCase keys
+- Upgrade path: changed to AST level detection, matching `dict.get("camelCase")` common pattern
 
 ### Layer 3: Pre-commit Hooks
 
-**意图**：在代码到达仓库前拦截基础问题。
+**Intent**: Intercept basic issues before the code reaches the warehouse.
 
-**检测项**：
-| Hook | 功能 |
+**Detection items**:
+| Hook | Function |
 |------|------|
-| trailing-whitespace | 删除尾部空格 |
-| end-of-file-fixer | 确保文件以换行结尾 |
-| check-yaml/json/toml | 验证配置文件格式 |
-| check-added-large-files | 阻止大文件（>1MB）提交 |
-| detect-private-key | 检测私钥泄漏 |
+| trailing-whitespace | Remove trailing spaces |
+| end-of-file-fixer | Make sure the file ends with a newline |
+| check-yaml/json/toml | Verify configuration file format |
+| check-added-large-files | Prevent large files (>1MB) from being submitted |
+| detect-private-key | Detect private key leakage |
 | ruff | Python linting + formatting |
-| check-naming-convention | snake_case 强制 |
-| shellcheck | Shell 脚本质量 |
-| gitleaks | Secret 扫描 |
-| conventional-pre-commit | 提交信息规范 |
+| check-naming-convention | snake_case mandatory |
+| shellcheck | Shell script quality |
+| gitleaks | Secret scan |
+| conventional-pre-commit | Submission information specifications |
 
-**缺口**：
-- TypeScript 守卫依赖前端构建环境
-- 升级路径：独立的 TS 守卫脚本，不依赖 `bun run lint`
+**gap**:
+- TypeScript guards depend on the front-end build environment
+- Upgrade path: independent TS guard script, does not depend on `bun run lint`
 
-### Layer 4: 架构守卫测试
+### Layer 4: Architecture guard testing
 
-**意图**：AST 级自动检测五种 AI vibe-coding 回归模式。
+**Intent**: AST-level automatic detection of five AI vibe-coding regression patterns.
 
-**五条核心规则**：
+**Five Core Rules**:
 
-| # | 规则 | 检测方式 |
+| # | Rules | Detection methods |
 |---|------|----------|
-| 1 | 禁止静默吞异常 | AST 检查 except 块是否有 logging/re-raise |
-| 2 | Facade 禁止 Any 类型 | AST 检查公开方法参数和返回值 |
-| 3 | 禁止 Re-export Shim | AST 检查文件是否只有 import + `__all__` |
-| 4 | 禁止跨模块私有属性访问 | 正则检查 `xxx._private` 模式 |
-| 5 | 禁止重复 Protocol 定义 | 正则扫描同名 Protocol 跨文件 |
+| 1 | Disable silent swallowing of exceptions | AST checks whether the except block has logging/re-raise |
+| 2 | Facade prohibits Any type | AST checks public method parameters and return values |
+| 3 | Disable Re-export Shim | AST check if the file has only import + `__all__` |
+| 4 | Disallow cross-module private attribute access | Regular check `xxx._private` mode |
+| 5 | Duplication of Protocol definitions is prohibited | Regular scanning of Protocols with the same name across files |
 
-**配置方式**：
-- `APP_ROOT`: 项目根目录
-- `APPLICATION_DIRS` / `WORKFLOW_DIRS`: 被扫描的目录列表
-- `_PRIVATE_ACCESS_ALLOWLIST`: 已知技术债豁免列表
-- `_DUPLICATE_PROTOCOL_ALLOWLIST`: 允许重复的 Protocol 列表
+**Configuration method**:
+- `APP_ROOT`: project root directory
+- `APPLICATION_DIRS` / `WORKFLOW_DIRS`: list of scanned directories
+- `_PRIVATE_ACCESS_ALLOWLIST`: List of known technical debt exemptions
+- `_DUPLICATE_PROTOCOL_ALLOWLIST`: allows duplicate Protocol list
 
-**缺口**：
-- 规则 5 仅检测 Protocol，不检测普通接口重复
-- 升级路径：扩展到 ABC、TypedDict 等接口类型
+**gap**:
+- Rule 5 only detects Protocol and does not detect duplication of common interfaces
+- Upgrade path: extended to interface types such as ABC and TypedDict
 
 ### Layer 5: Skill / Workflow
 
-**意图**：用结构化流程约束 AI 的执行路径。
+**Intent**: Use structured processes to constrain the execution path of AI.
 
-| Skill | 功能 |
+| Skill | Function |
 |-------|------|
-| `vibeguard` | 完整防幻觉规范查阅 |
-| `auto-optimize` | 自主优化流程（守卫扫描 + LLM 深度分析 + 自动执行） |
-| `plan-flow` | 冗余分析 → 计划构建 → 步骤执行 |
-| `fixflow` | 工程交付流（计划 → 执行 → 测试 → 提交） |
-| `optflow` | 优化发现与执行 |
-| `plan-mode` | 结构化计划生成与文件落地 |
+| `vibeguard` | View the complete anti-hallucination specifications |
+| `auto-optimize` | Autonomous optimization process (guard scanning + LLM in-depth analysis + automatic execution) |
+| `plan-flow` | Redundancy analysis → Plan construction → Step execution |
+| `fixflow` | Engineering delivery flow (Plan → Execute → Test → Submit) |
+| `optflow` | Optimization discovery and execution |
+| `plan-mode` | Structured plan generation and document implementation |
 
-**关键约束**：
-- 每个 workflow 都要求"先分析/计划，再执行"
-- 每步必须有测试证据
-- 状态机严格：`pending → in_progress → completed`
-- 同时只能有一个 `in_progress` 步骤
+**Key Constraints**:
+- Every workflow requires "analyze/plan first, then execute"
+- Each step must have test evidence
+- The state machine is strict: `pending → in_progress → completed`
+- There can only be one `in_progress` step at a time
 
-**缺口**：
-- workflow 之间有 BDD 重复内容
-- 升级路径：提取共享的 BDD 模块
+**gap**:
+- BDD duplicate content between workflows
+- Upgrade path: Extract shared BDD modules
 
-### Layer 6: Prompt 内嵌规则
+### Layer 6: Prompt embedded rules
 
-**意图**：在 LLM 的 system prompt 中植入强制规则。
+**Intent**: Implant mandatory rules in the system prompt of LLM.
 
-**规则来源**：`~/.claude/CLAUDE.md`（全局）和项目 `CLAUDE.md`
+**Rule source**: `~/.claude/CLAUDE.md` (global) and project `CLAUDE.md`
 
-**关键规则**：
-- 不做向后兼容
-- 不硬编码
-- 不创建别名
-- 先搜后写
-- 第三次重复必须抽象
-- spec-driven workflow（3+ 文件变更先写 spec）
+**Key Rules**:
+- No backward compatibility
+- No hardcoding
+- No aliases are created
+- Search first then write
+- The third repetition must be abstract
+- spec-driven workflow (write spec first for 3+ file changes)
 
-**缺口**：
-- 规则分散在全局和项目两处，不易同步
-- 升级路径：VibeGuard 统一管理，setup.sh 部署
+**gap**:
+- Rules are scattered in both global and project places, making it difficult to synchronize
+- Upgrade path: VibeGuard unified management, setup.sh deployment
 
-### Layer 7: 周度复盘
+### Layer 7: Weekly review
 
-**意图**：人工闭环，从回归事件中提炼新规则。
+**Intent**: Artificial closed loop, extracting new rules from regression events.
 
-**复盘内容**：
-1. 本周回归事件（失效防线、根因、新增规则）
-2. 守卫拦截统计（拦截次数、典型案例）
-3. 指标趋势
-4. 下周重点
+**Review content**:
+1. Return events this week (invalid defense line, root cause, new rules)
+2. Guard interception statistics (number of interceptions, typical cases)
+3. Indicator trends
+4. Highlights for next week
 
-**缺口**：
-- 目前纯手动，无自动化指标采集
-- 升级路径：`metrics_collector.sh` 自动采集基础指标
+**gap**:
+- Currently purely manual, no automated indicator collection
+- Upgrade path: `metrics_collector.sh` automatically collects basic indicators
 
 ---
 
-## 3. 量化指标体系
+## 3. Quantitative indicator system
 
-### 3.1 核心指标
+### 3.1 Core indicators
 
-| # | 指标 | 定义 | 目标 | 采集方法 |
+| # | Indicator | Definition | Target | Collection Method |
 |---|------|------|------|----------|
-| M1 | 回归密度 | 每 100 次提交中出现的 AI 幻觉回归次数 | < 2 | `git log` + 手动标记 |
-| M2 | 守卫拦截率 | pre-commit + test 阻断的违规次数 / 总违规次数 | > 80% | pre-commit 日志 + CI 报告 |
-| M3 | 重复代码率 | `check_duplicates.py` 报告的重复组数 | < 5 组 | `check_duplicates.py` 输出 |
-| M4 | 命名违规率 | `check_naming_convention.py` 报告的问题数 | 0 | `check_naming_convention.py` 输出 |
-| M5 | 架构守卫通过率 | `test_code_quality_guards.py` 通过的规则数 / 总规则数 | 100% | pytest 输出 |
+| M1 | Regression density | Number of AI hallucination regressions per 100 commits | < 2 | `git log` + manual tagging |
+| M2 | Guard interception rate | pre-commit + test number of violations blocked / total number of violations | > 80% | pre-commit log + CI report |
+| M3 | Duplicate code rate | Number of duplicate groups reported by `check_duplicates.py` | < 5 groups | `check_duplicates.py` output |
+| M4 | Naming Violation Rate | Number of issues reported by `check_naming_convention.py` | 0 | `check_naming_convention.py` Output |
+| M5 | Architecture guard pass rate | `test_code_quality_guards.py` Number of passed rules / Total number of rules | 100% | pytest output |
 
-### 3.2 采集频率
+### 3.2 Collection frequency
 
-| 指标 | 频率 | 触发方式 |
+| Indicator | Frequency | Trigger method |
 |------|------|----------|
-| M1 | 周度 | 人工复盘时统计 |
-| M2 | 每次提交 | pre-commit hook 自动记录 |
-| M3 | 每次运行 | `check_duplicates.py` |
-| M4 | 每次提交 | pre-commit hook |
-| M5 | 每次 CI | pytest 自动运行 |
+| M1 | Weekly | Manual review statistics |
+| M2 | Each submission | pre-commit hook automatic recording |
+| M3 | Each run | `check_duplicates.py` |
+| M4 | per commit | pre-commit hook |
+| M5 | CI every time | pytest automatically runs |
 
-### 3.3 告警阈值
+### 3.3 Alarm threshold
 
-| 指标 | 黄色告警 | 红色告警 |
+| Indicators | Yellow Alert | Red Alert |
 |------|----------|----------|
-| M1 | > 2 次/周 | > 5 次/周 |
+| M1 | > 2 times/week | > 5 times/week |
 | M2 | < 80% | < 60% |
-| M3 | > 5 组 | > 10 组 |
+| M3 | > 5 groups | > 10 groups |
 | M4 | > 0 | > 5 |
 | M5 | < 100% | < 80% |
 
 ---
 
-## 4. 执行模板
+## 4. Execute template
 
-### 4.1 任务启动 Checklist
+### 4.1 Task startup Checklist
 
-每个开发任务启动前必须确认：
+Before starting each development task, you must confirm:
 
 ```yaml
 task_contract:
   required:
-    - objective: "明确的可验证目标"
-    - data_source: "数据来源（文件/API/数据库）"
-    - acceptance: "验收标准（至少 1 条可测试）"
+    - objective: "clear and verifiable goal"
+    - data_source: "Data source (file/API/database)"
+    - acceptance: "Acceptance criteria (at least 1 testable)"
   forbidden:
-    - "先写再说"
-    - "大概/可能/应该能行"
-    - "直接复制一份"
+    - "Write first and then talk"
+    - "Probably/might/should work"
+    - "Direct copy"
   warnings:
-    - no_search_before_create: "新建文件/类/函数前未搜索已有实现"
-    - no_test_evidence: "步骤完成但无测试证据"
-    - large_diff: "单步超过 300 行净变更"
+    - no_search_before_create: "Existing implementations are not searched before creating new files/classes/functions"
+    - no_test_evidence: "Step completed but no test evidence"
+    - large_diff: "More than 300 lines of net changes in a single step"
 ```
 
-### 4.2 计划文件模板
+### 4.2 Plan document template
 
-见 `workflows/plan-flow/references/plan-template.md`
+See `workflows/plan-flow/references/plan-template.md`
 
-### 4.3 复盘报告模板
+### 4.3 Review report template
 
-见 `skills/vibeguard/references/review-template.md`
+See `skills/vibeguard/references/review-template.md`
 
-### 4.4 CI 配置建议
+### 4.4 CI configuration recommendations
 
 ```yaml
-# GitHub Actions 示例（路径根据项目实际结构调整）
+# GitHub Actions example (the path is adjusted according to the actual structure of the project)
 - name: Run architecture guards
   run: pytest tests/architecture/test_code_quality_guards.py -v
 
@@ -281,34 +281,34 @@ task_contract:
 
 ---
 
-## 5. 资产拓扑图
+## 5. Asset topology map
 
 ```
 vibeguard/
-├── docs/spec.md                        # 本文件（~500行）- 完整规范
-├── README.md                           # 快速开始（~50行）
-├── setup.sh                            # 一键部署（~30行）
+├── docs/spec.md # This file (~500 lines) - complete specification
+├── README.md # Quick start (~50 lines)
+├── setup.sh # One-click deployment (~30 lines)
 │
 ├── claude-md/
-│   └── vibeguard-rules.md              # CLAUDE.md 追加段落（~150行）
+│ └── vibeguard-rules.md # CLAUDE.md Add paragraph (~150 lines)
 │
 ├── skills/vibeguard/
-│   ├── SKILL.md                        # 完整规范 Skill（~100行）
+│ ├── SKILL.md # Complete specification Skill (~100 lines)
 │   └── references/
-│       ├── task-contract.yaml          # 任务启动 Checklist
-│       ├── review-template.md          # 周度复盘模板
-│       └── scoring-matrix.md           # risk-impact 评分矩阵
+│ ├── task-contract.yaml # Task startup Checklist
+│ ├── review-template.md # Weekly review template
+│ └── scoring-matrix.md # risk-impact scoring matrix
 │
 ├── workflows/
-│   ├── auto-optimize/                  # 自主优化（盾 + 矛）
-│   │   ├── SKILL.md                    # 整合 VibeGuard 守卫的优化流程
-│   │   └── rules/                      # LLM 扫描参考规则
+│ ├── auto-optimize/ # Autonomous optimization (shield + spear)
+│ │ ├── SKILL.md # Integrate the optimization process of VibeGuard
+│ │ └── rules/ # LLM scanning reference rules
 │   │       ├── universal.md
-│   │       ├── python.md               # 含守卫交叉引用
+│ │ ├── python.md # Contains guard cross-references
 │   │       ├── rust.md
 │   │       ├── typescript.md
 │   │       └── go.md
-│   ├── plan-flow/                      # 冗余分析 + 计划构建
+│ ├── plan-flow/ # Redundancy analysis + plan construction
 │   │   ├── SKILL.md
 │   │   ├── references/
 │   │   │   ├── analysis-playbook.md
@@ -319,143 +319,143 @@ vibeguard/
 │   │       ├── redundancy_scan.sh
 │   │       ├── findings_to_plan.py
 │   │       └── plan_lint.py
-│   ├── fixflow/SKILL.md                # 工程交付流
-│   ├── optflow/SKILL.md                # 优化发现与执行
-│   └── plan-mode/SKILL.md              # 计划落地
+│ ├── fixflow/SKILL.md # Project delivery flow
+│ ├── optflow/SKILL.md # Optimization discovery and execution
+│ └── plan-mode/SKILL.md # Plan implementation
 │
 ├── guards/
 │   ├── python/
-│   │   ├── test_code_quality_guards.py # 通用版架构守卫
-│   │   ├── check_naming_convention.py  # 通用版命名检查
-│   │   ├── check_duplicates.py         # 通用版重复检查
-│   │   └── pre-commit-config.yaml      # pre-commit 模板
+│ │ ├── test_code_quality_guards.py # General version of architecture guards
+│ │ ├── check_naming_convention.py # General version naming check
+│ │ ├── check_duplicates.py # General version duplication check
+│ │ └── pre-commit-config.yaml # pre-commit template
 │   ├── rust/
-│   │   ├── check_nested_locks.sh       # RS-01: 嵌套锁检测
-│   │   ├── check_unwrap_in_prod.sh     # RS-03: unwrap/expect 检测
-│   │   └── check_duplicate_types.sh    # RS-05: 跨文件重复类型检测
+│ │ ├── check_nested_locks.sh # RS-01: Nested lock detection
+│ │ ├── check_unwrap_in_prod.sh # RS-03: unwrap/expect detection
+│ │ └── check_duplicate_types.sh # RS-05: Cross-file duplicate type detection
 │   └── typescript/
-│       └── eslint-guards.ts            # TS 守卫模板
+│ └── eslint-guards.ts # TS guard template
 │
 ├── templates/language/
-│   ├── python-CLAUDE.md                # Python 项目 CLAUDE.md 模板
-│   ├── typescript-CLAUDE.md            # TS 项目 CLAUDE.md 模板
-│   └── rust-CLAUDE.md                  # Rust 项目 CLAUDE.md 模板
+│ ├── python-CLAUDE.md # Python project CLAUDE.md template
+│ ├── typescript-CLAUDE.md # TS project CLAUDE.md template
+│ └── rust-CLAUDE.md # Rust project CLAUDE.md template
 │
 └── scripts/
-    ├── compliance_check.sh             # 合规检查
-    └── metrics_collector.sh            # 指标采集
+    ├── compliance_check.sh # Compliance check
+    └── metrics_collector.sh # Metric collection
 ```
 
 ---
 
-## 6. 实战案例
+## 6. Practical cases
 
-### 案例 1: Pro Forma 空表头
+### Case 1: Pro Forma empty header
 
-**症状**：Pro Forma 页面列标题显示 `1, 2, 3, 4, 5` 而非实际年份日期。
+**Symptom**: Pro Forma page column headers display `1, 2, 3, 4, 5` instead of the actual year date.
 
-**根因**：Excel 解析器使用了通用数字标签，未提取实际日期行作为列头。
+**Root Cause**: The Excel parser used a generic number label and did not extract the actual date row as the column header.
 
-**失效防线**：Layer 4（架构守卫没有覆盖数据准确性）
+**Failed Line of Defense**: Layer 4 (architecture guards do not cover data accuracy)
 
-**修复**：修改 header 提取逻辑，使用 date rows 替代 generic numeric labels。
+**Fix**: Modify the header extraction logic and use date rows instead of generic numeric labels.
 
-**新增规则**：无（数据准确性需要集成测试覆盖，不适合 AST 守卫）。
+**New rules**: None (data accuracy requires integration test coverage, not suitable for AST guards).
 
-**教训**：AST 守卫无法捕获语义错误，需要配合数据验证测试。
+**Lessons**: AST guards cannot catch semantic errors and need to be coordinated with data validation testing.
 
-### 案例 2: 命名不匹配
+### Case 2: Naming mismatch
 
-**症状**：Python 内部使用 `data.get("askingPrice")` 而非 `data.get("asking_price")`，
-导致在 snakeize_obj 转换后取值为 None。
+**Symptoms**: Python internally uses `data.get("askingPrice")` instead of `data.get("asking_price")`,
+Causes snakeize_obj to evaluate to None after conversion.
 
-**根因**：LLM 直接从 API 文档复制 camelCase 键名，未通过 snakeize_obj 转换。
+**Root cause**: LLM copied camelCase key names directly from the API documentation without conversion via snakeize_obj.
 
-**失效防线**：Layer 2（check_naming_convention.py 成功拦截）
+**Invalid Defense Line**: Layer 2 (check_naming_convention.py successfully intercepted)
 
-**修复**：在数据入口添加 `snakeize_obj()` 调用。
+**Fix**: Add `snakeize_obj()` call in data entry.
 
-**新增规则**：将 `askingPrice` 加入 `KNOWN_CAMEL_KEYS` 字典。
+**New rule**: Add `askingPrice` to the `KNOWN_CAMEL_KEYS` dictionary.
 
-**教训**：守卫必须持续更新已知键名列表。
+**Lesson**: Guards must continually update the list of known keys.
 
-### 案例 3: 别名混用
+### Case 3: Mixed aliases
 
-**症状**：代码库中同时存在 `format_percent` 和 `format_percentage`，
-部分调用方使用旧名导致 ImportError。
+**Symptoms**: Both `format_percent` and `format_percentage` exist in the code base,
+Some callers using old names cause ImportError.
 
-**根因**：LLM 创建了函数别名 `format_percent = format_percentage` 作为"向后兼容"。
+**Root Cause**: LLM created the function alias `format_percent = format_percentage` as "backward compatibility".
 
-**失效防线**：Layer 6（CLAUDE.md 中的"禁止别名"规则阻止了此模式）
+**Breaking Line of Defense**: Layer 6 (the "no aliases" rule in CLAUDE.md prevents this mode)
 
-**修复**：选择 `format_percentage` 作为规范名，全局替换调用方，删除别名。
+**Fix**: Select `format_percentage` as the canonical name, replace the caller globally, remove the alias.
 
-**新增规则**：在 `check_duplicates.py` 中检测模块级别名赋值。
+**New rule**: Detect module level name assignments in `check_duplicates.py`.
 
-**教训**：LLM 倾向于创建兼容层而非直接修改。
+**Lesson**: LLM tends to create compatibility layers rather than direct modifications.
 
-### 案例 4: 空页面交付
+### Case 4: Empty page delivery
 
-**症状**：生成的 OM 文档中 Property Highlights 页面为空白。
+**Symptom**: The Property Highlights page in the generated OM document is blank.
 
-**根因**：card builder 使用了 `hero_image_url`（建筑照片）而非 `amenities_map_url`（地图），
-导致未找到数据时返回空页面。
+**Root cause**: card builder uses `hero_image_url` (building photo) instead of `amenities_map_url` (map),
+Causes an empty page to be returned when no data is found.
 
-**失效防线**：Layer 6（CLAUDE.md 中明确了 `amenities_map_url` 的使用规则）
+**Invalid line of defense**: Layer 6 (CLAUDE.md clarifies the usage rules of `amenities_map_url`)
 
-**修复**：修正 card builder 中的数据源引用。
+**FIX**: Fixed data source references in card builder.
 
-**新增规则**：在 CLAUDE.md 中添加显式的 Page Type → 数据源映射。
+**New Rule**: Add explicit Page Type → Data Source mapping in CLAUDE.md.
 
-**教训**：LLM 倾向于使用"看起来合理"的字段名而非查阅文档。
+**Lesson**: LLM tends to use field names that "look reasonable" rather than consulting the documentation.
 
 ---
 
-## 7. 缺口与路线图
+## 7. Gaps and Roadmaps
 
-### 7.1 当前缺口
+### 7.1 Current Gap
 
-| # | 缺口 | 影响 | 优先级 |
+| # | Gap | Impact | Priority |
 |---|------|------|--------|
-| G1 | 语义重复检测（名称不同但功能相似） | 无法捕获变体重复 | P1 |
-| G2 | 自动化指标采集 | 复盘依赖人工统计 | P1 |
-| G3 | TypeScript 守卫 | TS 代码缺少架构守卫 | P2 |
-| G4 | 运行时数据验证 | 空页面问题需要集成测试 | P2 |
-| G5 | Workflow BDD 模块去重 | fixflow/optflow 中 BDD 段落重复 | P3 |
+| G1 | Semantic duplication detection (different names but similar functionality) | Unable to capture variant duplications | P1 |
+| G2 | Automated indicator collection | Review relies on manual statistics | P1 |
+| G3 | TypeScript Guards | TS code missing schema guards | P2 |
+| G4 | Runtime data validation | Empty page problem requires integration testing | P2 |
+| G5 | Workflow BDD module deduplication | BDD paragraph duplication in fixflow/optflow | P3 |
 
-### 7.2 路线图
+### 7.2 Roadmap
 
-**Phase 1（当前）**：
-- 建立 VibeGuard 仓库，集中管理所有防幻觉资产
-- setup.sh 一键部署到 ~/.claude/ 和 ~/.codex/
-- 通用化守卫模板，支持新项目快速接入
+**Phase 1 (current)**:
+- Establish a VibeGuard warehouse to centrally manage all anti-hallucination assets
+- setup.sh deploys to ~/.claude/ and ~/.codex/ with one click
+- Universal guard template to support quick access to new projects
 
-**Phase 2（下一步）**：
-- 自动化指标采集（`metrics_collector.sh`）
-- TypeScript 架构守卫（`eslint-guards.ts`）
-- ~~Rust 项目模板和守卫~~ ✅ Rust guards 已完成（RS-01/RS-03/RS-05）
+**Phase 2 (next step)**:
+- Automated metric collection (`metrics_collector.sh`)
+- TypeScript schema guards (`eslint-guards.ts`)
+- ~~Rust project templates and guards~~ ✅ Rust guards completed (RS-01/RS-03/RS-05)
 
-**Phase 3（未来）**：
-- LLM 辅助的语义重复检测
-- 集成测试数据验证框架
-- 跨项目指标仪表板
+**Phase 3 (Future)**:
+- LLM-assisted semantic duplication detection
+- Integrated test data validation framework
+- Cross-project metrics dashboard
 
 ---
 
-## 附录 A: 术语表
+## Appendix A: Glossary
 
-| 术语 | 含义 |
+| Terminology | Meaning |
 |------|------|
-| 幻觉 (Hallucination) | LLM 生成看起来正确但实际错误的输出 |
-| Vibe Coding | 依赖 LLM "感觉"编码而非验证的开发方式 |
-| 守卫 (Guard) | 自动检测并阻断违规的测试或脚本 |
-| 回归 (Regression) | 之前正确的功能因新改动而失效 |
-| AST | Abstract Syntax Tree，抽象语法树 |
-| Pre-commit Hook | Git 提交前自动运行的检查脚本 |
-| DoR | Definition of Ready，就绪定义 |
-| BDD | Behavior-Driven Development，行为驱动开发 |
+| Hallucination | LLM generates output that looks correct but is actually wrong |
+| Vibe Coding | A development approach that relies on LLM to "feel" coding rather than verify |
+| Guard | Automatically detect and block violating tests or scripts |
+| Regression | Previously correct functionality is no longer valid due to new changes |
+| AST | Abstract Syntax Tree, abstract syntax tree |
+| Pre-commit Hook | Git check script that automatically runs before submission |
+| DoR | Definition of Ready, ready definition |
+| BDD | Behavior-Driven Development, behavior-driven development |
 
-## 附录 B: 参考资料
+## Appendix B: References
 
 - [Keep a Changelog](https://keepachangelog.com/)
 - [Semantic Versioning](https://semver.org/)

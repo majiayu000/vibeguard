@@ -1,136 +1,136 @@
 ---
 name: "VibeGuard: ExecPlan"
-description: "长周期任务执行计划 — 从 SPEC 生成自包含执行文档，支持跨会话恢复"
+description: "Long-term task execution plan — generates self-contained execution documents from SPEC, supports cross-session recovery"
 category: VibeGuard
 tags: [vibeguard, execplan, long-horizon, planning]
 ---
 
 <!-- VIBEGUARD:EXEC-PLAN:START -->
-**核心理念**（来自 OpenAI Harness Engineering）
-- 长周期任务需要自包含的执行文档，仅凭自身即可在新会话中恢复执行
-- Progress 是唯一允许 checklist 的章节，其余用散文描述
-- Decision Log 记录所有偏离 SPEC 的决策，确保可追溯
-- ExecPlan 是活文档，随执行持续更新
+**Core Concept** (from OpenAI Harness Engineering)
+- Long-term tasks require self-contained execution documents that can be resumed in new sessions by themselves
+- Progress is the only chapter that allows checklist, the rest are described in prose
+- Decision Log records all decisions that deviate from SPEC to ensure traceability
+- ExecPlan is a living document that is continuously updated with execution
 
-**三种模式**
+**Three modes**
 
-| 模式 | 用法 | 说明 |
+| Mode | Usage | Description |
 |------|------|------|
-| `init` | `/vibeguard:exec-plan init [spec路径]` | 从 SPEC 生成 ExecPlan |
-| `update` | `/vibeguard:exec-plan update <execplan路径>` | 追加 Discovery/Decision/完成状态 |
-| `status` | `/vibeguard:exec-plan status <execplan路径>` | 查看 Progress 进度摘要 |
+| `init` | `/vibeguard:exec-plan init [spec path]` | Generate ExecPlan from SPEC |
+| `update` | `/vibeguard:exec-plan update <execplan path>` | Append Discovery/Decision/completion status |
+| `status` | `/vibeguard:exec-plan status <execplan path>` | View Progress progress summary |
 
-**触发条件**
-- SPEC 已通过 `/vibeguard:interview` 生成并确认
-- 预计跨 2+ 会话完成的任务
-- 需要跨会话恢复执行上下文的场景
+**Trigger condition**
+- SPEC generated and confirmed via `/vibeguard:interview`
+- Tasks expected to be completed across 2+ sessions
+- Scenarios where execution context needs to be restored across sessions
 
 **Guardrails**
-- `init` 模式不做任何代码修改，只生成文档
-- `update` 模式只修改 ExecPlan 文件本身
-- 不替代 preflight — ExecPlan 定义"做什么"，preflight 定义"不可做什么"
+- `init` mode does not make any code modifications, only generates documentation
+- `update` mode only modifies the ExecPlan file itself
+- Does not replace preflight - ExecPlan defines "what to do", preflight defines "what not to do"
 
 ---
 
 ### Mode: init
 
-从 SPEC 生成 ExecPlan 文件。
+Generate ExecPlan files from SPEC.
 
 **Steps**
 
-1. **读取 SPEC**
-   - 如果提供了 spec 路径（$ARGUMENTS），读取该文件
-   - 如果未提供，搜索项目根目录的 `SPEC.md`
-   - 如果没有 SPEC，提示用户先运行 `/vibeguard:interview`
+1. **Read SPEC**
+   - If spec path ($ARGUMENTS) is provided, read the file
+   - If not provided, search for `SPEC.md` in the project root directory
+   - If there is no SPEC, prompt the user to run `/vibeguard:interview` first
 
-2. **分析 SPEC 并分解里程碑**
-   - 从 SPEC 的功能需求（FR-XX）提取里程碑
-   - 每个里程碑包含 1-3 个具体步骤
-   - 识别里程碑间的依赖关系
+2. **Analyze SPEC and break down milestones**
+   - Extract milestones from SPEC functional requirements (FR-XX)
+   - Each milestone contains 1-3 specific steps
+   - Identify dependencies between milestones
 
-3. **扫描项目上下文**
-   - 识别语言/框架、关键入口文件
-   - 检查是否有 preflight 约束集可引用
-   - 记录与 SPEC 相关的现有代码位置
+3. **Scan project context**
+   - Identify languages/frameworks and key entry files
+   - Check if there is a preflight constraint set to reference
+   - Document existing code locations related to SPEC
 
-4. **生成 ExecPlan**
-   - 按模板（`workflows/plan-flow/references/execplan-template.md`）填充 8 个章节
-   - Purpose 直接从 SPEC 概述提取
-   - Progress 映射为带 checkbox 的里程碑列表
-   - Concrete Steps 对齐 plan-template.md 的 Step 格式（状态/目标/文件/改动/测试/判定）
-   - **Nyquist 规则**：每个 Step 必须包含 `verify_cmd` 字段 — 一个可在 60 秒内执行完的验证命令（如 `cargo test --lib`、`curl localhost:8080/health`）。无法在 60s 内验证的步骤标记为 `unverifiable`，需拆分或补充验证手段
-   - Validation 从 SPEC 验收标准（AC-XX）转化
-   - Decision Log 初始为空，记录生成时的选型决策
+4. **Generate ExecPlan**
+   - Populate 8 chapters by template (`workflows/plan-flow/references/execplan-template.md`)
+   - Purpose extracted directly from the SPEC overview
+   - Progress is mapped to a milestone list with checkbox
+   - Concrete Steps aligns the Step format of plan-template.md (status/target/file/change/test/judgment)
+   - **Nyquist Rule**: Each Step must contain the `verify_cmd` field - a verification command that can be executed within 60 seconds (such as `cargo test --lib`, `curl localhost:8080/health`). Steps that cannot be verified within 60s are marked as `unverifiable` and need to be split or supplemented with verification methods.
+   - Validation converted from SPEC acceptance criteria (AC-XX)
+   - Decision Log is initially empty and records the selection decisions during generation.
 
-5. **保存并确认**
-   - 保存到 `<项目名>-execplan.md`（项目根目录）
-   - 展示 Progress 和 Concrete Steps 摘要给用户确认
-   - 用 AskUserQuestion 确认是否需要调整
+5. **Save and Confirm**
+   - Save to `<project name>-execplan.md` (project root directory)
+   - Display Progress and Concrete Steps summaries for user confirmation
+   - Use AskUserQuestion to confirm if adjustments are needed
 
 ---
 
 ### Mode: update
 
-追加执行过程中的发现和状态变更。
+Appends discoveries and status changes during execution.
 
 **Steps**
 
-1. **读取 ExecPlan**
-   - 读取 $ARGUMENTS 指定的 ExecPlan 文件
-   - 解析当前 Progress 和 Concrete Steps 状态
+1. **Read ExecPlan**
+   - Read the ExecPlan file specified by $ARGUMENTS
+   - Parse the current Progress and Concrete Steps status
 
-2. **识别更新类型**
-   - 步骤完成：更新 Step 状态为 `completed`，追加 Step Completion Log
-   - 新发现：追加到 Surprises 表
-   - 决策变更：追加到 Decision Log 表
-   - 里程碑完成：勾选 Progress 中对应 checkbox
+2. **Identify update type**
+   - Step completion: Update the Step status to `completed` and add the Step Completion Log
+   - New Discovery: Append to Surprises table
+   - Decision changes: Append to Decision Log table
+   - Milestone completed: Check the corresponding checkbox in Progress
 
-3. **执行更新**
-   - 修改 ExecPlan 文件中对应章节
-   - 如果步骤完成，自动将下一个 `pending` 步骤标记为 `in_progress`
-   - 如果所有里程碑完成，将计划状态改为 `completed`
+3. **Perform update**
+   - Modify the corresponding section in the ExecPlan file
+   - Automatically mark the next `pending` step as `in_progress` if the step is completed
+   - If all milestones are completed, change the plan status to `completed`
 
-4. **展示更新摘要**
-   - 输出变更的章节内容
-   - 如果有 Surprises，高亮提示可能需要调整后续步骤
+4. **Show update summary**
+   - Output changed chapter content
+   - If there are Surprises, the highlight prompt may need to adjust the subsequent steps
 
 ---
 
 ### Mode: status
 
-查看执行进度摘要。
+View a summary of execution progress.
 
 **Steps**
 
-1. **读取 ExecPlan**
-   - 读取 $ARGUMENTS 指定的 ExecPlan 文件
+1. **Read ExecPlan**
+   - Read the ExecPlan file specified by $ARGUMENTS
 
-2. **输出进度报告**
+2. **Output progress report**
    ```
-   ExecPlan: <任务名>
-   状态: active
-   进度: 2/5 里程碑完成 (40%)
+   ExecPlan: <task name>
+   Status: active
+   Progress: 2/5 Milestone Completed (40%)
 
-   [x] M1: <描述>
-   [x] M2: <描述>
-   [ ] M3: <描述> ← 当前
+   [x] M1: <description>
+   [x] M2: <description>
+   [ ] M3: <description> ← current
        Step C1: completed
        Step C2: in_progress
        Step C3: pending
-   [ ] M4: <描述>
-   [ ] M5: <描述>
+   [ ] M4: <description>
+   [ ] M5: <description>
 
-   最近决策: D3 — <决策摘要>
-   意外发现: 1 项未处理
+   Recent Decisions: D3 — <Decision Summary>
+   Unexpected discovery: 1 outstanding
    ```
 
-**后续衔接**
-- 完整流水线：`/vibeguard:interview` → SPEC → `/vibeguard:exec-plan init` → `/vibeguard:preflight` → 执行 → `/vibeguard:exec-plan update`
-- ExecPlan 与 preflight 互补：ExecPlan 定义执行路径，preflight 定义防护边界
-- 新会话恢复：读取 ExecPlan → `/vibeguard:exec-plan status` → 继续执行
+**Follow-up connection**
+- Full pipeline: `/vibeguard:interview` → SPEC → `/vibeguard:exec-plan init` → `/vibeguard:preflight` → Execute → `/vibeguard:exec-plan update`
+- ExecPlan and preflight are complementary: ExecPlan defines the execution path, and preflight defines the protection boundary
+- New session recovery: read ExecPlan → `/vibeguard:exec-plan status` → continue execution
 
 **Reference**
-- ExecPlan 模板：`workflows/plan-flow/references/execplan-template.md`
-- 集成说明：`workflows/plan-flow/references/execplan-integration.md`
-- Plan-flow 步骤格式：`workflows/plan-flow/references/plan-template.md`
+- ExecPlan template: `workflows/plan-flow/references/execplan-template.md`
+- Integration instructions: `workflows/plan-flow/references/execplan-integration.md`
+- Plan-flow step format: `workflows/plan-flow/references/plan-template.md`
 <!-- VIBEGUARD:EXEC-PLAN:END -->

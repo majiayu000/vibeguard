@@ -1,173 +1,173 @@
 ---
 name: "VibeGuard: Preflight"
-description: "在重大修改前探索项目，生成约束集，从源头预防问题"
+description: "Explore the project before major modifications, generate constraint sets, and prevent problems from the source."
 category: VibeGuard
 tags: [vibeguard, preflight, constraints, prevention]
 ---
 
 <!-- VIBEGUARD:PREFLIGHT:START -->
-**核心理念**
-- 问题在写代码前预防，比写完后检测修复成本低 10 倍
-- 产出的是**约束集**（不可做清单），不是信息堆砌
-- 约束集指导后续所有编码，让实现阶段不需要做架构决策
-- 每条约束必须可验证 — 要么能写 guard 脚本检测，要么能写测试断言
+**Core Concept**
+- Preventing problems before writing code is 10 times less expensive than detecting and fixing them after writing.
+- What is output is a **constraint set** (a list of things that cannot be done), not a pile of information.
+- The constraint set guides all subsequent coding, eliminating the need to make architectural decisions during the implementation phase
+- Each constraint must be verifiable — either by writing a guard script or by writing a test assertion
 
-**复杂度路由**（自动判断流程深度）
+**Complexity Routing** (automatically determine process depth)
 
-| 规模 | 流程 | 行动 |
+| Scale | Process | Action |
 |------|------|------|
-| 1-2 文件 | 直接实现 | 跳过 preflight，直接编码 |
-| 3-5 文件 | 轻量 preflight | 执行下方步骤 1-5，生成约束集 |
-| 6+ 文件 | 完整规划 | 先 `/vibeguard:interview` 生成 SPEC → 再执行 preflight |
+| 1-2 files | Direct implementation | Skip preflight and code directly |
+| 3-5 File | Lightweight preflight | Perform steps 1-5 below to generate a constraint set |
+| 6+ files | Complete planning | First `/vibeguard:interview` generates SPEC → then execute preflight |
 
-**触发条件**（3+ 文件级别）
-- 涉及 3+ 文件的改动
-- 新增入口点（binary / service / CLI subcommand）
-- 修改数据层（数据库、缓存、文件存储）
-- 跨模块重构
+**Trigger Condition** (3+ file levels)
+- Changes involving 3+ files
+- Added new entry point (binary/service/CLI subcommand)
+- Modify the data layer (database, cache, file storage)
+- Cross-module refactoring
 
 **Guardrails**
-- 不做任何代码修改，只读和分析
-- 不猜测 — 不确定的标记为 `[UNCLEAR]`，后续用 AskUserQuestion 确认
-- 约束集必须展示给用户确认后才能开始编码
+- No code modification, only reading and analysis
+- No guessing - Uncertainty is marked as `[UNCLEAR]`, and subsequently confirmed with AskUserQuestion
+- The constraint set must be shown to the user for confirmation before coding can begin
 
 **Steps**
 
-1. **识别项目类型和结构**
-   - 检测语言/框架（Cargo.toml → Rust, package.json → TS/JS, pyproject.toml → Python）
-   - 识别 monorepo / workspace 结构（workspace members / packages / apps）
-   - 列出所有入口点（bin crate、main.ts、app.py、CLI commands）
-   - 输出：`项目概览`（语言、框架、入口点列表）
+1. **Identify project type and structure**
+   - Detect languages/frameworks (Cargo.toml → Rust, package.json → TS/JS, pyproject.toml → Python)
+   - Recognize monorepo/workspace structure (workspace members/packages/apps)
+   - List all entry points (bin crate, main.ts, app.py, CLI commands)
+   - Output: `project overview` (list of languages, frameworks, entry points)
 
-2. **映射共享资源**
-   - 搜索所有数据路径构造（`data_dir`, `db_path`, `config_path`, `.join("xxx.db")`）
-   - 搜索所有环境变量读取（`env::var`, `process.env`, `os.environ`）
-   - 搜索所有端口/地址绑定（`listen`, `bind`, `PORT`）
-   - 识别共享状态（全局单例、共享数据库、消息队列）
-   - 输出：`共享资源地图`（哪些资源被哪些入口使用）
+2. **Map shared resources**
+   - Search all data path constructs (`data_dir`, `db_path`, `config_path`, `.join("xxx.db")`)
+   - Search all environment variables read (`env::var`, `process.env`, `os.environ`)
+   - Search all port/address bindings (`listen`, `bind`, `PORT`)
+   - Identify shared state (global singleton, shared database, message queue)
+   - Output: `Shared resource map` (which resources are used by which entrances)
 
-3. **提取现有模式**
-   - 错误处理模式（Result vs unwrap, try-catch 风格）
-   - 类型定义位置（core/ vs 各 app 各自定义）
-   - 命名规范（snake_case/camelCase, 前缀规律）
-   - 模块职责划分（哪个模块管什么）
-   - 输出：`模式清单`
+3. **Extract existing schema**
+   - Error handling mode (Result vs unwrap, try-catch style)
+   - Type definition location (core/ vs each app defines it individually)
+   - Naming convention (snake_case/camelCase, prefix rules)
+   - Division of module responsibilities (which module is responsible for what)
+   - Output: `pattern list`
 
-3.5. **参考实现搜索（Skeleton Projects）**
-   - 实现新功能前，先搜索项目内外是否已有类似实现可参考
-   - **项目内搜索**：用 Grep/Glob 搜索关键词、函数名、模式名，确认没有已有实现被遗漏
-   - **项目外搜索**（仅限 6+ 文件的大改动）：
-     - 用 WebSearch 搜索 "battle-tested" 开源实现（如 `"<feature> implementation" site:github.com`）
-     - 评估候选实现的适用性（license 兼容、依赖量、维护活跃度）
-     - **不是照搬**，而是提取设计决策作为约束集的输入
-   - 输出：`参考实现清单`
+3.5. **Reference Implementation Search (Skeleton Projects)**
+   - Before implementing new functions, first search whether there are similar implementations inside and outside the project for reference.
+   - **Search within the project**: Use Grep/Glob to search for keywords, function names, and pattern names to confirm that no existing implementations are missing
+   - **Search outside project** (only large changes to 6+ files):
+     - Use WebSearch to search for "battle-tested" open source implementations (e.g. `"<feature> implementation" site:github.com`)
+     - Evaluate the suitability of candidate implementations (license compatibility, dependencies, maintenance activity)
+     - **Not copy**, but extract design decisions as input to constraint sets
+   - Output: `Reference Implementation List`
      ```
-     [REF-01] 项目内：src/core/xxx.ts 已有类似的 XX 逻辑，应扩展而非新建
-     [REF-02] 项目外：github.com/xxx/yyy 的 ZZ 模式值得参考（MIT，1.2k stars，活跃维护）
-     [REF-NONE] 未找到可参考实现，需从零设计
+     [REF-01] In the project: src/core/xxx.ts already has similar XX logic and should be extended rather than newly created.
+     [REF-02] Outside the project: The ZZ mode at github.com/xxx/yyy is worthy of reference (MIT, 1.2k stars, actively maintained)
+     [REF-NONE] No reference implementation found, need to design from scratch
      ```
-   - 如果找到项目内已有实现 → 生成 L1 约束："扩展 [REF-XX] 而非新建"
+   - If an existing implementation is found in the project → Generate L1 constraint: "Extend [REF-XX] instead of creating a new one"
 
-3.6. **目录语义校验**
-   - 列出项目所有子目录名（一级 + 二级），对照内置语义映射表判断职责一致性：
+3.6. **Directory semantic verification**
+   - List all subdirectory names of the project (first level + second level), and compare the built-in semantic mapping table to determine the consistency of responsibilities:
 
-     | 目录名 | 预期职责 |
+     | Directory Name | Expected Responsibilities |
      |--------|----------|
-     | middleware | 请求拦截 / 中间件逻辑 |
-     | schemas | 模型定义 / 数据验证 |
-     | models | ORM / 数据模型 |
-     | services | 业务逻辑 |
-     | utils / helpers | 纯函数工具 |
-     | routes / api | 路由定义 / 端点处理 |
-     | controllers | 请求处理 / 调度 |
-     | core | 核心逻辑 / 共享接口 |
-     | config | 配置加载 |
-     | commands | CLI 命令定义 |
+     | middleware | Request interception / middleware logic |
+     | schemas | model definition / data validation |
+     | models | ORM / data model |
+     | services | business logic |
+     | utils/helpers | Pure function tools |
+     | routes/api | route definition/endpoint handling |
+     | controllers | Request processing/scheduling |
+     | core | core logic / shared interface |
+     | config | configuration loading |
+     | commands | CLI command definition |
 
-   - 对命中映射表的目录，抽样检查 top-level class/function 名（前 3 个文件），判断是否与目录语义一致
-   - SKIP：文件数 < 3 的目录、`tests/`、`migrations/`、`__pycache__/`、未命中映射表的目录
-   - 输出 PASS/WARN 报告：
+   - For directories that hit the mapping table, randomly check the top-level class/function names (the first 3 files) to determine whether they are consistent with the directory semantics.
+   - SKIP: Directories with the number of files < 3, `tests/`, `migrations/`, `__pycache__/`, directories that miss the mapping table
+   - Output PASS/WARN report:
      ```
-     [DIR-SEMANTIC] schemas/ — PASS（3/3 文件含 Schema/Model 定义）
-     [DIR-SEMANTIC] utils/ — WARN（utils/db_manager.py 含 class DBManager，疑似业务逻辑而非纯函数）
+     [DIR-SEMANTIC] schemas/ — PASS (3/3 files contain Schema/Model definition)
+     [DIR-SEMANTIC] utils/ — WARN (utils/db_manager.py contains class DBManager, which is suspected to be business logic rather than pure functions)
      ```
-   - WARN 项在 Step 5 自动生成约束：`[C-XX] utils/ 仅存放无副作用纯函数，DBManager 应迁至 services/`
+   - WARN item automatically generates constraints in Step 5: `[C-XX] utils/ only stores pure functions without side effects, DBManager should be moved to services/`
 
-4. **运行静态守卫获取基线**
-   - 根据语言选择对应的 vibeguard 守卫脚本：
+4. **Run static guard to obtain baseline**
+   - Select the corresponding vibeguard guard script according to the language:
      - **Rust**: `check_unwrap_in_prod.sh`, `check_duplicate_types.sh`, `check_nested_locks.sh`, `check_workspace_consistency.sh`
      - **Python**: `check_duplicates.py`, `check_naming_convention.py`, `test_code_quality_guards.py`
      - **TypeScript**: `check_any_abuse.sh`, `check_console_residual.sh`
-   - 记录当前违规数量作为基线（修改后不能增加）
-   - 输出：`守卫基线`
+   - Record the current number of violations as a baseline (cannot be increased after modification)
+   - Output: `Guard Baseline`
 
-   **[Stop] 展示基线数据，等待用户确认后再生成约束集。**
-   - 展示步骤 1-4 的所有发现
-   - 用 AskUserQuestion 让用户确认基线数据和项目理解是否正确
-   - 如有 `[UNCLEAR]` 项，必须在此处用 AskUserQuestion 确认
+   **[Stop] Displays baseline data and waits for user confirmation before generating a constraint set. **
+   - Show all findings from steps 1-4
+   - Use AskUserQuestion to let users confirm that baseline data and project understanding are correct
+   - If there is a `[UNCLEAR]` item, it must be confirmed with an AskUserQuestion here
 
-5. **生成约束集**
+5. **Generate constraint set**
 
-   先运行约束推荐器获取初稿（`python3 ${VIBEGUARD_DIR:-vibeguard}/scripts/constraint-recommender.py <project_dir>`），然后基于步骤 1-4 的发现补充和调整。推荐器输出三级信心度：high（自动接受）/ medium（提示确认）/ low（需讨论）。
+   First run the constraint recommender to generate an initial draft (`python3 ${VIBEGUARD_DIR:-vibeguard}/scripts/constraint-recommender.py <project_dir>`), then supplement and adjust it based on findings from steps 1-4. The recommender outputs three confidence levels: high (automatically accepted) / medium (prompt for confirmation) / low (needs discussion).
 
-   基于步骤 1-4 的发现和推荐器初稿，为当前任务生成约束集。每条约束格式：
+   Based on the findings from steps 1-4 and the first draft of the recommender, generate a constraint set for the current task. Format of each constraint:
 
    ```
-   [C-XX] 约束描述
-   来源：步骤 N 发现的具体证据
-   验证：如何检查是否违反（guard 脚本 / 测试 / 人工检查）
+   [C-XX] Constraint description
+   Source: Concrete evidence found in Step N
+   Verification: How to check for violations (guard script/test/manual inspection)
    ```
 
-   **必须覆盖的约束类别**：
+   **Constraint categories that must be covered**:
 
-   | 类别 | 约束目标 | 示例 |
+   | Category | Constraint Goal | Example |
    |------|----------|------|
-   | 数据收敛 | 所有入口的数据路径必须收敛 | "所有入口通过 `core::resolve_db_path()` 获取 DB 路径" |
-   | 类型唯一 | 不新增与现有类型重名的定义 | "禁止在 app 层重新定义 core 已有的 SearchQuery" |
-   | 接口稳定 | 不破坏公开 API 签名 | "ItemId::from(&str) 签名不变" |
-   | 错误处理 | 保持与项目一致的错误处理风格 | "非测试代码禁止 unwrap()，使用 ? 或 map_err" |
-   | 命名一致 | 遵循项目已有命名规范 | "环境变量统一使用 REFINE_ 前缀" |
-   | 守卫基线 | 修改后违规数不增加 | "unwrap 数 ≤ 50, 重复类型 ≤ 2" |
+   | Data convergence | The data paths of all entries must be converged | "All entries obtain the DB path through `core::resolve_db_path()`" |
+   | Unique type | Do not add definitions with the same name as existing types | "It is prohibited to redefine core's existing SearchQuery at the app layer" |
+   | The interface is stable | Does not break the public API signature | "ItemId::from(&str) signature remains unchanged" |
+   | Error handling | Maintain an error handling style consistent with the project | "Unwrap() is prohibited in non-test code, use ? or map_err" |
+   | Consistent naming | Follow the existing naming convention of the project | "Environment variables uniformly use the REFINE_ prefix" |
+   | Guard the baseline | The number of violations will not increase after modification | "Unwrap number ≤ 50, repeat type ≤ 2" |
 
-6. **输出约束集报告**
+6. **Output constraint set report**
 
-   将约束集以结构化格式输出：
+   Output the constraint set in a structured format:
 
    ```markdown
-   # VibeGuard Preflight 约束集
+   # VibeGuard Preflight constraint set
 
-   ## 项目：<项目名>
-   ## 任务：<用户描述的任务>
-   ## 日期：<当前日期>
+   ## Project: <project name>
+   ## Task: <user-described task>
+   ## Date: <current date>
 
-   ## 约束清单
+   ## Constraint list
 
-   ### 数据收敛
+   ### Data convergence
    - [C-01] ...
 
-   ### 类型唯一
+   ### Unique type
    - [C-02] ...
 
-   ### 守卫基线
-   - [C-XX] 修改前基线：unwrap=50, duplicates=2, nested_locks=0
-     修改后必须：unwrap ≤ 50, duplicates ≤ 2, nested_locks = 0
+   ### Guard the baseline
+   - [C-XX] Baseline before modification: unwrap=50, duplicates=2, nested_locks=0
+     After modification, it must be: unwrap ≤ 50, duplicates ≤ 2, nested_locks = 0
 
-   ## 需要用户确认的问题
+   ## Questions that require user confirmation
    - [UNCLEAR] ...
    ```
 
-7. **用户确认**
-   - 展示完整约束集
-   - 用 AskUserQuestion 确认 `[UNCLEAR]` 项
-   - 用户确认后，约束集成为后续编码的硬约束
+7. **User Confirmation**
+   - Show the complete constraint set
+   - Confirm `[UNCLEAR]` item with AskUserQuestion
+   - After user confirmation, the constraints are integrated into hard constraints for subsequent coding
 
-**后续使用**
-- 编码过程中，每次修改前对照约束集自检
-- 编码完成后，运行 `/vibeguard:check` 验证守卫基线未恶化
-- 约束集中的每条规则都是不可违反的 — 如需违反，必须先更新约束集并获得用户同意
+**Follow-up use**
+- During the coding process, self-check against the constraint set before each modification
+- After encoding is complete, run `/vibeguard:check` to verify that the guard baseline has not deteriorated
+- Every rule in the constraint set cannot be violated - if it is violated, the constraint set must be updated and the user consent must be obtained first
 
 **Reference**
-- VibeGuard 守卫脚本：`vibeguard/guards/`
-- VibeGuard 规则：`vibeguard/rules/`
-- VibeGuard 七层防幻觉框架：`docs/how/learning-skill-generation.md`
+- VibeGuard guard script: `vibeguard/guards/`
+- VibeGuard rules: `vibeguard/rules/`
+- VibeGuard seven-layer anti-hallucination framework: `docs/how/learning-skill-generation.md`
 <!-- VIBEGUARD:PREFLIGHT:END -->

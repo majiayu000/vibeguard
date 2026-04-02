@@ -1,40 +1,40 @@
-# scripts/ 目录
+# scripts/ directory
 
-VibeGuard 工具脚本，提供统计、合规检查、指标收集等功能。
+VibeGuard tool script provides statistics, compliance checking, indicator collection and other functions.
 
-## 脚本说明
+## Script description
 
-| 脚本 | 用途 |
+| Script | Purpose |
 |------|------|
-| `stats.sh` | 分析 events.jsonl，输出 hook 触发统计、warn 遵守率、文件类型和时段分布 |
-| `verify/compliance_check.sh` | 项目合规性检查，验证代码规范遵守情况 |
-| `metrics/metrics_collector.sh` | 收集项目代码指标（行数、复杂度等） |
-| `worktree-guard.sh` | 大改动隔离辅助：创建/列出/合并/删除 git worktree |
-| `blueprint-runner.sh` | 蓝图编排器：读取 blueprints/*.json，按顺序执行确定性/代理节点 |
-| `gc/gc-logs.sh` | 日志归档：events.jsonl 超过 10MB 时按月归档压缩，保留 3 个月 |
-| `gc/gc-worktrees.sh` | Worktree 清理：删除不活跃 >7 天的 worktree，未合并变更只警告 |
-| `metrics/metrics-exporter.sh` | Prometheus 指标导出：从 events.jsonl 聚合生成 4 类指标 |
-| `gc/gc-scheduled.sh` | 定期 GC + 学习 + 反思：日志归档、worktree 清理、metrics 清理、跨会话学习信号检测、会话质量反思报告 |
-| `project-init.sh` | 项目级脚手架：检测语言/框架 → 列出激活守卫/规则 → 生成 CLAUDE.md 片段建议，并安装 pre-commit/pre-push hook |
-| `quality-grader.sh` | 质量等级评分：从 events.jsonl 计算 A/B/C/D 等级，推荐 GC 频率 |
-| `hook-health.sh` | Hook 健康快照：最近 N 小时风险率、Top 风险 hook、最近风险事件 Top 10 |
-| `verify/doc-freshness-check.sh` | 文档新鲜度：交叉比对 rules/ 和 guards/ 的规则 ID 覆盖度 |
-| `log-capability-change.sh` | 能力进化日志：从 git log 提取守卫/规则/Skill 变更时间线 |
-| `constraint-recommender.py` | 约束推荐器：基于项目语言/框架自动生成 preflight 约束初稿 |
+| `stats.sh` | Analyze events.jsonl, output hook trigger statistics, warn compliance rate, file type and time period distribution |
+| `verify/compliance_check.sh` | Project compliance check, verify compliance with code specifications |
+| `metrics/metrics_collector.sh` | Collect project code metrics (number of lines, complexity, etc.) |
+| `worktree-guard.sh` | Big change isolation assistance: create/list/merge/delete git worktree |
+| `blueprint-runner.sh` | Blueprint orchestrator: read blueprints/*.json, execute deterministic/agent nodes in order |
+| `gc/gc-logs.sh` | Log archive: When events.jsonl exceeds 10MB, it will be archived and compressed on a monthly basis and retained for 3 months |
+| `gc/gc-worktrees.sh` | Worktree cleanup: delete worktrees that have been inactive for >7 days, only warn about unmerged changes |
+| `metrics/metrics-exporter.sh` | Prometheus metric export: generate 4 types of metrics from events.jsonl aggregation |
+| `gc/gc-scheduled.sh` | Regular GC + learning + reflection: log archiving, worktree cleaning, metrics cleaning, cross-session learning signal detection, session quality reflection report |
+| `project-init.sh` | Project-level scaffolding: detect languages/frameworks → list activation guards/rules → generate CLAUDE.md snippet suggestions and install pre-commit/pre-push hooks |
+| `quality-grader.sh` | Quality grade score: calculate A/B/C/D grade from events.jsonl, recommended GC frequency |
+| `hook-health.sh` | Hook health snapshot: risk rate in the last N hours, Top risk hooks, Top 10 recent risk events |
+| `verify/doc-freshness-check.sh` | Document freshness: cross-check rule ID coverage of rules/ and guards/ |
+| `log-capability-change.sh` | Capability evolution log: extract guard/rule/Skill change timeline from git log |
+| `constraint-recommender.py` | Constraint recommender: automatically generate the first draft of preflight constraints based on the project language/framework |
 
-## CI 脚本 (scripts/ci/)
+## CI scripts (scripts/ci/)
 
-| 脚本 | 用途 |
+| Script | Purpose |
 |------|------|
-| `validate-guards.sh` | 验证所有守卫脚本可执行且格式正确 |
-| `validate-hooks.sh` | 验证所有 hook 脚本可执行且格式正确 |
-| `validate-rules.sh` | 验证规则文件格式和 ID 唯一性 |
+| `validate-guards.sh` | Verify that all guard scripts are executable and in the correct format |
+| `validate-hooks.sh` | Verify that all hook scripts are executable and in the correct format |
+| `validate-rules.sh` | Validate rule file format and ID uniqueness |
 
-## 用法
+## Usage
 
 ```bash
-bash scripts/stats.sh          # 最近 7 天统计
-bash scripts/stats.sh 30       # 最近 30 天
-bash scripts/stats.sh all      # 全部历史
-bash scripts/hook-health.sh 24 # 最近 24 小时健康快照
+bash scripts/stats.sh # Statistics for the last 7 days
+bash scripts/stats.sh 30 # Last 30 days
+bash scripts/stats.sh all # All history
+bash scripts/hook-health.sh 24 # Health snapshot of the last 24 hours
 ```

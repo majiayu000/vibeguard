@@ -1,8 +1,8 @@
-# BDD Guide — 共享行为驱动开发参考
+# BDD Guide — Shared behavior-driven development reference
 
-> 本文件被 fixflow 和 optflow 共同引用，修改时请同时考虑两个工作流的需求。
+> This file is referenced by both fixflow and optflow. Please consider the needs of both workflows when modifying it.
 
-## 何时使用 BDD
+## When to use BDD
 
 Use BDD if user requests it, or if requirements are unclear.
 

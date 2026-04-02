@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# VibeGuard — Prometheus 指标导出
+# VibeGuard — Prometheus metrics export
 #
-# 读取 events.jsonl，输出 Prometheus text format 指标。
-# 支持 push 到 Pushgateway 或写入 textfile collector。
+# Read events.jsonl and output Prometheus text format indicators.
+# Support pushing to Pushgateway or writing to textfile collector.
 #
-# 用法：
-#   bash metrics-exporter.sh                     # 输出到 stdout
-#   bash metrics-exporter.sh --push <gateway>    # Push 到 Pushgateway
-#   bash metrics-exporter.sh --file <path>       # 写入 textfile
+# Usage:
+# bash metrics-exporter.sh # Output to stdout
+# bash metrics-exporter.sh --push <gateway> # Push to Pushgateway
+# bash metrics-exporter.sh --file <path> # Write textfile
 
 set -euo pipefail
 
@@ -27,11 +27,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -f "$LOG_FILE" ]]; then
-  echo "# 日志文件不存在: ${LOG_FILE}" >&2
+  echo "# Log file does not exist: ${LOG_FILE}" >&2
   exit 0
 fi
 
-# 生成 Prometheus 指标
+# Generate Prometheus metrics
 METRICS=$(python3 -c "
 import json, sys
 from collections import defaultdict
@@ -41,7 +41,7 @@ log_file = '${LOG_FILE}'
 days = ${DAYS}
 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-# 计数器
+# counter
 hook_total = defaultdict(int)       # {(hook, decision): count}
 tool_total = defaultdict(int)       # {tool: count}
 duration_sum = defaultdict(float)   # {hook: sum_ms}
@@ -85,7 +85,7 @@ with open(log_file) as f:
         if decision in ('warn', 'block', 'gate'):
             violation_total[reason or 'unspecified'] += 1
 
-# 输出 Prometheus 格式
+# Output Prometheus format
 print('# HELP vibeguard_hook_trigger_total Total hook triggers by hook and decision')
 print('# TYPE vibeguard_hook_trigger_total counter')
 for (hook, decision), count in sorted(hook_total.items()):
@@ -119,10 +119,10 @@ print(f'vibeguard_events_total {total_events}')
 
 if [[ -n "$OUTPUT_FILE" ]]; then
   echo "$METRICS" > "$OUTPUT_FILE"
-  echo "指标已写入: ${OUTPUT_FILE}"
+  echo "Indicator written: ${OUTPUT_FILE}"
 elif [[ -n "$PUSH_URL" ]]; then
   echo "$METRICS" | curl --silent --data-binary @- "${PUSH_URL}/metrics/job/vibeguard"
-  echo "指标已推送到: ${PUSH_URL}"
+  echo "The indicator has been pushed to: ${PUSH_URL}"
 else
   echo "$METRICS"
 fi

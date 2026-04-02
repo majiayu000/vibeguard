@@ -1,86 +1,86 @@
 ---
 name: "VibeGuard: Interview"
-description: "大功能开始前深度采访用户需求，挖掘边界情况和技术权衡，输出结构化 SPEC"
+description: "In-depth interviews with user needs before the start of major functions, mining boundary conditions and technical trade-offs, and outputting structured SPEC"
 category: VibeGuard
 tags: [vibeguard, interview, requirements, spec]
 ---
 
 <!-- VIBEGUARD:INTERVIEW:START -->
-**核心理念**（来自 Anthropic 官方最佳实践）
-- 大功能的失败往往源于需求不清晰，而非实现不正确
-- AI 主动采访用户，挖掘未考虑到的边界情况和技术权衡
-- 采访结束后输出结构化 SPEC，建议在**新会话**中执行以获得干净上下文
+**Core Concept** (from Anthropic official best practices)
+- Failure of large functions often stems from unclear requirements rather than incorrect implementation
+- AI proactively interviews users to uncover unconsidered edge cases and technical trade-offs
+- Output structured SPEC after interview, it is recommended to execute in **new session** to get clean context
 
-**触发条件**
-- 涉及新功能/新模块的开发
-- 需求描述模糊或不完整
-- 影响多个模块的变更（复杂度路由 6+ 文件级别）
+**Trigger condition**
+- Involves the development of new functions/modules
+- Requirements description is vague or incomplete
+- Changes affecting multiple modules (complexity routing 6+ file level)
 
 **Guardrails**
-- 不做任何代码修改，只分析和采访
-- 最多 4 轮采访，每轮 2-4 个问题，保持节奏紧凑
-- 不问显而易见的问题，**专挖用户没想到的难点**
-- 用户说"你决定"的问题，给出推荐方案并记录
+- No code modifications, only analysis and interviews
+- Up to 4 rounds of interviews, 2-4 questions each, keep the pace tight
+- Don’t ask obvious questions, **explore the difficulties that users didn’t expect**
+- When the user says "you decide", the recommended solution is given and recorded
 
 **Steps**
 
-1. **理解初始需求**
-   - 读取用户需求描述（$ARGUMENTS 或当前上下文）
-   - 快速扫描相关代码，理解现有架构和约束
-   - 识别需求中的模糊点和未定义的边界
+1. **Understand the initial requirements**
+   - Read user requirement description ($ARGUMENTS or current context)
+   - Quickly scan relevant code and understand existing architecture and constraints
+   - Identify fuzzy points and undefined boundaries in requirements
 
-2. **深度采访**（使用 AskUserQuestion 工具）
+2. **In-Depth Interview** (using AskUserQuestion tool)
 
-   **第 1 轮：功能边界**
-   - 核心用例是什么？哪些场景明确不做？
-   - 有没有类似功能可以参考的现有实现？
+   **Round 1: Functional Boundaries**
+   - What are the core use cases? Which scenes are explicitly not allowed to be done?
+   - Are there any existing implementations with similar functionality that I can refer to?
 
-   **第 2 轮：技术实现**
-   - 性能/延迟要求？数据存储偏好？
-   - 需要兼容哪些现有接口？
+   **Round 2: Technology Implementation**
+   - Performance/latency requirements? Data storage preferences?
+   - What existing interfaces need to be compatible with?
 
-   **第 3 轮：边界情况**
-   - 并发/竞态怎么处理？错误时的预期行为？
-   - 数据量大时的降级策略？
+   **Round 3: Boundary Cases**
+   - How to deal with concurrency/race conditions? Expected behavior on error?
+   - Downgrade strategy when data volume is large?
 
-   **第 4 轮：验收标准**
-   - 怎么算"做完了"？需要哪些测试覆盖？
-   - 有没有必须通过的性能基准？
+   **Round 4: Acceptance Criteria**
+   - How do you count it as "done"? What test coverage is required?
+   - Are there any performance benchmarks that must be passed?
 
-   根据前一轮回答动态调整问题方向。如果前几轮已经覆盖充分，可以提前结束采访。
+   Dynamically adjust the question direction based on the previous round of answers. If you have covered enough in previous rounds, you can end the interview early.
 
-3. **生成 SPEC**
+3. **Generate SPEC**
 
    ```markdown
-   # Feature Spec: <功能名>
-   ## 概述
-   一句话描述 + 核心价值
+   # Feature Spec: <function name>
+   ## Overview
+   One sentence description + core value
 
-   ## 功能需求
+   ## Functional requirements
    - FR-01: ...
 
-   ## 非功能需求
-   - NFR-01: 性能/安全/兼容性要求
+   ## Non-functional requirements
+   - NFR-01: Performance/Safety/Compatibility Requirements
 
-   ## 技术设计
-   ### 影响范围
-   - 新增: ...
-   - 修改: ...
-   ### 接口定义
-   ### 数据模型变更
+   ## Technical Design
+   ### Scope of influence
+   - New: ...
+   - Revise: ...
+   ### Interface definition
+   ### Data model changes
 
-   ## 边界情况
+   ## Boundary cases
    - EC-01: ...
 
-   ## 验收标准
+   ## Acceptance criteria
    - [ ] AC-01: ...
    ```
 
-4. **确认并保存**
-   - 展示 SPEC 给用户确认
-   - 保存到项目根目录 `SPEC.md`（或用户指定路径）
-   - 提醒用户：**建议在新会话中执行 SPEC**，干净上下文实现更可靠
+4. **Confirm and save**
+   - Show SPEC to user for confirmation
+   - Save to the project root directory `SPEC.md` (or user-specified path)
+   - Remind users: **It is recommended to execute SPEC in a new session**, clean context implementation is more reliable
 
-**后续衔接**
-- 新会话中：读取 SPEC.md → `/vibeguard:preflight` 生成约束集 → 按 SPEC 实现
+**Follow-up connection**
+- In a new session: read SPEC.md → `/vibeguard:preflight` generate constraint set → implement by SPEC
 <!-- VIBEGUARD:INTERVIEW:END -->

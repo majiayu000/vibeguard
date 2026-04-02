@@ -1,1 +1,1 @@
-执行 `/vibeguard:gc` 命令。$ARGUMENTS
+Execute the `/vibeguard:gc` command. $ARGUMENTS

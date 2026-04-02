@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: Harness 风格 Taste Invariants
+# VibeGuard Rust Guard: Harness Style Taste Invariants
 #
-# 检测 Rust 代码品味约束（对标 OpenAI Harness Engineering）。
-# 不使用独立规则 ID，避免与 RS-01~RS-13 冲突。
+# Detect Rust code taste constraints (benchmarked by OpenAI Harness Engineering).
+# Do not use independent rule IDs to avoid conflicts with RS-01~RS-13.
 #
-# 检测项:
-#   - TASTE-ANSI: 硬编码 ANSI 转义序列（应使用 colored/termcolor crate）
-#   - TASTE-FOLD: 可折叠的单行 if（可简化为 then/map）
-#   - TASTE-ASYNC-UNWRAP: async fn 内 .unwrap()（应使用 ?）
-#   - TASTE-PANIC-MSG: panic!() 缺少有意义的消息
+# Detection items:
+# - TASTE-ANSI: hardcoded ANSI escape sequences (colored/termcolor crate should be used)
+# - TASTE-FOLD: Foldable single line if (can be simplified to then/map)
+# - TASTE-ASYNC-UNWRAP: .unwrap() inside async fn (should use ?)
+# - TASTE-PANIC-MSG: panic!() lacks meaningful message
 #
-# 用法:
+# Usage:
 #   bash check_taste_invariants.sh [target_dir]
 #   bash check_taste_invariants.sh --strict [target_dir]
 
@@ -19,7 +19,7 @@ parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 TOTAL=0
 
-# --- TASTE-ANSI: 硬编码 ANSI 转义序列 ---
+# --- TASTE-ANSI: Hardcoded ANSI escape sequence ---
 ANSI_TMP=$(create_tmpfile)
 list_rs_files "${TARGET_DIR}" \
   | { grep -vE '(/tests/|/test_|_test\.rs$|/examples/)' || true; } \
@@ -36,7 +36,7 @@ cat "${ANSI_TMP}" >> "${TMPFILE}"
 ANSI_COUNT=$(wc -l < "${ANSI_TMP}" | tr -d ' ')
 TOTAL=$((TOTAL + ANSI_COUNT))
 
-# --- TASTE-ASYNC-UNWRAP: async fn 内 .unwrap() ---
+# --- TASTE-ASYNC-UNWRAP: async fn within .unwrap() ---
 # Fix: use awk to track async fn scope so we only flag unwrap() calls that are
 # actually inside an async function body, not any unwrap() in a file that happens
 # to contain an async fn somewhere else.
@@ -80,13 +80,13 @@ cat "${ASYNC_TMP}" >> "${TMPFILE}"
 ASYNC_COUNT=$(wc -l < "${ASYNC_TMP}" | tr -d ' ')
 TOTAL=$((TOTAL + ASYNC_COUNT))
 
-# --- TASTE-PANIC-MSG: panic!() 缺少有意义的消息 ---
+# --- TASTE-PANIC-MSG: panic!() lacks meaningful message ---
 PANIC_TMP=$(create_tmpfile)
 list_rs_files "${TARGET_DIR}" \
   | { grep -vE '(/tests/|/test_|_test\.rs$|/examples/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 检测 panic!() 无参数或只有空字符串
+        # Detect panic!() with no parameters or only empty string
         grep -nE 'panic!\s*\(\s*\)|panic!\s*\(\s*""\s*\)' "${f}" 2>/dev/null \
           | sed "s|^|${f}:|" || true
       fi
@@ -98,7 +98,7 @@ cat "${PANIC_TMP}" >> "${TMPFILE}"
 PANIC_COUNT=$(wc -l < "${PANIC_TMP}" | tr -d ' ')
 TOTAL=$((TOTAL + PANIC_COUNT))
 
-# --- 输出汇总 ---
+# --- Output summary ---
 echo ""
 cat "${TMPFILE}"
 echo ""
@@ -107,9 +107,9 @@ if [[ ${TOTAL} -eq 0 ]]; then
   echo "Taste invariants check passed — no issues found."
 else
   echo "Found ${TOTAL} taste invariant violation(s):"
-  [[ ${ANSI_COUNT} -gt 0 ]] && echo "  TASTE-ANSI:          ${ANSI_COUNT} (硬编码 ANSI → 使用 colored/termcolor crate)"
-  [[ ${ASYNC_COUNT} -gt 0 ]] && echo "  TASTE-ASYNC-UNWRAP:  ${ASYNC_COUNT} (async fn 中 unwrap → 使用 ? 操作符)"
-  [[ ${PANIC_COUNT} -gt 0 ]] && echo "  TASTE-PANIC-MSG:     ${PANIC_COUNT} (panic 无消息 → 添加上下文描述)"
+  [[ ${ANSI_COUNT} -gt 0 ]] && echo " TASTE-ANSI: ${ANSI_COUNT} (hardcoded ANSI → use colored/termcolor crate)"
+  [[ ${ASYNC_COUNT} -gt 0 ]] && echo " TASTE-ASYNC-UNWRAP: ${ASYNC_COUNT} (unwrap → in async fn uses the ? operator)"
+  [[ ${PANIC_COUNT} -gt 0 ]] && echo " TASTE-PANIC-MSG: ${PANIC_COUNT} (panic no message → add context description)"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

@@ -1,8 +1,8 @@
-# [项目名] — Claude Code Guidelines
+# [Project Name] — Claude Code Guidelines
 
 ## Project Overview
 
-[项目简述]
+[Project Brief]
 
 | Component | Location | Tech Stack |
 |-----------|----------|------------|
@@ -14,31 +14,31 @@
 
 ### 1. NO BACKWARD COMPATIBILITY
 
-直接删除旧代码，不保留兼容层。
+Delete the old code directly without retaining the compatibility layer.
 
 ```python
 # ❌ BAD
 import warnings
 warnings.warn("Deprecated", DeprecationWarning)
 
-# ✅ GOOD - 直接删除
+#✅ GOOD - Delete directly
 ```
 
 ### 2. NO FUNCTION ALIASES
 
-一个函数只能有一个名字，禁止别名。
+A function can only have one name, and aliases are prohibited.
 
 ```python
 # ❌ BAD
 format_percent = format_percentage
 
 # ✅ GOOD
-# 所有调用方统一使用 format_percentage
+# All callers use format_percentage uniformly
 ```
 
 ### 3. NO HARDCODING
 
-内容必须来自数据或 AI，不硬编码。
+Content must be derived from data or AI and not hard-coded.
 
 ```python
 # ❌ BAD
@@ -50,21 +50,21 @@ status = context.get("status")
 
 ### 4. NAMING CONVENTION
 
-Python 内部 = snake_case，API 边界 = camelCase。
+Python internal = snake_case, API bounds = camelCase.
 
 ```python
 from app.core.converters import snakeize_obj, camelize_obj
 
-# 入口转换
+# Entry conversion
 data = snakeize_obj(raw_data)
 
-# 出口转换
+# export conversion
 return camelize_obj(result)
 ```
 
 ### 5. SEARCH BEFORE CREATE
 
-新建文件/类/函数前必须先搜索。
+You must search before creating a new file/class/function.
 
 ```bash
 grep -rn "class <ClassName>" app/ --include="*.py"
@@ -99,17 +99,17 @@ app/
 
 ## Code Quality Guards
 
-### 架构守卫（5 条核心规则）
+### Architecture Guards (5 Core Rules)
 
-| # | 规则 | 检测方式 |
+| # | Rules | Detection methods |
 |---|------|----------|
-| 1 | 禁止静默吞异常 | except 块必须有 logging/re-raise |
-| 2 | Facade 禁止 Any 类型 | 公开方法参数和返回值 |
-| 3 | 禁止 Re-export Shim | schema 文件必须有实际定义 |
-| 4 | 禁止跨模块私有访问 | 不访问 `_private` 属性 |
-| 5 | 禁止重复 Protocol | 共享接口放 `core/interfaces/` |
+| 1 | Disable silent swallowing of exceptions | except block must have logging/re-raise |
+| 2 | Facade prohibits Any type | Public method parameters and return values |
+| 3 | Re-export Shim is prohibited | schema files must have actual definitions |
+| 4 | Disable cross-module private access | Do not access the `_private` attribute |
+| 5 | Duplication is prohibited Protocol | Shared interfaces are placed in `core/interfaces/` |
 
-运行守卫：
+Run the guard:
 ```bash
 pytest tests/architecture/test_code_quality_guards.py -v
 python ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <APP_ROOT>/
@@ -128,8 +128,8 @@ python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py --strict
 
 ## Key Principles
 
-1. 数据驱动：没有数据就显示空白
-2. 先搜后写：新建前必须搜索
-3. 最小改动：只做被要求的事
-4. 每个修复带测试
-5. Spec-Driven：3+ 文件变更先写 spec
+1. Data-driven: Display blank if there is no data
+2. Search first and then write: you must search before creating a new one.
+3. Minimal changes: only do what is asked
+4. Test each repair tape
+5. Spec-Driven: For 3+ file changes, write spec first

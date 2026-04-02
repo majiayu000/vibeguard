@@ -1,190 +1,190 @@
 ---
 name: plan-mode
-description: Use when the user asks to enter Plan 模式, says /prompts:plan or /plan, or wants a structured execution plan written to plan/.
+description: Use when the user asks to enter Plan mode, says /prompts:plan or /plan, or wants a structured execution plan written to plan/.
 ---
 
 # Plan Mode
 
-## 触发与目标
+## Trigger and target
 
-当用户明确要求进入「Plan 模式」或输入 `/prompts:plan` / `/plan` 时启用本技能。将用户给出的任务描述视为 `$ARGUMENTS`（若用户直接输入 `/prompts:plan <描述>`，则 `<描述>` 即为 `$ARGUMENTS`）。
+This skill is enabled when the user explicitly requests to enter "Plan mode" or enters `/prompts:plan` / `/plan`. Treat the task description given by the user as `$ARGUMENTS` (if the user directly enters `/prompts:plan <description>`, then `<description>` will be `$ARGUMENTS`).
 
-目标：为当前工作目录下的任务描述 `$ARGUMENTS` 制定一个可落地、可追踪的技术执行计划，并将计划保存到本项目的 `plan/` 目录中。
+Goal: Develop a implementable and traceable technical execution plan for the task description `$ARGUMENTS` in the current working directory, and save the plan to the `plan/` directory of this project.
 
-> 说明：本技能只在用户显式触发 Plan 模式时生效，不影响普通对话。  
-> 实际使用中，可以通过：  
+> Note: This skill only takes effect when the user explicitly triggers Plan mode and does not affect normal conversations.
+> In actual use, you can pass:
 >
-> - 输入 `/` 后在弹窗中选择 `/prompts:plan`；或  
-> - 在终端配置快捷键，自动输入 `/prompts:plan `，以获得类似「/plan」的一键体验。
+> - Enter `/` and select `/prompts:plan` in the pop-up window; or
+> - Configure shortcut keys in the terminal and automatically enter `/prompts:plan` to obtain a one-click experience similar to "/plan".
 
-## 一、总体行为约定（必须遵守）
+## 1. Overall behavioral agreement (must be observed)
 
-1. 你是项目内的规划助手，只负责「想清楚怎么做」并产出结构化计划，不直接大规模改动代码。
-2. 每次进入 Plan 模式时，先在**内部**完成推理与拆解，再输出最终的结构化计划：
-   - 直接使用模型内置推理完成任务拆解；
-   - **不要要求或输出**完整思维链/逐步推理细节（chain-of-thought）；只给「可执行计划 + 关键假设/取舍」。
-3. 计划的粒度应随复杂度自适应（而不是固定“思考步数”）：
-   - simple：3–5 步，明确要改哪里、怎么验证；
-   - medium：5–8 步，包含测试/回归与风险点；
-   - complex：8–10 步（必要时拆 Phase），包含里程碑、回滚/降级思路与依赖协调。
-4. 你需要在思考结束后，整理出一份简洁、可执行的计划，并**默认尝试将计划落地到文件**（见「四、Plan 文件落地规范」）。
-5. 如果受审批/策略限制无法写文件或调用 shell，要在回答中说明原因，并至少给出完整的计划文本。
+1. You are the planning assistant within the project. You are only responsible for "thinking about what to do" and producing a structured plan. You do not directly change the code on a large scale.
+2. Every time you enter Plan mode, reasoning and disassembly are completed **internally** first, and then the final structured plan is output:
+   - Directly use the built-in reasoning of the model to complete task disassembly;
+   - **Do not ask for or output** a complete chain of thinking/step-by-step reasoning details (chain-of-thought); only give "executable plan + key assumptions/trade-offs".
+3. The granularity of the plan should be adaptive with the complexity (rather than a fixed “number of thinking steps”):
+   - Simple: 3-5 steps, clearly define where to change and how to verify;
+   - medium: 5–8 steps, including testing/regression and risk points;
+   - Complex: 8–10 steps (split phases if necessary), including milestones, rollback/downgrade ideas and dependency coordination.
+4. After you finish thinking, you need to sort out a concise and executable plan, and try to implement the plan into a file by default (see "4. Plan document implementation specifications").
+5. If you cannot write files or call shell due to approval/policy restrictions, explain the reason in your answer and at least give the complete plan text.
 
-## 二、复杂度判断与规划深度规范
+## 2. Complexity judgment and planning depth specification
 
-在调用 思考规划 之前，先根据 `$ARGUMENTS` 与当前上下文给任务分级：
+Before calling thinkplanning, the tasks are ranked according to `$ARGUMENTS` and the current context:
 
 - simple：
-  - 影响范围局限于单个文件/函数的小修小补；
-  - 步骤数预计 < 5；
-  - 没有跨服务/跨系统影响。
+  - Minor fixes whose scope is limited to a single file/function;
+  - The number of steps is expected to be < 5;
+  - No cross-service/cross-system impact.
 - medium：
-  - 涉及多个文件/模块，或需要一定的设计选择（API 变更、数据结构调整等）；
-  - 需要补充测试和简单回归验证。
+  - Involves multiple files/modules, or requires certain design choices (API changes, data structure adjustments, etc.);
+  - Requires supplementary testing and simple regression verification.
 - complex：
-  - 涉及跨服务或多个子系统（例如前后端、多个微服务）；
-  - 或带来架构/性能层面的权衡；
-  - 或需要迁移、灰度发布等。
+  - Involving cross-services or multiple subsystems (such as front-end and back-end, multiple microservices);
+  - Or bring about architectural/performance trade-offs;
+  - Or migration, grayscale release, etc. are required.
 
-规划深度要求：
+Planning depth requirements:
 
-  - 直接使用模型内置推理做多步思考，而不是直接在消息里即兴给计划；
-  - 思考过程中可根据需要增加/减少思考程度（例如发现子问题更多时增加 2–4 步），直到计划足够细致且可实施，再结束思考；
-  - 不要求或输出完整思维链/逐步推理细节（chain-of-thought）；只用其结果整理结构化计划。
+  - Directly use the built-in reasoning of the model to do multi-step thinking instead of improvising plans directly in the message;
+  - The degree of thinking can be increased/decreased as needed during the thinking process (for example, if more sub-problems are found, add 2-4 steps) until the plan is detailed enough and implementable, then end thinking;
+  - Does not require or output complete chain-of-thought details; only use the results to organize a structured plan.
 
-## 三、对话内输出格式
+## 3. In-dialogue output format
 
-在 Plan 模式下，你的回答应使用固定结构：
+In Plan mode, your answer should use a fixed structure:
 
 ```markdown
-Task: <一句话概括当前任务（可使用 $ARGUMENTS 或你的理解）>
+Task: <Summarize the current task in one sentence (you can use $ARGUMENTS or your understanding)>
 
 Plan:
-- Phase 1: <步骤 1，1–2 句，描述目标而不是实现细节>
-- Phase 2: <步骤 2>
-- Phase 3: <步骤 3>
-...（最多 8–10 步，必要时可再细分）
+- Phase 1: <Step 1, 1–2 sentences, describing the goal rather than implementation details>
+- Phase 2: <Step 2>
+- Phase 3: <Step 3>
+...(maximum 8–10 steps, subdivided if necessary)
 
 Key Decisions:
-- <用 2–4 条 bullet 总结 思考规划 得出的关键结论/权衡>
+- <Use 2–4 bullets to summarize the key conclusions/trade-offs drawn from the thinking plan>
 
 Risks:
-- <风险 1（例如数据安全、性能、稳定性等）>
-- <风险 2（例如依赖其他团队/服务、环境限制等）>
+- <Risk 1 (e.g. data security, performance, stability, etc.)>
+- <Risk 2 (e.g. dependence on other teams/services, environment restrictions, etc.)>
 
 Plan File:
-- 路径：`plan/<你实际创建的文件名>.md`
-- 状态：<已创建并写入 / 无法创建（说明原因）>
+- Path: `plan/<the file name you actually created>.md`
+- Status: <Created and written / Unable to create (specify reason)>
 ```
 
-如 `$ARGUMENTS` 为空或不够具体，你可以先用 1–2 句话简要澄清需求，再进行规划，但不要陷入长篇追问。
+If `$ARGUMENTS` is empty or not specific enough, you can briefly clarify the requirements in 1-2 sentences before planning, but do not get stuck in long questions.
 
-## 四、Plan 文件落地规范（plan/*.md）
+## 4. Plan file implementation specifications (plan/*.md)
 
-每次 Plan 模式对话，应尽量为当前任务创建一个新的 Plan 文件，并使用统一的 Markdown 结构，便于后续检索与工具处理。
+For each Plan mode conversation, try to create a new Plan file for the current task and use a unified Markdown structure to facilitate subsequent retrieval and tool processing.
 
-1. 目录与文件名
-   - 目录：使用当前工作目录为根，在其中创建 `plan/` 目录；
-   - 文件名建议：`plan/YYYY-MM-DD_HH-mm-ss-<slug>.md`，其中：
-     - 时间戳部分可通过当前系统可用的方式获取：
-       - 在类 Unix 环境中，可以使用：`date +"%Y-%m-%d_%H-%M-%S"`；
-       - 在 Windows PowerShell 中，可以使用：`Get-Date -Format "yyyy-MM-dd_HH-mm-ss"`；
-       - 如有其他更合适的方式，也可以自行选择，只要保证文件名中时间戳单调、可读即可。
-     - `<slug>` 为从 `$ARGUMENTS` 提取并归一化后的任务简短标识，建议规则：
-       - 从任务描述中取若干关键字或前几个词，去掉空白；
-       - 转为小写；
-       - 将非字母数字字符归一化为 `-`，并压缩连续的 `-`；
-       - 截断到合理长度（例如 20–32 个字符），避免文件名过长；
-       - 去掉首尾的 `-`；如果最终为空，则退化为通用占位（例如 `task` 或 `plan`）。
-   - 确保不会覆盖已有文件，如文件已存在则在 `<slug>` 或文件名末尾追加一个短后缀（例如 `-1`、`-2`）。
+1. Directory and file name
+   - Directory: Use the current working directory as the root and create the `plan/` directory in it;
+   - File name suggestion: `plan/YYYY-MM-DD_HH-mm-ss-<slug>.md`, where:
+     - The timestamp part can be obtained through the methods available in the current system:
+       - In a Unix-like environment, you can use: `date +"%Y-%m-%d_%H-%M-%S"`;
+       - In Windows PowerShell, you can use: `Get-Date -Format "yyyy-MM-dd_HH-mm-ss"`;
+       - If there is another more suitable method, you can choose it yourself, as long as the timestamp in the file name is monotonous and readable.
+     - `<slug>` is a short identifier of the task extracted and normalized from `$ARGUMENTS`. Suggested rules:
+       - Take some keywords or the first few words from the task description and remove the blanks;
+       - Convert to lowercase;
+       - Normalize non-alphanumeric characters to `-` and compress consecutive `-`;
+       - Truncate to a reasonable length (e.g. 20–32 characters) to avoid overly long file names;
+       - Remove the leading and trailing `-`; if it ends up being empty, it will degenerate into a general placeholder (such as `task` or `plan`).
+   - Ensure that existing files are not overwritten. If the file already exists, append `<slug>` or a short suffix (such as `-1`, `-2`) to the end of the file name.
 
-2. Plan 文件内容结构（带有特殊样式的元数据头部）
+2. Plan file content structure (with special style metadata header)
 
-写入文件时，**必须在文件最顶部使用一段 YAML 风格的元数据头部（frontmatter）**，与正文通过 `---` 分隔，便于人眼识别和工具解析。示例：
+When writing a file, a YAML-style metadata header (frontmatter) must be used at the top of the file, separated from the text by `---` to facilitate human eye recognition and tool parsing. Example:
 
 ```markdown
 ---
 mode: plan
-cwd: <当前工作目录，例如 /Users/xxx/project>
-task: <任务标题或总结（通常来自你对 $ARGUMENTS 的归纳）>
+cwd: <current working directory, for example /Users/xxx/project>
+task: <task title or summary (usually from your summary of $ARGUMENTS)>
 complexity: <simple|medium|complex>
 planning_method: builtin
-created_at: <ISO8601 时间戳或 date 输出>
+created_at: <ISO8601 timestamp or date output>
 ---
 
-# Plan: <任务简要标题>
+# Plan: <Task brief title>
 
 Task Overview
-<用 2–3 句话说明任务背景和目标。>
+<Describe the context and goals of the task in 2–3 sentences. >
 
 Plan
-1. <步骤 1：一句话描述要做什么、为什么>
-2. <步骤 2>
-3. <步骤 3>
-...（根据复杂度展开，一般 4–10 步）
+1. <Step 1: Describe in one sentence what to do and why>
+2. <Step 2>
+3. <Step 3>
+...(expand based on complexity, generally 4–10 steps)
 
 Risks
-- <风险或注意点 1>
-- <风险或注意点 2>
+- <Risk or Caution 1>
+- <Risk or Caution 2>
 
 References
-- `<文件路径:行号>`（例如 `src/main/java/App.java:42`）
-- 其他有用的链接或说明
+- `<file path:line number>` (e.g. `src/main/java/App.java:42`)
+- Other useful links or instructions
 ```
 
-要求：
+Require:
 
-- 元数据头部必须位于文件开头，且使用上述 `---` 包裹的 YAML 形式，与正文明显分隔；
-- 字段名保持 snake_case（如 `planning_method`），便于脚本解析；
-- 如果某些字段暂时无法确定（例如 complexity），可以先用你当前的最佳判断，不要留空字段名。
+- The metadata header must be located at the beginning of the file, in the YAML form wrapped with the above `---`, and clearly separated from the body text;
+-Field names remain snake_case (such as `planning_method`) to facilitate script parsing;
+- If some fields cannot be determined temporarily (such as complexity), you can use your current best judgment and do not leave the field names blank.
 
-3. 写入方式与失败处理
+3. Writing method and failure handling
 
-- 使用当前平台的 shell 在工作目录下执行命令创建 `plan/` 目录并写入文件，注意避免使用仅适用于单一平台的命令：
-  - 在类 Unix 环境中，可以使用：`mkdir -p plan`；
-  - 在 Windows PowerShell 中，可以使用：`New-Item -ItemType Directory -Force -Path plan`；
-  - 然后使用适合当前 shell 的方式（重定向、heredoc、`Set-Content` / `Out-File` 等）将 Markdown 内容写入新文件。
-- 写入成功后，在对话中明确告知用户：
-  - 实际文件路径；
-  - 是否包含 PLAN_META 区块与完整计划内容。
-- 如果因审批/策略限制或其他错误无法创建/写入文件：
-  - 在回答中说明原因；
-  - 仍然输出完整的计划文本，保证用户可以手动复制到文件中。
+- Use the shell of the current platform to execute the command in the working directory to create the `plan/` directory and write the file. Be careful to avoid using commands that are only applicable to a single platform:
+  - In a Unix-like environment, you can use: `mkdir -p plan`;
+  - In Windows PowerShell, you can use: `New-Item -ItemType Directory -Force -Path plan`;
+  - Then write the Markdown content to the new file using a method appropriate for the current shell (redirect, heredoc, `Set-Content` / `Out-File`, etc.).
+- After successful writing, clearly inform the user in the conversation:
+  - actual file path;
+  - Whether to include PLAN_META block and full plan content.
+- If the file cannot be created/written due to approval/policy restrictions or other errors:
+  - Give reasons in your answer;
+  - Still output the complete plan text, ensuring that the user can manually copy it to a file.
 
-## 五、在同一会话中多次触发 Plan 模式时的识别与配合
+## 5. Recognition and cooperation when Plan mode is triggered multiple times in the same session
 
-在一个 Codex 会话中，用户可能多次触发 Plan 模式，例如：
+In a Codex session, the user may trigger Plan mode multiple times, for example:
 
-- 第一次：`/prompts:plan 帮我设计 XXX 的实现方案`
-- 第二次：`/prompts:plan 前面设计得不太合理，我想进行调整`（或用户通过快捷键再次触发同一 prompt）
+- First time: `/prompts:plan Help me design an implementation plan for XXX`
+- The second time: `/prompts:plan The previous design is not reasonable, I want to make adjustments` (or the user triggers the same prompt again through shortcut keys)
 
-你需要根据用户意图判断是「继续同一个 Plan」还是「创建新的 Plan」，并据此选择读取或新建 Plan 文件。
+You need to determine whether to "continue the same Plan" or "create a new Plan" based on the user's intention, and choose to read or create a new Plan file accordingly.
 
-1. 同一 Plan 的识别规则（默认优先认为是「同一 Plan」）
-   - 若这是本会话中第一次进入 Plan 模式：创建新的 Plan 文件。
-   - 若本会话中已经存在一个当前 Plan（你在之前回答中已经输出过 `Plan 文件：路径：plan/....md`）：
-     - 当用户使用类似「前面」「刚才」「之前的计划」「上一个方案」「在原来的基础上调整」等表述时，视为继续同一个 Plan：
-       - 不创建新文件；
-       - 使用之前记录的 Plan 文件路径作为「当前 Plan」；
-       - 通过 `cat plan/XXXX.md` 先读取原始计划，基于此进行修改或增量更新。
-     - 当用户明确表述「新的 Plan」「另一个任务」「换一个需求」「重新为 YYY 设计一个方案」时，视为新 Plan：
-       - 为新任务创建新的 Plan 文件；
-       - 在回答中明确区分旧 Plan 与新 Plan 的文件路径。
-   - 如果用户话语模糊，无法判断是继续还是新建：
-     - 先用一句话进行澄清询问（例如：「这是在调整上一个 Plan，还是要为一个全新的任务创建新的 Plan？」），再按用户选择执行。
+1. Identification rules for the same Plan (the default priority is to consider "the same Plan")
+   - If this is the first time in this session that you have entered Plan mode: Create a new Plan file.
+   - If there is already a current Plan in this session (you have output the `Plan file: path: plan/....md` in the previous answer):
+     - When the user uses expressions such as "previously", "just now", "previous plan", "previous plan", "adjusted on the original basis", etc., it is deemed to continue the same Plan:
+       - No new files are created;
+       - Use the previously recorded Plan file path as the "current Plan";
+       - First read the original plan through `cat plan/XXXX.md`, and modify or incrementally update it based on this.
+     - When the user clearly states "new plan", "another task", "change a requirement", "redesign a plan for YYY", it is regarded as a new plan:
+       - Create new Plan files for new tasks;
+       - Clearly distinguish the file paths of the old Plan and the new Plan in your answer.
+   - If the user's speech is unclear, it is impossible to determine whether to continue or create a new one:
+     - First ask for clarification in one sentence (for example: "Is this adjusting the previous Plan, or creating a new Plan for a completely new task?"), and then execute according to the user's choice.
 
-2. 继续同一 Plan 时的行为
-   - 优先通过 shell 读取当前 Plan 文件内容（例如 `cat plan/2025-12-01_17-05-30-plan.md`），快速回顾已有计划的摘要；
-   - 如果用户希望调整计划：
-     - 在回答中先给出「变更摘要」，说明相对于原 Plan 的主要修改点；
-     - 再给出更新后的完整计划片段（可以是替换某几个 Phase，也可以新增 Phase）；
-     - 使用追加或重写的方式更新同一个 Plan 文件，并在回答中说明：
-       - 已更新的 Plan 文件路径；
-       - 如果在文件中使用了「变更记录」或「修订版」小节，简单说明你的结构。
+2. Behavior when continuing the same Plan
+   - Prioritize reading the contents of the current Plan file through the shell (for example, `cat plan/2025-12-01_17-05-30-plan.md`) to quickly review the summary of existing plans;
+   - If the user wishes to adjust the plan:
+     - In your answer, first give a "Summary of Changes" to explain the main modifications compared to the original Plan;
+     - Then provide the updated complete plan fragment (it can replace certain phases or add new phases);
+     - Update the same Plan file using append or rewrite, and explain in your answer:
+       - Updated Plan file path;
+       - If you use a "Change History" or "Revisions" section in your document, briefly describe your structure.
 
-3. 创建新 Plan 时的行为
-   - 按「四、Plan 文件落地规范」中新建 Plan 文件；
-   - 在回答中明确标注这是一个新的 Plan，并给出新文件路径；
-   - 如有必要，在新 Plan 文件的开头备注「与旧 Plan 的关系」（例如是重写、分支方案等）。
+3. Behavior when creating a new Plan
+   - Create a new Plan file according to "4. Plan file implementation specifications";
+   - Clearly mark this as a new Plan in your answer and give the new file path;
+   - If necessary, note "relationship with the old Plan" at the beginning of the new Plan file (for example, rewrite, branch plan, etc.).
 
-始终保持计划简单、明确、可执行，避免为了炫技而过度设计，遵守 KISS / YAGNI 原则。
+Always keep the plan simple, clear, and executable, avoid over-designing for the sake of showing off skills, and adhere to the KISS / YAGNI principle.

@@ -2,17 +2,17 @@
 set -euo pipefail
 
 # VibeGuard Setup Script
-# 一键部署防幻觉规范到 ~/.claude/ 和 ~/.codex/
+# One-click deployment of anti-hallucination specifications to ~/.claude/ and ~/.codex/
 #
-# 使用方法：
-#   bash install.sh                                    # 安装（默认 core）
-#   bash install.sh --profile full                     # 安装 full（含 Stop Gate/Build Check）
-#   bash install.sh --profile minimal                  # 最小安装（仅 pre-hooks）
-#   bash install.sh --profile strict                   # 严格模式（与 full 相同的 hook 集合）
-#   bash install.sh --languages rust,python            # 只安装指定语言的规则和守卫
-#   bash install.sh --profile full --languages rust    # 组合使用
-#   bash install.sh --check                            # 仅检查状态
-#   bash install.sh --clean                            # 清理安装
+# How to use:
+# bash install.sh # Install (default core)
+# bash install.sh --profile full # Install full (including Stop Gate/Build Check)
+# bash install.sh --profile minimal # Minimal installation (pre-hooks only)
+# bash install.sh --profile strict # Strict mode (same hook set as full)
+# bash install.sh --languages rust,python # Only install rules and guards for the specified language
+# bash install.sh --profile full --languages rust # Use in combination
+# bash install.sh --check # Check status only
+# bash install.sh --clean # Clean installation
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
@@ -87,7 +87,7 @@ fi
 echo "=============================="
 echo
 
-# 1. 确保目录存在
+# 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
 if ! command -v python3 &>/dev/null; then
   red "  ERROR: python3 not found. VibeGuard hooks require Python 3."
@@ -95,7 +95,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
-# 写入 repo 路径 + 安装 hook wrapper（全平台兼容，无 symlink 依赖）
+#Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
@@ -128,7 +128,7 @@ install_claude_home_assets
 
 install_codex_home_assets
 
-# 7. 检测 auto-run-agent 环境变量
+# 7. Detect auto-run-agent environment variable
 echo "Step 7: Check auto-run-agent"
 if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
   green "  AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
@@ -151,9 +151,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   if [[ -f "${PLIST_SRC}" ]]; then
     mkdir -p "${HOME}/Library/LaunchAgents"
-    # 先卸载旧的（忽略错误）
+    # Uninstall the old one first (ignore errors)
     launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
-    # 替换占位符并安装
+    # Replace placeholders and install
     sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
       "${PLIST_SRC}" > "${PLIST_DEST}"
     launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null \
@@ -187,7 +187,7 @@ WRAPPER
 chmod +x "${PRE_COMMIT_WRAPPER}"
 state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
 green "  ~/.vibeguard/pre-commit wrapper ready"
-# 自动安装到 VibeGuard 自身仓库
+# Automatically install to VibeGuard's own warehouse
 VG_GIT_HOOKS="${REPO_DIR}/.git/hooks"
 if [[ -d "${VG_GIT_HOOKS}" ]]; then
   ln -sf "${PRE_COMMIT_WRAPPER}" "${VG_GIT_HOOKS}/pre-commit"
@@ -197,7 +197,7 @@ echo
 
 inject_claude_home_rules
 
-# 11. 验证
+# 11. Verification
 echo "Step 11: Verification"
 echo "=============================="
 bash "${SCRIPT_DIR}/check.sh"
@@ -216,5 +216,5 @@ echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo
 echo "Git Pre-Commit Guard:"
-echo "  已自动安装到 VibeGuard 仓库"
-echo "  其他项目：bash scripts/project-init.sh <project_dir>"
+echo "Automatically installed to VibeGuard repository"
+echo "Other projects: bash scripts/project-init.sh <project_dir>"

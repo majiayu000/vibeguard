@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""通用 Python 命名规范检查器 — 检测 camelCase 混用。
+"""Universal Python naming convention checker — detects camelCase mixins.
 
-从 VibeGuard 框架泛化，确保 Python 内部统一使用 snake_case。
+Generalize from the VibeGuard framework to ensure consistent use of snake_case within Python.
 
-配置方式：
-  修改下方 CONFIG 部分的已知键名和豁免路径。
+Configuration method:
+  Modify the known key names and exemption paths in the CONFIG section below.
 
-使用方法：
+How to use:
     python check_naming_convention.py [path]
     python check_naming_convention.py app/
-    python check_naming_convention.py  # 默认检查 app/ 目录
+    python check_naming_convention.py # Check app/ directory by default
 """
 
 import os
@@ -18,12 +18,12 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# CONFIG — 根据项目需求修改以下配置
+# CONFIG — Modify the following configuration according to project needs
 # ---------------------------------------------------------------------------
 
-# 已知的 camelCase 键名映射（在你的项目中添加实际使用的键名）
+# Known camelCase key mappings (add the actual key names used in your project)
 KNOWN_CAMEL_KEYS: dict[str, str] = {
-    # 通用键名示例
+    # Common key name example
     "propertyName": "property_name",
     "firstName": "first_name",
     "lastName": "last_name",
@@ -34,18 +34,18 @@ KNOWN_CAMEL_KEYS: dict[str, str] = {
     "fileId": "file_id",
     "jobId": "job_id",
     "pageCount": "page_count",
-    # 在此添加你项目的具体键名...
+    #Add the specific key name of your project here...
 }
 
-# 允许使用 camelCase 的文件/路径
+# Allow camelCase files/paths
 ALLOWED_PATHS: set[str] = {
     "tests/",
     "scripts/",  # Tool scripts that define camelCase mapping tables
-    # 在此添加你项目中允许 camelCase 的路径...
-    # 例如 API schema 文件、前端数据构建文件等
+    #Add here the path that allows camelCase in your project...
+    # For example, API schema files, front-end data construction files, etc.
 }
 
-# 允许使用 camelCase 的行上下文（正则模式）
+# Allow line context using camelCase (regular mode)
 ALLOWED_PATTERNS: list[str] = [
     r'alias_generator\s*=',
     r'by_alias\s*=\s*True',
@@ -60,7 +60,7 @@ ALLOWED_PATTERNS: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# 检查逻辑
+# Check logic
 # ---------------------------------------------------------------------------
 
 def is_allowed_file(filepath: Path) -> bool:
@@ -73,7 +73,7 @@ def is_allowed_context(line: str) -> bool:
 
 
 def check_file(filepath: Path) -> list[tuple[int, str, str, str]]:
-    """检查单个文件中的命名问题。
+    """Check for naming issues in individual files.
 
     Returns:
         List of (line_number, line_content, camel_key, snake_key)

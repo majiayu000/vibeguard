@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # VibeGuard Compliance Check
-# 检查当前项目是否符合 VibeGuard 防幻觉规范
+# Check whether the current project complies with the VibeGuard anti-hallucination specification
 #
-# 使用方法：
+# How to use:
 #   bash vibeguard/scripts/compliance_check.sh [project_dir]
 #   bash vibeguard/scripts/compliance_check.sh /path/to/my-project
 
@@ -26,7 +26,7 @@ echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================"
 echo
 
-# --- Layer 1: 反重复系统 ---
+# --- Layer 1: Anti-duplication system ---
 echo "--- Layer 1: Anti-Duplication ---"
 
 dup_guard=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
@@ -36,7 +36,7 @@ else
   check_warn "check_duplicates.py not found (install vibeguard or copy guards/python/)"
 fi
 
-# --- Layer 2: 命名约束 ---
+# --- Layer 2: Naming constraints ---
 echo "--- Layer 2: Naming Convention ---"
 
 naming_guard=$(find_guard "python/check_naming_convention.py" "$PROJECT_DIR")
@@ -67,7 +67,7 @@ else
   check_fail ".pre-commit-config.yaml not found"
 fi
 
-# --- Layer 4: 架构守卫 ---
+# --- Layer 4: Architecture Guard ---
 echo "--- Layer 4: Architecture Guards ---"
 
 guard_file=$(find_quality_guard "$PROJECT_DIR")
@@ -92,19 +92,19 @@ echo "--- Layer 6: Prompt Rules ---"
 if [[ -f "${PROJECT_DIR}/CLAUDE.md" ]]; then
   check_pass "CLAUDE.md exists in project"
 
-  if grep -qiE "search before create|先搜后写" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "search before create|Search before writing" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "SEARCH BEFORE CREATE rule present"
   else
     check_warn "SEARCH BEFORE CREATE rule not found in CLAUDE.md"
   fi
 
-  if grep -qiE "no backward|不做.*向后兼容|no.*backward.*compat" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "no backward|no.*backward compatibility|no.*backward.*compat" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "NO BACKWARD COMPATIBILITY rule present"
   else
     check_warn "NO BACKWARD COMPATIBILITY rule not found in CLAUDE.md"
   fi
 
-  if grep -qiE "hardcod|硬编码" "${PROJECT_DIR}/CLAUDE.md"; then
+  if grep -qiE "hardcod|hardcoding" "${PROJECT_DIR}/CLAUDE.md"; then
     check_pass "NO HARDCODING rule present"
   else
     check_warn "NO HARDCODING rule not found in CLAUDE.md"
@@ -116,7 +116,7 @@ fi
 if [[ -f "${HOME}/.claude/CLAUDE.md" ]]; then
   check_pass "Global CLAUDE.md exists"
 
-  if grep -qiE "vibeguard|防幻觉" "${HOME}/.claude/CLAUDE.md"; then
+  if grep -qiE "vibeguard|anti-hallucination" "${HOME}/.claude/CLAUDE.md"; then
     check_pass "VibeGuard rules present in global CLAUDE.md"
   else
     check_warn "VibeGuard rules not found in global CLAUDE.md (run setup.sh)"

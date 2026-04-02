@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测动作语义与副作用不一致 (RS-13)
+# VibeGuard Rust Guard: Detect inconsistencies between action semantics and side effects (RS-13)
 #
-# 目标问题：
-# - 函数/工具名称包含 done/update/delete/remove/add/create/set 等动作语义
-# - 但函数体没有可见状态写入或事件发射，可能是“语义承诺未兑现”
+# Target question:
+# - The function/tool name contains action semantics such as done/update/delete/remove/add/create/set etc.
+# - But there is no visible state writing or event emission in the function body, which may be "semantic promise not fulfilled"
 #
-# 用法:
+# Usage:
 #   bash check_semantic_effect.sh [target_dir]
 #   bash check_semantic_effect.sh --strict [target_dir]
 #
-# 允许列表:
-#   在目标仓库根目录创建 .vibeguard-semantic-effect-allowlist
-#   每行一个函数名（如 mark_done）
+# Allow list:
+# Create .vibeguard-semantic-effect-allowlist in the root directory of the target warehouse
+# One function name per line (such as mark_done)
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
@@ -38,7 +38,7 @@ fi
 REPORT=$(while IFS= read -r f; do
   [[ -f "${f}" ]] || continue
   lower_path="$(printf '%s' "${f}" | tr '[:upper:]' '[:lower:]')"
-  # 聚焦行为命令相关模块，减少纯函数误报
+  # Focus on behavioral command-related modules to reduce false positives for pure functions
   if [[ "${lower_path}" != *task* && "${lower_path}" != *todo* && "${lower_path}" != *tool* && "${lower_path}" != *command* ]]; then
     continue
   fi
@@ -82,13 +82,13 @@ REPORT=$(while IFS= read -r f; do
 
       if (in_fn) {
         lower = tolower(line)
-        # 可见状态写入/事件发射信号
+        # Visible status writing/event emission signal
         if (lower ~ /\.(insert|push|remove|retain|update|replace|set)[[:space:]]*\(/ ||
             lower ~ /::(insert|push|remove|update|set|replace|write)[[:space:]]*\(/ ||
-            lower ~ /\b(write|save|commit|emit|publish|dispatch|send|persist)\b/) {
+            lower ~ /(^|[^[:alnum:]_])(write|save|commit|emit|publish|dispatch|send|persist)([^[:alnum:]_]|$)/) {
           has_effect = 1
         }
-        # 结果构造信号：通常是工具输出文本/Result
+        # Result construction signal: usually tool output text/Result
         if (lower ~ /(ok\(|err\(|format!\(|json!\(|to_string\()/) {
           has_result = 1
         }
@@ -120,10 +120,10 @@ echo "[RS-13] Found ${COUNT} action-like function(s) without visible side-effect
 while IFS= read -r line; do
   [[ -n "${line}" ]] && echo "  - ${line}"
 done <<< "${REPORT}"
-echo "  修复："
-echo "    1. 动作函数应显式写状态或发事件（insert/update/remove/emit 等）"
-echo "    2. 若函数本意只是查询/格式化，重命名为 query/format/describe 语义"
-echo "    3. 纯函数可加入 .vibeguard-semantic-effect-allowlist"
+echo "Repair:"
+echo " 1. Action functions should explicitly write status or send events (insert/update/remove/emit, etc.)"
+echo " 2. If the original intention of the function is only query/format, rename it to query/format/describe semantics"
+echo " 3. Pure functions can be added to .vibeguard-semantic-effect-allowlist"
 
 if [[ "${STRICT}" == true ]]; then
   exit 1

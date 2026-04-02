@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# VibeGuard PostToolUse(Edit|Write) Hook — 编辑后自动构建检查
+# VibeGuard PostToolUse(Edit|Write) Hook — Automatic build check after editing
 #
-# 编辑源码文件后自动运行对应语言的构建检查：
+# Automatically run the build check of the corresponding language after editing the source code file:
 #   - Rust (.rs): cargo check
 #   - TypeScript (.ts/.tsx): npx tsc --noEmit
 #   - JavaScript (.js/.mjs/.cjs): node --check
 #   - Go (.go): go build ./...
 #
-# 只输出警告，不阻止操作。
+# Only output warnings, do not prevent operations.
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-# 从 Edit 或 Write 的 JSON 中提取 file_path
+# Extract file_path from Edit or Write JSON
 FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
 if [[ -z "$FILE_PATH" ]]; then
@@ -29,17 +29,17 @@ if [[ "$FILE_PATH" != /* ]]; then
     || FILE_PATH="$(pwd)/$FILE_PATH"
 fi
 
-# 获取文件扩展名
+# Get file extension
 BASENAME=$(basename "$FILE_PATH")
 EXT="${BASENAME##*.}"
 
-# 只处理需要构建检查的语言
+# Only handle languages that require build checks
 case "$EXT" in
   rs|ts|tsx|go|js|mjs|cjs) ;;
   *) exit 0 ;;
 esac
 
-# 向上查找项目根目录（根据语言查找不同的标记文件）
+# Search upwards in the project root directory (find different markup files based on language)
 find_project_root() {
   local dir="$1"
   local marker="$2"
@@ -59,23 +59,23 @@ PROJECT_ROOT=""
 case "$EXT" in
   rs)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "Cargo.toml") || exit 0
-    # cargo check，限制输出
+    # cargo check, limit output
     ERRORS=$(cd "$PROJECT_ROOT" && cargo check --message-format=short 2>&1 | grep -E "^error" | head -10) || true
     ;;
   ts|tsx)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "tsconfig.json") || exit 0
-    # tsc 类型检查
+    # tsc type check
     ERRORS=$(cd "$PROJECT_ROOT" && npx tsc --noEmit 2>&1 | grep -E "error TS" | head -10) || true
     ;;
   js|mjs|cjs)
-    # JavaScript 语法检查（不依赖 tsconfig）
+    # JavaScript syntax check (does not depend on tsconfig)
     command -v node >/dev/null 2>&1 || exit 0
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "package.json") || true
     ERRORS=$(node --check "$FILE_PATH" 2>&1 | head -10) || true
     ;;
   go)
     PROJECT_ROOT=$(find_project_root "$(dirname "$FILE_PATH")" "go.mod") || exit 0
-    # go build 检查
+    # go build check
     ERRORS=$(cd "$PROJECT_ROOT" && go build ./... 2>&1 | head -10) || true
     ;;
 esac
@@ -86,10 +86,10 @@ if [[ -z "$ERRORS" ]]; then
 fi
 
 ERROR_COUNT=$(echo "$ERRORS" | wc -l | tr -d ' ')
-WARNINGS="[BUILD] 编辑 ${BASENAME} 后检测到 ${ERROR_COUNT} 个构建错误：
+WARNINGS="[BUILD] ${ERROR_COUNT} build errors detected after editing ${BASENAME}:
 ${ERRORS}"
 
-# --- Escalation 检测：连续构建失败升级 ---
+# --- Escalation detection: continuous build failure upgrade ---
 DECISION="warn"
 # Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
 # not accumulated across projects within the same session.
@@ -102,7 +102,7 @@ count = 0
 try:
     with open(log_file) as f:
         lines = f.readlines()
-    # 从末尾倒序读，遇到 pass 就停止计数
+    # Read in reverse order from the end, stop counting when encountering pass
     for line in reversed(lines):
         line = line.strip()
         if not line: continue
@@ -126,16 +126,16 @@ CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
 
 if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then
   DECISION="escalate"
-  WARNINGS="[U-25 ESCALATE] 连续 ${CONSECUTIVE_FAILS} 次构建失败！必须先修复构建错误再继续编辑。建议：运行完整构建命令查看全部错误，定位根因一次性修复。${WARNINGS}"
+  WARNINGS="[U-25 ESCALATE] Continuous ${CONSECUTIVE_FAILS} build failures! You must fix the build errors before continuing editing. Recommendation: Run the complete build command to view all errors and locate the root cause and fix them at once. ${WARNINGS}"
 fi
 
-vg_log "post-build-check" "Edit" "$DECISION" "构建错误 ${ERROR_COUNT} 个" "$FILE_PATH"
+vg_log "post-build-check" "Edit" "$DECISION" "Build errors ${ERROR_COUNT}" "$FILE_PATH"
 
 VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
 import json, os
 warnings = os.environ.get("VG_WARNINGS", "")
 decision = os.environ.get("VG_DECISION", "warn")
-prefix = "VIBEGUARD 构建升级警告" if decision == "escalate" else "VIBEGUARD 构建检查"
+prefix = "VIBEGUARD build upgrade warning" if decision == "escalate" else "VIBEGUARD build check"
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",

@@ -46,7 +46,7 @@ async function fetchData(url: string): Promise<string> {
 }
 EOF
 assert_fail "empty catch block in TS fails" bash "$GUARD" "$proj_empty_catch"
-assert_output_contains "output mentions empty exception handling" "空异常处理块" bash "$GUARD" "$proj_empty_catch"
+assert_output_contains "output mentions empty exception handling" "empty exception handling block" bash "$GUARD" "$proj_empty_catch"
 
 # --- FAIL: empty except in Python ---
 proj_empty_except="${tmpdir}/fail_empty_except"
@@ -71,7 +71,7 @@ export function processOrder(order: any): void {
 function submitOrder(_: any): void {}
 EOF
 assert_fail "leftover console.log fails" bash "$GUARD" "$proj_debug"
-assert_output_contains "output mentions debug code" "遗留调试代码" bash "$GUARD" "$proj_debug"
+assert_output_contains "output mentions debug code" "Legacy debug code" bash "$GUARD" "$proj_debug"
 
 # --- FAIL: print() debug in Python ---
 proj_print="${tmpdir}/fail_print"

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""死壳检测器 — 检测只含 re-export 的 Python 兼容壳文件。
+"""Dead Shell Detector — Detects Python-compatible shell files that only contain re-exports.
 
-扫描项目目录，找出仅包含 import 语句、docstring 和 __all__ 赋值的文件，
-这些文件通常是向后兼容壳，应当直接删除。
+Scan the project directory for files containing only import statements, docstrings, and __all__ assignments,
+These files are usually backward-compatible shells and should be deleted directly.
 
-使用方法：
+How to use:
     python3 check_dead_shims.py [target_dir]
-    python3 check_dead_shims.py [target_dir] --strict  # 有死壳则退出码 1
+    python3 check_dead_shims.py [target_dir] --strict # Exit code 1 if there is a dead shell
 """
 
 import ast
@@ -124,7 +124,7 @@ def main() -> int:
         return 0
 
     for s in shims:
-        print(f"[PY-13] {s} — 死壳文件（仅含 re-export，无原创定义）")
+        print(f"[PY-13] {s} — dead shell file (only re-export, no original definition)")
 
     print(f"\nTotal: {len(shims)} dead shim(s)")
 

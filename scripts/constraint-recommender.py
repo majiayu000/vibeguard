@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""VibeGuard Preflight 约束自动推荐器
+"""VibeGuard Preflight constraint automatic recommender
 
-基于项目探索结果（语言、框架、文件模式）自动生成约束初稿。
-信心度分级：high（自动接受）/ medium（提示确认）/ low（需讨论）。
+Automatically generate a first draft of constraints based on project exploration results (language, framework, file schema).
+Confidence rating: high (automatically accepted) / medium (prompt for confirmation) / low (needs discussion).
 
-用法：
+usage:
   python3 constraint-recommender.py <project_dir>
   python3 constraint-recommender.py <project_dir> --json
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def detect_languages(project_dir: str) -> list[dict]:
-    """检测项目使用的语言和框架"""
+    """The language and framework used by the detection project"""
     results = []
     p = Path(project_dir)
 
@@ -91,7 +91,7 @@ def detect_languages(project_dir: str) -> list[dict]:
 
 
 def scan_patterns(project_dir: str, languages: list[dict]) -> dict:
-    """扫描项目中的常见模式"""
+    """Common patterns in scan projects"""
     p = Path(project_dir)
     patterns = {
         "has_tests": False,
@@ -103,7 +103,7 @@ def scan_patterns(project_dir: str, languages: list[dict]) -> dict:
         "env_vars": [],
     }
 
-    # 检测常见目录/文件
+    #Detect common directories/files
     patterns["has_tests"] = any(
         (p / d).exists() for d in ["tests", "test", "__tests__", "spec"]
     )
@@ -111,7 +111,7 @@ def scan_patterns(project_dir: str, languages: list[dict]) -> dict:
     patterns["has_docker"] = (p / "Dockerfile").exists() or (p / "docker-compose.yml").exists()
     patterns["has_env_file"] = (p / ".env").exists() or (p / ".env.example").exists()
 
-    # 扫描入口点
+    # Scan entry points
     lang_set = {l["language"] for l in languages}
     if "rust" in lang_set:
         for main in p.rglob("main.rs"):
@@ -132,22 +132,22 @@ def scan_patterns(project_dir: str, languages: list[dict]) -> dict:
 def generate_constraints(
     languages: list[dict], patterns: dict
 ) -> list[dict]:
-    """生成约束推荐"""
+    """Generate constrained recommendations"""
     constraints = []
     c_id = 1
 
     lang_set = {l["language"] for l in languages}
 
-    # --- 高信心度约束（自动接受） ---
+    # --- High confidence constraints (automatically accepted) ---
 
-    # 错误处理约束
+    # Error handling constraints
     if "rust" in lang_set:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "错误处理",
-            "description": "非测试代码禁止 unwrap()，使用 ? 或 map_err",
+            "category": "Error handling",
+            "description": "Unwrap() is prohibited in non-test code, use ? or map_err",
             "confidence": "high",
-            "source": "Rust 项目检测",
+            "source": "Rust project detection",
             "verify": "guards/rust/check_unwrap_in_prod.sh",
         })
         c_id += 1
@@ -155,10 +155,10 @@ def generate_constraints(
     if "go" in lang_set:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "错误处理",
-            "description": "error 返回值必须检查，禁止赋值给 _",
+            "category": "Error handling",
+            "description": "The error return value must be checked and assignment to _ is prohibited,"
             "confidence": "high",
-            "source": "Go 项目检测",
+            "source": "Go project detection",
             "verify": "guards/go/check_error_handling.sh",
         })
         c_id += 1
@@ -166,33 +166,33 @@ def generate_constraints(
     if "typescript" in lang_set or "javascript" in lang_set:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "类型安全",
-            "description": "禁止使用 as any 和 @ts-ignore 绕过类型检查",
+            "category": "type safety",
+            "description": "It is forbidden to use as any and @ts-ignore to bypass type checking",
             "confidence": "high",
-            "source": "TypeScript 项目检测",
+            "source": "TypeScript project detection",
             "verify": "guards/typescript/check_any_abuse.sh",
         })
         c_id += 1
 
-    # 命名约束
+    # Naming constraints
     constraints.append({
         "id": f"C-{c_id:02d}",
-        "category": "命名一致",
-        "description": "snake_case 命名（API 边界 camelCase）",
+        "category": "Name consistent",
+        "description": "snake_case naming (API boundary camelCase)",
         "confidence": "high",
-        "source": "VibeGuard 通用规范",
+        "source": "VibeGuard General Specification",
         "verify": "guards/python/check_naming_convention.py",
     })
     c_id += 1
 
-    # 类型唯一
+    # Type is unique
     if "rust" in lang_set:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "类型唯一",
-            "description": "不新增与现有类型重名的 pub struct/enum 定义",
+            "category": "Type unique",
+            "description": "Do not add pub struct/enum definitions with the same name as existing types",
             "confidence": "high",
-            "source": "Rust workspace 检测",
+            "source": "Rust workspace detection",
             "verify": "guards/rust/check_duplicate_types.sh",
         })
         c_id += 1
@@ -200,49 +200,49 @@ def generate_constraints(
     if "python" in lang_set:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "类型唯一",
-            "description": "不新增重复的 Protocol/class 定义",
+            "category": "Type unique",
+            "description": "Do not add duplicate Protocol/class definitions",
             "confidence": "high",
-            "source": "Python 项目检测",
+            "source": "Python project detection",
             "verify": "guards/python/check_duplicates.py",
         })
         c_id += 1
 
-    # --- 中等信心度约束（提示确认） ---
+    # --- Medium confidence constraint (prompt for confirmation) ---
 
-    # 数据收敛
+    # Data convergence
     if len(patterns["entry_points"]) > 1:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "数据收敛",
-            "description": "所有入口的数据路径必须通过公共函数获取",
+            "category": "Data Convergence",
+            "description": "The data paths of all entries must be obtained through public functions",
             "confidence": "medium",
-            "source": f"检测到 {len(patterns['entry_points'])} 个入口点",
-            "verify": "人工检查数据路径一致性",
+            "source": f"{len(patterns['entry_points'])} entry points detected",
+            "verify": "Manually check data path consistency",
         })
         c_id += 1
 
-    # 测试约束
+    # Test constraints
     if patterns["has_tests"]:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "测试覆盖",
-            "description": "新增功能必须附带对应测试",
+            "category": "test coverage",
+            "description": "New features must be accompanied by corresponding tests",
             "confidence": "medium",
-            "source": "检测到 tests/ 目录",
-            "verify": "运行项目测试套件",
+            "source": "tests/ directory detected",
+            "verify": "Run the project test suite",
         })
         c_id += 1
 
-    # 环境变量
+    #Environment variables
     if patterns["has_env_file"]:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "配置安全",
-            "description": "禁止修改 .env 文件，新增环境变量需更新 .env.example",
+            "category": "Configuration Security",
+            "description": "Modification of .env files is prohibited. New environment variables need to be updated. .env.example",
             "confidence": "medium",
-            "source": "检测到 .env 文件",
-            "verify": "git diff --name-only 检查",
+            "source": ".env file detected",
+            "verify": "git diff --name-only check",
         })
         c_id += 1
 
@@ -250,24 +250,24 @@ def generate_constraints(
     if patterns["has_docker"]:
         constraints.append({
             "id": f"C-{c_id:02d}",
-            "category": "部署一致",
-            "description": "修改依赖时同步更新 Dockerfile",
+            "category": "Deployment consistent",
+            "description": "Synchronously update the Dockerfile when modifying dependencies",
             "confidence": "medium",
-            "source": "检测到 Dockerfile",
-            "verify": "docker build 验证",
+            "source": "Dockerfile detected",
+            "verify": "docker build verification",
         })
         c_id += 1
 
-    # --- 低信心度约束（需讨论） ---
+    # --- Low confidence constraints (needs discussion) ---
 
-    # 安全约束
+    # Security constraints
     constraints.append({
         "id": f"C-{c_id:02d}",
-        "category": "安全",
-        "description": "新增 API 端点必须有认证/授权检查",
+        "category": "security",
+        "description": "New API endpoints must have authentication/authorization checks",
         "confidence": "low",
-        "source": "VibeGuard 安全规范 (SEC-04)",
-        "verify": "代码审查",
+        "source": "VibeGuard Security Specification (SEC-04)",
+        "verify": "code review",
     })
     c_id += 1
 
@@ -276,14 +276,14 @@ def generate_constraints(
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python3 constraint-recommender.py <project_dir> [--json]")
+        print("Usage: python3 constraint-recommender.py <project_dir> [--json]")
         sys.exit(1)
 
     project_dir = sys.argv[1]
     json_output = "--json" in sys.argv
 
     if not os.path.isdir(project_dir):
-        print(f"目录不存在: {project_dir}")
+        print(f"Directory does not exist: {project_dir}")
         sys.exit(1)
 
     languages = detect_languages(project_dir)
@@ -302,31 +302,31 @@ def main():
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
-    # 格式化输出
-    print(f"\nVibeGuard 约束推荐")
+    # Format output
+    print(f"\nVibeGuard constraint recommendation")
     print("=" * 40)
 
-    print(f"\n检测到的语言/框架:")
+    print(f"\nDetected language/framework:")
     for lang in languages:
         print(f"  {lang['language']} ({lang['framework']}) — {lang['config']}")
 
     if patterns["entry_points"]:
-        print(f"\n入口点:")
+        print(f"\nEntry point:")
         for ep in patterns["entry_points"]:
             print(f"  {ep}")
 
-    # 按信心度分组输出
-    for level, label in [("high", "自动接受"), ("medium", "建议确认"), ("low", "需讨论")]:
+    #Group output by confidence level
+    for level, label in [("high", "automatically accepted"), ("medium", "recommend confirmation"), ("low", "needs discussion")]:
         group = [c for c in constraints if c["confidence"] == level]
         if not group:
             continue
         print(f"\n{label} ({level}):")
         for c in group:
             print(f"  [{c['id']}] {c['category']}: {c['description']}")
-            print(f"        来源: {c['source']}")
-            print(f"        验证: {c['verify']}")
+            print(f" source: {c['source']}")
+            print(f" Verification: {c['verify']}")
 
-    print(f"\n共 {len(constraints)} 条约束推荐")
+    print(f"\nTotal {len(constraints)} constraint recommendations")
     high = sum(1 for c in constraints if c["confidence"] == "high")
     medium = sum(1 for c in constraints if c["confidence"] == "medium")
     low = sum(1 for c in constraints if c["confidence"] == "low")

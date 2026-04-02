@@ -8,41 +8,41 @@
       "rule": "BUILD",
       "expect": "warn",
       "keyword": "VIBEGUARD",
-      "description": "JavaScript 语法错误触发构建检查警告"
+      "description": "JavaScript syntax error triggers build check warning"
     },
     "fp/js-valid.js": {
       "rule": "BUILD",
       "expect": "pass",
       "keyword": "VIBEGUARD",
-      "description": "JavaScript 语法正确放行"
+      "description": "JavaScript syntax is correct"
     },
     "fp/python-file.py": {
       "rule": "BUILD",
       "expect": "pass",
       "keyword": "VIBEGUARD",
       "file_path_override": "src/main.py",
-      "description": "非构建语言 (.py) 放行"
+      "description": "Non-build languages (.py) allowed"
     },
     "fp/markdown-file.md": {
       "rule": "BUILD",
       "expect": "pass",
       "keyword": "VIBEGUARD",
       "file_path_override": "README.md",
-      "description": "非源码文件 (.md) 放行"
+      "description": "Non-source files (.md) are released"
     },
     "fp/json-file.json": {
       "rule": "BUILD",
       "expect": "pass",
       "keyword": "VIBEGUARD",
       "file_path_override": "package.json",
-      "description": "非构建语言 (.json) 放行"
+      "description": "Non-build languages (.json) allowed"
     },
     "fp/empty-path.txt": {
       "rule": "BUILD",
       "expect": "pass",
       "keyword": "VIBEGUARD",
       "file_path_override": "",
-      "description": "空 file_path 放行"
+      "description": "Empty file_path is allowed"
     }
   }
 }

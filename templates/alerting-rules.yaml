@@ -1,16 +1,16 @@
-# VibeGuard 告警规则 — Prometheus Alerting Rules
+# VibeGuard Alerting Rules — Prometheus Alerting Rules
 #
-# 复制到 Prometheus alerting rules 目录使用。
-# 需要先通过 metrics-exporter.sh 导出指标。
+# Copy to the Prometheus alerting rules directory for use.
+# You need to export metrics through metrics-exporter.sh first.
 #
-# 用法：
+# Usage:
 #   cp templates/alerting-rules.yaml /etc/prometheus/rules/vibeguard.yaml
-#   # 或集成到已有 alerting rules 配置
+# # Or integrate into existing alerting rules configuration
 
 groups:
   - name: vibeguard
     rules:
-      # 守卫违规率过高 — 可能代码质量下降或规则需要调整
+      # The guard violation rate is too high - maybe the code quality has declined or the rules need to be adjusted
       - alert: HighViolationRate
         expr: >
           sum(rate(vibeguard_guard_violation_total[1h])) /
@@ -19,13 +19,13 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "VibeGuard 违规率超过 30%"
+          summary: "VibeGuard violation rate exceeds 30%"
           description: >
-            过去 1 小时内守卫违规率为 {{ $value | humanizePercentage }}。
-            检查是否有新引入的代码模式触发了过多警告。
-            运行 /vibeguard:stats 查看详情。
+            Guard violation rate in the past hour was {{ $value | humanizePercentage }}.
+            Check if there are any newly introduced code patterns that are triggering too many warnings.
+            Run /vibeguard:stats to see details.
 
-      # Hook 执行超时 — 可能守卫脚本性能退化
+      #Hook execution timeout — possible guard script performance degradation
       - alert: SlowHookExecution
         expr: >
           vibeguard_hook_duration_seconds_sum /
@@ -34,12 +34,12 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "VibeGuard Hook {{ $labels.hook }} 平均耗时超过 10s"
+          summary: "VibeGuard Hook {{ $labels.hook }} takes more than 10s on average"
           description: >
-            Hook {{ $labels.hook }} 平均执行时间为 {{ $value | humanizeDuration }}。
-            检查守卫脚本是否有性能问题。
+            The average execution time of Hook {{ $labels.hook }} is {{ $value | humanizeDuration }}.
+            Check the guard script for performance issues.
 
-      # Agent 不活跃 — 可能会话未正常运行
+      # Agent is not active - maybe the session is not running properly
       - alert: NoRecentEvents
         expr: >
           time() - vibeguard_events_total > 86400
@@ -47,12 +47,12 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: "VibeGuard 超过 24 小时无新事件"
+          summary: "VibeGuard has no new events for more than 24 hours"
           description: >
-            events.jsonl 超过 24 小时未有新事件写入。
-            如果 AI agent 应在活跃使用中，检查 hooks 是否正常触发。
+            No new events have been written to events.jsonl in over 24 hours.
+            If the AI agent should be in active use, check if hooks are firing normally.
 
-      # Block 事件突增 — 可能有系统性问题
+      # Block events suddenly increase - there may be a systemic problem
       - alert: HighBlockRate
         expr: >
           sum(rate(vibeguard_hook_trigger_total{decision="block"}[1h])) > 5
@@ -60,8 +60,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "VibeGuard Block 事件突增"
+          summary: "VibeGuard Block event sudden increase"
           description: >
-            过去 30 分钟内 Block 速率为 {{ $value }}/h。
-            可能存在系统性安全问题或配置错误。
-            运行 /vibeguard:stats 查看被拦截的操作详情。
+            Block rate over the past 30 minutes was {{ $value }}/h.
+            There may be a systemic security issue or misconfiguration.
+            Run /vibeguard:stats to see details of intercepted operations.

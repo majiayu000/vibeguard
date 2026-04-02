@@ -6,12 +6,12 @@
     "tp/go-discard-error.sh": {
       "rule": "GO-01",
       "expect": "block",
-      "description": "Go 守卫拦截 _ = 丢弃 error 的提交"
+      "description": "Go guard interception _ = discard error submissions"
     },
     "fp/rust-timeout-fallback.sh": {
       "rule": "BUILD",
       "expect": "pass",
-      "description": "timeout 不可用时回退执行，不误报构建失败"
+      "description": "Return to execution when timeout is unavailable, and no false reports of build failure"
     }
   }
 }

@@ -1,40 +1,40 @@
-# Python Rules（Python 特定规则）
+# Python Rules (Python specific rules)
 
-Python 项目扫描和修复的特定规则。
+Specific rules for scanning and repairing Python projects.
 
-## 扫描检查项
+## Scan check items
 
-| ID | 类别 | 检查项 | 严重度 | 守卫交叉引用 |
+| ID | Category | Check Item | Severity | Guard Cross Reference |
 |----|------|--------|--------|-------------|
-| PY-01 | Bug | 可变默认参数（def f(x=[])） | 高 | — |
-| PY-02 | Bug | except 裸捕获（except: 或 except Exception） | 中 | `guards/python/test_code_quality_guards.py` 规则 1 自动检测 |
-| PY-03 | Bug | 循环内 await 无 gather/TaskGroup | 中 | — |
-| PY-04 | Design | 上帝类（> 500 行，> 10 个公开方法） | 中 | — |
-| PY-05 | Dedup | 多处相同的 try/except 模式 | 中 | — |
-| PY-06 | Perf | 循环内重复创建正则（应预编译） | 低 | — |
-| PY-07 | Perf | 字符串拼接在循环中（应用 join 或 list） | 低 | — |
+| PY-01 | Bug | Variable default parameters (def f(x=[])) | High | — |
+| PY-02 | Bug | except naked catch (except: or except Exception) | Medium | `guards/python/test_code_quality_guards.py` Rule 1 Autodetection |
+| PY-03 | Bug | await within loop without gather/TaskGroup | Medium | — |
+| PY-04 | Design | God class (>500 lines, >10 public methods) | Medium | — |
+| PY-05 | Dedup | The same try/except pattern in many places | Medium | — |
+| PY-06 | Perf | Repeated creation of regular expressions within loops (should be precompiled) | Low | — |
+| PY-07 | Perf | String concatenation in a loop (applying join or list) | Low | — |
 
-> **PY-02 与守卫集成说明**：VibeGuard 的 `guards/python/test_code_quality_guards.py` 中"禁止静默吞异常"规则通过 AST 检测 except 块是否有 logging 或 re-raise。auto-optimize 扫描时应先运行该守卫获取基线，LLM 深度扫描补充守卫无法覆盖的场景（如 except 块有 logging 但异常类型过宽）。
+> **PY-02 and Guard Integration Instructions**: The "disable silent exception swallowing" rule in VibeGuard's `guards/python/test_code_quality_guards.py` detects whether the except block has logging or re-raise through AST. When auto-optimize scans, you should run this guard first to obtain the baseline, and LLM deep scan to supplement the scenarios that the guard cannot cover (for example, the except block has logging but the exception type is too wide).
 
-## SKIP 规则（Python 特定）
+## SKIP rules (Python specific)
 
-| 条件 | 判定 | 理由 |
+| Conditions | Judgment | Reasons |
 |------|------|------|
-| 类型注解不完整但功能正确 | SKIP | 类型注解是渐进式的 |
-| 用 dict 而非 dataclass | SKIP | 除非 dict 结构在 > 3 处重复 |
-| 缺少 docstring | SKIP | 独立处理，不混入功能修复 |
+| Type annotations are incomplete but functionally correct | SKIP | Type annotations are progressive |
+| Use dict instead of dataclass | SKIP | Unless dict structure is repeated at > 3 places |
+| Missing docstring | SKIP | Independent processing, no mixing function fixes |
 
-## ECC 增强规则
+## ECC enhancement rules
 
-| ID | 类别 | 检查项 | 严重度 |
+| ID | Category | Check Item | Severity |
 |----|------|--------|--------|
-| PY-08 | Safety | 使用 `eval()` / `exec()` / `__import__()` | 高 |
-| PY-09 | Design | 函数超过 50 行（应拆分） | 中 |
-| PY-10 | Design | 嵌套超过 4 层（应提前返回或提取函数） | 中 |
-| PY-11 | Safety | 文件操作未使用 `with` 上下文管理器 | 中 |
-| PY-12 | Perf | 循环内重复调用 `len()` / `keys()` / `values()` | 低 |
+| PY-08 | Safety | Using `eval()` / `exec()` / `__import__()` | High |
+| PY-09 | Design | Function exceeds 50 lines (should be split) | Medium |
+| PY-10 | Design | Nesting beyond 4 levels (functions should be returned or extracted early) | Medium |
+| PY-11 | Safety | File operations not using `with` context manager | Medium |
+| PY-12 | Perf | Repeated calls to `len()` / `keys()` / `values()` in a loop | Low |
 
-## 验证命令
+## Verification command
 ```bash
 ruff check . && ruff format --check . && pytest
 ```

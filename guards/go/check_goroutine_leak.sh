@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# VibeGuard Go Guard: 检测 goroutine 泄漏风险 (GO-02)
+# VibeGuard Go Guard: Detecting goroutine leak risks (GO-02)
 #
-# 扫描 Go 代码中无退出机制的 goroutine。
-# 用法:
+# Scan the Go code for goroutines without exit mechanism.
+# Usage:
 #   bash check_goroutine_leak.sh [target_dir]
 #   bash check_goroutine_leak.sh --strict [target_dir]
 #
-# 检测模式:
-#   - go func() 内无 select/context/return/break/ticker
-#   - for {} 无限循环内无退出条件
+#Detection mode:
+# - There is no select/context/return/break/ticker in go func()
+# - for {} There is no exit condition in the infinite loop
 #
-# 排除:
-#   - *_test.go 测试文件
-#   - vendor/ 目录
+#Exclude:
+# - *_test.go test file
+# - vendor/ directory
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# --- Baseline/diff 过滤：只报告新增行上的问题（pre-commit 或 --baseline 模式）---
+# --- Baseline/diff filtering: only report problems on new lines (pre-commit or --baseline mode) ---
 _LINEMAP=""
 _LINEMAP_DELETED=""
 _IN_DIFF_MODE=false
@@ -29,8 +29,8 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] || [[ -n "${BASELINE_COMMIT:-}" ]]; th
   vg_build_diff_linemap "$_LINEMAP" '\.go$' "$_LINEMAP_DELETED"
 fi
 
-# _in_diff_mode: 检测是否处于 diff 模式，不依赖 linemap 非空。
-# 仅删除行时 linemap 为空，此时应静默通过而非回退到全量扫描。
+# _in_diff_mode: Check whether it is in diff mode, does not rely on linemap being non-empty.
+# When only deleting lines, the linemap is empty. In this case, it should pass silently instead of falling back to full scan.
 _in_diff_mode() {
   [[ "$_IN_DIFF_MODE" == true ]]
 }
@@ -39,11 +39,11 @@ list_go_files "${TARGET_DIR}" \
   | { grep -vE '(_test\.go$|/vendor/)' || true; } \
   | while IFS= read -r f; do
       if [[ -f "${f}" ]]; then
-        # 检测 go func() 启动，但排除有退出机制的 goroutine
+        # Detect go func() startup, but exclude goroutine with exit mechanism
         while IFS= read -r match; do
           [[ -z "$match" ]] && continue
           LINE_NUM=$(echo "$match" | cut -d: -f1)
-          # Baseline 过滤：报告 goroutine 启动行是新增的，或退出机制被删除的情况
+          # Baseline filtering: report if the goroutine startup line is new or the exit mechanism is deleted
           if _in_diff_mode; then
             if ! grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null; then
               _body_del=false
@@ -61,7 +61,7 @@ list_go_files "${TARGET_DIR}" \
               [[ "$_body_del" == true ]] || continue
             fi
           fi
-          # 读取 goroutine 后 20 行，检查是否有退出机制
+          # Read the last 20 lines of goroutine and check if there is an exit mechanism
           HAS_EXIT=$(sed -n "${LINE_NUM},$((LINE_NUM+20))p" "${f}" 2>/dev/null \
             | grep -cE '(ctx\.Done|context\.WithCancel|wg\.(Add|Done|Wait)|errgroup|<-done|<-quit|<-stop|time\.After|ticker)' 2>/dev/null || true)
           if [[ "${HAS_EXIT:-0}" -eq 0 ]]; then
@@ -73,7 +73,7 @@ list_go_files "${TARGET_DIR}" \
   | awk '{ print "[GO-02] " $0 }' \
   > "${TMPFILE}" || true
 
-# 第二轮：检测 for {} 或 for { 无限循环（高风险）
+# Round 2: Detect for {} or for { infinite loop (high risk)
 list_go_files "${TARGET_DIR}" \
   | { grep -vE '(_test\.go$|/vendor/)' || true; } \
   | while IFS= read -r f; do
@@ -81,7 +81,7 @@ list_go_files "${TARGET_DIR}" \
         while IFS= read -r match; do
           [[ -z "$match" ]] && continue
           LINE_NUM=$(echo "$match" | cut -d: -f1)
-          # Baseline 过滤：报告 for{} 行是新增的，或退出机制被删除的情况
+          # Baseline filtering: report if the for{} line is new or the exit mechanism is deleted
           if _in_diff_mode; then
             if ! grep -qxF "${f}:${LINE_NUM}" "$_LINEMAP" 2>/dev/null; then
               _body_del=false
@@ -116,11 +116,11 @@ if [[ ${FOUND} -eq 0 ]]; then
 else
   echo "Found ${FOUND} goroutine launch/infinite loop site(s) to review."
   echo ""
-  echo "修复方法："
-  echo "  1. 传入 context.Context，通过 <-ctx.Done() 退出"
-  echo "  2. 使用 errgroup.Group 管理 goroutine 生命周期"
-  echo "  3. for {} 循环必须有 select + 退出分支"
-  echo "  4. 确保每个 go func() 都有明确的退出路径"
+  echo "Repair method:"
+  echo "1. Pass in context.Context and exit through <-ctx.Done()"
+  echo "2. Use errgroup.Group to manage goroutine life cycle"
+  echo "3. The for {} loop must have select + exit branch"
+  echo "4. Make sure each go func() has a clear exit path"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi

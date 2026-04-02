@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# RS-14: 声明-执行鸿沟检测 (ast-grep 版本)
+# RS-14: Statement-Perform Gap Detection (ast-grep version)
 #
-# 检测 Config 类型通过 Default::default() 初始化而非 load() 方法的情况。
-# 使用 ast-grep AST 级别扫描，消除之前 grep 版本的全量误报问题。
+# Detect the case where the Config type is initialized through Default::default() instead of the load() method.
+# Use ast-grep AST level scanning to eliminate the full false positive problem of previous grep versions.
 #
-# 用法:
+# Usage:
 #   bash check_declaration_execution_gap.sh [--strict] [target_dir]
 
 set -euo pipefail
@@ -13,7 +13,7 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 
 if ! command -v ast-grep >/dev/null 2>&1; then
-  echo "[RS-14] SKIP: ast-grep 未安装（安装方法: brew install ast-grep）"
+  echo "[RS-14] SKIP: ast-grep is not installed (installation method: brew install ast-grep)"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi
@@ -21,7 +21,7 @@ if ! command -v ast-grep >/dev/null 2>&1; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "[RS-14] SKIP: python3 不可用"
+  echo "[RS-14] SKIP: python3 is not available"
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi
@@ -34,8 +34,8 @@ TMPFILE=$(create_tmpfile)
 
 TEST_PATH_PATTERN='((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|(^|/)examples/|(^|/)benches/)'
 
-# 检测 *Config::default() 使用（排除测试路径）
-# 仅当对应的 Config 类型有 load() 方法时才报告，避免合法的 default-only Config 误报
+# Detect *Config::default() usage (exclude test paths)
+# Only reported when the corresponding Config type has a load() method to avoid false positives of legal default-only Config
 export VG_TARGET_DIR="${TARGET_DIR}"
 
 _ASG_TMPOUT=$(create_tmpfile)
@@ -43,7 +43,7 @@ if ! ast-grep scan \
     --rule "${RULES_DIR}/rs-14-config-default.yml" \
     --json \
     "${TARGET_DIR}" > "${_ASG_TMPOUT}"; then
-  echo "[RS-14] WARN: ast-grep 扫描失败（规则文件可能缺失），跳过检测" >&2
+  echo "[RS-14] WARN: ast-grep scan failed (the rule file may be missing), skipping detection" >&2
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi
@@ -62,7 +62,7 @@ if not data:
 try:
     matches = json.loads(data)
 except Exception as e:
-    print("[RS-14] WARN: ast-grep JSON 解析失败: " + str(e), file=sys.stderr)
+    print("[RS-14] WARN: ast-grep JSON parsing failed: " + str(e), file=sys.stderr)
     sys.exit(1)
 
 load_cache = {}
@@ -160,7 +160,7 @@ for m in matches:
     msg = m.get("message", "")
     print("[RS-14] " + f + ":" + str(line) + " " + msg + " (" + text + ")")
 ' < "${_ASG_TMPOUT}" > "$TMPFILE" || {
-  echo "[RS-14] WARN: python3 处理失败，跳过检测" >&2
+  echo "[RS-14] WARN: python3 processing failed, skipping detection" >&2
   if [[ "${STRICT}" == true ]]; then
     exit 1
   fi
@@ -171,7 +171,7 @@ apply_suppression_filter "$TMPFILE"
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
 if [[ $FOUND -eq 0 ]]; then
-  echo "[RS-14] PASS: 未检测到 Config 声明-执行鸿沟"
+  echo "[RS-14] PASS: Config statement-execution gap not detected"
   exit 0
 fi
 
@@ -179,9 +179,9 @@ cat "$TMPFILE"
 echo ""
 echo "Found ${FOUND} potential Config declaration-execution gap(s)."
 echo ""
-echo "修复方法："
-echo "  1. Config 若有 load() 方法，启动时应调用 Config::load() 而非 Config::default()"
-echo "  2. 若 Default::default() 确为预期行为（如测试或默认配置），添加注释说明"
+echo "Repair method:"
+echo " 1. If Config has a load() method, Config::load() should be called during startup instead of Config::default()"
+echo " 2. If Default::default() is indeed the expected behavior (such as testing or default configuration), add a comment"
 
 if [[ "${STRICT}" == true ]]; then
   exit 1

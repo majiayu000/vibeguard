@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Bash) Hook
 #
-# 硬拦截不可逆的危险命令：
-#   - git checkout . / git restore .（丢弃所有改动）
-#   - git clean -f（删除未跟踪文件）
-#   - rm -rf 项目根目录或敏感路径
+# Hard interception of irreversible dangerous commands:
+# - git checkout . / git restore . (discard all changes)
+# - git clean -f (remove untracked files)
+# - rm -rf project root directory or sensitive path
 #
-# 透明纠正（updatedInput）机械性可预测的命令：
+# Transparently correct (updatedInput) mechanically predictable commands:
 #   - npm install / yarn install → pnpm install
 #   - npm install <pkg> / yarn add <pkg> → pnpm add <pkg>
 #   - pip install / pip3 install / python -m pip install → uv pip install
 #
-# 注意：force push 检测已移至 hooks/git/pre-push（git 原生 hook），
-# 该 hook 通过 scripts/install-hook.sh 安装到各项目 .git/hooks/pre-push。
+# Note: force push detection has been moved to hooks/git/pre-push (git native hook),
+# This hook is installed to each project .git/hooks/pre-push through scripts/install-hook.sh.
 
 set -euo pipefail
 
@@ -26,28 +26,28 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
-# 移除 heredoc 内容，避免多行文本造成误报
-# 覆盖变体: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' 等
+# Remove heredoc content to avoid false positives caused by multi-line text
+# Cover variants: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' etc.
 COMMAND_NO_HEREDOC=$(echo "$COMMAND" | python3 -c '
 import re, sys
 cmd = sys.stdin.read()
-# 匹配 <<[-]? 可选空格 可选引号 终止符 可选引号，直到行首终止符
+# Matches <<[-]? Optional spaces Optional quotes Terminator Optional quotes until end of line terminator
 cmd = re.sub(r"<<-?\s*[\"'"'"']?(\w+)[\"'"'"']?.*?\n\1", "", cmd, flags=re.DOTALL)
 print(cmd)
 ' 2>/dev/null || echo "$COMMAND")
 
-# 剥离引号内容（commit message、echo 字符串等），避免文本内容触发误报
-# 保留命令结构，用空字符串替代引号内容
+# Strip quotation marks (commit message, echo string, etc.) to avoid text content triggering false alarms
+# Keep the command structure and replace the quoted content with an empty string
 COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
-# 移除双引号和单引号内容
+# Remove double quotes and single quotes
 cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
 cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
 " 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
 
-# 路径扫描使用：去掉引号字符但保留内容，防止 rm -rf \"/Users/...\" 绕过
+# Use path scanning: remove quotation marks but retain the content to prevent rm -rf \"/Users/...\" from being bypassed
 COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
 
 block() {
@@ -56,30 +56,30 @@ block() {
   cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：${reason}"
+  "reason": "VIBEGUARD interception: ${reason}"
 }
 BLOCK_EOF
   exit 0
 }
 
-# git reset --hard — 允许执行（用户需要在 rebase 冲突等场景中使用）
+# git reset --hard — Allow execution (users need to use it in scenarios such as rebase conflicts)
 
-# git checkout . / git restore .（丢弃所有改动）
-# 只匹配纯 "." 结尾，排除 git checkout ./src/file 等合法路径操作
+# git checkout . / git restore . (discard all changes)
+# Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
-  block "禁止 git checkout/restore .（批量丢弃所有改动）。替代方案：git checkout -- <具体文件> 指定要丢弃的文件；git stash 暂存所有改动（可恢复）；git diff 先查看改动再决定。"
+  block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
-# git clean -f（删除未跟踪文件）
+# git clean -f (delete untracked files)
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
-  block "禁止 git clean -f（永久删除未跟踪文件，不可恢复）。替代方案：git clean -n（dry run 预览）先查看会删什么；git stash --include-untracked 暂存未跟踪文件；手动 rm 指定文件。"
+  block "Disable git clean -f (untracked files are permanently deleted and cannot be recovered). Alternatives: git clean -n (dry run preview) to see what will be deleted first; git stash --include-untracked to temporarily store untracked files; manually rm to specify files."
 fi
 
-# rm -rf 危险路径检测（覆盖 rm -rf, rm -fr, rm -Rf, rm --recursive --force 等变体）
-# 先在"去引号内容"的命令结构中识别 rm -rf 命令，再在保留路径内容的文本里做危险路径匹配
+# rm -rf dangerous path detection (covers rm -rf, rm -fr, rm -Rf, rm --recursive --force and other variants)
+# First identify the rm -rf command in the command structure of "remove quotation marks", and then perform dangerous path matching in the text that retains the path content.
 if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?(\\?rm)[[:space:]]+((-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR]))|(--(recursive|force)[[:space:]]+--(recursive|force)))([[:space:]]|$)'; then
   DANGEROUS=false
-  # 危险路径：根目录、家目录（含 /Users/xxx、/home/xxx）、系统目录
+  # Dangerous paths: root directory, home directory (including /Users/xxx, /home/xxx), system directory
   for pattern in \
     '[[:space:]]/([[:space:];|&]|$)' \
     '[[:space:]]~([[:space:];|&/]|$)' \
@@ -93,14 +93,14 @@ if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?
     fi
   done
   if [[ "$DANGEROUS" == true ]]; then
-    block "禁止 rm -rf 危险路径（根目录、家目录、系统目录不可恢复）。替代方案：rm -rf <具体深层子目录> 指定精确路径；rm -ri 交互式确认；先 ls 确认目标再删除。"
+    block "Prohibit rm -rf dangerous paths (the root directory, home directory, and system directory are not recoverable). Alternatives: rm -rf <specific deep subdirectory> specifies the exact path; rm -ri interactively confirms; first confirm the target with ls and then delete it."
   fi
 fi
 
 
-# --- git commit 拦截：Claude Code 无 PreCommit 事件，通过 Bash hook 补位 ---
+# --- git commit interception: Claude Code has no PreCommit event, and is filled in through Bash hook ---
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
-  # 显式跳过
+  # Explicit skip
   if ! echo "$COMMAND" | grep -qE 'VIBEGUARD_SKIP_PRECOMMIT=1'; then
     HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
     PRECOMMIT_SCRIPT="${HOOK_DIR}/pre-commit-guard.sh"
@@ -113,7 +113,7 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
         cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。"
+  "reason": "VIBEGUARD Pre-Commit check failed. Please fix the problem according to the error message above and resubmit. The use of environment variables to bypass is prohibited."
 }
 BLOCK_EOF
         exit 0
@@ -122,8 +122,8 @@ BLOCK_EOF
   fi
 fi
 
-# --- doc-file-blocker：检测创建非标准 .md 文件 ---
-# 允许的 .md 文件：README、CLAUDE、CONTRIBUTING、CHANGELOG、LICENSE、SKILL
+# --- doc-file-blocker: Detect creation of non-standard .md files ---
+# Allowed .md files: README, CLAUDE, CONTRIBUTING, CHANGELOG, LICENSE, SKILL
 # Fix doc-file-blocker: exclude temp file paths and paths containing numbers
 # (e.g. /tmp/doc123.md, mktemp output) which are not persistent documentation.
 if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
@@ -131,41 +131,41 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
   if echo "$COMMAND_STRIPPED" | grep -qE ">.*(/tmp/|/var/|/proc/|\$TMPDIR|\$TEMP|mktemp)" 2>/dev/null; then
     true  # temp path — pass through
   elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
-    # 输出警告而非阻止（可能是合理的文档创建）
-    vg_log "pre-bash-guard" "Bash" "warn" "非标准 .md 文件" "$COMMAND"
+    # Output a warning instead of blocking (probably reasonable document creation)
+    vg_log "pre-bash-guard" "Bash" "warn" "Non-standard .md file" "$COMMAND"
     cat <<WARN_EOF
 {
   "decision": "warn",
-  "reason": "VIBEGUARD 警告：检测到创建非标准 .md 文件。只允许创建 README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md。如果确实需要，请确认文件用途。"
+  "reason": "VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary."
 }
 WARN_EOF
     exit 0
   fi
 fi
 
-# --- 包管理器透明纠正（updatedInput）---
-# 机械性可预测的命令直接重写，无需 block+retry。
-# 仅针对简单的单条命令（含 && 等链式命令不纠正，避免误改复杂流水线）。
+# --- Package manager transparent correction (updatedInput) ---
+# Mechanically predictable commands can be rewritten directly without block+retry.
+# Only for simple single commands (chain commands including && and other chain commands are not corrected to avoid mistakenly modifying complex pipelines).
 _PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 -c '
 import sys, re
 
 cmd = sys.stdin.read().strip()
 corrected = None
 
-# 跳过复杂命令（&&, &, ||, ;, 管道, 重定向, 换行, $() 展开, 反引号）— 复杂流水线不做自动重写
+# Skip complex commands (&&, &, ||, ;, pipe, redirection, newline, $() expansion, backtick) - complex pipelines do not automatically rewrite
 if not re.search(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`", cmd):
 
-    # npm install (无参数) → pnpm install
+    # npm install (no parameters) → pnpm install
     if re.match(r"^npm\s+(?:install|i)\s*$", cmd):
         corrected = "pnpm install"
 
     # npm install/add <packages>
-    # 只在有实际包名且所有 flag 均可翻译时纠正，排除全局安装和不兼容 flag
+    # Only correct when there is an actual package name and all flags are translatable, excluding global installation and incompatible flags
     elif re.match(r"^npm\s+(?:install|i|add)\s+", cmd):
         rest = re.sub(r"^npm\s+(?:install|i|add)\s+", "", cmd).strip()
         tokens = rest.split()
 
-        # 已知可翻译的 npm flag
+        # Known translatable npm flags
         KNOWN_FLAGS = {"--save-dev", "-D", "--save", "-S", "--save-optional", "-O", "--save-exact", "-E"}
 
         is_global = any(t in ("-g", "--global") or t.startswith("--location=global") for t in tokens)
@@ -184,7 +184,7 @@ if not re.search(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`", cmd):
                 # --save/-S is pnpm default, skip
             corrected = "pnpm add " + " ".join(pnpm_flags + packages).strip()
 
-    # yarn install (无参数) → pnpm install
+    # yarn install (no parameters) → pnpm install
     elif re.match(r"^yarn\s+install\s*$", cmd):
         corrected = "pnpm install"
 
@@ -267,6 +267,6 @@ print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
   exit 0
 fi
 
-# 通过所有检查 → 放行
+# Pass all checks → Release
 vg_log "pre-bash-guard" "Bash" "pass" "" "$COMMAND"
 exit 0

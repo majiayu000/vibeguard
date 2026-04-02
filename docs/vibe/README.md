@@ -1,19 +1,19 @@
-# Vibe 优化文档
+# Vibe Optimize Documents
 
-本目录用于管理 `vibeguard` 的设计问题分析与分步修复方案，目标是做到：
+This directory is used to manage design problem analysis and step-by-step repair plans of `vibeguard`. The goal is to:
 
-- 先统一问题定义与优先级，避免“边改边变方向”。
-- 每一步都有明确改动范围、验收命令和完成标准。
-- 在不破坏现有行为的前提下，持续提升可维护性、性能和可靠性。
+- Unify problem definitions and priorities first to avoid "changing directions while changing".
+- Each step has a clear scope of changes, acceptance orders and completion standards.
+- Continuously improve maintainability, performance, and reliability without breaking existing behavior.
 
-## 文档清单
+## Documentation list
 
-- `01-problem-analysis.md`: 当前仓库设计问题清单（带证据与风险）
-- `02-remediation-playbook.md`: 分阶段修复手册（一步步执行）
-- `03-cross-repo-findings.md`: 当日跨库问题复盘与 VibeGuard 能力补强建议
+- `01-problem-analysis.md`: List of current warehouse design issues (with evidence and risks)
+- `02-remediation-playbook.md`: Staged repair manual (step by step)
+- `03-cross-repo-findings.md`: Review of cross-repository issues on the day and suggestions for improving VibeGuard capabilities
 
-## 执行原则
+## Execution Principles
 
-- 优先处理 `P0`（高风险/高收益）问题。
-- 每个阶段结束必须跑验证，未通过不得进入下一阶段。
-- 每次只做一个可验证的小步，避免大爆炸式重构。
+- Prioritize `P0` (high risk/high reward) issues.
+- Verification must be run at the end of each stage. Failure to pass will not allow you to enter the next stage.
+- Only take one small, verifiable step at a time to avoid big bang refactoring.

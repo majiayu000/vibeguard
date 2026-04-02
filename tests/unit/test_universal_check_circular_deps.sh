@@ -51,7 +51,7 @@ import { doA } from "../moduleA/index";
 export function doB(): void { doA(); }
 EOF
 assert_fail "circular TS dep A→B→A fails" python3 "$GUARD" "$proj_cycle"
-assert_output_contains "output mentions cycle count" "循环依赖" python3 "$GUARD" "$proj_cycle"
+assert_output_contains "output mentions cycle count" "cyclic dependencies" python3 "$GUARD" "$proj_cycle"
 
 # --- FAIL: circular Python dependency ---
 proj_py_cycle="${tmpdir}/fail_py_cycle"

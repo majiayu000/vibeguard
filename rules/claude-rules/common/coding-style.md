@@ -1,98 +1,98 @@
 
-# 通用行为约束规则
+# General behavior constraint rules
 
-## U-01: 不修改公开 API 签名（严格）
-除非用户明确要求 breaking change 并接受 MAJOR 版本升级，否则不得修改公开函数签名。
+## U-01: Do not modify public API signature (strict)
+Public function signatures must not be modified unless the user explicitly requests breaking change and accepts a MAJOR version upgrade.
 
-## U-02: 不为只出现 1 次的代码提取抽象（严格）
-3 行重复好过 1 个过早抽象。等第 3 次重复再提取。
+## U-02: Do not extract abstractions for code that appears only once (strict)
+3 lines of repetition are better than 1 premature abstraction. Wait for the 3rd iteration before extracting.
 
-## U-03: 不用宏替代可读的重复代码（严格）
-宏降低可读性和 IDE 支持。仅在重复 > 5 处且模式完全一致时允许。
+## U-03: Don’t use macros to replace readable repeated code (strict)
+Macros reduce readability and IDE support. Only allowed if there are >5 repetitions and the pattern is exactly the same.
 
-## U-04: 不添加未被要求的功能（严格）
-bug fix 范围严格锁定，不顺便重构周围代码。
+## U-04: Do not add unrequired functionality (strict)
+The bug fix scope is strictly locked and surrounding code will not be refactored.
 
-## U-05: 不删除看起来"没用"的代码而不先确认（严格）
-可能是 WIP 功能。标记 DEFER 而非删除。
+## U-05: Don't delete seemingly "useless" code without confirming it first (strict)
+Probably a WIP feature. Mark DEFER instead of delete.
 
-## U-06: 不引入新依赖来解决标准库可解决的问题（严格）
-先用标准库，避免依赖膨胀。
+## U-06: Do not introduce new dependencies to solve problems that the standard library can solve (strict)
+Use the standard library first to avoid dependency bloat.
 
-## U-07: 不在修复中改变代码风格（严格）
-风格变更应独立成单独的 commit。
+## U-07: Do not change code style in fixes (strict)
+Style changes should be separated into separate commits.
 
-## U-08: 不跳过验证步骤（严格）
-每个 fix 必须独立通过 lint + test。
+## U-08: Do not skip verification step (strict)
+Each fix must pass lint + test independently.
 
-## U-09: 不一次性提交多个不相关的修复（严格）
-原子 commit，方便 revert。
+## U-09: Don’t commit multiple unrelated fixes at once (strict)
+Atomic commit, convenient for revert.
 
-## U-10: 不猜测用户意图（严格）
-不确定就标记为 DEFER 或向用户确认。
+## U-10: Don’t guess user intent (strict)
+If unsure, mark it as DEFER or confirm with the user.
 
-## U-15: 不可变性优先
-创建新对象而非修改现有对象。函数参数视为只读。
+## U-15: Immutability first
+Create new objects instead of modifying existing ones. Function parameters are treated as read-only.
 
-## U-16: 文件大小控制
-200-400 行典型，800 行上限。超过 800 行必须拆分。
+## U-16: File size control
+200-400 lines typical, 800 lines upper limit. More than 800 rows must be split.
 
-## U-17: 错误处理完整
-全面处理错误路径，禁止静默吞异常。提供用户友好的错误消息。
+## U-17: Error handling complete
+Comprehensively handle error paths and prohibit silent swallowing of exceptions. Provide user-friendly error messages.
 
-## U-18: 输入验证
-系统边界处验证所有用户输入。内部代码信任框架保证。
+## U-18: Input validation
+Validate all user input at system boundaries. Internal code trust framework guarantees.
 
-## U-19: Repository 模式
-数据访问封装到 Repository 层，业务逻辑不直接操作数据库。
+## U-19: Repository mode
+Data access is encapsulated into the Repository layer, and business logic does not directly operate the database.
 
-## U-20: API 响应格式统一
-统一信封结构 `{ data, error, meta }`。错误码标准化。
+## U-20: API response format is unified
+Unified envelope structure `{ data, error, meta }`. Error code standardization.
 
-## U-21: 提交消息格式
-`<type>: <description>`，type 为 feat/fix/refactor/docs/test/chore。
+## U-21: Submission message format
+`<type>: <description>`, type is feat/fix/refactor/docs/test/chore.
 
-## U-22: 测试覆盖率（严格）
-新代码最低 80% 行覆盖率，关键路径 100%。
+## U-22: Test coverage (strict)
+Minimum 80% line coverage for new code, 100% critical path.
 
-**机械化检查（Agent 执行规则）**：
-- 修改源文件后，检查是否存在对应 `*.test.*` 或 `*.spec.*` 文件
-- 若不存在且该文件包含业务逻辑（非纯类型/常量/样式），标记为 DEFER 并告知用户
-- 重构涉及 >3 个文件时，至少补充被修改的核心路径的单测
-- 重构 hook/模块接口时，同步更新所有引用该模块的 test mock shape（参见 TS-14）
+**Mechanized inspection (Agent execution rules)**:
+- After modifying the source file, check whether there is a corresponding `*.test.*` or `*.spec.*` file
+- If it does not exist and the file contains business logic (non-pure types/constants/styles), mark it as DEFER and inform the user
+- When refactoring involves >3 files, at least supplement the single test of the modified core path
+- When refactoring the hook/module interface, synchronously update all test mock shapes that reference the module (see TS-14)
 
-## U-23: 禁止静默降级
-不支持的策略/配置必须显式报错或标记 DEFER，不得自动降级到默认策略。
+## U-23: Disable silent downgrade
+Unsupported policies/configurations must be explicitly reported as an error or marked DEFER and must not be automatically downgraded to the default policy.
 
-## U-24: 禁止任何别名
-禁止函数/类型/命令/目录别名。发现旧名直接全量替换并删除旧名。
+## U-24: No aliases allowed
+Function/type/command/directory aliases are prohibited. If the old name is found, directly replace it in full and delete the old name.
 
-## U-25: 构建失败修复优先（严格）
-检测到构建错误后，**必须先修复构建再继续其他编辑**。禁止在构建失败的状态下继续新增代码。
+## U-25: Build failure repair priority (strict)
+Once a build error is detected, the build must be fixed before continuing with other edits. It is forbidden to continue adding code when the build fails.
 
-**机械化检查（Agent 执行规则）**：
-- 编辑源码后收到构建错误警告时，下一步必须修复构建错误
-- 连续 3 次构建失败后，运行完整构建命令（`cargo check` / `npx tsc --noEmit` / `go build ./...`）查看全貌
-- 定位根因（通常是类型不匹配、缺少 import、接口变更未同步），一次性修复而非逐个猜测
-- 禁止在构建红灯状态下新增不相关的功能代码
+**Mechanized inspection (Agent execution rules)**:
+- When you receive a build error warning after editing the source code, the next step must be to fix the build error
+- After 3 consecutive build failures, run the complete build command (`cargo check` / `npx tsc --noEmit` / `go build ./...`) to see the full picture
+- Locate the root cause (usually type mismatch, missing import, interface change out of sync), fix it in one go instead of guessing one by one
+- It is prohibited to add irrelevant function codes during the build red light state.
 
-## U-26: 声明-执行完整性（严格）
-声明框架组件（Config/Trait/持久化层/状态管理）后，**必须完成启动集成**。禁止"声明了但没接线"。
+## U-26: Declaration-Execution Integrity (strict)
+After declaring the framework components (Config/Trait/Persistence Layer/State Management), startup integration must be completed. "Declared but not wired" is prohibited.
 
-**检查清单**：
-- Config 结构体 → 启动代码必须调用 `load()` 而非 `Default::default()`
-- Trait 声明 → 必须有至少一个 `impl` + 启动注册点（registry/builder）
-- 持久化方法（save/load/persist/restore）→ 启动代码必须调用恢复状态
-- 新字段加入 AppState/Context → 必须在所有构造点初始化
+**CHECKLIST**:
+- Config structure → startup code must call `load()` instead of `Default::default()`
+- Trait declaration → there must be at least one `impl` + startup registration point (registry/builder)
+- Persistence methods (save/load/persist/restore) → startup code must call to restore state
+- New fields added to AppState/Context → must be initialized at all construction points
 
-**修复模式**：
-1. 审计所有声明点（`rg "struct.*Config"` / `rg "trait "` / `rg "fn.*(save|load|persist)"`）
-2. 验证对应的启动注册（`build_app_state()` / `main()` / `init()` / `new()`）
-3. 添加缺失的注册调用
-4. 实现 silent fallback（配置缺失 → 使用默认值，不崩溃启动）
+**Repair Mode**:
+1. Audit all declaration points (`rg "struct.*Config"` / `rg "trait "` / `rg "fn.*(save|load|persist)"`)
+2. Verify the corresponding startup registration (`build_app_state()` / `main()` / `init()` / `new()`)
+3. Add missing registration call
+4. Implement silent fallback (missing configuration → use default value, start without crash)
 
-**反模式**：
-- SkillStore 有 `discover()` 方法但启动时从不调用 → 重启后 skills 丢失
-- RulesConfig 从 TOML 加载但消费者调用 `Default::default()` → 配置不生效
-- ThreadManager 有 `persist()` 方法但从不调用 → 死代码
-- GC 收到 `project_root` 但不传播给子任务 → 功能降级
+**Anti-Pattern**:
+- SkillStore has a `discover()` method but it is never called when starting → skills are lost after restarting
+- RulesConfig is loaded from TOML but the consumer calls `Default::default()` → the configuration does not take effect
+- ThreadManager has `persist()` method but never calls it → dead code
+- GC receives `project_root` but does not propagate to subtasks → functionality downgraded

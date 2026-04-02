@@ -1,83 +1,83 @@
 ---
 name: vibeguard
-description: "AI 辅助开发防幻觉规范。查阅七层防御架构、量化指标、执行模板和实战案例。用于代码审查、任务启动检查、周度复盘。"
+description: "AI-assisted development of anti-hallucination specifications. Check out the seven-layer defense architecture, quantitative indicators, execution templates and practical cases. Used for code review, task startup inspection, and weekly review."
 ---
 
-# VibeGuard — 防幻觉规范 Skill
+#VibeGuard — Anti-hallucination specification Skill
 
 ## Overview
 
-VibeGuard 是 AI 辅助开发的防幻觉框架，通过七层防御架构系统性地阻止 LLM 代码生成中的常见失效模式。
+VibeGuard is an anti-hallucination framework for AI-assisted development that systematically blocks common failure modes in LLM code generation through a seven-layer defense architecture.
 
-调用 `/vibeguard` 可以：
-- 查阅完整防幻觉规范
-- 获取任务启动 checklist
-- 查看评分矩阵进行风险评估
-- 获取周度复盘模板
+Calling `/vibeguard` can:
+- View the complete anti-hallucination specifications
+- Get task startup checklist
+- View the scoring matrix for risk assessment
+- Get weekly review template
 
-## 触发条件
+## Trigger conditions
 
-当用户提到以下内容时触发：
-- "检查防幻觉规范"、"vibeguard"
-- "任务启动检查"、"task contract"
-- "周度复盘"、"review template"
-- "风险评估"、"risk scoring"
-- "代码质量守卫"、"guard rules"
+Triggered when user mentions:
+- "Check anti-hallucination specifications", "vibeguard"
+- "task startup check", "task contract"
+- "Weekly review", "review template"
+- "risk assessment", "risk scoring"
+- "code quality guard", "guard rules"
 
-## 七层防御架构速查
+## Quick review of seven-layer defense architecture
 
-| 层级 | 名称 | 关键工具/规则 |
+| Hierarchy | Name | Key Tools/Rules |
 |------|------|---------------|
-| L1 | 反重复系统 | `check_duplicates.py` / 先搜后写 |
-| L2 | 命名约束 | `check_naming_convention.py` / snake_case |
+| L1 | Anti-duplicate system | `check_duplicates.py` / Search first then write |
+| L2 | Naming constraints | `check_naming_convention.py`/snake_case |
 | L3 | Pre-commit Hooks | ruff / gitleaks / shellcheck |
-| L4 | 架构守卫测试 | `test_code_quality_guards.py` 五条规则 |
+| L4 | Architecture guard testing | `test_code_quality_guards.py` Five rules |
 | L5 | Skill/Workflow | plan-flow / fixflow / optflow |
-| L6 | Prompt 内嵌规则 | CLAUDE.md 强制规则 |
-| L7 | 周度复盘 | review-template.md |
+| L6 | Prompt embedded rules | CLAUDE.md mandatory rules |
+| L7 | Weekly review | review-template.md |
 
-## 快速使用
+## Quick use
 
-### 任务启动检查
-
-```
-参考 references/task-contract.yaml，确认：
-1. 目标明确且可验证
-2. 数据来源已确定
-3. 验收标准可测试
-```
-
-### 风险评估
+### Task startup check
 
 ```
-参考 references/scoring-matrix.md，对每个发现评分：
-- impact（影响）: 1-5
-- effort（工作量）: 1-5
-- risk（风险）: 1-5
-- confidence（置信度）: 1-5
-公式: priority = (impact × confidence) - (effort + risk)
+Refer to references/task-contract.yaml and confirm:
+1. Goals are clear and verifiable
+2. The data source has been determined
+3. Acceptance criteria can be tested
 ```
 
-### 周度复盘
+### risk assessment
 
 ```
-参考 references/review-template.md，记录：
-1. 本周回归事件
-2. 守卫拦截统计
-3. 指标趋势
-4. 下周重点
+Refer to references/scoring-matrix.md to score each finding:
+- impact: 1-5
+- effort: 1-5
+- risk: 1-5
+- confidence: 1-5
+Formula: priority = (impact × confidence) - (effort + risk)
 ```
 
-## 参考文档
+### Weekly review
 
-- `references/task-contract.yaml` — 任务启动 Checklist（机器校验格式）
-- `references/review-template.md` — 周度复盘模板
-- `references/scoring-matrix.md` — risk-impact 评分矩阵
-- `docs/spec.md`（仓库根目录）— 完整规范文档
+```
+Refer to references/review-template.md, record:
+1. Return event this week
+2. Guard interception statistics
+3. Indicator trends
+4. Highlights for next week
+```
 
-## 执行规则
+## Reference documentation
 
-- 每次开发任务启动前，过一遍 task contract
-- 每周五进行一次复盘，使用 review template
-- 发现回归时，先定位失效防线，再补强规则
-- 新规则必须有对应的自动检测手段（守卫/hook/测试）
+- `references/task-contract.yaml` — Task startup Checklist (machine verification format)
+- `references/review-template.md` — weekly review template
+- `references/scoring-matrix.md` — risk-impact scoring matrix
+- `docs/spec.md` (repository root directory) — complete specification document
+
+## Execution rules
+
+- Go through the task contract before starting each development task
+- Conduct a review every Friday, using review template
+- When a regression is discovered, first locate the failed defense line and then strengthen the rules.
+- New rules must have corresponding automatic detection methods (guard/hook/test)

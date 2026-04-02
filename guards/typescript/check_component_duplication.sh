@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # VibeGuard Guard: check_component_duplication.sh (TS-13)
-# 检测 React 组件和 Hook 的功能级重复（异名同功能）
+# Detect function-level duplication of React components and Hooks (different names and same functions)
 #
-# 用法:
+# Usage:
 #   bash check_component_duplication.sh [project_dir]
 #   bash check_component_duplication.sh --strict [project_dir]
 #
-# 检测规则:
-#   1. UI 原语重复：多个文件定义了 <label> + children + required 的 FormField 模式
-#   2. 表格排序重复：多个文件各自实现 useState(sort) + <table> 模式
-#   3. 查询 Hook 模板重复：多个 use*Hook 重复 useQuery → 标准化返回结构
-#   4. 样式常量重复：多个文件定义相同的 className/style 字符串
+# Detection rules:
+# 1. Duplication of UI primitives: multiple files define the FormField pattern of <label> + children + required
+# 2. Table sorting is repeated: multiple files each implement useState(sort) + <table> mode
+# 3. Query Hook template duplication: multiple use*Hook duplication useQuery → standardized return structure
+# 4. Duplication of style constants: Multiple files define the same className/style string
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
@@ -26,8 +26,8 @@ ISSUES=0
 echo "=== VibeGuard: Component/Hook Duplication Check (TS-13) ==="
 echo ""
 
-# --- 检查 1: FormField 模式重复 ---
-# 检测同时包含 <label 和 {children} 的组件定义文件（UI 原语特征）
+# --- Check 1: FormField pattern duplication ---
+# Detect component definition files that contain both <label and {children} (UI primitive feature)
 echo "--- Checking FormField-like pattern duplication ---"
 
 FORMFIELD_FILES=$(mktemp)
@@ -35,7 +35,7 @@ list_ts_files "${TARGET_DIR}" | filter_non_test | while IFS= read -r f; do
   if [[ -f "$f" ]]; then
     has_label=$(grep -cE '<label' "$f" 2>/dev/null || true)
     has_children=$(grep -cE '\{children\}|\{props\.children\}' "$f" 2>/dev/null || true)
-    # 只匹配 prop 级 required（排除 HTML 原生 <input required>）
+    # Only match prop-level required (exclude HTML native <input required>)
     has_required=$(grep -cE 'isRequired|required\s*[?:}]|props\.required' "$f" 2>/dev/null || true)
     if [[ "$has_label" -gt 0 && "$has_children" -gt 0 && "$has_required" -gt 0 ]]; then
       echo "$f" >> "$FORMFIELD_FILES"
@@ -47,7 +47,7 @@ FORMFIELD_COUNT=$(wc -l < "$FORMFIELD_FILES" | tr -d ' ')
 if [[ "$FORMFIELD_COUNT" -ge 3 ]]; then
   echo "[TS-13] FormField-like pattern found in ${FORMFIELD_COUNT} files (>=3 = must extract):"
   sed 's/^/  - /' "$FORMFIELD_FILES"
-  echo "  Remediation: 提取到 components/ui/FormField.tsx，其他文件改为 import"
+  echo "Remediation: Extract to components/ui/FormField.tsx, other files are changed to import"
   echo ""
   ISSUES=$((ISSUES + 1))
 elif [[ "$FORMFIELD_COUNT" -ge 2 ]]; then
@@ -57,14 +57,14 @@ elif [[ "$FORMFIELD_COUNT" -ge 2 ]]; then
 fi
 rm -f "$FORMFIELD_FILES"
 
-# --- 检查 2: 表格排序模式重复 ---
-# 检测同时包含 useState+sort 和 <table/<th 的组件（排序表格特征）
+# --- Check 2: Duplicate table sort pattern ---
+# Detect components that contain both useState+sort and <table/<th (sort table feature)
 echo "--- Checking table sort pattern duplication ---"
 
 SORT_TABLE_FILES=$(mktemp)
 list_ts_files "${TARGET_DIR}" | filter_non_test | while IFS= read -r f; do
   if [[ -f "$f" ]]; then
-    # 收紧：要求 useState + sort 相关状态，排除 API 参数中的 sortKey
+    # Tighten: require useState + sort related state, exclude sortKey in API parameters
     has_sort_state=$(grep -cE 'useState.*sort|setSortKey|setSortDir|setSortOrder' "$f" 2>/dev/null || true)
     has_table=$(grep -cE '<table|<Table|<th|<thead' "$f" 2>/dev/null || true)
     if [[ "$has_sort_state" -gt 0 && "$has_table" -gt 0 ]]; then
@@ -77,14 +77,14 @@ SORT_COUNT=$(wc -l < "$SORT_TABLE_FILES" | tr -d ' ')
 if [[ "$SORT_COUNT" -ge 2 ]]; then
   echo "[TS-13] Sortable table pattern found in ${SORT_COUNT} files (>=2 = should extract):"
   sed 's/^/  - /' "$SORT_TABLE_FILES"
-  echo "  Remediation: 提取到 components/ui/DataTable.tsx，抽象排序逻辑到 hooks/useTableSort.ts"
+  echo "Remediation: extracted to components/ui/DataTable.tsx, abstract sorting logic to hooks/useTableSort.ts"
   echo ""
   ISSUES=$((ISSUES + 1))
 fi
 rm -f "$SORT_TABLE_FILES"
 
-# --- 检查 3: 查询 Hook 模板重复 ---
-# 检测多个自定义 Hook 文件包含相同的 useQuery + 标准化返回模式
+# --- Check 3: Query Hook template duplication ---
+# Detect multiple custom Hook files containing the same useQuery + standardized return pattern
 echo "--- Checking query hook template duplication ---"
 
 QUERY_HOOK_FILES=$(mktemp)
@@ -99,11 +99,11 @@ list_ts_files "${TARGET_DIR}" | filter_non_test | grep -iE '(use[A-Z].*\.(ts|tsx
 done
 
 QUERY_COUNT=$(wc -l < "$QUERY_HOOK_FILES" | tr -d ' ')
-# 提高阈值：3 → 4，减少标准 useQuery 模式的误报
+# Increase the threshold: 3 → 4 to reduce false positives in standard useQuery mode
 if [[ "$QUERY_COUNT" -ge 4 ]]; then
   echo "[TS-13] Query hook template pattern found in ${QUERY_COUNT} files (>=3 = must abstract):"
   sed 's/^/  - /' "$QUERY_HOOK_FILES"
-  echo "  Remediation: 提取公共 useQueryTemplate<T> hook，参数化 queryKey/queryFn/返回类型"
+  echo "Remediation: Extract public useQueryTemplate<T> hook, parameterized queryKey/queryFn/return type"
   echo ""
   ISSUES=$((ISSUES + 1))
 elif [[ "$QUERY_COUNT" -ge 2 ]]; then
@@ -113,34 +113,34 @@ elif [[ "$QUERY_COUNT" -ge 2 ]]; then
 fi
 rm -f "$QUERY_HOOK_FILES"
 
-# --- 检查 4: 样式常量重复 ---
-# 检测相同的长 className 字符串出现在多个文件中
+# --- Check 4: Duplicate style constant ---
+# Detect if the same long className string appears in multiple files
 echo "--- Checking duplicate style constants ---"
 
 STYLE_DUPS=$(mktemp)
 list_ts_files "${TARGET_DIR}" | filter_non_test | while IFS= read -r f; do
   if [[ -f "$f" ]]; then
-    # 提取长度 >= 60 的 className/class 字符串值
+    # Extract className/class string value with length >= 60
     grep -oE "(className|class|Style)\s*[:=]\s*['\"][^'\"]{60,}['\"]" "$f" 2>/dev/null \
       | sed "s/^/${f}:/" || true
   fi
 done | sort -t: -k2 > "$STYLE_DUPS"
 
-# 提取重复的样式值
+#Extract duplicate style values
 STYLE_VALUES=$(mktemp)
 cut -d: -f2- "$STYLE_DUPS" | sort | uniq -c | sort -rn | while read -r count value; do
   if [[ "$count" -ge 2 ]]; then
     SHORT_VAL=$(echo "$value" | cut -c1-80)
     echo "[TS-13] Style string duplicated ${count} times: ${SHORT_VAL}..."
     grep -F "$value" "$STYLE_DUPS" | cut -d: -f1 | sort -u | sed 's/^/  - /'
-    echo "  Remediation: 提取到共享样式常量文件（如 styles/constants.ts）"
+    echo "Remediation: Extract to shared style constant file (such as styles/constants.ts)"
     echo ""
     ISSUES=$((ISSUES + 1))
   fi
 done
 rm -f "$STYLE_DUPS" "$STYLE_VALUES"
 
-# --- 总结 ---
+# --- Summarize ---
 echo "=== Summary: ${ISSUES} component/hook duplication issues found ==="
 
 if [[ "$STRICT" == "true" && "$ISSUES" -gt 0 ]]; then

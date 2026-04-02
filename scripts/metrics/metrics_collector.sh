@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # VibeGuard Metrics Collector
-# 收集防幻觉量化指标，输出可读报告
+# Collect anti-hallucination quantitative indicators and output readable reports
 #
-# 使用方法：
+# How to use:
 #   bash vibeguard/scripts/metrics_collector.sh [project_dir]
 
 PROJECT_DIR="${1:-.}"
@@ -19,7 +19,7 @@ echo "Date: ${TODAY}"
 echo "======================================"
 echo
 
-# --- M3: 重复代码率 ---
+# --- M3: Duplicate code rate ---
 echo "--- M3: Duplicate Definitions ---"
 
 DUP_CHECK=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
@@ -28,8 +28,8 @@ if [[ -n "${DUP_CHECK}" ]]; then
   dup_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()
-# Match patterns like '3 组重复定义' or 'Found 3 groups of duplicates'
-m = re.search(r'(\d+)\s*(?:组重复定义|groups?\s+of\s+duplicat)', text)
+# Match patterns like '3 groups of duplicates' or 'Found 3 groups of duplicates'
+m = re.search(r'(\d+)\s*(?:group duplicate definition|groups?\s+of\s+duplicat)', text)
 print(m.group(1) if m else '0')
 " <<< "${dup_output}")
   echo "  Duplicate groups: ${dup_count}"
@@ -47,7 +47,7 @@ else
 fi
 echo
 
-# --- M4: 命名违规率 ---
+# --- M4: Naming violation rate ---
 echo "--- M4: Naming Violations ---"
 
 NAMING_CHECK=$(find_guard "python/check_naming_convention.py" "$PROJECT_DIR")
@@ -56,8 +56,8 @@ if [[ -n "${NAMING_CHECK}" ]]; then
   naming_count=$(python3 -c "
 import re, sys
 text = sys.stdin.read()
-# Match patterns like '5 个问题' or '5 issues'
-m = re.search(r'(\d+)\s*(?:个问题|issues?)', text)
+# Match patterns like '5 issues' or '5 issues'
+m = re.search(r'(\d+)\s*(?:issues|issues?)', text)
 print(m.group(1) if m else '0')
 " <<< "${naming_output}")
   echo "  Naming violations: ${naming_count}"
@@ -73,7 +73,7 @@ else
 fi
 echo
 
-# --- M5: 架构守卫通过率 ---
+# --- M5: Architecture guard pass rate ---
 echo "--- M5: Architecture Guard Pass Rate ---"
 
 guard_file=$(find_quality_guard "$PROJECT_DIR")

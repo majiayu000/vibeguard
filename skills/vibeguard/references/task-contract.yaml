@@ -1,58 +1,58 @@
 # VibeGuard Task Contract
-# 每个开发任务启动前必须通过此清单
+# Each development task must pass this checklist before starting
 
 task_contract:
   required:
-    - objective: "明确的可验证目标"
-    - data_source: "数据来源（文件/API/数据库）"
-    - acceptance: "验收标准（至少 1 条可测试）"
-    - scope: "影响范围（文件列表或模块）"
+    - objective: "clear and verifiable goal"
+    - data_source: "Data source (file/API/database)"
+    - acceptance: "Acceptance criteria (at least 1 testable)"
+    - scope: "scope of influence (file list or module)"
 
   forbidden:
-    - "先写再说"
-    - "大概/可能/应该能行"
-    - "直接复制一份"
-    - "先这样，后面再改"
-    - "应该不会有问题"
+    - "Write first and then talk"
+    - "Probably/might/should work"
+    - "Direct copy"
+    - "Let's do this first and then change it later"
+    - "Should be no problem"
 
   warnings:
     no_search_before_create:
-      description: "新建文件/类/函数前未搜索已有实现"
+      description: "Existing implementations are not searched before creating new files/classes/functions"
       severity: high
-      action: "立即执行搜索，确认无已有实现"
+      action: "Execute the search immediately to confirm that there is no existing implementation"
 
     no_test_evidence:
-      description: "步骤完成但无测试证据"
+      description: "Step completed but no test evidence"
       severity: high
-      action: "补充测试命令和结果记录"
+      action: "Supplementary test commands and result records"
 
     large_diff:
-      description: "单步超过 300 行净变更"
+      description: "More than 300 lines of net changes in a single step"
       severity: medium
-      action: "拆分为多个小步骤"
+      action: "Split into multiple small steps"
 
     no_spec:
-      description: "3+ 文件变更但未先写 spec"
+      description: "3+ file changes without writing spec first"
       severity: medium
-      action: "先写 spec 再实现"
+      action: "Write the spec first and then implement it"
 
     mixed_naming:
-      description: "Python 内部混用 camelCase 和 snake_case"
+      description: "Python internally mixes camelCase and snake_case"
       severity: high
-      action: "统一为 snake_case，边界用转换函数"
+      action: "Unify to snake_case, use conversion function for boundaries"
 
-# 验证命令
+# Verify command
 validation:
   pre_task:
     - command: "grep -rn 'class.*Protocol' <APP_ROOT>/ --include='*.py'"
-      purpose: "检查是否有类似 Protocol 已存在"
+      purpose: "Check if a similar Protocol already exists"
     - command: "python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py"
-      purpose: "检查当前重复状态"
+      purpose: "Check current duplicate status"
 
   post_task:
     - command: "pytest tests/architecture/ -v"
-      purpose: "运行架构守卫"
+      purpose: "Run the architecture guard"
     - command: "python ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <APP_ROOT>/"
-      purpose: "检查命名规范"
+      purpose: "Check naming convention"
     - command: "python ${VIBEGUARD_DIR}/guards/python/check_duplicates.py --strict"
-      purpose: "检查无新增重复"
+      purpose: "Check that there are no new duplicates"

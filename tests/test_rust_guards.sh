@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# VibeGuard Rust guards 回归测试
+# VibeGuard Rust guards regression testing
 #
-# 用法：bash tests/test_rust_guards.sh
+# Usage: bash tests/test_rust_guards.sh
 
 set -euo pipefail
 
@@ -61,7 +61,7 @@ pub struct TaskDone;
 static TODO_STATE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 static TASK_STATE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 EOF
-assert_cmd_fail "双轨任务系统在 strict 下失败" bash "${SSOT_GUARD}" --strict "${proj_ssot}"
+assert_cmd_fail "Dual-track task system fails under strict" bash "${SSOT_GUARD}" --strict "${proj_ssot}"
 
 proj_ssot_ok="${tmpdir}/ssot_ok"
 mkdir -p "${proj_ssot_ok}/src"
@@ -70,7 +70,7 @@ pub struct TaskWrite;
 pub struct TaskRead;
 static TASK_STATE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 EOF
-assert_cmd_ok "单任务系统在 strict 下通过" bash "${SSOT_GUARD}" --strict "${proj_ssot_ok}"
+assert_cmd_ok "Single-task system passes under strict" bash "${SSOT_GUARD}" --strict "${proj_ssot_ok}"
 
 header "check_semantic_effect"
 
@@ -81,7 +81,7 @@ pub fn mark_done(task_id: &str) -> Result<String, String> {
     Ok(format!("task {} done", task_id))
 }
 EOF
-assert_cmd_fail "动作语义无副作用在 strict 下失败" bash "${SEM_GUARD}" --strict "${proj_sem_bad}"
+assert_cmd_fail "Action semantics without side effects fails under strict" bash "${SEM_GUARD}" --strict "${proj_sem_bad}"
 
 proj_sem_ok="${tmpdir}/sem_ok"
 mkdir -p "${proj_sem_ok}/src/task"
@@ -93,7 +93,7 @@ pub fn mark_done(task_id: &str, state: &mut HashMap<String, String>) -> Result<S
     Ok(format!("task {} done", task_id))
 }
 EOF
-assert_cmd_ok "动作语义有副作用在 strict 下通过" bash "${SEM_GUARD}" --strict "${proj_sem_ok}"
+assert_cmd_ok "Action semantics have side effects passed under strict" bash "${SEM_GUARD}" --strict "${proj_sem_ok}"
 
 echo
 echo "=============================="

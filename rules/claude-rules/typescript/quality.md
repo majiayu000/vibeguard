@@ -2,69 +2,69 @@
 paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 ---
 
-# TypeScript 质量规则
+#TypeScript Quality Rules
 
-## TS-01: any 类型逃逸（中）
-函数参数或返回值为 any。修复：替换为具体类型或 `unknown`，对 unknown 做类型收窄后使用。
+## TS-01: any type escape (medium)
+Function parameters or return values are any. Fix: Replace with a specific type or `unknown`, and use unknown after narrowing the type.
 
-## TS-02: 未处理的 Promise rejection（高）
-async 函数调用缺少错误处理。修复：所有 async 调用加 `await` + try/catch，或 `.catch()` 处理。
+## TS-02: Unhandled Promise rejection (high)
+Async function calls lack error handling. Fix: Add `await` + try/catch, or `.catch()` to all async calls.
 
-## TS-03: == 而非 ===（中）
-非 null check 场景使用宽松相等。修复：改为 `===`。null check 场景可用 `== null`。
+## TS-03: == instead of === (medium)
+Use relaxed equality for non-null check scenarios. Fix: changed to `===`. The null check scenario is available with `== null`.
 
-## TS-04: 超大组件 > 300 行（中）
-React 组件过大。修复：拆分为子组件和自定义 hooks，单组件不超过 300 行。
+## TS-04: Very large component > 300 lines (medium)
+React component is too large. Fix: Split into subcomponents and custom hooks, with a single component not exceeding 300 lines.
 
-## TS-05: 多处相同的 fetch/API 调用模式（中）
-修复：提取公共 API 客户端函数或 hook。
+## TS-05: Multiple identical fetch/API calling patterns (medium)
+Fix: Extract public API client functions or hooks.
 
-## TS-06: useEffect 缺少依赖或依赖过宽（中）
-修复：精确声明依赖数组。过宽依赖改用 useCallback/useMemo 稳定引用。
+## TS-06: useEffect is missing a dependency or the dependency is too wide (medium)
+Fix: Exactly declare dependent arrays. If the dependency is too wide, use useCallback/useMemo stable reference instead.
 
-## TS-07: 大数组在 render 中 map 无 memo（低）
-修复：用 `useMemo` 缓存 map 结果，或将数组处理移到 render 外部。
+## TS-07: Large array in render map without memo (low)
+Fix: cache map results with `useMemo`, or move array handling outside render.
 
-## TS-08: 使用 `as any` 或 `@ts-ignore` 绕过类型检查（高）
-修复：替换为正确类型定义或类型守卫。必要时用 `as unknown as T` 并注释原因。
+## TS-08: Use `as any` or `@ts-ignore` to bypass type checking (high)
+Fix: Replaced with correct type definition or type guard. Use `as unknown as T` when necessary and comment the reason.
 
-## TS-09: 函数参数超过 4 个（中）
-修复：合并为单个 options 对象参数。
+## TS-09: Function has more than 4 parameters (medium)
+Fix: merged into a single options object parameter.
 
-## TS-10: 嵌套回调超过 3 层（中）
-修复：改用 async/await 展平异步链。
+## TS-10: Nested callbacks beyond 3 levels (medium)
+Fix: Use async/await to flatten async chains instead.
 
-## TS-11: 未处理的 null/undefined（中）
-缺少可选链或空值检查。修复：用 `?.`、`??` 或提前 guard return。
+## TS-11: Unhandled null/undefined (medium)
+Missing optional chaining or null check. Fix: Use `?.`, `??` or an early guard return.
 
-## TS-12: 组件 props 传递整个对象而非必要字段（低）
-修复：只传递组件实际需要的字段，避免不必要的重渲染。
+## TS-12: Component props pass the entire object instead of required fields (low)
+Fix: Only pass the fields actually needed by the component to avoid unnecessary re-rendering.
 
-## TS-13: 组件/Hook 功能重复（异名同功能）（高）
-多个文件定义了功能等价但名称不同的 React 组件或 Hook。常见模式：
-- UI 原语重复：FormField、InputGroup、FieldWrapper 等同功能组件在多处独立定义
-- 表格排序重复：多个表格组件各自实现 sortKey/sortDir 状态 + 排序逻辑
-- 查询 Hook 模板重复：多个 useXxxDetail/useXxxList Hook 重复 useQuery → 标准化返回结构
+## TS-13: Component/Hook function duplication (different names, same function) (high)
+Multiple files define functionally equivalent React components or Hooks with different names. Common patterns:
+- Duplication of UI primitives: FormField, InputGroup, FieldWrapper and equivalent functional components are independently defined in multiple places
+- Table sorting is repeated: multiple table components each implement sortKey/sortDir status + sorting logic
+- Query Hook template duplication: multiple useXxxDetail/useXxxList Hook duplication useQuery → standardized return structure
 
-**创建新组件/Hook 前必须**：
-1. 搜索 `components/ui/` 和 `components/common/` 是否已有同功能组件
-2. 搜索 `hooks/` 目录是否已有同模式 Hook
-3. 如果找到功能等价的实现，复用而非新建
+**Required before creating a new component/Hook**:
+1. Search `components/ui/` and `components/common/` to see if there are already components with the same function
+2. Search the `hooks/` directory to see if there is a Hook of the same pattern.
+3. If you find a functionally equivalent implementation, reuse it instead of creating a new one.
 
-修复：提取到 `components/ui/` 或 `hooks/` 共享目录，其他文件改为 import。
+Fix: Extract to `components/ui/` or `hooks/` shared directory, other files are imported instead.
 
-## TS-14: test mock 与真实模块 shape 不一致（高）
-`vi.mock()` / `jest.mock()` 工厂函数返回 `any` 类型，TypeScript 无法检测 mock shape 与真实模块的偏差。
-重构 hook/模块返回值后，mock 静默返回旧字段名，测试仍能通过但丧失回归检测能力。
+## TS-14: The test mock is inconsistent with the real module shape (high)
+`vi.mock()` / `jest.mock()` factory function returns `any` type, TypeScript cannot detect the deviation between mock shape and real module.
+After refactoring the hook/module return value, the mock silently returns the old field name, and the test can still pass but the regression detection capability is lost.
 
-**重构接口时必须**：
-1. 搜索所有 `vi.mock('被修改模块路径')` 和 `jest.mock('被修改模块路径')` 调用
-2. 更新 mock 返回值与新 shape 一致
-3. 优先使用 `satisfies` 或类型断言确保 shape 安全：
+**Must be used when refactoring the interface**:
+1. Search all `vi.mock('modified module path')` and `jest.mock('modified module path')` calls
+2. Update the mock return value to be consistent with the new shape
+3. Prefer to use `satisfies` or type assertions to ensure shape safety:
    ```ts
    vi.mock('@/hooks/useDeals', () => ({
      useDeals: () => ({ deals: [], isLoading: false } satisfies Partial<ReturnType<typeof useDeals>>)
    }))
    ```
 
-修复：grep 项目中所有 vi.mock/jest.mock 调用，确认返回值字段名与对应模块当前导出一致。
+Fix: For all vi.mock/jest.mock calls in the grep project, confirm that the return value field name is consistent with the current export of the corresponding module.

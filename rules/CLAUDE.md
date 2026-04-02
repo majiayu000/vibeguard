@@ -1,29 +1,29 @@
-# rules/ 目录
+# rules/ directory
 
-VibeGuard 规则文件，定义各语言和领域的检查标准。
+VibeGuard rule files define inspection standards for each language and domain.
 
-## 规则 ID 命名规范
+## Rule ID naming convention
 
-| 前缀 | 领域 | 示例 |
+| prefix | realm | example |
 |------|------|------|
-| `U-XX` | 通用规则（所有语言适用） | U-11 硬编码路径 |
-| `RS-XX` | Rust 特定规则 | RS-03 unwrap/expect |
-| `TS-XX` | TypeScript 特定规则 | TS-01 any 滥用 |
-| `PY-XX` | Python 特定规则 | PY-01 命名规范 |
-| `SEC-XX` | 安全规则 | SEC-01 密钥泄露 |
+| `U-XX` | General rules (applies to all languages) | U-11 hardcoded paths |
+| `RS-XX` | Rust-specific rules | RS-03 unwrap/expect |
+| `TS-XX` | TypeScript specific rules | TS-01 any abuse |
+| `PY-XX` | Python-specific rules | PY-01 naming convention |
+| `SEC-XX` | Security Rules | SEC-01 Key Disclosure |
 
-## 文件结构
+## File structure
 
-- `universal.md` — 跨语言通用规则
-- `rust.md` — Rust 语言规则
-- `typescript.md` — TypeScript 语言规则
-- `python.md` — Python 语言规则
-- `security.md` — 安全相关规则
+- `universal.md` — universal rules across languages
+- `rust.md` — Rust language rules
+- `typescript.md` — TypeScript language rules
+- `python.md` — Python language rules
+- `security.md` — security related rules
 
-## 每条规则包含
+## Each rule contains
 
-1. ID 和名称
-2. 严重度（高/中/低）
-3. 检查项描述
-4. 修复模式（具体的代码修复方法）
-5. FIX/SKIP 判断矩阵
+1. ID and name
+2. Severity (high/medium/low)
+3. Description of inspection items
+4. Repair mode (specific code repair method)
+5. FIX/SKIP judgment matrix

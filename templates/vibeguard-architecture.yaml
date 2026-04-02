@@ -1,10 +1,10 @@
-# VibeGuard 架构定义 — 依赖层方向约束
+# VibeGuard architecture definition — dependency layer direction constraints
 #
-# 复制到项目根目录 .vibeguard-architecture.yaml，按项目实际结构修改。
-# 守卫 check_dependency_layers.py 读取此文件检测跨层违规。
+# Copy to the project root directory .vibeguard-architecture.yaml and modify it according to the actual structure of the project.
+# Guard check_dependency_layers.py reads this file to detect cross-layer violations.
 #
-# 规则：每层只能 import allowed_deps 中列出的层，违规会被守卫阻断。
-# 依赖方向：Types → Config → Repo → Service → Runtime → UI（单向流）
+# Rules: Each layer can only import the layers listed in allowed_deps. Violations will be blocked by guards.
+# Dependency direction: Types → Config → Repo → Service → Runtime → UI (one-way flow)
 
 layers:
   - name: "types"

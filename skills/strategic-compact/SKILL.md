@@ -1,54 +1,54 @@
 ---
 name: strategic-compact
-description: "策略性压缩 — 在逻辑边界手动压缩上下文，而非任意自动压缩。保留关键决策和约束，丢弃中间探索过程。"
+description: "Strategic compression — Manual compression of contexts at logical boundaries rather than arbitrary automatic compression. Key decisions and constraints are preserved and intermediate exploration is discarded."
 ---
 
 # Strategic Compact
 
-## 概述
+## Overview
 
-在长会话中，上下文窗口有限。此 skill 指导何时压缩、保留什么、丢弃什么。
+In long sessions, the context window is limited. This skill guides when to compact, what to keep, and what to discard.
 
-核心原则：**在逻辑边界压缩，不在任意时刻压缩。**
+Core principle: **Compress at logical boundaries, not at any time. **
 
-## 压缩决策表
+## Compress decision table
 
-| 当前阶段 | 下一阶段 | 是否压缩 | 理由 |
+| Current stage | Next stage | Whether to compress | Reason |
 |----------|----------|----------|------|
-| 研究/探索 | 规划 | 是 | 探索细节不需要带入规划 |
-| 规划 | 实现 | 是 | 保留计划，丢弃规划过程 |
-| 实现步骤 N | 实现步骤 N+1 | 否 | 实现中途压缩会丢失上下文 |
-| 实现完成 | 验证 | 可选 | 如果上下文接近上限 |
-| 验证 | 提交 | 否 | 验证结果需要带入提交 |
-| 任务 A 完成 | 任务 B 开始 | 是 | 不同任务间压缩 |
+| Research/Exploration | Planning | Yes | Exploration details do not need to be brought into planning |
+| Plan | Implement | Yes | Keep the plan, discard the planning process |
+| Implementation step N | Implementation step N+1 | No | Compression during implementation will lose context |
+| Implementation complete | Validation | Optional | If the context is close to the upper limit |
+| Verify | Submit | No | Verification results need to be submitted |
+| Task A completed | Task B started | Yes | Compression between different tasks |
 
-## 压缩后保留清单
+## Keep list after compression
 
-必须保留：
-- 当前任务目标和约束
-- 已做的架构决策及理由
-- 已修改的文件列表
-- 未完成的步骤
-- 发现的问题和 TODO
-- VibeGuard 约束（始终保留）
+Must be retained:
+- Current mission goals and constraints
+- Architectural decisions made and reasons
+- list of modified files
+- Unfinished steps
+- Issues found and TODO
+- VibeGuard constraints (always retained)
 
-可以丢弃：
-- 文件内容的完整引用（保留路径即可）
-- 搜索过程中的中间结果
-- 已解决的错误的完整堆栈
-- 探索性的代码阅读记录
+Can be discarded:
+- A complete reference to the file content (just keep the path)
+- Intermediate results during search
+- Full stack of resolved bugs
+- Exploratory code reading record
 
-## 使用方式
+## Usage
 
-当感觉上下文即将耗尽时：
+When it feels like the context is running out:
 
-1. 判断当前处于哪个阶段
-2. 查压缩决策表，确认是否适合压缩
-3. 如果适合，按保留清单整理摘要
-4. 执行压缩
+1. Determine which stage you are currently in
+2. Check the compression decision table to confirm whether compression is suitable
+3. If appropriate, organize summaries by retention list
+4. Perform compression
 
-## 反模式
+## Anti-pattern
 
-- 在实现中途压缩 → 丢失关键上下文，导致重复工作
-- 压缩时丢弃约束 → 后续步骤违反规则
-- 不压缩直到溢出 → 被动截断比主动压缩更危险
+- Minification mid-implementation → Loss of critical context, resulting in duplication of work
+- Constraints discarded during compression → subsequent steps violate rules
+- No compression until overflow → Passive truncation is more dangerous than active compression

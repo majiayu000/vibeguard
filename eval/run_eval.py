@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-VibeGuard LLM-as-Judge 评估
+VibeGuard LLM-as-Judge Assessment
 
-用 Claude API 测试 VibeGuard 规则的实际检出率。
-测量的是 "Claude + 规则" 的真实组合效果。
+Use Claude API to test the actual detection rate of VibeGuard rules.
+What is measured is the true combined effect of "Claude + Rules".
 
-用法:
-    uv run python eval/run_eval.py                    # 跑全部样本
-    uv run python eval/run_eval.py --rules SEC        # 只跑安全规则
-    uv run python eval/run_eval.py --model haiku      # 用便宜模型
-    uv run python eval/run_eval.py --dry-run          # 只看样本不调 API
+usage:
+    uv run python eval/run_eval.py #Run all samples
+    uv run python eval/run_eval.py --rules SEC # Only run security rules
+    uv run python eval/run_eval.py --model haiku # Use cheap model
+    uv run python eval/run_eval.py --dry-run # Just look at the sample without adjusting the API
 """
 
 import argparse
@@ -22,7 +22,7 @@ from pathlib import Path
 try:
     import anthropic
 except ImportError:
-    print("需要 anthropic SDK: uv pip install anthropic")
+    print("Anthropic SDK is required: uv pip install anthropic")
     sys.exit(1)
 
 from samples import SAMPLES
@@ -38,23 +38,23 @@ CLAUDE_MD = Path.home() / ".claude" / "CLAUDE.md"
 
 
 def load_rules() -> str:
-    """从实际规则文件加载所有 VibeGuard 规则"""
+    """Load all VibeGuard rules from the actual rules file"""
     rules_text = []
 
-    # 加载语言规则
+    #Load language rules
     for rule_file in sorted(RULES_DIR.rglob("*.md")):
         content = rule_file.read_text()
-        # 去掉 frontmatter
+        # Remove frontmatter
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
                 content = parts[2].strip()
         rules_text.append(f"# {rule_file.stem}\n\n{content}")
 
-    # 从 CLAUDE.md 提取 VibeGuard 相关部分
+    # Extract VibeGuard related parts from CLAUDE.md
     if CLAUDE_MD.exists():
         claude_md = CLAUDE_MD.read_text()
-        # 提取 vibeguard 段落
+        # Extract vibeguard paragraph
         in_vg = False
         vg_lines = []
         for line in claude_md.split("\n"):
@@ -73,15 +73,15 @@ def load_rules() -> str:
 
 
 def build_system_prompt(rules: str) -> str:
-    return f"""你是一个代码审查助手。你已加载以下代码质量规则：
+    return f"""You are a code review assistant. You have loaded the following code quality rules:
 
 {rules}
 
-当用户给你代码时，你必须：
-1. 逐条检查所有适用规则
-2. 列出每个违规，格式为 [RULE_ID]: 问题描述
-3. 如果代码没有违规，回复 [CLEAN]
-4. 不要建议改进——只报告违规"""
+When a user gives you code, you must:
+1. Review all applicable rules one by one
+2. List each violation in the format [RULE_ID]: Problem description
+3. If there are no code violations, reply [CLEAN]
+4. Don't suggest improvements - only report violations"""
 
 
 def evaluate_sample(
@@ -90,8 +90,8 @@ def evaluate_sample(
     system_prompt: str,
     sample: dict,
 ) -> dict:
-    """对单个样本运行评估"""
-    user_msg = f"审查以下 {sample['lang']} 代码，列出所有违规规则：\n\n```{sample['lang']}\n{sample['code'].strip()}\n```"
+    """Run evaluation on a single sample"""
+    user_msg = f"Review the following {sample['lang']} code and list all violating rules:\n\n```{sample['lang']}\n{sample['code'].strip()}\n````"
 
     try:
         response = client.messages.create(
@@ -113,7 +113,7 @@ def evaluate_sample(
     is_clean = expected_rule == "NONE"
 
     if is_clean:
-        # 误报检测：干净代码不应触发任何规则
+        # False positive detection: clean code should not trigger any rules
         has_false_positive = "[CLEAN]" not in reply and any(
             f"[{r}]" in reply or f"{r}:" in reply or f"{r}]" in reply
             for r in _all_rule_ids()
@@ -126,7 +126,7 @@ def evaluate_sample(
             "description": sample["description"],
         }
 
-    # 检测规则是否被提及
+    # Check if the rule is mentioned
     detected = (
         f"[{expected_rule}]" in reply
         or f"{expected_rule}:" in reply
@@ -158,15 +158,15 @@ def run_eval(args):
     system_prompt = build_system_prompt(rules)
 
     if args.dry_run:
-        print(f"规则文本长度: {len(rules)} 字符")
-        print(f"样本数: {len(SAMPLES)}")
-        print(f"\n样本列表:")
+        print(f"Rule text length: {len(rules)} characters")
+        print(f"Number of samples: {len(SAMPLES)}")
+        print(f"\nSample list:")
         for s in SAMPLES:
             tag = "FP" if s["rule"] == "NONE" else s["rule"]
             print(f"  [{tag}] {s['description']}")
         return
 
-    # 过滤样本
+    # Filter samples
     samples = SAMPLES
     if args.rules:
         prefix = args.rules.upper()
@@ -175,20 +175,20 @@ def run_eval(args):
             for s in SAMPLES
             if s["rule"].startswith(prefix) or s["rule"] == "NONE"
         ]
-        print(f"过滤后样本数: {len(samples)} (前缀: {prefix})")
+        print(f"Number of samples after filtering: {len(samples)} (prefix: {prefix})")
     if args.type:
         if args.type == "tp":
             samples = [s for s in samples if s["rule"] != "NONE"]
         elif args.type == "fp":
             samples = [s for s in samples if s["rule"] == "NONE"]
-        print(f"类型过滤后样本数: {len(samples)} (类型: {args.type})")
+        print(f"Number of samples after type filtering: {len(samples)} (Type: {args.type})")
 
     model = MODELS.get(args.model, args.model)
     client = anthropic.Anthropic()
 
-    print(f"模型: {model}")
-    print(f"样本数: {len(samples)}")
-    print(f"规则文本: {len(rules)} 字符")
+    print(f"Model: {model}")
+    print(f"Number of samples: {len(samples)}")
+    print(f"Rule text: {len(rules)} characters")
     print("=" * 60)
 
     results = []
@@ -208,12 +208,12 @@ def run_eval(args):
             status = "DETECTED" if result["detected"] else "MISSED"
             print(status)
 
-        # 避免速率限制
+        # Avoid rate limiting
         time.sleep(0.5)
 
     print_report(results, model)
 
-    # 保存结果
+    # Save results
     output_path = Path(__file__).parent / "results.json"
     with open(output_path, "w") as f:
         json.dump(
@@ -222,34 +222,34 @@ def run_eval(args):
             indent=2,
             ensure_ascii=False,
         )
-    print(f"\n结果已保存: {output_path}")
+    print(f"\nResult saved: {output_path}")
 
 
 def print_report(results: list[dict], model: str):
     print("\n" + "=" * 60)
-    print(f"VibeGuard LLM-as-Judge 报告 ({model})")
+    print(f"VibeGuard LLM-as-Judge Report ({model})")
     print("=" * 60)
 
-    # 分离真阳性测试和误报测试
+    # Separate true positive tests and false positive tests
     tp_results = [r for r in results if "detected" in r]
     fp_results = [r for r in results if "detected_fp" in r]
 
-    # 真阳性统计
+    # True positive statistics
     if tp_results:
         detected = sum(1 for r in tp_results if r["detected"])
         total = len(tp_results)
         rate = detected / total * 100 if total else 0
 
-        print(f"\n检测率: {detected}/{total} ({rate:.1f}%)")
+        print(f"\nDetection rate: {detected}/{total} ({rate:.1f}%)")
         print()
 
-        # 按规则分类
+        # Classify by rules
         by_prefix = {}
         for r in tp_results:
             prefix = r["rule"].split("-")[0]
             by_prefix.setdefault(prefix, []).append(r)
 
-        print(f"{'类别':<8} {'检出':<6} {'总数':<6} {'检出率':<8} {'详情'}")
+        print(f"{'Category':<8} {'Detection':<6} {'Total number':<6} {'Detection rate':<8} {'Details'}")
         print("-" * 60)
         for prefix in sorted(by_prefix):
             items = by_prefix[prefix]
@@ -260,7 +260,7 @@ def print_report(results: list[dict], model: str):
             missed_str = f"  MISSED: {', '.join(missed)}" if missed else ""
             print(f"{prefix:<8} {det:<6} {tot:<6} {pct:>5.1f}%  {missed_str}")
 
-        # 按严重程度
+        # Sort by severity
         print()
         by_sev = {}
         for r in tp_results:
@@ -274,25 +274,25 @@ def print_report(results: list[dict], model: str):
                 pct = det / tot * 100 if tot else 0
                 print(f"  {sev:<10} {det}/{tot} ({pct:.0f}%)")
 
-        # 未检出列表
+        # Not checked out list
         missed_all = [r for r in tp_results if not r["detected"]]
         if missed_all:
-            print(f"\n未检出规则 ({len(missed_all)}):")
+            print(f"\nNo rules checked out ({len(missed_all)}):")
             for r in missed_all:
                 print(f"  [{r['rule']}] {r['description']}")
-                print(f"    Claude 回复: {r['response'][:200]}")
+                print(f" Claude replied: {r['response'][:200]}")
 
-    # 误报统计
+    # False positive statistics
     if fp_results:
         fp_count = sum(1 for r in fp_results if r["detected_fp"])
         fp_total = len(fp_results)
         fp_rate = fp_count / fp_total * 100 if fp_total else 0
-        print(f"\n误报率: {fp_count}/{fp_total} ({fp_rate:.1f}%)")
+        print(f"\nFalse alarm rate: {fp_count}/{fp_total} ({fp_rate:.1f}%)")
         if fp_count:
             for r in fp_results:
                 if r["detected_fp"]:
-                    print(f"  误报: {r['description']}")
-                    print(f"    Claude 回复: {r['response'][:200]}")
+                    print(f" False positive: {r['description']}")
+                    print(f" Claude replied: {r['response'][:200]}")
 
     # SWS (Severity-Weighted Score)
     if tp_results:
@@ -319,11 +319,11 @@ def print_report(results: list[dict], model: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="VibeGuard LLM-as-Judge 评估")
-    parser.add_argument("--model", default="haiku", help="模型: haiku/sonnet/opus 或完整 ID")
-    parser.add_argument("--rules", help="规则前缀过滤 (如 SEC, PY, TS, GO, RS)")
-    parser.add_argument("--type", choices=["tp", "fp"], help="样本类型过滤: tp=违规, fp=合法")
-    parser.add_argument("--dry-run", action="store_true", help="只显示样本不调 API")
+    parser = argparse.ArgumentParser(description="VibeGuard LLM-as-Judge Evaluation")
+    parser.add_argument("--model", default="haiku", help="Model: haiku/sonnet/opus or full ID")
+    parser.add_argument("--rules", help="Rule prefix filtering (such as SEC, PY, TS, GO, RS)")
+    parser.add_argument("--type", choices=["tp", "fp"], help="Sample type filtering: tp=violation, fp=legal")
+    parser.add_argument("--dry-run", action="store_true", help="Only display samples without adjusting API")
     args = parser.parse_args()
     run_eval(args)
 

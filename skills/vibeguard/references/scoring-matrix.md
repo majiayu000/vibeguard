@@ -1,58 +1,58 @@
-# Risk-Impact 评分矩阵
+# Risk-Impact scoring matrix
 
-用于对冗余/回归发现进行优先级排序。
+Used to prioritize redundancy/regression findings.
 
-## 评分维度
+## Rating dimensions
 
-每个发现从 1 到 5 打分：
+Score each finding from 1 to 5:
 
-### impact（影响）
-- 1: 可忽略，纯美化
-- 2: 低影响，仅影响可读性
-- 3: 中等，维护性/正确性有明显收益
-- 4: 较高，影响核心功能或数据完整性
-- 5: 重大，架构级改进或修复严重缺陷
+### impact
+- 1: Ignoreable, pure beautification
+- 2: Low impact, only affects readability
+- 3: Moderate, significant gains in maintenance/correctness
+- 4: High, affecting core functionality or data integrity
+- 5: Major, architectural-level improvements or fixes for serious flaws
 
-### effort（工作量）
-- 1: 极小，单文件局部改动
-- 2: 较小，2-3 文件改动
-- 3: 中等，多文件跨模块改动
-- 4: 较大，需要重构或迁移
-- 5: 大量，跨系统的大规模变更
+### effort (workload)
+- 1: Very small, partial changes to a single file
+- 2: Smaller, 2-3 file changes
+- 3: Medium, multiple files and cross-module changes
+- 4: Large, needs to be refactored or migrated
+- 5: Large, large-scale changes across systems
 
-### risk（风险）
-- 1: 低，几乎不可能引发回归
-- 2: 较低，影响范围可控
-- 3: 中等，需要定向测试验证
-- 4: 较高，影响核心流程
-- 5: 高，兼容性敏感或高回归风险
+### risk
+- 1: Low, almost impossible to trigger regression
+- 2: Lower, the scope of influence is controllable
+- 3: Moderate, requires directional test verification
+- 4: High, affecting core processes
+- 5: High, compatibility sensitive or high regression risk
 
-### confidence（置信度）
-- 1: 弱证据，仅凭推测
-- 2: 较弱，有间接线索
-- 3: 中等，有部分调用路径证据
-- 4: 较强，有测试/编译器警告证据
-- 5: 强证据，有完整调用路径/测试/日志
+### confidence
+- 1: Weak evidence, just speculation
+- 2: Weak, with indirect clues
+- 3: Moderate, with partial call path evidence
+- 4: Strong, evidence of test/compiler warnings
+- 5: Strong evidence, complete call path/test/log
 
-## 优先级公式
+## Priority formula
 
 ```
 priority_score = (impact × confidence) - (effort + risk)
 ```
 
-解读：
-- 分数越高 → 越早执行
-- 负分 → 延后处理（除非有阻塞原因必须提前）
+Interpretation:
+- The higher the score → the earlier the execution
+- Negative score → delayed processing (unless there is a blocking reason that must be processed in advance)
 
-## 阶段映射
+## Stage mapping
 
-| 阶段 | 条件 | 描述 |
+| Stage | Condition | Description |
 |------|------|------|
-| P0 | score >= 12 | 必须优先处理（高影响 + 高置信） |
-| P1 | 4 <= score < 12 | 有明显价值，风险可控 |
-| P2 | score < 4 | 清理/收尾任务 |
+| P0 | score >= 12 | Must be prioritized (high impact + high confidence) |
+| P1 | 4 <= score < 12 | Obvious value, controllable risk |
+| P2 | score < 4 | Cleanup/finishing tasks |
 
-## 评分表模板
+## Score sheet template
 
 ```markdown
 | id | finding | impact | effort | risk | confidence | score | phase |
@@ -63,9 +63,9 @@ priority_score = (impact × confidence) - (effort + risk)
 | F4 | ...     | 1      | 2      | 2    | 2          | -2    | P2    |
 ```
 
-## 门控规则
+## Gating rules
 
-1. 低置信度 + 高风险的变更，不安排在 P0
-2. P0/P1 的高风险发现，必须先插入守护测试再重构
-3. 每个阶段完成后重新评估剩余发现的分数（架构假设可能已变）
-4. 无证据的发现不进入计划
+1. Low confidence + high risk changes are not scheduled in P0
+2. For high-risk discovery of P0/P1, guard tests must be inserted first and then refactored.
+3. Re-evaluate scores for remaining findings after each stage is completed (architectural assumptions may have changed)
+4. Discovery without evidence will not be included in the plan

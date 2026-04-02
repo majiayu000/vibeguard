@@ -1,303 +1,303 @@
-# OpenAI Harness Engineering — 完整参考
+# OpenAI Harness Engineering — Full Reference
 
-> 来源：[Harness Engineering (2026-02-11)](https://openai.com/index/harness-engineering/) | [Unlocking the Codex Harness (2026-02-04)](https://openai.com/index/unlocking-the-codex-harness/) | [Martin Fowler 分析](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html) | [SmartScope 概述](https://smartscope.blog/en/blog/harness-engineering-overview/) | [InfoQ 报道](https://www.infoq.com/news/2026/02/openai-harness-engineering-codex/) | [SuperGok App Server 分析](https://supergok.com/codex-harness-architecture-app-server/)
+> Source: [Harness Engineering (2026-02-11)](https://openai.com/index/harness-engineering/) | [Unlocking the Codex Harness (2026-02-04)](https://openai.com/index/unlocking-the-codex-harness/) | [Martin Fowler Analysis](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html) | [SmartScope Overview](https://smartscope.blog/en/blog/harness-engineering-overview/) | [InfoQ Report](https://www.infoq.com/news/2026/02/openai-harness-engineering-codex/) | [SuperGok App Server Analysis](https://supergok.com/codex-harness-architecture-app-server/)
 
 ---
 
-## 核心实验
+## Core experiment
 
-OpenAI Harness 团队 5 个月内用 **零行手写代码** 构建了生产级产品。3-7 名工程师生成 ~100 万行代码，~1500 个 PR，人均日产 3.5 PR，开发时间约为传统方式的 1/10。
+The OpenAI Harness team built a production-grade product in 5 months with **zero lines of handwritten code**. 3-7 engineers generate ~1 million lines of code, ~1500 PRs, 3.5 PR per person per day, and development time is about 1/10 of traditional methods.
 
-核心原则："No manually-written code" 成为指导原则，迫使团队专注于通过基础设施和抽象来赋能 agent，而不是直接编码。
+The core principle: "No manually-written code" became a guiding principle, forcing the team to focus on empowering agents through infrastructure and abstractions rather than direct coding.
 
 > "Humans steer. Agents execute."
 
-人类角色从写代码转变为：设计环境、通过 prompt 指定意图、构建反馈循环、诊断缺失能力。
+The human role shifts from writing code to: designing the environment, specifying intent through prompts, building feedback loops, and diagnosing missing capabilities.
 
 ---
 
-## 概念层次
+## Concept level
 
-三层递进关系：
+Three-level progressive relationship:
 
-- **Prompt Engineering**：优化给 LLM 的指令文本
-- **Context Engineering**：管理所有输入 LLM 的 token（工具、RAG、记忆、schema）
-- **Harness Engineering**：设计围绕 agent 的整个运行系统
+- **Prompt Engineering**: Optimize the command text for LLM
+- **Context Engineering**: manages all tokens entered into LLM (tools, RAG, memory, schema)
+- **Harness Engineering**: Design the entire operating system around the agent
 
-马具隐喻：prompt 像口头命令，context 像给马看的地图，harness 是"缰绳、马鞍、围栏和道路维护"——防止 agent 不可预测行为的基础设施。
+Harness metaphor: prompt is like a verbal command, context is like a map for the horse, and harness is "reins, saddles, fences, and road maintenance"—the infrastructure that prevents unpredictable behavior of the agent.
 
 ---
 
-## 三层核心组件
+## Three-layer core components
 
-### 1. Context Engineering（上下文工程）
+### 1. Context Engineering
 
-持续增强的仓库知识库 + 动态上下文访问：
+Continuously enhanced warehouse knowledge base + dynamic contextual access:
 
-**Chrome DevTools Protocol 集成：**
-- Agent 在 UI 变更前后捕获 DOM 快照
-- 自主复现 bug、验证修复、推理 UI 行为
-- 每个 git worktree 可启动单独实例，隔离测试
+**Chrome DevTools Protocol integration:**
+- Agent captures DOM snapshots before and after UI changes
+- Autonomous bug reproduction, verification and repair, reasoning about UI behavior
+- Each git worktree can start a separate instance for isolated testing
 
-**可观测性暴露：**
-- 本地临时栈：Victoria Logs / Victoria Metrics / Victoria Traces
-- 查询 API：LogQL（日志）、PromQL（指标）、TraceQL（追踪）
-- 支持如"确保服务启动在 800ms 内完成"的 prompt
+**Observability Exposure:**
+- Local temporary stack: Victoria Logs / Victoria Metrics / Victoria Traces
+- Query API: LogQL (log), PromQL (metrics), TraceQL (tracing)
+- Support prompts such as "Ensure service startup is completed within 800ms"
 
-**仓库即记录系统：**
+**The warehouse is a system of record:**
 > "Push all relevant team knowledge into the repository as versioned, co-located artifacts. Slack discussions, Google Docs, and tacit human knowledge are invisible to agents."
 
-Agent 在上下文中无法访问的信息 = 不存在。
+Information not accessible to the Agent in the context = does not exist.
 
-### 2. Architectural Constraints（架构约束）
+### 2. Architectural Constraints
 
-**依赖层强制：**
-Types → Config → Repo → Service → Runtime → UI（单向依赖）。结构测试验证合规性，防止层级违规。
+**Dependency layer enforcement:**
+Types → Config → Repo → Service → Runtime → UI (one-way dependency). Structural testing verifies compliance and prevents hierarchical violations.
 
-**机械化不变量执行：**
-- 自定义 linter，错误消息**直接包含修复指令**（remediation instructions）
-- 不是文档式的 guardrails，而是机械化强制
+**Mechanized invariant execution:**
+- Custom linter, error message **directly contains remediation instructions** (remediation instructions)
+- Not documented guardrails, but mechanical enforcement
 - "Every violation becomes a learning opportunity for the agent"
-- 一旦编码为规则，就对所有 agent 普适执行，无需重复人工干预
+- Once encoded into rules, they can be universally executed on all agents without repeated manual intervention.
 
-**Taste Invariants 代码品味强制：**
-- 结构化日志强制
-- 命名规范
-- 文件大小限制
-- 平台可靠性约束（如 Rust：折叠 if、内联 format!、方法引用优于闭包、match 穷举、避免 ANSI blue/yellow）
+**Taste Invariants code taste enforcement:**
+- Structured log enforcement
+- Naming convention
+- File size limit
+- Platform reliability constraints (e.g. Rust: fold if, inline format!, method references over closures, match exhaustive, avoid ANSI blue/yellow)
 
-### 3. Garbage Collection（垃圾回收）
+### 3. Garbage Collection
 
-团队最初每周五花 **20% 时间**手动清理 "AI slop"。发现无法规模化后转为自动化：
+The team initially spent **20% of their time** manually cleaning up "AI slop" every Friday. Turn to automation after discovering that it cannot be scaled:
 
-- 编码 **Golden Principles**（机械化、有主见的规则）
-- 定期运行后台 Codex agent：
-  - 扫描偏差
-  - 更新质量等级（quality grades）
-  - 每日开定向重构 PR
-- 大部分重构 PR **1 分钟内**自动审核合并
-- 清理吞吐量与代码生成吞吐量**等比例扩展**
-- 包括：文档不一致检测、架构约束违规检测、熵减少和衰减预防
-
----
-
-## 四个运作象限
-
-1. **Architecture Constraints**：通过 linter 和依赖规则机械化执行
-2. **Feedback Loops**：可观测性集成、CI/CD 连接、可度量指标
-3. **Workflow Control**：任务拆分、并行执行、权限管理
-4. **Improvement Cycles**：熵管理、自动清理、文档新鲜度
+- Coding **Golden Principles** (mechanical, opinionated rules)
+- Run the background Codex agent regularly:
+  -Scan deviation
+  - Update quality grades
+  - Open targeted reconstruction PR every day
+- Most refactoring PRs are automatically reviewed and merged within **1 minute**
+- Cleaning throughput scales proportionally to code generation throughput**
+- Includes: document inconsistency detection, architectural constraint violation detection, entropy reduction and decay prevention
 
 ---
 
-## Golden Principles（高层）
+## Four operational quadrants
 
-1. **可执行制品优先** — 文档必须是机器可执行的（Markdown/JSON/Shell），讨论和设计不在 agent 视野内 = 不存在
-2. **诊断缺能力而非失败原因** — agent 卡住时问"缺什么"而不是"为什么失败"，用无聊技术让 agent 自己填补
-3. **机械执行胜于文档** — linter 错误消息直接给出修复指令，违规即学习
-4. **给 agent 一双眼睛** — 可观测性栈让 agent 从数据自动复现 bug
-5. **给地图不给手册** — 大而全的指令导致模式匹配到局部，渐进披露才能指导全局
-6. **Humans steer, agents execute** — 人类设定优先级和验收标准，agent 执行修改、跑检查、根据反馈迭代
-7. **Repository as system of record** — 所有知识推入仓库作为版本化制品；Slack 讨论、Google Docs、隐性知识对 agent 不可见 = 不存在
+1. **Architecture Constraints**: Mechanized execution through linter and dependency rules
+2. **Feedback Loops**: Observability integration, CI/CD connections, measurable indicators
+3. **Workflow Control**: task splitting, parallel execution, permission management
+4. **Improvement Cycles**: entropy management, automatic cleaning, document freshness
 
 ---
 
-## Golden Principles（具体机械化规则）
+## Golden Principles (High Level)
 
-> OpenAI 未公开完整规则列表。以下从官方博客、Martin Fowler 分析、InfoQ 报道、第三方 agent-harness 仓库中拼凑的已知具体规则。
+1. **Executable products first** — Documents must be machine executable (Markdown/JSON/Shell), discussion and design are not within the agent’s field of view = does not exist
+2. **Diagnose lack of capabilities rather than reasons for failure** — When the agent is stuck, ask "what is missing" rather than "why it failed", and use boring techniques to let the agent fill it in by itself
+3. **Mechanical execution is better than documentation** — linter error messages directly give repair instructions, and you learn from violations.
+4. **Give the agent a pair of eyes** — The observability stack allows the agent to automatically reproduce bugs from data
+5. **Give a map but not a manual** — Large and comprehensive instructions lead to pattern matching to the local part, and progressive disclosure can guide the overall situation.
+6. **Humans steer, agents execute** — Humans set priorities and acceptance criteria, agents perform modifications, run checks, and iterate based on feedback
+7. **Repository as system of record** — All knowledge is pushed into the repository as versioned artifacts; Slack discussions, Google Docs, and tacit knowledge are not visible to the agent = do not exist
 
-### Taste Invariants（代码品味强制）
+---
 
-| 规则 | 说明 |
+## Golden Principles (specific mechanization rules)
+
+> OpenAI does not disclose the complete list of rules. The following are known specific rules pieced together from the official blog, Martin Fowler analysis, InfoQ reports, and third-party agent-harness repositories.
+
+### Taste Invariants (code taste enforcement)
+
+| Rules | Description |
 |------|------|
-| 结构化日志强制 | 禁止裸 print/console，必须使用结构化日志 |
-| Schema/类型命名规范 | schemas 和 types 的命名必须遵循统一规范 |
-| 文件大小限制 | 单文件不超过指定行数 |
-| Rust 平台特定约束 | 折叠 if、inline format!、method reference 优于闭包、match 穷举、避免 ANSI blue/yellow |
-| 共享工具包优先 | 使用共享 utility packages 而非手写 helpers，保持不变量集中 |
-| 禁止 YOLO 数据探测 | 不猜数据形状，必须在边界处验证或依赖 typed SDKs |
+| Structured log mandatory | Bare print/console is prohibited, structured log must be used |
+| Schema/type naming convention | The naming of schemas and types must follow unified conventions |
+| File size limit | A single file does not exceed the specified number of lines |
+| Rust platform-specific constraints | fold if, inline format!, method reference over closure, match exhaustive, avoid ANSI blue/yellow |
+| Prioritize shared tool packages | Use shared utility packages instead of handwritten helpers to keep constants centralized |
+| Disable YOLO data probing | Do not guess data shape, must verify at boundaries or rely on typed SDKs |
 
-### Architecture Invariants（架构约束强制）
+### Architecture Invariants (architecture constraint enforcement)
 
-| 规则 | 说明 |
+| Rules | Description |
 |------|------|
-| 六层单向依赖 | Types → Config → Repo → Service → Runtime → UI，自定义 linter + 结构测试强制，构建违规即失败 |
-| 自定义 linter 含修复指令 | 错误消息直接注入 remediation instructions 到 agent 上下文 |
-| `src/lib/` 禁止 UI 导入 | 可复用核心逻辑不得引入 UI 组件 |
-| `src/server/` 薄边界层 | 服务端仅做委托，核心逻辑在 `src/lib/` |
-| 协议逻辑不进 UI 组件 | 通信/协议处理与视图层分离 |
-| 跨切面系统必须集中 | 新的跨切面系统必须显式集中管理，不得分散 |
-| 数据边界处验证 | tRPC procedures 必须定义 Zod input schemas |
+| Six-layer one-way dependency | Types → Config → Repo → Service → Runtime → UI, custom linter + structural test enforcement, build failure if violation |
+| Custom linter with repair instructions | Error messages are directly injected into the agent context |
+| `src/lib/` prohibits UI import | Reusable core logic must not introduce UI components |
+| `src/server/` thin boundary layer | The server only delegates, and the core logic is in `src/lib/` |
+| Protocol logic is not included in UI components | Communication/protocol processing is separated from the view layer |
+| Cross-aspect systems must be centralized | New cross-aspect systems must be explicitly centralized and not decentralized |
+| Validation at data boundaries | tRPC procedures must define Zod input schemas |
 
-### GC 运行规则
+### GC operation rules
 
-| 规则 | 说明 |
+| Rules | Description |
 |------|------|
-| 编码 golden principles 为可执行规则 | 每条原则对应可检测的 linter/test |
-| 后台 Codex agent 定期扫描偏差 | 扫描代码库对照规则，检测违规 |
-| 违规自动开定向重构 PR | 大部分 PR < 1 分钟自动审核合并 |
-| 每日执行 | 不让坏模式累积，清理吞吐量与生成吞吐量等比例扩展 |
-| 覆盖范围 | 文档不一致检测、架构约束违规检测、熵减少和衰减预防 |
+| Encoding golden principles into executable rules | Each principle corresponds to a detectable linter/test |
+| The background Codex agent regularly scans for deviations | Scans the code base to compare rules and detect violations |
+| Automatically open directional reconstruction PR for violations | Most PRs will be automatically reviewed and merged within 1 minute |
+| Daily execution | Prevent bad patterns from accumulating, and scale cleaning throughput in proportion to generation throughput |
+| Coverage | Document inconsistency detection, architectural constraint violation detection, entropy reduction and decay prevention |
 
-### 工作流规则
+### Workflow rules
 
-| 规则 | 说明 |
+| Rules | Description |
 |------|------|
-| AGENTS.md ~100 行 | 充当目录（地图）而非百科全书，指向 docs/ 更深层文档 |
-| 渐进披露（Progressive Disclosure） | 全局 → 项目级 → 当前目录，后覆盖前 |
-| AGENTS.override.md | 允许临时指令优先，适合长周期实验 |
-| 密钥禁止硬编码 | 使用环境变量 `${VAR_NAME}` 或安全存储 |
-| 文档与配置同步更新 | 文档化的行为必须与实际系统配置一致 |
-| compact PR + 快速反馈 | 不为完美阻塞，follow-up 修正成本低 |
-| 每个 agent 需独立身份文档 | 非模板化的 identity、mission、tool 文档 |
+| AGENTS.md ~100 lines | Acts as a table of contents (map) rather than an encyclopedia, pointing to docs/ for deeper documentation |
+| Progressive Disclosure | Global → Project level → Current directory, the last overwrites the previous |
+| AGENTS.override.md | Allow temporary instructions to take priority, suitable for long-term experiments |
+| Hardcoding of keys is prohibited | Use environment variables `${VAR_NAME}` or secure storage |
+| Synchronous updates of documentation and configuration | Documented behavior must be consistent with the actual system configuration |
+| compact PR + fast feedback | Not blocked for perfection, follow-up correction cost is low |
+| Each agent requires an independent identity document | Non-templated identity, mission, and tool documents |
 
-### 可观测性规则
+### Observability rules
 
-| 规则 | 说明 |
+| Rules | Description |
 |------|------|
-| Chrome DevTools Protocol 集成 | Agent 在 UI 变更前后捕获 DOM 快照，自主复现 bug |
-| 每 worktree 独立可观测栈 | Victoria Logs/Metrics/Traces 按 git 分支隔离 |
-| 可查询 API | LogQL（日志）、PromQL（指标）、TraceQL（追踪） |
-| 性能约束可 prompt 化 | 如 "确保服务启动在 800ms 内完成" 成为可执行指令 |
+| Chrome DevTools Protocol integration | Agent captures DOM snapshots before and after UI changes to reproduce bugs autonomously |
+| Independent observable stack per worktree | Victoria Logs/Metrics/Traces isolated by git branch |
+| Queryable API | LogQL (log), PromQL (metric), TraceQL (tracing) |
+| Performance constraints can be prompted | For example, "Ensure that service startup is completed within 800ms" becomes an executable command |
 
-### 信息来源标注
+### Information source annotation
 
-| 来源 | 可信度 | 内容 |
+| Source | Credibility | Content |
 |------|--------|------|
-| [OpenAI 官方博客](https://openai.com/index/harness-engineering/) | 权威 | 高层原则、GC 概念、taste invariants 类别 |
-| [Martin Fowler 分析](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html) | 高 | 架构约束细节、依赖层设计 |
-| [engineering.fyi 镜像](https://www.engineering.fyi/article/harness-engineering-leveraging-codex-in-an-agent-first-world) | 高 | 规则执行方式、补充细节 |
-| [Tony Lee 解读](https://tonylee.im/en/blog/openai-harness-engineering-five-principles-codex) | 中 | ExecPlan 标准、结构化执行 |
-| [MattMagg/agent-harness](https://github.com/MattMagg/agent-harness) | 中（第三方） | 具体 invariants 实现（tRPC/Zod/ESLint） |
-| [InfoQ 报道](https://www.infoq.com/news/2026/02/openai-harness-engineering-codex/) | 中 | 量化数据、团队规模 |
+| [OpenAI official blog](https://openai.com/index/harness-engineering/) | Authoritative | High-level principles, GC concepts, taste invariants categories |
+| [Martin Fowler Analysis](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html) | High | Architecture constraint details, dependency layer design |
+| [engineering.fyi Mirror](https://www.engineering.fyi/article/harness-engineering-leveraging-codex-in-an-agent-first-world) | High | Rule execution methods, supplementary details |
+| [Tony Lee Interpretation](https://tonylee.im/en/blog/openai-harness-engineering-five-principles-codex) | Medium | ExecPlan standard, structured execution |
+| [MattMagg/agent-harness](https://github.com/MattMagg/agent-harness) | Medium (third party) | Specific invariants implementation (tRPC/Zod/ESLint) |
+| [InfoQ report](https://www.infoq.com/news/2026/02/openai-harness-engineering-codex/) | Medium | Quantitative data, team size |
 
-> **注意**：OpenAI 未公开完整规则列表。以上是从多个来源拼凑的已知规则，实际内部规则数量可能远大于此。
-
----
-
-## AGENTS.md 策略
-
-- **~100 行**，充当**目录（地图）** 而非百科全书
-- 指向 `docs/` 目录中更深层的结构化文档
-- 防止 agent "模式匹配到局部而非有意导航"
-- 发现链：全局 → 项目级 → 当前目录（后覆盖前）
-- 作用域 = 所在目录的整棵子树
-- AGENTS.override.md 允许临时指令优先，适合长周期实验
-
-文档从"百科全书"模式转为"目录"模式：设计文档、架构地图、质量等级、执行计划成为一等公民的版本化产物，支持渐进披露而非压倒性指令。
+> **Note**: OpenAI does not publish the complete list of rules. The above are known rules pieced together from multiple sources, and the actual number of internal rules may be much greater than this.
 
 ---
 
-## Skills 系统
+## AGENTS.md Strategy
 
-目录结构：
+- **~100 lines**, serves as a **catalogue (map)** rather than an encyclopedia
+- Points to deeper structured documentation in the `docs/` directory
+- Prevent agent "pattern matching into local rather than intentional navigation"
+- Discovery chain: global → project level → current directory (after overwriting before)
+- Scope = the entire subtree of the directory where it is located
+- AGENTS.override.md allows temporary instructions to take precedence, suitable for long-term experiments
+
+Documentation shifts from "encyclopedia" mode to "catalogue" mode: design documents, architecture maps, quality levels, and execution plans become versioned products of first-class citizens, supporting progressive disclosure rather than overwhelming instructions.
+
+---
+
+## Skills System
+
+Directory structure:
 ```
 skill-name/
-├── SKILL.md           # 必需：YAML frontmatter + Markdown 指令
-├── agents/openai.yaml # 推荐：UI 元数据
-├── scripts/           # 可选：确定性脚本
-├── references/        # 可选：按需加载的文档
-└── assets/            # 可选：输出用资源
+├── SKILL.md # Required: YAML frontmatter + Markdown command
+├── agents/openai.yaml # Recommended: UI metadata
+├── scripts/ # Optional: deterministic scripts
+├── references/ # Optional: documents loaded on demand
+└── assets/ # Optional: Output resources
 ```
 
-渐进式加载（Progressive Disclosure）：
-1. **元数据**（name + description）— 始终在上下文中（约 100 词）
-2. **SKILL.md 正文** — Skill 触发时加载（< 5k 词）
-3. **捆绑资源** — 按需加载（无限制）
+Progressive Disclosure:
+1. **Metadata** (name + description) – always in context (~100 words)
+2. **SKILL.md text** — Load when Skill is triggered (< 5k words)
+3. **Bundled Resources** — Load on demand (unlimited)
 
-四层发现链：repo → user → admin → system
+Four-layer discovery chain: repo → user → admin → system
 
 ---
 
-## 反馈循环（核心学习机制）
+## Feedback loop (core learning mechanism)
 
 > "When the agent struggles, we treat it as a signal: identify what is missing — tools, guardrails, documentation — and feed it back into the repository."
 
-**循环过程：**
+**Cycle process:**
 ```
-Agent 执行失败/卡住
+Agent execution failed/stuck
     ↓
-诊断缺失能力（不是 "try harder"）
+Diagnose missing abilities (not "try harder")
     ↓
-让 Agent 自己构建缺失能力到仓库中
+Let the Agent build the missing capabilities into the warehouse by itself
     ↓
-新能力成为所有未来 Agent 任务的基础设施
+New capabilities become the infrastructure for all future Agent missions
     ↓
-复合增长效应
+compound growth effect
 ```
 
-关键：修复方向永远是**改善环境**（工具、守卫、文档、抽象），不是改善 prompt。知识必须推入仓库（版本化、共定位的产物）。
+Key: The direction of repair is always to improve the environment (tools, guards, documentation, abstractions), not to improve the prompt. Knowledge must be pushed into the warehouse (a versioned, co-located artifact).
 
-**纠正优先于预防**：最小阻塞合并门禁，短生命周期 PR，修正优先于阻止失败。
-
----
-
-## 多 Agent 协作
-
-- **Initializer Agent**：首次创建进度文件（init.sh、claude-progress.txt、feature_list.json）
-- **Coding Agent**：读进度 → 选特性 → 实现 → 提交 → 更新
-- feature_list.json 仅 Coding Agent 可修改 passes 字段
-- 用 JSON 而非 Markdown（模型更不容易不当覆写 JSON）
-- Agent-to-Agent 审查（本地和云端）
-- 测试 flake 用 follow-up run 处理，不阻塞
-
-**完整自主能力**：Codex 可端到端执行：验证代码库状态 → 复现 bug → 录视频 → 实现修复 → 通过 app 交互验证 → 开 PR → 处理反馈 → 修复失败 → 合并。仅在需要人类判断时升级。
+**Correction over Prevention**: Minimum blocking merge gates, short-lived PRs, prioritizing correction over blocking failures.
 
 ---
 
-## 编辑格式优化
+##Multi-Agent collaboration
 
-- hashline 格式 vs apply_patch：成功率从 **6.7% → 68.3%**
-- Token 消耗**减少 20%**
-- 行级哈希作为编辑锚定，减少上下文匹配失败
-- Can.ac 的实验证明：仅工具接口变化就能带来 10 倍改善
+- **Initializer Agent**: Create progress files (init.sh, claude-progress.txt, feature_list.json) for the first time
+- **Coding Agent**: Read progress → Select features → Implement → Submit → Update
+- feature_list.json Only Coding Agent can modify the passes field
+- Use JSON instead of Markdown (models are less likely to inappropriately overwrite JSON)
+- Agent-to-Agent review (on-premises and cloud)
+- Test flake using follow-up run without blocking
+
+**Complete autonomy**: Codex can be executed end-to-end: verify code base status → reproduce bug → record video → implement repair → verify through app interaction → open PR → process feedback → repair failure → merge. Only upgrade when human judgment is required.
 
 ---
 
-## App Server 架构（协议实现层）
+## Editing format optimization
 
-**通信协议：**
-- 双向 JSON-RPC，JSONL over stdio
-- 省略标准 JSON-RPC "2.0" 版本字段，保留 method 和 params 结构
-- 向后兼容：老客户端可安全对接新服务端
+- hashline format vs apply_patch: success rate from **6.7% → 68.3%**
+- Token consumption** reduced by 20%**
+- Row-level hashes serve as edit anchors to reduce context matching failures
+- Can.ac’s experiment proves: tool interface changes alone can bring 10x improvement
 
-**消息组件：**
+---
+
+## App Server Architecture (Protocol Implementation Layer)
+
+**Communication protocol:**
+- Bidirectional JSON-RPC, JSONL over stdio
+- Omit the standard JSON-RPC "2.0" version field and retain the method and params structures
+- Backward compatibility: old clients can safely connect to new servers
+
+**Message component:**
 - Requests：method + params + id
 - Responses：echo id + result/error
-- Notifications：method + params（无 id，用于事件流）
+- Notifications: method + params (no id, used for event streaming)
 
-**结构化原语（三层）：**
-1. **Items**：单个类型化事件（agent 消息、用户输入、工具执行）
-2. **Turns**：由用户操作发起的 agent 工作单元，包含有序 items
-3. **Threads**：持久化会话容器，支持重连和恢复
+**Structured primitives (three levels):**
+1. **Items**: Single typed event (agent message, user input, tool execution)
+2. **Turns**: agent work unit initiated by user operation, containing ordered items
+3. **Threads**: persistent session container, supports reconnection and recovery
 
-**四组件：**
+**Four components:**
 - stdio reader
 - Codex message processor
 - thread manager
 - core threads
 
-**集成模式：**
-- 本地 IDE/Desktop：子进程 + 永久 stdio 通道
-- Web：后端 worker 代理 JSON-RPC
-- CLI：统一 harness 保证一致性
+**Integrated Mode:**
+- Local IDE/Desktop: child process + permanent stdio channel
+- Web: Backend worker proxy JSON-RPC
+- CLI: Unify harness to ensure consistency
 
 ---
 
-## 量化影响
+## Quantify impact
 
-- Can.ac 实验：仅工具接口变化，模型表现从 6.7% → 68.3%
-- LangChain：无模型修改，仅 harness 改进实现 13 分提升
-- 单次 agent 运行可持续 6+ 小时（常在人类睡眠时执行）
+- Can.ac experiment: only tool interface changes, model performance from 6.7% → 68.3%
+- LangChain: No model modification, only harness improvement to achieve 13 points improvement
+- A single agent run can last 6+ hours (often executed while humans are sleeping)
 
 ---
 
-## 未解问题
+## Unanswered questions
 
-- 全 agent 生成的系统在多年后架构一致性如何演进？
-- 模型能力提升将如何重塑 harness 方法？
-- harness 是否会取代传统服务模板？
-- AI 系统是否需要更多约束而非更少？
+- How will the architectural consistency of a fully agent-generated system evolve over the years?
+- How will increased model capabilities reshape the harness approach?
+- Will harness replace traditional service templates?
+- Do AI systems need more constraints rather than fewer?
 
 ---
 

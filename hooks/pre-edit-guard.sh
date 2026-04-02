@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Edit) Hook
 #
-# 编辑文件前的防幻觉检查：
-#   - 检测编辑的文件是否存在（防止 AI 编辑不存在的文件路径）
-#   - 检测 old_string 是否真的在文件中（防止 AI 幻觉编辑内容）
+# Anti-hallucination check before editing files:
+# - Detect whether the edited file exists (prevents AI from editing non-existent file paths)
+# - Check if old_string is actually in the file (to prevent AI hallucinating editing content)
 
 set -euo pipefail
 
@@ -11,8 +11,8 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-# 直接在 Python 中完成全部检查，避免 bash 变量传递破坏 old_string
-# （<<<heredoc 追加 \n、$() 吞尾部换行、echo 转义特殊字符）
+# Complete all checks directly in Python to avoid bash variable passing from destroying old_string
+# (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
 CHECK_RESULT=$(python3 -c '
 import json, sys, os, re
 
@@ -73,44 +73,44 @@ CHECK_STATUS=$(echo "$CHECK_RESULT" | sed -n '1p')
 FILE_PATH=$(echo "$CHECK_RESULT" | sed -n '2p')
 DETAIL=$(echo "$CHECK_RESULT" | sed -n '3p')
 
-# 无 file_path 或解析错误 → 放行
+# No file_path or parsing error → release
 if [[ "$CHECK_STATUS" != "CHECK" ]]; then
   exit 0
 fi
 
 if [[ "$DETAIL" == "TEST_INFRA_PROTECTED" ]]; then
-  vg_log "pre-edit-guard" "Edit" "block" "测试基础设施文件保护 (W-12)" "$FILE_PATH"
+  vg_log "pre-edit-guard" "Edit" "block" "Test Infrastructure File Protection (W-12)" "$FILE_PATH"
   cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD W-12 拦截：禁止修改测试基础设施文件 — ${FILE_PATH}。AI 代理不得修改 conftest.py/jest.config/pytest.ini/.coveragerc 等测试框架配置文件，此类修改可能导致测试被绕过而非真正修复代码问题。请修复被测代码，而非操纵测试框架。"
+  "reason": "VIBEGUARD W-12 interception: Modification of test infrastructure files - ${FILE_PATH} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
 }
 BLOCK_EOF
   exit 0
 fi
 
 if [[ "$DETAIL" == "FILE_NOT_FOUND" ]]; then
-  vg_log "pre-edit-guard" "Edit" "block" "文件不存在" "$FILE_PATH"
+  vg_log "pre-edit-guard" "Edit" "block" "File does not exist" "$FILE_PATH"
   cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：文件不存在 — ${FILE_PATH}。AI 可能幻觉了文件路径。请先用 Glob/Grep 搜索正确的文件路径。"
+  "reason": "VIBEGUARD interception: File does not exist - ${FILE_PATH}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
 }
 BLOCK_EOF
   exit 0
 fi
 
 if [[ "$DETAIL" == "OLD_STRING_NOT_FOUND" ]]; then
-  vg_log "pre-edit-guard" "Edit" "block" "old_string 不存在" "$FILE_PATH"
+  vg_log "pre-edit-guard" "Edit" "block" "old_string does not exist" "$FILE_PATH"
   cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD 拦截：old_string 在文件中不存在 — AI 可能幻觉了文件内容。请先用 Read 工具读取文件，确认要替换的内容确实存在。"
+  "reason": "VIBEGUARD interception: old_string does not exist in the file - the AI may have hallucinated the file content. Please use the Read tool to read the file first to confirm that the content to be replaced actually exists."
 }
 BLOCK_EOF
   exit 0
 fi
 
-# 通过所有检查 → 放行
+# Pass all checks → Release
 vg_log "pre-edit-guard" "Edit" "pass" "" "$FILE_PATH"
 exit 0

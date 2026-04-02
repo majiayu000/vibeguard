@@ -165,7 +165,7 @@ export default response;
 EOF
 assert_ok "suppressed TS-01 exits 0 (--strict)" \
   bash "$TS_GUARD" --strict "$tsproj"
-assert_output_not_contains "suppressed TS-01 finding not in output" "any 类型使用" \
+assert_output_not_contains "suppressed TS-01 finding not in output" "any type used" \
   bash "$TS_GUARD" --strict "$tsproj"
 
 # --- FAIL: unsuppressed any type is still flagged ---

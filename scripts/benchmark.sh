@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# VibeGuard Benchmark — 统一评分入口
+# VibeGuard Benchmark — unified scoring portal
 #
-# 用法：
-#   bash scripts/benchmark.sh --mode=fast       # PR 门禁（Layer 1 only，零成本）
-#   bash scripts/benchmark.sh --mode=standard   # 每日（Layer 1 + Layer 2 critical）
-#   bash scripts/benchmark.sh --mode=full       # 每周（两层全量）
+# Usage:
+# bash scripts/benchmark.sh --mode=fast # PR access control (Layer 1 only, zero cost)
+# bash scripts/benchmark.sh --mode=standard # Daily (Layer 1 + Layer 2 critical)
+# bash scripts/benchmark.sh --mode=full # Weekly (two levels of full volume)
 #
-# 输出：VibeGuard Score + JSON 结果存档
+# Output: VibeGuard Score + JSON result archive
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
     --mode=*) MODE="${1#--mode=}"; shift ;;
     --model=*) L2_MODEL="${1#--model=}"; shift ;;
     --help|-h)
-      echo "用法: bash scripts/benchmark.sh [--mode=fast|standard|full] [--model=haiku|sonnet]"
+      echo "Usage: bash scripts/benchmark.sh [--mode=fast|standard|full] [--model=haiku|sonnet]"
       exit 0
       ;;
     *) shift ;;
@@ -31,18 +31,18 @@ done
 mkdir -p "$RESULTS_DIR"
 
 echo "====== VibeGuard Benchmark ======"
-echo "日期: $DATE"
-echo "模式: $MODE"
+echo "Date: $DATE"
+echo "Mode: $MODE"
 echo ""
 
 # ============================================================
-# Layer 1: Hook 精度（零成本）
+# Layer 1: Hook precision (zero cost)
 # ============================================================
 
-echo "[Layer 1: Hook 精度]"
+echo "[Layer 1: Hook precision]"
 L1_CSV=$(bash "$REPO_DIR/tests/run_precision.sh" --all --csv 2>/dev/null || true)
 
-# 解析 CSV 计算指标
+# Parse CSV calculation indicators
 L1_RESULT=$(echo "$L1_CSV" | python3 -c "
 import sys, json
 
@@ -74,7 +74,7 @@ precision = tp / (tp + fp) if (tp + fp) > 0 else 0
 recall = tp / (tp + fn) if (tp + fn) > 0 else 0
 f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
 
-# 加权 F1（所有 hook 等权，后续可按严重度加权）
+# Weighted F1 (all hooks have equal weight, and can be weighted according to severity in the future)
 hook_f1s = []
 for h, c in by_hook.items():
     p = c['tp'] / (c['tp'] + c['fp']) if (c['tp'] + c['fp']) > 0 else 0
@@ -106,23 +106,23 @@ echo "  Layer1_Score: $L1_SCORE"
 echo ""
 
 # ============================================================
-# Layer 2: 规则遵从度（需要 API）
+# Layer 2: Rule compliance (requires API)
 # ============================================================
 
 L2_RESULT='{"layer2_score": 0, "sws": 0, "fpr": 0, "detection_rate": 0, "total_samples": 0}'
 
 if [[ "$MODE" == "standard" ]] || [[ "$MODE" == "full" ]]; then
-  echo "[Layer 2: 规则遵从度 (model=$L2_MODEL)]"
+  echo "[Layer 2: Rule compliance (model=$L2_MODEL)]"
 
   L2_RULES_FLAG=""
   if [[ "$MODE" == "standard" ]]; then
     L2_RULES_FLAG="--rules SEC"
   fi
 
-  # 运行 LLM-as-Judge 评估
+  # Run LLM-as-Judge evaluation
   L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" $L2_RULES_FLAG 2>&1 || true)
 
-  # 从 results.json 读取结果
+  # Read results from results.json
   if [[ -f "$REPO_DIR/eval/results.json" ]]; then
     L2_RESULT=$(python3 -c "
 import json
@@ -166,13 +166,13 @@ print(json.dumps({
     echo "  Samples: $L2_SAMPLES  DR: ${L2_DR}%  FPR: ${L2_FPR}%"
     echo "  Layer2_Score: $L2_SCORE"
   else
-    echo "  [跳过] eval/results.json 未生成"
+    echo "[Skip] eval/results.json not generated"
   fi
   echo ""
 fi
 
 # ============================================================
-# VibeGuard Score 计算
+# VibeGuard Score calculation
 # ============================================================
 
 SCORE_RESULT=$(python3 -c "
@@ -205,10 +205,10 @@ print(json.dumps({
 SCORE=$(echo "$SCORE_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['score'])")
 GRADE=$(echo "$SCORE_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['grade'])")
 
-echo "[VibeGuard Score]  $SCORE → $GRADE 级"
+echo "[VibeGuard Score] $SCORE → $GRADE"
 
 # ============================================================
-# Delta 对比
+# Delta comparison
 # ============================================================
 
 PREV_FILE=$(ls -1 "$RESULTS_DIR"/*.json 2>/dev/null | sort | tail -1 || true)
@@ -216,11 +216,11 @@ if [[ -n "$PREV_FILE" ]] && [[ -f "$PREV_FILE" ]]; then
   PREV_SCORE=$(python3 -c "import json; print(json.load(open('$PREV_FILE'))['score'])" 2>/dev/null || echo "0")
   DELTA=$(python3 -c "print(f'{$SCORE - $PREV_SCORE:+.1f}')")
   PREV_DATE=$(basename "$PREV_FILE" .json)
-  echo "[趋势] 上次 ($PREV_DATE): $PREV_SCORE → 本次: $SCORE ($DELTA)"
+  echo "[Trend] Last time ($PREV_DATE): $PREV_SCORE → This time: $SCORE ($DELTA)"
 fi
 
 # ============================================================
-# 存档
+# Archive
 # ============================================================
 
 OUTPUT_FILE="$RESULTS_DIR/$DATE.json"
@@ -239,5 +239,5 @@ with open('$OUTPUT_FILE', 'w') as f:
 "
 
 echo ""
-echo "结果已存档: $OUTPUT_FILE"
+echo "Results archived: $OUTPUT_FILE"
 echo "=============================="

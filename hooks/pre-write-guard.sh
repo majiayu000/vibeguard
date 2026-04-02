@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Write) Hook
 #
-# 分级策略：
-#   - 编辑已有文件 → 放行
-#   - 新建配置/文档/测试文件 → 放行
-#   - 新建源码文件（.rs/.py/.ts/.js/.go/.jsx/.tsx）→ 拦截（要求先搜后写）
+# Grading strategy:
+# - Edit existing file → Release
+# - New configuration/document/test file → Release
+# - Create a new source code file (.rs/.py/.ts/.js/.go/.jsx/.tsx) → intercept (requires searching first and then writing)
 #
-# 默认 warn 模式：提醒先搜后写（L1 约束由 PostToolUse 重复检测兜底）
-# 设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截模式
+#Default warn mode: remind to search first and then write (L1 constraint is covered by PostToolUse repeated detection)
+# Set VIBEGUARD_WRITE_MODE=block to upgrade to hard blocking mode
 
 set -euo pipefail
 
@@ -35,7 +35,7 @@ case "$BASENAME_LOWER" in
     _is_test_infra=true ;;
 esac
 if [[ "$_is_test_infra" == "true" ]]; then
-  vg_log "pre-write-guard" "Write" "block" "测试基础设施文件保护 (W-12)" "$FILE_PATH"
+  vg_log "pre-write-guard" "Write" "block" "Test Infrastructure File Guard (W-12)" "$FILE_PATH"
   cat <<'EOF'
 {
   "decision": "block",
@@ -45,16 +45,16 @@ EOF
   exit 0
 fi
 
-# 文件已存在（编辑） → 放行
+# File already exists (edit) → Release
 if [[ -e "$FILE_PATH" ]]; then
   exit 0
 fi
 
-# 提取文件名和扩展名
+#Extract file name and extension
 BASENAME=$(basename "$FILE_PATH")
 EXT="${BASENAME##*.}"
 
-# 放行列表：配置、文档、锁文件、测试文件
+# Release list: configuration, document, lock file, test file
 case "$BASENAME" in
   *.md|*.txt|*.json|*.yaml|*.yml|*.toml|*.lock|*.css|*.html|*.svg|*.png|*.jpg)
     exit 0 ;;
@@ -66,36 +66,36 @@ case "$BASENAME" in
     exit 0 ;;
 esac
 
-# 放行：测试目录下的文件
+# Release: files in the test directory
 case "$FILE_PATH" in
   */tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*)
     exit 0 ;;
 esac
 
-# 源码文件：检查是否需要拦截
+# Source code file: check whether interception is required
 if ! vg_is_source_file "$FILE_PATH"; then
   exit 0
 fi
 
-# --- 源码文件：提醒先搜后写 ---
-# 默认 warn（提醒），设置 VIBEGUARD_WRITE_MODE=block 可升级为硬拦截
+# --- Source code files: reminder to search first and then write ---
+# Default warn (reminder), set VIBEGUARD_WRITE_MODE=block to upgrade to hard interception
 MODE="${VIBEGUARD_WRITE_MODE:-warn}"
 
 if [[ "$MODE" == "block" ]]; then
-  vg_log "pre-write-guard" "Write" "block" "新源码文件未搜索" "$FILE_PATH"
+  vg_log "pre-write-guard" "Write" "block" "New source code file not searched" "$FILE_PATH"
   cat <<'EOF'
 {
   "decision": "block",
-  "reason": "[L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
+  "reason": "VIBEGUARD [L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
 }
 EOF
 else
-  vg_log "pre-write-guard" "Write" "warn" "新源码文件提醒" "$FILE_PATH"
+  vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
   cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "[L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nSCOPE: search before proceeding — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
+    "additionalContext": "VIBEGUARD [L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nSCOPE: search before proceeding — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
   }
 }
 EOF

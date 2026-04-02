@@ -8,19 +8,19 @@
       "rule": "BLOCK",
       "expect": "block",
       "keyword": "\"decision\": \"block\"",
-      "description": "编辑不存在的文件应被拦截"
+      "description": "Editing non-existing files should be blocked"
     },
     "tp/path-with-quotes.json": {
       "rule": "BLOCK",
       "expect": "block",
       "keyword": "\"decision\": \"block\"",
-      "description": "路径含单引号安全处理并拦截"
+      "description": "Paths containing single quotes are safely processed and intercepted"
     },
     "fp/existing-file.json": {
       "rule": "BLOCK",
       "expect": "pass",
       "keyword": "\"decision\": \"block\"",
-      "description": "已存在文件+空 old_string 放行"
+      "description": "Existing file + empty old_string release"
     }
   }
 }

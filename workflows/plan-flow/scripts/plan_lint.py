@@ -13,12 +13,12 @@ from typing import Dict, List, Set, Tuple
 
 STEP_HEADER_RE = re.compile(r"^###\s+Step\s+")
 STEP_ID_RE = re.compile(r"^###\s+Step\s+([A-Za-z]+\d+)\b")
-STATUS_RE = re.compile(r"^\s*-\s*状态:\s*`?([a-zA-Z_]+)`?\s*$")
-TEST_SECTION_RE = re.compile(r"^\s*-\s*步骤级测试命令[:：]\s*$")
+STATUS_RE = re.compile(r"^\s*-\s*status:\s*`?([a-zA-Z_]+)`?\s*$")
+TEST_SECTION_RE = re.compile(r"^\s*-\s*step-level test command[::]\s*$")
 COMMAND_ITEM_RE = re.compile(r"^\s*-\s+`[^`]+`\s*$")
 COMMAND_ITEM_WITH_NOTE_RE = re.compile(r"^\s*-\s+`[^`]+`.*$")
 SECTION_BULLET_RE = re.compile(r"^\s*-\s*[^`].*[:：]\s*$")
-EXEC_LOG_SECTION_RE = re.compile(r"^##\s+\d+\.\s*执行日志")
+EXEC_LOG_SECTION_RE = re.compile(r"^##\s+\d+\.\s*Execution Log")
 EXEC_LOG_STEP_RE = re.compile(r"^\s*-\s*Step\s+([A-Za-z]+\d+):\s*`?([a-zA-Z_]+)`?\s*$")
 VALID_STATUSES = {"pending", "in_progress", "completed", "blocked"}
 
@@ -122,7 +122,7 @@ def lint_steps(
     completed_count = 0
     for step in steps:
         if step.status is None:
-            errors.append(f"{step.title} (line {step.start_line}): missing `- 状态:` field.")
+            errors.append(f"{step.title} (line {step.start_line}): missing `- status:` field.")
             continue
         if step.status not in VALID_STATUSES:
             errors.append(
@@ -157,7 +157,7 @@ def lint_steps(
         warnings.append("All steps are completed but `in_progress` still exists.")
     if completed_count > 0 and not found_exec_log_section:
         errors.append(
-            "No execution log section found (`## <n>. 执行日志...`) but completed steps exist."
+            "No execution log section found (`## <n>.execution log...`) but completed steps exist."
         )
 
     known_step_ids = {step.step_id for step in steps if step.step_id}

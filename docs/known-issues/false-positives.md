@@ -1,90 +1,90 @@
 # Known False Positives
 
-Guard 和 Hook 的已知误报场景及修复状态。**Agent 开发时必读**，避免重复踩坑。
+Known false positive scenarios and fix status for Guard and Hook. **A must-read when developing Agent** to avoid repeated pitfalls.
 
-## 已修复
+## Fixed
 
-### TS-03: CLI 项目 console 误报
-- **场景**: CLI 工具（package.json 含 `bin` 字段）的 `console.log/error` 是正常输出，不是调试残留
-- **影响**: 所有 CLI 项目被全量拦截
-- **修复**: guard 和 post-edit hook 检测 `package.json` 的 `bin` 字段，CLI 项目跳过 console 检测
-- **文件**: `guards/typescript/check_console_residual.sh`, `hooks/post-edit-guard.sh`
+### TS-03: CLI project console false positive
+- **Scenario**: `console.log/error` of CLI tool (package.json contains `bin` field) is normal output, not debugging residue
+- **Impact**: All CLI projects are blocked
+- **Fix**: guard and post-edit hook detect the `bin` field of `package.json`, CLI project skips console detection
+- **Files**: `guards/typescript/check_console_residual.sh`, `hooks/post-edit-guard.sh`
 
-### RS-14: 声明-执行鸿沟检测（已用 ast-grep 重写）
-- **场景**: 原有 4 个子检测全有严重误报（grep 行数计数、外部 crate trait、save/load 只查主文件、cd 改变 cwd）
-- **修复**: 用 ast-grep AST 级别扫描重写，聚焦最高价值的单一检测：`*Config::default()` 调用（而非 `Config::load()`）
-  - 精确匹配 `AppConfig::default()`、`ServerConfig::default()` 等模式（通过 `constraints.T.regex: "Config$"`，在 yml 和 Python 后处理层双重校验）
-  - 自动排除测试文件目录（`/tests/`、`_test.rs` 等）
-  - ast-grep 不可用时优雅跳过（`[RS-14] SKIP`）
-- **当前范围**: 仅检测 `*Config::default()` 模式；Trait 无 impl、持久化未接线等复杂跨文件检测需 rust-analyzer 等更重的工具
-- **文件**: `guards/rust/check_declaration_execution_gap.sh`, `guards/ast-grep-rules/rs-14-config-default.yml`
+### RS-14: Statement-Perform Gap Detection (rewritten with ast-grep)
+- **Scenario**: The original 4 sub-detections all have serious false positives (grep line count, external crate trait, save/load only checks the main file, cd changes cwd)
+- **FIX**: Rewrite with ast-grep AST level scan, focusing on the highest value single detection: `*Config::default()` calls (instead of `Config::load()`)
+  - Exactly match `AppConfig::default()`, `ServerConfig::default()` and other patterns (through `constraints.T.regex: "Config$"`, double verification in yml and Python post-processing layer)
+  - Automatically exclude test file directories (`/tests/`, `_test.rs`, etc.)
+  - Skip gracefully when ast-grep is not available (`[RS-14] SKIP`)
+- **Current scope**: Only detects `*Config::default()` mode; Trait has no impl, persistence is not wired and other complex cross-file detection requires heavier tools such as rust-analyzer
+- **Files**: `guards/rust/check_declaration_execution_gap.sh`, `guards/ast-grep-rules/rs-14-config-default.yml`
 
-### GO-02: goroutine 全量枚举
-- **场景**: 所有 `go func()` 都报告，不管有没有 ctx/wg/errgroup 管理
-- **影响**: 任何用 goroutine 的 Go 项目噪声极高
-- **修复**: 添加启发式过滤，goroutine 后 20 行内有 `ctx.Done/wg.Add/errgroup/ticker` 则跳过
-- **文件**: `guards/go/check_goroutine_leak.sh`
+### GO-02: goroutine full enumeration
+- **Scenario**: All `go func()` reports, regardless of ctx/wg/errgroup management
+- **Impact**: Any Go project using goroutines will be extremely noisy
+- **Fix**: Add heuristic filtering, skip `ctx.Done/wg.Add/errgroup/ticker` within 20 lines after goroutine
+- **File**: `guards/go/check_goroutine_leak.sh`
 
-### TS-01: any 检测误命中注释和字符串（已用 ast-grep 修复）
-- **场景**: 块注释 `/* type: any */` 和字符串 `"schema: any"` 内的 `: any` 被误报
-- **影响**: 含注释或字符串描述的 TS 文件误报
-- **修复**: 改用 ast-grep AST 级别检测，匹配 `type_annotation` 节点和 `as any` 表达式，自动跳过注释/字符串
-- **文件**: `guards/typescript/check_any_abuse.sh`, `guards/ast-grep-rules/ts-01-any.yml`
+### TS-01: any detection misses hits on comments and strings (fixed with ast-grep)
+- **Scenario**: `: any` inside block comment `/* type: any */` and string `"schema: any"` is falsely reported
+- **Impact**: False positives for TS files containing comments or string descriptions
+- **Fix**: Use ast-grep AST level detection instead, match `type_annotation` nodes and `as any` expressions, automatically skip comments/strings
+- **Files**: `guards/typescript/check_any_abuse.sh`, `guards/ast-grep-rules/ts-01-any.yml`
 
-### GO-01: range 变量误报（已用 ast-grep 修复）
-- **场景**: `for _, v := range slice` 中的 `_` 被当作 error 丢弃
-- **影响**: 所有用 range 的 Go 文件
-- **修复**: 改用 ast-grep 匹配 `_ = $CALL` 模式，AST 自然区分赋值语句和 for range 子句，无需手动排除
-- **文件**: `guards/go/check_error_handling.sh`, `guards/ast-grep-rules/go-01-error.yml`
+### GO-01: false positive for range variable (fixed with ast-grep)
+- **Scenario**: `_` in `for _, v := range slice` is discarded as an error
+- **AFFECT**: All Go files using range
+- **Fix**: Use ast-grep to match the `_ = $CALL` pattern instead. AST naturally distinguishes assignment statements and for range clauses without manual exclusion.
+- **Files**: `guards/go/check_error_handling.sh`, `guards/ast-grep-rules/go-01-error.yml`
 
-### TS-13: 组件重复特征过宽
-- **场景**:
-  1. FormField 检测：HTML 原生 `<input required>` 误命中
-  2. 排序表格：API 参数 `sortKey` 误命中
-  3. 查询 Hook：标准 `isLoading` 状态管理误命中
-- **修复**: 收紧 required 为 prop 级（`isRequired/props.required`），sort 限定 `setSortKey`，query 阈值 3→4
-- **文件**: `guards/typescript/check_component_duplication.sh`
+### TS-13: Component duplicate features are too wide
+- **Scenario**:
+  1. FormField detection: HTML native `<input required>` mistakenly hit
+  2. Sorting table: API parameter `sortKey` hit by mistake
+  3. Query Hook: Standard `isLoading` state management mishit
+- **Fix**: Tighten required to prop level (`isRequired/props.required`), sort limit `setSortKey`, query threshold 3→4
+- **File**: `guards/typescript/check_component_duplication.sh`
 
-### U-HARDCODE: 硬编码值检测（已移除）
-- **场景**: `= "POST"`、枚举赋值、React props、i18n key、常量定义全误报
-- **影响**: 几乎所有 TS/JS 文件
-- **修复**: 从 post-edit-guard 移除该检测（信噪比无法接受）
-- **文件**: `hooks/post-edit-guard.sh`
+### U-HARDCODE: Hardcoded value detection (removed)
+- **Scenario**: `= "POST"`, enumeration assignment, React props, i18n key, constant definition all false positives
+- **Impact**: Almost all TS/JS files
+- **Fix**: Remove this detection from post-edit-guard (unacceptable signal-to-noise ratio)
+- **File**: `hooks/post-edit-guard.sh`
 
-### pre-bash: git checkout ./path 误拦
-- **场景**: `git checkout ./src/file.ts` 被当作 `git checkout .`（丢弃全部改动）拦截
-- **修复**: 正则加行尾锚定，只匹配纯 `.` 后跟分隔符或行尾
-- **文件**: `hooks/pre-bash-guard.sh`
+### pre-bash: git checkout ./path blocked by mistake
+- **Scenario**: `git checkout ./src/file.ts` is intercepted as `git checkout .` (discarding all changes)
+- **Fix**: Regular plus end-of-line anchoring, only matches pure `.` followed by delimiter or end of line
+- **File**: `hooks/pre-bash-guard.sh`
 
-### pre-commit: 子目录 commit 语言检测失败
-- **场景**: 在子目录执行 `git commit` 时，`[[ -f "Cargo.toml" ]]` 用相对路径检测失败，所有守卫被跳过
-- **修复**: 改用 `${REPO_ROOT}/Cargo.toml` 绝对路径
-- **文件**: `hooks/pre-commit-guard.sh`
+### pre-commit: subdirectory commit language detection failed
+- **Scenario**: When executing `git commit` in a subdirectory, `[[ -f "Cargo.toml" ]]` fails to detect relative paths and all guards are skipped
+- **Fix**: Use `${REPO_ROOT}/Cargo.toml` absolute path instead
+- **File**: `hooks/pre-commit-guard.sh`
 
-### post-edit: Escalation 跨 session 误触发
-- **场景**: warn 计数不区分 session，上周被警告 3 次 → 今天第一次编辑就 escalate
-- **修复**: 加 session 过滤 + 路径精确匹配（避免子路径误判）
-- **文件**: `hooks/post-edit-guard.sh`
+### post-edit: Escalation is triggered by mistake across sessions
+- **Scenario**: The warn count does not differentiate between sessions. I was warned 3 times last week → escalated after my first edit today.
+- **Fix**: Add session filtering + exact path matching (to avoid misjudgment of sub-paths)
+- **File**: `hooks/post-edit-guard.sh`
 
-## 已修（P2，fix #28）
+## Fixed (P2, fix #28)
 
-以下问题已在 PR #28 修复：
+The following issues have been fixed in PR #28:
 
-| 守卫 | 场景 | 修复方式 |
+| Guard | Scene | Repair Method |
 |------|------|----------|
-| RS-03 | 多个 `#[cfg(test)]` 块只取第一个 | 改用 awk 追踪 test mod scope（brace depth），支持多个 `#[cfg(test)]` 块 |
-| RS-01 | `.clone()` 错误减少锁计数，`}` 无条件减计数 | 移除 `.clone()` 启发式；改用锁获取时的 brace_depth 追踪，`}` 关闭时只释放当前 depth 的锁 |
-| RS-06 | 硬编码路径检测误报字符串常量（`"config.toml"`） | 添加注释行和 `const`/`static` 定义排除，避免字符串常量误报 |
-| RS-12 | `Todo[A-Z]` 匹配普通 TodoList 数据结构 | 精确限定为 Claude Code 专用工具名 `TodoWrite`/`TodoRead`，排除通用数据结构名 |
-| TASTE-ASYNC-UNWRAP | 文件有任意 async fn 就报全部 unwrap | 改用 awk 追踪 async fn 函数体 scope，只报告 async fn 内部的 unwrap |
-| post-write | 同名文件搜索命中 tests/ 目录 | 在 rg 和 find 两条路径均添加 `tests/`、`__tests__/`、`test/`、`spec/` 排除 |
-| post-write | 定义提取正则跨语言污染 | 按文件扩展名（rs/ts/py/go）选用语言专属正则，消除跨语言模式污染 |
-| post-build | 构建失败计数跨项目无隔离 | escalation 计数增加 `PROJECT_ROOT` 过滤，只累计同项目的失败次数 |
-| doc-file-blocker | `.md` 检测误判临时文件路径 | 添加 `/tmp/`、`/var/`、`$TMPDIR` 等临时路径白名单，跳过临时文件 |
+| RS-03 | Multiple `#[cfg(test)]` blocks only take the first one | Use awk to trace test mod scope (brace depth) instead, support multiple `#[cfg(test)]` blocks |
+| RS-01 | `.clone()` incorrectly reduces the lock count, `}` unconditionally decrements the count | Remove the `.clone()` heuristic; use brace_depth tracking when lock acquisition instead, `}` only releases the lock at the current depth when closed |
+| RS-06 | Hardcoded path detection false positives for string constants (`"config.toml"`) | Add comment lines and `const`/`static` definition exclusions to avoid false positives for string constants |
+| RS-12 | `Todo[A-Z]` matches common TodoList data structures | Exactly limited to Claude Code-specific tool names `TodoWrite`/`TodoRead`, excluding common data structure names |
+| TASTE-ASYNC-UNWRAP | If there are any async fn in the file, all unwrap will be reported | Use awk to track the async fn function body scope instead, and only report the unwrap inside the async fn |
+| post-write | Search for files with the same name hits the tests/ directory | Add `tests/`, `__tests__/`, `test/`, `spec/` to both rg and find paths to exclude |
+| post-write | Define extraction regular cross-language pollution | Select language-specific regular rules according to file extensions (rs/ts/py/go) to eliminate cross-language pattern pollution |
+| post-build | Build failure count across projects without isolation | escalation count increment `PROJECT_ROOT` filter, only accumulate the number of failures in the same project |
+| doc-file-blocker | `.md` detects misjudgment of temporary file paths | Add `/tmp/`, `/var/`, `$TMPDIR` and other temporary paths to the whitelist to skip temporary files |
 
-## 教训
+## Lessons
 
-1. **grep 不是 AST 解析器** — 对有嵌套结构的代码（锁作用域、async 函数范围、struct 字段），grep 的误报率不可接受。复杂检测应该用语言工具（rust-analyzer、ESLint、go vet）
-2. **守卫的错误修复建议会被 Agent 当真** — TS-03 说"使用项目 logger 替代"，Agent 就真的创建了 logger 并重构了 11 个文件。Guard 消息必须考虑 Agent 消费场景
-3. **项目类型感知是基础能力** — CLI vs Web vs MCP vs Library，同一语言的不同项目类型有完全不同的合理模式。Guard 必须先识别项目类型
-4. **枚举器不是检测器** — GO-02 之前只列出所有 goroutine，不判断是否有风险。开发者（和 Agent）会养成忽略习惯，丧失守卫价值
+1. **grep is not an AST parser** — grep has an unacceptable false positive rate for code with nested structures (lock scopes, async function scopes, struct fields). Complex detection should use language tools (rust-analyzer, ESLint, go vet)
+2. **The guard's bug fix suggestions will be taken seriously by the Agent** — TS-03 said "use the project logger instead", and the Agent actually created the logger and reconstructed 11 files. Guard messages must consider Agent consumption scenarios
+3. **Project type awareness is the basic ability** - CLI vs Web vs MCP vs Library, different project types in the same language have completely different reasonable patterns. Guard must first identify the item type
+4. **Enumerator is not a detector** — GO-02 previously only listed all goroutines without judging whether there were risks. Developers (and Agents) will develop a habit of neglect and lose the value of guarding

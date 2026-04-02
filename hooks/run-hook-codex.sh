@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# VibeGuard Codex Hook Wrapper — 适配 Codex CLI 的输出格式
+# VibeGuard Codex Hook Wrapper — Adapt the output format of Codex CLI
 #
-# Codex CLI hooks 与 Claude Code hooks 的 I/O 格式有差异：
-# - PreToolUse block: Codex 需要 hookSpecificOutput.permissionDecision="deny"
-# - PreToolUse warn: Codex 用 systemMessage
-# - updatedInput (correction): Codex 不支持，静默跳过
-# - SessionStart/Stop: 格式基本兼容，直接透传
+# The I/O formats of Codex CLI hooks and Claude Code hooks are different:
+# - PreToolUse block: Codex requires hookSpecificOutput.permissionDecision="deny"
+# - PreToolUse warn: Codex uses systemMessage
+# - updatedInput (correction): Codex is not supported, silently skipped
+# - SessionStart/Stop: The format is basically compatible, direct transparent transmission
 #
-# 用法: bash run-hook-codex.sh <hook-script-name> [args...]
+# Usage: bash run-hook-codex.sh <hook-script-name> [args...]
 
 set -euo pipefail
 
@@ -72,7 +72,7 @@ if decision == 'block':
     }, ensure_ascii=False))
 elif decision == 'warn':
     print(json.dumps({'systemMessage': reason}, ensure_ascii=False))
-# correction (updatedInput) — Codex 不支持，跳过
+# correction (updatedInput) — Not supported by Codex, skip
 " 2>/dev/null
 elif [[ "$EVENT_NAME" == "PostToolUse" ]]; then
   echo "$HOOK_OUTPUT" | python3 -c "
@@ -98,7 +98,7 @@ elif decision == 'warn':
     print(json.dumps({'systemMessage': reason}, ensure_ascii=False))
 " 2>/dev/null
 else
-  # SessionStart / Stop / UserPromptSubmit — 直接透传
+  # SessionStart / Stop / UserPromptSubmit — direct transparent transmission
   echo "$HOOK_OUTPUT"
 fi
 

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# VibeGuard Project Init — 为当前仓库生成项目级守卫配置
+# VibeGuard Project Init — Generate project-level guard configuration for the current warehouse
 #
-# 检测语言/框架 → 列出激活的守卫/规则 → 生成项目级 CLAUDE.md 片段
+# Detect language/framework → List activated guards/rules → Generate project-level CLAUDE.md fragment
 #
-# 用法: bash project-init.sh [project_root]
+# Usage: bash project-init.sh [project_root]
 set -euo pipefail
 
 PROJECT_ROOT="${1:-$(pwd)}"
-cd "$PROJECT_ROOT" || { echo "ERROR: 无法进入目录 $PROJECT_ROOT"; exit 1; }
+cd "$PROJECT_ROOT" || { echo "ERROR: Unable to enter directory $PROJECT_ROOT"; exit 1; }
 
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 echo "=== VibeGuard Project Init ==="
-echo "项目: $PROJECT_ROOT"
+echo "Project: $PROJECT_ROOT"
 echo
 
-# --- 语言/框架检测 ---
+# --- Language/Framework Detection ---
 LANGS=()
 FRAMEWORKS=()
 BUILD_CMDS=()
@@ -62,29 +62,29 @@ if [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]]; then
 fi
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-  echo "未检测到已知语言，跳过。"
+  echo "No known language detected, skipping."
   exit 0
 fi
 
-echo "检测到语言: ${LANGS[*]}"
-[[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "检测到框架: ${FRAMEWORKS[*]}"
+echo "Language detected: ${LANGS[*]}"
+[[ ${#FRAMEWORKS[@]} -gt 0 ]] && echo "Frame detected: ${FRAMEWORKS[*]}"
 echo
 
-# --- 列出激活的守卫 ---
-echo "--- 激活的守卫 ---"
+# --- List active guards ---
+echo "--- activated guard ---"
 GUARDS_DIR="$VIBEGUARD_DIR/guards"
 ACTIVE_GUARDS=()
 
-# 通用守卫
+# Universal guard
 if [[ -d "$GUARDS_DIR/universal" ]]; then
   for g in "$GUARDS_DIR/universal"/check_*.sh; do
     [[ -f "$g" ]] || continue
     ACTIVE_GUARDS+=("$(basename "$g")")
-    echo "  [通用] $(basename "$g")"
+    echo "[General] $(basename "$g")"
   done
 fi
 
-# 语言守卫
+# Language Guard
 for lang in "${LANGS[@]}"; do
   LANG_DIR=""
   case "$lang" in
@@ -100,11 +100,11 @@ for lang in "${LANGS[@]}"; do
     done
   fi
 done
-echo "共 ${#ACTIVE_GUARDS[@]} 个守卫激活"
+echo "A total of ${#ACTIVE_GUARDS[@]} guards activated"
 echo
 
-# --- 列出激活的原生规则 ---
-echo "--- 激活的原生规则 ---"
+# --- List activated native rules ---
+echo "---Activated native rules ---"
 RULES_DIR="$HOME/.claude/rules/vibeguard"
 RULE_COUNT=0
 
@@ -113,7 +113,7 @@ if [[ -d "$RULES_DIR/common" ]]; then
     [[ -f "$rf" ]] || continue
     RC=$(grep -cE '^## [A-Z]+-[0-9]+' "$rf" 2>/dev/null || echo "0")
     RULE_COUNT=$((RULE_COUNT + RC))
-    echo "  [通用] $(basename "$rf"): ${RC} 条规则"
+    echo "[General] $(basename "$rf"): ${RC} rules"
   done
 fi
 
@@ -130,53 +130,53 @@ for lang in "${LANGS[@]}"; do
       [[ -f "$rf" ]] || continue
       RC=$(grep -cE '^## [A-Z]+-[0-9]+' "$rf" 2>/dev/null || echo "0")
       RULE_COUNT=$((RULE_COUNT + RC))
-      echo "  [${lang}] $(basename "$rf"): ${RC} 条规则"
+      echo "[${lang}] $(basename "$rf"): ${RC} rules"
     done
   fi
 done
-echo "共 ${RULE_COUNT} 条规则激活"
+echo "A total of ${RULE_COUNT} rules activated"
 echo
 
-# --- 检测是否已有项目级 CLAUDE.md ---
+# --- Check if project-level CLAUDE.md already exists ---
 if [[ -f "CLAUDE.md" ]]; then
-  echo "项目已有 CLAUDE.md，跳过生成。"
-  echo "建议手动添加以下内容："
+  echo "The project already has CLAUDE.md, skip generation."
+  echo "It is recommended to add the following content manually:"
   echo
 else
-  echo "项目无 CLAUDE.md，可选择生成。"
+  echo "The project does not have CLAUDE.md, you can choose to generate it."
   echo
 fi
 
-# --- 输出建议的 CLAUDE.md 片段 ---
-echo "--- 建议的项目 CLAUDE.md 片段 ---"
+# --- Output suggested CLAUDE.md fragment ---
+echo "--- Suggested project CLAUDE.md snippet ---"
 echo
 echo '```markdown'
-echo "# 项目约束"
+echo "# project constraints"
 echo
-echo "## 构建命令"
+echo "## build command"
 for cmd in "${BUILD_CMDS[@]}"; do
   echo "- \`$cmd\`"
 done
 echo
-echo "## 测试命令"
+echo "## test command"
 for cmd in "${TEST_CMDS[@]}"; do
   echo "- \`$cmd\`"
 done
 echo
 
-# monorepo 检测
+#monorepo detection
 ENTRY_POINTS=$(find . -maxdepth 3 \( -name node_modules -o -name .git -o -name target -o -name vendor -o -name dist \) -prune -o \( -name "main.rs" -o -name "main.go" \) -print 2>/dev/null | wc -l | tr -d ' ')
 if [[ "$ENTRY_POINTS" -gt 1 ]]; then
-  echo "## 数据一致性（Monorepo）"
-  echo "多入口项目（${ENTRY_POINTS} 个入口），注意 U-11~U-14 数据一致性规则。"
+  echo "## Data consistency (Monorepo)"
+  echo "Multiple entry projects (${ENTRY_POINTS} entries), pay attention to U-11~U-14 data consistency rules."
   echo
 fi
 
-echo "## VibeGuard 守卫"
-echo "已激活 ${#ACTIVE_GUARDS[@]} 个守卫 + ${RULE_COUNT} 条规则"
+echo "## VibeGuard guard"
+echo "${#ACTIVE_GUARDS[@]} guards + ${RULE_COUNT} rules activated"
 echo '```'
 echo
-# --- 自动安装 git hooks ---
+# --- Automatically install git hooks ---
 echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_HOOK_SRC="${VIBEGUARD_DIR}/hooks/git/pre-push"
@@ -184,26 +184,26 @@ GIT_HOOKS_DIR="${PROJECT_ROOT}/.git/hooks"
 if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
   if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
-    echo "  已存在 .git/hooks/pre-commit，跳过（手动覆盖：ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit）"
+    echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
   else
     ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
-    echo "  pre-commit hook 已安装"
+    echo "pre-commit hook installed"
   fi
   if [[ -f "$PRE_PUSH_HOOK_SRC" ]]; then
     if [[ -f "$GIT_HOOKS_DIR/pre-push" ]]; then
-      echo "  已存在 .git/hooks/pre-push，跳过（手动覆盖：ln -sf $PRE_PUSH_HOOK_SRC $GIT_HOOKS_DIR/pre-push）"
+      echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_HOOK_SRC $GIT_HOOKS_DIR/pre-push)"
     else
       ln -sf "$PRE_PUSH_HOOK_SRC" "$GIT_HOOKS_DIR/pre-push"
-      echo "  pre-push hook 已安装"
+      echo "pre-push hook installed"
     fi
   else
-    echo "  缺少 pre-push hook 源文件：$PRE_PUSH_HOOK_SRC"
+    echo "Missing pre-push hook source file: $PRE_PUSH_HOOK_SRC"
   fi
 elif [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
-  echo "  非 git 仓库，跳过"
+  echo "Non-git repository, skip"
 elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
-  echo "  ~/.vibeguard/pre-commit 不存在，请先运行 install.sh"
+  echo " ~/.vibeguard/pre-commit does not exist, please run install.sh first"
 fi
 echo
 
-echo "=== 完成 ==="
+echo "=== Done ==="

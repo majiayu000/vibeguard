@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# VibeGuard Setup — 共享变量和函数
-# 被 install.sh、check.sh、clean.sh source
+# VibeGuard Setup — shared variables and functions
+# Sourced by install.sh, check.sh, clean.sh
 
 REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 CLAUDE_DIR="${HOME}/.claude"

@@ -1,7 +1,7 @@
 #!/bin/bash
-# 创建分叉的 git 仓库，模拟非快进推送
+#Create a forked git repository to simulate non-fast-forward push
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理 CWD
+# Note: There is no trap, the runner is responsible for cleaning up CWD
 git -C "$tmp" init -q
 git -C "$tmp" commit --allow-empty -m "base"
 BASE_SHA=$(git -C "$tmp" rev-parse HEAD)
@@ -10,6 +10,6 @@ LOCAL_SHA=$(git -C "$tmp" rev-parse HEAD)
 git -C "$tmp" reset --hard "$BASE_SHA" -q
 git -C "$tmp" commit --allow-empty -m "diverged"
 REMOTE_SHA=$(git -C "$tmp" rev-parse HEAD)
-# 输出: CWD和stdin
+# Output: CWD and stdin
 echo "CWD=$tmp"
 echo "STDIN=refs/heads/main $LOCAL_SHA refs/heads/main $REMOTE_SHA"

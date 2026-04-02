@@ -1,75 +1,75 @@
 ---
 name: "VibeGuard: Build Fix"
-description: "构建修复 — 读取构建错误，定位根因，执行最小修复，验证构建通过"
+description: "Build repair — read build errors, locate root causes, perform minimal repairs, and verify that the build passed"
 category: VibeGuard
 tags: [vibeguard, build, fix, error]
-argument-hint: "<构建命令或错误信息>"
+argument-hint: "<build command or error message>"
 ---
 
 <!-- VIBEGUARD:BUILD-FIX:START -->
-**核心理念**
-- 构建错误修复的目标是让构建通过，不是重构代码
-- 从根因修复，一个修复可能解决多个错误
-- 最小改动原则：只修复构建错误，不做额外改进
+**Core Concept**
+- The goal of build error fixing is to make the build pass, not to refactor the code
+- Fix from the root cause, one fix may solve multiple errors
+- Minimum change principle: only fix build errors, no additional improvements
 
 **Steps**
 
-1. **捕获构建错误**
-   - 如果用户提供了错误信息：直接解析
-   - 如果用户提供了构建命令：运行命令捕获输出
-   - 如果无参数：尝试检测项目类型并运行对应构建命令
+1. **Catch build errors**
+   - If the user provides error information: parse directly
+   - If the user provides a build command: run the command to capture the output
+   - If no parameters: try to detect the project type and run the corresponding build command
      - Rust: `cargo build 2>&1`
      - TypeScript: `npx tsc --noEmit 2>&1`
      - Go: `go build ./... 2>&1`
      - Python: `python -m py_compile <files> 2>&1`
 
-2. **解析错误**
-   - 提取：文件路径、行号、错误类型、错误消息
-   - 按文件分组
-   - 识别错误间的依赖关系（A 导致 B）
+2. **Parse error**
+   - Extraction: file path, line number, error type, error message
+   - Group by files
+   - Identify dependencies between errors (A causes B)
 
-3. **定位根因**
-   - 读取错误涉及的源文件
-   - 区分直接原因和根本原因
-   - 多个错误可能源自同一根因 → 优先修复根因
+3. **Locate the root cause**
+   - Read the source file involved in the error
+   - Distinguish between direct causes and root causes
+   - Multiple errors may originate from the same root cause → Prioritize fixing the root cause
 
-4. **执行最小修复**
-   - 只修复构建错误，不做额外改进（L5）
-   - 不用 `@ts-ignore` / `# type: ignore` / `//nolint` 绕过
-   - 不用 `any` / `as any` 绕过类型错误
-   - 不引入新依赖解决标准库能解决的问题（U-06）
+4. **Perform minimal repair**
+   - Only fix build errors, no additional improvements (L5)
+   - Do not use `@ts-ignore` / `# type: ignore` / `//nolint` bypass
+   - Bypass type errors without `any` / `as any`
+   - Solve problems that the standard library can solve without introducing new dependencies (U-06)
 
-5. **验证**
-   - 重新运行构建命令，确认零错误
-   - 运行测试确认不回归
-   - 运行类型检查确认通过
+5. **Verification**
+   - Rerun the build command to confirm zero errors
+   - Run tests to confirm there are no regressions
+   - Run type check confirmed passed
 
-6. **输出修复报告**
+6. **Output repair report**
 
    ```markdown
-   ## 构建修复报告
+   ## Build repair report
 
-   ### 错误摘要
-   - 总错误数：N
-   - 根因数：M
-   - 修复文件数：K
+   ### Error summary
+   - Total number of errors: N
+   - Root factor: M
+   - Number of files repaired: K
 
-   ### 修复详情
-   | 文件:行号 | 错误 | 修复 |
+   ### Fix details
+   | File:line number | Error | Fix |
    |-----------|------|------|
    | ...       | ...  | ...  |
 
-   ### 验证
-   - 构建：通过/失败
-   - 测试：通过/失败
+   ### verify
+   - Build: Pass/Fail
+   - Test: pass/fail
    ```
 
 **Guardrails**
-- 不在修复中改变代码风格（U-07）
-- 不一次性修复不相关的问题（U-09）
-- 修复后必须验证构建通过
+- Don't change code style in fix (U-07)
+- Not fixing unrelated issues all at once (U-09)
+- Must verify that the build passes after fixing
 
 **Reference**
-- 通用规则：`vibeguard/rules/universal.md`
-- 语言规则：`vibeguard/rules/<lang>.md`
+- Universal rules: `vibeguard/rules/universal.md`
+- Language rules: `vibeguard/rules/<lang>.md`
 <!-- VIBEGUARD:BUILD-FIX:END -->

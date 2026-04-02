@@ -1,270 +1,270 @@
 ---
 name: "VibeGuard: Learn"
-description: "双模式学习：(A) 从错误中提取守卫规则 (B) 从发现中提取可复用 Skill。自动模式路由。"
+description: "Dual-mode learning: (A) Extract guard rules from errors (B) Extract reusable skills from discoveries. Automatic mode routing."
 category: VibeGuard
 tags: [vibeguard, learn, feedback, improvement, skill-extraction]
-argument-hint: "<错误描述 | 'extract' 提取经验 | 空=自动判断>"
+argument-hint: "<Error description | 'extract' extract experience | empty = automatic judgment>"
 ---
 
 <!-- VIBEGUARD:LEARN:START -->
 
-## 核心理念
+## Core Concept
 
-- Agent 犯错不是终点，是改进防御体系的信号
-- Agent 发现非显而易见的解决方案时，应提取为可复用知识
-- 目标：**错误不再重犯 + 经验不再遗忘**
+- Agent's mistakes are not the end, but a signal to improve the defense system.
+- When the Agent discovers non-obvious solutions, it should be extracted into reusable knowledge
+- Goal: **Mistakes will no longer be repeated + Experience will no longer be forgotten**
 
-## 模式路由
+## Pattern routing
 
-根据参数和上下文自动选择模式：
+Automatically select a mode based on parameters and context:
 
-| 输入 | 模式 |
+| input | mode |
 |------|------|
-| 用户描述了错误/bug/守卫失效 | **模式 A**：错误分析 → 产出 guard/hook/rule |
-| 用户说 "extract" / "提取经验" / "学到了什么" | **模式 B**：经验提取 → 产出 SKILL.md |
-| Stop hook 自动触发（无参数） | 先评估 → 按需选择 A 或 B |
-| 会话中同时有错误修复和非显而易见的发现 | **A + B 都执行** |
+| User describes error/bug/guard failure | **Mode A**: error analysis → output guard/hook/rule |
+| User said "extract" / "Extract experience" / "What was learned" | **Mode B**: Experience extraction → Output SKILL.md |
+| Stop hook automatically triggered (no parameters) | Evaluate first → select A or B as needed |
+| Session with both bug fixes and non-obvious findings | **A + B both executed** |
 
 ---
 
-## 模式 A：错误分析（防御向）
+## Mode A: Error analysis (defense-oriented)
 
-> 从错误中学习，生成守卫规则或 hook，让同类错误不再发生。
+> Learn from mistakes and generate guard rules or hooks to prevent similar mistakes from happening again.
 
-**触发场景**
-- Agent 创建了重复文件/类型（L1 失效）
-- Agent 硬编码了路径/端口/URL（L4 失效）
-- Agent 引入了数据分裂（多入口不一致）
-- Agent 做了不必要的过度设计（L5 失效）
-- 守卫脚本存在假阳性或假阴性
-- 任何重复出现的 Agent 错误模式
+**Trigger scene**
+- Agent created duplicate files/types (L1 failed)
+- Agent hard-coded path/port/URL (L4 failure)
+- Agent introduces data splitting (multiple entries are inconsistent)
+- Agent is unnecessarily over-designed (L5 failure)
+- The guard script has false positives or false negatives
+- Any recurring Agent error patterns
 
 **Guardrails**
-- 不直接修复业务代码 — 只改进 VibeGuard 本身
-- 新规则必须可验证（能写脚本检测或测试断言）
-- 不做过度泛化 — 一个错误模式对应一条精确规则
+- No direct fixes to the business code — only improvements to VibeGuard itself
+- New rules must be verifiable (can write scripts to detect or test assertions)
+- Don’t overgeneralize — one error pattern corresponds to one precise rule
 
 **Steps**
 
-1. **自动模式识别（从 events.jsonl + learn-digest.jsonl 提取）**
-   - 读取 `~/.vibeguard/projects/<hash>/events.jsonl`，分析最近的事件记录
-   - 读取 `~/.vibeguard/learn-digest.jsonl`，获取 GC 定期学习识别的跨会话信号（repeated_warn / chronic_block / hot_files / slow_sessions / warn_escalation）
-   - 提取高频 warn 模式：被多次警告但仍重复发生的同类问题
-   - 提取反复被 block 的同类操作：识别 agent 反复碰壁的操作模式
-   - 按 hook + reason 分组，输出 top 5 高频问题
-   - 将识别到的模式作为后续分析的输入（不再完全依赖用户描述）
+1. **Automatic pattern recognition (extracted from events.jsonl + learn-digest.jsonl)**
+   - Read `~/.vibeguard/projects/<hash>/events.jsonl` and analyze recent event records
+   - Read `~/.vibeguard/learn-digest.jsonl` to obtain the cross-session signals recognized by GC regular learning (repeated_warn / chronic_block / hot_files / slow_sessions / warn_escalation)
+   - Extract high-frequency warn patterns: similar problems that have been warned many times but still reoccur
+   - Extract similar operations that are repeatedly blocked: identify the operation patterns in which the agent repeatedly hits the wall
+   - Group by hook + reason to output top 5 high-frequency problems
+   - Use recognized patterns as input for subsequent analysis (no longer relying solely on user descriptions)
 
-2. **收集错误上下文**
-   - 用户描述了什么错误？（参数 `$ARGUMENTS` 或对话上下文）
-   - 结合步骤 1 的自动识别结果，确认是否为已知的高频问题
-   - 错误发生在哪个文件/模块？
-   - 错误的具体表现（diff、截图、报错信息）
-   - 这是第几次出现类似错误？
+2. **Collect error context**
+   - What error did the user describe? (parameters `$ARGUMENTS` or conversation context)
+   - Combined with the automatic identification results in step 1, confirm whether it is a known high-frequency problem
+   - In which file/module does the error occur?
+   - Specific manifestations of errors (diff, screenshots, error messages)
+   - How many times has this error occurred?
 
-3. **根因分析（5-Why）**
-   - **表面原因**：Agent 做了什么错误操作？
-   - **直接原因**：为什么现有守卫没拦住？
-     - 守卫脚本不存在？→ 需要新守卫
-     - 守卫存在但模式匹配不够？→ 增强守卫
-     - Hook 没覆盖该操作？→ 新增 hook 规则
-     - 规则文件没提到？→ 补充规则
-   - **根本原因**：系统层面缺了什么？
-     - 缺少文档/地图？
-     - 缺少机械化检查？
-     - 约束不够具体？
+3. **Root cause analysis (5-Why)**
+   - **Surface reason**: What wrong operation did the Agent do?
+   - **Direct Reason**: Why didn't the existing guards stop him?
+     - Guard script does not exist? → New guards needed
+     - Guards present but pattern matching not enough? → Enhanced guard
+     - Hook does not cover this operation? → Add new hook rules
+     - Not mentioned in the rules file? → Supplementary rules
+   - **Root Cause**: What is missing at the system level?
+     - Missing documentation/map?
+     - Lack of mechanized inspection?
+     - Constraints not specific enough?
 
-4. **确定改进类型**
+4. **Determine type of improvement**
 
-   | 改进类型 | 适用场景 | 产出 |
+   | Improvement type | Applicable scenarios | Output |
    |----------|----------|------|
-   | 新守卫脚本 | 需要新的代码模式检测 | `guards/<lang>/check_xxx.sh` |
-   | 增强现有守卫 | 现有守卫漏检 | 修改 `guards/` 下的脚本 |
-   | 新 hook 规则 | 需要在操作前/后拦截 | 修改 `hooks/` 下的脚本 |
-   | 新规则条目 | 需要补充判断标准 | 修改 `rules/` 下的规则文件 |
-   | 新约束到 CLAUDE.md | 需要全局生效的约束 | 修改 `vibeguard-rules.md` |
+   | New guard script | New code pattern detection required | `guards/<lang>/check_xxx.sh` |
+   | Enhance existing guards | Missing detection of existing guards | Modify scripts under `guards/` |
+   | New hook rules | Need to intercept before/after the operation | Modify the script under `hooks/` |
+   | New rule entry | Supplementary judgment criteria required | Modify the rules file under `rules/` |
+   | New constraints to CLAUDE.md | Constraints that need to be globally effective | Modify `vibeguard-rules.md` |
 
-5. **[Stop] 确认改进方案**
-   - 展示即将写入的新规则/hook 内容
-   - 用 AskUserQuestion 让用户确认再继续
-   - 防止自动生成的规则有误
+5. **[Stop] Confirm improvement plan**
+   - Display the new rules/hook content that will be written soon
+   - Use AskUserQuestion to ask the user to confirm before continuing
+   - Prevent automatically generated rules from being incorrect
 
-6. **实施改进**
+6. **Implement improvements**
 
-   **新守卫脚本**：
-   - 参考 `guards/rust/check_unwrap_in_prod.sh` 的模板
-   - 必须包含：`--strict` 模式、`set -euo pipefail`、排除 tests/
-   - 输出格式：`[ID] 问题描述` + 修复方法（remediation）
-   - 注册到 `/vibeguard:check` 命令
+   **New Guard Script**:
+   - Refer to the template of `guards/rust/check_unwrap_in_prod.sh`
+   - Must include: `--strict` mode, `set -euo pipefail`, exclude tests/
+   - Output format: `[ID] Problem description` + repair method (remediation)
+   - Register to `/vibeguard:check` command
 
-   **增强现有守卫**：
-   - 先运行现有守卫确认假阴性
-   - 增加新的检测模式
-   - 确保不破坏现有检测
+   **Enhance existing guards**:
+   - Run existing guards first to confirm false negatives
+   - Added new detection mode
+   - Make sure not to break existing detections
 
-   **新 hook 规则**：
-   - PreToolUse hook 用于阻止操作（block）
-   - PostToolUse hook 用于事后警告（warn）
-   - 每个 block 消息必须包含替代方案
-   - 注册到 `setup.sh`
+   **New hook rules**:
+   - PreToolUse hook is used to prevent operations (block)
+   - PostToolUse hook is used for post-event warnings (warn)
+   - Each block message must contain an alternative
+   - Register to `setup.sh`
 
-   **新规则条目**：
-   - 分配新 ID（RS-XX / U-XX）
-   - 包含：类别、检查项、严重度、修复模式
-   - 添加到 FIX/SKIP 判断矩阵
+   **New Rule Entry**:
+   - Assign new ID (RS-XX/U-XX)
+   - Contains: category, inspection items, severity, repair mode
+   - Added to FIX/SKIP judgment matrix
 
-7. **模式识别与规则生成**
+7. **Pattern recognition and rule generation**
 
-   **错误模式分类**
-   | 模式 | 特征 | 生成规则类型 |
+   **Error pattern classification**
+   | Patterns | Characteristics | Generate rule types |
    |------|------|-------------|
-   | 重复创建 | 同一功能多次新建文件 | 守卫脚本（检测相似文件名/函数名） |
-   | 路径幻觉 | 编辑/引用不存在的文件 | Hook 规则（pre-edit 检查文件存在） |
-   | API 幻觉 | 调用不存在的方法/字段 | 规则条目（标注真实 API 列表） |
-   | 过度设计 | 添加不需要的抽象层 | 约束条目（最小改动原则强化） |
-   | 数据分裂 | 多入口硬编码不同路径 | 守卫脚本（跨入口路径一致性检查） |
-   | 命名混乱 | 同一概念多个名字 | 命名规范条目 + 别名检测 |
+   | Repeated creation | Create new files multiple times with the same function | Guard script (detect similar file names/function names) |
+   | Path illusion | Editing/referencing non-existent files | Hook rules (pre-edit checks for file existence) |
+   | API illusion | Calling non-existent methods/fields | Rule entries (labeled real API list) |
+   | Over-engineering | Adding unnecessary abstraction layers | Constraint items (enhancing the minimum change principle) |
+   | Data splitting | Multiple entries hard-coded with different paths | Guard script (cross-entry path consistency check) |
+   | Naming confusion | Multiple names for the same concept | Naming specification entries + alias detection |
 
-   **规则模板生成**
-   - 从错误实例中提取检测模式（正则/AST/文件结构）
-   - 生成守卫脚本草稿，包含：检测逻辑、排除条件、修复建议
-   - 输出到 `guards/<lang>/` 或 `hooks/` 目录
+   **Rule template generation**
+   - Extract detection patterns (regex/AST/file structure) from error instances
+   - Generate a guard script draft, including: detection logic, exclusion conditions, and repair suggestions
+   - Output to `guards/<lang>/` or `hooks/` directory
 
-8. **验证改进**
-   - 用原始错误场景验证新守卫/hook 能检测到问题
-   - 运行现有所有守卫确认无回归
-   - 更新守卫 ID 索引（`vibeguard-rules.md`）
+8. **Verification improvements**
+   - Use original error scenarios to verify that new guards/hooks can detect the problem
+   - Run all existing guards to confirm there are no regressions
+   - Update guard ID index (`vibeguard-rules.md`)
 
-9. **输出学习报告**
+9. **Output learning report**
 
    ```markdown
    # VibeGuard Learn Report (Mode A)
 
-   ## 错误描述
-   <简述错误>
+   ## Error description
+   <Brief error description>
 
-   ## 根因分析
-   - 表面原因：...
-   - 直接原因：...
-   - 根本原因：...
+   ## Root cause analysis
+   - Superficial reasons:...
+   - Direct cause:...
+   - root cause:...
 
-   ## 改进内容
-   - [ ] <改进类型>：<具体描述>
+   ## Improvements
+   - [ ] <improvement type>: <specific description>
 
-   ## 验证结果
-   - 新守卫检测通过：✓/✗
-   - 现有守卫无回归：✓/✗
+   ## Verification results
+   - New guard detection passed: ✓/✗
+   - No return of existing guards: ✓/✗
 
-   ## 防御体系变化
-   - 守卫数量：N → N+1
-   - Hook 规则数：M → M+1
-   - 规则条目数：K → K+1
+   ## Defense system changes
+   - Number of guards: N → N+1
+   - Number of Hook rules: M → M+1
+   - Number of rule entries: K → K+1
    ```
 
 ---
 
-## 模式 B：经验提取（积累向）
+## Mode B: Experience extraction (accumulation direction)
 
-> 从非显而易见的发现中提取可复用知识，保存为 Skill 文件，让未来遇到类似问题时自动调用。
-> 灵感来源：Claudeception（Voyager skill library + Reflexion self-reflection）
+> Extract reusable knowledge from non-obvious findings and save it as a Skill file so that it can be automatically called when encountering similar problems in the future.
+> Source of inspiration: Claudeception (Voyager skill library + Reflexion self-reflection)
 
-**触发场景**
-- 调试花了 >10 分钟，解决方案在文档中找不到
-- 错误消息有误导性，实际根因与表象不同
-- 通过试错发现了工具/框架的限制和绕过方法
-- 发现了项目特有的配置/架构模式
-- 多次尝试后才找到有效方案
+**Trigger scene**
+- Debugging took >10 minutes, solution not found in documentation
+- The error message is misleading and the actual root cause is different from the appearance.
+- Discovered tool/framework limitations and workarounds through trial and error
+- Discovered project-specific configuration/architectural patterns
+- It took many attempts to find an effective solution
 
-**质量门控（4 条必须全部满足）**
+**Quality Gating (all 4 must be met)**
 
-| 标准 | 定义 | 反例 |
+| Standard | Definition | Counterexample |
 |------|------|------|
-| **可复用** | 未来类似任务能用上 | "这个变量名打错了" |
-| **非平凡** | 需要探索才能发现，不是查文档就行 | "npm install 安装依赖" |
-| **具体** | 能描述精确的触发条件和解决步骤 | "React 有时候会报错" |
-| **已验证** | 方案实际测试过，不是理论推测 | "应该可以用 XX 解决" |
+| **Reusable** | Can be used for similar tasks in the future | "This variable name is typed incorrectly" |
+| **Non-trivial** | It takes exploration to find out, not just checking the documentation | "npm install installation dependencies" |
+| **Specific** | Can describe precise trigger conditions and solution steps | "React sometimes reports errors" |
+| **Verified** | The solution has been actually tested, not a theoretical speculation | "It should be solved with XX" |
 
 **Steps**
 
-1. **自我评估**
+1. **Self-Assessment**
 
-   回答以下问题（任一为"是"则继续）：
-   - 刚才是否涉及非显而易见的调试/排查？
-   - 解决方案是否可复用于未来类似场景？
-   - 是否发现了文档未覆盖的知识？
-   - 错误消息是否有误导性？
-   - 是否通过试错才找到方案？
+   Answer the following questions (yes to any one to continue):
+   - Did you just cover non-obvious debugging/troubleshooting?
+   - Is the solution reusable for similar scenarios in the future?
+   - Did you discover knowledge that was not covered by the documentation?
+   - Is the error message misleading?
+   - Was the solution found through trial and error?
 
-   全部为"否" → 跳过，不提取。
+   All are "No" → skip, do not extract.
 
-2. **去重检查**
+2. **Remove duplicates**
 
-   在提取前搜索已有 Skill：
+   Search for existing Skills before extracting:
 
    ```bash
-   # 搜索路径（优先项目级，再用户级）
+   # Search path (first project level, then user level)
    SKILL_DIRS=(".claude/skills" "$HOME/.claude/skills")
 
-   # 按关键词搜索
+   #Search by keyword
    rg -i "keyword1|keyword2" "${SKILL_DIRS[@]}" 2>/dev/null
 
-   # 按错误消息搜索
+   # Search by error message
    rg -F "exact error message" "${SKILL_DIRS[@]}" 2>/dev/null
    ```
 
-   **去重决策表**
+   **Deduplication decision table**
 
-   | 搜索结果 | 动作 |
+   | Search results | Actions |
    |----------|------|
-   | 无相关 | 新建 Skill |
-   | 相同触发 + 相同方案 | 更新已有（version +minor） |
-   | 相同触发 + 不同根因 | 新建，双向添加 `See also:` |
-   | 相同领域 + 不同触发 | 更新已有，加 "变体" 小节 |
-   | 已有但过时/错误 | 标记废弃，新建替代 |
+   | Unrelated | New Skill |
+   | Same trigger + same scheme | Update existing (version + minor) |
+   | Same trigger + different root causes | New, two-way addition `See also:` |
+   | Same field + different triggers | Update existing, add "Variations" section |
+   | Existing but outdated/wrong | Marked as obsolete, replaced by new one |
 
-3. **提取知识**
+3. **Extract knowledge**
 
-   分析本次发现：
-   - 问题是什么？
-   - 解决方案中哪部分是非显而易见的？
-   - 下次遇到需要知道什么才能更快解决？
-   - 触发条件是什么（错误消息、症状、场景）？
+   This analysis found:
+   - what is the problem?
+   - What parts of the solution are non-obvious?
+   - What do you need to know to solve it faster next time you encounter it?
+   - What is the trigger (error message, symptom, scenario)?
 
-4. **条件性 Web 研究**
+4. **Conditional Web Research**
 
-   以下情况需要搜索验证：
-   - 涉及特定技术/框架的最佳实践
-   - 可能在 2025 年后有变化的 API/工具
-   - 不确定当前方案是否为推荐做法
+   The following situations require search verification:
+   - Best practices involving specific technologies/frameworks
+   - APIs/Tools that may change after 2025
+   - Not sure if the current solution is a recommended practice
 
-   搜索策略：
-   - 官方文档：`"[技术] [功能] official docs 2026"`
-   - 最佳实践：`"[技术] [问题] best practices 2026"`
-   - 常见问题：`"[技术] [错误消息] solution 2026"`
+   Search strategy:
+   - Official documentation: `"[Technical][Functional] official docs 2026"`
+   - Best practices: `"[Technology][Question] best practices 2026"`
+   - FAQ: `"[Technology][Error Message] solution 2026"`
 
-   项目内部模式、明确的上下文特定方案、稳定的通用编程概念 → 跳过搜索。
+   Project-internal patterns, clear context-specific scenarios, stable general programming concepts → Skip search.
 
-5. **结构化为 SKILL.md**
+5. **Structured as SKILL.md**
 
    ```markdown
    ---
    name: descriptive-kebab-case-name
    description: |
-     [精确描述，包含：(1) 解决什么问题 (2) 触发条件（错误消息/症状）
-     (3) 涉及的技术/框架。用 "Use when:" 开头列举使用场景]
+     [Precise description, including: (1) What problem is solved (2) Triggering condition (error message/symptom)
+     (3) Technologies/frameworks involved. Start with "Use when:" to list usage scenarios]
    author: Claude Code
    version: 1.0.0
    date: YYYY-MM-DD
    ---
 
-   # [Skill 名称]
+   # [Skill name]
 
    ## Problem
-   [问题描述：什么痛点？为什么非显而易见？]
+   [Problem description: What are the pain points? Why not obvious? ]
 
    ## Context / Trigger Conditions
-   - [精确的错误消息]
-   - [可观察的症状/行为]
-   - [环境条件（框架/工具/平台）]
+   - [Exact error message]
+   - [Observable Symptoms/Behaviors]
+   - [Environmental conditions (framework/tools/platform)]
 
    ## Solution
    ### Step 1: ...
@@ -272,86 +272,86 @@ argument-hint: "<错误描述 | 'extract' 提取经验 | 空=自动判断>"
    ### Step 3: ...
 
    ## Verification
-   [如何确认方案有效]
+   [How to confirm that the plan is effective]
 
    ## Example
-   **场景**：[具体案例]
-   **Before**：[错误状态]
-   **After**：[修复后状态]
+   **Scenario**: [Specific case]
+   **Before**: [Error status]
+   **After**: [status after repair]
 
    ## Notes
-   - [注意事项、边界情况]
-   - [何时不应使用此 Skill]
-   - [See also: 相关 Skill]
+   - [Notes, boundary conditions]
+   - [When this Skill should not be used]
+   - [See also: Related Skills]
 
    ## References
-   - [来源链接（如有 Web 研究）]
+   - [Source link (web research if available)]
    ```
 
-6. **保存位置决策**
+6. **Save Location Decision**
 
-   | 类型 | 位置 | 说明 |
+   | Type | Location | Description |
    |------|------|------|
-   | 项目特定 | `.claude/skills/[name]/SKILL.md` | 仅对当前项目有用 |
-   | 跨项目通用 | `~/.claude/skills/[name]/SKILL.md` | 未来所有项目可用 |
+   | Project specific | `.claude/skills/[name]/SKILL.md` | Only useful for the current project |
+   | Common across projects | `~/.claude/skills/[name]/SKILL.md` | Available to all future projects |
 
-7. **[Stop] 确认并保存**
-   - 展示生成的 SKILL.md 内容
-   - 用 AskUserQuestion 让用户确认
-   - 确认后写入文件
+7. **[Stop] Confirm and save**
+   - Display the generated SKILL.md content
+   - Ask user to confirm using AskUserQuestion
+   - Write to file after confirmation
 
-8. **输出提取报告**
+8. **Output extraction report**
 
    ```markdown
    # VibeGuard Learn Report (Mode B)
 
-   ## 发现描述
-   <本次非显而易见的发现>
+   ## Discovery description
+   <This non-obvious discovery>
 
-   ## 提取的 Skill
-   - 名称：[skill-name]
-   - 位置：[文件路径]
-   - 版本：1.0.0
+   ## Extracted Skill
+   - Name: [skill-name]
+   - Location: [file path]
+   - Version: 1.0.0
 
-   ## 质量检查
-   - 可复用：✓
-   - 非平凡：✓
-   - 具体：✓
-   - 已验证：✓
-   - 无重复：✓
-   - 无敏感信息：✓
+   ## Quality Check
+   - Reusable: ✓
+   - Non-trivial: ✓
+   - Specific: ✓
+   - Verified: ✓
+   - No duplication: ✓
+   - No sensitive information: ✓
 
-   ## Skill 生命周期
-   创建 → 迭代（发现新场景时 version +minor）→ 废弃（底层变化时标记）→ 归档
+   ## Skill life cycle
+   Create → iterate (version +minor when new scenes are discovered) → discard (mark when underlying changes) → archive
    ```
 
 ---
 
-## 反模式
+## Anti-pattern
 
-| 反模式 | 说明 |
+| Anti-Pattern | Description |
 |--------|------|
-| **过度提取** | 不是每个任务都值得提取，平凡的操作不需要 Skill |
-| **描述模糊** | "帮助解决数据库问题" 不会被语义匹配命中 |
-| **未验证方案** | 只提取实际测试过的方案，不提取理论推测 |
-| **重复文档** | 不要重写官方文档，链接到它然后补充缺失部分 |
-| **过期知识** | Skill 必须带版本和日期，过期时标记废弃 |
-| **泄露敏感信息** | Skill 中禁止包含密钥、内部 URL、API key |
+| **Over-extraction** | Not every task is worth extracting, and mundane operations do not require Skill |
+| **Description is vague** | "Help solve database problems" will not be hit by semantic matching |
+| **Unverified solutions** | Only extract actual tested solutions, not theoretical speculations |
+| **Duplicate Documentation** | Don't rewrite the official documentation, link to it and fill in the missing parts |
+| **Expired Knowledge** | Skill must have version and date, and will be marked as discarded when expired |
+| **Leaking Sensitive Information** | Skills are prohibited from containing keys, internal URLs, and API keys |
 
-## 设计原则
+## Design principles
 
-- **精确优先**：一条规则解决一类问题，不做笼统的"注意代码质量"
-- **机械化优先**：能写脚本检测的就写脚本，不依赖 agent 自觉遵守
-- **错误消息即修复指令**：守卫输出要告诉 agent HOW to fix，不只是 WHAT is wrong
-- **最小改动**：不要因为一个边缘 case 重写整个守卫体系
-- **描述即检索**：Skill 的 description 直接决定能否被语义匹配命中
+- **Precision first**: One rule solves one type of problem, without general "pay attention to code quality"
+- **Mechanization first**: If you can write a script for detection, write a script, and do not rely on agents to comply consciously.
+- **Error message is the repair command**: The guard output should tell the agent HOW to fix, not just WHAT is wrong
+- **Minimal Change**: Don’t rewrite the entire guard system just because of an edge case
+- **Description is retrieval**: The description of a Skill directly determines whether it can be hit by semantic matching.
 
 ## Reference
 
-- VibeGuard 守卫脚本模板：`vibeguard/guards/`
-- Hook 脚本模板：`vibeguard/hooks/`
-- 规则文件：`vibeguard/rules/`
-- 规则索引：`vibeguard/claude-md/vibeguard-rules.md`
-- Skill 模板：`templates/skill-template.md`
-- 学术参考：Voyager (skill libraries), CASCADE (meta-skills), Reflexion (self-reflection)
+- VibeGuard guard script template: `vibeguard/guards/`
+- Hook script template: `vibeguard/hooks/`
+- Rules file: `vibeguard/rules/`
+- Rule index: `vibeguard/claude-md/vibeguard-rules.md`
+- Skill template: `templates/skill-template.md`
+- Academic references: Voyager (skill libraries), CASCADE (meta-skills), Reflexion (self-reflection)
 <!-- VIBEGUARD:LEARN:END -->

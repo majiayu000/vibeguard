@@ -86,10 +86,10 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 ## Trigger Cues
 
 Trigger this skill when user asks for:
-- "分析这个库有哪些重复设计/冗余设计"
-- "做一个非常完整详细的 todolist/执行计划"
-- "每改一处就测试并更新计划状态"
-- "按步骤推进并可追踪"
+- "Analyze what duplicate designs/redundant designs there are in this library"
+- "Make a very complete and detailed todolist/execution plan"
+- "Test and update plan status after every change"
+- "Progress step by step and trackable"
 
 ## Execution Rules
 

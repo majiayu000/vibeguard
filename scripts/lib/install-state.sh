@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# VibeGuard Install State — 追踪已安装文件，支持 repair/drift 检测
+# VibeGuard Install State — Track installed files and support repair/drift detection
 #
-# 状态文件: ~/.vibeguard/install-state.json
-# 格式:
+#State file: ~/.vibeguard/install-state.json
+# Format:
 # {
 #   "version": 1,
 #   "installed_at": "2026-03-23T17:00:00+08:00",

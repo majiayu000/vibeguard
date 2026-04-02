@@ -1,46 +1,46 @@
 # Hallucination Risk Review — Week of YYYY-MM-DD
 
-## 本周回归事件
+## Return events this week
 
-| 事件 | 失效防线 | 根因 | 新增规则 |
+| Incident | Failure of Defense Line | Root Cause | New Rule |
 |------|---------|------|---------|
-| _例: Pro Forma 空表头_ | _L4 架构守卫未覆盖_ | _未提取日期行_ | _添加数据验证测试_ |
+| _Example: Pro Forma empty header_ | _L4 schema guard not covered_ | _Date row not extracted_ | _Add data validation test_ |
 
-## 守卫拦截统计
+## Guard interception statistics
 
-| 守卫 | 拦截次数 | 典型案例 |
+| Guards | Number of interceptions | Typical cases |
 |------|---------|---------|
 | check_naming_convention.py | | |
 | check_duplicates.py | | |
 | test_code_quality_guards.py | | |
 | pre-commit hooks | | |
-| CLAUDE.md 规则 | | |
+| CLAUDE.md RULES | | |
 
-## 指标趋势
+## Indicator trend
 
-| 指标 | 上周 | 本周 | 变化 | 状态 |
+| Metrics | Last week | This week | Changes | Status |
 |------|------|------|------|------|
-| M1 回归密度 (次/100提交) | | | | |
-| M2 守卫拦截率 (%) | | | | |
-| M3 重复代码组数 | | | | |
-| M4 命名违规数 | | | | |
-| M5 架构守卫通过率 (%) | | | | |
+| M1 regression density (times/100 submissions) | | | | |
+| M2 Guard Interception Rate (%) | | | | |
+| M3 Number of repeated code groups | | | | |
+| M4 naming violation count | | | | |
+| M5 architecture guard pass rate (%) | | | | |
 
-状态标识：正常 / 黄色告警 / 红色告警
+Status identification: normal/yellow alarm/red alarm
 
-## 规则更新日志
+## Rule update log
 
-| 日期 | 更新内容 | 触发事件 |
+| Date | Update content | Trigger event |
 |------|---------|---------|
 | | | |
 
-## 下周重点
+## Highlights of next week
 
 - [ ]
 - [ ]
 - [ ]
 
-## 复盘参与人
+## Review participants
 
-- 复盘人：
-- 日期：
+- Reviewer:
+- date:

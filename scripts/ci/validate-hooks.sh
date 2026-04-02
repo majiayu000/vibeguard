@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 验证 hooks 脚本可执行且语法正确
+# VibeGuard CI: Verify that the hooks script is executable and has correct syntax
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -24,7 +24,7 @@ for script in "${REPO_DIR}"/hooks/*.sh; do
   fi
 done
 
-# 验证 hooks 配置格式（检查 settings.json 中的 hooks 引用的脚本都存在）
+# Verify hooks configuration format (check that all scripts referenced by hooks in settings.json exist)
 SETTINGS_FILE="${HOME}/.claude/settings.json"
 if [[ -f "${SETTINGS_FILE}" ]]; then
   echo
@@ -41,7 +41,7 @@ for event, entries in hooks.items():
     for entry in entries:
         for hook in entry.get('hooks', []):
             cmd = hook.get('command', '')
-            # 提取脚本路径
+            #Extract script path
             parts = cmd.split()
             if len(parts) >= 2 and parts[0] == 'bash':
                 script_path = parts[1]

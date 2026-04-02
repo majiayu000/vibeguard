@@ -1,8 +1,8 @@
 # VibeGuard Command Output Schemas
 
-命令间结构化通信的 JSON Schema 定义。各命令可选择输出 JSON 格式以便下游消费。
+JSON Schema definition for structured communication between commands. Each command can optionally output JSON format for downstream consumption.
 
-## preflight 输出 Schema
+## preflight output Schema
 
 ```json
 {
@@ -12,9 +12,9 @@
     {
       "id": "C-01",
       "category": "data_convergence | type_unique | interface_stable | error_handling | naming | guard_baseline",
-      "description": "约束描述",
-      "source": "来源证据",
-      "verification": "验证方法"
+      "description": "Constraint description",
+      "source": "source evidence",
+      "verification": "verification method"
     }
   ],
   "guardBaseline": {
@@ -26,19 +26,19 @@
   "unclear": [
     {
       "id": "UNCLEAR-01",
-      "question": "需要确认的问题",
-      "options": ["选项A", "选项B"]
+      "question": "Question requiring confirmation",
+      "options": ["option A", "option B"]
     }
   ]
 }
 ```
 
-## check 输出 Schema
+## check output Schema
 
 ```json
 {
   "command": "check",
-  "project": "项目名",
+  "project": "project name",
   "date": "ISO8601",
   "guardResults": [
     {
@@ -57,44 +57,44 @@
 }
 ```
 
-## review 输出 Schema
+## review output Schema
 
 ```json
 {
   "command": "review",
-  "scope": "文件或目录路径",
+  "scope": "File or directory path",
   "findings": [
     {
       "priority": "P0 | P1 | P2 | P3",
       "file": "file_path:line",
-      "issue": "问题描述",
-      "suggestion": "修复建议",
+      "issue": "Problem description",
+      "suggestion": "Repair suggestion",
       "ruleId": "RS-03 | U-11 | ..."
     }
   ],
   "passedItems": [
-    "确认无问题的检查项"
+    "Confirm that there are no problems with the inspection items"
   ],
   "verdict": "pass | warn | fail"
 }
 ```
 
-## learn 输出 Schema
+## learn output Schema
 
 ```json
 {
   "command": "learn",
-  "error": "错误描述",
+  "error": "Error description",
   "rootCause": {
-    "surface": "表面原因",
-    "direct": "直接原因",
-    "root": "根本原因"
+    "surface": "surface reason",
+    "direct": "direct cause",
+    "root": "root cause"
   },
   "improvements": [
     {
       "type": "new_guard | enhance_guard | new_hook | new_rule | claude_md",
-      "target": "目标文件路径",
-      "description": "改进描述"
+      "target": "target file path",
+      "description": "Improve description"
     }
   ],
   "verification": {

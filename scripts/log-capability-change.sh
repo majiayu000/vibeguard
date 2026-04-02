@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard 能力进化日志
+# VibeGuard ability evolution log
 #
-# 扫描 git log 中涉及 guards/、rules/、skills/ 的提交，
-# 输出格式化的能力进化时间线。
+# Scan the git log for commits involving guards/, rules/, skills/,
+# Output the formatted ability evolution timeline.
 #
-# 用法：
-#   bash log-capability-change.sh                    # 全部历史
-#   bash log-capability-change.sh --since 2026-02-01 # 指定日期起
-#   bash log-capability-change.sh --type guard       # 仅守卫变更
-#   bash log-capability-change.sh --json             # JSON 格式输出
+# Usage:
+# bash log-capability-change.sh # Full history
+# bash log-capability-change.sh --since 2026-02-01 # From the specified date
+# bash log-capability-change.sh --type guard # Guard changes only
+# bash log-capability-change.sh --json # JSON format output
 
 set -euo pipefail
 
@@ -29,18 +29,18 @@ done
 cd "$REPO_DIR"
 
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-  echo "不在 git 仓库中"
+  echo "Not in git repository"
   exit 1
 fi
 
-# 构建 git log 参数
+# Build git log parameters
 GIT_ARGS=("log" "--pretty=format:%H|%aI|%s" "--name-only" "--diff-filter=ACDMR")
 if [[ -n "$SINCE" ]]; then
   GIT_ARGS+=("--since=$SINCE")
 fi
 GIT_ARGS+=("--" "guards/" "rules/" "hooks/" "skills/")
 
-# 运行 git log 并解析
+# Run git log and parse
 GIT_OUTPUT=$(git "${GIT_ARGS[@]}" 2>/dev/null || true)
 
 VG_GIT_OUTPUT="$GIT_OUTPUT" VG_TYPE_FILTER="$TYPE_FILTER" VG_JSON="$JSON_OUTPUT" python3 -c '
@@ -50,13 +50,13 @@ from collections import defaultdict
 type_filter = os.environ.get("VG_TYPE_FILTER", "")
 json_output = os.environ.get("VG_JSON", "false") == "true"
 
-# 从环境变量读取 git log 输出
+# Read git log output from environment variables
 raw = os.environ.get("VG_GIT_OUTPUT", "")
 if not raw.strip():
-    print("没有找到能力变更记录。")
+    print("No capability change record found.")
     sys.exit(0)
 
-# 解析 git log 输出
+# Parse git log output
 entries = []
 current = None
 for line in raw.split("\n"):
@@ -64,7 +64,7 @@ for line in raw.split("\n"):
     if not line:
         continue
     if "|" in line and line.count("|") >= 2:
-        # 新提交行
+        # New commit line
         parts = line.split("|", 2)
         if len(parts) == 3:
             if current:
@@ -81,7 +81,7 @@ for line in raw.split("\n"):
 if current:
     entries.append(current)
 
-# 分类文件变更
+# Category file changes
 def classify(path):
     if path.startswith("guards/"):
         return "guard"
@@ -93,7 +93,7 @@ def classify(path):
         return "skill"
     return "other"
 
-# 丰富条目信息
+# Rich entry information
 for entry in entries:
     types = set()
     for f in entry["files"]:
@@ -102,26 +102,26 @@ for entry in entries:
             types.add(t)
     entry["types"] = sorted(types)
 
-# 过滤
+# filter
 if type_filter:
     entries = [e for e in entries if type_filter in e["types"]]
 
 if not entries:
-    print(f"没有找到类型为 \"{type_filter}\" 的能力变更记录。")
+    print(f"No ability change record of type \"{type_filter}\" found.")
     sys.exit(0)
 
 if json_output:
     print(json.dumps(entries, ensure_ascii=False, indent=2))
     sys.exit(0)
 
-# 格式化输出
+# Format output
 print(f"""
-VibeGuard 能力进化时间线
+VibeGuard capability evolution timeline
 {"=" * 50}
-共 {len(entries)} 次变更
+Total {len(entries)} changes
 """)
 
-# 按月分组
+#Group by month
 by_month = defaultdict(list)
 for entry in entries:
     month = entry["date"][:7]
@@ -131,31 +131,31 @@ type_icons = {"guard": "🛡", "rule": "📏", "hook": "🪝", "skill": "🎯"}
 
 for month in sorted(by_month.keys(), reverse=True):
     month_entries = by_month[month]
-    print(f"--- {month} ({len(month_entries)} 次变更) ---")
+    print(f"--- {month} ({len(month_entries)} changes) ---")
     for entry in month_entries:
         e_date = entry["date"]
         e_msg = entry["message"]
         icons = " ".join(type_icons.get(t, "?") for t in entry["types"])
         print(f"  {e_date}  {icons}  {e_msg}")
-        # 列出变更文件（最多 5 个）
+        # List changed files (up to 5)
         e_files = entry["files"]
         for ef in e_files[:5]:
             cat = classify(ef)
             print(f"    {cat:>5}: {ef}")
         extra = len(e_files) - 5
         if extra > 0:
-            print(f"    ... +{extra} 个文件")
+            print(f" ... +{extra} files")
     print()
 
-# 统计摘要
+# Statistical summary
 type_counts = defaultdict(int)
 for entry in entries:
     for t in entry["types"]:
         type_counts[t] += 1
 
-print("变更类型分布:")
+print("Change type distribution:")
 for t in sorted(type_counts.keys()):
     icon = type_icons.get(t, "?")
-    print(f"  {icon} {t}: {type_counts[t]} 次")
+    print(f" {icon} {t}: {type_counts[t]} times")
 print()
 '

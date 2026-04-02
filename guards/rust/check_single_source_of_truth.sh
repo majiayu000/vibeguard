@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测任务系统单一事实源破坏 (RS-12)
+# VibeGuard Rust Guard: Detect mission system single source of truth corruption (RS-12)
 #
-# 目标问题：
-# - Todo* 与 TaskManagement* 两套工具族并存，且同时出现在工具注册链路
-# - task/todo 相关全局状态容器过多，可能导致状态源分裂
+# Target question:
+# - Todo* and TaskManagement* two tool families coexist and appear in the tool registration link at the same time
+# - There are too many global state containers related to task/todo, which may cause the state source to be split.
 #
-# 用法:
+# Usage:
 #   bash check_single_source_of_truth.sh [target_dir]
 #   bash check_single_source_of_truth.sh --strict [target_dir]
 
@@ -72,7 +72,7 @@ if [[ -n "${TODO_HITS}" && -n "${TASK_HITS}" ]]; then
   while IFS= read -r line; do
     [[ -n "${line}" ]] && echo "    - ${line}"
   done <<< "${TASK_HITS}"
-  echo "  修复：收敛到单一任务系统（单工具族 + 单状态源），避免并行双轨。"
+  echo "Fix: Convergence to a single task system (single tool family + single state source), avoiding parallel dual rails."
   echo
   FOUND=$((FOUND + 1))
 fi
@@ -83,8 +83,8 @@ if [[ "${STORE_COUNT}" -gt 1 ]]; then
   while IFS= read -r line; do
     [[ -n "${line}" ]] && echo "    - ${line}"
   done <<< "${STORE_HITS}"
-  echo "  风险：任务状态可能分散在多个容器，形成非单一事实源。"
-  echo "  修复：提取统一 state/repository，所有任务动作只写入一个状态入口。"
+  echo "Risk: Task status may be scattered across multiple containers, forming a non-single source of truth."
+  echo "Fixed: Extract unified state/repository, and only write one state entry for all task actions."
   echo
   FOUND=$((FOUND + 1))
 fi

@@ -3,11 +3,11 @@ language: Rust
 severity: warning
 rule:
   pattern: $VAL.unwrap()
-message: ".unwrap() 在生产代码中。修复：使用 ? 操作符或 unwrap_or* 变体"
+message: ".unwrap() in production code. Fix: use ? operator or unwrap_or* variants"
 ---
 id: rs-03-expect
 language: Rust
 severity: warning
 rule:
   pattern: $VAL.expect($MSG)
-message: ".expect() 在生产代码中。修复：使用 ? 操作符传播错误"
+message: ".expect() in production code. Fix: propagating errors using ? operator"

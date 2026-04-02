@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guards — 共享函数库
+# VibeGuard Rust Guards — shared function library
 #
-# 所有 Rust 守卫脚本通过 source common.sh 引入，消除重复代码。
-# 提供：list_rs_files、参数解析、临时文件管理
+# All Rust guard scripts are imported through source common.sh to eliminate duplicate code.
+# Provide: list_rs_files, parameter parsing, temporary file management
 
 set -euo pipefail
 
@@ -12,9 +12,9 @@ VIBEGUARD_EXCLUDE_PATHS='(.harness/worktrees/|/target/|/.git/|/node_modules/)'
 # Test file patterns — files that are exclusively test code.
 VIBEGUARD_TEST_FILE_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
 
-# 列出 .rs 源文件
-# 优先级：VIBEGUARD_STAGED_FILES（pre-commit 模式，只扫 staged）> git ls-files > find
-# 自动排除 worktree 副本和构建目录。
+# List .rs source files
+# Priority: VIBEGUARD_STAGED_FILES (pre-commit mode, only scan staged) > git ls-files > find
+# Automatically exclude worktree copies and build directories.
 list_rs_files() {
   local dir="$1"
   if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
@@ -28,14 +28,14 @@ list_rs_files() {
   fi
 }
 
-# 列出非测试 .rs 文件（在 list_rs_files 基础上排除 test 文件）
+# List non-test .rs files (exclude test files based on list_rs_files)
 list_rs_prod_files() {
   list_rs_files "$1" | { grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" || true; }
 }
 
-# 解析 --strict 标志和 target_dir
-# 用法: parse_guard_args "$@"
-# 设置变量: TARGET_DIR, STRICT
+# Parse --strict flag and target_dir
+# Usage: parse_guard_args "$@"
+# Set variables: TARGET_DIR, STRICT
 parse_guard_args() {
   TARGET_DIR="."
   STRICT=false
@@ -67,7 +67,7 @@ parse_guard_args() {
   done
 }
 
-# 临时文件清理目录：所有守卫共享同一清理 trap
+# Temporary file cleaning directory: all guards share the same cleaning trap
 _VG_TMPDIR=""
 
 _vg_cleanup() {
@@ -75,8 +75,8 @@ _vg_cleanup() {
 }
 trap '_vg_cleanup' EXIT
 
-# 创建临时文件并自动在脚本退出时清理
-# 用法: TMPFILE=$(create_tmpfile)
+#Create temporary files and automatically clean them when the script exits
+# Usage: TMPFILE=$(create_tmpfile)
 create_tmpfile() {
   if [[ -z "$_VG_TMPDIR" ]]; then
     _VG_TMPDIR=$(mktemp -d)

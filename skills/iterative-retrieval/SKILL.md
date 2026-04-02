@@ -1,75 +1,75 @@
 ---
 name: iterative-retrieval
-description: "迭代检索 — 4 阶段循环（DISPATCH→EVALUATE→REFINE→LOOP）精确定位代码库中的相关信息。最多 3 轮。"
+description: "Iterative retrieval — 4-stage loop (DISPATCH→EVALUATE→REFINE→LOOP) to pinpoint relevant information in the code base. Up to 3 rounds."
 ---
 
 # Iterative Retrieval
 
-## 概述
+## Overview
 
-在大型代码库中，一次搜索往往不够。此 skill 通过迭代检索循环，逐步缩小范围，精确定位相关代码。
+In large code bases, one search is often not enough. This skill iterates through a search loop, gradually narrowing the scope and pinpointing the relevant code.
 
-## 4 阶段循环
+## 4 stage cycle
 
-### 1. DISPATCH（分发搜索）
+### 1. DISPATCH (distribution search)
 
-- 从需求中提取搜索关键词
-- 选择搜索策略：
-  - Glob：按文件名模式搜索
-  - Grep：按内容关键词搜索
-  - AST：按代码结构搜索（函数名、类名）
-- 并行发起多个搜索
+- Extract search keywords from requirements
+- Choose a search strategy:
+  - Glob: Search by filename pattern
+  - Grep: search by content keywords
+  - AST: Search by code structure (function name, class name)
+- Launch multiple searches in parallel
 
-### 2. EVALUATE（评估结果）
+### 2. EVALUATE (evaluation result)
 
-对每个搜索结果评分（0-1）：
+Rate each search result (0-1):
 
-| 分数 | 含义 | 动作 |
+| Fraction | Meaning | Action |
 |------|------|------|
-| 0.8-1.0 | 高度相关 | 保留，深入阅读 |
-| 0.5-0.7 | 部分相关 | 保留，提取关键信息 |
-| 0.2-0.4 | 低相关 | 记录路径，不深入 |
-| 0.0-0.1 | 不相关 | 丢弃 |
+| 0.8-1.0 | Highly relevant | Reserved, further reading |
+| 0.5-0.7 | Partially related | Reserved, extract key information |
+| 0.2-0.4 | Low correlation | Record path, not in depth |
+| 0.0-0.1 | Not relevant | Discard |
 
-### 3. REFINE（精炼查询）
+### 3. REFINE (refined query)
 
-根据评估结果调整搜索策略：
-- 高相关结果 → 在同目录/同模块中扩展搜索
-- 低相关结果 → 更换关键词或搜索策略
-- 发现新线索 → 追加搜索
+Adjust your search strategy based on the evaluation results:
+- Highly relevant results → Expand search in the same directory/same module
+- Low relevant results → Change keywords or search strategies
+- Discover new clues → Additional searches
 
-### 4. LOOP（循环判断）
+### 4. LOOP (loop judgment)
 
-- 已找到足够信息 → 结束，输出摘要
-- 信息不足且轮次 < 3 → 回到 DISPATCH
-- 已达 3 轮 → 强制结束，输出已有信息 + 未解决问题
+- enough information found → end, output summary
+- Insufficient information and rounds < 3 → Back to DISPATCH
+- Reached 3 rounds → forced end, output existing information + unresolved issues
 
-## 终止条件
+## Termination condition
 
-- 所有关键问题已有答案
-- 高相关结果覆盖了需求的所有方面
-- 达到最大轮次（3 轮）
+- All key questions already answered
+- Highly relevant results cover all aspects of requirements
+- Maximum rounds reached (3 rounds)
 
-## 输出格式
+## Output format
 
 ```text
-## 检索报告
+## Search report
 
-### 轮次：N/3
+### Rounds: N/3
 
-### 发现
-| 文件 | 相关度 | 关键信息 |
+### Discover
+| Documentation | Relevance | Key Information |
 |------|--------|----------|
 | ...  | 0.9    | ...      |
 
-### 未解决
-- <仍需确认的问题>
+### Not resolved
+- <Questions that still need to be confirmed>
 
-### 搜索历史
-1. <查询> → <结果数> 条，最高相关度 <score>
+### Search History
+1. <query> → <number of results>, highest relevance <score>
 ```
 
-## VibeGuard 集成
+## VibeGuard Integration
 
-- 搜索结果中标注已有实现（支持 L1 先搜后写）
-- 发现重复代码时标记（支持反重复检查）
+- Marking in search results has been implemented (supports L1 search first and write later)
+- Mark when duplicate code is found (supports anti-duplication checking)

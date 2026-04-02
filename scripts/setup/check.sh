@@ -92,3 +92,25 @@ else
   done
   yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
 fi
+
+# Check awk POSIX compliance (BSD awk has no \s \d \w \b)
+echo
+echo "Guard Script Portability"
+echo "------------------------------"
+_awk_violations=$(create_tmpfile 2>/dev/null || mktemp)
+# Detect non-POSIX regex shortcuts inside awk regex delimiters (/..\s../)
+# awk uses /regex/ syntax; grep uses quoted strings — so /...\s.../ is awk-specific
+find "${REPO_DIR}/guards" -name '*.sh' -print0 2>/dev/null \
+  | xargs -0 grep -rnE '/[^/"]*\\[sdwb]' 2>/dev/null \
+  | grep -vE '^\s*#|grep |sed ' \
+  >> "$_awk_violations" 2>/dev/null || true
+if [[ -s "$_awk_violations" ]]; then
+  count=$(wc -l < "$_awk_violations" | tr -d ' ')
+  red "[FAIL] ${count} awk line(s) use non-POSIX regex (\\s \\d \\w \\b — breaks on BSD awk):"
+  while IFS= read -r v; do
+    red "  ${v}"
+  done < "$_awk_violations"
+else
+  green "[OK] All awk blocks use POSIX-compatible regex"
+fi
+rm -f "$_awk_violations" 2>/dev/null || true

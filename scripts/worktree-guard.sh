@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# VibeGuard Worktree Guard — 大改动隔离辅助
+# VibeGuard Worktree Guard — Big changes to isolation assist
 #
-# 用法：
-#   bash worktree-guard.sh create [name]     # 创建 worktree
-#   bash worktree-guard.sh list              # 列出活跃 worktree
-#   bash worktree-guard.sh merge <name>      # 合并 worktree 分支到当前分支
-#   bash worktree-guard.sh remove <name>     # 删除 worktree
-#   bash worktree-guard.sh status <name>     # 查看 worktree 状态
+# Usage:
+# bash worktree-guard.sh create [name] # Create worktree
+# bash worktree-guard.sh list # List active worktrees
+# bash worktree-guard.sh merge <name> # Merge the worktree branch to the current branch
+# bash worktree-guard.sh remove <name> # Delete worktree
+# bash worktree-guard.sh status <name> # Check worktree status
 #
-# worktree 创建在 .vibeguard/worktrees/ 下，分支名为 vg/<name>
+# worktree is created under .vibeguard/worktrees/, and the branch name is vg/<name>
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-  red "错误: 不在 git 仓库中"
+  red "Error: Not in git repository"
   exit 1
 fi
 
@@ -32,37 +32,37 @@ case "$ACTION" in
     WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
 
     if [[ -d "$WORKTREE_PATH" ]]; then
-      red "错误: worktree 已存在: ${WORKTREE_PATH}"
+      red "Error: worktree already exists: ${WORKTREE_PATH}"
       exit 1
     fi
 
     mkdir -p "$WORKTREE_BASE"
     git worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD
-    green "已创建 worktree:"
-    echo "  路径: ${WORKTREE_PATH}"
-    echo "  分支: ${BRANCH}"
+    green "worktree has been created:"
+    echo "path: ${WORKTREE_PATH}"
+    echo "branch: ${BRANCH}"
     echo ""
-    echo "使用方式:"
+    echo "Usage:"
     echo "  cd ${WORKTREE_PATH}"
-    echo "  # 在这里做修改..."
-    echo "  # 完成后: bash worktree-guard.sh merge ${NAME}"
-    echo "  # 或放弃: bash worktree-guard.sh remove ${NAME}"
+    echo " # Make changes here..."
+    echo " # After completion: bash worktree-guard.sh merge ${NAME}"
+    echo " # or give up: bash worktree-guard.sh remove ${NAME}"
     ;;
 
   list)
-    git worktree list | grep -E "\.vibeguard/worktrees" || yellow "无活跃的 VibeGuard worktree"
+    git worktree list | grep -E "\.vibeguard/worktrees" || yellow "No active VibeGuard worktree"
     ;;
 
   status)
-    NAME="${2:?用法: worktree-guard.sh status <name>}"
+    NAME="${2:?Usage: worktree-guard.sh status <name>}"
     WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
     if [[ ! -d "$WORKTREE_PATH" ]]; then
-      red "错误: worktree 不存在: ${WORKTREE_PATH}"
+      red "Error: worktree does not exist: ${WORKTREE_PATH}"
       exit 1
     fi
     echo "Worktree: ${NAME}"
-    echo "路径: ${WORKTREE_PATH}"
-    echo "分支: vg/${NAME}"
+    echo "Path: ${WORKTREE_PATH}"
+    echo "Branch: vg/${NAME}"
     echo ""
     git -C "$WORKTREE_PATH" log --oneline -5
     echo ""
@@ -70,60 +70,60 @@ case "$ACTION" in
     ;;
 
   merge)
-    NAME="${2:?用法: worktree-guard.sh merge <name>}"
+    NAME="${2:?Usage: worktree-guard.sh merge <name>}"
     BRANCH="vg/${NAME}"
     WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
 
     if [[ ! -d "$WORKTREE_PATH" ]]; then
-      red "错误: worktree 不存在: ${WORKTREE_PATH}"
+      red "Error: worktree does not exist: ${WORKTREE_PATH}"
       exit 1
     fi
 
-    # 检查 worktree 是否有未提交变更
+    # Check if the worktree has any uncommitted changes
     if [[ -n "$(git -C "$WORKTREE_PATH" status --porcelain)" ]]; then
-      red "错误: worktree 有未提交变更，请先提交或丢弃"
+      red "Error: worktree has uncommitted changes, please submit or discard first"
       git -C "$WORKTREE_PATH" status --short
       exit 1
     fi
 
     CURRENT_BRANCH=$(git branch --show-current)
-    echo "合并 ${BRANCH} -> ${CURRENT_BRANCH}"
-    git merge "$BRANCH" --no-ff -m "merge: ${NAME} worktree 改动合入"
-    green "合并完成"
+    echo "Merge ${BRANCH} -> ${CURRENT_BRANCH}"
+    git merge "$BRANCH" --no-ff -m "merge: ${NAME} worktree changes merge"
+    green "merge completed"
     echo ""
-    yellow "提示: 确认无误后运行 worktree-guard.sh remove ${NAME} 清理"
+    yellow "Tip: After confirming everything is correct, run worktree-guard.sh remove ${NAME} to clean up"
     ;;
 
   remove)
-    NAME="${2:?用法: worktree-guard.sh remove <name>}"
+    NAME="${2:?Usage: worktree-guard.sh remove <name>}"
     BRANCH="vg/${NAME}"
     WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
 
     if [[ -d "$WORKTREE_PATH" ]]; then
       git worktree remove "$WORKTREE_PATH" --force
-      green "已删除 worktree: ${WORKTREE_PATH}"
+      green "Deleted worktree: ${WORKTREE_PATH}"
     else
-      yellow "worktree 不存在: ${WORKTREE_PATH}"
+      yellow "worktree does not exist: ${WORKTREE_PATH}"
     fi
 
-    # 删除分支（如果已合并）
+    # Delete branch (if merged)
     if git branch --list "$BRANCH" | grep -q .; then
       if git branch -d "$BRANCH" 2>/dev/null; then
-        green "已删除分支: ${BRANCH}"
+        green "Deleted branch: ${BRANCH}"
       else
-        yellow "分支 ${BRANCH} 未合并，保留。强制删除: git branch -D ${BRANCH}"
+        yellow "Branch ${BRANCH} is not merged and is retained. Force deletion: git branch -D ${BRANCH}"
       fi
     fi
     ;;
 
   help|*)
-    echo "VibeGuard Worktree Guard — 大改动隔离辅助"
+    echo "VibeGuard Worktree Guard — Big changes to isolation assist"
     echo ""
-    echo "用法："
-    echo "  worktree-guard.sh create [name]   创建隔离 worktree"
-    echo "  worktree-guard.sh list            列出活跃 worktree"
-    echo "  worktree-guard.sh status <name>   查看 worktree 状态"
-    echo "  worktree-guard.sh merge <name>    合并回当前分支"
-    echo "  worktree-guard.sh remove <name>   删除 worktree 和分支"
+    echo "Usage:"
+    echo "worktree-guard.sh create [name] Create an isolated worktree"
+    echo " worktree-guard.sh list List active worktrees"
+    echo "worktree-guard.sh status <name> View worktree status"
+    echo "worktree-guard.sh merge <name> Merge back to the current branch"
+    echo " worktree-guard.sh remove <name> delete worktree and branches"
     ;;
 esac

@@ -1,20 +1,20 @@
-"""通用架构守卫 — 防止 AI vibe-coding 回归。
+"""Universal architecture guard — prevent AI vibe-coding regression.
 
-从 VibeGuard 框架泛化，检测五种常见 LLM 代码生成失效模式：
-1. 静默吞异常（except without logging）
-2. Any 类型公开方法签名（facade/application 层）
-3. 纯 re-export shim 文件
-4. 跨模块私有属性访问
-5. 重复 Protocol 定义
+Generalizing from the VibeGuard framework, detect five common LLM code generation failure modes:
+1. Exception swallowing silently (except without logging)
+2. Any type public method signature (facade/application layer)
+3. Pure re-export shim file
+4. Cross-module private property access
+5. Repeat Protocol definition
 
-配置方式：
-  在 conftest.py 中设置以下变量，或在 pyproject.toml 中配置。
-  默认扫描 app/ 目录。
+Configuration method:
+  Set the following variables in conftest.py, or configure in pyproject.toml.
+  The app/ directory is scanned by default.
 
-使用方法：
-  1. 复制此文件到项目的 tests/architecture/ 目录
-  2. 修改下方 CONFIG 部分的路径配置
-  3. 运行 pytest tests/architecture/test_code_quality_guards.py -v
+How to use:
+  1. Copy this file to the tests/architecture/ directory of the project
+  2. Modify the path configuration in the CONFIG section below
+  3. Run pytest tests/architecture/test_code_quality_guards.py -v
 """
 
 from __future__ import annotations
@@ -24,52 +24,52 @@ import re
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# CONFIG — 根据项目结构修改以下路径
+# CONFIG — Modify the following paths according to the project structure
 # ---------------------------------------------------------------------------
 
-# 项目根目录（从本文件位置推导，假设 tests/architecture/ 下）
+# Project root directory (deduced from the location of this file, assuming it is under tests/architecture/)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# 源代码根目录
+# Source code root directory
 APP_ROOT = PROJECT_ROOT / "app"
 
-# 需要扫描的 application 层目录
+# The application layer directory that needs to be scanned
 APPLICATION_DIRS: list[Path] = [
-    # 示例：取消注释并修改为你的项目结构
+    # Example: Uncomment and modify to your project structure
     # APP_ROOT / "contexts" / "generation" / "application",
     # APP_ROOT / "contexts" / "ingestion" / "application",
 ]
 
-# 需要扫描的 workflow 层目录
+# The workflow layer directory that needs to be scanned
 WORKFLOW_DIRS: list[Path] = [
-    # 示例：
+    # Example:
     # APP_ROOT / "contexts" / "generation" / "workflows",
 ]
 
-# Facade 文件所在目录（默认同 APPLICATION_DIRS）
+# The directory where the Facade file is located (default is the same as APPLICATION_DIRS)
 FACADE_DIRS: list[Path] = APPLICATION_DIRS
 
-# API Schema 目录（检测 re-export shim）
+#API Schema directory (detection re-export shim)
 SCHEMAS_DIR: Path = APP_ROOT / "api" / "v1" / "schemas"
 
-# 私有属性访问豁免列表（已知技术债）
+# Private property access exemption list (known technical debt)
 PRIVATE_ACCESS_ALLOWLIST: set[str] = set()
 
-# Protocol 重复豁免列表
+# Protocol duplicate exemption list
 DUPLICATE_PROTOCOL_ALLOWLIST: set[str] = set()
 
-# 跳过的目录名
+# Directory name to skip
 SKIP_DIRS: set[str] = {"__pycache__", "archive", "tests"}
 
 
 # ---------------------------------------------------------------------------
-# 自动发现：如果未手动配置，自动扫描 APP_ROOT 下的目录
+# Automatic discovery: If not manually configured, automatically scan the directory under APP_ROOT
 # ---------------------------------------------------------------------------
 
 def _auto_discover_dirs() -> None:
     global APPLICATION_DIRS, WORKFLOW_DIRS, FACADE_DIRS
     if APPLICATION_DIRS or WORKFLOW_DIRS:
-        return  # 已手动配置，跳过自动发现
+        return # Manually configured, skip automatic discovery
 
     if not APP_ROOT.exists():
         return
@@ -91,7 +91,7 @@ _auto_discover_dirs()
 
 
 # ---------------------------------------------------------------------------
-# 1. 静默吞异常
+# 1. Silently swallow exceptions
 # ---------------------------------------------------------------------------
 
 def _is_broad_except(handler: ast.ExceptHandler) -> bool:
@@ -155,7 +155,7 @@ def test_no_silent_exception_swallowing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. Any 类型公开方法签名
+# 2. Any type public method signature
 # ---------------------------------------------------------------------------
 
 def _is_any(annotation: ast.expr | None) -> bool:
@@ -178,7 +178,7 @@ def _any_typed_public_methods(filepath: Path) -> list[str]:
     except SyntaxError:
         return violations
 
-    # Protocol 类的方法豁免
+    #Method exemption of Protocol class
     protocol_ranges: list[tuple[int, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
@@ -231,7 +231,7 @@ def test_no_any_in_facade_signatures() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Re-export shim 检测
+# 3. Re-export shim detection
 # ---------------------------------------------------------------------------
 
 def _is_docstring_expr(node: ast.stmt) -> bool:
@@ -286,7 +286,7 @@ def test_no_reexport_shims_in_schemas() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. 跨模块私有属性访问
+# 4. Cross-module private property access
 # ---------------------------------------------------------------------------
 
 _PRIVATE_ACCESS_RE = re.compile(r"\b\w+\._[a-z]\w*")
@@ -331,7 +331,7 @@ def test_no_cross_module_private_access() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. 重复 Protocol 定义
+# 5. Repeat Protocol definition
 # ---------------------------------------------------------------------------
 
 _PROTOCOL_RE_PATTERN = re.compile(

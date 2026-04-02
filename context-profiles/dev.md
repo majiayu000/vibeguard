@@ -1,23 +1,23 @@
-# 开发模式上下文
+# Development mode context
 
-> 激活方式：在会话开始时加载此 profile
+> Activation method: load this profile at the beginning of the session
 
-## 行为调整
+## Behavior adjustment
 
-- 先写代码后解释，优先让它工作
-- 快速迭代：小步修改 → 立即验证 → 继续
-- 错误处理简洁：先让 happy path 工作，再补错误处理
-- 日志输出详细，方便调试
+- Write code first and explain later, make it work first
+- Iterate quickly: modify in small steps → verify immediately → continue
+- Simple error handling: let happy path work first, then add error handling
+- Detailed log output for easy debugging
 
-## 保持的约束
+## Maintained constraints
 
-- VibeGuard 七层约束全部生效
-- 先搜后写（L1）不可跳过
-- 命名规范（L2）不可跳过
-- 不硬编码（L4）不可跳过
+- All seven levels of VibeGuard constraints are in effect
+- Search first and then write (L1) cannot be skipped
+- Naming convention (L2) cannot be skipped
+- Not hardcoded (L4) not skippable
 
-## 放宽的约束
+## Relaxed constraints
 
-- 允许临时 TODO 注释（完成后清理）
-- 允许 console.log/print 调试（完成后清理）
-- 文档更新可延后到功能完成后
+- Allow temporary TODO comments (clean up after completion)
+- Allow console.log/print debugging (clean up after completion)
+- Document updates can be postponed until the function is completed

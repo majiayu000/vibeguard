@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# VibeGuard Hook 测试套件
+# VibeGuard Hook Test Suite
 #
-# 用法：bash tests/test_hooks.sh
-# 从仓库根目录运行
+# Usage: bash tests/test_hooks.sh
+#Run from the root directory of the repository
 
 set -euo pipefail
 
@@ -67,12 +67,12 @@ assert_exit_nonzero() {
   fi
 }
 
-# 创建临时日志目录，避免污染真实日志
+# Create a temporary log directory to avoid contaminating real logs
 export VIBEGUARD_LOG_DIR=$(mktemp -d)
 trap 'rm -rf "$VIBEGUARD_LOG_DIR"' EXIT
 
 # =========================================================
-header "log.sh — 注入防护"
+header "log.sh — injection protection"
 # =========================================================
 
 result=$(
@@ -81,11 +81,11 @@ result=$(
   vg_log "test" "Tool" "pass" "reason with '''triple''' quotes" "detail \$(whoami)"
   cat "$VIBEGUARD_LOG_FILE"
 )
-assert_contains "$result" "'''triple'''" "三引号在 reason 中被安全记录"
-assert_contains "$result" '$(whoami)' "命令替换在 detail 中不被执行"
-assert_not_contains "$result" "$(whoami)" "whoami 结果不出现在日志中"
+assert_contains "$result" "'''triple'''" "Triple quotes are safely logged in reason"
+assert_contains "$result" '$(whoami)' "Command substitution is not performed in detail"
+assert_not_contains "$result" "$(whoami)" "whoami results do not appear in the log"
 
-# 清空日志继续测试
+# Clear the log and continue testing
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
 
 result=$(
@@ -94,79 +94,79 @@ result=$(
   vg_log "test" "Tool" "block" 'reason"; import os; os.system("id"); #' "normal"
   cat "$VIBEGUARD_LOG_FILE"
 )
-assert_contains "$result" '"decision": "block"' "Python 注入 payload 在 reason 中被安全记录"
+assert_contains "$result" '"decision": "block"' "Python injection payload is safely logged in reason"
 
 # =========================================================
-header "pre-bash-guard.sh — 危险命令拦截"
+header "pre-bash-guard.sh — Dangerous command interception"
 # =========================================================
 
-# git push --force は pre-bash-guard では拦截しない (hooks/git/pre-push が担当)
+# git push --force は pre-bash-guard では interception しない (hooks/git/pre-push がresponsibilities)
 result=$(echo '{"tool_input":{"command":"git push --force origin main"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "git push --force 不由 pre-bash-guard 拦截（已移至 pre-push hook）"
+assert_not_contains "$result" '"decision": "block"' "git push --force is not intercepted by pre-bash-guard (moved to pre-push hook)"
 
-# git push --force-with-lease 应放行
+# git push --force-with-lease should be released
 result=$(echo '{"tool_input":{"command":"git push --force-with-lease origin main"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 git push --force-with-lease"
+assert_not_contains "$result" '"decision": "block"' "release git push --force-with-lease"
 
-# git reset --hard 应放行（用户需要在 rebase 冲突等场景中使用）
+# git reset --hard should be released (users need to use it in scenarios such as rebase conflicts)
 result=$(echo '{"tool_input":{"command":"git reset --hard HEAD~1"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 git reset --hard（pre-bash-guard 不拦截）"
+assert_not_contains "$result" '"decision": "block"' "Release git reset --hard (pre-bash-guard does not intercept)"
 
-# git checkout . 应被拦截
+# git checkout . should be intercepted
 result=$(echo '{"tool_input":{"command":"git checkout ."}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 git checkout ."
+assert_contains "$result" '"decision": "block"' "Intercept git checkout ."
 
-# git clean -f 应被拦截
+# git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 git clean -f"
+assert_contains "$result" '"decision": "block"' "intercept git clean -f"
 
-# rm -rf / 应被拦截
+# rm -rf / should be intercepted
 result=$(echo '{"tool_input":{"command":"rm -rf /"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 rm -rf /"
+assert_contains "$result" '"decision": "block"' "Intercept rm -rf /"
 
-# rm -rf ~/  应被拦截
+# rm -rf ~/ should be intercepted
 result=$(echo '{"tool_input":{"command":"rm -rf ~/"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 rm -rf ~/"
+assert_contains "$result" '"decision": "block"' "Intercept rm -rf ~/"
 
-# rm -rf /Users/foo 应被拦截
+# rm -rf /Users/foo should be intercepted
 result=$(echo '{"tool_input":{"command":"rm -rf /Users/foo"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截 rm -rf /Users/foo"
+assert_contains "$result" '"decision": "block"' "Block rm -rf /Users/foo"
 
-# rm -rf ./node_modules 应放行（具体深层子目录）
+# rm -rf ./node_modules should be released (specific deep subdirectories)
 result=$(echo '{"tool_input":{"command":"rm -rf ./node_modules"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 rm -rf ./node_modules"
+assert_not_contains "$result" '"decision": "block"' "Release rm -rf ./node_modules"
 
-# npm run build 应放行
+# npm run build should be released
 result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 npm run build"
+assert_not_contains "$result" '"decision": "block"' "release npm run build"
 
-# cargo build 应放行
+# cargo build should be released
 result=$(echo '{"tool_input":{"command":"cargo build --release"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 cargo build"
+assert_not_contains "$result" '"decision": "block"' "release cargo build"
 
-# vitest --run 应放行
+# vitest --run should be released
 result=$(echo '{"tool_input":{"command":"vitest --run"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "放行 vitest --run"
+assert_not_contains "$result" '"decision": "block"' "release vitest --run"
 
 # =========================================================
-header "pre-bash-guard.sh — 包管理器透明纠正（updatedInput）"
+header "pre-bash-guard.sh — Package manager transparent correction (updatedInput)"
 # =========================================================
 
-# updatedInput API 仅在 Claude Code 运行时可用，CI 环境无此 API。
-# 设置 VIBEGUARD_TEST_UPDATED_INPUT=1 启用这组测试。
+# updatedInput API is only available when Claude Code is running, and there is no such API in the CI environment.
+# Set VIBEGUARD_TEST_UPDATED_INPUT=1 to enable this set of tests.
 if [[ -z "${VIBEGUARD_TEST_UPDATED_INPUT:-}" ]]; then
-  printf '\033[33m  SKIP: updatedInput 测试组（需要 VIBEGUARD_TEST_UPDATED_INPUT=1）\033[0m\n'
+  printf '\033[33m SKIP: updatedInput test group (requires VIBEGUARD_TEST_UPDATED_INPUT=1)\033[0m\n'
 else
 
-# npm install (无参数) → pnpm install
+# npm install (no parameters) → pnpm install
 result=$(echo '{"tool_input":{"command":"npm install"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "allow"' "npm install → updatedInput allow"
-assert_contains "$result" '"updatedInput"' "npm install → 包含 updatedInput"
-assert_contains "$result" "pnpm install" "npm install → 重写为 pnpm install"
+assert_contains "$result" '"updatedInput"' "npm install → contains updatedInput"
+assert_contains "$result" "pnpm install" "npm install → rewritten as pnpm install"
 
 # npm i (shorthand) → pnpm install
 result=$(echo '{"tool_input":{"command":"npm i"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" "pnpm install" "npm i → 重写为 pnpm install"
+assert_contains "$result" "pnpm install" "npm i → rewritten as pnpm install"
 
 # npm install <package> → pnpm add <package>
 result=$(echo '{"tool_input":{"command":"npm install lodash"}}' | bash hooks/pre-bash-guard.sh)
@@ -180,13 +180,13 @@ assert_contains "$result" "pnpm add -D typescript" "npm install --save-dev → p
 result=$(echo '{"tool_input":{"command":"npm add axios"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "pnpm add axios" "npm add <pkg> → pnpm add <pkg>"
 
-# npm install -g 不应纠正（全局安装另行处理）
+# npm install -g should not be corrected (global installation is handled separately)
 result=$(echo '{"tool_input":{"command":"npm install -g pnpm"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"updatedInput"' "npm install -g 不触发纠正"
+assert_not_contains "$result" '"updatedInput"' "npm install -g does not trigger correction"
 
 # yarn install → pnpm install
 result=$(echo '{"tool_input":{"command":"yarn install"}}' | bash hooks/pre-bash-guard.sh)
-assert_contains "$result" "pnpm install" "yarn install → 重写为 pnpm install"
+assert_contains "$result" "pnpm install" "yarn install → rewritten as pnpm install"
 
 # yarn add <package> → pnpm add <package>
 result=$(echo '{"tool_input":{"command":"yarn add react"}}' | bash hooks/pre-bash-guard.sh)
@@ -209,57 +209,57 @@ assert_contains "$result" "uv pip install fastapi" "python -m pip install → uv
 result=$(VIRTUAL_ENV=/fake/venv echo '{"tool_input":{"command":"python3 -m pip install -r requirements.txt"}}' | VIRTUAL_ENV=/fake/venv bash hooks/pre-bash-guard.sh)
 assert_contains "$result" "uv pip install -r requirements.txt" "python3 -m pip install -r → uv pip install -r"
 
-# 链式命令不纠正（npm install && npm run build）
+# Chain commands are not corrected (npm install && npm run build)
 result=$(echo '{"tool_input":{"command":"npm install && npm run build"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"updatedInput"' "链式命令不触发包管理器纠正"
+assert_not_contains "$result" '"updatedInput"' "Chained commands do not trigger package manager correction"
 
-# npm run build 不应被纠正（非安装命令）
+# npm run build should not be corrected (non-installation commands)
 result=$(echo '{"tool_input":{"command":"npm run build"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"updatedInput"' "npm run build 不触发纠正"
+assert_not_contains "$result" '"updatedInput"' "npm run build does not trigger correction"
 
 # =========================================================
-header "pre-bash-guard.sh — 目标工具不可用时不触发纠正"
+header "pre-bash-guard.sh — don't trigger correction when target tool is unavailable"
 # =========================================================
 
-# 构造一个不含 pnpm/uv 的临时 PATH，保留 python3 和基础工具
+# Construct a temporary PATH without pnpm/uv, retain python3 and basic tools
 _tmpbin=$(mktemp -d)
 _py3=$(command -v python3 2>/dev/null || true)
 [[ -n "$_py3" ]] && ln -sf "$_py3" "$_tmpbin/python3"
 _CLEAN_PATH="/usr/bin:/bin:$_tmpbin"
 
-# pnpm 不可用时，npm install 不应被纠正
+# npm install should not be corrected when pnpm is not available
 result=$(PATH="$_CLEAN_PATH" bash hooks/pre-bash-guard.sh \
   <<< '{"tool_input":{"command":"npm install"}}' 2>/dev/null || true)
-assert_not_contains "$result" '"updatedInput"' "pnpm 不可用时 npm install 不触发纠正"
+assert_not_contains "$result" '"updatedInput"' "npm install does not trigger correction when pnpm is not available"
 
-# uv 不可用时，pip install 不应被纠正
+# pip install should not be corrected when uv is not available
 result=$(PATH="$_CLEAN_PATH" bash hooks/pre-bash-guard.sh \
   <<< '{"tool_input":{"command":"pip install requests"}}' 2>/dev/null || true)
-assert_not_contains "$result" '"updatedInput"' "uv 不可用时 pip install 不触发纠正"
+assert_not_contains "$result" '"updatedInput"' "pip install does not trigger correction when uv is not available"
 
 rm -rf "$_tmpbin"
 
-# uv 可用但无 .venv 时，pip install 不应被纠正
+# pip install should not be corrected when uv is available but no .venv
 if command -v uv &>/dev/null; then
   _tmpdir_novenv=$(mktemp -d)
   result=$(cd "$_tmpdir_novenv" && bash "$REPO_DIR/hooks/pre-bash-guard.sh" \
     <<< '{"tool_input":{"command":"pip install requests"}}' 2>/dev/null || true)
-  assert_not_contains "$result" '"updatedInput"' "uv 可用但无 .venv 时 pip install 不触发纠正"
+  assert_not_contains "$result" '"updatedInput"' "pip install does not trigger correction when uv is available but no .venv"
   rm -rf "$_tmpdir_novenv"
 fi
 
 fi  # end VIBEGUARD_TEST_UPDATED_INPUT guard
 
-# commit message 含 force 不应误报
+# Commit message containing force should not cause false positives
 result=$(echo '{"tool_input":{"command":"git commit -m \"fix: force push guard\""}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "commit message 含 force 不误报"
+assert_not_contains "$result" '"decision": "block"' "commit message containing force will not cause false positives"
 
-# heredoc 内容不应误报
+# heredoc content should not be misreported
 result=$(echo '{"tool_input":{"command":"cat <<'\''EOF'\''\ngit push --force\nEOF"}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "heredoc 内含 force push 不误报"
+assert_not_contains "$result" '"decision": "block"' "heredoc contains force push and no false positives"
 
 # =========================================================
-header "hooks/git/pre-push — force push 拦截"
+header "hooks/git/pre-push — force push interception"
 # =========================================================
 
 PREPUSH_SCRIPT="${REPO_DIR}/hooks/git/pre-push"
@@ -271,30 +271,30 @@ run_prepush() {
 
 ZEROS="0000000000000000000000000000000000000000"
 
-# 新建分支（remote_sha 全零）应放行
+#New branches (remote_sha all zeros) should be released
 if run_prepush "refs/heads/feature abc123 refs/heads/feature $ZEROS" 2>/dev/null; then
-  green "新建远端分支放行（remote_sha=0000）"
+  green "New remote branch release (remote_sha=0000)"
   PASS=$((PASS + 1))
 else
-  red "新建远端分支放行（remote_sha=0000）"
+  red "New remote branch release (remote_sha=0000)"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
 
-# 删除远端分支（local_sha 全零）应被拦截
-# 格式: <local-ref> <local-sha> <remote-ref> <remote-sha>
-# 删除时 local-sha 为全零，local-ref 用 (delete) 标记
+# Deleting remote branches (local_sha all zeros) should be intercepted
+# Format: <local-ref> <local-sha> <remote-ref> <remote-sha>
+# When deleting, local-sha is all zeros, and local-ref is marked with (delete)
 if ! run_prepush "refs/heads/feature $ZEROS refs/heads/feature abc123" 2>/dev/null; then
-  green "拦截删除远端分支（local_sha=0000）"
+  green "Interception and deletion of remote branches (local_sha=0000)"
   PASS=$((PASS + 1))
 else
-  red "拦截删除远端分支（local_sha=0000）"
+  red "Interception and deletion of remote branches (local_sha=0000)"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
 
-# 临时 git 仓库：验证非快进推送被拦截
-# stdin 格式: <local-ref> <local-sha> <remote-ref> <remote-sha>
+# Temporary git repository: Verify that non-fast-forward push is intercepted
+# stdin format: <local-ref> <local-sha> <remote-ref> <remote-sha>
 tmp_repo_push="$(mktemp -d)"
 git -C "$tmp_repo_push" init -q
 git -C "$tmp_repo_push" config user.email "test@vibeguard.test"
@@ -307,26 +307,26 @@ git -C "$tmp_repo_push" reset --hard "$BASE_SHA" -q
 git -C "$tmp_repo_push" commit --allow-empty -m "diverged"
 REMOTE_SHA=$(git -C "$tmp_repo_push" rev-parse HEAD)
 
-# LOCAL_SHA 和 REMOTE_SHA 从 BASE_SHA 分叉 → 非快进 → 拦截
+# LOCAL_SHA and REMOTE_SHA fork from BASE_SHA → non-fastforward → intercept
 if ! (cd "$tmp_repo_push" && echo "refs/heads/main $LOCAL_SHA refs/heads/main $REMOTE_SHA" | bash "$PREPUSH_SCRIPT") 2>/dev/null; then
-  green "拦截非快进推送（force push）"
+  green "Intercept non-fast forward push (force push)"
   PASS=$((PASS + 1))
 else
-  red "拦截非快进推送（force push）"
+  red "Intercept non-fast-forward push (force push)"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
 
-# 正常快进推送应放行：FF_SHA 是 REMOTE_SHA 的直接后继
+# Normal fast forward push should be allowed: FF_SHA is the direct successor of REMOTE_SHA
 git -C "$tmp_repo_push" checkout -q "$REMOTE_SHA"
 git -C "$tmp_repo_push" commit --allow-empty -m "fast-forward"
 FF_SHA=$(git -C "$tmp_repo_push" rev-parse HEAD)
 
 if (cd "$tmp_repo_push" && echo "refs/heads/main $FF_SHA refs/heads/main $REMOTE_SHA" | bash "$PREPUSH_SCRIPT") 2>/dev/null; then
-  green "快进推送放行"
+  green "Fast forward push release"
   PASS=$((PASS + 1))
 else
-  red "快进推送放行"
+  red "Fast forward push release"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
@@ -334,154 +334,154 @@ TOTAL=$((TOTAL + 1))
 rm -rf "$tmp_repo_push"
 
 # =========================================================
-header "pre-edit-guard.sh — 防幻觉编辑"
+header "pre-edit-guard.sh — anti-hallucination editing"
 # =========================================================
 
-# 不存在的文件应被拦截
+# Files that do not exist should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/nonexistent/file.rs","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "拦截编辑不存在的文件"
+assert_contains "$result" '"decision": "block"' "Block editing of non-existent files"
 
-# 路径含单引号应安全处理（不崩溃）
+# Paths containing single quotes should be handled safely (without crashing)
 result=$(echo '{"tool_input":{"file_path":"/tmp/file'\''with'\''quotes.rs","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "路径含单引号安全处理"
+assert_contains "$result" '"decision": "block"' "Safe handling of paths containing single quotes"
 
-# 已存在文件 + 空 old_string 应放行
+# Existing file + empty old_string should be released
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "已存在文件+空 old_string 放行"
+assert_not_contains "$result" '"decision": "block"' "Existing file + empty old_string release"
 
-# W-12: 测试基础设施文件应被拦截（conftest.py）
+# W-12: Test infrastructure files should be intercepted (conftest.py)
 result=$(echo '{"tool_input":{"file_path":"/any/path/conftest.py","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 conftest.py"
-assert_contains "$result" "W-12" "W-12: 错误消息包含规则编号"
+assert_contains "$result" '"decision": "block"' "W-12: Block editing conftest.py"
+assert_contains "$result" "W-12" "W-12: Error message contains rule number"
 
-# W-12: jest.config.ts 应被拦截
+# W-12: jest.config.ts should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/jest.config.ts","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 jest.config.ts"
+assert_contains "$result" '"decision": "block"' "W-12: Block editing jest.config.ts"
 
-# W-12: jest.config.js 应被拦截
+# W-12: jest.config.js should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/jest.config.js","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 jest.config.js"
+assert_contains "$result" '"decision": "block"' "W-12: Block editing jest.config.js"
 
-# W-12: pytest.ini 应被拦截
+# W-12: pytest.ini should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/pytest.ini","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 pytest.ini"
+assert_contains "$result" '"decision": "block"' "W-12: Block editing pytest.ini"
 
-# W-12: .coveragerc 应被拦截
+# W-12: .coveragerc should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/.coveragerc","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截编辑 .coveragerc"
+assert_contains "$result" '"decision": "block"' "W-12: intercept editing .coveragerc"
 
-# W-12: 普通源码文件不应被测试基础设施规则拦截
+# W-12: Ordinary source files should not be blocked by test infrastructure rules
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
-assert_not_contains "$result" "W-12" "W-12: 普通文件不触发测试基础设施保护"
+assert_not_contains "$result" "W-12" "W-12: Ordinary files do not trigger test infrastructure protection"
 
 # =========================================================
-header "pre-write-guard.sh — 先搜后写"
+header "pre-write-guard.sh — search first and then write"
 # =========================================================
 
-# 已存在的文件应放行
+# Existing files should be released
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "已存在文件直接放行"
+assert_not_contains "$result" "VIBEGUARD" "Existing files are released directly"
 
-# 新建 .md 文件应放行
+# The new .md file should be released
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_README.md"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "新建 .md 文件放行"
+assert_not_contains "$result" "VIBEGUARD" "Create a new .md file and release it"
 
-# 新建 .json 文件应放行
+# The new .json file should be released
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_config.json"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "新建 .json 文件放行"
+assert_not_contains "$result" "VIBEGUARD" "Create a new .json file and release it"
 
-# 新建测试文件应放行
+#New test files should be released
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_foo.test.ts"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "新建测试文件放行"
+assert_not_contains "$result" "VIBEGUARD" "New test file released"
 
-# 新建源码文件应触发提醒/拦截
+# New source code files should trigger reminder/interception
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_service.py"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "[L1]" "新建 .py 源码文件触发 guard"
+assert_contains "$result" "[L1]" "Create a new .py source code file to trigger guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_main.rs"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "[L1]" "新建 .rs 源码文件触发 guard"
+assert_contains "$result" "[L1]" "Create a new .rs source file to trigger guard"
 
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test_app.tsx"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "[L1]" "新建 .tsx 源码文件触发 guard"
+assert_contains "$result" "[L1]" "Create a new .tsx source file to trigger guard"
 
-# tests/ 目录下的源码文件应放行
+# Source code files in the tests/ directory should be allowed
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_test/tests/helper.py"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "tests/ 目录下源码文件放行"
+assert_not_contains "$result" "VIBEGUARD" "Source code files in the tests/ directory are released"
 
-# W-12: 写入 conftest.py 应被拦截（新文件，正确 basename）
+# W-12: Writing to conftest.py should be intercepted (new file, correct basename)
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_dir/conftest.py"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截写入新 conftest.py"
-assert_contains "$result" "W-12" "W-12: write guard 错误消息包含规则编号"
+assert_contains "$result" '"decision": "block"' "W-12: Block writing to new conftest.py"
+assert_contains "$result" "W-12" "W-12: write guard error message contains rule number"
 
-# W-12: 写入已有 conftest.py 路径（含目录）也应被拦截
+# W-12: Writing to existing conftest.py paths (including directories) should also be blocked
 result=$(echo '{"tool_input":{"file_path":"/project/tests/conftest.py"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截写入已有 conftest.py 路径（含目录）"
+assert_contains "$result" '"decision": "block"' "W-12: Intercept writing to existing conftest.py paths (including directories)"
 
-# W-12: jest.config.ts 写入应被拦截
+# W-12: jest.config.ts writes should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/jest.config.ts"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 jest.config.ts"
+assert_contains "$result" '"decision": "block"' "W-12: Block writing to jest.config.ts"
 
-# W-12: vitest.config.ts 写入应被拦截
+# W-12: writes to vitest.config.ts should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/vitest.config.ts"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 vitest.config.ts"
+assert_contains "$result" '"decision": "block"' "W-12: Block writes to vitest.config.ts"
 
-# W-12: babel.config.js 写入应被拦截
+# W-12: babel.config.js writes should be intercepted
 result=$(echo '{"tool_input":{"file_path":"/project/babel.config.js"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "W-12: 拦截写入 babel.config.js"
+assert_contains "$result" '"decision": "block"' "W-12: Block writes to babel.config.js"
 
-# W-12: 普通 config.json 不应被测试基础设施规则拦截
+# W-12: Normal config.json should not be intercepted by test infrastructure rules
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_myconfig.json"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "W-12" "W-12: 普通 config.json 不触发测试基础设施保护"
+assert_not_contains "$result" "W-12" "W-12: Normal config.json does not trigger test infrastructure protection"
 
 # =========================================================
-header "post-edit-guard.sh — 质量警告"
+header "post-edit-guard.sh — quality warning"
 # =========================================================
 
-# Rust 文件新增 unwrap 应警告
+# Rust file added unwrap should warn
 result=$(echo '{"tool_input":{"file_path":"src/main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "RS-03" "检测 Rust unwrap"
+assert_contains "$result" "RS-03" "Detect Rust unwrap"
 
-# Rust 文件新增 unwrap_or_default 不应警告
+# Rust file adds unwrap_or_default which should not warn
 result=$(echo '{"tool_input":{"file_path":"src/main.rs","new_string":"let val = data.unwrap_or_default();"}}' | bash hooks/post-edit-guard.sh)
-assert_not_contains "$result" "RS-03" "不误报 unwrap_or_default"
+assert_not_contains "$result" "RS-03" "Not false positive unwrap_or_default"
 
-# 测试文件中的 unwrap 不应警告
+# unwrap in test files should not warn
 result=$(echo '{"tool_input":{"file_path":"tests/test_main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
-assert_not_contains "$result" "RS-03" "测试文件 unwrap 不警告"
+assert_not_contains "$result" "RS-03" "Test file unwrap does not warn"
 
-# TS 文件新增 console.log 应警告（使用绝对路径避免误判 CLI 项目）
+# The new console.log in the TS file should warn (use absolute paths to avoid misjudgment of CLI projects)
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "DEBUG" "检测 TS console.log"
+assert_contains "$result" "DEBUG" "Detect TS console.log"
 
-# Python 文件新增 print 应警告
+# New print in Python file should warn
 result=$(echo '{"tool_input":{"file_path":"src/main.py","new_string":"  print(data)"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "DEBUG" "检测 Python print()"
+assert_contains "$result" "DEBUG" "Detect Python print()"
 
-# 硬编码 .db 路径应警告
+# Hardcoded .db paths should warn
 result=$(echo '{"tool_input":{"file_path":"src/config.rs","new_string":"let db = \"app.db\";"}}' | bash hooks/post-edit-guard.sh)
-assert_contains "$result" "U-11" "检测硬编码 .db 路径"
+assert_contains "$result" "U-11" "Detect hardcoded .db paths"
 
 # =========================================================
-header "post-write-guard.sh — 重复检测"
+header "post-write-guard.sh — duplicate detection"
 # =========================================================
 
-# 非源码文件（.md）应放行
+# Non-source files (.md) should be allowed
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "非源码文件 (.md) 放行"
+assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"
 
-# 无 git 项目时放行（使用 /tmp 下不存在的路径）
+# Release when there is no git project (use a path that does not exist under /tmp)
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_no_git_project/src/main.rs","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "无 git 项目时放行"
+assert_not_contains "$result" "VIBEGUARD" "Release if there is no git project"
 
-# 空 content 放行
+# Empty content is released
 result=$(echo '{"tool_input":{"file_path":"src/lib.rs","content":""}}' | bash hooks/post-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "空 content 放行"
+assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
 
-# 空 file_path 放行
+# Empty file_path is allowed
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
+assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
-# 同名源码文件应告警
+# Source code files with the same name should alert
 tmp_repo_same_name="$(mktemp -d)"
 git -C "$tmp_repo_same_name" init -q
 mkdir -p "$tmp_repo_same_name/src/existing" "$tmp_repo_same_name/src/new"
@@ -491,10 +491,10 @@ def existing_service():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def create_service():\\n    return True"}}' "$tmp_repo_same_name/src/new/service.py")
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
-assert_contains "$result" "[L1]" "检测同名源码文件重复"
+assert_contains "$result" "[L1]" "Detect duplicate source files with the same name"
 rm -rf "$tmp_repo_same_name"
 
-# 重复定义应告警
+# Duplicate definitions should alert
 tmp_repo_dup_def="$(mktemp -d)"
 git -C "$tmp_repo_dup_def" init -q
 mkdir -p "$tmp_repo_dup_def/src/existing" "$tmp_repo_dup_def/src/new"
@@ -504,10 +504,10 @@ def processOrder():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def processOrder():\\n    return 2"}}' "$tmp_repo_dup_def/src/new/new_handler.py")
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
-assert_contains "$result" "[L1]" "检测重复定义"
+assert_contains "$result" "[L1]" "Detect duplicate definitions"
 rm -rf "$tmp_repo_dup_def"
 
-# 超过扫描预算时应降级提示
+# Prompt for downgrade when scanning budget is exceeded
 tmp_repo_budget="$(mktemp -d)"
 git -C "$tmp_repo_budget" init -q
 mkdir -p "$tmp_repo_budget/src"
@@ -517,55 +517,55 @@ def keepExisting():
 EOF
 json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def keepExisting():\\n    return \\"new\\""}}' "$tmp_repo_budget/src/new_file.py")
 result=$(echo "$json_payload" | VG_SCAN_MAX_FILES=0 bash hooks/post-write-guard.sh)
-assert_contains "$result" "[L1]" "超过文件预算时降级"
+assert_contains "$result" "[L1]" "Downgrade when file budget exceeded"
 rm -rf "$tmp_repo_budget"
 
-# 新源码文件有同名文件时应 warn（使用当前仓库中已有的 log.sh）
+# When the new source code file has a file with the same name, you should warn (use the existing log.sh in the current warehouse)
 result=$(echo '{"tool_input":{"file_path":"'${REPO_DIR}'/hooks/subdir/log.sh","content":"#!/bin/bash\necho test"}}' | bash hooks/post-write-guard.sh)
-# log.sh 已存在于 hooks/ 目录，如果检测到应有 VIBEGUARD 输出
-# 但 .sh 不在 VG_SOURCE_EXTS 中，所以放行
-assert_not_contains "$result" "VIBEGUARD" "非源码扩展名 (.sh) 放行"
+# log.sh already exists in the hooks/ directory, if detected there should be VIBEGUARD output
+# But .sh is not in VG_SOURCE_EXTS, so it is allowed
+assert_not_contains "$result" "VIBEGUARD" "Non-source extension (.sh) allowed"
 
 # =========================================================
-header "post-build-check.sh — 构建检查"
+header "post-build-check.sh — build check"
 # =========================================================
 
-# 非构建语言文件（.py）应放行
+# Non-build language files (.py) should be allowed
 result=$(echo '{"tool_input":{"file_path":"src/main.py"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.py) 放行"
+assert_not_contains "$result" "VIBEGUARD" "Non-build language (.py) release"
 
-# .md 文件应放行
+# .md files should be released
 result=$(echo '{"tool_input":{"file_path":"README.md"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "非源码文件 (.md) 放行"
+assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"
 
-# 空 file_path 放行
+# Empty file_path is allowed
 result=$(echo '{"tool_input":{"file_path":""}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "空 file_path 放行"
+assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
-# .json 文件应放行
+# .json files should be released
 result=$(echo '{"tool_input":{"file_path":"package.json"}}' | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "非构建语言 (.json) 放行"
+assert_not_contains "$result" "VIBEGUARD" "Non-build language (.json) release"
 
-# JavaScript 语法错误应警告
+# JavaScript syntax errors should warn
 tmp_js_bad="$(mktemp -d)"
 cat >"$tmp_js_bad/bad.js" <<'EOF'
 const value = ;
 EOF
 result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_bad/bad.js\"}}" | bash hooks/post-build-check.sh)
-assert_contains "$result" "VIBEGUARD" "JavaScript 语法错误触发构建检查警告"
+assert_contains "$result" "VIBEGUARD" "JavaScript syntax error triggers build check warning"
 rm -rf "$tmp_js_bad"
 
-# JavaScript 语法正确应放行
+# JavaScript should be allowed if the syntax is correct
 tmp_js_ok="$(mktemp -d)"
 cat >"$tmp_js_ok/good.js" <<'EOF'
 const value = 1;
 EOF
 result=$(echo "{\"tool_input\":{\"file_path\":\"$tmp_js_ok/good.js\"}}" | bash hooks/post-build-check.sh)
-assert_not_contains "$result" "VIBEGUARD" "JavaScript 语法正确放行"
+assert_not_contains "$result" "VIBEGUARD" "JavaScript syntax is correct"
 rm -rf "$tmp_js_ok"
 
 # =========================================================
-header "pre-commit-guard.sh — timeout 回退"
+header "pre-commit-guard.sh — timeout fallback"
 # =========================================================
 
 tmp_repo_precommit="$(mktemp -d)"
@@ -606,10 +606,10 @@ EOF
 chmod +x "$tmp_repo_precommit/bin/timeout" "$tmp_repo_precommit/bin/gtimeout" "$tmp_repo_precommit/bin/cargo"
 git -C "$tmp_repo_precommit" add Cargo.toml src/lib.rs
 
-assert_exit_zero "timeout/gtimeout 不可用时回退执行，不误报构建失败" bash -c "cd '$tmp_repo_precommit' && PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+assert_exit_zero "Rewind execution when timeout/gtimeout is unavailable, and do not falsely report build failures" bash -c "cd '$tmp_repo_precommit' && PATH='$tmp_repo_precommit/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_precommit"
 
-# Go 项目应运行 Go 守卫（新增 _ = 丢弃 error 时阻止提交）
+# Go projects should run Go guards (new _ = prevent commits when discarding error)
 tmp_repo_precommit_go="$(mktemp -d)"
 git -C "$tmp_repo_precommit_go" init -q
 mkdir -p "$tmp_repo_precommit_go/bin" "$tmp_repo_precommit_go/cmd"
@@ -632,14 +632,14 @@ EOF
 
 cat >"$tmp_repo_precommit_go/bin/go" <<'EOF'
 #!/usr/bin/env bash
-# pre-commit 中 go build 只作为构建门禁，这里返回成功避免依赖本机 Go
+# go build in pre-commit is only used as a build access control. Success is returned here to avoid relying on native Go.
 exit 0
 EOF
 
 chmod +x "$tmp_repo_precommit_go/bin/go"
 git -C "$tmp_repo_precommit_go" add go.mod cmd/main.go
 
-assert_exit_nonzero "Go 守卫可阻止 _= 丢弃 error 的提交" bash -c "cd '$tmp_repo_precommit_go' && PATH='$tmp_repo_precommit_go/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+assert_exit_nonzero "Go guards prevent _= discarding commits with error" bash -c "cd '$tmp_repo_precommit_go' && PATH='$tmp_repo_precommit_go/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_precommit_go"
 
 # =========================================================
@@ -704,17 +704,17 @@ _result_a=$(
     echo "fresh:$new_id"
   fi
 )
-assert_not_contains "$_result_a" "reused" "start time 不匹配（PID 回收）时不应复用旧 session_id"
-assert_contains "$_result_a" "fresh:" "start time 不匹配时应生成新 session_id"
+assert_not_contains "$_result_a" "reused" "Old session_id should not be reused when start time does not match (PID recycling)"
+assert_contains "$_result_a" "fresh:" "A new session_id should be generated when the start time does not match"
 
 # Verify file was overwritten with new two-line format (line 2 = new session_id, not old one).
 _file_line2=$(tail -1 "$_vg_sf_a" 2>/dev/null)
 TOTAL=$((TOTAL + 1))
 if [[ "$_file_line2" != "$_stale_session_id" ]]; then
-  green "PID 回收场景：session 文件已用新 session_id 覆盖"
+  green "PID recycling scenario: session file has been overwritten with new session_id"
   PASS=$((PASS + 1))
 else
-  red "PID 回收场景：session 文件未更新，仍为旧 session_id"
+  red "PID recycling scenario: the session file has not been updated and is still the old session_id"
   FAIL=$((FAIL + 1))
 fi
 
@@ -747,8 +747,8 @@ _result_b=$(
     echo "fresh:$new_id"
   fi
 )
-assert_not_contains "$_result_b" "reused" "TTL 过期（>30min）时不应复用旧 session_id"
-assert_contains "$_result_b" "fresh:" "TTL 过期时应生成新 session_id（防止长进程跨任务污染）"
+assert_not_contains "$_result_b" "reused" "Old session_id should not be reused when TTL expires (>30min)"
+assert_contains "$_result_b" "fresh:" "A new session_id should be generated when the TTL expires (to prevent cross-task pollution of long processes)"
 
 # --- Test C: atomic write — session file must always have exactly 2 complete lines ---
 # This guards against the race where a concurrent reader sees a truncated file (open O_TRUNC
@@ -762,67 +762,67 @@ _line1=$(head -1 "$_vg_sf_c" 2>/dev/null)
 _line2=$(tail -1 "$_vg_sf_c" 2>/dev/null)
 TOTAL=$((TOTAL + 1))
 if [[ "$_line_count" == "2" && "$_line1" == "$_atomic_start" && "$_line2" == "$_atomic_id" ]]; then
-  green "原子写入：session 文件恰好有 2 行且内容完整"
+  green "Atomic write: session file has exactly 2 lines and is complete"
   PASS=$((PASS + 1))
 else
-  red "原子写入：session 文件行数或内容不符（lines=$_line_count line1='$_line1' line2='$_line2'）"
+  red "Atomic write: session file line number or content does not match (lines=$_line_count line1='$_line1' line2='$_line2')"
   FAIL=$((FAIL + 1))
 fi
 
 rm -rf "$_test_log_dir"
-header "post-edit-guard — vibeguard-disable-next-line 抑制"
+header "post-edit-guard — vibeguard-disable-next-line suppression"
 # =========================================================
 
-# RS-03 不带抑制注释 → 应产生警告
+# RS-03 without suppression comment → should generate a warning
 result=$(python3 -c "
 import json
 content = 'let x = foo.unwrap();'
 print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_contains "$result" "RS-03" "RS-03: unwrap() 无抑制注释时产生警告"
+assert_contains "$result" "RS-03" "RS-03: unwrap() generates warning when unsuppressed annotation"
 
-# RS-03 带抑制注释 → 应抑制该行警告
+# RS-03 with suppress comment → warnings on this line should be suppressed
 result=$(python3 -c "
 import json
 content = '// vibeguard-disable-next-line RS-03 -- signal handler\nlet x = foo.unwrap();'
 print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_not_contains "$result" "RS-03" "RS-03: vibeguard-disable-next-line 抑制 unwrap() 警告"
+assert_not_contains "$result" "RS-03" "RS-03: vibeguard-disable-next-line suppresses unwrap() warning"
 
-# RS-10 带抑制注释 → 应抑制
+# RS-10 with suppress comment → should be suppressed
 result=$(python3 -c "
 import json
 content = '// vibeguard-disable-next-line RS-10 -- intentional drop\nlet _ = sender.send(msg);'
 print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_not_contains "$result" "RS-10" "RS-10: vibeguard-disable-next-line 抑制 let _ = 警告"
+assert_not_contains "$result" "RS-10" "RS-10: vibeguard-disable-next-line suppress let _ = warning"
 
-# DEBUG 带抑制注释 → 应抑制 console 警告
+# DEBUG with suppress comment → console warnings should be suppressed
 result=$(python3 -c "
 import json
 content = '// vibeguard-disable-next-line DEBUG -- intentional stderr\nconsole.log(\"debug info\");'
 print(json.dumps({'tool_input': {'file_path': 'src/service.ts', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_not_contains "$result" "DEBUG" "DEBUG: vibeguard-disable-next-line 抑制 console.log 警告"
+assert_not_contains "$result" "DEBUG" "DEBUG: vibeguard-disable-next-line suppresses console.log warnings"
 
-# U-11 带抑制注释 → 应抑制硬编码路径警告
+# U-11 with suppress comments → hardcoded path warnings should be suppressed
 result=$(python3 -c "
 import json
 content = '// vibeguard-disable-next-line U-11 -- test fixture\nconst DB = \"test.db\";'
 print(json.dumps({'tool_input': {'file_path': 'src/config.ts', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_not_contains "$result" "U-11" "U-11: vibeguard-disable-next-line 抑制硬编码路径警告"
+assert_not_contains "$result" "U-11" "U-11: vibeguard-disable-next-line suppress hardcoded path warnings"
 
-# 抑制注释只作用于紧接下一行（第三行的 unwrap 仍应报警）
+# Suppress comments only apply to the next line (unwrap on the third line should still alarm)
 result=$(python3 -c "
 import json
 content = '// vibeguard-disable-next-line RS-03 -- ok\nlet a = safe.unwrap();\nlet b = other.unwrap();'
 print(json.dumps({'tool_input': {'file_path': 'src/main.rs', 'new_string': content}}))
 " | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" bash hooks/post-edit-guard.sh 2>/dev/null || true)
-assert_contains "$result" "RS-03" "RS-03: 抑制注释仅作用于紧接的下一行，第三行 unwrap 仍报警"
+assert_contains "$result" "RS-03" "RS-03: Suppressing comments only applies to the next line, and unwrap on the third line will still alarm"
 
 # =========================================================
-# 总结
+# Summarize
 # =========================================================
 
 echo

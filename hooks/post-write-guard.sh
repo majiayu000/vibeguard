@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # VibeGuard PostToolUse(Write) Hook
 #
-# 新源码文件创建后，检测项目中是否存在重复实现：
-#   1. 同名文件（不同目录下出现同名源码文件）
-#   2. 关键定义重复（struct/class/interface/func 在其他文件中已存在）
+# After the new source code file is created, detect whether there are duplicate implementations in the project:
+# 1. Files with the same name (source code files with the same name appear in different directories)
+# 2. Duplication of key definitions (struct/class/interface/func already exists in other files)
 #
-# 事后审查，不阻止操作，只输出警告。
-# 与 pre-write-guard（warn 模式）配合：前置提醒 + 后置审查。
+# After-the-fact review, the operation will not be blocked and only a warning will be output.
+# Cooperate with pre-write-guard (warn mode): pre-reminder + post-review.
 
 set -euo pipefail
 
@@ -23,17 +23,17 @@ if [[ -z "$FILE_PATH" ]] || [[ -z "$CONTENT" ]]; then
   exit 0
 fi
 
-# 提取文件名和扩展名
+#Extract file name and extension
 BASENAME=$(basename "$FILE_PATH")
 EXT="${BASENAME##*.}"
 
-# 只检查源码文件
+# Only check source files
 if ! vg_is_source_file "$FILE_PATH"; then
-  vg_log "post-write-guard" "Write" "pass" "非源码文件" "$FILE_PATH"
+  vg_log "post-write-guard" "Write" "pass" "Non-source file" "$FILE_PATH"
   exit 0
 fi
 
-# 找到项目根目录（向上找 .git）
+# Find the project root directory (look up for .git)
 PROJECT_DIR="$FILE_PATH"
 while [[ "$PROJECT_DIR" != "/" ]]; do
   PROJECT_DIR=$(dirname "$PROJECT_DIR")
@@ -43,13 +43,13 @@ while [[ "$PROJECT_DIR" != "/" ]]; do
 done
 
 if [[ "$PROJECT_DIR" == "/" ]]; then
-  vg_log "post-write-guard" "Write" "pass" "无 git 项目" "$FILE_PATH"
+  vg_log "post-write-guard" "Write" "pass" "No git project" "$FILE_PATH"
   exit 0
 fi
 
 WARNINGS=""
 
-# 扫描预算：避免在大仓库中每次写入都触发高开销全量扫描
+#Scan budget: avoid triggering a high-cost full scan for every write in a large warehouse
 MAX_SCAN_FILES="${VG_SCAN_MAX_FILES:-5000}"
 MAX_SCAN_DEFS="${VG_SCAN_MAX_DEFS:-20}"
 MAX_MATCHES="${VG_SCAN_MATCH_LIMIT:-5}"
@@ -96,8 +96,8 @@ if [[ "${FILE_COUNT}" -gt "${MAX_SCAN_FILES}" ]]; then
   SCAN_DEGRADED=1
 fi
 
-# --- 检查 1: 同名文件 ---
-# 在项目中搜索同名文件（排除 node_modules、.git、target、vendor 等）
+# --- Check 1: File with the same name ---
+# Search for files with the same name in the project (exclude node_modules, .git, target, vendor, etc.)
 if [[ "${HAS_RG}" -eq 1 ]]; then
   SAME_NAME_FILES=$(rg --files "${RG_EXCLUDES[@]}" -g "**/${BASENAME}" "$PROJECT_DIR" 2>/dev/null \
     | grep -Fvx -- "$FILE_PATH" \
@@ -136,8 +136,8 @@ SCOPE: informational only — no action required
 ACTION: SKIP"
 fi
 
-# --- 检查 2: 关键定义重复 ---
-# 从新文件内容中提取关键定义名称
+# --- Check 2: Duplicate key definition ---
+#Extract key definition names from the new file contents
 DEFINITIONS=$(echo "$CONTENT" | EXT="$EXT" python3 -c "
 import sys, re, os
 
@@ -192,7 +192,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
   DEFINITIONS=$(echo "$DEFINITIONS" | head -n "${MAX_SCAN_DEFS}")
   DUPLICATE_DEFS=""
   while IFS= read -r defname; do
-    # 在项目中搜索这个定义名（排除新文件自身）
+    # Search for this definition name in the project (excluding the new file itself)
     if [[ "${HAS_RG}" -eq 1 ]]; then
       FOUND=$(rg -l "${RG_EXCLUDES[@]}" -g "**/*.${EXT}" \
         -e "struct[[:space:]]+${defname}\\b" \
@@ -228,7 +228,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
 
     if [[ -n "$FOUND" ]]; then
       FOUND_LIST=$(echo "$FOUND" | tr '\n' ', ' | sed 's/,$//')
-      DUPLICATE_DEFS="${DUPLICATE_DEFS:+${DUPLICATE_DEFS} }${defname}(在 ${FOUND_LIST})"
+      DUPLICATE_DEFS="${DUPLICATE_DEFS:+${DUPLICATE_DEFS} }${defname}(in ${FOUND_LIST})"
     fi
   done <<< "$DEFINITIONS"
 
@@ -241,7 +241,7 @@ DO NOT: Delete existing definitions or merge code without confirming intent"
   fi
 fi
 
-# --- Anti-Stub 检测（GSD 借鉴：三级制品验证 Level 2 — Substantiveness） ---
+# --- Anti-Stub detection (GSD reference: Level 2 product verification Level 2 — Substantiveness) ---
 STUB_WARNINGS=""
 case "$FILE_PATH" in
   *.rs)
@@ -296,7 +296,7 @@ warnings = os.environ.get("VG_WARNINGS", "")
 result = {
     "hookSpecificOutput": {
         "hookEventName": "PostToolUse",
-        "additionalContext": "VIBEGUARD 重复检测：" + warnings
+        "additionalContext": "VIBEGUARD duplicate detection:" + warnings
     }
 }
 print(json.dumps(result, ensure_ascii=False))

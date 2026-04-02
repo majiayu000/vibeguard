@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# VibeGuard Rust Guard: 检测生产代码中的 unwrap()/expect() (RS-03)
+# VibeGuard Rust Guard: Detect unwrap()/expect() in production code (RS-03)
 #
-# 两种模式:
-#   Pre-commit 模式 (VIBEGUARD_STAGED_FILES 已设置):
-#     grep diff 新增行（+开头），保留原有逻辑（diff 不是文件，ast-grep 无法处理）。
+# Two modes:
+# Pre-commit mode (VIBEGUARD_STAGED_FILES is set):
+# grep diff adds new lines (starting with +) and retains the original logic (diff is not a file and cannot be processed by ast-grep).
 #
-#   Standalone 模式 (手动运行):
-#     使用 ast-grep AST 级别扫描，消除注释中的误报，精确排除 unwrap_or* 变体。
+# Standalone mode (manual operation):
+# Use ast-grep AST level scanning to eliminate false positives in comments and precisely exclude unwrap_or* variants.
 #
-# 用法:
+# Usage:
 #   bash check_unwrap_in_prod.sh [target_dir]
 #   bash check_unwrap_in_prod.sh --strict [target_dir]
 #
-# 排除 (两种模式通用):
-#   - tests/ 目录、benches/ 目录、examples/ 目录
-#   - 文件名为 tests.rs、test_helpers.rs、或包含 test_ / _test 的文件
-#   - #[cfg(test)] 行之后的所有代码
+# Exclude (common to both modes):
+# - tests/ directory, benches/ directory, examples/ directory
+# - A file named tests.rs, test_helpers.rs, or a file containing test_ / _test
+# - All code after the #[cfg(test)] line
 
 source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# 路径排除 pattern（test 文件）
+# Path exclusion pattern (test file)
 TEST_PATH_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
-# --- Pre-commit 模式：grep diff 新增行（ast-grep 不处理 diff 文本）---
+# --- Pre-commit mode: grep diff new lines (ast-grep does not process diff text) ---
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
   STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | { grep -vE "${TEST_PATH_PATTERN}" || true; })
 
@@ -108,7 +108,7 @@ for raw in sys.stdin:
         current_line += 1
 DIFFPYEOF
         if ! python3 "${_diff_py}" "${f}" < "${_diff_tmp}" 2>/dev/null; then
-          echo "[RS-03] WARN: python3 解析失败 ${f}，使用 grep fallback" >&2
+          echo "[RS-03] WARN: python3 failed to parse ${f}, use grep fallback" >&2
           <"${_diff_tmp}" grep '^+' \
             | grep -v '^+++' \
             | grep -E '\.(unwrap|expect)\(' \
@@ -131,10 +131,10 @@ DIFFPYEOF
     done <<< "${STAGED_RS}"
   fi > "${TMPFILE}" || true
 
-# --- Standalone 模式：ast-grep AST 扫描（精确识别调用表达式，跳过注释）---
+# --- Standalone mode: ast-grep AST scan (accurately identify calling expressions, skip comments) ---
 elif command -v ast-grep >/dev/null 2>&1; then
   if ! command -v python3 >/dev/null 2>&1; then
-    echo "[RS-03] WARN: python3 不可用，使用 grep fallback" >&2
+    echo "[RS-03] WARN: python3 is not available, use grep fallback" >&2
     # fall through to grep fallback below
     list_rs_files "${TARGET_DIR}" \
       | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
@@ -234,7 +234,7 @@ if not data:
 try:
     matches = json.loads(data)
 except Exception as e:
-    print('[RS-03] WARN: JSON 解析失败: ' + str(e), file=sys.stderr)
+    print('[RS-03] WARN: JSON parsing failed: ' + str(e), file=sys.stderr)
     sys.exit(1)
 for m in matches:
     l = m.get('range', {}).get('start', {}).get('line', 0) + 1
@@ -253,7 +253,7 @@ PYEOF
               --rule "${RULES_DIR}/rs-03-unwrap.yml" \
               --json "${f}" > "${_ASG_FILE_OUT}" 2>/dev/null; then
             python3 "${_PY_SCRIPT}" "${f}" < "${_ASG_FILE_OUT}" >> "${_ASG_PER_FILE}" || {
-            echo "[RS-03] WARN: JSON 解析失败 ${f}，使用 grep fallback" >&2
+            echo "[RS-03] WARN: JSON parsing failed ${f}, use grep fallback" >&2
             awk '
               function net_braces(line,    _t, _o, _c) {
                 _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
@@ -282,7 +282,7 @@ PYEOF
             ' "${f}" >> "${_ASG_PER_FILE}" || true
           }
           else
-            echo "[RS-03] WARN: ast-grep 扫描失败 ${f}，使用 grep fallback" >&2
+            echo "[RS-03] WARN: ast-grep scan failed ${f}, use grep fallback" >&2
             awk '
               function net_braces(line,    _t, _o, _c) {
                 _t = line; gsub(/\/\/.*$/, "", _t); gsub(/"[^"]*"/, "", _t)
@@ -314,7 +314,7 @@ PYEOF
     cat "${_ASG_PER_FILE}" > "${TMPFILE}" || true
   fi
 
-# --- Fallback: ast-grep 不可用时使用 grep ---
+# --- Fallback: Use grep when ast-grep is not available ---
 else
   list_rs_files "${TARGET_DIR}" \
     | { grep -vE "${TEST_PATH_PATTERN}" || true; } \

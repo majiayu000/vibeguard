@@ -8,4 +8,4 @@ rule:
 constraints:
   T:
     regex: "Config$"
-message: "Config 类型通过 Default::default() 初始化。若 Config 有 load() 方法，应使用 Config::load() 加载配置"
+message: "Config type is initialized through Default::default(). If Config has a load() method, Config::load() should be used to load the configuration"

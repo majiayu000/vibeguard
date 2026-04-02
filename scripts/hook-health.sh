@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # VibeGuard Hook Health Snapshot
-# 读取 events.jsonl，输出最近 N 小时的健康快照。
+# Read events.jsonl and output the health snapshot of the last N hours.
 #
-# 用法：
-#   bash scripts/hook-health.sh        # 最近 24 小时
-#   bash scripts/hook-health.sh 72     # 最近 72 小时
+# Usage:
+# bash scripts/hook-health.sh # Last 24 hours
+# bash scripts/hook-health.sh 72 # Last 72 hours
 
 set -euo pipefail
 
@@ -12,12 +12,12 @@ HOURS="${1:-24}"
 LOG_FILE="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/events.jsonl"
 
 if ! [[ "${HOURS}" =~ ^[0-9]+$ ]] || [[ "${HOURS}" -le 0 ]]; then
-  echo "参数必须是正整数小时数，例如: 24"
+  echo "The argument must be a positive integer number of hours, for example: 24"
   exit 1
 fi
 
 if [[ ! -f "${LOG_FILE}" ]]; then
-  echo "没有日志数据。hooks 触发后会自动记录到 ${LOG_FILE}"
+  echo "No log data. Hooks will be automatically logged to ${LOG_FILE} after being triggered."
   exit 0
 fi
 
@@ -61,7 +61,7 @@ with open(log_file, "r", encoding="utf-8") as f:
             events.append(event)
 
 if not events:
-    print(f"最近 {hours} 小时没有日志数据。")
+    print(f"No log data for the last {hours} hours.")
     sys.exit(0)
 
 events.sort(key=lambda e: e["_parsed_ts"])
@@ -74,13 +74,13 @@ risk_rate = (risk_count / total * 100) if total else 0.0
 first_ts = events[0].get("ts", "?")
 last_ts = events[-1].get("ts", "?")
 
-print(f"VibeGuard Hook Health (最近 {hours} 小时)")
+print(f"VibeGuard Hook Health (last {hours} hours)")
 print("=" * 44)
-print(f"时间范围: {first_ts} ~ {last_ts}")
-print(f"总触发: {total}")
-print(f"通过(pass): {pass_count}")
-print(f"风险(非 pass): {risk_count}")
-print(f"风险率: {risk_rate:.1f}%")
+print(f"Time range: {first_ts} ~ {last_ts}")
+print(f"Total triggers: {total}")
+print(f"Pass: {pass_count}")
+print(f"Risk (non-pass): {risk_count}")
+print(f"Risk rate: {risk_rate:.1f}%")
 print(f"  block: {by_decision.get('block', 0)}")
 print(f"  gate: {by_decision.get('gate', 0)}")
 print(f"  warn: {by_decision.get('warn', 0)}")
@@ -90,11 +90,11 @@ print(f"  correction: {by_decision.get('correction', 0)}")
 non_pass_events = [e for e in events if e.get("decision") != "pass"]
 if non_pass_events:
     top_non_pass_hooks = Counter(e.get("hook", "unknown") for e in non_pass_events)
-    print("\n风险 Hook Top 5:")
+    print("\nRisk Hook Top 5:")
     for hook, count in top_non_pass_hooks.most_common(5):
         print(f"  {hook}: {count}")
 
-    print("\n最近风险事件 Top 10:")
+    print("\nTop 10 recent risk events:")
     for i, event in enumerate(reversed(non_pass_events[-10:]), start=1):
         ts = event.get("ts", "?")
         session = event.get("session", "?")

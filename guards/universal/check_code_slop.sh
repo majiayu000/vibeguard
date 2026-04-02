@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# VibeGuard Guard — AI 代码垃圾检测
+# VibeGuard Guard — AI code garbage detection
 #
-# 检测 AI 常见垃圾模式：
-#   - 未使用的 import
-#   - 空 catch/except 块
-#   - 超过 30 天未处理的 TODO/FIXME
-#   - 死代码标记（unreachable、never）
-#   - 遗留的调试代码（console.log、print、dbg!）
+# Detect common AI garbage patterns:
+# - unused import
+# - Empty catch/except block
+# - TODO/FIXME not processed for more than 30 days
+# - Dead code markers (unreachable, never)
+# - Legacy debugging code (console.log, print, dbg!)
 #
-# 用法：
-#   bash check_code_slop.sh [target_dir]    # 扫描指定目录
-#   bash check_code_slop.sh                 # 扫描当前目录
+# Usage:
+# bash check_code_slop.sh [target_dir] # Scan the specified directory
+# bash check_code_slop.sh # Scan the current directory
 
 set -euo pipefail
 
@@ -21,42 +21,42 @@ yellow() { printf '\033[33m[SLOP] %s\033[0m\n' "$1"; }
 red() { printf '\033[31m[SLOP] %s\033[0m\n' "$1"; }
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 
-# 排除目录
+#Exclude directories
 EXCLUDE="--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=target --exclude-dir=dist --exclude-dir=build --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=vendor"
 
-echo "扫描目录: ${TARGET_DIR}"
+echo "Scan directory: ${TARGET_DIR}"
 echo "---"
 
-# 1. 空 catch/except 块
-echo "检查空异常处理块..."
+# 1. Empty catch/except block
+echo "Check for empty exception handling block..."
 EMPTY_CATCH=$(grep -rn $EXCLUDE \
   -E '(catch\s*\([^)]*\)\s*\{\s*\}|except(\s+\w+)?:\s*$|except.*:\s*pass\s*$)' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' \
   2>/dev/null || true)
 if [[ -n "$EMPTY_CATCH" ]]; then
   COUNT=$(echo "$EMPTY_CATCH" | wc -l | tr -d ' ')
-  red "空异常处理块: ${COUNT} 处"
+  red "Empty exception handling block: ${COUNT}"
   echo "$EMPTY_CATCH" | head -5
-  [[ "$COUNT" -gt 5 ]] && echo "  ... 还有 $((COUNT - 5)) 处"
+  [[ "$COUNT" -gt 5 ]] && echo " ... and $((COUNT - 5))"
   ISSUES=$((ISSUES + COUNT))
 fi
 
-# 2. 遗留调试代码
-echo "检查遗留调试代码..."
+# 2. Legacy debugging code
+echo "Check legacy debugging code..."
 DEBUG_CODE=$(grep -rn $EXCLUDE \
   -E '^\s*(console\.(log|debug|info)\(|print\(|println!\(|dbg!\(|puts |p |pp )' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.rb' --include='*.go' \
   2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.' || true)
 if [[ -n "$DEBUG_CODE" ]]; then
   COUNT=$(echo "$DEBUG_CODE" | wc -l | tr -d ' ')
-  yellow "遗留调试代码: ${COUNT} 处"
+  yellow "Legacy debugging code: at ${COUNT}"
   echo "$DEBUG_CODE" | head -5
-  [[ "$COUNT" -gt 5 ]] && echo "  ... 还有 $((COUNT - 5)) 处"
+  [[ "$COUNT" -gt 5 ]] && echo " ... and $((COUNT - 5))"
   ISSUES=$((ISSUES + COUNT))
 fi
 
-# 3. 过期 TODO/FIXME（git blame 检查日期）
-echo "检查过期 TODO/FIXME..."
+# 3. Expired TODO/FIXME (git blame check date)
+echo "Check expired TODO/FIXME..."
 TODOS=$(grep -rn $EXCLUDE \
   -E '(TODO|FIXME|HACK|XXX)\b' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.go' \
@@ -75,38 +75,38 @@ if [[ -n "$TODOS" ]]; then
     fi
   done <<< "$(echo "$TODOS" | head -20)"
   if [[ "$STALE" -gt 0 ]]; then
-    yellow "过期 TODO/FIXME (>30天): ${STALE} 处"
+    yellow "Expired TODO/FIXME (>30 days): ${STALE}"
     ISSUES=$((ISSUES + STALE))
   fi
-  echo "  TODO/FIXME 总数: $(echo "$TODOS" | wc -l | tr -d ' ')"
+  echo "TODO/FIXME total: $(echo "$TODOS" | wc -l | tr -d ' ')"
 fi
 
-# 4. 死代码标记
-echo "检查死代码标记..."
+# 4. Dead code marking
+echo "Check for dead code markers..."
 DEAD_CODE=$(grep -rn $EXCLUDE \
   -E '(unreachable!|todo!|unimplemented!|#\[allow\(dead_code\)\]|// @ts-ignore|# type: ignore|# noqa)' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.rs' \
   2>/dev/null || true)
 if [[ -n "$DEAD_CODE" ]]; then
   COUNT=$(echo "$DEAD_CODE" | wc -l | tr -d ' ')
-  yellow "死代码/抑制标记: ${COUNT} 处"
+  yellow "Dead code/suppression flag: ${COUNT}"
   echo "$DEAD_CODE" | head -5
-  [[ "$COUNT" -gt 5 ]] && echo "  ... 还有 $((COUNT - 5)) 处"
+  [[ "$COUNT" -gt 5 ]] && echo " ... and $((COUNT - 5))"
   ISSUES=$((ISSUES + COUNT))
 fi
 
-# 5. 超长文件 (> 300 行)
-echo "检查超长文件..."
+# 5. Very long files (> 300 lines)
+echo "Check for very long files..."
 LONG_FILES=$(find "$TARGET_DIR" \
   -name '*.py' -o -name '*.ts' -o -name '*.js' -o -name '*.tsx' -o -name '*.rs' -o -name '*.go' \
   2>/dev/null | while read -r f; do
     [[ "$f" == *node_modules* || "$f" == *target* || "$f" == *dist* || "$f" == *.git* ]] && continue
     LINES=$(wc -l < "$f" 2>/dev/null || echo 0)
-    [[ "$LINES" -gt 300 ]] && echo "  ${f}: ${LINES} 行"
+    [[ "$LINES" -gt 300 ]] && echo " ${f}: ${LINES} lines"
   done || true)
 if [[ -n "$LONG_FILES" ]]; then
   COUNT=$(echo "$LONG_FILES" | wc -l | tr -d ' ')
-  yellow "超长文件 (>300行): ${COUNT} 个"
+  yellow "Extra long files (>300 lines): ${COUNT}"
   echo "$LONG_FILES" | head -5
   ISSUES=$((ISSUES + COUNT))
 fi
@@ -114,9 +114,9 @@ fi
 echo ""
 echo "---"
 if [[ "$ISSUES" -gt 0 ]]; then
-  red "发现 ${ISSUES} 个代码垃圾问题"
+  red "${ISSUES} garbage issues found"
   exit 1
 else
-  green "未发现代码垃圾"
+  green "No code garbage found"
   exit 0
 fi

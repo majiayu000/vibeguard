@@ -1,7 +1,7 @@
 #!/bin/bash
-# 创建快进推送场景
+#Create fast forward push scene
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理 CWD
+# Note: There is no trap, the runner is responsible for cleaning up CWD
 git -C "$tmp" init -q
 git -C "$tmp" commit --allow-empty -m "base"
 BASE_SHA=$(git -C "$tmp" rev-parse HEAD)

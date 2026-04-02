@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# VibeGuard Precision Tracker 测试套件
+# VibeGuard Precision Tracker Test Suite
 #
-# 用法：bash tests/test_precision_tracker.sh
-# 从仓库根目录运行
+# Usage: bash tests/test_precision_tracker.sh
+#Run from the root directory of the repository
 
 set -euo pipefail
 
@@ -55,7 +55,7 @@ assert_cmd_ok() {
   fi
 }
 
-# ── 独立临时目录，不污染真实数据 ────────────────────────────────────────────
+# ──Independent temporary directory, does not pollute the real data ──────────────────────────────────────────
 TMPDIR_TEST=$(mktemp -d)
 TRIAGE_FILE="${TMPDIR_TEST}/triage.jsonl"
 SCORECARD_FILE="${TMPDIR_TEST}/rule-scorecard.json"
@@ -81,44 +81,44 @@ print(json.dumps(scorecard, indent=2))
 # Empty triage file
 touch "$TRIAGE_FILE"
 
-header "precision-tracker.py — 语法检查"
-assert_cmd_ok "Python 语法正确" python3 -m py_compile "$TRACKER"
+header "precision-tracker.py — syntax check"
+assert_cmd_ok "Python syntax is correct" python3 -m py_compile "$TRACKER"
 
-header "精度报告输出"
+header "Accuracy report output"
 report=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_FILE" \
   --scorecard-file "$SCORECARD_FILE")
-assert_contains "$report" "VibeGuard Rule Precision Scorecard" "报告标题存在"
-assert_contains "$report" "RS-03" "报告包含 RS-03"
-assert_contains "$report" "RS-99" "报告包含 RS-99"
-assert_contains "$report" "experimental" "报告显示 experimental 阶段"
-assert_contains "$report" "warn" "报告显示 warn 阶段"
-assert_contains "$report" "N/A" "无样本时精度显示 N/A"
+assert_contains "$report" "VibeGuard Rule Precision Scorecard" "Report title exists"
+assert_contains "$report" "RS-03" "Report contains RS-03"
+assert_contains "$report" "RS-99" "Report contains RS-99"
+assert_contains "$report" "experimental" "Report shows experimental phase"
+assert_contains "$report" "warn" "Report shows warn phase"
+assert_contains "$report" "N/A" "The accuracy displays N/A when there is no sample"
 
-header "--rule 过滤"
+header "--rule filter"
 report_single=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_FILE" \
   --scorecard-file "$SCORECARD_FILE" \
   --rule RS-03)
-assert_contains "$report_single" "RS-03" "--rule RS-03 包含 RS-03"
-assert_not_contains "$report_single" "RS-99" "--rule RS-03 排除 RS-99"
+assert_contains "$report_single" "RS-03" "--rule RS-03 contains RS-03"
+assert_not_contains "$report_single" "RS-99" "--rule RS-03 exclude RS-99"
 
-header "--record 记录 triage 反馈"
+header "--record record triage feedback"
 python3 "$TRACKER" \
   --triage-file "$TRIAGE_FILE" \
   --scorecard-file "$SCORECARD_FILE" \
   --record tp RS-03 >/dev/null
-assert_contains "$(cat "$TRIAGE_FILE")" '"verdict": "tp"' "--record tp 写入 triage.jsonl"
-assert_contains "$(cat "$TRIAGE_FILE")" '"rule": "RS-03"' "--record tp 写入正确 rule"
+assert_contains "$(cat "$TRIAGE_FILE")" '"verdict": "tp"' "--record tp write triage.jsonl"
+assert_contains "$(cat "$TRIAGE_FILE")" '"rule": "RS-03"' "--record tp writes correct rule"
 
 python3 "$TRACKER" \
   --triage-file "$TRIAGE_FILE" \
   --scorecard-file "$SCORECARD_FILE" \
   --record fp RS-03 --context "false alarm in tests" >/dev/null
-assert_contains "$(cat "$TRIAGE_FILE")" '"verdict": "fp"' "--record fp 写入 triage.jsonl"
-assert_contains "$(cat "$TRIAGE_FILE")" "false alarm in tests" "--context 写入 triage.jsonl"
+assert_contains "$(cat "$TRIAGE_FILE")" '"verdict": "fp"' "--record fp write triage.jsonl"
+assert_contains "$(cat "$TRIAGE_FILE")" "false alarm in tests" "--context write triage.jsonl"
 
-header "精度计算正确性"
+header "Precision calculation correctness"
 # 1 tp + 1 fp → precision = 50%
 updated_scorecard=$(cat "$SCORECARD_FILE")
 echo "$updated_scorecard" | python3 -c "
@@ -132,14 +132,14 @@ assert abs(rs03['precision'] - 0.5) < 0.001, f'precision should be ~0.5, got {rs
 print('OK')
 " > /dev/null && {
   PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
-  green "1 TP + 1 FP 时精度为 50%"
+  green "50% accuracy at 1 TP + 1 FP"
 } || {
   FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
-  red "精度计算错误（期望 50%）"
+  red "Accuracy calculation error (expected 50%)"
 }
 
-header "生命周期晋升 — experimental → warn"
-# 添加 20 个 tp（precision ≥ 70% AND samples ≥ 20）到一个新的测试规则
+header "lifecycle promotion — experimental → warn"
+# Add 20 tps (precision ≥ 70% AND samples ≥ 20) to a new test rule
 TRIAGE2="${TMPDIR_TEST}/triage2.jsonl"
 SCORECARD2="${TMPDIR_TEST}/scorecard2.json"
 python3 -c "
@@ -169,8 +169,8 @@ transition_out=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE2" \
   --scorecard-file "$SCORECARD2" \
   --update-scorecard 2>&1)
-assert_contains "$transition_out" "TEST-01" "晋升输出包含规则名"
-assert_contains "$transition_out" "experimental → warn" "experimental 晋升到 warn"
+assert_contains "$transition_out" "TEST-01" "Promotion output contains rule name"
+assert_contains "$transition_out" "experimental → warn" "experimental promoted to warn"
 
 new_stage=$(python3 -c "
 import json
@@ -179,14 +179,14 @@ print(sc['rules']['TEST-01']['stage'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$new_stage" == "warn" ]]; then
-  green "晋升后 stage 为 warn"
+  green "After promotion, the stage is warn"
   PASS=$((PASS + 1))
 else
-  red "晋升后 stage 应为 warn，实际: $new_stage"
+  red "After promotion, stage should be warn, actual: $new_stage"
   FAIL=$((FAIL + 1))
 fi
 
-header "生命周期降级 — warn → demoted（精度 < 80%）"
+header "Lifecycle Degraded — warn → demoted (accuracy < 80%)"
 TRIAGE3="${TMPDIR_TEST}/triage3.jsonl"
 SCORECARD3="${TMPDIR_TEST}/scorecard3.json"
 python3 -c "
@@ -217,7 +217,7 @@ transition_out3=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE3" \
   --scorecard-file "$SCORECARD3" \
   --update-scorecard 2>&1)
-assert_contains "$transition_out3" "warn → demoted" "精度不足时降级到 demoted"
+assert_contains "$transition_out3" "warn → demoted" "Downgrade to demoted when accuracy is insufficient"
 
 demoted_stage=$(python3 -c "
 import json
@@ -226,14 +226,14 @@ print(sc['rules']['TEST-02']['stage'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$demoted_stage" == "demoted" ]]; then
-  green "降级后 stage 为 demoted"
+  green "After downgrade, the stage is demoted"
   PASS=$((PASS + 1))
 else
-  red "降级后 stage 应为 demoted，实际: $demoted_stage"
+  red "After downgrade, stage should be demoted, actual: $demoted_stage"
   FAIL=$((FAIL + 1))
 fi
 
-header "实验阶段规则精度不足时不直接降级 — experimental 不走 demoted 快捷路径"
+header "Do not downgrade directly when the accuracy of the rules in the experimental stage is insufficient — experimental does not take the demoted shortcut path"
 TRIAGE_EXP="${TMPDIR_TEST}/triage_exp.jsonl"
 SCORECARD_EXP="${TMPDIR_TEST}/scorecard_exp.json"
 python3 -c "
@@ -273,14 +273,14 @@ print(sc['rules']['EXP-01']['stage'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$exp_stage" == "experimental" ]]; then
-  green "精度不足的 experimental 规则保持 experimental（不直接降级）"
+  green "Experimental rules with insufficient precision remain experimental (not downgraded directly)"
   PASS=$((PASS + 1))
 else
-  red "experimental 规则不应直接降级，应保持 experimental，实际: $exp_stage"
+  red "experimental rules should not be downgraded directly and should remain experimental, actual: $exp_stage"
   FAIL=$((FAIL + 1))
 fi
 
-header "无效 triage 行被隔离（issue-1：schema 校验）"
+header "Invalid triage rows are isolated (issue-1: schema verification)"
 TRIAGE_BAD="${TMPDIR_TEST}/triage_bad.jsonl"
 SCORECARD_BAD="${TMPDIR_TEST}/scorecard_bad.json"
 python3 -c "
@@ -309,7 +309,7 @@ bad_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_BAD" \
   --scorecard-file "$SCORECARD_BAD" \
   --update-scorecard 2>&1 >/dev/null) || true
-assert_contains "$bad_stderr" "[ERROR]" "无效行产生 ERROR 输出"
+assert_contains "$bad_stderr" "[ERROR]" "Invalid lines produce ERROR output"
 
 valid_samples=$(python3 -c "
 import json, sys
@@ -319,14 +319,14 @@ print(sc['rules']['RS-04']['samples'])
 TOTAL=$((TOTAL + 1))
 # Valid records (1 tp + 1 fp) are still processed; only invalid lines are skipped.
 if [[ "$valid_samples" == "2" ]]; then
-  green "有效记录被正常处理（samples=2），无效行被隔离"
+  green "Valid records are processed normally (samples=2), invalid rows are isolated"
   PASS=$((PASS + 1))
 else
-  red "有效记录应被处理（期望 samples=2，实际 $valid_samples）"
+  red "Valid records should be processed (expected samples=2, actual $valid_samples)"
   FAIL=$((FAIL + 1))
 fi
 
-header "原子写保证 scorecard 格式完整（issue-2：atomic write）"
+header "Atomic write ensures the scorecard format is intact (issue-2: atomic write)"
 SCORECARD_ATOMIC="${TMPDIR_TEST}/scorecard_atomic.json"
 TRIAGE_ATOMIC="${TMPDIR_TEST}/triage_atomic.jsonl"
 python3 -c "
@@ -344,23 +344,23 @@ python3 "$TRACKER" \
 # Verify the output is valid JSON (atomic write should never leave a partial file)
 python3 -c "import json; json.load(open('$SCORECARD_ATOMIC'))" 2>/dev/null && {
   TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
-  green "update-scorecard 后 scorecard 是合法 JSON"
+  green "The scorecard after update-scorecard is legal JSON"
 } || {
   TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
-  red "update-scorecard 后 scorecard 不是合法 JSON"
+  red "The scorecard after update-scorecard is not a valid JSON"
 }
 # Verify no stray .tmp files remain
 tmp_count=$(find "${TMPDIR_TEST}" -maxdepth 1 -name '.scorecard-*.tmp' 2>/dev/null | wc -l | tr -d ' ')
 TOTAL=$((TOTAL + 1))
 if [[ "$tmp_count" == "0" ]]; then
-  green "无残留临时文件"
+  green "No residual temporary files"
   PASS=$((PASS + 1))
 else
-  red "发现残留临时文件（$tmp_count 个）"
+  red "Remaining temporary files found ($tmp_count)"
   FAIL=$((FAIL + 1))
 fi
 
-header "triage 清理后旧规则统计被重置（issue-3：stale rule reset）"
+header "Old rule statistics are reset after triage cleanup (issue-3: stale rule reset)"
 TRIAGE4="${TMPDIR_TEST}/triage4.jsonl"
 SCORECARD4="${TMPDIR_TEST}/scorecard4.json"
 python3 -c "
@@ -396,10 +396,10 @@ print(sc['rules']['STALE-01']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$stale_samples" == "0" ]]; then
-  green "triage 清理后旧规则 samples 被重置为 0"
+  green "After triage cleanup, old rule samples are reset to 0"
   PASS=$((PASS + 1))
 else
-  red "旧规则 samples 未被重置（期望 0，实际 $stale_samples）"
+  red "old rule samples not reset (expected 0, actual $stale_samples)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -410,10 +410,10 @@ print(sc['rules']['STALE-01']['precision'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$stale_precision" == "None" ]]; then
-  green "triage 清理后旧规则 precision 被重置为 None"
+  green "After triage cleanup, the old rule precision is reset to None"
   PASS=$((PASS + 1))
 else
-  red "旧规则 precision 未被重置（期望 None，实际 $stale_precision）"
+  red "old rule precision not reset (expected None, actual $stale_precision)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -425,14 +425,14 @@ print(sc['rules']['ACTIVE-01']['samples'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$active_samples" == "1" ]]; then
-  green "活跃规则统计不受影响（samples=1）"
+  green "Active rule statistics are not affected (samples=1)"
   PASS=$((PASS + 1))
 else
-  red "活跃规则统计异常（期望 1，实际 $active_samples）"
+  red "Active rule statistics exception (expected 1, actual $active_samples)"
   FAIL=$((FAIL + 1))
 fi
 
-header "Issue-1: fp 缺失 ts 被拒绝，不计入 fp 统计"
+header "Issue-1: fp is missing and ts is rejected and will not be included in fp statistics"
 TRIAGE_NO_TS="${TMPDIR_TEST}/triage_no_ts.jsonl"
 SCORECARD_NO_TS="${TMPDIR_TEST}/scorecard_no_ts.json"
 python3 -c "
@@ -458,7 +458,7 @@ no_ts_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NO_TS" \
   --scorecard-file "$SCORECARD_NO_TS" \
   --update-scorecard 2>&1 >/dev/null) || true
-assert_contains "$no_ts_stderr" "[ERROR]" "fp 缺失 ts 时产生 ERROR 输出"
+assert_contains "$no_ts_stderr" "[ERROR]" "ERROR output when fp is missing ts"
 
 # last_fp_ts must remain None (fp was rejected), so warn→error must not fire
 no_ts_last_fp=$(python3 -c "
@@ -468,14 +468,14 @@ print(sc['rules']['TS-01']['last_fp_ts'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$no_ts_last_fp" == "None" ]]; then
-  green "fp 缺失 ts 时 last_fp_ts 保持 None（不误晋级）"
+  green "When fp is missing ts, last_fp_ts remains None (will not be promoted by mistake)"
   PASS=$((PASS + 1))
 else
-  red "last_fp_ts 不应被更新（期望 None，实际 $no_ts_last_fp）"
+  red "last_fp_ts should not be updated (expected None, actual $no_ts_last_fp)"
   FAIL=$((FAIL + 1))
 fi
 
-header "Issue-2: 跨时区 fp ts 比较使用 datetime 而非字符串"
+header "Issue-2: Cross-time zone fp ts comparison uses datetime instead of string"
 TRIAGE_TZ="${TMPDIR_TEST}/triage_tz.jsonl"
 SCORECARD_TZ="${TMPDIR_TEST}/scorecard_tz.json"
 python3 -c "
@@ -512,14 +512,14 @@ print(sc['rules']['TZ-01']['last_fp_ts'])
 TOTAL=$((TOTAL + 1))
 # 10:00Z is 10:00 UTC; 12:00+09:00 is 03:00 UTC — so 10:00Z is the later one
 if [[ "$tz_last_fp" == "2026-03-01T10:00:00Z" ]]; then
-  green "跨时区 fp 比较正确选出最新 ts（UTC 10:00Z 晚于 +09:00 的 03:00Z）"
+  green "Cross-time zone fp comparison correctly selects the latest ts (UTC 10:00Z is later than +09:00's 03:00Z)"
   PASS=$((PASS + 1))
 else
-  red "跨时区比较错误（期望 2026-03-01T10:00:00Z，实际 $tz_last_fp）"
+  red "Cross time zone comparison error (expected 2026-03-01T10:00:00Z, actual $tz_last_fp)"
   FAIL=$((FAIL + 1))
 fi
 
-header "Issue-3: 抑制规则边界 — RS-03X 不误匹配 RS-03"
+header "Issue-3: Suppress rule boundaries — RS-03X does not match RS-03"
 # Verify vg_filter_suppressed only suppresses the exact rule ID
 suppress_out=$(python3 -c "
 import sys, re
@@ -539,9 +539,9 @@ for i, line in enumerate(lines):
         continue
     print(line)
 ")
-assert_contains "$suppress_out" "should_appear_1" "RS-03X 注释不抑制 RS-03 规则"
-assert_not_contains "$suppress_out" "should_not_appear" "RS-03 注释正确抑制下一行"
-assert_not_contains "$suppress_out" "also_not_appear" "无 reason 的 RS-03 注释也正确抑制"
+assert_contains "$suppress_out" "should_appear_1" "RS-03X annotation does not suppress RS-03 rules"
+assert_not_contains "$suppress_out" "should_not_appear" "RS-03 comments correctly suppress next line"
+assert_not_contains "$suppress_out" "also_not_appear" "RS-03 comments without reason are also suppressed correctly"
 
 # Code strings containing // must not suppress (reviewer bypass scenario)
 suppress_out2=$(python3 -c "
@@ -558,9 +558,9 @@ for i, line in enumerate(lines):
         continue
     print(line)
 ")
-assert_contains "$suppress_out2" "should_appear_2" "字符串中的 // 标记不抑制（非行首注释）"
+assert_contains "$suppress_out2" "should_appear_2" "// tags in strings are not suppressed (non-line comments)"
 
-header "Issue-4: 无时区时间戳被校验拒绝（防 naive vs aware TypeError）"
+header "Issue-4: Timestamp without time zone is rejected by verification (to prevent naive vs aware TypeError)"
 TRIAGE_NAIVE="${TMPDIR_TEST}/triage_naive.jsonl"
 SCORECARD_NAIVE="${TMPDIR_TEST}/scorecard_naive.json"
 python3 -c "
@@ -586,7 +586,7 @@ naive_stderr=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_NAIVE" \
   --scorecard-file "$SCORECARD_NAIVE" \
   --update-scorecard 2>&1 >/dev/null) || true
-assert_contains "$naive_stderr" "[ERROR]" "无时区 fp ts 产生 ERROR 输出"
+assert_contains "$naive_stderr" "[ERROR]" "No time zone fp ts produces ERROR output"
 
 naive_samples=$(python3 -c "
 import json
@@ -596,14 +596,14 @@ print(sc['rules']['NZ-01']['samples'])
 TOTAL=$((TOTAL + 1))
 # The valid tp record is still processed; only the invalid fp (no tz) is skipped.
 if [[ "$naive_samples" == "1" ]]; then
-  green "有效 tp 被正常处理（samples=1），无时区 fp 被隔离"
+  green "valid tp is processed normally (samples=1), no time zone fp is isolated"
   PASS=$((PASS + 1))
 else
-  red "有效 tp 应被处理（期望 samples=1，实际 $naive_samples）"
+  red "valid tp should be processed (expected samples=1, actual $naive_samples)"
   FAIL=$((FAIL + 1))
 fi
 
-header "parse errors 时生命周期迁移被冻结（issue: lifecycle freeze）"
+header "lifecycle migration is frozen when parse errors (issue: lifecycle freeze)"
 # When triage has parse errors, lifecycle transitions must NOT fire even if
 # stats would normally trigger a promotion/demotion, to prevent stage pollution.
 TRIAGE_PERR="${TMPDIR_TEST}/triage_perr.jsonl"
@@ -634,7 +634,7 @@ perr_out=$(python3 "$TRACKER" \
   --scorecard-file "$SCORECARD_PERR" \
   --update-scorecard 2>&1)
 # Error message must mention transitions suppressed
-assert_contains "$perr_out" "lifecycle transitions and counter resets suppressed" "parse errors 时警告包含 transitions suppressed"
+assert_contains "$perr_out" "lifecycle transitions and counter resets suppressed" "parse errors when warning contains transitions suppressed"
 # Stage must remain experimental — transition must not have fired
 perr_stage=$(python3 -c "
 import json
@@ -643,10 +643,10 @@ print(sc['rules']['RS-LC']['stage'])
 ")
 TOTAL=$((TOTAL + 1))
 if [[ "$perr_stage" == "experimental" ]]; then
-  green "parse errors 时生命周期迁移被冻结（stage 保持 experimental）"
+  green "parse errors when lifecycle migration is frozen (stage remains experimental)"
   PASS=$((PASS + 1))
 else
-  red "parse errors 时 stage 意外变更（期望 experimental，实际 $perr_stage）"
+  red "unexpected stage change when parse errors (expected experimental, actual $perr_stage)"
   FAIL=$((FAIL + 1))
 fi
 

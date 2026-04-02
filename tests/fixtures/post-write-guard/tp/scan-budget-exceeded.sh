@@ -1,7 +1,7 @@
 #!/bin/bash
-# Setup: 临时 git 仓库 + VG_SCAN_MAX_FILES=0 强制降级
+# Setup: Temporary git repository + VG_SCAN_MAX_FILES=0 forced downgrade
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理
+# Note: There is no trap, the runner is responsible for cleaning
 git -C "$tmp" init -q
 mkdir -p "$tmp/src"
 cat >"$tmp/src/existing.py" <<'PYEOF'

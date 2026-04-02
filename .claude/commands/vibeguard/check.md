@@ -1,37 +1,37 @@
 ---
 name: "VibeGuard: Check"
-description: "一键运行所有守卫脚本，输出项目健康度报告"
+description: "Run all guard scripts with one click and output project health report"
 category: VibeGuard
 tags: [vibeguard, check, guard, quality]
 argument-hint: "[project_dir]"
 ---
 
 <!-- VIBEGUARD:CHECK:START -->
-**核心理念**
-- 快速、无侵入地检查当前项目的代码健康度
-- 自动检测项目语言，运行对应的守卫脚本
-- 输出结构化报告，按严重度排序
-- 可在编码过程中随时运行，验证修改未引入新问题
+**Core Concept**
+- Quickly and non-invasively check the code health of your current project
+- Automatically detect the project language and run the corresponding guard script
+- Output structured reports, sorted by severity
+- Can be run at any time during the coding process to verify that modifications do not introduce new problems
 
 **Guardrails**
-- 只读操作，不修改任何文件
-- 不自动修复 — 只报告问题，修复由用户决定
-- 如果用户提供了 preflight 约束集基线，对比基线报告变化
+- Read-only operation, no modification of any files
+- No automatic fixes — just report the problem and fix it at the user's discretion
+- If the user provides a preflight constraint set baseline, report changes compared to the baseline
 
 **Steps**
 
-1. **确定项目路径和语言**
-   - 项目路径：用户参数 > 当前工作目录
-   - 语言检测：
+1. **Determine project path and language**
+   - Project path: User parameters > Current working directory
+   - Language detection:
      - `Cargo.toml` → Rust
      - `package.json` → TypeScript/JavaScript
      - `pyproject.toml` / `setup.py` / `requirements.txt` → Python
      - `go.mod` → Go
-   - 定位 vibeguard 安装路径（`~/Desktop/code/AI/tools/vibeguard/` 或通过 `VIBEGUARD_DIR` 环境变量）
+   - Locate the vibeguard installation path (`~/Desktop/code/AI/tools/vibeguard/` or via the `VIBEGUARD_DIR` environment variable)
 
-2. **运行语言对应的守卫脚本**
+2. **Run the guard script corresponding to the language**
 
-   **Rust 项目**：
+   **Rust Project**:
    ```bash
    bash ${VIBEGUARD_DIR}/guards/rust/check_unwrap_in_prod.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/rust/check_duplicate_types.sh <project_dir>
@@ -42,22 +42,22 @@ argument-hint: "[project_dir]"
    bash ${VIBEGUARD_DIR}/guards/rust/check_taste_invariants.sh <project_dir>
    ```
 
-   **TypeScript/JavaScript 项目**：
+   **TypeScript/JavaScript Project**:
    ```bash
-   # eslint_guards: 项目存在 eslint 配置时自动运行 npx eslint --max-warnings=0 .
+   # eslint_guards: Automatically run npx eslint --max-warnings=0 when the project has eslint configuration.
    bash ${VIBEGUARD_DIR}/guards/typescript/check_any_abuse.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_console_residual.sh <project_dir>
    bash ${VIBEGUARD_DIR}/guards/typescript/check_component_duplication.sh <project_dir>
    ```
 
-   **Python 项目**：
+   **Python Project**:
    ```bash
    python3 ${VIBEGUARD_DIR}/guards/python/check_duplicates.py <project_dir>
    python3 ${VIBEGUARD_DIR}/guards/python/check_naming_convention.py <project_dir>
    python3 ${VIBEGUARD_DIR}/guards/python/test_code_quality_guards.py
    ```
 
-   **Go 项目**：
+   **Go Project**:
    ```bash
    go vet ./...                                 # vet（MCP go.vet）
    bash ${VIBEGUARD_DIR}/guards/go/check_error_handling.sh <project_dir>
@@ -65,67 +65,67 @@ argument-hint: "[project_dir]"
    bash ${VIBEGUARD_DIR}/guards/go/check_defer_in_loop.sh <project_dir>
    ```
 
-   每个守卫独立运行，一个失败不影响其他守卫。
+   Each guard operates independently, and the failure of one does not affect other guards.
 
-3. **运行合规检查**
+3. **Run Compliance Check**
    ```bash
    bash ${VIBEGUARD_DIR}/scripts/verify/compliance_check.sh <project_dir>
    ```
 
-4. **汇总报告**
+4. **Summary Report**
 
-   输出格式：
+   Output format:
    ```
    ══════════════════════════════════
    VibeGuard Health Report
-   项目：<project_name>
-   日期：<date>
+   Project: <project_name>
+   Date: <date>
    ══════════════════════════════════
 
    ┌─ RS-03 unwrap/expect ─────────┐
-   │ 发现：50 处                    │
-   │ 严重度：中                     │
+   │ Found: 50 │
+   │ Severity: Moderate │
    └────────────────────────────────┘
 
-   ┌─ RS-05 重复类型 ──────────────┐
-   │ 发现：2 处                     │
-   │ 严重度：中                     │
+   ┌─ RS-05 Repeat Type ──────────────┐
+   │ Found: 2 places │
+   │ Severity: Moderate │
    │ - SearchQuery (server, core)  │
    │ - AppState (desktop, server)  │
    └────────────────────────────────┘
 
-   ┌─ RS-01 嵌套锁 ────────────────┐
-   │ 发现：0 处                     │
-   │ 严重度：✓ 通过                 │
+   ┌─ RS-01 Nested Lock ─────────────────┐
+   │ Found: 0 places │
+   │ Severity: ✓ Pass │
    └────────────────────────────────┘
 
-   ┌─ RS-06 跨入口一致性 ──────────┐
-   │ 发现：2 处                     │
-   │ 严重度：中                     │
+   ┌─ RS-06 cross-entry consistency ──────────┐
+   │ Found: 2 places │
+   │ Severity: Moderate │
    └────────────────────────────────┘
 
-   ┌─ 合规检查 ─────────────────────┐
+   ┌─ Compliance Inspection ─────────────────────┐
    │ PASS: 3  WARN: 3  FAIL: 2    │
    └────────────────────────────────┘
 
-   综合评分：6.5 / 10
+   Overall rating: 6.5/10
    ```
 
-5. **与 preflight 基线对比（可选）**
-   - 如果之前运行过 `/vibeguard:preflight` 并记录了基线
-   - 对比当前数据与基线，标记恶化项：
+5. **Comparison with preflight baseline (optional)**
+   - If `/vibeguard:preflight` was previously run and a baseline was recorded
+   - Compare current data to baseline and mark deteriorating items:
      ```
-     ┌─ 基线对比 ──────────────────┐
+     ┌─ Baseline comparison ──────────────────┐
      │ unwrap:  50 → 48  ✓ (-2)   │
-     │ 重复类型: 2 → 2   = (不变)  │
-     │ 嵌套锁:  0 → 0   ✓ (不变)  │
-     │ 一致性:  2 → 0   ✓ (-2)    │
+     │ Repeat type: 2 → 2 = (unchanged) │
+     │ Nested lock: 0 → 0 ✓ (unchanged) │
+     │ Consistency: 2 → 0 ✓ (-2) │
      └────────────────────────────┘
      ```
-   - 如有恶化项，明确警告
+   - If there is any deterioration, give a clear warning
 
 **Reference**
-- VibeGuard 守卫脚本：`vibeguard/guards/`
-- VibeGuard 合规检查：`scripts/verify/compliance_check.sh`
-- 配合 `/vibeguard:preflight` 使用效果最佳
+- VibeGuard guard script: `vibeguard/guards/`
+- VibeGuard compliance check: `scripts/verify/compliance_check.sh`
+- Best used with `/vibeguard:preflight`
 <!-- VIBEGUARD:CHECK:END -->

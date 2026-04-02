@@ -1,8 +1,8 @@
 # AGENTS.md — VibeGuard Constraints for Codex/OpenAI Agents
 
-> 此文件等价于 CLAUDE.md 的 VibeGuard 规则，适配 OpenAI Codex agent 格式。
-> 复制到项目根目录，Codex agent 会自动读取。
-> 作用域 = 此文件所在目录的整棵子树，深层 AGENTS.md 优先级递增。
+> This file is equivalent to the VibeGuard rules of CLAUDE.md and adapts to the OpenAI Codex agent format.
+> Copy to the project root directory and the Codex agent will automatically read it.
+> Scope = the entire subtree of the directory where this file is located, with increasing priority for deep AGENTS.md.
 
 ## Constraints
 

@@ -1,99 +1,99 @@
-# Memory Files — AI 上下文记忆机制
+# Memory Files — AI context memory mechanism
 
-Claude Code 每次对话启动时，会自动加载一组 Memory Files 到上下文窗口。这些文件构成了 AI 的"长期记忆"，无需用户每次重复说明。
+Claude Code automatically loads a set of Memory Files into the context window every time a session is started. These files constitute the AI's "long-term memory" and do not require the user to repeat instructions each time.
 
-## 三类文件，三种职责
+## Three types of files, three responsibilities
 
-### 1. CLAUDE.md — 宪法
+### 1. CLAUDE.md — Constitution
 
-路径：`~/.claude/CLAUDE.md`（全局）+ `项目/.claude/CLAUDE.md`（项目级）
+Path: `~/.claude/CLAUDE.md` (global) + `project/.claude/CLAUDE.md` (project level)
 
-作用：定义 AI 的基本行为准则，所有操作都受其约束。
+Role: Define the basic code of conduct of AI, and all operations are bound by it.
 
-包含内容：
-- 通用行为（中文交流、不扩大范围、不加额外功能）
-- 端口分配表（禁止冲突）
-- Git/PR 规范（禁止 AI 标记、DCO 验证、rebase）
-- 代码规则（不 hardcode、不 inline import、单文件 200 行限制）
-- VibeGuard 七层防御摘要
+What’s included:
+- General behavior (communication in Chinese, no expansion of scope, no additional functions)
+- Port allocation table (no conflicts)
+- Git/PR specifications (no AI tags, DCO validation, rebase)
+- Code rules (no hardcode, no inline import, single file limit of 200 lines)
+- VibeGuard Seven Layers of Defense Summary
 
-优先级：最高。CLAUDE.md 的指令覆盖 AI 的默认行为。
+Priority: Highest. The instructions in CLAUDE.md override the AI's default behavior.
 
-### 2. Rules — 法律
+### 2. Rules — Law
 
-路径：`~/.claude/rules/vibeguard/`
+Path: `~/.claude/rules/vibeguard/`
 
-VibeGuard 的 83 条规则通过 YAML frontmatter 的 `paths` 字段实现按需加载：
+VibeGuard's 83 rules are loaded on demand through the `paths` field of YAML frontmatter:
 
 ```
 ~/.claude/rules/vibeguard/
 ├── common/
-│   ├── coding-style.md      # U-01~U-24 通用约束（全局生效）
-│   ├── data-consistency.md   # U-11~U-14 数据一致性（全局生效）
-│   └── security.md           # SEC-01~SEC-10 安全规则（全局生效）
+│ ├── coding-style.md # U-01~U-24 Universal constraints (valid globally)
+│ ├── data-consistency.md # U-11~U-14 data consistency (valid globally)
+│ └── security.md # SEC-01~SEC-10 security rules (valid globally)
 ├── rust/
-│   └── quality.md            # RS-01~RS-13 Rust 规则（仅 *.rs 文件触发）
+│ └── quality.md # RS-01~RS-13 Rust rules (only *.rs files trigger)
 ├── golang/
-│   └── quality.md            # GO-01~GO-12 Go 规则（仅 *.go 文件触发）
+│ └── quality.md # GO-01~GO-12 Go rules (only *.go files trigger)
 ├── typescript/
-│   └── quality.md            # TS-01~TS-12 TypeScript 规则（仅 *.ts 文件触发）
+│ └── quality.md # TS-01~TS-12 TypeScript rules (only triggered by *.ts files)
 └── python/
-    └── quality.md            # PY-01~PY-12 Python 规则（仅 *.py 文件触发）
+    └── quality.md # PY-01~PY-12 Python rules (only triggered by *.py files)
 ```
 
-`common/` 下的规则无 paths 限制，每次都加载。语言规则通过 frontmatter 控制：
+Rules under `common/` have no path restrictions and are loaded every time. Language rules are controlled through frontmatter:
 
 ```yaml
 ---
-description: VibeGuard Rust 质量规则
+description: VibeGuard Rust Quality Rules
 paths:
   - "**/*.rs"
   - "**/Cargo.toml"
 ---
 ```
 
-编辑 Rust 文件时自动加载 RS-* 规则，不加载 Python/TS 规则，避免上下文膨胀。
+Automatically load RS-* rules when editing Rust files, and do not load Python/TS rules to avoid context bloat.
 
-### 3. MEMORY.md — 经验笔记本
+### 3. MEMORY.md — Experience Notebook
 
-路径：`~/.claude/projects/<项目哈希>/memory/MEMORY.md`
+Path: `~/.claude/projects/<project hash>/memory/MEMORY.md`
 
-作用：跨会话持久化的知识索引。AI 在多次对话中积累的经验、决策、发现。
+Function: Knowledge index for cross-session persistence. The experience, decisions, and discoveries that AI accumulates over multiple conversations.
 
-特点：
-- 自动加载到每次对话的上下文中
-- 前 200 行之后会被截断，所以保持简洁
-- 通过链接指向详细的主题文件（如 `harness-engineering.md`）
-- 记录已完成的改进计划、架构决策、关键路径
+Features:
+- Automatically loaded into the context of every conversation
+- Will be truncated after the first 200 lines, so keep it simple
+- Link to detailed theme files (e.g. `harness-engineering.md`)
+- Record completed improvement plans, architectural decisions, and critical paths
 
-## 工作流程
+## Workflow
 
 ```
-对话启动
-  ├─ 加载 CLAUDE.md         → AI 知道"什么能做、什么不能做"
-  ├─ 加载 rules/vibeguard/  → AI 知道"代码怎么写才合规"
-  └─ 加载 MEMORY.md         → AI 知道"之前做过什么、决定了什么"
+Conversation start
+  ├─ Load CLAUDE.md → AI knows "what it can and cannot do"
+  ├─ Load rules/vibeguard/ → AI knows "how to write code to comply with regulations"
+  └─ Load MEMORY.md → AI knows "what has been done before and what has been decided"
       │
-      ├─ 需要更多细节？→ 读取 memory/ 下的主题文件
-      └─ 需要历史上下文？→ mcp__remem__search 搜索过往决策
+      ├─ Need more details? → Read theme files under memory/
+      └─ Need historical context? → mcp__remem__search Search past decisions
 ```
 
-## 上下文经济学
+## Contextual Economics
 
-Memory files 总占用约 4.7k tokens（200k 窗口的 2.3%），性价比极高：
+Memory files occupy a total of about 4.7k tokens (2.3% of the 200k window), which is extremely cost-effective:
 
-| 类别 | tokens | 占比 | 价值 |
+| Category | tokens | Proportion | Value |
 |------|--------|------|------|
-| CLAUDE.md | ~2.2k | 1.1% | 行为准则，避免反复纠正 |
-| common rules (3 文件) | ~2.0k | 1.0% | 83 条规则中的通用部分 |
-| MEMORY.md | ~0.4k | 0.2% | 跨会话知识索引 |
-| 语言 rules（按需） | ~0.3k/个 | 0.15% | 仅编辑对应语言时加载 |
+| CLAUDE.md | ~2.2k | 1.1% | Code of conduct to avoid repeated corrections |
+| common rules (3 files) | ~2.0k | 1.0% | Common part of 83 rules |
+| MEMORY.md | ~0.4k | 0.2% | Cross-session knowledge index |
+| Language rules (on demand) | ~0.3k/piece | 0.15% | Only loaded when editing the corresponding language |
 
-## 与 Hook 系统的关系
+## Relationship with Hook system
 
-Memory files 作用在 AI 的推理层（token 级），Hook 作用在执行层（文件系统级）。两者互补：
+Memory files act on the reasoning layer (token level) of AI, and Hooks act on the execution layer (file system level). The two complement each other:
 
-- **Rules 告诉 AI "应该怎么写"** → AI 生成符合规范的代码
-- **Hooks 检查 AI "实际写了什么"** → 拦截不合规的编辑
+- **Rules tells AI "how it should be written"** → AI generates code that conforms to the specification
+- **Hooks to check AI "what actually wrote"** → Block non-compliant edits
 
-14 条规则同时有两层保护（AI 规则 + 守卫脚本），其余 69 条纯 AI 约束。
+14 rules have two layers of protection (AI rules + guard scripts) at the same time, and the remaining 69 are pure AI constraints.

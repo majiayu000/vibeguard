@@ -1,7 +1,7 @@
 #!/bin/bash
-# Setup: 创建含同名文件的临时 git 仓库
+# Setup: Create a temporary git repository containing files with the same name
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理
+# Note: There is no trap, the runner is responsible for cleaning
 git -C "$tmp" init -q
 mkdir -p "$tmp/src/existing" "$tmp/src/new"
 cat >"$tmp/src/existing/service.py" <<'PYEOF'

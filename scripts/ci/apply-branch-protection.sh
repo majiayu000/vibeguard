@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 为 GitHub 分支启用“PR 必须通过 CI”保护
+# VibeGuard CI: Enable "PR must go through CI" protection for GitHub branches
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -38,7 +38,7 @@ fi
 infer_repo_slug() {
   local remote_url
   remote_url="$(git -C "${REPO_DIR}" remote get-url origin)"
-  # 支持 https://github.com/owner/repo.git 与 git@github.com:owner/repo.git
+  # Support https://github.com/owner/repo.git and git@github.com:owner/repo.git
   remote_url="${remote_url#https://github.com/}"
   remote_url="${remote_url#git@github.com:}"
   remote_url="${remote_url%.git}"

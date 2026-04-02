@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VibeGuard CI: 检查 GitHub 分支是否启用“PR 必须通过 CI”
+# VibeGuard CI: Check if the GitHub branch has "PRs must go through CI" enabled
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

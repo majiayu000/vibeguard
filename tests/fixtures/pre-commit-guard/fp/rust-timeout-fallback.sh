@@ -1,7 +1,7 @@
 #!/bin/bash
-# Rust 项目：timeout/gtimeout 不可用时回退执行，不误报
+# Rust project: fallback execution when timeout/gtimeout is unavailable, no false positives
 tmp=$(mktemp -d)
-# 注意：不设 trap，runner 负责清理 CWD
+# Note: There is no trap, the runner is responsible for cleaning up CWD
 git -C "$tmp" init -q
 mkdir -p "$tmp/bin" "$tmp/src"
 

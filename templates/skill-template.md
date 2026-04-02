@@ -1,80 +1,80 @@
 ---
 name: [descriptive-kebab-case-name]
 description: |
-  [精确描述，包含：(1) 解决什么问题 (2) 触发条件（错误消息/症状/场景）
-  (3) 涉及的技术/框架。用 "Use when:" 开头列举使用场景。
-  描述质量直接决定语义匹配能否命中此 Skill。]
+  [Precise description, including: (1) What problem is solved (2) Triggering conditions (error message/symptom/scenario)
+  (3) Technologies/frameworks involved. Start with "Use when:" to list usage scenarios.
+  The quality of description directly determines whether semantic matching can hit this Skill. ]
 author: Claude Code
 version: 1.0.0
 date: YYYY-MM-DD
 ---
 
-# [Skill 名称 — 人类可读标题]
+# [Skill name — human readable title]
 
 ## Problem
 
-[问题描述：什么痛点？为什么非显而易见？1-2 段]
+[Problem description: What are the pain points? Why not obvious? 1-2 paragraphs]
 
 ## Context / Trigger Conditions
 
-[何时应该激活此 Skill？列举具体条件：]
+[When should this Skill be activated? List specific conditions:]
 
-- [精确的错误消息 1]
-- [精确的错误消息 2]
-- [可观察的症状或行为]
-- [环境条件（框架/工具/平台）]
+- [Exact error message 1]
+- [Exact error message 2]
+- [observable symptoms or behaviors]
+- [Environmental conditions (framework/tools/platform)]
 
 ## Solution
 
-[分步解决方案，通常 3-5 步]
+[Step-by-step solution, usually 3-5 steps]
 
-### Step 1: [第一步]
+### Step 1: [Step 1]
 
-[详细说明，附代码示例（如适用）]
+[Detailed description, with code examples (if applicable)]
 
 ```language
-// 示例代码
+// sample code
 ```
 
-### Step 2: [第二步]
+### Step 2: [Step 2]
 
-[继续清晰、可操作的步骤]
+[Continue with clear, actionable steps]
 
-### Step 3: [第三步]
+### Step 3: [Step 3]
 
-[包含替代方案或变体（如有）]
+[Include alternatives or variations if any]
 
 ## Verification
 
-[如何确认方案有效：]
+[How to confirm that the plan is valid:]
 
-1. [验证步骤 1]
-2. [验证步骤 2]
-3. [预期结果]
+1. [Verification Step 1]
+2. [Verification Step 2]
+3. [Expected results]
 
 ## Example
 
-**场景**：[具体的真实案例]
+**Scenario**: [Specific real case]
 
 **Before**：
 ```
-[错误消息或问题代码]
+[error message or problem code]
 ```
 
 **After**：
 ```
-[修复后的代码或成功输出]
+[Fixed code or successful output]
 ```
 
 ## Notes
 
-[注意事项、边界情况：]
+[Notes, edge cases:]
 
-- [注意事项 1]
-- [何时不应使用此 Skill]
-- [See also: 相关 Skill 名称]
+- [Note 1]
+- [When this Skill should not be used]
+- [See also: Related Skill names]
 
 ## References
 
-- [来源链接 1（如有 Web 研究）]
-- [来源链接 2]
+- [Source link 1 (if web research available)]
+- [Source link 2]

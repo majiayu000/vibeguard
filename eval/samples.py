@@ -1,12 +1,12 @@
 """
-VibeGuard LLM-as-Judge 测试样本
+VibeGuard LLM-as-Judge test sample
 
-每个样本包含:
-- rule: 规则 ID
-- severity: 严重程度
-- lang: 语言
-- code: 违规代码
-- description: 预期检出的问题描述
+Each sample contains:
+- rule: rule ID
+- severity: severity
+- lang: language
+- code: violation code
+- description: Description of the problem expected to be detected
 """
 
 SAMPLES = [
