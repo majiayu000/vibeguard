@@ -91,7 +91,7 @@ jobs:
       - name: Validate doc freshness
         if: runner.os != 'Windows'
         shell: bash
-        run: bash scripts/doc-freshness-check.sh --strict
+        run: bash scripts/verify/doc-freshness-check.sh --strict
 
       # Install pnpm and uv so that the hook rewrite tests (npm→pnpm,
       # pip→uv) exercise the tool-availability guard added in pre-bash-guard.sh.
