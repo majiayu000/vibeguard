@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-02
+
 ### Added
 - Codex CLI hooks support: 4 hooks deployed via `~/.codex/hooks.json` with output format adapter (`hooks/run-hook-codex.sh`)
 - Guard message v2 format: OBSERVATION/FIX/DO NOT structure (`guards/`)
@@ -190,7 +192,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto-optimize` workflow integrated into VibeGuard
 - `setup.sh` and install scripts for one-command installation
 
-[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/majiayu000/vibeguard/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/majiayu000/vibeguard/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/majiayu000/vibeguard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/majiayu000/vibeguard/compare/v0.6.0...v0.7.0
