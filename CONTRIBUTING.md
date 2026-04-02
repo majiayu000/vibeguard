@@ -347,7 +347,7 @@ fi
 For guards that should run automatically, register them in **all** of the following locations:
 
 - **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`
-- **Wiring contract** — run `scripts/ci/validate-wiring-contract.sh` to verify your additions; note that this script currently validates **Rust guards only**. For Go, Python, and TypeScript guards, verify the README guard table manually before submitting your PR.
+- **CI validation** — run `scripts/ci/validate-guards.sh` to verify your additions; for Go, Python, and TypeScript guards, verify the README guard table manually before submitting your PR.
 
 ### Step 4: Write Regression Tests
 

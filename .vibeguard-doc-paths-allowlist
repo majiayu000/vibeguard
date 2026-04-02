@@ -19,3 +19,17 @@ vibeguard/rules/security.md
 vibeguard/rules/universal.md
 vibeguard/scripts/compliance_check.sh
 vibeguard/spec.md
+
+# CHANGELOG historical references (files existed at time of release)
+scripts/verify/verify-package-contents.sh
+hooks/post-guard-check.sh
+scripts/ci/validate-wiring-contract.sh
+scripts/ci/validate-config-contract.sh
+
+# Skill command references with vibeguard/ prefix (resolved at runtime)
+vibeguard/guards/
+vibeguard/hooks/
+vibeguard/rules/
+vibeguard/templates/skill-template.md
+vibeguard/docs/spec.md
+vibeguard/scripts/verify/compliance_check.sh

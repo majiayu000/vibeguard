@@ -133,5 +133,4 @@ tags: [vibeguard, execplan, long-horizon, planning]
 - ExecPlan 模板：`workflows/plan-flow/references/execplan-template.md`
 - 集成说明：`workflows/plan-flow/references/execplan-integration.md`
 - Plan-flow 步骤格式：`workflows/plan-flow/references/plan-template.md`
-- OpenAI Harness 参考：`docs/reference/harness-audit-report.md`
 <!-- VIBEGUARD:EXEC-PLAN:END -->

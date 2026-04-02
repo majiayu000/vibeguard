@@ -386,7 +386,7 @@ Hook 升级（强制警告，打断 Agent 循环）
 | `hooks/learn-evaluator.sh` | Stop 事件时会话指标采集 |
 | `hooks/skills-loader.sh` | 可选的首次 Read Skill/学习提示脚本（默认不启用） |
 | `hooks/post-build-check.sh` | 构建检查 + 连续失败升级（U-25 机械化） |
-| `scripts/gc-scheduled.sh` | GC 定期学习（跨会话模式识别） |
+| `scripts/gc/gc-scheduled.sh` | GC 定期学习（跨会话模式识别） |
 | `.claude/commands/vibeguard/learn.md` | /vibeguard:learn 命令（双模式路由） |
 | `templates/skill-template.md` | SKILL.md 写作模板 |
 | `skills/*/SKILL.md` | 已提取的 Skill 文件 |

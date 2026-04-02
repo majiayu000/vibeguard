@@ -93,7 +93,7 @@ paths: **/*.ts,**/*.tsx,**/*.js,**/*.jsx
 
 **VibeGuard 影响**：中。语言特定规则（如 `typescript/*.md`）期望在 TS 文件被修改时生效，但 Write/Edit 会绕过路径过滤。
 
-**VibeGuard 应对**：PreToolUse hook 在 Write/Edit 前强制执行 Read，间接触发规则加载。在 `scripts/compliance_check.sh` Layer 7 中检测此问题的根因（YAML array 和 quoted paths 语法）。
+**VibeGuard 应对**：PreToolUse hook 在 Write/Edit 前强制执行 Read，间接触发规则加载。在 `scripts/verify/compliance_check.sh` Layer 7 中检测此问题的根因（YAML array 和 quoted paths 语法）。
 
 ---
 
@@ -233,10 +233,10 @@ exit 2
 
 ## 自动化监控
 
-`scripts/compliance_check.sh` Layer 7 自动检测常见的规则语法问题：
+`scripts/verify/compliance_check.sh` Layer 7 自动检测常见的规则语法问题：
 
 ```bash
-bash scripts/compliance_check.sh
+bash scripts/verify/compliance_check.sh
 # 输出：--- Layer 7: Rule YAML Syntax ---
 #   [PASS] No YAML array syntax in paths frontmatter
 #   [PASS] No quoted paths in rules frontmatter

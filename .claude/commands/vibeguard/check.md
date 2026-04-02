@@ -126,6 +126,6 @@ argument-hint: "[project_dir]"
 
 **Reference**
 - VibeGuard 守卫脚本：`vibeguard/guards/`
-- VibeGuard 合规检查：`vibeguard/scripts/verify/compliance_check.sh`
+- VibeGuard 合规检查：`scripts/verify/compliance_check.sh`
 - 配合 `/vibeguard:preflight` 使用效果最佳
 <!-- VIBEGUARD:CHECK:END -->

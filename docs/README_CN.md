@@ -145,7 +145,7 @@ VibeGuard 完整实现了 OpenAI Harness Engineering 的 5 条 Golden Principles
 可观测栈让 AI 从数据发现问题：
 
 - `hooks/log.sh` — 每次操作记录时间戳、耗时（ms）、agent 类型、session ID
-- `scripts/metrics-exporter.sh` — 输出 Prometheus 格式指标，支持 Pushgateway
+- `scripts/metrics/metrics-exporter.sh` — 输出 Prometheus 格式指标，支持 Pushgateway
 - `templates/alerting-rules.yaml` — 4 条告警规则（违规率、Hook 超时、不活跃、Block 突增）
 - `/vibeguard:stats` — Hook 触发统计分析
 
