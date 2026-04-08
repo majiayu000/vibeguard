@@ -109,11 +109,13 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
       PRECOMMIT_OUTPUT=$(VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$HOOK_DIR/.." && pwd)}" bash "$PRECOMMIT_SCRIPT" 2>&1) || PRECOMMIT_EXIT=$?
       if [[ $PRECOMMIT_EXIT -ne 0 ]]; then
         vg_log "pre-bash-guard" "Bash" "block" "pre-commit check failed" "$COMMAND"
-        echo "$PRECOMMIT_OUTPUT" >&2
+        # Embed detailed output into reason so Claude Code can see it
+        # (stderr is not visible to the agent, only the JSON reason field is)
+        ESCAPED_OUTPUT=$(printf '%s' "$PRECOMMIT_OUTPUT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read())[1:-1])')
         cat <<BLOCK_EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD Pre-Commit check failed. Please fix the problem according to the error message above and resubmit. The use of environment variables to bypass is prohibited."
+  "reason": "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。\n\n${ESCAPED_OUTPUT}"
 }
 BLOCK_EOF
         exit 0
