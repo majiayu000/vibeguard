@@ -33,3 +33,6 @@ vibeguard/rules/
 vibeguard/templates/skill-template.md
 vibeguard/docs/spec.md
 vibeguard/scripts/verify/compliance_check.sh
+
+# Placeholder path in docs/how/memory-files.md — illustrates project-level CLAUDE.md location (not a real repo path)
+project/.claude/CLAUDE.md
