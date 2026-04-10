@@ -36,25 +36,28 @@ mkdir -p "${LOG_DIR}"
     for mf in "${LOG_DIR}"/projects/*/session-metrics.jsonl; do
       [[ -f "${mf}" ]] || continue
       BEFORE=$(wc -l < "${mf}" | tr -d ' ')
-      python3 -c "
-import sys
-cutoff = '${CUTOFF}'
+      _GC_CUTOFF="${CUTOFF}" _GC_MF="${mf}" _GC_BEFORE="${BEFORE}" \
+      python3 <<'PYEOF' 2>/dev/null || true
+import sys, os
+cutoff = os.environ['_GC_CUTOFF']
+mf = os.environ['_GC_MF']
+before = os.environ['_GC_BEFORE']
 kept = []
-with open('${mf}') as f:
+with open(mf) as f:
     for line in f:
         if line.strip():
-            if '\"ts\"' in line:
-                idx = line.find('\"ts\"')
-                ts_start = line.find('\"', idx + 4) + 1
+            if '"ts"' in line:
+                idx = line.find('"ts"')
+                ts_start = line.find('"', idx + 4) + 1
                 ts_val = line[ts_start:ts_start+10]
                 if ts_val >= cutoff[:10]:
                     kept.append(line)
             else:
                 kept.append(line)
-with open('${mf}', 'w') as f:
+with open(mf, 'w') as f:
     f.writelines(kept)
-print(f' {len(kept)} reserved items (original ${BEFORE} items)')
-" 2>/dev/null || true
+print(f' {len(kept)} reserved items (original {before} items)')
+PYEOF
       AFTER=$(wc -l < "${mf}" | tr -d ' ')
       DIFF=$((BEFORE - AFTER))
       [[ ${DIFF} -gt 0 ]] && CLEANED=$((CLEANED + DIFF))
@@ -67,13 +70,14 @@ print(f' {len(kept)} reserved items (original ${BEFORE} items)')
 
   echo "--- Regular learning (event log + code scanning unified signal source) ---"
   VIBEGUARD_DIR="${SCRIPT_DIR}/.."
-  python3 -c "
+  _GC_LOG_DIR="${LOG_DIR}" _GC_VIBEGUARD_DIR="${VIBEGUARD_DIR}" \
+  python3 <<'PYEOF' 2>&1 || echo "[ERROR] learn-digest failed"
 import json, os, sys, subprocess
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
-log_dir = '${LOG_DIR}'
-vibeguard_dir = '${VIBEGUARD_DIR}'
+log_dir = os.environ['_GC_LOG_DIR']
+vibeguard_dir = os.environ['_GC_VIBEGUARD_DIR']
 projects_dir = os.path.join(log_dir, 'projects')
 digest_file = os.path.join(log_dir, 'learn-digest.jsonl')
 
@@ -256,29 +260,30 @@ for proj in os.listdir(projects_dir):
         for s in signals:
             src = s.get('source', '')
             if s['type'] == 'linter_violations':
-                print(f' - [code scan] {s[\"guard\"]}: {s[\"count\"]} violations')
+                print(f' - [code scan] {s["guard"]}: {s["count"]} violations')
             else:
                 detail = s.get('reason', s.get('file', ''))
                 count = s.get('count', s.get('edits', ''))
-                print(f' - [Event Log] {s[\"type\"]}: {detail} ({count})')
+                print(f' - [Event Log] {s["type"]}: {detail} ({count})')
 
 if signals_found == 0:
     print('No need to learn signals')
 else:
     print(f' A total of {signals_found} signals have been written to learn-digest.jsonl')
-" 2>&1 || echo "[ERROR] learn-digest failed"
+PYEOF
   echo
 
   echo "---Session Quality Reflection (Reflection Automation) ---"
   REFLECTION_FILE="${LOG_DIR}/reflection-digest.md"
-  python3 -c "
+  _GC_LOG_DIR="${LOG_DIR}" _GC_REFLECTION_FILE="${REFLECTION_FILE}" \
+  python3 <<'PYEOF' 2>&1 || echo "[ERROR] reflection failed"
 import json, os, sys
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
-log_dir = '${LOG_DIR}'
+log_dir = os.environ['_GC_LOG_DIR']
 projects_dir = os.path.join(log_dir, 'projects')
-output_file = '${REFLECTION_FILE}'
+output_file = os.environ['_GC_REFLECTION_FILE']
 
 if not os.path.isdir(projects_dir):
     print('No project data, skip')
@@ -369,14 +374,14 @@ for s in all_sessions:
 report = []
 report.append(f'# VibeGuard Weekly Reflection Report')
 report.append(f'')
-report.append(f'> Generation time: {now.strftime(\"%Y-%m-%d %H:%M UTC\")}')
+report.append(f'> Generation time: {now.strftime("%Y-%m-%d %H:%M UTC")}')
 report.append(f'>Coverage: Last 7 days')
 report.append(f'')
 report.append(f'## overview')
 report.append(f'')
 report.append(f'- Number of sessions: {total_sessions}')
 report.append(f'-Total number of events: {total_events}')
-report.append(f'- pass: {decision_totals.get(\"pass\", 0)} | warn: {decision_totals.get(\"warn\", 0)} | block: {decision_totals.get(\"block\", 0)} | escalate: {decision_totals.get(\"escalate\", 0)}')
+report.append(f'- pass: {decision_totals.get("pass", 0)} | warn: {decision_totals.get("warn", 0)} | block: {decision_totals.get("block", 0)} | escalate: {decision_totals.get("escalate", 0)}')
 total_decisions = sum(decision_totals.values())
 overall_warn_rate = (decision_totals.get('warn', 0) + decision_totals.get('block', 0) + decision_totals.get('escalate', 0)) / max(total_decisions, 1)
 report.append(f'- overall friction rate: {overall_warn_rate:.0%}')
@@ -442,7 +447,7 @@ print(f' Sessions: {total_sessions}, Events: {total_events}, Friction rate: {ove
 if suggestions:
     for s in suggestions:
         print(f'    - {s}')
-" 2>&1 || echo "[ERROR] reflection failed"
+PYEOF
   echo
 
   echo "GC completed"
