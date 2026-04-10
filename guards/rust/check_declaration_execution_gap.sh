@@ -167,6 +167,32 @@ for m in matches:
   exit 0
 }
 
+# RS-14 persistence-method check: verify save/load/persist/restore are called at startup.
+# Collects startup files into an array with while-read to avoid word-splitting on paths
+# containing spaces (replaces the old buggy `for file in $startup_files` pattern).
+_pm_startup_files=()
+while IFS= read -r _f; do
+  [[ -f "${_f}" ]] && _pm_startup_files+=("${_f}")
+done < <(find "${TARGET_DIR}" \( -name 'main.rs' -o -name 'lib.rs' \) 2>/dev/null | head -5)
+
+if [[ ${#_pm_startup_files[@]} -gt 0 ]]; then
+  for _method in save load persist restore; do
+    if grep -rqE "fn[[:space:]]+${_method}[[:space:]]*\(" \
+        --include='*.rs' "${TARGET_DIR}" 2>/dev/null; then
+      _called=false
+      for _file in "${_pm_startup_files[@]}"; do
+        if grep -qE "\b${_method}[[:space:]]*\(" "${_file}" 2>/dev/null; then
+          _called=true
+          break
+        fi
+      done
+      if [[ "${_called}" == "false" ]]; then
+        echo "[RS-14] Persistence method '${_method}()' is declared but not called at startup (main.rs / lib.rs). Fix: invoke ${_method}() in the startup path, or add // vibeguard-disable-next-line RS-14 if intentional." >> "$TMPFILE"
+      fi
+    fi
+  done
+fi
+
 apply_suppression_filter "$TMPFILE"
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
