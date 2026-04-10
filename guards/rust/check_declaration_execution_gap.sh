@@ -170,18 +170,39 @@ for m in matches:
 # RS-14 persistence-method check: verify save/load/persist/restore are called at startup.
 # Collects startup files into an array with while-read to avoid word-splitting on paths
 # containing spaces (replaces the old buggy `for file in $startup_files` pattern).
+# Excludes build artifacts (target/) and non-production dirs to avoid false results from
+# workspace members or generated code masking a missing call in the real entrypoint.
 _pm_startup_files=()
 while IFS= read -r _f; do
   [[ -f "${_f}" ]] && _pm_startup_files+=("${_f}")
-done < <(find "${TARGET_DIR}" \( -name 'main.rs' -o -name 'lib.rs' \) 2>/dev/null | head -5)
+done < <(find "${TARGET_DIR}" \
+    \( -name 'main.rs' -o -name 'lib.rs' \) \
+    -not -path '*/target/*' \
+    -not -path '*/examples/*' \
+    -not -path '*/benches/*' \
+    -not -path '*/tests/*' \
+    2>/dev/null | head -5)
 
 if [[ ${#_pm_startup_files[@]} -gt 0 ]]; then
   for _method in save load persist restore; do
+    # Only flag methods declared in production code; exclude build artifacts and test dirs
+    # so that a method declared only in tests/examples never triggers startup enforcement.
     if grep -rqE "fn[[:space:]]+${_method}[[:space:]]*\(" \
-        --include='*.rs' "${TARGET_DIR}" 2>/dev/null; then
+        --include='*.rs' \
+        --exclude-dir=target \
+        --exclude-dir=examples \
+        --exclude-dir=benches \
+        --exclude-dir=tests \
+        "${TARGET_DIR}" 2>/dev/null; then
       _called=false
       for _file in "${_pm_startup_files[@]}"; do
-        if grep -qE "\b${_method}[[:space:]]*\(" "${_file}" 2>/dev/null; then
+        # Match actual call sites only: strip fn-declaration lines and comment lines first
+        # so that `fn load(`, `// load(`, and `/* load(` do not count as a startup call
+        # (false negative guard — prevents CI passing when method is never invoked at runtime).
+        if grep -E "\b${_method}[[:space:]]*\(" "${_file}" 2>/dev/null \
+            | grep -vE "^\s*(//|/\*|\*)" \
+            | grep -vE "\bfn[[:space:]]+${_method}[[:space:]]*\(" \
+            | grep -q .; then
           _called=true
           break
         fi
