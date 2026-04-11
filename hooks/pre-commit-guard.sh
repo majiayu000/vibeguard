@@ -23,8 +23,10 @@ elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; 
   source "${VIBEGUARD_DIR}/hooks/log.sh"
 else
   vg_log() { :; }
+  vg_start_timer() { :; }
   VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
 fi
+vg_start_timer
 
 # Locate the guards directory
 if [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -d "${VIBEGUARD_DIR}/guards" ]]; then

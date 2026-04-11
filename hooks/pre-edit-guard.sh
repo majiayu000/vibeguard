@@ -8,6 +8,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+vg_start_timer
 
 INPUT=$(cat)
 

@@ -12,6 +12,7 @@
 set -euo pipefail
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
+vg_start_timer
 
 # CI guard: skip in automated environments
 vg_is_ci && exit 0

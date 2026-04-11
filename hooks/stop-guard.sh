@@ -39,6 +39,7 @@ if [[ -n "$changed_source_files" ]]; then
   count=$(echo "$changed_source_files" | grep -c . || true)
 
   vg_log "stop-guard" "Stop" "gate" "uncommitted source changes: ${count} files" "$(echo "$changed_source_files" | head -5 | tr '\n' ' ')"
+vg_start_timer
 
   # exit 0: log only, do not block — Claude cannot commit in Stop context,
   # so exit 2 here causes an infinite loop (feedback → response → stop hooks → repeat).

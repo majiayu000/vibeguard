@@ -15,6 +15,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
+vg_start_timer
 
 # CI guard: analysis-paralysis warnings are not actionable in CI
 vg_is_ci && exit 0
