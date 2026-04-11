@@ -2,529 +2,276 @@
 
 [![CI](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml)
 
-[English](README.md)
+**阻止 AI 编造代码。**
 
-Let AI no longer make up code when writing code.
+[English README](../README.md) | [规则索引](rule-reference.md) | [贡献指南](../CONTRIBUTING.md)
 
-When writing code with Claude Code / Codex, AI often fabricates APIs out of thin air, reinvents the wheel, hardcodes fake data, and over-designs. VibeGuard blocks these problems from the source through three lines of defense: rule injection + real-time interception + static scanning.
+无论你在用 Claude Code 还是 Codex，AI 都很容易出现同一类失误：编造不存在的 API、重复造轮子、硬编码假数据、顺手做一堆你没要求的“优化”。VibeGuard 通过 **规则注入 + 实时拦截 + 静态扫描** 三层防线，把这些问题尽量挡在代码落地之前。
 
-The design is inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo), which fully implements the 5 Golden Principles of Harness.
+> **VibeGuard vs Everything Claude Code：** ECC 更偏通用生产力工具箱；VibeGuard 更偏“防守系统”，重点是约束、拦截、验证和回放。两者不是互斥关系，反而适合一起使用。
 
-## Install
+设计思路参考了 [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) 和 [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo)，并把 Harness 的 5 条黄金原则真正落到仓库级工具链里。
+
+## 典型问题
+
+```text
+你：   “加一个登录接口”
+AI：   新建 auth_service.py（仓库里其实已经有 auth.py）
+      引入不存在的库 `flask-auth-magic`
+      把 JWT secret 硬编码成 "your-secret-key"
+      顺手再加 200 行你根本没要的“改进”
+```
+
+**VibeGuard 的目标，就是在这些改动进入仓库之前先发现并打断。**
+
+## 快速开始
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-bash ~/vibeguard/setup.sh #Default core (recommended)
-bash ~/vibeguard/setup.sh --profile full # full: additionally enable Stop Gate + Post-Build-Check + Pre-Commit Hook
+bash ~/vibeguard/setup.sh
 ```
 
-After the installation is complete, opening a new Claude Code session will take effect. Run `bash ~/vibeguard/setup.sh --check` to verify the installation status.
+安装后重新打开 Claude Code 或 Codex 会话。用下面的命令检查安装状态：
 
-## What does it do
-
-Once installed, VibeGuard works automatically on three levels:
-
-### 1. Rule injection (takes effect when a session is opened)
-
-VibeGuard injects rules via two paths:
-
-**Path 1: Native rules (`~/.claude/rules/vibeguard/`)** — 90+ rules loaded through Claude Code’s native rules mechanism, supporting `paths` scope (language-specific rules are only activated when matching files), directly affecting the AI inference layer.
-
-**Path 2: CLAUDE.md injection (`~/.claude/CLAUDE.md`)** — Seven-level constraint index appended to user-level global configuration. When Claude Code starts, it loads all levels of CLAUDE.md and takes effect superimposed:
-
-```
-Enterprise/Library/Application Support/ClaudeCode/CLAUDE.md ← IT Deployment
-User level ~/.claude/CLAUDE.md ← VibeGuard rules index here
-Project-level ./CLAUDE.md or ./.claude/CLAUDE.md ← Project-specific constraints
-Local ./CLAUDE.local.md ← Personal configuration (automatic gitignore)
-Subdirectory ./subdir/CLAUDE.md ← Lazy loading, loaded only when accessed
+```bash
+bash ~/vibeguard/setup.sh --check
 ```
 
-All levels are concatenate into the AI context, and **VibeGuard global rules and project rules naturally coexist**. A project's CLAUDE.md can be supplemented with project-specific constraints (such as "use pnpm instead of npm"), and VibeGuard continues to protect the bottom line. If instructions conflict, Claude tends to adhere to the more specific one.
+## 文档导航
 
-Seven levels of constraints:
+| 文档 | 作用 |
+|------|------|
+| [rule-reference.md](rule-reference.md) | 规则分层、guard 覆盖面、语言专项检查 |
+| [CLAUDE.md.example](CLAUDE.md.example) | 只使用规则模板、不安装 hooks 的项目级 CLAUDE 模板 |
+| [linux-setup.md](linux-setup.md) | Linux 安装说明 |
+| [known-issues/false-positives.md](known-issues/false-positives.md) | 已知误报与修复经验 |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献流程、验证命令、提交规范 |
 
-| Layers | Constraints | Effects |
-|----|------|------|
-| L1 | Search first and then write | Before creating a new file/class/function, you must first search for existing implementations to prevent reinventing the wheel |
-| L2 | Naming constraints | Python internal snake_case, API boundary camelCase, no aliasing allowed |
-| L3 | Quality baseline | Silent swallowing of exceptions is prohibited, and `Any` type is prohibited in public methods |
-| L4 | Data authenticity | Display blank if there is no data, no hard coding, no inventing APIs that do not exist |
-| L5 | Minimal changes | Just do what is asked, no additional "improvements" |
-| L6 | Process Constraints | Preflight for major changes first, then check after completion |
-| L7 | Submission discipline | Ban AI tags, force push, backward compatibility |
+## 工作方式
 
-Rules implicitly guide the AI using negative constraints ("X does not exist"), which are more effective than positive descriptions (Golden Principle #5: Give a map but not a manual).
+### 1. 规则注入
 
-### 2. Hooks real-time interception (automatically triggered when writing code)
+`rules/claude-rules/` 中的原生规则会被安装到 `~/.claude/rules/vibeguard/`，直接影响 Claude Code 的推理层。同时，VibeGuard 还会把 7 层约束索引注入到 `~/.claude/CLAUDE.md`。
 
-Most Hooks do not need to be run manually and are automatically intercepted during AI operations; `skills-loader` is a reserved optional script:
-
-| Scenario | Trigger | Result |
+| 层级 | 约束 | 作用 |
 |------|------|------|
-| AI wants to create a new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Interception** — must first search whether there is a similar implementation |
-| AI wants to execute `git push --force`, `rm -rf`, `reset --hard` | `pre-bash-guard` | **Interception** - Gives a safe alternative (subcommand aware, does not block `git add -f` by mistake) |
-| AI wants to edit a file that does not exist | `pre-edit-guard` | **Intercept** — Read first to confirm the file content |
-| Added `unwrap()` and hard-coded path after AI editing | `post-edit-guard` | **Warning** — Give specific repair methods |
-| Added `console.log` / `print()` debugging statements after AI editing | `post-edit-guard` | **Warning** — Prompt to use logger |
-| Duplicate definitions or files with the same name exist after AI creates a new file | `post-write-guard` | **Warning** — Detect duplicate definitions |
-| AI post-edit build check failed (`full` profile) | `post-build-check` | **Warning** — Automatically run the corresponding language build check |
-| Manually enable when needed | `skills-loader` | **Optional** — Output Skill/learning prompts when reading for the first time, not enabled by default |
-| When `git commit` | `pre-commit-guard` | **Interception** — quality check + build check, 10s timeout hard limit |
-| AI wants to end but there are unverified source code changes (`full` profile) | `stop-guard` | **Gate guard** — remind to complete the verification before ending |
-| At the end of the session | `learn-evaluator` | **Evaluate** — Collect metrics + detect corrective signals, recommend when there are signals /learn |
+| L1 | 先搜索再创建 | 新建文件/类/函数前先确认仓库里是否已有实现 |
+| L2 | 命名规范 | 内部优先 `snake_case`，API 边界再用 `camelCase`，禁止别名 |
+| L3 | 质量基线 | 禁止吞异常、公共接口滥用 `Any` |
+| L4 | 数据真实性 | 没数据就显示空，不允许硬编码和虚构 API |
+| L5 | 最小改动 | 只做被要求的事，不顺手加“升级” |
+| L6 | 过程闸门 | 大改动先预检和规划，结束前必须验证 |
+| L7 | 提交纪律 | 禁止 AI 标记、禁止 force push、禁止秘钥入库 |
 
-Each Hook execution automatically records the time taken (`duration_ms`) and agent type to the log to support performance monitoring.
+这里大量使用了“负约束”表达，例如“X 不存在”“不要假设 Y 已经有”，通常比纯正向描述更能稳定影响 agent 行为。
 
-## Order
+### 2. Hooks 实时拦截
 
-10 custom commands covering the entire life cycle from requirements to operation and maintenance:
+多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；Codex 目前只支持部署 Bash/Stop 类 hook：
 
-| Command | Purpose |
-|------|------|
-| `/vibeguard:interview` | In-depth interview on large functional requirements, output SPEC.md |
-| `/vibeguard:exec-plan` | Long-term task execution plan, supports cross-session recovery |
-| `/vibeguard:preflight` | Generate a constraint set before modification to prevent problems from the source |
-| `/vibeguard:check` | Full guard scan + compliance report |
-| `/vibeguard:review` | Structured code review (security → logic → quality → performance) |
-| `/vibeguard:cross-review` | Dual model adversarial review (Claude + Codex) |
-| `/vibeguard:build-fix` | Build error fix |
-| `/vibeguard:learn` | Generate guard rules from errors / Extract Skills from findings |
-| `/vibeguard:gc` | Garbage collection (log archiving + worktree cleaning + code garbage scanning) |
-| `/vibeguard:stats` | Hook trigger statistics |
+| 场景 | Hook | 结果 |
+|------|------|------|
+| AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | **拦截**，必须先搜索现有实现 |
+| AI 执行 `git push --force`、`rm -rf`、`reset --hard` | `pre-bash-guard` | **拦截**，给出安全替代命令 |
+| AI 编辑一个不存在的文件 | `pre-edit-guard` | **拦截**，要求先读取文件确认 |
+| AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
+| AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |
+| AI 新建文件后出现重复定义或重名文件 | `post-write-guard` | **告警**，提示重复实现 |
+| AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **升级**，要求明确下一步或说明阻塞 |
+| `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
+| `git commit` | `pre-commit-guard` | **拦截**，只检查 staged 改动，10 秒硬超时 |
+| AI 想结束但还没有验证改动 | `stop-guard` | **闸门**，要求先补完验证 |
+| 会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
 
-Shortcut aliases: `/vg:pf`(preflight) `/vg:gc`(gc) `/vg:ck`(check) `/vg:lrn`(learn)
+### 3. 静态 Guards
 
-### Recommended workflow
-
-```
-interview → exec-plan → preflight → coding → check → review → learn → stats
-```
-
-### Complexity routing
-
-Automatically select process depth based on change size:
-
-| Scale | Process |
-|------|------|
-| 1-2 File | Direct implementation |
-| 3-5 File | `/vibeguard:preflight` → constraint set → implementation |
-| 6+ Documentation | `/vibeguard:interview` → SPEC → `/vibeguard:preflight` → Implementation |
-
-## Harness Engineering — Five Golden Principles implementation
-
-VibeGuard fully implements the 5 Golden Principles of OpenAI Harness Engineering:
-
-### 1. What the Agent cannot see does not exist.
-
-All decisions are written into the warehouse, not left in Slack or in your head:
-
-- CLAUDE.md seven-layer rules - automatically loaded when AI starts
-- ExecPlan Decision Log — All decisions on long-term tasks are recorded in documents
-- preflight constraint set - constraints before coding are solidified in document form
-
-### 2. Ask "What abilities are missing" instead of "Why did you fail?"
-
-Make up for your abilities when encountering problems, instead of writing a better prompt:
-
-- `/vibeguard:learn` — Automatically generate new guard rules from errors, and accumulate incremental capabilities
-- learn-evaluator Hook — Evaluate at the end of the session whether there is any extractable experience
-- Skill system - the extracted experience is saved as Skill and automatically reused in the future
-
-### 3. Mechanical Execution > Document Description
-
-If you can use a script to detect it, write a script instead of relying on AI awareness:
-
-- Pre/Post Hooks — real-time interception, cannot be bypassed
-- Dependency layer Linter (`check_dependency_layers.py`) — detects cross-layer violations, the error message **contains repair instructions**
-- Circular dependency detection (`check_circular_deps.py`) — Build module dependency graph and detect loops
-- Code garbage scan (`check_code_slop.sh`) — detects empty catches, legacy debugging, expired TODOs, dead code
-
-### 4. Give Agent a pair of eyes
-
-The observable stack allows AI to discover problems from data:
-
-- `hooks/log.sh` — records timestamp, time taken (ms), agent type, session ID for each operation
-- `scripts/metrics/metrics-exporter.sh` — export Prometheus format metrics, support Pushgateway
-- `templates/alerting-rules.yaml` — 4 alerting rules (violation rate, Hook timeout, inactivity, Block sudden increase)
-- `/vibeguard:stats` — Hook triggers statistical analysis
-
-### 5. Give a map but not a manual
-
-Progressive disclosure, streamlined indexing, and detailed rules loaded on demand:
-
-- `vibeguard-rules.md` is controlled at line 32 - only index is placed, detailed rules are in the `rules/` directory
-- Negative constraints - "ORM does not exist", "alias does not exist" are more effective than "Please use X"
-- Path scope rules - different directories automatically load different constraints to reduce irrelevant tokens
-- `templates/AGENTS.md` — provides equivalent constraint files for OpenAI Codex users
-
-## ExecPlan — Long-term task execution plan
-
-Large tasks that span sessions require self-contained execution documents that can resume execution in new sessions by themselves:
-
-```
-/vibeguard:exec-plan init [spec path] # Generate ExecPlan from SPEC
-/vibeguard:exec-plan status <path> # Check the progress
-/vibeguard:exec-plan update <path> #Append decision/discovery/completion status
-```
-
-ExecPlan 8-section structure: Purpose → Progress → Context → Plan of Work → Concrete Steps → Validation → Idempotence → Execution Journal
-
-Complete pipeline: `interview → SPEC → exec-plan → preflight → execution → exec-plan update`
-
-## Garbage collection (GC)
-
-Prevent AI code garbage and runtime garbage accumulation (refer to Harness GC Agent):
-
-```
-/vibeguard:gc
-```
-
-| Module | Function |
-|------|------|
-| `gc-logs.sh` | events.jsonl Over 10MB Archived monthly (gzip), retained for 3 months |
-| `gc-worktrees.sh` | Delete worktrees that have been inactive for >7 days, only warn if there are unmerged changes |
-| `check_code_slop.sh` | 5 types of AI garbage: empty catch, debug code, expired TODO, dead code, overlong file |
-
-Can also be run alone:
+下面是最常用的一组独立扫描脚本。完整清单请看 [rule-reference.md](rule-reference.md)。
 
 ```bash
-bash ~/vibeguard/scripts/gc/gc-logs.sh --dry-run
-bash ~/vibeguard/scripts/gc/gc-worktrees.sh --days 14
+# 通用
 bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project
-```
-
-## Dependency layer Linter
-
-Enforce `Types → Config → Repo → Service → Runtime → UI` one-way dependency:
-
-```bash
-# Detect cross-layer violations
 python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path/to/project
-
-# Detect circular dependencies
 python3 ~/vibeguard/guards/universal/check_circular_deps.py /path/to/project
+bash ~/vibeguard/guards/universal/check_test_integrity.sh /path/to/project
+
+# Rust
+bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path
+bash ~/vibeguard/guards/rust/check_nested_locks.sh /path
+bash ~/vibeguard/guards/rust/check_declaration_execution_gap.sh /path
+bash ~/vibeguard/guards/rust/check_duplicate_types.sh /path
+bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path
+bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path
+bash ~/vibeguard/guards/rust/check_taste_invariants.sh /path
+bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path
+
+# Go
+bash ~/vibeguard/guards/go/check_error_handling.sh /path
+bash ~/vibeguard/guards/go/check_goroutine_leak.sh /path
+bash ~/vibeguard/guards/go/check_defer_in_loop.sh /path
+
+# TypeScript
+bash ~/vibeguard/guards/typescript/check_any_abuse.sh /path
+bash ~/vibeguard/guards/typescript/check_console_residual.sh /path
+bash ~/vibeguard/guards/typescript/check_component_duplication.sh /path
+bash ~/vibeguard/guards/typescript/check_duplicate_constants.sh /path
+
+# Python
+python3 ~/vibeguard/guards/python/check_duplicates.py /path
+python3 ~/vibeguard/guards/python/check_naming_convention.py /path
+python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 ```
 
-You need to place `.vibeguard-architecture.yaml` in the project root directory to define the hierarchical structure. template:
+## Slash Commands
+
+仓库内置了 10 个自定义命令，覆盖从需求澄清到验证复盘的完整流程：
+
+| 命令 | 作用 |
+|------|------|
+| `/vibeguard:preflight` | 修改前生成约束集 |
+| `/vibeguard:check` | 全量 guard 扫描 + 合规报告 |
+| `/vibeguard:review` | 结构化代码审查（安全 → 逻辑 → 质量 → 性能） |
+| `/vibeguard:cross-review` | Claude + Codex 双模型对抗式审查 |
+| `/vibeguard:build-fix` | 构建错误修复 |
+| `/vibeguard:learn` | 从错误中生成 guard/rule，或提炼 Skill |
+| `/vibeguard:interview` | 深度需求访谈，输出 SPEC.md |
+| `/vibeguard:exec-plan` | 长任务执行计划，支持跨会话恢复 |
+| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + code slop 扫描） |
+| `/vibeguard:stats` | hook 触发统计 |
+
+快捷别名：`/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`
+
+### 复杂度路由
+
+| 规模 | 推荐流程 |
+|------|----------|
+| 1-2 个文件 | 直接实现 |
+| 3-5 个文件 | `/vibeguard:preflight` → 约束集 → 实现 |
+| 6 个及以上文件 | `/vibeguard:interview` → SPEC → `/vibeguard:preflight` → 实现 |
+
+## 内置 Agent Prompts
+
+仓库当前内置 14 个 agent prompt（13 个专项角色 + 1 个 dispatcher）：
+
+| Agent | 作用 |
+|------|------|
+| `dispatcher` | 自动识别任务类型并路由到合适的 agent |
+| `planner` / `architect` | 需求分析、系统设计 |
+| `tdd-guide` | RED → GREEN → IMPROVE 测试驱动 |
+| `code-reviewer` / `security-reviewer` | 分层审查、OWASP Top 10 |
+| `build-error-resolver` | 构建错误定位与修复 |
+| `go-reviewer` / `python-reviewer` / `database-reviewer` | 语言/数据库专项审查 |
+| `refactor-cleaner` / `doc-updater` / `e2e-runner` | 重构、文档同步、端到端验证 |
+
+## 可观测性与学习闭环
 
 ```bash
-cp ~/vibeguard/templates/vibeguard-architecture.yaml .vibeguard-architecture.yaml
-```
-
-Output an error message containing repair instructions when a violation occurs (Golden Principle #3).
-
-## Multi-Agent automatic scheduling
-
-14 special agents + 1 dispatcher automatic routing:
-
-| Agent | What to do |
-|-------|--------|
-| `dispatcher` | **Automatic dispatch** — analyze task types and route to the most appropriate agent |
-| `planner` | Requirements analysis, task decomposition |
-| `architect` | Technical solutions, architectural design |
-| `tdd-guide` | RED → GREEN → IMPROVE test driver |
-| `code-reviewer` | Hierarchical code review |
-| `security-reviewer` | OWASP Top 10 Security Review |
-| `build-error-resolver` | Build error fix |
-| `e2e-runner` | End-to-end testing |
-| `refactor-cleaner` | Refactor, eliminate duplication |
-| `doc-updater` | Synchronize documents after code changes |
-| `go-reviewer` / `go-build-resolver` | Go-specific |
-| `python-reviewer` | Python specialization |
-| `database-reviewer` | SQL injection, N+1, transactions |
-
-Dispatcher automatic scheduling rules:
-- Build errors → `build-error-resolver`
-- Test file changes → `tdd-guide`
-- Database migration → `database-reviewer`
-- Security related → `security-reviewer`
-- 5+ file refactoring → `refactor-cleaner`
-
-Inference budget sandwich (refer to Harness): opus for planning → sonnet for execution → opus for verification.
-
-## Observable stack
-
-```bash
-# Quality grade score (A/B/C/D, dynamic recommended GC frequency)
-bash ~/vibeguard/scripts/quality-grader.sh # Last 30 days
-bash ~/vibeguard/scripts/quality-grader.sh --json # JSON format
-
-# Document freshness (rules-guard coverage detection)
+bash ~/vibeguard/scripts/quality-grader.sh
+bash ~/vibeguard/scripts/stats.sh
+bash ~/vibeguard/scripts/hook-health.sh 24
+bash ~/vibeguard/scripts/metrics/metrics-exporter.sh
 bash ~/vibeguard/scripts/verify/doc-freshness-check.sh
-
-# Ability evolution log (Guard/Rule/Skill change timeline)
-bash ~/vibeguard/scripts/log-capability-change.sh --since 2026-02-01
-
-# Prometheus indicator export
-bash ~/vibeguard/scripts/metrics/metrics-exporter.sh # Output to stdout
-bash ~/vibeguard/scripts/metrics/metrics-exporter.sh --push <gateway> # Push to Pushgateway
-bash ~/vibeguard/scripts/metrics/metrics-exporter.sh --file /path/to.prom # Write textfile
-
-# Log statistics
-bash ~/vibeguard/scripts/stats.sh # Last 7 days
-bash ~/vibeguard/scripts/stats.sh 30 # Last 30 days
 ```
 
-Indicators include: `hook_trigger_total`, `tool_total`, `hook_duration_seconds`, `guard_violation_total`.
+学习系统分两种模式：
 
-Quality scoring formula: `security × 0.4 + stability × 0.3 + coverage × 0.2 + performance × 0.1`, grade A(≥90)/B(70-89)/C(50-69)/D(<50) corresponding to GC frequency 7 days/3 days/1 day/real time.
+**模式 A：防御式学习**
 
-The alerting rule template is in `templates/alerting-rules.yaml`, covering four scenarios: excessive violation rate, Hook timeout, inactivity, and block sudden increase.
-
-## Learning system
-
-Dual-mode closed-loop learning, automatically evolving from mistakes:
-
-### Mode A — Defensive (Learn from Mistakes)
-
-```
-/vibeguard:learn <error description>
+```text
+/vibeguard:learn <错误描述>
 ```
 
-Analyze the root cause of the error (5-Why) → Generate a new guard script/Hook/rule → Verify that the original error can be detected → Similar errors will no longer occur.
+针对一次真实失误做 5-Why 根因分析，然后生成新的 guard / hook / rule，并回放验证。
 
-### Mode B — Accumulation (Extract Skill from discovery)
+**模式 B：积累式学习**
 
-```
+```text
 /vibeguard:learn extract
 ```
 
-When non-obvious solutions are found in the session, they are extracted into structured skill files and automatically reused when similar problems are encountered in the future.
+把会话里出现的非显然解法提炼成 Skill，供后续任务复用。
 
-Quality gating: reusable + non-trivial + specific + verified, only save if all are met.
+## Codex 集成
 
-### Automatic evaluation
+VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 
-`learn-evaluator.sh` automatically evaluates whether there is experience worth extracting at the end of the session, reminding the user to run learn.
+### Codex Hooks
 
-## Guard script
+`~/.codex/hooks.json` 中当前会部署以下 VibeGuard 管理的 hook：
 
-Static checks that can be run individually:
-
-**GENERAL**
-```bash
-bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project # AI code garbage
-python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path/to/project # Dependency layer direction
-python3 ~/vibeguard/guards/universal/check_circular_deps.py /path/to/project # Circular dependencies
-```
-
-**Rust**
-```bash
-bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_duplicate_types.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_nested_locks.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_workspace_consistency.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_single_source_of_truth.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_semantic_effect.sh /path/to/project
-bash ~/vibeguard/guards/rust/check_taste_invariants.sh /path/to/project # Harness code taste
-bash ~/vibeguard/guards/rust/check_declaration_execution_gap.sh /path/to/project
-```
-
-**Go**
-```bash
-bash ~/vibeguard/guards/go/check_error_handling.sh /path/to/project # GO-01: unchecked error
-bash ~/vibeguard/guards/go/check_goroutine_leak.sh /path/to/project # GO-02: goroutine leak
-bash ~/vibeguard/guards/go/check_defer_in_loop.sh /path/to/project        # GO-08: defer-in-loop
-```
-
-**Python**
-```bash
-python3 ~/vibeguard/guards/python/check_duplicates.py /path/to/project
-python3 ~/vibeguard/guards/python/check_naming_convention.py /path/to/project
-```
-
-## Rule system
-
-### Guard rules (`rules/`)
-
-Checking rule definition for guard script:
-
-| Documentation | Content |
-|------|------|
-| `universal.md` | U-01 ~ U-24 Universal Rules |
-| `security.md` | SEC-01 ~ SEC-10 Security Rules |
-| `typescript.md` | TS-01 ~ TS-12 |
-| `python.md` | PY-01 ~ PY-12 |
-| `go.md` | GO-01 ~ GO-12 |
-| `rust.md` | Rust-specific rules |
-
-### Native rules (`rules/claude-rules/` → `~/.claude/rules/vibeguard/`)
-
-90+ rules are loaded through Claude Code’s native rules mechanism and take effect in the AI reasoning layer (not just script interception):
-
-| Directory | Content | Scope |
-|------|------|--------|
-| `common/coding-style.md` | U-01 ~ U-26 common constraints (including U-25 build failure repair priority, U-26 declaration-execution integrity) | Global |
-| `common/data-consistency.md` | U-11 ~ U-14 cross-entry data consistency | Global |
-| `common/security.md` | SEC-01 ~ SEC-10 Security Rules | Global |
-| `common/workflow.md` | W-01 ~ W-05 workflow constraints (debugging protocol, continuous failure fallback, assertion after verification) | Global |
-| `rust/quality.md` | Rust-specific | `**/*.rs, **/Cargo.toml` |
-| `golang/quality.md` | Go-specific | `**/*.go, **/go.mod` |
-| `typescript/quality.md` | TypeScript-specific | `**/*.ts, **/*.tsx` |
-| `python/quality.md` | Python specialization | `**/*.py` |
-
-> **Note**: There is a bug in the YAML `paths` array parsing of Claude Code user-level `~/.claude/rules/` ([#21858](https://github.com/anthropics/claude-code/issues/21858)), which must be in CSV single-line format (such as `paths: "**/*.rs,**/Cargo.toml"`).
-
-### Inline exclusion
-
-Guard scripts support `// vibeguard:ignore` inline comments to skip single-line detection:
-
-```go
-result := dangerousOp() // vibeguard:ignore
-```
-
-Currently supported: RS-03 (unwrap), GO-01 (error handling), GO-02 (goroutine leak), TS-01 (any abuse).
-
-## manage
-
-```bash
-bash ~/vibeguard/setup.sh # Install/update (default core)
-bash ~/vibeguard/setup.sh --profile full # Switch to full profile
-bash ~/vibeguard/setup.sh --check # Check installation status
-bash ~/vibeguard/setup.sh --clean # Uninstall
-```
-
-## Warehouse structure
-
-```
-vibeguard/
-├── setup.sh # One-click installation/uninstallation/checking
-├── agents/ # 14 special agents (including dispatcher automatic scheduling)
-├── hooks/ # Real-time interception script
-│ ├── log.sh # Shared log (duration_ms + agent type)
-│ ├── run-hook.sh # Hook execution entry
-│ ├── pre-write-guard.sh # New file interception
-│ ├── pre-bash-guard.sh # Dangerous command interception (subcommand awareness)
-│ ├── pre-edit-guard.sh # Anti-hallucination editing
-│ ├── pre-commit-guard.sh # Automatic guard before git commit (10s timeout)
-│ ├── post-edit-guard.sh # Quality warning (including churn detection)
-│ ├── post-write-guard.sh # New file duplication detection
-│ ├── post-build-check.sh # Build check (full profile)
-│ ├── skills-loader.sh # Optional first-time Read Skill/learning prompt script (not enabled by default)
-│ ├── stop-guard.sh # Verify access control before completion
-│ └── learn-evaluator.sh # End-of-session learning evaluation
-├── guards/ # Static inspection script (supports // vibeguard:ignore inline exclusion)
-│ ├── universal/ # Universal guard (code garbage, dependency layer, circular dependency)
-│ ├── rust/ # Rust guards (including Taste Invariants, declaration-execution gap detection)
-│ ├── go/ # Go guard (error check, goroutine leak, defer-in-loop)
-│ ├── python/ # Python guard
-│ └── typescript/ # TypeScript guard
-├── .claude/commands/vibeguard/ # 10 custom commands
-├── .claude/commands/vg/ # Command alias (pf/gc/ck/lrn)
-├── templates/ # template
-│ ├── project-rules/ # Path scope rules
-│ ├── vibeguard-architecture.yaml #Dependency layer definition
-│ ├── alerting-rules.yaml # Prometheus alerting rules
-│ └── AGENTS.md # OpenAI Codex Equivalent Constraints
-├── workflows/plan-flow/ # Workflow + ExecPlan template
-├── claude-md/vibeguard-rules.md # Index of rules injected into CLAUDE.md
-├── rules/ # Rule definition file
-│ ├── universal.md # U-01 ~ U-24 Universal rules
-│   ├── security.md                       #   SEC-01 ~ SEC-10
-│ ├── rust.md / go.md / ... # Language-specific rules
-│ └── claude-rules/ # Native rules (deployed to ~/.claude/rules/vibeguard/)
-│       ├── common/                       #     coding-style(U-01~U-26) + data-consistency + security + workflow(W-01~W-05)
-│ ├── rust/ golang/ typescript/ python/ # Language quality rules (with paths scope)
-├── templates/skill-template.md # Skill extraction template
-├── skills/ # Reusable workflow
-├── scripts/ # Tool script
-│ ├── setup/ # Install/uninstall/check script
-│ ├── stats.sh # Statistical analysis
-│ ├── quality-grader.sh # Quality grade rating (A/B/C/D)
-│ ├── verify/doc-freshness-check.sh # Document freshness detection
-│ ├── log-capability-change.sh # Capability evolution log
-│ ├── constraint-recommender.py # preflight constraint automatic recommendation
-│ ├── gc/gc-logs.sh # Log archive
-│ ├── gc/gc-worktrees.sh # Worktree cleanup
-│ ├── gc/gc-scheduled.sh # Regular GC (launchd scheduling, every Sunday at 3:00)
-│ ├── project-init.sh # Project-level scaffolding (language detection + guard activation + pre-commit/pre-push installation)
-│ ├── metrics/metrics-exporter.sh # Prometheus indicator export
-│ └── ci/ # CI verification script
-├── context-profiles/ # Context mode (dev/review/research)
-└── docs/spec.md # Complete specification
-```
-
-## CLAUDE.md template
-
-The warehouse comes with a complete CLAUDE.md template ([`docs/CLAUDE.md.example`](docs/CLAUDE.md.example)), which integrates Anthropic official best practices + VibeGuard seven-layer defense + Harness Golden Principles.
-
-**Differences from the "10x Engineer CLAUDE.md" circulating on the Internet: ** Those configurations only tell the AI "what you should do", the VibeGuard version uses **automatic interception with Hooks + guard script enforcement** to ensure that the AI must do this.
-
-### How to use
-
-**Method 1: Install VibeGuard (recommended)**
-
-```bash
-bash ~/vibeguard/setup.sh
-```
-
-**Method 2: Only use templates without installing VibeGuard**
-
-```bash
-cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md
-```
-
-> Note: Without installing VibeGuard, Hooks and `/vibeguard:*` commands will not take effect, only the rule constraint part will take effect.
-
-**Method 3: OpenAI Codex User**
-
-```bash
-cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md
-bash ~/vibeguard/setup.sh
-```
-
-Constraints equivalent to CLAUDE.md, adapted to Codex agent format. `setup.sh` also automatically installs Codex skills and `~/.codex/hooks.json`.
-
-### Codex adaptation layer (hooks + wrapper)
-
-For `codex app-server` orchestration scenarios such as Symphony, you can optionally use an outer wrapper:
-
-```bash
-python3 ~/vibeguard/scripts/codex/app_server_wrapper.py \
-  --codex-command "codex app-server"
-```
-
-Strategy mode parameters:
-
-- `--strategy vibeguard` (default): enable outer pre/stop/post gate
-- `--strategy noop`: pure transparent transmission (debugging)
-
-**Method 4: Path scope rules (optional)**
-
-```bash
-mkdir -p .claude/rules
-cp ~/vibeguard/templates/project-rules/*.md .claude/rules/
-```
-
-## Design concept
-
-| Principles | Sources | Implementation |
+| 事件 | Hook | 作用 |
 |------|------|------|
-| Mechanization first | Harness #3 | Hooks + guard script enforcement, not relying on AI consciousness |
-| Error messages are repair instructions | Harness #3 | Each interception tells the AI how to fix it, not just what is wrong |
-| Give the map but not the manual | Harness #5 | 32-row index + negative constraints + on-demand loading |
-| Failure Closed Loop | Harness #2 | Make a mistake → learn → New guard → Don’t make the same mistake again |
-| What Agent cannot see does not exist | Harness #1 | All decisions are written into the warehouse (CLAUDE.md / ExecPlan / Constraint Set) |
-| Give Agent a pair of eyes | Harness #4 | Observable stack (log + indicator + alarm) |
+| `PreToolUse(Bash)` | `pre-bash-guard.sh` | 危险命令拦截 + 包管理器纠偏 |
+| `PostToolUse(Bash)` | `post-build-check.sh` | 构建失败检测 |
+| `Stop` | `stop-guard.sh` | 未验证改动的结束闸门 |
+| `Stop` | `learn-evaluator.sh` | 会话指标与纠错信号采集 |
+
+> **注意：** Codex 目前的 PreToolUse/PostToolUse 只支持 `Bash` matcher，所以 `pre-edit`、`post-edit`、`post-write` 这类 hook 还不能部署到 Codex。
+
+Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异则由 `run-hook-codex.sh` 负责适配。
+
+### App Server 外层封装
+
+如果你在用 `codex app-server` 这类编排器，可以在外层再包一层 VibeGuard：
+
+```bash
+python3 ~/vibeguard/scripts/codex/app_server_wrapper.py   --codex-command "codex app-server"
+```
+
+- `--strategy vibeguard`：默认模式，在外层补上 pre/stop/post gate
+- `--strategy noop`：纯透传，方便调试
+
+## 安装选项
+
+```bash
+# Profiles
+bash ~/vibeguard/setup.sh
+bash ~/vibeguard/setup.sh --profile minimal
+bash ~/vibeguard/setup.sh --profile full
+bash ~/vibeguard/setup.sh --profile strict
+
+# 只安装指定语言规则/guards
+bash ~/vibeguard/setup.sh --languages rust,python
+bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
+
+# 检查 / 卸载
+bash ~/vibeguard/setup.sh --check
+bash ~/vibeguard/setup.sh --clean
+```
+
+### Profiles
+
+| Profile | 安装内容 | 适用场景 |
+|---------|----------|----------|
+| `minimal` | `pre-write` + `pre-edit` + `pre-bash` | 最轻量的关键拦截 |
+| `core` | `minimal` + `post-edit` + `post-write` + `analysis-paralysis` | 默认开发档 |
+| `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
+| `strict` | 与 `full` 相同 hook 集合 | 更严格的运行策略 |
+
+### 给别的仓库做初始化
+
+```bash
+bash ~/vibeguard/scripts/project-init.sh /path/to/project
+```
+
+这个脚本会检测语言、输出建议的项目级约束片段，并把 pre-commit wrapper 接到目标仓库里。
+
+### 自定义规则
+
+你可以把自定义 `.md` 规则放进 `~/.vibeguard/user-rules/`。下次运行 `setup.sh` 时，这些规则会被同步到 `~/.claude/rules/vibeguard/custom/`。
+
+## 已知限制
+
+当前不少 guard 仍然依赖 grep/awk 或轻量 AST 辅助，因此在复杂语法场景里仍然可能出现误报。
+
+- [known-issues/false-positives.md](known-issues/false-positives.md)：已确认误报场景、修复方式和经验总结
+
+几个最重要的经验：
+
+- **grep 不是 AST parser**：多层嵌套和跨块关系最好交给语言感知工具
+- **修复提示本身也会驱动 agent**：提示写得太宽，会诱导 AI 做无关改动
+- **项目类型很重要**：CLI、Web、MCP、Library 对同一条规则的可接受模式可能不同
 
 ## References
-
-| External Practice | VibeGuard Correspondence |
-|----------|---------------|
-| Harness: Golden Principles written into the warehouse | CLAUDE.md seven-layer rule injection |
-| Harness: Mechanical enforcement of architectural constraints | Pre/Post Hooks + Dependency Layer Linter |
-| Harness: ExecPlan long-term task | `/vibeguard:exec-plan` 8-section template |
-| Harness: Garbage Collection automatic cleaning | `/vibeguard:gc` three-module cleaning |
-| Harness: Observable Stack | metrics-exporter + alerting-rules |
-| Harness: Multi-Agent dispatch | dispatcher agent + classify_task() |
-| Harness: Skills Progressive Disclosure | `/vibeguard:learn` Mode B + skill-template |
-| Harness: Negative constraint guidance | "X does not exist" in the rule + AGENTS.md template |
-| Stripe: Blueprint Orchestration | blueprints/*.json + blueprint-runner.sh |
-| Stripe: Feedback left shift | pre-commit-guard.sh |
-| Stripe: Tool subset distribution | Select corresponding guard scripts by language |
-
----
 
 - [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/)
 - [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo)

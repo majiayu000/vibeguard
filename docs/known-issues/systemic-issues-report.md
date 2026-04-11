@@ -1,5 +1,10 @@
 # VibeGuard Systemic Issue Report and Improvement Roadmap
 
+> Status: historical operating report and roadmap.
+> This document captures a dated review with recommendations and proposed files that may not exist in the current repository.
+> Treat it as context, not as the current implementation contract.
+
+
 > Comprehensive review based on 40 days of operating data (2026-02-18 → 2026-03-23), 39,166 event logs, and 124 commits.
 > 10 parallel sub-agents searching industry best practices (ast-grep, Semgrep, Clippy, Claude Code hooks, GaaS papers, OpenAI Baker et al.).
 > Generation date: 2026-03-23

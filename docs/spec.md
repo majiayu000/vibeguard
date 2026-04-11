@@ -1,4 +1,9 @@
-#VibeGuard Specification — AI-assisted development of an anti-hallucination framework
+# VibeGuard Specification — AI-assisted development of an anti-hallucination framework
+
+> Status: historical design snapshot.
+> Some implementation details in this document no longer match the current repository layout.
+> Use `README.md`, `docs/rule-reference.md`, `CONTRIBUTING.md`, and the code under `hooks/`, `guards/`, and `scripts/` as the current source of truth.
+
 
 > Version: 1.0 | Update date: 2026-02-12
 
@@ -114,7 +119,7 @@ Anti-hallucination = constraint input + verification output + automatic intercep
 | check-naming-convention | snake_case mandatory |
 | shellcheck | Shell script quality |
 | gitleaks | Secret scan |
-| conventional-pre-commit | Submission information specifications |
+| commit message validation | Submission information specifications |
 
 **gap**:
 - TypeScript guards depend on the front-end build environment
@@ -459,7 +464,7 @@ Causes an empty page to be returned when no data is found.
 
 - [Keep a Changelog](https://keepachangelog.com/)
 - [Semantic Versioning](https://semver.org/)
-- [Conventional Commits](https://www.conventionalcommits.org/)
+- Lore commit protocol (see `CONTRIBUTING.md`)
 - [Ruff](https://docs.astral.sh/ruff/) - Python linting
 - [Gitleaks](https://gitleaks.io/) - Secret scanning
 - [ShellCheck](https://www.shellcheck.net/) - Shell script analysis

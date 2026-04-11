@@ -1,6 +1,6 @@
 # VibeGuard Rule Reference
 
-Complete index of all 90+ rules organized by layer and category.
+Index of the rule surface, mechanical enforcement points, and major per-language checks shipped in this repository.
 
 ## Layer Architecture
 
@@ -11,7 +11,7 @@ Complete index of all 90+ rules organized by layer and category.
 | L3 | Quality baseline | `post-edit-guard.sh` hook (warn/escalate) |
 | L4 | Data integrity | Rules injection + guards |
 | L5 | Minimal changes | Rules injection |
-| L6 | Process gates | `/vibeguard:preflight` + `/vibeguard:interview` |
+| L6 | Process gates | `/vibeguard:preflight` + `/vibeguard:interview` + `/vibeguard:exec-plan` |
 | L7 | Commit discipline | `pre-commit-guard.sh` hook (block) |
 
 ---
@@ -40,7 +40,7 @@ Complete index of all 90+ rules organized by layer and category.
 | U-18 | Input validation | Guideline | Validate all user input at system boundaries. Trust internal code |
 | U-19 | Repository pattern | Guideline | Data access through Repository layer. Business logic doesn't touch DB directly |
 | U-20 | Unified API response | Guideline | Standard envelope: `{ data, error, meta }`. Standardized error codes |
-| U-21 | Commit message format | Guideline | `<type>: <description>` where type = feat/fix/refactor/docs/test/chore |
+| U-21 | Commit message format | Guideline | Record why the change exists and keep decision context in git trailers |
 | U-22 | Test coverage | Strict | New code minimum 80% line coverage. Critical paths 100% |
 | U-23 | No silent degradation | Strict | Unsupported strategies must error explicitly, not fall back silently |
 | U-24 | No aliases | Strict | No function/type/command/directory aliases. Find-and-replace old names |
@@ -133,13 +133,16 @@ Complete index of all 90+ rules organized by layer and category.
 Static analysis scripts that enforce rules mechanically:
 
 ### Universal
+
 | Script | Detects |
 |--------|---------|
-| `check_code_slop.sh` | AI-generated boilerplate patterns |
+| `check_code_slop.sh` | AI-generated boilerplate and stale-code patterns |
 | `check_dependency_layers.py` | Import hierarchy violations |
 | `check_circular_deps.py` | Circular dependency chains |
+| `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
 
-### Rust (8 scripts)
+### Rust
+
 | Script | Detects |
 |--------|---------|
 | `check_unwrap_in_prod.sh` | `.unwrap()` / `.expect()` in non-test code |
@@ -149,29 +152,33 @@ Static analysis scripts that enforce rules mechanically:
 | `check_duplicate_types.sh` | Type definition duplication |
 | `check_taste_invariants.sh` | Architectural invariant violations |
 | `check_semantic_effect.sh` | Semantic correctness issues |
-| `check_single_source_of_truth.sh` | Multiple definitions of same concept |
+| `check_single_source_of_truth.sh` | Multiple definitions of the same concept |
 
-### Python (4 scripts)
+### Python
+
 | Script | Detects |
 |--------|---------|
-| `check_duplicates.py` | Duplicate functions/classes/protocols |
+| `check_duplicates.py` | Duplicate functions, classes, and Protocols |
 | `check_naming_convention.py` | Mixed naming conventions |
 | `check_dead_shims.py` | Dead re-export compatibility shims |
-| `test_code_quality_guards.py` | Integration tests for all guards |
 
-### TypeScript (5 scripts)
+### TypeScript
+
 | Script | Detects |
 |--------|---------|
 | `check_any_abuse.sh` | Excessive `any` type usage |
-| `check_console_residual.sh` | Lingering console.log statements |
+| `check_console_residual.sh` | Lingering `console.log` statements |
 | `check_component_duplication.sh` | Component file duplication |
 | `check_duplicate_constants.sh` | Constant value duplication |
 
-### Go (4 scripts)
+`eslint-guards.ts` is a shared helper used by some TypeScript checks; it is not a standalone guard entry point.
+
+### Go
+
 | Script | Detects |
 |--------|---------|
 | `check_error_handling.sh` | Unchecked error returns |
 | `check_goroutine_leak.sh` | Goroutine leak patterns |
 | `check_defer_in_loop.sh` | `defer` inside loops |
 
-All guard scripts support `// vibeguard:ignore` inline comments to suppress specific lines.
+Some guards support language-native suppression patterns, but suppression is guard-specific. Prefer fixing the root issue over suppressing findings.

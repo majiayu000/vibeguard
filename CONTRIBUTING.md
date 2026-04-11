@@ -1,6 +1,6 @@
 # Contributing to VibeGuard
 
-Thank you for your interest in contributing to VibeGuard — the AI anti-hallucination guard system for Claude Code. This guide covers everything you need to get started.
+Thank you for contributing to VibeGuard, the AI anti-hallucination guard system for Claude Code and Codex. This guide covers setup, validation, review expectations, and the repository's commit protocol.
 
 ---
 
@@ -20,11 +20,12 @@ Thank you for your interest in contributing to VibeGuard — the AI anti-halluci
 
 | Tool | Minimum Version | Purpose |
 |------|----------------|---------|
-| Git  | 2.30+          | Version control |
-| Bash | 5.0+           | Hook and guard scripts |
-| Python | 3.11+         | Analysis scripts |
+| Git | 2.30+ | Version control |
+| Bash | 5.0+ | Hook and guard scripts |
+| Python | 3.11+ | Analysis scripts |
+| Node.js | 20+ | CI parity for docs / Codex integration checks |
 
-> **macOS users:** The system Bash (3.x) is too old. Install a modern Bash via `brew install bash`.
+> **macOS users:** the system Bash (3.x) is too old. Install a modern Bash with `brew install bash`.
 
 ### Clone and Install
 
@@ -36,32 +37,36 @@ cd vibeguard
 # 2. Add the upstream remote
 git remote add upstream https://github.com/majiayu000/vibeguard.git
 
-# 3. Run the setup script (installs VibeGuard into ~/.claude/)
+# 3. Run the setup script (installs VibeGuard into ~/.claude/ and ~/.codex/)
 bash setup.sh
-
 ```
 
-### Running Tests
+### Running Validation and Tests
 
-All test suites should pass before submitting a PR.
+All relevant validation and regression suites should pass before you open a PR.
 
 ```bash
-# Bash regression tests
+# Core regression tests
 bash tests/test_hooks.sh
 bash tests/test_rust_guards.sh
 bash tests/test_setup.sh
+bash tests/test_hook_health.sh
 
-# CI validation scripts (mirrors what GitHub Actions runs)
+# Focused unit / precision coverage
+bash tests/unit/run_all.sh
+bash tests/test_precision_tracker.sh
+bash tests/run_precision.sh --all --csv
+
+# CI validation scripts
 bash scripts/ci/validate-guards.sh
 bash scripts/ci/validate-hooks.sh
 bash scripts/ci/validate-rules.sh
-bash scripts/ci/validate-config-contract.sh
-bash scripts/ci/validate-wiring-contract.sh
 bash scripts/ci/validate-doc-paths.sh
+bash scripts/ci/validate-doc-command-paths.sh
 bash scripts/verify/doc-freshness-check.sh --strict
 ```
 
-You can also run the full CI suite locally by executing every step in `.github/workflows/ci.yml` in order.
+If your change touches installation, Codex hook wiring, or repo docs, prefer running the full set above. The authoritative source for CI coverage is [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
@@ -97,89 +102,62 @@ git checkout -b fix/pre-bash-guard-false-positive
 git checkout -b docs/contributing-guide
 ```
 
-Keep branch names lowercase with hyphens, and short enough to be readable.
+Keep branch names lowercase, hyphenated, and short enough to stay readable.
 
 ### 2.1 Rule and documentation sync requirements
 
-When changing rules/guards/script paths, update matching docs in the same PR:
+When changing rules, guards, hooks, or script paths, update matching docs in the same PR:
 
-- Rule changes: keep `rules/claude-rules/**`, `docs/rule-reference.md`, and `scripts/verify/doc-freshness-check.sh --strict` consistent.
-- Script moves/renames: update command examples in `README.md` and `docs/README_CN.md`.
+- Rule changes: keep `rules/claude-rules/**`, `rules/*.md`, and `docs/rule-reference.md` aligned.
+- Script moves or renames: update command examples in `README.md`, `docs/README_CN.md`, and any contributor docs that mention them.
 - Documentation checks: run both `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh`.
+- Coverage checks: run `bash scripts/verify/doc-freshness-check.sh --strict` after changing guards or rule IDs.
 
 ### 3. Commit Message Format
 
-This project follows [Conventional Commits](https://www.conventionalcommits.org/). Every commit **should** include a `Signed-off-by` trailer as a project convention (note: this is not currently enforced by CI).
+This repository uses the **Lore Commit Protocol**. The first line must explain **why** the change exists, not merely what changed. Follow it with short narrative context and git-native trailers.
 
-```
-<type>(<scope>): <short description>
+```text
+<intent line: why the change was made>
 
-[optional body — explain the why, not the what]
+<body: context, constraints, and approach>
 
-Signed-off-by: Your Name <your@email.com>
-```
-
-**Types:** `feat` · `fix` · `refactor` · `docs` · `test` · `chore`
-
-**Scopes (optional but recommended):**
-
-| Scope | Covers |
-|-------|--------|
-| `guards/rust` | Rust guard scripts |
-| `guards/go` | Go guard scripts |
-| `guards/python` | Python guard scripts |
-| `guards/typescript` | TypeScript guard scripts |
-| `guards/universal` | Language-agnostic guards |
-| `hooks` | Hook scripts in `hooks/` |
-| `rules` | Rule definitions in `rules/` |
-| `scripts` | Automation scripts |
-| `agents` | Agent definitions |
-| `docs` | Documentation |
-| `ci` | CI/CD pipeline |
-
-**Examples:**
-
-```
-feat(guards/rust): add RS-14 check for Arc<Mutex<Option<T>>> anti-pattern
-
-Detects unnecessary wrapping of Option inside Mutex, which often signals
-a design issue. Exits with code 1 in --strict mode.
-
-Signed-off-by: Alice <alice@example.com>
+Constraint: <external constraint that shaped the decision>
+Rejected: <alternative considered> | <reason it was rejected>
+Confidence: <low|medium|high>
+Scope-risk: <narrow|moderate|broad>
+Reversibility: <clean|messy|irreversible>
+Directive: <warning or instruction for future modifiers>
+Tested: <what you verified>
+Not-tested: <known verification gap>
 ```
 
-```
-fix(hooks): prevent pre-bash-guard false positive on git stash
+Example:
 
-The guard was incorrectly flagging `git stash pop` as a dangerous
-reset command. Added a more precise regex to exclude stash operations.
+```text
+Keep public docs aligned with the shipped setup flow
 
-Signed-off-by: Bob <bob@example.com>
-```
+Refresh README, Chinese docs, and contributor guidance so users stop
+copying commands for runtime knobs and CI scripts that do not exist.
 
-#### Sign-off Convention
-
-Sign off automatically with:
-
-```bash
-git commit -s -m "feat(guards/go): add GO-09 goroutine count threshold check"
-```
-
-Or configure Git to always sign off:
-
-```bash
-git config --global format.signOff true
+Constraint: Docs must match files that exist in the repo today
+Rejected: Leave docs broad and aspirational | users would copy broken commands
+Confidence: high
+Scope-risk: narrow
+Reversibility: clean
+Directive: When adding or renaming scripts, update README.md, docs/README_CN.md, and CONTRIBUTING.md in the same PR
+Tested: bash scripts/ci/validate-doc-paths.sh; bash scripts/ci/validate-doc-command-paths.sh
+Not-tested: Fresh install on a clean machine
 ```
 
-> **Note:** `Signed-off-by` is a project convention; there is currently no automated DCO check in CI.
-
-> **Important:** Do not add `Co-Authored-By` or any AI-generated markers to commits.
+Optional trailers such as `Related:` are encouraged when they add useful context. Do not add AI markers or `Co-Authored-By` lines unless explicitly requested by a maintainer.
 
 ### 4. Keep Changes Focused
 
-- One logical change per commit (atomic commits).
+- One logical change per commit.
 - A bug fix must not include unrelated refactoring.
-- Style changes must be in a separate commit.
+- Style-only edits belong in a separate commit.
+- Prefer deletion and reuse over new abstraction layers.
 
 ---
 
@@ -191,55 +169,55 @@ git config --global format.signOff true
    ```bash
    git push origin feat/your-feature-name
    ```
-
 2. Open a PR against `main` on the upstream repository.
-
-3. Use a clear title following the commit format: `feat(guards/rust): add RS-14 Arc<Mutex<Option<T>>> check`
-
+3. Use a clear, specific PR title. A short conventional-style summary is fine for the PR even though commit bodies use Lore protocol.
 4. Fill in the PR description with:
-   - **What** — what the change does
-   - **Why** — the motivation or problem it solves
-   - **How to test** — steps to verify the change manually
+   - **What** — what changed
+   - **Why** — the problem or risk it addresses
+   - **How to test** — commands or steps to verify it
    - **Checklist** — see below
 
 ### PR Checklist
 
 Before requesting review, verify:
 
-- [ ] All existing tests pass (`bash tests/test_hooks.sh`, `bash tests/test_rust_guards.sh`, `bash tests/test_setup.sh`)
-- [ ] All CI validation scripts pass (see [Running Tests](#running-tests))
-- [ ] New guard scripts have corresponding regression tests in `tests/`
-- [ ] New rules are referenced in `rules/` and wired to a guard (`validate-wiring-contract.sh` checks Rust guards automatically; verify other languages manually)
-- [ ] Doc paths are valid (`validate-doc-paths.sh` passes)
-- [ ] Doc freshness check passes (`scripts/verify/doc-freshness-check.sh --strict`)
-- [ ] Shell command paths in docs are valid (`validate-doc-command-paths.sh` passes)
-- [ ] Commits include `Signed-off-by` trailer (project convention; not CI-enforced)
-- [ ] No hardcoded secrets or credentials
+- [ ] All relevant regression tests pass (`bash tests/test_hooks.sh`, `bash tests/test_rust_guards.sh`, `bash tests/test_setup.sh`, `bash tests/test_hook_health.sh`)
+- [ ] Scope-appropriate unit tests pass (`bash tests/unit/run_all.sh` for guard-heavy changes)
+- [ ] Precision / scoring checks were run when the change affects detection quality (`bash tests/run_precision.sh --all --csv`, `bash tests/test_precision_tracker.sh`)
+- [ ] All CI validation scripts pass (see [Running Validation and Tests](#running-validation-and-tests))
+- [ ] New guard scripts have regression coverage in `tests/unit/` and, when appropriate, higher-level suites in `tests/`
+- [ ] New or changed rules are reflected in `rules/*.md`, `rules/claude-rules/**`, and `docs/rule-reference.md`
+- [ ] Doc freshness passes (`bash scripts/verify/doc-freshness-check.sh --strict`)
+- [ ] Doc paths and shell command paths are valid (`validate-doc-paths.sh` and `validate-doc-command-paths.sh`)
+- [ ] Commits use the Lore protocol trailers
+- [ ] No hardcoded secrets or credentials were introduced
 
 ### What Reviewers Look For
 
 Reviews are prioritized in this order:
 
-1. **Security** — No command injection, no credentials, no SSRF risks
-2. **Logic** — Guard correctly identifies the target anti-pattern
-3. **Quality** — Bash strict mode, proper error handling, no silent failures
-4. **Performance** — Guard runs within a reasonable time on large codebases
+1. **Security** — no command injection, no credentials, no SSRF risks
+2. **Logic** — the guard or hook actually identifies the intended anti-pattern
+3. **Quality** — Bash strict mode, clear failure modes, no silent degradation
+4. **Performance** — the checks stay reasonable on large repositories
+5. **Documentation** — user-facing commands, filenames, and workflow descriptions match the code
 
 ### Review SLA
 
 - Initial review within **5 business days**
-- Address feedback and push updates to the same branch (do not force-push after review has started)
-- Stale PRs (no activity for 30 days) will be closed with a note
+- Address feedback and push updates to the same branch
+- Do not force-push after review has started unless a maintainer asks for it
+- Stale PRs (no activity for 30 days) may be closed with a note
 
 ---
 
 ## Guard Script Development Guide
 
-Guards are the core of VibeGuard — static analysis scripts that detect anti-patterns in source code. This section explains how to write and test a new guard.
+Guards are the core of VibeGuard. They are static analysis scripts that detect anti-patterns in source code and feed findings back into the higher-level workflow.
 
 ### Directory Structure
 
-```
+```text
 guards/
 ├── universal/          # Language-agnostic checks
 ├── rust/               # Rust-specific guards (RS-XX rules)
@@ -248,26 +226,26 @@ guards/
 └── typescript/         # TypeScript guards (TS-XX rules)
 ```
 
-Bash-based language directories (`rust/`, `go/`, `typescript/`) each contain a `common.sh` with shared utilities. The `python/` directory has no shared helper — Python guards are standalone scripts.
+Bash-based language directories (`rust/`, `go/`, `typescript/`) each contain a `common.sh` with shared utilities. Python guards are standalone scripts.
 
-### Step 1: Define the Rule
+### Step 1: Define the rule
 
-Before writing code, document the rule in `rules/<language>.md`:
+Document the rule in `rules/<language>.md` first. If the rule should also shape Claude Code's reasoning layer, add or update the corresponding native-rule entry under `rules/claude-rules/**`.
 
 ```markdown
-## RS-14: Arc<Mutex<Option<T>>> Anti-Pattern (medium)
+## RS-14: Arc<Mutex<Option<T>>> anti-pattern (medium)
 Nesting `Option` inside `Mutex` often indicates a logic issue. Use a sentinel
 value or restructure ownership instead.
 Fix: replace `Arc<Mutex<Option<T>>>` with `Arc<Mutex<T>>` and a sentinel value.
 ```
 
-Rules follow the `<LANG>-<NN>` numbering scheme. Check existing rules to pick the next available number.
+Rules follow the `<LANG>-<NN>` numbering scheme. Check existing rules before picking a new ID.
 
-### Step 2: Write the Guard Script
+### Step 2: Write the guard script
 
-The file format and integration path differ by language:
+The file format differs by language:
 
-**Bash guards (Rust, Go, TypeScript)** — create `guards/<language>/check_<rule_slug>.sh` and begin with:
+**Bash guards (Rust, Go, TypeScript)** — create `guards/<language>/check_<rule_slug>.sh` and start with:
 
 ```bash
 #!/usr/bin/env bash
@@ -283,7 +261,7 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 ```
 
-**Python guards** — create `guards/python/check_<rule_slug>.py`. Python guards are standalone scripts with no shared `common.sh`; they parse arguments directly from `sys.argv`:
+**Python guards** — create `guards/python/check_<rule_slug>.py` and parse arguments directly from `sys.argv`:
 
 ```python
 #!/usr/bin/env python3
@@ -291,141 +269,84 @@ parse_guard_args "$@"
 
 Usage:
     python3 check_<rule_slug>.py [target_dir]
-    python3 check_<rule_slug>.py [target_dir] --strict  # exit 1 on violations
+    python3 check_<rule_slug>.py [target_dir] --strict
 """
 
 import sys
 from pathlib import Path
+
 
 def main() -> int:
     strict = "--strict" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     target_dir = Path(args[0]) if args else Path(".")
     # ... detection logic ...
-    if violations:
-        if strict:
-            return 1
     return 0
 
+
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
 ```
 
-#### Output Format
+#### Output format
 
-Every finding must follow this format (consumed by downstream tools):
+Every finding must follow this format because downstream tools consume it:
 
-```
+```text
 [RS-14] path/to/file.rs:42 description. Fix: remediation hint
 ```
 
-Use `TMPFILE=$(create_tmpfile)` from `common.sh` to buffer output, then:
+Use `TMPFILE=$(create_tmpfile)` from `common.sh` to buffer output in Bash guards. Print a clear summary and return `1` only when violations are present in `--strict` mode.
 
-```bash
-cat "${TMPFILE}"
-FOUND=$(wc -l < "${TMPFILE}" | tr -d ' ')
-
-if [[ ${FOUND} -eq 0 ]]; then
-    echo "✓ No RS-14 violations found."
-    exit 0
-else
-    echo ""
-    echo "Found ${FOUND} RS-14 violation(s)."
-    [[ "${STRICT}" == "true" ]] && exit 1 || exit 0
-fi
-```
-
-#### Exit Codes
+#### Exit codes
 
 | Code | Meaning |
 |------|---------|
-| `0`  | No violations (or violations found but not in `--strict` mode) |
-| `1`  | Violations found in `--strict` mode |
-| `2+` | Script error (misconfiguration, missing dependency) |
+| `0` | No violations, or violations found outside `--strict` mode |
+| `1` | Violations found in `--strict` mode |
+| `2+` | Script error (misconfiguration, dependency missing, etc.) |
 
-#### Common Utilities (`common.sh`)
+### Step 3: Wire the guard
 
-| Function | Description |
-|----------|-------------|
-| `parse_guard_args "$@"` | Sets `TARGET_DIR` and `STRICT` variables |
-| `list_rs_files <dir>` | Lists `.rs` files (prefers `git ls-files`) |
-| `create_tmpfile` | Creates a temp file cleaned up on exit |
+For guards that should be visible outside a single script file, update all relevant surfaces:
 
-### Step 3: Wire the Guard
+- `docs/rule-reference.md` — document the new guard and the rule it enforces
+- `README.md` / `docs/README_CN.md` — update command examples if the new guard is part of the user-facing surface
+- Hook or setup wiring — if the guard should run automatically, update the appropriate hook, installer, or validator
+- Tests — extend the matching regression and unit suites
 
-For guards that should run automatically, register them in **all** of the following locations:
+At minimum, run `bash scripts/ci/validate-guards.sh` and `bash scripts/verify/doc-freshness-check.sh --strict` after wiring a new rule/guard pair.
 
-- **README guard table** — add a row with the script path (`guards/<language>/check_<rule_slug>.sh`) to the guard table in `README.md`
-- **CI validation** — run `scripts/ci/validate-guards.sh` to verify your additions; for Go, Python, and TypeScript guards, verify the README guard table manually before submitting your PR.
+### Step 4: Write regression tests
 
-### Step 4: Write Regression Tests
+Prefer focused tests under `tests/unit/` for individual guards. Add or update higher-level suites in `tests/` when the change affects hook orchestration, setup flow, or end-to-end behavior.
 
-Add tests in `tests/test_<language>_guards.sh` (or create one if it doesn't exist). Use the helpers from the existing test files:
+Tests should cover at minimum:
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+1. A clean input that should pass
+2. A minimal violating input that should fail in `--strict` mode
+3. Important edge cases (tests, comments, generated files, or language-specific false-positive traps)
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-GUARD="${REPO_DIR}/guards/rust/check_<rule_slug>.sh"
+### Step 5: Validate CI compatibility
 
-PASS=0; FAIL=0; TOTAL=0
+Run the smallest complete verification set for your change:
 
-assert_cmd_ok()   { ... }   # expects exit 0
-assert_cmd_fail() { ... }   # expects non-zero exit
+- Guard-only change: `validate-guards.sh`, `validate-rules.sh`, `tests/unit/run_all.sh`, `doc-freshness-check.sh --strict`
+- Hook change: add `validate-hooks.sh`, `tests/test_hooks.sh`, `tests/test_hook_health.sh`
+- Setup / Codex integration change: add `tests/test_setup.sh`
+- Documentation or path change: add `validate-doc-paths.sh` and `validate-doc-command-paths.sh`
 
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "${tmpdir}"' EXIT
-
-# --- Test: clean code passes ---
-proj="${tmpdir}/clean"
-mkdir -p "${proj}/src"
-cat > "${proj}/src/lib.rs" <<'EOF'
-pub fn ok() -> Option<i32> { Some(42) }
-EOF
-assert_cmd_ok "clean code passes" bash "${GUARD}" "${proj}"
-
-# --- Test: violation detected in strict mode ---
-proj="${tmpdir}/bad"
-mkdir -p "${proj}/src"
-cat > "${proj}/src/lib.rs" <<'EOF'
-use std::sync::{Arc, Mutex};
-fn bad() -> Arc<Mutex<Option<i32>>> { todo!() }
-EOF
-assert_cmd_fail "RS-14 violation caught in strict mode" bash "${GUARD}" --strict "${proj}"
-
-printf '\nResults: %d/%d passed\n' "${PASS}" "${TOTAL}"
-[[ ${FAIL} -eq 0 ]]
-```
-
-Tests must cover at minimum:
-
-1. A clean input that should **pass** (exit 0)
-2. A minimal input that should **fail** in `--strict` mode (exit 1)
-3. Edge cases (e.g., test files should be excluded, comments should be ignored)
-
-### Step 5: Validate CI Compatibility
-
-Run the full validation suite to ensure your new guard integrates cleanly:
-
-```bash
-bash scripts/ci/validate-guards.sh
-bash scripts/ci/validate-wiring-contract.sh
-bash scripts/verify/doc-freshness-check.sh --strict
-```
-
-Fix any failures before opening your PR.
+If the change affects detection quality or scoring, also run `bash tests/run_precision.sh --all --csv` and `bash tests/test_precision_tracker.sh`.
 
 ### Guard Quality Checklist
 
-- [ ] Starts with `set -euo pipefail`
-- [ ] Sources `common.sh` and calls `parse_guard_args`
-- [ ] Output follows `[RULE-ID] file:line description. Fix: hint` format
-- [ ] Excludes test files and comment lines from detection
-- [ ] Supports both warning mode (exit 0) and `--strict` mode (exit 1)
-- [ ] Has regression tests for clean, violating, and edge-case inputs
-- [ ] Rule is documented in `rules/<language>.md`
-- [ ] Wiring is registered in the config contract
+- [ ] Starts with strict error handling (`set -euo pipefail` for Bash)
+- [ ] Uses shared helpers where they already exist (`common.sh`, temp-file helpers, guard-path helpers)
+- [ ] Output follows `[RULE-ID] file:line description. Fix: hint`
+- [ ] Handles expected exclusions and avoids obvious false positives
+- [ ] Supports `--strict` mode correctly
+- [ ] Has scope-appropriate regression coverage
+- [ ] Rule docs and user-facing docs stay in sync with the implementation
 
 ---
 
@@ -433,6 +354,4 @@ Fix any failures before opening your PR.
 
 This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you agree to uphold this standard.
 
-To report unacceptable behavior, open an issue on the [GitHub issue tracker](https://github.com/majiayu000/vibeguard/issues) with the label `conduct`. If the matter is sensitive and you prefer not to post publicly, send a direct message to the repository maintainer via their GitHub profile at [github.com/majiayu000](https://github.com/majiayu000).
-
-We are committed to a welcoming, inclusive, and respectful community for everyone, regardless of experience level, background, or identity.
+To report unacceptable behavior, open an issue on the [GitHub issue tracker](https://github.com/majiayu000/vibeguard/issues) with the label `conduct`. If the matter is sensitive and you prefer not to post publicly, contact the repository maintainer through their GitHub profile at [github.com/majiayu000](https://github.com/majiayu000).

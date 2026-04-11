@@ -1,5 +1,9 @@
 # Learning and Skill generation system
 
+> Status: architecture note with dated examples.
+> File names and data flows referenced here are useful for understanding the learning pipeline, but current behavior should be verified against `hooks/learn-evaluator.sh`, `hooks/skills-loader.sh`, `scripts/gc/gc-scheduled.sh`, and `hooks/log.sh`.
+
+
 VibeGuard's learning system benchmarks the feedback loop of OpenAI Harness, realizing a complete closed loop of "operation → event collection → signal detection → learning extraction → Skill file → automatic loading".
 
 ## Three-tier architecture
@@ -15,7 +19,7 @@ VibeGuard's learning system benchmarks the feedback loop of OpenAI Harness, real
 │ GC scheduled: gc-scheduled.sh → learn-digest.jsonl │
 ├─────────────────────────────────────────────────────────┤
 │ The first layer: collection layer (automatic recording of each operation) │
-│ 11 Hooks → log.sh vg_log → events.jsonl │
+│ runtime hooks → log.sh vg_log → events.jsonl │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -156,7 +160,7 @@ Watch only next time: T4 (new data)
 |-----------------|-------------------|
 | Codex agent **Scan code base** | guards script scan (signal source B) |
 | Simultaneously analyze behavior logs | events.jsonl analysis (signal source A) |
-| Scan against Golden Principles | Scan against 83 rules |
+| Scan against Golden Principles | Scan against the native VibeGuard rule set |
 | Violation → **Open PR directly** | Violation → learn-digest → Recommended user handling |
 | Automatic review and merge (<1 minute) | Semi-automatic (/vibeguard:learn is executed after user confirmation) |
 

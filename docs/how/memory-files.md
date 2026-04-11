@@ -1,99 +1,81 @@
 # Memory Files — AI context memory mechanism
 
-Claude Code automatically loads a set of Memory Files into the context window every time a session is started. These files constitute the AI's "long-term memory" and do not require the user to repeat instructions each time.
+Claude Code loads several memory surfaces automatically at session start. VibeGuard builds on top of them so that behavior constraints, reusable rules, and project memory persist across sessions.
 
-## Three types of files, three responsibilities
+## Three file classes, three responsibilities
 
-### 1. CLAUDE.md — Constitution
+### 1. `CLAUDE.md` — Constitution
 
-Path: `~/.claude/CLAUDE.md` (global) + `project/.claude/CLAUDE.md` (project level)
+Typical locations:
 
-Role: Define the basic code of conduct of AI, and all operations are bound by it.
+- Global: `~/.claude/CLAUDE.md`
+- Project: `./CLAUDE.md` or `./.claude/CLAUDE.md`
+- Local/private overlays when supported by the toolchain
 
-What’s included:
-- General behavior (communication in Chinese, no expansion of scope, no additional functions)
-- Port allocation table (no conflicts)
-- Git/PR specifications (no AI tags, DCO validation, rebase)
-- Code rules (no hardcode, no inline import, single file limit of 200 lines)
-- VibeGuard Seven Layers of Defense Summary
+Role: define the operating contract for the agent.
 
-Priority: Highest. The instructions in CLAUDE.md override the AI's default behavior.
+Common contents:
 
-### 2. Rules — Law
+- Communication and collaboration rules
+- Git / commit / release discipline
+- Project-specific build and test commands
+- VibeGuard's seven-layer defense summary and local constraints
+
+Priority: high. More specific CLAUDE files usually override broader ones.
+
+### 2. Native rules — Law
 
 Path: `~/.claude/rules/vibeguard/`
 
-VibeGuard's 83 rules are loaded on demand through the `paths` field of YAML frontmatter:
+VibeGuard installs native rule files under `common/`, `rust/`, `golang/`, `typescript/`, and `python/`.
 
-```
+```text
 ~/.claude/rules/vibeguard/
 ├── common/
-│ ├── coding-style.md # U-01~U-24 Universal constraints (valid globally)
-│ ├── data-consistency.md # U-11~U-14 data consistency (valid globally)
-│ └── security.md # SEC-01~SEC-10 security rules (valid globally)
-├── rust/
-│ └── quality.md # RS-01~RS-13 Rust rules (only *.rs files trigger)
-├── golang/
-│ └── quality.md # GO-01~GO-12 Go rules (only *.go files trigger)
-├── typescript/
-│ └── quality.md # TS-01~TS-12 TypeScript rules (only triggered by *.ts files)
+│   ├── coding-style.md
+│   ├── data-consistency.md
+│   ├── fact-inference-separation.md
+│   ├── no-silent-degradation.md
+│   ├── publish-action-confirmation.md
+│   ├── security.md
+│   └── workflow.md
+├── rust/quality.md
+├── golang/quality.md
+├── typescript/quality.md
 └── python/
-    └── quality.md # PY-01~PY-12 Python rules (only triggered by *.py files)
+    ├── quality.md
+    └── pydantic-boundary.md
 ```
 
-Rules under `common/` have no path restrictions and are loaded every time. Language rules are controlled through frontmatter:
+`common/` rules are loaded broadly. Language-specific rules are scoped through YAML frontmatter `paths` so only relevant files pull them into context.
 
-```yaml
----
-description: VibeGuard Rust Quality Rules
-paths:
-  - "**/*.rs"
-  - "**/Cargo.toml"
----
+### 3. Project memory — Experience notebook
+
+Common path patterns:
+
+- Claude Code project memory under `~/.claude/projects/...`
+- OMX runtime memory under `.omx/`
+- Repository-local notes such as `memory.md` or plan files when a workflow uses them
+
+Role: preserve decisions, open questions, completed remediation work, and reusable local knowledge.
+
+## How the layers work together
+
+```text
+Session start
+  ├─ Load CLAUDE.md        → baseline operating contract
+  ├─ Load native rules     → language/domain constraints
+  └─ Load project memory   → prior decisions and local context
 ```
 
-Automatically load RS-* rules when editing Rust files, and do not load Python/TS rules to avoid context bloat.
+If more detail is needed, the agent can then load linked docs, plans, or project memory files on demand.
 
-### 3. MEMORY.md — Experience Notebook
+## Relationship with hooks
 
-Path: `~/.claude/projects/<project hash>/memory/MEMORY.md`
+Memory files influence the reasoning layer. Hooks influence the execution layer.
 
-Function: Knowledge index for cross-session persistence. The experience, decisions, and discoveries that AI accumulates over multiple conversations.
+- Rules tell the agent what is allowed and what to avoid.
+- Hooks inspect what the agent actually tried to do.
+- Logs and project memory close the loop so recurring failures can become new rules, hooks, or skills.
 
-Features:
-- Automatically loaded into the context of every conversation
-- Will be truncated after the first 200 lines, so keep it simple
-- Link to detailed theme files (e.g. `harness-engineering.md`)
-- Record completed improvement plans, architectural decisions, and critical paths
-
-## Workflow
-
-```
-Conversation start
-  ├─ Load CLAUDE.md → AI knows "what it can and cannot do"
-  ├─ Load rules/vibeguard/ → AI knows "how to write code to comply with regulations"
-  └─ Load MEMORY.md → AI knows "what has been done before and what has been decided"
-      │
-      ├─ Need more details? → Read theme files under memory/
-      └─ Need historical context? → mcp__remem__search Search past decisions
-```
-
-## Contextual Economics
-
-Memory files occupy a total of about 4.7k tokens (2.3% of the 200k window), which is extremely cost-effective:
-
-| Category | tokens | Proportion | Value |
-|------|--------|------|------|
-| CLAUDE.md | ~2.2k | 1.1% | Code of conduct to avoid repeated corrections |
-| common rules (3 files) | ~2.0k | 1.0% | Common part of 83 rules |
-| MEMORY.md | ~0.4k | 0.2% | Cross-session knowledge index |
-| Language rules (on demand) | ~0.3k/piece | 0.15% | Only loaded when editing the corresponding language |
-
-## Relationship with Hook system
-
-Memory files act on the reasoning layer (token level) of AI, and Hooks act on the execution layer (file system level). The two complement each other:
-
-- **Rules tells AI "how it should be written"** → AI generates code that conforms to the specification
-- **Hooks to check AI "what actually wrote"** → Block non-compliant edits
-
-14 rules have two layers of protection (AI rules + guard scripts) at the same time, and the remaining 69 are pure AI constraints.
+That combination is the core VibeGuard pattern: constrain early, intercept late, and learn from misses.

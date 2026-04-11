@@ -1,40 +1,58 @@
 # scripts/ directory
 
-VibeGuard tool script provides statistics, compliance checking, indicator collection and other functions.
+Reference notes for the utility scripts shipped with VibeGuard.
 
-## Script description
-
-| Script | Purpose |
-|------|------|
-| `stats.sh` | Analyze events.jsonl, output hook trigger statistics, warn compliance rate, file type and time period distribution |
-| `verify/compliance_check.sh` | Project compliance check, verify compliance with code specifications |
-| `metrics/metrics_collector.sh` | Collect project code metrics (number of lines, complexity, etc.) |
-| `worktree-guard.sh` | Big change isolation assistance: create/list/merge/delete git worktree |
-| `blueprint-runner.sh` | Blueprint orchestrator: read blueprints/*.json, execute deterministic/agent nodes in order |
-| `gc/gc-logs.sh` | Log archive: When events.jsonl exceeds 10MB, it will be archived and compressed on a monthly basis and retained for 3 months |
-| `gc/gc-worktrees.sh` | Worktree cleanup: delete worktrees that have been inactive for >7 days, only warn about unmerged changes |
-| `metrics/metrics-exporter.sh` | Prometheus metric export: generate 4 types of metrics from events.jsonl aggregation |
-| `gc/gc-scheduled.sh` | Regular GC + learning + reflection: log archiving, worktree cleaning, metrics cleaning, cross-session learning signal detection, session quality reflection report |
-| `project-init.sh` | Project-level scaffolding: detect languages/frameworks → list activation guards/rules → generate CLAUDE.md snippet suggestions and install pre-commit/pre-push hooks |
-| `quality-grader.sh` | Quality grade score: calculate A/B/C/D grade from events.jsonl, recommended GC frequency |
-| `hook-health.sh` | Hook health snapshot: risk rate in the last N hours, Top risk hooks, Top 10 recent risk events |
-| `verify/doc-freshness-check.sh` | Document freshness: cross-check rule ID coverage of rules/ and guards/ |
-| `log-capability-change.sh` | Capability evolution log: extract guard/rule/Skill change timeline from git log |
-| `constraint-recommender.py` | Constraint recommender: automatically generate the first draft of preflight constraints based on the project language/framework |
-
-## CI scripts (scripts/ci/)
+## Main scripts
 
 | Script | Purpose |
 |------|------|
-| `validate-guards.sh` | Verify that all guard scripts are executable and in the correct format |
-| `validate-hooks.sh` | Verify that all hook scripts are executable and in the correct format |
+| `stats.sh` | Analyze `events.jsonl` and summarize hook activity, decision mix, and hot spots |
+| `hook-health.sh` | Show recent hook health: risk rate, top noisy hooks, and recent risky events |
+| `quality-grader.sh` | Compute the current quality grade from runtime events |
+| `project-init.sh` | Bootstrap another repository with detected languages, recommended constraints, and git hook wiring |
+| `constraint-recommender.py` | Generate an initial preflight constraint draft from project structure |
+| `log-capability-change.sh` | Extract a capability-change timeline from git history |
+
+## GC / Metrics / Verification
+
+| Script | Purpose |
+|------|------|
+| `gc/gc-logs.sh` | Archive oversized `events.jsonl` logs |
+| `gc/gc-worktrees.sh` | Clean up stale worktrees |
+| `gc/gc-scheduled.sh` | Scheduled GC + cross-session learning signal aggregation |
+| `metrics/metrics-exporter.sh` | Export Prometheus-format metrics from runtime logs |
+| `metrics/metrics_collector.sh` | Collect codebase metrics for benchmarking / reporting |
+| `verify/compliance_check.sh` | Run project compliance checks |
+| `verify/doc-freshness-check.sh` | Cross-check rule IDs against guards/hooks coverage |
+
+## CI helpers (`scripts/ci/`)
+
+| Script | Purpose |
+|------|------|
+| `validate-guards.sh` | Validate guard script presence, executability, and contract basics |
+| `validate-hooks.sh` | Validate hook script presence and contract basics |
 | `validate-rules.sh` | Validate rule file format and ID uniqueness |
+| `validate-doc-paths.sh` | Check backtick path references in markdown docs |
+| `validate-doc-command-paths.sh` | Check `~/vibeguard/...` shell command paths in user-facing docs |
+| `validate-no-personal-paths.sh` | Catch accidental personal absolute paths in tracked files |
+| `check-branch-protection.sh` | Verify branch protection settings |
+| `apply-branch-protection.sh` | Apply the expected branch protection policy |
 
-## Usage
+## Codex integration helpers
+
+| Script | Purpose |
+|------|------|
+| `codex/app_server_wrapper.py` | External wrapper for `codex app-server` with VibeGuard gates |
+| `lib/settings_json.py` | Manage Claude Code hook configuration in `~/.claude/settings.json` |
+| `lib/codex_hooks_json.py` | Manage VibeGuard-owned entries in `~/.codex/hooks.json` |
+| `setup/` | Install, check, clean, and target-specific setup logic |
+
+## Quick usage
 
 ```bash
-bash scripts/stats.sh # Statistics for the last 7 days
-bash scripts/stats.sh 30 # Last 30 days
-bash scripts/stats.sh all # All history
-bash scripts/hook-health.sh 24 # Health snapshot of the last 24 hours
+bash scripts/stats.sh
+bash scripts/hook-health.sh 24
+bash scripts/quality-grader.sh
+bash scripts/ci/validate-doc-paths.sh
+bash scripts/ci/validate-doc-command-paths.sh
 ```
