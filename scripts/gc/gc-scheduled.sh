@@ -259,11 +259,11 @@ for proj in os.listdir(projects_dir):
         for s in signals:
             src = s.get('source', '')
             if s['type'] == 'linter_violations':
-                print(f' - [code scan] {s[\"guard\"]}: {s[\"count\"]} violations')
+                print(f' - [code scan] {s["guard"]}: {s["count"]} violations')
             else:
                 detail = s.get('reason', s.get('file', ''))
                 count = s.get('count', s.get('edits', ''))
-                print(f' - [Event Log] {s[\"type\"]}: {detail} ({count})')
+                print(f' - [Event Log] {s["type"]}: {detail} ({count})')
 
 if signals_found == 0:
     print('No need to learn signals')
@@ -372,14 +372,14 @@ for s in all_sessions:
 report = []
 report.append(f'# VibeGuard Weekly Reflection Report')
 report.append(f'')
-report.append(f'> Generation time: {now.strftime(\"%Y-%m-%d %H:%M UTC\")}')
+report.append(f'> Generation time: {now.strftime("%Y-%m-%d %H:%M UTC")}')
 report.append(f'>Coverage: Last 7 days')
 report.append(f'')
 report.append(f'## overview')
 report.append(f'')
 report.append(f'- Number of sessions: {total_sessions}')
 report.append(f'-Total number of events: {total_events}')
-report.append(f'- pass: {decision_totals.get(\"pass\", 0)} | warn: {decision_totals.get(\"warn\", 0)} | block: {decision_totals.get(\"block\", 0)} | escalate: {decision_totals.get(\"escalate\", 0)}')
+report.append(f'- pass: {decision_totals.get("pass", 0)} | warn: {decision_totals.get("warn", 0)} | block: {decision_totals.get("block", 0)} | escalate: {decision_totals.get("escalate", 0)}')
 total_decisions = sum(decision_totals.values())
 overall_warn_rate = (decision_totals.get('warn', 0) + decision_totals.get('block', 0) + decision_totals.get('escalate', 0)) / max(total_decisions, 1)
 report.append(f'- overall friction rate: {overall_warn_rate:.0%}')
