@@ -26,7 +26,7 @@ for md_file in targets:
                 continue
             rel = Path(raw)
             checked += 1
-            if not (repo_root / rel).exists():
+            if not (repo_root / rel).is_file():
                 failures.append(f"{md_file.relative_to(repo_root)}:{idx} ~/vibeguard/{raw} (missing)")
 
 if failures:
