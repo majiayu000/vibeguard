@@ -88,6 +88,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-doc-paths.sh
 
+      - name: Validate doc command paths
+        shell: bash
+        run: bash scripts/ci/validate-doc-command-paths.sh
+
       - name: Validate doc freshness
         if: runner.os != 'Windows'
         shell: bash

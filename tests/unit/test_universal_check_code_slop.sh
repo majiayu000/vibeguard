@@ -114,6 +114,16 @@ proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}"
 assert_ok "empty directory passes" bash "$GUARD" "$proj_empty"
 
+# --- PASS/FAIL: fixtures excluded by default, but includable via flag ---
+proj_fixtures="${tmpdir}/fixtures_scope"
+mkdir -p "${proj_fixtures}/tests/fixtures"
+cat > "${proj_fixtures}/tests/fixtures/debug.ts" <<'EOF'
+console.log("fixture debug");
+EOF
+assert_ok "tests/fixtures debug code is ignored by default" bash "$GUARD" "$proj_fixtures"
+assert_fail "tests/fixtures debug code is scanned with --include-fixtures" bash "$GUARD" --include-fixtures "$proj_fixtures"
+assert_fail "tests/fixtures debug code is scanned with --strict-repo" bash "$GUARD" --strict-repo "$proj_fixtures"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0

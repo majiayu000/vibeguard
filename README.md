@@ -8,7 +8,7 @@
 
 When using Claude Code or Codex, AI frequently invents non-existent APIs, reinvents the wheel, hardcodes fake data, and over-engineers solutions. VibeGuard prevents these problems at the source through **rule injection + real-time interception + static scanning** — three layers of defense.
 
-> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit (28 agents, 119 skills). VibeGuard is a specialized **defense system** — 88+ rules, 15 hooks with hard interception, churn loop detection, analysis paralysis guard, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing wrong. Install both.
+> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit (28 agents, 119 skills). VibeGuard is a specialized **defense system** — 90+ rules, 15 hooks with hard interception, churn loop detection, analysis paralysis guard, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing wrong. Install both.
 
 Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
 
@@ -37,7 +37,7 @@ Open a new Claude Code session. Done. Run `bash ~/vibeguard/setup.sh --check` to
 
 ### 1. Rule Injection (active from session start)
 
-88 rules loaded via Claude Code's native rules system (`~/.claude/rules/vibeguard/`), directly influencing AI reasoning. Plus a 7-layer constraint index injected into `~/.claude/CLAUDE.md`:
+90+ rules loaded via Claude Code's native rules system (`~/.claude/rules/vibeguard/`), directly influencing AI reasoning. Plus a 7-layer constraint index injected into `~/.claude/CLAUDE.md`:
 
 | Layer | Constraint | Effect |
 |-------|-----------|--------|
@@ -149,8 +149,8 @@ Supports `// vibeguard:ignore` inline comments to skip specific lines.
 bash ~/vibeguard/scripts/quality-grader.sh          # Quality grade (A/B/C/D)
 bash ~/vibeguard/scripts/stats.sh                    # Hook trigger stats (7 days)
 bash ~/vibeguard/scripts/hook-health.sh 24           # Hook health snapshot (risk rate + top hooks + recent risks)
-bash ~/vibeguard/scripts/metrics-exporter.sh         # Prometheus metrics export
-bash ~/vibeguard/scripts/doc-freshness-check.sh      # Rule-guard coverage check
+bash ~/vibeguard/scripts/metrics/metrics-exporter.sh # Prometheus metrics export
+bash ~/vibeguard/scripts/verify/doc-freshness-check.sh # Rule-guard coverage check
 ```
 
 ## Learning System

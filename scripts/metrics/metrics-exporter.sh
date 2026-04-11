@@ -50,7 +50,7 @@ violation_total = defaultdict(int)  # {reason: count}
 
 total_events = 0
 
-with open(log_file) as f:
+with open(log_file, encoding='utf-8', errors='replace') as f:
     for line in f:
         line = line.strip()
         if not line:

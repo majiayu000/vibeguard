@@ -58,7 +58,7 @@ bash scripts/ci/validate-rules.sh
 bash scripts/ci/validate-config-contract.sh
 bash scripts/ci/validate-wiring-contract.sh
 bash scripts/ci/validate-doc-paths.sh
-bash scripts/doc-freshness-check.sh --strict
+bash scripts/verify/doc-freshness-check.sh --strict
 ```
 
 You can also run the full CI suite locally by executing every step in `.github/workflows/ci.yml` in order.
@@ -98,6 +98,14 @@ git checkout -b docs/contributing-guide
 ```
 
 Keep branch names lowercase with hyphens, and short enough to be readable.
+
+### 2.1 Rule and documentation sync requirements
+
+When changing rules/guards/script paths, update matching docs in the same PR:
+
+- Rule changes: keep `rules/claude-rules/**`, `docs/rule-reference.md`, and `scripts/verify/doc-freshness-check.sh --strict` consistent.
+- Script moves/renames: update command examples in `README.md` and `docs/README_CN.md`.
+- Documentation checks: run both `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh`.
 
 ### 3. Commit Message Format
 
@@ -203,7 +211,8 @@ Before requesting review, verify:
 - [ ] New guard scripts have corresponding regression tests in `tests/`
 - [ ] New rules are referenced in `rules/` and wired to a guard (`validate-wiring-contract.sh` checks Rust guards automatically; verify other languages manually)
 - [ ] Doc paths are valid (`validate-doc-paths.sh` passes)
-- [ ] Doc freshness check passes (`scripts/doc-freshness-check.sh --strict`)
+- [ ] Doc freshness check passes (`scripts/verify/doc-freshness-check.sh --strict`)
+- [ ] Shell command paths in docs are valid (`validate-doc-command-paths.sh` passes)
 - [ ] Commits include `Signed-off-by` trailer (project convention; not CI-enforced)
 - [ ] No hardcoded secrets or credentials
 
@@ -402,7 +411,7 @@ Run the full validation suite to ensure your new guard integrates cleanly:
 ```bash
 bash scripts/ci/validate-guards.sh
 bash scripts/ci/validate-wiring-contract.sh
-bash scripts/doc-freshness-check.sh --strict
+bash scripts/verify/doc-freshness-check.sh --strict
 ```
 
 Fix any failures before opening your PR.

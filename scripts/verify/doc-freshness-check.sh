@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VibeGuard document freshness detection
 #
-# Cross compare the rule ID defined by rules/*.md and the rule ID implemented by guards/.
+# Cross-compare rule IDs defined in rules/claude-rules/ and IDs implemented by guards/hooks.
 # Output: Unimplemented rules (with rules and no guards) and undocumented guards (with guards and no rules).
 #
 # Usage:
@@ -19,12 +19,12 @@ for arg in "$@"; do
   esac
 done
 
-RULES_DIR="${REPO_DIR}/rules"
+RULES_DIR="${REPO_DIR}/rules/claude-rules"
 GUARDS_DIR="${REPO_DIR}/guards"
 NATIVE_RULES_DIR="${HOME}/.claude/rules/vibeguard"
 
 if [[ ! -d "$RULES_DIR" ]]; then
-  echo "The rules directory does not exist: ${RULES_DIR}"
+  echo "The canonical rules directory does not exist: ${RULES_DIR}"
   exit 1
 fi
 
@@ -46,48 +46,51 @@ id_pattern = re.compile(r"\b(RS|GO|TS|PY|U|SEC)-(\d+)\b")
 
 # Extract the rule ID and its description from the rules file
 rule_ids = {}  # id -> (file, description)
-for md_file in sorted(glob.glob(os.path.join(rules_dir, "*.md"))):
-    basename = os.path.basename(md_file)
-    with open(md_file) as f:
-        for line in f:
-            for m in id_pattern.finditer(line):
-                rule_id = m.group()
-                if rule_id not in rule_ids:
-                    # Get a brief description of the row content
-                    desc = line.strip()[:80]
-                    rule_ids[rule_id] = (basename, desc)
+for md_file in sorted(glob.glob(os.path.join(rules_dir, "**/*.md"), recursive=True)):
+    basename = os.path.relpath(md_file, rules_dir)
+    try:
+        with open(md_file, encoding="utf-8") as f:
+            for line in f:
+                for m in id_pattern.finditer(line):
+                    rule_id = m.group()
+                    if rule_id not in rule_ids:
+                        # Get a brief description of the row content
+                        desc = line.strip()[:80]
+                        rule_ids[rule_id] = (basename, desc)
+    except (UnicodeDecodeError, PermissionError):
+        continue
 
 # Extract the implemented rule ID from the guard script
-guard_ids = {}  # id -> [files]
+guard_ids = {}  # id -> set(files)
 for guard_file in sorted(glob.glob(os.path.join(guards_dir, "**/*"), recursive=True)):
     if not os.path.isfile(guard_file):
         continue
     try:
-        with open(guard_file) as f:
+        with open(guard_file, encoding="utf-8") as f:
             content = f.read()
     except (UnicodeDecodeError, PermissionError):
         continue
     rel_path = os.path.relpath(guard_file, guards_dir)
     for m in id_pattern.finditer(content):
         gid = m.group()
-        guard_ids.setdefault(gid, []).append(rel_path)
+        guard_ids.setdefault(gid, set()).add(rel_path)
 
 # Also scan from the hooks directory (some rules are also implemented in hooks)
 hooks_dir = os.path.join(os.path.dirname(guards_dir), "hooks")
 if os.path.isdir(hooks_dir):
     for hook_file in sorted(glob.glob(os.path.join(hooks_dir, "*.sh"))):
         try:
-            with open(hook_file) as f:
+            with open(hook_file, encoding="utf-8") as f:
                 content = f.read()
         except (UnicodeDecodeError, PermissionError):
             continue
         rel_path = "hooks/" + os.path.basename(hook_file)
         for m in id_pattern.finditer(content):
             gid = m.group()
-            guard_ids.setdefault(gid, []).append(rel_path)
+            guard_ids.setdefault(gid, set()).add(rel_path)
 
 # AI visible rules: Prioritize ~/.claude/rules/vibeguard/, fall back to repo rules/ if missing (CI friendly)
-ai_visible_ids = {}  # id -> [files]
+ai_visible_ids = {}  # id -> set(files)
 if native_rules_dir and os.path.isdir(native_rules_dir):
     ai_rules_dir = native_rules_dir
     ai_source_label = "~/.claude/rules/"
@@ -99,14 +102,14 @@ else:
 
 for nr_file in sorted(glob.glob(os.path.join(ai_rules_dir, "**/*.md"), recursive=True)):
     try:
-        with open(nr_file) as f:
+        with open(nr_file, encoding="utf-8") as f:
             content = f.read()
     except (UnicodeDecodeError, PermissionError):
         continue
     rel_path = os.path.relpath(nr_file, ai_rules_dir)
     for m in id_pattern.finditer(content):
         aid = m.group()
-        ai_visible_ids.setdefault(aid, []).append(rel_path)
+        ai_visible_ids.setdefault(aid, set()).add(rel_path)
 
 # Calculate the gap
 rule_set = set(rule_ids.keys())
@@ -130,6 +133,7 @@ gap_rate = (gap_count / total_rules * 100) if total_rules > 0 else 0
 print(f"""
 VibeGuard Document Freshness Report
 {"=" * 40}
+Rule source: {rules_dir}
 Total number of rules: {total_rules}
 Comprehensive coverage: {len(all_covered)} ({len(all_covered)/total_rules*100:.0f}%)
   Mechanical enforcement: {len(implemented)} (guards/hooks)
@@ -173,7 +177,7 @@ if fully_uncovered:
 if undocumented:
     print("Undocumented guard (referenced in guard, no rule definition):")
     for gid in undocumented:
-        files = guard_ids[gid]
+        files = sorted(guard_ids[gid])
         files_str = ", ".join(files)
         print(f"  {gid} → {files_str}")
     print()

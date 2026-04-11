@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- CI doc command path validator (`scripts/ci/validate-doc-command-paths.sh`) to catch stale `~/vibeguard/...` shell examples
+
+### Fixed
+- `check_code_slop.sh` output wording aligned with unit tests (`Legacy debug code`)
+- `tests/unit/run_all.sh` now strips ANSI escape codes before parsing assertion counts
+- Documentation command examples updated to current script layout (`scripts/metrics/` and `scripts/verify/`)
+- `doc-freshness-check.sh` now uses `rules/claude-rules/` as canonical rule source and deduplicates guard file reporting
+- Added missing `PY-13` rule definition in Claude-native Python rule set
+
+### Changed
+- `check_code_slop.sh` supports `--include-fixtures` and `--strict-repo` scanning modes
+- `check_code_slop.sh` now excludes repository-local noise directories by default (`.claude`, `.vibeguard`, `.omx`, `tests/fixtures`)
+- `check_code_slop.sh` TODO stale-date scan limit is configurable via `VIBEGUARD_TODO_SCAN_LIMIT` (default 20)
+
 ## [1.1.0] - 2026-04-02
 
 ### Added

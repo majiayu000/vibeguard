@@ -22,7 +22,7 @@ EXTENSIONS = (
 )
 PATH_RE = re.compile(r"`([A-Za-z0-9_./-]+(?:" + EXTENSIONS + r"))`")
 
-SKIP_PREFIXES = ("http://", "https://", "~/", "your/")
+SKIP_PREFIXES = ("http://", "https://", "~/", "your/", "project/")
 SKIP_CONTAINS = ("*", "<", ">", "${")
 
 
@@ -60,6 +60,7 @@ def main() -> int:
     md_files = [
         f for f in md_files
         if "node_modules" not in f.parts and ".git" not in f.parts
+        and ".omx" not in f.parts
         and not (".claude" in f.parts and "worktrees" in f.parts)
     ]
 

@@ -20,6 +20,10 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red()   { printf '\033[31m%s\033[0m\n' "$1"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$1"; }
 
+strip_ansi() {
+  sed $'s/\x1B\\[[0-9;]*[A-Za-z]//g'
+}
+
 FAST_MODE=false
 for arg in "$@"; do
   [[ "$arg" == "--fast" ]] && FAST_MODE=true
@@ -58,9 +62,16 @@ for test_file in "${TESTS[@]}"; do
 
   if [[ $exit_code -eq 0 ]]; then
     # Parse pass/fail counts from test output (last line: "Total: N  Pass: N  Fail: N")
-    pass_count=$(echo "$output" | grep -oE 'Pass:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || echo "?")
-    fail_count=$(echo "$output" | grep -oE 'Fail:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || echo "?")
-    skip_count=$(echo "$output" | grep -oE 'Skip:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || echo "0")
+    clean_output="$(printf '%s\n' "$output" | strip_ansi)"
+    pass_count=$(echo "$clean_output" | grep -oE 'Pass:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
+    fail_count=$(echo "$clean_output" | grep -oE 'Fail:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
+    skip_count=$(echo "$clean_output" | grep -oE 'Skip:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
+    [[ -z "$pass_count" ]] && pass_count="N/A"
+    [[ -z "$fail_count" ]] && fail_count="N/A"
+    [[ -z "$skip_count" ]] && skip_count="0"
+    if [[ "$pass_count" == "N/A" || "$fail_count" == "N/A" ]]; then
+      yellow "WARN: could not parse assertion summary for ${test_name}"
+    fi
     green "PASS (assertions: pass=${pass_count} fail=${fail_count} skip=${skip_count})"
     PASS=$((PASS + 1))
   else

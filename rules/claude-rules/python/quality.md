@@ -39,3 +39,7 @@ Fix: All files open use `with open(...) as f:` instead.
 
 ## PY-12: Repeated calls to len()/keys()/values() within a loop (low)
 Fix: cache the results to variables before looping and reuse them within the loop.
+
+## PY-13: Dead compatibility shims (medium)
+Files that only re-export symbols from another module without adding behavior should be removed after migration.
+Fix: Replace stale shim imports with the canonical module path and delete the shim once no callers remain.

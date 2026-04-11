@@ -28,7 +28,7 @@ Once installed, VibeGuard works automatically on three levels:
 
 VibeGuard injects rules via two paths:
 
-**Path 1: Native rules (`~/.claude/rules/vibeguard/`)** — 88 rules loaded through Claude Code’s native rules mechanism, supporting `paths` scope (language-specific rules are only activated when matching files), directly affecting the AI inference layer.
+**Path 1: Native rules (`~/.claude/rules/vibeguard/`)** — 90+ rules loaded through Claude Code’s native rules mechanism, supporting `paths` scope (language-specific rules are only activated when matching files), directly affecting the AI inference layer.
 
 **Path 2: CLAUDE.md injection (`~/.claude/CLAUDE.md`)** — Seven-level constraint index appended to user-level global configuration. When Claude Code starts, it loads all levels of CLAUDE.md and takes effect superimposed:
 
@@ -189,8 +189,8 @@ Prevent AI code garbage and runtime garbage accumulation (refer to Harness GC Ag
 Can also be run alone:
 
 ```bash
-bash ~/vibeguard/scripts/gc-logs.sh --dry-run
-bash ~/vibeguard/scripts/gc-worktrees.sh --days 14
+bash ~/vibeguard/scripts/gc/gc-logs.sh --dry-run
+bash ~/vibeguard/scripts/gc/gc-worktrees.sh --days 14
 bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project
 ```
 
@@ -251,15 +251,15 @@ bash ~/vibeguard/scripts/quality-grader.sh # Last 30 days
 bash ~/vibeguard/scripts/quality-grader.sh --json # JSON format
 
 # Document freshness (rules-guard coverage detection)
-bash ~/vibeguard/scripts/doc-freshness-check.sh
+bash ~/vibeguard/scripts/verify/doc-freshness-check.sh
 
 # Ability evolution log (Guard/Rule/Skill change timeline)
 bash ~/vibeguard/scripts/log-capability-change.sh --since 2026-02-01
 
 # Prometheus indicator export
-bash ~/vibeguard/scripts/metrics-exporter.sh # Output to stdout
-bash ~/vibeguard/scripts/metrics-exporter.sh --push <gateway> # Push to Pushgateway
-bash ~/vibeguard/scripts/metrics-exporter.sh --file /path/to.prom # Write textfile
+bash ~/vibeguard/scripts/metrics/metrics-exporter.sh # Output to stdout
+bash ~/vibeguard/scripts/metrics/metrics-exporter.sh --push <gateway> # Push to Pushgateway
+bash ~/vibeguard/scripts/metrics/metrics-exporter.sh --file /path/to.prom # Write textfile
 
 # Log statistics
 bash ~/vibeguard/scripts/stats.sh # Last 7 days
@@ -351,7 +351,7 @@ Checking rule definition for guard script:
 
 ### Native rules (`rules/claude-rules/` → `~/.claude/rules/vibeguard/`)
 
-88 rules are loaded through Claude Code’s native rules mechanism and take effect in the AI reasoning layer (not just script interception):
+90+ rules are loaded through Claude Code’s native rules mechanism and take effect in the AI reasoning layer (not just script interception):
 
 | Directory | Content | Scope |
 |------|------|--------|

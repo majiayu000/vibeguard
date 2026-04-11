@@ -1,6 +1,6 @@
 # VibeGuard Rule Reference
 
-Complete index of all 88+ rules organized by layer and category.
+Complete index of all 90+ rules organized by layer and category.
 
 ## Layer Architecture
 
