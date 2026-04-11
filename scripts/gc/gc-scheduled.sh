@@ -36,25 +36,28 @@ mkdir -p "${LOG_DIR}"
     for mf in "${LOG_DIR}"/projects/*/session-metrics.jsonl; do
       [[ -f "${mf}" ]] || continue
       BEFORE=$(wc -l < "${mf}" | tr -d ' ')
-      python3 -c "
-import sys
-cutoff = '${CUTOFF}'
+      METRICS_FILE="${mf}" CUTOFF="${CUTOFF}" python3 - <<'PYEOF' 2>/dev/null || true
+import os
+mf_path = os.environ['METRICS_FILE']
+cutoff = os.environ['CUTOFF']
 kept = []
-with open('${mf}') as f:
+original = 0
+with open(mf_path) as f:
     for line in f:
+        original += 1
         if line.strip():
-            if '\"ts\"' in line:
-                idx = line.find('\"ts\"')
-                ts_start = line.find('\"', idx + 4) + 1
+            if '"ts"' in line:
+                idx = line.find('"ts"')
+                ts_start = line.find('"', idx + 4) + 1
                 ts_val = line[ts_start:ts_start+10]
                 if ts_val >= cutoff[:10]:
                     kept.append(line)
             else:
                 kept.append(line)
-with open('${mf}', 'w') as f:
+with open(mf_path, 'w') as f:
     f.writelines(kept)
-print(f' {len(kept)} reserved items (original ${BEFORE} items)')
-" 2>/dev/null || true
+print(f' {len(kept)} reserved items (original {original} items)')
+PYEOF
       AFTER=$(wc -l < "${mf}" | tr -d ' ')
       DIFF=$((BEFORE - AFTER))
       [[ ${DIFF} -gt 0 ]] && CLEANED=$((CLEANED + DIFF))
@@ -67,13 +70,13 @@ print(f' {len(kept)} reserved items (original ${BEFORE} items)')
 
   echo "--- Regular learning (event log + code scanning unified signal source) ---"
   VIBEGUARD_DIR="${SCRIPT_DIR}/.."
-  python3 -c "
+  LOG_DIR="${LOG_DIR}" VIBEGUARD_DIR="${VIBEGUARD_DIR}" python3 - <<'PYEOF' 2>&1 || echo "[ERROR] learn-digest failed"
 import json, os, sys, subprocess
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
-log_dir = '${LOG_DIR}'
-vibeguard_dir = '${VIBEGUARD_DIR}'
+log_dir = os.environ['LOG_DIR']
+vibeguard_dir = os.environ['VIBEGUARD_DIR']
 projects_dir = os.path.join(log_dir, 'projects')
 digest_file = os.path.join(log_dir, 'learn-digest.jsonl')
 
@@ -121,7 +124,7 @@ def run_guard(script, project_root):
         if not output:
             return 0, []
         # Count the offending lines marked by [XX-NN]
-        violations = [l for l in output.split('\\n') if l.startswith('[')]
+        violations = [l for l in output.split('\n') if l.startswith('[')]
         return len(violations), violations[:3] # Keep up to 3 examples
     except (subprocess.TimeoutExpired, OSError):
         return 0, []
@@ -266,19 +269,19 @@ if signals_found == 0:
     print('No need to learn signals')
 else:
     print(f' A total of {signals_found} signals have been written to learn-digest.jsonl')
-" 2>&1 || echo "[ERROR] learn-digest failed"
+PYEOF
   echo
 
   echo "---Session Quality Reflection (Reflection Automation) ---"
   REFLECTION_FILE="${LOG_DIR}/reflection-digest.md"
-  python3 -c "
+  LOG_DIR="${LOG_DIR}" REFLECTION_FILE="${REFLECTION_FILE}" python3 - <<'PYEOF' 2>&1 || echo "[ERROR] reflection failed"
 import json, os, sys
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
-log_dir = '${LOG_DIR}'
+log_dir = os.environ['LOG_DIR']
 projects_dir = os.path.join(log_dir, 'projects')
-output_file = '${REFLECTION_FILE}'
+output_file = os.environ['REFLECTION_FILE']
 
 if not os.path.isdir(projects_dir):
     print('No project data, skip')
@@ -442,7 +445,7 @@ print(f' Sessions: {total_sessions}, Events: {total_events}, Friction rate: {ove
 if suggestions:
     for s in suggestions:
         print(f'    - {s}')
-" 2>&1 || echo "[ERROR] reflection failed"
+PYEOF
   echo
 
   echo "GC completed"
