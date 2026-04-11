@@ -11,6 +11,9 @@ python/quality.md
 # Script referenced in systemic issues report (removed after cleanup)
 scripts/verify-package-contents.sh
 
+# Conceptual example paths in documentation (not real repo files)
+project/.claude/CLAUDE.md
+
 # Paths in docs that reference removed/external files
 tests/test_post_write_perf.sh
 vibeguard/claude-md/vibeguard-rules.md
