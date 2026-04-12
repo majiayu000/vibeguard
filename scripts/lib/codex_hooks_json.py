@@ -188,7 +188,7 @@ def _has_entry(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        if expected_matcher is not None and entry.get("matcher") != expected_matcher:
+        if entry.get("matcher") != expected_matcher:
             continue
         hook_entries = entry.get("hooks")
         if not isinstance(hook_entries, list):

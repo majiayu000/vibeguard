@@ -237,6 +237,24 @@ with open('${_STALE_HOOKS}', 'w') as f:
     json.dump(data, f, indent=2)
 "
 assert_cmd "check-vibeguard rejects Stop entry with spurious timeout" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+# Write a Stop entry with correct command+type but a spurious matcher (Stop spec has none).
+python3 -c "
+import json
+data = {
+  'hooks': {
+    'Stop': [{
+      'matcher': 'Bash',
+      'hooks': [{'type': 'command', 'command': 'bash ${_STALE_WRAPPER} vibeguard-stop-guard.sh'}]
+    }]
+  }
+}
+with open('${_STALE_HOOKS}', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+assert_cmd "check-vibeguard rejects Stop entry with spurious matcher" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+# After upsert the entry must be repaired and check must pass.
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}" >/dev/null
+assert_cmd "upsert repairs Stop entry with spurious matcher; check-vibeguard then passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}"
 
 header "setup --clean"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
