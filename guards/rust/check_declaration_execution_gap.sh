@@ -167,6 +167,122 @@ for m in matches:
   exit 0
 }
 
+# RS-14 persistence-method check: verify save/load/persist/restore are called at startup.
+# Fix (Issue 3): scan src/bin/*.rs alongside main.rs/lib.rs; remove head -5 truncation
+#   so workspace members with >5 startup files or bin/ entrypoints are fully covered.
+# Fix (Issue 1): per-(type,method) tracking — python3 extracts the impl-type name for
+#   each declaration so that an unrelated load( call on a different type cannot satisfy
+#   the check (false-negative where "anything named load" collapses to one _called flag).
+# Fix (Issue 2): inline // comment stripping + string-literal exclusion in call-site
+#   grep so that `foo(); // load(` and `"load("` do not count as startup invocations.
+_pm_startup_files=()
+while IFS= read -r _f; do
+  [[ -f "${_f}" ]] && _pm_startup_files+=("${_f}")
+done < <(find "${TARGET_DIR}" \
+    \( -name 'main.rs' -o -name 'lib.rs' -o -path '*/bin/*.rs' \) \
+    -not -path '*/target/*' \
+    -not -path '*/examples/*' \
+    -not -path '*/benches/*' \
+    -not -path '*/tests/*' \
+    2>/dev/null)
+
+if [[ ${#_pm_startup_files[@]} -gt 0 ]]; then
+  for _method in save load persist restore; do
+    # Extract all impl-type names that declare fn <_method>( in production code.
+    # python3 tracks brace-depth to stay inside each impl block, preventing
+    # cross-type pollution when multiple types in the same file define the same
+    # method name.  Only production (non-test, non-example) files are scanned.
+    _decl_types=$(python3 - "${_method}" "${TARGET_DIR}" <<'PYEOF'
+import sys, re, subprocess
+
+method  = sys.argv[1]
+tgt_dir = sys.argv[2]
+
+TEST_PATH = re.compile(r'((^|/)tests[/._]|/test_|_test\.rs$|tests\.rs$|(^|/)examples/|(^|/)benches/)')
+
+try:
+    res = subprocess.run(
+        ["grep", "-rlE", r"fn\s+" + re.escape(method) + r"\s*\(",
+         "--include=*.rs",
+         "--exclude-dir=target", "--exclude-dir=examples",
+         "--exclude-dir=benches", "--exclude-dir=tests",
+         tgt_dir],
+        capture_output=True, text=True
+    )
+    decl_files = [f for f in res.stdout.strip().splitlines() if not TEST_PATH.search(f)]
+except Exception:
+    sys.exit(0)
+
+_ng = r"[^<>]*(?:<[^<>]*>[^<>]*)*"
+impl_pat = re.compile(
+    r'^\s*impl(?:<' + _ng + r'>)?\s+'
+    r'(?:[\w:]+(?:<' + _ng + r'>)?\s+for\s+)?'
+    r'(\w+)(?:<' + _ng + r'>)?\s*(?:\{|where\b|$)'
+)
+method_pat  = re.compile(r'\bfn\s+' + re.escape(method) + r'\s*\(')
+comment_pat = re.compile(r'^\s*(//|/\*|\*)')
+
+types_found = set()
+for filepath in decl_files:
+    try:
+        with open(filepath, 'r', errors='ignore') as fh:
+            lines = fh.readlines()
+    except Exception:
+        continue
+    i = 0
+    while i < len(lines):
+        m = impl_pat.search(lines[i])
+        if m:
+            type_name = m.group(1)
+            depth = lines[i].count('{') - lines[i].count('}')
+            j = i + 1
+            while j < len(lines) and depth <= 0:
+                depth += lines[j].count('{') - lines[j].count('}')
+                j += 1
+            while j < len(lines) and depth > 0:
+                depth += lines[j].count('{') - lines[j].count('}')
+                if method_pat.search(lines[j]) and not comment_pat.search(lines[j]):
+                    types_found.add(type_name)
+                    break
+                j += 1
+            i = j
+        else:
+            i += 1
+
+for t in sorted(types_found):
+    print(t)
+PYEOF
+    )
+    [[ -z "${_decl_types}" ]] && continue
+
+    # For each declaring type, verify a call anchored to that specific type exists
+    # in at least one startup file.  Five-stage filter pipeline per startup file:
+    #  1. initial grep: require Type:: or . prefix so the match is anchored to this type
+    #  2. drop full-line comment/doc lines (// /* *)
+    #  3. drop fn-declaration lines (false call — it's a definition, not invocation)
+    #  4. drop lines where the match falls inside an inline // comment
+    #  5. drop lines where the match is inside a double-quoted string literal
+    while IFS= read -r _type; do
+      [[ -z "${_type}" ]] && continue
+      _type_called=false
+      for _startup in "${_pm_startup_files[@]}"; do
+        if grep -E "(${_type}[[:space:]]*::|\.)[[:space:]]*${_method}[[:space:]]*\(" "${_startup}" 2>/dev/null \
+            | grep -vE '^\s*(//|/\*|\*)' \
+            | grep -vE '\bfn[[:space:]]+'"${_method}"'[[:space:]]*\(' \
+            | grep -vE '//.*\b'"${_method}"'[[:space:]]*\(' \
+            | grep -vE '"[^"]*\b'"${_method}"'[[:space:]]*\([^"]*"' \
+            | grep -q .; then
+          _type_called=true
+          break
+        fi
+      done
+      if [[ "${_type_called}" == "false" ]]; then
+        echo "[RS-14] Persistence method '${_type}::${_method}()' is declared but not called at startup (main.rs / lib.rs / src/bin/*.rs). Fix: invoke ${_type}::${_method}() in the startup path, or add // vibeguard-disable-next-line RS-14 if intentional." >> "$TMPFILE"
+      fi
+    done <<< "${_decl_types}"
+  done
+fi
+
 apply_suppression_filter "$TMPFILE"
 FOUND=$(wc -l < "$TMPFILE" | tr -d ' ')
 
