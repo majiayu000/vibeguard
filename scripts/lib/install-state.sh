@@ -76,18 +76,19 @@ with open('${STATE_FILE}', 'w') as f:
 "
 }
 
-# Record all regular files under a directory as copy-installed artifacts.
+# Record all files (regular or symlink) under a directory as installed artifacts.
 # source_prefix is joined with each relative file path for traceability.
 state_record_tree() {
   local dest_dir="$1" source_prefix="$2"
   [[ -d "$dest_dir" ]] || return 0
 
   while IFS= read -r file; do
-    local rel source
+    local rel source install_type
     rel="${file#"${dest_dir}/"}"
     source="${source_prefix%/}/${rel}"
-    state_record_file "$file" "$source" "copy"
-  done < <(find "$dest_dir" -type f 2>/dev/null)
+    if [[ -L "$file" ]]; then install_type="symlink"; else install_type="copy"; fi
+    state_record_file "$file" "$source" "$install_type"
+  done < <(find "$dest_dir" \( -type f -o -type l \) 2>/dev/null)
 }
 
 # Check for drift — files that were installed but have been modified or removed

@@ -52,24 +52,37 @@ install_claude_home_assets() {
   green "  vibeguard commands -> ~/.claude/commands/vibeguard"
   echo
 
-  echo "Step 5.5: Install native rules"
+  echo "Step 5.5: Install native rules (symlinked)"
   local rules_src="${REPO_DIR}/rules/claude-rules"
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   if [[ -d "${rules_src}" ]]; then
     mkdir -p "${rules_dest}"
+    # Helper: symlink each .md file in a subdirectory
+    _symlink_rule_dir() {
+      local src_dir="$1" dest_dir="$2" label="$3"
+      mkdir -p "${dest_dir}"
+      # Remove stale copies that are now replaced by symlinks
+      for f in "${dest_dir}"/*.md; do
+        [[ -f "$f" && ! -L "$f" ]] && rm -f "$f"
+      done
+      local count=0
+      for f in "${src_dir}"/*.md; do
+        [[ -f "$f" ]] || continue
+        local name
+        name=$(basename "$f")
+        ln -sf "$f" "${dest_dir}/${name}"
+        state_record_file "${dest_dir}/${name}" "${label}/${name}" "symlink"
+        count=$((count + 1))
+      done
+      green "  ${label}/ -> ~/.claude/rules/vibeguard/${label}/ (${count} rules, symlinked)"
+    }
     if [[ -d "${rules_src}/common" ]]; then
-      mkdir -p "${rules_dest}/common"
-      cp -r "${rules_src}/common/." "${rules_dest}/common/"
-      state_record_tree "${rules_dest}/common" "rules/claude-rules/common"
-      green "  common/ -> ~/.claude/rules/vibeguard/common/"
+      _symlink_rule_dir "${rules_src}/common" "${rules_dest}/common" "common"
     fi
     for subdir in rust golang typescript python; do
       if [[ -d "${rules_src}/${subdir}" ]]; then
         if lang_selected "$subdir"; then
-          mkdir -p "${rules_dest}/${subdir}"
-          cp -r "${rules_src}/${subdir}/." "${rules_dest}/${subdir}/"
-          state_record_tree "${rules_dest}/${subdir}" "rules/claude-rules/${subdir}"
-          green "  ${subdir}/ -> ~/.claude/rules/vibeguard/${subdir}/"
+          _symlink_rule_dir "${rules_src}/${subdir}" "${rules_dest}/${subdir}" "${subdir}"
         else
           if [[ -d "${rules_dest}/${subdir}" ]]; then
             rm -rf "${rules_dest}/${subdir}"
@@ -85,11 +98,15 @@ install_claude_home_assets() {
       local_rules_count=$(find "${VIBEGUARD_HOME}/user-rules" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
       if [[ "${local_rules_count}" -gt 0 ]]; then
         mkdir -p "${rules_dest}/custom"
-        cp "${VIBEGUARD_HOME}/user-rules/"*.md "${rules_dest}/custom/" 2>/dev/null || true
+        for f in "${VIBEGUARD_HOME}/user-rules/"*.md; do
+          [[ -f "$f" ]] || continue
+          ln -sf "$f" "${rules_dest}/custom/$(basename "$f")"
+        done
         state_record_tree "${rules_dest}/custom" "user-rules"
-        green "  custom/ -> ~/.claude/rules/vibeguard/custom/ (${local_rules_count} user rules)"
+        green "  custom/ -> ~/.claude/rules/vibeguard/custom/ (${local_rules_count} user rules, symlinked)"
       fi
     fi
+    unset -f _symlink_rule_dir
   else
     yellow "  SKIP native rules (source not found: ${rules_src})"
   fi
@@ -168,19 +185,25 @@ check_claude_home_installation() {
 
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local rule_file_count actual_rule_count file_count claude_md declared_count
+  local symlink_count copy_count
   if [[ -d "${rules_dest}" ]]; then
-    rule_file_count=$(find "${rules_dest}" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+    rule_file_count=$(find "${rules_dest}" -name "*.md" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
+    symlink_count=$(find "${rules_dest}" -name "*.md" -type l 2>/dev/null | wc -l | tr -d ' ')
+    copy_count=$((rule_file_count - symlink_count))
     if [[ "${rule_file_count}" -ge 7 ]]; then
-      green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/"
+      green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/ (${symlink_count} symlinked)"
     else
       yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
+    fi
+    if [[ "${copy_count}" -gt 0 ]]; then
+      yellow "[DRIFT] ${copy_count} rule files are copies instead of symlinks — re-run setup.sh to fix"
     fi
 
     actual_rule_count=0
     while IFS= read -r rule_file; do
       file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
       actual_rule_count=$((actual_rule_count + file_count))
-    done < <(find "${rules_dest}" -type f -name "*.md" 2>/dev/null)
+    done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
     claude_md="${CLAUDE_DIR}/CLAUDE.md"
     if [[ -f "${claude_md}" ]]; then
       declared_count=$(grep -o '[0-9]* rules' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
