@@ -81,11 +81,19 @@ def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
 def _is_vibeguard_command(command: str) -> bool:
     if not isinstance(command, str):
         return False
+    # Legacy direct calls that don't use the "bash <wrapper> <script>" pattern.
     if any(marker in command for marker in ("session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh")):
         return True
-    if "run-hook-codex.sh" not in command:
-        return False
-    return any(marker in command for marker in MANAGED_MARKERS)
+    # Standard or arbitrary wrapper pattern: "bash <wrapper> <vibeguard-script>"
+    # The last whitespace-separated token must be a managed VibeGuard script name.
+    # This covers both run-hook-codex.sh wrappers and arbitrary wrapper paths.
+    parts = command.split()
+    if len(parts) >= 3 and parts[0] == "bash":
+        return parts[-1] in MANAGED_MARKERS
+    # Fallback for run-hook-codex.sh in unusual/malformed command strings.
+    if "run-hook-codex.sh" in command:
+        return any(marker in command for marker in MANAGED_MARKERS)
+    return False
 
 
 def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
@@ -231,6 +239,30 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _has_stale_vibeguard_entries(data: dict[str, Any], current_wrapper: str) -> bool:
+    """Return True if any VibeGuard entries exist for a wrapper other than current_wrapper."""
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    expected_commands = {f"bash {current_wrapper} {spec['script']}" for spec in MANAGED_SPECS}
+    for entries in hooks.values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                continue
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    continue
+                command = str(hook.get("command", ""))
+                if _is_vibeguard_command(command) and command not in expected_commands:
+                    return True
+    return False
+
+
 def cmd_check_vibeguard(args: argparse.Namespace) -> int:
     hooks_path = Path(args.hooks_file)
     data = load_hooks(hooks_path)
@@ -248,6 +280,9 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
         expected_matcher = spec.get("matcher")
         if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None):
             return 1
+
+    if _has_stale_vibeguard_entries(data, args.wrapper):
+        return 1
     return 0
 
 
