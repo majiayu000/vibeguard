@@ -194,7 +194,10 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         if not isinstance(entries, list):
             entries = []
             hooks[event] = entries
-        entries.append(_build_entry(args.wrapper, spec))
+        expected_command = f"bash {args.wrapper} {spec['script']}"
+        expected_matcher = spec.get("matcher") if isinstance(spec.get("matcher"), str) else None
+        if not _has_entry(entries, expected_command, expected_matcher):
+            entries.append(_build_entry(args.wrapper, spec))
 
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
     if after != before:
