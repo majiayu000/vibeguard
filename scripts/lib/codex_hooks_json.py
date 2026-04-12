@@ -50,7 +50,13 @@ LEGACY_MARKERS = {
     "cognitive-reminder.sh",
 }
 
-MANAGED_MARKERS = LEGACY_MARKERS | {spec["script"] for spec in MANAGED_SPECS}
+# Current VibeGuard script names — all carry the unambiguous "vibeguard-" prefix.
+# Used for marker-based detection in the "bash <wrapper> <script>" pattern so that
+# third-party hooks whose last token happens to match a generic legacy name (e.g.
+# "bash /other-tool/wrapper.sh pre-bash-guard.sh") are NOT mis-classified.
+CURRENT_SCRIPT_NAMES = {spec["script"] for spec in MANAGED_SPECS}
+
+MANAGED_MARKERS = LEGACY_MARKERS | CURRENT_SCRIPT_NAMES
 
 
 def load_hooks(path: Path) -> dict[str, Any]:
@@ -85,11 +91,12 @@ def _is_vibeguard_command(command: str) -> bool:
     if any(marker in command for marker in ("session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh")):
         return True
     # Standard or arbitrary wrapper pattern: "bash <wrapper> <vibeguard-script>"
-    # The last whitespace-separated token must be a managed VibeGuard script name.
-    # This covers both run-hook-codex.sh wrappers and arbitrary wrapper paths.
+    # Only match against CURRENT_SCRIPT_NAMES (all carry the "vibeguard-" prefix) to
+    # avoid false-positives where a third-party hook's last token coincidentally matches
+    # a generic legacy marker name such as "pre-bash-guard.sh" or "stop-guard.sh".
     parts = command.split()
     if len(parts) >= 3 and parts[0] == "bash":
-        return parts[-1] in MANAGED_MARKERS
+        return parts[-1] in CURRENT_SCRIPT_NAMES
     # Fallback for run-hook-codex.sh in unusual/malformed command strings.
     if "run-hook-codex.sh" in command:
         return any(marker in command for marker in MANAGED_MARKERS)
@@ -187,6 +194,25 @@ def _has_entry(entries: list[Any], expected_command: str, expected_matcher: str 
     return False
 
 
+def _count_entries(entries: list[Any], expected_command: str, expected_matcher: str | None) -> int:
+    """Count occurrences of expected_command (with matching matcher) across all entries."""
+    count = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if expected_matcher is not None and entry.get("matcher") != expected_matcher:
+            continue
+        hook_entries = entry.get("hooks")
+        if not isinstance(hook_entries, list):
+            continue
+        for hook in hook_entries:
+            if not isinstance(hook, dict):
+                continue
+            if hook.get("command") == expected_command:
+                count += 1
+    return count
+
+
 def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     hooks_path = Path(args.hooks_file)
     data = load_hooks(hooks_path)
@@ -278,7 +304,8 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
 
         expected_command = f"bash {args.wrapper} {spec['script']}"
         expected_matcher = spec.get("matcher")
-        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None):
+        # Exactly one occurrence required: 0 means missing, >1 means duplicate (fires multiple times).
+        if _count_entries(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None) != 1:
             return 1
 
     if _has_stale_vibeguard_entries(data, args.wrapper):

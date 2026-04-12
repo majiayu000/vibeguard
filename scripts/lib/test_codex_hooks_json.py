@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from codex_hooks_json import (
     MANAGED_SPECS,
+    _build_entry,
+    _ensure_hooks_root,
+    _is_vibeguard_command,
     cmd_check_vibeguard,
     cmd_remove_vibeguard,
     cmd_upsert_vibeguard,
@@ -191,6 +194,34 @@ class TestRemoveArbitraryWrapper:
             )
 
 
+class TestIsVibeGuardCommandThirdPartyIsolation:
+    """_is_vibeguard_command() must not claim third-party hooks that happen to end with
+    a generic legacy marker name (Issue 1 from round-2 review)."""
+
+    def test_third_party_hook_with_legacy_pre_bash_guard_name(self) -> None:
+        # A command from another tool that ends with a legacy ambiguous script name.
+        assert not _is_vibeguard_command("bash /other-tool/wrapper.sh pre-bash-guard.sh"), (
+            "Third-party hook ending with 'pre-bash-guard.sh' must not be classified as VibeGuard"
+        )
+
+    def test_third_party_hook_with_legacy_stop_guard_name(self) -> None:
+        assert not _is_vibeguard_command("bash /other-tool/wrapper.sh stop-guard.sh"), (
+            "Third-party hook ending with 'stop-guard.sh' must not be classified as VibeGuard"
+        )
+
+    def test_third_party_shell_flag_with_legacy_name(self) -> None:
+        # "bash -lc stop-guard.sh" — 3 tokens, starts with bash, ends with legacy name.
+        assert not _is_vibeguard_command("bash -lc stop-guard.sh"), (
+            "'bash -lc stop-guard.sh' must not be classified as VibeGuard"
+        )
+
+    def test_vibeguard_prefixed_script_is_claimed(self) -> None:
+        # A valid VibeGuard command with a vibeguard- prefixed script must still match.
+        assert _is_vibeguard_command(
+            "bash /some/arbitrary/wrapper.sh vibeguard-pre-bash-guard.sh"
+        ), "Arbitrary wrapper with current vibeguard-prefixed script must be classified as VibeGuard"
+
+
 class TestCheckVibeGuard:
     """check-vibeguard must fail when stale duplicate entries exist."""
 
@@ -233,3 +264,31 @@ class TestCheckVibeGuard:
         result = cmd_check_vibeguard(_make_args(str(hooks_file), wrapper))
 
         assert result == 1, "check-vibeguard should fail when no entries are installed"
+
+    def test_check_fails_same_wrapper_duplicates(self, tmp_path: Path) -> None:
+        """check-vibeguard must return 1 when same-wrapper entries are duplicated (Issue 2).
+
+        Duplicated entries cause hooks to fire multiple times in production.
+        cmd_check_vibeguard() must catch this even when stale-check passes (same wrapper).
+        """
+        hooks_file = tmp_path / "hooks.json"
+        wrapper = str(tmp_path / "wrapper.sh")
+
+        # First install via the normal path.
+        cmd_upsert_vibeguard(_make_args(str(hooks_file), wrapper))
+
+        # Manually inject a second copy of every entry (simulates corrupted state).
+        data = json.loads(hooks_file.read_text())
+        hooks = _ensure_hooks_root(data)
+        for spec in MANAGED_SPECS:
+            event = str(spec["event"])
+            entries = hooks.setdefault(event, [])
+            entries.append(_build_entry(wrapper, spec))
+        hooks_file.write_text(json.dumps(data, indent=2) + "\n")
+
+        result = cmd_check_vibeguard(_make_args(str(hooks_file), wrapper))
+
+        assert result == 1, (
+            "check-vibeguard must fail when same-wrapper entries are duplicated — "
+            "duplicate hooks fire multiple times per event"
+        )
