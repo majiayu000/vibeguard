@@ -52,6 +52,11 @@ LEGACY_MARKERS = {
 
 MANAGED_MARKERS = LEGACY_MARKERS | {spec["script"] for spec in MANAGED_SPECS}
 
+# Namespaced vibeguard-* script names from MANAGED_SPECS.  These are
+# unambiguous enough to identify VibeGuard entries without inspecting the
+# wrapper path, so removal works even when a non-standard wrapper is used.
+_MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
+
 
 def load_hooks(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -81,8 +86,15 @@ def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
 def _is_vibeguard_command(command: str) -> bool:
     if not isinstance(command, str):
         return False
+    # Pure-legacy hooks that were never invoked via run-hook-codex.sh.
     if any(marker in command for marker in ("session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh")):
         return True
+    # Namespaced vibeguard-* scripts are unambiguous regardless of wrapper path,
+    # so custom-wrapper installs are correctly detected during removal.
+    if any(script in command for script in _MANAGED_SCRIPT_NAMES):
+        return True
+    # Un-namespaced legacy markers still require the canonical wrapper name to
+    # avoid false positives against user scripts with similar short names.
     if "run-hook-codex.sh" not in command:
         return False
     return any(marker in command for marker in MANAGED_MARKERS)
@@ -162,7 +174,17 @@ def _build_entry(wrapper: str, spec: HookSpec) -> dict[str, Any]:
     return entry
 
 
-def _has_entry(entries: list[Any], expected_command: str, expected_matcher: str | None) -> bool:
+def _has_entry(
+    entries: list[Any],
+    expected_command: str,
+    expected_matcher: str | None,
+    expected_timeout: int | None,
+) -> bool:
+    """Return True only when a fully-conformant managed entry exists.
+
+    Checks ``command``, ``type``, ``matcher``, and ``timeout`` so that a stale
+    entry with the right command but wrong metadata does not block repair.
+    """
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -174,8 +196,19 @@ def _has_entry(entries: list[Any], expected_command: str, expected_matcher: str 
         for hook in hook_entries:
             if not isinstance(hook, dict):
                 continue
-            if hook.get("command") == expected_command:
-                return True
+            if hook.get("command") != expected_command:
+                continue
+            if hook.get("type") != "command":
+                continue
+            # timeout must be present-and-matching when the spec demands it,
+            # and absent when the spec has none (Stop entries).
+            if expected_timeout is not None:
+                if hook.get("timeout") != expected_timeout:
+                    continue
+            else:
+                if "timeout" in hook:
+                    continue
+            return True
     return False
 
 
@@ -196,7 +229,8 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
             hooks[event] = entries
         expected_command = f"bash {args.wrapper} {spec['script']}"
         expected_matcher = spec.get("matcher") if isinstance(spec.get("matcher"), str) else None
-        if not _has_entry(entries, expected_command, expected_matcher):
+        expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
+        if not _has_entry(entries, expected_command, expected_matcher, expected_timeout):
             entries.append(_build_entry(args.wrapper, spec))
 
     after = json.dumps(data, sort_keys=True, ensure_ascii=False)
@@ -246,7 +280,8 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
 
         expected_command = f"bash {args.wrapper} {spec['script']}"
         expected_matcher = spec.get("matcher")
-        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None):
+        expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
+        if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout):
             return 1
     return 0
 
