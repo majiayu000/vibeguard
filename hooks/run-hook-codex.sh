@@ -14,6 +14,11 @@ set -euo pipefail
 HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
+# Codex path is namespaced-only. Non-namespaced hook names are unsupported.
+if [[ "${HOOK_NAME}" != vibeguard-* ]]; then
+  exit 0
+fi
+
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
 

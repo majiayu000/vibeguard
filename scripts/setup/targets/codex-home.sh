@@ -24,58 +24,17 @@ install_codex_home_assets() {
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   green "  ~/.vibeguard/run-hook-codex.sh ready"
 
-  # Generate ~/.codex/hooks.json
+  # Merge VibeGuard hooks into ~/.codex/hooks.json (do not overwrite existing hooks)
   local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
-  cat > "${CODEX_DIR}/hooks.json" <<HOOKSJSON
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${wrapper} pre-bash-guard.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${wrapper} post-build-check.sh",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${wrapper} stop-guard.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${wrapper} learn-evaluator.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-HOOKSJSON
-  state_record_file "${CODEX_DIR}/hooks.json" "generated/codex-hooks.json" "copy"
-  green "  ~/.codex/hooks.json generated (4 hooks)"
+  local hooks_file="${CODEX_DIR}/hooks.json"
+  local hooks_result
+  hooks_result=$(python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${hooks_file}" --wrapper "${wrapper}" 2>/dev/null || echo "ERROR")
+  if [[ "${hooks_result}" == "CHANGED" || "${hooks_result}" == "SKIP" ]]; then
+    state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
+    green "  ~/.codex/hooks.json merged (VibeGuard hooks upserted)"
+  else
+    red "  Failed to update ~/.codex/hooks.json"
+  fi
 
   # Enable codex_hooks feature flag in config.toml
   _enable_codex_hooks_feature
@@ -195,15 +154,22 @@ check_codex_home_installation() {
 
   # Check hooks
   if [[ -f "${CODEX_DIR}/hooks.json" ]]; then
+    local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
     local hook_count
     hook_count=$(python3 -c "
 import json
 with open('${CODEX_DIR}/hooks.json') as f:
     data = json.load(f)
-total = sum(len(entries) for entries in data.get('hooks', {}).values())
+total = sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list))
 print(total)
 " 2>/dev/null || echo "?")
-    green "[OK] Codex hooks.json (${hook_count} hook entries)"
+    green "[OK] Codex hooks.json present (${hook_count} total entries)"
+
+    if python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${CODEX_DIR}/hooks.json" --wrapper "${wrapper}" >/dev/null 2>&1; then
+      green "[OK] VibeGuard hooks merged in ~/.codex/hooks.json"
+    else
+      yellow "[MISSING] VibeGuard hooks not fully configured in ~/.codex/hooks.json"
+    fi
   else
     yellow "[MISSING] Codex hooks.json not installed"
   fi
@@ -234,15 +200,25 @@ clean_codex_home_installation() {
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
 
-  # Remove hooks
-  rm -f "${CODEX_DIR}/hooks.json"
-  rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
-  yellow "Removed Codex hooks.json + wrapper"
+  # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
+  local hooks_cleanup_result
+  hooks_cleanup_result=$(python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "ERROR")
+  case "${hooks_cleanup_result}" in
+    CHANGED)
+      yellow "Removed VibeGuard hook entries from ~/.codex/hooks.json"
+      ;;
+    SKIP)
+      yellow "No VibeGuard hook entries found in ~/.codex/hooks.json"
+      ;;
+    *)
+      red "Failed to clean VibeGuard entries in ~/.codex/hooks.json"
+      ;;
+  esac
 
-  # Disable codex_hooks feature flag (leave config.toml intact otherwise)
-  if [[ -f "${CODEX_DIR}/config.toml" ]]; then
-    sed -i '' '/^codex_hooks[[:space:]]*=[[:space:]]*true$/d' "${CODEX_DIR}/config.toml" 2>/dev/null || true
-  fi
+  rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
+  yellow "Removed Codex hook wrapper"
+
+  # Keep codex_hooks flag untouched to avoid affecting other toolchains.
 
   local cleanup_result
   cleanup_result="$(_remove_legacy_codex_mcp_config)"

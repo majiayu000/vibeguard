@@ -22,6 +22,8 @@ AI coded agent hooks script, automatically triggered before and after the operat
 
 **Codex column description**: ✅ = Deployed to `~/.codex/hooks.json`, ❌ = Codex does not support this matcher yet, — = Not applicable
 
+Codex entries use namespaced hook script names (`vibeguard-*.sh`) and are resolved by `run-hook-codex.sh` to the actual local script files.
+
 ## Dual platform deployment architecture
 
 ```
