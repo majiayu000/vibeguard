@@ -178,6 +178,84 @@ assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'sessi
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 
+header "upsert idempotency with non-standard wrapper path"
+# Run upsert twice with a wrapper path that does not contain 'run-hook-codex.sh'.
+# Without the _has_entry dedup fix, the second upsert would append duplicates.
+_IDEMPOTENT_HOOKS="${TMP_HOME}/.codex/hooks-idempotent.json"
+_IDEMPOTENT_WRAPPER="${TMP_HOME}/test/wrapper.sh"
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}" --wrapper "${_IDEMPOTENT_WRAPPER}" >/dev/null
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}" --wrapper "${_IDEMPOTENT_WRAPPER}" >/dev/null
+assert_cmd "double-upsert with non-standard wrapper produces exactly 4 Stop entries (not 8)" python3 -c "
+import json
+data = json.load(open('${_IDEMPOTENT_HOOKS}'))
+stop_entries = data.get('hooks', {}).get('Stop', [])
+raise SystemExit(0 if len(stop_entries) == 2 else 1)
+"
+assert_cmd "double-upsert with non-standard wrapper: check-vibeguard passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}" --wrapper "${_IDEMPOTENT_WRAPPER}"
+
+header "remove-vibeguard cleans custom-wrapper-path hooks"
+# Issue fix: _is_vibeguard_command must recognise vibeguard-* scripts even when
+# the wrapper path does not contain 'run-hook-codex.sh'.
+python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}"
+assert_cmd "remove-vibeguard removes custom-wrapper vibeguard hooks" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${_IDEMPOTENT_HOOKS}'"
+assert_cmd "remove-vibeguard removes all managed hook scripts" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${_IDEMPOTENT_HOOKS}'"
+
+header "_has_entry validates type and timeout (Issue 2 guard)"
+# A stale entry that has the correct command but is missing 'type: command' or
+# has a spurious timeout must NOT satisfy check-vibeguard (silent false positive).
+_STALE_HOOKS="${TMP_HOME}/.codex/hooks-stale.json"
+_STALE_WRAPPER="${TMP_HOME}/test/stale-wrapper.sh"
+# Write an entry with correct command but no 'type' field and no 'timeout'.
+python3 -c "
+import json, sys
+data = {
+  'hooks': {
+    'PreToolUse': [{
+      'matcher': 'Bash',
+      'hooks': [{'command': 'bash ${_STALE_WRAPPER} vibeguard-pre-bash-guard.sh'}]
+    }]
+  }
+}
+with open('${_STALE_HOOKS}', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+assert_cmd "check-vibeguard rejects stale entry missing type field" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+# After upsert the entry must be repaired and check must pass.
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}" >/dev/null
+assert_cmd "upsert repairs stale entry; check-vibeguard then passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}"
+# Write a Stop entry with correct command but a spurious timeout (Stop spec has none).
+python3 -c "
+import json
+data = {
+  'hooks': {
+    'Stop': [{
+      'hooks': [{'type': 'command', 'command': 'bash ${_STALE_WRAPPER} vibeguard-stop-guard.sh', 'timeout': 99}]
+    }]
+  }
+}
+with open('${_STALE_HOOKS}', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+assert_cmd "check-vibeguard rejects Stop entry with spurious timeout" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+# Write a Stop entry with correct command+type but a spurious matcher (Stop spec has none).
+python3 -c "
+import json
+data = {
+  'hooks': {
+    'Stop': [{
+      'matcher': 'Bash',
+      'hooks': [{'type': 'command', 'command': 'bash ${_STALE_WRAPPER} vibeguard-stop-guard.sh'}]
+    }]
+  }
+}
+with open('${_STALE_HOOKS}', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+assert_cmd "check-vibeguard rejects Stop entry with spurious matcher" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+# After upsert the entry must be repaired and check must pass.
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}" >/dev/null
+assert_cmd "upsert repairs Stop entry with spurious matcher; check-vibeguard then passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}"
+
 header "setup --clean"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
