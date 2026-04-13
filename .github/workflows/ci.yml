@@ -189,6 +189,7 @@ jobs:
           path: .
 
       - name: Store benchmark results
+        if: hashFiles('bench-output.json') != ''
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Hook Latency (P95)
@@ -200,3 +201,5 @@ jobs:
           comment-on-alert: true
           fail-on-alert: false
           comment-always: ${{ github.event_name == 'pull_request' }}
+          # First run creates gh-pages branch; skip fetch to avoid "ref not found" error
+          skip-fetch-gh-pages: true

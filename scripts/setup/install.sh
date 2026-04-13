@@ -117,12 +117,19 @@ trap 'rm -rf "$_INSTALL_TMP"' EXIT
 cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
 cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
 printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
-# Swap: move old installed aside, rename new into place, remove old
+# Swap: move old installed aside, rename new into place, restore on failure
 if [[ -d "${INSTALLED_DIR}" ]]; then
   mv "${INSTALLED_DIR}" "${INSTALLED_DIR}.old.$$"
 fi
-mv "${_INSTALL_TMP}" "${INSTALLED_DIR}"
-rm -rf "${INSTALLED_DIR}.old.$$" 2>/dev/null || true
+if mv "${_INSTALL_TMP}" "${INSTALLED_DIR}"; then
+  rm -rf "${INSTALLED_DIR}.old.$$" 2>/dev/null || true
+else
+  # Restore old snapshot if swap failed
+  if [[ -d "${INSTALLED_DIR}.old.$$" ]]; then
+    mv "${INSTALLED_DIR}.old.$$" "${INSTALLED_DIR}" 2>/dev/null || true
+  fi
+  red "  Failed to install snapshot (old version restored)"
+fi
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
 

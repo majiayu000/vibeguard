@@ -229,7 +229,8 @@ pub fn run(args: &[String]) -> Result {
     // Signal 8: build failure cluster
     let bf = events.iter().filter(|e| {
         let r = e.get("reason").and_then(Value::as_str).unwrap_or("");
-        r.contains("构建错误") || r.to_lowercase().contains("build fail")
+        let rl = r.to_lowercase();
+        r.contains("构建错误") || rl.contains("build fail") || rl.contains("build error")
     }).count();
     if bf >= 3 {
         signals.push(format!("{bf} build failures in session (spiral risk)"));
