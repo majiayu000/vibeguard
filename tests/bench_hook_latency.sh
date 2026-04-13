@@ -180,15 +180,14 @@ fi
 # --- benchmark-action compatible output (customSmallerIsBetter) ---
 # Always write to bench-output.json for CI consumption
 BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
+_first=true
 {
   echo "["
-  local first=true
   for r in "${RESULTS[@]}"; do
-    local name p95
-    name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
-    p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
-    if [[ "$first" == "true" ]]; then first=false; else echo ","; fi
-    printf '  {"name": "%s (P95)", "unit": "ms", "value": %s}' "$name" "$p95"
+    _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
+    _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
+    if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
+    printf '  {"name": "%s (P95)", "unit": "ms", "value": %s}' "$_name" "$_p95"
   done
   echo ""
   echo "]"
