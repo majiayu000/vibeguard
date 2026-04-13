@@ -7,7 +7,8 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 defaults:
   run:
@@ -156,6 +157,20 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: bash tests/bench_hook_latency.sh --sla=500 --runs=3
+
+      - name: Store benchmark results
+        if: runner.os == 'Linux'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Hook Latency (P95)
+          tool: customSmallerIsBetter
+          output-file-path: bench-output.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          comment-always: ${{ github.event_name == 'pull_request' }}
 
       - name: VibeGuard Benchmark (fast)
         if: runner.os != 'Windows'

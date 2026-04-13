@@ -167,7 +167,7 @@ else
   printf "\033[32mPASSED: All hooks within %dms SLA\033[0m\n" "$SLA_MS"
 fi
 
-# --- JSON output ---
+# --- JSON output (internal format) ---
 if [[ -n "$RESULTS_FILE" ]]; then
   mkdir -p "$(dirname "$RESULTS_FILE")"
   printf '{"date":"%s","sla_ms":%d,"runs":%d,"results":[%s]}\n' \
@@ -176,6 +176,24 @@ if [[ -n "$RESULTS_FILE" ]]; then
     > "$RESULTS_FILE"
   echo "Results: $RESULTS_FILE"
 fi
+
+# --- benchmark-action compatible output (customSmallerIsBetter) ---
+# Always write to bench-output.json for CI consumption
+BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
+{
+  echo "["
+  local first=true
+  for r in "${RESULTS[@]}"; do
+    local name p95
+    name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
+    p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
+    if [[ "$first" == "true" ]]; then first=false; else echo ","; fi
+    printf '  {"name": "%s (P95)", "unit": "ms", "value": %s}' "$name" "$p95"
+  done
+  echo ""
+  echo "]"
+} > "$BENCH_ACTION_FILE"
+echo "Benchmark Action output: $BENCH_ACTION_FILE"
 
 echo "======================================"
 
