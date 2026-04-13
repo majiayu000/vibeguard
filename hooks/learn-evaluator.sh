@@ -28,8 +28,10 @@ fi
 
 # Collect session metrics for the last 30 minutes of the current project + correct signal detection
 if [[ -n "$_VG_HELPER" ]]; then
-  LEARN_SUGGESTION=$(tail -1000 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VG_HELPER" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null || true)
+  # Pass the full log file — the 30-minute cutoff is enforced inside vg-helper,
+  # so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
+  LEARN_SUGGESTION=$("$_VG_HELPER" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
+    < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
 else
   _SESSION_METRICS_SCRIPT="$(dirname "$0")/_lib/session_metrics.py"
   LEARN_SUGGESTION=$(VIBEGUARD_LOG_FILE="$VIBEGUARD_LOG_FILE" \

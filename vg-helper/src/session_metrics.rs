@@ -100,6 +100,7 @@ pub fn run(args: &[String]) -> Result {
     let mut hooks: HashMap<String, u64> = HashMap::new();
     let mut tools: HashMap<String, u64> = HashMap::new();
     let mut edited_files: HashMap<String, u64> = HashMap::new();
+    let mut durations_ms: Vec<u64> = Vec::new();
 
     for e in &events {
         let d = e.get("decision").and_then(Value::as_str).unwrap_or("unknown");
@@ -116,7 +117,18 @@ pub fn run(args: &[String]) -> Result {
                 }
             }
         }
+
+        if let Some(d_ms) = e.get("duration_ms").and_then(Value::as_u64) {
+            durations_ms.push(d_ms);
+        }
     }
+
+    let avg_duration_ms: u64 = if durations_ms.is_empty() {
+        0
+    } else {
+        durations_ms.iter().sum::<u64>() / durations_ms.len() as u64
+    };
+    let slow_ops = durations_ms.iter().filter(|&&d| d > 5000).count();
 
     let total = events.len() as f64;
     let negative = *decisions.get("warn").unwrap_or(&0)
@@ -248,6 +260,15 @@ pub fn run(args: &[String]) -> Result {
         }
     }
 
+    // top_edited_files: top 5 by edit count (mirrors Python edited_files.most_common(5))
+    let mut top_files: Vec<_> = edited_files.iter().collect();
+    top_files.sort_by(|a, b| b.1.cmp(a.1));
+    let top_edited_files: serde_json::Map<String, Value> = top_files
+        .iter()
+        .take(5)
+        .map(|(k, v)| ((*k).clone(), json!(**v)))
+        .collect();
+
     // Write metrics
     let metrics = json!({
         "ts": chrono_now(),
@@ -256,6 +277,9 @@ pub fn run(args: &[String]) -> Result {
         "decisions": decisions,
         "hooks": hooks,
         "tools": tools,
+        "top_edited_files": top_edited_files,
+        "avg_duration_ms": avg_duration_ms,
+        "slow_ops": slow_ops,
         "correction_signals": signals,
         "warn_ratio": (warn_ratio * 100.0).round() / 100.0,
     });
