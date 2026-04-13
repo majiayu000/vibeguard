@@ -48,6 +48,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install bash 4+ (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install bash
+          echo "Bash: $(bash --version | head -1)"
+
       - name: Install ast-grep
         if: runner.os != 'Windows'
         shell: bash
@@ -57,7 +64,7 @@ jobs:
             exit 0
           fi
           if [[ "$(uname -s)" == "Darwin" ]]; then
-            brew install bash ast-grep
+            brew install ast-grep
           else
             # Linux: compile from source (Rust is pre-installed on GitHub Actions)
             cargo install ast-grep --locked

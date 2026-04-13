@@ -69,6 +69,8 @@ _vg_cb_lock_file() {
 # Uses flock(1) when available (Linux). On macOS (no flock), falls back to
 # a mkdir-based spinlock on the lock file path associated with fd $1.
 # Always returns 0 so callers under set -euo pipefail are not aborted.
+_VG_CB_LOCK_OWNED=false
+
 _vg_cb_try_flock() {
   if command -v flock >/dev/null 2>&1; then
     flock -x -w 5 "$1" 2>/dev/null || true
@@ -78,7 +80,10 @@ _vg_cb_try_flock() {
     local lockdir="${lock_file}.d"
     local _i=0
     while [[ $_i -lt 50 ]]; do
-      mkdir "$lockdir" 2>/dev/null && return 0
+      if mkdir "$lockdir" 2>/dev/null; then
+        _VG_CB_LOCK_OWNED=true
+        return 0
+      fi
       sleep 0.1
       _i=$((_i + 1))
     done
@@ -86,10 +91,11 @@ _vg_cb_try_flock() {
   fi
 }
 
-# Release the mkdir-based lock (no-op when flock was used).
+# Release the mkdir-based lock only if this process owns it.
 _vg_cb_release_flock() {
-  if ! command -v flock >/dev/null 2>&1; then
+  if [[ "$_VG_CB_LOCK_OWNED" == "true" ]]; then
     rmdir "${lock_file}.d" 2>/dev/null || true
+    _VG_CB_LOCK_OWNED=false
   fi
 }
 

@@ -107,8 +107,14 @@ if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
         vg_log "pre-bash-guard" "Bash" "block" "pre-commit check failed" "$COMMAND"
         # Embed detailed output into reason so Claude Code can see it
         # (stderr is not visible to the agent, only the JSON reason field is)
-        ESCAPED_OUTPUT=$(printf '%s' "$PRECOMMIT_OUTPUT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read())[1:-1])')
-        vg_json_output_kv decision block reason "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。\n\n${ESCAPED_OUTPUT}"
+        # Use Python for JSON output to avoid double-escaping (PRECOMMIT_OUTPUT
+        # may contain newlines/quotes that need exactly one round of escaping).
+        VG_PRECOMMIT_OUTPUT="$PRECOMMIT_OUTPUT" python3 -c '
+import json, os
+output = os.environ.get("VG_PRECOMMIT_OUTPUT", "")
+reason = "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。\n\n" + output
+print(json.dumps({"decision": "block", "reason": reason}))
+'
         exit 0
       fi
     fi
