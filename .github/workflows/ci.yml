@@ -7,8 +7,7 @@ on:
       - main
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 defaults:
   run:
@@ -158,8 +157,38 @@ jobs:
         shell: bash
         run: bash tests/bench_hook_latency.sh --sla=500 --runs=3
 
-      - name: Store benchmark results
+      - name: Upload benchmark results
         if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output
+          path: bench-output.json
+          if-no-files-found: ignore
+
+      - name: VibeGuard Benchmark (fast)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/benchmark.sh --mode=fast
+
+  benchmark-report:
+    name: Benchmark Report
+    runs-on: ubuntu-latest
+    needs: validate-and-test
+    # Isolated job so write tokens are not exposed to the shell-heavy CI steps above.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-output
+          path: .
+
+      - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Hook Latency (P95)
@@ -171,8 +200,3 @@ jobs:
           comment-on-alert: true
           fail-on-alert: false
           comment-always: ${{ github.event_name == 'pull_request' }}
-
-      - name: VibeGuard Benchmark (fast)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: bash scripts/benchmark.sh --mode=fast
