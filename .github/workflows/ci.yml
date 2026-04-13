@@ -147,6 +147,16 @@ jobs:
         shell: bash
         run: bash tests/run_precision.sh --all --csv
 
+      - name: Hook performance static analysis
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-hook-perf.sh
+
+      - name: Hook latency benchmark
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/bench_hook_latency.sh --sla=500 --runs=3
+
       - name: VibeGuard Benchmark (fast)
         if: runner.os != 'Windows'
         shell: bash

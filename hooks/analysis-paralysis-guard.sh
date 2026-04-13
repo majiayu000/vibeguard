@@ -25,47 +25,42 @@ THRESHOLD="${VG_PARALYSIS_THRESHOLD:-7}"
 # Count consecutive research-only tool calls (Read/Glob/Grep) at the tail of the session log.
 # Exclude this hook's own log entries (hook == "analysis-paralysis-guard") to avoid self-inflation.
 # Note: Glob/Grep hooks also log via this same hook (matcher: Read|Glob|Grep in settings.json).
-CONSECUTIVE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_THRESHOLD="$THRESHOLD" python3 -c '
-import json, os
+# Read only last 300 lines to avoid O(n) full-file scan on long sessions
+CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_SESSION="$VIBEGUARD_SESSION_ID" VG_THRESHOLD="$THRESHOLD" python3 -c '
+import json, sys, os
 
-log_file = os.environ.get("VG_LOG_FILE", "")
 session = os.environ.get("VG_SESSION", "")
 threshold = int(os.environ.get("VG_THRESHOLD", "7"))
 
 research_tools = {"Read", "Glob", "Grep"}
 action_tools = {"Write", "Edit", "Bash"}
 
-consecutive = 0
-try:
-    with open(log_file) as f:
-        events = []
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-                if e.get("session") == session:
-                    events.append(e)
-            except (json.JSONDecodeError, KeyError):
-                continue
+events = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("session") == session:
+            events.append(e)
+    except (json.JSONDecodeError, KeyError): continue
 
-    # Walk backwards from the end.
-    # Skip our own "warn" entries (they inflate the count), but count our "pass"
-    # entries since those represent actual Read/Glob/Grep tool uses.
-    for e in reversed(events):
-        hook = e.get("hook", "")
-        decision = e.get("decision", "")
-        if hook == "analysis-paralysis-guard" and decision != "pass":
-            continue  # skip warn/escalate entries to avoid count inflation
-        tool = e.get("tool", "")
-        if tool in research_tools:
-            consecutive += 1
-        elif tool in action_tools:
-            break
-        # Skip other hook bookkeeping entries
-except FileNotFoundError:
-    pass
+consecutive = 0
+# Walk backwards from the end.
+# Skip our own "warn" entries (they inflate the count), but count our "pass"
+# entries since those represent actual Read/Glob/Grep tool uses.
+for e in reversed(events):
+    hook = e.get("hook", "")
+    decision = e.get("decision", "")
+    if hook == "analysis-paralysis-guard" and decision != "pass":
+        continue  # skip warn/escalate entries to avoid count inflation
+    tool = e.get("tool", "")
+    if tool in research_tools:
+        consecutive += 1
+    elif tool in action_tools:
+        break
+    # Skip other hook bookkeeping entries
 
 print(consecutive)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
