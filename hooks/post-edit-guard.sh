@@ -225,26 +225,21 @@ fi
 
 # --- Churn Detection (the same file is edited repeatedly → may be corrected in a loop) ---
 #Grading upgrade: 5=reminder, 10=warning, 20+=forced stop
-CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, os
-log_file = os.environ.get("VG_LOG_FILE", "")
+# Read only last 500 lines to avoid O(n) full-file scan on long sessions
+CHURN_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-try:
-    with open(log_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-                if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
-                    count += 1
-            except (json.JSONDecodeError, KeyError):
-                continue
-except FileNotFoundError:
-    pass
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
+            count += 1
+    except (json.JSONDecodeError, KeyError): continue
 print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
 CHURN_COUNT="${CHURN_COUNT:-0}"
@@ -280,27 +275,21 @@ fi
 # --- Escalation detection ---
 # The same file is warned more than 3 times in the current log → upgrade to escalate
 DECISION="warn"
-WARN_COUNT_FOR_FILE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, os
-log_file = os.environ.get("VG_LOG_FILE", "")
+# Read only last 500 lines to avoid O(n) full-file scan
+WARN_COUNT_FOR_FILE=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-try:
-    with open(log_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-                #Limit the current session + exact path matching (to avoid misjudgment of sub-paths)
-                if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
-                    count += 1
-            except (json.JSONDecodeError, KeyError):
-                continue
-except FileNotFoundError:
-    pass
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
+            count += 1
+    except (json.JSONDecodeError, KeyError): continue
 print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
 WARN_COUNT_FOR_FILE="${WARN_COUNT_FOR_FILE:-0}"

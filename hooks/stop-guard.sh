@@ -32,7 +32,7 @@ while IFS= read -r file; do
   if [[ -n "$file" ]] && vg_is_source_file "$file"; then
     changed_source_files="${changed_source_files}${file}"$'\n'
   fi
-done < <(git diff --name-only HEAD 2>/dev/null; git diff --name-only --cached 2>/dev/null)
+done < <(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null)
 
 # Remove duplicates
 if [[ -n "$changed_source_files" ]]; then

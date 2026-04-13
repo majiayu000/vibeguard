@@ -171,7 +171,7 @@ if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     fi
 
     # Clean up PID session files older than 2 hours to prevent unbounded disk growth.
-    find "${VIBEGUARD_PROJECT_LOG_DIR}" -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
+    find "${VIBEGUARD_PROJECT_LOG_DIR}" -maxdepth 1 -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
   else
     # Fallback for non-Claude Code environments (CI, manual invocation, etc.):
     # time-based 30-minute session window (original behavior).

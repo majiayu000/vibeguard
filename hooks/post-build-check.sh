@@ -94,33 +94,29 @@ ${ERRORS}"
 DECISION="warn"
 # Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
 # not accumulated across projects within the same session.
-CONSECUTIVE_FAILS=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
-import json, os
-log_file = os.environ.get("VG_LOG_FILE", "")
+# Read only last 200 lines and reverse in Python to avoid loading entire file
+CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
+import json, sys, os
 session = os.environ.get("VG_SESSION", "")
 project = os.environ.get("VG_PROJECT", "")
 count = 0
-try:
-    with open(log_file) as f:
-        lines = f.readlines()
-    # Read in reverse order from the end, stop counting when encountering pass
-    for line in reversed(lines):
-        line = line.strip()
-        if not line: continue
-        try:
-            e = json.loads(line)
-            if e.get("hook") != "post-build-check": continue
-            if e.get("session") != session: continue
-            # Project isolation: only count failures for the same project root
-            detail = e.get("detail", "")
-            if project and detail and not detail.startswith(project.rstrip('/') + '/'):
-                continue
-            if e.get("decision") == "pass":
-                break
-            if e.get("decision") == "warn":
-                count += 1
-        except: continue
-except: pass
+lines = sys.stdin.read().splitlines()
+for line in reversed(lines):
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("hook") != "post-build-check": continue
+        if e.get("session") != session: continue
+        detail = e.get("detail", "")
+        if project and detail and not detail.startswith(project.rstrip("/") + "/"):
+            continue
+        if e.get("decision") == "pass":
+            break
+        if e.get("decision") == "warn":
+            count += 1
+    except: continue
 print(count)
 ' 2>/dev/null | tr -d '[:space:]' || echo "0")
 CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
