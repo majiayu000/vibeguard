@@ -57,7 +57,7 @@ jobs:
             exit 0
           fi
           if [[ "$(uname -s)" == "Darwin" ]]; then
-            brew install ast-grep
+            brew install bash ast-grep
           else
             # Linux: compile from source (Rust is pre-installed on GitHub Actions)
             cargo install ast-grep --locked
