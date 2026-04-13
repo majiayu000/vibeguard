@@ -80,6 +80,13 @@ pub fn run(args: &[String]) -> Result {
         if skip.contains(&hook) {
             continue;
         }
+        // Filter to current session only — parallel agents in the same repo share the
+        // same project log; without this filter their events contaminate warn_ratio and
+        // Signal 10 baseline, producing false LEARN_SUGGESTED stops.
+        let evt_session = e.get("session").and_then(Value::as_str).unwrap_or("");
+        if !evt_session.is_empty() && evt_session != session.as_str() {
+            continue;
+        }
         // Drop events older than 30 minutes to prevent cross-session contamination
         if let Some(ts) = e.get("ts").and_then(Value::as_str) {
             if let Some(evt_secs) = parse_iso_ts(ts) {

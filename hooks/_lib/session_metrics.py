@@ -33,6 +33,7 @@ log_file = os.environ["VIBEGUARD_LOG_FILE"]
 if not os.path.exists(log_file):
     sys.exit(0)
 
+session_id = os.environ.get("VIBEGUARD_SESSION_ID", "")
 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 skip_hooks = {"stop-guard", "learn-evaluator"}
 events = []
@@ -44,6 +45,12 @@ with open(log_file) as f:
         try:
             event = json.loads(line)
             if event.get("hook", "") in skip_hooks:
+                continue
+            # Filter to current session only — parallel agents in the same repo share the
+            # same project log; without this filter their events contaminate warn_ratio and
+            # Signal 10 baseline, producing false LEARN_SUGGESTED stops.
+            evt_session = event.get("session", "")
+            if evt_session and session_id and evt_session != session_id:
                 continue
             ts = event.get("ts", "")
             if ts:

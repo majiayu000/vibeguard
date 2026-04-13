@@ -40,12 +40,13 @@ WARNINGS=""
 # ---------------------------------------------------------------------------
 vg_filter_suppressed() {
   local rule="$1"
-  awk -v rule="$rule" '
-    BEGIN { suppress = 0; in_template = 0; in_triple_dq = 0 }
+  # trisq passed via -v so that ''' never appears inside the single-quoted awk body.
+  awk -v rule="$rule" -v trisq="'''" '
+    BEGIN { suppress = 0; in_template = 0; in_triple_dq = 0; in_triple_sq = 0 }
     {
       # Record multiline-string state at the START of this line so a
       # disable comment that is itself inside a string is not honoured.
-      start_in_ml = (in_template || in_triple_dq)
+      start_in_ml = (in_template || in_triple_dq || in_triple_sq)
 
       # Track JS/TS template-literal depth via backtick parity.
       tmp = $0; n = gsub(/`/, "", tmp)
@@ -54,6 +55,10 @@ vg_filter_suppressed() {
       # Track triple-double-quote multi-line strings (Python, Rust raw).
       tmp = $0; n = gsub(/"""/, "", tmp)
       if (n % 2 == 1) in_triple_dq = 1 - in_triple_dq
+
+      # Track triple-single-quote multi-line strings (Python).
+      tmp = $0; n = gsub(trisq, "", tmp)
+      if (n % 2 == 1) in_triple_sq = 1 - in_triple_sq
 
       if (suppress) { suppress = 0; next }
       if (!start_in_ml &&
