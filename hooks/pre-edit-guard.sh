@@ -72,12 +72,12 @@ if old_string and old_string not in content:
 # U-16: Estimate file size after edit and block if over limit
 SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
 _, ext = os.path.splitext(file_path)
-is_test = any(p in file_path for p in ["/tests/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
+is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
 
 if ext.lower() in SOURCE_EXTS and not is_test and old_string and new_string:
-    current_lines = content.count("\n")
-    old_lines = old_string.count("\n")
-    new_lines = new_string.count("\n")
+    current_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+    old_lines = old_string.count("\n") + (1 if old_string and not old_string.endswith("\n") else 0)
+    new_lines = new_string.count("\n") + (1 if new_string and not new_string.endswith("\n") else 0)
     if replace_all:
         occurrences = content.count(old_string)
         estimated = current_lines - (old_lines * occurrences) + (new_lines * occurrences)

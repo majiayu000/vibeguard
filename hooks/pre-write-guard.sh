@@ -58,7 +58,7 @@ lines = content.count("\n") + (1 if content and not content.endswith("\n") else 
 
 SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
 _, ext = os.path.splitext(file_path)
-is_test = any(p in file_path for p in ["/tests/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
+is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
 if ext.lower() not in SOURCE_EXTS or is_test or lines <= 800:
     print("OK")
     sys.exit(0)
