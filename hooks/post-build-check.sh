@@ -96,29 +96,27 @@ DECISION="warn"
 # not accumulated across projects within the same session.
 # Read only last 200 lines and reverse in Python to avoid loading entire file
 CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT"
+    else
+      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
 import json, sys, os
-session = os.environ.get("VG_SESSION", "")
-project = os.environ.get("VG_PROJECT", "")
-count = 0
-lines = sys.stdin.read().splitlines()
-for line in reversed(lines):
+session, project = os.environ["VG_SESSION"], os.environ["VG_PROJECT"]
+count, prefix = 0, project.rstrip("/") + "/"
+for line in reversed(sys.stdin.read().splitlines()):
     line = line.strip()
     if not line: continue
     try:
         e = json.loads(line)
-        if e.get("hook") != "post-build-check": continue
-        if e.get("session") != session: continue
-        detail = e.get("detail", "")
-        if project and detail and not detail.startswith(project.rstrip("/") + "/"):
-            continue
-        if e.get("decision") == "pass":
-            break
-        if e.get("decision") == "warn":
-            count += 1
+        if e.get("hook") != "post-build-check" or e.get("session") != session: continue
+        d = e.get("detail", "")
+        if project and d and not d.startswith(prefix): continue
+        if e.get("decision") == "pass": break
+        if e.get("decision") == "warn": count += 1
     except: continue
 print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
 
 if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then

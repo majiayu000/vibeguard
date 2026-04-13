@@ -139,8 +139,12 @@ fi
 # --- Package manager transparent correction (updatedInput) ---
 # Mechanically predictable commands can be rewritten directly without block+retry.
 # Only for simple single commands (chain commands including && and other chain commands are not corrected to avoid mistakenly modifying complex pipelines).
-_PKG_REWRITE_SCRIPT="$(dirname "$0")/_lib/pkg_rewrite.py"
-_PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 "$_PKG_REWRITE_SCRIPT" 2>/dev/null || echo "")
+if [[ -n "$_VG_HELPER" ]]; then
+  _PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VG_HELPER" pkg-rewrite 2>/dev/null || echo "")
+else
+  _PKG_REWRITE_SCRIPT="$(dirname "$0")/_lib/pkg_rewrite.py"
+  _PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 "$_PKG_REWRITE_SCRIPT" 2>/dev/null || echo "")
+fi
 
 if [[ -n "$_PKG_CORRECTION" ]]; then
   # Verify target tool is actually installed before rewriting — avoids turning

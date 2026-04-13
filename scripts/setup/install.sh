@@ -126,6 +126,23 @@ rm -rf "${INSTALLED_DIR}.old.$$" 2>/dev/null || true
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
 
+# Build vg-helper Rust binary (optional — falls back to Python if cargo unavailable)
+if [[ -f "${REPO_DIR}/vg-helper/Cargo.toml" ]]; then
+  if command -v cargo &>/dev/null; then
+    echo "  Building vg-helper (Rust)..."
+    if cargo build --release --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet 2>/dev/null; then
+      mkdir -p "${INSTALLED_DIR}/bin"
+      cp "${REPO_DIR}/vg-helper/target/release/vg-helper" "${INSTALLED_DIR}/bin/vg-helper"
+      chmod +x "${INSTALLED_DIR}/bin/vg-helper"
+      green "  vg-helper binary installed (~4ms vs ~55ms Python)"
+    else
+      yellow "  vg-helper build failed (falling back to Python — hooks still work)"
+    fi
+  else
+    yellow "  SKIP vg-helper (cargo not found — using Python fallback)"
+  fi
+fi
+
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"

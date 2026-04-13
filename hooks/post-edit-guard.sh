@@ -227,7 +227,10 @@ fi
 #Grading upgrade: 5=reminder, 10=warning, 20+=forced stop
 # Read only last 500 lines to avoid O(n) full-file scan on long sessions
 CHURN_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    else
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
@@ -241,7 +244,8 @@ for line in sys.stdin:
             count += 1
     except (json.JSONDecodeError, KeyError): continue
 print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 CHURN_COUNT="${CHURN_COUNT:-0}"
 
 if [[ "$CHURN_COUNT" -ge 20 ]]; then
@@ -277,7 +281,10 @@ fi
 DECISION="warn"
 # Read only last 500 lines to avoid O(n) full-file scan
 WARN_COUNT_FOR_FILE=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    else
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
@@ -291,7 +298,8 @@ for line in sys.stdin:
             count += 1
     except (json.JSONDecodeError, KeyError): continue
 print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 WARN_COUNT_FOR_FILE="${WARN_COUNT_FOR_FILE:-0}"
 
 if [[ "$WARN_COUNT_FOR_FILE" -ge 3 ]]; then

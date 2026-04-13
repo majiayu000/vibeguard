@@ -50,52 +50,60 @@ vg_is_source_file() {
   return 1
 }
 
+# Resolve vg-helper binary path (Rust, ~4ms) with Python fallback (~55ms)
+_VG_HELPER=""
+for _candidate in \
+  "${HOME}/.vibeguard/installed/bin/vg-helper" \
+  "$(dirname "$0")/../vg-helper/target/release/vg-helper" \
+  "$(dirname "$0")/vg-helper"; do
+  if [[ -f "$_candidate" ]] && [[ -x "$_candidate" ]]; then
+    _VG_HELPER="$_candidate"
+    break
+  fi
+done
+
 #Extract specified fields from stdin JSON
 # Usage: value=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 vg_json_field() {
   local field_path="$1"
-  python3 -c "
+  if [[ -n "$_VG_HELPER" ]]; then
+    "$_VG_HELPER" json-field "$field_path" 2>/dev/null || echo ""
+  else
+    python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 keys = sys.argv[1].split('.')
 val = data
 for k in keys:
-    if isinstance(val, dict):
-        val = val.get(k, '')
-    else:
-        val = ''
-        break
+    if isinstance(val, dict): val = val.get(k, '')
+    else: val = ''; break
 print(val if isinstance(val, str) else '')
 " "$field_path" 2>/dev/null || echo ""
+  fi
 }
 
-# Extract two fields from stdin JSON, separated by NUL (safe alternative to ---SEPARATOR---)
+# Extract two fields from stdin JSON
 # Usage: read_result=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.content")
 #        FILE_PATH=$(echo "$read_result" | head -1)
 #        CONTENT=$(echo "$read_result" | tail -n +2)
 vg_json_two_fields() {
   local field1="$1"
   local field2="$2"
-  python3 -c "
+  if [[ -n "$_VG_HELPER" ]]; then
+    "$_VG_HELPER" json-two-fields "$field1" "$field2" 2>/dev/null || echo ""
+  else
+    python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-
 def get_nested(d, path):
-    keys = path.split('.')
     val = d
-    for k in keys:
-        if isinstance(val, dict):
-            val = val.get(k, '')
-        else:
-            return ''
+    for k in path.split('.'):
+        val = val.get(k, '') if isinstance(val, dict) else ''
     return val if isinstance(val, str) else ''
-
-f1 = get_nested(data, sys.argv[1])
-f2 = get_nested(data, sys.argv[2])
-# The first line is field1, the rest are field2 (field2 may have multiple lines)
-print(f1)
-print(f2)
+print(get_nested(data, sys.argv[1]))
+print(get_nested(data, sys.argv[2]))
 " "$field1" "$field2" 2>/dev/null || echo ""
+  fi
 }
 
 # Session ID: Events within the same Claude Code session share the same session_id

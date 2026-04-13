@@ -27,11 +27,16 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
 fi
 
 # Collect session metrics for the last 30 minutes of the current project + correct signal detection
-_SESSION_METRICS_SCRIPT="$(dirname "$0")/_lib/session_metrics.py"
-LEARN_SUGGESTION=$(VIBEGUARD_LOG_FILE="$VIBEGUARD_LOG_FILE" \
-  VIBEGUARD_SESSION_ID="$VIBEGUARD_SESSION_ID" \
-  VIBEGUARD_PROJECT_LOG_DIR="$VIBEGUARD_PROJECT_LOG_DIR" \
-  python3 "$_SESSION_METRICS_SCRIPT" 2>/dev/null || true)
+if [[ -n "$_VG_HELPER" ]]; then
+  LEARN_SUGGESTION=$(tail -1000 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | "$_VG_HELPER" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null || true)
+else
+  _SESSION_METRICS_SCRIPT="$(dirname "$0")/_lib/session_metrics.py"
+  LEARN_SUGGESTION=$(VIBEGUARD_LOG_FILE="$VIBEGUARD_LOG_FILE" \
+    VIBEGUARD_SESSION_ID="$VIBEGUARD_SESSION_ID" \
+    VIBEGUARD_PROJECT_LOG_DIR="$VIBEGUARD_PROJECT_LOG_DIR" \
+    python3 "$_SESSION_METRICS_SCRIPT" 2>/dev/null || true)
+fi
 
 # If a correction signal is detected, output suggestions (not blocking)
 if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then

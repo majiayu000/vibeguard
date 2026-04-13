@@ -27,43 +27,32 @@ THRESHOLD="${VG_PARALYSIS_THRESHOLD:-7}"
 # Note: Glob/Grep hooks also log via this same hook (matcher: Read|Glob|Grep in settings.json).
 # Read only last 300 lines to avoid O(n) full-file scan on long sessions
 CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_SESSION="$VIBEGUARD_SESSION_ID" VG_THRESHOLD="$THRESHOLD" python3 -c '
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" paralysis-count "$VIBEGUARD_SESSION_ID"
+    else
+      VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
 import json, sys, os
-
 session = os.environ.get("VG_SESSION", "")
-threshold = int(os.environ.get("VG_THRESHOLD", "7"))
-
 research_tools = {"Read", "Glob", "Grep"}
 action_tools = {"Write", "Edit", "Bash"}
-
 events = []
 for line in sys.stdin:
     line = line.strip()
     if not line: continue
     try:
         e = json.loads(line)
-        if e.get("session") == session:
-            events.append(e)
-    except (json.JSONDecodeError, KeyError): continue
-
+        if e.get("session") == session: events.append(e)
+    except: continue
 consecutive = 0
-# Walk backwards from the end.
-# Skip our own "warn" entries (they inflate the count), but count our "pass"
-# entries since those represent actual Read/Glob/Grep tool uses.
 for e in reversed(events):
-    hook = e.get("hook", "")
-    decision = e.get("decision", "")
-    if hook == "analysis-paralysis-guard" and decision != "pass":
-        continue  # skip warn/escalate entries to avoid count inflation
+    hook, decision = e.get("hook", ""), e.get("decision", "")
+    if hook == "analysis-paralysis-guard" and decision != "pass": continue
     tool = e.get("tool", "")
-    if tool in research_tools:
-        consecutive += 1
-    elif tool in action_tools:
-        break
-    # Skip other hook bookkeeping entries
-
+    if tool in research_tools: consecutive += 1
+    elif tool in action_tools: break
 print(consecutive)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 
 CONSECUTIVE="${CONSECUTIVE:-0}"
 
