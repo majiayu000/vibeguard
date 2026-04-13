@@ -113,6 +113,20 @@ def _remove_legacy_hook_entries(data: dict[str, Any]) -> bool:
     return changed
 
 
+def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict[str, bool]) -> None:
+    """Remove a hook entry matching script_name from the given event."""
+    entries = hooks.get(event)
+    if not isinstance(entries, list):
+        return
+    filtered = [e for e in entries if not _entry_contains(e, script_name)]
+    if len(filtered) != len(entries):
+        if filtered:
+            hooks[event] = filtered
+        else:
+            hooks.pop(event, None)
+        state["changed"] = True
+
+
 def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, script_name: str, state: dict[str, bool]) -> None:
     entries = hooks.setdefault(event, [])
     if not isinstance(entries, list):
@@ -207,6 +221,14 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-build-check.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "stop-guard.sh", state)
         upsert_hook(hooks, args.repo_dir, "Stop", "", "learn-evaluator.sh", state)
+
+    # Remove hooks that don't belong to the current profile (handles profile downgrade)
+    if args.profile not in ("core", "full", "strict"):
+        remove_hook(hooks, "PostToolUse", "analysis-paralysis-guard.sh", state)
+    if args.profile not in ("full", "strict"):
+        remove_hook(hooks, "PostToolUse", "post-build-check.sh", state)
+        remove_hook(hooks, "Stop", "stop-guard.sh", state)
+        remove_hook(hooks, "Stop", "learn-evaluator.sh", state)
 
     if state["changed"]:
         save_settings(settings_path, data)

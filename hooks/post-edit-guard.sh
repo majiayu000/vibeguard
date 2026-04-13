@@ -15,6 +15,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/_lib/stub_detect.sh"
 vg_start_timer
 
 INPUT=$(cat)
@@ -35,32 +36,20 @@ WARNINGS=""
 # Reads NEW_STRING from stdin; outputs lines NOT suppressed by the rule.
 # Suppression: a line is suppressed when the immediately preceding line
 # contains "vibeguard-disable-next-line RULE_ID" (any comment prefix).
+# Pure awk implementation — no Python subprocess overhead.
 # ---------------------------------------------------------------------------
 vg_filter_suppressed() {
   local rule="$1"
-  python3 -c "
-import sys, re
-rule = sys.argv[1]
-suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
-
-def _in_multiline_string(lines, idx):
-    # Count multi-line string delimiters before this line; odd count means inside one.
-    text_before = '\n'.join(lines[:idx])
-    # Python triple-quoted strings
-    if (text_before.count('\"\"\"') % 2 == 1) or (text_before.count(\"'''\") % 2 == 1):
-        return True
-    # Go/JS/TS backtick raw/template strings (backtick cannot be escaped inside)
-    if text_before.count('\`') % 2 == 1:
-        return True
-    return False
-
-lines = sys.stdin.read().splitlines()
-for i, line in enumerate(lines):
-    prev = lines[i - 1] if i > 0 else ''
-    if suppress_pat.search(prev) and not _in_multiline_string(lines, i - 1):
-        continue
-    print(line)
-" "$rule"
+  awk -v rule="$rule" '
+    BEGIN { suppress = 0 }
+    {
+      if (suppress) { suppress = 0; next }
+      if ($0 ~ "^[[:space:]]*(//|#)[[:space:]]*vibeguard-disable-next-line[[:space:]]+" rule "([[:space:]]|--|$)") {
+        suppress = 1
+      }
+      print
+    }
+  '
 }
 
 # --- Rust inspection ---
@@ -217,41 +206,7 @@ DO NOT: Extract to a separate file or refactor loop logic beyond the current edi
 esac
 
 # --- Anti-Stub detection (GSD reference: Level 2 product verification Level 2 — Substantiveness) ---
-STUB_WARNINGS=""
-case "$FILE_PATH" in
-  *.rs)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (todo!/unimplemented!)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.ts|*.tsx|*.js|*.jsx)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (throw not implemented / TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.py)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (pass/NotImplementedError/TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.go)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (panic not implemented / TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-esac
+STUB_WARNINGS=$(vg_detect_stubs "$FILE_PATH" "$NEW_STRING" --filter-suppressed)
 if [[ -n "$STUB_WARNINGS" ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS}
 ---

@@ -65,11 +65,32 @@ _vg_cb_lock_file() {
   printf '%s.lock' "$(_vg_cb_state_file "$hook")"
 }
 
-# Acquire an exclusive flock on fd <n>, waiting up to 5 seconds.
-# Silently skips if flock(1) is unavailable (e.g., macOS without util-linux).
+# Acquire an exclusive lock on fd $1, waiting up to 5 seconds.
+# Uses flock(1) when available (Linux). On macOS (no flock), falls back to
+# a mkdir-based spinlock on the lock file path associated with fd $1.
 # Always returns 0 so callers under set -euo pipefail are not aborted.
 _vg_cb_try_flock() {
-  command -v flock >/dev/null 2>&1 && flock -x -w 5 "$1" 2>/dev/null || true
+  if command -v flock >/dev/null 2>&1; then
+    flock -x -w 5 "$1" 2>/dev/null || true
+  else
+    # macOS fallback: mkdir is atomic on all POSIX systems.
+    # Derive lockdir from the lock_file variable in the calling scope.
+    local lockdir="${lock_file}.d"
+    local _i=0
+    while [[ $_i -lt 50 ]]; do
+      mkdir "$lockdir" 2>/dev/null && return 0
+      sleep 0.1
+      _i=$((_i + 1))
+    done
+    # Timeout: proceed without lock rather than blocking the hook
+  fi
+}
+
+# Release the mkdir-based lock (no-op when flock was used).
+_vg_cb_release_flock() {
+  if ! command -v flock >/dev/null 2>&1; then
+    rmdir "${lock_file}.d" 2>/dev/null || true
+  fi
 }
 
 # Load state for <hook> into CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION
@@ -151,6 +172,7 @@ vg_cb_check() {
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
     _vg_cb_try_flock 9
+    trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     now=$(_vg_cb_now)
 
@@ -199,6 +221,7 @@ vg_cb_record_block() {
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
     _vg_cb_try_flock 9
+    trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     CB_BLOCKS=$(( CB_BLOCKS + 1 ))
     CB_LAST_BLOCK=$(_vg_cb_now)
@@ -222,6 +245,7 @@ vg_cb_record_pass() {
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
     _vg_cb_try_flock 9
+    trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     if [[ "$CB_STATE" != "CLOSED" ]] || [[ "$CB_BLOCKS" -gt 0 ]]; then
       CB_STATE="CLOSED"
