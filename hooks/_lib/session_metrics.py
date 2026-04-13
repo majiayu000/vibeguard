@@ -157,7 +157,7 @@ for tag, count in repeat_rules[:3]:
 # Signal 8: Build failure cluster (3+ build failures)
 build_failures = sum(
     1 for e in events
-    if "构建错误" in e.get("reason", "") or "build fail" in e.get("reason", "").lower()
+    if any(p in e.get("reason", "").lower() for p in ("构建错误", "build fail", "build error"))
 )
 if build_failures >= 3:
     correction_signals.append(f"{build_failures} build failures in session (spiral risk)")
