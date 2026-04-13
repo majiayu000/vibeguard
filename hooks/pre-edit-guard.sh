@@ -16,6 +16,7 @@ INPUT=$(cat)
 # (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
 CHECK_RESULT=$(python3 -c '
 import json, sys, os, re
+from pathlib import PurePath
 
 data = json.load(sys.stdin)
 
@@ -30,6 +31,9 @@ def get_nested(d, path):
 
 file_path = get_nested(data, "tool_input.file_path")
 old_string = get_nested(data, "tool_input.old_string")
+new_string = get_nested(data, "tool_input.new_string")
+tool_input = data.get("tool_input", {}) if isinstance(data.get("tool_input"), dict) else {}
+replace_all = bool(tool_input.get("replace_all", False))
 
 if not file_path:
     print("PASS")
@@ -40,9 +44,7 @@ print("CHECK")
 print(file_path)
 
 # W-12: Block edits to test infrastructure files
-# Resolve symlinks first to prevent bypass via aliases (e.g. safe.txt -> conftest.py)
 real_path = os.path.realpath(file_path)
-# Use lowercased basename for case-insensitive filesystem safety (e.g. default macOS HFS+)
 basename = os.path.basename(real_path).lower()
 PROTECTED_EXACT = {"conftest.py", "pytest.ini", ".coveragerc", "setup.cfg"}
 PROTECTED_PATTERNS = [
@@ -60,11 +62,52 @@ if not os.path.isfile(file_path):
     print("FILE_NOT_FOUND")
     sys.exit(0)
 
-if old_string:
-    with open(file_path, "r", errors="replace") as f:
-        content = f.read()
-    if old_string not in content:
-        print("OLD_STRING_NOT_FOUND")
+with open(file_path, "r", errors="replace") as f:
+    content = f.read()
+
+if old_string and old_string not in content:
+    print("OLD_STRING_NOT_FOUND")
+    sys.exit(0)
+
+# U-16: Estimate file size after edit and block if over limit
+SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
+_, ext = os.path.splitext(file_path)
+is_test = any(p in file_path for p in ["/tests/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
+
+if ext.lower() in SOURCE_EXTS and not is_test and old_string and new_string:
+    current_lines = content.count("\n")
+    old_lines = old_string.count("\n")
+    new_lines = new_string.count("\n")
+    if replace_all:
+        occurrences = content.count(old_string)
+        estimated = current_lines - (old_lines * occurrences) + (new_lines * occurrences)
+    else:
+        estimated = current_lines - old_lines + new_lines
+
+    limit = 800
+    dir_path = os.path.dirname(os.path.abspath(file_path))
+    while dir_path and dir_path != "/":
+        if os.path.isdir(os.path.join(dir_path, ".git")):
+            claude_md = os.path.join(dir_path, "CLAUDE.md")
+            if os.path.isfile(claude_md):
+                try:
+                    with open(claude_md) as cf:
+                        for cline in cf:
+                            if "U-16 exempt" in cline:
+                                for m in re.finditer(r"`([^`]+)`\s*\u2192\s*(\d+)", cline):
+                                    pattern, lim = m.group(1), int(m.group(2))
+                                    try:
+                                        if PurePath(file_path).match(pattern):
+                                            limit = max(limit, lim)
+                                    except (ValueError, TypeError):
+                                        pass
+                except (OSError, IOError):
+                    pass
+            break
+        dir_path = os.path.dirname(dir_path)
+
+    if estimated > limit:
+        print(f"U16_OVER_LIMIT:{estimated}:{limit}")
         sys.exit(0)
 
 print("OK")
@@ -107,6 +150,19 @@ if [[ "$DETAIL" == "OLD_STRING_NOT_FOUND" ]]; then
 {
   "decision": "block",
   "reason": "VIBEGUARD interception: old_string does not exist in the file - the AI may have hallucinated the file content. Please use the Read tool to read the file first to confirm that the content to be replaced actually exists."
+}
+BLOCK_EOF
+  exit 0
+fi
+
+if [[ "$DETAIL" == U16_OVER_LIMIT:* ]]; then
+  _U16_EST=$(echo "$DETAIL" | cut -d: -f2)
+  _U16_LIM=$(echo "$DETAIL" | cut -d: -f3)
+  vg_log "pre-edit-guard" "Edit" "block" "U-16 file size: ${_U16_EST} > ${_U16_LIM}" "$FILE_PATH"
+  cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD [U-16] block: this edit would bring ${FILE_PATH##*/} to ~${_U16_EST} lines (limit: ${_U16_LIM}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit."
 }
 BLOCK_EOF
   exit 0
