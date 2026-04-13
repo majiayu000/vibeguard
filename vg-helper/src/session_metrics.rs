@@ -8,6 +8,53 @@ use std::io::{self, BufRead, Write};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+/// Returns seconds since Unix epoch via SystemTime.
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Parse ISO 8601 UTC timestamp (YYYY-MM-DDTHH:MM:SSZ or +00:00) to Unix seconds.
+/// Returns None if the string cannot be parsed.
+fn parse_iso_ts(ts: &str) -> Option<u64> {
+    let s = ts.trim_end_matches('Z');
+    let s = s.strip_suffix("+00:00").unwrap_or(s);
+    let (date_part, time_part) = s.split_once('T')?;
+    let dp: Vec<&str> = date_part.split('-').collect();
+    let tp: Vec<&str> = time_part.split(':').collect();
+    if dp.len() < 3 || tp.len() < 3 {
+        return None;
+    }
+    let year: i64 = dp[0].parse().ok()?;
+    let month: i64 = dp[1].parse().ok()?;
+    let day: i64 = dp[2].parse().ok()?;
+    let hour: i64 = tp[0].parse().ok()?;
+    let min: i64 = tp[1].parse().ok()?;
+    let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
+
+    let is_leap = |y: i64| (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mut days: i64 = 0;
+    for y in 1970..year {
+        days += if is_leap(y) { 366 } else { 365 };
+    }
+    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    for m in 1..month {
+        days += month_days[(m - 1) as usize];
+        if m == 2 && is_leap(year) {
+            days += 1;
+        }
+    }
+    days += day - 1;
+
+    let total = days * 86400 + hour * 3600 + min * 60 + sec;
+    if total < 0 {
+        return None;
+    }
+    Some(total as u64)
+}
+
 /// Usage: tail -1000 $LOG | vg-helper session-metrics <session_id> <project_log_dir>
 pub fn run(args: &[String]) -> Result {
     if args.len() < 2 {
@@ -15,6 +62,9 @@ pub fn run(args: &[String]) -> Result {
     }
     let session = &args[0];
     let project_dir = &args[1];
+
+    // 30-minute cutoff — mirrors Python predecessor hooks/_lib/session_metrics.py:36-52
+    let cutoff_secs = now_unix_secs().saturating_sub(30 * 60);
 
     let stdin = io::stdin();
     let mut events: Vec<Value> = Vec::new();
@@ -29,6 +79,14 @@ pub fn run(args: &[String]) -> Result {
         let hook = e.get("hook").and_then(Value::as_str).unwrap_or("");
         if skip.contains(&hook) {
             continue;
+        }
+        // Drop events older than 30 minutes to prevent cross-session contamination
+        if let Some(ts) = e.get("ts").and_then(Value::as_str) {
+            if let Some(evt_secs) = parse_iso_ts(ts) {
+                if evt_secs < cutoff_secs {
+                    continue;
+                }
+            }
         }
         events.push(e);
     }
@@ -166,6 +224,30 @@ pub fn run(args: &[String]) -> Result {
         signals.push(format!("Circuit breaker tripped {cb} time(s)"));
     }
 
+    // Signal 10: warn trend regression vs project baseline
+    // Mirrors Python predecessor hooks/_lib/session_metrics.py:166-187
+    let metrics_path = format!("{project_dir}/session-metrics.jsonl");
+    if let Ok(content) = std::fs::read_to_string(&metrics_path) {
+        let recent_ratios: Vec<f64> = content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|m| m.get("warn_ratio").and_then(Value::as_f64))
+            .filter(|&r| r > 0.0)
+            .collect();
+        if recent_ratios.len() >= 10 {
+            let window: Vec<f64> = recent_ratios.iter().rev().take(20).cloned().collect();
+            let baseline = window.iter().sum::<f64>() / window.len() as f64;
+            if warn_ratio > baseline * 2.0 && warn_ratio > 0.1 {
+                signals.push(format!(
+                    "Warn rate regression: {:.0}% vs baseline {:.0}% (2x+)",
+                    warn_ratio * 100.0,
+                    baseline * 100.0
+                ));
+            }
+        }
+    }
+
     // Write metrics
     let metrics = json!({
         "ts": chrono_now(),
@@ -178,7 +260,6 @@ pub fn run(args: &[String]) -> Result {
         "warn_ratio": (warn_ratio * 100.0).round() / 100.0,
     });
 
-    let metrics_path = format!("{project_dir}/session-metrics.jsonl");
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&metrics_path) {
         let _ = writeln!(f, "{}", serde_json::to_string(&metrics)?);
     }
