@@ -57,7 +57,7 @@ vg_json_field() {
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-keys = '${field_path}'.split('.')
+keys = sys.argv[1].split('.')
 val = data
 for k in keys:
     if isinstance(val, dict):
@@ -66,7 +66,7 @@ for k in keys:
         val = ''
         break
 print(val if isinstance(val, str) else '')
-" 2>/dev/null || echo ""
+" "$field_path" 2>/dev/null || echo ""
 }
 
 # Extract two fields from stdin JSON, separated by NUL (safe alternative to ---SEPARATOR---)
@@ -90,12 +90,12 @@ def get_nested(d, path):
             return ''
     return val if isinstance(val, str) else ''
 
-f1 = get_nested(data, '${field1}')
-f2 = get_nested(data, '${field2}')
+f1 = get_nested(data, sys.argv[1])
+f2 = get_nested(data, sys.argv[2])
 # The first line is field1, the rest are field2 (field2 may have multiple lines)
 print(f1)
 print(f2)
-" 2>/dev/null || echo ""
+" "$field1" "$field2" 2>/dev/null || echo ""
 }
 
 # Session ID: Events within the same Claude Code session share the same session_id
@@ -250,4 +250,35 @@ vg_log() {
     printf '%s\n' "$json" >> "$global_log"
     chmod 600 "$global_log" 2>/dev/null || true
   fi
+}
+
+# ---------------------------------------------------------------------------
+# vg_json_output — Produce JSON output to stdout with proper escaping.
+# Pure bash, no Python subprocess.
+#
+# Usage:
+#   vg_json_output '{"decision":"block","reason":"REASON"}'        # raw JSON
+#   vg_json_output decision "block" reason "MESSAGE"               # key-value pairs
+#   vg_json_output_kv decision block reason "my reason"            # key-value helper
+# ---------------------------------------------------------------------------
+vg_json_output_kv() {
+  # Accepts key-value pairs: vg_json_output_kv key1 val1 key2 val2 ...
+  local json="{"
+  local first=true
+  while [[ $# -ge 2 ]]; do
+    local key="$1" val="$2"; shift 2
+    # JSON escape value
+    val="${val//\\/\\\\}"
+    val="${val//\"/\\\"}"
+    val="${val//$'\n'/\\n}"
+    val="${val//$'\t'/\\t}"
+    if [[ "$first" == "true" ]]; then
+      first=false
+    else
+      json="${json},"
+    fi
+    json="${json} \"${key}\": \"${val}\""
+  done
+  json="${json} }"
+  printf '%s\n' "$json"
 }

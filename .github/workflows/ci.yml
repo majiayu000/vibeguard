@@ -48,6 +48,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install bash 4+ (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install bash
+          echo "Bash: $(bash --version | head -1)"
+
       - name: Install ast-grep
         if: runner.os != 'Windows'
         shell: bash
@@ -132,7 +139,6 @@ jobs:
 
       - name: Guard unit tests
         if: runner.os != 'Windows'
-        continue-on-error: true
         shell: bash
         run: bash tests/unit/run_all.sh
 

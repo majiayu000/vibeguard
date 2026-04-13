@@ -115,11 +115,7 @@ install_claude_home_assets() {
 
 configure_claude_home_runtime() {
   echo "Step 9: Configure Claude hooks (${PROFILE} profile)"
-  local settings_profile="${PROFILE}"
-  case "${PROFILE}" in
-    minimal) settings_profile="core" ;;
-  esac
-  if settings_upsert "${SETTINGS_FILE}" "${settings_profile}" >/dev/null 2>&1; then
+  if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null 2>&1; then
     state_record_file "${SETTINGS_FILE}" "generated/settings.json" "copy"
     green "  Hooks configured in ~/.claude/settings.json (${PROFILE})"
   else

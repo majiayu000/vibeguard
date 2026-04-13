@@ -11,6 +11,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/_lib/stub_detect.sh"
 vg_start_timer
 
 INPUT=$(cat)
@@ -243,41 +244,7 @@ DO NOT: Delete existing definitions or merge code without confirming intent"
 fi
 
 # --- Anti-Stub detection (GSD reference: Level 2 product verification Level 2 — Substantiveness) ---
-STUB_WARNINGS=""
-case "$FILE_PATH" in
-  *.rs)
-    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (todo!/unimplemented!)
-FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.ts|*.tsx|*.js|*.jsx)
-    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (throw not implemented / TODO)
-FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.py)
-    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (pass/NotImplementedError/TODO)
-FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.go)
-    STUB_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) found in new file (panic not implemented / TODO)
-FIX: Replace with real implementation before using this file, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-esac
+STUB_WARNINGS=$(vg_detect_stubs "$FILE_PATH" "$CONTENT")
 if [[ -n "$STUB_WARNINGS" ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS}
 ---
