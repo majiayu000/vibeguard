@@ -96,6 +96,19 @@ result=$(
 )
 assert_contains "$result" '"decision": "block"' "Python injection payload is safely logged in reason"
 
+# Clear the log and test \r escaping
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+
+result=$(
+  export VIBEGUARD_LOG_DIR
+  source hooks/log.sh
+  reason_with_cr="$(printf 'line1\r\nline2')"
+  vg_log "test" "Tool" "pass" "$reason_with_cr" "detail"
+  cat "$VIBEGUARD_LOG_FILE"
+)
+assert_not_contains "$result" $'\r' "Carriage return in reason is escaped and not raw in JSONL"
+assert_contains "$result" '\r' "Carriage return is represented as \\r escape sequence in reason"
+
 # =========================================================
 header "pre-bash-guard.sh — Dangerous command interception"
 # =========================================================
