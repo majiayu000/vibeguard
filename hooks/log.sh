@@ -229,12 +229,21 @@ vg_log() {
   local ts
   ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-  # JSON escape: reason and detail may contain special characters
+  # JSON escape: reason and detail may contain special characters.
+  # All U+0000-U+001F control characters must be escaped per RFC 8259.
   local esc_reason="${reason//\\/\\\\}" esc_detail="${detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
   esc_reason="${esc_reason//$'\t'/\\t}" esc_detail="${esc_detail//$'\t'/\\t}"
   esc_reason="${esc_reason//$'\r'/\\r}" esc_detail="${esc_detail//$'\r'/\\r}"
+  esc_reason="${esc_reason//$'\b'/\\b}" esc_detail="${esc_detail//$'\b'/\\b}"
+  esc_reason="${esc_reason//$'\f'/\\f}" esc_detail="${esc_detail//$'\f'/\\f}"
+  # ESC (0x1B) is common in ANSI-coloured command output; escape as \u001b.
+  esc_reason="${esc_reason//$'\x1b'/\\u001b}" esc_detail="${esc_detail//$'\x1b'/\\u001b}"
+  # Strip any remaining JSON-forbidden control characters (U+0000-U+001F)
+  # that have no named two-char JSON escape (NUL, SOH-BEL, VT, SO-SUB, FS-US).
+  esc_reason=$(printf '%s' "$esc_reason" | tr -d '\000-\007\013\016-\032\034-\037')
+  esc_detail=$(printf '%s' "$esc_detail" | tr -d '\000-\007\013\016-\032\034-\037')
 
   local json
   json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
