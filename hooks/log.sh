@@ -230,11 +230,15 @@ vg_log() {
   ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
   # JSON escape: reason and detail may contain special characters
-  local esc_reason="${reason//\\/\\\\}" esc_detail="${detail//\\/\\\\}"
+  # Strip ANSI ESC bytes first so terminal color sequences cannot produce invalid JSON
+  local esc_reason="${reason//$'\033'}" esc_detail="${detail//$'\033'}"
+  esc_reason="${esc_reason//\\/\\\\}" esc_detail="${esc_detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
   esc_reason="${esc_reason//$'\r'/\\r}" esc_detail="${esc_detail//$'\r'/\\r}"
   esc_reason="${esc_reason//$'\t'/\\t}" esc_detail="${esc_detail//$'\t'/\\t}"
+  esc_reason="${esc_reason//$'\b'/\\b}" esc_detail="${esc_detail//$'\b'/\\b}"
+  esc_reason="${esc_reason//$'\f'/\\f}" esc_detail="${esc_detail//$'\f'/\\f}"
 
   local json
   json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
