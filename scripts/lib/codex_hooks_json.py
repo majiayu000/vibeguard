@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -161,7 +162,7 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
 def _build_entry(wrapper: str, spec: HookSpec) -> dict[str, Any]:
     hook: dict[str, Any] = {
         "type": "command",
-        "command": f"bash {wrapper} {spec['script']}",
+        "command": f"bash {shlex.quote(wrapper)} {spec['script']}",
     }
     timeout = spec.get("timeout")
     if isinstance(timeout, int):
@@ -227,7 +228,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         if not isinstance(entries, list):
             entries = []
             hooks[event] = entries
-        expected_command = f"bash {args.wrapper} {spec['script']}"
+        expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher") if isinstance(spec.get("matcher"), str) else None
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
         if not _has_entry(entries, expected_command, expected_matcher, expected_timeout):
@@ -278,7 +279,7 @@ def cmd_check_vibeguard(args: argparse.Namespace) -> int:
         if not isinstance(entries, list):
             return 1
 
-        expected_command = f"bash {args.wrapper} {spec['script']}"
+        expected_command = f"bash {shlex.quote(args.wrapper)} {spec['script']}"
         expected_matcher = spec.get("matcher")
         expected_timeout = spec.get("timeout") if isinstance(spec.get("timeout"), int) else None
         if not _has_entry(entries, expected_command, expected_matcher if isinstance(expected_matcher, str) else None, expected_timeout):
