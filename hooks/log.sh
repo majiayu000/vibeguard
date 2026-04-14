@@ -245,10 +245,32 @@ vg_log() {
   esc_reason=$(printf '%s' "$esc_reason" | tr -d '\000-\007\013\016-\032\034-\037')
   esc_detail=$(printf '%s' "$esc_detail" | tr -d '\000-\007\013\016-\032\034-\037')
 
+  # Escape environment-sourced fields that may contain untrusted characters.
+  local esc_session="${VIBEGUARD_SESSION_ID//\\/\\\\}"
+  esc_session="${esc_session//\"/\\\"}"
+  esc_session="${esc_session//$'\n'/\\n}"
+  esc_session="${esc_session//$'\t'/\\t}"
+  esc_session="${esc_session//$'\r'/\\r}"
+  esc_session="${esc_session//$'\b'/\\b}"
+  esc_session="${esc_session//$'\f'/\\f}"
+  esc_session="${esc_session//$'\x1b'/\\u001b}"
+  esc_session=$(printf '%s' "$esc_session" | tr -d '\000-\007\013\016-\032\034-\037')
+
+  local esc_agent="${VIBEGUARD_AGENT_TYPE:-}"
+  esc_agent="${esc_agent//\\/\\\\}"
+  esc_agent="${esc_agent//\"/\\\"}"
+  esc_agent="${esc_agent//$'\n'/\\n}"
+  esc_agent="${esc_agent//$'\t'/\\t}"
+  esc_agent="${esc_agent//$'\r'/\\r}"
+  esc_agent="${esc_agent//$'\b'/\\b}"
+  esc_agent="${esc_agent//$'\f'/\\f}"
+  esc_agent="${esc_agent//$'\x1b'/\\u001b}"
+  esc_agent=$(printf '%s' "$esc_agent" | tr -d '\000-\007\013\016-\032\034-\037')
+
   local json
-  json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
+  json="{\"ts\": \"${ts}\", \"session\": \"${esc_session}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
-  [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
+  [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${esc_agent}\""
   json="${json}}"
 
   printf '%s\n' "$json" >> "$VIBEGUARD_LOG_FILE"
