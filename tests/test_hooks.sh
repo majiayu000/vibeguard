@@ -109,6 +109,19 @@ result=$(
 assert_not_contains "$result" $'\r' "Carriage return in reason is escaped and not raw in JSONL"
 assert_contains "$result" '\r' "Carriage return is represented as \\r escape sequence in reason"
 
+# Clear the log and test OSC hyperlink sequence (BEL-terminated): \x1b]8;;url\x07
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+
+result=$(
+  export VIBEGUARD_LOG_DIR
+  source hooks/log.sh
+  osc_reason="$(printf '\x1b]8;;https://example.com\x07link text\x1b]8;;\x07')"
+  vg_log "test" "Tool" "pass" "$osc_reason" "detail"
+  cat "$VIBEGUARD_LOG_FILE"
+)
+assert_not_contains "$result" $'\x07' "BEL byte from OSC hyperlink sequence is stripped from JSONL"
+assert_not_contains "$result" $'\x1b' "ESC byte from OSC hyperlink sequence is stripped from JSONL"
+
 # =========================================================
 header "pre-bash-guard.sh — Dangerous command interception"
 # =========================================================
