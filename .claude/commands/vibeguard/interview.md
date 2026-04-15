@@ -21,6 +21,8 @@ tags: [vibeguard, interview, requirements, spec]
 - Up to 4 rounds of interviews, 2-4 questions each, keep the pace tight
 - Don’t ask obvious questions, **explore the difficulties that users didn’t expect**
 - When the user says "you decide", the recommended solution is given and recorded
+- **Code examples over prose**: every constraint/rule in the SPEC should include a concrete code snippet (good vs bad) rather than abstract text. Show the pattern, don't just name it.
+  (来源: Addy Osmani "How to write a good spec for AI agents", 2026-04)
 
 **Steps**
 
@@ -69,6 +71,28 @@ tags: [vibeguard, interview, requirements, spec]
    ### Interface definition
    ### Data model changes
 
+   ## Three-Layer Boundaries
+   (来源: Addy Osmani, GitHub 2500+ agent 配置文件分析)
+
+   ### ✅ Always do
+   - AB-01: [必须无条件遵守的规则，附代码示例]
+
+   ### ⚠️ Ask first
+   - AF-01: [需要确认后才能执行的决策]
+
+   ### 🚫 Never do
+   - AN-01: [硬禁止项，附代码示例]
+
+   ## Six Core Areas Coverage
+   标记每个区域是否适用于当前任务。[APPLICABLE] 的区域必须包含至少一条具体规则 + 代码示例。
+
+   - [ ] Commands: [APPLICABLE] / [N/A]
+   - [ ] Testing: [APPLICABLE] / [N/A]
+   - [ ] Project structure: [APPLICABLE] / [N/A]
+   - [ ] Code style: [APPLICABLE] / [N/A]
+   - [ ] Git workflow: [APPLICABLE] / [N/A]
+   - [ ] Boundaries: [APPLICABLE] / [N/A]
+
    ## Boundary cases
    - EC-01: ...
 
@@ -78,9 +102,12 @@ tags: [vibeguard, interview, requirements, spec]
 
 4. **Confirm and save**
    - Show SPEC to user for confirmation
+   - Verify: Three-Layer Boundaries 每层至少有 1 个条目
+   - Verify: Six Core Areas 每个区域都标注了 [APPLICABLE] 或 [N/A]
    - Save to the project root directory `SPEC.md` (or user-specified path)
    - Remind users: **It is recommended to execute SPEC in a new session**, clean context implementation is more reliable
 
 **Follow-up connection**
 - In a new session: read SPEC.md → `/vibeguard:preflight` generate constraint set → implement by SPEC
+- Three-Layer Boundaries feed directly into preflight constraint generation (Always → hard constraints, Never → guard violations)
 <!-- VIBEGUARD:INTERVIEW:END -->
