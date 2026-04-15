@@ -237,11 +237,22 @@ vg_log() {
   local ts
   ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-  # JSON escape: reason and detail may contain special characters
-  local esc_reason="${reason//\\/\\\\}" esc_detail="${detail//\\/\\\\}"
+  # JSON escape: reason and detail may contain special characters.
+  # Strip all C0 control bytes that are NOT JSON-escapable (\b \t \n \f \r).
+  # This removes ESC (0x1B) and the orphaned BEL/VT/SO/etc. bytes that OSC/CSI
+  # terminal sequences leave behind after ESC is removed (e.g. \x1b]8;;url\x07
+  # becomes ]8;;url\x07 with ESC-only stripping; the raw BEL makes JSONL invalid).
+  # tr range: 0x00-0x07 (NUL-BEL), 0x0B (VT), 0x0E-0x1F (SO-US incl. ESC), 0x7F (DEL)
+  local esc_reason esc_detail
+  esc_reason=$(printf '%s' "$reason" | tr -d '\000-\007\013\016-\037\177')
+  esc_detail=$(printf '%s' "$detail"  | tr -d '\000-\007\013\016-\037\177')
+  esc_reason="${esc_reason//\\/\\\\}" esc_detail="${esc_detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
+  esc_reason="${esc_reason//$'\r'/\\r}" esc_detail="${esc_detail//$'\r'/\\r}"
   esc_reason="${esc_reason//$'\t'/\\t}" esc_detail="${esc_detail//$'\t'/\\t}"
+  esc_reason="${esc_reason//$'\b'/\\b}" esc_detail="${esc_detail//$'\b'/\\b}"
+  esc_reason="${esc_reason//$'\f'/\\f}" esc_detail="${esc_detail//$'\f'/\\f}"
 
   local json
   json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
