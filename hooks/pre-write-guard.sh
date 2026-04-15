@@ -46,6 +46,64 @@ EOF
   exit 0
 fi
 
+# --- [U-16] File size block: reject source files over limit before writing ---
+_U16_RESULT=$(echo "$INPUT" | python3 -c '
+import json, sys, os, re
+from pathlib import PurePath
+
+data = json.load(sys.stdin)
+file_path = data.get("tool_input", {}).get("file_path", "")
+content = data.get("tool_input", {}).get("content", "")
+lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+
+SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
+_, ext = os.path.splitext(file_path)
+is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
+if ext.lower() not in SOURCE_EXTS or is_test or lines <= 800:
+    print("OK")
+    sys.exit(0)
+
+limit = 800
+dir_path = os.path.dirname(os.path.abspath(file_path)) if file_path else ""
+while dir_path and dir_path != "/":
+    if os.path.isdir(os.path.join(dir_path, ".git")):
+        claude_md = os.path.join(dir_path, "CLAUDE.md")
+        if os.path.isfile(claude_md):
+            try:
+                with open(claude_md) as cf:
+                    for cline in cf:
+                        if "U-16 exempt" in cline:
+                            for m in re.finditer(r"`([^`]+)`\s*\u2192\s*(\d+)", cline):
+                                pattern, lim = m.group(1), int(m.group(2))
+                                try:
+                                    if PurePath(file_path).match(pattern):
+                                        limit = max(limit, lim)
+                                except (ValueError, TypeError):
+                                    pass
+            except (OSError, IOError):
+                pass
+        break
+    dir_path = os.path.dirname(dir_path)
+
+if lines > limit:
+    print(f"BLOCK:{lines}:{limit}")
+else:
+    print("OK")
+' 2>/dev/null || echo "OK")
+
+if [[ "$_U16_RESULT" == BLOCK:* ]]; then
+  _U16_LINES=$(echo "$_U16_RESULT" | cut -d: -f2)
+  _U16_LIM=$(echo "$_U16_RESULT" | cut -d: -f3)
+  vg_log "pre-write-guard" "Write" "block" "U-16 file size: ${_U16_LINES} > ${_U16_LIM}" "$FILE_PATH"
+  cat <<BLOCK_EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD [U-16] block: writing ${FILE_PATH##*/} with ${_U16_LINES} lines exceeds the ${_U16_LIM}-line limit. Split into focused submodules first. Do NOT proceed with this write."
+}
+BLOCK_EOF
+  exit 0
+fi
+
 # File already exists (edit) → Release
 if [[ -e "$FILE_PATH" ]]; then
   exit 0

@@ -241,6 +241,64 @@ FIX: Verify the edit content is correct and intentional
 DO NOT: Take any action — this is informational only"
 fi
 
+# --- [U-16] File size guard: 800-line default limit with project exemptions ---
+case "$FILE_PATH" in
+  *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go)
+    case "$FILE_PATH" in
+      */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) ;;
+      *)
+        if [[ -f "$FILE_PATH" ]]; then
+          _U16_TOTAL=$(wc -l < "$FILE_PATH" | tr -d ' ')
+          if [[ "$_U16_TOTAL" -gt 800 ]]; then
+            _U16_LIMIT=800
+            # Find project root for CLAUDE.md exemptions
+            _U16_DIR="$FILE_PATH"
+            while [[ "$_U16_DIR" != "/" ]]; do
+              _U16_DIR=$(dirname "$_U16_DIR")
+              [[ -d "$_U16_DIR/.git" ]] && break
+            done
+            if [[ "$_U16_DIR" != "/" && -f "$_U16_DIR/CLAUDE.md" ]]; then
+              _U16_EXEMPT=$(VG_CLAUDE_MD="$_U16_DIR/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
+import os, re
+from pathlib import PurePath
+claude_md = os.environ["VG_CLAUDE_MD"]
+file_path = os.environ["VG_FILE_PATH"]
+limit = 0
+try:
+    with open(claude_md) as f:
+        for line in f:
+            if "U-16 exempt" not in line:
+                continue
+            for pair in re.finditer(r"`([^`]+)`\s*→\s*(\d+)", line):
+                pattern, lim = pair.group(1), int(pair.group(2))
+                try:
+                    if PurePath(file_path).match(pattern):
+                        limit = max(limit, lim)
+                except (ValueError, TypeError):
+                    continue
+except FileNotFoundError:
+    pass
+print(limit)
+' 2>/dev/null | tr -d '[:space:]' || echo "0")
+              _U16_EXEMPT="${_U16_EXEMPT:-0}"
+              if [[ "$_U16_EXEMPT" -gt 0 ]]; then
+                _U16_LIMIT="$_U16_EXEMPT"
+              fi
+            fi
+            if [[ "$_U16_TOTAL" -gt "$_U16_LIMIT" ]]; then
+              WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[U-16] [review] [this-file] OBSERVATION: file has ${_U16_TOTAL} lines, exceeding ${_U16_LIMIT}-line limit
+FIX: Split into focused submodules by responsibility; plan as a separate task
+DO NOT: Start splitting now — finish the current task first, then refactor"
+            fi
+          fi
+        fi
+        ;;
+    esac
+    ;;
+esac
+
 # --- Churn Detection (the same file is edited repeatedly → may be corrected in a loop) ---
 #Grading upgrade: 5=reminder, 10=warning, 20+=forced stop
 # Read only last 500 lines to avoid O(n) full-file scan on long sessions

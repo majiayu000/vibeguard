@@ -251,6 +251,56 @@ if [[ -n "$STUB_WARNINGS" ]]; then
 }${STUB_WARNINGS}"
 fi
 
+# --- [U-16] File size guard: 800-line default limit with project exemptions ---
+case "$FILE_PATH" in
+  *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go)
+    case "$FILE_PATH" in
+      */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) ;;
+      *)
+        _U16_TOTAL=$(echo "$CONTENT" | wc -l | tr -d ' ')
+        if [[ "$_U16_TOTAL" -gt 800 ]]; then
+          _U16_LIMIT=800
+          if [[ "$PROJECT_DIR" != "/" && -f "$PROJECT_DIR/CLAUDE.md" ]]; then
+            _U16_EXEMPT=$(VG_CLAUDE_MD="$PROJECT_DIR/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
+import os, re
+from pathlib import PurePath
+claude_md = os.environ["VG_CLAUDE_MD"]
+file_path = os.environ["VG_FILE_PATH"]
+limit = 0
+try:
+    with open(claude_md) as f:
+        for line in f:
+            if "U-16 exempt" not in line:
+                continue
+            for pair in re.finditer(r"`([^`]+)`\s*→\s*(\d+)", line):
+                pattern, lim = pair.group(1), int(pair.group(2))
+                try:
+                    if PurePath(file_path).match(pattern):
+                        limit = max(limit, lim)
+                except (ValueError, TypeError):
+                    continue
+except FileNotFoundError:
+    pass
+print(limit)
+' 2>/dev/null | tr -d '[:space:]' || echo "0")
+            _U16_EXEMPT="${_U16_EXEMPT:-0}"
+            if [[ "$_U16_EXEMPT" -gt 0 ]]; then
+              _U16_LIMIT="$_U16_EXEMPT"
+            fi
+          fi
+          if [[ "$_U16_TOTAL" -gt "$_U16_LIMIT" ]]; then
+            WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[U-16] [review] [this-file] OBSERVATION: file has ${_U16_TOTAL} lines, exceeding ${_U16_LIMIT}-line limit
+FIX: Split into focused submodules by responsibility; plan as a separate task
+DO NOT: Start splitting now — finish the current task first, then refactor"
+          fi
+        fi
+        ;;
+    esac
+    ;;
+esac
+
 if [[ -z "$WARNINGS" ]]; then
   vg_log "post-write-guard" "Write" "pass" "" "$FILE_PATH"
   exit 0
