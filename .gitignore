@@ -8,3 +8,4 @@ node_modules/
 .vibeguard/worktrees/
 .claude/worktrees/
 .omx/
+bench-output.json

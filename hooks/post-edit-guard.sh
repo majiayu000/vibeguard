@@ -15,6 +15,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/_lib/stub_detect.sh"
 vg_start_timer
 
 INPUT=$(cat)
@@ -35,32 +36,38 @@ WARNINGS=""
 # Reads NEW_STRING from stdin; outputs lines NOT suppressed by the rule.
 # Suppression: a line is suppressed when the immediately preceding line
 # contains "vibeguard-disable-next-line RULE_ID" (any comment prefix).
+# Pure awk implementation — no Python subprocess overhead.
 # ---------------------------------------------------------------------------
 vg_filter_suppressed() {
   local rule="$1"
-  python3 -c "
-import sys, re
-rule = sys.argv[1]
-suppress_pat = re.compile(r'^\s*(?://|#)\s*vibeguard-disable-next-line\s+' + re.escape(rule) + r'(?:\s|--|$)')
+  # trisq passed via -v so that ''' never appears inside the single-quoted awk body.
+  awk -v rule="$rule" -v trisq="'''" '
+    BEGIN { suppress = 0; in_template = 0; in_triple_dq = 0; in_triple_sq = 0 }
+    {
+      # Record multiline-string state at the START of this line so a
+      # disable comment that is itself inside a string is not honoured.
+      start_in_ml = (in_template || in_triple_dq || in_triple_sq)
 
-def _in_multiline_string(lines, idx):
-    # Count multi-line string delimiters before this line; odd count means inside one.
-    text_before = '\n'.join(lines[:idx])
-    # Python triple-quoted strings
-    if (text_before.count('\"\"\"') % 2 == 1) or (text_before.count(\"'''\") % 2 == 1):
-        return True
-    # Go/JS/TS backtick raw/template strings (backtick cannot be escaped inside)
-    if text_before.count('\`') % 2 == 1:
-        return True
-    return False
+      # Track JS/TS template-literal depth via backtick parity.
+      tmp = $0; n = gsub(/`/, "", tmp)
+      if (n % 2 == 1) in_template = 1 - in_template
 
-lines = sys.stdin.read().splitlines()
-for i, line in enumerate(lines):
-    prev = lines[i - 1] if i > 0 else ''
-    if suppress_pat.search(prev) and not _in_multiline_string(lines, i - 1):
-        continue
-    print(line)
-" "$rule"
+      # Track triple-double-quote multi-line strings (Python, Rust raw).
+      tmp = $0; n = gsub(/"""/, "", tmp)
+      if (n % 2 == 1) in_triple_dq = 1 - in_triple_dq
+
+      # Track triple-single-quote multi-line strings (Python).
+      tmp = $0; n = gsub(trisq, "", tmp)
+      if (n % 2 == 1) in_triple_sq = 1 - in_triple_sq
+
+      if (suppress) { suppress = 0; next }
+      if (!start_in_ml &&
+          $0 ~ "^[[:space:]]*(//|#)[[:space:]]*vibeguard-disable-next-line[[:space:]]+" rule "([[:space:]]|--|$)") {
+        suppress = 1
+      }
+      print
+    }
+  '
 }
 
 # --- Rust inspection ---
@@ -217,41 +224,7 @@ DO NOT: Extract to a separate file or refactor loop logic beyond the current edi
 esac
 
 # --- Anti-Stub detection (GSD reference: Level 2 product verification Level 2 — Substantiveness) ---
-STUB_WARNINGS=""
-case "$FILE_PATH" in
-  *.rs)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (todo!/unimplemented!)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.ts|*.tsx|*.js|*.jsx)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (throw not implemented / TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.py)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (pass/NotImplementedError/TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-  *.go)
-    STUB_COUNT=$(echo "$NEW_STRING" | vg_filter_suppressed "STUB" | grep -cE '^\s*(panic\("not implemented|// TODO|// FIXME)' 2>/dev/null; true)
-    if [[ "${STUB_COUNT:-0}" -gt 0 ]]; then
-      STUB_WARNINGS="[STUB] [review] [this-edit] OBSERVATION: ${STUB_COUNT} stub placeholder(s) added (panic not implemented / TODO)
-FIX: Replace with real implementation in this task, or add a DEFER comment explaining why
-DO NOT: Add DEFER markers to stubs in other files"
-    fi
-    ;;
-esac
+STUB_WARNINGS=$(vg_detect_stubs "$FILE_PATH" "$NEW_STRING" --filter-suppressed)
 if [[ -n "$STUB_WARNINGS" ]]; then
   WARNINGS="${WARNINGS:+${WARNINGS}
 ---
@@ -270,28 +243,27 @@ fi
 
 # --- Churn Detection (the same file is edited repeatedly → may be corrected in a loop) ---
 #Grading upgrade: 5=reminder, 10=warning, 20+=forced stop
-CHURN_COUNT=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, os
-log_file = os.environ.get("VG_LOG_FILE", "")
+# Read only last 500 lines to avoid O(n) full-file scan on long sessions
+CHURN_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    else
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-try:
-    with open(log_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-                if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
-                    count += 1
-            except (json.JSONDecodeError, KeyError):
-                continue
-except FileNotFoundError:
-    pass
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
+            count += 1
+    except (json.JSONDecodeError, KeyError): continue
 print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 CHURN_COUNT="${CHURN_COUNT:-0}"
 
 if [[ "$CHURN_COUNT" -ge 20 ]]; then
@@ -325,29 +297,27 @@ fi
 # --- Escalation detection ---
 # The same file is warned more than 3 times in the current log → upgrade to escalate
 DECISION="warn"
-WARN_COUNT_FOR_FILE=$(VG_LOG_FILE="$VIBEGUARD_LOG_FILE" VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, os
-log_file = os.environ.get("VG_LOG_FILE", "")
+# Read only last 500 lines to avoid O(n) full-file scan
+WARN_COUNT_FOR_FILE=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | if [[ -n "$_VG_HELPER" ]]; then
+      "$_VG_HELPER" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    else
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, sys, os
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-try:
-    with open(log_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                e = json.loads(line)
-                #Limit the current session + exact path matching (to avoid misjudgment of sub-paths)
-                if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
-                    count += 1
-            except (json.JSONDecodeError, KeyError):
-                continue
-except FileNotFoundError:
-    pass
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
+            count += 1
+    except (json.JSONDecodeError, KeyError): continue
 print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+'
+    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
 WARN_COUNT_FOR_FILE="${WARN_COUNT_FOR_FILE:-0}"
 
 if [[ "$WARN_COUNT_FOR_FILE" -ge 3 ]]; then

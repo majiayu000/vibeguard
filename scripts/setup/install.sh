@@ -109,13 +109,46 @@ mkdir -p "${VIBEGUARD_HOME}/user-rules"
 green "  ~/.vibeguard/user-rules/ ready (add custom .md rules here)"
 
 # Install hooks and guards snapshot (isolated from dev repo — prevents dirty state from breaking hooks)
+# Atomic install: copy to temp dir, then rename into place. If interrupted mid-copy,
+# the previous installed/ remains intact instead of being left empty.
 INSTALLED_DIR="${VIBEGUARD_HOME}/installed"
-mkdir -p "${INSTALLED_DIR}/hooks" "${INSTALLED_DIR}/guards"
-rm -rf "${INSTALLED_DIR}/hooks" "${INSTALLED_DIR}/guards"
-cp -r "${REPO_DIR}/hooks" "${INSTALLED_DIR}/"
-cp -r "${REPO_DIR}/guards" "${INSTALLED_DIR}/"
-printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${INSTALLED_DIR}/version"
+_INSTALL_TMP=$(mktemp -d "${VIBEGUARD_HOME}/installed_tmp_XXXXXX")
+trap 'rm -rf "$_INSTALL_TMP"' EXIT
+cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
+cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
+printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+# Swap: move old installed aside, rename new into place, restore on failure
+if [[ -d "${INSTALLED_DIR}" ]]; then
+  mv "${INSTALLED_DIR}" "${INSTALLED_DIR}.old.$$"
+fi
+if mv "${_INSTALL_TMP}" "${INSTALLED_DIR}"; then
+  rm -rf "${INSTALLED_DIR}.old.$$" 2>/dev/null || true
+else
+  # Restore old snapshot if swap failed
+  if [[ -d "${INSTALLED_DIR}.old.$$" ]]; then
+    mv "${INSTALLED_DIR}.old.$$" "${INSTALLED_DIR}" 2>/dev/null || true
+  fi
+  red "  Failed to install snapshot (old version restored)"
+fi
+trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
+
+# Build vg-helper Rust binary (optional — falls back to Python if cargo unavailable)
+if [[ -f "${REPO_DIR}/vg-helper/Cargo.toml" ]]; then
+  if command -v cargo &>/dev/null; then
+    echo "  Building vg-helper (Rust)..."
+    if cargo build --release --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet 2>/dev/null; then
+      mkdir -p "${INSTALLED_DIR}/bin"
+      cp "${REPO_DIR}/vg-helper/target/release/vg-helper" "${INSTALLED_DIR}/bin/vg-helper"
+      chmod +x "${INSTALLED_DIR}/bin/vg-helper"
+      green "  vg-helper binary installed (~4ms vs ~55ms Python)"
+    else
+      yellow "  vg-helper build failed (falling back to Python — hooks still work)"
+    fi
+  else
+    yellow "  SKIP vg-helper (cargo not found — using Python fallback)"
+  fi
+fi
 
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"

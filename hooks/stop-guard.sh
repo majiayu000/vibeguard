@@ -9,6 +9,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
+vg_start_timer
 
 # CI guard: skip interactive hooks in CI environments
 vg_is_ci && exit 0
@@ -31,7 +32,7 @@ while IFS= read -r file; do
   if [[ -n "$file" ]] && vg_is_source_file "$file"; then
     changed_source_files="${changed_source_files}${file}"$'\n'
   fi
-done < <(git diff --name-only HEAD 2>/dev/null; git diff --name-only --cached 2>/dev/null)
+done < <(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null)
 
 # Remove duplicates
 if [[ -n "$changed_source_files" ]]; then
@@ -39,7 +40,6 @@ if [[ -n "$changed_source_files" ]]; then
   count=$(echo "$changed_source_files" | grep -c . || true)
 
   vg_log "stop-guard" "Stop" "gate" "uncommitted source changes: ${count} files" "$(echo "$changed_source_files" | head -5 | tr '\n' ' ')"
-vg_start_timer
 
   # exit 0: log only, do not block — Claude cannot commit in Stop context,
   # so exit 2 here causes an infinite loop (feedback → response → stop hooks → repeat).
