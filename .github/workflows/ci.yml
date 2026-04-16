@@ -201,5 +201,5 @@ jobs:
           comment-on-alert: true
           fail-on-alert: false
           comment-always: ${{ github.event_name == 'pull_request' }}
-          # First run creates gh-pages branch; skip fetch to avoid "ref not found" error
-          skip-fetch-gh-pages: true
+          # gh-pages branch now exists (created 2026-04-17); let the action fetch it
+          skip-fetch-gh-pages: false
