@@ -2,29 +2,22 @@
 
 [![CI](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml)
 
-**Stop AI from hallucinating code.**
+**Stop Claude Code and Codex from making the same expensive mistakes twice.**
 
-[Chinese Docs](docs/README_CN.md) | [Rule Reference](docs/rule-reference.md) | [Contributing](CONTRIBUTING.md)
+[Chinese Docs](docs/README_CN.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
-When using Claude Code or Codex, AI frequently invents non-existent APIs, reinvents the wheel, hardcodes fake data, and over-engineers solutions. VibeGuard prevents these problems at the source through **rule injection + real-time interception + static scanning**.
+VibeGuard adds **native rules + real-time hooks + static guards** to catch what AI coding agents get wrong — **before it reaches your codebase**:
 
-> **VibeGuard vs [Everything Claude Code](https://github.com/anthropics/everything-claude-code):** ECC is a general-purpose productivity toolkit. VibeGuard is a specialized **defense system** — native rules, hook-based interception for Claude Code and Codex, churn loop detection, analysis-paralysis protection, and structured event logging. **They're complementary, not competing.** ECC helps AI do more; VibeGuard stops AI from doing the wrong thing.
+- Duplicate files and reinvented modules
+- Invented APIs, fake libraries, and hardcoded placeholder values
+- Dangerous shell/git commands (`rm -rf`, `push --force`, `reset --hard`)
+- Analysis paralysis and unverified "I'm done" claims
+- Silent exception swallowing and `Any`-type abuse
+- AI-slop patterns flagged on every commit
 
-Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
+Works with **Claude Code** and **Codex CLI**.
 
-## The Problem
-
-```text
-You:  "Add a login endpoint"
-AI:   Creates auth_service.py (duplicate of existing auth.py)
-      Imports non-existent library `flask-auth-magic`
-      Hardcodes JWT secret as "your-secret-key"
-      Adds 200 lines of "improvements" you didn't ask for
-```
-
-**VibeGuard catches all of these automatically, before they reach your codebase.**
-
-## Quick Start
+## Install in 30 seconds
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
@@ -33,20 +26,71 @@ bash ~/vibeguard/setup.sh
 
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
 
-## Documentation Map
+## What you actually get
 
-| Doc | Purpose |
-|-----|---------|
-| [docs/README_CN.md](docs/README_CN.md) | Chinese overview and setup guide |
-| [docs/rule-reference.md](docs/rule-reference.md) | Rule layers, guard coverage, and language-specific checks |
-| [docs/CLAUDE.md.example](docs/CLAUDE.md.example) | Project-level CLAUDE template without installing hooks |
-| [docs/linux-setup.md](docs/linux-setup.md) | Linux-specific setup notes |
-| [docs/known-issues/false-positives.md](docs/known-issues/false-positives.md) | Known guard false positives and mitigation notes |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow, validation commands, and commit protocol |
+| Layer | What it does |
+|-------|--------------|
+| **Native Rules** | Bias the model away from bad decisions before it acts |
+| **Hooks** | Block dangerous or low-quality actions in real time |
+| **Static Guards** | Scan projects for AI-slop, duplicates, and structural issues |
+| **Slash Commands** | `/vibeguard:*` workflows for preflight / review / check / learn |
+| **Learning System** | Turn repeated AI mistakes into reusable defenses |
+| **Observability** | Metrics and health for every interception |
+
+## What it looks like in practice
+
+![VibeGuard demo](docs/assets/demo.gif)
+
+```text
+You:  "Add a login endpoint"
+
+AI:   → tries to create auth_service.py
+      ✗ VibeGuard blocks — duplicate of existing auth.py, search first
+
+      → tries to import `flask-auth-magic`
+      ✗ VibeGuard blocks — non-existent library, verify before adding
+
+      → hardcodes JWT secret as "your-secret-key"
+      ✗ VibeGuard flags — use env var or secret manager
+
+      → runs `git push --force`
+      ✗ VibeGuard denies — suggests `--force-with-lease`
+
+      → keeps reading files without acting
+      ⚠ VibeGuard escalates — force a concrete next step or report blocker
+
+      → claims done without verifying
+      ⚠ VibeGuard gates — run build/test before finishing
+```
+
+**Every interception returns a fix instruction**, not just a failure — so the agent can self-correct.
+
+Re-record your own demo: see [docs/assets/README.md](docs/assets/README.md) (one command via asciinema + agg).
+
+## Who this is for
+
+Use VibeGuard if you:
+
+- Use Claude Code or Codex regularly
+- Have seen duplicate files, fake APIs, over-engineering, or unverified "done" claims
+- Want **mechanical enforcement**, not just prompt guidelines
+
+It may be overkill if you only use AI occasionally or don't want hook-level interception.
+
+## VibeGuard vs Everything Claude Code
+
+| Project | Focus | Use for |
+|---------|-------|---------|
+| [Everything Claude Code](https://github.com/anthropics/everything-claude-code) | Make agents **more capable** | Productivity, skills, memory |
+| **VibeGuard** | Stop agents from making **predictable mistakes** | Safety rails, quality control |
+
+**They're complementary, not competing.** Use both together.
+
+Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
 
 ## How It Works
 
-### 1. Rule Injection (active from session start)
+### Rule Injection (active from session start)
 
 The native rule set in `rules/claude-rules/` is installed to Claude Code's native rules system (`~/.claude/rules/vibeguard/`), directly influencing AI reasoning. Plus a 7-layer constraint index injected into `~/.claude/CLAUDE.md`:
 
@@ -62,7 +106,7 @@ The native rule set in `rules/claude-rules/` is installed to Claude Code's nativ
 
 Rules use **negative constraints** ("X does not exist") to implicitly guide AI, which is often more effective than positive descriptions.
 
-### 2. Hooks — Real-Time Interception
+### Hooks — Real-Time Interception
 
 Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook, and Codex currently deploys only Bash/Stop hook events:
 
@@ -80,7 +124,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
-### 3. Static Guards — Run Anytime
+### Static Guards — Run Anytime
 
 Representative standalone checks you can run on any project. The complete inventory lives in [docs/rule-reference.md](docs/rule-reference.md).
 
@@ -120,7 +164,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 
 ## Slash Commands
 
-10 custom commands covering the full development lifecycle:
+10 custom commands covering the full development lifecycle. Shortcuts: `/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`.
 
 | Command | Purpose |
 |---------|---------|
@@ -135,9 +179,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:gc` | Garbage collection (log archival + worktree cleanup + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
-Shortcuts: `/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`
-
-### Complexity Routing
+**Complexity Routing**
 
 | Scope | Flow |
 |-------|------|
@@ -189,25 +231,9 @@ Analyzes root cause (5-Why) → generates a new guard/hook/rule → verifies det
 
 Extracts non-obvious solutions as structured Skill files for future reuse.
 
-## Golden Principles Implementation
+## Installation
 
-| Principle | From | Implementation |
-|-----------|------|----------------|
-| Automation over documentation | Harness #3 | Hooks + guard scripts enforce mechanically |
-| Error messages = fix instructions | Harness #3 | Every interception tells AI how to fix, not just what's wrong |
-| Maps not manuals | Harness #5 | 7-layer index + negative constraints + lazy loading |
-| Failure → capability | Harness #2 | Mistake → learn → new guard → never again |
-| If agent can't see it, it doesn't exist | Harness #1 | All decisions written to repo (`CLAUDE.md` / ExecPlan / logs) |
-| Give agent eyes | Harness #4 | Observability stack (logs + metrics + alerts) |
-
-## Also Works With
-
-| Tool | How |
-|------|-----|
-| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex hooks) |
-| **Any project** | `cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md` (rules only, no hooks) |
-
-## Installation Options
+### Profiles and languages
 
 ```bash
 # Profiles
@@ -225,11 +251,18 @@ bash ~/vibeguard/setup.sh --check                     # Verify installation
 bash ~/vibeguard/setup.sh --clean                     # Uninstall
 ```
 
+| Profile | Hooks Installed | Use Case |
+|---------|----------------|----------|
+| `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
+| `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
+| `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
+| `strict` | same hook set as full | Maximum enforcement |
+
 ### Codex Integration
 
 VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
 
-**Hooks** (`~/.codex/hooks.json`, requires `codex_hooks = true` in `config.toml`):
+Hooks live in `~/.codex/hooks.json` (requires `codex_hooks = true` in `config.toml`):
 
 | Event | Hook | Function |
 |-------|------|----------|
@@ -240,31 +273,23 @@ VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
 
 > **Note:** Codex PreToolUse/PostToolUse currently only supports the `Bash` matcher. Edit/Write guards (`pre-edit`, `post-edit`, `post-write`) are not yet deployable.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`.
-
-Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`).
-
-```bash
-bash ~/vibeguard/setup.sh --check
-```
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`).
 
 **App-server wrapper** (Symphony-style orchestrators):
 
 ```bash
-python3 ~/vibeguard/scripts/codex/app_server_wrapper.py   --codex-command "codex app-server"
+python3 ~/vibeguard/scripts/codex/app_server_wrapper.py --codex-command "codex app-server"
 ```
 
 - `--strategy vibeguard` (default): applies pre/stop/post gates externally
 - `--strategy noop`: pure pass-through for debugging
 
-### Profiles
+### Use with any project
 
-| Profile | Hooks Installed | Use Case |
-|---------|----------------|----------|
-| `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
-| `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
-| `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
-| `strict` | same hook set as full | Maximum enforcement |
+| Tool | How |
+|------|-----|
+| **OpenAI Codex** | `cp ~/vibeguard/templates/AGENTS.md ./AGENTS.md` + `bash ~/vibeguard/setup.sh` (installs skills + Codex hooks) |
+| **Any project (rules only)** | `cp ~/vibeguard/docs/CLAUDE.md.example ./CLAUDE.md` |
 
 ### Project Bootstrap
 
@@ -278,6 +303,17 @@ bash ~/vibeguard/scripts/project-init.sh /path/to/project
 
 Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there are automatically installed to `~/.claude/rules/vibeguard/custom/` on the next setup run. Format: standard Claude Code rule files with YAML frontmatter.
 
+## Design Principles
+
+| Principle | From | Implementation |
+|-----------|------|----------------|
+| Automation over documentation | Harness #3 | Hooks + guard scripts enforce mechanically |
+| Error messages = fix instructions | Harness #3 | Every interception tells AI how to fix, not just what's wrong |
+| Maps not manuals | Harness #5 | 7-layer index + negative constraints + lazy loading |
+| Failure → capability | Harness #2 | Mistake → learn → new guard → never again |
+| If agent can't see it, it doesn't exist | Harness #1 | All decisions written to repo (`CLAUDE.md` / ExecPlan / logs) |
+| Give agent eyes | Harness #4 | Observability stack (logs + metrics + alerts) |
+
 ## Known Issues
 
 Guard scripts rely heavily on pattern matching (grep/awk or lightweight AST helpers), which means false positives can still happen in some scenarios.
@@ -289,6 +325,18 @@ Key lessons:
 - **grep is not an AST parser** — nested scopes and multi-block structures need language-aware tools
 - **Guard fix messages are consumed by AI agents** — an imprecise fix hint can itself trigger unnecessary edits
 - **Project type awareness matters** — CLI/Web/MCP/Library codebases may need different acceptable patterns for the same language rule
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/README_CN.md](docs/README_CN.md) | Chinese overview and setup guide |
+| [docs/rule-reference.md](docs/rule-reference.md) | Rule layers, guard coverage, and language-specific checks |
+| [docs/CLAUDE.md.example](docs/CLAUDE.md.example) | Project-level CLAUDE template without installing hooks |
+| [docs/linux-setup.md](docs/linux-setup.md) | Linux-specific setup notes |
+| [docs/known-issues/false-positives.md](docs/known-issues/false-positives.md) | Known guard false positives and mitigation notes |
+| [docs/assets/README.md](docs/assets/README.md) | Demo recording script and assets |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow, validation commands, and commit protocol |
 
 ## References
 
