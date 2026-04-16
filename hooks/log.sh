@@ -118,19 +118,28 @@ if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
     _vg_ppid=$(ps -o ppid= -p "$_vg_walk_pid" 2>/dev/null | tr -d ' ') || break
     [[ -z "$_vg_ppid" || "$_vg_ppid" == "0" || "$_vg_ppid" == "1" ]] && break
     _vg_comm=$(ps -o comm= -p "$_vg_ppid" 2>/dev/null | tr -d ' ') || break
-    _vg_args=$(ps -o args= -p "$_vg_ppid" 2>/dev/null || echo "")
-    case "$_vg_comm::$_vg_args" in
-      *codex*::*|node::*@openai/codex*|node::*codex*)
-        _vg_parent_pid="$_vg_ppid"
-        _vg_parent_cli="codex"
-        break
-        ;;
-      node::*claude*|*claude*::*|*Claude*::*|*electron*::*|*Electron*::*)
-        _vg_parent_pid="$_vg_ppid"
-        _vg_parent_cli="claude"
-        break
-        ;;
+    # Fast path on comm alone — avoids a second ps(1) fork for ancestor
+    # levels that are neither node nor a known CLI (login shell, launchd,
+    # init, etc.). ps -o args= only runs when comm == node, where
+    # claude-code / codex-cli / electron all share the same binary name.
+    _vg_need_args=""
+    case "$_vg_comm" in
+      *codex*)
+        _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="codex"; break ;;
+      *claude*|*Claude*|*electron*|*Electron*)
+        _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="claude"; break ;;
+      node)
+        _vg_need_args="1" ;;
     esac
+    if [[ -n "$_vg_need_args" ]]; then
+      _vg_args=$(ps -o args= -p "$_vg_ppid" 2>/dev/null || echo "")
+      case "$_vg_args" in
+        *@openai/codex*|*codex*)
+          _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="codex"; break ;;
+        *@anthropic-ai/claude*|*claude*|*Claude*)
+          _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="claude"; break ;;
+      esac
+    fi
     _vg_walk_pid="$_vg_ppid"
     _vg_depth=$((_vg_depth + 1))
   done
