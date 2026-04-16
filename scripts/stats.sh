@@ -57,6 +57,7 @@ period = f'all history' if days == 'all' else f'last {days} days'
 total = len(events)
 by_decision = Counter(e.get('decision', 'unknown') for e in events)
 by_hook = Counter(e.get('hook', 'unknown') for e in events)
+by_cli = Counter(e.get('cli', 'unknown') for e in events)
 
 blocks = [e for e in events if e.get('decision') == 'block']
 warns = [e for e in events if e.get('decision') == 'warn']
@@ -83,6 +84,10 @@ Total triggers: {total} times
 print(f'Distributed by Hook:')
 for hook, count in by_hook.most_common():
     print(f' {hook}: {count} times')
+
+print(f'\nDistributed by CLI:')
+for cli, count in by_cli.most_common():
+    print(f' {cli}: {count} times')
 
 if block_reasons:
     print(f'\nInterception reasons Top 5:')

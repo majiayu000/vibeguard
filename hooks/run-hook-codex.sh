@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+export VIBEGUARD_AGENT_TYPE="codex"
+export VIBEGUARD_CLI="codex"
+
 HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
