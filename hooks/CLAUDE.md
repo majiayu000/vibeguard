@@ -12,7 +12,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept dangerous commands: force push, rm -rf /, reset --hard, etc. | ✅ |
 | `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination) | ❌ |
 | `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file | ❌ |
-| `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn) | ❌ |
+| `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop (3+ in a row) | ❌ |
 | `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file | ❌ |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing | ✅ |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default | ❌ |

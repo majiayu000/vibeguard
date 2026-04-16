@@ -96,3 +96,30 @@ bug fix 范围严格锁定，不顺便重构周围代码。
 - RulesConfig 从 TOML 加载但消费者调用 `Default::default()` → 配置不生效
 - ThreadManager 有 `persist()` 方法但从不调用 → 死代码
 - GC 收到 `project_root` 但不传播给子任务 → 功能降级
+
+## U-32: 规则过载阈值 + 绝对化语言检测（严格）
+单个规则文件中活跃约束条目 **> 30 条**时，触发过载警告。规则中使用绝对化语言（"确保/永远/必须/绝不"）时需配 **降级路径**，避免 illusion of control。
+
+**来源**（三源印证，2026-04-16）：
+- Addy Osmani "How to Write a Good Spec"：**curse of instructions** — 10 条规则比 5 条遵守度更低（实验数据）
+- Anthropic Claude Code Best Practices：**bloated CLAUDE.md causes Claude to ignore your actual instructions**
+- Martin Fowler "Context Engineering"：**illusion of control** 反模式 — LLM 本质概率性，绝对化语言制造虚假保证
+
+**机械化检查**：
+1. 规则文件总条数 > 30 → 建议拆分为 path-scoped 子文件（如 `*.rs` 仅加载 Rust 规则）
+2. 规则中出现 "确保 X / 永远不 Y / 必须 X 100%" 绝对化表述 → 必须附加：
+   - **降级路径**："若 X 不可行，降级到 Y 并标记 stale"
+   - **可观测钩子**：验证该规则实际被遵守的命令或 guard 脚本
+3. CLAUDE.md / AGENTS.md 全局文件 > 100 行 → 拆分到 skills 或 path-scoped 规则
+
+**修复顺序**：
+1. 审计当前规则集，标注每条规则的触发频率（访问日志）
+2. 低频规则（过去 30 天 0 触发）候选移除或降级为 skill
+3. 高频规则验证是否有"绝对化但无降级路径"
+4. 大文件按语言/领域拆分（`common/`, `rust/`, `python/`, `security/`）
+
+**反模式**：
+- 单文件累积 50+ 条规则并要求全部同时生效
+- 新增规则不删除旧规则，仅靠覆盖解决冲突
+- 规则写"必须永远不 X"但没说 X 不可避免时怎么办
+- 将"建议/约定"升级为"严格"以图强制，反而导致被忽略

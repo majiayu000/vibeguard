@@ -77,15 +77,6 @@ Use VibeGuard if you:
 
 It may be overkill if you only use AI occasionally or don't want hook-level interception.
 
-## VibeGuard vs Everything Claude Code
-
-| Project | Focus | Use for |
-|---------|-------|---------|
-| [Everything Claude Code](https://github.com/anthropics/everything-claude-code) | Make agents **more capable** | Productivity, skills, memory |
-| **VibeGuard** | Stop agents from making **predictable mistakes** | Safety rails, quality control |
-
-**They're complementary, not competing.** Use both together.
-
 Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
 
 ## How It Works

@@ -93,6 +93,14 @@ Appends discoveries and status changes during execution.
 4. **Show update summary**
    - Output changed chapter content
    - If there are Surprises, the highlight prompt may need to adjust the subsequent steps
+   - **Surprise threshold check (≥5)**: Count total Surprises entries in the ExecPlan. If `count >= 5`, output a warning block:
+     ```
+     ⚠️ Surprise count (N) >= 5 — current SPEC may diverge from reality
+     Recommendation: re-run `/vibeguard:interview` to refresh SPEC, then `/vibeguard:exec-plan init` to regenerate
+     Reason: high Surprise density indicates initial SPEC underestimated complexity / missed dependencies
+     ```
+   - Threshold rationale: 5+ unexpected discoveries means the original assumption tree has decayed (per W-02 / W-15 — when failure/divergence accumulates, switching direction has higher expected value than continuing)
+   - User decides whether to re-interview; this is a **suggestion**, not an enforced halt
 
 ---
 

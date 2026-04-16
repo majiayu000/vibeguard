@@ -67,6 +67,7 @@ if not events:
 events.sort(key=lambda e: e["_parsed_ts"])
 total = len(events)
 by_decision = Counter(e.get("decision", "unknown") for e in events)
+by_cli = Counter(e.get("cli", "unknown") for e in events)
 pass_count = by_decision.get("pass", 0)
 risk_count = total - pass_count
 risk_rate = (risk_count / total * 100) if total else 0.0
@@ -86,6 +87,9 @@ print(f"  gate: {by_decision.get('gate', 0)}")
 print(f"  warn: {by_decision.get('warn', 0)}")
 print(f"  escalate: {by_decision.get('escalate', 0)}")
 print(f"  correction: {by_decision.get('correction', 0)}")
+print("CLI distribution:")
+for cli, count in by_cli.most_common():
+    print(f"  {cli}: {count}")
 
 non_pass_events = [e for e in events if e.get("decision") != "pass"]
 if non_pass_events:
@@ -100,13 +104,14 @@ if non_pass_events:
         session = event.get("session", "?")
         hook = event.get("hook", "unknown")
         decision = event.get("decision", "unknown")
+        cli = event.get("cli", "unknown")
         reason = (event.get("reason") or "").replace("\n", " ").strip()
         detail = (event.get("detail") or "").replace("\n", " ").strip()
         if len(reason) > 100:
             reason = reason[:97] + "..."
         if len(detail) > 100:
             detail = detail[:97] + "..."
-        print(f"  {i}. {ts} | {hook} | {decision} | session={session}")
+        print(f"  {i}. {ts} | {hook} | {decision} | cli={cli} | session={session}")
         if reason:
             print(f"     reason: {reason}")
         if detail:

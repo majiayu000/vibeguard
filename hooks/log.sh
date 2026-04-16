@@ -106,94 +106,93 @@ print(get_nested(data, sys.argv[2]))
   fi
 }
 
-# Session ID: Events within the same Claude Code session share the same session_id
-# Strategy: ancestor process PID + 30-minute inactivity window + process startup time anchor
-# - PID isolation: parallel Claude instances each have an independent session_id
-# - 30min TTL: Different tasks in the same process (interval >30min) generate new session_id to prevent cross-task pollution
-# - Process startup time anchoring: prevent PID recycling from causing the old session_id to be inherited (ps -o comm cannot distinguish new processes with the same name)
-if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
-  # Walk up the process tree to find the ancestor Claude Code (node/Electron) process.
-  # Each parallel Claude Code instance has a unique PID, so this gives true per-instance isolation.
-  _vg_claude_pid=""
+# Session ID: events within the same CLI session share the same session_id.
+# Strategy: ancestor process PID + 30-minute inactivity window + process startup time anchor.
+# Also infer the caller CLI so events can distinguish Claude Code vs Codex.
+if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
+  _vg_parent_pid=""
+  _vg_parent_cli=""
   _vg_walk_pid="$$"
   _vg_depth=0
   while [[ $_vg_depth -lt 8 ]]; do
     _vg_ppid=$(ps -o ppid= -p "$_vg_walk_pid" 2>/dev/null | tr -d ' ') || break
     [[ -z "$_vg_ppid" || "$_vg_ppid" == "0" || "$_vg_ppid" == "1" ]] && break
     _vg_comm=$(ps -o comm= -p "$_vg_ppid" 2>/dev/null | tr -d ' ') || break
+    # Fast path on comm alone — avoids a second ps(1) fork for ancestor
+    # levels that are neither node nor a known CLI (login shell, launchd,
+    # init, etc.). ps -o args= only runs when comm == node, where
+    # claude-code / codex-cli / electron all share the same binary name.
+    _vg_need_args=""
     case "$_vg_comm" in
-      node|*claude*|*Claude*|*electron*|*Electron*)
-        _vg_claude_pid="$_vg_ppid"
-        break
-        ;;
+      *codex*)
+        _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="codex"; break ;;
+      *claude*|*Claude*|*electron*|*Electron*)
+        _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="claude"; break ;;
+      node)
+        _vg_need_args="1" ;;
     esac
+    if [[ -n "$_vg_need_args" ]]; then
+      _vg_args=$(ps -o args= -p "$_vg_ppid" 2>/dev/null || echo "")
+      case "$_vg_args" in
+        *@openai/codex*|*codex*)
+          _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="codex"; break ;;
+        *@anthropic-ai/claude*|*claude*|*Claude*)
+          _vg_parent_pid="$_vg_ppid"; _vg_parent_cli="claude"; break ;;
+      esac
+    fi
     _vg_walk_pid="$_vg_ppid"
     _vg_depth=$((_vg_depth + 1))
   done
 
-  if [[ -n "$_vg_claude_pid" ]]; then
-    # Capture the process start time as a stable identity anchor.
-    # ps -o lstart= returns a fixed timestamp for the process lifetime, unlike comm which only
-    # checks the name — a recycled PID can have a new process with the same name but a different
-    # start time, allowing us to detect the recycling and create a fresh session.
-    # TZ=UTC is forced so the lstart string is timezone-independent: the same PID always
-    # produces the same string regardless of the user's TZ setting, DST transitions, or
-    # whether hooks inherit different TZ values across invocations.
-    _vg_proc_start=$(TZ=UTC ps -o lstart= -p "$_vg_claude_pid" 2>/dev/null | xargs || echo "unknown")
+  if [[ -z "${VIBEGUARD_CLI:-}" ]]; then
+    if [[ -n "$_vg_parent_cli" ]]; then
+      VIBEGUARD_CLI="$_vg_parent_cli"
+    else
+      VIBEGUARD_CLI="unknown"
+    fi
+  fi
 
-    _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_pid_${_vg_claude_pid}"
-
-    # Reuse conditions (all three must hold):
-    # 1. Session file exists
-    # 2. Within 30-minute inactivity window — long-lived Claude processes run many tasks; the TTL
-    #    ensures separate conversations (idle gap > 30 min) get distinct session IDs so that
-    #    warn/escalate counters and skills-loaded flags do not leak across tasks.
-    # 3. Stored start time matches current process start time — guards against PID recycling where
-    #    a new Claude/node process inherits the same PID as the previous one.
-    _vg_reuse=false
-    if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
-      _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
-      if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
-        _vg_reuse=true
+  if [[ -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
+    if [[ -n "$_vg_parent_pid" ]]; then
+      _vg_proc_start=$(TZ=UTC ps -o lstart= -p "$_vg_parent_pid" 2>/dev/null | xargs || echo "unknown")
+      _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_${VIBEGUARD_CLI}_${_vg_parent_pid}"
+      _vg_reuse=false
+      if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+        _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
+        if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
+          _vg_reuse=true
+        fi
       fi
-    fi
 
-    if [[ "$_vg_reuse" == "true" ]]; then
-      VIBEGUARD_SESSION_ID=$(tail -1 "$_vg_sf" 2>/dev/null)
-      touch "$_vg_sf" 2>/dev/null || true
-    else
-      # New session: first use, 30-min TTL expired, or PID recycled (start time mismatch).
-      VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-      mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
-      # Atomic write: write to a temp file then rename so concurrent hook invocations
-      # sharing the same Claude parent PID never observe a partially-written file.
-      # Without this, a reader that runs between the open(O_TRUNC) and the final write
-      # of the second line would see an empty or single-line file and use the start-time
-      # string (line 1) as the session_id, corrupting all per-session counters/flags.
-      # File format: line 1 = process start time anchor (UTC), line 2 = session_id
-      _vg_tmp=$(mktemp "${VIBEGUARD_PROJECT_LOG_DIR}/.session_tmp_XXXXXX" 2>/dev/null) \
-        || _vg_tmp="${_vg_sf}.tmp.$$"
-      printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_tmp" \
-        && mv "$_vg_tmp" "$_vg_sf" 2>/dev/null \
-        || { rm -f "$_vg_tmp" 2>/dev/null; printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_sf"; }
-    fi
+      if [[ "$_vg_reuse" == "true" ]]; then
+        VIBEGUARD_SESSION_ID=$(tail -1 "$_vg_sf" 2>/dev/null)
+        touch "$_vg_sf" 2>/dev/null || true
+      else
+        VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+        mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
+        _vg_tmp=$(mktemp "${VIBEGUARD_PROJECT_LOG_DIR}/.session_tmp_XXXXXX" 2>/dev/null) \
+          || _vg_tmp="${_vg_sf}.tmp.$$"
+        printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_tmp" \
+          && mv "$_vg_tmp" "$_vg_sf" 2>/dev/null \
+          || { rm -f "$_vg_tmp" 2>/dev/null; printf '%s\n%s\n' "$_vg_proc_start" "$VIBEGUARD_SESSION_ID" > "$_vg_sf"; }
+      fi
 
-    # Clean up PID session files older than 2 hours to prevent unbounded disk growth.
-    find "${VIBEGUARD_PROJECT_LOG_DIR}" -maxdepth 1 -name ".session_pid_*" -mmin +120 -delete 2>/dev/null || true
-  else
-    # Fallback for non-Claude Code environments (CI, manual invocation, etc.):
-    # time-based 30-minute session window (original behavior).
-    _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_id"
-    if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
-      VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
-      touch "$_vg_sf" 2>/dev/null || true
+      find "${VIBEGUARD_PROJECT_LOG_DIR}" -maxdepth 1 -name ".session_*" -mmin +120 -delete 2>/dev/null || true
     else
-      VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
-      mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
-      printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+      _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_id_${VIBEGUARD_CLI}"
+      if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
+        VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
+        touch "$_vg_sf" 2>/dev/null || true
+      else
+        VIBEGUARD_SESSION_ID=$(printf '%04x%04x' $RANDOM $RANDOM)
+        mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
+        printf '%s' "$VIBEGUARD_SESSION_ID" > "$_vg_sf"
+      fi
     fi
   fi
 fi
+
+export VIBEGUARD_CLI VIBEGUARD_SESSION_ID
 
 #Timer: call vg_start_timer at the beginning of the hook, vg_log automatically calculates the time consumption
 _VG_START_MS=""
@@ -257,6 +256,7 @@ vg_log() {
   local json
   json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
+  [[ -n "${VIBEGUARD_CLI:-}" ]] && json="${json}, \"cli\": \"${VIBEGUARD_CLI}\""
   [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
   json="${json}}"
 
