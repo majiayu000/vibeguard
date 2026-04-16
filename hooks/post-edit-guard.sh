@@ -347,6 +347,46 @@ DO NOT: Take any action — this is informational only"
   vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
 fi
 
+# --- [W-15] Consecutive Edit Loop Detection ---
+# Distinct from CHURN (counts total session edits, non-consecutive):
+# Counts edits to SAME FILE with NO intervening edits to other files.
+# 3+ consecutive same-file edits → low-info loop suspect (W-15).
+# Note: W-15 spec also requires "±10 lines region" check; the event log does not
+# capture line numbers, so this is a file-level proxy (coarser than full spec).
+PAST_CONSECUTIVE=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
+import json, sys, os
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+edits = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        e = json.loads(line)
+        if (e.get("session") == session and e.get("tool") == "Edit"
+                and e.get("hook") == "post-edit-guard"):
+            edits.append(e.get("detail", "").split("||")[0].strip())
+    except (json.JSONDecodeError, KeyError): continue
+consec = 0
+for ep in reversed(edits):
+    if ep == file_path: consec += 1
+    else: break
+print(consec)
+' 2>/dev/null | tr -d '[:space:]' || echo "0")
+PAST_CONSECUTIVE="${PAST_CONSECUTIVE:-0}"
+
+# Threshold: 2 past consecutive + this edit = 3 in a row → W-15 trigger
+if [[ "$PAST_CONSECUTIVE" -ge 2 ]]; then
+  TOTAL_CONSECUTIVE=$((PAST_CONSECUTIVE + 1))
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[W-15] [review] [this-file] OBSERVATION: ${TOTAL_CONSECUTIVE} consecutive edits to ${FILE_PATH##*/} with no edits to other files in between (low-info loop suspect)
+FIX: Pause — are these ${TOTAL_CONSECUTIVE} edits solving the same problem? If change scope shrinks each round, report a blocker instead of continuing to round $((TOTAL_CONSECUTIVE + 1))
+DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting"
+  vg_log "post-edit-guard" "Edit" "warn" "w15 consecutive ${TOTAL_CONSECUTIVE}x" "$FILE_PATH"
+fi
+
 if [[ -z "$WARNINGS" ]]; then
   vg_log "post-edit-guard" "Edit" "pass" "" "$FILE_PATH"
   exit 0
