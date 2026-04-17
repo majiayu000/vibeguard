@@ -36,13 +36,21 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
     let hour: i64 = tp[0].parse().ok()?;
     let min: i64 = tp[1].parse().ok()?;
     let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
+    if hour > 23 || min > 59 || sec > 59 {
+        return None;
+    }
 
     let is_leap = |y: i64| (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let max_day = if month == 2 && is_leap(year) { 29 } else { month_days[(month - 1) as usize] };
+    if day < 1 || day > max_day {
+        return None;
+    }
+
     let mut days: i64 = 0;
     for y in 1970..year {
         days += if is_leap(y) { 366 } else { 365 };
     }
-    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for m in 1..month {
         days += month_days[(m - 1) as usize];
         if m == 2 && is_leap(year) {
@@ -59,16 +67,18 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
 }
 
 /// Returns true if the event should be included in session metrics.
-/// Events whose `ts` field is present but unparseable are excluded to
-/// prevent filter bypass from corrupt log lines.
+/// Events whose `ts` field is present but not a parseable ISO-8601 string are
+/// excluded to prevent filter bypass from corrupt log lines (including non-string types).
 fn event_passes_time_filter(e: &Value, cutoff_secs: u64) -> bool {
-    if let Some(ts) = e.get("ts").and_then(Value::as_str) {
-        match parse_iso_ts(ts) {
-            Some(evt_secs) => evt_secs >= cutoff_secs,
+    match e.get("ts") {
+        None => true,
+        Some(ts_val) => match ts_val.as_str() {
+            Some(ts) => match parse_iso_ts(ts) {
+                Some(evt_secs) => evt_secs >= cutoff_secs,
+                None => false,
+            },
             None => false,
-        }
-    } else {
-        true
+        },
     }
 }
 
@@ -378,6 +388,24 @@ mod tests {
         assert_eq!(parse_iso_ts("2024-00-01T00:00:00Z"), None);
     }
 
+    #[test]
+    fn test_parse_out_of_range_day_returns_none() {
+        assert_eq!(parse_iso_ts("2026-04-00T12:00:00Z"), None); // day=0
+        assert_eq!(parse_iso_ts("2026-04-31T12:00:00Z"), None); // April has 30 days
+        assert_eq!(parse_iso_ts("2026-02-29T12:00:00Z"), None); // 2026 is not a leap year
+        assert_eq!(parse_iso_ts("2026-02-31T12:00:00Z"), None); // Feb never has 31 days
+        assert!(parse_iso_ts("2024-02-29T12:00:00Z").is_some()); // 2024 is a leap year
+    }
+
+    #[test]
+    fn test_parse_out_of_range_time_returns_none() {
+        assert_eq!(parse_iso_ts("2026-04-18T99:00:00Z"), None); // hour=99
+        assert_eq!(parse_iso_ts("2026-04-18T24:00:00Z"), None); // hour=24
+        assert_eq!(parse_iso_ts("2026-04-18T00:60:00Z"), None); // min=60
+        assert_eq!(parse_iso_ts("2026-04-18T00:00:60Z"), None); // sec=60
+        assert_eq!(parse_iso_ts("2026-04-00T99:99:99Z"), None); // day+time all invalid
+    }
+
     // --- 30-minute time-window filter ---
 
     #[test]
@@ -421,6 +449,20 @@ mod tests {
             !event_passes_time_filter(&e, cutoff),
             "event with unparseable ts must be excluded, not fall through the 30-min filter"
         );
+    }
+
+    #[test]
+    fn test_non_string_ts_is_excluded_by_filter() {
+        // ts present as number, object, or array — must be excluded, not silently admitted.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": 123456789}), cutoff),
+            "numeric ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": {}}), cutoff),
+            "object ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": []}), cutoff),
+            "array ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": null}), cutoff),
+            "null ts must be excluded");
     }
 
     #[test]
