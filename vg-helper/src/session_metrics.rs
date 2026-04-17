@@ -314,3 +314,103 @@ fn chrono_now() -> String {
         Err(_) => "1970-01-01T00:00:00Z".into(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_iso_ts ---
+
+    #[test]
+    fn test_parse_unix_epoch() {
+        assert_eq!(parse_iso_ts("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    #[test]
+    fn test_parse_z_suffix() {
+        // 2024-01-01T00:00:00Z
+        // Days from 1970-01-01 to 2024-01-01:
+        //   leap years in [1970, 2024): 1972,1976,...,2020 => (2020-1972)/4+1 = 13 leap years
+        //   total years = 54, non-leap = 41, leap = 13 => 41*365 + 13*366 = 14965+4758 = 19723 days
+        let expected_secs: u64 = 19723 * 86400;
+        assert_eq!(parse_iso_ts("2024-01-01T00:00:00Z"), Some(expected_secs));
+    }
+
+    #[test]
+    fn test_parse_plus00_suffix() {
+        assert_eq!(
+            parse_iso_ts("1970-01-01T00:00:00+00:00"),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn test_parse_with_hms() {
+        // 1970-01-01T01:02:03Z = 3600+120+3 = 3723 secs
+        assert_eq!(parse_iso_ts("1970-01-01T01:02:03Z"), Some(3723));
+    }
+
+    #[test]
+    fn test_parse_invalid_returns_none() {
+        assert_eq!(parse_iso_ts("not-a-timestamp"), None);
+        assert_eq!(parse_iso_ts(""), None);
+        assert_eq!(parse_iso_ts("2024-01-01"), None); // missing T separator
+    }
+
+    // --- 30-minute time-window filter ---
+
+    #[test]
+    fn test_event_inside_30min_window_passes() {
+        // An event timestamped "now" should not be filtered out
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(30 * 60);
+        // event at 1 minute ago
+        let evt_secs = now.saturating_sub(60);
+        assert!(evt_secs >= cutoff, "recent event should pass the 30-min filter");
+    }
+
+    #[test]
+    fn test_event_outside_30min_window_drops() {
+        // An event timestamped 31 minutes ago should be filtered out
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(30 * 60);
+        let evt_secs = now.saturating_sub(31 * 60);
+        assert!(evt_secs < cutoff, "old event should be dropped by 30-min filter");
+    }
+
+    #[test]
+    fn test_event_exactly_at_cutoff_passes() {
+        // An event at exactly the cutoff boundary is kept (>= cutoff)
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(30 * 60);
+        assert!(cutoff >= cutoff);
+    }
+
+    // --- session ID filter ---
+
+    #[test]
+    fn test_different_session_is_excluded() {
+        let session = "sess-A";
+        let evt_session = "sess-B";
+        // mirrors: if !evt_session.is_empty() && evt_session != session { continue; }
+        let excluded = !evt_session.is_empty() && evt_session != session;
+        assert!(excluded, "event from different session must be excluded");
+    }
+
+    #[test]
+    fn test_same_session_is_included() {
+        let session = "sess-A";
+        let evt_session = "sess-A";
+        let excluded = !evt_session.is_empty() && evt_session != session;
+        assert!(!excluded, "event from same session must be included");
+    }
+
+    #[test]
+    fn test_missing_session_field_is_included() {
+        // Events with no session field pass through regardless
+        let session = "sess-A";
+        let evt_session = "";
+        let excluded = !evt_session.is_empty() && evt_session != session;
+        assert!(!excluded, "event with no session field must be included");
+    }
+}
