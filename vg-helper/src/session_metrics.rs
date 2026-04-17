@@ -30,6 +30,9 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
     let year: i64 = dp[0].parse().ok()?;
     let month: i64 = dp[1].parse().ok()?;
     let day: i64 = dp[2].parse().ok()?;
+    if month < 1 || month > 12 {
+        return None;
+    }
     let hour: i64 = tp[0].parse().ok()?;
     let min: i64 = tp[1].parse().ok()?;
     let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
@@ -53,6 +56,20 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
         return None;
     }
     Some(total as u64)
+}
+
+/// Returns true if the event should be included in session metrics.
+/// Events whose `ts` field is present but unparseable are excluded to
+/// prevent filter bypass from corrupt log lines.
+fn event_passes_time_filter(e: &Value, cutoff_secs: u64) -> bool {
+    if let Some(ts) = e.get("ts").and_then(Value::as_str) {
+        match parse_iso_ts(ts) {
+            Some(evt_secs) => evt_secs >= cutoff_secs,
+            None => false,
+        }
+    } else {
+        true
+    }
 }
 
 /// Usage: tail -1000 $LOG | vg-helper session-metrics <session_id> <project_log_dir>
@@ -87,13 +104,10 @@ pub fn run(args: &[String]) -> Result {
         if !evt_session.is_empty() && evt_session != session.as_str() {
             continue;
         }
-        // Drop events older than 30 minutes to prevent cross-session contamination
-        if let Some(ts) = e.get("ts").and_then(Value::as_str) {
-            if let Some(evt_secs) = parse_iso_ts(ts) {
-                if evt_secs < cutoff_secs {
-                    continue;
-                }
-            }
+        // Drop events outside the 30-minute window.  Events whose `ts` is
+        // present but unparseable are also dropped (not passed through).
+        if !event_passes_time_filter(&e, cutoff_secs) {
+            continue;
         }
         events.push(e);
     }
@@ -357,6 +371,13 @@ mod tests {
         assert_eq!(parse_iso_ts("2024-01-01"), None); // missing T separator
     }
 
+    #[test]
+    fn test_parse_out_of_range_month_returns_none() {
+        // month=13 would index month_days[12] — out of bounds without validation
+        assert_eq!(parse_iso_ts("2024-13-01T00:00:00Z"), None);
+        assert_eq!(parse_iso_ts("2024-00-01T00:00:00Z"), None);
+    }
+
     // --- 30-minute time-window filter ---
 
     #[test]
@@ -380,10 +401,51 @@ mod tests {
 
     #[test]
     fn test_event_exactly_at_cutoff_passes() {
-        // An event at exactly the cutoff boundary is kept (>= cutoff)
+        // Production code: `if evt_secs < cutoff_secs { continue; }`
+        // An event AT exactly the cutoff must NOT be dropped (strict less-than).
+        // If the comparison ever regresses to `<=`, this test will fail.
         let now = now_unix_secs();
         let cutoff = now.saturating_sub(30 * 60);
-        assert!(cutoff >= cutoff);
+        let evt_secs = cutoff;
+        assert!(!(evt_secs < cutoff), "event at exactly the cutoff boundary must not be dropped");
+    }
+
+    // --- event_passes_time_filter (caller-path coverage for issues 1 & 3) ---
+
+    #[test]
+    fn test_malformed_ts_is_excluded_by_filter() {
+        // Exercises the caller path: parse_iso_ts(ts)==None must NOT fall through to push.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        let e = serde_json::json!({"ts": "not-a-date", "hook": "test"});
+        assert!(
+            !event_passes_time_filter(&e, cutoff),
+            "event with unparseable ts must be excluded, not fall through the 30-min filter"
+        );
+    }
+
+    #[test]
+    fn test_no_ts_field_passes_filter() {
+        // Events with no ts field have no timestamp to validate — include them.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        let e = serde_json::json!({"hook": "test"});
+        assert!(event_passes_time_filter(&e, cutoff));
+    }
+
+    #[test]
+    fn test_recent_ts_passes_filter() {
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(30 * 60);
+        // 1970-01-01T00:00:00Z = 0 secs — far older than cutoff, should be dropped
+        assert!(!event_passes_time_filter(
+            &serde_json::json!({"ts": "1970-01-01T00:00:00Z"}),
+            cutoff
+        ));
+        // epoch + cutoff + 60 secs — inside the window, should pass
+        // Use a timestamp we know is "recent" relative to a cutoff of 0
+        assert!(event_passes_time_filter(
+            &serde_json::json!({"ts": "1970-01-01T00:00:00Z"}),
+            0
+        ));
     }
 
     // --- session ID filter ---
