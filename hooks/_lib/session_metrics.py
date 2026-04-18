@@ -40,14 +40,11 @@ session_id = os.environ.get("VIBEGUARD_SESSION_ID", "")
 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 skip_hooks = {"stop-guard", "learn-evaluator"}
 events = []
-for event in load_events_from_file(log_file):
+for event in load_events_from_file(log_file, since=cutoff):
     if event.get("hook", "") in skip_hooks:
         continue
     evt_session = event.get("session", "")
     if evt_session and session_id and evt_session != session_id:
-        continue
-    evt_time = parse_ts(event.get("ts", ""))
-    if evt_time is not None and evt_time < cutoff:
         continue
     events.append(event)
 

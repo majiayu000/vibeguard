@@ -42,7 +42,11 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
 
     let is_leap = |y: i64| (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let max_day = if month == 2 && is_leap(year) { 29 } else { month_days[(month - 1) as usize] };
+    let max_day = if month == 2 && is_leap(year) {
+        29
+    } else {
+        month_days[(month - 1) as usize]
+    };
     if day < 1 || day > max_day {
         return None;
     }
@@ -407,10 +411,7 @@ mod tests {
 
     #[test]
     fn test_parse_plus00_suffix() {
-        assert_eq!(
-            parse_iso_ts("1970-01-01T00:00:00+00:00"),
-            Some(0)
-        );
+        assert_eq!(parse_iso_ts("1970-01-01T00:00:00+00:00"), Some(0));
     }
 
     #[test]
@@ -502,14 +503,22 @@ mod tests {
     fn test_non_string_ts_is_excluded_by_filter() {
         // ts present as number, object, or array — must be excluded, not silently admitted.
         let cutoff = now_unix_secs().saturating_sub(30 * 60);
-        assert!(!event_passes_time_filter(&serde_json::json!({"ts": 123456789}), cutoff),
-            "numeric ts must be excluded");
-        assert!(!event_passes_time_filter(&serde_json::json!({"ts": {}}), cutoff),
-            "object ts must be excluded");
-        assert!(!event_passes_time_filter(&serde_json::json!({"ts": []}), cutoff),
-            "array ts must be excluded");
-        assert!(!event_passes_time_filter(&serde_json::json!({"ts": null}), cutoff),
-            "null ts must be excluded");
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": 123456789}), cutoff),
+            "numeric ts must be excluded"
+        );
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": {}}), cutoff),
+            "object ts must be excluded"
+        );
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": []}), cutoff),
+            "array ts must be excluded"
+        );
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": null}), cutoff),
+            "null ts must be excluded"
+        );
     }
 
     #[test]
@@ -542,22 +551,28 @@ mod tests {
     #[test]
     fn test_different_session_is_excluded() {
         let e = serde_json::json!({"session": "sess-B", "hook": "test"});
-        assert!(!event_passes_session_filter(&e, "sess-A"),
-            "event from different session must be excluded");
+        assert!(
+            !event_passes_session_filter(&e, "sess-A"),
+            "event from different session must be excluded"
+        );
     }
 
     #[test]
     fn test_same_session_is_included() {
         let e = serde_json::json!({"session": "sess-A", "hook": "test"});
-        assert!(event_passes_session_filter(&e, "sess-A"),
-            "event from same session must be included");
+        assert!(
+            event_passes_session_filter(&e, "sess-A"),
+            "event from same session must be included"
+        );
     }
 
     #[test]
     fn test_missing_session_field_is_included() {
         let e = serde_json::json!({"hook": "test"});
-        assert!(event_passes_session_filter(&e, "sess-A"),
-            "event with no session field must be included");
+        assert!(
+            event_passes_session_filter(&e, "sess-A"),
+            "event with no session field must be included"
+        );
     }
 
     // --- run() integration tests: exercise the full production path via run_inner ---
@@ -588,9 +603,21 @@ mod tests {
             "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
         );
         let mut out = Vec::<u8>::new();
-        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
-        assert!(out.is_empty(), "no output expected when event count < 3 after skip filtering");
-        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
+        assert!(
+            out.is_empty(),
+            "no output expected when event count < 3 after skip filtering"
+        );
+        assert!(
+            !metrics_path.exists(),
+            "metrics file must not be written when event count < 3"
+        );
     }
 
     #[test]
@@ -606,9 +633,21 @@ mod tests {
             "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
         );
         let mut out = Vec::<u8>::new();
-        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
-        assert!(out.is_empty(), "no output expected when event count < 3 after session filtering");
-        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
+        assert!(
+            out.is_empty(),
+            "no output expected when event count < 3 after session filtering"
+        );
+        assert!(
+            !metrics_path.exists(),
+            "metrics file must not be written when event count < 3"
+        );
     }
 
     #[test]
@@ -626,9 +665,21 @@ mod tests {
         );
         let cutoff = 60u64;
         let mut out = Vec::<u8>::new();
-        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, cutoff).unwrap();
-        assert!(out.is_empty(), "no output expected when event count < 3 after time filtering");
-        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            cutoff,
+        )
+        .unwrap();
+        assert!(
+            out.is_empty(),
+            "no output expected when event count < 3 after time filtering"
+        );
+        assert!(
+            !metrics_path.exists(),
+            "metrics file must not be written when event count < 3"
+        );
     }
 
     #[test]
@@ -646,10 +697,22 @@ mod tests {
             "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
         );
         let mut out = Vec::<u8>::new();
-        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
         let stdout_text = String::from_utf8(out).unwrap();
-        assert!(stdout_text.contains("LEARN_SUGGESTED"), "expected LEARN_SUGGESTED in stdout");
-        assert!(metrics_path.exists(), "metrics file must be written when ≥3 events processed");
+        assert!(
+            stdout_text.contains("LEARN_SUGGESTED"),
+            "expected LEARN_SUGGESTED in stdout"
+        );
+        assert!(
+            metrics_path.exists(),
+            "metrics file must be written when ≥3 events processed"
+        );
         let file_content = std::fs::read_to_string(&metrics_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(file_content.trim()).unwrap();
         assert_eq!(parsed["session"], "sess-A");
@@ -669,9 +732,21 @@ mod tests {
             "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
         );
         let mut out = Vec::<u8>::new();
-        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
         let stdout_text = String::from_utf8(out).unwrap();
-        assert!(!stdout_text.contains("LEARN_SUGGESTED"), "no signal expected for clean session");
-        assert!(metrics_path.exists(), "metrics file must still be written even with no signals");
+        assert!(
+            !stdout_text.contains("LEARN_SUGGESTED"),
+            "no signal expected for clean session"
+        );
+        assert!(
+            metrics_path.exists(),
+            "metrics file must still be written even with no signals"
+        );
     }
 }
