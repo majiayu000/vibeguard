@@ -36,7 +36,7 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
     let hour: i64 = tp[0].parse().ok()?;
     let min: i64 = tp[1].parse().ok()?;
     let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
-    if hour > 23 || min > 59 || sec > 59 {
+    if hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59 {
         return None;
     }
 
@@ -82,6 +82,12 @@ fn event_passes_time_filter(e: &Value, cutoff_secs: u64) -> bool {
     }
 }
 
+/// Returns true if the event belongs to the given session (or has no session field).
+fn event_passes_session_filter(evt: &Value, session: &str) -> bool {
+    let evt_session = evt.get("session").and_then(Value::as_str).unwrap_or("");
+    evt_session.is_empty() || evt_session == session
+}
+
 /// Usage: tail -1000 $LOG | vg-helper session-metrics <session_id> <project_log_dir>
 pub fn run(args: &[String]) -> Result {
     if args.len() < 2 {
@@ -110,8 +116,7 @@ pub fn run(args: &[String]) -> Result {
         // Filter to current session only — parallel agents in the same repo share the
         // same project log; without this filter their events contaminate warn_ratio and
         // Signal 10 baseline, producing false LEARN_SUGGESTED stops.
-        let evt_session = e.get("session").and_then(Value::as_str).unwrap_or("");
-        if !evt_session.is_empty() && evt_session != session.as_str() {
+        if !event_passes_session_filter(&e, session) {
             continue;
         }
         // Drop events outside the 30-minute window.  Events whose `ts` is
@@ -404,38 +409,40 @@ mod tests {
         assert_eq!(parse_iso_ts("2026-04-18T00:60:00Z"), None); // min=60
         assert_eq!(parse_iso_ts("2026-04-18T00:00:60Z"), None); // sec=60
         assert_eq!(parse_iso_ts("2026-04-00T99:99:99Z"), None); // day+time all invalid
+        // negative time components must also be rejected
+        assert_eq!(parse_iso_ts("2026-04-18T-1:00:00Z"), None); // hour=-1
+        assert_eq!(parse_iso_ts("2026-04-18T00:-1:00Z"), None); // min=-1
+        assert_eq!(parse_iso_ts("2026-04-18T00:00:-1Z"), None); // sec=-1
     }
 
-    // --- 30-minute time-window filter ---
+    // --- 30-minute time-window filter (via production event_passes_time_filter) ---
 
     #[test]
     fn test_event_inside_30min_window_passes() {
-        // An event timestamped "now" should not be filtered out
-        let now = now_unix_secs();
-        let cutoff = now.saturating_sub(30 * 60);
-        // event at 1 minute ago
-        let evt_secs = now.saturating_sub(60);
-        assert!(evt_secs >= cutoff, "recent event should pass the 30-min filter");
+        // epoch+60s is inside a window whose cutoff is 0 — must pass
+        assert!(
+            event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:01:00Z"}), 0),
+            "recent event should pass the 30-min filter"
+        );
     }
 
     #[test]
     fn test_event_outside_30min_window_drops() {
-        // An event timestamped 31 minutes ago should be filtered out
-        let now = now_unix_secs();
-        let cutoff = now.saturating_sub(30 * 60);
-        let evt_secs = now.saturating_sub(31 * 60);
-        assert!(evt_secs < cutoff, "old event should be dropped by 30-min filter");
+        // epoch 0s is before cutoff 60s — must be dropped
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:00:00Z"}), 60),
+            "old event should be dropped by 30-min filter"
+        );
     }
 
     #[test]
     fn test_event_exactly_at_cutoff_passes() {
-        // Production code: `if evt_secs < cutoff_secs { continue; }`
-        // An event AT exactly the cutoff must NOT be dropped (strict less-than).
+        // epoch 60s == cutoff 60s — must NOT be dropped (strict less-than in production)
         // If the comparison ever regresses to `<=`, this test will fail.
-        let now = now_unix_secs();
-        let cutoff = now.saturating_sub(30 * 60);
-        let evt_secs = cutoff;
-        assert!(!(evt_secs < cutoff), "event at exactly the cutoff boundary must not be dropped");
+        assert!(
+            event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:01:00Z"}), 60),
+            "event at exactly the cutoff boundary must not be dropped"
+        );
     }
 
     // --- event_passes_time_filter (caller-path coverage for issues 1 & 3) ---
@@ -490,31 +497,26 @@ mod tests {
         ));
     }
 
-    // --- session ID filter ---
+    // --- session ID filter (via production event_passes_session_filter) ---
 
     #[test]
     fn test_different_session_is_excluded() {
-        let session = "sess-A";
-        let evt_session = "sess-B";
-        // mirrors: if !evt_session.is_empty() && evt_session != session { continue; }
-        let excluded = !evt_session.is_empty() && evt_session != session;
-        assert!(excluded, "event from different session must be excluded");
+        let e = serde_json::json!({"session": "sess-B", "hook": "test"});
+        assert!(!event_passes_session_filter(&e, "sess-A"),
+            "event from different session must be excluded");
     }
 
     #[test]
     fn test_same_session_is_included() {
-        let session = "sess-A";
-        let evt_session = "sess-A";
-        let excluded = !evt_session.is_empty() && evt_session != session;
-        assert!(!excluded, "event from same session must be included");
+        let e = serde_json::json!({"session": "sess-A", "hook": "test"});
+        assert!(event_passes_session_filter(&e, "sess-A"),
+            "event from same session must be included");
     }
 
     #[test]
     fn test_missing_session_field_is_included() {
-        // Events with no session field pass through regardless
-        let session = "sess-A";
-        let evt_session = "";
-        let excluded = !evt_session.is_empty() && evt_session != session;
-        assert!(!excluded, "event with no session field must be included");
+        let e = serde_json::json!({"hook": "test"});
+        assert!(event_passes_session_filter(&e, "sess-A"),
+            "event with no session field must be included");
     }
 }
