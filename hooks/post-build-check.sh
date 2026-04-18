@@ -13,6 +13,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
 vg_start_timer
+VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 
 INPUT=$(cat)
 
@@ -99,21 +100,24 @@ CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
   | if [[ -n "$_VG_HELPER" ]]; then
       "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT"
     else
-      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" python3 -c '
-import json, sys, os
+      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
 session, project = os.environ["VG_SESSION"], os.environ["VG_PROJECT"]
 count, prefix = 0, project.rstrip("/") + "/"
-for line in reversed(sys.stdin.read().splitlines()):
-    line = line.strip()
-    if not line: continue
-    try:
-        e = json.loads(line)
-        if e.get("hook") != "post-build-check" or e.get("session") != session: continue
-        d = e.get("detail", "")
-        if project and d and not d.startswith(prefix): continue
-        if e.get("decision") == "pass": break
-        if e.get("decision") == "warn": count += 1
-    except: continue
+events = list(iter_events_from_stream(sys.stdin.buffer))
+for e in reversed(events):
+    if e.get("hook") != "post-build-check" or e.get("session") != session:
+        continue
+    d = e.get("detail", "")
+    if project and d and not d.startswith(prefix):
+        continue
+    if e.get("decision") == "pass":
+        break
+    if e.get("decision") == "warn":
+        count += 1
 print(count)
 '
     fi 2>/dev/null | tr -d '[:space:]' || echo "0")

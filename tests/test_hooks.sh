@@ -122,6 +122,33 @@ result=$(
 assert_not_contains "$result" $'\x07' "BEL byte from OSC hyperlink sequence is stripped from JSONL"
 assert_not_contains "$result" $'\x1b' "ESC byte from OSC hyperlink sequence is stripped from JSONL"
 
+# Clear the log and ensure multibyte truncation stays valid UTF-8
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+
+result=$(
+  export VIBEGUARD_LOG_DIR
+  source hooks/log.sh
+  : > "$VIBEGUARD_LOG_FILE"
+  long_detail="$(python3 - <<'PY'
+print("查" * 250, end="")
+PY
+)"
+  vg_log "test" "Tool" "pass" "" "$long_detail"
+  python3 - "$VIBEGUARD_LOG_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    event = json.loads(next(f))
+
+detail = event["detail"]
+print("utf8-ok")
+print(f"detail_len={len(detail)}")
+PY
+)
+assert_contains "$result" "utf8-ok" "Multibyte detail truncation keeps log UTF-8 decodable"
+assert_contains "$result" "detail_len=200" "Multibyte detail truncation still enforces the 200-char cap"
+
 # =========================================================
 header "pre-bash-guard.sh — Dangerous command interception"
 # =========================================================

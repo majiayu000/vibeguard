@@ -29,6 +29,9 @@ import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 
+sys.path.insert(0, os.path.dirname(__file__))
+from event_log import load_events_from_file, parse_ts
+
 log_file = os.environ["VIBEGUARD_LOG_FILE"]
 if not os.path.exists(log_file):
     sys.exit(0)
@@ -37,29 +40,16 @@ session_id = os.environ.get("VIBEGUARD_SESSION_ID", "")
 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 skip_hooks = {"stop-guard", "learn-evaluator"}
 events = []
-with open(log_file) as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if event.get("hook", "") in skip_hooks:
-                continue
-            # Filter to current session only — parallel agents in the same repo share the
-            # same project log; without this filter their events contaminate warn_ratio and
-            # Signal 10 baseline, producing false LEARN_SUGGESTED stops.
-            evt_session = event.get("session", "")
-            if evt_session and session_id and evt_session != session_id:
-                continue
-            ts = event.get("ts", "")
-            if ts:
-                evt_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                if evt_time < cutoff:
-                    continue
-            events.append(event)
-        except (json.JSONDecodeError, ValueError):
-            continue
+for event in load_events_from_file(log_file):
+    if event.get("hook", "") in skip_hooks:
+        continue
+    evt_session = event.get("session", "")
+    if evt_session and session_id and evt_session != session_id:
+        continue
+    evt_time = parse_ts(event.get("ts", ""))
+    if evt_time is not None and evt_time < cutoff:
+        continue
+    events.append(event)
 
 if len(events) < 3:
     sys.exit(0)
