@@ -30,25 +30,25 @@ Keep commits atomic so they are easy to review and revert.
 ## U-10: Do not guess user intent (strict)
 If the intent is unclear, mark it as DEFER or ask the user to clarify.
 
-## U-15: Prefer immutability
+## U-15: Prefer immutability (guideline)
 Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
-## U-16: Keep file size under control
+## U-16: Keep file size under control (guideline)
 200-400 lines is typical, 800 lines is the hard ceiling. Files above 800 lines must be split.
 
-## U-17: Handle errors completely
+## U-17: Handle errors completely (strict)
 Cover error paths thoroughly. Do not swallow exceptions silently. Provide user-friendly error messages.
 
-## U-18: Validate inputs
+## U-18: Validate inputs (guideline)
 Validate all user input at system boundaries. Internal code can trust framework guarantees.
 
-## U-19: Use the Repository pattern
+## U-19: Use the Repository pattern (guideline)
 Encapsulate data access in a Repository layer. Business logic should not operate directly on the database.
 
-## U-20: Keep API response shapes consistent
+## U-20: Keep API response shapes consistent (guideline)
 Use a standard envelope such as `{ data, error, meta }`. Standardize error codes.
 
-## U-21: Commit messages must follow the Lore protocol
+## U-21: Commit messages must follow the Lore protocol (strict)
 Record why the change exists, not just what changed. Use the repository's Lore trailers to preserve constraints, rejected alternatives, confidence, and verification evidence.
 
 ## U-22: Test coverage (strict)
@@ -60,10 +60,10 @@ New code must reach at least 80% line coverage. Critical paths require 100% cove
 - If a refactor touches more than three files, add at least one unit test that covers the changed core path.
 - If you refactor hook or module interfaces, update every test mock that depends on the module shape as well (see TS-14).
 
-## U-23: No silent degradation
+## U-23: No silent degradation (strict)
 Unsupported strategies or configurations must fail explicitly or be marked as DEFER. Do not silently fall back to a default strategy.
 
-## U-24: No aliases
+## U-24: No aliases (strict)
 Do not keep function, type, command, or directory aliases. If you find the old name, replace it everywhere and delete the alias.
 
 ## U-25: Fix build failures first (strict)

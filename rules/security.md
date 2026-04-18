@@ -1,23 +1,25 @@
 # Security Rules
 
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
+
 Security review checklist and remediation guidance derived from OWASP-style failure modes plus VibeGuard's agent-specific security extensions.
 
 ## Scan checklist
 
-| ID | Category | Check item | Severity |
-|----|------|--------|--------|
-| SEC-01 | Injection | SQL / NoSQL / OS command injection | Critical |
-| SEC-02 | Secrets | Hardcoded keys, credentials, or API tokens in code | Critical |
-| SEC-03 | XSS | User input rendered into HTML without escaping | High |
-| SEC-04 | Auth | API endpoint missing authentication / authorization checks | High |
-| SEC-05 | Dependencies | Dependency ships with a known CVE | High |
-| SEC-06 | Crypto | Weak crypto for password or secret handling | High |
-| SEC-07 | Path | Unvalidated file path / traversal risk | Medium |
-| SEC-08 | SSRF | Server request allows arbitrary destination | Medium |
-| SEC-09 | Deserialization | Unsafe deserialization (`pickle`, `yaml.load`, etc.) | Medium |
-| SEC-10 | Logging | Sensitive data is written to logs | Medium |
-| SEC-11 | AI-generated code defect baseline | Strict | High-risk security domains need elevated review when AI authored code |
-| SEC-12 | MCP tool description drift | Strict | Tool descriptions must be hashed and audited for silent prompt changes |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| SEC-01 | SQL / NoSQL / OS command injection | Critical | String concatenation is used to build queries or commands. |
+| SEC-02 | Hardcoded keys / credentials / API tokens | Critical | Secrets are written directly in code. |
+| SEC-03 | Unescaped user input rendered directly into HTML | High | This creates an XSS vulnerability. |
+| SEC-04 | API endpoints missing authentication or authorization checks | High | Unprotected API endpoints. |
+| SEC-05 | Dependencies with known CVEs | High | Dependencies with known CVEs |
+| SEC-06 | Weak cryptographic algorithms | High | Using MD5 or SHA1 for password hashing. |
+| SEC-07 | File paths are not validated | Medium | Path traversal risk. |
+| SEC-08 | Server-side requests allow arbitrary target addresses | Medium | SSRF risk. |
+| SEC-09 | Unsafe deserialization | Medium | Examples include `pickle` and `yaml.load`. |
+| SEC-10 | Logs contain sensitive information | Medium | Passwords or tokens appear in logs. |
+| SEC-11 | AI-generated code security defect baseline | Strict | AI-generated code carries materially higher security risk than hand-written code, so review intensity must increase accordingly. |
+| SEC-12 | Silent drift in MCP tool descriptions | Strict | The description field of an MCP tool is effectively an instruction fed to the LLM. |
 
 ## Key management expectations
 
@@ -45,7 +47,7 @@ element.innerHTML = userInput;              // Error
 
 // TypeScript — parameterized queries
 db.query("SELECT * FROM users WHERE id = $1", [userId]);        // Correct
-db.query(`SELECT * FROM users WHERE id = ${userId}`);           // Error
+db.query(`SELECT * FROM users WHERE id = ${userId}`);         // Error
 ```
 
 ```go

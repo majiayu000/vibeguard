@@ -61,6 +61,8 @@ bash tests/run_precision.sh --all --csv
 bash scripts/ci/validate-guards.sh
 bash scripts/ci/validate-hooks.sh
 bash scripts/ci/validate-rules.sh
+bash scripts/ci/validate-canonical-rule-language.sh
+bash scripts/ci/validate-generated-rule-docs.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh
 bash scripts/verify/doc-freshness-check.sh --strict
@@ -108,8 +110,12 @@ Keep branch names lowercase, hyphenated, and short enough to stay readable.
 
 When changing rules, guards, hooks, or script paths, update matching docs in the same PR:
 
-- Rule changes: keep `rules/claude-rules/**`, `rules/*.md`, and `docs/rule-reference.md` aligned.
+- Canonical rule source: `rules/claude-rules/**` is the only canonical rule text. Keep it English-only.
+- Localized docs: translations such as `docs/README_CN.md` belong in the docs layer only. Do not add localized copies of canonical rules.
+- Derived rule docs: `rules/*.md` and `docs/rule-reference.md` are generated artifacts. Do not hand-edit them; regenerate them with `python3 scripts/generate_rule_docs.py`.
 - Script moves or renames: update command examples in `README.md`, `docs/README_CN.md`, and any contributor docs that mention them.
+- Canonical rule checks: run `bash scripts/ci/validate-canonical-rule-language.sh` to ensure no CJK text or malformed headings leak into `rules/claude-rules/**`.
+- Generated doc checks: run `bash scripts/ci/validate-generated-rule-docs.sh` after rule changes to verify derived docs are in sync.
 - Documentation checks: run both `bash scripts/ci/validate-doc-paths.sh` and `bash scripts/ci/validate-doc-command-paths.sh`.
 - Coverage checks: run `bash scripts/verify/doc-freshness-check.sh --strict` after changing guards or rule IDs.
 
@@ -186,9 +192,10 @@ Before requesting review, verify:
 - [ ] Precision / scoring checks were run when the change affects detection quality (`bash tests/run_precision.sh --all --csv`, `bash tests/test_precision_tracker.sh`)
 - [ ] All CI validation scripts pass (see [Running Validation and Tests](#running-validation-and-tests))
 - [ ] New guard scripts have regression coverage in `tests/unit/` and, when appropriate, higher-level suites in `tests/`
-- [ ] New or changed rules are reflected in `rules/*.md`, `rules/claude-rules/**`, and `docs/rule-reference.md`
+- [ ] New or changed canonical rules stay in `rules/claude-rules/**` only, and regenerated artifacts in `rules/*.md` and `docs/rule-reference.md` are up to date
 - [ ] Doc freshness passes (`bash scripts/verify/doc-freshness-check.sh --strict`)
 - [ ] Doc paths and shell command paths are valid (`validate-doc-paths.sh` and `validate-doc-command-paths.sh`)
+- [ ] Canonical rule language and generated rule docs checks pass
 - [ ] Commits use the Lore protocol trailers
 - [ ] No hardcoded secrets or credentials were introduced
 
@@ -230,7 +237,9 @@ Bash-based language directories (`rust/`, `go/`, `typescript/`) each contain a `
 
 ### Step 1: Define the rule
 
-Document the rule in `rules/<language>.md` first. If the rule should also shape Claude Code's reasoning layer, add or update the corresponding native-rule entry under `rules/claude-rules/**`.
+Add or update the canonical rule in `rules/claude-rules/**` first. Keep canonical rule text in English. After editing the canonical source, regenerate the derived rule docs with `python3 scripts/generate_rule_docs.py`.
+
+Do not hand-edit `rules/*.md` or `docs/rule-reference.md`; they are generated outputs.
 
 ```markdown
 ## RS-14: Arc<Mutex<Option<T>>> anti-pattern (medium)
@@ -239,7 +248,7 @@ value or restructure ownership instead.
 Fix: replace `Arc<Mutex<Option<T>>>` with `Arc<Mutex<T>>` and a sentinel value.
 ```
 
-Rules follow the `<LANG>-<NN>` numbering scheme. Check existing rules before picking a new ID.
+Canonical rule headings must use the format `## ID: Title (severity)`. Rules follow the `<LANG>-<NN>` numbering scheme. Check existing rules before picking a new ID.
 
 ### Step 2: Write the guard script
 

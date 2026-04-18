@@ -1,59 +1,61 @@
 # Universal Rules
 
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
+
 Reference index for VibeGuard rules that apply across languages, workflows, and repository boundaries.
 
 ## Common code and architecture rules
 
 | ID | Rule | Severity | Summary |
-|----|------|----------|---------|
-| U-01 | Immutable public API | Strict | Do not change public signatures without explicit breaking-change approval |
-| U-02 | No premature abstraction | Strict | Wait for the third repetition before extracting shared code |
-| U-03 | No macro replacement | Strict | Keep readable duplication unless the pattern is repeated broadly and identically |
-| U-04 | No unsolicited features | Strict | Keep fixes scoped to the requested change |
-| U-05 | No silent deletion | Strict | Do not delete apparently unused code without confirmation |
-| U-06 | Standard library first | Strict | Do not add dependencies for problems the standard library can solve |
-| U-07 | No style churn in fixes | Strict | Separate style-only edits from behavior changes |
-| U-08 | No skipped verification | Strict | Every fix needs its own lint/test proof |
-| U-09 | Atomic commits | Strict | Do not bundle unrelated fixes together |
-| U-10 | No guessing user intent | Strict | Mark DEFER or ask when intent is unclear |
-| U-11 | Unified DB/cache paths | High | Shared binaries must converge on one physical data path |
-| U-12 | No split fallback paths | High | First-run fallback logic must not create a second data file |
-| U-13 | Unified env var names | Medium | Different entry points should not use divergent path variable names |
-| U-14 | Unified base directories | Medium | CLI, GUI, and server should build paths from the same base helper |
-| U-15 | Immutability first | Guideline | Prefer new objects over mutation |
-| U-16 | File size control | Guideline | 200-400 lines typical, 800 line hard limit |
-| U-17 | Complete error handling | Strict | Cover error paths and never swallow exceptions silently |
-| U-18 | Input validation | Guideline | Validate external input at system boundaries |
-| U-19 | Repository pattern | Guideline | Keep data access in repository layers |
-| U-20 | Unified API envelope | Guideline | Standardize response shapes such as `{ data, error, meta }` |
-| U-21 | Lore commit protocol | Strict | Commit messages should record why the change exists, with structured trailers |
-| U-22 | Test coverage | Strict | New code needs 80% line coverage; critical paths need 100% |
-| U-23 | No silent degradation | Strict | Unsupported paths must fail explicitly instead of silently falling back |
-| U-24 | No aliases | Strict | Remove old names instead of preserving compatibility aliases indefinitely |
-| U-25 | Build failure priority | Strict | Fix the red build before adding more code |
-| U-26 | Declaration-execution completeness | Strict | Declared config/trait/persistence components must be wired into startup |
-| U-29 | Observable degradation | Strict | User-visible data loss or wrong output must surface at error level |
-| U-30 | Pydantic `extra="allow"` at cross-boundary seams | Strict | External-facing Pydantic models must preserve undeclared fields |
-| U-31 | Cache key versioning | Strict | Builder and generation logic changes must invalidate stale cache entries |
-| U-32 | Rule overload threshold | Strict | Large rule sets need decomposition, downgrade paths, and observability |
+| --- | ---- | -------- | ------- |
+| U-01 | Do not change public API signatures | Strict | Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures. |
+| U-02 | Do not extract abstractions for code that appears only once | Strict | Three lines of duplication are better than one premature abstraction. |
+| U-03 | Do not replace readable duplication with macros | Strict | Macros reduce readability and IDE support. |
+| U-04 | Do not add features the user did not ask for | Strict | Keep bug-fix scope tight. |
+| U-05 | Do not delete code that merely looks unused without confirming first | Strict | It may be a work-in-progress feature. |
+| U-06 | Do not add dependencies for problems the standard library can solve | Strict | Use the standard library first. |
+| U-07 | Do not change code style while fixing behavior | Strict | Style-only edits should be a separate commit. |
+| U-08 | Do not skip verification steps | Strict | Every fix must independently pass lint and tests. |
+| U-09 | Do not bundle unrelated fixes into one commit | Strict | Keep commits atomic so they are easy to review and revert. |
+| U-10 | Do not guess user intent | Strict | If the intent is unclear, mark it as DEFER or ask the user to clarify. |
+| U-11 | Inconsistent default DB/cache paths across binaries | High | Different entry points hardcode different data paths, which splits user data. |
+| U-12 | Shared-data fallback creates the wrong file on first boot | High | Fallback logic can create a split file during first startup. |
+| U-13 | Environment variable names diverge across entry points | Medium | For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults. |
+| U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
+| U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
+| U-16 | Keep file size under control | Guideline | 200-400 lines is typical, 800 lines is the hard ceiling. |
+| U-17 | Handle errors completely | Strict | Cover error paths thoroughly. |
+| U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
+| U-19 | Use the Repository pattern | Guideline | Encapsulate data access in a Repository layer. |
+| U-20 | Keep API response shapes consistent | Guideline | Use a standard envelope such as `{ data, error, meta }`. |
+| U-21 | Commit messages must follow the Lore protocol | Strict | Record why the change exists, not just what changed. |
+| U-22 | Test coverage | Strict | New code must reach at least 80% line coverage. |
+| U-23 | No silent degradation | Strict | Unsupported strategies or configurations must fail explicitly or be marked as DEFER. |
+| U-24 | No aliases | Strict | Do not keep function, type, command, or directory aliases. |
+| U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
+| U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |
+| U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
+| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
+| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
+| U-32 | Rule overload threshold + absolute-language detection | Strict | If one rule file contains more than 30 active constraints, raise an overload warning. |
 
 ## Workflow and process rules
 
 | ID | Rule | Severity | Summary |
-|----|------|----------|---------|
-| W-01 | No root-cause-free fixes | Strict | Reproduce and explain the bug before changing code |
-| W-02 | 3-failure backoff | Strict | After three failed attempts on the same issue, stop and reassess |
-| W-03 | Verify before claiming done | Strict | Completion claims require fresh evidence |
-| W-04 | Test-first development | Guideline | Prefer RED -> GREEN -> REFACTOR for new work |
-| W-05 | Sub-agent context isolation | Guideline | Give child agents only the minimum context they need |
-| W-10 | Publish confirmation (4-point) | Strict | Confirm target, scope, untouched items, and approval before destructive actions |
-| W-11 | Fact / inference / suggestion separation | Strict | Label claims by evidence type and confidence |
-| W-12 | Test integrity protection | Strict | Fix production code, not the test harness |
-| W-13 | Analysis paralysis guard | Strict | Seven read-only steps in a row must end in action or a blocker report |
-| W-14 | Parallel agent file ownership | Strict | Parallel agents need disjoint write scopes |
-| W-15 | Low-information loop detection | Strict | Stop after three shrinking-yield rounds |
-| W-16 | Fresh-session verification evidence | Strict | "Fixed" claims must cite verification from this session |
-| W-17 | Fewer smarter gates | Strict | Extend an existing gate before creating another overlapping rule |
+| --- | ---- | -------- | ------- |
+| W-01 | No fixes without root cause | Strict | Every bug fix must identify the root cause before changing code. |
+| W-02 | Back off after 3 consecutive failures | Strict | If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction. |
+| W-03 | Verify before claiming completion | Strict | Before saying "fixed" or "done", produce fresh verification evidence. |
+| W-04 | Test first | Guideline | For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it. |
+| W-05 | Sub-agent context isolation | Guideline | When using sub-agents, give each child only the minimum context required for its task. |
+| W-10 | Require four confirmations before publish, deletion, or remote deploy | Strict | Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval. |
+| W-11 | LLM output must separate facts, inferences, and suggestions | Strict | When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for... |
+| W-12 | Protect test integrity | Strict | When tests fail, fix the production code rather than manipulating the test harness. |
+| W-13 | Analysis paralysis guard | Strict | If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker. |
+| W-14 | Parallel-agent file ownership | Strict | When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another. |
+| W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
+| W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
+| W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 
 ## FIX / SKIP / DEFER guidance
 

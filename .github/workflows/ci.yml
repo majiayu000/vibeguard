@@ -97,6 +97,16 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-rules.sh
 
+      - name: Validate canonical rule language
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-canonical-rule-language.sh
+
+      - name: Validate generated rule docs
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-generated-rule-docs.sh
+
       # --- Cross-platform contract validation (Python-embedded shell scripts) ---
       # Uses Git Bash on Windows; Python 3 is available from setup-python above.
       - name: Validate doc paths
