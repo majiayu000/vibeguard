@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776531256824,
+  "lastUpdate": 1776539493233,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -275,6 +275,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95b4caddc76d1ea8d23a6b5fde1366f5e6ba6149",
+          "message": "feat: shift stable contract checks left into local pre-commit gate (#82)\n\n* feat: shift stable contract checks left into local pre-commit gate\n\nAdd a wrapper script that runs the deterministic, repository-local subset\nof CI contract checks locally, and a one-command installer that wires it\nas a git pre-commit hook. Update CONTRIBUTING.md with a Local Contract Gate\nsubsection documenting the local-vs-CI split table and the --quick flag.\nAdd a brief entrypoint note in README.md under Project Bootstrap.\n\nContract tests from PR #80 (test_manifest_contract.sh, test_eval_contract.sh)\nare guarded by file-existence checks so they activate automatically once that\nPR merges, with no changes needed here.\n\nConstraint: local gate must stay Unix-first; Windows contributors use CI\nRejected: duplicating check lists across hook configs | single wrapper is easier to maintain\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nTested: bash scripts/local-contract-check.sh --quick; validate-doc-paths.sh; validate-doc-command-paths.sh\nNot-tested: Windows Git Bash behavior\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(local-contract-gate): address four reviewer-found regressions\n\n- local-contract-check.sh: separate script path from extra args in\n  run_check() so doc-freshness --strict is no longer silently skipped\n  due to the path+args string failing the -f file-existence test\n- install-pre-commit-hook.sh: use `git rev-parse --git-path hooks`\n  instead of the hardcoded $REPO_ROOT/.git/hooks path, which breaks\n  in git worktree and submodule layouts\n- install-pre-commit-hook.sh: chain to an existing pre-commit hook\n  rather than overwriting it; installer is now idempotent (re-run\n  detects gate already present and exits 0)\n- tests/test_local_contract_gate.sh: add 11 tests covering the three\n  script behaviours above plus static analysis of installer output\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(local-contract-gate): resolve symlink-mutation, exec-chain, and dead-test regressions\n\n- install-pre-commit-hook.sh: break any symlink before writing so the\n  shared target (e.g. ~/.vibeguard/hooks/pre-commit-guard.sh) is never\n  mutated; save original content to pre-commit.vibeguard-prev and create\n  a wrapper that calls it with bash (not exec) so exec-terminated hooks\n  do not silently swallow the contract gate\n- test_local_contract_gate.sh: update chain assertions to match wrapper\n  approach; add symlink-safety test (shared target unchanged) and\n  exec-chain test (gate reachable via subprocess call)\n- ci.yml: wire tests/test_local_contract_gate.sh into the CI matrix so\n  these regressions are caught on every push\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(local-contract-gate): propagate original hook exit code in chained wrapper\n\nWhen an existing hook was chained, the generated wrapper ran both the\noriginal hook and the contract gate but ignored the original hook's exit\nstatus. If the original hook failed and the gate passed, git commit would\nsucceed incorrectly.\n\nCapture _prev_exit and _gate_exit separately; exit non-zero if either\nfails. Adds a test asserting the wrapper template contains both captures\nand the combined exit expression.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-19T03:07:46+08:00",
+          "tree_id": "78ff6bb877be4f48c71d6d70b2a95b0525fc0111",
+          "url": "https://github.com/majiayu000/vibeguard/commit/95b4caddc76d1ea8d23a6b5fde1366f5e6ba6149"
+        },
+        "date": 1776539492939,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 175,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 229,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 307,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 218,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 313,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 126,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 126,
             "unit": "ms"
           }
         ]
