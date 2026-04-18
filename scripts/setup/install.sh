@@ -244,7 +244,7 @@ echo "  3. Run: /vibeguard:preflight <project_dir>"
 echo "  4. Run: /vibeguard:check <project_dir>"
 echo
 echo "Runtime configuration (env vars or .vibeguard.json):"
-echo "  VIBEGUARD_PROFILE=minimal|standard|strict    Runtime profile"
+echo "  VIBEGUARD_PROFILE=minimal|core|full|strict   Runtime profile"
 echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo

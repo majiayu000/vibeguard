@@ -178,6 +178,21 @@ assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'sessi
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 
+header "setup --check stays read-only"
+python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
+from pathlib import Path
+import re
+path = Path(__import__('sys').argv[1])
+text = path.read_text(encoding='utf-8')
+updated = re.sub(r'\b\d+ rules\b', '999 rules', text, count=1)
+path.write_text(updated, encoding='utf-8')
+PY
+before_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
+check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
+assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
+assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
+
 header "upsert idempotency with non-standard wrapper path"
 # Run upsert twice with a wrapper path that does not contain 'run-hook-codex.sh'.
 # Without the _has_entry dedup fix, the second upsert would append duplicates.

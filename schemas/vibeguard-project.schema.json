@@ -6,9 +6,9 @@
   "properties": {
     "profile": {
       "type": "string",
-      "enum": ["minimal", "standard", "strict"],
-      "default": "standard",
-      "description": "Runtime enforcement profile. minimal=pre-hooks only, standard=core+full, strict=all+extra checks"
+      "enum": ["minimal", "core", "full", "strict"],
+      "default": "core",
+      "description": "Runtime enforcement profile. minimal=pre-hooks only, core=standard runtime hooks, full=core plus stop/build hooks, strict=same hook set as full with stricter policy"
     },
     "enforcement": {
       "type": "string",
@@ -26,19 +26,63 @@
     },
     "disabled_hooks": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string",
+        "enum": [
+          "analysis-paralysis-guard",
+          "learn-evaluator",
+          "post-build-check",
+          "post-edit-guard",
+          "post-write-guard",
+          "pre-bash-guard",
+          "pre-commit-guard",
+          "pre-edit-guard",
+          "pre-write-guard",
+          "skills-loader",
+          "stop-guard"
+        ]
+      },
       "default": [],
       "description": "Hook names to disable (without .sh extension). e.g. [\"post-edit-guard\", \"analysis-paralysis-guard\"]"
     },
     "disabled_rules": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string",
+        "pattern": "^(SEC|RS|GO|TS|PY|U|W|TASTE)-[A-Za-z0-9-]+$"
+      },
       "default": [],
-      "description": "Rule IDs to suppress. e.g. [\"U-02\", \"W-13\"]"
+      "description": "Rule IDs to suppress. Canonical ids come from rules/claude-rules/. e.g. [\"U-02\", \"W-13\"]"
     },
     "disabled_guards": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string",
+        "enum": [
+          "check_any_abuse",
+          "check_circular_deps",
+          "check_code_slop",
+          "check_component_duplication",
+          "check_console_residual",
+          "check_dead_shims",
+          "check_declaration_execution_gap",
+          "check_defer_in_loop",
+          "check_dependency_layers",
+          "check_duplicate_constants",
+          "check_duplicate_types",
+          "check_duplicates",
+          "check_error_handling",
+          "check_goroutine_leak",
+          "check_naming_convention",
+          "check_nested_locks",
+          "check_semantic_effect",
+          "check_single_source_of_truth",
+          "check_taste_invariants",
+          "check_test_integrity",
+          "check_unwrap_in_prod",
+          "check_workspace_consistency"
+        ]
+      },
       "default": [],
       "description": "Guard script names to skip. e.g. [\"check_unwrap_in_prod\", \"check_any_abuse\"]"
     }

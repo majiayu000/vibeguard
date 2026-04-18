@@ -19,12 +19,6 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    import anthropic
-except ImportError:
-    print("Anthropic SDK is required: uv pip install anthropic")
-    sys.exit(1)
-
 from samples import SAMPLES
 
 MODELS = {
@@ -33,28 +27,25 @@ MODELS = {
     "opus": "claude-opus-4-6",
 }
 
-RULES_DIR = Path.home() / ".claude" / "rules" / "vibeguard"
-CLAUDE_MD = Path.home() / ".claude" / "CLAUDE.md"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RULES_DIR = REPO_ROOT / "rules" / "claude-rules"
+DEFAULT_CORE_RULES_FILE = REPO_ROOT / "claude-md" / "vibeguard-rules.md"
 
 
-def load_rules() -> str:
-    """Load all VibeGuard rules from the actual rules file"""
+def load_rules(rules_dir: Path, core_rules_file: Path | None) -> str:
+    """Load all VibeGuard rules from the checked-out repository snapshot."""
     rules_text = []
 
-    #Load language rules
-    for rule_file in sorted(RULES_DIR.rglob("*.md")):
+    for rule_file in sorted(rules_dir.rglob("*.md")):
         content = rule_file.read_text()
-        # Remove frontmatter
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
                 content = parts[2].strip()
         rules_text.append(f"# {rule_file.stem}\n\n{content}")
 
-    # Extract VibeGuard related parts from CLAUDE.md
-    if CLAUDE_MD.exists():
-        claude_md = CLAUDE_MD.read_text()
-        # Extract vibeguard paragraph
+    if core_rules_file and core_rules_file.exists():
+        claude_md = core_rules_file.read_text()
         in_vg = False
         vg_lines = []
         for line in claude_md.split("\n"):
@@ -68,6 +59,8 @@ def load_rules() -> str:
                 vg_lines.append(line)
         if vg_lines:
             rules_text.append("# VibeGuard Core Constraints\n\n" + "\n".join(vg_lines))
+        else:
+            rules_text.append("# VibeGuard Core Constraints\n\n" + claude_md.strip())
 
     return "\n\n---\n\n".join(rules_text)
 
@@ -85,7 +78,7 @@ When a user gives you code, you must:
 
 
 def evaluate_sample(
-    client: anthropic.Anthropic,
+    client,
     model: str,
     system_prompt: str,
     sample: dict,
@@ -154,12 +147,17 @@ def _all_rule_ids() -> list[str]:
 
 
 def run_eval(args):
-    rules = load_rules()
+    rules_dir = Path(args.rules_dir).resolve()
+    core_rules_file = Path(args.core_rules_file).resolve() if args.core_rules_file else None
+    rules = load_rules(rules_dir, core_rules_file)
     system_prompt = build_system_prompt(rules)
 
     if args.dry_run:
         print(f"Rule text length: {len(rules)} characters")
         print(f"Number of samples: {len(SAMPLES)}")
+        print(f"Rules source: {rules_dir}")
+        if core_rules_file:
+            print(f"Core constraint source: {core_rules_file}")
         print(f"\nSample list:")
         for s in SAMPLES:
             tag = "FP" if s["rule"] == "NONE" else s["rule"]
@@ -184,6 +182,11 @@ def run_eval(args):
         print(f"Number of samples after type filtering: {len(samples)} (Type: {args.type})")
 
     model = MODELS.get(args.model, args.model)
+    try:
+        import anthropic
+    except ImportError:
+        print("Anthropic SDK is required: uv pip install anthropic")
+        sys.exit(1)
     client = anthropic.Anthropic()
 
     print(f"Model: {model}")
@@ -324,6 +327,16 @@ def main():
     parser.add_argument("--rules", help="Rule prefix filtering (such as SEC, PY, TS, GO, RS)")
     parser.add_argument("--type", choices=["tp", "fp"], help="Sample type filtering: tp=violation, fp=legal")
     parser.add_argument("--dry-run", action="store_true", help="Only display samples without adjusting API")
+    parser.add_argument(
+        "--rules-dir",
+        default=str(DEFAULT_RULES_DIR),
+        help="Rule directory to load (defaults to repository rules snapshot)",
+    )
+    parser.add_argument(
+        "--core-rules-file",
+        default=str(DEFAULT_CORE_RULES_FILE),
+        help="Core constraint snippet file to append (defaults to repository snapshot)",
+    )
     args = parser.parse_args()
     run_eval(args)
 

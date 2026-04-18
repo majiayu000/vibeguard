@@ -40,7 +40,7 @@ echo ""
 # ============================================================
 
 echo "[Layer 1: Hook precision]"
-L1_CSV=$(bash "$REPO_DIR/tests/run_precision.sh" --all --csv 2>/dev/null || true)
+L1_CSV=$(bash "$REPO_DIR/tests/run_precision.sh" --all --csv 2>/dev/null)
 
 # Parse CSV calculation indicators
 L1_RESULT=$(echo "$L1_CSV" | python3 -c "
@@ -120,7 +120,7 @@ if [[ "$MODE" == "standard" ]] || [[ "$MODE" == "full" ]]; then
   fi
 
   # Run LLM-as-Judge evaluation
-  L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" $L2_RULES_FLAG 2>&1 || true)
+  L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" $L2_RULES_FLAG 2>&1)
 
   # Read results from results.json
   if [[ -f "$REPO_DIR/eval/results.json" ]]; then

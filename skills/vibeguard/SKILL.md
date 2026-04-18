@@ -9,6 +9,13 @@ description: "AI-assisted development of anti-hallucination specifications. Chec
 
 VibeGuard is an anti-hallucination framework for AI-assisted development that systematically blocks common failure modes in LLM code generation through a seven-layer defense architecture.
 
+Canonical contract sources for this skill:
+- `README.md` — product entry and current Core vs Workflow boundary
+- `docs/rule-reference.md` — public rule/guard summary
+- `schemas/install-modules.json` — install/runtime contract
+
+`docs/spec.md` remains a historical design snapshot and should not be treated as the authoritative implementation contract.
+
 Calling `/vibeguard` can:
 - View the complete anti-hallucination specifications
 - Get task startup checklist
@@ -73,7 +80,9 @@ Refer to references/review-template.md, record:
 - `references/task-contract.yaml` — Task startup Checklist (machine verification format)
 - `references/review-template.md` — weekly review template
 - `references/scoring-matrix.md` — risk-impact scoring matrix
-- `docs/spec.md` (repository root directory) — complete specification document
+- `README.md` (repository root directory) — current product entrypoint
+- `docs/rule-reference.md` (repository root directory) — current rule/guard summary
+- `schemas/install-modules.json` (repository root directory) — current install/runtime contract
 
 ## Execution rules
 
