@@ -210,7 +210,9 @@ Fixed: `cargo test --lib auth` passed in this session (tool output from Bash cal
 - "A teammate or an earlier commit already verified it." -> cross-person and cross-session evidence does not count as current-session verification.
 
 **Lightweight fallback** (Bridge R2.8 — fresh-context self-review):
-When command-based verification is genuinely unavailable, such as for pure documentation or design work, use a fresh-context self-review as a weak substitute: open a new session or agent, replay the conclusion from clean context, and see whether it independently reproduces the same result. This is weaker than command execution but still better than an unsupported claim.
+Use fresh-context self-review only for documentation-only or design-only changes where no command can prove the claim. It cannot replace command execution for code, configuration, setup, migration, or runtime behavior changes.
+
+The fallback must leave an auditable artifact, such as a transcript link/id, captured clean-context output, or a reviewer note with the exact prompt and verdict. Without that artifact, the fallback is only another unsupported claim. This evidence is weaker than command execution but stronger than a bare assertion.
 
 ## W-17: Fewer smarter gates beat more mechanical gates (strict)
 When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one more overlapping rule.
