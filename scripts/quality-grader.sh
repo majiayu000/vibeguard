@@ -40,10 +40,14 @@ NATIVE_RULES_DIR="${HOME}/.claude/rules/vibeguard"
 
 VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" VG_GUARDS_DIR="$GUARDS_DIR" \
   VG_RULES_DIR="$RULES_DIR" VG_NATIVE_RULES_DIR="$NATIVE_RULES_DIR" \
-  VG_JSON="$JSON_OUTPUT" python3 -c '
+  VG_JSON="$JSON_OUTPUT" VG_REPO_DIR="$REPO_DIR" python3 -c '
 import json, sys, os, glob
 from datetime import datetime, timezone, timedelta
 from collections import Counter
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.environ["VG_REPO_DIR"]) / "hooks" / "_lib"))
+from event_log import load_events_from_file
 
 days = os.environ.get("VG_DAYS", "30")
 log_file = os.environ.get("VG_LOG_FILE", "")
@@ -52,30 +56,17 @@ rules_dir = os.environ.get("VG_RULES_DIR", "")
 native_rules_dir = os.environ.get("VG_NATIVE_RULES_DIR", "")
 json_output = os.environ.get("VG_JSON", "false") == "true"
 
-#Read events
-events = []
-with open(log_file) as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-
-if not events:
-    print("No log data.")
-    sys.exit(0)
-
-# Time filter
-if days != "all":
+if days == "all":
+    events = load_events_from_file(log_file)
+else:
     cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
-    cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-    events = [e for e in events if e.get("ts", "") >= cutoff_str]
+    events = load_events_from_file(log_file, since=cutoff)
 
 if not events:
-    print(f"There is no log data in the last {days} days.")
+    if days == "all":
+        print("No log data.")
+    else:
+        print(f"There is no log data in the last {days} days.")
     sys.exit(0)
 
 total = len(events)

@@ -17,6 +17,7 @@ set -euo pipefail
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/_lib/stub_detect.sh"
 vg_start_timer
+VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 
 INPUT=$(cat)
 
@@ -306,19 +307,17 @@ CHURN_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
   | if [[ -n "$_VG_HELPER" ]]; then
       "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
     else
-      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, sys, os
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        e = json.loads(line)
-        if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
-            count += 1
-    except (json.JSONDecodeError, KeyError): continue
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
+        count += 1
 print(count)
 '
     fi 2>/dev/null | tr -d '[:space:]' || echo "0")
@@ -354,20 +353,18 @@ fi
 # Note: W-15 spec also requires "±10 lines region" check; the event log does not
 # capture line numbers, so this is a file-level proxy (coarser than full spec).
 PAST_CONSECUTIVE=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, sys, os
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 edits = []
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        e = json.loads(line)
-        if (e.get("session") == session and e.get("tool") == "Edit"
-                and e.get("hook") == "post-edit-guard"):
-            edits.append(e.get("detail", "").split("||")[0].strip())
-    except (json.JSONDecodeError, KeyError): continue
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if (e.get("session") == session and e.get("tool") == "Edit"
+            and e.get("hook") == "post-edit-guard"):
+        edits.append(e.get("detail", "").split("||")[0].strip())
 consec = 0
 for ep in reversed(edits):
     if ep == file_path: consec += 1
@@ -400,19 +397,17 @@ WARN_COUNT_FOR_FILE=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
   | if [[ -n "$_VG_HELPER" ]]; then
       "$_VG_HELPER" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
     else
-      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, sys, os
+      VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        e = json.loads(line)
-        if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
-            count += 1
-    except (json.JSONDecodeError, KeyError): continue
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
+        count += 1
 print(count)
 '
     fi 2>/dev/null | tr -d '[:space:]' || echo "0")

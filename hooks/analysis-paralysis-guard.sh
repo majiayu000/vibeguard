@@ -16,6 +16,7 @@ set -euo pipefail
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
+VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 
 # CI guard: analysis-paralysis warnings are not actionable in CI
 vg_is_ci && exit 0
@@ -30,19 +31,18 @@ CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
   | if [[ -n "$_VG_HELPER" ]]; then
       "$_VG_HELPER" paralysis-count "$VIBEGUARD_SESSION_ID"
     else
-      VG_SESSION="$VIBEGUARD_SESSION_ID" python3 -c '
-import json, sys, os
+      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
 session = os.environ.get("VG_SESSION", "")
 research_tools = {"Read", "Glob", "Grep"}
 action_tools = {"Write", "Edit", "Bash"}
 events = []
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        e = json.loads(line)
-        if e.get("session") == session: events.append(e)
-    except: continue
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if e.get("session") == session:
+        events.append(e)
 consecutive = 0
 for e in reversed(events):
     hook, decision = e.get("hook", ""), e.get("decision", "")

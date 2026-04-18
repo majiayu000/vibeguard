@@ -9,6 +9,7 @@
 
 set -euo pipefail
 
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DAYS="${1:-7}"
 LOG_FILE="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/events.jsonl"
 
@@ -17,38 +18,29 @@ if [[ ! -f "$LOG_FILE" ]]; then
   exit 0
 fi
 
-VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" python3 -c "
-import json, sys, os
+VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" VG_REPO_DIR="$REPO_DIR" python3 -c "
+import sys, os
 from datetime import datetime, timezone, timedelta
 from collections import Counter
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.environ['VG_REPO_DIR']) / 'hooks' / '_lib'))
+from event_log import load_events_from_file
 
 days = os.environ.get('VG_DAYS', '7')
 log_file = os.environ.get('VG_LOG_FILE', '')
 
-#Read events
-events = []
-with open(log_file) as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-
-if not events:
-    print('No log data.')
-    sys.exit(0)
-
-# Time filter
-if days != 'all':
+if days == 'all':
+    events = load_events_from_file(log_file)
+else:
     cutoff = datetime.now(timezone.utc) - timedelta(days=int(days))
-    cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
-    events = [e for e in events if e.get('ts', '') >= cutoff_str]
+    events = load_events_from_file(log_file, since=cutoff)
 
 if not events:
-    print(f'No log data for the last {days} days.')
+    if days == 'all':
+        print('No log data.')
+    else:
+        print(f'No log data for the last {days} days.')
     sys.exit(0)
 
 period = f'all history' if days == 'all' else f'last {days} days'
