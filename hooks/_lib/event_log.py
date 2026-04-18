@@ -9,7 +9,7 @@ without crashing and should skip only truly broken JSON records.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import BinaryIO, Iterator
 
 
@@ -17,7 +17,10 @@ def parse_ts(ts: object) -> datetime | None:
     if not isinstance(ts, str) or not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except ValueError:
         return None
 

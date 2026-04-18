@@ -228,13 +228,12 @@ print substr($s, 0, $limit);
   fi
 
   if command -v python3 &>/dev/null; then
-    printf '%s' "$text" | python3 - "$limit" <<'PY'
+    printf '%s' "$text" | python3 -c '
 import sys
-
 limit = int(sys.argv[1])
 data = sys.stdin.buffer.read().decode("utf-8", errors="replace")
 sys.stdout.write(data[:limit])
-PY
+' "$limit"
     return 0
   fi
 
