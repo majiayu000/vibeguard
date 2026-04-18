@@ -290,6 +290,17 @@ Bootstrap another repository with project-specific guidance and the pre-commit w
 bash ~/vibeguard/scripts/project-init.sh /path/to/project
 ```
 
+### Local Contract Gate (contributors)
+
+Run stable contract checks locally before pushing, or wire them as a pre-commit hook:
+
+```bash
+bash scripts/local-contract-check.sh          # run the full local gate
+bash scripts/install-pre-commit-hook.sh       # install as git pre-commit hook
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the local-vs-CI split and the `--quick` flag.
+
 ### Custom Rules
 
 Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there are automatically installed to `~/.claude/rules/vibeguard/custom/` on the next setup run. Format: standard Claude Code rule files with YAML frontmatter.
