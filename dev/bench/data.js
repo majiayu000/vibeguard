@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776530679153,
+  "lastUpdate": 1776531256824,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -206,6 +206,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 141,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d6b04d149bc977b887e376d3a8f21c6cc996bad",
+          "message": "Harden observability against malformed event logs (#77)\n\n* Harden observability against malformed event logs\n\nEvent-log consumers had duplicated JSONL parsing paths and crashed when the\nshared ~/.vibeguard/events.jsonl file contained truncated multibyte content.\nThis centralizes tolerant event parsing in a shared helper, reuses it across\nruntime consumers, and makes vg_log truncate detail on UTF-8 boundaries so the\nwriter and readers fail less asymmetrically.\n\nConstraint: Event logs are written from shell hooks and may contain truncated multibyte text from byte-oriented slicing\nRejected: Patch hook-health/stats only | leaves other consumers vulnerable and preserves parsing duplication\nConfidence: high\nScope-risk: moderate\nReversibility: clean\nDirective: New event-log consumers should import hooks/_lib/event_log.py instead of open()+json.loads() loops\nTested: bash tests/test_hooks.sh; bash tests/test_hook_health.sh; bash tests/test_stats.sh; bash tests/test_quality_grader.sh; bash scripts/hook-health.sh 24; bash scripts/stats.sh 7; bash scripts/quality-grader.sh 7 --json\nNot-tested: GC/archival readers in scripts/gc/ still use separate parsing paths\n\n* fix: address review comments and resolve issue #79 false-positive\n\n- P1 (event_log.py): parse_ts now ensures timezone-aware datetimes by\n  replacing missing tzinfo with UTC, preventing TypeError when comparing\n  naive timestamps against timezone-aware `since` values\n\n- P2 (log.sh): Python UTF-8 truncation fallback in vg_truncate_utf8 used\n  `python3 - <<'PY'` + a pipe, which caused the heredoc to consume stdin\n  instead of the piped text; replaced with `python3 -c '...'` so stdin\n  is free for the pipe\n\n- Issue #79 (rust guards): STAGED_RS pipeline under set -euo pipefail\n  aborted the script when no .rs files were staged because the first grep\n  exited 1 and pipefail propagated before `|| true` could catch it;\n  all three affected files (check_unwrap_in_prod.sh, check_nested_locks.sh,\n  common.sh) now guard with a preflight `grep -q` check or a trailing\n  `|| true` on the full pipeline\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(vg-helper): decode malformed UTF-8 with lossy replacement instead of aborting\n\nsession_metrics.rs: `line?` would propagate io::Error on non-UTF-8 stdin\nand abort the entire session-metrics command, silently disabling\nLEARN_SUGGESTED generation on the malformed-log path PR #77 hardened.\nChanged to `match line { Ok(l) => l, Err(_) => continue }`.\n\nlog_query.rs: `lines()` + `Err(_) => continue` silently dropped any line\nwith invalid UTF-8, causing churn/build-fail/paralysis/warn counters to\nundercount and escalation to fail to trigger in production.  Switched to\n`BufReader::read_until` + `String::from_utf8_lossy` so malformed bytes\nbecome U+FFFD rather than discarding the recoverable JSONL event.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session-metrics): apply lossy UTF-8 read and bounded memory load\n\nsession_metrics.rs: replace stdin.lock().lines() with BufReader::read_until\n+ from_utf8_lossy so malformed UTF-8 bytes surface as U+FFFD rather than\nsilently dropping the entire event (mirrors the log_query.rs fix).\n\nsession_metrics.py: pass since=cutoff to load_events_from_file so the\n30-minute time filter runs during file reading rather than after full\nmaterialization; prevents O(full-log) memory/latency on large repos.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-19T00:50:10+08:00",
+          "tree_id": "1f07e4207e9785b9a5f9f5831a3346eda47acda0",
+          "url": "https://github.com/majiayu000/vibeguard/commit/1d6b04d149bc977b887e376d3a8f21c6cc996bad"
+        },
+        "date": 1776531256550,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 200,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 241,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 266,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 332,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 233,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 332,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 218,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 136,
             "unit": "ms"
           }
         ]
