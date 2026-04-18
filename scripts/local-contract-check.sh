@@ -32,6 +32,8 @@ run_check() {
   local label="$1"
   local script="$2"
   local unix_only="${3:-false}"
+  shift 3
+  # remaining positional args are forwarded to the script
 
   if [[ "$unix_only" == "true" ]] && ! is_unix; then
     echo "  SKIP (non-Unix): $label"
@@ -44,7 +46,7 @@ run_check() {
   fi
 
   echo "  RUN: $label"
-  if bash "$script"; then
+  if bash "$script" "$@"; then
     echo "  PASS: $label"
   else
     echo "  FAIL: $label"
@@ -65,7 +67,7 @@ run_check "validate-doc-paths"       "$REPO_DIR/scripts/ci/validate-doc-paths.sh
 run_check "validate-doc-command-paths" "$REPO_DIR/scripts/ci/validate-doc-command-paths.sh" "false"
 
 if [[ "$QUICK" -eq 0 ]]; then
-  run_check "doc-freshness (--strict)" "$REPO_DIR/scripts/verify/doc-freshness-check.sh --strict" "true"
+  run_check "doc-freshness (--strict)" "$REPO_DIR/scripts/verify/doc-freshness-check.sh" "true" --strict
 else
   echo "  SKIP (--quick): doc-freshness"
 fi
