@@ -11,25 +11,50 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # Works for regular repos, worktrees, and submodules
 HOOK_DIR="$(git rev-parse --git-path hooks)"
 HOOK_FILE="$HOOK_DIR/pre-commit"
+# Stable path for the original hook so the wrapper can call it
+PREV_HOOK="$HOOK_DIR/pre-commit.vibeguard-prev"
 
 if [[ ! -d "$HOOK_DIR" ]]; then
   echo "Error: hooks directory not found at $HOOK_DIR. Are you inside a git repository?" >&2
   exit 1
 fi
 
-if [[ -f "$HOOK_FILE" ]]; then
+# -L covers symlinks that exist without a backing regular file entry
+if [[ -L "$HOOK_FILE" ]] || [[ -f "$HOOK_FILE" ]]; then
   if grep -qF "local-contract-check.sh" "$HOOK_FILE"; then
     echo "Contract gate already present in $HOOK_FILE — nothing to do."
     exit 0
   fi
 
   BACKUP="$HOOK_FILE.bak.$(date +%s)"
-  cp "$HOOK_FILE" "$BACKUP"
+  cp "$HOOK_FILE" "$BACKUP"   # cp follows symlinks; backup always gets real content
   echo "Existing hook backed up to: $BACKUP"
 
-  # Chain: append the contract gate so the existing hook's guards are preserved
-  printf '\n# Contract gate (chained by install-pre-commit-hook.sh)\n__vg_root="$(git rev-parse --show-toplevel)"\nbash "${__vg_root}/scripts/local-contract-check.sh"\n' >> "$HOOK_FILE"
-  echo "Contract gate appended to existing hook at: $HOOK_FILE"
+  # Save the original content to a stable path the wrapper can call.
+  # cp follows the symlink here, so PREV_HOOK is always a regular file.
+  cp "$HOOK_FILE" "$PREV_HOOK"
+  chmod +x "$PREV_HOOK"
+
+  # Break any symlink so the next write creates a new regular file scoped to this
+  # repo only.  Without this, writing to $HOOK_FILE would follow the symlink and
+  # mutate the shared target (e.g. ~/.vibeguard/hooks/pre-commit-guard.sh) used by
+  # every other repository on the machine.
+  [[ -L "$HOOK_FILE" ]] && rm "$HOOK_FILE"
+
+  # Write a wrapper that calls the original hook as a subprocess (bash, not exec).
+  # Calling with exec would make everything after the exec line unreachable, so the
+  # contract gate would silently never run on repos whose existing hook ends with
+  # `exec bash <vibeguard-guard>`.
+  cat > "$HOOK_FILE" <<HOOKEOF
+#!/usr/bin/env bash
+# Chain: previous hook runs as subprocess so exec-terminated hooks don't skip the gate
+bash "${PREV_HOOK}" "\$@"
+# Contract gate (chained by install-pre-commit-hook.sh)
+__vg_root="\$(git rev-parse --show-toplevel)"
+bash "\${__vg_root}/scripts/local-contract-check.sh"
+HOOKEOF
+  chmod +x "$HOOK_FILE"
+  echo "Contract gate chained to existing hook at: $HOOK_FILE"
 else
   cat > "$HOOK_FILE" <<'EOF'
 #!/usr/bin/env bash
