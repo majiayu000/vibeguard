@@ -1,33 +1,35 @@
 # Python Rules
 
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
+
 Reference index for scanning and repairing Python projects.
 
-## Core Python checks
+## Scan checklist
 
-| ID | Category | Check item | Severity |
-|----|------|--------|--------|
-| PY-01 | Bug | Mutable default parameters (`def f(x=[])`) | High |
-| PY-02 | Bug | Bare `except:` or overly broad `except Exception` without logging / re-raise | Medium |
-| PY-03 | Async | `await` inside loops without `gather()` / `TaskGroup` | Medium |
-| PY-04 | Design | God class (>500 lines or >10 public methods) | Medium |
-| PY-05 | Dedup | Repeated try/except patterns in multiple places | Medium |
-| PY-06 | Perf | Regex creation repeated inside loops | Low |
-| PY-07 | Perf | String concatenation inside loops | Low |
-| PY-08 | Safety | Use of `eval()`, `exec()`, or `__import__()` | High |
-| PY-09 | Design | Function exceeds 50 lines | Medium |
-| PY-10 | Design | Nesting deeper than 4 levels | Medium |
-| PY-11 | Safety | File operations without `with` context managers | Medium |
-| PY-12 | Perf | Repeated `len()` / `keys()` / `values()` inside loops | Low |
-| PY-13 | Cleanup | Dead compatibility shim that only re-exports another module | Medium |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| PY-01 | Mutable default parameters | High | `def f(x=[])` shares state across calls. |
+| PY-02 | Bare `except` blocks | Medium | `except:` or `except Exception` without logging or re-raising. |
+| PY-03 | `await` inside loops without `gather()` / `TaskGroup` | Medium | Serial waiting wastes time. |
+| PY-04 | God class larger than 500 lines | Medium | More than 10 public methods. |
+| PY-05 | Repeated try/except patterns across many locations | Medium | Repeated try/except patterns across many locations |
+| PY-06 | Rebuilding regexes inside loops | Low | Rebuilding regexes inside loops |
+| PY-07 | String concatenation inside loops | Low | String concatenation inside loops |
+| PY-08 | Use of `eval()`, `exec()`, or `__import__()` | High | This dynamically executes untrusted code. |
+| PY-09 | Functions longer than 50 lines | Medium | Functions longer than 50 lines |
+| PY-10 | Nesting deeper than 4 levels | Medium | Nesting deeper than 4 levels |
+| PY-11 | File operations without a `with` context manager | Medium | File operations without a `with` context manager |
+| PY-12 | Repeated calls to `len()`, `keys()`, or `values()` inside loops | Low | Repeated calls to `len()`, `keys()`, or `values()` inside loops |
+| PY-13 | Dead compatibility shim | Medium | A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete. |
 
 ## Python-adjacent global rules
 
-These live in the canonical Python rule surface even though they use `U-` IDs:
+These are global IDs with Python-specific scope in the canonical rule set:
 
-| ID | Summary |
-|----|---------|
-| U-30 | Cross-boundary Pydantic models must use `extra="allow"` when they validate external data |
-| U-31 | Cache keys must include a code version so builder changes invalidate stale output |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
+| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
 
 ## Verification command
 

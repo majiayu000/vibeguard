@@ -79,11 +79,11 @@ let mut store = Store::new();
 store.restore()?;
 ```
 
-## TASTE-ANSI: Hardcoded ANSI escape sequences
+## TASTE-ANSI: Hardcoded ANSI escape sequences (medium)
 Use a crate like `colored` or `termcolor` instead of hardcoding `\x1b[` sequences.
 
-## TASTE-ASYNC-UNWRAP: `.unwrap()` inside `async fn`
+## TASTE-ASYNC-UNWRAP: `.unwrap()` inside `async fn` (medium)
 Async code should propagate errors with `?` instead of panicking with `unwrap()`.
 
-## TASTE-PANIC-MSG: `panic!()` without a meaningful message
+## TASTE-PANIC-MSG: `panic!()` without a meaningful message (medium)
 `panic!()` or `panic!("")` lacks context. Fix: provide a descriptive message that explains why the panic is intentional.

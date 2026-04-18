@@ -14,7 +14,8 @@ VibeGuard rule files define inspection standards for each language and domain.
 
 ## File structure
 
-- `universal.md` — common code-style, cross-entry, and workflow rules across languages
+- `rules/claude-rules/**` — canonical English rule source (author here first)
+- `universal.md` — generated common code-style, cross-entry, and workflow summary
 - `rust.md` — Rust language rules
 - `typescript.md` — TypeScript language rules
 - `python.md` — Python language rules
@@ -27,3 +28,7 @@ VibeGuard rule files define inspection standards for each language and domain.
 3. Description of inspection items
 4. Repair mode (specific code repair method)
 5. FIX/SKIP judgment matrix
+
+## Generation
+
+`rules/*.md` and `docs/rule-reference.md` are generated from `rules/claude-rules/**` via `python3 scripts/generate_rule_docs.py`.
