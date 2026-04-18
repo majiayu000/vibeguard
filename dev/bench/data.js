@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776358745374,
+  "lastUpdate": 1776530679153,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -137,6 +137,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b29d4a506b77390604d502028a0de93f98566de",
+          "message": "test(vg-helper): add unit tests for session_metrics time-window and session filters (#76)\n\n* test(vg-helper): add unit tests for parse_iso_ts and session/time-window filters\n\nAdds 11 unit tests covering:\n- parse_iso_ts: epoch, Z suffix, +00:00 suffix, HMS parsing, invalid input\n- 30-minute time-window filter: inside/outside/boundary cutoff logic\n- Session ID filter: same session kept, different session excluded, missing session field passes\n\nCloses #67.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session-metrics): fix month bounds panic, malformed-ts filter bypass, and tautology test\n\n- parse_iso_ts: validate month in [1,12] before indexing month_days to\n  prevent panic on corrupt timestamps like 2024-13-01T00:00:00Z\n- extract event_passes_time_filter helper: events whose `ts` is present\n  but unparseable are now excluded (were silently falling through to\n  events.push, bypassing the 30-minute window entirely)\n- replace tautology `assert!(cutoff >= cutoff)` with a real boundary\n  assertion that catches regressions from < to <=\n- add test_parse_out_of_range_month_returns_none (issue 2)\n- add test_malformed_ts_is_excluded_by_filter (issue 1 caller path)\n- add test_no_ts_field_passes_filter and test_recent_ts_passes_filter\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session-metrics): reject invalid day/time values and non-string ts fields\n\nparse_iso_ts now validates day (1–max_days_in_month including leap years),\nhour (0–23), minute (0–59), and second (0–59), rejecting timestamps like\n2026-04-00T99:99:99Z or 2026-02-31T12:00:00Z instead of computing bogus\nepoch values.\n\nevent_passes_time_filter now uses a match on the raw JSON Value so that ts\nfields typed as number, object, array, or null are excluded (false) rather\nthan falling into the previous else { true } branch that admitted them as\nif no ts field existed.\n\nNew tests cover: invalid day ranges, leap-year boundary, invalid time\ncomponents, and non-string ts variants (numeric, object, array, null).\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session-metrics): address review comments — negative ts bounds, session/time tests via production path\n\n- parse_iso_ts: reject negative hour/min/sec (lower-bound guard was missing)\n- extract event_passes_session_filter helper; use it in run() and tests\n- rewrite 30-min window tests to call event_passes_time_filter with deterministic inputs\n- rewrite session filter tests to call event_passes_session_filter instead of re-deriving inline\n- add negative time-component cases to test_parse_out_of_range_time_returns_none\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* test(session-metrics): add run() integration tests via injectable run_inner\n\nExtract run() body into run_inner(args, stdin: impl BufRead, out: &mut impl Write, cutoff_secs)\nso tests can drive the full production path without spawning a process. Add 5 tests covering:\nskip-hook filtering before event-count check, session filter before event-count check,\ntime-window filter before event-count check, LEARN_SUGGESTED signal output + metrics file append,\nand clean-session (no-signal) path.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-19T00:40:37+08:00",
+          "tree_id": "6aaddaabb81b723c3b8f92a1a341c44dc0d2a93c",
+          "url": "https://github.com/majiayu000/vibeguard/commit/6b29d4a506b77390604d502028a0de93f98566de"
+        },
+        "date": 1776530678706,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 203,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 236,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 259,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 303,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 220,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 317,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 227,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 142,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 141,
             "unit": "ms"
           }
         ]
