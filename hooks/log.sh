@@ -206,6 +206,40 @@ vg_start_timer() {
   fi
 }
 
+vg_truncate_utf8() {
+  local text="$1"
+  local limit="${2:-200}"
+
+  if [[ "${#text}" -le "$limit" ]]; then
+    printf '%s' "$text"
+    return 0
+  fi
+
+  if command -v perl &>/dev/null; then
+    printf '%s' "$text" | perl -CS -e '
+use strict;
+use warnings;
+my $limit = shift @ARGV;
+local $/;
+my $s = <STDIN> // q{};
+print substr($s, 0, $limit);
+' "$limit"
+    return 0
+  fi
+
+  if command -v python3 &>/dev/null; then
+    printf '%s' "$text" | python3 -c '
+import sys
+limit = int(sys.argv[1])
+data = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+sys.stdout.write(data[:limit])
+' "$limit"
+    return 0
+  fi
+
+  printf '%s' "$text" | head -c "$limit"
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -214,7 +248,7 @@ vg_log() {
   local detail="${5:-}"
 
   # Truncate detail to 200 chars
-  detail="${detail:0:200}"
+  detail="$(vg_truncate_utf8 "$detail" 200)"
 
   # Calculation time
   local duration_ms=""

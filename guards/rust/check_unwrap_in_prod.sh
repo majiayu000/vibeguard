@@ -29,7 +29,12 @@ RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
 # --- Pre-commit mode: grep diff new lines (ast-grep does not process diff text) ---
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-  STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | { grep -vE "${TEST_PATH_PATTERN}" || true; })
+  if ! grep -q '\.rs$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null; then
+    STAGED_RS=""
+  else
+    STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" \
+      | { grep -vE "${TEST_PATH_PATTERN}" || true; })
+  fi
 
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do

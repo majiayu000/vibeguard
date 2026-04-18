@@ -18,7 +18,9 @@ VIBEGUARD_TEST_FILE_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\
 list_rs_files() {
   local dir="$1"
   if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-    grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; }
+    grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null \
+      | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \
+      || true
   elif git -C "${dir}" rev-parse --is-inside-work-tree &>/dev/null; then
     git -C "${dir}" ls-files '*.rs' \
       | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \

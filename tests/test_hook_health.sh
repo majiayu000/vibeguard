@@ -123,6 +123,55 @@ assert_contains "${health_out}" "Risk Hook Top 5:" "Output risk hook ranking"
 assert_contains "${health_out}" "Top 10 recent risk events:" "Output the latest risk events"
 assert_contains "${health_out}" "stop-guard | gate" "Risk event contains gate"
 
+header "Malformed UTF-8 and broken JSON lines are tolerated"
+python3 - "${TMP_DIR}/log/events-malformed.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+now = datetime.now(timezone.utc)
+
+good_events = [
+    {
+        "ts": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "session": "utf8-1",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "pass",
+        "reason": "",
+        "detail": "cargo check",
+    },
+    {
+        "ts": (now - timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+        "session": "utf8-2",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "warn",
+        "reason": "contains replacement char",
+        "detail": "src/lib.rs",
+    },
+]
+
+recoverable_bad_utf8 = (
+    b'{"ts":"'
+    + (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ").encode("ascii")
+    + b'","session":"utf8-3","hook":"pre-bash-guard","tool":"Bash","decision":"warn","reason":"bad utf8","detail":"python3 -c \\"# \xe7\\""}\n'
+)
+
+with open(path, "wb") as f:
+    f.write(recoverable_bad_utf8)
+    for event in good_events:
+        f.write(json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\n")
+    f.write(b'{"ts":"broken-json"\n')
+PY
+
+cp "${TMP_DIR}/log/events-malformed.jsonl" "${TMP_DIR}/log/events.jsonl"
+malformed_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" 24 2>&1)"
+assert_contains "${malformed_out}" "Total triggers: 3" "Recoverable malformed UTF-8 line is counted and broken JSON line is skipped"
+assert_contains "${malformed_out}" "Risk (non-pass): 2" "Malformed UTF-8 line still contributes to decision counts"
+assert_contains "${malformed_out}" "pre-bash-guard: 1" "Recovered line participates in non-pass hook aggregation"
+
 header "illegal parameter"
 set +e
 bad_arg_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" abc 2>&1)"

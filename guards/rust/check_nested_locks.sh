@@ -18,9 +18,13 @@ TMPFILE=$(create_tmpfile)
 
 # Pre-commit mode: only scan new lines in staged diff
 if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-  STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" \
-    | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \
-    | { grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" || true; })
+  if ! grep -q '\.rs$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null; then
+    STAGED_RS=""
+  else
+    STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" \
+      | { grep -vE "${VIBEGUARD_EXCLUDE_PATHS}" || true; } \
+      | { grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" || true; })
+  fi
 
   if [[ -n "${STAGED_RS}" ]]; then
     while IFS= read -r f; do

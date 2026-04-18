@@ -8,6 +8,7 @@
 
 set -euo pipefail
 
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOURS="${1:-24}"
 LOG_FILE="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/events.jsonl"
 
@@ -21,21 +22,15 @@ if [[ ! -f "${LOG_FILE}" ]]; then
   exit 0
 fi
 
-VG_HOURS="${HOURS}" VG_LOG_FILE="${LOG_FILE}" python3 - <<'PY'
-import json
+VG_HOURS="${HOURS}" VG_LOG_FILE="${LOG_FILE}" VG_REPO_DIR="${REPO_DIR}" python3 - <<'PY'
 import os
 import sys
+from pathlib import Path
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-
-def parse_ts(ts: str):
-    if not ts:
-        return None
-    try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+sys.path.insert(0, str(Path(os.environ["VG_REPO_DIR"]) / "hooks" / "_lib"))
+from event_log import load_events_from_file
 
 
 hours = int(os.environ["VG_HOURS"])
@@ -43,22 +38,7 @@ log_file = os.environ["VG_LOG_FILE"]
 now = datetime.now(timezone.utc)
 cutoff = now - timedelta(hours=hours)
 
-events = []
-with open(log_file, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        event_ts = parse_ts(event.get("ts", ""))
-        if event_ts is None:
-            continue
-        if event_ts >= cutoff:
-            event["_parsed_ts"] = event_ts
-            events.append(event)
+events = load_events_from_file(log_file, since=cutoff)
 
 if not events:
     print(f"No log data for the last {hours} hours.")
