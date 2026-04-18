@@ -1,83 +1,82 @@
+# No Silent Degradation Rules
 
-# 禁止静默降级规则
+## U-29: Error-driven downgrade paths must be observable at error level (strict)
 
-## U-29: 错误降级必须 error 级别可观测（严格）
+If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. Do not use `warning` plus fallback to silently emit a wrong result.
 
-错误导致用户可见的数据缺失或输出错误时，必须 `logger.error` 或 `raise`，禁止 `logger.warning` + fallback 静默产出错误结果。
+**Decision rule**: after the downgrade, what does the user see?
+- Blank or missing content -> **error**
+- Placeholder text or fake data -> **error**
+- Corrupted formatting -> **error**
+- Optional feature unavailable while the primary flow still works -> warning (for example, cache write failure)
 
-**判断标准**：降级后用户看到的是什么？
-- 空白/缺失内容 → **error**
-- 占位文本/假数据 → **error**
-- 格式错乱 → **error**
-- 可选功能缺失但主流程正常 → warning（如缓存写入失败）
+**Trigger scenarios**:
 
-**触发场景**：
-
-### 生成管线降级
+### Generation pipeline downgrade
 ```python
-# ❌ BAD — 生成失败造假卡片，上层以为成功
+# BAD — fake fallback output makes the caller believe generation succeeded
 except Exception as e:
     logger.warning("Card generation failed: %s", e)
     return _build_fallback_card(section_type, context)
 
-# ✅ GOOD — 失败就向上传播
+# GOOD — surface the failure
 except Exception as e:
     logger.error("[GENERATION FAILED] %s: %s", section_type, e)
     raise
 
-# ✅ GOOD — 如果必须 fallback，标记降级状态
+# GOOD — if fallback is unavoidable, mark it explicitly as degraded output
 card = _build_fallback_card(section_type, context)
 card.is_fallback = True
 logger.error("[FALLBACK] %s: placeholder card due to: %s", section_type, e)
 return card
 ```
 
-### 持久化失败
+### Persistence failure
 ```python
-# ❌ BAD — 数据丢失只 warn
+# BAD — data loss is only logged as a warning
 except Exception as exc:
     logger.warning("Failed to sync document: %s", exc)
 
-# ✅ GOOD — 持久化失败必须 error
+# GOOD — persistence failures must be error-level
 except Exception as exc:
     logger.error("Failed to sync document %s: %s", document_id, exc)
     raise
 ```
 
-### 状态机违规
+### State-machine violation
 ```python
-# ❌ BAD — 非法转换 warn 后仍执行
+# BAD — illegal transition logs a warning but still executes
 if not self._status.can_transition_to(new_status):
     logger.warning("Invalid transition: %s -> %s", ...)
-self._status = new_status  # 仍然执行了！
+self._status = new_status  # still executes!
 
-# ✅ GOOD — 非法转换拒绝执行
+# GOOD — illegal transitions must be rejected
 if not self._status.can_transition_to(new_status):
     logger.error("Invalid transition: %s -> %s for %s", self._status, new_status, self.id)
     raise ValueError(f"Cannot transition from {self._status} to {new_status}")
 self._status = new_status
 ```
 
-### 路由/Builder 缺失
+### Missing route / builder
 ```python
-# ❌ BAD — builder 找不到只 warn 走 fallback
+# BAD — missing builder warns, then silently falls back
 if builder is None:
     logger.warning("Builder %s missing for %s", builder_attr, section_type)
 return self._build_fallback_card(...)
 
-# ✅ GOOD — 注册了但找不到是代码错误
+# GOOD — registered-but-missing builders are code errors
 if builder is None:
     raise RuntimeError(f"Builder {builder_attr} registered but not found — code error")
 ```
 
-**反模式**：
-- `except Exception: pass` — 最严重的静默吞异常
-- `except Exception: continue` — 循环内静默跳过失败项
-- `logger.warning(...); return None` — 调用方不检查 None 就崩
-- `logger.warning(...); return default_value` — 默认值被当正常数据使用
-- `logger.debug(...)` 记录错误 — debug 级别在生产环境默认不输出，等于没记
+**Anti-patterns**:
+- `except Exception: pass` — the worst silent swallow
+- `except Exception: continue` — silently skips failed items inside a loop
+- `logger.warning(...); return None` — callers forget to check and crash later
+- `logger.warning(...); return default_value` — default output gets treated as valid data
+- Logging errors at `debug` level — debug is often disabled in production, which is equivalent to no logging
 
-**机械化检查（Agent 执行规则）**：
-- 写 `except` 块时，检查 except 分支的返回值是否会被上层当成正常结果
-- 写 `logger.warning` 时，检查同行或下一行是否有 `return`/`continue`，如有则审视是否应升级为 error
-- 在 fallback 路径中，检查返回的对象是否有标记表明它是降级产物
+**Mechanical checks (agent execution rules)**:
+- When writing an `except` block, check whether the return value from the exception branch will be treated as a normal result by upstream code.
+- When writing `logger.warning`, inspect the same line or the next line for `return` or `continue`; if present, reconsider whether it should be upgraded to `error`.
+- In fallback paths, ensure the returned object is explicitly marked as degraded output.

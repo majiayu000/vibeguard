@@ -2,40 +2,40 @@
 paths: **/*.go,**/go.mod,**/go.sum
 ---
 
-# Go 质量规则
+# Go Quality Rules
 
-## GO-01: 未检查 error 返回值（高）
-赋值给 `_` 丢弃 error。修复：`if err != nil { return fmt.Errorf("context: %w", err) }`
+## GO-01: Unchecked error return values (high)
+Errors are assigned to `_` and discarded. Fix: use `if err != nil { return fmt.Errorf("context: %w", err) }`.
 
-## GO-02: goroutine 泄漏（高）
-`go func()` 无退出机制。修复：传入 `context.Context`，用 `select { case <-ctx.Done(): return }`
+## GO-02: Goroutine leak (high)
+`go func()` launches work without an exit path. Fix: pass `context.Context` and exit via `select { case <-ctx.Done(): return }`.
 
-## GO-03: data race（高）
-共享变量无 mutex 或 channel 保护。修复：用 `sync.Mutex`/`sync.RWMutex` 保护，或改用 channel 通信。
+## GO-03: Data race (high)
+Shared variables are accessed without a mutex or channel protection. Fix: guard them with `sync.Mutex` / `sync.RWMutex`, or communicate through channels.
 
-## GO-04: 接口定义在实现侧而非消费侧（中）
-修复：接口移到消费方包中定义，遵循"依赖接口不依赖实现"原则。
+## GO-04: Interface is declared on the implementation side instead of the consumer side (medium)
+Fix: move the interface into the consuming package and depend on abstractions from the consumer side.
 
-## GO-05: 多处相同的 error wrapping 模式（中）
-修复：统一使用 `fmt.Errorf("...: %w", err)` 格式。
+## GO-05: Repeated error-wrapping patterns across multiple places (medium)
+Fix: standardize on `fmt.Errorf("...: %w", err)`.
 
-## GO-06: 循环内 append 未预分配 cap（低）
-修复：`make([]T, 0, expectedLen)` 预分配切片容量。
+## GO-06: `append` in loops without preallocated capacity (low)
+Fix: preallocate with `make([]T, 0, expectedLen)`.
 
-## GO-07: 字符串拼接用 + 而非 strings.Builder（低）
-修复：改用 `strings.Builder` 或 `strings.Join`。
+## GO-07: String concatenation with `+` instead of `strings.Builder` (low)
+Fix: use `strings.Builder` or `strings.Join`.
 
-## GO-08: defer 在循环内（高）
-资源泄漏风险，defer 到函数结束才执行。修复：将循环体提取为独立函数，defer 在函数内部执行。
+## GO-08: `defer` inside loops (high)
+This risks resource leaks because deferred calls wait until the function returns. Fix: extract the loop body into a helper so each `defer` runs at the right scope.
 
-## GO-09: 函数超过 80 行（中）
-修复：提取子函数，单函数不超过 80 行。
+## GO-09: Functions longer than 80 lines (medium)
+Fix: extract helper functions so each function stays under 80 lines.
 
-## GO-10: 包级别 init() 有副作用（中）
-网络/文件 IO 在 init() 中执行。修复：移到显式初始化函数中，由调用方控制时机。
+## GO-10: Package-level `init()` has side effects (medium)
+Network or file I/O happens in `init()`. Fix: move it into an explicit initialization function controlled by the caller.
 
-## GO-11: context.Background() 在非入口函数中使用（中）
-修复：将 context 作为第一个参数从调用链顶部传入。非入口函数不创建根 context。
+## GO-11: `context.Background()` is used outside entry points (medium)
+Fix: thread a `context.Context` through the call chain as the first argument. Non-entry functions should not create root contexts.
 
-## GO-12: 结构体字段未按大小排序（低）
-内存对齐浪费。修复：按字段大小降序排列（大字段在前），减少 padding。
+## GO-12: Struct fields are not ordered by size (low)
+This wastes memory due to alignment padding. Fix: sort fields in descending size order when it is reasonable to do so.

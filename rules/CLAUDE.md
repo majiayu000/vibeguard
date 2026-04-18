@@ -14,7 +14,7 @@ VibeGuard rule files define inspection standards for each language and domain.
 
 ## File structure
 
-- `universal.md` — universal rules across languages
+- `universal.md` — common code-style, cross-entry, and workflow rules across languages
 - `rust.md` — Rust language rules
 - `typescript.md` — TypeScript language rules
 - `python.md` — Python language rules
