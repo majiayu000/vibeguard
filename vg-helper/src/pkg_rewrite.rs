@@ -41,14 +41,33 @@ fn try_npm(cmd: &str) -> Option<String> {
     let rest = pkg_install.replace(cmd, "").trim().to_string();
     let tokens: Vec<&str> = rest.split_whitespace().collect();
 
-    const KNOWN: &[&str] = &["--save-dev", "-D", "--save", "-S", "--save-optional", "-O", "--save-exact", "-E"];
-    if tokens.iter().any(|t| *t == "-g" || *t == "--global" || t.starts_with("--location=global")) {
+    const KNOWN: &[&str] = &[
+        "--save-dev",
+        "-D",
+        "--save",
+        "-S",
+        "--save-optional",
+        "-O",
+        "--save-exact",
+        "-E",
+    ];
+    if tokens
+        .iter()
+        .any(|t| *t == "-g" || *t == "--global" || t.starts_with("--location=global"))
+    {
         return None;
     }
-    if tokens.iter().any(|t| t.starts_with('-') && !KNOWN.contains(t)) {
+    if tokens
+        .iter()
+        .any(|t| t.starts_with('-') && !KNOWN.contains(t))
+    {
         return None;
     }
-    let packages: Vec<&str> = tokens.iter().filter(|t| !t.starts_with('-')).copied().collect();
+    let packages: Vec<&str> = tokens
+        .iter()
+        .filter(|t| !t.starts_with('-'))
+        .copied()
+        .collect();
     if packages.is_empty() {
         return None;
     }
@@ -79,11 +98,30 @@ fn try_yarn(cmd: &str) -> Option<String> {
     let rest = add.replace(cmd, "").to_string();
     let tokens: Vec<&str> = rest.split_whitespace().collect();
 
-    const KNOWN: &[&str] = &["-D", "--dev", "--save-dev", "-O", "--optional", "-E", "--exact", "-P", "--save-peer", "-W", "--ignore-workspace-root-check"];
-    if tokens.iter().any(|t| t.starts_with('-') && !KNOWN.contains(t)) {
+    const KNOWN: &[&str] = &[
+        "-D",
+        "--dev",
+        "--save-dev",
+        "-O",
+        "--optional",
+        "-E",
+        "--exact",
+        "-P",
+        "--save-peer",
+        "-W",
+        "--ignore-workspace-root-check",
+    ];
+    if tokens
+        .iter()
+        .any(|t| t.starts_with('-') && !KNOWN.contains(t))
+    {
         return None;
     }
-    let packages: Vec<&str> = tokens.iter().filter(|t| !t.starts_with('-')).copied().collect();
+    let packages: Vec<&str> = tokens
+        .iter()
+        .filter(|t| !t.starts_with('-'))
+        .copied()
+        .collect();
     if packages.is_empty() {
         return None;
     }
@@ -123,12 +161,34 @@ fn try_python_pip(cmd: &str) -> Option<String> {
 
 fn check_pip_flags(rest: &str) -> Option<()> {
     const KNOWN: &[&str] = &[
-        "-r", "--requirement", "-e", "--editable", "-U", "--upgrade", "--pre", "--no-deps",
-        "-i", "--index-url", "--extra-index-url", "--no-index", "-f", "--find-links",
-        "-c", "--constraint", "-v", "--verbose", "-q", "--quiet", "-t", "--target",
+        "-r",
+        "--requirement",
+        "-e",
+        "--editable",
+        "-U",
+        "--upgrade",
+        "--pre",
+        "--no-deps",
+        "-i",
+        "--index-url",
+        "--extra-index-url",
+        "--no-index",
+        "-f",
+        "--find-links",
+        "-c",
+        "--constraint",
+        "-v",
+        "--verbose",
+        "-q",
+        "--quiet",
+        "-t",
+        "--target",
     ];
     let tokens: Vec<&str> = rest.split_whitespace().collect();
-    if tokens.iter().any(|t| t.starts_with('-') && !KNOWN.contains(t)) {
+    if tokens
+        .iter()
+        .any(|t| t.starts_with('-') && !KNOWN.contains(t))
+    {
         return None;
     }
     Some(())

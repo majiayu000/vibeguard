@@ -1,7 +1,7 @@
 //! Session metrics collection + correction signal detection.
 //! Replaces hooks/_lib/session_metrics.py.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
@@ -70,12 +70,17 @@ pub fn run(args: &[String]) -> Result {
     let mut events: Vec<Value> = Vec::new();
     let skip = ["stop-guard", "learn-evaluator"];
     for line in stdin.lock().lines() {
-        let line = line?;
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
         }
-        let Ok(e) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(e) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let hook = e.get("hook").and_then(Value::as_str).unwrap_or("");
         if skip.contains(&hook) {
             continue;
@@ -110,7 +115,10 @@ pub fn run(args: &[String]) -> Result {
     let mut durations_ms: Vec<u64> = Vec::new();
 
     for e in &events {
-        let d = e.get("decision").and_then(Value::as_str).unwrap_or("unknown");
+        let d = e
+            .get("decision")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
         *decisions.entry(d.into()).or_default() += 1;
         let h = e.get("hook").and_then(Value::as_str).unwrap_or("unknown");
         *hooks.entry(h.into()).or_default() += 1;
@@ -192,18 +200,28 @@ pub fn run(args: &[String]) -> Result {
                 if !seen.contains(&r) {
                     seen.push(r);
                 }
-                if seen.len() >= 3 { break; }
+                if seen.len() >= 3 {
+                    break;
+                }
             }
             seen
         };
-        let joined = unique.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ");
+        let joined = unique
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
         signals.push(format!("{blocks} block(s): {joined}"));
     }
 
     // Signal 6: paralysis
     let paralysis: Vec<_> = events
         .iter()
-        .filter(|e| e.get("reason").and_then(Value::as_str).is_some_and(|r| r.contains("paralysis")))
+        .filter(|e| {
+            e.get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|r| r.contains("paralysis"))
+        })
         .collect();
     if paralysis.len() >= 2 {
         signals.push(format!("Analysis paralysis: {} triggers", paralysis.len()));
@@ -213,7 +231,9 @@ pub fn run(args: &[String]) -> Result {
     let mut rule_counts: HashMap<String, u64> = HashMap::new();
     for e in &events {
         let d = e.get("decision").and_then(Value::as_str).unwrap_or("");
-        if !["warn", "block", "escalate"].contains(&d) { continue; }
+        if !["warn", "block", "escalate"].contains(&d) {
+            continue;
+        }
         let reason = e.get("reason").and_then(Value::as_str).unwrap_or("");
         if let Some(end) = reason.find(']') {
             let tag = &reason[..=end];
@@ -227,19 +247,27 @@ pub fn run(args: &[String]) -> Result {
     }
 
     // Signal 8: build failure cluster
-    let bf = events.iter().filter(|e| {
-        let r = e.get("reason").and_then(Value::as_str).unwrap_or("");
-        let rl = r.to_lowercase();
-        r.contains("构建错误") || rl.contains("build fail") || rl.contains("build error")
-    }).count();
+    let bf = events
+        .iter()
+        .filter(|e| {
+            let r = e.get("reason").and_then(Value::as_str).unwrap_or("");
+            let rl = r.to_lowercase();
+            r.contains("构建错误") || rl.contains("build fail") || rl.contains("build error")
+        })
+        .count();
     if bf >= 3 {
         signals.push(format!("{bf} build failures in session (spiral risk)"));
     }
 
     // Signal 9: circuit breaker trips
-    let cb = events.iter().filter(|e| {
-        e.get("reason").and_then(Value::as_str).is_some_and(|r| r.contains("CB tripped"))
-    }).count();
+    let cb = events
+        .iter()
+        .filter(|e| {
+            e.get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|r| r.contains("CB tripped"))
+        })
+        .count();
     if cb > 0 {
         signals.push(format!("Circuit breaker tripped {cb} time(s)"));
     }
@@ -292,7 +320,11 @@ pub fn run(args: &[String]) -> Result {
         "warn_ratio": (warn_ratio * 100.0).round() / 100.0,
     });
 
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&metrics_path) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&metrics_path)
+    {
         let _ = writeln!(f, "{}", serde_json::to_string(&metrics)?);
     }
 
@@ -308,7 +340,9 @@ pub fn run(args: &[String]) -> Result {
 
 fn chrono_now() -> String {
     // Simple UTC timestamp without chrono crate dependency
-    let output = std::process::Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output();
+    let output = std::process::Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output();
     match output {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         Err(_) => "1970-01-01T00:00:00Z".into(),

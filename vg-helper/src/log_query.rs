@@ -8,17 +8,24 @@ type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 fn read_events(session: &str) -> Vec<Value> {
     let stdin = io::stdin();
+    let mut reader = io::BufReader::new(stdin.lock());
     let mut events = Vec::new();
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let line = line.trim().to_string();
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+        // Use lossy decoding so malformed UTF-8 bytes become U+FFFD rather than
+        // dropping the entire line — preserves recoverable JSONL events.
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<Value>(&line) {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
             if v.get("session").and_then(Value::as_str) == Some(session) {
                 events.push(v);
             }
@@ -61,11 +68,9 @@ pub fn warn_count(args: &[String]) -> Result {
         .filter(|e| {
             e.get("hook").and_then(Value::as_str) == Some("post-edit-guard")
                 && e.get("decision").and_then(Value::as_str) == Some("warn")
-                && e.get("detail")
-                    .and_then(Value::as_str)
-                    .is_some_and(|d| {
-                        d.split("||").next().unwrap_or("").trim() == file_path.as_str()
-                    })
+                && e.get("detail").and_then(Value::as_str).is_some_and(|d| {
+                    d.split("||").next().unwrap_or("").trim() == file_path.as_str()
+                })
         })
         .count();
     println!("{count}");
