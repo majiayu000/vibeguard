@@ -9,7 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_DIR_RESOLVED="$(python3 - <<'PY' "${REPO_DIR}"
 from pathlib import Path
 import sys
-print(Path(sys.argv[1]).resolve())
+print(Path(sys.argv[1]).resolve().as_posix())
 PY
 )"
 
@@ -51,8 +51,9 @@ assert_cmd "eval/run_eval.py syntax is correct" python3 -m py_compile "${REPO_DI
 
 header "dry-run uses repository snapshot by default"
 dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run)"
-assert_contains "${dry_run_out}" "Rules source: ${REPO_DIR_RESOLVED}/rules/claude-rules" "dry-run reports repository rule source"
-assert_contains "${dry_run_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-rules.md" "dry-run reports repository core rules source"
+normalized_out="$(printf '%s' "${dry_run_out}" | tr '\\' '/')"
+assert_contains "${normalized_out}" "Rules source: ${REPO_DIR_RESOLVED}/rules/claude-rules" "dry-run reports repository rule source"
+assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-rules.md" "dry-run reports repository core rules source"
 
 echo
 echo "=============================="
