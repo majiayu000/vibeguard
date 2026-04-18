@@ -37,7 +37,7 @@ def load_rules(rules_dir: Path, core_rules_file: Path | None) -> str:
     rules_text = []
 
     for rule_file in sorted(rules_dir.rglob("*.md")):
-        content = rule_file.read_text()
+        content = rule_file.read_text(encoding="utf-8")
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
@@ -45,7 +45,7 @@ def load_rules(rules_dir: Path, core_rules_file: Path | None) -> str:
         rules_text.append(f"# {rule_file.stem}\n\n{content}")
 
     if core_rules_file and core_rules_file.exists():
-        claude_md = core_rules_file.read_text()
+        claude_md = core_rules_file.read_text(encoding="utf-8")
         in_vg = False
         vg_lines = []
         for line in claude_md.split("\n"):

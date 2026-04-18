@@ -128,12 +128,10 @@ jobs:
       # Install pnpm and uv so that the hook rewrite tests (npm→pnpm,
       # pip→uv) exercise the tool-availability guard added in pre-bash-guard.sh.
       - name: Install pnpm and uv (hook rewrite tests)
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           npm install -g pnpm
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python3 -m pip install uv
 
       # --- Regression tests ---
       # Skipped on Windows: the test harness uses Unix path assumptions,
