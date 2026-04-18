@@ -49,9 +49,12 @@ if [[ -L "$HOOK_FILE" ]] || [[ -f "$HOOK_FILE" ]]; then
 #!/usr/bin/env bash
 # Chain: previous hook runs as subprocess so exec-terminated hooks don't skip the gate
 bash "${PREV_HOOK}" "\$@"
+_prev_exit=\$?
 # Contract gate (chained by install-pre-commit-hook.sh)
 __vg_root="\$(git rev-parse --show-toplevel)"
 bash "\${__vg_root}/scripts/local-contract-check.sh"
+_gate_exit=\$?
+exit \$(( _prev_exit != 0 ? _prev_exit : _gate_exit ))
 HOOKEOF
   chmod +x "$HOOK_FILE"
   echo "Contract gate chained to existing hook at: $HOOK_FILE"

@@ -230,5 +230,44 @@ assert_contains "$INSTALLED4" "local-contract-check.sh" \
   "exec-chain: contract gate present after original hook call"
 
 # ---------------------------------------------------------------------------
+header "install-pre-commit-hook.sh: original hook failure propagated"
+
+FAKE_REPO5="$TMPDIR_TEST/repo5"
+mkdir -p "$FAKE_REPO5"
+git -C "$FAKE_REPO5" init -q
+FAKE_HOOKS5="$FAKE_REPO5/.git/hooks"
+
+# Existing hook that always fails
+cat > "$FAKE_HOOKS5/pre-commit" <<'HOOK'
+#!/usr/bin/env bash
+exit 42
+HOOK
+chmod +x "$FAKE_HOOKS5/pre-commit"
+
+cd "$FAKE_REPO5"
+bash "$REPO_DIR/scripts/install-pre-commit-hook.sh" > /dev/null 2>&1 || true
+cd "$REPO_DIR"
+
+# The generated wrapper must preserve the original hook's non-zero exit
+INSTALLED5="$(cat "$FAKE_HOOKS5/pre-commit")"
+TOTAL=$((TOTAL + 1))
+if echo "$INSTALLED5" | grep -qE '_prev_exit'; then
+  green "exit-propagation: wrapper captures original hook exit code"
+  PASS=$((PASS + 1))
+else
+  red "exit-propagation: wrapper does not capture original hook exit code"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if echo "$INSTALLED5" | grep -qE 'exit.*_prev_exit.*_gate_exit|_prev_exit.*_gate_exit'; then
+  green "exit-propagation: wrapper exits with combined failure result"
+  PASS=$((PASS + 1))
+else
+  red "exit-propagation: wrapper does not propagate exit codes correctly"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n=== Results: %d/%d passed ===\n' "$PASS" "$TOTAL"
 [[ "$FAIL" -eq 0 ]] || { echo "FAILED: $FAIL test(s)"; exit 1; }
