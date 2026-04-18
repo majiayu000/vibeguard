@@ -30,16 +30,27 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
     let year: i64 = dp[0].parse().ok()?;
     let month: i64 = dp[1].parse().ok()?;
     let day: i64 = dp[2].parse().ok()?;
+    if month < 1 || month > 12 {
+        return None;
+    }
     let hour: i64 = tp[0].parse().ok()?;
     let min: i64 = tp[1].parse().ok()?;
     let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
+    if hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59 {
+        return None;
+    }
 
     let is_leap = |y: i64| (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let max_day = if month == 2 && is_leap(year) { 29 } else { month_days[(month - 1) as usize] };
+    if day < 1 || day > max_day {
+        return None;
+    }
+
     let mut days: i64 = 0;
     for y in 1970..year {
         days += if is_leap(y) { 366 } else { 365 };
     }
-    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for m in 1..month {
         days += month_days[(m - 1) as usize];
         if m == 2 && is_leap(year) {
@@ -55,21 +66,49 @@ fn parse_iso_ts(ts: &str) -> Option<u64> {
     Some(total as u64)
 }
 
+/// Returns true if the event should be included in session metrics.
+/// Events whose `ts` field is present but not a parseable ISO-8601 string are
+/// excluded to prevent filter bypass from corrupt log lines (including non-string types).
+fn event_passes_time_filter(e: &Value, cutoff_secs: u64) -> bool {
+    match e.get("ts") {
+        None => true,
+        Some(ts_val) => match ts_val.as_str() {
+            Some(ts) => match parse_iso_ts(ts) {
+                Some(evt_secs) => evt_secs >= cutoff_secs,
+                None => false,
+            },
+            None => false,
+        },
+    }
+}
+
+/// Returns true if the event belongs to the given session (or has no session field).
+fn event_passes_session_filter(evt: &Value, session: &str) -> bool {
+    let evt_session = evt.get("session").and_then(Value::as_str).unwrap_or("");
+    evt_session.is_empty() || evt_session == session
+}
+
 /// Usage: tail -1000 $LOG | vg-helper session-metrics <session_id> <project_log_dir>
 pub fn run(args: &[String]) -> Result {
+    let cutoff_secs = now_unix_secs().saturating_sub(30 * 60);
+    run_inner(args, io::stdin().lock(), &mut io::stdout(), cutoff_secs)
+}
+
+fn run_inner(
+    args: &[String],
+    stdin: impl BufRead,
+    out: &mut impl Write,
+    cutoff_secs: u64,
+) -> Result {
     if args.len() < 2 {
         return Err("Usage: tail -N log | vg-helper session-metrics <session> <dir>".into());
     }
     let session = &args[0];
     let project_dir = &args[1];
 
-    // 30-minute cutoff — mirrors Python predecessor hooks/_lib/session_metrics.py:36-52
-    let cutoff_secs = now_unix_secs().saturating_sub(30 * 60);
-
-    let stdin = io::stdin();
     let mut events: Vec<Value> = Vec::new();
     let skip = ["stop-guard", "learn-evaluator"];
-    for line in stdin.lock().lines() {
+    for line in stdin.lines() {
         let line = line?;
         let line = line.trim().to_string();
         if line.is_empty() {
@@ -83,17 +122,13 @@ pub fn run(args: &[String]) -> Result {
         // Filter to current session only — parallel agents in the same repo share the
         // same project log; without this filter their events contaminate warn_ratio and
         // Signal 10 baseline, producing false LEARN_SUGGESTED stops.
-        let evt_session = e.get("session").and_then(Value::as_str).unwrap_or("");
-        if !evt_session.is_empty() && evt_session != session.as_str() {
+        if !event_passes_session_filter(&e, session) {
             continue;
         }
-        // Drop events older than 30 minutes to prevent cross-session contamination
-        if let Some(ts) = e.get("ts").and_then(Value::as_str) {
-            if let Some(evt_secs) = parse_iso_ts(ts) {
-                if evt_secs < cutoff_secs {
-                    continue;
-                }
-            }
+        // Drop events outside the 30-minute window.  Events whose `ts` is
+        // present but unparseable are also dropped (not passed through).
+        if !event_passes_time_filter(&e, cutoff_secs) {
+            continue;
         }
         events.push(e);
     }
@@ -298,9 +333,9 @@ pub fn run(args: &[String]) -> Result {
 
     // Output
     if !signals.is_empty() {
-        println!("LEARN_SUGGESTED");
+        writeln!(out, "LEARN_SUGGESTED")?;
         for sig in &signals {
-            println!("{sig}");
+            writeln!(out, "{sig}")?;
         }
     }
     Ok(())
@@ -312,5 +347,297 @@ fn chrono_now() -> String {
     match output {
         Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         Err(_) => "1970-01-01T00:00:00Z".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_iso_ts ---
+
+    #[test]
+    fn test_parse_unix_epoch() {
+        assert_eq!(parse_iso_ts("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    #[test]
+    fn test_parse_z_suffix() {
+        // 2024-01-01T00:00:00Z
+        // Days from 1970-01-01 to 2024-01-01:
+        //   leap years in [1970, 2024): 1972,1976,...,2020 => (2020-1972)/4+1 = 13 leap years
+        //   total years = 54, non-leap = 41, leap = 13 => 41*365 + 13*366 = 14965+4758 = 19723 days
+        let expected_secs: u64 = 19723 * 86400;
+        assert_eq!(parse_iso_ts("2024-01-01T00:00:00Z"), Some(expected_secs));
+    }
+
+    #[test]
+    fn test_parse_plus00_suffix() {
+        assert_eq!(
+            parse_iso_ts("1970-01-01T00:00:00+00:00"),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn test_parse_with_hms() {
+        // 1970-01-01T01:02:03Z = 3600+120+3 = 3723 secs
+        assert_eq!(parse_iso_ts("1970-01-01T01:02:03Z"), Some(3723));
+    }
+
+    #[test]
+    fn test_parse_invalid_returns_none() {
+        assert_eq!(parse_iso_ts("not-a-timestamp"), None);
+        assert_eq!(parse_iso_ts(""), None);
+        assert_eq!(parse_iso_ts("2024-01-01"), None); // missing T separator
+    }
+
+    #[test]
+    fn test_parse_out_of_range_month_returns_none() {
+        // month=13 would index month_days[12] — out of bounds without validation
+        assert_eq!(parse_iso_ts("2024-13-01T00:00:00Z"), None);
+        assert_eq!(parse_iso_ts("2024-00-01T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn test_parse_out_of_range_day_returns_none() {
+        assert_eq!(parse_iso_ts("2026-04-00T12:00:00Z"), None); // day=0
+        assert_eq!(parse_iso_ts("2026-04-31T12:00:00Z"), None); // April has 30 days
+        assert_eq!(parse_iso_ts("2026-02-29T12:00:00Z"), None); // 2026 is not a leap year
+        assert_eq!(parse_iso_ts("2026-02-31T12:00:00Z"), None); // Feb never has 31 days
+        assert!(parse_iso_ts("2024-02-29T12:00:00Z").is_some()); // 2024 is a leap year
+    }
+
+    #[test]
+    fn test_parse_out_of_range_time_returns_none() {
+        assert_eq!(parse_iso_ts("2026-04-18T99:00:00Z"), None); // hour=99
+        assert_eq!(parse_iso_ts("2026-04-18T24:00:00Z"), None); // hour=24
+        assert_eq!(parse_iso_ts("2026-04-18T00:60:00Z"), None); // min=60
+        assert_eq!(parse_iso_ts("2026-04-18T00:00:60Z"), None); // sec=60
+        assert_eq!(parse_iso_ts("2026-04-00T99:99:99Z"), None); // day+time all invalid
+        // negative time components must also be rejected
+        assert_eq!(parse_iso_ts("2026-04-18T-1:00:00Z"), None); // hour=-1
+        assert_eq!(parse_iso_ts("2026-04-18T00:-1:00Z"), None); // min=-1
+        assert_eq!(parse_iso_ts("2026-04-18T00:00:-1Z"), None); // sec=-1
+    }
+
+    // --- 30-minute time-window filter (via production event_passes_time_filter) ---
+
+    #[test]
+    fn test_event_inside_30min_window_passes() {
+        // epoch+60s is inside a window whose cutoff is 0 — must pass
+        assert!(
+            event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:01:00Z"}), 0),
+            "recent event should pass the 30-min filter"
+        );
+    }
+
+    #[test]
+    fn test_event_outside_30min_window_drops() {
+        // epoch 0s is before cutoff 60s — must be dropped
+        assert!(
+            !event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:00:00Z"}), 60),
+            "old event should be dropped by 30-min filter"
+        );
+    }
+
+    #[test]
+    fn test_event_exactly_at_cutoff_passes() {
+        // epoch 60s == cutoff 60s — must NOT be dropped (strict less-than in production)
+        // If the comparison ever regresses to `<=`, this test will fail.
+        assert!(
+            event_passes_time_filter(&serde_json::json!({"ts": "1970-01-01T00:01:00Z"}), 60),
+            "event at exactly the cutoff boundary must not be dropped"
+        );
+    }
+
+    // --- event_passes_time_filter (caller-path coverage for issues 1 & 3) ---
+
+    #[test]
+    fn test_malformed_ts_is_excluded_by_filter() {
+        // Exercises the caller path: parse_iso_ts(ts)==None must NOT fall through to push.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        let e = serde_json::json!({"ts": "not-a-date", "hook": "test"});
+        assert!(
+            !event_passes_time_filter(&e, cutoff),
+            "event with unparseable ts must be excluded, not fall through the 30-min filter"
+        );
+    }
+
+    #[test]
+    fn test_non_string_ts_is_excluded_by_filter() {
+        // ts present as number, object, or array — must be excluded, not silently admitted.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": 123456789}), cutoff),
+            "numeric ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": {}}), cutoff),
+            "object ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": []}), cutoff),
+            "array ts must be excluded");
+        assert!(!event_passes_time_filter(&serde_json::json!({"ts": null}), cutoff),
+            "null ts must be excluded");
+    }
+
+    #[test]
+    fn test_no_ts_field_passes_filter() {
+        // Events with no ts field have no timestamp to validate — include them.
+        let cutoff = now_unix_secs().saturating_sub(30 * 60);
+        let e = serde_json::json!({"hook": "test"});
+        assert!(event_passes_time_filter(&e, cutoff));
+    }
+
+    #[test]
+    fn test_recent_ts_passes_filter() {
+        let now = now_unix_secs();
+        let cutoff = now.saturating_sub(30 * 60);
+        // 1970-01-01T00:00:00Z = 0 secs — far older than cutoff, should be dropped
+        assert!(!event_passes_time_filter(
+            &serde_json::json!({"ts": "1970-01-01T00:00:00Z"}),
+            cutoff
+        ));
+        // epoch + cutoff + 60 secs — inside the window, should pass
+        // Use a timestamp we know is "recent" relative to a cutoff of 0
+        assert!(event_passes_time_filter(
+            &serde_json::json!({"ts": "1970-01-01T00:00:00Z"}),
+            0
+        ));
+    }
+
+    // --- session ID filter (via production event_passes_session_filter) ---
+
+    #[test]
+    fn test_different_session_is_excluded() {
+        let e = serde_json::json!({"session": "sess-B", "hook": "test"});
+        assert!(!event_passes_session_filter(&e, "sess-A"),
+            "event from different session must be excluded");
+    }
+
+    #[test]
+    fn test_same_session_is_included() {
+        let e = serde_json::json!({"session": "sess-A", "hook": "test"});
+        assert!(event_passes_session_filter(&e, "sess-A"),
+            "event from same session must be included");
+    }
+
+    #[test]
+    fn test_missing_session_field_is_included() {
+        let e = serde_json::json!({"hook": "test"});
+        assert!(event_passes_session_filter(&e, "sess-A"),
+            "event with no session field must be included");
+    }
+
+    // --- run() integration tests: exercise the full production path via run_inner ---
+    // These tests verify that run()'s wiring is correct: JSONL parsing, skip-hook filtering,
+    // session filter, time-window filter, events.len() < 3 early return, metrics file append,
+    // and LEARN_SUGGESTED stdout output.
+
+    fn make_args(dir: &str) -> Vec<String> {
+        vec!["sess-A".to_string(), dir.to_string()]
+    }
+
+    fn tmp_dir_for_test(suffix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("vg-sm-test-{suffix}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_run_skip_hooks_reduce_count_below_threshold() {
+        // 3 skip-hook events + 2 valid events = 2 valid < 3 → early return, no metrics file.
+        let dir = tmp_dir_for_test("skip-hooks");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"stop-guard\",\"session\":\"sess-A\"}\n",
+            "{\"hook\":\"learn-evaluator\",\"session\":\"sess-A\"}\n",
+            "{\"hook\":\"stop-guard\",\"session\":\"sess-A\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        assert!(out.is_empty(), "no output expected when event count < 3 after skip filtering");
+        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+    }
+
+    #[test]
+    fn test_run_session_filter_reduces_count_below_threshold() {
+        // 3 events from sess-B (filtered out) + 2 from sess-A = 2 valid < 3 → early return.
+        let dir = tmp_dir_for_test("session-filter");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-B\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-B\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-B\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        assert!(out.is_empty(), "no output expected when event count < 3 after session filtering");
+        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+    }
+
+    #[test]
+    fn test_run_time_filter_reduces_count_below_threshold() {
+        // 3 events with ts=epoch (far before cutoff=60s) + 2 with no ts (always pass).
+        // Result: 2 valid < 3 → early return.
+        let dir = tmp_dir_for_test("time-filter");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"ts\":\"1970-01-01T00:00:00Z\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"ts\":\"1970-01-01T00:00:00Z\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"ts\":\"1970-01-01T00:00:00Z\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let cutoff = 60u64;
+        let mut out = Vec::<u8>::new();
+        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, cutoff).unwrap();
+        assert!(out.is_empty(), "no output expected when event count < 3 after time filtering");
+        assert!(!metrics_path.exists(), "metrics file must not be written when event count < 3");
+    }
+
+    #[test]
+    fn test_run_produces_learn_suggested_and_appends_metrics() {
+        // 6 valid events: 4 with warn/block decision (>25%, ≥3 negative) → Signal 1.
+        // Verifies: metrics file written, LEARN_SUGGESTED on stdout.
+        let dir = tmp_dir_for_test("signals");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"warn\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"block\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"warn\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"block\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        let stdout_text = String::from_utf8(out).unwrap();
+        assert!(stdout_text.contains("LEARN_SUGGESTED"), "expected LEARN_SUGGESTED in stdout");
+        assert!(metrics_path.exists(), "metrics file must be written when ≥3 events processed");
+        let file_content = std::fs::read_to_string(&metrics_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(file_content.trim()).unwrap();
+        assert_eq!(parsed["session"], "sess-A");
+        assert_eq!(parsed["event_count"], 6);
+    }
+
+    #[test]
+    fn test_run_no_signals_with_all_pass_events() {
+        // 5 valid pass events — no warn/block signals → no LEARN_SUGGESTED, but metrics written.
+        let dir = tmp_dir_for_test("no-signals");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+        run_inner(&make_args(dir.to_str().unwrap()), io::Cursor::new(input), &mut out, 0).unwrap();
+        let stdout_text = String::from_utf8(out).unwrap();
+        assert!(!stdout_text.contains("LEARN_SUGGESTED"), "no signal expected for clean session");
+        assert!(metrics_path.exists(), "metrics file must still be written even with no signals");
     }
 }
