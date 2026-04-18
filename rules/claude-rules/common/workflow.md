@@ -1,247 +1,251 @@
+# Workflow Constraint Rules
 
-# 工作流约束规则
+> Adapted from the Superpowers framework and made complementary to VibeGuard's existing rules. Focused on debugging, verification, and TDD workflow constraints.
 
-> 提取自 Superpowers 框架，与 VibeGuard 既有规则互补。聚焦调试、验证、TDD 三个流程约束。
+## W-01: No fixes without root cause (strict)
+Every bug fix must identify the root cause before changing code. Do not make blind "let's try this" patches.
 
-## W-01: 禁止无根因的修复（严格）
-Bug fix 必须先定位根因，再实施修复。禁止"试试这个看行不行"的盲修。
+**Four-phase debugging protocol**:
+1. **Root-cause investigation** — read the error message, reproduce consistently, inspect recent changes, trace the data flow
+2. **Pattern analysis** — find a working reference implementation and compare it line by line
+3. **Hypothesis validation** — form one hypothesis, run the smallest test that can prove or disprove it, then switch hypotheses if needed
+4. **Implement the fix** — write the reproduction test first, apply one fix, verify it passes, then check for regressions
 
-**四阶段调试协议**：
-1. **根因调查** — 读错误消息、一致复现、检查最近变更、追踪数据流
-2. **模式分析** — 找到工作的参考实现，逐项对比差异
-3. **假设验证** — 形成单一假设 → 最小测试 → 验证结果；不成立则换假设
-4. **实施修复** — 先写复现测试 → 单一修复 → 验证通过 + 无回归
+**Mechanical checks**:
+- The first step in a bug fix must be reproducing the problem, either by running a command or writing a test, not guessing from static reading alone.
+- If you cannot reproduce it, first confirm whether there is an environment difference instead of assuming it "should" reproduce.
+- After the fix, rerun the reproduction step to verify the problem is gone.
 
-**机械化检查**：
-- 修 bug 时，第一步必须是复现问题（运行命令或写测试），不是读代码猜原因
-- 如果无法复现，先确认环境差异，不要假设"应该能复现"
-- 修复后必须运行复现步骤确认问题消失
+## W-02: Back off after 3 consecutive failures (strict)
+If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction.
 
-## W-02: 连续失败 3 次必须后退（严格）
-同一问题连续修复失败 3 次，必须停下来质疑假设或架构方向。
+**Anti-pattern**: edit -> fail -> fix -> new fail -> fix -> new fail ...
 
-**反模式**：改改改循环（edit→fail→fix→new fail→fix→new fail...）
+**Correct response**:
+1. Stop the current direction.
+2. Re-read the full error context, not just the latest message.
+3. Challenge the assumptions: did you misunderstand the problem, or is the design itself wrong?
+4. If you still have no traction, report the situation to the user, including what you already tried.
 
-**正确做法**：
-1. 停止当前方向
-2. 重新审视错误的完整上下文（不是只看最新报错）
-3. 质疑前提假设：是不是理解错了问题？是不是架构层面不对？
-4. 如仍无头绪，向用户报告现状和已尝试的方向，请求指导
+**Theory** (MiCP, arXiv:2604.01413):
+Research on multi-round reasoning suggests the optimal stopping policy comes from allocating an error budget across rounds, not from a hardcoded round count. "Three times" is a practical heuristic: after each failed attempt, the confidence of the active hypothesis tree drops exponentially, and the expected value of continuing approaches zero. Past that threshold, changing direction has higher expected value than repeating the same line of attack.
 
-**理论背景（MiCP，arXiv:2604.01413）**：
-学术研究表明，多轮推理系统的最优停止策略是通过「跨轮次误差预算分配」而非固定轮次阈值决定何时退出。
-「3 次」是经验启发值，背后的原理是：每次失败后，假设树的可信度指数级衰减，继续的期望收益趋近于零。
-当失败次数超过阈值时，「换方向」的期望收益 > 「继续当前方向」的期望收益。
+## W-03: Verify before claiming completion (strict)
+Before saying "fixed" or "done", produce fresh verification evidence.
 
-## W-03: 验证后才能声称完成（严格）
-声称"已修复"/"已完成"前，必须有新鲜的验证证据。
-
-**协议**：
+**Protocol**:
 ```
-1. IDENTIFY — 什么命令能证明这个声称？
-2. RUN      — 执行命令
-3. READ     — 读完整输出 + 退出码
-4. VERIFY   — 输出确认声称成立？
-5. REPORT   — 带证据声称成功
+1. IDENTIFY — Which command can prove the claim?
+2. RUN      — Execute the command
+3. READ     — Read the full output and exit code
+4. VERIFY   — Does the output actually support the claim?
+5. REPORT   — State success with the evidence attached
 ```
 
-**禁止用语**（未验证前）：
-- "应该可以了"
-- "看起来没问题"
-- "之前跑过了"
-- "理论上已修复"
+**Forbidden phrases before verification**:
+- "This should work now"
+- "It looks fine"
+- "It passed earlier"
+- "It is fixed in theory"
 
-**Nyquist 规则（借鉴 GSD）**：
-- 每个任务/步骤必须有一个可在 **60 秒内** 执行完的验证命令
-- 如果无法快速验证，说明任务粒度太大，需要拆分
-- 验证命令示例：`cargo test --lib`、`curl -s localhost:8080/health`、`python -m pytest tests/test_x.py -x`
+**Nyquist rule** (inspired by GSD):
+- Every task or step needs a verification command that finishes within **60 seconds**
+- If you cannot verify quickly, the task is probably too large and needs to be split
+- Example commands: `cargo test --lib`, `curl -s localhost:8080/health`, `python -m pytest tests/test_x.py -x`
 
-**机械化检查**：
-- 每次声称修复/完成时，检查本轮对话中是否有对应的命令执行输出
-- 如果没有 → 先运行验证再声称
-- ExecPlan 的每个 Step 必须有 `verify_cmd` 字段（参见 exec-plan.md）
+**Mechanical checks**:
+- Whenever you claim a fix or completion, check whether this conversation contains the matching command output.
+- If not, run verification first and only then claim success.
+- Every ExecPlan step must include a `verify_cmd` field (see `exec-plan.md`).
 
-## W-13: 分析瘫痪守卫（严格）
-连续 7+ 次只读操作（Read/Glob/Grep）没有任何写入动作，必须选择行动或报告 blocker。
+## W-13: Analysis paralysis guard (strict)
+If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker.
 
-**触发条件**：PostToolUse hook 统计当前 session 中连续的 research-only 工具调用
+**Trigger**: the PostToolUse hook counts consecutive research-only tool usage in the current session.
 
-**正确做法**：
-- 动手写代码/编辑文件
-- 向用户报告 blocker 并说明卡在哪里
-- 如果确实需要更多阅读，先说明为什么之前的阅读不够
+**Correct responses**:
+- Start editing code or writing files
+- Tell the user what blocker is preventing progress
+- If more reading is genuinely required, explain why the earlier reading was insufficient
 
-**反模式**：
-- 连续读 10 个文件但不产出任何修改或分析结论
-- 在不同文件之间跳转寻找"完美理解"而不开始行动
+**Anti-patterns**:
+- Reading 10 files in a row without producing either a change or a conclusion
+- Jumping between files in search of "perfect understanding" without ever starting the work
 
-## W-04: 测试先行（建议）
-新功能优先写失败测试，再写最小实现通过测试。
+## W-04: Test first (guideline)
+For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it.
 
-**TDD 循环**：
+**TDD loop**:
 ```
-RED    → 写测试，运行确认失败（不是编译错误，是断言失败）
-GREEN  → 写最小代码让测试通过
-REFACTOR → 测试保持绿色，清理实现
+RED      -> write the test and confirm it fails (assertion failure, not a compile error)
+GREEN    -> write the minimal code that makes it pass
+REFACTOR -> keep the tests green while cleaning the implementation
 ```
 
-**适用场景**：
-- 新功能开发 → 严格 TDD
-- Bug 修复 → 先写复现测试（与 W-01 配合）
-- 重构 → 确保已有测试覆盖再动手
+**Best-fit scenarios**:
+- New feature work -> strict TDD
+- Bug fixes -> write a reproduction test first (pairs with W-01)
+- Refactors -> make sure tests already cover behavior before editing
 
-**不适用**：探索性原型、配置修改、文档更新
+**Not a fit**: exploratory prototypes, configuration changes, documentation updates
 
-## W-12: 测试完整性保护（严格）
-测试失败时，修复被测代码，而非操纵测试基础设施。禁止通过修改测试/验证/框架来"通过"。
+## W-12: Protect test integrity (strict)
+When tests fail, fix the production code rather than manipulating the test harness. Do not "pass" the suite by weakening tests or infrastructure.
 
-**来源**：OpenAI "Monitoring Reasoning Models for Misbehavior" (Baker et al., 2026) — 在 RL 训练的编码代理中发现 7 类系统性 hack，均通过操纵测试而非解决问题来获得奖励。
+**Source**: OpenAI, "Monitoring Reasoning Models for Misbehavior" (Baker et al., 2026) — seven classes of reward-hacking behavior were observed in RL-trained coding agents, and every one manipulated tests instead of fixing the underlying issue.
 
-**禁止行为**（编码代理的已知 hack 模式）：
+**Known hack patterns to forbid**:
 
-| 模式 | 描述 |
+| Pattern | Description |
 |------|------|
-| 测试框架篡改 | 修改 conftest.py / test setup / test runner 使测试跳过或始终通过 |
-| 验证函数篡改 | 让 verify() / validate() / check() 始终返回 true |
-| Stub 替代 | 测试覆盖弱时写空壳/stub 而非真实实现 |
-| 测试条件弱化 | 放宽断言（assertEqual→assertTrue，精确匹配→包含检查） |
-| 期望值提取 | 运行时解析测试文件提取期望值，硬编码到实现中 |
+| Test framework tampering | Modify `conftest.py`, test setup, or the test runner so tests skip or always pass |
+| Verification function tampering | Make `verify()`, `validate()`, or `check()` always return true |
+| Stub substitution | Write an empty stub instead of a real implementation when tests are weak |
+| Assertion weakening | Relax assertions (`assertEqual` -> `assertTrue`, exact match -> containment check) |
+| Expected-value extraction | Parse the test file at runtime and hardcode the expected value into the implementation |
 
-**合法的测试修改**：
-- 需求变更导致测试用例过时 → 需用户确认后更新
-- 测试本身有 bug（如断言条件写反）→ 需注释说明原因
-- TDD 流程中新增测试 → 正常流程（W-04）
-- 测试依赖外部服务不可用 → 添加 skip 条件但保留原测试
+**Allowed test changes**:
+- Requirements changed and the old test case is obsolete -> update it after user confirmation
+- The test itself has a real bug (for example, an inverted assertion) -> fix it and explain why
+- New TDD tests -> normal W-04 flow
+- External services are unavailable -> add a justified skip condition while preserving the original test
 
-**机械化检查（Agent 执行规则）**：
-- 测试失败后，如果下一步编辑的是测试文件而非源码文件，暂停并自查：是在修复测试 bug 还是在绕过测试？
-- 修改 conftest.py / pytest 配置 / jest.config / test helpers 时，必须说明修改原因
-- 如果同时修改了源码和测试，测试变更不得降低断言强度
+**Mechanical checks (agent execution rules)**:
+- If tests fail and the next edit touches a test file instead of source, stop and ask whether you are fixing a real test bug or bypassing the test.
+- If you modify `conftest.py`, pytest config, `jest.config`, or shared test helpers, explain why.
+- If source and tests both change, test changes must not reduce assertion strength.
 
-## W-14: 并行 Agent 文件所有权（严格）
-多 Agent 并行执行时，必须在 Prompt 中显式分配文件所有权，防止静默覆盖。
+## W-14: Parallel-agent file ownership (strict)
+When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another.
 
-**根因**（来源：GitHub Copilot CLI /fleet 文档，2026）：
-并行子 Agent 共享文件系统且无文件锁，**最后写入者静默获胜**，不报告冲突。
+**Root cause** (source: GitHub Copilot CLI / fleet docs, 2026):
+Parallel sub-agents share a file system without file locks. The last writer silently wins and no conflict is reported.
 
-**规则**：
-- 派发并行任务时，每个 Agent 必须被分配互不重叠的文件集合
-- 禁止两个 Agent 同时写同一文件（即使内容不同）
-- 如果必须合并，使用「写临时路径 → 编排器最后合并」模式
+**Rules**:
+- Every parallel task must receive a disjoint set of files.
+- Two agents must never write the same file at the same time, even if they intend to change different lines.
+- If shared output is unavoidable, use "write to a temporary path, then have the orchestrator merge later."
 
-**Prompt 模板**：
+**Prompt template**:
 ```
-Agent A 负责：src/auth.rs, src/session.rs（仅操作这两个文件）
-Agent B 负责：src/api.rs, src/middleware.rs（仅操作这两个文件）
+Agent A owns: src/auth.rs, src/session.rs (only modify these files)
+Agent B owns: src/api.rs, src/middleware.rs (only modify these files)
 ```
 
-**机械化检查（Agent 执行规则）**：
-- 接受并行子任务时，确认自己的文件边界范围
-- 发现任务描述未指定文件边界时，先向编排者确认，不要直接动手
-- 禁止在「先读后写」之间没有独占保证的场景中修改共享文件
+**Mechanical checks (agent execution rules)**:
+- When you receive a parallel subtask, confirm your file boundary first.
+- If the task description does not specify file ownership, ask the orchestrator to clarify before editing.
+- Do not modify a shared file in a "read first, write later" flow unless you have exclusive ownership.
 
-## W-15: 低信息量循环检测（严格）
-连续 3 轮产出的增量信息递减时，必须停止当前方向并报告。
+## W-15: Low-information loop detection (strict)
+If the information gain shrinks for three consecutive rounds, stop that direction and report it.
 
-**与 W-02/W-13 的互补关系**：
+**How it complements W-02 and W-13**:
 
 | W-02 | W-13 | W-15 |
 |------|------|------|
-| 失败循环 | 只读瘫痪 | 低收益循环 |
-| 有产出但错误 | 无产出 | 有产出但递减 |
-| 触发：3 次修复失败 | 触发：7 次连续只读 | 触发：3 轮增量递减 |
+| Failure loop | Read-only paralysis | Shrinking-yield loop |
+| There is output, but it is wrong | No output | There is output, but it keeps shrinking |
+| Trigger: 3 failed fixes | Trigger: 7 consecutive read-only actions | Trigger: 3 rounds of decreasing yield |
 
-**来源**：Claude Code 源码中的 Diminishing Returns Detection（blog.raed.dev 分析，2026-04）。Claude Code 在连续 3+ 轮新增内容 <500 token 时判定模型「原地转圈」，强制停止。
+**Source**: Diminishing Returns Detection in Claude Code (analyzed by blog.raed.dev, 2026-04). Claude Code treats 3+ consecutive rounds with less than 500 tokens of new content as "spinning in place" and stops the loop.
 
-**触发条件**（行为信号，无需 token 计数）：
-- 连续 3 轮 Edit 操作修改**同一文件的同一区域**（±10 行范围内来回改）
-- 连续 3 轮产出的方案与前几轮**实质相同**（换措辞重复同一结论）
-- 重构/调优时改动幅度逐轮缩小，但问题未收敛
+**Behavioral trigger signals** (no token counter required):
+- Three consecutive Edit actions keep touching the same region of the same file (within +/-10 lines)
+- Three rounds produce essentially the same proposal with only wording changes
+- During refactor or tuning work, the size of the change keeps shrinking while the problem is still unresolved
 
-**正确做法**：
-1. 停止当前微调方向
-2. 回顾 3 轮改动的实际差异：是否在反复做同一件事？
-3. 质疑当前策略：是不是目标定义不清？是不是该换完全不同的方法？
-4. 向用户报告：已尝试的方向 + 每轮实际产出 + 为何收益递减
+**Correct response**:
+1. Stop the current micro-tuning direction.
+2. Compare the last three rounds: are you actually repeating the same move?
+3. Challenge the strategy: is the goal poorly defined, or does it require a totally different method?
+4. Report to the user what was tried, what each round produced, and why the yield kept decreasing.
 
-**反模式**：
-- 重构时在两种等价写法之间来回切换（A→B→A→B...）
-- 每轮微调一个参数/配置但效果无变化，仍继续微调
-- 分析型回复越写越长但结论没变化，用更多文字重复相同观点
+**Anti-patterns**:
+- Switching back and forth between equivalent refactors (A -> B -> A -> B)
+- Tweaking one parameter or config value each round even though nothing changes
+- Writing longer and longer analysis that only restates the same conclusion
 
-**机械化检查（Agent 执行规则）**：
-- 连续 3 次 Edit 同一文件时，自查：这 3 次改动是否在解决同一个问题？改动范围是否在缩小？
-- 如果前后两轮的 diff 重叠度 >50%，大概率是低收益循环
-- 检测到循环时，禁止继续第 4 轮同方向操作，必须先报告
+**Mechanical checks (agent execution rules)**:
+- After three consecutive edits to the same file, ask whether the edits are really solving one problem and whether the change radius is shrinking.
+- If diff overlap between two consecutive rounds exceeds 50%, it is probably a low-yield loop.
+- Once the loop is detected, do not continue with a fourth round in the same direction without reporting it first.
 
-## W-16: 验证命令必须本次会话产生（严格）
-声称"已修复/已完成/已验证"时，**必须引用本次会话中产生的命令输出**。禁止引用记忆、"之前跑过"、"理论上应该通过"。
+## W-16: Verification commands must come from this session (strict)
+When you say "fixed", "done", or "verified", you must cite command output produced in this session. Memory, "it passed earlier", or "it should work" do not count.
 
-**来源**（四源印证，2026-04-16）：
-- Anthropic Claude Code Best Practices：验证能力是 **single highest-leverage thing**
-- Addy Osmani "Trust, But Verify"：盲信 AI 代码 = 漏洞
-- Addy Osmani "80% Problem"：comprehension debt — 最后 20% 被 rubber stamping
-- Martin Fowler "Harness Engineering"：sensor-only / feedforward-only 都会失败，必须双通道
+**Sources** (four-source convergence, 2026-04-16):
+- Anthropic Claude Code Best Practices: verification is the **single highest-leverage thing**
+- Addy Osmani, "Trust, But Verify": blind trust in AI code leads to defects
+- Addy Osmani, "80% Problem": comprehension debt makes the final 20% easy to rubber-stamp
+- Martin Fowler, "Harness Engineering": both sensor-only and feedforward-only systems fail; you need both channels
 
-**与 W-03 的关系**：
-- W-03 定义"必须有验证"
-- W-16 补充"验证必须新鲜"——会话边界内产生，不能跨会话复用
+**Relation to W-03**:
+- W-03 says "verification is mandatory"
+- W-16 adds "verification must be fresh" — it must be generated within the current session boundary
 
-**禁止的声称模式**：
-- "之前这条命令能跑通" — 代码已变更，之前结果无效
-- "按经验这样应该行" — 没有执行 = 没有验证
-- "测试之前都过了" — 不是本次修改后的结果
-- 引用记忆 / 会话摘要 / `git log` 替代实际执行
+**Forbidden claim patterns**:
+- "This command passed earlier" — the code changed, so earlier output is stale
+- "Based on experience, this should work" — no execution means no verification
+- "The tests used to pass" — not relevant after the current changes
+- Referencing memory, conversation summary, or `git log` instead of actual command output
 
-**正确的声称模式**：
+**Correct claim pattern**:
 ```
-已修复：`cargo test --lib auth` 本次通过（本轮对话工具输出：第 N 次 Bash 调用）
+Fixed: `cargo test --lib auth` passed in this session (tool output from Bash call N in this conversation)
 ```
 
-**机械化检查（Agent 执行规则）**：
-- 输出含"已修复/已完成/已验证"时，回溯本次会话是否有对应命令执行
-- 如无 → 先执行验证命令再声称，禁止先声称后补验证
-- 对单元测试/构建检查类命令：必须看到退出码 0 或等价的成功信号，不能只看"无 error 日志"
+**Mechanical checks (agent execution rules)**:
+- If output includes "fixed", "done", or "verified", trace backward and confirm this session contains the matching command execution.
+- If not, run verification first and only then make the claim.
+- For test and build checks, you need exit code 0 or an equivalent positive success signal, not merely the absence of error logs.
 
-## W-17: 少而智能的 gate > 多而机械的 gate（严格）
-新增检查/守卫/规则前，必须先评估能否合并到现有 gate 而不是新增独立 gate。同一目标的多个机械 gate 会互相覆盖，整体遵守度反而下降。
+**Rationalizations to reject**:
+- "The code is simple, so it does not need to run." -> simple code can still fail because of environment or dependency drift.
+- "I already reasoned it through, so it is fine." -> static reasoning does not cover runtime behavior.
+- "The app does not run locally." -> at minimum run a non-runtime check such as `cargo check`, `tsc --noEmit`, or `go build ./...`.
+- "Tests do not cover this path." -> add a minimal reproduction command such as `curl` or a Python REPL check.
+- "I ran it a few minutes ago." -> after code changes, old output is stale.
+- "CI will run it." -> CI happens later; local completion claims need local evidence.
+- "A teammate or an earlier commit already verified it." -> cross-person and cross-session evidence does not count as current-session verification.
 
-**来源**（2026-04-16，Bridge Note 8）：
-- Addy Osmani "Curse of Instructions"：10 条规则比 5 条遵守度更低（实验数据）
-- Anthropic Claude Code Best Practices：bloated CLAUDE.md → instructions 被忽略
-- Martin Fowler "Harness Engineering"：sensor 设计应聚焦三类（Maintainability / Architecture fitness / Behaviour），而非按场景无限叠加
+**Lightweight fallback** (Bridge R2.8 — fresh-context self-review):
+When command-based verification is genuinely unavailable, such as for pure documentation or design work, use a fresh-context self-review as a weak substitute: open a new session or agent, replay the conclusion from clean context, and see whether it independently reproduces the same result. This is weaker than command execution but still better than an unsupported claim.
 
-**与 U-32 的关系**：
-- U-32 定义"规则数量阈值"（>30 触发过载警告）
-- W-17 补充"新增规则前的合并检查"——从源头控制，而非事后审计
+## W-17: Fewer smarter gates beat more mechanical gates (strict)
+When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one more overlapping rule.
 
-**新增 gate 前的检查清单**：
-1. 现有规则中是否已有覆盖该目标的 gate？（grep 关键词 + 同类规则）
-2. 能否扩展已有 gate 的判定逻辑而不是新增独立条目？
-3. 新 gate 与已有 gate 的触发条件是否互斥？若重叠 → 必须合并
-4. 新 gate 是否有降级路径？无降级路径 + 绝对化语言 = illusion of control（U-32 反模式）
+**Relation to U-32**:
+- U-32 defines the overload threshold (more than 30 constraints triggers a warning)
+- W-17 defines the design principle for how to stay below that threshold
 
-**正面例子**：
-- W-15（低收益循环）= W-02（失败循环）+ W-13（只读瘫痪）的逻辑互补，而非独立第 4 条
-- W-16（验证必须本会话）= W-03（必须有验证）的细化，而非独立替代
+**Decision questions**:
+1. Which existing gate catches the closest failure mode?
+2. Can you extend the decision logic of that gate instead of adding a separate entry?
+3. Do the trigger conditions overlap? If yes, they must be merged.
+4. Does the new gate have a downgrade path? If not, absolute language plus no downgrade path creates illusion of control (the U-32 anti-pattern).
 
-**反模式**：
-- 每发现一类新失败模式就新增独立规则（→ 30+ 条规则用户无法全记）
-- 同一概念在 3 个文件重复（如"禁止静默吞错"在 CLAUDE.md / U-17 / U-29 各写一遍）
-- 用规则解决本应该用 hook/skill 自动化的问题（如"禁止跳过验证步骤"应该是 PreToolUse hook，不是 30 条规则之一）
+**Positive examples**:
+- W-15 (low-yield loop) complements W-02 (failure loop) and W-13 (read-only paralysis) instead of becoming an unrelated fourth rule
+- W-16 (verification must be from this session) refines W-03 (verification required) instead of replacing it
 
-**机械化检查（Agent 执行规则）**：
-- 用户提出"加一条规则"时，先搜索现有规则是否已覆盖（rg + 主题词）
-- 若可合并 → 在已有规则下追加判定条件，而非新增独立编号
-- 若必须新增 → 评估是否可降级为 skill / hook（自动化 > 规则）
-- 新增规则数量在单文件中超过 5 条时，必须按主题拆分到子文件
+**Anti-patterns**:
+- Adding a new standalone rule for every newly observed failure mode, until users cannot remember 30+ rules
+- Repeating the same concept in three different files (for example, "do not swallow errors silently" in `CLAUDE.md`, U-17, and U-29)
+- Solving a problem with rules that should be handled mechanically by a hook or skill (for example, "do not skip verification" belongs in automation, not in rule count inflation)
 
-## W-05: 子代理上下文隔离（建议）
-使用子代理执行任务时，每个子代理只提供所需的最小上下文。
+**Mechanical checks (agent execution rules)**:
+- When a user says "add a rule", first search whether the existing rule set already covers it.
+- If it can be merged, extend the existing rule instead of allocating a new ID.
+- If a new rule is unavoidable, evaluate whether it should instead be downgraded into a skill or hook (automation > more rules).
+- If more than five new rules are added to one file, split them by theme into child files.
 
-**规则**：
-- 实现类子代理：只给目标文件 + 接口定义 + 测试文件
-- 审查类子代理：只给 diff + 相关 spec
-- 禁止将整个对话上下文透传给子代理
+## W-05: Sub-agent context isolation (guideline)
+When using sub-agents, give each child only the minimum context required for its task.
 
-**原因**：上下文越大，幻觉概率越高；隔离的子代理更聚焦、更可靠。
+**Rules**:
+- Implementation agents: only the target files, interface definitions, and tests
+- Review agents: only the diff and the relevant spec
+- Do not forward the entire parent conversation wholesale
+
+**Why**: the larger the context, the higher the hallucination risk. Isolated child agents stay more focused and more reliable.

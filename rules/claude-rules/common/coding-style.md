@@ -1,125 +1,124 @@
+# Common Behavioral Constraints
 
-# 通用行为约束规则
+## U-01: Do not change public API signatures (strict)
+Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures.
 
-## U-01: 不修改公开 API 签名（严格）
-除非用户明确要求 breaking change 并接受 MAJOR 版本升级，否则不得修改公开函数签名。
+## U-02: Do not extract abstractions for code that appears only once (strict)
+Three lines of duplication are better than one premature abstraction. Wait until the third repetition before extracting.
 
-## U-02: 不为只出现 1 次的代码提取抽象（严格）
-3 行重复好过 1 个过早抽象。等第 3 次重复再提取。
+## U-03: Do not replace readable duplication with macros (strict)
+Macros reduce readability and IDE support. Only use them when repetition appears in more than five places and the pattern is truly identical.
 
-## U-03: 不用宏替代可读的重复代码（严格）
-宏降低可读性和 IDE 支持。仅在重复 > 5 处且模式完全一致时允许。
+## U-04: Do not add features the user did not ask for (strict)
+Keep bug-fix scope tight. Do not refactor surrounding code "while you are here."
 
-## U-04: 不添加未被要求的功能（严格）
-bug fix 范围严格锁定，不顺便重构周围代码。
+## U-05: Do not delete code that merely looks unused without confirming first (strict)
+It may be a work-in-progress feature. Mark it as DEFER instead of deleting it blindly.
 
-## U-05: 不删除看起来"没用"的代码而不先确认（严格）
-可能是 WIP 功能。标记 DEFER 而非删除。
+## U-06: Do not add dependencies for problems the standard library can solve (strict)
+Use the standard library first. Avoid dependency bloat.
 
-## U-06: 不引入新依赖来解决标准库可解决的问题（严格）
-先用标准库，避免依赖膨胀。
+## U-07: Do not change code style while fixing behavior (strict)
+Style-only edits should be a separate commit.
 
-## U-07: 不在修复中改变代码风格（严格）
-风格变更应独立成单独的 commit。
+## U-08: Do not skip verification steps (strict)
+Every fix must independently pass lint and tests.
 
-## U-08: 不跳过验证步骤（严格）
-每个 fix 必须独立通过 lint + test。
+## U-09: Do not bundle unrelated fixes into one commit (strict)
+Keep commits atomic so they are easy to review and revert.
 
-## U-09: 不一次性提交多个不相关的修复（严格）
-原子 commit，方便 revert。
+## U-10: Do not guess user intent (strict)
+If the intent is unclear, mark it as DEFER or ask the user to clarify.
 
-## U-10: 不猜测用户意图（严格）
-不确定就标记为 DEFER 或向用户确认。
+## U-15: Prefer immutability
+Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
-## U-15: 不可变性优先
-创建新对象而非修改现有对象。函数参数视为只读。
+## U-16: Keep file size under control
+200-400 lines is typical, 800 lines is the hard ceiling. Files above 800 lines must be split.
 
-## U-16: 文件大小控制
-200-400 行典型，800 行上限。超过 800 行必须拆分。
+## U-17: Handle errors completely
+Cover error paths thoroughly. Do not swallow exceptions silently. Provide user-friendly error messages.
 
-## U-17: 错误处理完整
-全面处理错误路径，禁止静默吞异常。提供用户友好的错误消息。
+## U-18: Validate inputs
+Validate all user input at system boundaries. Internal code can trust framework guarantees.
 
-## U-18: 输入验证
-系统边界处验证所有用户输入。内部代码信任框架保证。
+## U-19: Use the Repository pattern
+Encapsulate data access in a Repository layer. Business logic should not operate directly on the database.
 
-## U-19: Repository 模式
-数据访问封装到 Repository 层，业务逻辑不直接操作数据库。
+## U-20: Keep API response shapes consistent
+Use a standard envelope such as `{ data, error, meta }`. Standardize error codes.
 
-## U-20: API 响应格式统一
-统一信封结构 `{ data, error, meta }`。错误码标准化。
+## U-21: Commit messages must follow the Lore protocol
+Record why the change exists, not just what changed. Use the repository's Lore trailers to preserve constraints, rejected alternatives, confidence, and verification evidence.
 
-## U-21: 提交消息格式
-`<type>: <description>`，type 为 feat/fix/refactor/docs/test/chore。
+## U-22: Test coverage (strict)
+New code must reach at least 80% line coverage. Critical paths require 100% coverage.
 
-## U-22: 测试覆盖率（严格）
-新代码最低 80% 行覆盖率，关键路径 100%。
+**Mechanical checks (agent execution rules)**:
+- After modifying a source file, check whether a matching `*.test.*` or `*.spec.*` file exists.
+- If not, and the file contains business logic rather than pure types/constants/styles, mark it as DEFER and tell the user.
+- If a refactor touches more than three files, add at least one unit test that covers the changed core path.
+- If you refactor hook or module interfaces, update every test mock that depends on the module shape as well (see TS-14).
 
-**机械化检查（Agent 执行规则）**：
-- 修改源文件后，检查是否存在对应 `*.test.*` 或 `*.spec.*` 文件
-- 若不存在且该文件包含业务逻辑（非纯类型/常量/样式），标记为 DEFER 并告知用户
-- 重构涉及 >3 个文件时，至少补充被修改的核心路径的单测
-- 重构 hook/模块接口时，同步更新所有引用该模块的 test mock shape（参见 TS-14）
+## U-23: No silent degradation
+Unsupported strategies or configurations must fail explicitly or be marked as DEFER. Do not silently fall back to a default strategy.
 
-## U-23: 禁止静默降级
-不支持的策略/配置必须显式报错或标记 DEFER，不得自动降级到默认策略。
+## U-24: No aliases
+Do not keep function, type, command, or directory aliases. If you find the old name, replace it everywhere and delete the alias.
 
-## U-24: 禁止任何别名
-禁止函数/类型/命令/目录别名。发现旧名直接全量替换并删除旧名。
+## U-25: Fix build failures first (strict)
+When a build failure is detected, you must fix the build before continuing any other edits. Do not add new code while the build is red.
 
-## U-25: 构建失败修复优先（严格）
-检测到构建错误后，**必须先修复构建再继续其他编辑**。禁止在构建失败的状态下继续新增代码。
+**Mechanical checks (agent execution rules)**:
+- If you receive a build-failure warning after editing source code, the next step must be to fix that build error.
+- After three consecutive build failures, run the full build command (`cargo check`, `npx tsc --noEmit`, `go build ./...`) to see the whole picture.
+- Find the root cause first, usually type mismatches, missing imports, or unsynchronized interface changes, and fix it in one coherent pass rather than guessing one error at a time.
+- Do not add unrelated feature code while the build is red.
 
-**机械化检查（Agent 执行规则）**：
-- 编辑源码后收到构建错误警告时，下一步必须修复构建错误
-- 连续 3 次构建失败后，运行完整构建命令（`cargo check` / `npx tsc --noEmit` / `go build ./...`）查看全貌
-- 定位根因（通常是类型不匹配、缺少 import、接口变更未同步），一次性修复而非逐个猜测
-- 禁止在构建红灯状态下新增不相关的功能代码
+## U-26: Declaration-execution completeness (strict)
+When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup integration. Do not leave components declared-but-unwired.
 
-## U-26: 声明-执行完整性（严格）
-声明框架组件（Config/Trait/持久化层/状态管理）后，**必须完成启动集成**。禁止"声明了但没接线"。
+**Checklist**:
+- Config structs: startup code must call `load()` instead of defaulting via `Default::default()`.
+- Trait declarations: there must be at least one `impl` and a startup registration point such as a registry or builder.
+- Persistence methods (`save`, `load`, `persist`, `restore`): startup code must call the restore path.
+- New fields added to `AppState` / `Context`: initialize them at every construction site.
 
-**检查清单**：
-- Config 结构体 → 启动代码必须调用 `load()` 而非 `Default::default()`
-- Trait 声明 → 必须有至少一个 `impl` + 启动注册点（registry/builder）
-- 持久化方法（save/load/persist/restore）→ 启动代码必须调用恢复状态
-- 新字段加入 AppState/Context → 必须在所有构造点初始化
+**Repair flow**:
+1. Audit all declaration sites (`rg "struct.*Config"`, `rg "trait "`, `rg "fn.*(save|load|persist)"`).
+2. Verify the corresponding startup registration path (`build_app_state()`, `main()`, `init()`, `new()`).
+3. Add the missing registration call.
+4. Implement silent fallback only where it is intentional and safe (for example, missing config falls back to defaults without breaking startup).
 
-**修复模式**：
-1. 审计所有声明点（`rg "struct.*Config"` / `rg "trait "` / `rg "fn.*(save|load|persist)"`）
-2. 验证对应的启动注册（`build_app_state()` / `main()` / `init()` / `new()`）
-3. 添加缺失的注册调用
-4. 实现 silent fallback（配置缺失 → 使用默认值，不崩溃启动）
+**Anti-patterns**:
+- `SkillStore` has a `discover()` method but startup never calls it, so skills disappear after restart.
+- `RulesConfig` loads from TOML but consumers still call `Default::default()`, so config changes never take effect.
+- `ThreadManager` exposes `persist()` but nothing ever calls it, leaving dead code.
+- GC receives `project_root` but never propagates it to child tasks, causing functional downgrade.
 
-**反模式**：
-- SkillStore 有 `discover()` 方法但启动时从不调用 → 重启后 skills 丢失
-- RulesConfig 从 TOML 加载但消费者调用 `Default::default()` → 配置不生效
-- ThreadManager 有 `persist()` 方法但从不调用 → 死代码
-- GC 收到 `project_root` 但不传播给子任务 → 功能降级
+## U-32: Rule overload threshold + absolute-language detection (strict)
+If one rule file contains more than 30 active constraints, raise an overload warning. When a rule uses absolute language such as "always", "never", or "must", it also needs a downgrade path so the system does not create an illusion of control.
 
-## U-32: 规则过载阈值 + 绝对化语言检测（严格）
-单个规则文件中活跃约束条目 **> 30 条**时，触发过载警告。规则中使用绝对化语言（"确保/永远/必须/绝不"）时需配 **降级路径**，避免 illusion of control。
+**Sources** (three-source convergence, 2026-04-16):
+- Addy Osmani, "How to Write a Good Spec": the curse of instructions. Ten rules can be obeyed less reliably than five.
+- Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
+- Martin Fowler, "Context Engineering": illusion of control is an anti-pattern. LLMs are probabilistic systems, so absolute language creates false guarantees.
 
-**来源**（三源印证，2026-04-16）：
-- Addy Osmani "How to Write a Good Spec"：**curse of instructions** — 10 条规则比 5 条遵守度更低（实验数据）
-- Anthropic Claude Code Best Practices：**bloated CLAUDE.md causes Claude to ignore your actual instructions**
-- Martin Fowler "Context Engineering"：**illusion of control** 反模式 — LLM 本质概率性，绝对化语言制造虚假保证
+**Mechanical checks**:
+1. If a rule file contains more than 30 entries, recommend decomposing it into path-scoped child files (for example, only load Rust rules for `*.rs`).
+2. If a rule uses absolute phrasing such as "ensure X", "never do Y", or "must be 100%", attach both:
+   - A downgrade path: "If X is not feasible, fall back to Y and mark it stale."
+   - An observability hook: a verification command or guard script that proves whether the rule is actually being followed.
+3. If a global `CLAUDE.md` or `AGENTS.md` file grows beyond 100 lines, move material into skills or path-scoped rule files.
 
-**机械化检查**：
-1. 规则文件总条数 > 30 → 建议拆分为 path-scoped 子文件（如 `*.rs` 仅加载 Rust 规则）
-2. 规则中出现 "确保 X / 永远不 Y / 必须 X 100%" 绝对化表述 → 必须附加：
-   - **降级路径**："若 X 不可行，降级到 Y 并标记 stale"
-   - **可观测钩子**：验证该规则实际被遵守的命令或 guard 脚本
-3. CLAUDE.md / AGENTS.md 全局文件 > 100 行 → 拆分到 skills 或 path-scoped 规则
+**Repair order**:
+1. Audit the current rule set and annotate trigger frequency for each rule from access logs.
+2. Candidate low-frequency rules (zero hits in the last 30 days) for removal or demotion into a skill.
+3. Verify whether high-frequency rules use absolute language without a downgrade path.
+4. Split large files by language or domain (`common/`, `rust/`, `python/`, `security/`).
 
-**修复顺序**：
-1. 审计当前规则集，标注每条规则的触发频率（访问日志）
-2. 低频规则（过去 30 天 0 触发）候选移除或降级为 skill
-3. 高频规则验证是否有"绝对化但无降级路径"
-4. 大文件按语言/领域拆分（`common/`, `rust/`, `python/`, `security/`）
-
-**反模式**：
-- 单文件累积 50+ 条规则并要求全部同时生效
-- 新增规则不删除旧规则，仅靠覆盖解决冲突
-- 规则写"必须永远不 X"但没说 X 不可避免时怎么办
-- 将"建议/约定"升级为"严格"以图强制，反而导致被忽略
+**Anti-patterns**:
+- A single file accumulates 50+ rules and expects all of them to remain active at once.
+- New rules are added without deleting stale rules, relying on overlap to resolve conflict.
+- A rule says "must never do X" but offers no answer for unavoidable edge cases.
+- Suggestions or conventions get promoted to strict rules in an attempt to force compliance, which makes them easier to ignore.

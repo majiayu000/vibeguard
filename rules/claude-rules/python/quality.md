@@ -2,44 +2,44 @@
 paths: **/*.py,**/pyproject.toml,**/setup.py
 ---
 
-# Python 质量规则
+# Python Quality Rules
 
-## PY-01: 可变默认参数（高）
-`def f(x=[])` 导致跨调用共享状态。修复：`def f(x=None): if x is None: x = []`
+## PY-01: Mutable default parameters (high)
+`def f(x=[])` shares state across calls. Fix: use `def f(x=None): if x is None: x = []`.
 
-## PY-02: except 裸捕获（中）
-`except:` 或 `except Exception` 无 logging/re-raise。修复：捕获具体异常类型，配合 logging 或 re-raise。
+## PY-02: Bare `except` blocks (medium)
+`except:` or `except Exception` without logging or re-raising. Fix: catch a concrete exception type and pair it with logging or a re-raise.
 
-## PY-03: 循环内 await 无 gather/TaskGroup（中）
-串行等待浪费时间。修复：改为 `asyncio.gather()` 或 `asyncio.TaskGroup` 并发执行。
+## PY-03: `await` inside loops without `gather()` / `TaskGroup` (medium)
+Serial waiting wastes time. Fix: switch to `asyncio.gather()` or `asyncio.TaskGroup` for parallel execution.
 
-## PY-04: 上帝类 > 500 行（中）
-超过 10 个公开方法。修复：拆分为多个职责单一的类，提取 mixin 或独立服务。
+## PY-04: God class larger than 500 lines (medium)
+More than 10 public methods. Fix: split the class into smaller single-responsibility classes, extract mixins, or create dedicated services.
 
-## PY-05: 多处相同的 try/except 模式（中）
-修复：提取公共 error handler 函数或装饰器。
+## PY-05: Repeated try/except patterns across many locations (medium)
+Fix: extract a shared error-handler function or decorator.
 
-## PY-06: 循环内重复创建正则（低）
-修复：在模块级或类初始化时用 `re.compile()` 预编译，循环内复用。
+## PY-06: Rebuilding regexes inside loops (low)
+Fix: precompile with `re.compile()` at module load or object initialization time and reuse the compiled pattern in the loop.
 
-## PY-07: 字符串拼接在循环中（低）
-修复：改用 list 收集后 `''.join(parts)`。
+## PY-07: String concatenation inside loops (low)
+Fix: collect pieces into a list and use `''.join(parts)`.
 
-## PY-08: 使用 eval() / exec() / __import__()（高）
-动态执行不可信代码。修复：替换为安全替代方案。必须使用时严格限制输入来源和执行环境。
+## PY-08: Use of `eval()`, `exec()`, or `__import__()` (high)
+This dynamically executes untrusted code. Fix: replace with a safer alternative. If dynamic execution is unavoidable, strictly constrain the input source and execution environment.
 
-## PY-09: 函数超过 50 行（中）
-修复：提取子函数，单函数不超过 50 行。
+## PY-09: Functions longer than 50 lines (medium)
+Fix: extract helper functions so each function stays under 50 lines.
 
-## PY-10: 嵌套超过 4 层（中）
-修复：用 guard return 提前退出，或提取内层为独立函数。
+## PY-10: Nesting deeper than 4 levels (medium)
+Fix: use guard returns to exit early, or extract the inner block into a dedicated function.
 
-## PY-11: 文件操作未使用 with 上下文管理器（中）
-修复：所有文件 open 改用 `with open(...) as f:`。
+## PY-11: File operations without a `with` context manager (medium)
+Fix: convert every open call to `with open(...) as f:`.
 
-## PY-12: 循环内重复调用 len()/keys()/values()（低）
-修复：循环前将结果缓存到变量，循环内复用。
+## PY-12: Repeated calls to `len()`, `keys()`, or `values()` inside loops (low)
+Fix: compute the result once before the loop and reuse the cached value.
 
-## PY-13: 死兼容垫片（中）
-仅从另一模块 re-export 符号、不添加行为的文件，迁移完成后应删除。
-修复：将陈旧垫片的 import 替换为规范模块路径，无调用方残留后删除垫片文件。
+## PY-13: Dead compatibility shim (medium)
+A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete.
+Fix: update imports to point at the canonical module path, then delete the stale shim once no callers remain.
