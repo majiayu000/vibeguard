@@ -165,6 +165,11 @@ jobs:
         shell: bash
         run: bash tests/test_quality_grader.sh
 
+      - name: Local contract gate regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_local_contract_gate.sh
+
       - name: Guard unit tests
         if: runner.os != 'Windows'
         shell: bash

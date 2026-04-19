@@ -70,6 +70,40 @@ bash scripts/verify/doc-freshness-check.sh --strict
 
 If your change touches installation, Codex hook wiring, or repo docs, prefer running the full set above. The authoritative source for CI coverage is [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
+### Local Contract Gate
+
+A dedicated wrapper runs the stable, fast subset of contract checks in one command — the same checks available in CI but scoped to what is deterministic, repository-local, and cheap enough for a commit loop.
+
+```bash
+# Run the full local gate manually
+bash scripts/local-contract-check.sh
+
+# Skip the doc-freshness check for a faster pass
+bash scripts/local-contract-check.sh --quick
+
+# Wire the gate as a git pre-commit hook (one-time setup)
+bash scripts/install-pre-commit-hook.sh
+```
+
+**Local-vs-CI split**
+
+| Check | Local gate | CI only |
+|-------|-----------|---------|
+| `validate-guards.sh` | Yes | Yes |
+| `validate-hooks.sh` | Yes | Yes |
+| `validate-rules.sh` | Yes | Yes |
+| `validate-doc-paths.sh` | Yes | Yes |
+| `validate-doc-command-paths.sh` | Yes | Yes |
+| `doc-freshness-check.sh --strict` | Yes (skippable with `--quick`) | Yes |
+| `test_manifest_contract.sh` | Yes (once PR #80 merges) | Yes |
+| `test_eval_contract.sh` | Yes (once PR #80 merges) | Yes |
+| Benchmark suite (`bench_hook_latency.sh`) | No — too slow | Yes |
+| Full precision suite (`run_precision.sh --all`) | No — requires full dataset | Yes |
+| Hook regression matrix (`test_hooks.sh`) | No — run manually | Yes |
+| Static perf analysis | No | Yes |
+
+> **Note:** The local gate is Unix-first (Linux and macOS). Windows contributors should run the full CI matrix for contract coverage, as several checks depend on Bash 5+ features not available in Git Bash or WSL by default.
+
 ---
 
 ## Contribution Workflow
