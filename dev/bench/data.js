@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776607206941,
+  "lastUpdate": 1776611975557,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -620,6 +620,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 141,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a96f4df6d7cd68c7f64c7bb106254d1dc7eee5d",
+          "message": "feat: landing page + GitHub Pages deploy (#86)\n\n* feat(site): landing page + GitHub Pages auto-deploy workflow\n\nAdds starlight-themed landing (site/index.html 10.7 KB, styles.css 11.2 KB,\n8 SVG assets) and workflow to deploy site/ to GitHub Pages on every push to\nmain. Content uses IBM Plex Mono + Space Grotesk + Instrument Serif italic,\nANSI color palette — pulled from the VibeGuard design bundle.\n\nConstraint: docs/ already holds markdown reference docs, so Pages Source\ncannot use /docs folder. Deploy via Actions artifact instead.\nRejected: gh-pages branch (adds history noise) | /docs folder (conflicts)\nConfidence: high\nScope-risk: narrow\nDirective: after merge, enable Settings → Pages → Source = GitHub Actions\n  (one-time manual step) to activate https://majiayu000.github.io/vibeguard/\nTested: site/ serves HTTP 200 locally (10955 B index.html, 11205 B styles.css);\n  workflow YAML validates; isolated via git worktree to avoid mixing with\n  unrelated in-progress changes on docs/scout-2026-04-17.\nNot-tested: GitHub Pages deployment end-to-end (requires Settings flip)\n\n* Prevent branch-picked Pages deployments\n\nManual workflow_dispatch runs can be started from any branch in the Actions UI, while the github-pages environment is shared. Guarding both deployment jobs keeps the landing page publish path tied to reviewed main content.\n\nConstraint: GitHub workflow_dispatch exposes a branch selector that YAML cannot hide\n\nRejected: Remove workflow_dispatch | manual deploys remain useful after switching Pages to Actions\n\nConfidence: high\n\nScope-risk: narrow\n\nDirective: Keep Pages deploy jobs restricted to refs/heads/main unless the environment becomes branch-scoped\n\nTested: ruby YAML.load_file .github/workflows/deploy-pages.yml\n\nTested: git diff --check",
+          "timestamp": "2026-04-19T23:15:05+08:00",
+          "tree_id": "696a97921d6e65c8bbdd2cbacc26c135af80ce39",
+          "url": "https://github.com/majiayu000/vibeguard/commit/9a96f4df6d7cd68c7f64c7bb106254d1dc7eee5d"
+        },
+        "date": 1776611974993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 181,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 210,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 230,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 291,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 204,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 303,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 203,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 128,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 128,
             "unit": "ms"
           }
         ]
