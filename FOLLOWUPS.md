@@ -12,14 +12,14 @@
 
 ## P1 — 有具体触发条件，可随时执行
 
-- [ ] **E3 — 合 PR 到 main**：分支 `chore/housekeeping-2026-04-17` 有 3 个 commit（`1e6109b` scout 11 篇 / `567c645` round 2 / `4d03e3c` W-16 rationalizations），可整体开 PR
+- [ ] **E3 — 合 PR 到 main**：PR #78 / 分支 `docs/scout-2026-04-17` 包含 2026-04-17 scout 文档、Round 2 补分析、W-16 rationalizations 试点，可整体 review 后合入
 - [ ] **E1 — W-16 rationalizations 效果观察**：需要 hooks stats（`/vibeguard:stats`）累计 1-2 天数据，量化"试点前后 skip 率变化"
 
 ## P2 — 需先验证/试点，结果决定后续
 
 ### 规则字段扩散（来自 Round 2 Bridge Note 10）
 - [ ] 若 E1 正向 → **E2** rollout `rationalizations` 字段到 W-12 / W-15 / SEC-11 / SEC-12
-- [ ] 若 E1 负向 → **revert** `4d03e3c`，把 rationalizations 字段收回到 `vibeguard/docs/knowledge-discovery/2026-04-17.md` 的 bridge note 段（只记为概念，不入规则）
+- [ ] 若 E1 负向 → 开 follow-up PR 移除 W-16 rationalizations 字段，把该概念收回到 `docs/knowledge-discovery/2026-04-17.md` 的 bridge note 段（只记为概念，不入规则）
 
 ### 规则内容补充（来自 Round 1/2 Bridge Notes）
 - [ ] SEC-12 补 note："即使 5 项机械检查全过仍需人工确认高风险 MCP 工具调用"（Willison 视角，反 illusion of control）
