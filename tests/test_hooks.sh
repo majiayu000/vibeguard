@@ -169,6 +169,26 @@ assert_not_contains "$result" '"decision": "block"' "Release git reset --hard (p
 result=$(echo '{"tool_input":{"command":"git checkout ."}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Intercept git checkout ."
 
+# git checkout "." (quoted dot) should be intercepted
+result=$(echo '{"tool_input":{"command":"git checkout \".\"" }}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git checkout \".\" (quoted dot)"
+
+# git restore "." (quoted dot) should be intercepted
+result=$(echo '{"tool_input":{"command":"git restore \".\"" }}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git restore \".\" (quoted dot)"
+
+# echo "git checkout ." should NOT be intercepted (false-positive guard)
+result=$(echo '{"tool_input":{"command":"echo \"git checkout .\"" }}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "echo containing git checkout . not blocked"
+
+# printf mentioning git restore . should NOT be intercepted (false-positive guard)
+result=$(printf '{"tool_input":{"command":"printf \"%s\\n\" \"git restore .\"" }}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "printf containing git restore . not blocked"
+
+# commit message mentioning git checkout . should NOT be intercepted (false-positive guard)
+result=$(echo '{"tool_input":{"command":"git commit -m \"repro: git checkout .\"" }}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "commit message mentioning git checkout . not blocked"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"

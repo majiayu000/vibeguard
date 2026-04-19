@@ -65,8 +65,10 @@ block() {
 # Check both COMMAND_STRIPPED and COMMAND_PATH_SCAN: COMMAND_STRIPPED erases quoted content
 # (e.g. "." → ""), so `git checkout "."` would bypass the pattern; COMMAND_PATH_SCAN strips
 # the quotes but keeps the content, catching the quoted-dot variant.
+# COMMAND_PATH_SCAN regex must be anchored to start-of-command (^|;|&&||) so that commands
+# like `echo "git checkout ."` or commit messages mentioning the pattern are not falsely blocked.
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)' || \
-   echo "$COMMAND_PATH_SCAN" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
+   echo "$COMMAND_PATH_SCAN" | grep -qE '(^|;|&&|\|\|)\s*(sudo\s+)?git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 

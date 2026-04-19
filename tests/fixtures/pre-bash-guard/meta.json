@@ -10,6 +10,18 @@
       "keyword": "\"decision\": \"block\"",
       "description": "git checkout . should be intercepted"
     },
+    "tp/checkout-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git checkout \".\" (quoted dot) should be intercepted"
+    },
+    "tp/restore-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git restore \".\" (quoted dot) should be intercepted"
+    },
     "tp/clean-fd.txt": {
       "rule": "BLOCK",
       "expect": "block",
@@ -87,6 +99,24 @@
       "expect": "pass",
       "keyword": "\"decision\": \"block\"",
       "description": "heredoc contains force push and no false positives"
+    },
+    "fp/echo-checkout-dot.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "echo containing git checkout . should not be blocked"
+    },
+    "fp/printf-restore-dot.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "printf containing git restore . should not be blocked"
+    },
+    "fp/commit-checkout-dot-mention.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "commit message mentioning git checkout . should not be blocked"
     }
   }
 }
