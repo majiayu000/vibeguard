@@ -4,7 +4,7 @@
 # The I/O formats of Codex CLI hooks and Claude Code hooks are different:
 # - PreToolUse block: Codex requires hookSpecificOutput.permissionDecision="deny"
 # - PreToolUse warn: Codex uses systemMessage
-# - updatedInput (correction): Codex is not supported, silently skipped
+# - updatedInput (correction): Codex CLI cannot apply it directly, emit an explicit note instead
 # - SessionStart/Stop: The format is basically compatible, direct transparent transmission
 #
 # Usage: bash run-hook-codex.sh <hook-script-name> [args...]
@@ -69,6 +69,7 @@ except Exception:
 
 decision = data.get('decision', 'pass')
 reason = data.get('reason', '')
+updated = data.get('updatedInput')
 
 if decision == 'block':
     print(json.dumps({
@@ -80,7 +81,15 @@ if decision == 'block':
     }, ensure_ascii=False))
 elif decision == 'warn':
     print(json.dumps({'systemMessage': reason}, ensure_ascii=False))
-# correction (updatedInput) — Not supported by Codex, skip
+elif decision == 'allow' and isinstance(updated, dict):
+    command = updated.get('command')
+    if isinstance(command, str) and command:
+        print(json.dumps({
+            'systemMessage': (
+                'VIBEGUARD note: Codex CLI hooks cannot auto-apply command rewrites. '
+                'Suggested command: ' + command
+            )
+        }, ensure_ascii=False))
 " 2>/dev/null
 elif [[ "$EVENT_NAME" == "PostToolUse" ]]; then
   echo "$HOOK_OUTPUT" | python3 -c "

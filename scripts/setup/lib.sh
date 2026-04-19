@@ -7,6 +7,8 @@ CLAUDE_DIR="${HOME}/.claude"
 CODEX_DIR="${HOME}/.codex"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
+CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
+MANIFEST_HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 CLAUDE_MD_HELPER="${REPO_DIR}/scripts/lib/claude_md.py"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 

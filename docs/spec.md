@@ -2,7 +2,11 @@
 
 > Status: historical design snapshot.
 > Some implementation details in this document no longer match the current repository layout.
-> Use `README.md`, `docs/rule-reference.md`, `CONTRIBUTING.md`, and the code under `hooks/`, `guards/`, and `scripts/` as the current source of truth.
+> Current canonical sources:
+> - `README.md` — product entry and Core vs Workflow boundary
+> - `docs/rule-reference.md` — current public rule/guard summary
+> - `schemas/install-modules.json` — install/runtime contract
+> - `rules/claude-rules/`, `hooks/`, `guards/`, `scripts/` — implementation source
 
 
 > Version: 1.0 | Update date: 2026-02-12

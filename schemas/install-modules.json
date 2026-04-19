@@ -5,7 +5,7 @@
     {
       "id": "rules-common",
       "kind": "rules",
-      "description": "Common rules (U-01 to U-31, W-01 to W-13, SEC-01 to SEC-13)",
+      "description": "Common rules (U-01 to U-32, W-01 to W-17, SEC-01 to SEC-12)",
       "paths": [
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",
@@ -90,7 +90,6 @@
       "paths": [
         "hooks/post-edit-guard.sh",
         "hooks/post-write-guard.sh",
-        "hooks/skills-loader.sh",
         "hooks/analysis-paralysis-guard.sh"
       ],
       "target": "settings.json:PostToolUse",
@@ -266,9 +265,9 @@
       "modules": ["hooks-full"]
     },
     "strict": {
-      "description": "Maximum enforcement — full + session tagger + cognitive reminder",
+      "description": "Maximum enforcement — same hook set as full, reserved for stricter runtime policy",
       "extends": "full",
-      "modules": ["hooks-strict"]
+      "modules": []
     }
   }
 }

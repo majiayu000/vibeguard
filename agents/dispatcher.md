@@ -11,6 +11,11 @@ tools: [Read, Grep, Glob, Bash]
 
 Analyze task descriptions and change files and route to the most appropriate professional agent.
 
+Boundary:
+- Workflow/lifecycle selection belongs to the higher-level workflow surface (`README.md`, `skills/`, `workflows/`).
+- This dispatcher only chooses the best role **within** the already chosen lifecycle.
+- If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
+
 ## Scheduling rules
 
 ### By error type (highest priority)

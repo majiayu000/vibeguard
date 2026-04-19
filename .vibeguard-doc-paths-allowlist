@@ -36,3 +36,9 @@ vibeguard/scripts/verify/compliance_check.sh
 
 # Placeholder path in docs/how/memory-files.md — illustrates project-level CLAUDE.md location (not a real repo path)
 project/.claude/CLAUDE.md
+
+# FOLLOWUPS placeholders and workspace-local notes
+docs/knowledge-discovery/YYYY-MM-DD.md
+vibeguard/README.md
+vibeguard/docs/knowledge-discovery/2026-04-17.md
+vibeguard/FOLLOWUPS.md
