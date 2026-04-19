@@ -47,6 +47,17 @@ bash ~/vibeguard/setup.sh --check
 | [known-issues/false-positives.md](known-issues/false-positives.md) | 已知误报与修复经验 |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献流程、验证命令、提交规范 |
 
+## 产品边界
+
+VibeGuard 现在明确分成两层：
+
+| 表面 | 范围 | canonical source |
+|------|------|------------------|
+| **VibeGuard Core** | 规则、hooks、静态 guards、安装/运行时契约、可观测性 | `rules/claude-rules/`、`schemas/install-modules.json`、`hooks/`、`guards/` |
+| **VibeGuard Workflows** | Slash Commands、agent prompts、规划/执行预设 | `skills/`、`workflows/`、`agents/` |
+
+如果这些表面之间冲突，先以 Core 契约为准，再同步 workflow 和文档。
+
 ## 工作方式
 
 ### 1. 规则注入
@@ -64,6 +75,11 @@ bash ~/vibeguard/setup.sh --check
 | L7 | 提交纪律 | 禁止 AI 标记、禁止 force push、禁止秘钥入库 |
 
 这里大量使用了“负约束”表达，例如“X 不存在”“不要假设 Y 已经有”，通常比纯正向描述更能稳定影响 agent 行为。
+
+当前 canonical 参考入口：
+- 安装/运行时契约：`schemas/install-modules.json`
+- 原生规则源：`rules/claude-rules/`
+- 当前规则摘要：`docs/rule-reference.md`
 
 ### 2. Hooks 实时拦截
 
@@ -205,9 +221,9 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 | `Stop` | `stop-guard.sh` | 未验证改动的结束闸门 |
 | `Stop` | `learn-evaluator.sh` | 会话指标与纠错信号采集 |
 
-> **注意：** Codex 目前的 PreToolUse/PostToolUse 只支持 `Bash` matcher，所以 `pre-edit`、`post-edit`、`post-write` 这类 hook 还不能部署到 Codex。
+> **注意：** Codex 目前的 PreToolUse/PostToolUse 只支持 `Bash` matcher，所以 `pre-edit`、`pre-write`、`post-edit`、`post-write` 以及 `analysis-paralysis` 这类 hook 还不能部署到原生 Codex CLI hook 路径。
 
-Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异则由 `run-hook-codex.sh` 负责适配。
+Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异则由 `run-hook-codex.sh` 负责适配。若 hook 给出 `updatedInput` 建议，Codex CLI wrapper 目前不能自动改写命令，VibeGuard 会显式提示建议命令，而不是静默吞掉这条信息。
 
 ### App Server 外层封装
 
@@ -219,6 +235,8 @@ python3 ~/vibeguard/scripts/codex/app_server_wrapper.py   --codex-command "codex
 
 - `--strategy vibeguard`：默认模式，在外层补上 pre/stop/post gate
 - `--strategy noop`：纯透传，方便调试
+- 当前 app-server wrapper 已覆盖：Bash 审批拦截，以及 turn 结束后的 stop/build 反馈，并会显式传递 `thread/session/turn` 上下文
+- 当前 app-server wrapper 仍未覆盖：`pre-edit`、`pre-write`、`post-edit`、`post-write`、`analysis-paralysis`
 
 ## 安装选项
 

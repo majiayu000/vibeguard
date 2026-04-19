@@ -37,6 +37,17 @@ Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check`
 | **Learning System** | Turn repeated AI mistakes into reusable defenses |
 | **Observability** | Metrics and health for every interception |
 
+## Product Boundaries
+
+VibeGuard has two layers:
+
+| Surface | Scope | Canonical Source |
+|---------|-------|------------------|
+| **VibeGuard Core** | Rules, hooks, static guards, install/runtime contract, observability | `rules/claude-rules/`, `schemas/install-modules.json`, `hooks/`, `guards/` |
+| **VibeGuard Workflows** | Slash commands, agent prompts, planning/execution presets | `skills/`, `workflows/`, `agents/` |
+
+If these surfaces disagree, treat the Core contract as authoritative first, then update workflow/docs surfaces to match it.
+
 ## What it looks like in practice
 
 ![VibeGuard demo](docs/assets/demo.gif)
@@ -96,6 +107,11 @@ The native rule set in `rules/claude-rules/` is installed to Claude Code's nativ
 | L7 | Commit discipline | No AI markers, no force push, no secrets |
 
 Rules use **negative constraints** ("X does not exist") to implicitly guide AI, which is often more effective than positive descriptions.
+
+Canonical references for this contract:
+- Install/runtime contract: `schemas/install-modules.json`
+- Native rule source: `rules/claude-rules/`
+- Public summary of current rule surface: `docs/rule-reference.md`
 
 ### Hooks — Real-Time Interception
 
@@ -262,9 +278,9 @@ Hooks live in `~/.codex/hooks.json` (requires `codex_hooks = true` in `config.to
 | `Stop` | `stop-guard.sh` | Uncommitted changes gate |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
 
-> **Note:** Codex PreToolUse/PostToolUse currently only supports the `Bash` matcher. Edit/Write guards (`pre-edit`, `post-edit`, `post-write`) are not yet deployable.
+> **Note:** Codex PreToolUse/PostToolUse currently only supports the `Bash` matcher. Edit/Write guards (`pre-edit`, `pre-write`, `post-edit`, `post-write`) and `analysis-paralysis` are not deployable on the native Codex CLI hook path.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`).
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`). When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
 **App-server wrapper** (Symphony-style orchestrators):
 
@@ -274,6 +290,8 @@ python3 ~/vibeguard/scripts/codex/app_server_wrapper.py --codex-command "codex a
 
 - `--strategy vibeguard` (default): applies pre/stop/post gates externally
 - `--strategy noop`: pure pass-through for debugging
+- App-server wrapper scope today: Bash approval interception + post-turn stop/build feedback with explicit `thread/session/turn` propagation
+- Still unsupported on app-server path: `pre-edit`, `pre-write`, `post-edit`, `post-write`, `analysis-paralysis`
 
 ### Use with any project
 

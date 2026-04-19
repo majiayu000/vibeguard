@@ -208,12 +208,7 @@ check_claude_home_installation() {
         green "[OK] Rule count in sync: ${actual_rule_count} rules"
       else
         yellow "[DRIFT] CLAUDE.md declares ${declared_count} rules, actual: ${actual_rule_count}"
-        if [[ "$(uname)" == "Darwin" ]]; then
-          sed -i '' "s/${declared_count} rules/${actual_rule_count} rules/" "${claude_md}"
-        else
-          sed -i "s/${declared_count} rules/${actual_rule_count} rules/" "${claude_md}"
-        fi
-        green "[FIXED] Updated CLAUDE.md rule count to ${actual_rule_count}"
+        yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.claude/CLAUDE.md"
       fi
     fi
   else

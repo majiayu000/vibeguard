@@ -14,7 +14,9 @@ Current guard coverage (best-effort):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -25,15 +27,44 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+CODEX_APP_SERVER_CAPABILITIES: dict[str, bool] = {
+    "pre_bash_guard": True,
+    "command_rewrite": True,
+    "post_turn_feedback": True,
+    "pre_edit_guard": False,
+    "pre_write_guard": False,
+    "post_edit_guard": False,
+    "post_write_guard": False,
+    "analysis_paralysis_guard": False,
+}
+
+
+@dataclass
+class ThreadState:
+    cwd: str | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+
+
 @dataclass
 class SessionState:
-    thread_cwd: dict[str, str] = field(default_factory=dict)
+    threads: dict[str, ThreadState] = field(default_factory=dict)
+
+    def ensure_thread(self, thread_id: str) -> ThreadState:
+        state = self.threads.get(thread_id)
+        if state is None:
+            state = ThreadState(session_id=_session_id_for_thread(thread_id))
+            self.threads[thread_id] = state
+        elif not state.session_id:
+            state.session_id = _session_id_for_thread(thread_id)
+        return state
 
 
 @dataclass
 class HookResult:
     decision: str
     output: str
+    payloads: list[dict[str, Any]] = field(default_factory=list)
     updated_command: str | None = None
 
 
@@ -42,11 +73,20 @@ class HookRunner:
         self.repo_dir = repo_dir
         self.hooks_dir = repo_dir / "hooks"
 
-    def run(self, hook_name: str, payload: dict[str, Any], cwd: str | None = None) -> HookResult:
+    def run(
+        self,
+        hook_name: str,
+        payload: dict[str, Any],
+        cwd: str | None = None,
+        env_overrides: dict[str, str] | None = None,
+    ) -> HookResult:
         hook_path = self.hooks_dir / hook_name
         if not hook_path.exists():
             return HookResult(decision="pass", output="")
 
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
         try:
             proc = subprocess.run(
                 ["bash", str(hook_path)],
@@ -54,6 +94,7 @@ class HookRunner:
                 text=True,
                 capture_output=True,
                 cwd=cwd,
+                env=env,
             )
         except OSError as exc:
             print(
@@ -63,32 +104,57 @@ class HookRunner:
             )
             return HookResult(decision="pass", output="")
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-        decision = self._extract_decision(output) or "pass"
-        updated_command = self._extract_updated_command(output) if decision == "allow" else None
-        return HookResult(decision=decision, output=output.strip(), updated_command=updated_command)
+        payloads = self._extract_payloads(output)
+        decision = self._extract_decision(output, payloads) or "pass"
+        updated_command = self._extract_updated_command(payloads) if decision == "allow" else None
+        return HookResult(
+            decision=decision,
+            output=output.strip(),
+            payloads=payloads,
+            updated_command=updated_command,
+        )
 
     @staticmethod
-    def _extract_decision(output: str) -> str | None:
+    def _extract_payloads(output: str) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        stripped = output.strip()
+        if not stripped:
+            return payloads
+
+        candidates: list[str] = [stripped]
+        candidates.extend(line.strip() for line in output.splitlines() if line.strip())
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                data = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                payloads.append(data)
+        return payloads
+
+    @staticmethod
+    def _extract_decision(output: str, payloads: list[dict[str, Any]]) -> str | None:
+        for payload in payloads:
+            decision = payload.get("decision")
+            if isinstance(decision, str):
+                return decision
         match = re.search(r'"decision"\s*:\s*"([a-zA-Z_-]+)"', output)
         if match:
             return match.group(1)
         return None
 
     @staticmethod
-    def _extract_updated_command(output: str) -> str | None:
-        for line in output.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                if isinstance(data, dict):
-                    updated = data.get("updatedInput")
-                    if isinstance(updated, dict):
-                        cmd = updated.get("command")
-                        return cmd if isinstance(cmd, str) else None
-            except json.JSONDecodeError:
-                continue
+    def _extract_updated_command(payloads: list[dict[str, Any]]) -> str | None:
+        for payload in payloads:
+            updated = payload.get("updatedInput")
+            if isinstance(updated, dict):
+                cmd = updated.get("command")
+                if isinstance(cmd, str):
+                    return cmd
         return None
 
 
@@ -108,7 +174,7 @@ class GateStrategy(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> None:
+    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> dict[str, Any]:
         raise NotImplementedError
 
 
@@ -125,8 +191,9 @@ class NoopGateStrategy(GateStrategy):
         del message, state, write_to_server
         return False
 
-    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> None:
-        del message, state
+    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> dict[str, Any]:
+        del state
+        return message
 
 
 class VibeGuardGateStrategy(GateStrategy):
@@ -142,13 +209,20 @@ class VibeGuardGateStrategy(GateStrategy):
         if method == "thread/start":
             thread_id = params.get("threadId")
             cwd = params.get("cwd")
-            if isinstance(thread_id, str) and isinstance(cwd, str) and cwd:
-                state.thread_cwd[thread_id] = cwd
+            if isinstance(thread_id, str):
+                thread = state.ensure_thread(thread_id)
+                if isinstance(cwd, str) and cwd:
+                    thread.cwd = cwd
         elif method == "turn/start":
             thread_id = params.get("threadId")
             cwd = params.get("cwd")
-            if isinstance(thread_id, str) and isinstance(cwd, str) and cwd:
-                state.thread_cwd[thread_id] = cwd
+            if isinstance(thread_id, str):
+                thread = state.ensure_thread(thread_id)
+                if isinstance(cwd, str) and cwd:
+                    thread.cwd = cwd
+                turn_id = params.get("turnId")
+                if isinstance(turn_id, str) and turn_id:
+                    thread.turn_id = turn_id
 
     def handle_server_request(
         self,
@@ -170,10 +244,12 @@ class VibeGuardGateStrategy(GateStrategy):
             return False
 
         thread_id = params.get("threadId")
-        cwd = state.thread_cwd.get(thread_id) if isinstance(thread_id, str) else None
+        thread = state.ensure_thread(thread_id) if isinstance(thread_id, str) else None
+        cwd = thread.cwd if thread is not None else None
+        env = self._hook_env(thread_id if isinstance(thread_id, str) else None, thread)
 
         payload = {"tool_input": {"command": command}}
-        result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd)
+        result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd, env_overrides=env)
 
         if result.decision == "block":
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
@@ -195,36 +271,109 @@ class VibeGuardGateStrategy(GateStrategy):
 
         return False
 
-    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> None:
+    def on_server_notification(self, message: dict[str, Any], state: SessionState) -> dict[str, Any]:
         if message.get("method") != "turn/completed":
-            return
+            return message
 
         params = message.get("params")
         if not isinstance(params, dict):
-            return
+            return message
 
         thread_id = params.get("threadId")
         if not isinstance(thread_id, str):
-            return
+            return message
 
-        cwd = state.thread_cwd.get(thread_id)
+        thread = state.ensure_thread(thread_id)
+        turn_id = params.get("turnId")
+        if isinstance(turn_id, str) and turn_id:
+            thread.turn_id = turn_id
+
+        cwd = thread.cwd
         if not cwd:
-            return
+            return message
 
-        self._run_stop_gates(cwd)
-        self._run_post_build_checks(cwd)
+        feedback = self._collect_turn_feedback(cwd, thread_id, thread)
+        if not feedback:
+            return message
 
-    def _run_stop_gates(self, cwd: str) -> None:
-        # stop-guard / learn-evaluator do not require stdin payload.
-        self.hooks.run("stop-guard.sh", payload={}, cwd=cwd)
-        self.hooks.run("learn-evaluator.sh", payload={}, cwd=cwd)
+        next_params = dict(params)
+        next_params["vibeguard"] = feedback
+        next_message = dict(message)
+        next_message["params"] = next_params
+        return next_message
 
-    def _run_post_build_checks(self, cwd: str) -> None:
+    def _hook_env(self, thread_id: str | None, thread: ThreadState | None) -> dict[str, str]:
+        env = {
+            "VIBEGUARD_CLI": "codex",
+            "VIBEGUARD_AGENT_TYPE": "codex",
+        }
+        if thread is not None and thread.session_id:
+            env["VIBEGUARD_SESSION_ID"] = thread.session_id
+        if thread_id:
+            env["VIBEGUARD_THREAD_ID"] = thread_id
+        if thread is not None and thread.turn_id:
+            env["VIBEGUARD_TURN_ID"] = thread.turn_id
+        return env
+
+    def _collect_turn_feedback(self, cwd: str, thread_id: str, thread: ThreadState) -> dict[str, Any] | None:
+        env = self._hook_env(thread_id, thread)
+        messages = self._run_stop_gates(cwd, env)
+        messages.extend(self._run_post_build_checks(cwd, env))
+        if not messages:
+            return None
+
+        feedback: dict[str, Any] = {
+            "client": "codex-app-server",
+            "capabilities": CODEX_APP_SERVER_CAPABILITIES,
+            "messages": messages,
+        }
+        if thread.session_id:
+            feedback["sessionId"] = thread.session_id
+        if thread_id:
+            feedback["threadId"] = thread_id
+        if thread.turn_id:
+            feedback["turnId"] = thread.turn_id
+        return feedback
+
+    def _run_stop_gates(self, cwd: str, env: dict[str, str]) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        for hook_name in ("stop-guard.sh", "learn-evaluator.sh"):
+            result = self.hooks.run(hook_name, payload={}, cwd=cwd, env_overrides=env)
+            messages.extend(self._feedback_messages(hook_name, result))
+        return messages
+
+    def _run_post_build_checks(self, cwd: str, env: dict[str, str]) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
         files = self._changed_files(cwd)
         for rel in files:
             abs_path = str(Path(cwd) / rel)
             payload = {"tool_input": {"file_path": abs_path}}
-            self.hooks.run("post-build-check.sh", payload=payload, cwd=cwd)
+            result = self.hooks.run("post-build-check.sh", payload=payload, cwd=cwd, env_overrides=env)
+            messages.extend(self._feedback_messages("post-build-check.sh", result))
+        return messages
+
+    @staticmethod
+    def _feedback_messages(hook_name: str, result: HookResult) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        for payload in result.payloads:
+            stop_reason = payload.get("stopReason")
+            if isinstance(stop_reason, str) and stop_reason:
+                messages.append({"hook": hook_name, "kind": "stopReason", "text": stop_reason})
+            system_message = payload.get("systemMessage")
+            if isinstance(system_message, str) and system_message:
+                messages.append({"hook": hook_name, "kind": "systemMessage", "text": system_message})
+            hook_output = payload.get("hookSpecificOutput")
+            if isinstance(hook_output, dict):
+                additional_context = hook_output.get("additionalContext")
+                if isinstance(additional_context, str) and additional_context:
+                    messages.append(
+                        {
+                            "hook": hook_name,
+                            "kind": "additionalContext",
+                            "text": additional_context,
+                        }
+                    )
+        return messages
 
     @staticmethod
     def _changed_files(cwd: str) -> list[str]:
@@ -242,6 +391,14 @@ class VibeGuardGateStrategy(GateStrategy):
         changed.update(run_git(["diff", "--name-only", "--cached"]))
         source_exts = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".go"}
         return [p for p in sorted(changed) if Path(p).suffix in source_exts]
+
+
+def _session_id_for_thread(thread_id: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", thread_id).strip("-")
+    if not normalized:
+        normalized = "thread"
+    digest = hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:12]
+    return f"codex-thread-{normalized}-{digest}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -327,7 +484,8 @@ def main() -> int:
                         if "id" in message and isinstance(message.get("method"), str):
                             intercepted = strategy.handle_server_request(message, state, write_to_server)
                         elif isinstance(message.get("method"), str):
-                            strategy.on_server_notification(message, state)
+                            message = strategy.on_server_notification(message, state)
+                            line = json.dumps(message, ensure_ascii=False) + "\n"
                 except json.JSONDecodeError:
                     pass
 
