@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  
+  <rect width="800" height="400" fill="#05070a"></rect>
+  <g fill="#1a2029">
+    <circle cx="40" cy="40" r="1"></circle><circle cx="120" cy="60" r="1"></circle>
+    <circle cx="200" cy="30" r="1"></circle><circle cx="280" cy="80" r="1"></circle>
+    <circle cx="360" cy="45" r="1"></circle><circle cx="440" cy="70" r="1"></circle>
+    <circle cx="520" cy="25" r="1"></circle><circle cx="600" cy="55" r="1"></circle>
+    <circle cx="680" cy="35" r="1"></circle><circle cx="760" cy="65" r="1"></circle>
+    <circle cx="60" cy="140" r="1"></circle><circle cx="140" cy="160" r="1"></circle>
+    <circle cx="220" cy="130" r="1"></circle><circle cx="300" cy="180" r="1"></circle>
+    <circle cx="380" cy="145" r="1"></circle><circle cx="460" cy="170" r="1"></circle>
+    <circle cx="540" cy="125" r="1"></circle><circle cx="620" cy="155" r="1"></circle>
+    <circle cx="700" cy="135" r="1"></circle><circle cx="780" cy="165" r="1"></circle>
+    <circle cx="30" cy="240" r="1"></circle><circle cx="110" cy="260" r="1"></circle>
+    <circle cx="190" cy="230" r="1"></circle><circle cx="270" cy="280" r="1"></circle>
+    <circle cx="350" cy="245" r="1"></circle><circle cx="430" cy="270" r="1"></circle>
+    <circle cx="510" cy="225" r="1"></circle><circle cx="590" cy="255" r="1"></circle>
+    <circle cx="670" cy="235" r="1"></circle><circle cx="750" cy="265" r="1"></circle>
+    <circle cx="80" cy="340" r="1"></circle><circle cx="160" cy="360" r="1"></circle>
+    <circle cx="240" cy="330" r="1"></circle><circle cx="320" cy="380" r="1"></circle>
+    <circle cx="400" cy="345" r="1"></circle><circle cx="480" cy="370" r="1"></circle>
+    <circle cx="560" cy="325" r="1"></circle><circle cx="640" cy="355" r="1"></circle>
+    <circle cx="720" cy="335" r="1"></circle>
+  </g>
+  <g fill="#5ddfde">
+    <circle cx="180" cy="220" r="1.6" opacity="0.9"></circle>
+    <circle cx="520" cy="120" r="2" opacity="0.9"></circle>
+    <circle cx="380" cy="300" r="1.4" opacity="0.8"></circle>
+    <circle cx="660" cy="210" r="1.8" opacity="0.9"></circle>
+  </g>
+  <g stroke="#1a2029" stroke-width="1" opacity="0.35">
+    <line x1="0" y1="100" x2="800" y2="100"></line>
+    <line x1="0" y1="200" x2="800" y2="200"></line>
+    <line x1="0" y1="300" x2="800" y2="300"></line>
+    <line x1="100" y1="0" x2="100" y2="400"></line>
+    <line x1="300" y1="0" x2="300" y2="400"></line>
+    <line x1="500" y1="0" x2="500" y2="400"></line>
+    <line x1="700" y1="0" x2="700" y2="400"></line>
+  </g>
+</svg>
