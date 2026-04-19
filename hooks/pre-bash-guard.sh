@@ -64,8 +64,11 @@ block() {
 # Shell-aware per-subcommand check: splits on &&/||/; outside of quotes so that
 # "." appearing inside a commit message or other quoted arg in a later subcommand
 # (e.g. git commit -m 'docs: mention git checkout ".";') does not cause a false positive.
-if _CMD_DATA="$COMMAND_NO_HEREDOC" python3 - <<'PYEOF'
-import re, sys, os
+# Command is passed on stdin (not env var) to avoid exec-env size limits.
+# Fail-closed: any scanner exit code other than 1 (safe) triggers block.
+_SCANNER_EC=2
+if printf '%s' "$COMMAND_NO_HEREDOC" | python3 <(cat <<'PYEOF'
+import re, sys
 
 def split_shell(cmd):
     parts, cur, in_s, in_d = [], '', False, False
@@ -90,22 +93,27 @@ def split_shell(cmd):
         parts.append(cur)
     return parts
 
-cmd = os.environ.get('_CMD_DATA', '')
+cmd = sys.stdin.read()
 for sub in split_shell(cmd):
     s = re.sub(r'"[^"]*"', '""', sub)
     s = re.sub(r"'[^']*'", "''", s)
     if not re.search(r'git\s+(checkout|restore)\s+', s):
         continue
-    # quoted dot: "." or '.' with matching quotes
-    m = re.search(r'git\s+(checkout|restore)\s+(?:--\s+)?(["\'])\.(["\'])', sub)
+    # quoted dot: "." or '.' as a standalone argument (not part of a larger path)
+    m = re.search(r'git\s+(checkout|restore)\s+(?:--\s+)?(["\'])\.(["\'])(?=\s|$)', sub)
     if m and m.group(2) == m.group(3):
-        sys.exit(0)
+        sys.exit(0)  # dangerous
     # bare dot: must be followed by whitespace or end-of-subcommand
     if re.search(r'git\s+(checkout|restore)\s+(?:--\s+)?\.(?:\s|$)', sub.rstrip()):
-        sys.exit(0)
-sys.exit(1)
+        sys.exit(0)  # dangerous
+sys.exit(1)  # safe
 PYEOF
-then
+) 2>/dev/null; then
+  _SCANNER_EC=0
+else
+  _SCANNER_EC=$?
+fi
+if [[ "$_SCANNER_EC" -ne 1 ]]; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
