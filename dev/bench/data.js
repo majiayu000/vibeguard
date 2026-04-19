@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776578760509,
+  "lastUpdate": 1776607206941,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -551,6 +551,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 130,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "590ddca7e95965040c4648fdfb75816050c36e47",
+          "message": "Converge VibeGuard onto one explicit runtime and contract model (#80)\n\n* Converge VibeGuard onto one explicit runtime and contract model\n\nCodex runtime behavior, install/profile metadata, verification gates, and product-facing docs had drifted into separate sources of truth. This change collapses those seams by making post-turn hook feedback explicit, introducing a canonical manifest/helper layer for install and rule metadata, hardening CI around contract tests, and re-pointing docs/eval flows at repository-owned sources.\n\nConstraint: Keep existing user-visible hook semantics intact while removing silent fail-open paths\nConstraint: No new runtime dependencies; use structured helpers and existing shell/Python surfaces\nRejected: Patch only app-server feedback and leave install/schema/doc drift in place | would preserve the same structural split-brain\nRejected: Add another standalone metadata file beside install-modules.json | increases surface area instead of converging it\nConfidence: high\nScope-risk: broad\nReversibility: clean\nDirective: Treat schemas/install-modules.json as the canonical install/profile contract and update generated or descriptive surfaces from it, not vice versa\nTested: tests/test_manifest_contract.sh; tests/test_eval_contract.sh; tests/test_codex_runtime.sh; tests/test_setup.sh; tests/test_hook_health.sh; VIBEGUARD_TEST_UPDATED_INPUT=1 tests/test_hooks.sh; tests/test_precision_tracker.sh; tests/unit/run_all.sh; tests/test_rust_guards.sh; scripts/verify/doc-freshness-check.sh --strict; scripts/ci/validate-manifest-contract.sh; scripts/ci/validate-doc-paths.sh; scripts/ci/validate-doc-command-paths.sh; scripts/ci/validate-precision-thresholds.sh; scripts/benchmark.sh --mode=fast\nNot-tested: Full GitHub Actions execution on remote runners after push\n\n* Remove flaky uv bootstrap and force UTF-8 eval reads\n\nThe PR checks failed for two environment-specific reasons rather than product logic: Ubuntu relied on astral.sh install.sh for uv and hit a transient 504, while Windows eval dry-run used locale-default decoding and crashed on non-ASCII rule files.\n\nConstraint: Keep the existing CI intent and eval contract unchanged while removing platform and network fragility\nRejected: Retry the curl installer | still leaves CI dependent on an external bootstrap script and network edge failures\nRejected: Mark the Windows eval contract test optional | hides the encoding bug instead of fixing it\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Prefer repository/local toolchain installs and explicit UTF-8 file reads in cross-platform validation paths\nTested: python3 -m py_compile eval/run_eval.py; bash tests/test_eval_contract.sh\nNot-tested: Full remote GitHub Actions rerun after push\n\n* Normalize eval contract path assertions across platforms\n\nWindows Smoke still failed after the UTF-8 fix because the eval contract test compared repository paths using the host's native separator expectations. The implementation was correct; the assertion was not portable.\n\nConstraint: Keep the eval dry-run contract identical while making the test stable on both Windows and Unix runners\nRejected: Drop the Windows eval contract check | would hide a real cross-platform contract regression surface\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Normalize path strings before comparing cross-platform CLI output in contract tests\nTested: bash tests/test_eval_contract.sh\nNot-tested: Full Windows remote rerun after push\n\n* Close Codex runtime contract gaps found during review\n\nThe architecture convergence PR introduced stronger Codex runtime and\nmanifest helpers, but review identified four fail-open edges: normalized\nthread ids could collide, prefixed feature keys could be clobbered,\ninstalled-rule drift was hidden when the installed set was empty, and\nlegacy MCP cleanup helper failures were converted into green no-op paths.\n\nConstraint: Preserve the existing setup/runtime contract while making review-discovered failure modes observable\nRejected: Treat the comments as theoretical | each issue can corrupt session telemetry, user config, or install drift reporting\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep helper failures explicit; do not convert infrastructure errors into SKIP/green status paths\nTested: python3 -m py_compile scripts/codex/app_server_wrapper.py scripts/lib/codex_config_toml.py scripts/lib/vibeguard_manifest.py eval/run_eval.py; bash -n scripts/setup/targets/codex-home.sh scripts/verify/doc-freshness-check.sh; bash tests/test_codex_runtime.sh; bash tests/test_manifest_contract.sh; bash scripts/verify/doc-freshness-check.sh --strict; bash tests/test_eval_contract.sh; bash scripts/ci/validate-manifest-contract.sh; bash scripts/ci/validate-doc-paths.sh; bash scripts/ci/validate-doc-command-paths.sh; bash tests/test_setup.sh\nNot-tested: Remote GitHub Actions rerun after push\n\n* Keep doc freshness scoped to generated common-rule tables\n\nAfter the canonical rule docs became generated, docs/rule-reference.md now\ncontains language-specific rule IDs as well as common U/W/SEC rules. The\narchitecture convergence check should still compare only the documented\ncommon scope, otherwise generated language rows look like false drift.\n\nConstraint: #84 made docs/rule-reference.md a generated all-rule reference\nRejected: Remove language rules from generated docs | would undo the single-source rule reference improvement\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Filter reference-rule comparisons by the scope being validated, not by every ID present in the generated reference\nTested: bash scripts/verify/doc-freshness-check.sh --strict; bash scripts/ci/validate-generated-rule-docs.sh; bash scripts/ci/validate-manifest-contract.sh; bash tests/test_manifest_contract.sh; bash tests/test_eval_contract.sh\nNot-tested: Remote GitHub Actions rerun after force-push\n\n* Propagate codex_hooks enable failures during setup\n\nReview found that the codex_hooks feature helper still used the same\nfail-open pattern as the legacy MCP cleanup path: helper failures were\nconverted into an ERROR string and setup could continue to completion.\nReturn non-zero instead and cover the failure path in setup regression.\n\nConstraint: A completed setup must not leave Codex hooks disabled because a config helper failed\nRejected: Only print a red warning and continue | users would still get a broken runtime with a successful install exit\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Setup helper failures should abort install unless the helper explicitly returns SKIP\nTested: bash -n scripts/setup/targets/codex-home.sh tests/test_setup.sh; python3 -m py_compile scripts/lib/codex_config_toml.py; bash tests/test_setup.sh\nNot-tested: Remote GitHub Actions rerun after push\n\n* Handle commented TOML tables and TASTE rule references\n\nCodex review found two parser gaps: user-edited TOML tables with trailing\ncomments were not recognized as existing sections, and reference rule ID\nextraction omitted TASTE-prefixed rules. Support commented table headers\nin the Codex config helper and include TASTE ids in rule-reference parsing.\n\nConstraint: User config may contain valid TOML comments and generated rule docs now include TASTE rows\nRejected: Ignore commented headers as uncommon | setup would append duplicate [features] tables and break Codex config\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep parser helpers aligned with valid user-authored TOML and generated rule id prefixes\nTested: python3 -m py_compile scripts/lib/codex_config_toml.py scripts/lib/vibeguard_manifest.py; bash tests/test_manifest_contract.sh; bash scripts/ci/validate-manifest-contract.sh; bash scripts/verify/doc-freshness-check.sh --strict\nNot-tested: Full remote GitHub Actions rerun after push\n\n* Restore protected Windows check name\n\nBranch protection still requires a check named `CI (windows-latest)`, but\nthis PR renamed the Windows job to `Windows Smoke`. Keep the smoke-only\njob implementation while restoring the protected check name so required\nstatus checks can resolve.\n\nConstraint: main branch protection expects `CI (windows-latest)`\nRejected: Change branch protection instead | workflow naming should remain compatible with existing repository policy\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: If required checks are renamed in workflows, update branch protection in the same change or keep compatibility aliases\nTested: bash scripts/ci/validate-doc-command-paths.sh; bash scripts/ci/validate-manifest-contract.sh; python assertion that workflow contains `name: CI (windows-latest)` and no `name: Windows Smoke`\nNot-tested: Remote GitHub Actions rerun after push",
+          "timestamp": "2026-04-19T21:55:31+08:00",
+          "tree_id": "569e6666c2f6a40334461b64e319fbb053587bd1",
+          "url": "https://github.com/majiayu000/vibeguard/commit/590ddca7e95965040c4648fdfb75816050c36e47"
+        },
+        "date": 1776607206651,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 192,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 226,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 249,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 312,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 217,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 326,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 217,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 137,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 141,
             "unit": "ms"
           }
         ]
