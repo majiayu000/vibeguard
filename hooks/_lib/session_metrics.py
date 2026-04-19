@@ -158,8 +158,9 @@ if cb_trips > 0:
     correction_signals.append(f"Circuit breaker tripped {cb_trips} time(s)")
 
 # Signal 10: Warn trend regression (compare with project baseline)
-metrics_file = os.path.join(os.environ["VIBEGUARD_PROJECT_LOG_DIR"], "session-metrics.jsonl")
-if os.path.exists(metrics_file):
+_log_dir = os.environ.get("VIBEGUARD_PROJECT_LOG_DIR")
+metrics_file = os.path.join(_log_dir, "session-metrics.jsonl") if _log_dir else None
+if metrics_file and os.path.exists(metrics_file):
     try:
         recent_ratios = []
         with open(metrics_file) as f:
@@ -182,7 +183,7 @@ if os.path.exists(metrics_file):
 
 metrics = {
     "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "session": os.environ["VIBEGUARD_SESSION_ID"],
+    "session": os.environ.get("VIBEGUARD_SESSION_ID", ""),
     "event_count": len(events),
     "decisions": dict(decisions),
     "hooks": dict(hooks),
@@ -195,8 +196,9 @@ metrics = {
 }
 
 # Write project-level indicator files
-with open(metrics_file, "a") as f:
-    f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+if metrics_file:
+    with open(metrics_file, "a") as f:
+        f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
 
 # Output suggestions when there is a correction signal
 if correction_signals:
