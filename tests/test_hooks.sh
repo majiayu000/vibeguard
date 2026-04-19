@@ -169,6 +169,14 @@ assert_not_contains "$result" '"decision": "block"' "Release git reset --hard (p
 result=$(echo '{"tool_input":{"command":"git checkout ."}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Intercept git checkout ."
 
+# git checkout "." (quoted dot) should be intercepted — #88
+result=$(echo '{"tool_input":{"command":"git checkout \".\""}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git checkout with quoted dot"
+
+# git restore '.' (single-quoted dot) should be intercepted — #88
+result=$(echo $'{"tool_input":{"command":"git restore \x27.\x27"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git restore with single-quoted dot"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"

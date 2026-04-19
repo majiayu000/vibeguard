@@ -62,7 +62,7 @@ block() {
 
 # git checkout . / git restore . (discard all changes)
 # Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
+if echo "$COMMAND_STRIPPED"$'\n'"$COMMAND_PATH_SCAN" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
