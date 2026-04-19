@@ -2,37 +2,37 @@
 paths: **/*.rs,**/Cargo.toml,**/Cargo.lock
 ---
 
-# Rust 质量规则
+# Rust Quality Rules
 
-## RS-01: 嵌套 RwLock/Mutex 获取（高）
-同时持有多个锁导致死锁。修复：合并多个 Signal 为单个 `Signal<State>`，用 `.update()` 原子操作。
+## RS-01: Nested `RwLock` / `Mutex` acquisition (high)
+Holding multiple locks at once creates deadlock risk. Fix: merge the state into one `Signal<State>` and update it atomically with `.update()`.
 
-## RS-02: TOCTOU — get() 后 insert()（高）
-中间释放了锁导致竞态条件。修复：改用 Entry API `m.entry(key).or_insert(val)` 单次加锁。
+## RS-02: TOCTOU — `get()` followed by `insert()` (high)
+The lock is released between read and write, which creates a race. Fix: use the Entry API (`m.entry(key).or_insert(val)`) under a single lock.
 
-## RS-03: unwrap() 在非测试代码中（中）
-panic 风险。修复：替换为 `?` 传播、`.unwrap_or_else()` 或显式 match。
+## RS-03: `unwrap()` in non-test code (medium)
+`unwrap()` creates panic risk. Fix: replace it with `?`, `.unwrap_or_else()`, or an explicit `match`.
 
-## RS-04: 多个 Signal/Arc 管理同一逻辑状态（中）
-应合并为单个 `Signal<State>` 结构体，所有字段集中管理。
+## RS-04: Multiple `Signal` / `Arc` objects manage the same logical state (medium)
+Converge them into a single `Signal<State>` so one structure owns the whole state.
 
-## RS-05: 同名不同义的类型（中）
-如两个 `RenderHandle`。修复：提取到共享模块，其余处用 `pub use` 引入。
+## RS-05: Same name, different meaning types (medium)
+For example, two different `RenderHandle` types. Fix: extract the canonical type into a shared module and import it everywhere else with `pub use`.
 
-## RS-06: 相同 match 臂在多个方法中重复（中）
-修复：参数化为单个函数，通过参数区分分支。
+## RS-06: The same match arm is duplicated across multiple methods (medium)
+Fix: factor it into one parameterized function that distinguishes behavior through arguments.
 
-## RS-07: 手动逐字段复制（低）
-应用 merge/apply 方法。修复：实现 `apply` 方法或 `Update` trait。
+## RS-07: Manual field-by-field copying (low)
+Use merge or apply methods instead. Fix: add an `apply` method or an `Update` trait.
 
-## RS-08: 不必要的 clone()（低）
-Copy 类型或可借用的场景。修复：Copy 类型去掉 clone；可借用改为引用传递。
+## RS-08: Unnecessary `clone()` calls (low)
+Often appears on `Copy` types or values that could be borrowed. Fix: remove `clone()` for `Copy` data or pass references instead.
 
-## RS-09: 热路径中的 format!() 分配（低）
-修复：改用 `push_str`、预分配 `String::with_capacity()` 或 `write!`。
+## RS-09: `format!()` allocation in hot paths (low)
+Fix: use `push_str`, preallocate with `String::with_capacity()`, or use `write!`.
 
-## RS-10: 静默丢弃有意义的 Result（高）
-`let _ =`、`.ok()`、`.unwrap_or_default()` 吞掉错误。修复：用 `if let Err(e)` 至少记录日志。
+## RS-10: Meaningful `Result`s are silently discarded (high)
+Patterns like `let _ =`, `.ok()`, or `.unwrap_or_default()` swallow errors. Fix: at minimum handle `Err` explicitly and log it.
 ```rust
 // Bad: let _ = db::update(&conn, &ids);
 // Good:
@@ -41,49 +41,49 @@ if let Err(e) = db::update(&conn, &ids) {
 }
 ```
 
-## RS-11: 不同模块使用不同基础设施（中）
-日志系统、配置路径、DB 连接方式不一致。修复：统一到 core 的共享函数。
+## RS-11: Different modules use different infrastructure for the same system (medium)
+Logging, config paths, or DB connection strategies drift across modules. Fix: converge on shared core helpers.
 
-## RS-12: 同一职责双系统并存（高）
-如 Todo* 与 TaskManagement* 双轨。修复：收敛到单一域接口，删除冗余。
+## RS-12: Two systems coexist for one responsibility (high)
+For example, `Todo*` and `TaskManagement*` both handle task state. Fix: converge on a single domain interface and delete the redundant track.
 
-## RS-13: 动作语义函数缺少状态副作用（高）
-`mark_done` 只返回文本不落状态。修复：函数必须写入状态（insert/update/remove）或发射事件。
+## RS-13: Action-named functions lack state side effects (high)
+A function like `mark_done` only returns text but does not persist state. Fix: the function must write state (`insert`, `update`, `remove`) or emit an event.
 
-## RS-14: 声明-执行鸿沟（高）
-Config/Trait/持久化层声明但启动时未集成。修复：审计声明点，验证启动注册，添加缺失调用。
+## RS-14: Declaration-execution gap (high)
+Configs, traits, or persistence layers are declared but never integrated into startup. Fix: audit declaration sites, verify startup registration, and add the missing wiring.
 
-**检测模式**：
-- Config 结构体存在但启动调用 `Default::default()`
-- Trait 声明但无 `impl` 或未注册到 registry
-- `fn save/load/persist` 存在但启动时从不调用
-- 字段加入 struct 但构造函数未初始化
+**Detection patterns**:
+- A config struct exists but startup still calls `Default::default()`
+- A trait is declared but has no `impl` or never gets registered
+- `save`, `load`, or `persist` methods exist but startup never calls them
+- A field is added to a struct but constructors never initialize it
 
-**修复清单**：
+**Repair checklist**:
 ```rust
-// Bad: Config 声明但不加载
-let config = MyConfig::default();  // 配置文件被忽略
+// Bad: config exists but is never loaded
+let config = MyConfig::default();  // config file ignored
 
-// Good: 启动时显式加载
+// Good: explicit load during startup
 let config = MyConfig::load_from_file("config.toml")
-    .unwrap_or_else(|_| MyConfig::default());  // silent fallback
+    .unwrap_or_else(|_| MyConfig::default());  // intentional fallback
 
-// Bad: 持久化方法存在但从不调用
+// Bad: persistence method exists but is never called
 impl Store {
-    fn restore(&mut self) { /* 从 DB 恢复 */ }
+    fn restore(&mut self) { /* restore from DB */ }
 }
-// 启动代码：let store = Store::new();  // restore() 从未调用
+// Startup code: let store = Store::new();  // restore() never runs
 
-// Good: 启动时恢复状态
+// Good: restore at startup
 let mut store = Store::new();
-store.restore()?;  // 显式恢复
+store.restore()?;
 ```
 
-## TASTE-ANSI: 硬编码 ANSI 转义序列
-应使用 colored/termcolor crate 代替 `\x1b[` 硬编码。
+## TASTE-ANSI: Hardcoded ANSI escape sequences (medium)
+Use a crate like `colored` or `termcolor` instead of hardcoding `\x1b[` sequences.
 
-## TASTE-ASYNC-UNWRAP: async fn 内 .unwrap()
-async 上下文应使用 `?` 操作符传播错误，而非 unwrap 导致 panic。
+## TASTE-ASYNC-UNWRAP: `.unwrap()` inside `async fn` (medium)
+Async code should propagate errors with `?` instead of panicking with `unwrap()`.
 
-## TASTE-PANIC-MSG: panic!() 缺少有意义的消息
-`panic!()` 或 `panic!("")` 缺少上下文。修复：添加描述性消息说明 panic 原因。
+## TASTE-PANIC-MSG: `panic!()` without a meaningful message (medium)
+`panic!()` or `panic!("")` lacks context. Fix: provide a descriptive message that explains why the panic is intentional.

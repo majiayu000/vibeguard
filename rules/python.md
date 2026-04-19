@@ -1,40 +1,38 @@
-# Python Rules (Python specific rules)
+# Python Rules
 
-Specific rules for scanning and repairing Python projects.
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
 
-## Scan check items
+Reference index for scanning and repairing Python projects.
 
-| ID | Category | Check Item | Severity | Guard Cross Reference |
-|----|------|--------|--------|-------------|
-| PY-01 | Bug | Variable default parameters (def f(x=[])) | High | — |
-| PY-02 | Bug | except naked catch (except: or except Exception) | Medium | `guards/python/test_code_quality_guards.py` Rule 1 Autodetection |
-| PY-03 | Bug | await within loop without gather/TaskGroup | Medium | — |
-| PY-04 | Design | God class (>500 lines, >10 public methods) | Medium | — |
-| PY-05 | Dedup | The same try/except pattern in many places | Medium | — |
-| PY-06 | Perf | Repeated creation of regular expressions within loops (should be precompiled) | Low | — |
-| PY-07 | Perf | String concatenation in a loop (applying join or list) | Low | — |
+## Scan checklist
 
-> **PY-02 and Guard Integration Instructions**: The "disable silent exception swallowing" rule in VibeGuard's `guards/python/test_code_quality_guards.py` detects whether the except block has logging or re-raise through AST. When auto-optimize scans, you should run this guard first to obtain the baseline, and LLM deep scan to supplement the scenarios that the guard cannot cover (for example, the except block has logging but the exception type is too wide).
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| PY-01 | Mutable default parameters | High | `def f(x=[])` shares state across calls. |
+| PY-02 | Bare `except` blocks | Medium | `except:` or `except Exception` without logging or re-raising. |
+| PY-03 | `await` inside loops without `gather()` / `TaskGroup` | Medium | Serial waiting wastes time. |
+| PY-04 | God class larger than 500 lines | Medium | More than 10 public methods. |
+| PY-05 | Repeated try/except patterns across many locations | Medium | Repeated try/except patterns across many locations |
+| PY-06 | Rebuilding regexes inside loops | Low | Rebuilding regexes inside loops |
+| PY-07 | String concatenation inside loops | Low | String concatenation inside loops |
+| PY-08 | Use of `eval()`, `exec()`, or `__import__()` | High | This dynamically executes untrusted code. |
+| PY-09 | Functions longer than 50 lines | Medium | Functions longer than 50 lines |
+| PY-10 | Nesting deeper than 4 levels | Medium | Nesting deeper than 4 levels |
+| PY-11 | File operations without a `with` context manager | Medium | File operations without a `with` context manager |
+| PY-12 | Repeated calls to `len()`, `keys()`, or `values()` inside loops | Low | Repeated calls to `len()`, `keys()`, or `values()` inside loops |
+| PY-13 | Dead compatibility shim | Medium | A file that only re-exports symbols from another module and adds no behavior should be removed after migration is complete. |
 
-## SKIP rules (Python specific)
+## Python-adjacent global rules
 
-| Conditions | Judgment | Reasons |
-|------|------|------|
-| Type annotations are incomplete but functionally correct | SKIP | Type annotations are progressive |
-| Use dict instead of dataclass | SKIP | Unless dict structure is repeated at > 3 places |
-| Missing docstring | SKIP | Independent processing, no mixing function fixes |
+These are global IDs with Python-specific scope in the canonical rule set:
 
-## ECC enhancement rules
-
-| ID | Category | Check Item | Severity |
-|----|------|--------|--------|
-| PY-08 | Safety | Using `eval()` / `exec()` / `__import__()` | High |
-| PY-09 | Design | Function exceeds 50 lines (should be split) | Medium |
-| PY-10 | Design | Nesting beyond 4 levels (functions should be returned or extracted early) | Medium |
-| PY-11 | Safety | File operations not using `with` context manager | Medium |
-| PY-12 | Perf | Repeated calls to `len()` / `keys()` / `values()` in a loop | Low |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
+| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
 
 ## Verification command
+
 ```bash
 ruff check . && ruff format --check . && pytest
 ```

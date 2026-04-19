@@ -1,38 +1,30 @@
-# TypeScript Rules (TypeScript specific rules)
+# TypeScript Rules
 
-Specific rules for scanning and repairing TypeScript projects.
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
 
-## Scan check items
+Reference index for scanning and repairing TypeScript projects.
 
-| ID | Category | Check Item | Severity |
-|----|------|--------|--------|
-| TS-01 | Bug | any type escape (function parameter or return value is any) | Medium |
-| TS-02 | Bug | Unhandled Promise rejection | High |
-| TS-03 | Bug | == instead of === (non-null check scenario) | Medium |
-| TS-04 | Design | Very large components (>300 lines of React components) | Medium |
-| TS-05 | Dedup | Many identical fetch/API calling patterns | Medium |
-| TS-06 | Perf | useEffect missing dependency or too wide dependency | Medium |
-| TS-07 | Perf | Large array in render map without memo | Low |
+## Scan checklist
 
-## SKIP rules (TypeScript specific)
-
-| Conditions | Judgment | Reasons |
-|------|------|------|
-| Use interface instead of type (or vice versa) | SKIP | Style preference, does not affect functionality |
-| Missing JSDoc but clear type signatures | SKIP | Types are documents |
-| Use enum instead of union type | SKIP | Unless it causes bundle size problems |
-
-## ECC enhancement rules
-
-| ID | Category | Check Item | Severity |
-|----|------|--------|--------|
-| TS-08 | Safety | Bypass type checking using `as any` or `@ts-ignore` | High |
-| TS-09 | Design | Function has more than 4 parameters (options object should be used) | Medium |
-| TS-10 | Design | Nested callbacks beyond 3 levels (async/await should be used) | Medium |
-| TS-11 | Safety | Unhandled null/undefined (missing optional chaining or null check) | Medium |
-| TS-12 | Perf | Component props pass entire object instead of required fields | Low |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| TS-01 | `any` type escape | Medium | Function parameters or return values use `any`. |
+| TS-02 | Unhandled Promise rejections | High | Async calls lack error handling. |
+| TS-03 | `==` instead of `===` | Medium | Loose equality is used outside explicit null checks. |
+| TS-04 | Oversized component larger than 300 lines | Medium | React component is too large. |
+| TS-05 | Repeated fetch / API call patterns across the codebase | Medium | Repeated fetch / API call patterns across the codebase |
+| TS-06 | `useEffect` has missing or overly broad dependencies | Medium | `useEffect` has missing or overly broad dependencies |
+| TS-07 | Large arrays are mapped during render without memoization | Low | Large arrays are mapped during render without memoization |
+| TS-08 | Bypassing type checks with `as any` or `@ts-ignore` | High | Bypassing type checks with `as any` or `@ts-ignore` |
+| TS-09 | Functions with more than 4 parameters | Medium | Functions with more than 4 parameters |
+| TS-10 | Callback nesting deeper than 3 levels | Medium | Callback nesting deeper than 3 levels |
+| TS-11 | Unhandled `null` / `undefined` | Medium | Missing optional chaining or null guards. |
+| TS-12 | Passing full objects as component props instead of only required fields | Low | Passing full objects as component props instead of only required fields |
+| TS-13 | Duplicate component or hook behavior under different names | High | Multiple files define React components or hooks with equivalent behavior but different names. |
+| TS-14 | Test mocks drift from the real module shape | High | `vi.mock()` and `jest.mock()` factory functions often return `any`, so TypeScript cannot tell when the mock shape drifts from the real mo... |
 
 ## Verification command
+
 ```bash
 npx tsc --noEmit && npx eslint . && npm test
 ```

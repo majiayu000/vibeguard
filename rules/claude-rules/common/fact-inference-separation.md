@@ -1,66 +1,66 @@
+# Fact / Inference / Suggestion Separation Rules
 
-# 事实/推断/建议分离规则
+## W-11: LLM output must separate facts, inferences, and suggestions (strict)
 
-## W-11: LLM 输出必须区分事实、推断、建议三栏（严格）
+When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for each claim. Do not disguise inference as fact.
 
-当 Agent 生成分析报告、技术判断或架构建议时，必须明确标注每个论断的置信度来源。禁止将推断伪装成事实。
+**Applies to**:
+- Code review conclusions
+- Architecture analysis
+- Root-cause analysis
+- Performance or security assessments
+- Insight reports built from logs or data
 
-**适用场景**：
-- 代码审查结论
-- 架构分析报告
-- Bug 根因分析
-- 性能/安全评估
-- 基于日志/数据的洞察报告
+**Three categories**:
 
-**三栏分类**：
+### Fact
+Directly verifiable information from code, logs, test output, or documentation.
+- Must be traceable to a concrete file, line number, or command output.
+- Cite the source as `[source: src/main.rs:42]` or `[source: cargo test output]`.
 
-### 事实（Fact）
-直接来源于代码、日志、测试输出、文档的可验证信息。
-- 必须可追溯到具体文件、行号、命令输出
-- 标注来源：`[来源: src/main.rs:42]` 或 `[来源: cargo test 输出]`
+### Inference
+Logical reasoning based on facts, but not directly verified.
+- Must state both the evidence and the confidence level.
+- Use qualifying phrases such as "based on X", "possibly because", or "the data suggests".
+- Do not generalize broad conclusions from small samples.
 
-### 推断（Inference）
-基于事实的逻辑推导，但未直接验证。
-- 必须标注推导依据和置信度
-- 使用限定词："基于 X 推断"、"可能因为"、"数据暗示"
-- 禁止将少量样本泛化为通用结论
+### Suggestion
+An action recommendation based on experience or best practice.
+- Must state the prerequisite assumptions.
+- Provide at least one alternative.
+- Explain the risk and cost.
 
-### 建议（Suggestion）
-基于经验或最佳实践的行动建议。
-- 必须标注前提假设
-- 提供替代方案（至少一个）
-- 说明风险和代价
-
-**输出格式**：
+**Output format**:
 ```
-## 事实
-- [来源: error.log:15] 服务在 03:15 返回 OOM 错误
-- [来源: metrics] 内存在 03:00-03:15 从 2GB 涨到 8GB
+## Facts
+- [source: error.log:15] The service returned an OOM error at 03:15.
+- [source: metrics] Memory grew from 2 GB to 8 GB between 03:00 and 03:15.
 
-## 推断
-- [基于: 内存曲线 + OOM 时间] 可能存在内存泄漏（置信度: 中）
-- [基于: 近期 commit] 3月14日的批处理改动可能是触发点（置信度: 低，未验证）
+## Inferences
+- [based on: memory curve + OOM timestamp] There may be a memory leak (confidence: medium).
+- [based on: recent commit] The March 14 batch-processing change may be the trigger (confidence: low, not verified).
 
-## 建议
-- [前提: 确认是内存泄漏] 对 batch_process() 添加内存 profiling
-- [替代: 可能不是泄漏] 检查是否因输入数据量异常导致正常峰值
+## Suggestions
+- [assumption: it is a memory leak] Add memory profiling to `batch_process()`.
+- [alternative: it may not be a leak] Check whether an abnormal input spike caused a legitimate peak.
 ```
 
-**反模式**：
-- 把少量测试结果泛化为通用结论（"测试了 2 个 case 都通过 → 这个方案没问题"）
-- 基于二手文章/博客做架构判断（"看到一篇文章说 X 比 Y 快" → 应标注为建议而非事实）
-- 推断和事实混在一起不加区分（"这个函数有 bug 因为它没处理 null" — 是事实还是推断？）
-- 将假设当作前提继续推导（假设 A → 推断 B → 基于 B 推断 C，链条越长置信度越低）
+**Anti-patterns**:
+- Generalizing a universal conclusion from a few passing test cases.
+- Using second-hand articles or blog posts as if they were factual architecture proof.
+- Mixing facts and inferences without labeling them.
+- Building a long reasoning chain on top of an unverified assumption.
 
-**置信度标注指南**：
-| 置信度 | 条件 |
-|--------|------|
-| 高 | 有直接证据（代码/日志/测试输出），可独立验证 |
-| 中 | 有间接证据，逻辑链条 <= 2 步 |
-| 低 | 基于类比/经验/二手信息，逻辑链条 > 2 步 |
+**Confidence guide**:
 
-**机械化检查（Agent 执行规则）**：
-- 生成分析报告时，检查每个论断是否标注了分类（事实/推断/建议）
-- 推断类论断必须附带置信度
-- 建议类论断必须附带前提假设
-- 发现未标注来源的"事实"时，降级为推断或补充来源
+| Confidence | Condition |
+|------|------|
+| High | Direct evidence exists (code, logs, test output) and can be independently verified |
+| Medium | Indirect evidence exists and the reasoning chain is at most two steps |
+| Low | Based on analogy, experience, or second-hand information, with more than two reasoning steps |
+
+**Mechanical checks (agent execution rules)**:
+- When generating an analysis report, make sure every claim is labeled as fact, inference, or suggestion.
+- Every inference must include a confidence level.
+- Every suggestion must include its prerequisite assumption.
+- If a "fact" lacks a source, downgrade it to an inference or add the source.

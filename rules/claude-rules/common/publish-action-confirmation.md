@@ -1,74 +1,73 @@
+# Publish / Destructive-Action Confirmation Rules
 
-# 发布/破坏性动作确认规则
+## W-10: Require four confirmations before publish, deletion, or remote deploy (strict)
 
-## W-10: 发布/删除/远程部署前强制四项确认（严格）
+Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval.
 
-执行不可逆或高风险动作前，必须向用户确认四项内容，获得明确许可后才能执行。
+**Trigger actions**:
+- `cargo publish`, `npm publish`, or `pypi upload`
+- `gh release create` or Git tag creation
+- `ssh` remote commands that are not read-only
+- `docker push` or production deployment
+- `rm -rf` or bulk file deletion
+- Database `DROP`, `TRUNCATE`, or bulk `DELETE`
+- DNS, CDN, or domain-configuration changes
 
-**触发动作**：
-- `cargo publish` / `npm publish` / `pypi upload`
-- `gh release create` / 创建 Git tag
-- `ssh` 远程执行命令（非只读）
-- `docker push` / 部署到生产环境
-- `rm -rf` / 批量删除文件
-- 数据库 `DROP` / `TRUNCATE` / 批量 `DELETE`
-- 修改 DNS / CDN / 域名配置
+**Four-point checklist**:
 
-**四项确认清单**：
-
-### 1. 目标产物
-明确列出将要发布/删除/部署的具体对象。
+### 1. Target artifact
+Clearly state what will be published, deleted, or deployed.
 ```
-发布目标: my-crate v0.3.1 → crates.io
-```
-
-### 2. 修改范围
-列出本次发布/操作包含的变更摘要。
-```
-变更范围:
-- 新增 insights 命令
-- 修复 session ingestion 重试逻辑
-- 3 个文件修改，0 个 breaking change
+Publish target: my-crate v0.3.1 -> crates.io
 ```
 
-### 3. 不可触碰项
-明确列出此操作不应影响的内容，供用户确认无误。
+### 2. Change scope
+Summarize the changes included in this operation.
 ```
-不受影响:
-- 现有 CLI 命令的接口不变
-- 数据库 schema 不变
-- 环境变量配置不变
-```
-
-### 4. 是否允许执行
-直接询问用户，等待明确的肯定回复。
-```
-确认以上信息无误后，我将执行 `cargo publish`。是否继续？
+Scope:
+- Adds the insights command
+- Fixes session-ingestion retry logic
+- 3 files changed, 0 breaking changes
 ```
 
-**格式模板**：
+### 3. Untouched items
+State what this operation must not affect so the user can verify the boundary.
 ```
---- 发布确认 ---
-目标: [具体产物和目标环境]
-范围: [变更摘要]
-不触碰: [不受影响的内容]
-执行命令: [将要运行的命令]
+Untouched:
+- Existing CLI command interfaces remain unchanged
+- Database schema remains unchanged
+- Environment variables remain unchanged
+```
+
+### 4. Execution approval
+Ask directly and wait for an explicit affirmative response.
+```
+If the summary above is correct, I will run `cargo publish`. Continue?
+```
+
+**Template**:
+```
+--- Publish Confirmation ---
+Target: [artifact and target environment]
+Scope: [summary of change set]
+Untouched: [what must remain unaffected]
+Command: [command that will be executed]
 ---
-是否允许执行？
+Do you approve execution?
 ```
 
-**反模式**：
-- 用户说"发一下"就直接 `cargo publish` — 缺少确认
-- SSH 到服务器后直接编辑配置文件 — 未确认目标和范围
-- 批量删除文件前未列出将删除的文件列表
+**Anti-patterns**:
+- The user says "ship it" and you immediately run `cargo publish` without the checklist.
+- You SSH into a server and edit config files without confirming target and scope.
+- You bulk-delete files without listing what will be removed.
 
-**例外**：
-- 发布到本地/开发环境（`localhost`、`dev` 标签）可跳过
-- `--dry-run` 模式可直接执行（不产生实际影响）
-- 用户在同一对话中已明确授权的重复操作（如"后续版本直接发"）
+**Exceptions**:
+- Local or development-only targets (`localhost`, `dev`) can skip the checklist.
+- `--dry-run` commands can run directly because they do not create side effects.
+- Repeated operations already explicitly approved in the same conversation (for example, "future patch versions can be released directly").
 
-**机械化检查（Agent 执行规则）**：
-- 检测到上述触发动作的命令时，中断执行流程
-- 填写四项确认模板并展示给用户
-- 仅在用户回复明确肯定后执行
-- 执行后报告结果（成功/失败 + 产物链接）
+**Mechanical checks (agent execution rules)**:
+- If a command matches one of the trigger actions, interrupt execution.
+- Fill out the four-point confirmation template and show it to the user.
+- Only continue after the user gives an explicit yes.
+- Report the result afterward, including success/failure and artifact links when relevant.

@@ -1,113 +1,74 @@
 # Universal Rules
 
-Scan and repair rules for all languages.
+> Generated from `rules/claude-rules/**` by `python3 scripts/generate_rule_docs.py`. Do not edit by hand.
 
-## NEVER rule (absolutely don’t do it)
+Reference index for VibeGuard rules that apply across languages, workflows, and repository boundaries.
 
-| ID | Rule | Reason |
-|----|------|------|
-| U-01 | Do not modify public API signatures | Unless the user explicitly requests breaking change and accepts MAJOR version upgrades |
-| U-02 | Not extracting abstractions for code that only occurs once | Over-engineering, 3 lines of duplication are better than 1 premature abstraction |
-| U-03 | Don't use macros to replace readable repeated code | Macros reduce readability and IDE support unless there are > 5 repetitions and the pattern is exactly the same |
-| U-04 | Do not add unrequested functionality | Bug fixes without refactoring surrounding code |
-| U-05 | Not deleting code that looks "useless" without first confirming | It may be a feature being developed by the user |
-| U-06 | Not introducing new dependencies to solve problems that can be solved with the standard library | Dependency bloat |
-| U-07 | Do not change code style in a fix | Style changes should be independent commits |
-| U-08 | Do not skip verification steps | Each fix must pass lint + test independently |
-| U-09 | Don’t commit multiple unrelated fixes at once | Atomic commit, convenient for revert |
-| U-10 | Don’t guess user intent | Mark DEFER if unsure |
+## Common code and architecture rules
 
-## Cross-entry consistency check
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| U-01 | Do not change public API signatures | Strict | Unless the user explicitly requests a breaking change and accepts a MAJOR version bump, do not change public function signatures. |
+| U-02 | Do not extract abstractions for code that appears only once | Strict | Three lines of duplication are better than one premature abstraction. |
+| U-03 | Do not replace readable duplication with macros | Strict | Macros reduce readability and IDE support. |
+| U-04 | Do not add features the user did not ask for | Strict | Keep bug-fix scope tight. |
+| U-05 | Do not delete code that merely looks unused without confirming first | Strict | It may be a work-in-progress feature. |
+| U-06 | Do not add dependencies for problems the standard library can solve | Strict | Use the standard library first. |
+| U-07 | Do not change code style while fixing behavior | Strict | Style-only edits should be a separate commit. |
+| U-08 | Do not skip verification steps | Strict | Every fix must independently pass lint and tests. |
+| U-09 | Do not bundle unrelated fixes into one commit | Strict | Keep commits atomic so they are easy to review and revert. |
+| U-10 | Do not guess user intent | Strict | If the intent is unclear, mark it as DEFER or ask the user to clarify. |
+| U-11 | Inconsistent default DB/cache paths across binaries | High | Different entry points hardcode different data paths, which splits user data. |
+| U-12 | Shared-data fallback creates the wrong file on first boot | High | Fallback logic can create a split file during first startup. |
+| U-13 | Environment variable names diverge across entry points | Medium | For example, `SERVER_DB_PATH` and `DESKTOP_DB_PATH` point at different defaults. |
+| U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
+| U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
+| U-16 | Keep file size under control | Guideline | 200-400 lines is typical, 800 lines is the hard ceiling. |
+| U-17 | Handle errors completely | Strict | Cover error paths thoroughly. |
+| U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
+| U-19 | Use the Repository pattern | Guideline | Encapsulate data access in a Repository layer. |
+| U-20 | Keep API response shapes consistent | Guideline | Use a standard envelope such as `{ data, error, meta }`. |
+| U-21 | Commit messages must follow the Lore protocol | Strict | Record why the change exists, not just what changed. |
+| U-22 | Test coverage | Strict | New code must reach at least 80% line coverage. |
+| U-23 | No silent degradation | Strict | Unsupported strategies or configurations must fail explicitly or be marked as DEFER. |
+| U-24 | No aliases | Strict | Do not keep function, type, command, or directory aliases. |
+| U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
+| U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |
+| U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
+| U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
+| U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
+| U-32 | Rule overload threshold + absolute-language detection | Strict | If one rule file contains more than 30 active constraints, raise an overload warning. |
 
-When multiple binaries share data sources in a Monorepo/workspace, configuration convergence must be checked.
+## Workflow and process rules
 
-| ID | Category | Check Item | Severity |
-|----|------|--------|--------|
-| U-11 | Data | Multi-binary default DB/cache paths are inconsistent (data splitting) | High |
-| U-12 | Data | Fallback path for shared data source creates wrong file on first use | High |
-| U-13 | Config | The environment variable names of multiple entries are not uniform (such as `SERVER_DB_PATH` vs `DESKTOP_DB_PATH` pointing to different default values) | Medium |
-| U-14 | Config | CLI default path is different from GUI/Server default path base directory | Medium |
+| ID | Rule | Severity | Summary |
+| --- | ---- | -------- | ------- |
+| W-01 | No fixes without root cause | Strict | Every bug fix must identify the root cause before changing code. |
+| W-02 | Back off after 3 consecutive failures | Strict | If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction. |
+| W-03 | Verify before claiming completion | Strict | Before saying "fixed" or "done", produce fresh verification evidence. |
+| W-04 | Test first | Guideline | For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it. |
+| W-05 | Sub-agent context isolation | Guideline | When using sub-agents, give each child only the minimum context required for its task. |
+| W-10 | Require four confirmations before publish, deletion, or remote deploy | Strict | Before any irreversible or high-risk action, confirm four items with the user and wait for explicit approval. |
+| W-11 | LLM output must separate facts, inferences, and suggestions | Strict | When an agent produces an analysis report, technical judgment, or architecture recommendation, it must label the source of confidence for... |
+| W-12 | Protect test integrity | Strict | When tests fail, fix the production code rather than manipulating the test harness. |
+| W-13 | Analysis paralysis guard | Strict | If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write action, you must either act or report a blocker. |
+| W-14 | Parallel-agent file ownership | Strict | When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another. |
+| W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
+| W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
+| W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 
-### Scanning method
-
-1. Search all `get_db_path` / `db_path` / `default_value` / `data_dir` and other data source path constructors in the workspace
-2. Compare the default values of each binary to see if they converge to the same physical path.
-3. Check whether the fallback logic will create split files under a specific boot sequence
-
-### Typical case (refine project)
-
-```
-Server: ~/.local/share/refine/server.db ← Always write here
-Desktop: ~/.local/share/refine/server.db ← only if the file already exists
-         ~/.local/share/refine/data.db ← fallback, first startup creation
-CLI: ~/.refine/data.db ← Completely different base directory
-```
-
-The user first starts Desktop → creates `data.db` → then starts Server → creates `server.db` → data is split, and Desktop reads the old database and displays it as empty.
-
-### Repair mode
-
-```
-// Before: Each entry is hard-coded.
-fn get_db_path() -> PathBuf { base.join("server.db") }  // server
-fn get_db_path() -> PathBuf { base.join("data.db") }    // desktop fallback
-#[arg(default_value = "~/.refine/data.db")]              // CLI
-
-// After: unified to core public functions
-pub fn default_db_path() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("refine")
-        .join("refine.db")
-}
-// All entries call core::default_db_path(), and the environment variables are unified to REFINE_DB_PATH
-```
-
-## FIX/SKIP judgment matrix
+## FIX / SKIP / DEFER guidance
 
 | Condition | Judgment |
 |------|------|
-| Logic bugs (deadlock, TOCTOU, panic) | FIX - high priority |
-| Inconsistency in multiple binary data paths leads to data splitting | FIX — high priority |
-| Duplicate code > 20 lines with identical semantics | FIX — Medium priority |
-| Code duplication but different semantics (such as similar methods in different components) | SKIP — different semantics |
-| Naming conflict (types with the same name but different synonyms) | FIX — medium priority |
-| The names of multiple entry environment variables are not uniform (if the user only configures one, it will be split) | FIX - medium priority |
-| Silent fallback of configuration is not supported | FIX - high priority |
-| Performance issues but not in the hot path | SKIP — insufficient gain |
-| Performance issues in hot paths (rendering loop, event handling) | FIX — Medium priority |
-| Lack of tests but stable code | DEFER — low priority |
-| Missing tests and the code has known bugs | FIX — high priority |
-| Stylistically inconsistent but functionally correct | SKIP — independent processing |
-| Touches > 50% of files | DEFER — Requires user confirmation of scope |
-
-## Engineering Practice Rules
-
-| ID | Rule | Description |
-|----|------|------|
-| U-15 | Immutability first | Create new objects rather than modify existing ones; function parameters are treated as read-only |
-| U-16 | File size control | 200-400 lines typical, 800 lines maximum; more than 800 lines must be split |
-| U-17 | Complete error handling | Comprehensively handle error paths and provide user-friendly error messages; do not swallow exceptions silently |
-| U-18 | Input Validation | Validate all user input at system boundaries; internal code trust framework guarantees |
-| U-19 | Repository pattern | Data access is encapsulated into the Repository layer; business logic does not directly operate the database |
-| U-20 | API response format | Unified envelope structure `{ data, error, meta }`; error code standardization |
-| U-21 | Commit message format | `<type>: <description>`, type is feat/fix/refactor/docs/test/chore |
-| U-22 | Test Coverage | Minimum 80% line coverage for new code; 100% critical path |
-| U-23 | Silent downgrade is prohibited | Unsupported policies/configurations must explicitly report an error or mark DEFER, and must not automatically downgrade to the default policy |
-| U-24 | Any aliases are prohibited | Function/type/command/directory aliases and compatible naming are prohibited; old names should be directly replaced in full and deleted if old names are found |
-
-## Scanning strategy
-
-### Parallel scan
-Partitioned by module, each sub-agent is responsible for one module:
-- Core modules (type definitions, infrastructure)
-- Business logic (hooks, components, commands)
-- Rendering/output (renderer, layout, output buffer)
-- Testing/Tools (testing frameworks, examples, benchmarks)
-
-### Remove duplicate questions
-Multiple manifestations of the same root cause are recorded only once, marking all affected files.
-
-### Dependency sorting
-Repair sequence: bug fix → type/naming → code deduplication → performance → testing
-Within the same level, they are arranged from small to large in terms of scope of influence (prerequisite for isolation).
+| Logic bugs, deadlocks, TOCTOU, panic risks | FIX - high priority |
+| Shared data path drift or split fallback files | FIX - high priority |
+| Duplicate logic with identical semantics and meaningful maintenance cost | FIX - medium priority |
+| Similar-looking code with different semantics | SKIP - keep separate |
+| Naming conflicts that create conceptual ambiguity | FIX - medium priority |
+| Performance issue outside hot paths | SKIP - not enough value |
+| Performance issue inside hot paths | FIX - medium priority |
+| Missing tests on otherwise stable code | DEFER - document the gap |
+| Missing tests on known-buggy code | FIX - high priority |
+| Style inconsistency without behavior risk | SKIP - keep separate from functional work |
+| Scope touches more than half the repository | DEFER - requires explicit scope confirmation |
