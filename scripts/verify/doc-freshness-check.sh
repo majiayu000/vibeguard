@@ -37,7 +37,8 @@ import vibeguard_manifest as manifest  # type: ignore
 
 canonical_all = set(manifest.canonical_rule_ids("all"))
 documented_scope = {rule_id for rule_id in canonical_all if rule_id.startswith(("U-", "W-", "SEC-"))}
-documented_common = set(manifest.reference_rule_ids())
+reference_all = set(manifest.reference_rule_ids())
+documented_common = {rule_id for rule_id in reference_all if rule_id.startswith(("U-", "W-", "SEC-"))}
 mechanical = set(manifest.guard_rule_ids())
 
 installed_ids: set[str] = set()
