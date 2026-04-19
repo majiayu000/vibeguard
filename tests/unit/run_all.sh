@@ -63,9 +63,9 @@ for test_file in "${TESTS[@]}"; do
   if [[ $exit_code -eq 0 ]]; then
     # Parse pass/fail counts from test output (last line: "Total: N  Pass: N  Fail: N")
     clean_output="$(printf '%s\n' "$output" | strip_ansi)"
-    pass_count=$(echo "$clean_output" | grep -oE 'Pass:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
-    fail_count=$(echo "$clean_output" | grep -oE 'Fail:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
-    skip_count=$(echo "$clean_output" | grep -oE 'Skip:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
+    pass_count=$(echo "$clean_output" | grep -oE 'Pass:[[:space:]]*[0-9]+' | grep -oE '[0-9]+') || pass_count=""
+    fail_count=$(echo "$clean_output" | grep -oE 'Fail:[[:space:]]*[0-9]+' | grep -oE '[0-9]+') || fail_count=""
+    skip_count=$(echo "$clean_output" | grep -oE 'Skip:[[:space:]]*[0-9]+' | grep -oE '[0-9]+') || skip_count=""
     [[ -z "$pass_count" ]] && pass_count="N/A"
     [[ -z "$fail_count" ]] && fail_count="N/A"
     [[ -z "$skip_count" ]] && skip_count="0"

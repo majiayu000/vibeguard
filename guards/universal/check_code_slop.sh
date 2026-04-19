@@ -110,7 +110,7 @@ echo "Check legacy debugging code..."
 DEBUG_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
   -E '^\s*(console\.(log|debug|info)\(|print\(|println!\(|dbg!\(|puts |p |pp )' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.rb' --include='*.go' \
-  2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.' || true)
+  2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
 if [[ -n "$DEBUG_CODE" ]]; then
   COUNT=$(echo "$DEBUG_CODE" | wc -l | tr -d ' ')
   yellow "Legacy debug code: ${COUNT}"
