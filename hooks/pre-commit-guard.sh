@@ -97,13 +97,17 @@ git diff --cached -U0 2>/dev/null \
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
 # --- Language automatic detection (Verifier mode core) ---
-# Use REPO_ROOT absolute path to avoid detection failure during subdirectory commit
+# Detect from *staged* files only — not repo-root config files — to avoid
+# false positives when a commit touches only files of a different language.
 DETECTED_LANGS=""
-[[ -f "${REPO_ROOT}/Cargo.toml" ]]                                                      && DETECTED_LANGS="${DETECTED_LANGS} rust"
-[[ -f "${REPO_ROOT}/tsconfig.json" ]]                                                   && DETECTED_LANGS="${DETECTED_LANGS} typescript"
-[[ -f "${REPO_ROOT}/package.json" && ! -f "${REPO_ROOT}/tsconfig.json" ]]               && DETECTED_LANGS="${DETECTED_LANGS} javascript"
-[[ -f "${REPO_ROOT}/pyproject.toml" || -f "${REPO_ROOT}/setup.py" || -f "${REPO_ROOT}/setup.cfg" ]]  && DETECTED_LANGS="${DETECTED_LANGS} python"
-[[ -f "${REPO_ROOT}/go.mod" ]]                                                          && DETECTED_LANGS="${DETECTED_LANGS} go"
+grep -qE '\.rs$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} rust"
+if grep -qE '\.(ts|tsx)$'   <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} typescript"
+elif grep -qE '\.(js|jsx)$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} javascript"
+fi
+grep -qE '\.py$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} python"
+grep -qE '\.go$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} go"
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
 
 # --- Timeout executor ---
