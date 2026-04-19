@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VibeGuard — stop the slop, before the commit</title>
+<meta name="description" content="Native rules + real-time hooks + static guards that block the mistakes Claude Code and Codex CLI keep making — before they reach your codebase.">
+<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="brand" href="#top" aria-label="VibeGuard home">
+    <img src="assets/logo-vibeguard.svg" alt="vibeguard" style="height:22px;filter:brightness(0) invert(1);opacity:0.95">
+  </a>
+  <div class="links">
+    <a href="#how">how it works</a>
+    <a href="#rules">rules</a>
+    <a href="#intercept">intercept</a>
+    <a href="#install">install</a>
+    <a href="https://github.com/majiayu000/vibeguard" target="_blank" rel="noopener">github</a>
+  </div>
+</nav>
+
+<section class="hero" id="top">
+  <div class="hero-inner">
+    <div class="eyebrow">starlight · vibeguard v1.1</div>
+    <h1>Stop the slop.<br><span class="accent">Before</span> the commit.</h1>
+    <p class="lede">
+      Native rules + real-time hooks + static guards to catch what AI coding agents get wrong — before it reaches your codebase. Duplicate files, invented APIs, dangerous shell commands, unverified "I'm done" claims. Blocked at the source.
+    </p>
+    <div class="cta-row">
+      <div class="cmd-block" id="hero-cmd">
+        <span class="prompt">$</span>
+        <span>bash ~/vibeguard/setup.sh</span>
+        <button class="btn" data-copy="bash ~/vibeguard/setup.sh">copy</button>
+      </div>
+      <a class="btn ghost" href="#how">how it works →</a>
+    </div>
+
+    <div class="stat-strip" aria-label="Product stats">
+      <div class="stat"><div class="num">109<span class="ital">+</span></div><div class="lbl">native rules</div></div>
+      <div class="stat"><div class="num">7</div><div class="lbl">constraint layers</div></div>
+      <div class="stat"><div class="num">6</div><div class="lbl">hooks active</div></div>
+      <div class="stat"><div class="num">2</div><div class="lbl">agents supported</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="why">
+  <div class="inner">
+    <div class="section-eyebrow">why vibeguard</div>
+    <h2 class="section-h2">Prompt guidelines <span class="accent">don't stop</span> bad actions.</h2>
+    <div class="compare">
+      <div class="col before">
+        <h4>without vibeguard</h4>
+        <ul>
+          <li>Agent creates <code>utils_v2.py</code> next to <code>utils.py</code> — duplicate files pile up.</li>
+          <li>Agent invents <code>user.fullName</code> that never existed on the model.</li>
+          <li>Agent runs <code>git push --force</code> on main.</li>
+          <li>Agent claims "tests pass" without running them.</li>
+          <li>Every mistake is a lesson you pay for once per session.</li>
+        </ul>
+      </div>
+      <div class="col after">
+        <h4>with vibeguard</h4>
+        <ul>
+          <li>L1 search-before-create blocks duplicates at write time.</li>
+          <li>L4 data-integrity rejects undeclared APIs and fields.</li>
+          <li>pre-bash-guard suggests <code>--force-with-lease</code>.</li>
+          <li>W-03 verification gate demands fresh command output.</li>
+          <li><code>/vibeguard:learn</code> turns each mistake into a new guard.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band sunk" id="pitch">
+  <div class="inner">
+    <div class="pitch-grid">
+      <div class="pitch-item">
+        <img class="sigil" src="assets/icon-guard.svg" alt="">
+        <h3>Mechanical enforcement</h3>
+        <p>Hooks block bad actions at the source. Not prompt guidelines the model can forget.</p>
+      </div>
+      <div class="pitch-item">
+        <img class="sigil" src="assets/icon-hook.svg" alt="">
+        <h3>Every error is a fix</h3>
+        <p>Interceptions return OBSERVATION → FIX → WHY. The agent self-corrects in one turn.</p>
+      </div>
+      <div class="pitch-item">
+        <img class="sigil" src="assets/icon-spark.svg" alt="">
+        <h3>Mistake → defense</h3>
+        <p>Repeated errors become new guards via <code>/vibeguard:learn</code>. The system gets stricter over time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="how">
+  <div class="inner">
+    <div class="section-eyebrow">three-layer defense</div>
+    <h2 class="section-h2">Rules bias. Hooks block. <span class="accent">Guards</span> scan.</h2>
+    <table class="layers">
+      <thead>
+        <tr><th>layer</th><th>what it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="key">Native rules</td><td>109+ constraints auto-loaded into CLAUDE.md / AGENTS.md. Bias the model away from bad decisions before it acts.</td></tr>
+        <tr><td class="key">Runtime hooks</td><td>PreToolUse / PostToolUse intercept writes, bash, edits. Block dangerous or low-quality actions in real time.</td></tr>
+        <tr><td class="key">Static guards</td><td>Project scans for duplicate files, slop patterns, structural issues. Run via <code>/vibeguard:check</code>.</td></tr>
+        <tr><td class="key">Slash commands</td><td><code>/vibeguard:preflight</code>, <code>:review</code>, <code>:check</code>, <code>:learn</code> — workflows for each phase of the loop.</td></tr>
+        <tr><td class="key">Learning loop</td><td>Repeated mistakes surface as candidate rules. Reviewed, then compiled into the native rule set.</td></tr>
+        <tr><td class="key">Observability</td><td>Metrics, logs, and health checks for every interception. You see what was blocked and why.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="band sunk" id="intercept">
+  <div class="inner">
+    <div class="section-eyebrow">a real interception</div>
+    <h2 class="section-h2">Blocked with a <span class="accent">fix</span>, not just a no.</h2>
+    <div class="terminal-block">
+      <div class="terminal-chrome">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span style="margin-left:auto">hook · pre-bash-guard</span>
+      </div>
+      <pre class="terminal-body"><span class="cy">┌─ VibeGuard ─────────────────────────────────────────┐</span>
+<span class="rd">✗ blocked</span>  <span class="mu">pre-bash-guard</span>
+
+  <span class="bl">→</span> <span class="mu">command:</span>  git push --force origin main
+  <span class="bl">→</span> <span class="mu">rule:</span>     L7 · commit discipline · W-force-destructive
+  <span class="bl">→</span> <span class="mu">reason:</span>   destructive overwrite on protected ref
+
+  <span class="yl">⚠  fix</span>
+    use <span class="gn">git push --force-with-lease</span> instead
+    or resolve upstream locally before pushing
+
+<span class="cy">└─────────────────────────────────────────────────────┘</span>
+<span class="mu">agent:</span> retrying with --force-with-lease<span class="caret"></span></pre>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="rules">
+  <div class="inner">
+    <div class="section-eyebrow">7-layer constraint index</div>
+    <h2 class="section-h2">Seven rules. <span class="accent">Injected</span> at session start.</h2>
+    <div class="rule-grid">
+      <div class="rule-card"><div class="id">L1</div><div class="title">Search before create</div><div class="desc">No similar-file pattern. Extend existing code first.</div></div>
+      <div class="rule-card"><div class="id">L2</div><div class="title">Naming conventions</div><div class="desc">snake_case internally, camelCase at API boundary. No aliases.</div></div>
+      <div class="rule-card"><div class="id">L3</div><div class="title">Quality baseline</div><div class="desc">No silent exception swallowing. No Any-typed public methods.</div></div>
+      <div class="rule-card"><div class="id">L4</div><div class="title">Data integrity</div><div class="desc">No data = blank. No undeclared API or field exists.</div></div>
+      <div class="rule-card"><div class="id">L5</div><div class="title">Minimal changes</div><div class="desc">Do what was asked. No "easy improvements" on the side.</div></div>
+      <div class="rule-card"><div class="id">L6</div><div class="title">Process gates</div><div class="desc">1–2 files direct · 3–5 preflight · 6+ interview → spec.</div></div>
+      <div class="rule-card"><div class="id">L7</div><div class="title">Commit discipline</div><div class="desc">No AI tags. No force push. No secrets in commits.</div></div>
+      <div class="rule-card" style="border-color:var(--ansi-cyan-strong)"><div class="id">+</div><div class="title">U · RS · TS · SEC · W</div><div class="desc">Language and security rule families extend the seven core layers.</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="install-inner">
+    <div class="eyebrow" style="color:var(--ansi-cyan)">get started</div>
+    <h2>Install in <span class="accent">30 seconds</span>.</h2>
+    <pre class="install-pre" id="install-cmd"><button class="btn copy-btn" data-copy="git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard && bash ~/vibeguard/setup.sh">copy</button><span class="cy">$</span> git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
+<span class="cy">$</span> bash ~/vibeguard/setup.sh</pre>
+    <p class="install-foot">Works with Claude Code and Codex CLI · MIT licensed · no telemetry</p>
+  </div>
+</section>
+
+<footer class="foot">
+  <span>starlight · vibeguard</span>
+  <span>
+    <a href="https://github.com/majiayu000/vibeguard" target="_blank" rel="noopener">github</a> ·
+    <a href="https://github.com/majiayu000/vibeguard/blob/main/docs/rule-reference.md" target="_blank" rel="noopener">rules</a> ·
+    <a href="https://github.com/majiayu000/vibeguard/blob/main/CHANGELOG.md" target="_blank" rel="noopener">changelog</a> ·
+    <a href="https://github.com/majiayu000/vibeguard/blob/main/LICENSE" target="_blank" rel="noopener">mit</a>
+  </span>
+</footer>
+
+<script>
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const text = btn.getAttribute('data-copy');
+    try { await navigator.clipboard.writeText(text); }
+    catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+    const prev = btn.textContent; btn.textContent = 'copied'; btn.style.background = 'var(--ansi-green)';
+    setTimeout(() => { btn.textContent = prev; btn.style.background = ''; }, 1400);
+  });
+});
+</script>
+
+</body>
+</html>
