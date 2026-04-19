@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776574631056,
+  "lastUpdate": 1776578760509,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -482,6 +482,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 134,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ab1273ee668c6c0bb1a081fc9c45a0d6894c5c5b",
+          "message": "fix(guards): move || true outside $() to prevent pipefail propagation (#85)\n\n* fix(guards): move || true outside $() to prevent pipefail propagation\n\nWith set -euo pipefail, a failed grep inside a multi-segment pipe propagates\nits non-zero exit even when a downstream { grep || true; } guard is present.\nMove the guard outside command substitution as `|| VAR=\"\"` so the outer\nassignment is always safe.\n\nFixes #79\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(guards): preserve grep output on exit-2 errors in debug-code scan\n\nReplace `|| DEBUG_CODE=\"\"` with `|| true` outside `$()` so partial\nscan results from grep read errors (exit code 2) are retained in\nDEBUG_CODE instead of being discarded.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-19T14:02:05+08:00",
+          "tree_id": "3fc78798fb3c5bafdeaab7b8ad56194339163ce2",
+          "url": "https://github.com/majiayu000/vibeguard/commit/ab1273ee668c6c0bb1a081fc9c45a0d6894c5c5b"
+        },
+        "date": 1776578760064,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 182,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 209,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 233,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 297,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 306,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 131,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 130,
             "unit": "ms"
           }
         ]
