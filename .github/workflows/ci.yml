@@ -218,7 +218,9 @@ jobs:
         run: bash scripts/benchmark.sh --mode=fast
 
   windows-smoke:
-    name: Windows Smoke
+    # Keep this job name aligned with the protected required check while the
+    # Windows job intentionally runs only cross-platform contract smoke tests.
+    name: CI (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 10
     defaults:
