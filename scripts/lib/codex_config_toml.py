@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import tempfile
 from pathlib import Path
 
@@ -14,6 +15,11 @@ def _write_atomic(path: Path, content: str) -> None:
         tmp.write(content)
         tmp_path = Path(tmp.name)
     tmp_path.replace(path)
+
+
+def _table_name(line: str) -> str | None:
+    match = re.match(r"^\[\s*([^\]]+?)\s*\]\s*(?:#.*)?$", line.strip())
+    return match.group(1).strip() if match else None
 
 
 def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
@@ -28,8 +34,9 @@ def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            if stripped == "[features]":
+        table_name = _table_name(line)
+        if table_name is not None:
+            if table_name == "features":
                 features_idx = idx
                 in_features = True
                 insert_idx = idx + 1
@@ -65,9 +72,9 @@ def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
     in_legacy = False
     changed = False
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            if stripped == "[mcp_servers.vibeguard]":
+        table_name = _table_name(line)
+        if table_name is not None:
+            if table_name == "mcp_servers.vibeguard":
                 in_legacy = True
                 changed = True
                 continue

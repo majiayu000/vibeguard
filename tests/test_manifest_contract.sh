@@ -60,6 +60,8 @@ assert_contains "${profiles_out}" "full" "profile list contains full"
 rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source canonical --scope common)"
 assert_contains "${rules_out}" "W-17" "canonical common rule ids include W-17"
 assert_contains "${rules_out}" "U-32" "canonical common rule ids include U-32"
+reference_rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source reference)"
+assert_contains "${reference_rules_out}" "TASTE-ANSI" "reference rule ids include TASTE-prefixed rules"
 
 header "codex config helper"
 CONFIG_FILE="${TMP_DIR}/config.toml"
@@ -78,10 +80,19 @@ assert_cmd "enable-codex-hooks preserves prefixed feature keys" grep -Eq '^codex
 assert_cmd "enable-codex-hooks adds exact codex_hooks key" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 
 cat > "${CONFIG_FILE}" <<'TOML'
+[features] # user comment
+codex_hooks_beta = false
+TOML
+enable_commented_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
+assert_contains "${enable_commented_out}" "CHANGED" "enable-codex-hooks recognizes commented features table"
+assert_cmd "enable-codex-hooks does not append duplicate commented features table" bash -c "test \$(grep -Ec '^\\[features\\]' '${CONFIG_FILE}') -eq 1"
+assert_cmd "enable-codex-hooks adds exact key under commented features table" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+
+cat > "${CONFIG_FILE}" <<'TOML'
 [features]
 foo = true
 
-[mcp_servers.vibeguard]
+[mcp_servers.vibeguard] # legacy comment
 command = "node"
 args = ["/legacy/mcp-server/dist/index.js"]
 TOML

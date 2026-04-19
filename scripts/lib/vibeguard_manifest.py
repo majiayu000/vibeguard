@@ -20,7 +20,7 @@ HOOKS_DIR = ROOT / "hooks"
 GUARDS_DIR = ROOT / "guards"
 
 RULE_ID_HEADING_RE = re.compile(r"^##\s+((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\b", re.MULTILINE)
-RULE_ID_TABLE_RE = re.compile(r"^\|\s*((?:RS|GO|TS|PY|U|SEC|W)-[A-Za-z0-9-]+)\s*\|", re.MULTILINE)
+RULE_ID_TABLE_RE = re.compile(r"^\|\s*((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\s*\|", re.MULTILINE)
 GUARD_RULE_RE = re.compile(r"\b(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+\b")
 
 HOOK_SKIP = {
