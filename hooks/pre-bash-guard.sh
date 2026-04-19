@@ -63,9 +63,10 @@ block() {
 # git checkout . / git restore . (discard all changes)
 # Only matches pure "." pathspec (bare, double-quoted ".", or single-quoted '.'), not quoted filenames.
 # Two-step: COMMAND_STRIPPED identifies git checkout/restore as top-level command (filters out content inside
-# -m strings); COMMAND verifies pathspec is exactly "." since COMMAND_STRIPPED collapses all quoted args to "".
+# -m strings); COMMAND_NO_HEREDOC verifies pathspec is exactly "." while avoiding false positives from
+# heredoc blocks that contain inert "git checkout ." examples.
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+'; then
-  if echo "$COMMAND" | grep -qE 'git\s+(checkout|restore)\s+(--\s+)?("\."|'"'"'\.'"'"'|\.)\s*(;|&&|\|\||$)'; then
+  if echo "$COMMAND_NO_HEREDOC" | grep -qE 'git\s+(checkout|restore)\s+(--\s+)?("\."|'"'"'\.'"'"'|\.)\s*(;|&&|\|\||$)'; then
     block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
   fi
 fi
