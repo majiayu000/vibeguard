@@ -45,7 +45,10 @@ install_codex_home_assets() {
 _enable_codex_hooks_feature() {
   local config="${CODEX_DIR}/config.toml"
   local result
-  result=$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${config}" 2>/dev/null || echo "ERROR")
+  if ! result=$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${config}" 2>/dev/null); then
+    red "  Failed to enable codex_hooks feature in config.toml"
+    return 1
+  fi
   case "${result}" in
     CHANGED)
       green "  codex_hooks feature enabled in config.toml"
@@ -55,6 +58,7 @@ _enable_codex_hooks_feature() {
       ;;
     *)
       red "  Failed to enable codex_hooks feature in config.toml"
+      return 1
       ;;
   esac
 }
