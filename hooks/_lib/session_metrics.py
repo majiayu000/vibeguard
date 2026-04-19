@@ -37,6 +37,8 @@ if not os.path.exists(log_file):
     sys.exit(0)
 
 session_id = os.environ.get("VIBEGUARD_SESSION_ID", "")
+if not session_id:
+    sys.exit(0)
 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 skip_hooks = {"stop-guard", "learn-evaluator"}
 events = []

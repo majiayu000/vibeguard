@@ -2,7 +2,7 @@
 # Unit tests for hooks/_lib/session_metrics.py — missing env var fallback paths
 #
 # Covers two guard paths added in PR #93:
-#   line  39: VIBEGUARD_SESSION_ID missing  → os.environ.get("...", "") → permissive filter
+#   line  39: VIBEGUARD_SESSION_ID missing  → os.environ.get("...", "") + early sys.exit(0)
 #   line 161: VIBEGUARD_PROJECT_LOG_DIR missing → os.environ.get("...", "") + early sys.exit(0)
 #
 # bench_hook_latency.sh always supplies both vars, so these paths were untested.
@@ -83,16 +83,15 @@ env -u VIBEGUARD_SESSION_ID \
   VIBEGUARD_PROJECT_LOG_DIR="${TMPDIR_TEST}" \
   python3 "${SCRIPT}" >/dev/null 2>&1 || exit_code=$?
 if [[ $exit_code -eq 0 ]]; then
-  green "Missing VIBEGUARD_SESSION_ID: exits 0 (permissive event filter)"; PASS=$((PASS + 1))
+  green "Missing VIBEGUARD_SESSION_ID: exits 0 (early-exit guard works)"; PASS=$((PASS + 1))
 else
   red "Missing VIBEGUARD_SESSION_ID: expected exit 0, got $exit_code"; FAIL=$((FAIL + 1))
 fi
 teardown
 
-# ── 4. Missing VIBEGUARD_SESSION_ID: cross-session events accepted ────────────
-# When session_id == "" the filter `if evt_session and session_id and ...` is
-# short-circuited — all events pass through regardless of their session field.
-# 6 events (≥ threshold of 3) → metrics file is written.
+# ── 4. Missing VIBEGUARD_SESSION_ID: no metrics file written ─────────────────
+# The early sys.exit(0) at line 41 fires before any event aggregation or write.
+# Cross-session data must not be included under an empty session value.
 setup
 python3 - <<'PYEOF' > "${TMPDIR_TEST}/events_multi.jsonl"
 import json, datetime
@@ -108,10 +107,10 @@ env -u VIBEGUARD_SESSION_ID \
   VIBEGUARD_LOG_FILE="${TMPDIR_TEST}/events_multi.jsonl" \
   VIBEGUARD_PROJECT_LOG_DIR="${TMPDIR_TEST}" \
   python3 "${SCRIPT}" >/dev/null 2>&1 || true
-if [[ -f "${TMPDIR_TEST}/session-metrics.jsonl" ]]; then
-  green "Missing VIBEGUARD_SESSION_ID: cross-session events accepted (metrics written)"; PASS=$((PASS + 1))
+if [[ ! -f "${TMPDIR_TEST}/session-metrics.jsonl" ]]; then
+  green "Missing VIBEGUARD_SESSION_ID: no metrics file written (early-exit before aggregation)"; PASS=$((PASS + 1))
 else
-  red "Missing VIBEGUARD_SESSION_ID: expected metrics file (6 events, no session filter applied)"; FAIL=$((FAIL + 1))
+  red "Missing VIBEGUARD_SESSION_ID: metrics file must not exist when session ID is missing"; FAIL=$((FAIL + 1))
 fi
 teardown
 
