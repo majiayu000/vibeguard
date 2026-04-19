@@ -193,6 +193,14 @@ assert_not_contains "$result" '"decision": "block"' "Allow echo with git checkou
 result=$(echo '{"tool_input":{"command":"git commit -m \"document git checkout .\""}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Allow git commit with git checkout . in message"
 
+# git restore "README.md" should NOT be intercepted — quoted filename, not a dot
+result=$(echo '{"tool_input":{"command":"git restore \"README.md\""}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Allow git restore with quoted filename"
+
+# git checkout -- 'src/file.txt' should NOT be intercepted — single-quoted specific path
+result=$(echo $'{"tool_input":{"command":"git checkout -- \x27src/file.txt\x27"}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Allow git checkout -- with single-quoted specific path"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"
