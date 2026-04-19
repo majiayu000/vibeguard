@@ -736,6 +736,103 @@ assert_exit_nonzero "Go guards prevent _= discarding commits with error" bash -c
 rm -rf "$tmp_repo_precommit_go"
 
 # =========================================================
+header "pre-commit-guard.sh — staged language detection (mixed)"
+# =========================================================
+
+# Regression: mixed TS + JS commit must detect both typescript AND javascript.
+# Before the fix, the elif branch suppressed javascript whenever .ts files were staged,
+# so a mixed .ts + .js commit would skip JS syntax validation entirely.
+tmp_repo_ts_js="$(mktemp -d)"
+git -C "$tmp_repo_ts_js" init -q
+mkdir -p "$tmp_repo_ts_js/src" "$tmp_repo_ts_js/bin"
+
+cat >"$tmp_repo_ts_js/src/app.ts" <<'EOF'
+const x: number = 1;
+EOF
+
+cat >"$tmp_repo_ts_js/src/util.js" <<'EOF'
+const y = 1;
+EOF
+
+# Fake node that fails --check — proves the JS build check actually ran
+cat >"$tmp_repo_ts_js/bin/node" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--check" ]] && exit 1
+exit 0
+EOF
+chmod +x "$tmp_repo_ts_js/bin/node"
+git -C "$tmp_repo_ts_js" add src/app.ts src/util.js
+
+mixed_ts_js_out=$(cd "$tmp_repo_ts_js" && PATH="$tmp_repo_ts_js/bin:/usr/bin:/bin:$PATH" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_contains "$mixed_ts_js_out" "javascript" "Mixed TS+JS staged: javascript is detected even when TS files are present"
+rm -rf "$tmp_repo_ts_js"
+
+# TS-only staged in a Rust repo: only .ts file staged — Cargo.toml is untracked.
+# Rust must NOT be detected based on untracked config files.
+# Fake cargo exits 1 so any incorrect rust detection causes the test to fail.
+tmp_repo_ts_in_rust="$(mktemp -d)"
+git -C "$tmp_repo_ts_in_rust" init -q
+mkdir -p "$tmp_repo_ts_in_rust/src" "$tmp_repo_ts_in_rust/bin"
+
+cat >"$tmp_repo_ts_in_rust/Cargo.toml" <<'EOF'
+[package]
+name = "vg-test"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_ts_in_rust/src/index.ts" <<'EOF'
+const x: number = 1;
+EOF
+
+cat >"$tmp_repo_ts_in_rust/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp_repo_ts_in_rust/bin/cargo"
+# Stage only the .ts file; Cargo.toml remains untracked — must not trigger rust detection
+git -C "$tmp_repo_ts_in_rust" add src/index.ts
+
+assert_exit_zero "TS-only staged in Rust repo: rust not detected from untracked Cargo.toml" bash -c "cd '$tmp_repo_ts_in_rust' && PATH='$tmp_repo_ts_in_rust/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_repo_ts_in_rust"
+
+# RS-only staged in a TS repo: only .rs file staged — package.json is untracked.
+# TypeScript must NOT be detected based on untracked config files.
+# Fake tsc + npx exit 1 so any incorrect TS detection causes the test to fail.
+tmp_repo_rs_in_ts="$(mktemp -d)"
+git -C "$tmp_repo_rs_in_ts" init -q
+mkdir -p "$tmp_repo_rs_in_ts/src" "$tmp_repo_rs_in_ts/bin"
+
+cat >"$tmp_repo_rs_in_ts/package.json" <<'EOF'
+{"name":"vg-test","version":"1.0.0"}
+EOF
+
+cat >"$tmp_repo_rs_in_ts/src/lib.rs" <<'EOF'
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+EOF
+
+cat >"$tmp_repo_rs_in_ts/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+# Fake tsc in PATH so the guard's `command -v tsc` check succeeds and would run `npx tsc --noEmit`
+# if typescript were incorrectly detected — then fake npx fails, proving TS was triggered.
+cat >"$tmp_repo_rs_in_ts/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+cat >"$tmp_repo_rs_in_ts/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp_repo_rs_in_ts/bin/cargo" "$tmp_repo_rs_in_ts/bin/tsc" "$tmp_repo_rs_in_ts/bin/npx"
+# Stage only the .rs file; package.json remains untracked — must not trigger typescript detection
+git -C "$tmp_repo_rs_in_ts" add src/lib.rs
+
+assert_exit_zero "RS-only staged in TS repo: typescript not detected from untracked package.json" bash -c "cd '$tmp_repo_rs_in_ts' && PATH='$tmp_repo_rs_in_ts/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_repo_rs_in_ts"
+
+# =========================================================
 header "log.sh — session_id: start-time anchor + 30-min TTL"
 # =========================================================
 

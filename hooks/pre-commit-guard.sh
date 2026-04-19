@@ -100,12 +100,9 @@ export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 # Detect from *staged* files only — not repo-root config files — to avoid
 # false positives when a commit touches only files of a different language.
 DETECTED_LANGS=""
-grep -qE '\.rs$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} rust"
-if grep -qE '\.(ts|tsx)$'   <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} typescript"
-elif grep -qE '\.(js|jsx)$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} javascript"
-fi
+grep -qE '\.rs$'          <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} rust"
+grep -qE '\.(ts|tsx)$'   <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} typescript"
+grep -qE '\.(js|jsx)$'   <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} javascript"
 grep -qE '\.py$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} python"
 grep -qE '\.go$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} go"
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
