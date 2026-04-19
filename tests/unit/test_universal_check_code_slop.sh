@@ -114,6 +114,16 @@ proj_empty="${tmpdir}/pass_empty"
 mkdir -p "${proj_empty}"
 assert_ok "empty directory passes" bash "$GUARD" "$proj_empty"
 
+# --- PASS: console.log present but all occurrences have // keep marker ---
+proj_kept="${tmpdir}/pass_kept_debug"
+mkdir -p "${proj_kept}"
+cat > "${proj_kept}/logger.ts" <<'EOF'
+export function log(msg: string): void {
+  console.log(msg); // keep
+}
+EOF
+assert_ok "console.log with // keep is not flagged" bash "$GUARD" "$proj_kept"
+
 # --- PASS/FAIL: fixtures excluded by default, but includable via flag ---
 proj_fixtures="${tmpdir}/fixtures_scope"
 mkdir -p "${proj_fixtures}/tests/fixtures"
