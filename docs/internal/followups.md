@@ -19,7 +19,7 @@
 
 ### 规则字段扩散（来自 Round 2 Bridge Note 10）
 - [ ] 若 E1 正向 → **E2** rollout `rationalizations` 字段到 W-12 / W-15 / SEC-11 / SEC-12
-- [ ] 若 E1 负向 → 开 follow-up PR 移除 W-16 rationalizations 字段，把该概念收回到 `docs/knowledge-discovery/2026-04-17.md` 的 bridge note 段（只记为概念，不入规则）
+- [ ] 若 E1 负向 → 开 follow-up PR 移除 W-16 rationalizations 字段，把该概念收回到 `docs/internal/research/knowledge-discovery/2026-04-17.md` 的 bridge note 段（只记为概念，不入规则）
 
 ### 规则内容补充（来自 Round 1/2 Bridge Notes）
 - [ ] SEC-12 补 note："即使 5 项机械检查全过仍需人工确认高风险 MCP 工具调用"（Willison 视角，反 illusion of control）
@@ -51,6 +51,6 @@
 
 ## 溯源
 
-- Round 1 scout：`docs/knowledge-discovery/2026-04-17.md` 决策表
-- Round 2 补分析：`docs/knowledge-discovery/2026-04-17.md` Round 2 决策表
+- Round 1 scout：`docs/internal/research/knowledge-discovery/2026-04-17.md` 决策表
+- Round 2 补分析：`docs/internal/research/knowledge-discovery/2026-04-17.md` Round 2 决策表
 - 创建 commit: 见本文件 git log

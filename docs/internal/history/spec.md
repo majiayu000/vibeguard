@@ -294,7 +294,7 @@ See `skills/vibeguard/references/review-template.md`
 
 ```
 vibeguard/
-├── docs/spec.md # This file (~500 lines) - complete specification
+├── docs/internal/history/spec.md # This file (~500 lines) - complete specification
 ├── README.md # Quick start (~50 lines)
 ├── setup.sh # One-click deployment (~30 lines)
 │

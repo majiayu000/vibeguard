@@ -48,6 +48,8 @@ VibeGuard has two layers:
 
 If these surfaces disagree, treat the Core contract as authoritative first, then update workflow/docs surfaces to match it.
 
+For repository layout ownership, see [Directory Map](docs/directory-map.md).
+
 ## What it looks like in practice
 
 ![VibeGuard demo](docs/assets/demo.gif)
