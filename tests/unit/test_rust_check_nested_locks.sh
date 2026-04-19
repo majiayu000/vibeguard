@@ -127,6 +127,20 @@ impl S {
 EOF
 assert_ok "locks split across separate functions passes" bash "$GUARD" --strict "$proj6"
 
+# --- Pre-commit mode: VIBEGUARD_STAGED_FILES with no .rs files (pipefail regression) ---
+staged_no_rs=$(mktemp)
+printf 'main.go\nApp.tsx\nstyles.css\n' > "$staged_no_rs"
+trap 'rm -f "$staged_no_rs"; rm -rf "$tmpdir"' EXIT
+assert_ok "pre-commit: no .rs files staged exits 0" \
+  env VIBEGUARD_STAGED_FILES="$staged_no_rs" bash "$GUARD"
+
+# --- Pre-commit mode: all staged .rs files match VIBEGUARD_EXCLUDE_PATHS ---
+staged_excluded=$(mktemp)
+printf '/project/target/debug/foo.rs\n/project/.git/foo.rs\n' > "$staged_excluded"
+trap 'rm -f "$staged_no_rs" "$staged_excluded"; rm -rf "$tmpdir"' EXIT
+assert_ok "pre-commit: all staged .rs files excluded exits 0" \
+  env VIBEGUARD_STAGED_FILES="$staged_excluded" bash "$GUARD"
+
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 [[ $FAIL -gt 0 ]] && exit 1 || exit 0
