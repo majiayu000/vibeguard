@@ -61,7 +61,7 @@ _enable_codex_hooks_feature() {
 
 _remove_legacy_codex_mcp_config() {
   local config="${CODEX_DIR}/config.toml"
-  python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${config}" 2>/dev/null || echo "ERROR"
+  python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${config}"
 }
 
 _has_legacy_codex_mcp_config() {
@@ -72,7 +72,10 @@ _has_legacy_codex_mcp_config() {
 configure_codex_home_runtime() {
   echo "Step 9.2: Remove legacy Codex MCP config"
   local cleanup_result
-  cleanup_result="$(_remove_legacy_codex_mcp_config)"
+  if ! cleanup_result="$(_remove_legacy_codex_mcp_config 2>/dev/null)"; then
+    red "  Failed to remove legacy Codex MCP config from ~/.codex/config.toml"
+    return 1
+  fi
   if [[ -f "${CODEX_DIR}/config.toml" ]]; then
     state_record_file "${CODEX_DIR}/config.toml" "generated/codex-config.toml" "copy"
   fi
@@ -170,7 +173,10 @@ clean_codex_home_installation() {
   # Keep codex_hooks flag untouched to avoid affecting other toolchains.
 
   local cleanup_result
-  cleanup_result="$(_remove_legacy_codex_mcp_config)"
+  if ! cleanup_result="$(_remove_legacy_codex_mcp_config 2>/dev/null)"; then
+    red "Failed to remove legacy Codex MCP config from ~/.codex/config.toml"
+    return 1
+  fi
   if [[ "${cleanup_result}" == "CHANGED" ]]; then
     yellow "Removed legacy VibeGuard MCP block from ~/.codex/config.toml"
   fi

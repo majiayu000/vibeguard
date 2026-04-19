@@ -51,7 +51,7 @@ common_doc_missing = sorted(documented_scope - documented_common)
 common_doc_extra = sorted(documented_common - documented_scope)
 mechanical_missing = sorted(canonical_all - mechanical)
 undocumented_mechanical = sorted(mechanical - canonical_all)
-installed_drift = sorted(canonical_all ^ installed_ids) if check_installed and installed_ids else []
+installed_drift = sorted(canonical_all ^ installed_ids) if check_installed else []
 
 mechanical_covered = sorted(canonical_all & mechanical)
 coverage_rate = (len(mechanical_covered) / len(canonical_all) * 100) if canonical_all else 0.0
@@ -88,10 +88,10 @@ if check_installed:
     print(f"Installed rule source: {installed_source}")
     if installed_ids:
         print(f"Installed rule ids: {len(installed_ids)}")
-        print_group("Installed-vs-repo rule drift", installed_drift)
     else:
         print("Installed rule ids: 0 (directory missing or empty)")
         print()
+    print_group("Installed-vs-repo rule drift", installed_drift)
 
 has_errors = bool(common_doc_missing or common_doc_extra or undocumented_mechanical)
 has_warnings = bool(mechanical_missing or installed_drift)

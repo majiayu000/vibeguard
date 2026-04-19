@@ -189,6 +189,8 @@ print(
             "intercepted": intercepted,
             "approval": captured[0],
             "completed": completed,
+            "session_collision_free": module._session_id_for_thread("thread/alpha")
+            != module._session_id_for_thread("thread-alpha"),
         },
         ensure_ascii=False,
     )
@@ -197,10 +199,12 @@ PYCODE
 )"
 
 assert_contains "${adapter_json}" '"intercepted": true' "app-server adapter intercepts approval requests with rewritten commands"
-assert_contains "${adapter_json}" 'rewrite=codex-thread-thread-alpha|thread/alpha|turn-42' "pre-bash hook receives explicit session/thread/turn context"
+assert_contains "${adapter_json}" 'rewrite=codex-thread-thread-alpha-' "pre-bash hook receives a normalized hashed session id"
+assert_contains "${adapter_json}" '|thread/alpha|turn-42' "pre-bash hook receives explicit thread/turn context"
 assert_contains "${adapter_json}" '"vibeguard"' "turn/completed notification is enriched with vibeguard feedback"
-assert_contains "${adapter_json}" 'learn=codex-thread-thread-alpha|thread/alpha|turn-42' "learn-evaluator feedback is attached to turn/completed"
-assert_contains "${adapter_json}" 'build=codex-thread-thread-alpha|thread/alpha|turn-42' "post-build feedback is attached to turn/completed"
+assert_contains "${adapter_json}" 'learn=codex-thread-thread-alpha-' "learn-evaluator feedback is attached to turn/completed"
+assert_contains "${adapter_json}" 'build=codex-thread-thread-alpha-' "post-build feedback is attached to turn/completed"
+assert_contains "${adapter_json}" '"session_collision_free": true' "distinct thread ids do not collapse to the same session id"
 assert_contains "${adapter_json}" '"pre_edit_guard": false' "capability matrix is exposed on app-server feedback"
 assert_not_contains "${adapter_json}" '"stop-guard.sh"' "empty stop-guard output does not create spurious feedback entries"
 

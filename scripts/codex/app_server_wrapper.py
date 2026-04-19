@@ -14,6 +14,7 @@ Current guard coverage (best-effort):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -396,7 +397,8 @@ def _session_id_for_thread(thread_id: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", thread_id).strip("-")
     if not normalized:
         normalized = "thread"
-    return f"codex-thread-{normalized}"
+    digest = hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:12]
+    return f"codex-thread-{normalized}-{digest}"
 
 
 def parse_args() -> argparse.Namespace:

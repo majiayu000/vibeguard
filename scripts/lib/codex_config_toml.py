@@ -38,7 +38,8 @@ def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
                 insert_idx = idx
                 in_features = False
         if in_features:
-            if stripped.startswith("codex_hooks"):
+            key = stripped.split("=", 1)[0].strip()
+            if key == "codex_hooks":
                 if stripped != "codex_hooks = true":
                     lines[idx] = "codex_hooks = true"
                     changed = True

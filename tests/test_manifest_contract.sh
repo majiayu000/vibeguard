@@ -69,6 +69,16 @@ assert_cmd "enable-codex-hooks writes codex_hooks = true" grep -Eq '^codex_hooks
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
+codex_hooks_beta = false
+foo = true
+TOML
+enable_prefixed_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
+assert_contains "${enable_prefixed_out}" "CHANGED" "enable-codex-hooks adds canonical key when only prefixed keys exist"
+assert_cmd "enable-codex-hooks preserves prefixed feature keys" grep -Eq '^codex_hooks_beta[[:space:]]*=[[:space:]]*false$' "${CONFIG_FILE}"
+assert_cmd "enable-codex-hooks adds exact codex_hooks key" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+
+cat > "${CONFIG_FILE}" <<'TOML'
+[features]
 foo = true
 
 [mcp_servers.vibeguard]
@@ -78,6 +88,13 @@ TOML
 remove_out="$(python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${CONFIG_FILE}")"
 assert_contains "${remove_out}" "CHANGED" "remove-legacy-vibeguard-mcp reports change"
 assert_cmd "legacy vibeguard mcp section removed" bash -c "! grep -q '^\[mcp_servers\\.vibeguard\]' '${CONFIG_FILE}'"
+
+header "doc freshness installed drift"
+EMPTY_HOME="${TMP_DIR}/empty-home"
+mkdir -p "${EMPTY_HOME}/.claude/rules/vibeguard"
+installed_out="$(HOME="${EMPTY_HOME}" bash "${REPO_DIR}/scripts/verify/doc-freshness-check.sh" --installed)"
+assert_contains "${installed_out}" "Installed rule ids: 0" "installed drift reports empty installed rule set"
+assert_contains "${installed_out}" "Installed-vs-repo rule drift" "installed drift lists missing canonical rules even when installed set is empty"
 
 echo
 echo "=============================="
