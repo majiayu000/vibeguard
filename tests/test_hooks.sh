@@ -201,6 +201,11 @@ assert_not_contains "$result" '"decision": "block"' "Allow git restore with quot
 result=$(echo $'{"tool_input":{"command":"git checkout -- \x27src/file.txt\x27"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Allow git checkout -- with single-quoted specific path"
 
+# chained: safe checkout followed by commit whose message mentions git checkout "." — must NOT be blocked
+# (the "." is inside a commit message string, not a pathspec; this was a false positive in the two-step check)
+result=$(echo '{"tool_input":{"command":"git checkout -- README.md && git commit -m '"'"'docs: mention git checkout \".\";'"'"'"}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Allow chained checkout+commit where quoted dot is only inside commit message"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"

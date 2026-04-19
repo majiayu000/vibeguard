@@ -61,14 +61,52 @@ block() {
 # git reset --hard — Allow execution (users need to use it in scenarios such as rebase conflicts)
 
 # git checkout . / git restore . (discard all changes)
-# Only matches pure "." pathspec (bare, double-quoted ".", or single-quoted '.'), not quoted filenames.
-# Two-step: COMMAND_STRIPPED identifies git checkout/restore as top-level command (filters out content inside
-# -m strings); COMMAND_NO_HEREDOC verifies pathspec is exactly "." while avoiding false positives from
-# heredoc blocks that contain inert "git checkout ." examples.
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+'; then
-  if echo "$COMMAND_NO_HEREDOC" | grep -qE 'git\s+(checkout|restore)\s+(--\s+)?("\."|'"'"'\.'"'"'|\.)\s*(;|&&|\|\||$)'; then
-    block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
-  fi
+# Shell-aware per-subcommand check: splits on &&/||/; outside of quotes so that
+# "." appearing inside a commit message or other quoted arg in a later subcommand
+# (e.g. git commit -m 'docs: mention git checkout ".";') does not cause a false positive.
+if _CMD_DATA="$COMMAND_NO_HEREDOC" python3 - <<'PYEOF'
+import re, sys, os
+
+def split_shell(cmd):
+    parts, cur, in_s, in_d = [], '', False, False
+    i = 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c == "'" and not in_d:
+            in_s = not in_s; cur += c
+        elif c == '"' and not in_s:
+            in_d = not in_d; cur += c
+        elif not in_s and not in_d:
+            if cmd[i:i+2] in ('&&', '||'):
+                parts.append(cur); cur = ''; i += 2; continue
+            elif c == ';':
+                parts.append(cur); cur = ''
+            else:
+                cur += c
+        else:
+            cur += c
+        i += 1
+    if cur.strip():
+        parts.append(cur)
+    return parts
+
+cmd = os.environ.get('_CMD_DATA', '')
+for sub in split_shell(cmd):
+    s = re.sub(r'"[^"]*"', '""', sub)
+    s = re.sub(r"'[^']*'", "''", s)
+    if not re.search(r'git\s+(checkout|restore)\s+', s):
+        continue
+    # quoted dot: "." or '.' with matching quotes
+    m = re.search(r'git\s+(checkout|restore)\s+(?:--\s+)?(["\'])\.(["\'])', sub)
+    if m and m.group(2) == m.group(3):
+        sys.exit(0)
+    # bare dot: must be followed by whitespace or end-of-subcommand
+    if re.search(r'git\s+(checkout|restore)\s+(?:--\s+)?\.(?:\s|$)', sub.rstrip()):
+        sys.exit(0)
+sys.exit(1)
+PYEOF
+then
+  block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
 # git clean -f (delete untracked files)
