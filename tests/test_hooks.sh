@@ -177,6 +177,22 @@ assert_contains "$result" '"decision": "block"' "Intercept git checkout with quo
 result=$(echo $'{"tool_input":{"command":"git restore \x27.\x27"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Intercept git restore with single-quoted dot"
 
+# git checkout -- "." should be intercepted (-- separator is treated identically by Git)
+result=$(echo '{"tool_input":{"command":"git checkout -- \".\""}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git checkout -- with quoted dot"
+
+# git restore -- "." should be intercepted
+result=$(echo '{"tool_input":{"command":"git restore -- \".\""}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git restore -- with quoted dot"
+
+# echo "git checkout ." should NOT be intercepted (dot is inside a string argument, not a git pathspec)
+result=$(echo '{"tool_input":{"command":"echo \"git checkout .\""}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Allow echo with git checkout . in string"
+
+# git commit -m "document git checkout ." should NOT be intercepted (dot is inside commit message)
+result=$(echo '{"tool_input":{"command":"git commit -m \"document git checkout .\""}}' | bash hooks/pre-bash-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Allow git commit with git checkout . in message"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"

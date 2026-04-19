@@ -61,8 +61,9 @@ block() {
 # git reset --hard — Allow execution (users need to use it in scenarios such as rebase conflicts)
 
 # git checkout . / git restore . (discard all changes)
-# Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
-if echo "$COMMAND_STRIPPED"$'\n'"$COMMAND_PATH_SCAN" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
+# Only matches pure "." pathspec (bare, quoted, or with -- separator), excluding legal paths like git checkout ./src/file
+# Uses COMMAND_STRIPPED only (quoted content replaced with "" or '') to avoid false positives from commit messages or echo strings.
+if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+(--\s+)?(\.|""|'"''"')\s*(;|&&|\|\||$)'; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
