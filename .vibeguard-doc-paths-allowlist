@@ -31,14 +31,14 @@ vibeguard/guards/
 vibeguard/hooks/
 vibeguard/rules/
 vibeguard/templates/skill-template.md
-vibeguard/docs/spec.md
+vibeguard/docs/internal/history/spec.md
 vibeguard/scripts/verify/compliance_check.sh
 
 # Placeholder path in docs/how/memory-files.md — illustrates project-level CLAUDE.md location (not a real repo path)
 project/.claude/CLAUDE.md
 
 # FOLLOWUPS placeholders and workspace-local notes
-docs/knowledge-discovery/YYYY-MM-DD.md
+docs/internal/research/knowledge-discovery/YYYY-MM-DD.md
 vibeguard/README.md
-vibeguard/docs/knowledge-discovery/2026-04-17.md
-vibeguard/FOLLOWUPS.md
+vibeguard/docs/internal/research/knowledge-discovery/2026-04-17.md
+vibeguard/docs/internal/followups.md

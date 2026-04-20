@@ -58,6 +58,8 @@ VibeGuard 现在明确分成两层：
 
 如果这些表面之间冲突，先以 Core 契约为准，再同步 workflow 和文档。
 
+仓库目录职责见 [Directory Map](directory-map.md)。
+
 ## 工作方式
 
 ### 1. 规则注入

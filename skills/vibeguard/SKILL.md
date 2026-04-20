@@ -14,7 +14,7 @@ Canonical contract sources for this skill:
 - `docs/rule-reference.md` — public rule/guard summary
 - `schemas/install-modules.json` — install/runtime contract
 
-`docs/spec.md` remains a historical design snapshot and should not be treated as the authoritative implementation contract.
+`docs/internal/history/spec.md` remains a historical design snapshot and should not be treated as the authoritative implementation contract.
 
 Calling `/vibeguard` can:
 - View the complete anti-hallucination specifications

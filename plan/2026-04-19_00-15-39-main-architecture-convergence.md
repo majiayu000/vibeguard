@@ -35,7 +35,7 @@ source_ref: origin/main@17504d0
   - Runtime adapters: `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, `scripts/codex/app_server_wrapper.py`
   - Metadata surfaces: `rules/claude-rules/**`, `rules/*.md`, `docs/rule-reference.md`, `schemas/install-modules.json`, `schemas/vibeguard-project.schema.json`
   - Verification surfaces: `.github/workflows/ci.yml`, `tests/test_hooks.sh`, `tests/test_setup.sh`, `tests/run_precision.sh`, `eval/run_eval.py`
-  - Product/workflow surfaces: `README.md`, `docs/README_CN.md`, `docs/spec.md`, `skills/vibeguard/SKILL.md`, `agents/dispatcher.md`, `workflows/**`
+  - Product/workflow surfaces: `README.md`, `docs/README_CN.md`, `docs/internal/history/spec.md`, `skills/vibeguard/SKILL.md`, `agents/dispatcher.md`, `workflows/**`
 - Root-cause findings:
 
 | id | category | files and symbols | evidence | impact | risk | suggested convergence |
@@ -44,7 +44,7 @@ source_ref: origin/main@17504d0
 | F2 | split install contract | `scripts/lib/settings_json.py`, `scripts/lib/codex_hooks_json.py`, `schemas/install-modules.json`, `schemas/vibeguard-project.schema.json` | profile names and module composition diverge across code, schema, and docs | high | high | define one canonical install/capability manifest and generate/validate secondary surfaces |
 | F3 | runtime artifact split | `scripts/setup/install.sh`, `hooks/run-hook.sh`, `scripts/install-hook.sh`, `scripts/project-init.sh` | Claude/Codex use installed snapshot while Git hooks still point at live repo | high | medium | unify all runtime entrypoints on installed snapshot plus shared wrapper stack |
 | F4 | verification false confidence | `.github/workflows/ci.yml`, `tests/run_precision.sh`, `tests/test_hooks.sh`, `eval/run_eval.py`, `scripts/benchmark.sh` | Windows lane mostly skips behavior tests, precision never fails CI, rewrite path is provisioned but skipped, eval reads `$HOME` | high | medium | convert CI from report-first to contract-first and pin eval inputs to repo snapshot |
-| F5 | product/document surface sprawl | `README.md`, `docs/README_CN.md`, `docs/spec.md`, `skills/vibeguard/SKILL.md`, `agents/dispatcher.md`, `workflows/**` | planning and routing are duplicated across too many top-level surfaces | medium | medium | separate canonical contract from generated/localized/preset surfaces |
+| F5 | product/document surface sprawl | `README.md`, `docs/README_CN.md`, `docs/internal/history/spec.md`, `skills/vibeguard/SKILL.md`, `agents/dispatcher.md`, `workflows/**` | planning and routing are duplicated across too many top-level surfaces | medium | medium | separate canonical contract from generated/localized/preset surfaces |
 
 ## 2. Detailed steps
 
@@ -208,7 +208,7 @@ source_ref: origin/main@17504d0
 - Expected changes to files:
   - `eval/run_eval.py`
   - `scripts/benchmark.sh`
-  - `docs/benchmark-design.md`
+  - `docs/internal/benchmarks/benchmark-design.md`
   - `.github/workflows/ci.yml`
 - Detailed changes:
   - Load rules and prompts from repo-managed inputs by default.
@@ -228,7 +228,7 @@ source_ref: origin/main@17504d0
 - Expected changes to files:
   - `README.md`
   - `docs/README_CN.md`
-  - `docs/spec.md`
+  - `docs/internal/history/spec.md`
   - `skills/vibeguard/SKILL.md`
   - `agents/dispatcher.md`
   - `workflows/**`
@@ -351,7 +351,7 @@ source_ref: origin/main@17504d0
       - `scripts/ci/validate-precision-thresholds.sh`
       - `README.md`
       - `docs/README_CN.md`
-      - `docs/spec.md`
+      - `docs/internal/history/spec.md`
       - `skills/vibeguard/SKILL.md`
       - `agents/dispatcher.md`
       - `tests/test_eval_contract.sh`
