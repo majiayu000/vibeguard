@@ -1,0 +1,1 @@
+echo y | git checkout "."

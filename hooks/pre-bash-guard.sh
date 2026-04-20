@@ -51,6 +51,23 @@ print(cmd)
 # Use path scanning: remove quotation marks but retain the content to prevent rm -rf \"/Users/...\" from being bypassed
 COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
 
+# Variant of COMMAND_STRIPPED that converts "." / '.' (standalone quoted dot) into a bare dot
+# before stripping other quoted content. This lets the same no-anchor regex detect both
+# `git checkout .` and `git checkout "."` (including wrappers like `GIT_TRACE=1 git checkout "."`
+# or `echo y | git checkout "."`) without exposing separators that were inside larger quoted
+# strings (which would cause false positives when stripping all quotes via COMMAND_PATH_SCAN).
+COMMAND_STRIPPED_WITH_DOT=$(printf '%s' "$COMMAND_NO_HEREDOC" | python3 -c "
+import re, sys
+cmd = sys.stdin.read()
+# Replace standalone quoted dot (\".\"/'.') with bare dot before stripping other quoted content
+cmd = re.sub(r'\"\.\"', '.', cmd)
+cmd = re.sub(r\"'\\.'\", '.', cmd)
+# Strip remaining quoted content so separators inside strings stay invisible
+cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
+cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
+print(cmd)
+" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
+
 block() {
   local reason="$1"
   vg_log "pre-bash-guard" "Bash" "block" "$reason" "$COMMAND"
@@ -62,7 +79,10 @@ block() {
 
 # git checkout . / git restore . (discard all changes)
 # Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
+# COMMAND_STRIPPED_WITH_DOT converts "." / '.' to a bare dot then strips other quoted content,
+# so a no-anchor regex safely detects all wrapper forms (env vars, pipes, `command`, `env`)
+# without false-positives from separators inside commit messages or string arguments.
+if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 

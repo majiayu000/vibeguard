@@ -1,0 +1,1 @@
+GIT_TRACE=1 git checkout "."

@@ -10,6 +10,18 @@
       "keyword": "\"decision\": \"block\"",
       "description": "git checkout . should be intercepted"
     },
+    "tp/checkout-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git checkout \".\" (quoted dot) should be intercepted"
+    },
+    "tp/restore-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git restore \".\" (quoted dot) should be intercepted"
+    },
     "tp/clean-fd.txt": {
       "rule": "BLOCK",
       "expect": "block",
@@ -87,6 +99,60 @@
       "expect": "pass",
       "keyword": "\"decision\": \"block\"",
       "description": "heredoc contains force push and no false positives"
+    },
+    "fp/echo-checkout-dot.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "echo containing git checkout . should not be blocked"
+    },
+    "fp/printf-restore-dot.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "printf containing git restore . should not be blocked"
+    },
+    "fp/commit-checkout-dot-mention.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "commit message mentioning git checkout . should not be blocked"
+    },
+    "tp/git-trace-checkout-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "GIT_TRACE=1 git checkout \".\" (env-var wrapper) should be intercepted"
+    },
+    "tp/env-trace-restore-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "env GIT_TRACE=1 git restore \".\" (env command wrapper) should be intercepted"
+    },
+    "tp/command-checkout-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "command git checkout \".\" (command builtin wrapper) should be intercepted"
+    },
+    "tp/pipe-checkout-dot-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "echo y | git checkout \".\" (pipe wrapper) should be intercepted"
+    },
+    "fp/commit-msg-separator-checkout.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "commit message with semicolon before git checkout . mention should not be blocked"
+    },
+    "fp/echo-and-restore-mention.txt": {
+      "rule": "BLOCK",
+      "expect": "pass",
+      "keyword": "\"decision\": \"block\"",
+      "description": "echo string with && before git restore . mention should not be blocked"
     }
   }
 }
