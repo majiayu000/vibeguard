@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776611975557,
+  "lastUpdate": 1776678466508,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -689,6 +689,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 128,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db25d5dfe176b477c9d516232485c9027a39cb5f",
+          "message": "Clarify repository boundaries before deeper restructuring (#95)\n\nThe repository looked noisy because public runtime assets, installable workflow surfaces, historical notes, and research artifacts all appeared at similar levels. This change keeps runtime and install contract paths stable while moving historical and research material under docs/internal and documenting ownership in a directory map.\n\nConstraint: setup, manifest, docs, and CI expose root-level runtime paths as public contracts\n\nRejected: Move hooks, guards, rules, scripts, agents, skills, or workflows under src/packages | high path-contract risk for little immediate value\n\nConfidence: high\n\nScope-risk: narrow\n\nReversibility: clean\n\nDirective: Do not relocate product core or workflow surface directories without updating schemas/install-modules.json, setup targets, docs validators, and setup/runtime tests together\n\nTested: bash scripts/ci/validate-manifest-contract.sh; bash scripts/ci/validate-doc-paths.sh; bash scripts/ci/validate-doc-command-paths.sh; bash scripts/verify/doc-freshness-check.sh --strict; bash tests/test_manifest_contract.sh; bash tests/test_setup.sh; bash tests/test_codex_runtime.sh; bash scripts/local-contract-check.sh; git diff --cached --check\n\nNot-tested: GitHub Actions after push",
+          "timestamp": "2026-04-20T17:43:09+08:00",
+          "tree_id": "88161a045baf5a68d47fb2a5319b1520f5630fa4",
+          "url": "https://github.com/majiayu000/vibeguard/commit/db25d5dfe176b477c9d516232485c9027a39cb5f"
+        },
+        "date": 1776678465581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 202,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 224,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 249,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 316,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 220,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 332,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 220,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 138,
             "unit": "ms"
           }
         ]
