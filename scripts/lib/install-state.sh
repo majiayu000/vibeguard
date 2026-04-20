@@ -108,6 +108,16 @@ files = state.get('files', {})
 drift_count = 0
 missing_count = 0
 
+# These files are merge/upsert targets that legitimately keep changing as
+# Codex/Claude/OMX update their own config.  Their semantic integrity is
+# checked elsewhere during setup.sh --check, so install-state should not flag
+# every benign coexistence edit as drift.
+SEMANTICALLY_VALIDATED_SOURCES = {
+    'generated/settings.json',
+    'generated/codex-hooks.json',
+    'generated/codex-config.toml',
+}
+
 for dest, info in files.items():
     expanded = os.path.expanduser(dest)
     if info['type'] == 'symlink':
@@ -122,6 +132,8 @@ for dest, info in files.items():
         if not os.path.exists(expanded):
             print(f'MISSING: {dest}')
             missing_count += 1
+        elif info.get('source') in SEMANTICALLY_VALIDATED_SOURCES:
+            continue
         elif 'checksum' in info:
             try:
                 result = subprocess.run(
