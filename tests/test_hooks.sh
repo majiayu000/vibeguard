@@ -594,6 +594,18 @@ assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
+# Git worktrees expose .git as a file, and hook inputs can be relative paths.
+tmp_repo_worktree="$(mktemp -d)"
+mkdir -p "$tmp_repo_worktree/src"
+printf 'gitdir: /tmp/nonexistent\n' >"$tmp_repo_worktree/.git"
+json_payload='{"tool_input":{"file_path":"src/new_file.rs","content":"fn createdThing() {}"}}'
+if ! result=$(cd "$tmp_repo_worktree" && printf '%s\n' "$json_payload" | perl -e 'alarm 3; exec @ARGV' bash "$REPO_DIR/hooks/post-write-guard.sh"); then
+  result="TIMEOUT"
+fi
+assert_not_contains "$result" "TIMEOUT" "Worktree .git file + relative source path does not hang"
+assert_not_contains "$result" "No git project" "Worktree .git file + relative source path resolves project root"
+rm -rf "$tmp_repo_worktree"
+
 # Source code files with the same name should alert
 tmp_repo_same_name="$(mktemp -d)"
 git -C "$tmp_repo_same_name" init -q

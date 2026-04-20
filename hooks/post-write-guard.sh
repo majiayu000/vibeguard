@@ -35,16 +35,29 @@ if ! vg_is_source_file "$FILE_PATH"; then
   exit 0
 fi
 
-# Find the project root directory (look up for .git)
-PROJECT_DIR="$FILE_PATH"
-while [[ "$PROJECT_DIR" != "/" ]]; do
-  PROJECT_DIR=$(dirname "$PROJECT_DIR")
-  if [[ -d "$PROJECT_DIR/.git" ]]; then
+# Find the project root directory (look up for .git).
+# Git worktrees store .git as a file, and hook inputs may use relative paths.
+case "$FILE_PATH" in
+  /*) FILE_PATH_ABS="$FILE_PATH" ;;
+  *) FILE_PATH_ABS="${PWD}/${FILE_PATH#./}" ;;
+esac
+
+SEARCH_DIR=$(dirname "$FILE_PATH_ABS")
+PROJECT_DIR=""
+while [[ "$SEARCH_DIR" != "/" ]]; do
+  if [[ -e "$SEARCH_DIR/.git" ]]; then
+    PROJECT_DIR="$SEARCH_DIR"
     break
   fi
+
+  NEXT_DIR=$(dirname "$SEARCH_DIR")
+  if [[ "$NEXT_DIR" == "$SEARCH_DIR" ]]; then
+    break
+  fi
+  SEARCH_DIR="$NEXT_DIR"
 done
 
-if [[ "$PROJECT_DIR" == "/" ]]; then
+if [[ -z "$PROJECT_DIR" ]]; then
   vg_log "post-write-guard" "Write" "pass" "No git project" "$FILE_PATH"
   exit 0
 fi
@@ -79,7 +92,7 @@ RG_EXCLUDES=(
 SCAN_DEGRADED=0
 FILE_COUNT=0
 if [[ "${HAS_RG}" -eq 1 ]]; then
-  FILE_COUNT=$(rg --files "${RG_EXCLUDES[@]}" "$PROJECT_DIR" 2>/dev/null | wc -l | tr -d ' ')
+  FILE_COUNT=$({ rg --files "${RG_EXCLUDES[@]}" "$PROJECT_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')
 else
   FILE_COUNT=$(find "$PROJECT_DIR" \
     -type f \
@@ -103,11 +116,13 @@ fi
 if [[ "${HAS_RG}" -eq 1 ]]; then
   SAME_NAME_FILES=$(rg --files "${RG_EXCLUDES[@]}" -g "**/${BASENAME}" "$PROJECT_DIR" 2>/dev/null \
     | grep -Fvx -- "$FILE_PATH" \
+    | grep -Fvx -- "$FILE_PATH_ABS" \
     | head -"${MAX_MATCHES}" || true)
 else
   SAME_NAME_FILES=$(find "$PROJECT_DIR" \
     -name "$BASENAME" \
     -not -path "$FILE_PATH" \
+    -not -path "$FILE_PATH_ABS" \
     -not -path "*/node_modules/*" \
     -not -path "*/.git/*" \
     -not -path "*/target/*" \
@@ -207,6 +222,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
         -e "function[[:space:]]+${defname}\\b" \
         "$PROJECT_DIR" 2>/dev/null \
         | grep -Fvx -- "$FILE_PATH" \
+        | grep -Fvx -- "$FILE_PATH_ABS" \
         | head -3 || true)
     else
       FOUND=$(grep -rl --include="*.${EXT}" \
