@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776678466508,
+  "lastUpdate": 1776678499631,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -758,6 +758,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 138,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2dd5d3f792416b54423895981df977bad752f8f1",
+          "message": "fix(session_metrics): guard env vars against silent KeyError crash (#93)\n\n* fix(session_metrics): guard VIBEGUARD_PROJECT_LOG_DIR and VIBEGUARD_SESSION_ID against KeyError\n\nReplace unguarded os.environ[] accesses with safe alternatives to prevent\nsilent crashes when VIBEGUARD_PROJECT_LOG_DIR is not exported (e.g. standalone\nruns or log.sh failing before export). Exit cleanly via sys.exit(0) when the\ndir is unset. Reuse the already-computed session_id variable for the metrics\ndict instead of re-accessing the env var directly.\n\nCloses #89\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* test(session_metrics): add unit tests for missing env var fallback paths\n\nCover the two guard paths hardened in PR #93:\n- Missing VIBEGUARD_PROJECT_LOG_DIR → early sys.exit(0), no metrics written\n- Missing VIBEGUARD_SESSION_ID → permissive event filter, all sessions accepted\n\nbench_hook_latency.sh always supplies both vars, leaving these branches\nuntested in CI. The four new assertions in run_all.sh exercise exactly\nthe lines the independent reviewer flagged (lines 39 and 161).\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session_metrics): add early-exit guard for missing VIBEGUARD_SESSION_ID\n\nEmpty session_id caused the event filter to act as wildcard, aggregating\ncross-session events into metrics with an empty session value. Add the\nsame early-exit pattern already used for VIBEGUARD_PROJECT_LOG_DIR.\n\nUpdate tests: case 4 now verifies no metrics file is written on early exit.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-20T17:43:23+08:00",
+          "tree_id": "04c2d46b95008d49438818703da4f76f19d623b6",
+          "url": "https://github.com/majiayu000/vibeguard/commit/2dd5d3f792416b54423895981df977bad752f8f1"
+        },
+        "date": 1776678498710,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 186,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 214,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 254,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 295,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 215,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 304,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 128,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 129,
             "unit": "ms"
           }
         ]
