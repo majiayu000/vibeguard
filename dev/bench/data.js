@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776678499631,
+  "lastUpdate": 1776678545387,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -827,6 +827,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 129,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0bb421d4b4a479e6774827c85bb4c864290cedab",
+          "message": "fix(guards): block git checkout/restore with quoted dot argument (#90)\n\n* fix(guards): block git checkout/restore with quoted dot argument\n\nCOMMAND_STRIPPED replaces quoted content with empty strings, so\n`git checkout \".\"` becomes `git checkout \"\"` and evades the guard.\nAlso check COMMAND_PATH_SCAN (which strips quotes but keeps content)\nto catch the quoted-dot bypass variant.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(guards): anchor COMMAND_PATH_SCAN regex to prevent false-positive blocks\n\nCommands like `echo \"git checkout .\"` or commit messages mentioning the\npattern were falsely blocked because the COMMAND_PATH_SCAN regex was not\nanchored to the start of a command segment. After tr strips quotes, the\npattern could match anywhere in the resulting string.\n\nFix: require `git` to appear at the start of the command or after a\ncommand separator (;|&&|||) in the COMMAND_PATH_SCAN grep.\n\nAdd true-positive tests for `git checkout \".\"` and `git restore \".\"`,\nand false-positive guard tests for echo/printf/commit-message mentions.\nAdd corresponding fixture files and meta.json entries.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(guards): close shell-wrapper bypass and quoted-string separator false-positive\n\nReplace the dual COMMAND_STRIPPED / COMMAND_PATH_SCAN check for\ngit checkout/restore with a single COMMAND_STRIPPED_WITH_DOT pass:\n\n1. First replace only isolated \".\" / '.' (standalone quoted dot) with a\n   bare dot — catches `git checkout \".\"` in all wrapper forms (env-var\n   prefix, `env`, `command` builtin, pipe).\n2. Then strip remaining quoted content to empty strings — keeps\n   separators inside commit messages and echo arguments invisible,\n   eliminating the `;`/`&&`/`||` false-positive introduced by the\n   COMMAND_PATH_SCAN (tr -d) approach.\n\nAdds 4 TP fixtures (env-var, env, command, pipe wrappers) and 2 FP\nfixtures (semicolon/&&-inside-commit-message), with matching cases in\ntest_hooks.sh.  All 105 tests pass.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-20T17:43:14+08:00",
+          "tree_id": "06c7560a54d6c4ff4df2f6cdd08a538e425fa6ba",
+          "url": "https://github.com/majiayu000/vibeguard/commit/0bb421d4b4a479e6774827c85bb4c864290cedab"
+        },
+        "date": 1776678544607,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 195,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 219,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 274,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 299,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 208,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 316,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 217,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 130,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 136,
             "unit": "ms"
           }
         ]
