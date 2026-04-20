@@ -37,6 +37,8 @@ if not os.path.exists(log_file):
     sys.exit(0)
 
 session_id = os.environ.get("VIBEGUARD_SESSION_ID", "")
+if not session_id:
+    sys.exit(0)
 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
 skip_hooks = {"stop-guard", "learn-evaluator"}
 events = []
@@ -158,7 +160,10 @@ if cb_trips > 0:
     correction_signals.append(f"Circuit breaker tripped {cb_trips} time(s)")
 
 # Signal 10: Warn trend regression (compare with project baseline)
-metrics_file = os.path.join(os.environ["VIBEGUARD_PROJECT_LOG_DIR"], "session-metrics.jsonl")
+project_log_dir = os.environ.get("VIBEGUARD_PROJECT_LOG_DIR", "")
+if not project_log_dir:
+    sys.exit(0)
+metrics_file = os.path.join(project_log_dir, "session-metrics.jsonl")
 if os.path.exists(metrics_file):
     try:
         recent_ratios = []
@@ -182,7 +187,7 @@ if os.path.exists(metrics_file):
 
 metrics = {
     "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "session": os.environ["VIBEGUARD_SESSION_ID"],
+    "session": session_id,
     "event_count": len(events),
     "decisions": dict(decisions),
     "hooks": dict(hooks),
