@@ -346,6 +346,58 @@ DO NOT: Take any action — this is informational only"
   vg_log "post-edit-guard" "Edit" "correction" "churn ${CHURN_COUNT}x" "$FILE_PATH"
 fi
 
+# --- [W-14] Recent cross-session / cross-agent file overlap detection ---
+# Detect whether another session or agent has edited the same file recently.
+# This is a lightweight proxy for parallel/background ownership conflicts.
+W14_RECENT_CONFLICT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_AGENT="${VIBEGUARD_AGENT_TYPE:-}" python3 -c '
+import json, sys, os
+from datetime import datetime, timezone
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+agent = os.environ.get("VG_AGENT", "")
+now = datetime.now(timezone.utc)
+conflicts = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        e = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if e.get("tool") not in {"Edit", "Write"}:
+        continue
+    detail = e.get("detail", "")
+    if file_path not in detail:
+        continue
+    same_session = e.get("session") == session
+    other_agent = e.get("agent", "") != agent
+    if same_session and not other_agent:
+        continue
+    ts_raw = e.get("ts", "")
+    try:
+        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+    except ValueError:
+        continue
+    if (now - ts).total_seconds() > 1800:
+        continue
+    conflicts.append((e.get("session", "?"), e.get("agent", "?"), e.get("hook", "?"), e.get("tool", "?")))
+if conflicts:
+    session_id, agent_name, hook_name, tool_name = conflicts[-1]
+    print(f"{session_id}|{agent_name}|{hook_name}|{tool_name}")
+' 2>/dev/null | tail -1 | tr -d '\r' || true)
+
+if [[ -n "$W14_RECENT_CONFLICT" ]]; then
+  IFS='|' read -r W14_OTHER_SESSION W14_OTHER_AGENT W14_OTHER_HOOK W14_OTHER_TOOL <<< "$W14_RECENT_CONFLICT"
+  WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${W14_OTHER_TOOL} via ${W14_OTHER_HOOK}, session ${W14_OTHER_SESSION}, agent ${W14_OTHER_AGENT:-unknown})
+FIX: Confirm file ownership before continuing; prefer a dedicated worktree or single-owner merge path
+DO NOT: Continue parallel/background edits to this file without explicit ownership"
+  vg_log "post-edit-guard" "Edit" "warn" "w14 overlap recent session ${W14_OTHER_SESSION} agent ${W14_OTHER_AGENT:-unknown}" "$FILE_PATH"
+fi
+
 # --- [W-15] Consecutive Edit Loop Detection ---
 # Distinct from CHURN (counts total session edits, non-consecutive):
 # Counts edits to SAME FILE with NO intervening edits to other files.

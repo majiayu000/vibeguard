@@ -125,6 +125,9 @@ Parallel sub-agents share a file system without file locks. The last writer sile
 - Every parallel task must receive a disjoint set of files.
 - Two agents must never write the same file at the same time, even if they intend to change different lines.
 - If shared output is unavoidable, use "write to a temporary path, then have the orchestrator merge later."
+- Background agents, worktree agents, and long-lived agents must also declare writable, read-only, and forbidden file sets.
+- Default to keeping background execution away from files the user is actively editing in the main workspace unless the user explicitly authorizes that write.
+- When multiple results need to be combined, prefer temporary outputs or an isolated worktree, then let one primary executor perform the final merge.
 
 **Prompt template**:
 ```
@@ -136,6 +139,11 @@ Agent B owns: src/api.rs, src/middleware.rs (only modify these files)
 - When you receive a parallel subtask, confirm your file boundary first.
 - If the task description does not specify file ownership, ask the orchestrator to clarify before editing.
 - Do not modify a shared file in a "read first, write later" flow unless you have exclusive ownership.
+- If a background or long-lived agent does not have an explicit writable file set, it must not start a write task.
+- If a recent event shows the same file being edited by another session or agent, emit a `W-14` warning and recommend an isolated worktree or single-owner merge path.
+- When file boundaries overlap, prefer shrinking the writable scope over adding more coordination rules.
+- **Observability hook**: `hooks/post-edit-guard.sh` detects recent same-file edits across sessions or agents.
+- **Downgrade path**: if reliable file ownership cannot be declared, fall back to a single primary writer or an isolated worktree.
 
 ## W-15: Low-information loop detection (strict)
 If the information gain shrinks for three consecutive rounds, stop that direction and report it.
@@ -249,5 +257,7 @@ When using sub-agents, give each child only the minimum context required for its
 - Implementation agents: only the target files, interface definitions, and tests
 - Review agents: only the diff and the relevant spec
 - Do not forward the entire parent conversation wholesale
+- Background, long-lived, and scheduled agents should also receive only the context needed for the current task.
+- Keep persistent rule surfaces limited to high-frequency, stable, cross-task constraints; push lower-frequency workflows down into skills, hooks, or verify scripts.
 
 **Why**: the larger the context, the higher the hallucination risk. Isolated child agents stay more focused and more reliable.

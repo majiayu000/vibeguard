@@ -117,8 +117,14 @@ If one rule file contains more than 30 active constraints, raise an overload war
 3. Verify whether high-frequency rules use absolute language without a downgrade path.
 4. Split large files by language or domain (`common/`, `rust/`, `python/`, `security/`).
 
+**Additional checks**:
+4. Before adding a persistent rule, first confirm it is a high-frequency, stable, cross-task constraint; otherwise prefer a skill, hook, or verify script.
+5. Long workflow templates, one-off playbooks, and low-frequency knowledge should not live permanently in `CLAUDE.md` or `AGENTS.md`; convert them into an index plus on-demand documents.
+
 **Anti-patterns**:
 - A single file accumulates 50+ rules and expects all of them to remain active at once.
 - New rules are added without deleting stale rules, relying on overlap to resolve conflict.
 - A rule says "must never do X" but offers no answer for unavoidable edge cases.
 - Suggestions or conventions get promoted to strict rules in an attempt to force compliance, which makes them easier to ignore.
+- Low-frequency specialized workflows stay in persistent context instead of moving to a skill, hook, or verify script.
+- A second summary repeats the canonical rule text and drifts away from the real source.
