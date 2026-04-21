@@ -387,6 +387,104 @@ PYCODE
 assert_contains "${app_server_failure_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook exits nonzero"
 assert_contains "${app_server_failure_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook exits nonzero"
 
+header "app-server adapter passes through warn decisions without declining"
+warn_hook_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_warn_hook", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-repo-warn-hook"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\npython3 - <<'PY'\nimport json\nprint(json.dumps({'decision': 'warn', 'reason': 'warn only'}))\nPY\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/warn", "cwd": str(app_repo)}},
+    state,
+)
+
+captured = []
+approval_message = {
+    "id": "req-warn",
+    "method": "item/commandExecution/requestApproval",
+    "params": {"threadId": "thread/warn", "command": "printf test > notes.md"},
+}
+intercepted = strategy.handle_server_request(approval_message, state, captured.append)
+
+print(json.dumps({"intercepted": intercepted, "captured": captured}, ensure_ascii=False))
+PYCODE
+)"
+assert_contains "${warn_hook_json}" '"intercepted": false' "warn pre-bash hook leaves approval request untouched"
+assert_contains "${warn_hook_json}" '"captured": []' "warn pre-bash hook does not synthesize a decline"
+
+header "app-server adapter fails closed when pre-bash hook cannot launch"
+launch_error_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_launch_error", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-repo-launch-error"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\nprintf '{\"decision\":\"pass\"}'\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/launch-error", "cwd": str(app_repo / 'missing-cwd')}},
+    state,
+)
+
+captured = []
+approval_message = {
+    "id": "req-launch-error",
+    "method": "item/commandExecution/requestApproval",
+    "params": {"threadId": "thread/launch-error", "command": "echo hi"},
+}
+intercepted = strategy.handle_server_request(approval_message, state, captured.append)
+
+print(json.dumps({"intercepted": intercepted, "approval": captured[0]}, ensure_ascii=False))
+PYCODE
+)"
+assert_contains "${launch_error_json}" '"intercepted": true' "hook launch errors intercept the approval request"
+assert_contains "${launch_error_json}" '"decision": "decline"' "hook launch errors fail closed instead of passing through"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

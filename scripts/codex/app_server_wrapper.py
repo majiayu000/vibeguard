@@ -101,8 +101,12 @@ class HookRunner:
                 env=env,
             )
         except OSError as exc:
-            output = f"hook failed to launch: {exc}"
-            return HookResult(decision="hook_error", output=output)
+            print(
+                f"[vibeguard-codex-wrapper] hook {hook_name} failed to launch"
+                f" (cwd={cwd!r} unavailable): {exc}",
+                file=sys.stderr,
+            )
+            return HookResult(decision="error", output=str(exc), failed=True)
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
         if proc.returncode != 0:
             return HookResult(decision="hook_error", output=output.strip() or f"hook failed with exit {proc.returncode}")
@@ -272,6 +276,9 @@ class VibeGuardGateStrategy(GateStrategy):
                     file=sys.stderr,
                 )
             return True
+
+        if result.decision == "warn":
+            return False
 
         if result.decision not in {"pass", "allow"}:
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
