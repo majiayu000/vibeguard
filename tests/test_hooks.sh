@@ -903,6 +903,66 @@ _stub_guards="$(_make_stub_guard_dir)"
 assert_exit_nonzero "JavaScript syntax check still runs for staged files with spaces in the path" bash -c "cd '$tmp_repo_precommit_js_space' && PATH='$tmp_repo_precommit_js_space/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$_stub_guards" "$tmp_repo_precommit_js_space"
 
+# JS files under a TS config still need node --check when the tsconfig excludes them.
+tmp_repo_precommit_js_outside_tsconfig="$(mktemp -d)"
+git -C "$tmp_repo_precommit_js_outside_tsconfig" init -q
+mkdir -p "$tmp_repo_precommit_js_outside_tsconfig/bin" "$tmp_repo_precommit_js_outside_tsconfig/src" "$tmp_repo_precommit_js_outside_tsconfig/scripts"
+
+cat >"$tmp_repo_precommit_js_outside_tsconfig/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_js_outside_tsconfig/scripts/bad.js" <<'EOF'
+function () {}
+EOF
+
+cat >"$tmp_repo_precommit_js_outside_tsconfig/bin/node" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "--check" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+cat >"$tmp_repo_precommit_js_outside_tsconfig/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_js_outside_tsconfig/bin/node" "$tmp_repo_precommit_js_outside_tsconfig/bin/tsc"
+git -C "$tmp_repo_precommit_js_outside_tsconfig" add tsconfig.json scripts/bad.js
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "JavaScript syntax check still runs when a staged JS file sits outside tsconfig include globs" bash -c "cd '$tmp_repo_precommit_js_outside_tsconfig' && PATH='$tmp_repo_precommit_js_outside_tsconfig/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_js_outside_tsconfig"
+
+# .mjs files must be treated as staged source files so node --check can validate them.
+tmp_repo_precommit_mjs="$(mktemp -d)"
+git -C "$tmp_repo_precommit_mjs" init -q
+mkdir -p "$tmp_repo_precommit_mjs/bin"
+
+cat >"$tmp_repo_precommit_mjs/bad.mjs" <<'EOF'
+function () {}
+EOF
+
+cat >"$tmp_repo_precommit_mjs/bin/node" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "--check" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_mjs/bin/node"
+git -C "$tmp_repo_precommit_mjs" add bad.mjs
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero ".mjs files still run JavaScript syntax checks in pre-commit" bash -c "cd '$tmp_repo_precommit_mjs' && PATH='$tmp_repo_precommit_mjs/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_mjs"
+
 # Nested TS apps should keep working when only the repo root provides tsc.
 tmp_repo_precommit_nested_ts_root_tsc="$(mktemp -d)"
 git -C "$tmp_repo_precommit_nested_ts_root_tsc" init -q

@@ -33,7 +33,7 @@ if [[ "$_vg_repo_root" != "global" ]]; then
 fi
 
 # Source file extension list (shared constant)
-VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
+VG_SOURCE_EXTS="rs py ts js mjs cjs tsx jsx go java kt swift rb"
 
 # Determine whether the file is a source code file
 # Usage: vg_is_source_file "path/to/file.rs" && echo "is source code"

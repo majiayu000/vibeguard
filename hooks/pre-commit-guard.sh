@@ -24,7 +24,7 @@ elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; 
 else
   vg_log() { :; }
   vg_start_timer() { :; }
-  VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
+  VG_SOURCE_EXTS="rs py ts js mjs cjs tsx jsx go java kt swift rb"
 fi
 vg_start_timer
 
@@ -178,11 +178,10 @@ while IFS= read -r file; do
       if [[ -n "$ts_root" ]]; then
         add_unique_entry DETECTED_LANGS "typescript"
         add_unique_entry TYPESCRIPT_BUILD_ROOTS "$ts_root"
-      else
-        add_unique_entry DETECTED_LANGS "javascript"
-        if [[ "$ext" != "jsx" ]]; then
-          add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
-        fi
+      fi
+      add_unique_entry DETECTED_LANGS "javascript"
+      if [[ "$ext" != "jsx" ]]; then
+        add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
       fi
       ;;
     mjs|cjs)
