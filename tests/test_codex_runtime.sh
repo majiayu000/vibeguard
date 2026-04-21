@@ -119,11 +119,11 @@ assert_contains "${failing_out}" '"permissionDecision": "deny"' "run-hook-codex 
 assert_contains "${failing_out}" 'hook failed' "run-hook-codex explains wrapped hook failures"
 assert_not_contains "${failing_out}" '"permissionDecision":"allow"' "run-hook-codex does not convert wrapped hook failure into allow"
 TOTAL=$((TOTAL + 1))
-if [[ ${failing_rc} -ne 0 ]]; then
-  green "run-hook-codex preserves a nonzero exit on wrapped hook failure"
+if [[ ${failing_rc} -eq 0 ]]; then
+  green "run-hook-codex exits successfully when it emits a deny payload for wrapped hook failure"
   PASS=$((PASS + 1))
 else
-  red "run-hook-codex preserves a nonzero exit on wrapped hook failure"
+  red "run-hook-codex exits successfully when it emits a deny payload for wrapped hook failure"
   FAIL=$((FAIL + 1))
 fi
 
@@ -188,11 +188,11 @@ set -e
 assert_contains "${invalid_json_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when pretool adaptation fails"
 assert_contains "${invalid_json_out}" 'invalid JSON' "run-hook-codex explains invalid pretool hook JSON"
 TOTAL=$((TOTAL + 1))
-if [[ ${invalid_json_rc} -ne 0 ]]; then
-  green "run-hook-codex preserves a nonzero exit on pretool adapter failure"
+if [[ ${invalid_json_rc} -eq 0 ]]; then
+  green "run-hook-codex exits successfully when it emits a deny payload on pretool adapter failure"
   PASS=$((PASS + 1))
 else
-  red "run-hook-codex preserves a nonzero exit on pretool adapter failure"
+  red "run-hook-codex exits successfully when it emits a deny payload on pretool adapter failure"
   FAIL=$((FAIL + 1))
 fi
 

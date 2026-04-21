@@ -67,7 +67,7 @@ print(json.dumps({
     }
 }, ensure_ascii=False))
 PY
-    exit "$HOOK_EXIT"
+    exit 0
   fi
   exit 0
 fi
@@ -131,7 +131,7 @@ print(json.dumps({
 }, ensure_ascii=False))
 PY
     fi
-    exit "$pretool_status"
+    exit 0
   fi
   if [[ -n "$pretool_output" ]]; then
     printf '%s\n' "$pretool_output"
