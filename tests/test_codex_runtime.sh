@@ -230,6 +230,7 @@ subprocess.run(
     stderr=subprocess.DEVNULL,
 )
 (app_repo / "tracked.py").write_text("print('changed')\n", encoding="utf-8")
+(app_repo / "new_file.py").write_text("print('new')\n", encoding="utf-8")
 
 (hooks_dir / "pre-bash-guard.sh").write_text(
     """#!/usr/bin/env bash
@@ -269,14 +270,17 @@ PY
 )
 (hooks_dir / "post-build-check.sh").write_text(
     """#!/usr/bin/env bash
-cat >/dev/null
-python3 - <<'PY'
+payload=$(cat)
+PAYLOAD="$payload" python3 - <<'PY'
 import json
 import os
+payload = json.loads(os.environ['PAYLOAD'])
+file_path = payload['tool_input']['file_path']
 msg = 'build=' + '|'.join([
     os.environ.get('VIBEGUARD_SESSION_ID', ''),
     os.environ.get('VIBEGUARD_THREAD_ID', ''),
     os.environ.get('VIBEGUARD_TURN_ID', ''),
+    os.path.basename(file_path),
 ])
 print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': msg}}))
 PY
@@ -332,6 +336,8 @@ assert_contains "${adapter_json}" '|thread/alpha|turn-42' "pre-bash hook receive
 assert_contains "${adapter_json}" '"vibeguard"' "turn/completed notification is enriched with vibeguard feedback"
 assert_contains "${adapter_json}" 'learn=codex-thread-thread-alpha-' "learn-evaluator feedback is attached to turn/completed"
 assert_contains "${adapter_json}" 'build=codex-thread-thread-alpha-' "post-build feedback is attached to turn/completed"
+assert_contains "${adapter_json}" 'tracked.py' "post-build check still covers modified tracked source files"
+assert_contains "${adapter_json}" 'new_file.py' "post-build check covers untracked source files"
 assert_contains "${adapter_json}" '"session_collision_free": true' "distinct thread ids do not collapse to the same session id"
 assert_contains "${adapter_json}" '"pre_edit_guard": false' "capability matrix is exposed on app-server feedback"
 assert_not_contains "${adapter_json}" '"stop-guard.sh"' "empty stop-guard output does not create spurious feedback entries"
