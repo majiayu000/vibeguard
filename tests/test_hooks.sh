@@ -735,6 +735,196 @@ git -C "$tmp_repo_precommit_go" add go.mod cmd/main.go
 assert_exit_nonzero "Go guards prevent _= discarding commits with error" bash -c "cd '$tmp_repo_precommit_go' && PATH='$tmp_repo_precommit_go/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_precommit_go"
 
+_make_stub_guard_dir() {
+  local stub_root
+  stub_root=$(mktemp -d)
+  mkdir -p "$stub_root/guards/rust" "$stub_root/guards/typescript" "$stub_root/guards/go"
+
+  cat >"$stub_root/guards/rust/check_unwrap_in_prod.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat >"$stub_root/guards/typescript/check_console_residual.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat >"$stub_root/guards/typescript/check_any_abuse.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat >"$stub_root/guards/go/check_error_handling.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat >"$stub_root/guards/go/check_goroutine_leak.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat >"$stub_root/guards/go/check_defer_in_loop.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  chmod +x \
+    "$stub_root/guards/rust/check_unwrap_in_prod.sh" \
+    "$stub_root/guards/typescript/check_console_residual.sh" \
+    "$stub_root/guards/typescript/check_any_abuse.sh" \
+    "$stub_root/guards/go/check_error_handling.sh" \
+    "$stub_root/guards/go/check_goroutine_leak.sh" \
+    "$stub_root/guards/go/check_defer_in_loop.sh"
+
+  echo "$stub_root"
+}
+
+# JS-only changes inside a TS repo must still run tsc when tsconfig.json is present.
+tmp_repo_precommit_ts_js="$(mktemp -d)"
+git -C "$tmp_repo_precommit_ts_js" init -q
+mkdir -p "$tmp_repo_precommit_ts_js/bin" "$tmp_repo_precommit_ts_js/src"
+
+cat >"$tmp_repo_precommit_ts_js/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_ts_js/src/bad.js" <<'EOF'
+const value = missingSymbol;
+EOF
+
+cat >"$tmp_repo_precommit_ts_js/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "tsc" && "$2" == "--noEmit" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+cat >"$tmp_repo_precommit_ts_js/bin/node" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+cat >"$tmp_repo_precommit_ts_js/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_ts_js/bin/npx" "$tmp_repo_precommit_ts_js/bin/node" "$tmp_repo_precommit_ts_js/bin/tsc"
+git -C "$tmp_repo_precommit_ts_js" add tsconfig.json src/bad.js
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "JS-only staged changes in a TS repo still run tsc --noEmit" bash -c "cd '$tmp_repo_precommit_ts_js' && PATH='$tmp_repo_precommit_ts_js/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_ts_js"
+
+# Nested Rust crates must run cargo check from the staged file's nearest Cargo.toml.
+tmp_repo_precommit_nested_rust="$(mktemp -d)"
+git -C "$tmp_repo_precommit_nested_rust" init -q
+mkdir -p "$tmp_repo_precommit_nested_rust/bin" "$tmp_repo_precommit_nested_rust/crates/demo/src"
+
+cat >"$tmp_repo_precommit_nested_rust/crates/demo/Cargo.toml" <<'EOF'
+[package]
+name = "nested-demo"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_precommit_nested_rust/crates/demo/src/lib.rs" <<'EOF'
+pub fn demo() -> i32 {
+    1
+}
+EOF
+
+cat >"$tmp_repo_precommit_nested_rust/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "check" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_nested_rust/bin/cargo"
+git -C "$tmp_repo_precommit_nested_rust" add crates/demo/Cargo.toml crates/demo/src/lib.rs
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "Nested Cargo.toml projects still run cargo check in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_rust' && PATH='$tmp_repo_precommit_nested_rust/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_rust"
+
+# Nested TS apps must run tsc from the staged file's nearest tsconfig.json.
+tmp_repo_precommit_nested_ts="$(mktemp -d)"
+git -C "$tmp_repo_precommit_nested_ts" init -q
+mkdir -p "$tmp_repo_precommit_nested_ts/bin" "$tmp_repo_precommit_nested_ts/apps/web/src"
+
+cat >"$tmp_repo_precommit_nested_ts/apps/web/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts/apps/web/src/index.ts" <<'EOF'
+export const value = 1;
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "tsc" && "$2" == "--noEmit" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_nested_ts/bin/npx" "$tmp_repo_precommit_nested_ts/bin/tsc"
+git -C "$tmp_repo_precommit_nested_ts" add apps/web/tsconfig.json apps/web/src/index.ts
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "Nested tsconfig.json projects still run tsc --noEmit in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_ts' && PATH='$tmp_repo_precommit_nested_ts/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_ts"
+
+# Nested Go modules must run go build from the staged file's nearest go.mod.
+tmp_repo_precommit_nested_go="$(mktemp -d)"
+git -C "$tmp_repo_precommit_nested_go" init -q
+mkdir -p "$tmp_repo_precommit_nested_go/bin" "$tmp_repo_precommit_nested_go/services/api/cmd"
+
+cat >"$tmp_repo_precommit_nested_go/services/api/go.mod" <<'EOF'
+module nested-go-demo
+
+go 1.22
+EOF
+
+cat >"$tmp_repo_precommit_nested_go/services/api/cmd/main.go" <<'EOF'
+package main
+
+func main() {}
+EOF
+
+cat >"$tmp_repo_precommit_nested_go/bin/go" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "build" && "$2" == "./..." ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_nested_go/bin/go"
+git -C "$tmp_repo_precommit_nested_go" add services/api/go.mod services/api/cmd/main.go
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "Nested go.mod projects still run go build ./... in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_go' && PATH='$tmp_repo_precommit_nested_go/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_go"
+
 # =========================================================
 header "log.sh — session_id: start-time anchor + 30-min TTL"
 # =========================================================

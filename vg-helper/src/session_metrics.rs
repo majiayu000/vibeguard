@@ -585,7 +585,8 @@ mod tests {
     }
 
     fn tmp_dir_for_test(suffix: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vg-sm-test-{suffix}"));
+        let dir = std::env::temp_dir().join(format!("vg-sm-test-{suffix}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
