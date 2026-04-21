@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776678545387,
+  "lastUpdate": 1776804312618,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -896,6 +896,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "075c3ed9757178180fbc8516cc0f81639afaf224",
+          "message": "fix(codex): fail closed on wrapped hook errors (#113)\n\n* fix(codex): fail closed on wrapped hook errors\n\nCodex PreToolUse wrapper execution was failing open when the wrapped hook exited\nnonzero or returned malformed JSON, which disabled guard enforcement instead of\nsurfacing a deny decision. Fail closed for those wrapper errors, keep valid\nempty pass output silent, and cover the failure path with runtime regression\nchecks.\n\nA small vg-helper test-helper cleanup is included so the required cargo test run\nis deterministic: session metrics tests append JSONL, so reusing a fixed temp\nfolder could leave trailing records from earlier runs.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* Keep Codex fail-closed fixes from breaking best-effort hooks\n\nLimit the wrapper hardening to PreToolUse so Stop and other best-effort\nCodex hooks still fail open when they are only advisory, while keeping the\napproval boundary fail closed when hook adaptation breaks.\n\nConstraint: PreToolUse must deny on hook/adaptation failure without changing documented non-blocking Stop/PostToolUse behavior\nRejected: Propagate every nonzero hook exit | it breaks best-effort hook contracts outside the approval boundary\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: When changing Codex hook adaptation, keep explicit tests for both fail-closed PreToolUse and fail-open best-effort hook events\nTested: bash tests/test_codex_runtime.sh; bash tests/test_hook_health.sh; bash tests/test_hooks.sh; cargo check --manifest-path vg-helper/Cargo.toml; cargo test --manifest-path vg-helper/Cargo.toml\nNot-tested: Full CI matrix on GitHub\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(codex): fail closed app-server hook errors\n\nDecline app-server command approvals when pre-bash hooks fail to launch or exit nonzero so broken guards cannot silently bypass the approval boundary.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(codex): return success for deny payloads\n\nCodex only blocks PreToolUse requests when deny JSON is emitted with a successful exit, so keep wrapped-hook and adapter failures fail-closed instead of surfacing them as generic hook failures.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-22T04:40:14+08:00",
+          "tree_id": "ade6c358a91910e1a4c48481298c7058163256f8",
+          "url": "https://github.com/majiayu000/vibeguard/commit/075c3ed9757178180fbc8516cc0f81639afaf224"
+        },
+        "date": 1776804311657,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 188,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 213,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 255,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 298,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 208,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 314,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 209,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 132,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 132,
             "unit": "ms"
           }
         ]
