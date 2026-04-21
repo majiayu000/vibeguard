@@ -114,20 +114,20 @@ else
 fi
 teardown
 
-# ── 5. Missing VIBEGUARD_LOG_FILE: exits 0 (no crash) ────────────────────────
+# ── 5. Missing VIBEGUARD_LOG_FILE: exits 0 with empty stdout ─────────────────
 printf '\n--- Missing VIBEGUARD_LOG_FILE (line 35 guard) ---\n'
 
 setup
 TOTAL=$((TOTAL + 1))
 exit_code=0
-env -u VIBEGUARD_LOG_FILE \
+output="$(env -u VIBEGUARD_LOG_FILE \
   VIBEGUARD_SESSION_ID="testsession01" \
   VIBEGUARD_PROJECT_LOG_DIR="${TMPDIR_TEST}" \
-  python3 "${SCRIPT}" >/dev/null 2>&1 || exit_code=$?
-if [[ $exit_code -eq 0 ]]; then
-  green "Missing VIBEGUARD_LOG_FILE: exits 0 (early-exit guard works)"; PASS=$((PASS + 1))
+  python3 "${SCRIPT}" 2>/dev/null)" || exit_code=$?
+if [[ $exit_code -eq 0 && -z "$output" ]]; then
+  green "Missing VIBEGUARD_LOG_FILE: exits 0 with empty stdout (early-exit guard works)"; PASS=$((PASS + 1))
 else
-  red "Missing VIBEGUARD_LOG_FILE: expected exit 0, got $exit_code"; FAIL=$((FAIL + 1))
+  red "Missing VIBEGUARD_LOG_FILE: expected exit 0 with empty stdout, got exit=$exit_code output='$output'"; FAIL=$((FAIL + 1))
 fi
 teardown
 
