@@ -45,13 +45,9 @@ INPUT=$(cat)
 
 HOOK_OUTPUT=""
 HOOK_EXIT=0
-HOOK_OUTPUT=$(echo "$INPUT" | bash "$HOOK_PATH" "$@" 2>/dev/null) || HOOK_EXIT=$?
+HOOK_OUTPUT=$(printf '%s' "$INPUT" | bash "$HOOK_PATH" "$@" 2>/dev/null) || HOOK_EXIT=$?
 
-if [[ $HOOK_EXIT -ne 0 ]] || [[ -z "$HOOK_OUTPUT" ]]; then
-  exit 0
-fi
-
-EVENT_NAME=$(echo "$INPUT" | python3 -c "
+EVENT_NAME=$(printf '%s' "$INPUT" | python3 -c "
 import json, sys
 try:
     print(json.load(sys.stdin).get('hook_event_name', ''))
@@ -59,13 +55,42 @@ except Exception:
     print('')
 " 2>/dev/null || echo "")
 
+if [[ $HOOK_EXIT -ne 0 ]]; then
+  if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
+    python3 - <<'PY'
+import json
+print(json.dumps({
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'deny',
+        'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook exited nonzero.'
+    }
+}, ensure_ascii=False))
+PY
+    exit 0
+  fi
+  exit 0
+fi
+
+if [[ -z "$HOOK_OUTPUT" ]]; then
+  exit 0
+fi
+
 if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
-  echo "$HOOK_OUTPUT" | python3 -c "
+  pretool_status=0
+  pretool_output=$(printf '%s' "$HOOK_OUTPUT" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
 except Exception:
-    sys.exit(0)
+    print(json.dumps({
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny',
+            'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook produced invalid JSON.'
+        }
+    }, ensure_ascii=False))
+    sys.exit(3)
 
 decision = data.get('decision', 'pass')
 reason = data.get('reason', '')
@@ -90,7 +115,27 @@ elif decision == 'allow' and isinstance(updated, dict):
                 'Suggested command: ' + command
             )
         }, ensure_ascii=False))
-" 2>/dev/null
+") || pretool_status=$?
+  if [[ ${pretool_status} -ne 0 ]]; then
+    if [[ -n "$pretool_output" ]]; then
+      printf '%s\n' "$pretool_output"
+    else
+      python3 - <<'PY'
+import json
+print(json.dumps({
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'deny',
+        'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook output could not be adapted.'
+    }
+}, ensure_ascii=False))
+PY
+    fi
+    exit 0
+  fi
+  if [[ -n "$pretool_output" ]]; then
+    printf '%s\n' "$pretool_output"
+  fi
 elif [[ "$EVENT_NAME" == "PostToolUse" ]]; then
   echo "$HOOK_OUTPUT" | python3 -c "
 import json, sys

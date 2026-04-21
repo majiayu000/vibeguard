@@ -97,13 +97,11 @@ class HookRunner:
                 env=env,
             )
         except OSError as exc:
-            print(
-                f"[vibeguard-codex-wrapper] hook {hook_name} skipped"
-                f" (cwd={cwd!r} unavailable): {exc}",
-                file=sys.stderr,
-            )
-            return HookResult(decision="pass", output="")
+            output = f"hook failed to launch: {exc}"
+            return HookResult(decision="hook_error", output=output)
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        if proc.returncode != 0:
+            return HookResult(decision="hook_error", output=output.strip() or f"hook failed with exit {proc.returncode}")
         payloads = self._extract_payloads(output)
         decision = self._extract_decision(output, payloads) or "pass"
         updated_command = self._extract_updated_command(payloads) if decision == "allow" else None
@@ -255,6 +253,15 @@ class VibeGuardGateStrategy(GateStrategy):
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
             print(
                 f"[vibeguard-codex-wrapper] blocked command approval: {command}",
+                file=sys.stderr,
+            )
+            return True
+
+        if result.decision == "hook_error":
+            write_to_server({"id": msg_id, "result": {"decision": "decline"}})
+            detail = result.output or "hook failed"
+            print(
+                f"[vibeguard-codex-wrapper] hook failed closed for {command!r}: {detail}",
                 file=sys.stderr,
             )
             return True

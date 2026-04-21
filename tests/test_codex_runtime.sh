@@ -68,6 +68,134 @@ rewrite_out="$(
 assert_contains "${rewrite_out}" '"systemMessage"' "run-hook-codex emits an explicit note for unsupported rewrites"
 assert_contains "${rewrite_out}" 'pnpm install' "run-hook-codex includes the suggested rewritten command"
 
+header "run-hook-codex keeps pass-with-no-output silent"
+TMP_HOME_PASSING="${TMP_DIR}/home-passing"
+TMP_FAKE_REPO_PASSING="${TMP_DIR}/fake-repo-passing"
+mkdir -p "${TMP_HOME_PASSING}/.vibeguard" "${TMP_FAKE_REPO_PASSING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_PASSING}" > "${TMP_HOME_PASSING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+HOOK
+chmod +x "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh"
+
+passing_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${TMP_HOME_PASSING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if [[ -z "${passing_out}" ]]; then
+  green "run-hook-codex keeps empty pass responses silent"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex keeps empty pass responses silent"
+  FAIL=$((FAIL + 1))
+fi
+
+header "run-hook-codex denies wrapped hook failures instead of passing silently"
+TMP_HOME_FAILING="${TMP_DIR}/home-failing"
+TMP_FAKE_REPO_FAILING="${TMP_DIR}/fake-repo-failing"
+mkdir -p "${TMP_HOME_FAILING}/.vibeguard" "${TMP_FAKE_REPO_FAILING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_FAILING}" > "${TMP_HOME_FAILING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_FAILING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'boom on stderr\n' >&2
+exit 1
+HOOK
+chmod +x "${TMP_FAKE_REPO_FAILING}/hooks/vibeguard-pre-bash-guard.sh"
+
+set +e
+failing_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"rm -rf /"}}' \
+    | HOME="${TMP_HOME_FAILING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+failing_rc=$?
+set -e
+assert_contains "${failing_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when the wrapped hook exits nonzero"
+assert_contains "${failing_out}" 'hook failed' "run-hook-codex explains wrapped hook failures"
+assert_not_contains "${failing_out}" '"permissionDecision":"allow"' "run-hook-codex does not convert wrapped hook failure into allow"
+TOTAL=$((TOTAL + 1))
+if [[ ${failing_rc} -eq 0 ]]; then
+  green "run-hook-codex exits successfully when it emits a deny payload for wrapped hook failure"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex exits successfully when it emits a deny payload for wrapped hook failure"
+  FAIL=$((FAIL + 1))
+fi
+
+header "run-hook-codex keeps best-effort stop hooks non-blocking"
+TMP_HOME_STOP_FAILING="${TMP_DIR}/home-stop-failing"
+TMP_FAKE_REPO_STOP_FAILING="${TMP_DIR}/fake-repo-stop-failing"
+mkdir -p "${TMP_HOME_STOP_FAILING}/.vibeguard" "${TMP_FAKE_REPO_STOP_FAILING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_STOP_FAILING}" > "${TMP_HOME_STOP_FAILING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_STOP_FAILING}/hooks/vibeguard-stop-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'transient stop failure\n' >&2
+exit 1
+HOOK
+chmod +x "${TMP_FAKE_REPO_STOP_FAILING}/hooks/vibeguard-stop-guard.sh"
+
+set +e
+stop_out="$({
+  printf '{"hook_event_name":"Stop"}' \
+    | HOME="${TMP_HOME_STOP_FAILING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-stop-guard.sh
+} 2>/dev/null)"
+stop_rc=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ ${stop_rc} -eq 0 ]]; then
+  green "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [[ -z "${stop_out}" ]]; then
+  green "run-hook-codex keeps failed best-effort stop hooks silent"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex keeps failed best-effort stop hooks silent"
+  FAIL=$((FAIL + 1))
+fi
+
+header "run-hook-codex denies invalid pretool adapter output on any adapter failure"
+TMP_HOME_INVALID_JSON="${TMP_DIR}/home-invalid-json"
+TMP_FAKE_REPO_INVALID_JSON="${TMP_DIR}/fake-repo-invalid-json"
+mkdir -p "${TMP_HOME_INVALID_JSON}/.vibeguard" "${TMP_FAKE_REPO_INVALID_JSON}/hooks"
+printf '%s' "${TMP_FAKE_REPO_INVALID_JSON}" > "${TMP_HOME_INVALID_JSON}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_INVALID_JSON}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{'
+HOOK
+chmod +x "${TMP_FAKE_REPO_INVALID_JSON}/hooks/vibeguard-pre-bash-guard.sh"
+
+set +e
+invalid_json_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"git push --force"}}' \
+    | HOME="${TMP_HOME_INVALID_JSON}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+invalid_json_rc=$?
+set -e
+assert_contains "${invalid_json_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when pretool adaptation fails"
+assert_contains "${invalid_json_out}" 'invalid JSON' "run-hook-codex explains invalid pretool hook JSON"
+TOTAL=$((TOTAL + 1))
+if [[ ${invalid_json_rc} -eq 0 ]]; then
+  green "run-hook-codex exits successfully when it emits a deny payload on pretool adapter failure"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex exits successfully when it emits a deny payload on pretool adapter failure"
+  FAIL=$((FAIL + 1))
+fi
+
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
@@ -207,6 +335,57 @@ assert_contains "${adapter_json}" 'build=codex-thread-thread-alpha-' "post-build
 assert_contains "${adapter_json}" '"session_collision_free": true' "distinct thread ids do not collapse to the same session id"
 assert_contains "${adapter_json}" '"pre_edit_guard": false' "capability matrix is exposed on app-server feedback"
 assert_not_contains "${adapter_json}" '"stop-guard.sh"' "empty stop-guard output does not create spurious feedback entries"
+
+header "app-server adapter fails closed when pre-bash hook exits nonzero"
+app_server_failure_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_fail_closed", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-fail-closed-repo"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\nprintf 'boom on stderr\\n' >&2\nexit 1\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/alpha", "cwd": str(app_repo)}},
+    state,
+)
+
+captured = []
+intercepted = strategy.handle_server_request(
+    {
+        "id": "req-fail-1",
+        "method": "item/commandExecution/requestApproval",
+        "params": {"threadId": "thread/alpha", "command": "rm -rf /"},
+    },
+    state,
+    captured.append,
+)
+
+print(json.dumps({"intercepted": intercepted, "approval": captured[0] if captured else None}, ensure_ascii=False))
+PYCODE
+)"
+assert_contains "${app_server_failure_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook exits nonzero"
+assert_contains "${app_server_failure_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook exits nonzero"
 
 echo
 echo "=============================="
