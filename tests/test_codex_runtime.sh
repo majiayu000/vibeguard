@@ -127,6 +127,75 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "run-hook-codex keeps best-effort stop hooks non-blocking"
+TMP_HOME_STOP_FAILING="${TMP_DIR}/home-stop-failing"
+TMP_FAKE_REPO_STOP_FAILING="${TMP_DIR}/fake-repo-stop-failing"
+mkdir -p "${TMP_HOME_STOP_FAILING}/.vibeguard" "${TMP_FAKE_REPO_STOP_FAILING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_STOP_FAILING}" > "${TMP_HOME_STOP_FAILING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_STOP_FAILING}/hooks/vibeguard-stop-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'transient stop failure\n' >&2
+exit 1
+HOOK
+chmod +x "${TMP_FAKE_REPO_STOP_FAILING}/hooks/vibeguard-stop-guard.sh"
+
+set +e
+stop_out="$({
+  printf '{"hook_event_name":"Stop"}' \
+    | HOME="${TMP_HOME_STOP_FAILING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-stop-guard.sh
+} 2>/dev/null)"
+stop_rc=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ ${stop_rc} -eq 0 ]]; then
+  green "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [[ -z "${stop_out}" ]]; then
+  green "run-hook-codex keeps failed best-effort stop hooks silent"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex keeps failed best-effort stop hooks silent"
+  FAIL=$((FAIL + 1))
+fi
+
+header "run-hook-codex denies invalid pretool adapter output on any adapter failure"
+TMP_HOME_INVALID_JSON="${TMP_DIR}/home-invalid-json"
+TMP_FAKE_REPO_INVALID_JSON="${TMP_DIR}/fake-repo-invalid-json"
+mkdir -p "${TMP_HOME_INVALID_JSON}/.vibeguard" "${TMP_FAKE_REPO_INVALID_JSON}/hooks"
+printf '%s' "${TMP_FAKE_REPO_INVALID_JSON}" > "${TMP_HOME_INVALID_JSON}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_INVALID_JSON}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{'
+HOOK
+chmod +x "${TMP_FAKE_REPO_INVALID_JSON}/hooks/vibeguard-pre-bash-guard.sh"
+
+set +e
+invalid_json_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"git push --force"}}' \
+    | HOME="${TMP_HOME_INVALID_JSON}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+invalid_json_rc=$?
+set -e
+assert_contains "${invalid_json_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when pretool adaptation fails"
+assert_contains "${invalid_json_out}" 'invalid JSON' "run-hook-codex explains invalid pretool hook JSON"
+TOTAL=$((TOTAL + 1))
+if [[ ${invalid_json_rc} -ne 0 ]]; then
+  green "run-hook-codex preserves a nonzero exit on pretool adapter failure"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex preserves a nonzero exit on pretool adapter failure"
+  FAIL=$((FAIL + 1))
+fi
+
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json

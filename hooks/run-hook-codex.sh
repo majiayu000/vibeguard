@@ -67,8 +67,9 @@ print(json.dumps({
     }
 }, ensure_ascii=False))
 PY
+    exit "$HOOK_EXIT"
   fi
-  exit "$HOOK_EXIT"
+  exit 0
 fi
 
 if [[ -z "$HOOK_OUTPUT" ]]; then
@@ -76,6 +77,7 @@ if [[ -z "$HOOK_OUTPUT" ]]; then
 fi
 
 if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
+  pretool_status=0
   pretool_output=$(printf '%s' "$HOOK_OUTPUT" | python3 -c "
 import json, sys
 try:
@@ -114,9 +116,22 @@ elif decision == 'allow' and isinstance(updated, dict):
             )
         }, ensure_ascii=False))
 ") || pretool_status=$?
-  if [[ ${pretool_status:-0} -eq 3 ]]; then
-    printf '%s\n' "$pretool_output"
-    exit 3
+  if [[ ${pretool_status} -ne 0 ]]; then
+    if [[ -n "$pretool_output" ]]; then
+      printf '%s\n' "$pretool_output"
+    else
+      python3 - <<'PY'
+import json
+print(json.dumps({
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'deny',
+        'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook output could not be adapted.'
+    }
+}, ensure_ascii=False))
+PY
+    fi
+    exit "$pretool_status"
   fi
   if [[ -n "$pretool_output" ]]; then
     printf '%s\n' "$pretool_output"
