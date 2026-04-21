@@ -66,6 +66,8 @@ class HookResult:
     output: str
     payloads: list[dict[str, Any]] = field(default_factory=list)
     updated_command: str | None = None
+    returncode: int = 0
+    failed: bool = False
 
 
 class HookRunner:
@@ -83,6 +85,8 @@ class HookRunner:
         hook_path = self.hooks_dir / hook_name
         if not hook_path.exists():
             return HookResult(decision="pass", output="")
+
+        failed = False
 
         env = os.environ.copy()
         if env_overrides:
@@ -103,13 +107,19 @@ class HookRunner:
         if proc.returncode != 0:
             return HookResult(decision="hook_error", output=output.strip() or f"hook failed with exit {proc.returncode}")
         payloads = self._extract_payloads(output)
-        decision = self._extract_decision(output, payloads) or "pass"
+        if proc.returncode != 0:
+            failed = True
+            decision = self._extract_decision(output, payloads) or "error"
+        else:
+            decision = self._extract_decision(output, payloads) or "pass"
         updated_command = self._extract_updated_command(payloads) if decision == "allow" else None
         return HookResult(
             decision=decision,
             output=output.strip(),
             payloads=payloads,
             updated_command=updated_command,
+            returncode=proc.returncode,
+            failed=failed,
         )
 
     @staticmethod
@@ -249,10 +259,24 @@ class VibeGuardGateStrategy(GateStrategy):
         payload = {"tool_input": {"command": command}}
         result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd, env_overrides=env)
 
-        if result.decision == "block":
+        if result.failed or result.decision == "block":
+            write_to_server({"id": msg_id, "result": {"decision": "decline"}})
+            if result.failed:
+                print(
+                    f"[vibeguard-codex-wrapper] pre-bash-guard failed with exit {result.returncode}; declining command approval: {command}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"[vibeguard-codex-wrapper] blocked command approval: {command}",
+                    file=sys.stderr,
+                )
+            return True
+
+        if result.decision not in {"pass", "allow"}:
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
             print(
-                f"[vibeguard-codex-wrapper] blocked command approval: {command}",
+                f"[vibeguard-codex-wrapper] unexpected pre-bash-guard decision {result.decision!r}; declining command approval: {command}",
                 file=sys.stderr,
             )
             return True
