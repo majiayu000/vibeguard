@@ -789,16 +789,28 @@ cat >"$tmp_repo_ts_in_rust/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 exit 1
 EOF
-chmod +x "$tmp_repo_ts_in_rust/bin/cargo"
-# Stage only the .ts file; Cargo.toml remains untracked — must not trigger rust detection
+cat >"$tmp_repo_ts_in_rust/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$tmp_repo_ts_in_rust/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$tmp_repo_ts_in_rust/bin/cargo" "$tmp_repo_ts_in_rust/bin/tsc" "$tmp_repo_ts_in_rust/bin/npx"
+# Stage only the .ts file; Cargo.toml remains untracked — rust build must not run.
+# Point VIBEGUARD_DIR at an empty guards dir so this test exercises only build gating.
 git -C "$tmp_repo_ts_in_rust" add src/index.ts
+tmp_vg_empty_ts_in_rust="$(mktemp -d)"
+mkdir -p "$tmp_vg_empty_ts_in_rust/guards"
 
-assert_exit_zero "TS-only staged in Rust repo: rust not detected from untracked Cargo.toml" bash -c "cd '$tmp_repo_ts_in_rust' && PATH='$tmp_repo_ts_in_rust/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+assert_exit_zero "TS-only staged in Rust repo: rust build not triggered from untracked Cargo.toml" bash -c "cd '$tmp_repo_ts_in_rust' && PATH='$tmp_repo_ts_in_rust/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$tmp_vg_empty_ts_in_rust' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$tmp_vg_empty_ts_in_rust"
 rm -rf "$tmp_repo_ts_in_rust"
 
 # RS-only staged in a TS repo: only .rs file staged — package.json is untracked.
-# TypeScript must NOT be detected based on untracked config files.
-# Fake tsc + npx exit 1 so any incorrect TS detection causes the test to fail.
+# TypeScript build must NOT run based on untracked repo files.
+# Fake tsc + npx exit 1 so any incorrect TS build detection causes the test to fail.
 tmp_repo_rs_in_ts="$(mktemp -d)"
 git -C "$tmp_repo_rs_in_ts" init -q
 mkdir -p "$tmp_repo_rs_in_ts/src" "$tmp_repo_rs_in_ts/bin"
@@ -816,7 +828,7 @@ cat >"$tmp_repo_rs_in_ts/bin/cargo" <<'EOF'
 exit 0
 EOF
 # Fake tsc in PATH so the guard's `command -v tsc` check succeeds and would run `npx tsc --noEmit`
-# if typescript were incorrectly detected — then fake npx fails, proving TS was triggered.
+# if typescript build were incorrectly enabled from the repo root.
 cat >"$tmp_repo_rs_in_ts/bin/tsc" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -826,11 +838,76 @@ cat >"$tmp_repo_rs_in_ts/bin/npx" <<'EOF'
 exit 1
 EOF
 chmod +x "$tmp_repo_rs_in_ts/bin/cargo" "$tmp_repo_rs_in_ts/bin/tsc" "$tmp_repo_rs_in_ts/bin/npx"
-# Stage only the .rs file; package.json remains untracked — must not trigger typescript detection
+# Stage only the .rs file; package.json remains untracked — TS build must not trigger.
 git -C "$tmp_repo_rs_in_ts" add src/lib.rs
 
-assert_exit_zero "RS-only staged in TS repo: typescript not detected from untracked package.json" bash -c "cd '$tmp_repo_rs_in_ts' && PATH='$tmp_repo_rs_in_ts/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+assert_exit_zero "RS-only staged in TS repo: typescript build not triggered from untracked package.json" bash -c "cd '$tmp_repo_rs_in_ts' && PATH='$tmp_repo_rs_in_ts/bin:/usr/bin:/bin:$PATH' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$tmp_repo_rs_in_ts"
+
+# Nested Rust crate without root Cargo.toml: rust guard should still run on staged .rs files,
+# but the root-level cargo check must stay disabled.
+tmp_repo_nested_rust="$(mktemp -d)"
+git -C "$tmp_repo_nested_rust" init -q
+mkdir -p "$tmp_repo_nested_rust/crate/src" "$tmp_repo_nested_rust/bin"
+
+cat >"$tmp_repo_nested_rust/crate/Cargo.toml" <<'EOF'
+[package]
+name = "nested-vg-test"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_nested_rust/crate/src/lib.rs" <<'EOF'
+pub fn nested() {
+    let _value = Some(1).unwrap();
+}
+EOF
+
+cat >"$tmp_repo_nested_rust/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp_repo_nested_rust/bin/cargo"
+git -C "$tmp_repo_nested_rust" add crate/src/lib.rs
+
+nested_rust_out=$(cd "$tmp_repo_nested_rust" && PATH="$tmp_repo_nested_rust/bin:/usr/bin:/bin:$PATH" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_contains "$nested_rust_out" "[rust/unwrap]" "Nested Rust crate: staged rust guard still runs without root Cargo.toml"
+assert_not_contains "$nested_rust_out" "cargo check failed" "Nested Rust crate: root cargo check stays disabled without root Cargo.toml"
+rm -rf "$tmp_repo_nested_rust"
+
+# Nested TS project without root tsconfig.json: TS guards should still run on staged .ts files,
+# but the root-level tsc build must stay disabled.
+tmp_repo_nested_ts="$(mktemp -d)"
+git -C "$tmp_repo_nested_ts" init -q
+mkdir -p "$tmp_repo_nested_ts/app/src" "$tmp_repo_nested_ts/bin"
+
+cat >"$tmp_repo_nested_ts/app/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "target": "ES2020"
+  }
+}
+EOF
+
+cat >"$tmp_repo_nested_ts/app/src/index.ts" <<'EOF'
+console.log('nested');
+EOF
+
+cat >"$tmp_repo_nested_ts/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$tmp_repo_nested_ts/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp_repo_nested_ts/bin/tsc" "$tmp_repo_nested_ts/bin/npx"
+git -C "$tmp_repo_nested_ts" add app/src/index.ts
+
+nested_ts_out=$(cd "$tmp_repo_nested_ts" && PATH="$tmp_repo_nested_ts/bin:/usr/bin:/bin:$PATH" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_contains "$nested_ts_out" "[ts/console]" "Nested TS project: staged TS guard still runs without root tsconfig.json"
+assert_not_contains "$nested_ts_out" "tsc --noEmit failed" "Nested TS project: root tsc stays disabled without root tsconfig.json"
+rm -rf "$tmp_repo_nested_ts"
 
 # =========================================================
 header "log.sh — session_id: start-time anchor + 30-min TTL"

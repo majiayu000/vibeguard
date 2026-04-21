@@ -97,15 +97,38 @@ git diff --cached -U0 2>/dev/null \
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
 # --- Language automatic detection (Verifier mode core) ---
-# Detect from *staged* files only — not repo-root config files — to avoid
-# false positives when a commit touches only files of a different language.
+# Quality guards run for languages present in the staged diff.
+# Build checks additionally require a runnable repo-root config when the command
+# assumes project state from "." (for example cargo check or tsc --noEmit).
 DETECTED_LANGS=""
-grep -qE '\.rs$'          <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} rust"
-grep -qE '\.(ts|tsx)$'   <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} typescript"
-grep -qE '\.(js|jsx)$'   <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} javascript"
-grep -qE '\.py$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} python"
-grep -qE '\.go$'            <<< "$_ALL_STAGED" && DETECTED_LANGS="${DETECTED_LANGS} go"
+BUILD_LANGS=""
+
+if grep -qE '\.rs$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} rust"
+  [[ -f "${REPO_ROOT}/Cargo.toml" ]] && BUILD_LANGS="${BUILD_LANGS} rust"
+fi
+
+if grep -qE '\.(ts|tsx)$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} typescript"
+  [[ -f "${REPO_ROOT}/tsconfig.json" ]] && BUILD_LANGS="${BUILD_LANGS} typescript"
+fi
+
+if grep -qE '\.(js|jsx)$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} javascript"
+  BUILD_LANGS="${BUILD_LANGS} javascript"
+fi
+
+if grep -qE '\.py$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} python"
+fi
+
+if grep -qE '\.go$' <<< "$_ALL_STAGED"; then
+  DETECTED_LANGS="${DETECTED_LANGS} go"
+  [[ -f "${REPO_ROOT}/go.mod" ]] && BUILD_LANGS="${BUILD_LANGS} go"
+fi
+
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
+BUILD_LANGS=$(echo "$BUILD_LANGS" | xargs)
 
 # --- Timeout executor ---
 run_with_timeout() {
@@ -188,7 +211,7 @@ if [[ -n "$GUARDS_DIR" ]]; then
   done
 fi
 
-# --- Build check: all detected languages run (not elif) ---
+# --- Build check: only run commands that are supported from the repo root ---
 BUILD_FAILS=""
 
 run_build_check() {
@@ -202,7 +225,7 @@ run_build_check() {
   fi
 }
 
-for lang in $DETECTED_LANGS; do
+for lang in $BUILD_LANGS; do
   case "$lang" in
     rust)
       run_build_check "cargo check --quiet" "cargo check failed"
