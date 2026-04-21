@@ -114,6 +114,38 @@ else
 fi
 teardown
 
+# ── 5. Missing VIBEGUARD_LOG_FILE: exits 0 (no crash) ────────────────────────
+printf '\n--- Missing VIBEGUARD_LOG_FILE (line 35 guard) ---\n'
+
+setup
+TOTAL=$((TOTAL + 1))
+exit_code=0
+env -u VIBEGUARD_LOG_FILE \
+  VIBEGUARD_SESSION_ID="testsession01" \
+  VIBEGUARD_PROJECT_LOG_DIR="${TMPDIR_TEST}" \
+  python3 "${SCRIPT}" >/dev/null 2>&1 || exit_code=$?
+if [[ $exit_code -eq 0 ]]; then
+  green "Missing VIBEGUARD_LOG_FILE: exits 0 (early-exit guard works)"; PASS=$((PASS + 1))
+else
+  red "Missing VIBEGUARD_LOG_FILE: expected exit 0, got $exit_code"; FAIL=$((FAIL + 1))
+fi
+teardown
+
+# ── 6. Missing VIBEGUARD_LOG_FILE: no metrics file written ───────────────────
+# The early sys.exit(0) at line 36 fires before any event aggregation or write.
+setup
+TOTAL=$((TOTAL + 1))
+env -u VIBEGUARD_LOG_FILE \
+  VIBEGUARD_SESSION_ID="testsession01" \
+  VIBEGUARD_PROJECT_LOG_DIR="${TMPDIR_TEST}" \
+  python3 "${SCRIPT}" >/dev/null 2>&1 || true
+if [[ ! -f "${TMPDIR_TEST}/session-metrics.jsonl" ]]; then
+  green "Missing VIBEGUARD_LOG_FILE: no metrics file written (exited before write)"; PASS=$((PASS + 1))
+else
+  red "Missing VIBEGUARD_LOG_FILE: metrics file should not exist after early exit"; FAIL=$((FAIL + 1))
+fi
+teardown
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
