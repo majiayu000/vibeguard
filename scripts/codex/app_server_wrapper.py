@@ -65,6 +65,7 @@ class HookResult:
     decision: str
     output: str
     payloads: list[dict[str, Any]] = field(default_factory=list)
+    reason: str | None = None
     updated_command: str | None = None
     returncode: int = 0
     failed: bool = False
@@ -116,11 +117,13 @@ class HookRunner:
             decision = self._extract_decision(output, payloads) or "error"
         else:
             decision = self._extract_decision(output, payloads) or "pass"
+        reason = self._extract_reason(payloads)
         updated_command = self._extract_updated_command(payloads) if decision == "allow" else None
         return HookResult(
             decision=decision,
             output=output.strip(),
             payloads=payloads,
+            reason=reason,
             updated_command=updated_command,
             returncode=proc.returncode,
             failed=failed,
@@ -157,6 +160,14 @@ class HookRunner:
         match = re.search(r'"decision"\s*:\s*"([a-zA-Z_-]+)"', output)
         if match:
             return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_reason(payloads: list[dict[str, Any]]) -> str | None:
+        for payload in payloads:
+            reason = payload.get("reason")
+            if isinstance(reason, str) and reason:
+                return reason
         return None
 
     @staticmethod
@@ -278,6 +289,14 @@ class VibeGuardGateStrategy(GateStrategy):
             return True
 
         if result.decision == "warn":
+            if result.reason:
+                warning_message: dict[str, Any] = {
+                    "method": "warning",
+                    "params": {"message": result.reason},
+                }
+                if isinstance(thread_id, str):
+                    warning_message["params"]["threadId"] = thread_id
+                write_to_server(warning_message)
             return False
 
         if result.decision not in {"pass", "allow"}:

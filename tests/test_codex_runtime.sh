@@ -387,7 +387,7 @@ PYCODE
 assert_contains "${app_server_failure_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook exits nonzero"
 assert_contains "${app_server_failure_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook exits nonzero"
 
-header "app-server adapter passes through warn decisions without declining"
+header "app-server adapter surfaces warn decisions before forwarding approval"
 warn_hook_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
 import importlib.util
@@ -434,7 +434,58 @@ print(json.dumps({"intercepted": intercepted, "captured": captured}, ensure_asci
 PYCODE
 )"
 assert_contains "${warn_hook_json}" '"intercepted": false' "warn pre-bash hook leaves approval request untouched"
-assert_contains "${warn_hook_json}" '"captured": []' "warn pre-bash hook does not synthesize a decline"
+assert_contains "${warn_hook_json}" '"method": "warning"' "warn pre-bash hook emits a visible warning notification"
+assert_contains "${warn_hook_json}" '"message": "warn only"' "warn pre-bash hook preserves the warning reason"
+assert_contains "${warn_hook_json}" '"threadId": "thread/warn"' "warn notification targets the active thread"
+
+header "app-server adapter fails closed on unexpected hook decisions"
+unknown_decision_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_unknown_decision", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-repo-unknown-decision"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\npython3 - <<'PY'\nimport json\nprint(json.dumps({'decision': 'banana', 'reason': 'bad protocol'}))\nPY\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/unknown", "cwd": str(app_repo)}},
+    state,
+)
+
+captured = []
+approval_message = {
+    "id": "req-unknown",
+    "method": "item/commandExecution/requestApproval",
+    "params": {"threadId": "thread/unknown", "command": "echo hi"},
+}
+intercepted = strategy.handle_server_request(approval_message, state, captured.append)
+
+print(json.dumps({"intercepted": intercepted, "approval": captured[0]}, ensure_ascii=False))
+PYCODE
+)"
+assert_contains "${unknown_decision_json}" '"intercepted": true' "unexpected decisions intercept the approval request"
+assert_contains "${unknown_decision_json}" '"decision": "decline"' "unexpected decisions fail closed instead of approving"
 
 header "app-server adapter fails closed when pre-bash hook cannot launch"
 launch_error_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
