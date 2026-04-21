@@ -38,7 +38,7 @@ pub fn run_field(args: &[String]) -> Result {
         return Err("Usage: vg-helper json-field <field_path>".into());
     }
     let input = read_stdin()?;
-    let data: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
+    let data: Value = serde_json::from_str(&input)?;
     let val = get_nested(&data, &args[0]);
     println!("{}", value_to_string(val));
     Ok(())
@@ -51,7 +51,7 @@ pub fn run_two_fields(args: &[String]) -> Result {
         return Err("Usage: vg-helper json-two-fields <field1> <field2>".into());
     }
     let input = read_stdin()?;
-    let data: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
+    let data: Value = serde_json::from_str(&input)?;
     let f1 = value_to_string(get_nested(&data, &args[0]));
     let f2 = value_to_string(get_nested(&data, &args[1]));
     println!("{f1}");
