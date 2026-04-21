@@ -96,39 +96,110 @@ git diff --cached -U0 2>/dev/null \
   > "$_DIFF_ADDED_TMPFILE" || true
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
-# --- Language automatic detection (Verifier mode core) ---
-# Quality guards run for languages present in the staged diff.
-# Build checks additionally require a runnable repo-root config when the command
-# assumes project state from "." (for example cargo check or tsc --noEmit).
+# --- Language and project-root detection (driven by the staged tree, not the working tree) ---
+index_has_path() {
+  local path="$1"
+  git cat-file -e ":${path}" 2>/dev/null
+}
+
+find_project_root() {
+  local path="$1"
+  local marker="$2"
+  local dir="$(dirname "$path")"
+  local candidate=""
+
+  while true; do
+    if [[ "$dir" == "." ]]; then
+      candidate="$marker"
+    else
+      candidate="${dir}/${marker}"
+    fi
+
+    if index_has_path "$candidate"; then
+      if [[ "$dir" == "." ]]; then
+        echo "$REPO_ROOT"
+      else
+        echo "${REPO_ROOT}/${dir}"
+      fi
+      return 0
+    fi
+
+    if [[ "$dir" == "." ]]; then
+      break
+    fi
+
+    dir=$(dirname "$dir")
+  done
+
+  return 1
+}
+
+add_unique_entry() {
+  local var_name="$1"
+  local value="$2"
+  local current=""
+
+  [[ -z "$value" ]] && return 0
+  eval "current=\${$var_name-}"
+
+  case $'\n'"$current"$'\n' in
+    *$'\n'"$value"$'\n'*) return 0 ;;
+  esac
+
+  if [[ -n "$current" ]]; then
+    printf -v "$var_name" '%s\n%s' "$current" "$value"
+  else
+    printf -v "$var_name" '%s' "$value"
+  fi
+}
+
 DETECTED_LANGS=""
-BUILD_LANGS=""
+RUST_BUILD_ROOTS=""
+TYPESCRIPT_BUILD_ROOTS=""
+GO_BUILD_ROOTS=""
+JAVASCRIPT_BUILD_FILES=""
 
-if grep -qE '\.rs$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} rust"
-  [[ -f "${REPO_ROOT}/Cargo.toml" ]] && BUILD_LANGS="${BUILD_LANGS} rust"
-fi
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
 
-if grep -qE '\.(ts|tsx)$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} typescript"
-  [[ -f "${REPO_ROOT}/tsconfig.json" ]] && BUILD_LANGS="${BUILD_LANGS} typescript"
-fi
+  ext="${file##*.}"
 
-if grep -qE '\.(js|jsx)$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} javascript"
-  BUILD_LANGS="${BUILD_LANGS} javascript"
-fi
-
-if grep -qE '\.py$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} python"
-fi
-
-if grep -qE '\.go$' <<< "$_ALL_STAGED"; then
-  DETECTED_LANGS="${DETECTED_LANGS} go"
-  [[ -f "${REPO_ROOT}/go.mod" ]] && BUILD_LANGS="${BUILD_LANGS} go"
-fi
+  case "$ext" in
+    rs)
+      add_unique_entry DETECTED_LANGS "rust"
+      add_unique_entry RUST_BUILD_ROOTS "$(find_project_root "$file" "Cargo.toml" || true)"
+      ;;
+    ts|tsx)
+      add_unique_entry DETECTED_LANGS "typescript"
+      add_unique_entry TYPESCRIPT_BUILD_ROOTS "$(find_project_root "$file" "tsconfig.json" || true)"
+      ;;
+    js|jsx)
+      ts_root="$(find_project_root "$file" "tsconfig.json" || true)"
+      if [[ -n "$ts_root" ]]; then
+        add_unique_entry DETECTED_LANGS "typescript"
+        add_unique_entry TYPESCRIPT_BUILD_ROOTS "$ts_root"
+      else
+        add_unique_entry DETECTED_LANGS "javascript"
+        if [[ "$ext" != "jsx" ]]; then
+          add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
+        fi
+      fi
+      ;;
+    mjs|cjs)
+      add_unique_entry DETECTED_LANGS "javascript"
+      add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
+      ;;
+    py)
+      add_unique_entry DETECTED_LANGS "python"
+      ;;
+    go)
+      add_unique_entry DETECTED_LANGS "go"
+      add_unique_entry GO_BUILD_ROOTS "$(find_project_root "$file" "go.mod" || true)"
+      ;;
+  esac
+done <<< "$STAGED_FILES"
 
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
-BUILD_LANGS=$(echo "$BUILD_LANGS" | xargs)
 
 # --- Timeout executor ---
 run_with_timeout() {
@@ -211,7 +282,7 @@ if [[ -n "$GUARDS_DIR" ]]; then
   done
 fi
 
-# --- Build check: only run commands that are supported from the repo root ---
+# --- Build check: all detected languages run (not elif) ---
 BUILD_FAILS=""
 
 run_build_check() {
@@ -225,14 +296,37 @@ run_build_check() {
   fi
 }
 
-for lang in $BUILD_LANGS; do
+for lang in $DETECTED_LANGS; do
   case "$lang" in
     rust)
-      run_build_check "cargo check --quiet" "cargo check failed"
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        run_build_check "cd ${build_root_q} && cargo check --quiet" "cargo check failed (${build_root})"
+      done <<< "$RUST_BUILD_ROOTS"
       ;;
-    typescript) run_build_check "if ! command -v tsc >/dev/null 2>&1 && ! [ -f node_modules/.bin/tsc ]; then exit 0; fi; npx tsc --noEmit" "tsc --noEmit failed" ;;
-    javascript) run_build_check 'if ! command -v node >/dev/null 2>&1; then exit 0; fi; FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E "\.(js|mjs|cjs)$" || true); [[ -z "$FILES" ]] && exit 0; while IFS= read -r f; do [[ -z "$f" || ! -f "$f" ]] && continue; node --check "$f" >/dev/null 2>&1 || exit 1; done <<< "$FILES"' "JavaScript syntax check failed (node --check)" ;;
-    go) run_build_check "go build ./..." "go build failed" ;;
+    typescript)
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        run_build_check "cd ${build_root_q} && if ! command -v tsc >/dev/null 2>&1 && ! [ -f node_modules/.bin/tsc ]; then exit 0; fi; npx tsc --noEmit" "tsc --noEmit failed (${build_root})"
+      done <<< "$TYPESCRIPT_BUILD_ROOTS"
+      ;;
+    javascript)
+      if [[ -n "$JAVASCRIPT_BUILD_FILES" ]]; then
+        javascript_files_q="$(printf '%s\n' "$JAVASCRIPT_BUILD_FILES" | sed '/^$/d' | while IFS= read -r file; do printf '%q\n' "$file"; done)"
+        run_build_check "if ! command -v node >/dev/null 2>&1; then exit 0; fi; while IFS= read -r f; do [[ -z \"\$f\" || ! -f \"\$f\" ]] && continue; node --check \"\$f\" >/dev/null 2>&1 || exit 1; done <<'EOF'
+${javascript_files_q}
+EOF" "JavaScript syntax check failed (node --check)"
+      fi
+      ;;
+    go)
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        run_build_check "cd ${build_root_q} && go build ./..." "go build failed (${build_root})"
+      done <<< "$GO_BUILD_ROOTS"
+      ;;
   esac
 done
 
