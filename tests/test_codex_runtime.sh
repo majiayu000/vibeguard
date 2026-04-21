@@ -68,6 +68,65 @@ rewrite_out="$(
 assert_contains "${rewrite_out}" '"systemMessage"' "run-hook-codex emits an explicit note for unsupported rewrites"
 assert_contains "${rewrite_out}" 'pnpm install' "run-hook-codex includes the suggested rewritten command"
 
+header "run-hook-codex keeps pass-with-no-output silent"
+TMP_HOME_PASSING="${TMP_DIR}/home-passing"
+TMP_FAKE_REPO_PASSING="${TMP_DIR}/fake-repo-passing"
+mkdir -p "${TMP_HOME_PASSING}/.vibeguard" "${TMP_FAKE_REPO_PASSING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_PASSING}" > "${TMP_HOME_PASSING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+HOOK
+chmod +x "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh"
+
+passing_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${TMP_HOME_PASSING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if [[ -z "${passing_out}" ]]; then
+  green "run-hook-codex keeps empty pass responses silent"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex keeps empty pass responses silent"
+  FAIL=$((FAIL + 1))
+fi
+
+header "run-hook-codex denies wrapped hook failures instead of passing silently"
+TMP_HOME_FAILING="${TMP_DIR}/home-failing"
+TMP_FAKE_REPO_FAILING="${TMP_DIR}/fake-repo-failing"
+mkdir -p "${TMP_HOME_FAILING}/.vibeguard" "${TMP_FAKE_REPO_FAILING}/hooks"
+printf '%s' "${TMP_FAKE_REPO_FAILING}" > "${TMP_HOME_FAILING}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_FAILING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'boom on stderr\n' >&2
+exit 1
+HOOK
+chmod +x "${TMP_FAKE_REPO_FAILING}/hooks/vibeguard-pre-bash-guard.sh"
+
+set +e
+failing_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"rm -rf /"}}' \
+    | HOME="${TMP_HOME_FAILING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+} 2>/dev/null)"
+failing_rc=$?
+set -e
+assert_contains "${failing_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when the wrapped hook exits nonzero"
+assert_contains "${failing_out}" 'hook failed' "run-hook-codex explains wrapped hook failures"
+assert_not_contains "${failing_out}" '"permissionDecision":"allow"' "run-hook-codex does not convert wrapped hook failure into allow"
+TOTAL=$((TOTAL + 1))
+if [[ ${failing_rc} -ne 0 ]]; then
+  green "run-hook-codex preserves a nonzero exit on wrapped hook failure"
+  PASS=$((PASS + 1))
+else
+  red "run-hook-codex preserves a nonzero exit on wrapped hook failure"
+  FAIL=$((FAIL + 1))
+fi
+
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
