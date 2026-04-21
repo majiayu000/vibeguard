@@ -925,6 +925,72 @@ _stub_guards="$(_make_stub_guard_dir)"
 assert_exit_nonzero "Nested go.mod projects still run go build ./... in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_go' && PATH='$tmp_repo_precommit_nested_go/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_go"
 
+# Build-root discovery must stay inside the repo instead of walking into parent workspaces.
+_tmp_precommit_parent_workspace_root="$(mktemp -d)"
+_tmp_precommit_parent_workspace_repo="${_tmp_precommit_parent_workspace_root}/repo"
+mkdir -p "${_tmp_precommit_parent_workspace_repo}/src" "${_tmp_precommit_parent_workspace_root}/bin"
+git -C "${_tmp_precommit_parent_workspace_repo}" init -q
+
+cat >"${_tmp_precommit_parent_workspace_root}/Cargo.toml" <<'EOF'
+[package]
+name = "outer-workspace"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"${_tmp_precommit_parent_workspace_repo}/src/lib.rs" <<'EOF'
+pub fn demo() -> i32 {
+    1
+}
+EOF
+
+cat >"${_tmp_precommit_parent_workspace_root}/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "check" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+chmod +x "${_tmp_precommit_parent_workspace_root}/bin/cargo"
+git -C "${_tmp_precommit_parent_workspace_repo}" add src/lib.rs
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_zero "Parent-workspace Cargo.toml outside the repo does not affect pre-commit root discovery" bash -c "cd '${_tmp_precommit_parent_workspace_repo}' && PATH='${_tmp_precommit_parent_workspace_root}/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$_tmp_precommit_parent_workspace_root"
+
+# Same-language unstaged manifests/configs must not change staged build-root detection.
+_tmp_precommit_unstaged_manifest_repo="$(mktemp -d)"
+git -C "$_tmp_precommit_unstaged_manifest_repo" init -q
+mkdir -p "$_tmp_precommit_unstaged_manifest_repo/bin" "$_tmp_precommit_unstaged_manifest_repo/src"
+
+cat >"$_tmp_precommit_unstaged_manifest_repo/src/lib.rs" <<'EOF'
+pub fn demo() -> i32 {
+    1
+}
+EOF
+
+git -C "$_tmp_precommit_unstaged_manifest_repo" add src/lib.rs
+
+cat >"$_tmp_precommit_unstaged_manifest_repo/Cargo.toml" <<'EOF'
+[package]
+name = "unstaged-manifest"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$_tmp_precommit_unstaged_manifest_repo/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "check" ]]; then
+  exit 1
+fi
+exit 0
+EOF
+
+chmod +x "$_tmp_precommit_unstaged_manifest_repo/bin/cargo"
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_zero "Unstaged Cargo.toml does not trigger cargo check for a staged Rust file" bash -c "cd '$_tmp_precommit_unstaged_manifest_repo' && PATH='$_tmp_precommit_unstaged_manifest_repo/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$_tmp_precommit_unstaged_manifest_repo"
+
 # =========================================================
 header "log.sh — session_id: start-time anchor + 30-min TTL"
 # =========================================================

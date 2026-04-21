@@ -96,16 +96,38 @@ git diff --cached -U0 2>/dev/null \
   > "$_DIFF_ADDED_TMPFILE" || true
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
-# --- Language and project-root detection (driven by staged files, not only repo root) ---
-find_project_root() {
-  local dir="$1"
-  local marker="$2"
+# --- Language and project-root detection (driven by the staged tree, not the working tree) ---
+index_has_path() {
+  local path="$1"
+  git cat-file -e ":${path}" 2>/dev/null
+}
 
-  while [[ "$dir" != "/" ]]; do
-    if [[ -f "$dir/$marker" ]]; then
-      echo "$dir"
+find_project_root() {
+  local path="$1"
+  local marker="$2"
+  local dir="$(dirname "$path")"
+  local candidate=""
+
+  while true; do
+    if [[ "$dir" == "." ]]; then
+      candidate="$marker"
+    else
+      candidate="${dir}/${marker}"
+    fi
+
+    if index_has_path "$candidate"; then
+      if [[ "$dir" == "." ]]; then
+        echo "$REPO_ROOT"
+      else
+        echo "${REPO_ROOT}/${dir}"
+      fi
       return 0
     fi
+
+    if [[ "$dir" == "." ]]; then
+      break
+    fi
+
     dir=$(dirname "$dir")
   done
 
@@ -140,21 +162,19 @@ JAVASCRIPT_BUILD_FILES=""
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
 
-  abs_file="${REPO_ROOT}/${file}"
-  file_dir=$(dirname "$abs_file")
   ext="${file##*.}"
 
   case "$ext" in
     rs)
       add_unique_entry DETECTED_LANGS "rust"
-      add_unique_entry RUST_BUILD_ROOTS "$(find_project_root "$file_dir" "Cargo.toml" || true)"
+      add_unique_entry RUST_BUILD_ROOTS "$(find_project_root "$file" "Cargo.toml" || true)"
       ;;
     ts|tsx)
       add_unique_entry DETECTED_LANGS "typescript"
-      add_unique_entry TYPESCRIPT_BUILD_ROOTS "$(find_project_root "$file_dir" "tsconfig.json" || true)"
+      add_unique_entry TYPESCRIPT_BUILD_ROOTS "$(find_project_root "$file" "tsconfig.json" || true)"
       ;;
     js|jsx)
-      ts_root="$(find_project_root "$file_dir" "tsconfig.json" || true)"
+      ts_root="$(find_project_root "$file" "tsconfig.json" || true)"
       if [[ -n "$ts_root" ]]; then
         add_unique_entry DETECTED_LANGS "typescript"
         add_unique_entry TYPESCRIPT_BUILD_ROOTS "$ts_root"
@@ -174,7 +194,7 @@ while IFS= read -r file; do
       ;;
     go)
       add_unique_entry DETECTED_LANGS "go"
-      add_unique_entry GO_BUILD_ROOTS "$(find_project_root "$file_dir" "go.mod" || true)"
+      add_unique_entry GO_BUILD_ROOTS "$(find_project_root "$file" "go.mod" || true)"
       ;;
   esac
 done <<< "$STAGED_FILES"
