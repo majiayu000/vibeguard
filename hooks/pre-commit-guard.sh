@@ -309,14 +309,15 @@ for lang in $DETECTED_LANGS; do
       while IFS= read -r build_root; do
         [[ -z "$build_root" ]] && continue
         build_root_q=$(printf '%q' "$build_root")
-        run_build_check "cd ${build_root_q} && if ! command -v tsc >/dev/null 2>&1 && ! [ -f node_modules/.bin/tsc ]; then exit 0; fi; npx tsc --noEmit" "tsc --noEmit failed (${build_root})"
+        repo_root_q=$(printf '%q' "$REPO_ROOT")
+        run_build_check "cd ${build_root_q} && tsc_cmd=''; search_dir=\"\$PWD\"; while true; do if [[ -x \"\$search_dir/node_modules/.bin/tsc\" ]]; then tsc_cmd=\"\$search_dir/node_modules/.bin/tsc\"; break; fi; [[ \"\$search_dir\" == ${repo_root_q} ]] && break; parent_dir=\$(dirname \"\$search_dir\"); [[ \"\$parent_dir\" == \"\$search_dir\" ]] && break; search_dir=\"\$parent_dir\"; done; [[ -z \"\$tsc_cmd\" ]] && command -v tsc >/dev/null 2>&1 && tsc_cmd=\$(command -v tsc); [[ -z \"\$tsc_cmd\" ]] && exit 0; \"\$tsc_cmd\" --noEmit" "tsc --noEmit failed (${build_root})"
       done <<< "$TYPESCRIPT_BUILD_ROOTS"
       ;;
     javascript)
       if [[ -n "$JAVASCRIPT_BUILD_FILES" ]]; then
-        javascript_files_q="$(printf '%s\n' "$JAVASCRIPT_BUILD_FILES" | sed '/^$/d' | while IFS= read -r file; do printf '%q\n' "$file"; done)"
+        javascript_files="$(printf '%s\n' "$JAVASCRIPT_BUILD_FILES" | sed '/^$/d')"
         run_build_check "if ! command -v node >/dev/null 2>&1; then exit 0; fi; while IFS= read -r f; do [[ -z \"\$f\" || ! -f \"\$f\" ]] && continue; node --check \"\$f\" >/dev/null 2>&1 || exit 1; done <<'EOF'
-${javascript_files_q}
+${javascript_files}
 EOF" "JavaScript syntax check failed (node --check)"
       fi
       ;;

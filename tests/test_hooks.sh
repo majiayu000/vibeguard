@@ -801,14 +801,6 @@ cat >"$tmp_repo_precommit_ts_js/src/bad.js" <<'EOF'
 const value = missingSymbol;
 EOF
 
-cat >"$tmp_repo_precommit_ts_js/bin/npx" <<'EOF'
-#!/usr/bin/env bash
-if [[ "$1" == "tsc" && "$2" == "--noEmit" ]]; then
-  exit 1
-fi
-exit 0
-EOF
-
 cat >"$tmp_repo_precommit_ts_js/bin/node" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -816,10 +808,10 @@ EOF
 
 cat >"$tmp_repo_precommit_ts_js/bin/tsc" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+exit 1
 EOF
 
-chmod +x "$tmp_repo_precommit_ts_js/bin/npx" "$tmp_repo_precommit_ts_js/bin/node" "$tmp_repo_precommit_ts_js/bin/tsc"
+chmod +x "$tmp_repo_precommit_ts_js/bin/node" "$tmp_repo_precommit_ts_js/bin/tsc"
 git -C "$tmp_repo_precommit_ts_js" add tsconfig.json src/bad.js
 _stub_guards="$(_make_stub_guard_dir)"
 assert_exit_nonzero "JS-only staged changes in a TS repo still run tsc --noEmit" bash -c "cd '$tmp_repo_precommit_ts_js' && PATH='$tmp_repo_precommit_ts_js/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
@@ -858,9 +850,11 @@ assert_exit_nonzero "Nested Cargo.toml projects still run cargo check in pre-com
 rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_rust"
 
 # Nested TS apps must run tsc from the staged file's nearest tsconfig.json.
+# The compiler may be installed only at the repo root, so the hook must search
+# ancestor node_modules/.bin entries instead of skipping the build check.
 tmp_repo_precommit_nested_ts="$(mktemp -d)"
 git -C "$tmp_repo_precommit_nested_ts" init -q
-mkdir -p "$tmp_repo_precommit_nested_ts/bin" "$tmp_repo_precommit_nested_ts/apps/web/src"
+mkdir -p "$tmp_repo_precommit_nested_ts/bin" "$tmp_repo_precommit_nested_ts/apps/web/src" "$tmp_repo_precommit_nested_ts/node_modules/.bin"
 
 cat >"$tmp_repo_precommit_nested_ts/apps/web/tsconfig.json" <<'EOF'
 {
@@ -875,24 +869,102 @@ cat >"$tmp_repo_precommit_nested_ts/apps/web/src/index.ts" <<'EOF'
 export const value = 1;
 EOF
 
-cat >"$tmp_repo_precommit_nested_ts/bin/npx" <<'EOF'
+cat >"$tmp_repo_precommit_nested_ts/node_modules/.bin/tsc" <<'EOF'
 #!/usr/bin/env bash
-if [[ "$1" == "tsc" && "$2" == "--noEmit" ]]; then
+exit 1
+EOF
+
+chmod +x "$tmp_repo_precommit_nested_ts/node_modules/.bin/tsc"
+git -C "$tmp_repo_precommit_nested_ts" add apps/web/tsconfig.json apps/web/src/index.ts
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "Nested tsconfig.json projects still run tsc --noEmit in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_ts' && PATH='$tmp_repo_precommit_nested_ts/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_ts"
+
+# JS syntax checks must not skip staged files whose names contain spaces.
+tmp_repo_precommit_js_space="$(mktemp -d)"
+git -C "$tmp_repo_precommit_js_space" init -q
+mkdir -p "$tmp_repo_precommit_js_space/bin" "$tmp_repo_precommit_js_space/src"
+
+cat >"$tmp_repo_precommit_js_space/src/bad file.js" <<'EOF'
+function () {}
+EOF
+
+cat >"$tmp_repo_precommit_js_space/bin/node" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "--check" ]]; then
   exit 1
 fi
 exit 0
 EOF
 
-cat >"$tmp_repo_precommit_nested_ts/bin/tsc" <<'EOF'
+chmod +x "$tmp_repo_precommit_js_space/bin/node"
+git -C "$tmp_repo_precommit_js_space" add "src/bad file.js"
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "JavaScript syntax check still runs for staged files with spaces in the path" bash -c "cd '$tmp_repo_precommit_js_space' && PATH='$tmp_repo_precommit_js_space/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_js_space"
+
+# Nested TS apps should keep working when only the repo root provides tsc.
+tmp_repo_precommit_nested_ts_root_tsc="$(mktemp -d)"
+git -C "$tmp_repo_precommit_nested_ts_root_tsc" init -q
+mkdir -p "$tmp_repo_precommit_nested_ts_root_tsc/apps/web/src" "$tmp_repo_precommit_nested_ts_root_tsc/node_modules/.bin"
+
+cat >"$tmp_repo_precommit_nested_ts_root_tsc/apps/web/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts_root_tsc/apps/web/src/index.ts" <<'EOF'
+export const value = missingSymbol;
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts_root_tsc/node_modules/.bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+
+chmod +x "$tmp_repo_precommit_nested_ts_root_tsc/node_modules/.bin/tsc"
+git -C "$tmp_repo_precommit_nested_ts_root_tsc" add apps/web/tsconfig.json apps/web/src/index.ts
+_stub_guards="$(_make_stub_guard_dir)"
+assert_exit_nonzero "Nested tsconfig.json projects use repo-root tsc when no nested compiler exists" bash -c "cd '$tmp_repo_precommit_nested_ts_root_tsc' && PATH='/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_ts_root_tsc"
+
+# Repo-local tsc must win over a globally available compiler for nested TS projects.
+tmp_repo_precommit_nested_ts_prefer_local="$(mktemp -d)"
+git -C "$tmp_repo_precommit_nested_ts_prefer_local" init -q
+mkdir -p "$tmp_repo_precommit_nested_ts_prefer_local/bin" "$tmp_repo_precommit_nested_ts_prefer_local/apps/web/src" "$tmp_repo_precommit_nested_ts_prefer_local/node_modules/.bin"
+
+cat >"$tmp_repo_precommit_nested_ts_prefer_local/apps/web/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts_prefer_local/apps/web/src/index.ts" <<'EOF'
+export const value = missingSymbol;
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts_prefer_local/node_modules/.bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+
+cat >"$tmp_repo_precommit_nested_ts_prefer_local/bin/tsc" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 
-chmod +x "$tmp_repo_precommit_nested_ts/bin/npx" "$tmp_repo_precommit_nested_ts/bin/tsc"
-git -C "$tmp_repo_precommit_nested_ts" add apps/web/tsconfig.json apps/web/src/index.ts
+chmod +x "$tmp_repo_precommit_nested_ts_prefer_local/node_modules/.bin/tsc" "$tmp_repo_precommit_nested_ts_prefer_local/bin/tsc"
+git -C "$tmp_repo_precommit_nested_ts_prefer_local" add apps/web/tsconfig.json apps/web/src/index.ts
 _stub_guards="$(_make_stub_guard_dir)"
-assert_exit_nonzero "Nested tsconfig.json projects still run tsc --noEmit in pre-commit" bash -c "cd '$tmp_repo_precommit_nested_ts' && PATH='$tmp_repo_precommit_nested_ts/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
-rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_ts"
+assert_exit_nonzero "Nested tsconfig.json projects prefer repo-local tsc over a global compiler" bash -c "cd '$tmp_repo_precommit_nested_ts_prefer_local' && PATH='$tmp_repo_precommit_nested_ts_prefer_local/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_nested_ts_prefer_local"
 
 # Nested Go modules must run go build from the staged file's nearest go.mod.
 tmp_repo_precommit_nested_go="$(mktemp -d)"
