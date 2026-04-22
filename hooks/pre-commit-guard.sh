@@ -231,6 +231,8 @@ PY
 }
 
 # --- Quality guards: call guards/ script (replaces inline grep) ---
+# Some guards are intentionally shared across multiple detected languages.
+# Run those shared suites once per commit to avoid duplicate failures/output.
 GUARD_OUTPUT=""
 GUARD_FAIL=0
 
@@ -251,34 +253,41 @@ run_guard() {
 if [[ -n "$GUARDS_DIR" ]]; then
   # Quote GUARDS_DIR for safe use inside bash -c strings (handles paths with spaces)
   GUARDS_DIR_Q=$(printf '%q' "${GUARDS_DIR}")
-  for lang in $DETECTED_LANGS; do
-    case "$lang" in
-      rust)
-        [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
-          run_guard "rust/unwrap" "bash ${GUARDS_DIR_Q}/rust/check_unwrap_in_prod.sh --strict ."
-        ;;
-      typescript|javascript)
-        [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
-          run_guard "ts/console" "bash ${GUARDS_DIR_Q}/typescript/check_console_residual.sh --strict ."
-        [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
-          run_guard "ts/any" "bash ${GUARDS_DIR_Q}/typescript/check_any_abuse.sh --strict ."
-        ;;
-      python)
-        [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
-          run_guard "py/naming" "python3 ${GUARDS_DIR_Q}/python/check_naming_convention.py ."
-        [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
-          run_guard "py/dead_shims" "python3 ${GUARDS_DIR_Q}/python/check_dead_shims.py --strict ."
-        ;;
-      go)
-        [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
-          run_guard "go/error_handling" "bash ${GUARDS_DIR_Q}/go/check_error_handling.sh --strict ."
-        [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
-          run_guard "go/goroutine_leak" "bash ${GUARDS_DIR_Q}/go/check_goroutine_leak.sh --strict ."
-        [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
-          run_guard "go/defer_in_loop" "bash ${GUARDS_DIR_Q}/go/check_defer_in_loop.sh --strict ."
-        ;;
-    esac
-  done
+  case " $DETECTED_LANGS " in
+    *" rust "*)
+      [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
+        run_guard "rust/unwrap" "bash ${GUARDS_DIR_Q}/rust/check_unwrap_in_prod.sh --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" typescript "*|*" javascript "*)
+      [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
+        run_guard "ts/console" "bash ${GUARDS_DIR_Q}/typescript/check_console_residual.sh --strict ."
+      [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
+        run_guard "ts/any" "bash ${GUARDS_DIR_Q}/typescript/check_any_abuse.sh --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" python "*)
+      [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
+        run_guard "py/naming" "python3 ${GUARDS_DIR_Q}/python/check_naming_convention.py ."
+      [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
+        run_guard "py/dead_shims" "python3 ${GUARDS_DIR_Q}/python/check_dead_shims.py --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" go "*)
+      [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
+        run_guard "go/error_handling" "bash ${GUARDS_DIR_Q}/go/check_error_handling.sh --strict ."
+      [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
+        run_guard "go/goroutine_leak" "bash ${GUARDS_DIR_Q}/go/check_goroutine_leak.sh --strict ."
+      [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
+        run_guard "go/defer_in_loop" "bash ${GUARDS_DIR_Q}/go/check_defer_in_loop.sh --strict ."
+      ;;
+  esac
 fi
 
 # --- Build check: all detected languages run (not elif) ---

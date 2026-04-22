@@ -41,6 +41,26 @@ assert_not_contains() {
   fi
 }
 
+assert_occurrences() {
+  local output="$1" needle="$2" expected_count="$3" desc="$4"
+  local actual_count
+  TOTAL=$((TOTAL + 1))
+  actual_count=$(python3 -c '
+import sys
+
+haystack = sys.argv[1]
+needle = sys.argv[2]
+print(haystack.count(needle))
+' "$output" "$needle")
+  if [[ "$actual_count" == "$expected_count" ]]; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected $expected_count occurrences of: $needle, got $actual_count)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 assert_exit_zero() {
   local desc="$1"
   shift
@@ -816,6 +836,98 @@ git -C "$tmp_repo_precommit_ts_js" add tsconfig.json src/bad.js
 _stub_guards="$(_make_stub_guard_dir)"
 assert_exit_nonzero "JS-only staged changes in a TS repo still run tsc --noEmit" bash -c "cd '$tmp_repo_precommit_ts_js' && PATH='$tmp_repo_precommit_ts_js/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$_stub_guards" "$tmp_repo_precommit_ts_js"
+
+# Mixed TS + JS staged changes should only run the shared TS quality guards once.
+tmp_repo_precommit_ts_js_quality_once="$(mktemp -d)"
+git -C "$tmp_repo_precommit_ts_js_quality_once" init -q
+mkdir -p "$tmp_repo_precommit_ts_js_quality_once/bin" "$tmp_repo_precommit_ts_js_quality_once/src"
+
+cat >"$tmp_repo_precommit_ts_js_quality_once/src/app.ts" <<'EOF'
+export const value: number = 1;
+EOF
+
+cat >"$tmp_repo_precommit_ts_js_quality_once/src/util.js" <<'EOF'
+export const util = 1;
+EOF
+
+cat >"$tmp_repo_precommit_ts_js_quality_once/bin/node" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+chmod +x "$tmp_repo_precommit_ts_js_quality_once/bin/node"
+git -C "$tmp_repo_precommit_ts_js_quality_once" add src/app.ts src/util.js
+_stub_guards="$(_make_stub_guard_dir)"
+cat >"$_stub_guards/guards/typescript/check_console_residual.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ts-console-ran
+exit 1
+EOF
+cat >"$_stub_guards/guards/typescript/check_any_abuse.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ts-any-ran
+exit 1
+EOF
+chmod +x \
+  "$_stub_guards/guards/typescript/check_console_residual.sh" \
+  "$_stub_guards/guards/typescript/check_any_abuse.sh"
+mixed_ts_js_quality_out=$(cd "$tmp_repo_precommit_ts_js_quality_once" && PATH="$tmp_repo_precommit_ts_js_quality_once/bin:/usr/bin:/bin:$PATH" VIBEGUARD_DIR="$_stub_guards" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_occurrences "$mixed_ts_js_quality_out" "[ts/console]" 1 "Mixed TS+JS staged changes run the shared TS console guard once"
+assert_occurrences "$mixed_ts_js_quality_out" "[ts/any]" 1 "Mixed TS+JS staged changes run the shared TS any guard once"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_ts_js_quality_once"
+
+# JS files inside a TS project should still run the shared TS quality guards once.
+tmp_repo_precommit_js_in_ts_quality_once="$(mktemp -d)"
+git -C "$tmp_repo_precommit_js_in_ts_quality_once" init -q
+mkdir -p "$tmp_repo_precommit_js_in_ts_quality_once/bin" "$tmp_repo_precommit_js_in_ts_quality_once/src"
+
+cat >"$tmp_repo_precommit_js_in_ts_quality_once/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+EOF
+
+cat >"$tmp_repo_precommit_js_in_ts_quality_once/src/util.js" <<'EOF'
+export const util = 1;
+EOF
+
+cat >"$tmp_repo_precommit_js_in_ts_quality_once/bin/node" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+cat >"$tmp_repo_precommit_js_in_ts_quality_once/bin/tsc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+chmod +x \
+  "$tmp_repo_precommit_js_in_ts_quality_once/bin/node" \
+  "$tmp_repo_precommit_js_in_ts_quality_once/bin/tsc"
+git -C "$tmp_repo_precommit_js_in_ts_quality_once" add tsconfig.json src/util.js
+_stub_guards="$(_make_stub_guard_dir)"
+cat >"$_stub_guards/guards/typescript/check_console_residual.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ts-console-ran
+exit 1
+EOF
+cat >"$_stub_guards/guards/typescript/check_any_abuse.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ts-any-ran
+exit 1
+EOF
+chmod +x \
+  "$_stub_guards/guards/typescript/check_console_residual.sh" \
+  "$_stub_guards/guards/typescript/check_any_abuse.sh"
+js_in_ts_quality_out=$(cd "$tmp_repo_precommit_js_in_ts_quality_once" && PATH="$tmp_repo_precommit_js_in_ts_quality_once/bin:/usr/bin:/bin:$PATH" VIBEGUARD_DIR="$_stub_guards" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_occurrences "$js_in_ts_quality_out" "[ts/console]" 1 "JS-in-TS staged changes run the shared TS console guard once"
+assert_occurrences "$js_in_ts_quality_out" "[ts/any]" 1 "JS-in-TS staged changes run the shared TS any guard once"
+rm -rf "$_stub_guards" "$tmp_repo_precommit_js_in_ts_quality_once"
 
 # Nested Rust crates must run cargo check from the staged file's nearest Cargo.toml.
 tmp_repo_precommit_nested_rust="$(mktemp -d)"
