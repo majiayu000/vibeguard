@@ -24,8 +24,11 @@ HIGH_CONTEXT_GLOBS = [
     "**/CLAUDE.md",
     ".claude/settings.json",
     ".claude/settings.local.json",
-    ".claude/agents/**/*.md",
-    ".claude/skills/**/*.md",
+    ".claude/**/*.md",
+    "agents/**/*.md",
+    "skills/**/*.md",
+    "workflows/**/*.md",
+    "rules/**/*.md",
 ]
 HIGH_RISK_PATTERNS = [
     re.compile(r"ignore previous(?:/system)? instructions", re.I),
@@ -42,6 +45,11 @@ HIGH_RISK_PATTERNS = [
 
 def rel(path: Path) -> Path:
     return path.relative_to(ROOT)
+
+
+def strip_markdown_code(text: str) -> str:
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    return re.sub(r"`[^`\n]+`", "", text)
 
 
 def parse_rule_ids(text: str) -> list[str]:
@@ -107,6 +115,7 @@ def check_high_context_files() -> list[str]:
     issues: list[str] = []
     for path in gather_high_context_files():
         text = path.read_text(encoding="utf-8")
+        scan_text = strip_markdown_code(text)
         relative = rel(path)
         line_count = text.count("\n") + 1
 
@@ -114,7 +123,7 @@ def check_high_context_files() -> list[str]:
             issues.append(f"U-32 {relative}: high-context file has {line_count} lines (>100)")
 
         for pattern in HIGH_RISK_PATTERNS:
-            if pattern.search(text):
+            if pattern.search(scan_text):
                 issues.append(f"SEC-13 {relative}: suspicious directive pattern `{pattern.pattern}` detected")
 
     return issues

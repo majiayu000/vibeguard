@@ -350,35 +350,28 @@ fi
 # Detect whether another session or agent has edited the same file recently.
 # This is a lightweight proxy for parallel/background ownership conflicts.
 W14_RECENT_CONFLICT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_AGENT="${VIBEGUARD_AGENT_TYPE:-}" python3 -c '
-import json, sys, os
+  | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_AGENT="${VIBEGUARD_AGENT_TYPE:-}" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream, parse_ts
 from datetime import datetime, timezone
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 agent = os.environ.get("VG_AGENT", "")
 now = datetime.now(timezone.utc)
 conflicts = []
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        e = json.loads(line)
-    except json.JSONDecodeError:
-        continue
+for e in iter_events_from_stream(sys.stdin.buffer):
     if e.get("tool") not in {"Edit", "Write"}:
         continue
-    detail = e.get("detail", "")
-    if file_path not in detail:
+    event_path = e.get("detail", "").split("||", 1)[0].strip()
+    if event_path != file_path:
         continue
     same_session = e.get("session") == session
     other_agent = e.get("agent", "") != agent
     if same_session and not other_agent:
         continue
-    ts_raw = e.get("ts", "")
-    try:
-        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-    except ValueError:
+    ts = parse_ts(e.get("ts"))
+    if ts is None:
         continue
     if (now - ts).total_seconds() > 1800:
         continue
