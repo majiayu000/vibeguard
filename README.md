@@ -4,6 +4,8 @@
 
 **Stop Claude Code and Codex from making the same expensive mistakes twice.**
 
+![VibeGuard project card](docs/assets/readme-card.png)
+
 [Chinese Docs](docs/README_CN.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 VibeGuard adds **native rules + real-time hooks + static guards** to catch what AI coding agents get wrong — **before it reaches your codebase**:
