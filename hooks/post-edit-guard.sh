@@ -355,7 +355,15 @@ import sys, os
 sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
 from event_log import iter_events_from_stream, parse_ts
 from datetime import datetime, timezone
-file_path = os.environ.get("VG_FILE_PATH", "")
+def normalize_path(path):
+    path = (path or "").strip()
+    if not path:
+        return ""
+    if not os.path.isabs(path):
+        path = os.path.join(os.getcwd(), path)
+    return os.path.normcase(os.path.realpath(path))
+
+file_path = normalize_path(os.environ.get("VG_FILE_PATH", ""))
 session = os.environ.get("VG_SESSION", "")
 agent = os.environ.get("VG_AGENT", "")
 now = datetime.now(timezone.utc)
@@ -363,7 +371,7 @@ conflicts = []
 for e in iter_events_from_stream(sys.stdin.buffer):
     if e.get("tool") not in {"Edit", "Write"}:
         continue
-    event_path = e.get("detail", "").split("||", 1)[0].strip()
+    event_path = normalize_path(e.get("detail", "").split("||", 1)[0])
     if event_path != file_path:
         continue
     same_session = e.get("session") == session
