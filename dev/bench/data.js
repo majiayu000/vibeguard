@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777012662259,
+  "lastUpdate": 1777015045972,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1379,6 +1379,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 91,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d50241b039a13c746e606ecd6b18ff3f586b2b79",
+          "message": "fix(codex): fail closed on malformed app-server hook JSON (#114) (#115)\n\nTreat non-empty zero-exit hook output with no parsed JSON payload as a hook error so app-server approvals are declined instead of forwarded.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T15:11:43+08:00",
+          "tree_id": "e4c48b5dae260c4a0f018a31a97fde6348ee750a",
+          "url": "https://github.com/majiayu000/vibeguard/commit/d50241b039a13c746e606ecd6b18ff3f586b2b79"
+        },
+        "date": 1777015045662,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 203,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 240,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 288,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 388,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 234,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 391,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 232,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 145,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 146,
             "unit": "ms"
           }
         ]
