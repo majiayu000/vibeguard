@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777012482589,
+  "lastUpdate": 1777012494379,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1034,6 +1034,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5779936ce1d7c5ff7ce288854fe927091b0ef1ee",
+          "message": "feat(vg-helper): canonical command registry with split exit codes (#104)\n\n* feat(vg-helper): canonical command registry with split exit codes (#102)\n\nReplace the duplicated help-text + dispatch match in main.rs with a\nstatic COMMANDS table (name, usage, handler fn-ptr). Help is now\ngenerated from the registry, so adding a command cannot silently drift\nthe help text. Exit codes are split at the CLI boundary: unknown/missing\ncommand → 2 (user-input error), handler Err → 1 (execution error).\n\nAlso fix a pre-existing test flakiness in session_metrics: parse the\nlast JSONL line rather than the whole file content, which failed on\nrepeated test runs due to file appending in a persistent temp dir.\n\nIntegration tests in tests/cli.rs cover all five contract cases and\ndouble as a registry-completeness assertion (all 8 command names in help).\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(vg-helper): fail malformed JSON at CLI boundary\n\nThe command registry split exit codes at the main entrypoint, but json-field and\njson-two-fields still treated malformed stdin JSON as a blank result. Return\nparse errors instead so invalid input exits 1 while missing fields remain blank.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T14:29:54+08:00",
+          "tree_id": "6e1b6fb9aef6d15a6da41b5302037c0ef7c2047f",
+          "url": "https://github.com/majiayu000/vibeguard/commit/5779936ce1d7c5ff7ce288854fe927091b0ef1ee"
+        },
+        "date": 1777012493443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 191,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 229,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 266,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 299,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 215,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 308,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 214,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 137,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 134,
             "unit": "ms"
           }
         ]
