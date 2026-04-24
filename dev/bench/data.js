@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776804312618,
+  "lastUpdate": 1777012482589,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -965,6 +965,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 132,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4933addeb21686e5d59ee12633eed507d8df6e42",
+          "message": "fix(pre-commit-guard): detect langs from staged files, not repo config (#92)\n\n* fix(pre-commit-guard): detect langs from staged files, not repo config\n\nDETECTED_LANGS was derived from repo-root config files (Cargo.toml,\ntsconfig.json, …), causing guards for all project languages to run on\nevery commit regardless of what was staged. A TypeScript-only commit in\na mixed Rust/TS repo would falsely block on pre-existing unwrap() calls.\n\nReplace the file-existence checks with grep over $_ALL_STAGED so each\nlanguage guard only runs when at least one file of that language is\nstaged.\n\nFixes #87\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-commit-guard): detect both typescript and javascript in mixed staged commits\n\nReplace elif with independent if for JS detection so a commit containing both\n.ts/.tsx and .js/.jsx files detects and validates both languages. Previously the\nelif branch silently skipped JavaScript syntax checking whenever TypeScript files\nwere staged.\n\nAdd three regression tests:\n- Mixed TS+JS staged: javascript is detected even when TS files are present\n- TS-only staged in a Rust repo: rust not detected from untracked Cargo.toml\n- RS-only staged in a TS repo: typescript not detected from untracked package.json\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-commit-guard): gate root build checks on root manifests\n\nKeep staged-file language detection for quality guards, but only run repo-root build commands when the matching root config exists. This preserves the issue #87 fix while avoiding false failures in nested-module repos and hardens the regression tests around that behavior.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-commit-guard): resolve build roots from the staged tree\n\nPre-commit now discovers TS, Rust, and Go build roots from each staged file's nearest staged manifest so JS-only TS changes and nested packages run the correct validation against the tree being committed.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-commit-guard): restore nested tsc and JS syntax checks\n\nPrefer repo-local TypeScript compilers when resolving nested build roots and keep raw staged JS paths so syntax checks still run for files with spaces.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-commit-guard): keep JS syntax coverage in TS repos\n\nPreserve node --check coverage for staged JS files even when a nearby tsconfig exists,\nand include .mjs/.cjs in staged source detection so invalid module files cannot bypass pre-commit.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* Prevent duplicate TypeScript guard noise on mixed-language commits\n\nThe staged-language detection work correctly keeps build checks scoped to the\nstaged tree, but shared TypeScript quality guards were still dispatched once\nfor `typescript` and again for `javascript` when both were detected. That\nproduced duplicate failures and review noise for mixed TS/JS commits and for\nJS files inside TS projects.\n\nThis change runs the shared TS guard suite once per commit while preserving the\nexisting build-root behavior, and adds deterministic regression coverage for the\ntwo duplicate-execution paths.\n\nConstraint: Keep staged-tree build-root detection behavior from PR #92 intact\nRejected: Remove javascript detection for JS-in-TS paths | would skip node --check coverage\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep shared guard dispatch separated from build dispatch when multiple languages reuse one guard family\nTested: bash tests/test_hooks.sh (120/120)\nNot-tested: CI rerun after push\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T14:29:36+08:00",
+          "tree_id": "9272b80447f5025c59417ec64ddabd7403181607",
+          "url": "https://github.com/majiayu000/vibeguard/commit/4933addeb21686e5d59ee12633eed507d8df6e42"
+        },
+        "date": 1777012481852,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 193,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 218,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 263,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 311,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 214,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 322,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 216,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 136,
             "unit": "ms"
           }
         ]
