@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777015045972,
+  "lastUpdate": 1777035647049,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1448,6 +1448,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 146,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8fc1a8b677a40d392bc19c6ec6485804db71cba",
+          "message": "fix: fail closed on Codex hook errors (#110)\n\n* Keep Codex app-server approvals closed when hooks fail\n\nDecline approval requests when the pre-bash hook exits nonzero without\nemitting a structured decision so Codex app-server mode cannot bypass\nguard enforcement on hook execution failures. Add a regression test that\nreproduces the failing hook path and proves the wrapper fails closed.\n\nConstraint: Approval hooks must fail closed when runtime wrapper execution breaks\nRejected: Keep default pass on missing decisions | nonzero hook exits silently disabled enforcement\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Runtime adapters should treat hook transport failures as declined approvals unless a structured decision overrides them\nTested: bash tests/test_codex_runtime.sh; python3 -m py_compile scripts/codex/app_server_wrapper.py\nNot-tested: End-to-end codex app-server session against a live Codex backend\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(codex): fail closed on hook execution errors\n\nTreat any non-zero pre-bash hook exit as a hook error before parsing decision text so malformed stderr or partial payloads cannot reopen command approvals.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T20:55:35+08:00",
+          "tree_id": "40e3e6fd1fb58380f591e8866274c37faaa6972e",
+          "url": "https://github.com/majiayu000/vibeguard/commit/e8fc1a8b677a40d392bc19c6ec6485804db71cba"
+        },
+        "date": 1777035646727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 188,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 212,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 254,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 349,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 210,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 346,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 205,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 133,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 131,
             "unit": "ms"
           }
         ]
