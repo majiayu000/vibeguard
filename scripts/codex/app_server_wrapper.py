@@ -109,19 +109,18 @@ class HookRunner:
             )
             return HookResult(decision="error", output=str(exc), failed=True)
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        stripped_output = output.strip()
         if proc.returncode != 0:
-            return HookResult(decision="hook_error", output=output.strip() or f"hook failed with exit {proc.returncode}")
+            return HookResult(decision="hook_error", output=stripped_output or f"hook failed with exit {proc.returncode}")
         payloads = self._extract_payloads(output)
-        if proc.returncode != 0:
-            failed = True
-            decision = self._extract_decision(output, payloads) or "error"
-        else:
-            decision = self._extract_decision(output, payloads) or "pass"
+        if stripped_output and not payloads:
+            return HookResult(decision="hook_error", output=f"hook produced invalid JSON: {stripped_output}")
+        decision = self._extract_decision(payloads) or "pass"
         reason = self._extract_reason(payloads)
         updated_command = self._extract_updated_command(payloads) if decision == "allow" else None
         return HookResult(
             decision=decision,
-            output=output.strip(),
+            output=stripped_output,
             payloads=payloads,
             reason=reason,
             updated_command=updated_command,
@@ -152,14 +151,11 @@ class HookRunner:
         return payloads
 
     @staticmethod
-    def _extract_decision(output: str, payloads: list[dict[str, Any]]) -> str | None:
+    def _extract_decision(payloads: list[dict[str, Any]]) -> str | None:
         for payload in payloads:
             decision = payload.get("decision")
             if isinstance(decision, str):
                 return decision
-        match = re.search(r'"decision"\s*:\s*"([a-zA-Z_-]+)"', output)
-        if match:
-            return match.group(1)
         return None
 
     @staticmethod

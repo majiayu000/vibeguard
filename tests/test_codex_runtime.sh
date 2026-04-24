@@ -393,6 +393,57 @@ PYCODE
 assert_contains "${app_server_failure_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook exits nonzero"
 assert_contains "${app_server_failure_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook exits nonzero"
 
+header "app-server adapter fails closed on malformed non-empty pre-bash hook output"
+app_server_invalid_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_invalid_json", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-invalid-json-repo"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\nprintf '{'\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/alpha", "cwd": str(app_repo)}},
+    state,
+)
+
+captured = []
+intercepted = strategy.handle_server_request(
+    {
+        "id": "req-invalid-json-1",
+        "method": "item/commandExecution/requestApproval",
+        "params": {"threadId": "thread/alpha", "command": "git push --force"},
+    },
+    state,
+    captured.append,
+)
+
+print(json.dumps({"intercepted": intercepted, "approval": captured[0] if captured else None}, ensure_ascii=False))
+PYCODE
+)"
+assert_contains "${app_server_invalid_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook output is malformed"
+assert_contains "${app_server_invalid_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook output is malformed"
+
 header "app-server adapter surfaces warn decisions before forwarding approval"
 warn_hook_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
