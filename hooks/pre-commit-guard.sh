@@ -24,7 +24,7 @@ elif [[ -n "${VIBEGUARD_DIR:-}" ]] && [[ -f "${VIBEGUARD_DIR}/hooks/log.sh" ]]; 
 else
   vg_log() { :; }
   vg_start_timer() { :; }
-  VG_SOURCE_EXTS="rs py ts js tsx jsx go java kt swift rb"
+  VG_SOURCE_EXTS="rs py ts js mjs cjs tsx jsx go java kt swift rb"
 fi
 vg_start_timer
 
@@ -96,14 +96,108 @@ git diff --cached -U0 2>/dev/null \
   > "$_DIFF_ADDED_TMPFILE" || true
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
-# --- Language automatic detection (Verifier mode core) ---
-# Use REPO_ROOT absolute path to avoid detection failure during subdirectory commit
+# --- Language and project-root detection (driven by the staged tree, not the working tree) ---
+index_has_path() {
+  local path="$1"
+  git cat-file -e ":${path}" 2>/dev/null
+}
+
+find_project_root() {
+  local path="$1"
+  local marker="$2"
+  local dir="$(dirname "$path")"
+  local candidate=""
+
+  while true; do
+    if [[ "$dir" == "." ]]; then
+      candidate="$marker"
+    else
+      candidate="${dir}/${marker}"
+    fi
+
+    if index_has_path "$candidate"; then
+      if [[ "$dir" == "." ]]; then
+        echo "$REPO_ROOT"
+      else
+        echo "${REPO_ROOT}/${dir}"
+      fi
+      return 0
+    fi
+
+    if [[ "$dir" == "." ]]; then
+      break
+    fi
+
+    dir=$(dirname "$dir")
+  done
+
+  return 1
+}
+
+add_unique_entry() {
+  local var_name="$1"
+  local value="$2"
+  local current=""
+
+  [[ -z "$value" ]] && return 0
+  eval "current=\${$var_name-}"
+
+  case $'\n'"$current"$'\n' in
+    *$'\n'"$value"$'\n'*) return 0 ;;
+  esac
+
+  if [[ -n "$current" ]]; then
+    printf -v "$var_name" '%s\n%s' "$current" "$value"
+  else
+    printf -v "$var_name" '%s' "$value"
+  fi
+}
+
 DETECTED_LANGS=""
-[[ -f "${REPO_ROOT}/Cargo.toml" ]]                                                      && DETECTED_LANGS="${DETECTED_LANGS} rust"
-[[ -f "${REPO_ROOT}/tsconfig.json" ]]                                                   && DETECTED_LANGS="${DETECTED_LANGS} typescript"
-[[ -f "${REPO_ROOT}/package.json" && ! -f "${REPO_ROOT}/tsconfig.json" ]]               && DETECTED_LANGS="${DETECTED_LANGS} javascript"
-[[ -f "${REPO_ROOT}/pyproject.toml" || -f "${REPO_ROOT}/setup.py" || -f "${REPO_ROOT}/setup.cfg" ]]  && DETECTED_LANGS="${DETECTED_LANGS} python"
-[[ -f "${REPO_ROOT}/go.mod" ]]                                                          && DETECTED_LANGS="${DETECTED_LANGS} go"
+RUST_BUILD_ROOTS=""
+TYPESCRIPT_BUILD_ROOTS=""
+GO_BUILD_ROOTS=""
+JAVASCRIPT_BUILD_FILES=""
+
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+
+  ext="${file##*.}"
+
+  case "$ext" in
+    rs)
+      add_unique_entry DETECTED_LANGS "rust"
+      add_unique_entry RUST_BUILD_ROOTS "$(find_project_root "$file" "Cargo.toml" || true)"
+      ;;
+    ts|tsx)
+      add_unique_entry DETECTED_LANGS "typescript"
+      add_unique_entry TYPESCRIPT_BUILD_ROOTS "$(find_project_root "$file" "tsconfig.json" || true)"
+      ;;
+    js|jsx)
+      ts_root="$(find_project_root "$file" "tsconfig.json" || true)"
+      if [[ -n "$ts_root" ]]; then
+        add_unique_entry DETECTED_LANGS "typescript"
+        add_unique_entry TYPESCRIPT_BUILD_ROOTS "$ts_root"
+      fi
+      add_unique_entry DETECTED_LANGS "javascript"
+      if [[ "$ext" != "jsx" ]]; then
+        add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
+      fi
+      ;;
+    mjs|cjs)
+      add_unique_entry DETECTED_LANGS "javascript"
+      add_unique_entry JAVASCRIPT_BUILD_FILES "$file"
+      ;;
+    py)
+      add_unique_entry DETECTED_LANGS "python"
+      ;;
+    go)
+      add_unique_entry DETECTED_LANGS "go"
+      add_unique_entry GO_BUILD_ROOTS "$(find_project_root "$file" "go.mod" || true)"
+      ;;
+  esac
+done <<< "$STAGED_FILES"
+
 DETECTED_LANGS=$(echo "$DETECTED_LANGS" | xargs)
 
 # --- Timeout executor ---
@@ -137,6 +231,8 @@ PY
 }
 
 # --- Quality guards: call guards/ script (replaces inline grep) ---
+# Some guards are intentionally shared across multiple detected languages.
+# Run those shared suites once per commit to avoid duplicate failures/output.
 GUARD_OUTPUT=""
 GUARD_FAIL=0
 
@@ -157,34 +253,41 @@ run_guard() {
 if [[ -n "$GUARDS_DIR" ]]; then
   # Quote GUARDS_DIR for safe use inside bash -c strings (handles paths with spaces)
   GUARDS_DIR_Q=$(printf '%q' "${GUARDS_DIR}")
-  for lang in $DETECTED_LANGS; do
-    case "$lang" in
-      rust)
-        [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
-          run_guard "rust/unwrap" "bash ${GUARDS_DIR_Q}/rust/check_unwrap_in_prod.sh --strict ."
-        ;;
-      typescript|javascript)
-        [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
-          run_guard "ts/console" "bash ${GUARDS_DIR_Q}/typescript/check_console_residual.sh --strict ."
-        [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
-          run_guard "ts/any" "bash ${GUARDS_DIR_Q}/typescript/check_any_abuse.sh --strict ."
-        ;;
-      python)
-        [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
-          run_guard "py/naming" "python3 ${GUARDS_DIR_Q}/python/check_naming_convention.py ."
-        [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
-          run_guard "py/dead_shims" "python3 ${GUARDS_DIR_Q}/python/check_dead_shims.py --strict ."
-        ;;
-      go)
-        [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
-          run_guard "go/error_handling" "bash ${GUARDS_DIR_Q}/go/check_error_handling.sh --strict ."
-        [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
-          run_guard "go/goroutine_leak" "bash ${GUARDS_DIR_Q}/go/check_goroutine_leak.sh --strict ."
-        [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
-          run_guard "go/defer_in_loop" "bash ${GUARDS_DIR_Q}/go/check_defer_in_loop.sh --strict ."
-        ;;
-    esac
-  done
+  case " $DETECTED_LANGS " in
+    *" rust "*)
+      [[ -f "${GUARDS_DIR}/rust/check_unwrap_in_prod.sh" ]] && \
+        run_guard "rust/unwrap" "bash ${GUARDS_DIR_Q}/rust/check_unwrap_in_prod.sh --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" typescript "*|*" javascript "*)
+      [[ -f "${GUARDS_DIR}/typescript/check_console_residual.sh" ]] && \
+        run_guard "ts/console" "bash ${GUARDS_DIR_Q}/typescript/check_console_residual.sh --strict ."
+      [[ -f "${GUARDS_DIR}/typescript/check_any_abuse.sh" ]] && \
+        run_guard "ts/any" "bash ${GUARDS_DIR_Q}/typescript/check_any_abuse.sh --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" python "*)
+      [[ -f "${GUARDS_DIR}/python/check_naming_convention.py" ]] && \
+        run_guard "py/naming" "python3 ${GUARDS_DIR_Q}/python/check_naming_convention.py ."
+      [[ -f "${GUARDS_DIR}/python/check_dead_shims.py" ]] && \
+        run_guard "py/dead_shims" "python3 ${GUARDS_DIR_Q}/python/check_dead_shims.py --strict ."
+      ;;
+  esac
+
+  case " $DETECTED_LANGS " in
+    *" go "*)
+      [[ -f "${GUARDS_DIR}/go/check_error_handling.sh" ]] && \
+        run_guard "go/error_handling" "bash ${GUARDS_DIR_Q}/go/check_error_handling.sh --strict ."
+      [[ -f "${GUARDS_DIR}/go/check_goroutine_leak.sh" ]] && \
+        run_guard "go/goroutine_leak" "bash ${GUARDS_DIR_Q}/go/check_goroutine_leak.sh --strict ."
+      [[ -f "${GUARDS_DIR}/go/check_defer_in_loop.sh" ]] && \
+        run_guard "go/defer_in_loop" "bash ${GUARDS_DIR_Q}/go/check_defer_in_loop.sh --strict ."
+      ;;
+  esac
 fi
 
 # --- Build check: all detected languages run (not elif) ---
@@ -204,11 +307,35 @@ run_build_check() {
 for lang in $DETECTED_LANGS; do
   case "$lang" in
     rust)
-      run_build_check "cargo check --quiet" "cargo check failed"
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        run_build_check "cd ${build_root_q} && cargo check --quiet" "cargo check failed (${build_root})"
+      done <<< "$RUST_BUILD_ROOTS"
       ;;
-    typescript) run_build_check "if ! command -v tsc >/dev/null 2>&1 && ! [ -f node_modules/.bin/tsc ]; then exit 0; fi; npx tsc --noEmit" "tsc --noEmit failed" ;;
-    javascript) run_build_check 'if ! command -v node >/dev/null 2>&1; then exit 0; fi; FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E "\.(js|mjs|cjs)$" || true); [[ -z "$FILES" ]] && exit 0; while IFS= read -r f; do [[ -z "$f" || ! -f "$f" ]] && continue; node --check "$f" >/dev/null 2>&1 || exit 1; done <<< "$FILES"' "JavaScript syntax check failed (node --check)" ;;
-    go) run_build_check "go build ./..." "go build failed" ;;
+    typescript)
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        repo_root_q=$(printf '%q' "$REPO_ROOT")
+        run_build_check "cd ${build_root_q} && tsc_cmd=''; search_dir=\"\$PWD\"; while true; do if [[ -x \"\$search_dir/node_modules/.bin/tsc\" ]]; then tsc_cmd=\"\$search_dir/node_modules/.bin/tsc\"; break; fi; [[ \"\$search_dir\" == ${repo_root_q} ]] && break; parent_dir=\$(dirname \"\$search_dir\"); [[ \"\$parent_dir\" == \"\$search_dir\" ]] && break; search_dir=\"\$parent_dir\"; done; [[ -z \"\$tsc_cmd\" ]] && command -v tsc >/dev/null 2>&1 && tsc_cmd=\$(command -v tsc); [[ -z \"\$tsc_cmd\" ]] && exit 0; \"\$tsc_cmd\" --noEmit" "tsc --noEmit failed (${build_root})"
+      done <<< "$TYPESCRIPT_BUILD_ROOTS"
+      ;;
+    javascript)
+      if [[ -n "$JAVASCRIPT_BUILD_FILES" ]]; then
+        javascript_files="$(printf '%s\n' "$JAVASCRIPT_BUILD_FILES" | sed '/^$/d')"
+        run_build_check "if ! command -v node >/dev/null 2>&1; then exit 0; fi; while IFS= read -r f; do [[ -z \"\$f\" || ! -f \"\$f\" ]] && continue; node --check \"\$f\" >/dev/null 2>&1 || exit 1; done <<'EOF'
+${javascript_files}
+EOF" "JavaScript syntax check failed (node --check)"
+      fi
+      ;;
+    go)
+      while IFS= read -r build_root; do
+        [[ -z "$build_root" ]] && continue
+        build_root_q=$(printf '%q' "$build_root")
+        run_build_check "cd ${build_root_q} && go build ./..." "go build failed (${build_root})"
+      done <<< "$GO_BUILD_ROOTS"
+      ;;
   esac
 done
 
