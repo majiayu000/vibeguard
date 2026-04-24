@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777012520105,
+  "lastUpdate": 1777012521777,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1172,6 +1172,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 154,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c367d3730749ab3c1ffed49084a832ea38d7d2f",
+          "message": "Harden rule governance surfaces (#106)\n\n* rules(governance): harden high-context rule surfaces\n\nProtect prompt-bearing files and rule references from silent drift so rule changes stay auditable and parallel agent conflicts surface earlier.\n\nConstraint: High-context files can change agent behavior outside normal business-code review\nRejected: separate hooks per rule family | a single audit script plus lightweight post-edit detection keeps the gate surface smaller\nConfidence: medium\nScope-risk: moderate\nReversibility: clean\nDirective: Extend the shared audit path before adding new standalone gates\nTested: bash -n hooks/post-edit-guard.sh\nTested: python3 -m py_compile scripts/verify/rule-overload-audit.py\nTested: python3 scripts/verify/rule-overload-audit.py\n\n* Improve README scannability with a visual project card\n\nAdd a generated VibeGuard card asset and surface it near the top of README so repository visitors immediately understand the product positioning and core guardrail layers.\n\nConstraint: Keep changes limited to docs presentation without altering product behavior\nConstraint: Use generated bitmap asset and store it inside repository for stable rendering\nRejected: Reuse existing demo GIF as hero visual | too workflow-specific and not card-like\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep README card path stable unless docs/assets layout is intentionally reorganized\nTested: Manual render path check in README diff\nTested: bash scripts/ci/validate-doc-paths.sh (repo has pre-existing unrelated failures)\nNot-tested: Cross-platform markdown renderer visual consistency\n\n* Align README hero card with actual VibeGuard capabilities\n\nReplace the README project card image so it reflects the real repository feature map (Native Rules, Hooks, Static Guards, Slash Commands, Learning Loop, Observability, and Claude Code + Codex support) instead of a generic security banner.\n\nConstraint: Keep README reference path unchanged to avoid doc churn\nConstraint: Preserve a single-asset swap with no behavior or script changes\nRejected: Keep prior generic card | did not map to documented capability structure\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: If feature taxonomy changes in README, refresh this card in lockstep\nTested: Visual inspection of docs/assets/readme-card.png\nNot-tested: Rendering differences across all GitHub theme/viewport combinations\n\n* Close PR 106 audit gaps without breaking self-checks\n\nExpand the SEC-13 audit to the repo's real high-context surfaces and make W-14 compare exact event-log file paths. Also escape example trigger text in the canonical security rule so the language validator and audit do not self-flag the rule text itself.\n\nConstraint: Must address PR #106 review threads with a minimal diff\nConstraint: Canonical rules cannot contain CJK text\nRejected: Exclude rule files from SEC-13 scanning | would keep the false-negative path open\nRejected: Keep substring-based W-14 matching | causes false conflicts on shared file prefixes\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: High-context scans should ignore illustrative markdown code spans but continue scanning prose\nTested: bash scripts/ci/validate-canonical-rule-language.sh\nTested: bash scripts/ci/validate-hooks.sh\nTested: bash scripts/ci/validate-rules.sh\nTested: bash scripts/ci/validate-generated-rule-docs.sh\nTested: python3 scripts/verify/rule-overload-audit.py\nNot-tested: Full GitHub Actions matrix rerun\n\n* Close the remaining PR 106 audit false negatives\n\nThe SEC-13 audit now inspects raw high-context text so fenced or inline\nmarkdown cannot hide injected directives, while a line-scoped allowlist\nprevents the canonical security rule from self-triggering on its own\npattern inventory. The W-14 overlap check now normalizes both paths\nbefore exact comparison, and regression coverage locks both cases.\n\nConstraint: Canonical security rules document the same phrases the audit must detect\nRejected: Substring path matching | misflags shared-prefix files as overlaps\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep SEC-13 exceptions line-scoped and justified; broaden them only with audit regression coverage\nTested: python3 -m py_compile scripts/verify/rule-overload-audit.py\nTested: bash tests/test_rule_overload_audit.sh\nTested: bash tests/test_hooks.sh\nTested: bash scripts/local-contract-check.sh --quick\nNot-tested: GitHub Actions on the pushed commit\n\n* Prevent SEC-13 audit evasion on marker-example lines\n\nThe audit skipped any line containing the marker phrase to avoid false positives from the canonical security rule. That also let injected overrides hide on the same line in other high-context files. Replace the global skip with an exact path-scoped trusted example allowlist and add regression coverage for a malicious appended override.\n\nConstraint: Canonical security.md intentionally documents dangerous marker phrases\nRejected: Remove all marker-line exemptions | breaks the audit on the trusted SEC-13 rule example\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep future SEC-13 exceptions path-scoped and exact-text only; never reintroduce substring-based skips\nTested: python3 -m py_compile scripts/verify/rule-overload-audit.py\nTested: bash tests/test_rule_overload_audit.sh\nTested: bash tests/test_hooks.sh\nNot-tested: Full CI matrix\n\n* Close the escaped SEC-13 audit bypass before merge\n\nNormalize escaped unicode and hex directive text before applying SEC-13 high-risk pattern checks so obfuscated markers cannot slip through high-context scans. Keep the trusted-example allowlist exact and path-scoped, then lock the bypass with regression coverage.\\n\\nConstraint: Must address the remaining PR #106 high-severity review finding with a minimal diff\\nRejected: Broaden trusted-line filtering | reintroduces an evasion path for injected directives\\nConfidence: high\\nScope-risk: narrow\\nReversibility: clean\\nDirective: Keep SEC-13 trusted examples exact-text and path-scoped; normalize escaped markers before risk-pattern matching\\nTested: python3 -m py_compile scripts/verify/rule-overload-audit.py\\nTested: bash tests/test_rule_overload_audit.sh\\nTested: bash tests/test_hooks.sh\\nTested: bash scripts/local-contract-check.sh --quick\\nNot-tested: Full GitHub Actions matrix on the pushed commit",
+          "timestamp": "2026-04-24T14:30:22+08:00",
+          "tree_id": "78c0dc8a8b2b22781c5b87e805ac8a49baef72b9",
+          "url": "https://github.com/majiayu000/vibeguard/commit/6c367d3730749ab3c1ffed49084a832ea38d7d2f"
+        },
+        "date": 1777012519887,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 182,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 209,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 252,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 341,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 348,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 131,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 131,
             "unit": "ms"
           }
         ]
