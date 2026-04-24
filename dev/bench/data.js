@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777012494379,
+  "lastUpdate": 1777012520105,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1103,6 +1103,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 134,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7627e1ba0198b8ea0dbdcf4bf7ab5513b152c28",
+          "message": "fix(session_metrics): guard VIBEGUARD_LOG_FILE against KeyError (#103) (#105)\n\n* fix(session_metrics): guard VIBEGUARD_LOG_FILE against KeyError on missing env var\n\nReplace bare os.environ[\"VIBEGUARD_LOG_FILE\"] with .get() + early sys.exit(0)\nso invocations without the variable exit silently instead of crashing with a\nKeyError traceback, matching the existing guards for VIBEGUARD_SESSION_ID and\nVIBEGUARD_PROJECT_LOG_DIR added in PR #93.\n\nAdd two test cases to test_session_metrics_env_guard.sh covering exit-0 and\nno-metrics-file-written behaviour when VIBEGUARD_LOG_FILE is unset.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(session_metrics): tighten missing log-file verification\n\nAssert that the missing VIBEGUARD_LOG_FILE guard exits silently, and reset the vg-helper session-metrics test temp dirs so repeated runs do not accumulate stale JSONL state.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T14:30:07+08:00",
+          "tree_id": "8cbd2102af7b4a7c91ca5ceb3b847aa30cb1adce",
+          "url": "https://github.com/majiayu000/vibeguard/commit/f7627e1ba0198b8ea0dbdcf4bf7ab5513b152c28"
+        },
+        "date": 1777012519784,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 201,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 239,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 296,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 316,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 2925,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 417,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 243,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 156,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 154,
             "unit": "ms"
           }
         ]
