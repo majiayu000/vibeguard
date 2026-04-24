@@ -107,12 +107,12 @@ class HookRunner:
                 f" (cwd={cwd!r} unavailable): {exc}",
                 file=sys.stderr,
             )
-            return HookResult(decision="error", output=str(exc), failed=True)
+            return HookResult(decision="hook_error", output=str(exc), failed=True)
         output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
         stripped_output = output.strip()
-        if proc.returncode != 0:
-            return HookResult(decision="hook_error", output=stripped_output or f"hook failed with exit {proc.returncode}")
         payloads = self._extract_payloads(output)
+        if proc.returncode != 0:
+            return HookResult(decision="hook_error", output=stripped_output or f"hook failed with exit {proc.returncode}", payloads=payloads)
         if stripped_output and not payloads:
             return HookResult(decision="hook_error", output=f"hook produced invalid JSON: {stripped_output}")
         decision = self._extract_decision(payloads) or "pass"
@@ -125,8 +125,9 @@ class HookRunner:
             reason=reason,
             updated_command=updated_command,
             returncode=proc.returncode,
-            failed=failed,
+            failed=False,
         )
+
 
     @staticmethod
     def _extract_payloads(output: str) -> list[dict[str, Any]]:
@@ -270,11 +271,13 @@ class VibeGuardGateStrategy(GateStrategy):
         payload = {"tool_input": {"command": command}}
         result = self.hooks.run("pre-bash-guard.sh", payload, cwd=cwd, env_overrides=env)
 
-        if result.failed or result.decision == "block":
+        if result.failed or result.decision in {"block", "hook_error"}:
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
-            if result.failed:
+            if result.decision == "hook_error" or result.failed:
+                detail = result.output or "hook failed"
                 print(
-                    f"[vibeguard-codex-wrapper] pre-bash-guard failed with exit {result.returncode}; declining command approval: {command}",
+                    f"[vibeguard-codex-wrapper] pre-bash hook failed; declining command approval: {command}"
+                    f"\n{detail}".rstrip(),
                     file=sys.stderr,
                 )
             else:
@@ -299,15 +302,6 @@ class VibeGuardGateStrategy(GateStrategy):
             write_to_server({"id": msg_id, "result": {"decision": "decline"}})
             print(
                 f"[vibeguard-codex-wrapper] unexpected pre-bash-guard decision {result.decision!r}; declining command approval: {command}",
-                file=sys.stderr,
-            )
-            return True
-
-        if result.decision == "hook_error":
-            write_to_server({"id": msg_id, "result": {"decision": "decline"}})
-            detail = result.output or "hook failed"
-            print(
-                f"[vibeguard-codex-wrapper] hook failed closed for {command!r}: {detail}",
                 file=sys.stderr,
             )
             return True

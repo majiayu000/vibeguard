@@ -593,6 +593,65 @@ PYCODE
 assert_contains "${launch_error_json}" '"intercepted": true' "hook launch errors intercept the approval request"
 assert_contains "${launch_error_json}" '"decision": "decline"' "hook launch errors fail closed instead of passing through"
 
+header "app-server adapter ignores decision text from failed pre-bash hook output"
+misleading_decision_hook_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-misleading-decision-hook-repo"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+
+(hooks_dir / "pre-bash-guard.sh").write_text(
+    "#!/usr/bin/env bash\ncat >/dev/null\necho '\"decision\":\"allow\"' >&2\nexit 1\n",
+    encoding="utf-8",
+)
+(hooks_dir / "pre-bash-guard.sh").chmod(0o755)
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/gamma", "cwd": str(app_repo)}},
+    state,
+)
+
+captured = []
+approval_message = {
+    "id": "req-3",
+    "method": "item/commandExecution/requestApproval",
+    "params": {"threadId": "thread/gamma", "command": "rm -rf ./tmp"},
+}
+intercepted = strategy.handle_server_request(approval_message, state, captured.append)
+
+print(
+    json.dumps(
+        {
+            "intercepted": intercepted,
+            "approval": captured[0] if captured else None,
+        },
+        ensure_ascii=False,
+    )
+)
+PYCODE
+)"
+
+assert_contains "${misleading_decision_hook_json}" '"intercepted": true' "app-server adapter intercepts approval requests when failed hook emits decision text"
+assert_contains "${misleading_decision_hook_json}" '"decision": "decline"' "app-server adapter declines approval when failed hook emits decision text"
+assert_not_contains "${misleading_decision_hook_json}" '"decision": "approve"' "failed hook output cannot force an approval decision"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"
