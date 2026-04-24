@@ -32,7 +32,9 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.dirname(__file__))
 from event_log import load_events_from_file, parse_ts
 
-log_file = os.environ["VIBEGUARD_LOG_FILE"]
+log_file = os.environ.get("VIBEGUARD_LOG_FILE", "")
+if not log_file:
+    sys.exit(0)
 if not os.path.exists(log_file):
     sys.exit(0)
 
