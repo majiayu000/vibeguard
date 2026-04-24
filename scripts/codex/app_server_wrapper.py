@@ -396,6 +396,7 @@ class VibeGuardGateStrategy(GateStrategy):
 
         changed = set(run_git(["diff", "--name-only", "HEAD"]))
         changed.update(run_git(["diff", "--name-only", "--cached"]))
+        changed.update(run_git(["ls-files", "--others", "--exclude-standard"]))
         source_exts = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".go"}
         return [p for p in sorted(changed) if Path(p).suffix in source_exts]
 
