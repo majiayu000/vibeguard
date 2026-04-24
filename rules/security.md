@@ -20,6 +20,7 @@ Security review checklist and remediation guidance derived from OWASP-style fail
 | SEC-10 | Logs contain sensitive information | Medium | Passwords or tokens appear in logs. |
 | SEC-11 | AI-generated code security defect baseline | Strict | AI-generated code carries materially higher security risk than hand-written code, so review intensity must increase accordingly. |
 | SEC-12 | Silent drift in MCP tool descriptions | Strict | The description field of an MCP tool is effectively an instruction fed to the LLM. |
+| SEC-13 | High-context file integrity protection | Strict | `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude//*.md`, and rule or skill definitions are high-context files. |
 
 ## Key management expectations
 
