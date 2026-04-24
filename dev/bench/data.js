@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777012529156,
+  "lastUpdate": 1777012662259,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1310,6 +1310,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 125,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11972cedd8113ace00372417dace90d485ca6b62",
+          "message": "fix: fail closed on Codex hook errors (#112)\n\n* Stop Codex app-server approvals from failing open on hook crashes\n\nTreat nonzero pre-bash hook exits as hard guard failures so Codex app-server\nmode cannot implicitly approve commands when the wrapper loses structured hook\noutput. Add a regression test that exercises a crashing pre-bash hook and\nverifies the approval request is declined.\n\nConstraint: Approval hooks must fail closed when guard execution degrades\nRejected: Preserve pass fallback on malformed hook output | it silently disables the guard boundary in app-server mode\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: Keep pre-bash approval handling fail-closed for hook crashes and unknown decisions\nTested: cargo check --manifest-path \"vg-helper/Cargo.toml\"; cargo test --manifest-path \"vg-helper/Cargo.toml\"; bash tests/test_codex_runtime.sh\nNot-tested: Full repository shell test matrix\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* Preserve Codex hook warnings while closing launch failures\n\nKeep the app-server wrapper aligned with the pre-bash hook contract so\nwarn-only decisions still pass through, and make hook launch errors\ndecline approvals instead of silently failing open. Add runtime regressions\nfor both paths so future wrapper changes keep the same boundary behavior.\n\nConstraint: Codex app-server approvals must honor the existing pre-bash hook decision contract\nRejected: Treat every non-pass decision as decline | it regresses the documented warn-only path for non-standard .md creation\nConfidence: high\nScope-risk: narrow\nReversibility: clean\nDirective: When changing app-server approval interception, keep explicit tests for warn passthrough and hook launch failures\nTested: bash tests/test_codex_runtime.sh; bash scripts/ci/validate-hooks.sh; VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/test_hooks.sh; python3 -m py_compile scripts/codex/app_server_wrapper.py\nNot-tested: Full CI matrix on GitHub Actions\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* Preserve Codex app-server warning visibility\n\nSurface pre-bash warn reasons through app-server warning notifications and\ncover malformed zero-exit hook decisions so approval warnings stay visible\nwhile unexpected hook output still fails closed.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-04-24T14:30:51+08:00",
+          "tree_id": "b0b0d1fde8f60cd556c140f8270bb3efb2de5b2b",
+          "url": "https://github.com/majiayu000/vibeguard/commit/11972cedd8113ace00372417dace90d485ca6b62"
+        },
+        "date": 1777012661485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 134,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 165,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 209,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 281,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 158,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 282,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 158,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 91,
             "unit": "ms"
           }
         ]
