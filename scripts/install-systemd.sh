@@ -70,7 +70,7 @@ sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
 green "  Unit files written to ${UNIT_DIR}/"
 
 # Make GC script executable
-chmod +x "${REPO_DIR}/scripts/gc-scheduled.sh"
+chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
 
 # Reload and enable
 systemctl --user daemon-reload

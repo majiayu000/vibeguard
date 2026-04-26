@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>__VIBEGUARD_DIR__/scripts/gc-scheduled.sh</string>
+        <string>__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>

@@ -5,6 +5,6 @@ Documentation=https://github.com/majiayu000/vibeguard
 [Service]
 Type=oneshot
 ExecStartPre=/bin/mkdir -p %h/.vibeguard
-ExecStart=/bin/bash "__VIBEGUARD_DIR__/scripts/gc-scheduled.sh"
+ExecStart=/bin/bash "__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh"
 StandardOutput=append:%h/.vibeguard/gc-systemd.log
 StandardError=append:%h/.vibeguard/gc-systemd.log
