@@ -186,6 +186,46 @@ assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'sessi
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 
+header "install state tolerates benign coexistence edits on shared mutable files"
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+home = Path.home()
+
+settings_path = home / ".claude" / "settings.json"
+settings = json.loads(settings_path.read_text(encoding="utf-8"))
+settings["alwaysThinkingEnabled"] = True
+settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+
+hooks_path = home / ".codex" / "hooks.json"
+hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+hooks.setdefault("hooks", {}).setdefault("SessionStart", []).append(
+    {
+        "hooks": [
+            {
+                "type": "command",
+                "command": "node /existing/coexistence-hook.js"
+            }
+        ]
+    }
+)
+hooks_path.write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
+
+config_path = home / ".codex" / "config.toml"
+config_path.write_text(
+    config_path.read_text(encoding="utf-8")
+    + "\n[projects.\"/tmp/coexistence-test\"]\ntrust_level = \"trusted\"\n",
+    encoding="utf-8",
+)
+PY
+assert_cmd "Claude hooks still validate after coexistence edits" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
+assert_cmd "Codex hooks still validate after coexistence edits" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
+drift_out="$(bash -lc 'source scripts/lib/install-state.sh; state_check_drift')"
+assert_cmd "state_check_drift stays clean after benign coexistence edits" bash -c "! grep -q 'checksum mismatch' <<< \"${drift_out}\" && grep -q 'STATUS: CLEAN' <<< \"${drift_out}\""
+check_coexist_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_cmd "setup --check does not report checksum mismatch for shared mutable files" bash -c "! grep -q 'checksum mismatch' <<< \"${check_coexist_out}\""
+
 header "codex config helper failure propagates"
 _ORIG_CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 _BACKUP_CODEX_CONFIG_HELPER="${TMP_HOME}/codex_config_toml.py.backup"

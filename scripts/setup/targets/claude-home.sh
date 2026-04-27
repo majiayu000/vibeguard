@@ -218,13 +218,13 @@ check_claude_home_installation() {
   if settings_check "${SETTINGS_FILE}" "pre-hooks"; then
     green "[OK] PreToolUse hooks configured (Write block + Bash block + Edit guard)"
   else
-    yellow "[MISSING] PreToolUse hooks not fully configured"
+    yellow "[MISSING] Claude PreToolUse hooks not fully configured in ~/.claude/settings.json"
   fi
 
   if settings_check "${SETTINGS_FILE}" "post-hooks"; then
     green "[OK] PostToolUse hooks configured (Edit quality + Write dedup)"
   else
-    yellow "[MISSING] PostToolUse hooks not fully configured"
+    yellow "[MISSING] Claude PostToolUse hooks not fully configured in ~/.claude/settings.json"
   fi
 
   if settings_check "${SETTINGS_FILE}" "full-hooks"; then
