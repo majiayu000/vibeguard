@@ -12,9 +12,15 @@ install_codex_home_assets() {
       yellow "  SKIP ${skill} (source not found)"
     fi
   done
-  safe_symlink "${REPO_DIR}/skills/vibeguard" "${CODEX_DIR}/skills/vibeguard"
-  state_record_file "${CODEX_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
-  green "  vibeguard -> ~/.codex/skills/vibeguard"
+  for skill in vibeguard agentsmd-audit trajectory-review; do
+    if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
+      safe_symlink "${REPO_DIR}/skills/${skill}" "${CODEX_DIR}/skills/${skill}"
+      state_record_file "${CODEX_DIR}/skills/${skill}" "skills/${skill}" "symlink"
+      green "  ${skill} -> ~/.codex/skills/${skill}"
+    else
+      yellow "  SKIP ${skill} (source not found)"
+    fi
+  done
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -93,7 +99,7 @@ configure_codex_home_runtime() {
 
 check_codex_home_installation() {
   local link
-  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize agentsmd-audit trajectory-review; do
     link="${CODEX_DIR}/skills/${skill}"
     if [[ -L "${link}" ]]; then
       if [[ -e "${link}" ]]; then
@@ -152,7 +158,7 @@ print(total)
 
 clean_codex_home_installation() {
   local skill
-  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize; do
+  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize agentsmd-audit trajectory-review; do
     rm -f "${CODEX_DIR}/skills/${skill}"
   done
 
