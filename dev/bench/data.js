@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777035647049,
+  "lastUpdate": 1777269517418,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1517,6 +1517,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "VibeGuard Agent",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "1835304752@qq.com",
+            "name": "VibeGuard Agent",
+            "username": "majiayu000"
+          },
+          "distinct": true,
+          "id": "c6c34feab2959d93816dc0edcaf7e484da0a0869",
+          "message": "fix(setup): point scheduled GC templates at canonical script",
+          "timestamp": "2026-04-26T17:22:56+08:00",
+          "tree_id": "c11e2ca99e77902e0894fa741edd366fa3e24b0f",
+          "url": "https://github.com/majiayu000/vibeguard/commit/c6c34feab2959d93816dc0edcaf7e484da0a0869"
+        },
+        "date": 1777269516647,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 189,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 208,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 254,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 348,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 351,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 131,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 130,
             "unit": "ms"
           }
         ]
