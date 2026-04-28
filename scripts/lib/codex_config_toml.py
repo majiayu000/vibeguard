@@ -71,10 +71,11 @@ def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
     kept: list[str] = []
     in_legacy = False
     changed = False
+    legacy_table = "mcp_servers.vibeguard"
     for line in lines:
         table_name = _table_name(line)
         if table_name is not None:
-            if table_name == "mcp_servers.vibeguard":
+            if table_name == legacy_table or table_name.startswith(f"{legacy_table}."):
                 in_legacy = True
                 changed = True
                 continue

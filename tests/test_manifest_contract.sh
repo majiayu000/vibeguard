@@ -95,10 +95,20 @@ foo = true
 [mcp_servers.vibeguard] # legacy comment
 command = "node"
 args = ["/legacy/mcp-server/dist/index.js"]
+
+[mcp_servers.vibeguard.env]
+VIBEGUARD_MODE = "legacy"
+
+[mcp_servers.vibeguard.env.deep]
+NESTED = "true"
+
+[other]
+value = 1
 TOML
 remove_out="$(python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${CONFIG_FILE}")"
 assert_contains "${remove_out}" "CHANGED" "remove-legacy-vibeguard-mcp reports change"
-assert_cmd "legacy vibeguard mcp section removed" bash -c "! grep -q '^\[mcp_servers\\.vibeguard\]' '${CONFIG_FILE}'"
+assert_cmd "legacy vibeguard mcp tables removed recursively" bash -c "! grep -qE '^\[mcp_servers\\.vibeguard([.]|\\])' '${CONFIG_FILE}'"
+assert_cmd "non-legacy tables remain after recursive cleanup" grep -Eq '^\[other\]$' "${CONFIG_FILE}"
 
 header "doc freshness installed drift"
 EMPTY_HOME="${TMP_DIR}/empty-home"
