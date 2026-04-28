@@ -190,13 +190,15 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:gc` | Garbage collection (log archival + worktree cleanup + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
-**Complexity Routing**
+**Routing Contract**
 
-| Scope | Flow |
-|-------|------|
-| 1-2 files | Just implement |
-| 3-5 files | `/vibeguard:preflight` → constraints → implement |
-| 6+ files | `/vibeguard:interview` → SPEC → `/vibeguard:preflight` → implement |
+Workflow routing is defined once in [workflows/references/routing-contract.md](workflows/references/routing-contract.md).
+
+- Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
+- Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
+- Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, `lane_map`
+
+Use workflow prompts and dispatcher guidance as consumers of that contract, not as independent routing sources.
 
 ## Multi-Agent Dispatch
 

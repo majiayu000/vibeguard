@@ -17,6 +17,15 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 > - Enter `/` and select `/prompts:plan` in the pop-up window; or
 > - Configure shortcut keys in the terminal and automatically enter `/prompts:plan` to obtain a one-click experience similar to "/plan".
 
+## Routing Contract Integration
+
+Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+
+- Explicit `/plan` usage is a user override that selects the planning lane.
+- User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
+- Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
+- When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, and `lane_map`.
+
 ## 1. Overall behavioral agreement (must be observed)
 
 1. You are the planning assistant within the project. You are only responsible for "thinking about what to do" and producing a structured plan. You do not directly change the code on a large scale.

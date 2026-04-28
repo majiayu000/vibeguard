@@ -14,6 +14,28 @@ Use this skill when the user needs:
 
 This skill is repository-agnostic. It defines how to analyze and plan, not only what was done in one specific repo.
 
+## Routing Contract Integration
+
+Plan Flow owns the task only after the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) resolves to `plan_first`.
+
+Route into Plan Flow when these readiness signals are true:
+
+- ambiguity has already been resolved
+- execution should not start directly
+- the task needs a durable `plan/*.md` artifact, phased sequencing, or explicit convergence evidence
+
+Do not use Plan Flow to compensate for a `clarify_first` outcome. Missing non-goals, decision boundaries, or lane ownership must be clarified before planning starts.
+
+When Plan Flow finishes planning, emit the shared execution handoff with these required keys:
+
+- `mode`
+- `artifacts`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
+`artifacts` must include the generated `plan/*.md` path. `lane_map` must name the owner for every delegated lane before execution starts.
+
 ## Core Workflow (Analyze -> Plan -> Execute)
 
 1. Establish scope and constraints.

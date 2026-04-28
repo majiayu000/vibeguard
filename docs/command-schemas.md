@@ -2,6 +2,59 @@
 
 JSON Schema definition for structured communication between commands. Each command can optionally output JSON format for downstream consumption.
 
+Canonical routing decisions and planning handoffs are defined in `workflows/references/routing-contract.md`.
+
+## routing decision Schema
+
+```json
+{
+  "command": "routing_decision",
+  "precedence": [
+    "user_override",
+    "risk_destructive_gate",
+    "ambiguity_gate",
+    "readiness_classifier",
+    "execution_or_delegation_lane"
+  ],
+  "readiness": {
+    "decision": "execute_direct | plan_first | clarify_first",
+    "reason": "Short deterministic explanation",
+    "blockingQuestions": [
+      "Present only when decision = clarify_first"
+    ]
+  }
+}
+```
+
+## execution handoff Schema
+
+```json
+{
+  "command": "execution_handoff",
+  "mode": "fixflow | plan_flow_execution | execplan_execution | auto_optimize | custom",
+  "artifacts": [
+    "plan/task.md",
+    "SPEC.md"
+  ],
+  "verification_owner": "planner | executor | reviewer | named lane owner",
+  "stop_conditions": [
+    "Condition that must halt execution"
+  ],
+  "lane_map": {
+    "implementation": "fixflow",
+    "verification": "reviewer"
+  }
+}
+```
+
+Required handoff keys:
+
+- `mode`
+- `artifacts`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
 ## preflight output Schema
 
 ```json

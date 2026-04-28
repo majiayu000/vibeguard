@@ -23,6 +23,30 @@ Trigger this skill when the user asks for one or more of:
 - Commit after completion or commit before each next step.
 - Behavior-driven delivery (BDD) or acceptance scenarios.
 
+## Routing Contract Integration
+
+Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+
+Fixflow can start directly when either of these is true:
+
+- upstream readiness resolved to `execute_direct`
+- a planning workflow already emitted a handoff that preselects Fixflow for execution
+
+Fixflow must not start execution when either of these is true:
+
+- upstream readiness resolved to `clarify_first`
+- upstream readiness resolved to `plan_first` and no execution handoff exists yet
+
+When Fixflow receives a planning handoff, it must honor all required keys:
+
+- `mode`
+- `artifacts`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
+If `lane_map` does not assign Fixflow-owned work clearly, stop and clarify before editing.
+
 ## Workflow
 
 ### 1. Define Ready Criteria (DoR)

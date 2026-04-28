@@ -6,6 +6,31 @@ description: Automate analysis, evaluation, design and optimization of target pr
 
 Integrate the project autonomous optimization workflow of the VibeGuard guard system.
 
+## Routing Contract Integration
+
+Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+
+Start autonomous optimization only when both conditions are true:
+
+- readiness already resolved to executable work (`execute_direct`, or a planning handoff selected this workflow)
+- `lane_map` assigns clear ownership for every delegated lane used by the run
+
+Do not start autonomous execution when:
+
+- readiness is `clarify_first`
+- readiness is `plan_first` and no execution handoff exists yet
+- delegation ownership is missing, shared, or contradictory
+
+When Auto-Optimize consumes a planning handoff, it must honor:
+
+- `mode`
+- `artifacts`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
+Workflow-local judgment does not replace the shared readiness or delegation contract.
+
 ## Core principles (extracted from 30+ practical sessions)
 
 1. **Not repairing is more important than repairing indiscriminately** — Each finding must be classified as FIX / SKIP / DEFER, and SKIP must be accompanied by a reason
