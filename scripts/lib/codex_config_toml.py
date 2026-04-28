@@ -8,6 +8,14 @@ import re
 import tempfile
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:  # pragma: no cover - pip vendor fallback
+        from pip._vendor import tomli as tomllib
+
 
 def _write_atomic(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +96,18 @@ def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
     return ((new_text + "\n") if new_text else ""), changed
 
 
+def _check_codex_hooks_enabled(text: str) -> tuple[str, int]:
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return "INVALID", 1
+
+    features = data.get("features")
+    if isinstance(features, dict) and features.get("codex_hooks") is True:
+        return "OK", 0
+    return "MISSING", 1
+
+
 def cmd_enable_codex_hooks(args: argparse.Namespace) -> int:
     path = Path(args.config_file)
     old = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -118,12 +138,26 @@ def cmd_remove_legacy_vibeguard_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_codex_hooks(args: argparse.Namespace) -> int:
+    path = Path(args.config_file)
+    if not path.exists():
+        print("MISSING")
+        return 1
+
+    status, code = _check_codex_hooks_enabled(path.read_text(encoding="utf-8"))
+    print(status)
+    return code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Structured Codex config.toml helper")
     sub = parser.add_subparsers(dest="command", required=True)
 
     enable = sub.add_parser("enable-codex-hooks", help="Ensure [features].codex_hooks = true")
     enable.add_argument("--config-file", required=True)
+
+    check = sub.add_parser("check-codex-hooks", help="Validate [features].codex_hooks = true")
+    check.add_argument("--config-file", required=True)
 
     remove = sub.add_parser("remove-legacy-vibeguard-mcp", help="Remove [mcp_servers.vibeguard] block")
     remove.add_argument("--config-file", required=True)
@@ -135,6 +169,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "enable-codex-hooks":
         return cmd_enable_codex_hooks(args)
+    if args.command == "check-codex-hooks":
+        return cmd_check_codex_hooks(args)
     if args.command == "remove-legacy-vibeguard-mcp":
         return cmd_remove_legacy_vibeguard_mcp(args)
     parser.error("unknown command")

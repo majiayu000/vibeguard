@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
 CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
+CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 
 PASS=0
 FAIL=0
@@ -87,6 +88,7 @@ assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scrip
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
 assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_compile "${CODEX_HOOKS_HELPER}"
+assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
 
 header "scheduled GC templates"
 assert_cmd "scheduled GC script exists at canonical path" test -x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
@@ -228,6 +230,19 @@ fail_install_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 cp "${_BACKUP_CODEX_CONFIG_HELPER}" "${_ORIG_CODEX_CONFIG_HELPER}"
 assert_contains "${fail_install_out}" "Failed to enable codex_hooks feature in config.toml" "setup reports codex_hooks helper failure"
 assert_cmd "setup exits before reporting success when codex_hooks helper fails" bash -c "! grep -q 'Setup complete! All components installed.' <<< '${fail_install_out}'"
+
+header "setup --check rejects invalid codex config"
+_VALID_CODEX_CONFIG="${TMP_HOME}/config.toml.valid.backup"
+cp "${HOME}/.codex/config.toml" "${_VALID_CODEX_CONFIG}"
+cat > "${HOME}/.codex/config.toml" <<'TOML'
+not valid toml =
+[features]
+codex_hooks = true
+TOML
+invalid_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
+assert_contains "${invalid_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid ~/.codex/config.toml"
+assert_cmd "invalid config does not report codex_hooks enabled" bash -c "! grep -qF '[OK] codex_hooks feature enabled in config.toml' <<< '${invalid_codex_check_out}'"
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"

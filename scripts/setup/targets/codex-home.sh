@@ -137,8 +137,15 @@ print(total)
   yellow "[INFO] Codex runtime scope: Bash approvals + Stop hooks only; Edit/Write/analysis-paralysis require Claude Code or the app-server wrapper"
 
   # Check feature flag
-  if [[ -f "${CODEX_DIR}/config.toml" ]] && grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CODEX_DIR}/config.toml" 2>/dev/null; then
+  local config="${CODEX_DIR}/config.toml"
+  local codex_hooks_status="MISSING"
+  if [[ -f "${config}" ]]; then
+    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
+  fi
+  if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] codex_hooks feature enabled in config.toml"
+  elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
+    red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
     yellow "[MISSING] codex_hooks feature not enabled in ~/.codex/config.toml"
   fi
