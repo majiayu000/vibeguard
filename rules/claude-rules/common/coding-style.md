@@ -128,3 +128,30 @@ If one rule file contains more than 30 active constraints, raise an overload war
 - Suggestions or conventions get promoted to strict rules in an attempt to force compliance, which makes them easier to ignore.
 - Low-frequency specialized workflows stay in persistent context instead of moving to a skill, hook, or verify script.
 - A second summary repeats the canonical rule text and drifts away from the real source.
+
+## U-33: Code search defaults to glob/grep; vector DB requires written justification (strict)
+
+For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. Adopting a vector DB or RAG layer for code search requires a written justification of why filesystem traversal is insufficient.
+
+**Sources** (multi-source convergence, 2026-04-28 RSS scout):
+- Boris Cherny (Anthropic Claude Code lead), Pragmatic Engineer interview, 2026-03-04: "plain glob and grep, driven by the model, beat everything." Anthropic explicitly rejected local vector DB and recursive model-based indexing in production due to stale-index and permission-complexity problems.
+- Sebastian Raschka, "Components of a Coding Agent" (2026-04-04): file tools listed as the canonical retrieval primitive in the 6-component agent framework; states "much of apparent model quality is really context quality."
+- LangChain, "How agents can use filesystems for context engineering" (2026-04-27): cites Claude Code, Manus, and Deep Agents as production examples of filesystem-as-context.
+- zilliztech/claude-context (TypeScript, 9884 stars, last updated 2026-04-28, verified via `gh api repos/zilliztech/claude-context`): production MCP that exposes the codebase via filesystem-style traversal rather than as an embedding index.
+
+**Mechanical checks (agent execution rules)**:
+- When designing a code-retrieval feature for an agent, the default tool set must be `ls`, `glob`, `grep`, `rg`, `find`, plus repository-aware variants (`git grep`, `gh search code`).
+- If the agent or the user proposes adding a vector DB, embedding index, or RAG layer to a coding agent, require a one-paragraph justification covering: (1) the specific retrieval task glob/grep cannot solve; (2) the staleness/permission strategy for the index; (3) cost and latency vs grep on the same workload.
+- Cross-language semantic search (e.g. "find the function that loads YAML config across Go and Python files") may justify a vector DB; same-repo lexical or symbol search does not.
+
+**Downgrade path** (U-32 compliance):
+If the project already ships a vector DB and removing it is out of scope, mark the existing component as `legacy: vector-db` in the README or architecture doc and require the justification at the next significant change to retrieval logic. Do not block existing systems — the rule applies forward.
+
+**Relation to U-19** (Repository pattern):
+U-19 covers business data access via a Repository abstraction. U-33 explicitly carves out agent code retrieval as a domain where wrapping a vector DB in a Repository layer is an anti-pattern, not best practice — the Unix toolset is the abstraction.
+
+**Anti-patterns**:
+- "We need semantic search for the codebase" — almost always means grep plus disciplined naming was never tried.
+- Building an embedding index because "it feels faster" without measuring grep cost on the actual codebase.
+- Re-indexing on every commit to fight staleness; grep has no staleness because it reads the live tree.
+- Treating "RAG" as the default architecture for any retrieval problem, including code.

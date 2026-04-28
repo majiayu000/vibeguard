@@ -54,6 +54,7 @@ Canonical source of truth: `rules/claude-rules/`
 | U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
 | U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
 | U-32 | Rule overload threshold + absolute-language detection | Strict | If one rule file contains more than 30 active constraints, raise an overload warning. |
+| U-33 | Code search defaults to glob/grep; vector DB requires written justification | Strict | For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. |
 
 ---
 
@@ -96,6 +97,7 @@ Canonical source of truth: `rules/claude-rules/`
 | SEC-11 | AI-generated code security defect baseline | Strict | AI-generated code carries materially higher security risk than hand-written code, so review intensity must increase accordingly. |
 | SEC-12 | Silent drift in MCP tool descriptions | Strict | The description field of an MCP tool is effectively an instruction fed to the LLM. |
 | SEC-13 | High-context file integrity protection | Strict | `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude//*.md`, hook configurations and hook scripts (`.claude/hooks/`, the `hooks`... |
+| SEC-14 | MCP tool descriptions must reject authority-claim and override language | Strict | A tool description that claims "absolute authority", "supersedes user requests", or asks the agent to "ignore prior instructions" is func... |
 
 ---
 
