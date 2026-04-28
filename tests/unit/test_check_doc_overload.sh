@@ -71,13 +71,19 @@ TMP=$(mktemp -d)
 run_case "oversize CLAUDE.md warns (no --strict)" 0 "file is .* lines" "$TMP"
 rm -rf "$TMP"
 
-# --- Case 4: hugesize CLAUDE.md (> 800 lines) with --strict → exit 1 ---
+# --- Case 4: oversize warning remains non-blocking in --strict ---
+TMP=$(mktemp -d)
+{ echo "# Long file"; for i in $(seq 1 250); do echo "Line $i content"; done; } > "$TMP/CLAUDE.md"
+run_case "oversize CLAUDE.md warns strict" 0 "Warnings: 1" --strict "$TMP"
+rm -rf "$TMP"
+
+# --- Case 5: hugesize CLAUDE.md (> 800 lines) with --strict → exit 1 ---
 TMP=$(mktemp -d)
 { echo "# Huge file"; for i in $(seq 1 900); do echo "Line $i content"; done; } > "$TMP/CLAUDE.md"
 run_case "huge CLAUDE.md fails strict" 1 "file is .* lines" --strict "$TMP"
 rm -rf "$TMP"
 
-# --- Case 5: vibeguard auto-gen region is excluded from line counting ---
+# --- Case 6: vibeguard auto-gen region is excluded from line counting ---
 TMP=$(mktemp -d)
 {
   echo "# Project Guidelines"
@@ -89,7 +95,7 @@ TMP=$(mktemp -d)
 run_case "auto-gen region excluded from counting" 0 "OK" "$TMP"
 rm -rf "$TMP"
 
-# --- Case 6: inline canonical rule redefinition → warn ---
+# --- Case 7: inline canonical rule redefinition → warn, even in --strict ---
 TMP=$(mktemp -d)
 cat > "$TMP/CLAUDE.md" <<'EOF'
 # Project Guidelines
@@ -98,26 +104,34 @@ cat > "$TMP/CLAUDE.md" <<'EOF'
 Detail explanation 1 of U-29 anti-pattern.
 Detail explanation 2 of U-29 with code example.
 EOF
-run_case "inline canonical rule redefinition warns" 0 "canonical vibeguard rule U-29" "$TMP"
+run_case "inline canonical rule redefinition warns strict" 0 "canonical vibeguard rule U-29" --strict "$TMP"
 rm -rf "$TMP"
 
-# --- Case 7: too many prohibitions → warn ---
+# --- Case 8: too many prohibitions → warn, even in --strict ---
 TMP=$(mktemp -d)
 {
   echo "# Project Guidelines"
   for i in $(seq 1 35); do echo "- 禁止 doing thing $i"; done
 } > "$TMP/CLAUDE.md"
-run_case "too many prohibitions warns" 0 "Chinese prohibition rules" "$TMP"
+run_case "too many prohibitions warns strict" 0 "Chinese prohibition rules" --strict "$TMP"
 rm -rf "$TMP"
 
-# --- Case 8: AGENTS.md is also checked ---
+# --- Case 9: root AGENTS.md is checked ---
 TMP=$(mktemp -d)
 { echo "# AGENTS.md"; for i in $(seq 1 250); do echo "Line $i"; done; } > "$TMP/AGENTS.md"
 run_case "AGENTS.md is also inspected" 0 "AGENTS.md" "$TMP"
 rm -rf "$TMP"
 
+# --- Case 10: nested AGENTS.md is checked ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/packages/api"
+{ echo "# Nested AGENTS.md"; for i in $(seq 1 250); do echo "Line $i"; done; } > "$TMP/packages/api/AGENTS.md"
+run_case "nested AGENTS.md is inspected" 0 "packages/api/AGENTS.md" "$TMP"
+rm -rf "$TMP"
+
 echo
 echo "=============================="
-echo "  Result: $PASS passed, $FAIL failed"
+TOTAL=$((PASS + FAIL))
+printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"
 echo "=============================="
 [[ "$FAIL" -eq 0 ]]

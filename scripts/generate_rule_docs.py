@@ -433,6 +433,7 @@ Static analysis scripts that enforce rules mechanically:
 | `check_code_slop.sh` | AI-generated boilerplate and stale-code patterns |
 | `check_dependency_layers.py` | Import hierarchy violations |
 | `check_circular_deps.py` | Circular dependency chains |
+| `check_doc_overload.sh` | Oversized or overloaded agent-instruction documents |
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
 
 ### Rust

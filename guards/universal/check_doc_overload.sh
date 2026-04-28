@@ -15,8 +15,8 @@
 #   bash check_doc_overload.sh --strict [target_dir]
 #
 # Exit code:
-#   0 — No problem (or violations found without --strict)
-#   1 — Violations found in --strict mode
+#   0 — No problem, or warning-only findings
+#   1 — Fail-level violations found in --strict mode
 
 set -euo pipefail
 
@@ -34,21 +34,44 @@ FAIL_LINES=800
 PROHIBITION_THRESHOLD=30
 CANONICAL_REDEF_THRESHOLD=3
 
-# Files to inspect (skip silently if missing)
+# Files to inspect (skip silently if missing). CLAUDE.md locations are fixed,
+# while AGENTS.md can appear anywhere under a project subtree.
 DOC_FILES=()
-for relpath in CLAUDE.md AGENTS.md .claude/CLAUDE.md; do
+for relpath in CLAUDE.md .claude/CLAUDE.md; do
   full="${TARGET_DIR}/${relpath}"
   [[ -f "$full" ]] && DOC_FILES+=("$full")
 done
+while IFS= read -r -d '' full; do
+  DOC_FILES+=("$full")
+done < <(
+  find "$TARGET_DIR" \
+    \( \
+      -path '*/.git' -o \
+      -path '*/node_modules' -o \
+      -path '*/target' -o \
+      -path '*/vendor' -o \
+      -path '*/dist' -o \
+      -path '*/build' -o \
+      -path '*/.venv' -o \
+      -path '*/__pycache__' -o \
+      -path '*/.claude/worktrees' \
+    \) -prune -o \
+    -type f -name 'AGENTS.md' -print0
+)
 
 if [[ ${#DOC_FILES[@]} -eq 0 ]]; then
   exit 0
 fi
 
-ISSUES=0
-report() {
+WARNINGS=0
+FAILURES=0
+warn() {
   printf '\033[33m[W-19]\033[0m %s\n' "$1"
-  ISSUES=$((ISSUES + 1))
+  WARNINGS=$((WARNINGS + 1))
+}
+fail() {
+  printf '\033[31m[W-19]\033[0m %s\n' "$1"
+  FAILURES=$((FAILURES + 1))
 }
 
 # Canonical vibeguard rule IDs that are commonly inlined in project CLAUDE.md.
@@ -79,32 +102,33 @@ for file in "${DOC_FILES[@]}"; do
 
   # Check 1: line count
   if [[ "$LINES" -gt "$FAIL_LINES" ]]; then
-    report "$file:1 file is $LINES lines (limit $FAIL_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
+    fail "$file:1 file is $LINES lines (limit $FAIL_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
   elif [[ "$LINES" -gt "$WARN_LINES" ]]; then
-    report "$file:1 file is $LINES lines (target ≤$WARN_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
+    warn "$file:1 file is $LINES lines (target ≤$WARN_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
   fi
 
   # Check 2: prohibition density
   DONT_COUNT=$(printf '%s\n' "$CONTENT" | grep -cE '禁止|不要' || true)
   if [[ "$DONT_COUNT" -gt "$PROHIBITION_THRESHOLD" ]]; then
-    report "$file:1 contains $DONT_COUNT Chinese prohibition rules (禁止/不要) above threshold $PROHIBITION_THRESHOLD. Fix: pair each with a concrete ✅ GOOD example or move warnings to references"
+    warn "$file:1 contains $DONT_COUNT Chinese prohibition rules (禁止/不要) above threshold $PROHIBITION_THRESHOLD. Fix: pair each with a concrete ✅ GOOD example or move warnings to references"
   fi
 
   # Check 3: inline redefinition of canonical vibeguard rules
   for rid in "${CANONICAL_IDS[@]}"; do
     COUNT=$(printf '%s\n' "$CONTENT" | grep -cE "[^[:alnum:]]${rid}[^[:alnum:]]|^${rid}[^[:alnum:]]" || true)
     if [[ "$COUNT" -ge "$CANONICAL_REDEF_THRESHOLD" ]]; then
-      report "$file:1 mentions canonical vibeguard rule $rid $COUNT times (canonical source: rules/claude-rules/). Fix: replace inline text with a single-line reference like 'see vibeguard $rid'"
+      warn "$file:1 mentions canonical vibeguard rule $rid $COUNT times (canonical source: rules/claude-rules/). Fix: replace inline text with a single-line reference like 'see vibeguard $rid'"
     fi
   done
 done
 
 echo "---"
-if [[ "$ISSUES" -eq 0 ]]; then
+if [[ "$WARNINGS" -eq 0 && "$FAILURES" -eq 0 ]]; then
   printf '\033[32m[W-19] OK: agent-instruction docs within sustainable size\033[0m\n'
   exit 0
 fi
 
-echo "Total issues: $ISSUES"
-[[ "$STRICT" == "true" ]] && exit 1
+echo "Warnings: $WARNINGS"
+echo "Failures: $FAILURES"
+[[ "$STRICT" == "true" && "$FAILURES" -gt 0 ]] && exit 1
 exit 0

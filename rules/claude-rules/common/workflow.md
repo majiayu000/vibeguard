@@ -326,8 +326,9 @@ The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibe
 
 **Mechanical checks (agent execution rules)**:
 - Run `bash guards/universal/check_doc_overload.sh [target_dir]` to detect violations.
-- Add `--strict` to make violations exit non-zero (suitable for CI / pre-commit).
+- Add `--strict` to make fail-level violations exit non-zero. Warning-only signals still report but do not block.
 - The auto-gen marker region is ignored by the guard.
+- Nested `AGENTS.md` files are scanned recursively, excluding generated dependency/build directories.
 
 **Anti-patterns**:
 - Repeating U-29 / U-30 / U-31 full text in `CLAUDE.md` after vibeguard already loads them.
