@@ -186,6 +186,16 @@ assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'sessi
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 
+header "setup --check detects malformed codex config"
+cat > "${HOME}/.codex/config.toml" <<'TOML'
+[features]
+codex_hooks = true
+broken = [
+TOML
+malformed_config_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${malformed_config_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports malformed codex config"
+assert_cmd "--check does not report malformed config as healthy" bash -c "! grep -q '\\[OK\\] codex_hooks feature enabled in config.toml' <<< '${malformed_config_out}'"
+
 header "codex config helper failure propagates"
 _ORIG_CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 _BACKUP_CODEX_CONFIG_HELPER="${TMP_HOME}/codex_config_toml.py.backup"

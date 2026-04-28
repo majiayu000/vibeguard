@@ -87,6 +87,16 @@ enable_commented_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --co
 assert_contains "${enable_commented_out}" "CHANGED" "enable-codex-hooks recognizes commented features table"
 assert_cmd "enable-codex-hooks does not append duplicate commented features table" bash -c "test \$(grep -Ec '^\\[features\\]' '${CONFIG_FILE}') -eq 1"
 assert_cmd "enable-codex-hooks adds exact key under commented features table" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+check_ok_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}")"
+assert_contains "${check_ok_out}" "OK" "check-codex-hooks accepts valid TOML with feature enabled"
+
+cat > "${CONFIG_FILE}" <<'TOML'
+[features]
+codex_hooks = true
+broken = [
+TOML
+check_invalid_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
+assert_contains "${check_invalid_out}" "INVALID" "check-codex-hooks rejects malformed TOML"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
