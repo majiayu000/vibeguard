@@ -59,6 +59,30 @@ Common path patterns:
 
 Role: preserve decisions, open questions, completed remediation work, and reusable local knowledge.
 
+### OMX runtime state contract
+
+Repo-local continuation now uses one canonical state layout under `.omx/state/`:
+
+```text
+.omx/state/
+├── current-plan.json
+└── <scope>/
+    ├── completion.json
+    └── verification-log.jsonl
+```
+
+Scope rules:
+
+- Use the explicitly provided scope when the runtime already resolved one.
+- Otherwise prefer the canonical `current-plan.json` pointer when continuation is plan-driven.
+- Otherwise derive a stable scope from the active thread id, then session id, then repo root.
+
+Lifecycle rules:
+
+- `completion.json` is the durable source of truth for `active`, `in_progress`, `incomplete`, `completed`, `failed`, and `cancelled`.
+- `verification-log.jsonl` is append-only. Completion claims must reference a passing verification entry for the same scope.
+- `current-plan.json` maps the active plan file to the active scope so a new session can resume without trusting chat history alone.
+
 ## How the layers work together
 
 ```text

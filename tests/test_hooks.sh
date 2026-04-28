@@ -61,6 +61,18 @@ print(haystack.count(needle))
   fi
 }
 
+assert_equals() {
+  local actual="$1" expected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if [[ "$actual" == "$expected" ]]; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected: $expected, got: $actual)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 assert_exit_zero() {
   local desc="$1"
   shift
@@ -1531,6 +1543,128 @@ else
 fi
 
 # =========================================================
+header "OMX lifecycle state"
+# =========================================================
+
+_omx_repo="$(mktemp -d)"
+git -C "$_omx_repo" init -q
+cat >"$_omx_repo/main.py" <<'EOF'
+print("base")
+EOF
+git -C "$_omx_repo" add main.py
+git -C "$_omx_repo" -c user.name=CI -c user.email=ci@vibeguard.test commit -q -m "init"
+
+_omx_read_completion() {
+  local repo="$1" session="$2"
+  (
+    cd "$repo" && \
+    VIBEGUARD_SESSION_ID="$session" \
+    VIBEGUARD_CLI="codex" \
+    VIBEGUARD_MODE="test-hooks" \
+    python3 "$REPO_DIR/hooks/_lib/omx_state.py" read-completion
+  )
+}
+
+_omx_latest_verification() {
+  local repo="$1" session="$2"
+  (
+    cd "$repo" && \
+    VIBEGUARD_SESSION_ID="$session" \
+    VIBEGUARD_CLI="codex" \
+    VIBEGUARD_MODE="test-hooks" \
+    python3 "$REPO_DIR/hooks/_lib/omx_state.py" latest-verification
+  )
+}
+
+# Dirty tree => incomplete
+printf 'print("changed")\n' >"$_omx_repo/main.py"
+dirty_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-dirty" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" bash "$REPO_DIR/hooks/stop-guard.sh"
+)"
+dirty_completion="$(_omx_read_completion "$_omx_repo" "session-dirty")"
+assert_contains "$dirty_output" "lifecycle incomplete" "stop-guard emits a stop reason when source files remain changed"
+assert_contains "$dirty_completion" '"status": "incomplete"' "Dirty source tree writes incomplete completion state"
+assert_contains "$dirty_completion" '"verification_status": "missing"' "Dirty source tree does not claim verification success"
+git -C "$_omx_repo" checkout -- main.py
+
+# Clean tree without verification => incomplete
+clean_no_verification_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-clean" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" bash "$REPO_DIR/hooks/stop-guard.sh"
+)"
+clean_no_verification_completion="$(_omx_read_completion "$_omx_repo" "session-clean")"
+assert_contains "$clean_no_verification_output" "no passing verification artifact exists" "stop-guard demands durable verification artifacts on a clean tree"
+assert_contains "$clean_no_verification_completion" '"status": "incomplete"' "Clean tree without verification remains incomplete"
+assert_contains "$clean_no_verification_completion" '"verification_status": "missing"' "Missing verification is recorded in completion.json"
+
+# Clean tree with passing verification => completed
+(
+  cd "$_omx_repo" && \
+  printf '%s' '{"source":"test","status":"pass","commands":["bash tests/test_hooks.sh"],"summary":"passing regression","session_id":"session-pass"}' \
+    | VIBEGUARD_SESSION_ID="session-pass" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" python3 "$REPO_DIR/hooks/_lib/omx_state.py" append-verification >/dev/null
+)
+completed_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-pass" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" bash "$REPO_DIR/hooks/stop-guard.sh"
+)"
+completed_completion="$(_omx_read_completion "$_omx_repo" "session-pass")"
+assert_equals "$completed_output" "" "Completed lifecycle stays silent when verification is current"
+assert_contains "$completed_completion" '"status": "completed"' "Passing verification promotes lifecycle state to completed"
+assert_contains "$completed_completion" 'bash tests/test_hooks.sh' "completion.json retains verification command evidence"
+
+# Explicit failed / cancelled updates remain durable and explicit
+failed_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-failed" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" VIBEGUARD_LIFECYCLE_STATUS="failed" bash "$REPO_DIR/hooks/stop-guard.sh"
+)"
+failed_completion="$(_omx_read_completion "$_omx_repo" "session-failed")"
+assert_contains "$failed_output" "marked failed" "Explicit failed lifecycle update produces a stop reason"
+assert_contains "$failed_completion" '"status": "failed"' "Explicit failed lifecycle update writes failed status"
+
+cancelled_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-cancelled" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" VIBEGUARD_LIFECYCLE_STATUS="cancelled" bash "$REPO_DIR/hooks/stop-guard.sh"
+)"
+cancelled_completion="$(_omx_read_completion "$_omx_repo" "session-cancelled")"
+assert_contains "$cancelled_output" "marked cancelled" "Explicit cancelled lifecycle update produces a stop reason"
+assert_contains "$cancelled_completion" '"status": "cancelled"' "Explicit cancelled lifecycle update writes cancelled status"
+
+# learn-evaluator appends structured verification rows
+(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_SESSION_ID="session-explicit-verification" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" \
+    VIBEGUARD_VERIFICATION_STATUS="pass" \
+    VIBEGUARD_VERIFICATION_COMMANDS_JSON='["cargo test"]' \
+    VIBEGUARD_VERIFICATION_SUMMARY="explicit verification" \
+    bash "$REPO_DIR/hooks/learn-evaluator.sh" >/dev/null
+)
+explicit_verification="$(_omx_latest_verification "$_omx_repo" "session-explicit-verification")"
+assert_contains "$explicit_verification" '"status": "pass"' "learn-evaluator appends explicit verification rows"
+assert_contains "$explicit_verification" 'cargo test' "verification ledger preserves command evidence"
+
+# learn-evaluator persists known-failure signals into the verification ledger
+_omx_repo_root=$(git -C "$_omx_repo" rev-parse --show-toplevel)
+_omx_project_hash=$(printf '%s' "$_omx_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8)
+_omx_project_log_dir="$VIBEGUARD_LOG_DIR/projects/${_omx_project_hash}"
+mkdir -p "$_omx_project_log_dir"
+cat >"$_omx_project_log_dir/events.jsonl" <<EOF
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","session":"session-signal-ledger","hook":"post-edit-guard","tool":"Edit","decision":"warn","reason":"warn one","detail":"main.py"}
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","session":"session-signal-ledger","hook":"post-edit-guard","tool":"Edit","decision":"warn","reason":"warn two","detail":"main.py"}
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","session":"session-signal-ledger","hook":"post-edit-guard","tool":"Edit","decision":"warn","reason":"warn three","detail":"main.py"}
+EOF
+signal_output="$(
+  cd "$_omx_repo" && \
+  printf '{}' | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_SESSION_ID="session-signal-ledger" VIBEGUARD_CLI="codex" VIBEGUARD_MODE="test-hooks" bash "$REPO_DIR/hooks/learn-evaluator.sh"
+)"
+signal_verification="$(_omx_latest_verification "$_omx_repo" "session-signal-ledger")"
+assert_contains "$signal_output" "correction detection" "learn-evaluator still emits the correction-detection stop reason"
+assert_contains "$signal_verification" '"status": "warn"' "Correction signals append warning verification rows"
+assert_contains "$signal_verification" 'High friction session' "Known-failure signals are preserved in the verification ledger"
+
+rm -rf "$_omx_repo"
+
+# =========================================================
 header "post-edit-guard.sh — W-14 path normalization"
 # =========================================================
 
@@ -1538,7 +1672,8 @@ _w14_dir=$(mktemp -d "$REPO_DIR/.tmp-w14.XXXXXX")
 _w14_file="$_w14_dir/overlap.py"
 printf 'value = 1\n' > "$_w14_file"
 _w14_rel="${_w14_file#$REPO_DIR/}"
-_w14_project_hash=$(printf '%s' "$REPO_DIR" | shasum -a 256 2>/dev/null | cut -c1-8)
+_w14_repo_root=$(git -C "$REPO_DIR" rev-parse --show-toplevel)
+_w14_project_hash=$(printf '%s' "$_w14_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8)
 _w14_log_file="$VIBEGUARD_LOG_DIR/projects/${_w14_project_hash}/events.jsonl"
 mkdir -p "$(dirname "$_w14_log_file")"
 

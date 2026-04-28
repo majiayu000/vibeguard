@@ -147,6 +147,9 @@ Require:
 - After successful writing, clearly inform the user in the conversation:
   - actual file path;
   - Whether to include PLAN_META block and full plan content.
+- After writing or updating the plan file, also update the canonical OMX pointer at `.omx/state/current-plan.json` so continuation can recover the active plan and scope without relying on prior chat text alone.
+  - Required fields: `scope`, `plan_path`, `updated_at`
+  - Recommended fields: `mode`, `current_step`, `next_required_action`
 - If the file cannot be created/written due to approval/policy restrictions or other errors:
   - Give reasons in your answer;
   - Still output the complete plan text, ensuring that the user can manually copy it to a file.
@@ -165,7 +168,7 @@ You need to determine whether to "continue the same Plan" or "create a new Plan"
    - If there is already a current Plan in this session (you have output the `Plan file: path: plan/....md` in the previous answer):
      - When the user uses expressions such as "previously", "just now", "previous plan", "previous plan", "adjusted on the original basis", etc., it is deemed to continue the same Plan:
        - No new files are created;
-       - Use the previously recorded Plan file path as the "current Plan";
+       - Use the plan path from `.omx/state/current-plan.json` as the canonical "current Plan" when it exists; otherwise fall back to the previously recorded Plan file path in the conversation;
        - First read the original plan through `cat plan/XXXX.md`, and modify or incrementally update it based on this.
      - When the user clearly states "new plan", "another task", "change a requirement", "redesign a plan for YYY", it is regarded as a new plan:
        - Create new Plan files for new tasks;
@@ -174,12 +177,13 @@ You need to determine whether to "continue the same Plan" or "create a new Plan"
      - First ask for clarification in one sentence (for example: "Is this adjusting the previous Plan, or creating a new Plan for a completely new task?"), and then execute according to the user's choice.
 
 2. Behavior when continuing the same Plan
-   - Prioritize reading the contents of the current Plan file through the shell (for example, `cat plan/2025-12-01_17-05-30-plan.md`) to quickly review the summary of existing plans;
+   - Prioritize reading `.omx/state/current-plan.json`, then read the pointed-to plan file through the shell (for example, `cat plan/2025-12-01_17-05-30-plan.md`) to quickly review the summary of existing plans;
    - If the user wishes to adjust the plan:
      - In your answer, first give a "Summary of Changes" to explain the main modifications compared to the original Plan;
      - Then provide the updated complete plan fragment (it can replace certain phases or add new phases);
      - Update the same Plan file using append or rewrite, and explain in your answer:
        - Updated Plan file path;
+       - Updated `.omx/state/current-plan.json` pointer;
        - If you use a "Change History" or "Revisions" section in your document, briefly describe your structure.
 
 3. Behavior when creating a new Plan

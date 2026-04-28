@@ -62,6 +62,8 @@ for _candidate in \
   fi
 done
 
+VG_OMX_STATE_SCRIPT="${VG_OMX_STATE_SCRIPT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/_lib" && pwd)/omx_state.py}"
+
 #Extract specified fields from stdin JSON
 # Usage: value=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 vg_json_field() {
@@ -334,4 +336,31 @@ vg_json_output_kv() {
   done
   json="${json} }"
   printf '%s\n' "$json"
+}
+
+vg_omx_scope_meta() {
+  [[ -f "$VG_OMX_STATE_SCRIPT" ]] || return 1
+  VIBEGUARD_REPO_ROOT="${_vg_repo_root}" python3 "$VG_OMX_STATE_SCRIPT" scope-meta
+}
+
+vg_omx_read_completion() {
+  [[ -f "$VG_OMX_STATE_SCRIPT" ]] || return 1
+  VIBEGUARD_REPO_ROOT="${_vg_repo_root}" python3 "$VG_OMX_STATE_SCRIPT" read-completion
+}
+
+vg_omx_write_completion() {
+  local payload="${1:-}"
+  [[ -f "$VG_OMX_STATE_SCRIPT" ]] || return 1
+  printf '%s' "$payload" | VIBEGUARD_REPO_ROOT="${_vg_repo_root}" python3 "$VG_OMX_STATE_SCRIPT" write-completion
+}
+
+vg_omx_latest_verification() {
+  [[ -f "$VG_OMX_STATE_SCRIPT" ]] || return 1
+  VIBEGUARD_REPO_ROOT="${_vg_repo_root}" python3 "$VG_OMX_STATE_SCRIPT" latest-verification
+}
+
+vg_omx_append_verification() {
+  local payload="${1:-}"
+  [[ -f "$VG_OMX_STATE_SCRIPT" ]] || return 1
+  printf '%s' "$payload" | VIBEGUARD_REPO_ROOT="${_vg_repo_root}" python3 "$VG_OMX_STATE_SCRIPT" append-verification
 }

@@ -26,6 +26,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+OMX_STATE_LIB = Path(__file__).resolve().parents[2] / "hooks" / "_lib"
+if str(OMX_STATE_LIB) not in sys.path:
+    sys.path.insert(0, str(OMX_STATE_LIB))
+
+import omx_state
+
 
 CODEX_APP_SERVER_CAPABILITIES: dict[str, bool] = {
     "pre_bash_guard": True,
@@ -44,6 +50,7 @@ class ThreadState:
     cwd: str | None = None
     session_id: str | None = None
     turn_id: str | None = None
+    scope: str | None = None
 
 
 @dataclass
@@ -233,6 +240,7 @@ class VibeGuardGateStrategy(GateStrategy):
                 thread = state.ensure_thread(thread_id)
                 if isinstance(cwd, str) and cwd:
                     thread.cwd = cwd
+                    self._ensure_thread_scope(thread_id, thread)
         elif method == "turn/start":
             thread_id = params.get("threadId")
             cwd = params.get("cwd")
@@ -240,6 +248,7 @@ class VibeGuardGateStrategy(GateStrategy):
                 thread = state.ensure_thread(thread_id)
                 if isinstance(cwd, str) and cwd:
                     thread.cwd = cwd
+                    self._ensure_thread_scope(thread_id, thread)
                 turn_id = params.get("turnId")
                 if isinstance(turn_id, str) and turn_id:
                     thread.turn_id = turn_id
@@ -353,6 +362,7 @@ class VibeGuardGateStrategy(GateStrategy):
         env = {
             "VIBEGUARD_CLI": "codex",
             "VIBEGUARD_AGENT_TYPE": "codex",
+            "VIBEGUARD_MODE": "codex-app-server",
         }
         if thread is not None and thread.session_id:
             env["VIBEGUARD_SESSION_ID"] = thread.session_id
@@ -360,13 +370,33 @@ class VibeGuardGateStrategy(GateStrategy):
             env["VIBEGUARD_THREAD_ID"] = thread_id
         if thread is not None and thread.turn_id:
             env["VIBEGUARD_TURN_ID"] = thread.turn_id
+        if thread is not None and thread.scope:
+            env["VIBEGUARD_SCOPE"] = thread.scope
         return env
 
+    def _ensure_thread_scope(self, thread_id: str, thread: ThreadState) -> omx_state.ScopeInfo | None:
+        if not thread.cwd:
+            return None
+        try:
+            scope_info = omx_state.resolve_scope(
+                omx_state.repo_root_from_cwd(thread.cwd),
+                explicit_scope=thread.scope,
+                thread_id=thread_id,
+                session_id=thread.session_id,
+                mode="codex-app-server",
+            )
+        except omx_state.StateError:
+            return None
+        thread.scope = scope_info.scope
+        return scope_info
+
     def _collect_turn_feedback(self, cwd: str, thread_id: str, thread: ThreadState) -> dict[str, Any] | None:
+        scope_info = self._ensure_thread_scope(thread_id, thread)
         env = self._hook_env(thread_id, thread)
         messages = self._run_stop_gates(cwd, env)
         messages.extend(self._run_post_build_checks(cwd, env))
-        if not messages:
+        lifecycle, verification = self._load_omx_feedback(scope_info)
+        if not messages and lifecycle is None and verification is None:
             return None
 
         feedback: dict[str, Any] = {
@@ -374,6 +404,10 @@ class VibeGuardGateStrategy(GateStrategy):
             "capabilities": CODEX_APP_SERVER_CAPABILITIES,
             "messages": messages,
         }
+        if lifecycle is not None:
+            feedback["lifecycle"] = lifecycle
+        if verification is not None:
+            feedback["verification"] = verification
         if thread.session_id:
             feedback["sessionId"] = thread.session_id
         if thread_id:
@@ -381,6 +415,59 @@ class VibeGuardGateStrategy(GateStrategy):
         if thread.turn_id:
             feedback["turnId"] = thread.turn_id
         return feedback
+
+    @staticmethod
+    def _artifact_path(scope_info: omx_state.ScopeInfo, path: Path) -> str:
+        return omx_state._relative_to_repo(path, scope_info.repo_root)
+
+    def _load_omx_feedback(
+        self,
+        scope_info: omx_state.ScopeInfo | None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        if scope_info is None:
+            return None, None
+
+        lifecycle: dict[str, Any] = {
+            "scope": scope_info.scope,
+            "scopeSource": scope_info.scope_source,
+            "mode": scope_info.mode,
+            "completionPath": self._artifact_path(scope_info, scope_info.completion_path),
+            "currentPlanPath": self._artifact_path(scope_info, scope_info.current_plan_pointer_path),
+            "currentStep": scope_info.current_step,
+        }
+        verification: dict[str, Any] = {
+            "scope": scope_info.scope,
+            "verificationLogPath": self._artifact_path(scope_info, scope_info.verification_log_path),
+        }
+
+        try:
+            completion = omx_state.read_completion(scope_info)
+        except omx_state.StateError as exc:
+            lifecycle["status"] = "incomplete"
+            lifecycle["error"] = str(exc)
+        else:
+            if completion is not None:
+                lifecycle["status"] = completion.get("status")
+                lifecycle["verificationStatus"] = completion.get("verification_status")
+                lifecycle["nextRequiredAction"] = completion.get("next_required_action")
+                lifecycle["currentStep"] = completion.get("current_step")
+                verification["status"] = completion.get("verification_status")
+                verification["entryId"] = completion.get("verification_entry_id")
+                verification["commands"] = completion.get("verification_commands")
+
+        try:
+            latest = omx_state.latest_verification(scope_info)
+        except omx_state.StateError as exc:
+            verification["error"] = str(exc)
+        else:
+            if latest is not None:
+                verification["status"] = latest.get("status")
+                verification["entryId"] = latest.get("entry_id")
+                verification["commands"] = latest.get("commands")
+                verification["knownFailures"] = latest.get("known_failures")
+                verification["source"] = latest.get("source")
+
+        return lifecycle, verification
 
     def _run_stop_gates(self, cwd: str, env: dict[str, str]) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []

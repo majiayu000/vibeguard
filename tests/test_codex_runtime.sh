@@ -201,6 +201,7 @@ adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
 import importlib.util
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -218,6 +219,9 @@ VibeGuardGateStrategy = module.VibeGuardGateStrategy
 app_repo = tmp_root / "app-server-repo"
 hooks_dir = app_repo / "hooks"
 hooks_dir.mkdir(parents=True, exist_ok=True)
+shutil.copytree(repo_dir / "hooks" / "_lib", hooks_dir / "_lib")
+for name in ("log.sh", "circuit-breaker.sh", "stop-guard.sh", "learn-evaluator.sh"):
+    shutil.copy2(repo_dir / "hooks" / name, hooks_dir / name)
 
 (app_repo / "tracked.py").write_text("print('base')\n", encoding="utf-8")
 subprocess.run(["git", "init"], cwd=app_repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -244,26 +248,6 @@ msg = 'rewrite=' + '|'.join([
     os.environ.get('VIBEGUARD_TURN_ID', ''),
 ])
 print(json.dumps({'decision': 'allow', 'updatedInput': {'command': msg}}))
-PY
-""",
-    encoding="utf-8",
-)
-(hooks_dir / "stop-guard.sh").write_text(
-    "#!/usr/bin/env bash\ncat >/dev/null\n",
-    encoding="utf-8",
-)
-(hooks_dir / "learn-evaluator.sh").write_text(
-    """#!/usr/bin/env bash
-cat >/dev/null
-python3 - <<'PY'
-import json
-import os
-msg = 'learn=' + '|'.join([
-    os.environ.get('VIBEGUARD_SESSION_ID', ''),
-    os.environ.get('VIBEGUARD_THREAD_ID', ''),
-    os.environ.get('VIBEGUARD_TURN_ID', ''),
-])
-print(json.dumps({'stopReason': msg}))
 PY
 """,
     encoding="utf-8",
@@ -314,6 +298,13 @@ completed = strategy.on_server_notification(
     {"method": "turn/completed", "params": {"threadId": "thread/alpha", "turnId": "turn-42"}},
     state,
 )
+feedback = completed["params"]["vibeguard"]
+lifecycle = feedback["lifecycle"]
+verification = feedback["verification"]
+scope_dir_from_completion = pathlib.PurePosixPath(lifecycle["completionPath"]).parts[2]
+scope_dir_from_verification = pathlib.PurePosixPath(verification["verificationLogPath"]).parts[2]
+completion_exists = (app_repo / lifecycle["completionPath"]).exists()
+verification_path_stable = scope_dir_from_completion == scope_dir_from_verification
 
 print(
     json.dumps(
@@ -321,6 +312,8 @@ print(
             "intercepted": intercepted,
             "approval": captured[0],
             "completed": completed,
+            "completion_exists": completion_exists,
+            "verification_path_stable": verification_path_stable,
             "session_collision_free": module._session_id_for_thread("thread/alpha")
             != module._session_id_for_thread("thread-alpha"),
         },
@@ -334,13 +327,16 @@ assert_contains "${adapter_json}" '"intercepted": true' "app-server adapter inte
 assert_contains "${adapter_json}" 'rewrite=codex-thread-thread-alpha-' "pre-bash hook receives a normalized hashed session id"
 assert_contains "${adapter_json}" '|thread/alpha|turn-42' "pre-bash hook receives explicit thread/turn context"
 assert_contains "${adapter_json}" '"vibeguard"' "turn/completed notification is enriched with vibeguard feedback"
-assert_contains "${adapter_json}" 'learn=codex-thread-thread-alpha-' "learn-evaluator feedback is attached to turn/completed"
 assert_contains "${adapter_json}" 'build=codex-thread-thread-alpha-' "post-build feedback is attached to turn/completed"
 assert_contains "${adapter_json}" 'tracked.py' "post-build check still covers modified tracked source files"
 assert_contains "${adapter_json}" 'new_file.py' "post-build check covers untracked source files"
+assert_contains "${adapter_json}" '".omx/state/thread-thread-alpha-' "turn/completed includes stable OMX artifact paths"
+assert_contains "${adapter_json}" '"status": "incomplete"' "Missing verification fails closed to incomplete lifecycle status"
+assert_contains "${adapter_json}" '"completion_exists": true' "turn/completed lifecycle reference points at a written completion artifact"
+assert_contains "${adapter_json}" '"verification_path_stable": true' "lifecycle and verification references share a stable scope path"
 assert_contains "${adapter_json}" '"session_collision_free": true' "distinct thread ids do not collapse to the same session id"
 assert_contains "${adapter_json}" '"pre_edit_guard": false' "capability matrix is exposed on app-server feedback"
-assert_not_contains "${adapter_json}" '"stop-guard.sh"' "empty stop-guard output does not create spurious feedback entries"
+assert_contains "${adapter_json}" '"stop-guard.sh"' "stop-guard feedback is surfaced when lifecycle state is incomplete"
 
 header "app-server adapter fails closed when pre-bash hook exits nonzero"
 app_server_failure_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
@@ -392,6 +388,87 @@ PYCODE
 )"
 assert_contains "${app_server_failure_json}" '"intercepted": true' "app-server adapter intercepts approvals when pre-bash hook exits nonzero"
 assert_contains "${app_server_failure_json}" '"decision": "decline"' "app-server adapter declines approvals when pre-bash hook exits nonzero"
+
+header "app-server adapter fails closed on malformed prior OMX state"
+app_server_malformed_state_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
+import json
+import importlib.util
+import pathlib
+import shutil
+import subprocess
+import sys
+
+repo_dir = pathlib.Path(sys.argv[1])
+tmp_root = pathlib.Path(sys.argv[2])
+module_path = repo_dir / "scripts" / "codex" / "app_server_wrapper.py"
+spec = importlib.util.spec_from_file_location("vibeguard_app_server_wrapper_malformed_state", module_path)
+module = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+SessionState = module.SessionState
+VibeGuardGateStrategy = module.VibeGuardGateStrategy
+
+app_repo = tmp_root / "app-server-malformed-state-repo"
+hooks_dir = app_repo / "hooks"
+hooks_dir.mkdir(parents=True, exist_ok=True)
+shutil.copytree(repo_dir / "hooks" / "_lib", hooks_dir / "_lib")
+for name in ("log.sh", "circuit-breaker.sh", "stop-guard.sh", "learn-evaluator.sh"):
+    shutil.copy2(repo_dir / "hooks" / name, hooks_dir / name)
+
+(app_repo / "tracked.py").write_text("print('base')\n", encoding="utf-8")
+subprocess.run(["git", "init"], cwd=app_repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.run(["git", "add", "tracked.py"], cwd=app_repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.run(
+    ["git", "-c", "user.name=CI", "-c", "user.email=ci@vibeguard.test", "commit", "-m", "init"],
+    cwd=app_repo,
+    check=True,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+
+scope = module.omx_state.resolve_scope(
+    module.omx_state.repo_root_from_cwd(app_repo),
+    thread_id="thread/malformed",
+    session_id=module._session_id_for_thread("thread/malformed"),
+    mode="codex-app-server",
+)
+scope.scope_dir.mkdir(parents=True, exist_ok=True)
+scope.completion_path.write_text("{\n", encoding="utf-8")
+
+strategy = VibeGuardGateStrategy(app_repo)
+state = SessionState()
+strategy.on_client_message(
+    {"method": "thread/start", "params": {"threadId": "thread/malformed", "cwd": str(app_repo)}},
+    state,
+)
+strategy.on_client_message(
+    {"method": "turn/start", "params": {"threadId": "thread/malformed", "cwd": str(app_repo), "turnId": "turn-99"}},
+    state,
+)
+
+completed = strategy.on_server_notification(
+    {"method": "turn/completed", "params": {"threadId": "thread/malformed", "turnId": "turn-99"}},
+    state,
+)
+feedback = completed["params"]["vibeguard"]
+completion = module.omx_state.read_completion(scope)
+print(
+    json.dumps(
+        {
+            "completed": completed,
+            "completion": completion,
+            "status": feedback["lifecycle"].get("status"),
+            "next_required_action": feedback["lifecycle"].get("nextRequiredAction"),
+        },
+        ensure_ascii=False,
+    )
+)
+PYCODE
+)"
+assert_contains "${app_server_malformed_state_json}" '"status": "incomplete"' "Malformed prior OMX state is reset to incomplete instead of completed"
+assert_contains "${app_server_malformed_state_json}" 'Repair malformed OMX state' "Malformed prior OMX state records a concrete recovery action"
+assert_not_contains "${app_server_malformed_state_json}" '"status": "completed"' "Malformed prior OMX state never silently claims completion"
 
 header "app-server adapter fails closed on malformed non-empty pre-bash hook output"
 app_server_invalid_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'

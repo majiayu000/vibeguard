@@ -35,6 +35,8 @@ Minimal context required to resume execution:
 - **Key entry**: <e.g. src/main.rs, src/lib.rs>
 - **Related Constraint Set**: <preflight output path | None>
 - **Existing decision**: <reference Decision Log entry number>
+- **Active Scope**: <OMX scope id persisted at `.omx/state/<scope>/...`>
+- **Current Plan Pointer**: `.omx/state/current-plan.json`
 
 ## 4. Plan of Work
 
@@ -59,6 +61,7 @@ High-level work plan grouped by milestones, without implementation details (deta
 - Status: `pending`
 - Milestone: M1
 - Goal: <What to deliver in this step>
+- Runtime resume fields: `scope`, `current_step`, `next_required_action`
 - Expected changes to files:
   - `<file1>`
   - `<file2>`
@@ -88,6 +91,10 @@ Verification of observable behavior, specific to input/output:
 
 Regression testing:
 - `<Full test command>`
+
+Persisted verification metadata:
+- Verification commands to record in `.omx/state/<scope>/verification-log.jsonl`
+- Expected lifecycle transition in `.omx/state/<scope>/completion.json`
 
 ## 7. Idempotence
 

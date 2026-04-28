@@ -103,3 +103,66 @@ JSON Schema definition for structured communication between commands. Each comma
   }
 }
 ```
+
+## OMX completion artifact
+
+Path: `.omx/state/<scope>/completion.json`
+
+```json
+{
+  "mode": "codex-app-server | plan-mode | exec-plan | ...",
+  "scope": "thread-foo-<hash>",
+  "status": "active | in_progress | incomplete | completed | failed | cancelled",
+  "started_at": "ISO8601",
+  "updated_at": "ISO8601",
+  "completed_at": "ISO8601 | null",
+  "cancelled_at": "ISO8601 | null",
+  "current_step": "step id or summary | null",
+  "verification_status": "missing | pass | fail | warn | stale | unknown",
+  "verification_entry_id": "jsonl row id | null",
+  "verification_commands": ["command string"],
+  "known_failures": ["signal or failure summary"],
+  "next_required_action": "human-readable next action | null",
+  "artifacts": {
+    "completion": ".omx/state/<scope>/completion.json",
+    "verification_log": ".omx/state/<scope>/verification-log.jsonl",
+    "current_plan": ".omx/state/current-plan.json"
+  }
+}
+```
+
+## OMX verification ledger row
+
+Path: `.omx/state/<scope>/verification-log.jsonl`
+
+Each line is one JSON object:
+
+```json
+{
+  "entry_id": "stable row id",
+  "ts": "ISO8601",
+  "scope": "thread-foo-<hash>",
+  "status": "missing | pass | fail | warn | stale | unknown",
+  "source": "learn-evaluator | manual | runtime-name",
+  "summary": "short explanation | null",
+  "turn_id": "turn id | null",
+  "session_id": "session id | null",
+  "commands": ["command string"],
+  "known_failures": ["signal or failure summary"]
+}
+```
+
+## OMX current-plan pointer
+
+Path: `.omx/state/current-plan.json`
+
+```json
+{
+  "scope": "thread-foo-<hash>",
+  "plan_path": "plan/2026-04-28_12-00-00-feature.md",
+  "mode": "plan-mode | exec-plan | null",
+  "current_step": "step id or summary | null",
+  "updated_at": "ISO8601",
+  "next_required_action": "resume hint | null"
+}
+```

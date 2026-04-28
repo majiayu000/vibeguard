@@ -40,10 +40,37 @@ else
     python3 "$_SESSION_METRICS_SCRIPT" 2>/dev/null || true)
 fi
 
+SIGNALS=""
+
 # If a correction signal is detected, output suggestions (not blocking)
 if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then
   SIGNALS=$(echo "$LEARN_SUGGESTION" | tail -n +2)
   SIGNAL_COUNT=$(echo "$SIGNALS" | wc -l | tr -d ' ')
+
+  verification_payload=$(
+    VG_SIGNALS="$SIGNALS" \
+    python3 - <<'PY'
+import json
+import os
+
+signals = [line for line in os.environ.get("VG_SIGNALS", "").splitlines() if line.strip()]
+print(
+    json.dumps(
+        {
+            "source": "learn-evaluator",
+            "status": "warn",
+            "commands": [],
+            "known_failures": signals,
+            "summary": "Correction signals detected during stop-hook evaluation.",
+            "turn_id": os.environ.get("VIBEGUARD_TURN_ID"),
+            "session_id": os.environ.get("VIBEGUARD_SESSION_ID"),
+        },
+        ensure_ascii=False,
+    )
+)
+PY
+  )
+  vg_omx_append_verification "$verification_payload" >/dev/null 2>&1 || true
 
   # Stop hook only supports top-level fields, hookSpecificOutput is not supported
   VG_SIGNALS="$SIGNALS" VG_COUNT="$SIGNAL_COUNT" python3 -c '
@@ -55,6 +82,41 @@ msg = f"[VibeGuard correction detection] {count} signals: {signal_list}. It is r
 result = {"stopReason": msg}
 print(json.dumps(result, ensure_ascii=False))
 '
+fi
+
+if [[ -n "${VIBEGUARD_VERIFICATION_STATUS:-}" ]]; then
+  explicit_verification_payload=$(
+    VG_STATUS="${VIBEGUARD_VERIFICATION_STATUS}" \
+    VG_COMMANDS_JSON="${VIBEGUARD_VERIFICATION_COMMANDS_JSON:-[]}" \
+    VG_KNOWN_FAILURES_JSON="${VIBEGUARD_KNOWN_FAILURES_JSON:-[]}" \
+    VG_SUMMARY="${VIBEGUARD_VERIFICATION_SUMMARY:-}" \
+    python3 - <<'PY'
+import json
+import os
+
+commands = json.loads(os.environ.get("VG_COMMANDS_JSON", "[]"))
+known_failures = json.loads(os.environ.get("VG_KNOWN_FAILURES_JSON", "[]"))
+if not isinstance(commands, list):
+    commands = []
+if not isinstance(known_failures, list):
+    known_failures = []
+print(
+    json.dumps(
+        {
+            "source": "learn-evaluator",
+            "status": os.environ["VG_STATUS"],
+            "commands": [item for item in commands if isinstance(item, str)],
+            "known_failures": [item for item in known_failures if isinstance(item, str)],
+            "summary": os.environ.get("VG_SUMMARY") or None,
+            "turn_id": os.environ.get("VIBEGUARD_TURN_ID"),
+            "session_id": os.environ.get("VIBEGUARD_SESSION_ID"),
+        },
+        ensure_ascii=False,
+    )
+)
+PY
+  )
+  vg_omx_append_verification "$explicit_verification_payload" >/dev/null 2>&1 || true
 fi
 
 # Clean up the churn flag file of this session
