@@ -134,6 +134,14 @@ TOML
 check_invalid_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
 assert_contains "${check_invalid_out}" "INVALID" "check-codex-hooks rejects malformed TOML"
 
+python3 - <<'PY' "${CONFIG_FILE}"
+from pathlib import Path
+import sys
+Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
+PY
+check_invalid_utf8_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
+assert_contains "${check_invalid_utf8_out}" "INVALID" "check-codex-hooks rejects invalid UTF-8"
+
 header "doc freshness installed drift"
 EMPTY_HOME="${TMP_DIR}/empty-home"
 mkdir -p "${EMPTY_HOME}/.claude/rules/vibeguard"

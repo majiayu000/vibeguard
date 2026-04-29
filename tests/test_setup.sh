@@ -244,6 +244,17 @@ cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
 assert_contains "${invalid_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid ~/.codex/config.toml"
 assert_cmd "invalid config does not report codex_hooks enabled" bash -c "! grep -qF '[OK] codex_hooks feature enabled in config.toml' <<< '${invalid_codex_check_out}'"
 
+header "setup --check rejects invalid UTF-8 codex config"
+python3 - <<'PY' "${HOME}/.codex/config.toml"
+from pathlib import Path
+import sys
+Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
+PY
+invalid_utf8_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
+assert_contains "${invalid_utf8_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid UTF-8 ~/.codex/config.toml"
+assert_cmd "invalid UTF-8 config does not report codex_hooks enabled" bash -c "! grep -qF '[OK] codex_hooks feature enabled in config.toml' <<< '${invalid_utf8_codex_check_out}'"
+
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
 from pathlib import Path

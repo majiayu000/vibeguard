@@ -144,7 +144,13 @@ def cmd_check_codex_hooks(args: argparse.Namespace) -> int:
         print("MISSING")
         return 1
 
-    status, code = _check_codex_hooks_enabled(path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("INVALID")
+        return 1
+
+    status, code = _check_codex_hooks_enabled(text)
     print(status)
     return code
 
