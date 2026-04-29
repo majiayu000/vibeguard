@@ -197,6 +197,14 @@ assert_contains "$result" '"decision": "block"' "Intercept git checkout \".\" (q
 result=$(echo '{"tool_input":{"command":"git restore \".\"" }}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Intercept git restore \".\" (quoted dot)"
 
+# git checkout '.' (single-quoted dot) should be intercepted
+result=$(echo "{\"tool_input\":{\"command\":\"git checkout '.'\" }}" | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git checkout '.' (single-quoted dot)"
+
+# git restore '.' (single-quoted dot) should be intercepted
+result=$(echo "{\"tool_input\":{\"command\":\"git restore '.'\" }}" | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Intercept git restore '.' (single-quoted dot)"
+
 # echo "git checkout ." should NOT be intercepted (false-positive guard)
 result=$(echo '{"tool_input":{"command":"echo \"git checkout .\"" }}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "echo containing git checkout . not blocked"

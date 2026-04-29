@@ -22,6 +22,18 @@
       "keyword": "\"decision\": \"block\"",
       "description": "git restore \".\" (quoted dot) should be intercepted"
     },
+    "tp/checkout-dot-single-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git checkout '.' (single-quoted dot) should be intercepted"
+    },
+    "tp/restore-dot-single-quoted.txt": {
+      "rule": "BLOCK",
+      "expect": "block",
+      "keyword": "\"decision\": \"block\"",
+      "description": "git restore '.' (single-quoted dot) should be intercepted"
+    },
     "tp/clean-fd.txt": {
       "rule": "BLOCK",
       "expect": "block",
