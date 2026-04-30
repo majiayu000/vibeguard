@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777570349158,
+  "lastUpdate": 1777571061092,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -2207,6 +2207,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 136,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2af597af5926a23cbaa1cbfc7b0859256336ad5",
+          "message": "feat(rules): extend SEC-12/SEC-13 for Claude Code v2.1.121 (#128)\n\nExtends SEC-12 / SEC-13 for Claude Code v2.1.121 surface area: covers `alwaysLoad: true` MCP server configs as a full-trust opt-in requiring cross-tool description validation; treats `.claude/hooks/*` and hook scripts as high-context files under SEC-13; flags hook output-rewriting (`PostToolUse` with `updatedToolOutput` on non-MCP tools) as a man-in-the-middle risk that requires an explicit project-scoped downgrade.\n\nCodex review was requested but the GitHub connector is currently rate-limited; CI is green on all three platforms after rebasing onto main and regenerating rule docs.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T01:38:59+08:00",
+          "tree_id": "0628b5e200bf28c6d42f8ea4ada07d95245e5148",
+          "url": "https://github.com/majiayu000/vibeguard/commit/a2af597af5926a23cbaa1cbfc7b0859256336ad5"
+        },
+        "date": 1777571060531,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 187,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 221,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 249,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 349,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 346,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 132,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 131,
             "unit": "ms"
           }
         ]
