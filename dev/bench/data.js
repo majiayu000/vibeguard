@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777567212404,
+  "lastUpdate": 1777568400673,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -2000,6 +2000,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 93,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9821dca17f0bc8739e60a8df9d3148d6b727de4",
+          "message": "fix(setup): validate codex config health checks (#127)\n\nCloses #120. Adds a `check-codex-hooks` subcommand that parses `~/.codex/config.toml` with tomllib (with tomli / vendored fallback for Python 3.10), rejecting malformed TOML and invalid UTF-8. Replaces the previous regex-only health check that silently passed broken configs.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T00:54:31+08:00",
+          "tree_id": "a6afd2ce81fe958c73a2de34127a0ddcaf1d73a5",
+          "url": "https://github.com/majiayu000/vibeguard/commit/f9821dca17f0bc8739e60a8df9d3148d6b727de4"
+        },
+        "date": 1777568399872,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 191,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 232,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 274,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 388,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 229,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 377,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 225,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 139,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 141,
             "unit": "ms"
           }
         ]
