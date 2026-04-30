@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777568400673,
+  "lastUpdate": 1777569224488,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -2069,6 +2069,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 141,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7494662071fade0675421c88aaa4d8195e7f766",
+          "message": "feat(rules): capture 2026-04-27 agentic harness findings (#116)\n\nCaptures three industry findings (NVIDIA AGENTS.md indirect injection, Confident AI / Microsoft AgentRx eval gaps, Augment Code AGENTS.md quality data) into:\n\n- SEC-13 extension: dependency-driven drift protocol (snapshot + diff + quarantine for high-context files created during install/build).\n- W-18: evaluation suites must assert tool selection, step adherence, and confidence calibration — not just final-output equality.\n- New skills: agentsmd-audit (audit-only scoring of five high-leverage AGENTS.md patterns) and the companion update path.\n- Regenerates rules/universal.md and docs/rule-reference.md to match.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T01:08:35+08:00",
+          "tree_id": "ae72357c6d7d313ba30e2f8fdbcd0d81910b1fd7",
+          "url": "https://github.com/majiayu000/vibeguard/commit/d7494662071fade0675421c88aaa4d8195e7f766"
+        },
+        "date": 1777569224138,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 180,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 210,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 260,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 341,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 346,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 129,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 131,
             "unit": "ms"
           }
         ]
