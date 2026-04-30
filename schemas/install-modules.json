@@ -141,14 +141,30 @@
     {
       "id": "skills-core",
       "kind": "skills",
-      "description": "Core skills (vibeguard, strategic-compact, eval-harness, iterative-retrieval)",
+      "description": "Claude core skills (vibeguard, strategic-compact, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
       "paths": [
         "skills/vibeguard/",
         "skills/strategic-compact/",
         "skills/eval-harness/",
-        "skills/iterative-retrieval/"
+        "skills/iterative-retrieval/",
+        "skills/agentsmd-audit/",
+        "skills/trajectory-review/"
       ],
       "target": "~/.claude/skills/",
+      "defaultInstall": true,
+      "cost": "light",
+      "stability": "stable"
+    },
+    {
+      "id": "skills-codex-core",
+      "kind": "skills",
+      "description": "Codex core skills (vibeguard, agentsmd-audit, trajectory-review)",
+      "paths": [
+        "skills/vibeguard/",
+        "skills/agentsmd-audit/",
+        "skills/trajectory-review/"
+      ],
+      "target": "~/.codex/skills/",
       "defaultInstall": true,
       "cost": "light",
       "stability": "stable"
@@ -254,7 +270,7 @@
       "modules": [
         "rules-common", "rules-rust", "rules-python", "rules-typescript", "rules-golang",
         "hooks-pre", "hooks-post",
-        "agents-core", "skills-core", "workflows", "commands",
+        "agents-core", "skills-core", "skills-codex-core", "workflows", "commands",
         "guards-universal", "guards-rust", "guards-python", "guards-typescript", "guards-go",
         "context-profiles"
       ]

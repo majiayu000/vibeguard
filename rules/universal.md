@@ -56,6 +56,7 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | W-15 | Low-information loop detection | Strict | If the information gain shrinks for three consecutive rounds, stop that direction and report it. |
 | W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
+| W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 
 ## FIX / SKIP / DEFER guidance
 

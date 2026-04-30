@@ -9,7 +9,7 @@ install_claude_home_assets() {
   safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
   state_record_file "${CLAUDE_DIR}/skills/auto-optimize" "workflows/auto-optimize" "symlink"
   green "  auto-optimize -> ~/.claude/skills/auto-optimize"
-  for skill in strategic-compact eval-harness iterative-retrieval; do
+  for skill in strategic-compact eval-harness iterative-retrieval agentsmd-audit trajectory-review; do
     if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
       safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
       state_record_file "${CLAUDE_DIR}/skills/${skill}" "skills/${skill}" "symlink"
@@ -146,7 +146,7 @@ check_claude_home_installation() {
   fi
 
   local link
-  for skill in vibeguard auto-optimize strategic-compact eval-harness iterative-retrieval; do
+  for skill in vibeguard auto-optimize strategic-compact eval-harness iterative-retrieval agentsmd-audit trajectory-review; do
     link="${CLAUDE_DIR}/skills/${skill}"
     if [[ -L "${link}" ]]; then
       if [[ -e "${link}" ]]; then
@@ -251,6 +251,8 @@ clean_claude_home_installation() {
   rm -f "${CLAUDE_DIR}/skills/strategic-compact"
   rm -f "${CLAUDE_DIR}/skills/eval-harness"
   rm -f "${CLAUDE_DIR}/skills/iterative-retrieval"
+  rm -f "${CLAUDE_DIR}/skills/agentsmd-audit"
+  rm -f "${CLAUDE_DIR}/skills/trajectory-review"
 
   local agent
   for agent in "${REPO_DIR}"/agents/*.md; do
