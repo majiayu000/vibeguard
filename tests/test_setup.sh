@@ -8,6 +8,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
+CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
 
 PASS=0
 FAIL=0
@@ -40,6 +41,31 @@ assert_cmd() {
     red "$desc (exit code: $?)"
     FAIL=$((FAIL + 1))
   fi
+}
+
+assert_chat_contract_blocks_match() {
+  python3 - <<'PY' "${REPO_DIR}" "${HOME}/.claude/CLAUDE.md"
+from pathlib import Path
+import re
+import sys
+
+repo_dir = Path(sys.argv[1])
+installed_path = Path(sys.argv[2])
+pattern = re.compile(r"^## Chat Contract\n.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+paths = [
+    repo_dir / "claude-md/vibeguard-rules.md",
+    repo_dir / "templates/AGENTS.md",
+    repo_dir / "docs/CLAUDE.md.example",
+    installed_path,
+]
+blocks = []
+for path in paths:
+    match = pattern.search(path.read_text(encoding="utf-8"))
+    if not match:
+        raise SystemExit(1)
+    blocks.append(match.group(0).strip())
+raise SystemExit(0 if len(set(blocks)) == 1 else 1)
+PY
 }
 
 ORIG_HOME="${HOME}"
@@ -185,6 +211,10 @@ assert_cmd "Codex hooks do not contain cognitive-reminder" bash -c "! grep -q 'c
 assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
+assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
+assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
+assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
+assert_cmd "chat contract block matches across source, installed output, and templates" assert_chat_contract_blocks_match
 
 header "codex config helper failure propagates"
 _ORIG_CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
@@ -213,6 +243,10 @@ check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
 assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
+assert_cmd "--check does not drop or duplicate the chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
+repair_out="$(bash "${REPO_DIR}/setup.sh")"
+assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
+assert_cmd "repeat setup keeps exactly one chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 
 header "upsert idempotency with non-standard wrapper path"
 # Run upsert twice with a wrapper path that does not contain 'run-hook-codex.sh'.

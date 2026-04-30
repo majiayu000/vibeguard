@@ -4,6 +4,14 @@
 > Copy to the project root directory and the Codex agent will automatically read it.
 > Scope = the entire subtree of the directory where this file is located, with increasing priority for deep AGENTS.md.
 
+## Chat Contract
+
+Compact Chat Contract: progress updates, concise answers, plain formatting.
+
+- Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
+- Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
+- Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
+
 ## Constraints
 
 | ID | Rule |
@@ -41,7 +49,7 @@ If `.vibeguard-architecture.yaml` exists, enforce dependency direction:
 
 security vulnerability > logic bug > data inconsistency > duplicate types > unwrap > naming
 
-## Style
+## Code Style
 
 - Single file ≤ 200 lines — split if exceeded
 - No hardcoded values (ports, URLs, configs)

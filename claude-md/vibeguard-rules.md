@@ -15,6 +15,14 @@
 | L6 | 1-2 file directly · 3-5 `/vibeguard:preflight` · 6+ `/vibeguard:interview` → spec |
 | L7 | AI tag does not exist / force push / key submission |
 
+## Chat Contract
+
+Compact Chat Contract: progress updates, concise answers, plain formatting.
+
+- Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
+- Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
+- Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
+
 ## Context · Validation
 
 - Corrected 2 times → `/clear`
