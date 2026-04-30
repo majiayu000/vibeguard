@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777269517418,
+  "lastUpdate": 1777565251025,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1586,6 +1586,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 130,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0314516fafc4837a8db947c74bc3052755faed2",
+          "message": "fix(codex): clean nested vibeguard.* MCP subtables (#131)\n\nCloses #122.\n\nCleanup logic now matches both `mcp_servers.vibeguard` and any nested table starting with `mcp_servers.vibeguard.` (e.g. `[mcp_servers.vibeguard.env]`), so a stale install no longer leaves child subtables active. Adds regression test in `tests/test_manifest_contract.sh` covering parent + nested children + unrelated sections.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T00:01:29+08:00",
+          "tree_id": "f9c2ed568053d80de99c64879512d44e00995b11",
+          "url": "https://github.com/majiayu000/vibeguard/commit/d0314516fafc4837a8db947c74bc3052755faed2"
+        },
+        "date": 1777565250683,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 194,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 221,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 268,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 359,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 219,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 366,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 220,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 140,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 137,
             "unit": "ms"
           }
         ]
