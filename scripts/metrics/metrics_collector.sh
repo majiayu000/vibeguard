@@ -9,7 +9,7 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-source "$(dirname "$0")/lib/guard_paths.sh"
+source "$(dirname "$0")/../lib/guard_paths.sh"
 TODAY=$(date '+%Y-%m-%d')
 
 echo "======================================"

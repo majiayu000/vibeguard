@@ -10,7 +10,7 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-source "$(dirname "$0")/lib/guard_paths.sh"
+source "$(dirname "$0")/../lib/guard_paths.sh"
 PASS=0
 FAIL=0
 WARN=0
