@@ -75,6 +75,7 @@ Canonical source of truth: `rules/claude-rules/`
 | W-16 | Verification commands must come from this session | Strict | When you say "fixed", "done", or "verified", you must cite command output produced in this session. |
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
+| W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Medium | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
 
 ---
 
@@ -192,6 +193,7 @@ Static analysis scripts that enforce rules mechanically:
 | `check_code_slop.sh` | AI-generated boilerplate and stale-code patterns |
 | `check_dependency_layers.py` | Import hierarchy violations |
 | `check_circular_deps.py` | Circular dependency chains |
+| `check_doc_overload.sh` | Oversized or overloaded agent-instruction documents |
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
 
 ### Rust

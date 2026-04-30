@@ -7,6 +7,37 @@ errors=0
 
 echo "Validating guard scripts..."
 
+# Check universal shell guards
+for script in "${REPO_DIR}"/guards/universal/*.sh; do
+  [[ -f "$script" ]] || continue
+  name=$(basename "$script")
+
+  if [[ ! -x "$script" ]]; then
+    echo "FAIL: ${name} is not executable"
+    ((errors++))
+  fi
+
+  if ! bash -n "$script" 2>/dev/null; then
+    echo "FAIL: ${name} has syntax errors"
+    ((errors++))
+  else
+    echo "OK: ${name}"
+  fi
+done
+
+# Check universal Python guards
+for script in "${REPO_DIR}"/guards/universal/*.py; do
+  [[ -f "$script" ]] || continue
+  name=$(basename "$script")
+
+  if ! python3 -m py_compile "$script" 2>/dev/null; then
+    echo "FAIL: ${name} has syntax errors"
+    ((errors++))
+  else
+    echo "OK: ${name}"
+  fi
+done
+
 # Check for Rust guards
 for script in "${REPO_DIR}"/guards/rust/*.sh; do
   [[ -f "$script" ]] || continue

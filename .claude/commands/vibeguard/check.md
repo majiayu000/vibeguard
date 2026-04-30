@@ -29,7 +29,12 @@ argument-hint: "[project_dir]"
      - `go.mod` → Go
    - Locate the vibeguard installation path (`~/Desktop/code/AI/tools/vibeguard/` or via the `VIBEGUARD_DIR` environment variable)
 
-2. **Run the guard script corresponding to the language**
+2. **Run universal guards and the guard script corresponding to the language**
+
+   **Universal Project Checks**:
+   ```bash
+   bash ${VIBEGUARD_DIR}/guards/universal/check_doc_overload.sh <project_dir>
+   ```
 
    **Rust Project**:
    ```bash

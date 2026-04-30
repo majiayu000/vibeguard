@@ -300,3 +300,37 @@ Every eval suite that gates a release or guards a production agent must validate
 
 **Downgrade path**:
 For pure text generation tasks with no tools and no required intermediate steps, axes 1 and 2 are vacuous and may be skipped if the eval suite explicitly states so. Axis 3 (calibration) is never optional whenever the model emits or implies a confidence value to a caller.
+
+## W-19: AGENTS.md / CLAUDE.md sustainable size and pairing (medium)
+Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohibitions, or inline the full text of canonical vibeguard rules. Long instruction files trigger overexploration (agents read more surrounding docs and produce worse output) and warning cascades (agents over-validate against rules irrelevant to the current task).
+
+**Sources** (three-source convergence, 2026-04):
+- Augment Code, "A good AGENTS.md is a model upgrade. A bad one is worse than no docs at all." (AuggieBench measured 10-15% cross-metric drop on bloated docs).
+- Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
+- Complement to U-32 (rule overload): U-32 sets the threshold (>30 rules per file), W-19 enforces it on the specific class of agent-instruction docs.
+
+**Detection thresholds**:
+
+| Signal | Warn | Fail (strict) |
+|---|---|---|
+| Lines outside vibeguard auto-gen region | > 200 | > 800 |
+| Chinese prohibition keywords (counted by the guard) | > 30 (warn only) | — |
+| Inline mentions of any single canonical rule ID (U-17, U-26..U-32, W-01..W-17) | ≥ 3 (likely redefining canonical text) | — |
+
+The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
+
+**Fix**:
+- Split into `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files. Use the `claude-md-split` skill (`~/.claude/skills/claude-md-split/SKILL.md`) for a structured workflow.
+- Replace inline canonical rule text with a single-line reference such as `see vibeguard U-29 for the canonical text`.
+- For each prohibition phrase (English `Don't ...` / `NO X` or Chinese equivalents), pair it with a concrete `GOOD:` example or move the warning to a reference file.
+
+**Mechanical checks (agent execution rules)**:
+- Run `bash guards/universal/check_doc_overload.sh [target_dir]` to detect violations.
+- Add `--strict` to make fail-level violations exit non-zero. Warning-only signals still report but do not block.
+- The auto-gen marker region is ignored by the guard.
+- Nested `AGENTS.md` files are scanned recursively, excluding generated dependency/build directories.
+
+**Anti-patterns**:
+- Repeating U-29 / U-30 / U-31 full text in `CLAUDE.md` after vibeguard already loads them.
+- Adding 30+ prohibitions without paired `do` examples, then expecting the agent to remember which apply.
+- Embedding the full architecture diagram, directory tree, and shared infrastructure tables directly in `CLAUDE.md` instead of in a referenced architecture doc.
