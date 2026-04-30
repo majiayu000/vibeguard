@@ -21,7 +21,7 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | L3 | No silent exception swallowing. No `Any` in public signatures |
 | L4 | No data = show blank. Never invent APIs or fields that don't exist |
 | L5 | Only do what was asked. No extra improvements, comments, or abstractions |
-| L6 | 1-2 files: implement directly. 3-5 files: preflight first. 6+: spec first |
+| L6 | Follow `workflows/references/routing-contract.md`: `execute_direct`, `plan_first`, `clarify_first`, and the shared handoff fields |
 | L7 | No AI markers. No force push. No secrets in commits |
 
 ## Negative Constraints (what does NOT exist here)

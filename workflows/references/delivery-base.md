@@ -2,6 +2,46 @@
 
 Delivery step base shared by fixflow and optflow. Both reuse common processes by referencing this document.
 
+## Routing Contract
+
+Before execution starts, consume the canonical router in [`workflows/references/routing-contract.md`](routing-contract.md).
+
+- Start direct execution only after upstream routing resolves to `execute_direct`, or after a planning workflow emits a handoff that preselects execution.
+- If upstream routing resolves to `clarify_first`, stop and clarify before building a plan or editing code.
+- Do not reinterpret the route locally with file-count shortcuts.
+
+## Execution Handoff Contract
+
+Planning workflows hand execution the same payload:
+
+```yaml
+handoff:
+  mode: <execution mode selected by the planner>
+  artifacts:
+    - <required plan/spec paths>
+  verification_owner: <who closes verification>
+  stop_conditions:
+    - <conditions that halt execution>
+  lane_map:
+    <lane_name>: <owner>
+```
+
+Execution workflows must treat these keys as required:
+
+- `mode`
+- `artifacts`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
+Consumption rules:
+
+- `mode` is authoritative for the execution lane.
+- `artifacts` are the only canonical planning inputs.
+- `verification_owner` must be reflected in the verification loop and final handoff.
+- `stop_conditions` must halt work when triggered.
+- `lane_map` must define a single owner for each delegated lane before parallel work starts.
+
 ## Define Ready Criteria (DoR)
 
 - Restate scope, constraints, and expected outputs.

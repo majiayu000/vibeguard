@@ -2,27 +2,33 @@
 
 > How ExecPlan works with VibeGuard’s existing plan-flow and plan-mode.
 
+## Canonical Routing
+
+ExecPlan follows the same precedence ladder as the rest of the workflow system. See [`workflows/references/routing-contract.md`](../../references/routing-contract.md).
+
+Apply routing in this order:
+
+1. `user_override`
+2. `risk/destructive gate`
+3. `ambiguity gate`
+4. `readiness classifier`
+5. `execution/delegation lane`
+
+Readiness still resolves to exactly one of:
+
+- `execute_direct`
+- `plan_first`
+- `clarify_first`
+
+ExecPlan is a `plan_first` planner for long-running work. It should not be selected to compensate for ambiguity.
+
 ## When to use ExecPlan vs plan-flow vs plan-mode
 
-| Tools | Applicable scenarios | Life cycle | Output |
-|------|----------|----------|------|
-| **plan-mode** | Single session task, user approval of the plan is required | Current session | Implementation plan (in-session consumption) |
-| **plan-flow** | Stock code organization, redundancy analysis + gradual convergence | 1-3 sessions | plan/*.md (analysis + steps + logs) |
-| **ExecPlan** | Long-term feature development, cross-session execution driven from SPEC | 2+ sessions | *-execplan.md (self-contained recovery document) |
-
-### Decision tree
-
-```
-Mission accomplished
-├── Can it be completed in one session?
-│ ├── Yes → 1-2 file directly / 3-5 file plan-mode
-│ └── No ↓
-├──Is it the stock code organization/refactoring?
-│ ├── Yes → plan-flow (redundant scan + gradual convergence)
-│ └── No ↓
-└──Is it new feature development/long-term task?
-    └── yes → interview → SPEC → exec-plan → preflight → execution
-```
+| Tool | Applicable scenario | Lifecycle | Output |
+|------|---------------------|-----------|--------|
+| **plan-mode** | One-session planning after the route resolves to `plan_first` | Current session | Implementation plan for immediate follow-through |
+| **plan-flow** | Convergence/refactor planning that needs durable `plan/*.md` evidence | 1-3 sessions | `plan/*.md` analysis + steps + logs |
+| **ExecPlan** | Long-running feature or migration planning that needs cross-session recovery | 2+ sessions | `*-execplan.md` recovery document |
 
 ## How plan-flow identifies ExecPlan
 
@@ -35,29 +41,33 @@ Identification rules:
 ## Complete pipeline
 
 ```
-/vibeguard:interview
+user_override / risk gate / ambiguity gate
     │
     ▼
-  SPEC.md (Requirements Contract)
+readiness = plan_first
+    │
+    ▼
+/vibeguard:interview (if a SPEC is still needed)
+    │
+    ▼
+SPEC.md
     │
     ▼
 /vibeguard:exec-plan init
     │
     ▼
-  *-execplan.md (execution plan)
+*-execplan.md + shared handoff
     │
     ▼
-/vibeguard:preflight (constraint set)
+execution workflow consumes:
+  mode / artifacts / verification_owner / stop_conditions / lane_map
+    │
+    ├── step complete → /vibeguard:exec-plan update
+    ├── new session → /vibeguard:exec-plan status
+    └── verification → /vibeguard:check
     │
     ▼
-  Execution (progress step by step according to Concrete Steps)
-    │
-    ├── Complete each step → /vibeguard:exec-plan update
-    ├── New session recovery → /vibeguard:exec-plan status
-    └── Verification → /vibeguard:check
-    │
-    ▼
-  Completed → /vibeguard:exec-plan update (mark completed)
+completed → /vibeguard:exec-plan update
 ```
 
 ## Relationship with preflight
@@ -78,4 +88,10 @@ When execution resumes with a new session:
 3. Find the first `in_progress` or `pending` step
 4. Read the Context chapter to restore the project context
 5. Read the Decision Log to understand the existing decisions
-6. Continue execution
+6. Reuse the last shared handoff fields:
+   - `mode`
+   - `artifacts`
+   - `verification_owner`
+   - `stop_conditions`
+   - `lane_map`
+7. Continue execution

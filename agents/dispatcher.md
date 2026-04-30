@@ -12,9 +12,28 @@ tools: [Read, Grep, Glob, Bash]
 Analyze task descriptions and change files and route to the most appropriate professional agent.
 
 Boundary:
-- Workflow/lifecycle selection belongs to the higher-level workflow surface (`README.md`, `skills/`, `workflows/`).
+- Workflow/lifecycle selection belongs to the higher-level workflow surface (`README.md`, `skills/`, `workflows/`) and follows [`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md).
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
+
+Required upstream routing input:
+
+```yaml
+mode: execute_direct | plan_first | clarify_first
+handoff:
+  mode: <optional preselected execution mode>
+  artifacts: [...]
+  verification_owner: <owner>
+  stop_conditions: [...]
+  lane_map: { <lane>: <owner> }
+```
+
+Dispatcher rules:
+
+- Never infer `plan` vs `execute` locally.
+- If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
+- If a handoff is present, consume its `mode`, `artifacts`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
+- Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
 
 ## Scheduling rules
 
@@ -56,14 +75,16 @@ Refer to the OpenAI Harness strategy to allocate model capabilities by stage:
 ## Scheduling process
 
 1. **Collect signals**
+   - Read upstream `mode` and any handoff block first
    - Read the list of changed files (`git diff --name-only`)
    - Read error output (if any)
    - Test item language
 
 2. **Matching Rules**
+   - Honor the preselected lifecycle and handoff boundaries
    - Prioritize matching error patterns
-   - Suboptimal matching file pattern
-   - Finally extrapolate by scale
+   - Then match file patterns
+   - Finally extrapolate by scale inside the chosen lane only
 
 3. **Output scheduling decisions**
    ```

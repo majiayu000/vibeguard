@@ -158,13 +158,15 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 
 快捷别名：`/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`
 
-### 复杂度路由
+### 路由契约
 
-| 规模 | 推荐流程 |
-|------|----------|
-| 1-2 个文件 | 直接实现 |
-| 3-5 个文件 | `/vibeguard:preflight` → 约束集 → 实现 |
-| 6 个及以上文件 | `/vibeguard:interview` → SPEC → `/vibeguard:preflight` → 实现 |
+工作流路由只在一个地方定义：[`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md)。
+
+- 优先级：`user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
+- readiness 输出只有三种：`execute_direct`、`plan_first`、`clarify_first`
+- 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`verification_owner`、`stop_conditions`、`lane_map`
+
+README、workflow prompts、dispatcher 都应该消费这份契约，而不是各自再写一套本地路由规则。
 
 ## 内置 Agent Prompts
 

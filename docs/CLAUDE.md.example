@@ -15,25 +15,25 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 
 ## Workflow Orchestration
 
-### 1. Complexity Router (Complexity Routing)
+### 1. Routing Contract
 
-Automatically select process depth based on change size:
+Follow the canonical router in `workflows/references/routing-contract.md`.
 
-| Scale | Process |
-|------|------|
-| 1-2 File | Direct implementation |
-| 3-5 File | `/vibeguard:preflight` → constraint set → implementation |
-| 6+ Documentation | `/vibeguard:interview` → SPEC → `/vibeguard:preflight` → Implementation |
+- Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
+- Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
+- Planning handoff keys: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, `lane_map`
+
+Do not recreate a separate file-count router inside project-specific CLAUDE instructions.
 
 ### 2. Spec-Driven (Spec-Driven)
 
-Complex functions (3+ files) spec first and then implemented:
+When the routing contract resolves to `plan_first`, write the spec/plan before implementation:
 1. **Understand first** — read the relevant code and draw the current data flow
 2. **Write spec** — what to change, why, which files are affected, and interface definitions
 3. **Implement according to spec** — do not deviate, update spec first if problems are found
 4. **Verification** — Check each item against the spec
 
-Make simple modifications directly without overdoing the process.
+When readiness resolves to `execute_direct`, make the change directly without overdoing the process.
 
 ### 3. Subagent Strategy
 
@@ -43,7 +43,7 @@ Make simple modifications directly without overdoing the process.
 
 ### 4. Autonomous Execution
 
-- Receive bug report: **Fix it directly**, don’t ask questions
+- Receive bug report: **Fix it directly only when readiness resolves to `execute_direct`**
 - See logs/error reports/failed tests — locate the root cause and resolve it
 - User zero context switch
 
@@ -86,7 +86,7 @@ Hooks + guard script **mechanized execution** without relying on AI consciousnes
 | **L3** | Disable silent exception swallowing; disable Any type | **Hook warning** |
 | **L4** | Blank display with no data; API not invented | **Hook Warning** |
 | **L5** | Only do what is asked | Review constraints |
-| **L6** | Routing execution process according to complexity | Process constraints |
+| **L6** | Follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
 | **L7** | Disable AI tag / force push / key | **Hook interception** |
 
 ---

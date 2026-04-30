@@ -12,7 +12,7 @@
 | L3 | Disable silent swallowing of exceptions; there is no public method of Any type |
 | L4 | No data = blank; no undeclared API/field exists |
 | L5 | Just do what is asked; there is no "easy improvement" |
-| L6 | 1-2 file directly · 3-5 `/vibeguard:preflight` · 6+ `/vibeguard:interview` → spec |
+| L6 | Follow `workflows/references/routing-contract.md`: `execute_direct` / `plan_first` / `clarify_first`, plus the shared handoff fields |
 | L7 | AI tag does not exist / force push / key submission |
 
 ## Chat Contract
