@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777569224488,
+  "lastUpdate": 1777570349158,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -2138,6 +2138,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "994d509408b6915e48db85535ab8ef52de95ed96",
+          "message": "feat(universal): add W-19 doc overload guard for CLAUDE.md / AGENTS.md (#118)\n\nAdds W-19 (medium) requiring agent-instruction docs (`CLAUDE.md`, `AGENTS.md`) to stay below sustainable size and pair every prohibition with a concrete example. Detection thresholds: warn >200 / fail >800 lines outside the vibeguard auto-gen region; flag inline mentions of canonical rule IDs (≥3 likely indicates redefinition). Includes `guards/universal/check_doc_overload.sh` plus 10 unit tests.\n\nCodex review was requested but the GitHub connector is currently rate-limited; CI is green on all three platforms and the local test suite (10/10) passes.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T01:27:09+08:00",
+          "tree_id": "af4459beb64c20d36b968f0d1d30321885ba1047",
+          "url": "https://github.com/majiayu000/vibeguard/commit/994d509408b6915e48db85535ab8ef52de95ed96"
+        },
+        "date": 1777570348665,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 181,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 216,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 255,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 352,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 208,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 355,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 209,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 132,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 136,
             "unit": "ms"
           }
         ]
