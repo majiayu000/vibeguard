@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777565251025,
+  "lastUpdate": 1777565558521,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1655,6 +1655,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 137,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e480c6d629e484719ded349e67db63ad19ad797d",
+          "message": "fix(scripts): correct guard_paths.sh source path after subdir reorg (#117)\n\n`compliance_check.sh` and `metrics_collector.sh` were sourcing `lib/guard_paths.sh` from a path that no longer exists after the scripts moved into `scripts/verify/` and `scripts/metrics/`. Two-line fix: prepend `../` so the path resolves to `scripts/lib/guard_paths.sh`.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T00:07:23+08:00",
+          "tree_id": "8d9b33a56285add503446137aeacca25e4b818bf",
+          "url": "https://github.com/majiayu000/vibeguard/commit/e480c6d629e484719ded349e67db63ad19ad797d"
+        },
+        "date": 1777565558180,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 187,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 226,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 266,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 356,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 214,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 359,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 210,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 130,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 131,
             "unit": "ms"
           }
         ]
