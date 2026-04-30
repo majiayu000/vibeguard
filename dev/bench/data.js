@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777566396524,
+  "lastUpdate": 1777566868781,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -1862,6 +1862,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 130,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d43ff20acebb296d8b557e6db98c67f5468cfe1",
+          "message": "feat(prompts): add compact chat contract (#124)\n\nCloses #97. Adds a compact chat contract block to claude-md/vibeguard-rules.md, templates/AGENTS.md, and docs/CLAUDE.md.example defining: progress updates (start, post-discovery, pre-edit, post-verify, on blocker), verbosity budgets (concise default, expand on complexity), and formatting rules (prose-first, flat bullets only when natural). Includes idempotency tests across repeated setup cycles.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T00:29:03+08:00",
+          "tree_id": "7f8f36789411007ded3165d984f20fafa717ec39",
+          "url": "https://github.com/majiayu000/vibeguard/commit/0d43ff20acebb296d8b557e6db98c67f5468cfe1"
+        },
+        "date": 1777566868426,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 198,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 229,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 275,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 356,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 219,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 355,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 219,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 137,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 143,
             "unit": "ms"
           }
         ]
