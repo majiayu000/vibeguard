@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777571061092,
+  "lastUpdate": 1777571696477,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -2276,6 +2276,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 131,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3019c451a7ebef23b2a7259645217d37b4b4b32e",
+          "message": "feat(rules): add SEC-14 (MCP authority-claim) and U-33 (code search defaults) (#119)\n\nAdds two new rules:\n- **SEC-14**: MCP tool descriptions must reject authority-claim and override language (\"absolute authority\", \"ignore prior instructions\", \"supersedes user requests\", Chinese equivalents). Runs at first-install, complementing SEC-12 hash-drift detection that needs a baseline.\n- **U-33**: Code search defaults to glob/grep; vector DB / RAG requires written justification. Anti-pattern: treating embedding search as the default for code retrieval.\n\nCodex review was requested but the GitHub connector is currently rate-limited; CI is green on all three platforms after rebasing onto main and regenerating rule docs.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-01T01:49:44+08:00",
+          "tree_id": "bbeb6145bd53549458d3902c91ed65089b69bebb",
+          "url": "https://github.com/majiayu000/vibeguard/commit/3019c451a7ebef23b2a7259645217d37b4b4b32e"
+        },
+        "date": 1777571695978,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 179,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 226,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 253,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 343,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 344,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 206,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 128,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 129,
             "unit": "ms"
           }
         ]
