@@ -4,7 +4,11 @@
 use serde_json::Value;
 use std::io::{self, BufRead};
 
+use crate::event_schema::{decision, field, hook, tool};
+use crate::time_utils::{now_unix_secs, parse_iso_ts};
+
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+const PARALYSIS_WINDOW_SECS: u64 = 30 * 60;
 
 fn read_events(session: &str) -> Vec<Value> {
     let stdin = io::stdin();
@@ -26,12 +30,22 @@ fn read_events(session: &str) -> Vec<Value> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Value>(line) {
-            if v.get("session").and_then(Value::as_str) == Some(session) {
+            if v.get(field::SESSION).and_then(Value::as_str) == Some(session) {
                 events.push(v);
             }
         }
     }
     events
+}
+
+fn event_within_time_window(e: &Value, cutoff_secs: u64) -> bool {
+    match e.get(field::TS) {
+        None => true,
+        Some(ts_val) => match ts_val.as_str().and_then(parse_iso_ts) {
+            Some(evt_secs) => evt_secs >= cutoff_secs,
+            None => false,
+        },
+    }
 }
 
 /// Count how many times a file was edited in the current session.
@@ -45,8 +59,8 @@ pub fn churn_count(args: &[String]) -> Result {
     let count = events
         .iter()
         .filter(|e| {
-            e.get("tool").and_then(Value::as_str) == Some("Edit")
-                && e.get("detail")
+            e.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT)
+                && e.get(field::DETAIL)
                     .and_then(Value::as_str)
                     .is_some_and(|d| d.contains(file_path.as_str()))
         })
@@ -66,11 +80,13 @@ pub fn warn_count(args: &[String]) -> Result {
     let count = events
         .iter()
         .filter(|e| {
-            e.get("hook").and_then(Value::as_str) == Some("post-edit-guard")
-                && e.get("decision").and_then(Value::as_str) == Some("warn")
-                && e.get("detail").and_then(Value::as_str).is_some_and(|d| {
-                    d.split("||").next().unwrap_or("").trim() == file_path.as_str()
-                })
+            e.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
+                && e.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
+                && e.get(field::DETAIL)
+                    .and_then(Value::as_str)
+                    .is_some_and(|d| {
+                        d.split("||").next().unwrap_or("").trim() == file_path.as_str()
+                    })
         })
         .count();
     println!("{count}");
@@ -88,16 +104,16 @@ pub fn build_fails(args: &[String]) -> Result {
     let project_prefix = format!("{}/", project.trim_end_matches('/'));
     let mut count = 0u32;
     for e in events.iter().rev() {
-        if e.get("hook").and_then(Value::as_str) != Some("post-build-check") {
+        if e.get(field::HOOK).and_then(Value::as_str) != Some(hook::POST_BUILD_CHECK) {
             continue;
         }
-        let detail = e.get("detail").and_then(Value::as_str).unwrap_or("");
+        let detail = e.get(field::DETAIL).and_then(Value::as_str).unwrap_or("");
         if !project.is_empty() && !detail.is_empty() && !detail.starts_with(&project_prefix) {
             continue;
         }
-        match e.get("decision").and_then(Value::as_str) {
-            Some("pass") => break,
-            Some("warn") => count += 1,
+        match e.get(field::DECISION).and_then(Value::as_str) {
+            Some(decision::PASS) => break,
+            Some(decision::WARN) => count += 1,
             _ => {}
         }
     }
@@ -113,16 +129,20 @@ pub fn paralysis_count(args: &[String]) -> Result {
     }
     let session = &args[0];
     let events = read_events(session);
+    let cutoff_secs = now_unix_secs().saturating_sub(PARALYSIS_WINDOW_SECS);
     let mut consecutive = 0u32;
     for e in events.iter().rev() {
-        let hook = e.get("hook").and_then(Value::as_str).unwrap_or("");
-        let decision = e.get("decision").and_then(Value::as_str).unwrap_or("");
-        if hook == "analysis-paralysis-guard" && decision != "pass" {
+        if !event_within_time_window(e, cutoff_secs) {
+            break;
+        }
+        let hook_name = e.get(field::HOOK).and_then(Value::as_str).unwrap_or("");
+        let decision_name = e.get(field::DECISION).and_then(Value::as_str).unwrap_or("");
+        if hook_name == hook::ANALYSIS_PARALYSIS_GUARD && decision_name != decision::PASS {
             continue;
         }
-        match e.get("tool").and_then(Value::as_str) {
-            Some("Read" | "Glob" | "Grep") => consecutive += 1,
-            Some("Write" | "Edit" | "Bash") => break,
+        match e.get(field::TOOL).and_then(Value::as_str) {
+            Some(tool_name) if tool::RESEARCH_ONLY.contains(&tool_name) => consecutive += 1,
+            Some(tool_name) if tool::MUTATING.contains(&tool_name) => break,
             _ => {}
         }
     }

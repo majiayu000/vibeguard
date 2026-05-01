@@ -15,7 +15,11 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
-MAX_DAYS=7
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/project_config.sh
+source "${SCRIPT_DIR}/../lib/project_config.sh"
+
+MAX_DAYS="$(vg_config_positive_int VIBEGUARD_GC_WORKTREE_MAX_DAYS gc.worktree_max_days 7)"
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do

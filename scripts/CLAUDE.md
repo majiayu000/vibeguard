@@ -45,6 +45,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `codex/app_server_wrapper.py` | External wrapper for `codex app-server` with VibeGuard gates |
 | `lib/settings_json.py` | Manage Claude Code hook configuration in `~/.claude/settings.json` |
 | `lib/codex_hooks_json.py` | Manage VibeGuard-owned entries in `~/.codex/hooks.json` |
+| `lib/hooks_manifest.py` | Read and validate `hooks/manifest.json` as the hook registration source of truth |
 | `setup/` | Install, check, clean, and target-specific setup logic |
 
 ## Quick usage
@@ -53,6 +54,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 bash scripts/stats.sh
 bash scripts/hook-health.sh 24
 bash scripts/quality-grader.sh
+bash scripts/ci/validate-hooks-manifest.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh
 ```

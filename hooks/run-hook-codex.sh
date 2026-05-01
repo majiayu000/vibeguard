@@ -14,6 +14,7 @@ set -euo pipefail
 export VIBEGUARD_AGENT_TYPE="codex"
 export VIBEGUARD_CLI="codex"
 
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
@@ -24,6 +25,10 @@ fi
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+ADAPTER_PATH="${WRAPPER_DIR}/_lib/codex_adapter.sh"
+if [[ ! -f "${ADAPTER_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_adapter.sh" ]]; then
+  ADAPTER_PATH="${INSTALLED_DIR}/_lib/codex_adapter.sh"
+fi
 
 if [[ ! -d "$INSTALLED_DIR" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
@@ -32,11 +37,21 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+  if [[ ! -f "${ADAPTER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]]; then
+    ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+  fi
 fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   exit 0
 fi
+
+if [[ ! -f "${ADAPTER_PATH}" ]]; then
+  exit 0
+fi
+
+# shellcheck source=hooks/_lib/codex_adapter.sh
+source "${ADAPTER_PATH}"
 
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
@@ -47,26 +62,11 @@ HOOK_OUTPUT=""
 HOOK_EXIT=0
 HOOK_OUTPUT=$(printf '%s' "$INPUT" | bash "$HOOK_PATH" "$@" 2>/dev/null) || HOOK_EXIT=$?
 
-EVENT_NAME=$(printf '%s' "$INPUT" | python3 -c "
-import json, sys
-try:
-    print(json.load(sys.stdin).get('hook_event_name', ''))
-except Exception:
-    print('')
-" 2>/dev/null || echo "")
+EVENT_NAME=$(codex_event_name "$INPUT")
 
 if [[ $HOOK_EXIT -ne 0 ]]; then
   if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
-    python3 - <<'PY'
-import json
-print(json.dumps({
-    'hookSpecificOutput': {
-        'hookEventName': 'PreToolUse',
-        'permissionDecision': 'deny',
-        'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook exited nonzero.'
-    }
-}, ensure_ascii=False))
-PY
+    codex_pretool_deny "VIBEGUARD hook failed: wrapped hook exited nonzero."
     exit 0
   fi
   exit 0
@@ -78,58 +78,12 @@ fi
 
 if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
   pretool_status=0
-  pretool_output=$(printf '%s' "$HOOK_OUTPUT" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print(json.dumps({
-        'hookSpecificOutput': {
-            'hookEventName': 'PreToolUse',
-            'permissionDecision': 'deny',
-            'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook produced invalid JSON.'
-        }
-    }, ensure_ascii=False))
-    sys.exit(3)
-
-decision = data.get('decision', 'pass')
-reason = data.get('reason', '')
-updated = data.get('updatedInput')
-
-if decision == 'block':
-    print(json.dumps({
-        'hookSpecificOutput': {
-            'hookEventName': 'PreToolUse',
-            'permissionDecision': 'deny',
-            'permissionDecisionReason': reason
-        }
-    }, ensure_ascii=False))
-elif decision == 'warn':
-    print(json.dumps({'systemMessage': reason}, ensure_ascii=False))
-elif decision == 'allow' and isinstance(updated, dict):
-    command = updated.get('command')
-    if isinstance(command, str) and command:
-        print(json.dumps({
-            'systemMessage': (
-                'VIBEGUARD note: Codex CLI hooks cannot auto-apply command rewrites. '
-                'Suggested command: ' + command
-            )
-        }, ensure_ascii=False))
-") || pretool_status=$?
+  pretool_output=$(codex_adapt_pretool "$HOOK_OUTPUT") || pretool_status=$?
   if [[ ${pretool_status} -ne 0 ]]; then
     if [[ -n "$pretool_output" ]]; then
       printf '%s\n' "$pretool_output"
     else
-      python3 - <<'PY'
-import json
-print(json.dumps({
-    'hookSpecificOutput': {
-        'hookEventName': 'PreToolUse',
-        'permissionDecision': 'deny',
-        'permissionDecisionReason': 'VIBEGUARD hook failed: wrapped hook output could not be adapted.'
-    }
-}, ensure_ascii=False))
-PY
+      codex_pretool_deny "VIBEGUARD hook failed: wrapped hook output could not be adapted."
     fi
     exit 0
   fi
@@ -137,31 +91,10 @@ PY
     printf '%s\n' "$pretool_output"
   fi
 elif [[ "$EVENT_NAME" == "PostToolUse" ]]; then
-  echo "$HOOK_OUTPUT" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-
-decision = data.get('decision', 'pass')
-reason = data.get('reason', '')
-
-if decision in ('block', 'escalate'):
-    print(json.dumps({
-        'decision': 'block',
-        'reason': reason,
-        'hookSpecificOutput': {
-            'hookEventName': 'PostToolUse',
-            'additionalContext': reason
-        }
-    }, ensure_ascii=False))
-elif decision == 'warn':
-    print(json.dumps({'systemMessage': reason}, ensure_ascii=False))
-" 2>/dev/null
+  codex_adapt_posttool "$HOOK_OUTPUT" 2>/dev/null
 else
   # SessionStart / Stop / UserPromptSubmit — direct transparent transmission
-  echo "$HOOK_OUTPUT"
+  printf '%s\n' "$HOOK_OUTPUT"
 fi
 
 exit 0

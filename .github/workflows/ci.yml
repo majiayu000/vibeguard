@@ -92,6 +92,19 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-hooks.sh
 
+      - name: Validate hooks manifest
+        shell: bash
+        run: bash scripts/ci/validate-hooks-manifest.sh
+
+      - name: Validate event schema literals
+        shell: bash
+        run: bash scripts/ci/check-event-schema-literals.sh
+
+      - name: Self-application regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_self_application_ci.sh
+
       - name: Validate rule files
         shell: bash
         run: bash scripts/ci/validate-rules.sh
@@ -241,6 +254,12 @@ jobs:
       - name: Validate manifest contract
         run: bash scripts/ci/validate-manifest-contract.sh
 
+      - name: Validate hooks manifest
+        run: bash scripts/ci/validate-hooks-manifest.sh
+
+      - name: Validate event schema literals
+        run: bash scripts/ci/check-event-schema-literals.sh
+
       - name: Validate doc paths
         run: bash scripts/ci/validate-doc-paths.sh
 
@@ -252,6 +271,20 @@ jobs:
 
       - name: Eval contract regression tests
         run: bash tests/test_eval_contract.sh
+
+  self-application:
+    name: Self-Application CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run self-application sentinels
+        run: bash scripts/ci/self-application/run-all.sh
 
   benchmark-report:
     name: Benchmark Report

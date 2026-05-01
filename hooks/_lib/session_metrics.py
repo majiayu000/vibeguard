@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Session metrics collection and correction signal detection.
+"""Deprecated fallback for session metrics collection and correction signal detection.
+
+Rust `vg-helper session-metrics` is the canonical implementation. This file is
+kept temporarily for installs that do not have a built helper; callers must log
+a visible warning before using it.
 
 Reads events from VIBEGUARD_LOG_FILE (last 30 minutes), aggregates metrics,
 detects correction signals, and writes to session-metrics.jsonl.

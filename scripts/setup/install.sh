@@ -11,6 +11,9 @@ set -euo pipefail
 # bash install.sh --profile strict # Strict mode (same hook set as full)
 # bash install.sh --languages rust,python # Only install rules and guards for the specified language
 # bash install.sh --profile full --languages rust # Use in combination
+# bash install.sh --dry-run # Show high-context diffs without writing
+# bash install.sh --yes # Apply high-context diffs non-interactively
+# bash install.sh --force-overwrite # Replace user-customized managed files/commands
 # bash install.sh --check # Check status only
 # bash install.sh --clean # Clean installation
 
@@ -29,8 +32,17 @@ esac
 # --- Argument parsing ---
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-core}"
 LANGUAGES=""
+VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
+VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
+VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run)
+      VIBEGUARD_SETUP_DRY_RUN=1; shift ;;
+    --yes|-y)
+      VIBEGUARD_SETUP_AUTO=1; shift ;;
+    --force-overwrite)
+      VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 1; }
       PROFILE="$2"; shift 2 ;;
@@ -43,10 +55,11 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash install.sh [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash install.sh [--yes] [--dry-run] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
+export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
 
 case "${PROFILE}" in
   minimal|core|full|strict) ;;
@@ -84,8 +97,21 @@ echo "Profile: ${PROFILE}"
 if [[ -n "$LANGUAGES" ]]; then
   echo "Languages: ${LANGUAGES}"
 fi
+if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+  echo "Mode: dry-run (high-context files are not written)"
+fi
+if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
+  echo "Mode: force-overwrite (user-customized managed files may be replaced)"
+fi
 echo "=============================="
 echo
+
+if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+  configure_claude_home_runtime
+  inject_claude_home_rules
+  yellow "Dry run complete. No files were written by setup.sh --dry-run."
+  exit 0
+fi
 
 # 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
@@ -247,6 +273,7 @@ echo "Runtime configuration (env vars or .vibeguard.json):"
 echo "  VIBEGUARD_PROFILE=minimal|core|full|strict   Runtime profile"
 echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
+echo "  VIBEGUARD_GC_*                                 GC thresholds; see schemas/vibeguard-project.schema.json"
 echo
 echo "Git Pre-Commit Guard:"
 echo "Automatically installed to VibeGuard repository"

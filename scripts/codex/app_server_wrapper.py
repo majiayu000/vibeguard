@@ -518,7 +518,7 @@ def main() -> int:
         with write_lock:
             try:
                 child.stdin.close()
-            except Exception:
+            except OSError:
                 pass
 
     def server_to_client() -> None:

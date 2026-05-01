@@ -34,6 +34,7 @@ if [[ -n "$_VG_HELPER" ]]; then
     < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
 else
   _SESSION_METRICS_SCRIPT="$(dirname "$0")/_lib/session_metrics.py"
+  vg_log "learn-evaluator" "Stop" "warn" "session metrics python fallback deprecated: vg-helper unavailable" "$_SESSION_METRICS_SCRIPT"
   LEARN_SUGGESTION=$(VIBEGUARD_LOG_FILE="$VIBEGUARD_LOG_FILE" \
     VIBEGUARD_SESSION_ID="$VIBEGUARD_SESSION_ID" \
     VIBEGUARD_PROJECT_LOG_DIR="$VIBEGUARD_PROJECT_LOG_DIR" \

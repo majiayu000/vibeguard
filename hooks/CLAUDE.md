@@ -4,23 +4,26 @@ AI coded agent hooks script, automatically triggered before and after the operat
 
 ## File description
 
+<!-- hooks-manifest-table:start -->
 | Documentation | Trigger Timing | Responsibilities | Codex |
 |------|----------|------|-------|
-| `log.sh` | Used by other hook sources | Log module, providing shared functions such as `vg_log`, JSON parsing, source code judgment, etc. | — |
-| `circuit-breaker.sh` | Checked by other hook source | Circuit breaker library: CLOSED→OPEN→HALF-OPEN state machine, CI guard, stop_hook_active | — |
-| `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (`decision:block` → `permissionDecision:deny`) | — |
-| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept dangerous commands: force push, rm -rf /, reset --hard, etc. | ✅ |
-| `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination) | ❌ |
-| `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file | ❌ |
-| `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop (3+ in a row) | ❌ |
-| `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file | ❌ |
-| `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing | ✅ |
-| `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default | ❌ |
-| `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes | ✅ |
-| `learn-evaluator.sh` | Stop | Collect metrics at the end of session + detect corrective signals (high warn rate, file churn, escalate), suggest /learn when there are signals | ✅ |
-| `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check + build check, 10s timeout hard limit | — |
+| `log.sh` | Used by other hook sources | Log module, providing shared functions such as vg_log, JSON parsing, source code judgment, etc. | - |
+| `circuit-breaker.sh` | Checked by other hook sources | Circuit breaker library: CLOSED to OPEN to HALF-OPEN state machine, CI guard, stop_hook_active. | - |
+| `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (decision:block to permissionDecision:deny). | - |
+| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept dangerous commands: force push, rm -rf /, reset --hard, etc. | native |
+| `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination). | unsupported |
+| `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file. | unsupported |
+| `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop. | unsupported |
+| `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file. | unsupported |
+| `analysis-paralysis-guard.sh` | PostToolUse(Read|Glob|Grep) | Detect excessive exploration without progress and prompt the agent to act. | unsupported |
+| `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
+| `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
+| `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes. | native |
+| `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |
+| `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check plus build check, timeout hard limit. | - |
+<!-- hooks-manifest-table:end -->
 
-**Codex column description**: ✅ = Deployed to `~/.codex/hooks.json`, ❌ = Codex does not support this matcher yet, — = Not applicable
+**Codex column description**: `native` = deployed to `~/.codex/hooks.json`, `unsupported` = Codex does not support this matcher in this installer, `-` = not applicable.
 
 Codex entries use namespaced hook script names (`vibeguard-*.sh`) and are resolved by `run-hook-codex.sh` to the actual local script files.
 

@@ -124,34 +124,19 @@ fi
 
 if [[ "$DETAIL" == "TEST_INFRA_PROTECTED" ]]; then
   vg_log "pre-edit-guard" "Edit" "block" "Test Infrastructure File Protection (W-12)" "$FILE_PATH"
-  cat <<BLOCK_EOF
-{
-  "decision": "block",
-  "reason": "VIBEGUARD W-12 interception: Modification of test infrastructure files - ${FILE_PATH} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
-}
-BLOCK_EOF
+  vg_json_output_kv decision block reason "VIBEGUARD W-12 interception: Modification of test infrastructure files - ${FILE_PATH} is prohibited. AI agents must not modify test framework configuration files such as conftest.py/jest.config/pytest.ini/.coveragerc. Such modifications may cause tests to be bypassed instead of actually fixing code problems. Please fix the code under test rather than manipulating the test framework."
   exit 0
 fi
 
 if [[ "$DETAIL" == "FILE_NOT_FOUND" ]]; then
   vg_log "pre-edit-guard" "Edit" "block" "File does not exist" "$FILE_PATH"
-  cat <<BLOCK_EOF
-{
-  "decision": "block",
-  "reason": "VIBEGUARD interception: File does not exist - ${FILE_PATH}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
-}
-BLOCK_EOF
+  vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
   exit 0
 fi
 
 if [[ "$DETAIL" == "OLD_STRING_NOT_FOUND" ]]; then
   vg_log "pre-edit-guard" "Edit" "block" "old_string does not exist" "$FILE_PATH"
-  cat <<BLOCK_EOF
-{
-  "decision": "block",
-  "reason": "VIBEGUARD interception: old_string does not exist in the file - the AI may have hallucinated the file content. Please use the Read tool to read the file first to confirm that the content to be replaced actually exists."
-}
-BLOCK_EOF
+  vg_json_output_kv decision block reason "VIBEGUARD interception: old_string does not exist in the file - the AI may have hallucinated the file content. Please use the Read tool to read the file first to confirm that the content to be replaced actually exists."
   exit 0
 fi
 
@@ -159,12 +144,7 @@ if [[ "$DETAIL" == U16_OVER_LIMIT:* ]]; then
   _U16_EST=$(echo "$DETAIL" | cut -d: -f2)
   _U16_LIM=$(echo "$DETAIL" | cut -d: -f3)
   vg_log "pre-edit-guard" "Edit" "block" "U-16 file size: ${_U16_EST} > ${_U16_LIM}" "$FILE_PATH"
-  cat <<BLOCK_EOF
-{
-  "decision": "block",
-  "reason": "VIBEGUARD [U-16] block: this edit would bring ${FILE_PATH##*/} to ~${_U16_EST} lines (limit: ${_U16_LIM}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit."
-}
-BLOCK_EOF
+  vg_json_output_kv decision block reason "VIBEGUARD [U-16] block: this edit would bring ${FILE_PATH##*/} to ~${_U16_EST} lines (limit: ${_U16_LIM}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit."
   exit 0
 fi
 

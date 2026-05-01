@@ -22,6 +22,7 @@
 #   }
 # }
 
+STATE_VERSION=1
 STATE_FILE="${HOME}/.vibeguard/install-state.json"
 
 # Initialize or load state
@@ -30,7 +31,7 @@ state_init() {
   python3 -c "
 import json, datetime
 state = {
-    'version': 1,
+    'version': ${STATE_VERSION},
     'installed_at': datetime.datetime.now().astimezone().isoformat(),
     'profile': '${profile}',
     'languages': '${languages}'.split(',') if '${languages}' else [],
@@ -62,7 +63,11 @@ try:
     with open('${STATE_FILE}') as f:
         state = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
-    state = {'version': 1, 'files': {}}
+    state = {'version': ${STATE_VERSION}, 'files': {}}
+
+version = state.get('version', ${STATE_VERSION})
+if version != ${STATE_VERSION}:
+    raise SystemExit(f'unsupported install-state version: {version} (expected ${STATE_VERSION})')
 
 entry = {'source': '${source}', 'type': '${install_type}'}
 checksum = '${checksum}'
@@ -103,6 +108,11 @@ import json, os, subprocess
 
 with open('${STATE_FILE}') as f:
     state = json.load(f)
+
+version = state.get('version', 1)
+if version != ${STATE_VERSION}:
+    print(f'UNSUPPORTED_STATE_VERSION: {version} (expected ${STATE_VERSION})')
+    raise SystemExit(0)
 
 files = state.get('files', {})
 drift_count = 0
@@ -157,6 +167,9 @@ state_list() {
 import json
 with open('${STATE_FILE}') as f:
     state = json.load(f)
+version = state.get('version', 1)
+if version != ${STATE_VERSION}:
+    raise SystemExit(f'Unsupported install-state version: {version} (expected ${STATE_VERSION})')
 print(f'Profile: {state.get(\"profile\", \"unknown\")}')
 print(f'Installed: {state.get(\"installed_at\", \"unknown\")}')
 langs = state.get('languages', [])
