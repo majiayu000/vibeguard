@@ -44,6 +44,8 @@ vibeguard/docs/internal/research/knowledge-discovery/2026-04-17.md
 vibeguard/docs/internal/followups.md
 
 # 2026-05-01 audit/spec historical and planned-path references
+hooks/_lib/pkg_rewrite.py
+hooks/_lib/session_metrics.py
 vg-helper/src/session_metrics.rs
 scripts/ci/check-codex-shim-consistency.sh
 _lib/log.sh

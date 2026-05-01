@@ -1,5 +1,5 @@
 //! Package manager transparent correction: npm/yarn→pnpm, pip→uv.
-//! Canonical implementation. The legacy Python predecessor is not used at runtime.
+//! Canonical implementation. Rust is the single runtime implementation.
 
 use regex::Regex;
 use std::io::{self, Read};
