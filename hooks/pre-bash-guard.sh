@@ -53,7 +53,7 @@ for line in sys.stdin.read().splitlines(keepends=True):
         continue
 
     out.append(line)
-    match = re.search(r"<<(?P<dash>-?)\s*([\"'"'"']?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)\2", line)
+    match = re.search(r"<<(?P<dash>-?)\s*([\"'"'"']?)(?P<tag>[A-Za-z0-9_]+)\2", line)
     if match:
         terminator = match.group("tag")
         strip_tabs = bool(match.group("dash"))

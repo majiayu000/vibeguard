@@ -241,6 +241,13 @@ assert_not_contains "$result" '"decision": "block"' "tab-stripped heredoc body i
 
 result=$(python3 - <<'PY' | bash hooks/pre-bash-guard.sh
 import json
+print(json.dumps({"tool_input": {"command": "cat <<123\ngit checkout .\nrm -rf /\n123"}}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "digit-start heredoc delimiter body is not misreported"
+
+result=$(python3 - <<'PY' | bash hooks/pre-bash-guard.sh
+import json
 print(json.dumps({"tool_input": {"command": "git checkout . <<'EOF'\nnot command text\nEOF"}}))
 PY
 )
