@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777676689027,
+  "lastUpdate": 1777677428480,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -3380,6 +3380,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 133,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8750584c3e9c46fcd5e297bad65eaa5da1c30496",
+          "message": "Remove legacy Python helper implementations (#147)\n\n* Remove legacy Python helper implementations\n\n* Allowlist removed helper paths in historical docs",
+          "timestamp": "2026-05-02T07:11:28+08:00",
+          "tree_id": "bce8675669b70bbfa769c945a9ea8a62ab02cccc",
+          "url": "https://github.com/majiayu000/vibeguard/commit/8750584c3e9c46fcd5e297bad65eaa5da1c30496"
+        },
+        "date": 1777677427855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 193,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 205,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 238,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 331,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 207,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 329,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 208,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 136,
             "unit": "ms"
           }
         ]
