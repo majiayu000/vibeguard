@@ -26,6 +26,8 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
+Requires Python 3 and Rust/Cargo for the `vg-helper` runtime binary.
+
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
 
 ## What you actually get

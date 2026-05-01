@@ -23,6 +23,11 @@ if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.s
 else
   yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
 fi
+if [[ -x "${VIBEGUARD_HOME}/installed/bin/vg-helper" ]]; then
+  green "[OK] vg-helper runtime binary installed"
+else
+  red "[MISSING] vg-helper runtime binary (~/.vibeguard/installed/bin/vg-helper)"
+fi
 
 check_claude_home_installation
 

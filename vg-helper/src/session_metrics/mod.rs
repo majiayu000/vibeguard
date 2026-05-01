@@ -1,5 +1,5 @@
 //! Session metrics collection + correction signal detection.
-//! Canonical implementation. hooks/_lib/session_metrics.py is a deprecated fallback.
+//! Canonical implementation. The legacy Python predecessor is not used at runtime.
 
 mod engine;
 mod signals;

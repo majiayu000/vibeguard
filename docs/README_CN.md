@@ -31,6 +31,8 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
+安装需要 Python 3 和 Rust/Cargo，用于构建运行时 `vg-helper`。
+
 安装后重新打开 Claude Code 或 Codex 会话。用下面的命令检查安装状态：
 
 ```bash

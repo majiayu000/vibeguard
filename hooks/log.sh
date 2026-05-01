@@ -50,7 +50,7 @@ vg_is_source_file() {
   return 1
 }
 
-# Resolve vg-helper binary path (Rust, ~4ms) with Python fallback (~55ms)
+# Resolve the canonical vg-helper binary path (Rust, ~4ms).
 _VG_HELPER=""
 for _candidate in \
   "${HOME}/.vibeguard/installed/bin/vg-helper" \

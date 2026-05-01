@@ -89,6 +89,25 @@ def x():
 PY
 assert_fails "silent Exception pass fails U-29 check" bash "${SELF_DIR}/check-u29-no-silent-degrade.sh" "${bad_u29}"
 
+bad_runtime_fallback="${TMP_DIR}/bad-runtime-fallback"
+mkdir -p "${bad_runtime_fallback}/hooks" "${bad_runtime_fallback}/scripts/setup" "${bad_runtime_fallback}/eval"
+cat > "${bad_runtime_fallback}/hooks/pre-bash-guard.sh" <<'EOF'
+COMMAND=$(vg_json_field_strict "tool_input.command")
+vg_log "pre-bash-guard" "Bash" "block" "invalid Bash hook input JSON; fail-closed" ""
+python3 "$(dirname "$0")/_lib/pkg_rewrite.py"
+EOF
+cat > "${bad_runtime_fallback}/hooks/learn-evaluator.sh" <<'EOF'
+python3 "$(dirname "$0")/_lib/session_metrics.py"
+EOF
+cat > "${bad_runtime_fallback}/scripts/setup/install.sh" <<'EOF'
+echo "SKIP vg-helper (cargo not found — using Python fallback)"
+EOF
+cat > "${bad_runtime_fallback}/eval/run_eval.py" <<'PY'
+def x():
+    return {"skipped": True, "EVAL_MAX_API_FAILURES": 1}
+PY
+assert_fails "runtime Python fallback references fail U-29 check" bash "${SELF_DIR}/check-u29-no-silent-degrade.sh" "${bad_runtime_fallback}"
+
 header "SEC-14 sentinel"
 bad_sec14="${TMP_DIR}/bad-sec14"
 mkdir -p "${bad_sec14}/mcp-server/dist"

@@ -187,9 +187,8 @@ fi
 if [[ -n "$_VG_HELPER" ]]; then
   _PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VG_HELPER" pkg-rewrite 2>/dev/null || echo "")
 else
-  _PKG_REWRITE_SCRIPT="$(dirname "$0")/_lib/pkg_rewrite.py"
-  vg_log "pre-bash-guard" "Bash" "warn" "pkg-rewrite python fallback deprecated: vg-helper unavailable" "$_PKG_REWRITE_SCRIPT"
-  _PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 "$_PKG_REWRITE_SCRIPT" 2>/dev/null || echo "")
+  vg_log "pre-bash-guard" "Bash" "warn" "pkg-rewrite skipped: vg-helper unavailable" "run setup.sh to install vg-helper"
+  _PKG_CORRECTION=""
 fi
 
 if [[ -n "$_PKG_CORRECTION" ]]; then

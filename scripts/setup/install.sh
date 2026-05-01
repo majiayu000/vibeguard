@@ -158,6 +158,36 @@ trap 'rm -rf "$_INSTALL_TMP"' EXIT
 cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
 cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
 printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+
+# Build vg-helper Rust binary before swapping the installed snapshot.
+# The Python predecessors are no longer runtime fallbacks; missing vg-helper is
+# an explicit degraded install only when VIBEGUARD_ALLOW_NO_HELPER=1 is set.
+if [[ -f "${REPO_DIR}/vg-helper/Cargo.toml" ]]; then
+  if command -v cargo &>/dev/null; then
+    echo "  Building vg-helper (Rust)..."
+    if cargo build --release --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet 2>/dev/null; then
+      mkdir -p "${_INSTALL_TMP}/bin"
+      cp "${REPO_DIR}/vg-helper/target/release/vg-helper" "${_INSTALL_TMP}/bin/vg-helper"
+      chmod +x "${_INSTALL_TMP}/bin/vg-helper"
+      green "  vg-helper binary prepared"
+    else
+      if [[ "${VIBEGUARD_ALLOW_NO_HELPER:-0}" == "1" ]]; then
+        yellow "  WARN: vg-helper build failed; installing explicit degraded mode (no package rewrite/session metrics)"
+      else
+        red "  ERROR: vg-helper build failed. Install Rust/Cargo or set VIBEGUARD_ALLOW_NO_HELPER=1 for explicit degraded mode."
+        exit 2
+      fi
+    fi
+  else
+    if [[ "${VIBEGUARD_ALLOW_NO_HELPER:-0}" == "1" ]]; then
+      yellow "  WARN: cargo not found; installing explicit degraded mode (no package rewrite/session metrics)"
+    else
+      red "  ERROR: cargo not found. Install Rust/Cargo or set VIBEGUARD_ALLOW_NO_HELPER=1 for explicit degraded mode."
+      exit 2
+    fi
+  fi
+fi
+
 # Swap: move old installed aside, rename new into place, restore on failure
 if [[ -d "${INSTALLED_DIR}" ]]; then
   mv "${INSTALLED_DIR}" "${INSTALLED_DIR}.old.$$"
@@ -170,26 +200,10 @@ else
     mv "${INSTALLED_DIR}.old.$$" "${INSTALLED_DIR}" 2>/dev/null || true
   fi
   red "  Failed to install snapshot (old version restored)"
+  exit 1
 fi
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
-
-# Build vg-helper Rust binary (optional — falls back to Python if cargo unavailable)
-if [[ -f "${REPO_DIR}/vg-helper/Cargo.toml" ]]; then
-  if command -v cargo &>/dev/null; then
-    echo "  Building vg-helper (Rust)..."
-    if cargo build --release --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet 2>/dev/null; then
-      mkdir -p "${INSTALLED_DIR}/bin"
-      cp "${REPO_DIR}/vg-helper/target/release/vg-helper" "${INSTALLED_DIR}/bin/vg-helper"
-      chmod +x "${INSTALLED_DIR}/bin/vg-helper"
-      green "  vg-helper binary installed (~4ms vs ~55ms Python)"
-    else
-      yellow "  vg-helper build failed (falling back to Python — hooks still work)"
-    fi
-  else
-    yellow "  SKIP vg-helper (cargo not found — using Python fallback)"
-  fi
-fi
 
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
@@ -289,6 +303,7 @@ echo "  VIBEGUARD_PROFILE=minimal|core|full|strict   Runtime profile"
 echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo "  VIBEGUARD_GC_*                                 GC thresholds; see schemas/vibeguard-project.schema.json"
+echo "  VIBEGUARD_ALLOW_NO_HELPER=1                    Explicit degraded install without vg-helper"
 echo
 echo "Git Pre-Commit Guard:"
 echo "Automatically installed to VibeGuard repository"

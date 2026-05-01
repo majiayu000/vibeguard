@@ -1,5 +1,5 @@
 //! Package manager transparent correction: npm/yarn→pnpm, pip→uv.
-//! Canonical implementation. hooks/_lib/pkg_rewrite.py is a deprecated fallback.
+//! Canonical implementation. The legacy Python predecessor is not used at runtime.
 
 use regex::Regex;
 use std::io::{self, Read};

@@ -94,6 +94,13 @@ cleanup() {
 trap cleanup EXIT
 
 export HOME="${TMP_HOME}"
+# Keep rustup/cargo usable after HOME is redirected into the test sandbox.
+if [[ -z "${CARGO_HOME:-}" && -d "${ORIG_HOME}/.cargo" ]]; then
+  export CARGO_HOME="${ORIG_HOME}/.cargo"
+fi
+if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
+  export RUSTUP_HOME="${ORIG_HOME}/.rustup"
+fi
 mkdir -p "${TMP_HOME}/bin"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
@@ -282,6 +289,7 @@ assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-inte
 
 install_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_cmd "vg-helper binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vg-helper"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
 assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "${HOME}/.claude/skills/agentsmd-audit"
@@ -393,6 +401,7 @@ before_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
+assert_contains "${check_again_out}" "[OK] vg-helper runtime binary installed" "--check reports vg-helper installed"
 assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
 assert_cmd "--check does not drop or duplicate the chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"

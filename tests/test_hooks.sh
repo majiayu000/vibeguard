@@ -6,6 +6,16 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
+if [[ -n "${VIBEGUARD_TEST_UPDATED_INPUT:-}" ]] \
+    && [[ -f "vg-helper/Cargo.toml" ]] \
+    && [[ ! -x "vg-helper/target/release/vg-helper" ]]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "VIBEGUARD_TEST_UPDATED_INPUT requires cargo to build vg-helper" >&2
+    exit 2
+  fi
+  cargo build --release --manifest-path vg-helper/Cargo.toml --quiet
+fi
+
 shards=(
   "tests/hooks/test_log_injection.sh"
   "tests/hooks/test_pre_bash_guard.sh"

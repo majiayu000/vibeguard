@@ -77,6 +77,15 @@ if prebash.exists():
     if "invalid Bash hook input JSON; fail-closed" not in text:
         errors.append("hooks/pre-bash-guard.sh: missing fail-closed parse warning")
 
+runtime_python_fallbacks = {
+    "hooks/pre-bash-guard.sh": "_lib/pkg_rewrite.py",
+    "hooks/learn-evaluator.sh": "_lib/session_metrics.py",
+}
+for rel, fallback_ref in runtime_python_fallbacks.items():
+    path = repo / rel
+    if path.exists() and fallback_ref in path.read_text(encoding="utf-8"):
+        errors.append(f"{rel}: runtime Python fallback reference remains ({fallback_ref})")
+
 eval_runner = repo / "eval/run_eval.py"
 if eval_runner.exists():
     text = eval_runner.read_text(encoding="utf-8")
@@ -84,6 +93,13 @@ if eval_runner.exists():
         errors.append("eval/run_eval.py: API exceptions must produce skipped=True")
     if "EVAL_MAX_API_FAILURES" not in text:
         errors.append("eval/run_eval.py: missing API failure threshold knob")
+
+setup_install = repo / "scripts/setup/install.sh"
+if setup_install.exists():
+    text = setup_install.read_text(encoding="utf-8")
+    for phrase in ("falls back to Python", "falling back to Python", "using Python fallback"):
+        if phrase in text:
+            errors.append(f"scripts/setup/install.sh: helper build must not advertise {phrase!r}")
 
 if errors:
     print("FAIL: U-29 silent-degradation checks failed")
