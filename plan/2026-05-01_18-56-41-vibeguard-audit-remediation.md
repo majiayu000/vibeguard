@@ -940,12 +940,16 @@ Append entries here after each implemented step.
       - `hooks/run-hook-codex.sh`
       - `hooks/_lib/codex_adapter.sh`
       - `scripts/ci/validate-hooks.sh`
+      - `scripts/ci/self-application/check-codex-wrapper-thin.sh`
+      - `scripts/ci/self-application/run-all.sh`
       - `tests/test_codex_runtime.sh`
+      - `tests/test_self_application_ci.sh`
     - Main changes:
       - Extracted Codex event parsing plus PreToolUse/PostToolUse output adaptation into `hooks/_lib/codex_adapter.sh`.
       - Reduced `run-hook-codex.sh` to hook resolution, execution, failure policy, and adapter dispatch.
       - Added direct PostToolUse block adaptation coverage.
       - Extended hook syntax CI to include `hooks/_lib/*.sh`.
+      - Added a self-application sentinel that fails if `run-hook-codex.sh` grows inline Python/heredoc adapter logic again.
     - Tests:
       - `bash -n hooks/run-hook-codex.sh hooks/_lib/codex_adapter.sh scripts/ci/validate-hooks.sh` -> pass
       - `bash scripts/ci/validate-hooks.sh` -> pass
@@ -957,6 +961,8 @@ Append entries here after each implemented step.
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `(cd vg-helper && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
+      - Follow-up sentinel: `bash tests/test_self_application_ci.sh` -> pass, 39/39
+      - Follow-up sentinel: `bash scripts/ci/self-application/run-all.sh` -> pass
     - Notes:
       - `run-hook-codex.sh` is now 100 lines; adapter logic lives in a dedicated 105-line shared library.
   - Step P2.4: `completed`

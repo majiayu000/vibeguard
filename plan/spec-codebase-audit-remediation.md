@@ -497,7 +497,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 | H6 | T8 |
 | H7 | T7 |
 | H8 | T11 |
-| H9 | (deferred — depends on T9 manifest before refactoring `run-hook-codex.sh`) |
+| H9 | P2.3 execution-plan step (Codex adapter extracted; guarded by `check-codex-wrapper-thin.sh`) |
 | H10 | T9 |
 | M1 | (P3 — log redaction; bundled with T13 SEC-10 dog-food) |
 | M2 | (P3 — small fix; replace heredoc with `vg_json_output_kv`) |

@@ -50,6 +50,50 @@ assert_cmd "all self-application scripts have valid syntax" bash -n "${SELF_DIR}
 assert_cmd "self-application run-all passes on this repository" bash "${SELF_DIR}/run-all.sh" "${REPO_DIR}"
 assert_cmd "strict U-22 coverage inventory passes on this repository" env VIBEGUARD_U22_STRICT=1 bash "${SELF_DIR}/check-u22-coverage.sh" "${REPO_DIR}"
 
+header "Codex wrapper thinness sentinel"
+good_codex_wrapper="${TMP_DIR}/good-codex-wrapper"
+mkdir -p "${good_codex_wrapper}/hooks/_lib"
+cat > "${good_codex_wrapper}/hooks/run-hook-codex.sh" <<'EOF'
+#!/usr/bin/env bash
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADAPTER_PATH="${WRAPPER_DIR}/_lib/codex_adapter.sh"
+source "${ADAPTER_PATH}"
+EVENT_NAME=$(codex_event_name "$INPUT")
+codex_pretool_deny "blocked"
+codex_adapt_pretool "$HOOK_OUTPUT"
+codex_adapt_posttool "$HOOK_OUTPUT"
+EOF
+cat > "${good_codex_wrapper}/hooks/_lib/codex_adapter.sh" <<'EOF'
+codex_event_name() { :; }
+codex_pretool_deny() { :; }
+codex_adapt_pretool() { :; }
+codex_adapt_posttool() { :; }
+EOF
+assert_cmd "thin Codex wrapper passes" bash "${SELF_DIR}/check-codex-wrapper-thin.sh" "${good_codex_wrapper}"
+
+bad_codex_wrapper="${TMP_DIR}/bad-codex-wrapper"
+mkdir -p "${bad_codex_wrapper}/hooks/_lib"
+cat > "${bad_codex_wrapper}/hooks/run-hook-codex.sh" <<'EOF'
+#!/usr/bin/env bash
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADAPTER_PATH="${WRAPPER_DIR}/_lib/codex_adapter.sh"
+source "${ADAPTER_PATH}"
+EVENT_NAME=$(codex_event_name "$INPUT")
+codex_pretool_deny "blocked"
+codex_adapt_pretool "$HOOK_OUTPUT"
+codex_adapt_posttool "$HOOK_OUTPUT"
+python3 - <<'PY'
+print("inline adapter logic")
+PY
+EOF
+cat > "${bad_codex_wrapper}/hooks/_lib/codex_adapter.sh" <<'EOF'
+codex_event_name() { :; }
+codex_pretool_deny() { :; }
+codex_adapt_pretool() { :; }
+codex_adapt_posttool() { :; }
+EOF
+assert_fails "inline Python in run-hook-codex fails thinness check" bash "${SELF_DIR}/check-codex-wrapper-thin.sh" "${bad_codex_wrapper}"
+
 header "hook output rewriting sentinel"
 bad_root="${TMP_DIR}/bad-output-rewrite"
 mkdir -p "${bad_root}/hooks" "${bad_root}/scripts"
