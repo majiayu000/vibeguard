@@ -196,6 +196,29 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "run-hook-codex adapts posttool block output"
+TMP_HOME_POSTTOOL="${TMP_DIR}/home-posttool"
+TMP_FAKE_REPO_POSTTOOL="${TMP_DIR}/fake-repo-posttool"
+mkdir -p "${TMP_HOME_POSTTOOL}/.vibeguard" "${TMP_FAKE_REPO_POSTTOOL}/hooks"
+printf '%s' "${TMP_FAKE_REPO_POSTTOOL}" > "${TMP_HOME_POSTTOOL}/.vibeguard/repo-path"
+
+cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+python3 - <<'PY'
+import json
+print(json.dumps({"decision": "block", "reason": "build failed"}))
+PY
+HOOK
+chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh"
+
+posttool_out="$(
+  printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.rs"}}' \
+    | HOME="${TMP_HOME_POSTTOOL}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
+)"
+assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
+assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"
+
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json

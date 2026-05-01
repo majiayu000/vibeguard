@@ -1,5 +1,5 @@
 //! Package manager transparent correction: npm/yarn→pnpm, pip→uv.
-//! Replaces hooks/_lib/pkg_rewrite.py.
+//! Canonical implementation. hooks/_lib/pkg_rewrite.py is a deprecated fallback.
 
 use regex::Regex;
 use std::io::{self, Read};
@@ -12,20 +12,21 @@ pub fn run(_args: &[String]) -> Result {
     io::stdin().read_to_string(&mut cmd)?;
     let cmd = cmd.trim();
 
+    println!("{}", rewrite_command(cmd).unwrap_or_default());
+    Ok(())
+}
+
+fn rewrite_command(cmd: &str) -> Option<String> {
     // Skip complex commands (&&, ||, ;, pipe, redirection, $(), backtick)
-    let complex = Regex::new(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`")?;
+    let complex = Regex::new(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`").ok()?;
     if complex.is_match(cmd) {
-        println!();
-        return Ok(());
+        return None;
     }
 
-    let corrected = try_npm(cmd)
+    try_npm(cmd)
         .or_else(|| try_yarn(cmd))
         .or_else(|| try_pip(cmd))
-        .or_else(|| try_python_pip(cmd));
-
-    println!("{}", corrected.unwrap_or_default());
-    Ok(())
+        .or_else(|| try_python_pip(cmd))
 }
 
 fn try_npm(cmd: &str) -> Option<String> {
@@ -192,4 +193,100 @@ fn check_pip_flags(rest: &str) -> Option<()> {
         return None;
     }
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn npm_bare_install_rewrites_to_pnpm_install() {
+        assert_eq!(rewrite_command("npm install"), Some("pnpm install".into()));
+        assert_eq!(rewrite_command("npm i"), Some("pnpm install".into()));
+    }
+
+    #[test]
+    fn npm_package_install_rewrites_supported_flags() {
+        assert_eq!(
+            rewrite_command("npm install --save-dev --save-exact vitest @types/node"),
+            Some("pnpm add -D --save-exact vitest @types/node".into())
+        );
+        assert_eq!(
+            rewrite_command("npm add -O sharp"),
+            Some("pnpm add -O sharp".into())
+        );
+    }
+
+    #[test]
+    fn npm_global_or_unknown_flags_do_not_rewrite() {
+        assert_eq!(rewrite_command("npm install -g typescript"), None);
+        assert_eq!(
+            rewrite_command("npm install --legacy-peer-deps react"),
+            None
+        );
+    }
+
+    #[test]
+    fn yarn_install_and_add_rewrite_to_pnpm() {
+        assert_eq!(rewrite_command("yarn install"), Some("pnpm install".into()));
+        assert_eq!(
+            rewrite_command("yarn add --dev --exact eslint"),
+            Some("pnpm add -D --save-exact eslint".into())
+        );
+        assert_eq!(
+            rewrite_command("yarn add -P -W react"),
+            Some("pnpm add --save-peer -w react".into())
+        );
+    }
+
+    #[test]
+    fn yarn_unknown_flags_do_not_rewrite() {
+        assert_eq!(rewrite_command("yarn add --frozen-lockfile react"), None);
+    }
+
+    #[test]
+    fn pip_install_rewrites_known_forms() {
+        assert_eq!(
+            rewrite_command("pip install requests"),
+            Some("uv pip install requests".into())
+        );
+        assert_eq!(
+            rewrite_command("pip3 install -r requirements.txt"),
+            Some("uv pip install -r requirements.txt".into())
+        );
+    }
+
+    #[test]
+    fn python_module_pip_rewrites_known_forms() {
+        assert_eq!(
+            rewrite_command("python -m pip install -e ."),
+            Some("uv pip install -e .".into())
+        );
+        assert_eq!(
+            rewrite_command("python3 -m pip install --upgrade build"),
+            Some("uv pip install --upgrade build".into())
+        );
+    }
+
+    #[test]
+    fn pip_unknown_flags_do_not_rewrite() {
+        assert_eq!(rewrite_command("pip install --user requests"), None);
+        assert_eq!(
+            rewrite_command("python3 -m pip install --user requests"),
+            None
+        );
+    }
+
+    #[test]
+    fn complex_commands_do_not_rewrite() {
+        for cmd in [
+            "npm install && npm test",
+            "pip install requests | cat",
+            "yarn add react > out.txt",
+            "npm install $(cat package.txt)",
+            "npm install `cat package.txt`",
+        ] {
+            assert_eq!(rewrite_command(cmd), None, "{cmd}");
+        }
+    }
 }

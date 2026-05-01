@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""Single source of truth helpers for VibeGuard hook registration."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any, Iterable
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MANIFEST = ROOT / "hooks" / "manifest.json"
+PROFILE_ORDER = ("minimal", "core", "full", "strict")
+HOOK_EVENTS = {"PreToolUse", "PostToolUse", "Stop", "SessionStart", "PreCompact", "UserPromptSubmit"}
+
+
+def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("hooks manifest root must be an object")
+    return data
+
+
+def hooks(data: dict[str, Any]) -> list[dict[str, Any]]:
+    items = data.get("hooks")
+    if not isinstance(items, list):
+        raise ValueError("hooks manifest must contain a hooks array")
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("each hook manifest entry must be an object")
+        result.append(item)
+    return result
+
+
+def claude_specs(data: dict[str, Any], profile: str | None = None) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for item in hooks(data):
+        claude = item.get("claude")
+        if not isinstance(claude, dict) or not claude.get("enabled"):
+            continue
+        profiles = claude.get("profiles", [])
+        if profile is not None and profile not in profiles:
+            continue
+        matchers = claude.get("matchers", [])
+        if not isinstance(matchers, list) or not matchers:
+            raise ValueError(f"{item.get('name', '<unknown>')}: claude.matchers must be a non-empty array")
+        for matcher in matchers:
+            specs.append(
+                {
+                    "name": item["name"],
+                    "event": claude["event"],
+                    "matcher": matcher if matcher is not None else "",
+                    "script": item["script"],
+                    "profiles": profiles,
+                }
+            )
+    return specs
+
+
+def codex_specs(data: dict[str, Any]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for item in hooks(data):
+        codex = item.get("codex")
+        if not isinstance(codex, dict) or not codex.get("enabled"):
+            continue
+        spec: dict[str, Any] = {
+            "name": item["name"],
+            "event": codex["event"],
+            "matcher": codex.get("matcher"),
+            "script": codex["script"],
+        }
+        if isinstance(codex.get("timeout"), int):
+            spec["timeout"] = codex["timeout"]
+        specs.append(spec)
+    return specs
+
+
+def all_managed_script_names(data: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    for item in hooks(data):
+        script = item.get("script")
+        if isinstance(script, str):
+            names.add(script)
+        codex = item.get("codex")
+        if isinstance(codex, dict) and isinstance(codex.get("script"), str):
+            names.add(codex["script"])
+    return names
+
+
+def _validate_event(value: Any, path: str) -> None:
+    if value not in HOOK_EVENTS:
+        raise ValueError(f"{path} must be one of {sorted(HOOK_EVENTS)}")
+
+
+def _validate_profiles(value: Any, path: str) -> None:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{path} must be a non-empty array")
+    unknown = [p for p in value if p not in PROFILE_ORDER]
+    if unknown:
+        raise ValueError(f"{path} contains unknown profiles: {unknown}")
+
+
+def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    names: set[str] = set()
+
+    if data.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+
+    try:
+        items = hooks(data)
+    except ValueError as exc:
+        return [str(exc)]
+
+    for index, item in enumerate(items):
+        prefix = f"hooks[{index}]"
+        name = item.get("name")
+        script = item.get("script")
+        if not isinstance(name, str) or not name:
+            errors.append(f"{prefix}.name must be a non-empty string")
+            name = f"<invalid-{index}>"
+        elif name in names:
+            errors.append(f"{prefix}.name duplicates {name}")
+        else:
+            names.add(name)
+
+        if not isinstance(script, str) or not script.endswith(".sh"):
+            errors.append(f"{prefix}.script must be a shell script name")
+        elif not (repo_root / "hooks" / script).exists():
+            errors.append(f"{prefix}.script missing hooks/{script}")
+
+        for platform in ("claude", "codex"):
+            platform_data = item.get(platform)
+            if not isinstance(platform_data, dict):
+                errors.append(f"{prefix}.{platform} must be an object")
+                continue
+            enabled = platform_data.get("enabled")
+            if not isinstance(enabled, bool):
+                errors.append(f"{prefix}.{platform}.enabled must be boolean")
+                continue
+            if not enabled:
+                continue
+            try:
+                _validate_event(platform_data.get("event"), f"{prefix}.{platform}.event")
+                if platform == "claude":
+                    _validate_profiles(platform_data.get("profiles"), f"{prefix}.claude.profiles")
+                    matchers = platform_data.get("matchers")
+                    if not isinstance(matchers, list) or not matchers:
+                        errors.append(f"{prefix}.claude.matchers must be a non-empty array")
+                if platform == "codex":
+                    codex_script = platform_data.get("script")
+                    if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
+                        errors.append(f"{prefix}.codex.script must be a namespaced vibeguard-* script")
+                    elif not (repo_root / "hooks" / codex_script).exists():
+                        errors.append(f"{prefix}.codex.script missing hooks/{codex_script}")
+            except ValueError as exc:
+                errors.append(str(exc))
+
+    return errors
+
+
+def render_doc_table(data: dict[str, Any]) -> str:
+    lines = [
+        "| Documentation | Trigger Timing | Responsibilities | Codex |",
+        "|------|----------|------|-------|",
+    ]
+    for item in hooks(data):
+        codex = item.get("codex", {})
+        if not isinstance(codex, dict):
+            codex = {}
+        support = str(codex.get("support", "not-applicable"))
+        codex_cell = {
+            "native": "native",
+            "unsupported": "unsupported",
+            "manual": "manual",
+            "not-applicable": "-",
+        }.get(support, support)
+        lines.append(
+            "| `{script}` | {trigger} | {responsibilities} | {codex} |".format(
+                script=item.get("script", ""),
+                trigger=item.get("trigger", ""),
+                responsibilities=item.get("responsibilities", ""),
+                codex=codex_cell,
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _print_json(items: Iterable[dict[str, Any]]) -> None:
+    print(json.dumps(list(items), indent=2, ensure_ascii=False))
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    manifest = load_manifest(Path(args.manifest))
+    errors = validate_manifest(manifest, ROOT)
+    if errors:
+        for error in errors:
+            print(f"FAIL: {error}")
+        return 1
+    print("OK: hooks manifest valid")
+    return 0
+
+
+def cmd_render_doc_table(args: argparse.Namespace) -> int:
+    manifest = load_manifest(Path(args.manifest))
+    print(render_doc_table(manifest), end="")
+    return 0
+
+
+def cmd_codex_specs(args: argparse.Namespace) -> int:
+    _print_json(codex_specs(load_manifest(Path(args.manifest))))
+    return 0
+
+
+def cmd_claude_specs(args: argparse.Namespace) -> int:
+    _print_json(claude_specs(load_manifest(Path(args.manifest)), args.profile))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="VibeGuard hooks manifest helper")
+    parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("validate").set_defaults(func=cmd_validate)
+    sub.add_parser("render-doc-table").set_defaults(func=cmd_render_doc_table)
+    sub.add_parser("codex-specs").set_defaults(func=cmd_codex_specs)
+
+    claude = sub.add_parser("claude-specs")
+    claude.add_argument("--profile", choices=PROFILE_ORDER)
+    claude.set_defaults(func=cmd_claude_specs)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

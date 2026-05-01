@@ -42,3 +42,17 @@ docs/internal/research/knowledge-discovery/YYYY-MM-DD.md
 vibeguard/README.md
 vibeguard/docs/internal/research/knowledge-discovery/2026-04-17.md
 vibeguard/docs/internal/followups.md
+
+# 2026-05-01 audit/spec historical and planned-path references
+vg-helper/src/session_metrics.rs
+scripts/ci/check-codex-shim-consistency.sh
+_lib/log.sh
+_lib/detect_duplicate.sh
+_lib/detect_filename_collision.sh
+
+# Local SPEC-96 draft placeholders (may exist as untracked planning notes)
+schemas/prompt-contract.schema.yaml
+scripts/ci/validate-prompt-contract.sh
+tests/test_prompt_contract.sh
+docs/prompt-contract.md
+skills/vibeguard/references/prompt-contract.yaml

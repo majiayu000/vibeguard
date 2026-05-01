@@ -21,7 +21,11 @@ vg_start_timer
 
 INPUT=$(cat)
 
-COMMAND=$(echo "$INPUT" | vg_json_field "tool_input.command")
+if ! COMMAND=$(printf '%s' "$INPUT" | vg_json_field_strict "tool_input.command"); then
+  vg_log "pre-bash-guard" "Bash" "block" "invalid Bash hook input JSON; fail-closed" ""
+  vg_json_output_kv decision block reason "VIBEGUARD interception: invalid Bash hook input JSON; fail-closed because tool_input.command could not be parsed."
+  exit 0
+fi
 
 if [[ -z "$COMMAND" ]]; then
   exit 0
@@ -163,6 +167,7 @@ if [[ -n "$_VG_HELPER" ]]; then
   _PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VG_HELPER" pkg-rewrite 2>/dev/null || echo "")
 else
   _PKG_REWRITE_SCRIPT="$(dirname "$0")/_lib/pkg_rewrite.py"
+  vg_log "pre-bash-guard" "Bash" "warn" "pkg-rewrite python fallback deprecated: vg-helper unavailable" "$_PKG_REWRITE_SCRIPT"
   _PKG_CORRECTION=$(printf '%s' "$COMMAND" | python3 "$_PKG_REWRITE_SCRIPT" 2>/dev/null || echo "")
 fi
 

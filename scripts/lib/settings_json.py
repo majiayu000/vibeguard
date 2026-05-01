@@ -4,9 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
+import shlex
+import sys
 from pathlib import Path
 from typing import Any
+
+from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
+
+
+MANIFEST = load_manifest()
 
 
 def load_settings(path: Path) -> dict[str, Any]:
@@ -26,6 +34,21 @@ def save_settings(path: Path, data: dict[str, Any]) -> None:
         f.write("\n")
 
 
+def render_settings(data: dict[str, Any]) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def unified_diff(path: Path, before: str, after: str) -> str:
+    return "".join(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=str(path),
+            tofile=str(path),
+        )
+    )
+
+
 def _entry_contains(entry: Any, needle: str) -> bool:
     try:
         return needle in json.dumps(entry, ensure_ascii=False)
@@ -33,41 +56,81 @@ def _entry_contains(entry: Any, needle: str) -> bool:
         return False
 
 
-def has_pre_hooks(data: dict[str, Any]) -> bool:
+def _has_hook_spec(data: dict[str, Any], spec: dict[str, Any]) -> bool:
     hooks = data.get("hooks", {})
-    pre = hooks.get("PreToolUse", []) if isinstance(hooks, dict) else []
-    return (
-        any(_entry_contains(entry, "pre-write-guard") for entry in pre)
-        and any(_entry_contains(entry, "pre-bash-guard") for entry in pre)
-        and any(_entry_contains(entry, "pre-edit-guard") for entry in pre)
-    )
+    entries = hooks.get(spec["event"], []) if isinstance(hooks, dict) else []
+    if not isinstance(entries, list):
+        return False
+    expected_matcher = spec.get("matcher") or ""
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if expected_matcher:
+            if entry.get("matcher") != expected_matcher:
+                continue
+        elif "matcher" in entry and entry.get("matcher") not in ("", None):
+            continue
+        hook_entries = entry.get("hooks")
+        if not isinstance(hook_entries, list):
+            continue
+        for hook in hook_entries:
+            if isinstance(hook, dict) and spec["script"] in str(hook.get("command", "")):
+                return True
+    return False
+
+
+def _has_all_specs(data: dict[str, Any], specs: list[dict[str, Any]]) -> bool:
+    return all(_has_hook_spec(data, spec) for spec in specs)
+
+
+def has_pre_hooks(data: dict[str, Any]) -> bool:
+    specs = [spec for spec in claude_specs(MANIFEST, "minimal") if spec["event"] == "PreToolUse"]
+    return _has_all_specs(data, specs)
 
 
 def has_post_hooks(data: dict[str, Any]) -> bool:
-    hooks = data.get("hooks", {})
-    post = hooks.get("PostToolUse", []) if isinstance(hooks, dict) else []
-    return (
-        any(_entry_contains(entry, "post-edit-guard") for entry in post)
-        and any(_entry_contains(entry, "post-write-guard") for entry in post)
-    )
+    specs = [spec for spec in claude_specs(MANIFEST, "minimal") if spec["event"] == "PostToolUse"]
+    return _has_all_specs(data, specs)
 
 
 def has_full_hooks(data: dict[str, Any]) -> bool:
-    hooks = data.get("hooks", {})
-    post = hooks.get("PostToolUse", []) if isinstance(hooks, dict) else []
-    stop = hooks.get("Stop", []) if isinstance(hooks, dict) else []
-    return (
-        has_post_hooks(data)
-        and any(_entry_contains(entry, "post-build-check") for entry in post)
-        and any(_entry_contains(entry, "stop-guard") for entry in stop)
-        and any(_entry_contains(entry, "learn-evaluator") for entry in stop)
-    )
+    core_scripts = {spec["script"] for spec in claude_specs(MANIFEST, "core")}
+    specs = [
+        spec
+        for spec in claude_specs(MANIFEST, "full")
+        if spec["script"] not in core_scripts
+    ]
+    return has_post_hooks(data) and _has_all_specs(data, specs)
 
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
     """Generate the hook command using the run-hook.sh wrapper."""
     home = Path.home()
     return f"bash {home}/.vibeguard/run-hook.sh {script_name}"
+
+
+def _is_canonical_hook_command(command: str, script_name: str) -> bool:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return False
+    return (
+        len(parts) == 3
+        and parts[0] == "bash"
+        and parts[1].endswith("/.vibeguard/run-hook.sh")
+        and parts[2] == script_name
+    )
+
+
+def _record_customized_command(state: dict[str, Any], script_name: str, command: str) -> None:
+    customized = state.setdefault("customized", [])
+    if isinstance(customized, list):
+        customized.append({"script": script_name, "command": command})
+    print(
+        f"WARN: preserving customized VibeGuard hook command for {script_name}; "
+        "use --force-overwrite to replace it",
+        file=sys.stderr,
+    )
 
 
 def _remove_legacy_mcp_server(data: dict[str, Any]) -> bool:
@@ -127,7 +190,16 @@ def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict
         state["changed"] = True
 
 
-def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, script_name: str, state: dict[str, bool]) -> None:
+def upsert_hook(
+    hooks: dict[str, Any],
+    repo_dir: str,
+    event: str,
+    matcher: str,
+    script_name: str,
+    state: dict[str, Any],
+    *,
+    force_overwrite: bool = False,
+) -> None:
     entries = hooks.setdefault(event, [])
     if not isinstance(entries, list):
         entries = []
@@ -165,10 +237,15 @@ def upsert_hook(hooks: dict[str, Any], repo_dir: str, event: str, matcher: str, 
             if script_name not in str(cmd):
                 continue
             found = True
-            if hook.get("type") != "command" or cmd != desired_command:
+            if hook.get("type") != "command":
                 hook["type"] = "command"
-                hook["command"] = desired_command
                 state["changed"] = True
+            if cmd != desired_command:
+                if force_overwrite or _is_canonical_hook_command(str(cmd), script_name):
+                    hook["command"] = desired_command
+                    state["changed"] = True
+                else:
+                    _record_customized_command(state, script_name, str(cmd))
 
     if not found:
         new_entry: dict[str, Any] = {
@@ -193,8 +270,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     settings_path = Path(args.settings_file)
+    before_text = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
     data = load_settings(settings_path)
-    state = {"changed": False}
+    state: dict[str, Any] = {"changed": False}
 
     if _remove_legacy_mcp_server(data):
         state["changed"] = True
@@ -207,28 +285,33 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         data["hooks"] = hooks
         state["changed"] = True
 
-    upsert_hook(hooks, args.repo_dir, "PreToolUse", "Write", "pre-write-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PreToolUse", "Bash", "pre-bash-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PreToolUse", "Edit", "pre-edit-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-edit-guard.sh", state)
-    upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-write-guard.sh", state)
-    # analysis-paralysis-guard for core and above
-    if args.profile in ("core", "full", "strict"):
-        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Read|Glob|Grep", "analysis-paralysis-guard.sh", state)
+    desired_specs = claude_specs(MANIFEST, args.profile)
+    for spec in desired_specs:
+        upsert_hook(
+            hooks,
+            args.repo_dir,
+            spec["event"],
+            spec["matcher"],
+            spec["script"],
+            state,
+            force_overwrite=args.force_overwrite,
+        )
 
-    if args.profile in ("full", "strict"):
-        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Edit", "post-build-check.sh", state)
-        upsert_hook(hooks, args.repo_dir, "PostToolUse", "Write", "post-build-check.sh", state)
-        upsert_hook(hooks, args.repo_dir, "Stop", "", "stop-guard.sh", state)
-        upsert_hook(hooks, args.repo_dir, "Stop", "", "learn-evaluator.sh", state)
+    # Remove hooks that do not belong to the current profile (handles profile downgrade).
+    desired_pairs = {(spec["event"], spec["script"]) for spec in desired_specs}
+    for spec in claude_specs(MANIFEST):
+        pair = (spec["event"], spec["script"])
+        if pair not in desired_pairs:
+            remove_hook(hooks, spec["event"], spec["script"], state)
 
-    # Remove hooks that don't belong to the current profile (handles profile downgrade)
-    if args.profile not in ("core", "full", "strict"):
-        remove_hook(hooks, "PostToolUse", "analysis-paralysis-guard.sh", state)
-    if args.profile not in ("full", "strict"):
-        remove_hook(hooks, "PostToolUse", "post-build-check.sh", state)
-        remove_hook(hooks, "Stop", "stop-guard.sh", state)
-        remove_hook(hooks, "Stop", "learn-evaluator.sh", state)
+    if args.dry_run:
+        if state["changed"]:
+            after_text = render_settings(data)
+            print(unified_diff(settings_path, before_text, after_text), end="")
+            print("CHANGED")
+        else:
+            print("SKIP")
+        return 0
 
     if state["changed"]:
         save_settings(settings_path, data)
@@ -260,7 +343,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
                 h for h in original
                 if not any(
                     _entry_contains(h, key)
-                    for key in ("pre-write-guard", "pre-bash-guard", "pre-edit-guard", "skills-loader")
+                    for key in all_managed_script_names(MANIFEST)
                 )
             ]
             if len(filtered) != len(original):
@@ -276,7 +359,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
                 h for h in original
                 if not any(
                     _entry_contains(h, key)
-                    for key in ("post-guard-check", "post-edit-guard", "post-write-guard", "post-build-check")
+                    for key in all_managed_script_names(MANIFEST) | {"post-guard-check.sh"}
                 )
             ]
             if len(filtered) != len(original):
@@ -290,7 +373,7 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
             original = hooks["Stop"]
             filtered = [
                 h for h in original
-                if not any(_entry_contains(h, key) for key in ("stop-guard", "learn-evaluator"))
+                if not any(_entry_contains(h, key) for key in all_managed_script_names(MANIFEST))
             ]
             if len(filtered) != len(original):
                 if filtered:
@@ -324,6 +407,8 @@ def build_parser() -> argparse.ArgumentParser:
     upsert.add_argument("--settings-file", required=True)
     upsert.add_argument("--repo-dir", required=True)
     upsert.add_argument("--profile", choices=["minimal", "core", "full", "strict"], default="core")
+    upsert.add_argument("--dry-run", action="store_true", help="Print unified diff without writing")
+    upsert.add_argument("--force-overwrite", action="store_true", help="Replace customized managed hook commands")
     upsert.set_defaults(func=cmd_upsert_vibeguard)
 
     remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hooks config and legacy MCP entries")

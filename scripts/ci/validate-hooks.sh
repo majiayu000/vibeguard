@@ -7,7 +7,7 @@ errors=0
 
 echo "Validating hook scripts..."
 
-for script in "${REPO_DIR}"/hooks/*.sh; do
+for script in "${REPO_DIR}"/hooks/*.sh "${REPO_DIR}"/hooks/_lib/*.sh; do
   [[ -f "$script" ]] || continue
   name=$(basename "$script")
 

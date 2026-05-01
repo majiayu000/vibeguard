@@ -16,7 +16,30 @@ import sys
 from pathlib import Path
 
 
-def detect_languages(project_dir: str) -> list[dict]:
+def record_diagnostic(
+    diagnostics: list[dict] | None,
+    stage: str,
+    path: Path,
+    error: Exception,
+) -> None:
+    """Record and display parser diagnostics instead of silently downgrading."""
+    item = {
+        "stage": stage,
+        "path": str(path),
+        "error": f"{type(error).__name__}: {error}",
+    }
+    if diagnostics is not None:
+        diagnostics.append(item)
+    print(
+        f"warning: {stage} failed for {path}: {type(error).__name__}: {error}",
+        file=sys.stderr,
+    )
+
+
+def detect_languages(
+    project_dir: str,
+    diagnostics: list[dict] | None = None,
+) -> list[dict]:
     """The language and framework used by the detection project"""
     results = []
     p = Path(project_dir)
@@ -27,8 +50,8 @@ def detect_languages(project_dir: str) -> list[dict]:
         try:
             content = (p / "Cargo.toml").read_text()
             workspace = "[workspace]" in content
-        except Exception:
-            pass
+        except Exception as e:
+            record_diagnostic(diagnostics, "parse Cargo.toml", p / "Cargo.toml", e)
         results.append({
             "language": "rust",
             "framework": "workspace" if workspace else "crate",
@@ -49,8 +72,8 @@ def detect_languages(project_dir: str) -> list[dict]:
                 framework = "vue"
             elif "express" in deps:
                 framework = "express"
-        except Exception:
-            pass
+        except Exception as e:
+            record_diagnostic(diagnostics, "parse package.json", p / "package.json", e)
         results.append({
             "language": "typescript" if (p / "tsconfig.json").exists() else "javascript",
             "framework": framework,
@@ -70,8 +93,8 @@ def detect_languages(project_dir: str) -> list[dict]:
                         framework = "fastapi"
                     elif "flask" in content.lower():
                         framework = "flask"
-            except Exception:
-                pass
+            except Exception as e:
+                record_diagnostic(diagnostics, f"parse {cfg}", p / cfg, e)
             results.append({
                 "language": "python",
                 "framework": framework,
@@ -156,7 +179,7 @@ def generate_constraints(
         constraints.append({
             "id": f"C-{c_id:02d}",
             "category": "Error handling",
-            "description": "The error return value must be checked and assignment to _ is prohibited,"
+            "description": "The error return value must be checked and assignment to _ is prohibited",
             "confidence": "high",
             "source": "Go project detection",
             "verify": "guards/go/check_error_handling.sh",
@@ -286,7 +309,8 @@ def main():
         print(f"Directory does not exist: {project_dir}")
         sys.exit(1)
 
-    languages = detect_languages(project_dir)
+    diagnostics: list[dict] = []
+    languages = detect_languages(project_dir, diagnostics)
     patterns = scan_patterns(project_dir, languages)
     constraints = generate_constraints(languages, patterns)
 
@@ -299,6 +323,8 @@ def main():
             },
             "constraints": constraints,
         }
+        if diagnostics:
+            result["diagnostics"] = diagnostics
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 

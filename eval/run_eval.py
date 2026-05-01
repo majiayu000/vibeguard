@@ -15,6 +15,7 @@ usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,12 @@ MODELS = {
     "haiku": "claude-haiku-4-5-20251001",
     "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
+}
+
+CONFIDENCE_SCORES = {
+    "low": 0.33,
+    "medium": 0.66,
+    "high": 0.90,
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -74,7 +81,15 @@ When a user gives you code, you must:
 1. Review all applicable rules one by one
 2. List each violation in the format [RULE_ID]: Problem description
 3. If there are no code violations, reply [CLEAN]
-4. Don't suggest improvements - only report violations"""
+4. End with exactly one line: CONFIDENCE: low|medium|high
+5. Don't suggest improvements - only report violations"""
+
+
+def parse_confidence(reply: str) -> str | None:
+    match = re.search(r"\bconfidence\s*[:=-]\s*(low|medium|high)\b", reply, re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower()
 
 
 def evaluate_sample(
@@ -96,12 +111,16 @@ def evaluate_sample(
         reply = response.content[0].text
     except Exception as e:
         return {
-            "rule": sample["rule"],
-            "detected": False,
+            "rule": "FP-CHECK" if sample["rule"] == "NONE" else sample["rule"],
+            "expected": "CLEAN" if sample["rule"] == "NONE" else sample["rule"],
+            "severity": sample.get("severity"),
+            "skipped": True,
             "error": str(e),
             "response": "",
+            "description": sample["description"],
         }
 
+    confidence = parse_confidence(reply)
     expected_rule = sample["rule"]
     is_clean = expected_rule == "NONE"
 
@@ -111,13 +130,17 @@ def evaluate_sample(
             f"[{r}]" in reply or f"{r}:" in reply or f"{r}]" in reply
             for r in _all_rule_ids()
         )
-        return {
+        result = {
             "rule": "FP-CHECK",
             "expected": "CLEAN",
             "detected_fp": has_false_positive,
             "response": reply[:500],
             "description": sample["description"],
+            "severity": "clean",
         }
+        if confidence:
+            result["confidence"] = confidence
+        return result
 
     # Check if the rule is mentioned
     detected = (
@@ -127,13 +150,16 @@ def evaluate_sample(
         or expected_rule.lower() in reply.lower()
     )
 
-    return {
+    result = {
         "rule": expected_rule,
         "severity": sample["severity"],
         "detected": detected,
         "response": reply[:500],
         "description": sample["description"],
     }
+    if confidence:
+        result["confidence"] = confidence
+    return result
 
 
 def _all_rule_ids() -> list[str]:
@@ -202,8 +228,8 @@ def run_eval(args):
         result = evaluate_sample(client, model, system_prompt, sample)
         results.append(result)
 
-        if result.get("error"):
-            print(f"ERROR: {result['error']}")
+        if result.get("skipped"):
+            print(f"SKIPPED: {result['error']}")
         elif "detected_fp" in result:
             status = "FALSE POSITIVE" if result["detected_fp"] else "CLEAN OK"
             print(status)
@@ -227,15 +253,57 @@ def run_eval(args):
         )
     print(f"\nResult saved: {output_path}")
 
+    max_api_failures = read_max_api_failures()
+    skipped_count = count_skipped(results)
+    if skipped_count > max_api_failures:
+        print(
+            f"Eval failed: {skipped_count} skipped sample(s) exceeded "
+            f"EVAL_MAX_API_FAILURES={max_api_failures}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def count_skipped(results: list[dict]) -> int:
+    return sum(1 for r in results if r.get("skipped"))
+
+
+def read_max_api_failures() -> int:
+    raw = os.environ.get("EVAL_MAX_API_FAILURES", "0")
+    try:
+        value = int(raw)
+    except ValueError:
+        print(
+            f"Invalid EVAL_MAX_API_FAILURES={raw!r}; expected a non-negative integer",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if value < 0:
+        print(
+            f"Invalid EVAL_MAX_API_FAILURES={raw!r}; expected a non-negative integer",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return value
+
 
 def print_report(results: list[dict], model: str):
     print("\n" + "=" * 60)
     print(f"VibeGuard LLM-as-Judge Report ({model})")
     print("=" * 60)
 
-    # Separate true positive tests and false positive tests
-    tp_results = [r for r in results if "detected" in r]
-    fp_results = [r for r in results if "detected_fp" in r]
+    # Separate true positive tests and false positive tests. Skipped samples
+    # are infrastructure/API failures, not genuine misses or false positives.
+    skipped_results = [r for r in results if r.get("skipped")]
+    valid_results = [r for r in results if not r.get("skipped")]
+    tp_results = [r for r in valid_results if "detected" in r]
+    fp_results = [r for r in valid_results if "detected_fp" in r]
+
+    if skipped_results:
+        print(f"\nSkipped: {len(skipped_results)} infrastructure/API error(s)")
+        for r in skipped_results:
+            print(f"  [{r['rule']}] {r['description']}")
+            print(f"  Error: {r['error']}")
 
     # True positive statistics
     if tp_results:
@@ -319,6 +387,73 @@ def print_report(results: list[dict], model: str):
         print(f"  SWS (Severity-Weighted): {sws:.1f}")
         print(f"  FPR penalty: ×{fpr_penalty:.2f}")
         print(f"  Layer2_Score: {layer2_score:.1f}")
+
+    print_calibration(results)
+
+
+def calibration_points(results: list[dict]) -> list[dict]:
+    points = []
+    for r in results:
+        if r.get("skipped"):
+            continue
+        confidence = r.get("confidence")
+        if confidence not in CONFIDENCE_SCORES:
+            continue
+        if "detected" in r:
+            correct = bool(r["detected"])
+            bucket = r.get("severity", "unknown")
+        elif "detected_fp" in r:
+            correct = not bool(r["detected_fp"])
+            bucket = "clean"
+        else:
+            continue
+        points.append({
+            "bucket": bucket,
+            "confidence": confidence,
+            "score": CONFIDENCE_SCORES[confidence],
+            "correct": correct,
+        })
+    return points
+
+
+def compute_ece(points: list[dict]) -> float | None:
+    if not points:
+        return None
+    total = len(points)
+    by_conf: dict[str, list[dict]] = {}
+    for point in points:
+        by_conf.setdefault(point["confidence"], []).append(point)
+
+    ece = 0.0
+    for confidence, items in by_conf.items():
+        avg_conf = CONFIDENCE_SCORES[confidence]
+        accuracy = sum(1 for item in items if item["correct"]) / len(items)
+        ece += (len(items) / total) * abs(accuracy - avg_conf)
+    return ece
+
+
+def print_calibration(results: list[dict]) -> None:
+    points = calibration_points(results)
+    ece = compute_ece(points)
+    if ece is None:
+        print("\n[Calibration]")
+        print("  No calibrated samples (confidence missing or all samples skipped)")
+        return
+
+    print("\n[Calibration]")
+    print(f"  Overall ECE: {ece * 100:.1f} ({len(points)} calibrated samples)")
+
+    buckets = sorted({point["bucket"] for point in points})
+    for bucket in buckets:
+        bucket_points = [point for point in points if point["bucket"] == bucket]
+        bucket_ece = compute_ece(bucket_points)
+        if bucket_ece is None:
+            continue
+        accuracy = sum(1 for point in bucket_points if point["correct"]) / len(bucket_points)
+        print(
+            f"  {bucket:<10} ECE: {bucket_ece * 100:.1f} "
+            f"accuracy: {accuracy * 100:.0f}% n={len(bucket_points)}"
+        )
 
 
 def main():

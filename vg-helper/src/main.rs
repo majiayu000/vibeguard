@@ -1,7 +1,9 @@
+mod event_schema;
 mod json_field;
 mod log_query;
 mod pkg_rewrite;
 mod session_metrics;
+mod time_utils;
 
 use std::env;
 use std::process;

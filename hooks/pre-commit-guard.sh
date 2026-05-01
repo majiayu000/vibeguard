@@ -40,6 +40,7 @@ fi
 GUARDS_DIR_Q="$(printf '%q' "${GUARDS_DIR}")"
 
 TIMEOUT="${VIBEGUARD_PRECOMMIT_TIMEOUT:-10}"
+TIMEOUT_BEHAVIOR="${VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR:-block}"
 TIMEOUT_CMD=""
 HAS_PYTHON3=0
 if command -v timeout >/dev/null 2>&1; then
@@ -242,7 +243,16 @@ run_guard() {
   local output code=0
 
   output=$(run_with_timeout "$cmd" 2>&1) || code=$?
-  [[ $code -eq 124 ]] && return 0 # Timeout skip
+  if [[ $code -eq 124 ]]; then
+    if [[ "$TIMEOUT_BEHAVIOR" == "warn" ]]; then
+      vg_log "pre-commit-guard" "git-commit" "warn" "guard timeout (${label}) after ${TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$cmd"
+      return 0
+    fi
+    GUARD_FAIL=1
+    GUARD_OUTPUT="${GUARD_OUTPUT}\n[${label}]\nguard timeout after ${TIMEOUT}s (blocked)\n"
+    vg_log "pre-commit-guard" "git-commit" "block" "guard timeout (${label}) after ${TIMEOUT}s" "$cmd"
+    return 0
+  fi
 
   if [[ $code -ne 0 ]]; then
     GUARD_FAIL=1
@@ -299,7 +309,16 @@ run_build_check() {
   local code=0
 
   run_with_timeout "$cmd" >/dev/null 2>&1 || code=$?
-  if [[ $code -ne 0 && $code -ne 124 ]]; then
+  if [[ $code -eq 124 ]]; then
+    if [[ "$TIMEOUT_BEHAVIOR" == "warn" ]]; then
+      vg_log "pre-commit-guard" "git-commit" "warn" "build timeout after ${TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$fail_msg"
+      return 0
+    fi
+    BUILD_FAILS="${BUILD_FAILS}  ${fail_msg} (timeout after ${TIMEOUT}s)\n"
+    vg_log "pre-commit-guard" "git-commit" "block" "build timeout after ${TIMEOUT}s" "$fail_msg"
+    return 0
+  fi
+  if [[ $code -ne 0 ]]; then
     BUILD_FAILS="${BUILD_FAILS}  ${fail_msg}\n"
   fi
 }

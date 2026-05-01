@@ -1,5 +1,53 @@
 #!/usr/bin/env bash
 
+_force_overwrite_enabled() {
+  [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}" == "1" ]]
+}
+
+_protect_rule_file_overwrite() {
+  local src="$1" dest="$2" label="$3"
+  [[ -e "${dest}" && ! -L "${dest}" ]] || return 0
+
+  if [[ -f "${src}" ]] && cmp -s "${src}" "${dest}"; then
+    rm -f "${dest}"
+    return 0
+  fi
+
+  if _force_overwrite_enabled; then
+    yellow "  FORCE: replacing local rule copy ${dest}"
+    rm -f "${dest}"
+    return 0
+  fi
+
+  red "  ERROR: refusing to overwrite modified local rule file: ${dest}"
+  red "  Re-run with --force-overwrite only if this local ${label} rule copy should be replaced."
+  return 1
+}
+
+_remove_rule_subtree_if_safe() {
+  local src_dir="$1" dest_dir="$2" label="$3"
+  [[ -d "${dest_dir}" ]] || return 0
+
+  local file rel src_file
+  while IFS= read -r file; do
+    [[ -e "${file}" || -L "${file}" ]] || continue
+    [[ -L "${file}" ]] && continue
+    rel="${file#"${dest_dir}/"}"
+    src_file="${src_dir}/${rel}"
+    if [[ -f "${src_file}" ]] && cmp -s "${src_file}" "${file}"; then
+      continue
+    fi
+    if _force_overwrite_enabled; then
+      continue
+    fi
+    red "  ERROR: refusing to remove modified local rule file: ${file}"
+    red "  Re-run with --force-overwrite only if this local ${label} rule tree should be replaced."
+    return 1
+  done < <(find "${dest_dir}" \( -type f -o -type l \) 2>/dev/null)
+
+  rm -rf "${dest_dir}"
+}
+
 install_claude_home_assets() {
   echo "Step 2: Install Claude Code skills"
   mkdir -p "${CLAUDE_DIR}/skills"
@@ -61,15 +109,29 @@ install_claude_home_assets() {
     _symlink_rule_dir() {
       local src_dir="$1" dest_dir="$2" label="$3"
       mkdir -p "${dest_dir}"
-      # Remove stale copies that are now replaced by symlinks
+      # Remove only safe stale copies that are now replaced by symlinks.
       for f in "${dest_dir}"/*.md; do
-        [[ -f "$f" && ! -L "$f" ]] && rm -f "$f"
+        [[ -f "$f" && ! -L "$f" ]] || continue
+        local stale_name stale_src
+        stale_name=$(basename "$f")
+        stale_src="${src_dir}/${stale_name}"
+        if [[ -f "${stale_src}" ]]; then
+          _protect_rule_file_overwrite "${stale_src}" "$f" "${label}" || return 1
+        elif _force_overwrite_enabled; then
+          yellow "  FORCE: removing stale local rule copy ${f}"
+          rm -f "$f"
+        else
+          red "  ERROR: refusing to remove local rule file not present in source: ${f}"
+          red "  Re-run with --force-overwrite only if this local ${label} rule copy should be removed."
+          return 1
+        fi
       done
       local count=0
       for f in "${src_dir}"/*.md; do
         [[ -f "$f" ]] || continue
         local name
         name=$(basename "$f")
+        _protect_rule_file_overwrite "$f" "${dest_dir}/${name}" "${label}" || return 1
         ln -sf "$f" "${dest_dir}/${name}"
         state_record_file "${dest_dir}/${name}" "${label}/${name}" "symlink"
         count=$((count + 1))
@@ -85,7 +147,7 @@ install_claude_home_assets() {
           _symlink_rule_dir "${rules_src}/${subdir}" "${rules_dest}/${subdir}" "${subdir}"
         else
           if [[ -d "${rules_dest}/${subdir}" ]]; then
-            rm -rf "${rules_dest}/${subdir}"
+            _remove_rule_subtree_if_safe "${rules_src}/${subdir}" "${rules_dest}/${subdir}" "${subdir}" || return 1
             yellow "  ${subdir}/ removed (not in --languages filter)"
           else
             yellow "  SKIP ${subdir}/ (not in --languages filter)"
@@ -115,7 +177,19 @@ install_claude_home_assets() {
 
 configure_claude_home_runtime() {
   echo "Step 9: Configure Claude hooks (${PROFILE} profile)"
-  if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null 2>&1; then
+  local settings_diff
+  if ! settings_diff=$(settings_upsert_diff "${SETTINGS_FILE}" "${PROFILE}" 2>&1); then
+    red "  Failed to compute settings.json diff"
+    return 1
+  fi
+  if ! confirm_high_context_write "~/.claude/settings.json" "${settings_diff}"; then
+    if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+      echo
+      return 0
+    fi
+    return 1
+  fi
+  if settings_upsert "${SETTINGS_FILE}" "${PROFILE}" >/dev/null; then
     state_record_file "${SETTINGS_FILE}" "generated/settings.json" "copy"
     green "  Hooks configured in ~/.claude/settings.json (${PROFILE})"
   else
@@ -127,6 +201,18 @@ configure_claude_home_runtime() {
 inject_claude_home_rules() {
   echo "Step 10: Update VibeGuard rules in CLAUDE.md"
   local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
+  local rules_diff
+  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" 2>&1); then
+    red "  Failed to compute CLAUDE.md diff"
+    return 1
+  fi
+  if ! confirm_high_context_write "~/.claude/CLAUDE.md" "${rules_diff}"; then
+    if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+      echo
+      return 0
+    fi
+    return 1
+  fi
   if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" 2>&1); then
     if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
       state_record_file "${CLAUDE_DIR}/CLAUDE.md" "generated/CLAUDE.md" "copy"

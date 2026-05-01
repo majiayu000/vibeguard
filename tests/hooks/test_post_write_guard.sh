@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/hook_test_lib.sh"
+hook_test_init
+
+header "post-write-guard.sh — duplicate detection"
+# =========================================================
+
+# Non-source files (.md) should be allowed
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"
+
+# Release when there is no git project (use a path that does not exist under /tmp)
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_no_git_project/src/main.rs","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Release if there is no git project"
+
+# Empty content is released
+result=$(echo '{"tool_input":{"file_path":"src/lib.rs","content":""}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
+
+# Empty file_path is allowed
+result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
+
+# Git worktrees expose .git as a file, and hook inputs can be relative paths.
+tmp_repo_worktree="$(mktemp -d)"
+mkdir -p "$tmp_repo_worktree/src"
+printf 'gitdir: /tmp/nonexistent\n' >"$tmp_repo_worktree/.git"
+json_payload='{"tool_input":{"file_path":"src/new_file.rs","content":"fn createdThing() {}"}}'
+if ! result=$(cd "$tmp_repo_worktree" && printf '%s\n' "$json_payload" | perl -e 'alarm 3; exec @ARGV' bash "$REPO_DIR/hooks/post-write-guard.sh"); then
+  result="TIMEOUT"
+fi
+assert_not_contains "$result" "TIMEOUT" "Worktree .git file + relative source path does not hang"
+assert_not_contains "$result" "No git project" "Worktree .git file + relative source path resolves project root"
+rm -rf "$tmp_repo_worktree"
+
+# Source code files with the same name should alert
+tmp_repo_same_name="$(mktemp -d)"
+git -C "$tmp_repo_same_name" init -q
+mkdir -p "$tmp_repo_same_name/src/existing" "$tmp_repo_same_name/src/new"
+cat >"$tmp_repo_same_name/src/existing/service.py" <<'EOF'
+def existing_service():
+    return True
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def create_service():\\n    return True"}}' "$tmp_repo_same_name/src/new/service.py")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_contains "$result" "[L1]" "Detect duplicate source files with the same name"
+rm -rf "$tmp_repo_same_name"
+
+# Duplicate definitions should alert
+tmp_repo_dup_def="$(mktemp -d)"
+git -C "$tmp_repo_dup_def" init -q
+mkdir -p "$tmp_repo_dup_def/src/existing" "$tmp_repo_dup_def/src/new"
+cat >"$tmp_repo_dup_def/src/existing/handler.py" <<'EOF'
+def processOrder():
+    return 1
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def processOrder():\\n    return 2"}}' "$tmp_repo_dup_def/src/new/new_handler.py")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_contains "$result" "[L1]" "Detect duplicate definitions"
+rm -rf "$tmp_repo_dup_def"
+
+# Prompt for downgrade when scanning budget is exceeded
+tmp_repo_budget="$(mktemp -d)"
+git -C "$tmp_repo_budget" init -q
+mkdir -p "$tmp_repo_budget/src"
+cat >"$tmp_repo_budget/src/existing.py" <<'EOF'
+def keepExisting():
+    return "ok"
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def keepExisting():\\n    return \\"new\\""}}' "$tmp_repo_budget/src/new_file.py")
+result=$(echo "$json_payload" | VG_SCAN_MAX_FILES=0 bash hooks/post-write-guard.sh)
+assert_contains "$result" "[L1]" "Downgrade when file budget exceeded"
+rm -rf "$tmp_repo_budget"
+
+# When the new source code file has a file with the same name, you should warn (use the existing log.sh in the current warehouse)
+result=$(echo '{"tool_input":{"file_path":"'${REPO_DIR}'/hooks/subdir/log.sh","content":"#!/bin/bash\necho test"}}' | bash hooks/post-write-guard.sh)
+# log.sh already exists in the hooks/ directory, if detected there should be VIBEGUARD output
+# But .sh is not in VG_SOURCE_EXTS, so it is allowed
+assert_not_contains "$result" "VIBEGUARD" "Non-source extension (.sh) allowed"
+
+# =========================================================
+
+hook_test_finish

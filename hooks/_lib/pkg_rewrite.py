@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Package manager transparent correction: npm/yarn→pnpm, pip→uv.
+"""Deprecated fallback for package manager transparent correction.
+
+Rust `vg-helper pkg-rewrite` is the canonical implementation. This file is
+kept temporarily for installs that do not have a built helper; callers must log
+a visible warning before using it.
 
 Reads a shell command from stdin, prints the corrected command to stdout.
 Prints empty string if no correction is needed.

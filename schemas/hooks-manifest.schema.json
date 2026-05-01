@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/hooks-manifest.schema.json",
+  "title": "VibeGuard Hooks Manifest",
+  "type": "object",
+  "required": ["schema_version", "profiles", "hooks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "description": {"type": "string"},
+    "profiles": {
+      "type": "array",
+      "items": {"enum": ["minimal", "core", "full", "strict"]},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "hooks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hook"}
+    }
+  },
+  "$defs": {
+    "hook": {
+      "type": "object",
+      "required": [
+        "name",
+        "script",
+        "kind",
+        "trigger",
+        "responsibilities",
+        "decision_types",
+        "claude",
+        "codex"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+        "script": {"type": "string", "pattern": "^[a-z0-9-]+\\.sh$"},
+        "kind": {"enum": ["hook", "library", "wrapper", "manual", "git-hook"]},
+        "trigger": {"type": "string"},
+        "responsibilities": {"type": "string"},
+        "decision_types": {
+          "type": "array",
+          "items": {"enum": ["pass", "warn", "block", "gate", "escalate", "correction", "complete"]},
+          "uniqueItems": true
+        },
+        "claude": {"$ref": "#/$defs/platform"},
+        "codex": {"$ref": "#/$defs/platform"}
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "support": {"enum": ["native", "unsupported", "manual", "not-applicable"]},
+        "reason": {"type": "string"},
+        "event": {"enum": ["PreToolUse", "PostToolUse", "Stop", "SessionStart", "PreCompact", "UserPromptSubmit"]},
+        "matchers": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {"type": "string"},
+              {"type": "null"}
+            ]
+          },
+          "minItems": 1
+        },
+        "matcher": {
+          "anyOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ]
+        },
+        "profiles": {
+          "type": "array",
+          "items": {"enum": ["minimal", "core", "full", "strict"]},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "script": {"type": "string", "pattern": "^vibeguard-[a-z0-9-]+\\.sh$"},
+        "timeout": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

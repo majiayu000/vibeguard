@@ -288,6 +288,8 @@ Hooks live in `~/.codex/hooks.json` (requires `codex_hooks = true` in `config.to
 
 Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`). When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
+**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, Codex hooks, and the app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+
 **App-server wrapper** (Symphony-style orchestrators):
 
 ```bash

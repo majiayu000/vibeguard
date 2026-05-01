@@ -38,7 +38,6 @@
           "pre-commit-guard",
           "pre-edit-guard",
           "pre-write-guard",
-          "skills-loader",
           "stop-guard"
         ]
       },
@@ -85,6 +84,49 @@
       },
       "default": [],
       "description": "Guard script names to skip. e.g. [\"check_unwrap_in_prod\", \"check_any_abuse\"]"
+    },
+    "gc": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Garbage-collection retention and size thresholds used by scripts/gc/*.sh.",
+      "properties": {
+        "log_threshold_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Archive events.jsonl when it reaches this size in MB. Env override: VIBEGUARD_GC_LOG_THRESHOLD_MB."
+        },
+        "archive_retain_months": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Delete monthly compressed event archives older than this many months. Env override: VIBEGUARD_GC_ARCHIVE_RETAIN_MONTHS."
+        },
+        "worktree_max_days": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 7,
+          "description": "Remove clean VibeGuard worktrees inactive for at least this many days. Env override: VIBEGUARD_GC_WORKTREE_MAX_DAYS."
+        },
+        "session_metrics_retain_days": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 90,
+          "description": "Keep session-metrics.jsonl entries for this many days. Env override: VIBEGUARD_GC_SESSION_METRICS_RETAIN_DAYS."
+        },
+        "learning_window_days": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 7,
+          "description": "Lookback window for scheduled learning digest event analysis. Env override: VIBEGUARD_GC_LEARNING_WINDOW_DAYS."
+        },
+        "gc_log_max_kb": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1024,
+          "description": "Trim gc-cron.log when it exceeds this size in KB. Env override: VIBEGUARD_GC_LOG_MAX_KB."
+        }
+      }
     }
   },
   "additionalProperties": false

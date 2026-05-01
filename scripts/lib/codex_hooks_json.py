@@ -9,37 +9,15 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from hooks_manifest import all_managed_script_names, codex_specs, load_manifest
+
 
 class HookSpec(dict):
     pass
 
 
-MANAGED_SPECS: list[HookSpec] = [
-    {
-        "event": "PreToolUse",
-        "matcher": "Bash",
-        "script": "vibeguard-pre-bash-guard.sh",
-        "timeout": 10,
-    },
-    {
-        "event": "PostToolUse",
-        "matcher": "Bash",
-        "script": "vibeguard-post-build-check.sh",
-        "timeout": 30,
-    },
-    {
-        "event": "Stop",
-        "matcher": None,
-        "script": "vibeguard-stop-guard.sh",
-        "timeout": None,
-    },
-    {
-        "event": "Stop",
-        "matcher": None,
-        "script": "vibeguard-learn-evaluator.sh",
-        "timeout": None,
-    },
-]
+MANIFEST = load_manifest()
+MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST)]
 
 LEGACY_MARKERS = {
     "pre-bash-guard.sh",
@@ -51,7 +29,7 @@ LEGACY_MARKERS = {
     "cognitive-reminder.sh",
 }
 
-MANAGED_MARKERS = LEGACY_MARKERS | {spec["script"] for spec in MANAGED_SPECS}
+MANAGED_MARKERS = LEGACY_MARKERS | all_managed_script_names(MANIFEST)
 
 # Namespaced vibeguard-* script names from MANAGED_SPECS.  These are
 # unambiguous enough to identify VibeGuard entries without inspecting the

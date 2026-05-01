@@ -9,8 +9,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+: "${VIBEGUARD_PROJECT_CONFIG:=${REPO_ROOT}/.vibeguard.json}"
+export VIBEGUARD_PROJECT_CONFIG
+# shellcheck source=../lib/project_config.sh
+source "${SCRIPT_DIR}/../lib/project_config.sh"
+
 LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
 GC_LOG="${LOG_DIR}/gc-cron.log"
+SESSION_METRICS_RETAIN_DAYS="$(vg_config_positive_int VIBEGUARD_GC_SESSION_METRICS_RETAIN_DAYS gc.session_metrics_retain_days 90)"
+LEARNING_WINDOW_DAYS="$(vg_config_positive_int VIBEGUARD_GC_LEARNING_WINDOW_DAYS gc.learning_window_days 7)"
+GC_LOG_MAX_KB="$(vg_config_positive_int VIBEGUARD_GC_LOG_MAX_KB gc.gc_log_max_kb 1024)"
 
 mkdir -p "${LOG_DIR}"
 
@@ -29,8 +38,8 @@ mkdir -p "${LOG_DIR}"
   echo
 
   echo "--- Session Metrics Cleanup ---"
-  # Delete session-metrics entries older than 90 days
-  CUTOFF=$(date -v-90d '+%Y-%m-%dT' 2>/dev/null || date -d '90 days ago' '+%Y-%m-%dT' 2>/dev/null || echo "")
+  # Delete session-metrics entries older than the configured retention window.
+  CUTOFF=$(date -v-"${SESSION_METRICS_RETAIN_DAYS}"d '+%Y-%m-%dT' 2>/dev/null || date -d "${SESSION_METRICS_RETAIN_DAYS} days ago" '+%Y-%m-%dT' 2>/dev/null || echo "")
   if [[ -n "${CUTOFF}" ]]; then
     CLEANED=0
     for mf in "${LOG_DIR}"/projects/*/session-metrics.jsonl; do
@@ -70,7 +79,7 @@ PYEOF
 
   echo "--- Regular learning (event log + code scanning unified signal source) ---"
   VIBEGUARD_DIR="${SCRIPT_DIR}/.."
-  _GC_LOG_DIR="${LOG_DIR}" _GC_VIBEGUARD_DIR="${VIBEGUARD_DIR}" \
+  _GC_LOG_DIR="${LOG_DIR}" _GC_VIBEGUARD_DIR="${VIBEGUARD_DIR}" _GC_LEARNING_WINDOW_DAYS="${LEARNING_WINDOW_DAYS}" \
   python3 <<'PYEOF' 2>&1 || echo "[ERROR] learn-digest failed"
 import json, os, sys, subprocess
 from collections import Counter
@@ -86,7 +95,8 @@ if not os.path.isdir(projects_dir):
     sys.exit(0)
 
 now = datetime.now(timezone.utc)
-cutoff_7d = (now - timedelta(days=7)).strftime('%Y-%m-%dT')
+learning_window_days = int(os.environ.get('_GC_LEARNING_WINDOW_DAYS', '7'))
+cutoff_7d = (now - timedelta(days=learning_window_days)).strftime('%Y-%m-%dT')
 signals_found = 0
 
 # Language detection → corresponds to guards script
@@ -456,7 +466,7 @@ PYEOF
 # Keep gc-cron.log no larger than 1MB
 if [[ -f "${GC_LOG}" ]]; then
   SIZE=$(du -k "${GC_LOG}" | cut -f1)
-  if [[ ${SIZE} -gt 1024 ]]; then
+  if [[ ${SIZE} -gt "${GC_LOG_MAX_KB}" ]]; then
     tail -500 "${GC_LOG}" > "${GC_LOG}.tmp"
     mv "${GC_LOG}.tmp" "${GC_LOG}"
   fi
