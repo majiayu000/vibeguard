@@ -175,6 +175,49 @@ install_claude_home_assets() {
   echo
 }
 
+claude_rule_id_count() {
+  local root="$1"
+  local total=0 file_count rule_file
+  if [[ ! -d "${root}" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
+    total=$((total + file_count))
+  done < <(find "${root}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  printf '%s\n' "${total}"
+}
+
+claude_rule_count_for_banner() {
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local rules_src="${REPO_DIR}/rules/claude-rules"
+  local total=0 dir_count subdir
+
+  if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" && -d "${rules_dest}" ]]; then
+    claude_rule_id_count "${rules_dest}"
+    return 0
+  fi
+
+  if [[ -d "${rules_src}/common" ]]; then
+    dir_count=$(claude_rule_id_count "${rules_src}/common")
+    total=$((total + dir_count))
+  fi
+  for subdir in rust golang typescript python; do
+    if [[ -d "${rules_src}/${subdir}" ]]; then
+      if ! declare -F lang_selected >/dev/null || lang_selected "${subdir}"; then
+        dir_count=$(claude_rule_id_count "${rules_src}/${subdir}")
+        total=$((total + dir_count))
+      fi
+    fi
+  done
+  if [[ -d "${HOME}/.vibeguard/user-rules" ]]; then
+    dir_count=$(claude_rule_id_count "${HOME}/.vibeguard/user-rules")
+    total=$((total + dir_count))
+  fi
+  printf '%s\n' "${total}"
+}
+
 configure_claude_home_runtime() {
   echo "Step 9: Configure Claude hooks (${PROFILE} profile)"
   local settings_diff
@@ -201,8 +244,9 @@ configure_claude_home_runtime() {
 inject_claude_home_rules() {
   echo "Step 10: Update VibeGuard rules in CLAUDE.md"
   local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
-  local rules_diff
-  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" 2>&1); then
+  local rules_diff rule_count
+  rule_count=$(claude_rule_count_for_banner)
+  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     red "  Failed to compute CLAUDE.md diff"
     return 1
   fi
@@ -213,7 +257,7 @@ inject_claude_home_rules() {
     fi
     return 1
   fi
-  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" 2>&1); then
+  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
       state_record_file "${CLAUDE_DIR}/CLAUDE.md" "generated/CLAUDE.md" "copy"
     fi
@@ -266,7 +310,7 @@ check_claude_home_installation() {
   fi
 
   local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local rule_file_count actual_rule_count file_count claude_md declared_count
+  local rule_file_count actual_rule_count claude_md declared_count
   local symlink_count copy_count
   if [[ -d "${rules_dest}" ]]; then
     rule_file_count=$(find "${rules_dest}" -name "*.md" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
@@ -281,11 +325,7 @@ check_claude_home_installation() {
       yellow "[DRIFT] ${copy_count} rule files are copies instead of symlinks — re-run setup.sh to fix"
     fi
 
-    actual_rule_count=0
-    while IFS= read -r rule_file; do
-      file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
-      actual_rule_count=$((actual_rule_count + file_count))
-    done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+    actual_rule_count=$(claude_rule_id_count "${rules_dest}")
     claude_md="${CLAUDE_DIR}/CLAUDE.md"
     if [[ -f "${claude_md}" ]]; then
       declared_count=$(grep -o '[0-9]* rules' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)

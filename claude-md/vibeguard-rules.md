@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 #VibeGuard — AI anti-hallucination rules
 
-> 88 rules loaded natively via `~/.claude/rules/vibeguard/`. There is no ORM, no front-end framework, and no microservices in this project.
+> __VIBEGUARD_RULE_COUNT__ rules loaded natively via `~/.claude/rules/vibeguard/`. There is no ORM, no front-end framework, and no microservices in this project.
 
 ## Constraints (L1-L7 are enforced by Hooks)
 

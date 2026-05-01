@@ -70,6 +70,17 @@ raise SystemExit(0 if len(set(blocks)) == 1 else 1)
 PY
 }
 
+assert_claude_rule_banner_matches_installed_rules() {
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local actual=0 declared file_count rule_file
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
+    actual=$((actual + file_count))
+  done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  declared=$(grep -o '[0-9]* rules' "${HOME}/.claude/CLAUDE.md" 2>/dev/null | grep -o '[0-9]*' | head -1 || true)
+  [[ "${declared}" == "${actual}" ]]
+}
+
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
 
@@ -94,6 +105,7 @@ assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_com
 assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
 assert_cmd "scripts/setup/regenerate-hooks-from-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh"
 assert_cmd "scripts/ci/validate-hooks-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
+assert_cmd "CLAUDE.md template uses generated rule count placeholder" grep -q "__VIBEGUARD_RULE_COUNT__" "${REPO_DIR}/claude-md/vibeguard-rules.md"
 
 header "hooks manifest"
 assert_cmd "hooks manifest validates" bash "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
@@ -246,6 +258,7 @@ assert_cmd "Codex hooks do not contain session-tagger" bash -c "! grep -q 'sessi
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
+assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
 assert_cmd "chat contract block matches across source, installed output, and templates" assert_chat_contract_blocks_match
@@ -335,6 +348,7 @@ assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" =
 assert_cmd "--check does not drop or duplicate the chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
+assert_cmd "repair restores CLAUDE.md rule banner count" assert_claude_rule_banner_matches_installed_rules
 assert_cmd "repeat setup keeps exactly one chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 
 header "upsert idempotency with non-standard wrapper path"
