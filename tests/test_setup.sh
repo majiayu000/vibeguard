@@ -83,14 +83,44 @@ assert_claude_rule_banner_matches_installed_rules() {
 
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
+ORIG_PATH="${PATH}"
 
 cleanup() {
   export HOME="${ORIG_HOME}"
+  export PATH="${ORIG_PATH}"
   rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
 
 export HOME="${TMP_HOME}"
+mkdir -p "${TMP_HOME}/bin"
+cat > "${TMP_HOME}/bin/launchctl" <<'SH'
+#!/usr/bin/env bash
+state="${HOME}/.launchctl-vibeguard-loaded"
+case "${1:-}" in
+  bootstrap)
+    touch "$state"
+    exit 0
+    ;;
+  bootout)
+    rm -f "$state"
+    exit 0
+    ;;
+  print)
+    [[ -f "$state" ]] && exit 0
+    exit 113
+    ;;
+  list)
+    [[ -f "$state" ]] && printf '0\t0\tcom.vibeguard.gc\n'
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+chmod +x "${TMP_HOME}/bin/launchctl"
+export PATH="${TMP_HOME}/bin:${PATH}"
 
 header "setup scripts syntax"
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"

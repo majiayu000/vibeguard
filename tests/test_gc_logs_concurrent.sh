@@ -51,6 +51,22 @@ current_ts() {
   date -u '+%Y-%m-01T00:00:00Z'
 }
 
+file_mode() {
+  local path="$1"
+  local mode
+  mode=$(stat -f '%Lp' "$path" 2>/dev/null || true)
+  if [[ "$mode" =~ ^[0-9]+$ ]]; then
+    echo "$mode"
+    return 0
+  fi
+  mode=$(stat -c '%a' "$path" 2>/dev/null || true)
+  if [[ "$mode" =~ ^[0-9]+$ ]]; then
+    echo "$mode"
+    return 0
+  fi
+  echo ""
+}
+
 write_fixture_log() {
   local log_dir="$1"
   mkdir -p "$log_dir"
@@ -90,7 +106,7 @@ assert_contains "$archive_out" "archive 1 items, retain 1 items" "archive run re
 assert_contains "$remaining" "current-line" "current month line remains in events.jsonl"
 assert_not_contains "$remaining" "old-line" "old month line is removed from events.jsonl"
 assert_contains "$archived" "old-line" "old month line is archived"
-assert_cmd "events.jsonl remains mode 600" test "$(stat -f '%Lp' "${archive_dir}/events.jsonl" 2>/dev/null || stat -c '%a' "${archive_dir}/events.jsonl")" = "600"
+assert_cmd "events.jsonl remains mode 600" test "$(file_mode "${archive_dir}/events.jsonl")" = "600"
 
 header "gc-logs.sh waits for active writer lock"
 
@@ -131,7 +147,7 @@ assert_contains "$project_out" "archive 1 items, retain 1 items" "project log ar
 assert_contains "$project_remaining" "current-line" "project current-month line remains in events.jsonl"
 assert_not_contains "$project_remaining" "old-line" "project old-month line is removed from events.jsonl"
 assert_contains "$project_archived" "old-line" "project old-month line is archived"
-assert_cmd "project events.jsonl remains mode 600" test "$(stat -f '%Lp' "${project_log_dir}/events.jsonl" 2>/dev/null || stat -c '%a' "${project_log_dir}/events.jsonl")" = "600"
+assert_cmd "project events.jsonl remains mode 600" test "$(file_mode "${project_log_dir}/events.jsonl")" = "600"
 
 printf '\n==============================\n'
 printf 'Total: %s  Pass: \033[32m%s\033[0m  Fail: \033[31m%s\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

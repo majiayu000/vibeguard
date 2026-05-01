@@ -47,19 +47,35 @@ NOW=$(date +%s)
 CLEANED=0
 WARNED=0
 
+mtime_or_now() {
+  local target="$1"
+  local value
+  value=$(stat -f %m "$target" 2>/dev/null || true)
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+    return 0
+  fi
+  value=$(stat -c %Y "$target" 2>/dev/null || true)
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+    return 0
+  fi
+  echo "$NOW"
+}
+
 for wt_dir in "${WORKTREE_BASE}"/*/; do
   [[ -d "$wt_dir" ]] || continue
   NAME=$(basename "$wt_dir")
 
   # Get the latest modification time (get the latest file in the .git file or directory)
   if [[ -f "${wt_dir}.git" ]]; then
-    LAST_MOD=$(stat -f %m "${wt_dir}.git" 2>/dev/null || stat -c %Y "${wt_dir}.git" 2>/dev/null || echo "$NOW")
+    LAST_MOD=$(mtime_or_now "${wt_dir}.git")
   else
     LAST_MOD=$(find "$wt_dir" -maxdepth 2 -type f -newer "$wt_dir" -print -quit 2>/dev/null | head -1)
     if [[ -z "$LAST_MOD" ]]; then
-      LAST_MOD=$(stat -f %m "$wt_dir" 2>/dev/null || stat -c %Y "$wt_dir" 2>/dev/null || echo "$NOW")
+      LAST_MOD=$(mtime_or_now "$wt_dir")
     else
-      LAST_MOD=$(stat -f %m "$LAST_MOD" 2>/dev/null || stat -c %Y "$LAST_MOD" 2>/dev/null || echo "$NOW")
+      LAST_MOD=$(mtime_or_now "$LAST_MOD")
     fi
   fi
 

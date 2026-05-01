@@ -167,6 +167,14 @@ jobs:
         shell: bash
         run: bash tests/test_setup.sh
 
+      - name: GC regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bash tests/test_gc_config.sh
+          bash tests/test_gc_logs_concurrent.sh
+          bash tests/test_gc_scheduled.sh
+
       - name: Hook health regression tests
         shell: bash
         run: bash tests/test_hook_health.sh

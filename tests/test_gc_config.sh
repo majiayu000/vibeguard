@@ -86,6 +86,25 @@ worktree_out="$(cd "$repo" && bash "$REPO_DIR/scripts/gc/gc-worktrees.sh" --dry-
 assert_contains "$worktree_out" "old: 10 days" "gc-worktrees inspects old worktree"
 assert_contains "$worktree_out" "reserved" "configured 42-day retention prevents deletion"
 
+linux_stat_repo="${TMP_ROOT}/linux-stat-repo"
+mkdir -p "${linux_stat_repo}/.vibeguard/worktrees/current" "${TMP_ROOT}/bin"
+git -C "$linux_stat_repo" init -q
+cat > "${TMP_ROOT}/bin/stat" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-f" ]]; then
+  printf '  File: "%s"\n' "${3:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "-c" ]]; then
+  date +%s
+  exit 0
+fi
+exec /usr/bin/stat "$@"
+SH
+chmod +x "${TMP_ROOT}/bin/stat"
+linux_stat_out="$(cd "$linux_stat_repo" && PATH="${TMP_ROOT}/bin:$PATH" VIBEGUARD_GC_WORKTREE_MAX_DAYS=42 bash "$REPO_DIR/scripts/gc/gc-worktrees.sh" --dry-run)"
+assert_contains "$linux_stat_out" "current: 0 days" "gc-worktrees ignores GNU stat -f filesystem output"
+
 header "schema exposes gc contract"
 
 assert_cmd "project schema accepts gc config" python3 - "$REPO_DIR/schemas/vibeguard-project.schema.json" "$cfg" <<'PY'
