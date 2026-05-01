@@ -67,6 +67,31 @@ assert_contains "$env_out" "9" "environment override wins over project config"
 missing_out="$(VIBEGUARD_PROJECT_CONFIG="${TMP_ROOT}/missing.json" bash -c 'source scripts/lib/project_config.sh; vg_config_positive_int VIBEGUARD_GC_LOG_THRESHOLD_MB gc.log_threshold_mb 10')"
 assert_contains "$missing_out" "10" "missing config falls back to default"
 
+bad_cfg="${TMP_ROOT}/bad-vibeguard.json"
+cat > "$bad_cfg" <<'JSON'
+{
+  "gc": {
+    "log_threshold_mb": 0,
+    "unexpected_gc_key": 1
+  },
+  "unknown_top_level": true
+}
+JSON
+invalid_helper_out_file="${TMP_ROOT}/invalid-helper.out"
+TOTAL=$((TOTAL + 1))
+if VIBEGUARD_PROJECT_CONFIG="$bad_cfg" bash -c 'source scripts/lib/project_config.sh; vg_config_positive_int VIBEGUARD_GC_LOG_THRESHOLD_MB gc.log_threshold_mb 10' > "$invalid_helper_out_file" 2>&1; then
+  red "invalid project config fails instead of defaulting"
+  FAIL=$((FAIL + 1))
+else
+  green "invalid project config fails instead of defaulting"
+  PASS=$((PASS + 1))
+fi
+invalid_helper_out="$(<"$invalid_helper_out_file")"
+assert_contains "$invalid_helper_out" "VibeGuard project config invalid" "invalid helper read reports project config failure"
+assert_contains "$invalid_helper_out" ".gc.log_threshold_mb: expected integer >= 1" "invalid helper read reports bad gc threshold"
+assert_contains "$invalid_helper_out" ".gc.unexpected_gc_key: unknown property" "invalid helper read reports unknown gc key"
+assert_contains "$invalid_helper_out" ".unknown_top_level: unknown property" "invalid helper read reports unknown top-level key"
+
 header "gc-logs.sh reads project config"
 
 log_dir="${TMP_ROOT}/logs"
@@ -74,6 +99,18 @@ mkdir -p "$log_dir"
 printf '%s\n' '{"ts":"2026-05-01T00:00:00Z","detail":"current"}' > "${log_dir}/events.jsonl"
 gc_logs_out="$(VIBEGUARD_PROJECT_CONFIG="$cfg" VIBEGUARD_LOG_DIR="$log_dir" bash scripts/gc/gc-logs.sh --dry-run)"
 assert_contains "$gc_logs_out" "Threshold: 7MB" "gc-logs uses configured threshold"
+
+invalid_gc_logs_out_file="${TMP_ROOT}/invalid-gc-logs.out"
+TOTAL=$((TOTAL + 1))
+if VIBEGUARD_PROJECT_CONFIG="$bad_cfg" VIBEGUARD_LOG_DIR="$log_dir" bash scripts/gc/gc-logs.sh --dry-run > "$invalid_gc_logs_out_file" 2>&1; then
+  red "gc-logs fails on invalid project config"
+  FAIL=$((FAIL + 1))
+else
+  green "gc-logs fails on invalid project config"
+  PASS=$((PASS + 1))
+fi
+invalid_gc_logs_out="$(<"$invalid_gc_logs_out_file")"
+assert_contains "$invalid_gc_logs_out" "VibeGuard project config invalid" "gc-logs surfaces invalid project config"
 
 header "gc-worktrees.sh reads project config"
 
@@ -107,6 +144,8 @@ assert_contains "$linux_stat_out" "current: 0 days" "gc-worktrees ignores GNU st
 
 header "schema exposes gc contract"
 
+assert_cmd "project config validator syntax is correct" python3 -m py_compile "$REPO_DIR/scripts/lib/project_config_validate.py"
+assert_cmd "project config validator accepts valid config" python3 "$REPO_DIR/scripts/lib/project_config_validate.py" --quiet "$cfg" "$REPO_DIR/schemas/vibeguard-project.schema.json"
 assert_cmd "project schema accepts gc config" python3 - "$REPO_DIR/schemas/vibeguard-project.schema.json" "$cfg" <<'PY'
 import json
 import sys

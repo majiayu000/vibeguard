@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 source "${SCRIPT_DIR}/../lib/install-state.sh"
+source "${SCRIPT_DIR}/../lib/project_config.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
 
@@ -45,6 +46,24 @@ elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
 fi
 
 check_codex_home_installation
+
+# Check project-level runtime config
+echo
+echo "Project Config"
+echo "------------------------------"
+project_config_file="$(vg_project_config_file)"
+if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then
+  yellow "[INFO] No project config found (.vibeguard.json optional)"
+else
+  if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
+    green "[OK] Project config valid (${project_config_file})"
+  else
+    red "[FAIL] Project config invalid (${project_config_file})"
+    while IFS= read -r line; do
+      red "  ${line}"
+    done <<< "${project_config_out}"
+  fi
+fi
 
 # Check AUTO_RUN_AGENT_DIR
 if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then

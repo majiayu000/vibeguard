@@ -20,6 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 source "${SCRIPT_DIR}/../lib/install-state.sh"
+source "${SCRIPT_DIR}/../lib/project_config.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
 
@@ -105,6 +106,20 @@ if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
 fi
 echo "=============================="
 echo
+
+project_config_file="$(vg_project_config_file)"
+if [[ -n "${project_config_file}" && -f "${project_config_file}" ]]; then
+  if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
+    green "Project config valid: ${project_config_file}"
+  else
+    red "ERROR: invalid project config: ${project_config_file}"
+    while IFS= read -r line; do
+      red "  ${line}"
+    done <<< "${project_config_out}"
+    exit 1
+  fi
+  echo
+fi
 
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
   configure_claude_home_runtime
