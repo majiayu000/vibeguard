@@ -4,6 +4,7 @@
 //! instead of retyping event field strings.
 
 pub const UNKNOWN: &str = "unknown";
+pub const SESSION_METRICS_SCHEMA_VERSION: u64 = 1;
 
 pub mod field {
     pub const TS: &str = "ts";
@@ -50,6 +51,7 @@ pub mod tool {
 }
 
 pub mod metric_field {
+    pub const SCHEMA_VERSION: &str = "schema_version";
     pub const TS: &str = super::field::TS;
     pub const SESSION: &str = super::field::SESSION;
     pub const EVENT_COUNT: &str = "event_count";

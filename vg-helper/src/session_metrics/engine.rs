@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
 
-use crate::event_schema::{UNKNOWN, decision, field, hook, metric_field, tool};
+use crate::event_schema::{
+    SESSION_METRICS_SCHEMA_VERSION, UNKNOWN, decision, field, hook, metric_field, tool,
+};
 
 use super::signals::build_signals;
 use super::time::{
@@ -137,6 +139,10 @@ pub(super) fn run_inner(
     // Write metrics
     let metrics_path = format!("{project_dir}/session-metrics.jsonl");
     let mut metrics_map = serde_json::Map::new();
+    metrics_map.insert(
+        metric_field::SCHEMA_VERSION.into(),
+        json!(SESSION_METRICS_SCHEMA_VERSION),
+    );
     metrics_map.insert(metric_field::TS.into(), json!(chrono_now()));
     metrics_map.insert(metric_field::SESSION.into(), json!(session));
     metrics_map.insert(metric_field::EVENT_COUNT.into(), json!(events.len()));

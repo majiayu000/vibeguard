@@ -144,6 +144,7 @@ fn test_run_produces_learn_suggested_and_appends_metrics() {
     // metrics_path is JSONL; parse the last line to get the entry from this run.
     let last_line = file_content.lines().last().unwrap_or("{}").trim();
     let parsed: serde_json::Value = serde_json::from_str(last_line).unwrap();
+    assert_eq!(parsed["schema_version"], 1);
     assert_eq!(parsed["session"], "sess-A");
     assert_eq!(parsed["event_count"], 6);
 }

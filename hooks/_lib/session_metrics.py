@@ -192,6 +192,7 @@ if os.path.exists(metrics_file):
         pass
 
 metrics = {
+    "schema_version": 1,
     "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "session": session_id,
     "event_count": len(events),
