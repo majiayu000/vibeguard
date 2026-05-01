@@ -34,23 +34,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -f "$LOG_FILE" ]]; then
-  yellow "Log file does not exist: ${LOG_FILE}"
-  exit 0
-fi
+gc_one_log_file() {
+  local log_file="$1"
+  local archive_dir="$2"
+  local label="$3"
+  local file_size_mb
 
-FILE_SIZE_MB=$(du -m "$LOG_FILE" | cut -f1)
-echo "Current log size: ${FILE_SIZE_MB}MB (Threshold: ${THRESHOLD_MB}MB)"
+  file_size_mb=$(du -m "$log_file" | cut -f1)
+  echo "Processing ${label}: ${log_file}"
+  echo "Current log size: ${file_size_mb}MB (Threshold: ${THRESHOLD_MB}MB)"
 
-# Archive: Split and compress by month when threshold is exceeded
-if [[ "$FILE_SIZE_MB" -ge "$THRESHOLD_MB" ]]; then
-  mkdir -p "$ARCHIVE_DIR"
+  # Archive: split and compress by month when threshold is exceeded.
+  if [[ "$file_size_mb" -ge "$THRESHOLD_MB" ]]; then
+    mkdir -p "$archive_dir"
 
-  #Group and archive by month
-  _GC_LOG_FILE="$LOG_FILE" \
-  _GC_ARCHIVE_DIR="$ARCHIVE_DIR" \
-  _GC_DRY_RUN="$([[ "$DRY_RUN" == "true" ]] && echo 1 || echo 0)" \
-  python3 <<'PYEOF'
+    _GC_LOG_FILE="$log_file" \
+    _GC_ARCHIVE_DIR="$archive_dir" \
+    _GC_DRY_RUN="$([[ "$DRY_RUN" == "true" ]] && echo 1 || echo 0)" \
+    python3 <<'PYEOF'
 import fcntl
 import json
 import os
@@ -161,34 +162,52 @@ finally:
     release_lock(lock_fd)
 PYEOF
 
-  # Compress archive file
-  if [[ "$DRY_RUN" == "false" ]]; then
-    for f in "${ARCHIVE_DIR}"/events-*.jsonl; do
-      [[ -f "$f" ]] || continue
-      gzip -f "$f" 2>/dev/null && green "Compressed: $(basename "$f").gz"
-    done
+    # Compress archive files for this log target.
+    if [[ "$DRY_RUN" == "false" ]]; then
+      for f in "${archive_dir}"/events-*.jsonl; do
+        [[ -f "$f" ]] || continue
+        gzip -f "$f" 2>/dev/null && green "Compressed: $(basename "$f").gz"
+      done
+    fi
+  else
+    green "Log size does not exceed the threshold, no need to archive"
   fi
-else
-  green "Log size does not exceed the threshold, no need to archive"
+
+  # Clean up expired archives for this log target.
+  if [[ -d "$archive_dir" ]]; then
+    CUTOFF=$(date -v-${RETAIN_MONTHS}m +%Y-%m 2>/dev/null || date -d "${RETAIN_MONTHS} months ago" +%Y-%m 2>/dev/null || echo "")
+    if [[ -n "$CUTOFF" ]]; then
+      for f in "${archive_dir}"/events-*.jsonl.gz; do
+        [[ -f "$f" ]] || continue
+        MONTH=$(basename "$f" | sed 's/events-\(.*\)\.jsonl\.gz/\1/')
+        if [[ "$MONTH" < "$CUTOFF" ]]; then
+          if [[ "$DRY_RUN" == "true" ]]; then
+            yellow " [DRY-RUN] Delete expired archives: $(basename "$f")"
+          else
+            rm "$f"
+            yellow "Expired archive deleted: $(basename "$f")"
+          fi
+        fi
+      done
+    fi
+  fi
+}
+
+processed=0
+if [[ -f "$LOG_FILE" ]]; then
+  gc_one_log_file "$LOG_FILE" "$ARCHIVE_DIR" "global log"
+  processed=$((processed + 1))
 fi
 
-# Clean up expired archives: delete archives that exceed RETAIN_MONTHS
-if [[ -d "$ARCHIVE_DIR" ]]; then
-  CUTOFF=$(date -v-${RETAIN_MONTHS}m +%Y-%m 2>/dev/null || date -d "${RETAIN_MONTHS} months ago" +%Y-%m 2>/dev/null || echo "")
-  if [[ -n "$CUTOFF" ]]; then
-    for f in "${ARCHIVE_DIR}"/events-*.jsonl.gz; do
-      [[ -f "$f" ]] || continue
-      MONTH=$(basename "$f" | sed 's/events-\(.*\)\.jsonl\.gz/\1/')
-      if [[ "$MONTH" < "$CUTOFF" ]]; then
-        if [[ "$DRY_RUN" == "true" ]]; then
-          yellow " [DRY-RUN] Delete expired archives: $(basename "$f")"
-        else
-          rm "$f"
-          yellow "Expired archive deleted: $(basename "$f")"
-        fi
-      fi
-    done
-  fi
+for project_log in "${LOG_DIR}"/projects/*/events.jsonl; do
+  [[ -f "$project_log" ]] || continue
+  gc_one_log_file "$project_log" "$(dirname "$project_log")/archive" "project log"
+  processed=$((processed + 1))
+done
+
+if [[ "$processed" -eq 0 ]]; then
+  yellow "No log files found under: ${LOG_DIR}"
+  exit 0
 fi
 
 green "Log GC completed"

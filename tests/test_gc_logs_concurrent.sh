@@ -117,6 +117,22 @@ assert_not_contains "$race_remaining" "race-old-line" "race old-month line is re
 assert_contains "$race_archived" "race-old-line" "race old-month line is archived"
 assert_cmd "GC lock directory is released" test ! -e "${race_dir}/events.jsonl.lock.d"
 
+header "gc-logs.sh archives project logs recursively"
+
+project_root="${TMP_ROOT}/project-root"
+project_log_dir="${project_root}/projects/abc123"
+write_fixture_log "$project_log_dir"
+project_out="$(run_gc "$project_root" --retain 60)"
+project_remaining="$(cat "${project_log_dir}/events.jsonl")"
+project_archived="$(gzip -dc "${project_log_dir}/archive/events-2024-01.jsonl.gz")"
+
+assert_contains "$project_out" "Processing project log" "project log target is discovered"
+assert_contains "$project_out" "archive 1 items, retain 1 items" "project log archive reports moved and retained counts"
+assert_contains "$project_remaining" "current-line" "project current-month line remains in events.jsonl"
+assert_not_contains "$project_remaining" "old-line" "project old-month line is removed from events.jsonl"
+assert_contains "$project_archived" "old-line" "project old-month line is archived"
+assert_cmd "project events.jsonl remains mode 600" test "$(stat -f '%Lp' "${project_log_dir}/events.jsonl" 2>/dev/null || stat -c '%a' "${project_log_dir}/events.jsonl")" = "600"
+
 printf '\n==============================\n'
 printf 'Total: %s  Pass: \033[32m%s\033[0m  Fail: \033[31m%s\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 printf '==============================\n'
