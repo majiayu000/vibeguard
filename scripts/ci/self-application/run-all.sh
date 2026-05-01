@@ -17,7 +17,13 @@ echo "Running VibeGuard self-application checks..."
 for check in "${checks[@]}"; do
   echo
   echo "==> ${check}"
-  if bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}"; then
+  if [[ "${check}" == "check-u22-coverage.sh" ]]; then
+    check_cmd=(env VIBEGUARD_U22_STRICT=1 bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}")
+  else
+    check_cmd=(bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}")
+  fi
+
+  if "${check_cmd[@]}"; then
     echo "OK: ${check}"
   else
     echo "FAIL: ${check}"
