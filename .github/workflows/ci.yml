@@ -9,14 +9,6 @@ on:
 permissions:
   contents: read
 
-# Opt in to Node 24 runtime for JavaScript actions ahead of the 2026-09-16
-# forced cutover. GitHub's deprecation notice states this is the supported
-# way to silence the "Node.js 20 actions are deprecated" warnings until all
-# third-party actions (e.g. benchmark-action/github-action-benchmark@v1)
-# publish Node 24–compatible releases.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 defaults:
   run:
     shell: bash
@@ -39,7 +31,7 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Configure Git identity (for tests that create commits)
         run: |
@@ -47,12 +39,12 @@ jobs:
           git config --global user.email "ci@vibeguard.test"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6.4.0
         with:
           node-version: "20"
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.11"
 
@@ -220,7 +212,7 @@ jobs:
 
       - name: Upload benchmark results
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: bench-output
           path: bench-output.json
@@ -244,10 +236,10 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.11"
 
@@ -281,7 +273,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Run self-application sentinels
         run: bash scripts/ci/self-application/run-all.sh
@@ -296,17 +288,17 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Download benchmark results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           name: bench-output
           path: .
 
       - name: Store benchmark results
         if: hashFiles('bench-output.json') != ''
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@v1.22.0
         with:
           name: Hook Latency (P95)
           tool: customSmallerIsBetter
