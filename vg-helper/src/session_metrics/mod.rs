@@ -1,5 +1,5 @@
 //! Session metrics collection + correction signal detection.
-//! Canonical implementation. The legacy Python predecessor is not used at runtime.
+//! Canonical implementation. Rust is the single runtime implementation.
 
 mod engine;
 mod signals;

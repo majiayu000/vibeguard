@@ -153,7 +153,7 @@ pub(super) fn build_signals(
     }
 
     // Signal 10: warn trend regression vs project baseline
-    // Mirrors Python predecessor hooks/_lib/session_metrics.py:166-187
+    // Preserve the legacy signal labels expected by the learning pipeline.
     let metrics_path = format!("{project_dir}/session-metrics.jsonl");
     if let Ok(content) = std::fs::read_to_string(&metrics_path) {
         let recent_ratios: Vec<f64> = content
