@@ -274,20 +274,21 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 ### Step P1.3 Canonicalize Session Metrics
 
 - Status: `completed`
+- Current implementation note (2026-05-02): PR #146 removed runtime Python fallback use, and PR #147 deleted the legacy Python implementation.
 - Findings: H4
 - Target: one canonical implementation emits LEARN/session metrics.
 - Expected files:
   - `vg-helper/src/session_metrics.rs`
-  - `hooks/_lib/session_metrics.py`
+  - `hooks/_lib/session_metrics.py` (deleted by PR #147)
   - `hooks/learn-evaluator.sh`
   - `scripts/setup/install.sh`
   - `vg-helper/tests/cli.rs`
   - `tests/fixtures/session-metrics/**`
 - Detailed changes:
   - Decide and record canonical implementation: Rust is preferred.
-  - Add a deprecation warning to Python fallback for one release, or remove it if compatibility is not required.
+  - Remove the Python fallback after production callers use `vg-helper session-metrics`.
   - Align Signal 6 depth and repeat-rule top-N behavior before removing fallback.
-  - Make setup fail loudly if `vg-helper` cannot build and the affected hooks would drift.
+  - Make setup fail loudly if `vg-helper` cannot build, unless `VIBEGUARD_ALLOW_NO_HELPER=1` explicitly requests degraded mode.
 - Step tests:
   - `(cd vg-helper && cargo test session_metrics)`
   - `bash tests/test_hooks.sh test_session_metrics_canonical`
@@ -301,17 +302,18 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 ### Step P1.4 Canonicalize Package Rewrite
 
 - Status: `completed`
+- Current implementation note (2026-05-02): PR #146 removed runtime Python fallback use, and PR #147 deleted the legacy Python implementation.
 - Findings: M6
 - Target: `pkg_rewrite` follows the same single-implementation policy as session metrics.
 - Expected files:
   - `vg-helper/src/pkg_rewrite.rs`
-  - `hooks/_lib/pkg_rewrite.py`
+  - `hooks/_lib/pkg_rewrite.py` (deleted by PR #147)
   - `hooks/pre-bash-guard.sh`
   - `vg-helper/tests/cli.rs`
 - Detailed changes:
   - Add Rust test coverage for every package-manager rewrite branch.
   - Migrate production callers to `vg-helper`.
-  - Deprecate/remove Python fallback under the same policy as P1.3.
+  - Remove Python fallback under the same policy as P1.3.
 - Step tests:
   - `(cd vg-helper && cargo test pkg_rewrite)`
   - `bash tests/test_hooks.sh test_pkg_rewrite_canonical`
@@ -810,45 +812,51 @@ Append entries here after each implemented step.
     - Modified files:
       - `vg-helper/src/session_metrics.rs`
       - `hooks/learn-evaluator.sh`
-      - `hooks/_lib/session_metrics.py`
+      - `hooks/_lib/session_metrics.py` (deleted in PR #147)
     - Main changes:
-      - Declared Rust `vg-helper session-metrics` as canonical and Python as deprecated fallback.
+      - Declared Rust `vg-helper session-metrics` as canonical.
+      - Removed runtime fallback use in PR #146 and deleted the Python helper in PR #147.
       - Aligned Signal 6 with Python by including max `Nx` analysis-paralysis depth.
       - Made repeated-rule signals deterministic and capped to top 3 by count then rule id.
-      - Runtime Python fallback now writes a visible warn event before use.
+      - Setup now builds `vg-helper` by default and only permits missing helper via explicit degraded mode.
     - Tests:
       - `(cd vg-helper && cargo test session_metrics)` -> pass, 25/25
       - `bash -n hooks/learn-evaluator.sh hooks/log.sh` -> pass
-      - `python3 -m py_compile hooks/_lib/session_metrics.py` -> pass
       - `bash tests/test_hooks.sh` -> pass, 145/145
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `(cd vg-helper && cargo test)` -> pass, 36/36
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
+      - Follow-up PR #147: `(cd vg-helper && cargo test)` -> pass, 52 unit + 13 CLI tests
+      - Follow-up PR #147: `bash tests/unit/run_all.sh` -> pass, 20/20
+      - Follow-up PR #147: `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/test_hooks.sh` -> pass, all hook shards
     - Notes:
-      - Python fallback remains for compatibility, but it is no longer a silent downgrade.
+      - Python fallback no longer exists; historical path references are kept only in audit/spec docs and CI sentinel fixtures.
   - Step P1.4: `completed`
     - Modified files:
       - `vg-helper/src/pkg_rewrite.rs`
       - `hooks/pre-bash-guard.sh`
-      - `hooks/_lib/pkg_rewrite.py`
+      - `hooks/_lib/pkg_rewrite.py` (deleted in PR #147)
     - Main changes:
-      - Declared Rust `vg-helper pkg-rewrite` as canonical and Python as deprecated fallback.
+      - Declared Rust `vg-helper pkg-rewrite` as canonical.
+      - Removed runtime fallback use in PR #146 and deleted the Python helper in PR #147.
       - Added Rust branch tests for npm/yarn/pip/python -m pip rewrites, unsupported flags, and complex command pass-through.
-      - Runtime Python fallback now writes a visible warn event before use.
+      - Setup now builds `vg-helper` by default and only permits missing helper via explicit degraded mode.
     - Tests:
       - `(cd vg-helper && cargo test pkg_rewrite)` -> pass, 9/9
       - `bash -n hooks/pre-bash-guard.sh hooks/log.sh` -> pass
-      - `python3 -m py_compile hooks/_lib/pkg_rewrite.py` -> pass
       - `bash tests/test_hooks.sh` -> pass, 145/145
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `(cd vg-helper && cargo test)` -> pass, 45/45
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
+      - Follow-up PR #147: `(cd vg-helper && cargo test)` -> pass, 52 unit + 13 CLI tests
+      - Follow-up PR #147: `bash tests/unit/run_all.sh` -> pass, 20/20
+      - Follow-up PR #147: `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/hooks/test_pre_bash_guard.sh` -> pass, 54/54
     - Notes:
-      - Python fallback remains for compatibility, but it is no longer a silent downgrade.
+      - Python fallback no longer exists; historical path references are kept only in audit/spec docs and CI sentinel fixtures.
   - Step P1.5: `completed`
     - Modified files:
       - `eval/run_eval.py`
