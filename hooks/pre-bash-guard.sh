@@ -31,15 +31,35 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
-# Remove heredoc content to avoid false positives caused by multi-line text
+# Remove heredoc bodies to avoid false positives caused by multi-line text.
 # Cover variants: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' etc.
-COMMAND_NO_HEREDOC=$(echo "$COMMAND" | python3 -c '
+# This is intentionally line-oriented rather than a DOTALL regex so adversarial
+# unterminated heredocs cannot force broad backtracking across the full command.
+COMMAND_NO_HEREDOC=$(printf '%s' "$COMMAND" | python3 -c '
 import re, sys
-cmd = sys.stdin.read()
-# Matches <<[-]? Optional spaces Optional quotes Terminator Optional quotes until end of line terminator
-cmd = re.sub(r"<<-?\s*[\"'"'"']?(\w+)[\"'"'"']?.*?\n\1", "", cmd, flags=re.DOTALL)
-print(cmd)
-' 2>/dev/null || echo "$COMMAND")
+
+terminator = None
+strip_tabs = False
+out = []
+
+for line in sys.stdin.read().splitlines(keepends=True):
+    if terminator is not None:
+        candidate = line.rstrip("\r\n")
+        if strip_tabs:
+            candidate = candidate.lstrip("\t")
+        if candidate == terminator:
+            terminator = None
+            strip_tabs = False
+        continue
+
+    out.append(line)
+    match = re.search(r"<<(?P<dash>-?)\s*([\"'"'"']?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)\2", line)
+    if match:
+        terminator = match.group("tag")
+        strip_tabs = bool(match.group("dash"))
+
+sys.stdout.write("".join(out))
+' 2>/dev/null || printf '%s' "$COMMAND")
 
 # Strip quotation marks (commit message, echo string, etc.) to avoid text content triggering false alarms
 # Keep the command structure and replace the quoted content with an empty string
@@ -84,9 +104,10 @@ block() {
 # git checkout . / git restore . (discard all changes)
 # Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
 # COMMAND_STRIPPED_WITH_DOT converts "." / '.' to a bare dot then strips other quoted content,
-# so a no-anchor regex safely detects all wrapper forms (env vars, pipes, `command`, `env`)
-# without false-positives from separators inside commit messages or string arguments.
-if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||$)'; then
+# so a no-anchor regex safely detects all wrapper forms (env vars, pipes, `command`, `env`,
+# and shell redirections such as heredoc openers) without false-positives from separators
+# inside commit messages or string arguments.
+if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||[<>]|$)'; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 

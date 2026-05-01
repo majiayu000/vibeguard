@@ -225,6 +225,27 @@ assert_not_contains "$result" '"decision": "block"' "commit message containing f
 result=$(echo '{"tool_input":{"command":"cat <<'\''EOF'\''\ngit push --force\nEOF"}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "heredoc contains force push and no false positives"
 
+result=$(python3 - <<'PY' | bash hooks/pre-bash-guard.sh
+import json
+print(json.dumps({"tool_input": {"command": "cat <<'EOF'\ngit checkout .\nrm -rf /\nEOF"}}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "heredoc body containing destructive commands is not misreported"
+
+result=$(python3 - <<'PY' | bash hooks/pre-bash-guard.sh
+import json
+print(json.dumps({"tool_input": {"command": "cat <<-EOF\n\tgit checkout .\n\tEOF"}}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "tab-stripped heredoc body is not misreported"
+
+result=$(python3 - <<'PY' | bash hooks/pre-bash-guard.sh
+import json
+print(json.dumps({"tool_input": {"command": "git checkout . <<'EOF'\nnot command text\nEOF"}}))
+PY
+)
+assert_contains "$result" '"decision": "block"' "real destructive command before heredoc still blocks"
+
 # =========================================================
 
 hook_test_finish
