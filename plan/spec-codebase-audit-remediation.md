@@ -203,21 +203,22 @@ Rollback: revert both files; no schema change since `skipped` is an additive fie
 #### T4 · Collapse Python/Rust session_metrics into a single canonical implementation (H4)
 
 - **Goal**: only one implementation of session-metrics emits LEARN signals.
-- **Context**: `vg-helper/src/session_metrics.rs` (canonical, 755 LOC) vs `hooks/_lib/session_metrics.py` (212 LOC fallback) drift in Signal-6 depth and top-3 truncation.
+- **Context**: at audit time, `vg-helper/src/session_metrics.rs` (canonical, 755 LOC) and `hooks/_lib/session_metrics.py` (212 LOC fallback) drifted in Signal-6 depth and top-3 truncation.
 - **Constraints**:
   - **Decision**: delete the Python fallback. Setup must require cargo OR fail loudly with a one-line install hint (not a silent fallback).
-  - Migration grace: ship one release where Python emits a deprecation warning on every invocation; remove in the following release.
+  - Implementation note (2026-05-02): PR #146 removed runtime Python fallback use and PR #147 deleted the legacy Python implementation, with `VIBEGUARD_ALLOW_NO_HELPER=1` as the explicit degraded install escape hatch.
   - All hook entry points that import `hooks/_lib/session_metrics.py` switch to `vg-helper session-metrics` subcommand.
 - **Done-when**:
   - `rg "from session_metrics import|import session_metrics"` in `hooks/` and `scripts/` returns zero hits.
+  - `test ! -e hooks/_lib/session_metrics.py` exits 0.
   - `bash setup.sh --check` reports cargo as required, not optional.
   - Integration test in `vg-helper/tests/cli.rs` covers Signal 1-6 emission with a fixture from `tests/fixtures/session-metrics/`.
   - Verification: `cargo test --test cli session_metrics` exits 0; `bash tests/test_hooks.sh test_session_metrics_canonical` exits 0.
 
 Fix sketch:
-1. Add deprecation banner to `hooks/_lib/session_metrics.py` head: `print("DEPRECATED ...", file=sys.stderr)`.
-2. Search-replace `python3 -m hooks._lib.session_metrics` callers to `vg-helper session-metrics`.
-3. After one release window, delete the Python file in a follow-up commit.
+1. Search-replace runtime Python helper calls with `vg-helper session-metrics`.
+2. Make setup build/install `vg-helper` by default and fail loudly on cargo/build errors.
+3. Delete `hooks/_lib/session_metrics.py` once no runtime caller remains.
 
 Alternative (if cargo-required is unacceptable): keep both implementations and add a CI diff test feeding the same fixture to both. Less preferred — drift will recur.
 
@@ -226,10 +227,11 @@ Rollback: revert the deprecation banner and the search-replace; Python file rema
 #### T5 · pkg_rewrite same treatment as T4 (M6)
 
 - **Goal**: same as T4 for `pkg_rewrite`.
-- **Context**: `vg-helper/src/pkg_rewrite.rs:16` vs `hooks/_lib/pkg_rewrite.py` (99 LOC) — structural pattern identical to session_metrics.
+- **Context**: at audit time, `vg-helper/src/pkg_rewrite.rs:16` and `hooks/_lib/pkg_rewrite.py` (99 LOC) followed the same parallel-implementation pattern as session_metrics.
 - **Constraints**: identical to T4. Bundled with T4 in the same PR if scoped together; otherwise separate.
 - **Done-when**:
   - `rg "from pkg_rewrite import"` returns zero hits in non-test code.
+  - `test ! -e hooks/_lib/pkg_rewrite.py` exits 0.
   - `cargo test --test cli pkg_rewrite` covers each translation branch (~20 cases).
   - Verification: `bash tests/test_hooks.sh test_pkg_rewrite_canonical` exits 0.
 
@@ -428,7 +430,7 @@ Each item below is small enough to bundle. Severity is low; do as a single PR af
 ### Decision: delete Python fallback for vg-helper-replaced modules (T4, T5)
 
 - **Risk**: users without cargo or with cargo build failures lose all hook functionality.
-- **Mitigation**: setup.sh fails loudly with a one-line install hint (`Install cargo: curl https://sh.rustup.rs -sSf | sh`); offers `--no-rust` flag that disables the affected hooks rather than silently degrading.
+- **Mitigation**: setup.sh fails loudly with a one-line install hint (`Install cargo: curl https://sh.rustup.rs -sSf | sh`); `VIBEGUARD_ALLOW_NO_HELPER=1` enables an explicit degraded install that disables package rewrite/session-metrics instead of silently degrading to Python.
 - **Alternative considered**: keep both implementations with CI diff test. Rejected because parallel implementations have already drifted twice (session_metrics, pkg_rewrite); cost of guaranteeing equivalence forever exceeds cost of a clean uninstall path.
 - **Confidence**: medium. If cargo-required turns out to break a meaningful user segment (e.g. a Codex-only ChromeOS workflow), revert to keep-both with diff test.
 
