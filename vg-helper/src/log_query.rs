@@ -48,59 +48,32 @@ fn event_within_time_window(e: &Value, cutoff_secs: u64) -> bool {
     }
 }
 
-/// Count how many times a file was edited in the current session.
-/// Usage: tail -500 log | vg-helper churn-count <session> <file_path>
-pub fn churn_count(args: &[String]) -> Result {
-    if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper churn-count <session> <file_path>".into());
-    }
-    let (session, file_path) = (&args[0], &args[1]);
-    let events = read_events(session);
-    let count = events
+fn count_churn_events(events: &[Value], file_path: &str) -> usize {
+    events
         .iter()
         .filter(|e| {
             e.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT)
                 && e.get(field::DETAIL)
                     .and_then(Value::as_str)
-                    .is_some_and(|d| d.contains(file_path.as_str()))
+                    .is_some_and(|d| d.contains(file_path))
         })
-        .count();
-    println!("{count}");
-    Ok(())
+        .count()
 }
 
-/// Count warn events for a specific file in the current session.
-/// Usage: tail -500 log | vg-helper warn-count <session> <file_path>
-pub fn warn_count(args: &[String]) -> Result {
-    if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper warn-count <session> <file_path>".into());
-    }
-    let (session, file_path) = (&args[0], &args[1]);
-    let events = read_events(session);
-    let count = events
+fn count_warn_events(events: &[Value], file_path: &str) -> usize {
+    events
         .iter()
         .filter(|e| {
             e.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
                 && e.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
                 && e.get(field::DETAIL)
                     .and_then(Value::as_str)
-                    .is_some_and(|d| {
-                        d.split("||").next().unwrap_or("").trim() == file_path.as_str()
-                    })
+                    .is_some_and(|d| d.split("||").next().unwrap_or("").trim() == file_path)
         })
-        .count();
-    println!("{count}");
-    Ok(())
+        .count()
 }
 
-/// Count consecutive build failures (backwards from end, stop at first pass).
-/// Usage: tail -200 log | vg-helper build-fails <session> <project_root>
-pub fn build_fails(args: &[String]) -> Result {
-    if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper build-fails <session> <project>".into());
-    }
-    let (session, project) = (&args[0], &args[1]);
-    let events = read_events(session);
+fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
     let project_prefix = format!("{}/", project.trim_end_matches('/'));
     let mut count = 0u32;
     for e in events.iter().rev() {
@@ -117,19 +90,11 @@ pub fn build_fails(args: &[String]) -> Result {
             _ => {}
         }
     }
-    println!("{count}");
-    Ok(())
+    count
 }
 
-/// Count consecutive research-only tool calls at the tail of the session.
-/// Usage: tail -300 log | vg-helper paralysis-count <session>
-pub fn paralysis_count(args: &[String]) -> Result {
-    if args.is_empty() {
-        return Err("Usage: tail -N log | vg-helper paralysis-count <session>".into());
-    }
-    let session = &args[0];
-    let events = read_events(session);
-    let cutoff_secs = now_unix_secs().saturating_sub(PARALYSIS_WINDOW_SECS);
+fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
+    let cutoff_secs = now_secs.saturating_sub(PARALYSIS_WINDOW_SECS);
     let mut consecutive = 0u32;
     for e in events.iter().rev() {
         if !event_within_time_window(e, cutoff_secs) {
@@ -146,6 +111,129 @@ pub fn paralysis_count(args: &[String]) -> Result {
             _ => {}
         }
     }
+    consecutive
+}
+
+/// Count how many times a file was edited in the current session.
+/// Usage: tail -500 log | vg-helper churn-count <session> <file_path>
+pub fn churn_count(args: &[String]) -> Result {
+    if args.len() < 2 {
+        return Err("Usage: tail -N log | vg-helper churn-count <session> <file_path>".into());
+    }
+    let (session, file_path) = (&args[0], &args[1]);
+    let events = read_events(session);
+    let count = count_churn_events(&events, file_path);
+    println!("{count}");
+    Ok(())
+}
+
+/// Count warn events for a specific file in the current session.
+/// Usage: tail -500 log | vg-helper warn-count <session> <file_path>
+pub fn warn_count(args: &[String]) -> Result {
+    if args.len() < 2 {
+        return Err("Usage: tail -N log | vg-helper warn-count <session> <file_path>".into());
+    }
+    let (session, file_path) = (&args[0], &args[1]);
+    let events = read_events(session);
+    let count = count_warn_events(&events, file_path);
+    println!("{count}");
+    Ok(())
+}
+
+/// Count consecutive build failures (backwards from end, stop at first pass).
+/// Usage: tail -200 log | vg-helper build-fails <session> <project_root>
+pub fn build_fails(args: &[String]) -> Result {
+    if args.len() < 2 {
+        return Err("Usage: tail -N log | vg-helper build-fails <session> <project>".into());
+    }
+    let (session, project) = (&args[0], &args[1]);
+    let events = read_events(session);
+    let count = count_build_fail_events(&events, project);
+    println!("{count}");
+    Ok(())
+}
+
+/// Count consecutive research-only tool calls at the tail of the session.
+/// Usage: tail -300 log | vg-helper paralysis-count <session>
+pub fn paralysis_count(args: &[String]) -> Result {
+    if args.is_empty() {
+        return Err("Usage: tail -N log | vg-helper paralysis-count <session>".into());
+    }
+    let session = &args[0];
+    let events = read_events(session);
+    let consecutive = count_paralysis_events(&events, now_unix_secs());
     println!("{consecutive}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn churn_count_matches_edit_detail_for_requested_file() {
+        let events = vec![
+            json!({"tool": "Edit", "detail": "src/lib.rs"}),
+            json!({"tool": "Write", "detail": "src/lib.rs"}),
+            json!({"tool": "Edit", "detail": "src/main.rs"}),
+            json!({"tool": "Edit", "detail": "notes.txt"}),
+        ];
+
+        assert_eq!(count_churn_events(&events, "src/"), 2);
+        assert_eq!(count_churn_events(&events, "src/lib.rs"), 1);
+    }
+
+    #[test]
+    fn warn_count_uses_post_edit_warn_and_first_detail_field() {
+        let events = vec![
+            json!({"hook": "post-edit-guard", "decision": "warn", "detail": "src/lib.rs || RS-03"}),
+            json!({"hook": "post-edit-guard", "decision": "warn", "detail": " src/lib.rs  || DEBUG"}),
+            json!({"hook": "post-edit-guard", "decision": "pass", "detail": "src/lib.rs || OK"}),
+            json!({"hook": "pre-edit-guard", "decision": "warn", "detail": "src/lib.rs || BLOCK"}),
+            json!({"hook": "post-edit-guard", "decision": "warn", "detail": "src/main.rs || RS-03"}),
+        ];
+
+        assert_eq!(count_warn_events(&events, "src/lib.rs"), 2);
+    }
+
+    #[test]
+    fn build_fails_counts_tail_warnings_until_project_pass() {
+        let events = vec![
+            json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/old.rs"}),
+            json!({"hook": "post-build-check", "decision": "pass", "detail": "/repo/src/lib.rs"}),
+            json!({"hook": "post-build-check", "decision": "warn", "detail": "/other/src/lib.rs"}),
+            json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/lib.rs"}),
+            json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/main.rs"}),
+        ];
+
+        assert_eq!(count_build_fail_events(&events, "/repo"), 2);
+        assert_eq!(count_build_fail_events(&events, "/other"), 1);
+    }
+
+    #[test]
+    fn paralysis_count_skips_guard_warnings_and_stops_at_mutation() {
+        let events = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:00:00Z"}),
+            json!({"tool": "Edit", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"hook": "analysis-paralysis-guard", "decision": "warn", "tool": "Read", "ts": "2026-05-01T00:11:00Z"}),
+            json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+            json!({"tool": "Grep", "ts": "2026-05-01T00:13:00Z"}),
+        ];
+
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+        assert_eq!(count_paralysis_events(&events, now), 2);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_stale_timestamp_but_keeps_legacy_events() {
+        let events = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:00:00Z"}),
+            json!({"tool": "Read"}),
+            json!({"tool": "Read", "ts": "2026-05-01T01:00:00Z"}),
+        ];
+
+        let now = parse_iso_ts("2026-05-01T01:05:00Z").expect("valid timestamp");
+        assert_eq!(count_paralysis_events(&events, now), 2);
+    }
 }
