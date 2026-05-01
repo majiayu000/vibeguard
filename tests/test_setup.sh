@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
 HOOKS_MANIFEST_HELPER="${REPO_DIR}/scripts/lib/hooks_manifest.py"
+PROJECT_CONFIG_HELPER="${REPO_DIR}/scripts/lib/project_config_validate.py"
 CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 
@@ -130,6 +131,7 @@ assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scrip
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
 assert_cmd "scripts/lib/hooks_manifest.py syntax is correct" python3 -m py_compile "${HOOKS_MANIFEST_HELPER}"
+assert_cmd "scripts/lib/project_config_validate.py syntax is correct" python3 -m py_compile "${PROJECT_CONFIG_HELPER}"
 assert_cmd "scripts/lib/claude_md.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/claude_md.py"
 assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_compile "${CODEX_HOOKS_HELPER}"
 assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
@@ -241,6 +243,23 @@ assert_cmd "Pre-existing non-VibeGuard Codex hook is present" grep -q 'node /exi
 header "setup --check"
 check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${check_out}" "VibeGuard Installation Status" "--check route to status check"
+
+bad_project_config="${TMP_HOME}/bad-vibeguard.json"
+cat > "${bad_project_config}" <<'JSON'
+{
+  "profile": "strictest",
+  "gc": {
+    "log_threshold_mb": 0
+  }
+}
+JSON
+invalid_project_check_out="$(VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" bash "${REPO_DIR}/setup.sh" --check 2>&1)"
+assert_contains "${invalid_project_check_out}" "[FAIL] Project config invalid" "--check reports invalid .vibeguard.json"
+assert_contains "${invalid_project_check_out}" ".profile: unsupported value" "--check reports invalid project profile"
+assert_contains "${invalid_project_check_out}" ".gc.log_threshold_mb: expected integer >= 1" "--check reports invalid project gc threshold"
+invalid_project_install_out="$(VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" bash "${REPO_DIR}/setup.sh" --dry-run 2>&1 || true)"
+assert_contains "${invalid_project_install_out}" "ERROR: invalid project config" "setup install refuses invalid .vibeguard.json"
+assert_contains "${invalid_project_install_out}" ".profile: unsupported value" "setup install reports invalid project profile"
 
 header "setup install"
 dry_run_settings_sha_before="$(shasum -a 256 "${HOME}/.claude/settings.json" | cut -d' ' -f1)"
