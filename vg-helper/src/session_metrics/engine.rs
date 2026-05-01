@@ -179,3 +179,78 @@ pub(super) fn run_inner(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    fn make_args(dir: &str) -> Vec<String> {
+        vec!["sess-A".to_string(), dir.to_string()]
+    }
+
+    fn tmp_dir_for_test(suffix: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("vg-sm-engine-test-{}-{suffix}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn run_inner_writes_metrics_for_three_clean_events() {
+        let dir = tmp_dir_for_test("clean-events");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\",\"tool\":\"Read\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\",\"tool\":\"Read\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\",\"tool\":\"Read\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
+
+        assert!(out.is_empty());
+        let metrics_text = std::fs::read_to_string(metrics_path).unwrap();
+        let metrics: Value = serde_json::from_str(metrics_text.lines().last().unwrap()).unwrap();
+        assert_eq!(
+            metrics[metric_field::SCHEMA_VERSION],
+            SESSION_METRICS_SCHEMA_VERSION
+        );
+        assert_eq!(metrics[metric_field::EVENT_COUNT], 3);
+        assert_eq!(metrics[metric_field::WARN_RATIO], 0.0);
+    }
+
+    #[test]
+    fn run_inner_filters_invalid_json_and_other_sessions_before_threshold() {
+        let dir = tmp_dir_for_test("filters");
+        let metrics_path = dir.join("session-metrics.jsonl");
+        let input = concat!(
+            "not json\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-B\",\"decision\":\"warn\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+            "{\"hook\":\"pre-tool\",\"session\":\"sess-A\",\"decision\":\"pass\"}\n",
+        );
+        let mut out = Vec::<u8>::new();
+
+        run_inner(
+            &make_args(dir.to_str().unwrap()),
+            io::Cursor::new(input),
+            &mut out,
+            0,
+        )
+        .unwrap();
+
+        assert!(out.is_empty());
+        assert!(
+            !metrics_path.exists(),
+            "only two valid session events remain, so metrics should not be written"
+        );
+    }
+}

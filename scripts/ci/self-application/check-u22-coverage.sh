@@ -19,6 +19,9 @@ if src_dir.exists():
     for path in sorted(src_dir.rglob("*.rs")):
         if path.name == "main.rs":
             continue
+        rel_parts = path.relative_to(src_dir).parts
+        if "tests" in rel_parts:
+            continue
         text = path.read_text(encoding="utf-8")
         loc = sum(1 for line in text.splitlines() if line.strip())
         has_module_tests = "#[cfg(test)]" in text

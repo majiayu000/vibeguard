@@ -177,3 +177,91 @@ pub(super) fn build_signals(
     }
     signals
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn decision_counts(entries: &[(&str, u64)]) -> HashMap<String, u64> {
+        entries
+            .iter()
+            .map(|(decision, count)| ((*decision).to_string(), *count))
+            .collect()
+    }
+
+    #[test]
+    fn extracts_max_paralysis_depth_from_reason_text() {
+        assert_eq!(extract_paralysis_depth("analysis paralysis 2x 7x"), Some(7));
+        assert_eq!(extract_paralysis_depth("analysis paralysis"), None);
+    }
+
+    #[test]
+    fn build_signals_reports_high_friction() {
+        let events = vec![
+            json!({"decision": "warn"}),
+            json!({"decision": "warn"}),
+            json!({"decision": "block"}),
+            json!({"decision": "pass"}),
+        ];
+        let decisions = decision_counts(&[(decision::WARN, 2), (decision::BLOCK, 1)]);
+        let edited_files = HashMap::new();
+
+        let signals = build_signals(&events, &decisions, &edited_files, 0.75, 3, "/no/such/dir");
+
+        assert!(
+            signals
+                .iter()
+                .any(|signal| signal.contains("High friction session: 3/4 events"))
+        );
+    }
+
+    #[test]
+    fn build_signals_caps_rule_repeats_to_deterministic_top_three() {
+        let mut events = Vec::new();
+        for tag in ["U-02", "U-02", "U-02", "U-02"] {
+            events.push(json!({"decision": "warn", "reason": format!("[{tag}] repeated")}));
+        }
+        for tag in [
+            "U-01", "U-01", "U-01", "U-03", "U-03", "U-03", "U-04", "U-04", "U-04",
+        ] {
+            events.push(json!({"decision": "warn", "reason": format!("[{tag}] repeated")}));
+        }
+
+        let signals = build_signals(
+            &events,
+            &HashMap::new(),
+            &HashMap::new(),
+            0.0,
+            0,
+            "/no/such/dir",
+        );
+        let joined = signals.join("\n");
+        let u02 = joined.find("Rule [U-02] triggered 4 times").unwrap();
+        let u01 = joined.find("Rule [U-01] triggered 3 times").unwrap();
+        let u03 = joined.find("Rule [U-03] triggered 3 times").unwrap();
+
+        assert!(u02 < u01 && u01 < u03);
+        assert!(!joined.contains("Rule [U-04]"));
+    }
+
+    #[test]
+    fn build_signals_reports_paralysis_max_depth() {
+        let events = vec![
+            json!({"reason": "analysis paralysis 3x"}),
+            json!({"reason": "analysis paralysis 11x"}),
+            json!({"reason": "ordinary event"}),
+        ];
+
+        let signals = build_signals(
+            &events,
+            &HashMap::new(),
+            &HashMap::new(),
+            0.0,
+            0,
+            "/no/such/dir",
+        );
+
+        assert!(signals.contains(&"Analysis paralysis: 2 triggers (max depth 11x)".to_string()));
+    }
+}
