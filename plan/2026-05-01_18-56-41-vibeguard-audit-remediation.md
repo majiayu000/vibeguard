@@ -1105,8 +1105,12 @@ Append entries here after each implemented step.
       - `scripts/gc/gc-logs.sh`
       - `scripts/gc/gc-worktrees.sh`
       - `scripts/gc/gc-scheduled.sh`
+      - `scripts/ci/self-application/check-pkg-correction-argv-only.sh`
+      - `scripts/ci/self-application/run-all.sh`
+      - `hooks/pre-bash-guard.sh`
       - `README.md`
       - `tests/test_gc_config.sh`
+      - `tests/test_self_application_ci.sh`
     - Main changes:
       - Replaced the session-metrics `/bin/date` subprocess path with shared Rust `SystemTime` utilities.
       - Added a 30-minute timestamp window for `paralysis-count` while preserving legacy events that do not carry timestamps.
@@ -1115,6 +1119,7 @@ Append entries here after each implemented step.
       - Added install-state version guards so unsupported future state files fail visibly instead of being misread.
       - Added GC retention/threshold schema keys and a shared shell config reader for `.vibeguard.json` / `VIBEGUARD_GC_*` overrides.
       - Documented `mcp-server/` as a legacy, unsupported runtime prototype instead of a silently orphaned install surface.
+      - Added a package-correction argv-only contract and self-application sentinel so `_PKG_CORRECTION` cannot be inlined into Python source.
     - Tests:
       - `cargo fmt --manifest-path vg-helper/Cargo.toml` -> pass
       - `(cd vg-helper && cargo test)` -> pass, 49/49
@@ -1124,6 +1129,8 @@ Append entries here after each implemented step.
       - `bash tests/test_setup.sh` -> pass, 114/114
       - `bash scripts/ci/validate-manifest-contract.sh` -> pass
       - `bash tests/test_manifest_contract.sh` -> pass, 30/30
+      - Follow-up sentinel: `bash scripts/ci/self-application/check-pkg-correction-argv-only.sh` -> pass
+      - Follow-up sentinel: `bash tests/test_self_application_ci.sh` -> pass
       - `bash scripts/ci/self-application/run-all.sh` -> pass
       - `bash tests/test_self_application_ci.sh` -> pass, 5/5
       - `bash tests/test_gc_config.sh` -> pass, 7/7

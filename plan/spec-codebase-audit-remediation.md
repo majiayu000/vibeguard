@@ -412,7 +412,7 @@ Each item below is small enough to bundle. Severity is low; do as a single PR af
 
 | Sub-task | Fix | Verification |
 |----------|-----|--------------|
-| L1 | Add header comment to `pre-bash-guard.sh:185-189` documenting the argv-isolation contract; add a CI grep that `_PKG_CORRECTION` only appears in argv position. | `bash scripts/ci/check-pkg-correction-argv-only.sh` exits 0 |
+| L1 | Add header comment to `pre-bash-guard.sh:185-189` documenting the argv-isolation contract; add a CI grep that `_PKG_CORRECTION` only appears in argv position. | Implemented as `bash scripts/ci/self-application/check-pkg-correction-argv-only.sh` |
 | L2 | Carve-out comment in `rules/claude-rules/common/security.md` declaring the file allow-listed in SEC-14 self-test. | `bash scripts/ci/self-application/check-sec14-self.sh` exits 0 |
 | L3 | Wrap heredoc-stripping regex in `signal.alarm(2)` Python timeout. | `bash tests/test_hooks.sh test_pre_bash_redos` exits 0 |
 | L4 | Change `run-hook-codex.sh` deny path `exit 0` → `exit 1` (consistent with shell convention; document at script head). | manual code review |

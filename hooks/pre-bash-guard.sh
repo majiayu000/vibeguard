@@ -207,6 +207,8 @@ if [[ -n "$_PKG_CORRECTION" ]]; then
     exit 0
   fi
   vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
+  # PKG-CORRECTION-ARGV-CONTRACT: pass the generated command as sys.argv[1].
+  # Never interpolate _PKG_CORRECTION into inline Python source or shell eval.
   python3 -c "
 import json, sys
 corrected = sys.argv[1]
