@@ -1138,10 +1138,50 @@ Append entries here after each implemented step.
     - Notes:
       - The legacy MCP subtree remains outside setup intentionally; the supported integration matrix is now explicit in README.
       - GC defaults are unchanged unless `.vibeguard.json` or environment overrides are provided.
+  - Step P3.5: `completed`
+    - Modified files:
+      - `schemas/install-modules.json`
+      - `scripts/lib/vibeguard_manifest.py`
+      - `scripts/setup/lib.sh`
+      - `scripts/setup/targets/claude-home.sh`
+      - `scripts/setup/targets/codex-home.sh`
+      - `tests/test_manifest_contract.sh`
+      - `tests/test_setup.sh`
+      - `plan/spec-codebase-audit-remediation.md`
+    - Main changes:
+      - Added a `skill-links` manifest helper so setup target scripts derive active skill symlinks from `schemas/install-modules.json`.
+      - Added `workflows/auto-optimize/` to the Claude skill target in the install manifest, matching existing install behavior.
+      - Replaced hardcoded Claude/Codex skill install, check, and clean lists with manifest-driven loops.
+      - Made manifest skill enumeration fail visibly before setup loops run, instead of treating helper failures as an empty skill list.
+      - Emitted manifest skill enumeration failures on stderr so command substitution callers cannot swallow diagnostics.
+      - Kept cleanup recoverable when manifest skill enumeration fails: clean now warns and continues removing agents, rules, settings hooks, Codex hooks, wrappers, and legacy MCP config.
+      - Made manifest validation report malformed skill link structures as contract errors instead of Python tracebacks.
+      - Made install/check skill enumeration fail when a target yields zero links, while leaving cleanup recoverable.
+      - Made install/check skill enumeration fail when a target yields whitespace-only output.
+      - Made cleanup warn and emit no links when a target yields whitespace-only output, instead of silently skipping skill cleanup.
+      - Made `skill-links` reject malformed manifest module shapes before emitting install data.
+      - Made `skill-links` reject empty, absolute, backslash, or `..` skill paths before setup can resolve them under the repository root.
+      - Updated contract tests so installed skill symlinks must match manifest output.
+    - Tests:
+      - `python3 -m py_compile scripts/lib/vibeguard_manifest.py` -> pass
+      - `python3 scripts/lib/vibeguard_manifest.py validate` -> pass
+      - `python3 scripts/lib/vibeguard_manifest.py skill-links --target '~/.claude/skills/'` -> pass
+      - `bash -n scripts/setup/lib.sh scripts/setup/targets/claude-home.sh scripts/setup/targets/codex-home.sh tests/test_setup.sh tests/test_manifest_contract.sh` -> pass
+      - `bash tests/test_manifest_contract.sh` -> pass, 43/43
+      - `bash scripts/ci/validate-manifest-contract.sh` -> pass
+      - `bash scripts/ci/validate-doc-paths.sh` -> pass
+      - `bash scripts/ci/validate-doc-command-paths.sh` -> pass
+      - `bash tests/test_setup.sh` -> pass, 146/146
+      - `bash scripts/ci/self-application/run-all.sh` -> pass
+      - `bash setup.sh --check` -> pass
+      - `python3 -m json.tool schemas/install-modules.json >/dev/null` -> pass
+      - `git diff --check` -> pass
+    - Notes:
+      - Active skill lifecycle is now load-bearing on `schemas/install-modules.json`; cleanup of historical retired symlinks remains out of scope.
   - Final regression matrix: `passed`
-    - `bash setup.sh --check` -> pass exit 0, known local install drift only: missing `agentsmd-audit` / `trajectory-review` skills, stale rule-count banner, unloaded scheduled GC plist, and `~/.codex/config.toml` checksum drift.
+    - `bash setup.sh --check` -> pass exit 0.
     - `bash tests/test_hooks.sh` -> pass, all hook shards.
-    - `bash tests/test_setup.sh` -> pass, 114/114.
+    - `bash tests/test_setup.sh` -> pass, 141/141.
     - `bash tests/test_codex_runtime.sh` -> pass, 40/40.
     - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13.
     - `bash tests/test_gc_config.sh` -> pass, 7/7.
@@ -1154,6 +1194,6 @@ Append entries here after each implemented step.
     - `bash scripts/ci/validate-hooks.sh` -> pass.
     - `bash scripts/verify/check-test-file-sizes.sh` -> pass.
     - `bash tests/test_eval_contract.sh` -> pass, 3/3.
-    - `bash tests/test_manifest_contract.sh` -> pass, 30/30.
+    - `bash tests/test_manifest_contract.sh` -> pass, 35/35.
     - `bash scripts/ci/validate-manifest-contract.sh` -> pass.
 ```

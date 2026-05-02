@@ -48,6 +48,45 @@ settings_remove() {
   python3 "${SETTINGS_HELPER}" remove-vibeguard --settings-file "${settings_file}"
 }
 
+manifest_skill_links() {
+  local target="$1"
+  python3 "${MANIFEST_HELPER}" skill-links --target "${target}"
+}
+
+manifest_skill_links_checked() {
+  local target="$1"
+  local output
+  if ! output="$(manifest_skill_links "${target}" 2>&1)"; then
+    red "  ERROR: failed to enumerate manifest skills for ${target}" >&2
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}" >&2
+    done <<< "${output}"
+    return 1
+  fi
+  if [[ -z "${output//[[:space:]]/}" ]]; then
+    red "  ERROR: no manifest skills declared for ${target}" >&2
+    return 1
+  fi
+  printf '%s\n' "${output}"
+}
+
+manifest_skill_links_for_cleanup() {
+  local target="$1"
+  local output
+  if ! output="$(manifest_skill_links "${target}" 2>&1)"; then
+    yellow "  WARN: failed to enumerate manifest skills for ${target}; skipping skill link cleanup" >&2
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && yellow "  ${line}" >&2
+    done <<< "${output}"
+    return 0
+  fi
+  if [[ -z "${output//[[:space:]]/}" ]]; then
+    yellow "  WARN: no manifest skills declared for ${target}; skipping skill link cleanup" >&2
+    return 0
+  fi
+  printf '%s\n' "${output}"
+}
+
 confirm_high_context_write() {
   local label="$1"
   local diff_output="$2"

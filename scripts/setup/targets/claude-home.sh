@@ -51,21 +51,18 @@ _remove_rule_subtree_if_safe() {
 install_claude_home_assets() {
   echo "Step 2: Install Claude Code skills"
   mkdir -p "${CLAUDE_DIR}/skills"
-  safe_symlink "${REPO_DIR}/skills/vibeguard" "${CLAUDE_DIR}/skills/vibeguard"
-  state_record_file "${CLAUDE_DIR}/skills/vibeguard" "skills/vibeguard" "symlink"
-  green "  vibeguard -> ~/.claude/skills/vibeguard"
-  safe_symlink "${REPO_DIR}/workflows/auto-optimize" "${CLAUDE_DIR}/skills/auto-optimize"
-  state_record_file "${CLAUDE_DIR}/skills/auto-optimize" "workflows/auto-optimize" "symlink"
-  green "  auto-optimize -> ~/.claude/skills/auto-optimize"
-  for skill in strategic-compact eval-harness iterative-retrieval agentsmd-audit trajectory-review; do
-    if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
-      safe_symlink "${REPO_DIR}/skills/${skill}" "${CLAUDE_DIR}/skills/${skill}"
-      state_record_file "${CLAUDE_DIR}/skills/${skill}" "skills/${skill}" "symlink"
+  local skill_links source_path skill
+  skill_links="$(manifest_skill_links_checked "~/.claude/skills/")" || return 1
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
+      safe_symlink "${REPO_DIR}/${source_path}" "${CLAUDE_DIR}/skills/${skill}"
+      state_record_file "${CLAUDE_DIR}/skills/${skill}" "${source_path}" "symlink"
       green "  ${skill} -> ~/.claude/skills/${skill}"
     else
-      yellow "  SKIP ${skill} (source not found)"
+      yellow "  SKIP ${skill} (source not found: ${source_path})"
     fi
-  done
+  done <<< "${skill_links}"
   echo
 
   echo "Step 3: Install agents"
@@ -275,8 +272,10 @@ check_claude_home_installation() {
     red "[MISSING] VibeGuard rules not in ~/.claude/CLAUDE.md"
   fi
 
-  local link
-  for skill in vibeguard auto-optimize strategic-compact eval-harness iterative-retrieval agentsmd-audit trajectory-review; do
+  local link skill_links source_path skill
+  skill_links="$(manifest_skill_links_checked "~/.claude/skills/")" || return 1
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CLAUDE_DIR}/skills/${skill}"
     if [[ -L "${link}" ]]; then
       if [[ -e "${link}" ]]; then
@@ -287,7 +286,7 @@ check_claude_home_installation() {
     else
       red "[MISSING] ${skill} skill not in ~/.claude/skills/"
     fi
-  done
+  done <<< "${skill_links}"
 
   if [[ -L "${CLAUDE_DIR}/commands/vibeguard" ]]; then
     green "[OK] vibeguard commands symlinked to ~/.claude/commands/"
@@ -372,13 +371,12 @@ clean_claude_home_installation() {
   fi
 
   rm -f "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || rm -rf "${CLAUDE_DIR}/commands/vibeguard" 2>/dev/null || true
-  rm -f "${CLAUDE_DIR}/skills/vibeguard"
-  rm -f "${CLAUDE_DIR}/skills/auto-optimize"
-  rm -f "${CLAUDE_DIR}/skills/strategic-compact"
-  rm -f "${CLAUDE_DIR}/skills/eval-harness"
-  rm -f "${CLAUDE_DIR}/skills/iterative-retrieval"
-  rm -f "${CLAUDE_DIR}/skills/agentsmd-audit"
-  rm -f "${CLAUDE_DIR}/skills/trajectory-review"
+  local skill_links source_path skill
+  skill_links="$(manifest_skill_links_for_cleanup "~/.claude/skills/")"
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    rm -f "${CLAUDE_DIR}/skills/${skill}"
+  done <<< "${skill_links}"
 
   local agent
   for agent in "${REPO_DIR}"/agents/*.md; do

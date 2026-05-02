@@ -7,7 +7,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
@@ -113,6 +113,48 @@ def guard_names() -> list[str]:
     return sorted(names)
 
 
+def normalize_skill_source(path_str: str, module_id: str) -> str:
+    source = path_str.rstrip("/")
+    if not source:
+        raise ValueError(f"module {module_id}: skill path must name a skill directory: {path_str}")
+    if "\\" in source:
+        raise ValueError(f"module {module_id}: skill path must use forward slashes: {path_str}")
+    path = PurePosixPath(source)
+    if path.is_absolute():
+        raise ValueError(f"module {module_id}: skill path must be repo-relative: {path_str}")
+    if ".." in path.parts:
+        raise ValueError(f"module {module_id}: skill path must not contain '..': {path_str}")
+    normalized = path.as_posix()
+    if normalized in {"", "."} or not PurePosixPath(normalized).name:
+        raise ValueError(f"module {module_id}: skill path must name a skill directory: {path_str}")
+    return normalized
+
+
+def skill_links(manifest: dict[str, Any], target: str) -> list[tuple[str, str]]:
+    links: list[tuple[str, str]] = []
+    modules = manifest.get("modules", [])
+    if not isinstance(modules, list):
+        raise ValueError("manifest modules must be a list")
+    for module in modules:
+        if not isinstance(module, dict):
+            raise ValueError("manifest module entry is not an object")
+        if module.get("kind") != "skills" or module.get("target") != target:
+            continue
+        paths = module.get("paths", [])
+        if not isinstance(paths, list):
+            module_id = str(module.get("id", "<unknown>"))
+            raise ValueError(f"module {module_id}: paths must be a list")
+        for path_str in paths:
+            if not isinstance(path_str, str):
+                module_id = str(module.get("id", "<unknown>"))
+                raise ValueError(f"module {module_id}: non-string path entry")
+            module_id = str(module.get("id", "<unknown>"))
+            source = normalize_skill_source(path_str, module_id)
+            if source:
+                links.append((source, PurePosixPath(source).name))
+    return links
+
+
 def profile_names(manifest: dict[str, Any]) -> list[str]:
     profiles = manifest.get("profiles", {})
     if not isinstance(profiles, dict):
@@ -206,6 +248,31 @@ def _validate_project_schema(manifest: dict[str, Any], project_schema: dict[str,
     return errors
 
 
+def _validate_skill_links(manifest: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    seen: dict[tuple[str, str], str] = {}
+    for module in manifest.get("modules", []):
+        if not isinstance(module, dict) or module.get("kind") != "skills":
+            continue
+        target = str(module.get("target", ""))
+        module_id = str(module.get("id", "<unknown>"))
+        try:
+            links = skill_links({"modules": [module]}, target)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        for source, name in links:
+            key = (target, name)
+            previous = seen.get(key)
+            if previous is not None:
+                errors.append(
+                    f"duplicate skill target {target}/{name}: {previous} and {module_id}:{source}"
+                )
+            else:
+                seen[key] = f"{module_id}:{source}"
+    return errors
+
+
 def validate_contract(manifest_path: Path, project_schema_path: Path) -> list[str]:
     manifest = load_manifest(manifest_path)
     project_schema = load_json(project_schema_path)
@@ -217,6 +284,7 @@ def validate_contract(manifest_path: Path, project_schema_path: Path) -> list[st
     errors.extend(_validate_paths(manifest))
     errors.extend(_validate_profiles(manifest))
     errors.extend(_validate_project_schema(manifest, project_schema))
+    errors.extend(_validate_skill_links(manifest))
     return errors
 
 
@@ -242,6 +310,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("hook-names", help="List user-disableable hook names")
     sub.add_parser("guard-names", help="List known guard names")
+    skill = sub.add_parser("skill-links", help="List installable skill links for a target")
+    skill.add_argument("--target", required=True)
+    skill.add_argument("--manifest-file", default=str(MANIFEST_FILE))
     return parser
 
 
@@ -278,6 +349,12 @@ def main() -> int:
 
     if args.command == "guard-names":
         print_lines(guard_names())
+        return 0
+
+    if args.command == "skill-links":
+        manifest = load_manifest(Path(args.manifest_file))
+        for source, name in skill_links(manifest, args.target):
+            print(f"{source}\t{name}")
         return 0
 
     parser.error("unknown command")

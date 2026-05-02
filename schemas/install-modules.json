@@ -141,9 +141,10 @@
     {
       "id": "skills-core",
       "kind": "skills",
-      "description": "Claude core skills (vibeguard, strategic-compact, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
+      "description": "Claude core skills (vibeguard, auto-optimize, strategic-compact, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
       "paths": [
         "skills/vibeguard/",
+        "workflows/auto-optimize/",
         "skills/strategic-compact/",
         "skills/eval-harness/",
         "skills/iterative-retrieval/",

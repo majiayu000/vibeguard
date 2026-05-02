@@ -471,7 +471,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 ## Out of scope (explicitly deferred)
 
 - Shipping `mcp-server/` as a supported runtime surface (M12). Current state documents it as a legacy, unsupported prototype.
-- Skills directory consolidation (CFG-2 partial) — covered by T9's manifest extension but lifecycle is separate.
+- Historical cleanup of retired skill links (CFG-2 residual). Active Claude/Codex skill install, check, and clean paths now use `schemas/install-modules.json`; deleting old links that are no longer declared remains a separate lifecycle policy.
 - Full historical `events.jsonl` migration tooling (M4). New runtime events now carry `schema_version: 1`; backfilling old logs remains out of scope.
 - Workflow-template W-18 axis-1/2 coverage for tool-using agents — eval/run_eval.py is single-shot text completion; if other eval harnesses (eval-harness skill?) emerge later, they need their own SPEC entry.
 - vg-helper coverage automation (T13's `check-u22-coverage.sh`) requires `cargo-llvm-cov` install in CI — handled in T13.
@@ -508,7 +508,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 | M6 | T5 |
 | M7 | T13 (`check-u22-coverage.sh`) + add tests as separate small PRs |
 | M8 | (P3 — wire `validate_contract` into install or delete schema) |
-| M9 | T9 (manifest convergence covers skill modules too) |
+| M9 | T9 + P3 follow-up (hook manifest plus active skill links are now load-bearing) |
 | M10 | (P3 — dual-write log consolidation) |
 | M11 | T10 |
 | M12 | P3.4 legacy documentation; shipping support remains out of scope |

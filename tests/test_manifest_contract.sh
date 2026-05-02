@@ -30,6 +30,19 @@ assert_cmd() {
   fi
 }
 
+assert_cmd_fail() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    red "$desc (expected failure)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_contains() {
   local output="$1" expected="$2" desc="$3"
   TOTAL=$((TOTAL + 1))
@@ -39,6 +52,18 @@ assert_contains() {
   else
     red "$desc (expected to contain: $expected)"
     FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_not_contains() {
+  local output="$1" unexpected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF "$unexpected"; then
+    red "$desc (unexpected content: $unexpected)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
   fi
 }
 
@@ -62,6 +87,70 @@ assert_contains "${rules_out}" "W-17" "canonical common rule ids include W-17"
 assert_contains "${rules_out}" "U-32" "canonical common rule ids include U-32"
 reference_rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source reference)"
 assert_contains "${reference_rules_out}" "TASTE-ANSI" "reference rule ids include TASTE-prefixed rules"
+claude_skills_out="$(python3 "${MANIFEST_HELPER}" skill-links --target "~/.claude/skills/")"
+assert_contains "${claude_skills_out}" $'skills/vibeguard\tvibeguard' "manifest declares Claude vibeguard skill link"
+assert_contains "${claude_skills_out}" $'workflows/auto-optimize\tauto-optimize' "manifest declares Claude auto-optimize skill link"
+codex_skills_out="$(python3 "${MANIFEST_HELPER}" skill-links --target "~/.codex/skills/")"
+assert_contains "${codex_skills_out}" $'workflows/plan-flow\tplan-flow' "manifest declares Codex workflow skill links"
+assert_contains "${codex_skills_out}" $'skills/trajectory-review\ttrajectory-review' "manifest declares Codex core skill links"
+BAD_MANIFEST="${TMP_DIR}/bad-install-modules.json"
+printf '{"modules": {}}\n' > "${BAD_MANIFEST}"
+assert_cmd_fail "skill-links rejects malformed modules shape" python3 "${MANIFEST_HELPER}" skill-links --manifest-file "${BAD_MANIFEST}" --target "~/.claude/skills/"
+BAD_SKILL_PATHS_MANIFEST="${TMP_DIR}/bad-skill-paths-install-modules.json"
+cat > "${BAD_SKILL_PATHS_MANIFEST}" <<'JSON'
+{
+  "profiles": {},
+  "modules": [
+    {
+      "id": "bad-skill-module",
+      "kind": "skills",
+      "target": "~/.claude/skills/",
+      "paths": {}
+    }
+  ]
+}
+JSON
+bad_skill_paths_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${BAD_SKILL_PATHS_MANIFEST}" 2>&1 || true)"
+assert_contains "${bad_skill_paths_validate_out}" "module bad-skill-module: paths must be a list" "manifest validation reports malformed skill paths"
+assert_not_contains "${bad_skill_paths_validate_out}" "Traceback" "manifest validation reports malformed skill paths without traceback"
+
+ESCAPING_SKILL_PATH_MANIFEST="${TMP_DIR}/escaping-skill-path-install-modules.json"
+cat > "${ESCAPING_SKILL_PATH_MANIFEST}" <<'JSON'
+{
+  "profiles": {},
+  "modules": [
+    {
+      "id": "escaping-skill-module",
+      "kind": "skills",
+      "target": "~/.claude/skills/",
+      "paths": ["../external/skill"]
+    }
+  ]
+}
+JSON
+assert_cmd_fail "skill-links rejects repo-escaping skill paths" python3 "${MANIFEST_HELPER}" skill-links --manifest-file "${ESCAPING_SKILL_PATH_MANIFEST}" --target "~/.claude/skills/"
+escaping_skill_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${ESCAPING_SKILL_PATH_MANIFEST}" 2>&1 || true)"
+assert_contains "${escaping_skill_validate_out}" "module escaping-skill-module: skill path must not contain '..': ../external/skill" "manifest validation reports repo-escaping skill paths"
+assert_not_contains "${escaping_skill_validate_out}" "Traceback" "manifest validation reports repo-escaping skill paths without traceback"
+
+ABSOLUTE_SKILL_PATH_MANIFEST="${TMP_DIR}/absolute-skill-path-install-modules.json"
+cat > "${ABSOLUTE_SKILL_PATH_MANIFEST}" <<'JSON'
+{
+  "profiles": {},
+  "modules": [
+    {
+      "id": "absolute-skill-module",
+      "kind": "skills",
+      "target": "~/.claude/skills/",
+      "paths": ["/tmp/skill"]
+    }
+  ]
+}
+JSON
+assert_cmd_fail "skill-links rejects absolute skill paths" python3 "${MANIFEST_HELPER}" skill-links --manifest-file "${ABSOLUTE_SKILL_PATH_MANIFEST}" --target "~/.claude/skills/"
+absolute_skill_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${ABSOLUTE_SKILL_PATH_MANIFEST}" 2>&1 || true)"
+assert_contains "${absolute_skill_validate_out}" "module absolute-skill-module: skill path must be repo-relative: /tmp/skill" "manifest validation reports absolute skill paths"
+assert_not_contains "${absolute_skill_validate_out}" "Traceback" "manifest validation reports absolute skill paths without traceback"
 
 header "routing contract"
 ROUTING_CONTRACT="${REPO_DIR}/workflows/references/routing-contract.md"

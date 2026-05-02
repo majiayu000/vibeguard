@@ -3,24 +3,18 @@
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
   mkdir -p "${CODEX_DIR}/skills"
-  for skill in plan-flow fixflow optflow plan-mode auto-optimize; do
-    if [[ -d "${REPO_DIR}/workflows/${skill}" ]]; then
-      safe_symlink "${REPO_DIR}/workflows/${skill}" "${CODEX_DIR}/skills/${skill}"
-      state_record_file "${CODEX_DIR}/skills/${skill}" "workflows/${skill}" "symlink"
+  local skill_links source_path skill
+  skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
+      safe_symlink "${REPO_DIR}/${source_path}" "${CODEX_DIR}/skills/${skill}"
+      state_record_file "${CODEX_DIR}/skills/${skill}" "${source_path}" "symlink"
       green "  ${skill} -> ~/.codex/skills/${skill}"
     else
-      yellow "  SKIP ${skill} (source not found)"
+      yellow "  SKIP ${skill} (source not found: ${source_path})"
     fi
-  done
-  for skill in vibeguard agentsmd-audit trajectory-review; do
-    if [[ -d "${REPO_DIR}/skills/${skill}" ]]; then
-      safe_symlink "${REPO_DIR}/skills/${skill}" "${CODEX_DIR}/skills/${skill}"
-      state_record_file "${CODEX_DIR}/skills/${skill}" "skills/${skill}" "symlink"
-      green "  ${skill} -> ~/.codex/skills/${skill}"
-    else
-      yellow "  SKIP ${skill} (source not found)"
-    fi
-  done
+  done <<< "${skill_links}"
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -98,8 +92,10 @@ configure_codex_home_runtime() {
 }
 
 check_codex_home_installation() {
-  local link
-  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize agentsmd-audit trajectory-review; do
+  local link skill_links source_path skill
+  skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CODEX_DIR}/skills/${skill}"
     if [[ -L "${link}" ]]; then
       if [[ -e "${link}" ]]; then
@@ -110,7 +106,7 @@ check_codex_home_installation() {
     else
       yellow "[MISSING] ${skill} skill not in ~/.codex/skills/"
     fi
-  done
+  done <<< "${skill_links}"
 
   # Check hooks
   if [[ -f "${CODEX_DIR}/hooks.json" ]]; then
@@ -164,10 +160,12 @@ print(total)
 }
 
 clean_codex_home_installation() {
-  local skill
-  for skill in plan-flow fixflow optflow plan-mode vibeguard auto-optimize agentsmd-audit trajectory-review; do
+  local skill_links source_path skill
+  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
     rm -f "${CODEX_DIR}/skills/${skill}"
-  done
+  done <<< "${skill_links}"
 
   # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
   local hooks_cleanup_result

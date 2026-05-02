@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SETTINGS_HELPER="${REPO_DIR}/scripts/lib/settings_json.py"
 CODEX_HOOKS_HELPER="${REPO_DIR}/scripts/lib/codex_hooks_json.py"
 HOOKS_MANIFEST_HELPER="${REPO_DIR}/scripts/lib/hooks_manifest.py"
+MANIFEST_HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 PROJECT_CONFIG_HELPER="${REPO_DIR}/scripts/lib/project_config_validate.py"
 CHAT_CONTRACT_ANCHOR="Compact Chat Contract: progress updates, concise answers, plain formatting."
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
@@ -44,6 +45,23 @@ assert_cmd() {
     red "$desc (exit code: $?)"
     FAIL=$((FAIL + 1))
   fi
+}
+
+assert_manifest_skill_links_installed() {
+  local target="$1"
+  local dest_dir="$2"
+  local links
+  if ! links="$(python3 "${MANIFEST_HELPER}" skill-links --target "${target}")"; then
+    return 1
+  fi
+
+  local source_path skill found=0
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    found=1
+    [[ -L "${dest_dir}/${skill}" ]] || return 1
+  done <<< "${links}"
+  [[ "${found}" -eq 1 ]]
 }
 
 assert_chat_contract_blocks_match() {
@@ -145,6 +163,115 @@ assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_co
 assert_cmd "scripts/setup/regenerate-hooks-from-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh"
 assert_cmd "scripts/ci/validate-hooks-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
 assert_cmd "CLAUDE.md template uses generated rule count placeholder" grep -q "__VIBEGUARD_RULE_COUNT__" "${REPO_DIR}/claude-md/vibeguard-rules.md"
+
+header "manifest skill enumeration failure"
+manifest_failure_stdout="${TMP_HOME}/manifest-failure.stdout"
+manifest_failure_stderr="${TMP_HOME}/manifest-failure.stderr"
+if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER=/bin/false; manifest_skill_links_checked '~/.claude/skills/'" >"${manifest_failure_stdout}" 2>"${manifest_failure_stderr}"; then
+  red "manifest skill enumeration fails on helper error (expected failure)"
+  FAIL=$((FAIL + 1))
+else
+  green "manifest skill enumeration fails on helper error"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+manifest_failure_err="$(cat "${manifest_failure_stderr}")"
+assert_contains "${manifest_failure_err}" "failed to enumerate manifest skills" "manifest skill enumeration failure is visible on stderr"
+assert_cmd "manifest skill enumeration failure leaves stdout empty" test ! -s "${manifest_failure_stdout}"
+
+manifest_empty_helper="${TMP_HOME}/empty-manifest-helper.py"
+cat > "${manifest_empty_helper}" <<'PY'
+#!/usr/bin/env python3
+raise SystemExit(0)
+PY
+manifest_empty_stdout="${TMP_HOME}/manifest-empty.stdout"
+manifest_empty_stderr="${TMP_HOME}/manifest-empty.stderr"
+if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER='${manifest_empty_helper}'; manifest_skill_links_checked '~/.claude/skills/'" >"${manifest_empty_stdout}" 2>"${manifest_empty_stderr}"; then
+  red "manifest skill enumeration fails on empty target output (expected failure)"
+  FAIL=$((FAIL + 1))
+else
+  green "manifest skill enumeration fails on empty target output"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+manifest_empty_err="$(cat "${manifest_empty_stderr}")"
+assert_contains "${manifest_empty_err}" "no manifest skills declared for ~/.claude/skills/" "manifest skill empty target failure is visible on stderr"
+assert_cmd "manifest skill empty target leaves stdout empty" test ! -s "${manifest_empty_stdout}"
+
+manifest_whitespace_helper="${TMP_HOME}/whitespace-manifest-helper.py"
+cat > "${manifest_whitespace_helper}" <<'PY'
+#!/usr/bin/env python3
+print("   ")
+raise SystemExit(0)
+PY
+manifest_whitespace_stdout="${TMP_HOME}/manifest-whitespace.stdout"
+manifest_whitespace_stderr="${TMP_HOME}/manifest-whitespace.stderr"
+if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER='${manifest_whitespace_helper}'; manifest_skill_links_checked '~/.claude/skills/'" >"${manifest_whitespace_stdout}" 2>"${manifest_whitespace_stderr}"; then
+  red "manifest skill enumeration fails on whitespace-only target output (expected failure)"
+  FAIL=$((FAIL + 1))
+else
+  green "manifest skill enumeration fails on whitespace-only target output"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+manifest_whitespace_err="$(cat "${manifest_whitespace_stderr}")"
+assert_contains "${manifest_whitespace_err}" "no manifest skills declared for ~/.claude/skills/" "manifest skill whitespace-only target failure is visible on stderr"
+
+cleanup_whitespace_stdout="${TMP_HOME}/cleanup-whitespace.stdout"
+cleanup_whitespace_stderr="${TMP_HOME}/cleanup-whitespace.stderr"
+if bash -c "source '${REPO_DIR}/scripts/setup/lib.sh'; MANIFEST_HELPER='${manifest_whitespace_helper}'; manifest_skill_links_for_cleanup '~/.claude/skills/'" >"${cleanup_whitespace_stdout}" 2>"${cleanup_whitespace_stderr}"; then
+  green "cleanup skill enumeration warns on whitespace-only target output"
+  PASS=$((PASS + 1))
+else
+  red "cleanup skill enumeration warns on whitespace-only target output (exit code: $?)"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+cleanup_whitespace_err="$(cat "${cleanup_whitespace_stderr}")"
+assert_contains "${cleanup_whitespace_err}" "no manifest skills declared for ~/.claude/skills/" "cleanup whitespace-only target warning is visible on stderr"
+assert_cmd "cleanup whitespace-only target leaves stdout empty" test ! -s "${cleanup_whitespace_stdout}"
+
+header "clean continues when manifest skill enumeration fails"
+broken_clean_home="${TMP_HOME}/broken-clean-home"
+mkdir -p \
+  "${broken_clean_home}/.claude/commands" \
+  "${broken_clean_home}/.claude/agents" \
+  "${broken_clean_home}/.claude/context-profiles" \
+  "${broken_clean_home}/.claude/rules/vibeguard/common" \
+  "${broken_clean_home}/.codex" \
+  "${broken_clean_home}/.vibeguard"
+touch "${broken_clean_home}/.claude/commands/vibeguard"
+touch "${broken_clean_home}/.claude/agents/dispatcher.md"
+touch "${broken_clean_home}/.claude/context-profiles/dev.md"
+touch "${broken_clean_home}/.claude/rules/vibeguard/common/security.md"
+touch "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
+python3 "${SETTINGS_HELPER}" upsert-vibeguard --settings-file "${broken_clean_home}/.claude/settings.json" --repo-dir "${REPO_DIR}" --profile full >/dev/null
+python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${broken_clean_home}/.codex/hooks.json" --wrapper "${broken_clean_home}/.vibeguard/run-hook-codex.sh" >/dev/null
+cat > "${broken_clean_home}/.codex/config.toml" <<'TOML'
+[mcp_servers.vibeguard]
+command = "node"
+args = ["/legacy/mcp-server/dist/index.js"]
+TOML
+broken_clean_out="$(
+  HOME="${broken_clean_home}" bash -c "
+    set -euo pipefail
+    source '${REPO_DIR}/scripts/setup/lib.sh'
+    source '${REPO_DIR}/scripts/lib/install-state.sh'
+    source '${REPO_DIR}/scripts/setup/targets/claude-home.sh'
+    source '${REPO_DIR}/scripts/setup/targets/codex-home.sh'
+    MANIFEST_HELPER=/bin/false
+    clean_claude_home_installation
+    clean_codex_home_installation
+  " 2>&1
+)"
+assert_contains "${broken_clean_out}" "skipping skill link cleanup" "clean warns when manifest skill enumeration fails"
+assert_cmd "clean continues after Claude manifest failure" test ! -e "${broken_clean_home}/.claude/commands/vibeguard"
+assert_cmd "clean removes Claude agents after manifest failure" test ! -e "${broken_clean_home}/.claude/agents/dispatcher.md"
+assert_cmd "clean removes Claude rules after manifest failure" test ! -e "${broken_clean_home}/.claude/rules/vibeguard"
+assert_cmd "clean removes Claude hooks after manifest failure" bash -c "! grep -q 'pre-bash-guard.sh' '${broken_clean_home}/.claude/settings.json'"
+assert_cmd "clean continues after Codex manifest failure" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${broken_clean_home}/.codex/hooks.json'"
+assert_cmd "clean removes Codex wrapper after manifest failure" test ! -e "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
+assert_cmd "clean removes legacy Codex MCP after manifest failure" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${broken_clean_home}/.codex/config.toml'"
 
 header "hooks manifest"
 assert_cmd "hooks manifest validates" bash "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
@@ -296,6 +423,8 @@ assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "
 assert_cmd "~/.claude/skills/trajectory-review exists after installation" test -L "${HOME}/.claude/skills/trajectory-review"
 assert_cmd "~/.codex/skills/agentsmd-audit exists after installation" test -L "${HOME}/.codex/skills/agentsmd-audit"
 assert_cmd "~/.codex/skills/trajectory-review exists after installation" test -L "${HOME}/.codex/skills/trajectory-review"
+assert_cmd "all manifest Claude skill links are installed" assert_manifest_skill_links_installed "~/.claude/skills/" "${HOME}/.claude/skills"
+assert_cmd "all manifest Codex skill links are installed" assert_manifest_skill_links_installed "~/.codex/skills/" "${HOME}/.codex/skills"
 assert_cmd "Clean legacy Claude MCP block after installation" bash -c "! grep -q 'mcp-server/dist/index.js' '${HOME}/.claude/settings.json'"
 assert_cmd "No longer write to mcpServers after installation" bash -c "! grep -q 'mcpServers' '${HOME}/.claude/settings.json'"
 assert_cmd "settings helper detects pre hooks configured" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target pre-hooks
