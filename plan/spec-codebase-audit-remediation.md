@@ -19,7 +19,7 @@ This SPEC is the actionable counterpart to the audit research file. It is struct
 
 - Not rewriting passing systems. Verified items (atomic install, env-var convergence, SEC-12 nested-table cleanup, etc.) remain untouched.
 - Not introducing a new rule. Every fix maps to an existing rule already in `rules/claude-rules/`.
-- Not auto-fixing the `mcp-server/` (M12) — that requires a product decision (deprecate vs ship) outside this SPEC.
+- Not shipping the legacy `mcp-server/` prototype as a supported runtime surface. It is documented as legacy/deprecated; any future MCP reintroduction needs a separate install path and audit/hash baseline.
 - Not refactoring well-tested modules (`vg-helper/src/session_metrics.rs` `#[cfg(test)]` block at lines 391-755 is fine).
 - Not adding new dependencies. Every fix uses existing tools (bash, python3, serde_json, regex).
 
@@ -75,7 +75,7 @@ This SPEC is the actionable counterpart to the audit research file. It is struct
 ### Exclusions
 
 - Do not modify the four `vibeguard-*.sh` Codex shims (L11) — they are required by Codex's basename-based matcher; document the carve-out in `hooks/CLAUDE.md` instead (T11).
-- Do not delete `mcp-server/` — owner decision pending (M12).
+- Do not delete or wire `mcp-server/` in this remediation stream. It is now documented as a legacy, unsupported prototype; shipping it again requires a future SPEC.
 
 ---
 
@@ -408,20 +408,21 @@ Rollback: delete the self-application directory; CI returns to its previous shap
 
 #### T14 · Low-priority cleanup (L1–L11)
 
-Each item below is small enough to bundle. Severity is low; do as a single PR after P0/P1/P2 settle.
+Each item below was handled in the P3.4 cleanup stream or explicitly retained as an intentional compatibility boundary.
 
-| Sub-task | Fix | Verification |
-|----------|-----|--------------|
-| L1 | Add header comment to `pre-bash-guard.sh:185-189` documenting the argv-isolation contract; add a CI grep that `_PKG_CORRECTION` only appears in argv position. | Implemented as `bash scripts/ci/self-application/check-pkg-correction-argv-only.sh` |
-| L2 | Carve-out comment in `rules/claude-rules/common/security.md` declaring the file allow-listed in SEC-14 self-test. | `bash scripts/ci/self-application/check-sec14-self.sh` exits 0 |
-| L3 | Wrap heredoc-stripping regex in `signal.alarm(2)` Python timeout. | `bash tests/test_hooks.sh test_pre_bash_redos` exits 0 |
-| L4 | Change `run-hook-codex.sh` deny path `exit 0` → `exit 1` (consistent with shell convention; document at script head). | manual code review |
-| L5 | Add `"schema_version": "v1"` to `vg-helper/src/session_metrics.rs:348` write path; baseline comparison filters by version. | `cargo test schema_version` exits 0 |
-| L6 | Add 30-min time filter to `paralysis_count` in `vg-helper/src/log_query.rs:117-128`. | `cargo test paralysis_time_window` exits 0 |
-| L7 | Replace `Command::new("date")` in `chrono_now` with `SystemTime::now()` formatting. | `cargo test chrono_now_iso8601` exits 0 |
-| L8 | Either remove `skills-loader` from `vibeguard-project.schema.json:38` enum or wire it in installer. | manual decision |
-| L9 | Add migration-or-fail check to `install-state.sh:33-44` for `version > 1`. | `bash tests/test_install_state.sh test_version_migration` exits 0 |
-| L10 | Add `gc.{log_threshold_mb,archive_retain_months,metrics_retain_days}` to project schema; relax `additionalProperties:false`. | `bash tests/test_gc_config.sh` exits 0 |
+| Sub-task | Resolution | Verification / evidence |
+|----------|------------|-------------------------|
+| L1 | Implemented: `pre-bash-guard.sh` documents the package-correction argv contract and `check-pkg-correction-argv-only.sh` now guards Python-source and shell-eval regressions. | `bash scripts/ci/self-application/check-pkg-correction-argv-only.sh`; `bash tests/test_self_application_ci.sh` |
+| L2 | Implemented: SEC-14 defensive examples in `rules/claude-rules/common/security.md` are documented as rule text, not MCP description surfaces. | `bash scripts/ci/self-application/check-sec14-mcp-descriptions.sh` |
+| L3 | Implemented differently: heredoc stripping is now a linear parser instead of a regex plus timeout. | `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/hooks/test_pre_bash_guard.sh` |
+| L4 | Intentionally retained: Codex native hooks consume JSON `permissionDecision: "deny"` payloads while the wrapper exits 0 after emitting a valid payload; changing to exit 1 would turn an intentional deny into wrapper failure semantics. | `bash tests/test_codex_runtime.sh`; `hooks/run-hook-codex.sh` header documents the Codex contract |
+| L5 | Implemented: session metrics emit `schema_version` and tests assert the field. | `(cd vg-helper && cargo test)` |
+| L6 | Implemented: `paralysis-count` applies a 30-minute timestamp window while preserving legacy timestamp-less events. | `(cd vg-helper && cargo test)` |
+| L7 | Implemented: session metrics time helpers use Rust `SystemTime` instead of shelling out to `/bin/date`. | `(cd vg-helper && cargo test)` |
+| L8 | Implemented by narrowing schema/runtime contract: `skills-loader` remains an optional manual hook, not a registered disabled-hook enum value. | `bash tests/test_setup.sh`; `README.md` hook table |
+| L9 | Implemented: install-state helpers fail visibly on unsupported state versions. | `bash tests/test_setup.sh` |
+| L10 | Implemented: GC retention/threshold knobs are schema-backed and read via shared project config helpers. | `bash tests/test_gc_config.sh` |
+| L11 | Implemented/documented: `vibeguard-*.sh` Codex shims are a namespacing compatibility boundary, not duplicate business logic. | `hooks/CLAUDE.md`; `README.md` Codex runtime notes |
 
 ---
 
@@ -469,7 +470,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 
 ## Out of scope (explicitly deferred)
 
-- `mcp-server/` deprecation vs ship decision (M12) — needs product owner input.
+- Shipping `mcp-server/` as a supported runtime surface (M12). Current state documents it as a legacy, unsupported prototype.
 - Skills directory consolidation (CFG-2 partial) — covered by T9's manifest extension but lifecycle is separate.
 - `events.jsonl` schema migration (M4) — partial fix in T9 via `vg-helper/src/event_schema.rs` constants; full schema versioning is a follow-up SPEC.
 - Workflow-template W-18 axis-1/2 coverage for tool-using agents — eval/run_eval.py is single-shot text completion; if other eval harnesses (eval-harness skill?) emerge later, they need their own SPEC entry.
@@ -510,7 +511,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 | M9 | T9 (manifest convergence covers skill modules too) |
 | M10 | (P3 — dual-write log consolidation) |
 | M11 | T10 |
-| M12 | (out of scope — owner decision) |
+| M12 | P3.4 legacy documentation; shipping support remains out of scope |
 | M13 | (P3 — `rm -f` safety; bundled into T11 install hardening) |
 | M14 | T12 |
 | L1–L11 | T14 |
