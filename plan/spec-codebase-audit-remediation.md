@@ -472,7 +472,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 
 - Shipping `mcp-server/` as a supported runtime surface (M12). Current state documents it as a legacy, unsupported prototype.
 - Skills directory consolidation (CFG-2 partial) — covered by T9's manifest extension but lifecycle is separate.
-- `events.jsonl` schema migration (M4) — partial fix in T9 via `vg-helper/src/event_schema.rs` constants; full schema versioning is a follow-up SPEC.
+- Full historical `events.jsonl` migration tooling (M4). New runtime events now carry `schema_version: 1`; backfilling old logs remains out of scope.
 - Workflow-template W-18 axis-1/2 coverage for tool-using agents — eval/run_eval.py is single-shot text completion; if other eval harnesses (eval-harness skill?) emerge later, they need their own SPEC entry.
 - vg-helper coverage automation (T13's `check-u22-coverage.sh`) requires `cargo-llvm-cov` install in CI — handled in T13.
 
@@ -503,7 +503,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 | M1 | (P3 — log redaction; bundled with T13 SEC-10 dog-food) |
 | M2 | (P3 — small fix; replace heredoc with `vg_json_output_kv`) |
 | M3 | T13 (`check-hook-output-rewriting.sh`) |
-| M4 | T9 (event_schema.rs constants are part of manifest convergence) |
+| M4 | T9 + P3 follow-up (`event_schema.rs` constants and additive runtime `schema_version: 1`) |
 | M5 | (P3 — `--strict` flag on `vg-helper json-field`; bundled with T11 split) |
 | M6 | T5 |
 | M7 | T13 (`check-u22-coverage.sh`) + add tests as separate small PRs |

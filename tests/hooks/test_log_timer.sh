@@ -20,6 +20,7 @@ _timer_result=$(
 )
 rm -rf "$_timer_log"
 assert_contains "$_timer_result" '"duration_ms":' "vg_start_timer: duration_ms field written to events.jsonl"
+assert_contains "$_timer_result" '"schema_version": 1' "vg_log: events.jsonl includes schema_version"
 
 # Extract duration_ms value and verify it's a positive integer >= 1
 _dur=$(echo "$_timer_result" | python3 -c "import sys,json; e=json.loads(sys.stdin.read()); print(e.get('duration_ms','missing'))" 2>/dev/null || echo "missing")

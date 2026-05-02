@@ -82,7 +82,7 @@ vg_log() {
   esc_reason="${esc_reason//$'\f'/\\f}" esc_detail="${esc_detail//$'\f'/\\f}"
 
   local json
-  json="{\"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
+  json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
   [[ -n "${VIBEGUARD_CLI:-}" ]] && json="${json}, \"cli\": \"${VIBEGUARD_CLI}\""
   [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
