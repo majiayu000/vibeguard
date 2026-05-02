@@ -183,6 +183,42 @@ for dest, info in sorted(state.get('files', {}).items()):
 "
 }
 
+state_list_tracked_symlinks_under() {
+  local dest_dir="$1"
+  [[ -f "$STATE_FILE" ]] || return 0
+
+  python3 - "$STATE_FILE" "$dest_dir" "$STATE_VERSION" <<'PY'
+import json
+import os
+import sys
+
+state_file, dest_dir, expected_version = sys.argv[1], sys.argv[2], int(sys.argv[3])
+dest_dir = os.path.abspath(os.path.expanduser(dest_dir))
+
+try:
+    with open(state_file, encoding="utf-8") as f:
+        state = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    raise SystemExit(0)
+
+version = state.get("version", expected_version)
+if version != expected_version:
+    print(
+        f"WARN: unsupported install-state version: {version} (expected {expected_version}); "
+        "skipping tracked symlink cleanup",
+        file=sys.stderr,
+    )
+    raise SystemExit(0)
+
+for dest, info in sorted(state.get("files", {}).items()):
+    if info.get("type") != "symlink":
+        continue
+    expanded = os.path.abspath(os.path.expanduser(dest))
+    if expanded == dest_dir or expanded.startswith(dest_dir + os.sep):
+        print(expanded)
+PY
+}
+
 # Remove state file (used by clean.sh)
 state_clean() {
   rm -f "$STATE_FILE"

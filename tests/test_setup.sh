@@ -273,6 +273,50 @@ assert_cmd "clean continues after Codex manifest failure" bash -c "! grep -q 'vi
 assert_cmd "clean removes Codex wrapper after manifest failure" test ! -e "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
 assert_cmd "clean removes legacy Codex MCP after manifest failure" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${broken_clean_home}/.codex/config.toml'"
 
+header "retired manifest skill cleanup"
+retired_home="${TMP_HOME}/retired-skill-home"
+mkdir -p \
+  "${retired_home}/.claude/skills" \
+  "${retired_home}/.codex/skills" \
+  "${retired_home}/.vibeguard"
+ln -s "${REPO_DIR}/skills/vibeguard" "${retired_home}/.claude/skills/vibeguard"
+ln -s "${REPO_DIR}/skills/old-retired" "${retired_home}/.claude/skills/old-retired"
+ln -s "${REPO_DIR}/skills/user-skill" "${retired_home}/.claude/skills/user-skill"
+mkdir -p "${retired_home}/.claude/skills/old-dir"
+ln -s "${REPO_DIR}/workflows/old-flow" "${retired_home}/.codex/skills/old-flow"
+python3 - <<'PY' "${retired_home}"
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1])
+state = {
+    "version": 1,
+    "files": {
+        str(home / ".claude/skills/vibeguard"): {"source": "skills/vibeguard", "type": "symlink"},
+        str(home / ".claude/skills/old-retired"): {"source": "skills/old-retired", "type": "symlink"},
+        str(home / ".claude/skills/old-dir"): {"source": "skills/old-dir", "type": "symlink"},
+        str(home / ".codex/skills/old-flow"): {"source": "workflows/old-flow", "type": "symlink"},
+    },
+}
+(home / ".vibeguard/install-state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+PY
+retired_cleanup_out="$(
+  HOME="${retired_home}" bash -c "
+    set -euo pipefail
+    source '${REPO_DIR}/scripts/setup/lib.sh'
+    source '${REPO_DIR}/scripts/lib/install-state.sh'
+    cleanup_retired_manifest_skill_links '~/.claude/skills/' '${retired_home}/.claude/skills'
+    cleanup_retired_manifest_skill_links '~/.codex/skills/' '${retired_home}/.codex/skills'
+  " 2>&1
+)"
+assert_contains "${retired_cleanup_out}" "Removed retired VibeGuard skill link" "retired skill cleanup reports removed managed links"
+assert_cmd "retired cleanup keeps active manifest Claude skill" test -L "${retired_home}/.claude/skills/vibeguard"
+assert_cmd "retired cleanup removes tracked retired Claude skill" test ! -L "${retired_home}/.claude/skills/old-retired"
+assert_cmd "retired cleanup removes tracked retired Codex skill" test ! -L "${retired_home}/.codex/skills/old-flow"
+assert_cmd "retired cleanup preserves untracked user skill" test -L "${retired_home}/.claude/skills/user-skill"
+assert_cmd "retired cleanup preserves retired regular directories" test -d "${retired_home}/.claude/skills/old-dir"
+
 header "hooks manifest"
 assert_cmd "hooks manifest validates" bash "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
 assert_cmd "hooks/CLAUDE.md table is generated from manifest" bash "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh" --check
@@ -414,8 +458,29 @@ assert_cmd "--dry-run does not create ~/.claude/CLAUDE.md" test ! -e "${HOME}/.c
 confirm_fail_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-interactive setup requires --yes for high-context writes"
 
+mkdir -p "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.vibeguard"
+ln -s "${REPO_DIR}/skills/old-retired" "${HOME}/.claude/skills/old-retired"
+ln -s "${REPO_DIR}/workflows/old-flow" "${HOME}/.codex/skills/old-flow"
+python3 - <<'PY' "${HOME}"
+import json
+import sys
+from pathlib import Path
+
+home = Path(sys.argv[1])
+state = {
+    "version": 1,
+    "files": {
+        str(home / ".claude/skills/old-retired"): {"source": "skills/old-retired", "type": "symlink"},
+        str(home / ".codex/skills/old-flow"): {"source": "workflows/old-flow", "type": "symlink"},
+    },
+}
+(home / ".vibeguard/install-state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+PY
 install_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
+assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
+assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg-helper binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vg-helper"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"

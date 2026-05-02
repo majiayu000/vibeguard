@@ -205,6 +205,13 @@ fi
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
 
+if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" ]]; then
+  echo "Step 1.5: Clean retired skill links"
+  cleanup_retired_manifest_skill_links "~/.claude/skills/" "${CLAUDE_DIR}/skills"
+  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
+  echo
+fi
+
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"

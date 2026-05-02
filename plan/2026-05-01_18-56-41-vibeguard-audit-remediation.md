@@ -1177,7 +1177,28 @@ Append entries here after each implemented step.
       - `python3 -m json.tool schemas/install-modules.json >/dev/null` -> pass
       - `git diff --check` -> pass
     - Notes:
-      - Active skill lifecycle is now load-bearing on `schemas/install-modules.json`; cleanup of historical retired symlinks remains out of scope.
+      - Active skill lifecycle is now load-bearing on `schemas/install-modules.json`; historical retired symlink cleanup is handled by follow-up Step P3.6.
+  - Step P3.6: `completed`
+    - Modified files:
+      - `scripts/lib/install-state.sh`
+      - `scripts/setup/lib.sh`
+      - `scripts/setup/install.sh`
+      - `scripts/setup/targets/claude-home.sh`
+      - `scripts/setup/targets/codex-home.sh`
+      - `tests/test_setup.sh`
+      - `plan/spec-codebase-audit-remediation.md`
+    - Main changes:
+      - Added install-state controlled retired skill symlink discovery under Claude and Codex skill directories.
+      - During install, removed only previously tracked VibeGuard skill symlinks whose names are no longer declared by `schemas/install-modules.json`.
+      - During clean, removed both current manifest skills and previously tracked retired skill symlinks before deleting install-state.
+      - Preserved untracked user skill symlinks and non-symlink paths.
+    - Tests:
+      - `bash -n scripts/lib/install-state.sh scripts/setup/lib.sh scripts/setup/install.sh scripts/setup/targets/claude-home.sh scripts/setup/targets/codex-home.sh tests/test_setup.sh` -> pass
+      - `bash tests/test_setup.sh` -> pass, 155/155
+      - `bash setup.sh --check` -> pass
+      - `git diff --check` -> pass
+    - Notes:
+      - Regular directories that replace retired skill symlinks remain user-owned and are not removed automatically.
   - Final regression matrix: `passed`
     - `bash setup.sh --check` -> pass exit 0.
     - `bash tests/test_hooks.sh` -> pass, all hook shards.

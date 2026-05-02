@@ -377,6 +377,7 @@ clean_claude_home_installation() {
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     rm -f "${CLAUDE_DIR}/skills/${skill}"
   done <<< "${skill_links}"
+  cleanup_retired_manifest_skill_links "~/.claude/skills/" "${CLAUDE_DIR}/skills"
 
   local agent
   for agent in "${REPO_DIR}"/agents/*.md; do

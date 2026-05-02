@@ -471,7 +471,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 ## Out of scope (explicitly deferred)
 
 - Shipping `mcp-server/` as a supported runtime surface (M12). Current state documents it as a legacy, unsupported prototype.
-- Historical cleanup of retired skill links (CFG-2 residual). Active Claude/Codex skill install, check, and clean paths now use `schemas/install-modules.json`; deleting old links that are no longer declared remains a separate lifecycle policy.
+- Full historical cleanup of non-symlink retired skill directories (CFG-2 residual). Active Claude/Codex skill install, check, clean, and tracked retired symlink cleanup now use `schemas/install-modules.json` plus install-state; user-owned regular directories remain untouched.
 - Full historical `events.jsonl` migration tooling (M4). New runtime events now carry `schema_version: 1`; backfilling old logs remains out of scope.
 - Workflow-template W-18 axis-1/2 coverage for tool-using agents — eval/run_eval.py is single-shot text completion; if other eval harnesses (eval-harness skill?) emerge later, they need their own SPEC entry.
 - vg-helper coverage automation (T13's `check-u22-coverage.sh`) requires `cargo-llvm-cov` install in CI — handled in T13.

@@ -87,6 +87,40 @@ manifest_skill_links_for_cleanup() {
   printf '%s\n' "${output}"
 }
 
+cleanup_retired_manifest_skill_links() {
+  local target="$1"
+  local dest_dir="$2"
+  local active_links
+
+  if ! declare -F state_list_tracked_symlinks_under >/dev/null; then
+    return 0
+  fi
+
+  active_links="$(manifest_skill_links_for_cleanup "${target}")"
+  [[ -n "${active_links//[[:space:]]/}" ]] || return 0
+
+  local active_names=$'\n'
+  local source_path skill
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    active_names+="${skill}"$'\n'
+  done <<< "${active_links}"
+
+  local tracked_path name display
+  while IFS= read -r tracked_path; do
+    [[ -n "${tracked_path}" ]] || continue
+    name="$(basename "${tracked_path}")"
+    [[ "${active_names}" == *$'\n'"${name}"$'\n'* ]] && continue
+    display="${tracked_path/#${HOME}/~}"
+    if [[ -L "${tracked_path}" ]]; then
+      rm -f "${tracked_path}"
+      yellow "  Removed retired VibeGuard skill link: ${display}"
+    elif [[ -e "${tracked_path}" ]]; then
+      yellow "  SKIP retired VibeGuard skill path is not a symlink: ${display}"
+    fi
+  done < <(state_list_tracked_symlinks_under "${dest_dir}")
+}
+
 confirm_high_context_write() {
   local label="$1"
   local diff_output="$2"

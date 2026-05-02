@@ -166,6 +166,7 @@ clean_codex_home_installation() {
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     rm -f "${CODEX_DIR}/skills/${skill}"
   done <<< "${skill_links}"
+  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
   # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
   local hooks_cleanup_result
