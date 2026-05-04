@@ -12,7 +12,9 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
 
-## Constraints
+## Operating Principles
+
+### Rules
 
 | ID | Rule |
 |----|------|
@@ -24,7 +26,7 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | L6 | Follow `workflows/references/routing-contract.md`: `execute_direct`, `plan_first`, `clarify_first`, and the shared handoff fields |
 | L7 | No AI markers. No force push. No secrets in commits |
 
-## Negative Constraints (what does NOT exist here)
+### Prohibitions
 
 - This project does NOT use an ORM
 - This project does NOT have a frontend framework
@@ -40,14 +42,12 @@ Before completing any task:
 - Go: `go build ./...` then `go test ./...`
 - Python: `pytest`
 
-## Architecture Layers
+## Routing
 
 If `.vibeguard-architecture.yaml` exists, enforce dependency direction:
-`Types → Config → Repo → Service → Runtime → UI` (one-way only)
+`Types → Config → Repo → Service → Runtime → UI` (one-way only).
 
-## Fix Priority
-
-security vulnerability > logic bug > data inconsistency > duplicate types > unwrap > naming
+Fix priority: security vulnerability > logic bug > data inconsistency > duplicate types > unwrap > naming.
 
 ## Code Style
 

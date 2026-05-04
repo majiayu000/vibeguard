@@ -14,10 +14,15 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_FILE = ROOT / "schemas" / "install-modules.json"
 PROJECT_SCHEMA_FILE = ROOT / "schemas" / "vibeguard-project.schema.json"
+PROMPT_CONTRACT_SCHEMA_FILE = ROOT / "schemas" / "prompt-contract.schema.json"
+DEFAULT_PROMPT_TARGET = ROOT / "templates" / "AGENTS.md"
 CANONICAL_RULES_DIR = ROOT / "rules" / "claude-rules"
 REFERENCE_DOC = ROOT / "docs" / "rule-reference.md"
 HOOKS_DIR = ROOT / "hooks"
 GUARDS_DIR = ROOT / "guards"
+
+PROMPT_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+PROMPT_FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:")
 
 RULE_ID_HEADING_RE = re.compile(r"^##\s+((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\b", re.MULTILINE)
 RULE_ID_TABLE_RE = re.compile(r"^\|\s*((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\s*\|", re.MULTILINE)
@@ -273,6 +278,108 @@ def _validate_skill_links(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _prompt_section_body(text: str, heading_text: str) -> str:
+    pattern = re.compile(
+        rf"^##\s+{re.escape(heading_text)}\s*$(.*?)(?=^##\s|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(text)
+    return match.group(1) if match else ""
+
+
+def _prompt_frontmatter_keys(text: str) -> set[str]:
+    if not text.startswith("---\n"):
+        return set()
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        end = text.find("\n---", 4)
+        if end < 0:
+            return set()
+    block = text[4:end]
+    keys: set[str] = set()
+    for raw in block.split("\n"):
+        line = raw.rstrip()
+        if not line or line.startswith("#") or line.startswith(" ") or line.startswith("\t"):
+            continue
+        match = PROMPT_FRONTMATTER_KEY_RE.match(line)
+        if match:
+            keys.add(match.group(1))
+    return keys
+
+
+def validate_prompt_contract(
+    target: Path,
+    schema: dict[str, Any],
+    *,
+    strict: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Return (errors, warnings) after validating ``target`` against the prompt contract."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not target.exists():
+        return [f"target file not found: {target}"], []
+
+    schema_version = schema.get("version")
+    if schema_version != 1:
+        return [f"unsupported prompt contract schema version: {schema_version!r}"], []
+
+    text = target.read_text(encoding="utf-8")
+    line_count = text.count("\n") + (0 if text.endswith("\n") else 1)
+
+    is_role_prompt = "/agents/" in target.as_posix()
+
+    if is_role_prompt:
+        # Role prompts use frontmatter for identity; the body is freeform per role.
+        # Required sections apply only to root AGENTS.md.
+        frontmatter = _prompt_frontmatter_keys(text)
+        for key in schema.get("role_prompt", {}).get("frontmatter_required", []):
+            if key not in frontmatter:
+                errors.append(f"role prompt missing frontmatter key: {key}")
+    else:
+        headings = [match.group(1).strip() for match in PROMPT_HEADING_RE.finditer(text)]
+        required = schema.get("required_sections", [])
+        optional = schema.get("optional_sections", [])
+        known = {section["heading_text"] for section in required}
+        known.update(section["heading_text"] for section in optional)
+
+        for section in required:
+            heading_text = section["heading_text"]
+            if heading_text not in headings:
+                errors.append(f"missing required section: ## {heading_text}")
+                continue
+            body = _prompt_section_body(text, heading_text)
+            body_lower = body.lower()
+            for token in section.get("must_mention", []):
+                if token.lower() not in body_lower:
+                    errors.append(
+                        f"section '## {heading_text}' missing required mention: {token!r}"
+                    )
+
+        for heading in headings:
+            if heading not in known:
+                warnings.append(f"unknown section heading: ## {heading}")
+
+    budgets = schema.get("budgets", {})
+    if is_role_prompt:
+        max_lines = budgets.get("role_prompt_max_lines")
+        if max_lines and line_count > max_lines:
+            message = f"line count {line_count} exceeds role_prompt_max_lines {max_lines}"
+            (errors if strict else warnings).append(message)
+    else:
+        max_lines = budgets.get("root_agents_md_max_lines")
+        warn_lines = budgets.get("root_agents_md_warn_lines")
+        if max_lines and line_count > max_lines:
+            message = f"line count {line_count} exceeds root_agents_md_max_lines {max_lines}"
+            (errors if strict else warnings).append(message)
+        elif warn_lines and line_count > warn_lines:
+            warnings.append(
+                f"line count {line_count} exceeds root_agents_md_warn_lines {warn_lines}"
+            )
+
+    return errors, warnings
+
+
 def validate_contract(manifest_path: Path, project_schema_path: Path) -> list[str]:
     manifest = load_manifest(manifest_path)
     project_schema = load_json(project_schema_path)
@@ -313,6 +420,14 @@ def build_parser() -> argparse.ArgumentParser:
     skill = sub.add_parser("skill-links", help="List installable skill links for a target")
     skill.add_argument("--target", required=True)
     skill.add_argument("--manifest-file", default=str(MANIFEST_FILE))
+
+    prompt = sub.add_parser(
+        "validate-prompt-contract",
+        help="Validate AGENTS.md or a role prompt against the prompt contract schema",
+    )
+    prompt.add_argument("--target", default=str(DEFAULT_PROMPT_TARGET))
+    prompt.add_argument("--schema", default=str(PROMPT_CONTRACT_SCHEMA_FILE))
+    prompt.add_argument("--strict", action="store_true")
     return parser
 
 
@@ -355,6 +470,20 @@ def main() -> int:
         manifest = load_manifest(Path(args.manifest_file))
         for source, name in skill_links(manifest, args.target):
             print(f"{source}\t{name}")
+        return 0
+
+    if args.command == "validate-prompt-contract":
+        schema = load_json(Path(args.schema))
+        errors, warnings = validate_prompt_contract(
+            Path(args.target), schema, strict=args.strict
+        )
+        for warning in warnings:
+            print(f"WARN: {warning}", file=sys.stderr)
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            return 1
+        print("OK")
         return 0
 
     parser.error("unknown command")
