@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777691735877,
+  "lastUpdate": 1777941440789,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4001,6 +4001,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 128,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8aed3b32c08e5473de20b3dc2619009403d7ddc5",
+          "message": "feat(prompts): canonical prompt contract schema + validator (#157)\n\nCloses #96.\n\nLint-only contract for templates/AGENTS.md and agents/*.md role prompts. Catches prompt-shape drift the same way the manifest contract catches manifest drift today.\n\nScope was reduced from the original SPEC after #124 (Chat Contract canonical), #125 (routing contract), and #118 (W-19 size guard) ate ~30-40% of the work. SPEC v2 in plan/spec-96-prompt-contract-schema.md.\n\nAdds:\n- schemas/prompt-contract.schema.json — single source of truth (4 required sections, 2 optional, role frontmatter keys, line budgets)\n- scripts/lib/vibeguard_manifest.py validate-prompt-contract — extends the existing CLI, with role-prompt detection anchored to repo root (not absolute substring)\n- scripts/ci/validate-prompt-contract.sh — walks AGENTS.md + every agents/*.md\n- tests/test_prompt_contract.sh — 15 cases including regressions for codex P1 (relative path) and P2 (ancestor named \"agents\")\n- docs/prompt-contract.md — one-page human reference\n\nMigrates templates/AGENTS.md headings:\n- Constraints + Negative Constraints -> Operating Principles (with Rules / Prohibitions subheadings)\n- Architecture Layers + Fix Priority -> Routing\n- Chat Contract / Verification / Code Style / Guards unchanged\n- Prose unchanged; diff is structural rename only\n\nCodex review: two passes (P1 + P2 on role-prompt detection), both fixed and clean on final commit. CI green on all four platforms.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-05T08:31:28+08:00",
+          "tree_id": "bdb1db517dcc2f6631c0ea141cdf1b422eff334d",
+          "url": "https://github.com/majiayu000/vibeguard/commit/8aed3b32c08e5473de20b3dc2619009403d7ddc5"
+        },
+        "date": 1777941439939,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 192,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 202,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 230,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 333,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 204,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 330,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 202,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 132,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 130,
             "unit": "ms"
           }
         ]
