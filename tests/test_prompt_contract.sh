@@ -103,6 +103,18 @@ assert_stderr_contains "unknown heading surfaces as WARN" \
   "WARN: unknown section heading: ## Random Extra Section" \
   run_validator --target "$TARGET_EXTRA"
 
+header "relative path under agents/ is treated as role prompt"
+RELATIVE_OUTPUT="$(cd "$REPO_DIR" && python3 "$HELPER" validate-prompt-contract \
+  --schema "$SCHEMA" --target agents/architect.md 2>&1 || true)"
+TOTAL=$((TOTAL + 1))
+if echo "$RELATIVE_OUTPUT" | grep -qF "missing required section"; then
+  red "relative agents/architect.md must skip required-section check"
+  FAIL=$((FAIL + 1))
+else
+  green "relative agents/architect.md skips required-section check"
+  PASS=$((PASS + 1))
+fi
+
 header "role prompt frontmatter"
 ROLE_DIR="${WORK_DIR}/agents"
 mkdir -p "$ROLE_DIR"

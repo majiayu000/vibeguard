@@ -327,7 +327,7 @@ def validate_prompt_contract(
     text = target.read_text(encoding="utf-8")
     line_count = text.count("\n") + (0 if text.endswith("\n") else 1)
 
-    is_role_prompt = "/agents/" in target.as_posix()
+    is_role_prompt = "agents" in target.parts
 
     if is_role_prompt:
         # Role prompts use frontmatter for identity; the body is freeform per role.
