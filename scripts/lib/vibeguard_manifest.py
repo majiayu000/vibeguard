@@ -327,7 +327,15 @@ def validate_prompt_contract(
     text = target.read_text(encoding="utf-8")
     line_count = text.count("\n") + (0 if text.endswith("\n") else 1)
 
-    is_role_prompt = "agents" in target.parts
+    try:
+        rel_parts = target.resolve().relative_to(ROOT).parts
+        is_role_prompt = bool(rel_parts) and rel_parts[0] == "agents"
+    except ValueError:
+        # Target lives outside the repository root (test fixtures, ad-hoc
+        # validation against an external file). Fall back to the immediate
+        # parent dir name; this avoids treating an unrelated checkout under
+        # an ancestor directory named "agents" as a role prompt.
+        is_role_prompt = target.parent.name == "agents"
 
     if is_role_prompt:
         # Role prompts use frontmatter for identity; the body is freeform per role.

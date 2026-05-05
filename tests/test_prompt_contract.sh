@@ -103,6 +103,14 @@ assert_stderr_contains "unknown heading surfaces as WARN" \
   "WARN: unknown section heading: ## Random Extra Section" \
   run_validator --target "$TARGET_EXTRA"
 
+header "ancestor directory named 'agents' must not misclassify root AGENTS"
+ANCESTOR_DIR="${WORK_DIR}/agents/myrepo-clone/templates"
+mkdir -p "$ANCESTOR_DIR"
+ANCESTOR_TARGET="${ANCESTOR_DIR}/AGENTS.md"
+cp "$REAL_AGENTS" "$ANCESTOR_TARGET"
+assert_cmd "checkout under ancestor 'agents/' still treats AGENTS.md as root" \
+  run_validator --target "$ANCESTOR_TARGET"
+
 header "relative path under agents/ is treated as role prompt"
 RELATIVE_OUTPUT="$(cd "$REPO_DIR" && python3 "$HELPER" validate-prompt-contract \
   --schema "$SCHEMA" --target agents/architect.md 2>&1 || true)"
