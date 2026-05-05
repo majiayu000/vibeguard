@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VibeGuard prompt contract",
+  "description": "Authoritative section list for templates/AGENTS.md and agents/*.md. Validator scripts/lib/vibeguard_manifest.py is the only consumer.",
+  "version": 1,
+  "required_sections": [
+    {
+      "name": "operating-principles",
+      "heading_text": "Operating Principles",
+      "must_mention": ["force push", "secret", "AI marker"]
+    },
+    {
+      "name": "routing",
+      "heading_text": "Routing"
+    },
+    {
+      "name": "verification",
+      "heading_text": "Verification"
+    },
+    {
+      "name": "output-contract",
+      "heading_text": "Chat Contract"
+    }
+  ],
+  "optional_sections": [
+    {
+      "name": "code-style",
+      "heading_text": "Code Style"
+    },
+    {
+      "name": "guards",
+      "heading_text": "Guards"
+    }
+  ],
+  "role_prompt": {
+    "frontmatter_required": ["name", "description", "model", "tools"]
+  },
+  "budgets": {
+    "root_agents_md_warn_lines": 150,
+    "root_agents_md_max_lines": 300,
+    "role_prompt_max_lines": 400
+  }
+}
