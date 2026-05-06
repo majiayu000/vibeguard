@@ -91,8 +91,33 @@ result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_test_4.go"}}' | bash hooks
 assert_not_contains "$result" "VIBEGUARD" "CB OPEN: write #4 also silent"
 
 rm -rf "$cb_state_dir"
+unset VG_CB_THRESHOLD VG_CB_COOLDOWN cb_state_dir
+
+# Codex P2 regression: a non-advisory write between source-file writes must
+# reset the breaker so the threshold counts CONSECUTIVE advisories, not
+# cumulative session-wide ones.
+header "pre-write-guard.sh — non-advisory pass resets the breaker"
+
+cb_state_dir=$(mktemp -d)
+export VIBEGUARD_LOG_DIR="$cb_state_dir"
+export VG_CB_THRESHOLD=2
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_reset_1.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "reset: source #1 advises (count=1)"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_reset_2.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "reset: source #2 advises (count=2, threshold)"
+
+# Non-advisory write — must reset the consecutive counter.
+echo '{"tool_input":{"file_path":"/tmp/vg_cb_reset.md","content":"hi"}}' | bash hooks/pre-write-guard.sh >/dev/null
+
+# After reset, the next source file should advise again instead of being silenced.
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_reset_3.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "reset: source #3 advises after .md pass (counter reset)"
+
+rm -rf "$cb_state_dir"
 export VIBEGUARD_LOG_DIR="$prev_log_dir"
-unset VG_CB_THRESHOLD VG_CB_COOLDOWN prev_log_dir cb_state_dir
+unset VG_CB_THRESHOLD prev_log_dir cb_state_dir
 
 # =========================================================
 

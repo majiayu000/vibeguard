@@ -12,14 +12,23 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
+
+# Helper: a write that does not trigger a new-source advisory should reset the
+# warn-mode breaker so its count tracks consecutive batched-source writes, not
+# cumulative session-wide advisories.
+_pass_and_exit() {
+  vg_cb_record_pass "pre-write-guard"
+  exit 0
+}
 
 INPUT=$(cat)
 
 FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 
 if [[ -z "$FILE_PATH" ]]; then
-  exit 0
+  _pass_and_exit
 fi
 
 # W-12: Block writes to test infrastructure files (new or existing)
@@ -106,7 +115,7 @@ fi
 
 # File already exists (edit) → Release
 if [[ -e "$FILE_PATH" ]]; then
-  exit 0
+  _pass_and_exit
 fi
 
 #Extract file name and extension
@@ -116,24 +125,24 @@ EXT="${BASENAME##*.}"
 # Release list: configuration, document, lock file, test file
 case "$BASENAME" in
   *.md|*.txt|*.json|*.yaml|*.yml|*.toml|*.lock|*.css|*.html|*.svg|*.png|*.jpg)
-    exit 0 ;;
+    _pass_and_exit ;;
   *.test.*|*.spec.*|*_test.*|*_spec.*)
-    exit 0 ;;
+    _pass_and_exit ;;
   test_*|spec_*)
-    exit 0 ;;
+    _pass_and_exit ;;
   .gitignore|.env*|Makefile|Dockerfile|*.sh)
-    exit 0 ;;
+    _pass_and_exit ;;
 esac
 
 # Release: files in the test directory
 case "$FILE_PATH" in
   */tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*)
-    exit 0 ;;
+    _pass_and_exit ;;
 esac
 
 # Source code file: check whether interception is required
 if ! vg_is_source_file "$FILE_PATH"; then
-  exit 0
+  _pass_and_exit
 fi
 
 # --- Source code files: reminder to search first and then write ---
