@@ -1,7 +1,7 @@
-# AGENTS.md — VibeGuard Constraints for Codex/OpenAI Agents
+# AGENTS.md — VibeGuard Starter Constraints for Codex/OpenAI Agents
 
-> This file is equivalent to the VibeGuard rules of CLAUDE.md and adapts to the OpenAI Codex agent format.
-> Copy to the project root directory and the Codex agent will automatically read it.
+> This starter carries the compact VibeGuard contract for Codex-style agents. It is not a replacement for the full Claude rule tree.
+> Copy it to a project root directory, then add project-specific facts for that repository.
 > Scope = the entire subtree of the directory where this file is located, with increasing priority for deep AGENTS.md.
 
 ## Chat Contract
@@ -12,9 +12,7 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
 
-## Operating Principles
-
-### Rules
+## Constraints
 
 | ID | Rule |
 |----|------|
@@ -26,13 +24,12 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | L6 | Follow `workflows/references/routing-contract.md`: `execute_direct`, `plan_first`, `clarify_first`, and the shared handoff fields |
 | L7 | No AI markers. No force push. No secrets in commits |
 
-### Prohibitions
+## Project Constraints To Fill In
 
-- This project does NOT use an ORM
-- This project does NOT have a frontend framework
-- This project does NOT use microservices
-- There is NO "similar file" pattern — always extend existing code
-- There is NO backward compatibility requirement — delete old code directly
+- Record repo-specific facts here, such as architecture layers, storage boundaries, supported runtimes, and test commands.
+- Do not put repo-specific facts into the global `~/.codex/AGENTS.md` block.
+- There is no "similar file" shortcut. Search for existing code and extend it when the existing contract supports the change.
+- Do not add backward compatibility layers unless the project contract or migration plan requires them.
 
 ## Verification
 
@@ -42,18 +39,19 @@ Before completing any task:
 - Go: `go build ./...` then `go test ./...`
 - Python: `pytest`
 
-## Routing
+## Architecture Layers
 
 If `.vibeguard-architecture.yaml` exists, enforce dependency direction:
-`Types → Config → Repo → Service → Runtime → UI` (one-way only).
+`Types → Config → Repo → Service → Runtime → UI` (one-way only)
 
-Fix priority: security vulnerability > logic bug > data inconsistency > duplicate types > unwrap > naming.
+## Fix Priority
+
+security vulnerability > logic bug > data inconsistency > duplicate types > unwrap > naming
 
 ## Code Style
 
-- Single file ≤ 200 lines — split if exceeded
+- Keep file size under control: 200-400 lines typical, 800 lines hard ceiling
 - No hardcoded values (ports, URLs, configs)
-- No backward compatibility layers
 - Every fix must include a corresponding test
 - Follow existing project patterns
 

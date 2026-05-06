@@ -32,6 +32,10 @@ case "${1:-}" in
     shift || true
     run_setup "clean.sh" "$@"
     ;;
+  --codex-status)
+    shift || true
+    run_setup "codex-status.sh" "$@"
+    ;;
   *)
     run_setup "install.sh" "$@"
     ;;

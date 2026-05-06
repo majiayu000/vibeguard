@@ -196,6 +196,47 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "run-hook-codex writes diagnostics without noisy stdout"
+TMP_HOME_DIAG="${TMP_DIR}/home-diagnostics"
+TMP_FAKE_REPO_DIAG="${TMP_DIR}/fake-repo-diagnostics"
+DIAG_FILE="${TMP_DIR}/codex-wrapper.jsonl"
+mkdir -p "${TMP_HOME_DIAG}/.vibeguard" "${TMP_FAKE_REPO_DIAG}/hooks"
+printf '%s' "${TMP_FAKE_REPO_DIAG}" > "${TMP_HOME_DIAG}/.vibeguard/repo-path"
+
+non_namespaced_out="$({
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" pre-bash-guard.sh
+} 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if [[ -z "${non_namespaced_out}" ]]; then
+  green "non-namespaced hook remains stdout-silent"
+  PASS=$((PASS + 1))
+else
+  red "non-namespaced hook remains stdout-silent"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$(cat "${DIAG_FILE}")" "non-namespaced-hook" "non-namespaced hook writes diagnostic event"
+
+missing_hook_out="$(
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${missing_hook_out}" '"permissionDecision": "deny"' "missing PreToolUse hook fails closed"
+assert_contains "$(cat "${DIAG_FILE}")" "missing-hook" "missing hook writes diagnostic event"
+
+cat > "${TMP_FAKE_REPO_DIAG}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+HOOK
+chmod +x "${TMP_FAKE_REPO_DIAG}/hooks/vibeguard-pre-bash-guard.sh"
+missing_adapter_out="$(
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_ADAPTER_PATH="${TMP_DIR}/missing-adapter.sh" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${missing_adapter_out}" '"permissionDecision": "deny"' "missing adapter fails closed for PreToolUse"
+assert_contains "$(cat "${DIAG_FILE}")" "missing-adapter" "missing adapter writes diagnostic event"
+
 header "run-hook-codex adapts posttool block output"
 TMP_HOME_POSTTOOL="${TMP_DIR}/home-posttool"
 TMP_FAKE_REPO_POSTTOOL="${TMP_DIR}/fake-repo-posttool"
@@ -218,6 +259,27 @@ posttool_out="$(
 )"
 assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
 assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"
+
+cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{'
+HOOK
+chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh"
+posttool_bad_diag="${TMP_DIR}/posttool-bad.jsonl"
+bad_posttool_out="$({
+  printf '{"hook_event_name":"PostToolUse","tool_input":{"command":"cargo check"}}' \
+    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${posttool_bad_diag}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
+} 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if [[ -z "${bad_posttool_out}" ]]; then
+  green "invalid PostToolUse hook output stays stdout-silent"
+  PASS=$((PASS + 1))
+else
+  red "invalid PostToolUse hook output stays stdout-silent"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$(cat "${posttool_bad_diag}")" "posttool-adapter-failed" "invalid PostToolUse output writes diagnostic event"
 
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
