@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778075115096,
+  "lastUpdate": 1778083658562,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4139,6 +4139,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 127,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3607dafbe5c1ff8ec3b14cef8d43182fbdc18087",
+          "message": "fix(hooks): silence pre-write batch advisories + drop Go same-name false positives (#158)\n\n* fix(pre-write-guard): silence batch L1 advisories via circuit breaker\n\nPreToolUse(Write) emitted the warn-mode L1 advisory on every new source\nfile with no session state, so a 6-file batch write injected 6 redundant\n`additionalContext` blocks and forced the agent to acknowledge each one.\nThe fix is also a self-violation cleanup: vg_cb_check was already declared\nin circuit-breaker.sh and used by analysis-paralysis-guard, but never\nwired into pre-write-guard — the exact declared-but-unwired pattern U-26\nforbids.\n\nWire the existing circuit breaker so consecutive notices auto-OPEN after\nCB_THRESHOLD (default 3); subsequent writes pass silently until the\ncooldown expires. Block mode (VIBEGUARD_WRITE_MODE=block) is unchanged so\nhard rejections are never silenced. Advisory text now declares\nACTION: NONE (advisory only) so the agent does not treat it as actionable.\n\nVerification (this session):\n- 5 new tests in test_pre_write_guard.sh confirm CLOSED→OPEN transition\n  at threshold=2.\n- End-to-end smoke run with default threshold=3 over a 6-file batch:\n  writes #1-3 emit advisory, #4-6 silent — 50% reduction in interrupts.\n- Full hook test suite: 15 files, 0 failures.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(post-write-guard): skip same-name detection for Go files\n\nIn Go, every package is a directory and basename collisions across\npackages are routine: internal/foo/config.go vs internal/cli/config.go,\nor many cmd/*/main.go binaries. The OS forbids same-directory same-name,\nso any Go \"same basename\" hit is necessarily cross-package — that is the\nstandard convention, not a duplicate. The L1 same-name check produced\nfalse positives for any new Go file in a multi-package repo.\n\nSkip same-name scanning for .go and rely on Check 2 (duplicate symbol\ndefinitions) to catch real cross-package duplication of struct/func\nnames. Other languages keep existing behavior.\n\nVerification (this session):\n- New test: Go same-named files in different packages no longer emit\n  \"duplicate filename\".\n- Regression guard test: Python same-name across packages still warns,\n  proving the carve-out is Go-only.\n- Full hook test suite: 15 files, 0 failures (post-write-guard 12/12).\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(pre-write-guard): reset breaker on non-advisory writes\n\nCodex P2 (pre-write-guard.sh:160): the warn-mode circuit breaker only\ncalled `vg_cb_record_block` on advisory paths but never called\n`vg_cb_record_pass` on the early-exit pass paths (existing-file edits,\n.md/.json/.yaml/etc., test directories, non-source files). The\nthreshold therefore counted CUMULATIVE session-wide advisories rather\nthan CONSECUTIVE batched-source-file advisories — meaning a user who\ncreated one .go file, did some unrelated config or doc edits, then\ncreated two more .go files would silently lose the next L1 advisory\neven though no real batch was in progress.\n\nSource `circuit-breaker.sh` once near the top, then add a\n`_pass_and_exit` helper that calls `vg_cb_record_pass` before\n`exit 0` on every non-advisory pass branch. Leaves the W-12 and U-16\n\"block\" decisions alone — those intentionally bypass the breaker per\nthe existing code comment.\n\nAdd a regression test asserting that an .md write between two\nthreshold-saturating .go writes resets the counter so the next .go\nwrite still surfaces the L1 advisory.\n\nVerification:\n- bash tests/hooks/test_pre_write_guard.sh → 23/23 PASS (3 new reset cases)\n- bash tests/hooks/test_post_write_guard.sh → 12/12 PASS\n- bash scripts/ci/self-application/run-all.sh → all 7 checks pass\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-07T00:01:20+08:00",
+          "tree_id": "207188cb302b878c0b377378d1fc7455f31dd02a",
+          "url": "https://github.com/majiayu000/vibeguard/commit/3607dafbe5c1ff8ec3b14cef8d43182fbdc18087"
+        },
+        "date": 1778083657655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 144,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 193,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 183,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 264,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 155,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 266,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 154,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 95,
             "unit": "ms"
           }
         ]
