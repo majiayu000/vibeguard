@@ -85,7 +85,7 @@ import sys
 try:
     data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
 except Exception:
-    sys.exit(0)
+    sys.exit(3)
 
 decision = data.get("decision", "pass")
 reason = data.get("reason", "")

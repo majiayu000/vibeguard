@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 #VibeGuard — AI anti-hallucination rules
 
-> __VIBEGUARD_RULE_COUNT__ rules loaded natively via `~/.claude/rules/vibeguard/`. There is no ORM, no front-end framework, and no microservices in this project.
+> __VIBEGUARD_RULE_COUNT__ rules total. Claude loads the full set from `~/.claude/rules/vibeguard/`; Codex sees the L1-L7 layers + Key Detailed Rules table below. Repo-specific facts belong in the repo-level `AGENTS.md`.
 
 ## Constraints (L1-L7 are enforced by Hooks)
 
@@ -58,4 +58,25 @@ Rule: Workflows without manual validation are prohibited from direct automation.
 ## Priority
 
 Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
+
+## Key Detailed Rules (full set in `rules/claude-rules/**`)
+
+| ID | Severity | Rule |
+|----|----------|------|
+| U-16 | Guideline | Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split. |
+| U-17 | Strict | Handle errors completely. Do not swallow exceptions silently. |
+| U-22 | Strict | New code minimum 80% line coverage; critical paths 100%. |
+| U-25 | Strict | Fix build failures first before any other edit; do not add new code while build is red. |
+| U-26 | Strict | Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup. |
+| U-29 | Strict | No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback. |
+| W-01 | Strict | No fixes without root cause: reproduce first, then form one hypothesis, then fix. |
+| W-02 | Strict | After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture. |
+| W-03 | Strict | Verify before claiming completion: produce fresh command output proving the claim. |
+| W-12 | Strict | Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure. |
+| W-14 | Strict | Parallel agents must have explicit, disjoint file ownership; no shared writable file. |
+| W-16 | Strict | Verification commands must come from this session. "Earlier passed" / "should work" do not count. |
+| SEC-01 | Critical | No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists. |
+| SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |
+| SEC-11 | Strict | AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`. |
+| SEC-13 | Strict | High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators. |
 <!-- vibeguard-end -->

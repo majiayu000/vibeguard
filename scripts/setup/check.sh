@@ -111,10 +111,25 @@ elif echo "$drift_output" | grep -q "STATUS: CLEAN"; then
   tracked=$(echo "$drift_output" | grep "Total tracked" | head -1)
   green "[OK] ${tracked}"
 else
-  echo "$drift_output" | grep -E "^(MISSING|DRIFT):" | while read -r line; do
-    red "  ${line}"
-  done
-  yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
+  _hard_drift=0
+  _semantic_drift=0
+  while IFS= read -r line; do
+    [[ "${line}" =~ ^(MISSING|DRIFT): ]] || continue
+    _drift_path="${line#*: }"
+    _drift_path="${_drift_path%% (*}"
+    if [[ "${line}" == DRIFT:* ]] && _semantic_msg="$(codex_semantic_drift_message "${_drift_path}" 2>/dev/null)"; then
+      yellow "  INFO: ${_semantic_msg}"
+      _semantic_drift=1
+    else
+      red "  ${line}"
+      _hard_drift=1
+    fi
+  done <<< "${drift_output}"
+  if [[ "${_hard_drift}" -eq 1 ]]; then
+    yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
+  elif [[ "${_semantic_drift}" -eq 1 ]]; then
+    yellow "[INFO] Install-state checksum drift is semantic-only for shared Codex files"
+  fi
 fi
 
 # Check awk POSIX compliance (BSD awk has no \s \d \w \b)
