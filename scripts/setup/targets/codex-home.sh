@@ -98,6 +98,11 @@ inject_codex_home_rules() {
     fi
     return 1
   fi
+  if [[ "${rules_diff}" == "SKIP" ]]; then
+    green "  ~/.codex/AGENTS.md already up to date"
+    echo
+    return 0
+  fi
   local result
   if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${agents_md}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     if [[ -f "${agents_md}" ]]; then
