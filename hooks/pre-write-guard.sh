@@ -137,7 +137,12 @@ if ! vg_is_source_file "$FILE_PATH"; then
 fi
 
 # --- Source code files: reminder to search first and then write ---
-# Default warn (reminder), set VIBEGUARD_WRITE_MODE=block to upgrade to hard interception
+# Default warn (reminder), set VIBEGUARD_WRITE_MODE=block to upgrade to hard interception.
+#
+# Circuit breaker (warn mode): after CB_THRESHOLD consecutive notices in the same
+# session the circuit OPENs and subsequent writes pass silently. This prevents
+# 6-file batch writes from injecting 6 redundant advisories. Block mode does not
+# use the circuit breaker so hard rejections are never silenced.
 MODE="${VIBEGUARD_WRITE_MODE:-warn}"
 
 if [[ "$MODE" == "block" ]]; then
@@ -149,13 +154,18 @@ if [[ "$MODE" == "block" ]]; then
 }
 EOF
 else
-  vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
-  cat <<'EOF'
+  source "$(dirname "$0")/circuit-breaker.sh"
+  if vg_cb_check "pre-write-guard"; then
+    vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
+    vg_cb_record_block "pre-write-guard"
+    cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "VIBEGUARD [L1] [review] [this-edit] OBSERVATION: new source file creation without prior search\nSCOPE: search before proceeding — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW"
+    "additionalContext": "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement"
   }
 }
 EOF
+  fi
+  # Circuit OPEN: silent pass (vg_cb_check already logged the auto-pass).
 fi

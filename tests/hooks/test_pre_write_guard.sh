@@ -63,6 +63,37 @@ assert_contains "$result" '"decision": "block"' "W-12: Block writes to babel.con
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_myconfig.json"}}' | bash hooks/pre-write-guard.sh)
 assert_not_contains "$result" "W-12" "W-12: Normal config.json does not trigger test infrastructure protection"
 
+# Circuit breaker: warn-mode advisories must silence after CB_THRESHOLD consecutive
+# notices in the same session, so a 6-file batch write does not inject 6 redundant
+# L1 advisories.
+header "pre-write-guard.sh — circuit breaker silences batch advisories"
+
+# Override VIBEGUARD_LOG_DIR for this block, but restore it afterwards because
+# hook_test_lib registers a `trap EXIT 'rm -rf "$VIBEGUARD_LOG_DIR"'` that
+# fails under set -u if the variable is unset on exit.
+prev_log_dir="$VIBEGUARD_LOG_DIR"
+cb_state_dir=$(mktemp -d)
+export VIBEGUARD_LOG_DIR="$cb_state_dir"
+export VG_CB_THRESHOLD=2
+export VG_CB_COOLDOWN=300
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_test_1.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "CB CLOSED: write #1 emits L1 advisory"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_test_2.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "CB CLOSED: write #2 emits L1 advisory (threshold reached)"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_test_3.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "CB OPEN: write #3 is silent (no VIBEGUARD advisory)"
+assert_not_contains "$result" "[L1]" "CB OPEN: write #3 has no L1 marker"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_test_4.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "CB OPEN: write #4 also silent"
+
+rm -rf "$cb_state_dir"
+export VIBEGUARD_LOG_DIR="$prev_log_dir"
+unset VG_CB_THRESHOLD VG_CB_COOLDOWN prev_log_dir cb_state_dir
+
 # =========================================================
 
 hook_test_finish
