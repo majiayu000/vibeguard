@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777941440789,
+  "lastUpdate": 1778075115096,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4070,6 +4070,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 130,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0920db869480d672c649bfccbda0684c604a1059",
+          "message": "Improve Codex usage diagnostics (#156)\n\n* Improve Codex VibeGuard usage diagnostics\n\n- add repo-level AGENTS.md and keep repo-specific facts out of global Codex/Claude templates\n- install and validate managed Codex AGENTS.md rules, semantic drift checks, and a read-only Codex status command\n- add Codex wrapper diagnostics and a single contract gate for Codex runtime checks\n- ensure hooks/_lib/codex_diag.sh is committed with executable mode so CI smoke tests pass\n\nVerification:\n- bash scripts/codex-contract-check.sh\n- bash tests/test_manifest_contract.sh\n- bash setup.sh --check\n- bash setup.sh --codex-status\n- bash tests/test_codex_runtime.sh\n- bash tests/test_codex_status.sh\n- bash tests/test_setup.sh\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(codex-home): skip AGENTS.md inject when diff is SKIP\n\nCodex P2 (codex-home.sh:102): even after `confirm_high_context_write`\nreturned 'SKIP' (already up to date), `claude_md.py inject` still ran\nand rewrote the target file. That contradicts the dry-run promise of\n`setup.sh --dry-run` and could fail when the target AGENTS.md is\nread-only.\n\nAdd an explicit early return when `rules_diff == \"SKIP\"`. The\nconfirmation helper already handled accept/reject for the diff cases;\nthis branch is just the no-op short-circuit.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(codex-hook): parse hook_event_name in diag fallback to keep PreToolUse fail-closed\n\nCodex P2 (run-hook-codex.sh:32): when codex_diag.sh is missing the\nfallback codex_raw_event_name returned an empty string, so all later\nguards of the form [[ \"$EVENT_NAME\" == \"PreToolUse\" ]] never\nfired and the wrapper exited 0 silently — re-introducing the\nfail-open behavior this PR was meant to remove.\n\nUse a pure-bash one-liner that extracts hook_event_name via\nBASH_REMATCH on the raw JSON. This satisfies both:\n- the project's own scripts/ci/self-application/check-codex-wrapper-thin.sh\n  rule (no inline python3 / heredoc adapter logic in the wrapper)\n- the wrapper line ceiling (the file stays at 140 lines, unchanged)\n\nVerification:\n- bash scripts/ci/self-application/run-all.sh → all 7 checks pass\n- bash scripts/codex-contract-check.sh → 14/14 pass\n- bash tests/test_codex_runtime.sh → 48/48 pass\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-06T21:38:35+08:00",
+          "tree_id": "bc40257ced3049a90ac26b8503f916a76d0a09f6",
+          "url": "https://github.com/majiayu000/vibeguard/commit/0920db869480d672c649bfccbda0684c604a1059"
+        },
+        "date": 1778075114380,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 183,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 199,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 225,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 318,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 197,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 318,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 196,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 128,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 127,
             "unit": "ms"
           }
         ]
