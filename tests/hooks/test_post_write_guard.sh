@@ -81,6 +81,39 @@ result=$(echo '{"tool_input":{"file_path":"'${REPO_DIR}'/hooks/subdir/log.sh","c
 # But .sh is not in VG_SOURCE_EXTS, so it is allowed
 assert_not_contains "$result" "VIBEGUARD" "Non-source extension (.sh) allowed"
 
+# Go: same basename across different packages is the standard convention
+# (e.g. internal/foo/config.go vs internal/cli/config.go) and must not warn.
+tmp_repo_go="$(mktemp -d)"
+git -C "$tmp_repo_go" init -q
+mkdir -p "$tmp_repo_go/internal/foo" "$tmp_repo_go/internal/cli"
+cat >"$tmp_repo_go/internal/foo/config.go" <<'EOF'
+package foo
+
+type FooConfig struct{}
+EOF
+cat >"$tmp_repo_go/internal/cli/config.go" <<'EOF'
+package cli
+
+type CLIConfig struct{}
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"package cli\\n\\ntype CLIConfig struct{}"}}' "$tmp_repo_go/internal/cli/config.go")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "duplicate filename" "Go: same basename across different packages does not warn"
+rm -rf "$tmp_repo_go"
+
+# Non-Go (Python) preserves same-name detection — regression guard for the Go-only carve-out.
+tmp_repo_py_check="$(mktemp -d)"
+git -C "$tmp_repo_py_check" init -q
+mkdir -p "$tmp_repo_py_check/pkg_a" "$tmp_repo_py_check/pkg_b"
+cat >"$tmp_repo_py_check/pkg_a/utils.py" <<'EOF'
+def alpha():
+    return 1
+EOF
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def beta():\\n    return 2"}}' "$tmp_repo_py_check/pkg_b/utils.py")
+result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
+assert_contains "$result" "duplicate filename" "Python: same basename across packages still warns (Go-only carve-out)"
+rm -rf "$tmp_repo_py_check"
+
 # =========================================================
 
 hook_test_finish

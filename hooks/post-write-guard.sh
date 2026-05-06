@@ -138,6 +138,16 @@ else
     2>/dev/null | head -"${MAX_MATCHES}" || true)
 fi
 
+# Skip same-name detection for Go: each package is a directory, so two files
+# with the same basename are necessarily in different packages
+# (e.g. internal/foo/config.go vs internal/cli/config.go) and that is the
+# standard convention, not a duplicate. Multi-binary repos likewise have
+# many cmd/*/main.go files. Real cross-package duplicates of struct/func
+# definitions are still caught by Check 2 below.
+if [[ "$EXT" == "go" ]]; then
+  SAME_NAME_FILES=""
+fi
+
 if [[ -n "$SAME_NAME_FILES" ]]; then
   FILE_LIST=$(echo "$SAME_NAME_FILES" | tr '\n' ', ' | sed 's/,$//')
   WARNINGS="[L1] [review] [this-edit] OBSERVATION: duplicate filename found in project: ${FILE_LIST}
