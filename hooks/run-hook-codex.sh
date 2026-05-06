@@ -29,7 +29,7 @@ if [[ -f "${DIAG_PATH}" ]]; then
   # shellcheck source=hooks/_lib/codex_diag.sh
   source "${DIAG_PATH}"
 else
-  codex_raw_event_name() { printf '\n'; }
+  codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
   codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD install incomplete."}}\n'; }
   codex_diag() { return 0; }
 fi
