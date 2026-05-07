@@ -26,9 +26,9 @@ source "${SCRIPT_DIR}/targets/codex-home.sh"
 
 # --- Mode dispatch ---
 case "${1:-}" in
-  --check) exec bash "${SCRIPT_DIR}/check.sh" ;;
-  --clean) exec bash "${SCRIPT_DIR}/clean.sh" ;;
-  --codex-status) exec bash "${SCRIPT_DIR}/codex-status.sh" ;;
+  --check) shift; exec bash "${SCRIPT_DIR}/check.sh" "$@" ;;
+  --clean) shift; exec bash "${SCRIPT_DIR}/clean.sh" "$@" ;;
+  --codex-status) shift; exec bash "${SCRIPT_DIR}/codex-status.sh" "$@" ;;
 esac
 
 # --- Argument parsing ---
