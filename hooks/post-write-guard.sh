@@ -277,15 +277,16 @@ if [[ -n "$STUB_WARNINGS" ]]; then
 }${STUB_WARNINGS}"
 fi
 
-# --- [U-16] File size guard: 800-line default limit with project exemptions ---
+# --- [U-16] File size guard: configurable limit with project exemptions ---
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
 case "$FILE_PATH" in
   *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go)
     case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) ;;
       *)
         _U16_TOTAL=$(echo "$CONTENT" | wc -l | tr -d ' ')
-        if [[ "$_U16_TOTAL" -gt 800 ]]; then
-          _U16_LIMIT=800
+        if [[ "$_U16_TOTAL" -gt "$_U16_BASE_LIMIT" ]]; then
+          _U16_LIMIT="$_U16_BASE_LIMIT"
           if [[ "$PROJECT_DIR" != "/" && -f "$PROJECT_DIR/CLAUDE.md" ]]; then
             _U16_EXEMPT=$(VG_CLAUDE_MD="$PROJECT_DIR/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
 import os, re

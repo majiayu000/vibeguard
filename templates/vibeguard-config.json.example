@@ -1,0 +1,13 @@
+{
+  "u16": {
+    "limit": 800
+  },
+  "circuit_breaker": {
+    "threshold": 3,
+    "cooldown_seconds": 300
+  },
+  "paralysis": {
+    "threshold": 7
+  },
+  "write_mode": "warn"
+}

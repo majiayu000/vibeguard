@@ -153,6 +153,17 @@ green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
 green "  ~/.vibeguard/user-rules/ ready (add custom .md rules here)"
 
+# Seed user config from example on first install. Existing user edits are
+# preserved so setup re-runs do not overwrite tuned thresholds.
+USER_CONFIG_FILE="${VIBEGUARD_HOME}/config.json"
+USER_CONFIG_EXAMPLE="${REPO_DIR}/templates/vibeguard-config.json.example"
+if [[ ! -f "${USER_CONFIG_FILE}" && -f "${USER_CONFIG_EXAMPLE}" ]]; then
+  cp "${USER_CONFIG_EXAMPLE}" "${USER_CONFIG_FILE}"
+  green "  ~/.vibeguard/config.json seeded (edit to tune write_mode and thresholds)"
+elif [[ -f "${USER_CONFIG_FILE}" ]]; then
+  green "  ~/.vibeguard/config.json present (preserved)"
+fi
+
 # Install hooks and guards snapshot (isolated from dev repo — prevents dirty state from breaking hooks)
 # Atomic install: copy to temp dir, then rename into place. If interrupted mid-copy,
 # the previous installed/ remains intact instead of being left empty.

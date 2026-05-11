@@ -158,11 +158,12 @@ vg_post_edit_detect_u16_size() {
   esac
   [[ -f "$FILE_PATH" ]] || return 0
 
-  local total limit dir exempt
+  local total limit dir exempt base_limit
+  base_limit=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
   total=$(wc -l < "$FILE_PATH" | tr -d ' ')
-  [[ "$total" -gt 800 ]] || return 0
+  [[ "$total" -gt "$base_limit" ]] || return 0
 
-  limit=800
+  limit="$base_limit"
   dir="$FILE_PATH"
   while [[ "$dir" != "/" ]]; do
     dir=$(dirname "$dir")
