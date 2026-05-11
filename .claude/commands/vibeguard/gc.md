@@ -34,17 +34,23 @@ tags: [vibeguard, gc, cleanup, maintenance]
    - Delete worktrees that have been inactive for more than 7 days and have no unmerged changes
    - Only warnings about unmerged changes, listing those that need to be handled manually
 
-3. **Code Junk Scanning**
+3. **Rule Budget GC**
+   - Run `bash ${VIBEGUARD_DIR}/scripts/gc/gc-rule-budget.sh <project directory>`
+   - Count the effective U-32 task constraint budget across global, project, skill, and path-scoped rule sources
+   - List low-frequency rule candidates that should be downgraded to a skill, hook, or path-scoped child file
+
+4. **Code Junk Scanning**
    - Run `bash ${VIBEGUARD_DIR}/guards/universal/check_code_slop.sh <project directory>`
    - Detect 5 types of AI garbage patterns: null exception handling, legacy debugging code, expired TODO, dead code marking, overlong files
    - Output structured reports
 
-4. **Summary Report**
+5. **Summary Report**
    ```
    VibeGuard GC Report
    ==================
    Log: Archive XX items, current XX items
    Worktree: Clean X, warn X
+   Rule budget: X effective constraints, X downgrade candidates
    Code garbage: X problems
      - Null exception handling: X
      - Legacy debug code: X
@@ -53,7 +59,7 @@ tags: [vibeguard, gc, cleanup, maintenance]
      - Extra long files: X
    ```
 
-5. **Recommended fix**
+6. **Recommended fix**
    - Provide repair suggestions for each type of garbage problem
    - Can be repaired item by item after user confirmation
    - Run `/vibeguard:check` to verify after fixing
@@ -61,5 +67,6 @@ tags: [vibeguard, gc, cleanup, maintenance]
 **Reference**
 - Log archive: `scripts/gc/gc-logs.sh`
 - Worktree cleanup: `scripts/gc/gc-worktrees.sh`
+- Rule budget GC: `scripts/gc/gc-rule-budget.sh`
 - Code garbage detection: `guards/universal/check_code_slop.sh`
 <!-- VIBEGUARD:GC:END -->

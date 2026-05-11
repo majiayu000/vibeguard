@@ -37,7 +37,7 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
 | U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
 | U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
-| U-32 | Rule overload threshold + absolute-language detection | Strict | If one rule file contains more than 30 active constraints, raise an overload warning. |
+| U-32 | Rule overload threshold + absolute-language detection | Strict | Keep the effective constraint set for a single agent task at 15 or fewer items. |
 | U-33 | Code search defaults to glob/grep; vector DB requires written justification | Strict | For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. |
 
 ## Workflow and process rules

@@ -97,29 +97,35 @@ When you declare framework components such as configs, traits, persistence layer
 - GC receives `project_root` but never propagates it to child tasks, causing functional downgrade.
 
 ## U-32: Rule overload threshold + absolute-language detection (strict)
-If one rule file contains more than 30 active constraints, raise an overload warning. When a rule uses absolute language such as "always", "never", or "must", it also needs a downgrade path so the system does not create an illusion of control.
+Keep the effective constraint set for a single agent task at 15 or fewer items. If the live task context exceeds 15 constraints, warn and split lower-frequency material into path-scoped child files, skills, hooks, or verify scripts. If it exceeds 30 constraints, block and require decomposition before continuing. When a rule uses absolute language such as "always", "never", or "must", it also needs a downgrade path so the system does not create an illusion of control.
 
-**Sources** (three-source convergence, 2026-04-16):
+**Sources**:
+- arXiv 2605.06445 (Constraint Decay, 2026-05-09 RSS scout): across 80 greenfield and 20 feature tasks over 8 web frameworks, stronger agents lost about 30 assertion-pass-rate points as structured constraints accumulated; data-layer defects were the dominant failure mode.
 - Addy Osmani, "How to Write a Good Spec": the curse of instructions. Ten rules can be obeyed less reliably than five.
 - Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
 - Martin Fowler, "Context Engineering": illusion of control is an anti-pattern. LLMs are probabilistic systems, so absolute language creates false guarantees.
 
 **Mechanical checks**:
-1. If a rule file contains more than 30 entries, recommend decomposing it into path-scoped child files (for example, only load Rust rules for `*.rs`).
-2. If a rule uses absolute phrasing such as "ensure X", "never do Y", or "must be 100%", attach both:
+1. Count the actual task-loaded constraint set: global memory files, project `AGENTS.md`/`CLAUDE.md`, active skill files, and path-scoped native rules that match the current task files.
+2. If the live task context contains more than 15 effective constraints, emit a U-32 warning and recommend moving lower-frequency material to path-scoped child files, skills, hooks, or verify scripts.
+3. If the live task context contains more than 30 effective constraints, block the task until the constraint set is decomposed.
+4. If a rule file contains more than 30 entries, recommend decomposing it into path-scoped child files (for example, only load Rust rules for `*.rs`).
+5. If a rule uses absolute phrasing such as "ensure X", "never do Y", or "must be 100%", attach both:
    - A downgrade path: "If X is not feasible, fall back to Y and mark it stale."
    - An observability hook: a verification command or guard script that proves whether the rule is actually being followed.
-3. If a global `CLAUDE.md` or `AGENTS.md` file grows beyond 100 lines, move material into skills or path-scoped rule files.
+6. If a global `CLAUDE.md` or `AGENTS.md` file grows beyond 100 lines, move material into skills or path-scoped rule files.
+7. Run `bash hooks/count_active_constraints.sh` through the strict hook profile, or run `python3 scripts/constraints/count_active_constraints.py --root . --include-canonical-rules --gc-report` manually, to inspect the current budget and downgrade candidates.
 
 **Repair order**:
-1. Audit the current rule set and annotate trigger frequency for each rule from access logs.
-2. Candidate low-frequency rules (zero hits in the last 30 days) for removal or demotion into a skill.
-3. Verify whether high-frequency rules use absolute language without a downgrade path.
-4. Split large files by language or domain (`common/`, `rust/`, `python/`, `security/`).
+1. Count the current task's effective constraints before adding any new persistent instruction.
+2. Audit the current rule set and annotate trigger frequency for each rule from access logs.
+3. Candidate low-frequency rules (zero hits in the last 30 days) for removal or demotion into a skill.
+4. Verify whether high-frequency rules use absolute language without a downgrade path.
+5. Split large files by language or domain (`common/`, `rust/`, `python/`, `security/`) and attach path frontmatter where possible.
 
 **Additional checks**:
-4. Before adding a persistent rule, first confirm it is a high-frequency, stable, cross-task constraint; otherwise prefer a skill, hook, or verify script.
-5. Long workflow templates, one-off playbooks, and low-frequency knowledge should not live permanently in `CLAUDE.md` or `AGENTS.md`; convert them into an index plus on-demand documents.
+1. Before adding a persistent rule, first confirm it is a high-frequency, stable, cross-task constraint; otherwise prefer a skill, hook, or verify script.
+2. Long workflow templates, one-off playbooks, and low-frequency knowledge should not live permanently in `CLAUDE.md` or `AGENTS.md`; convert them into an index plus on-demand documents.
 
 **Anti-patterns**:
 - A single file accumulates 50+ rules and expects all of them to remain active at once.

@@ -369,17 +369,19 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
                     hooks.pop("PostToolUse", None)
                 changed = True
 
-        if "Stop" in hooks and isinstance(hooks["Stop"], list):
-            original = hooks["Stop"]
+        for event in ("Stop", "SessionStart", "PreCompact", "UserPromptSubmit"):
+            if event not in hooks or not isinstance(hooks[event], list):
+                continue
+            original = hooks[event]
             filtered = [
                 h for h in original
                 if not any(_entry_contains(h, key) for key in all_managed_script_names(MANIFEST))
             ]
             if len(filtered) != len(original):
                 if filtered:
-                    hooks["Stop"] = filtered
+                    hooks[event] = filtered
                 else:
-                    hooks.pop("Stop", None)
+                    hooks.pop(event, None)
                 changed = True
 
         if not hooks:
