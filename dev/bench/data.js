@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778512796791,
+  "lastUpdate": 1778513374497,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4346,6 +4346,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 147,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a851b960068a19d0334cb86a7ad8fe04e3048486",
+          "message": "fix(hooks): align W-15 detector with spec — size-delta semantics + downgrade path (#161)\n\n* fix(hooks): align W-15 detector with spec — use size-delta semantics + downgrade path (#160)\n\nW-15's previous implementation only counted consecutive same-file edits\nin the event log, which fired on every long-document workflow (markdown\nspec / RFC / design doc) where each edit naturally targets the same\nfile. The rule's spec, however, asks for *information-yield shrinkage*\nacross three rounds — same-file alone is not the criterion.\n\nThis change reads `len(new_string) - len(old_string)` from the tool\ninput, encodes it in the event-log `detail` field as\n`<file_path>||delta=<N>`, and updates the W-15 detector to fire only\nwhen:\n\n1. three or more consecutive edits target the same file,\n2. `|Δ|` is non-increasing across the three most recent rounds, and\n3. `|Δ_latest| < 300` chars (micro-tuning cap; large content additions\n   never qualify as low-yield).\n\nA `VIBEGUARD_SUPPRESS_W15=1` env var provides the U-32 downgrade path\nthat the rule was previously missing.\n\nThe detail-field encoding is backward-compatible: existing parsers\n(W-14 overlap, churn-count, warn-count, vg-helper log queries) all\nsplit on `||` and only consume the first segment.\n\nTests cover spec compliance (shrinking radius below cap fires),\nmarkdown false-positive regression (growing content does not fire),\nthe `VIBEGUARD_SUPPRESS_W15` downgrade path, the size cap, and\nfail-closed behavior on legacy log entries without delta metadata.\n\nCloses #160\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(hooks): keep W-14 warnings from masking W-15\n\n* test(setup): avoid pipefail false negatives in contains helper\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-11T23:23:13+08:00",
+          "tree_id": "3ed3a85a2efbd8631c87d83d44dafcc12ff1b752",
+          "url": "https://github.com/majiayu000/vibeguard/commit/a851b960068a19d0334cb86a7ad8fe04e3048486"
+        },
+        "date": 1778513373943,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 190,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 260,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 232,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 313,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 204,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 335,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 203,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 134,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 134,
             "unit": "ms"
           }
         ]
