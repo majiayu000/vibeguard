@@ -7,6 +7,7 @@ REPO_DIR="${1:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 
 checks=(
   "check-sec13-self-apply.sh"
+  "check-sec13-risk-fields.sh"
   "check-sec14-mcp-descriptions.sh"
   "check-u29-no-silent-degrade.sh"
   "check-pkg-correction-argv-only.sh"
