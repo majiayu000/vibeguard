@@ -56,7 +56,8 @@ EOF
 fi
 
 # --- [U-16] File size block: reject source files over limit before writing ---
-_U16_RESULT=$(echo "$INPUT" | python3 -c '
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+_U16_RESULT=$(echo "$INPUT" | VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
@@ -65,14 +66,15 @@ file_path = data.get("tool_input", {}).get("file_path", "")
 content = data.get("tool_input", {}).get("content", "")
 lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
 
+base_limit = int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800")
 SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
 _, ext = os.path.splitext(file_path)
 is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
-if ext.lower() not in SOURCE_EXTS or is_test or lines <= 800:
+if ext.lower() not in SOURCE_EXTS or is_test or lines <= base_limit:
     print("OK")
     sys.exit(0)
 
-limit = 800
+limit = base_limit
 dir_path = os.path.dirname(os.path.abspath(file_path)) if file_path else ""
 while dir_path and dir_path != "/":
     if os.path.isdir(os.path.join(dir_path, ".git")):
@@ -152,7 +154,11 @@ fi
 # session the circuit OPENs and subsequent writes pass silently. This prevents
 # 6-file batch writes from injecting 6 redundant advisories. Block mode does not
 # use the circuit breaker so hard rejections are never silenced.
-MODE="${VIBEGUARD_WRITE_MODE:-warn}"
+MODE="$(vg_config_get_str VIBEGUARD_WRITE_MODE write_mode warn)"
+case "$MODE" in
+  block|warn) ;;
+  *) MODE="warn" ;;
+esac
 
 if [[ "$MODE" == "block" ]]; then
   vg_log "pre-write-guard" "Write" "block" "New source code file not searched" "$FILE_PATH"

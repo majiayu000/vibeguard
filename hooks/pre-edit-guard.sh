@@ -14,7 +14,8 @@ INPUT=$(cat)
 
 # Complete all checks directly in Python to avoid bash variable passing from destroying old_string
 # (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
-CHECK_RESULT=$(python3 -c '
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
@@ -84,7 +85,7 @@ if ext.lower() in SOURCE_EXTS and not is_test and old_string and new_string:
     else:
         estimated = current_lines - old_lines + new_lines
 
-    limit = 800
+    limit = int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800")
     dir_path = os.path.dirname(os.path.abspath(file_path))
     while dir_path and dir_path != "/":
         if os.path.isdir(os.path.join(dir_path, ".git")):

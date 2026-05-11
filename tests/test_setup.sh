@@ -64,6 +64,24 @@ assert_manifest_skill_links_installed() {
   [[ "${found}" -eq 1 ]]
 }
 
+assert_runtime_config_seeded() {
+  python3 - <<'PY' "${HOME}/.vibeguard/config.json"
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+checks = [
+    data.get("write_mode") == "warn",
+    data.get("u16", {}).get("limit") == 800,
+    data.get("circuit_breaker", {}).get("threshold") == 3,
+    data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,
+    data.get("paralysis", {}).get("threshold") == 7,
+]
+raise SystemExit(0 if all(checks) else 1)
+PY
+}
+
 assert_chat_contract_blocks_match() {
   python3 - <<'PY' "${REPO_DIR}" "${HOME}/.claude/CLAUDE.md"
 from pathlib import Path
@@ -461,6 +479,9 @@ assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.co
 
 confirm_fail_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-interactive setup requires --yes for high-context writes"
+assert_contains "${confirm_fail_out}" "~/.vibeguard/config.json seeded" "setup seeds runtime config file before high-context confirmation"
+assert_cmd "~/.vibeguard/config.json exists after setup seed" test -f "${HOME}/.vibeguard/config.json"
+assert_cmd "~/.vibeguard/config.json includes advertised runtime keys after seed" assert_runtime_config_seeded
 
 mkdir -p "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.vibeguard"
 ln -s "${REPO_DIR}/skills/old-retired" "${HOME}/.claude/skills/old-retired"
@@ -486,6 +507,7 @@ assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup i
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg-helper binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vg-helper"
+assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
 assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "${HOME}/.claude/skills/agentsmd-audit"
@@ -537,6 +559,7 @@ settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
 custom_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
 assert_contains "${custom_settings_out}" "preserving customized VibeGuard hook command for pre-bash-guard.sh" "setup warns when preserving customized hook command"
+assert_contains "${custom_settings_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves existing runtime config file"
 assert_cmd "customized hook command is preserved by default" grep -q "flock /tmp/vibeguard.lock" "${HOME}/.claude/settings.json"
 force_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes --force-overwrite 2>&1)"
 assert_contains "${force_settings_out}" "Mode: force-overwrite" "--force-overwrite mode is visible"
