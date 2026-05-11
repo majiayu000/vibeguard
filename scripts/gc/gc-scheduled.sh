@@ -35,6 +35,12 @@ run_worktree_cleanup() {
   echo
 }
 
+run_rule_budget_gc() {
+  echo "--- Rule Budget GC (U-32) ---"
+  bash "${SCRIPT_DIR}/gc-rule-budget.sh" "${REPO_ROOT}" 2>&1 || echo "[ERROR] gc-rule-budget failed"
+  echo
+}
+
 run_session_metrics_cleanup() {
   echo "--- Session Metrics Cleanup ---"
   local cutoff
@@ -85,6 +91,7 @@ trim_gc_log() {
 
   run_gc_log_archive
   run_worktree_cleanup
+  run_rule_budget_gc
   run_session_metrics_cleanup
   run_learning_digest
   run_reflection_digest

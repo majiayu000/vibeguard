@@ -189,7 +189,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:learn` | Generate guard rules from errors / extract Skills from discoveries |
 | `/vibeguard:interview` | Deep requirements interview → SPEC.md |
 | `/vibeguard:exec-plan` | Long-running task execution plan, cross-session resume |
-| `/vibeguard:gc` | Garbage collection (log archival + worktree cleanup + code slop scan) |
+| `/vibeguard:gc` | Garbage collection (logs + worktrees + rule budget + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
 **Routing Contract**

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- U-32 live constraint budget tooling: `count_active_constraints.sh`, `scripts/constraints/count_active_constraints.py`, and GC downgrade-candidate reporting
 - CI doc command path validator (`scripts/ci/validate-doc-command-paths.sh`) to catch stale `~/vibeguard/...` shell examples
 - `setup.sh --check` now emits a structured rollup (counts of OK/INFO/WARN/FAIL/BROKEN/MISSING and a final verdict line) so a single broken probe is not lost in 40+ healthy rows
 - `setup.sh --check --quiet` filters output to problems-only plus the rollup, for fast triage in long install logs

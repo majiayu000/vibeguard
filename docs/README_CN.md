@@ -155,7 +155,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 | `/vibeguard:learn` | 从错误中生成 guard/rule，或提炼 Skill |
 | `/vibeguard:interview` | 深度需求访谈，输出 SPEC.md |
 | `/vibeguard:exec-plan` | 长任务执行计划，支持跨会话恢复 |
-| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + code slop 扫描） |
+| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + 规则预算 + code slop 扫描） |
 | `/vibeguard:stats` | hook 触发统计 |
 
 快捷别名：`/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`

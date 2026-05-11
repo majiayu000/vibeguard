@@ -131,6 +131,21 @@
       "codex": {"enabled": false, "support": "unsupported", "reason": "Codex runtime scope uses Bash approvals and Stop hooks only"}
     },
     {
+      "name": "count-active-constraints",
+      "script": "count_active_constraints.sh",
+      "kind": "hook",
+      "trigger": "SessionStart",
+      "responsibilities": "Count effective task constraints loaded into agent context and enforce the U-32 live-context budget in strict profile.",
+      "decision_types": ["pass", "warn", "block"],
+      "claude": {
+        "enabled": true,
+        "event": "SessionStart",
+        "matchers": [null],
+        "profiles": ["strict"]
+      },
+      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex runtime scope uses Bash approvals and Stop hooks only"}
+    },
+    {
       "name": "post-build-check",
       "script": "post-build-check.sh",
       "kind": "hook",

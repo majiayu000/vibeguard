@@ -16,6 +16,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop. | unsupported |
 | `post-write-guard.sh` | PostToolUse(Write) | Detect duplicate definitions and files with the same name after creating a new file. | unsupported |
 | `analysis-paralysis-guard.sh` | PostToolUse(Read|Glob|Grep) | Detect excessive exploration without progress and prompt the agent to act. | unsupported |
+| `count_active_constraints.sh` | SessionStart | Count effective task constraints loaded into agent context and enforce the U-32 live-context budget in strict profile. | unsupported |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
 | `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes. | native |

@@ -204,7 +204,7 @@ interview → preflight → coding → check → review → learn → stats
 | `/vibeguard:build-fix` | Build error fix |
 | `/vibeguard:learn` | Generate new guards from mistakes |
 | `/vibeguard:exec-plan` | Long-term task execution plan (cross-session recovery) |
-| `/vibeguard:gc` | Garbage collection (log archiving + worktree cleaning + code garbage scanning) |
+| `/vibeguard:gc` | Garbage collection (log archiving + worktree cleaning + rule budget + code garbage scanning) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
 ---
