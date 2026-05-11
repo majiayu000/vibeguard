@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778513968844,
+  "lastUpdate": 1778516106247,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4484,6 +4484,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 146,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62c7290ea2a7e9621eca3b548208dcd278b0fb39",
+          "message": "feat(setup): structured rollup, --quiet, --json, --strict modes for setup.sh --check (#159)\n\nToday `setup.sh --check` prints 40+ lines of mixed [OK]/[INFO]/[BROKEN]\nwithout a summary, no exit code reflecting health, and no machine-readable\noutput. A genuinely broken probe (e.g. zero-byte AGENTS.md) is easy to\nmiss and CI scripts have to grep stdout to detect failure.\n\nThis change introduces a small status reporter library\n(scripts/lib/status_report.sh) and rewrites scripts/setup/check.sh to:\n\n* Always print a Summary table (counts of OK/INFO/WARN/FAIL/BROKEN/MISSING)\n  and a final Verdict line of HEALTHY / DEGRADED / BROKEN.\n* Add --quiet to suppress healthy rows and surface only problems plus\n  the rollup, for triage in long install logs.\n* Add --json to emit a stable schema_version=1 document with counts,\n  verdict, and the full event list for CI consumers and the\n  /vibeguard:check skill. Implies --strict.\n* Add --strict to reflect health in the exit code (0 healthy, 1 degraded,\n  2 broken). Default mode keeps the historical always-exit-0 contract\n  so test_setup.sh and existing downstream callers do not regress.\n* Add --no-summary as an explicit escape hatch for any consumer that\n  grepped the prior unsummarized output.\n* Fix a latent bug in install.sh where `--check`/`--clean` swallowed\n  trailing arguments before forwarding to the target script.\n\nThe legacy free-form `[LEVEL] message` lines are preserved verbatim so\nexisting tests and tooling that grep them keep working. Tally is computed\nby post-processing the captured stdout, which means zero changes to the\ndozens of `green/yellow/red \"[LEVEL] ...\"` call sites in lib.sh and\ntargets/*.sh.\n\ntests/test_setup_check.sh covers tally arithmetic, ANSI stripping, JSON\nshape (parse-driven, not substring), exit-code policy, argument parsing\nerrors, and end-to-end behavior. The full pre-existing test_setup.sh\nsuite (171 cases) continues to pass unchanged.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-05-12T00:08:22+08:00",
+          "tree_id": "aeccd4ee5b57a0f180df7341b7b60be5f31b9fe6",
+          "url": "https://github.com/majiayu000/vibeguard/commit/62c7290ea2a7e9621eca3b548208dcd278b0fb39"
+        },
+        "date": 1778516105369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 211,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 290,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 253,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 371,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 239,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 403,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 227,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 150,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 150,
             "unit": "ms"
           }
         ]
