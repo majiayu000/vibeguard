@@ -64,6 +64,24 @@ assert_manifest_skill_links_installed() {
   [[ "${found}" -eq 1 ]]
 }
 
+assert_runtime_config_seeded() {
+  python3 - <<'PY' "${HOME}/.vibeguard/config.json"
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+checks = [
+    data.get("write_mode") == "warn",
+    data.get("u16", {}).get("limit") == 800,
+    data.get("circuit_breaker", {}).get("threshold") == 3,
+    data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,
+    data.get("paralysis", {}).get("threshold") == 7,
+]
+raise SystemExit(0 if all(checks) else 1)
+PY
+}
+
 assert_chat_contract_blocks_match() {
   python3 - <<'PY' "${REPO_DIR}" "${HOME}/.claude/CLAUDE.md"
 from pathlib import Path
@@ -156,6 +174,7 @@ assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scrip
 assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
 assert_cmd "scripts/codex-contract-check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/codex-contract-check.sh"
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
+assert_cmd "scripts/lib/install-state.sh syntax is correct" bash -n "${REPO_DIR}/scripts/lib/install-state.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
 assert_cmd "scripts/lib/hooks_manifest.py syntax is correct" python3 -m py_compile "${HOOKS_MANIFEST_HELPER}"
 assert_cmd "scripts/lib/project_config_validate.py syntax is correct" python3 -m py_compile "${PROJECT_CONFIG_HELPER}"
@@ -165,6 +184,53 @@ assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_co
 assert_cmd "scripts/setup/regenerate-hooks-from-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh"
 assert_cmd "scripts/ci/validate-hooks-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
 assert_cmd "CLAUDE.md template uses generated rule count placeholder" grep -q "__VIBEGUARD_RULE_COUNT__" "${REPO_DIR}/claude-md/vibeguard-rules.md"
+
+header "install-state argv safety"
+install_state_home="${TMP_HOME}/install-state quote ' home"
+install_state_repo="${TMP_HOME}/repo quote ' newline"$'\n'"dir"
+install_state_dest="${install_state_home}/tracked quote ' newline"$'\n'"file.txt"
+install_state_source="generated/source quote ' newline"$'\n'"file.txt"
+install_state_profile="core quote ' profile"
+install_state_languages="rust,py'thon"$'\n'"go"
+mkdir -p "${install_state_home}/.vibeguard" "$(dirname "${install_state_dest}")" "${install_state_repo}"
+printf '%s' "${install_state_repo}" > "${install_state_home}/.vibeguard/repo-path"
+printf 'tracked\n' > "${install_state_dest}"
+assert_cmd "install-state accepts quoted/newline values via argv" env \
+  HOME="${install_state_home}" \
+  SPECIAL_PROFILE="${install_state_profile}" \
+  SPECIAL_LANGUAGES="${install_state_languages}" \
+  SPECIAL_DEST="${install_state_dest}" \
+  SPECIAL_SOURCE="${install_state_source}" \
+  bash -c '
+    set -euo pipefail
+    source "$1"
+    state_init "$SPECIAL_PROFILE" "$SPECIAL_LANGUAGES"
+    state_record_file "$SPECIAL_DEST" "$SPECIAL_SOURCE" "copy"
+    state_check_drift >/dev/null
+    state_list >/dev/null
+  ' bash "${REPO_DIR}/scripts/lib/install-state.sh"
+assert_cmd "install-state preserves quoted/newline JSON values" python3 - \
+  "${install_state_home}/.vibeguard/install-state.json" \
+  "${install_state_profile}" \
+  "${install_state_languages}" \
+  "${install_state_repo}" \
+  "${install_state_dest}" \
+  "${install_state_source}" <<'PY'
+import json
+import sys
+
+state_file, profile, languages, repo_dir, dest, source = sys.argv[1:7]
+with open(state_file, encoding="utf-8") as f:
+    state = json.load(f)
+
+entry = state["files"][dest]
+assert state["profile"] == profile
+assert state["languages"] == languages.split(",")
+assert state["repo_dir"] == repo_dir
+assert entry["source"] == source
+assert entry["type"] == "copy"
+assert entry["checksum"].startswith("sha256:")
+PY
 
 header "manifest skill enumeration failure"
 manifest_failure_stdout="${TMP_HOME}/manifest-failure.stdout"
@@ -461,6 +527,9 @@ assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.co
 
 confirm_fail_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-interactive setup requires --yes for high-context writes"
+assert_contains "${confirm_fail_out}" "~/.vibeguard/config.json seeded" "setup seeds runtime config file before high-context confirmation"
+assert_cmd "~/.vibeguard/config.json exists after setup seed" test -f "${HOME}/.vibeguard/config.json"
+assert_cmd "~/.vibeguard/config.json includes advertised runtime keys after seed" assert_runtime_config_seeded
 
 mkdir -p "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.vibeguard"
 ln -s "${REPO_DIR}/skills/old-retired" "${HOME}/.claude/skills/old-retired"
@@ -486,6 +555,7 @@ assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup i
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg-helper binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vg-helper"
+assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
 assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "${HOME}/.claude/skills/agentsmd-audit"
@@ -537,6 +607,7 @@ settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
 custom_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
 assert_contains "${custom_settings_out}" "preserving customized VibeGuard hook command for pre-bash-guard.sh" "setup warns when preserving customized hook command"
+assert_contains "${custom_settings_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves existing runtime config file"
 assert_cmd "customized hook command is preserved by default" grep -q "flock /tmp/vibeguard.lock" "${HOME}/.claude/settings.json"
 force_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes --force-overwrite 2>&1)"
 assert_contains "${force_settings_out}" "Mode: force-overwrite" "--force-overwrite mode is visible"
