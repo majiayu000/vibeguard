@@ -263,8 +263,16 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh --check                     # Verify installation
+bash ~/vibeguard/setup.sh --check --quiet             # Show only problems + rollup
+bash ~/vibeguard/setup.sh --check --json              # Machine-readable JSON for CI
+bash ~/vibeguard/setup.sh --check --strict            # Exit 1/2 on warn/broken
 bash ~/vibeguard/setup.sh --clean                     # Uninstall
 ```
+
+`--check` reports a structured rollup (OK / INFO / WARN / FAIL / BROKEN / MISSING)
+plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or `BROKEN`. The default mode
+always exits 0 for backwards compatibility — add `--strict` (or use `--json`,
+which implies it) to make CI fail when the install is broken.
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|

@@ -1,155 +1,280 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# VibeGuard installation health check.
+#
+# Modes
+#   bash setup.sh --check                # full report (default, exit always 0)
+#   bash setup.sh --check --strict       # exit 1/2 on warnings/problems
+#   bash setup.sh --check --quiet        # only show problem rows + summary
+#   bash setup.sh --check --json         # machine-readable JSON, no TTY output
+#   bash setup.sh --check --no-summary   # legacy behavior (no rollup, exit 0)
+#
+# Exit code
+#   Default mode  : 0 always (backward compatible with pre-summary callers).
+#   --strict      : 0 healthy, 1 degraded (warn only), 2 broken (FAIL/BROKEN/MISSING).
+#   --json        : implies --strict (machine consumers want a real exit code).
+#   --no-summary  : 0 always.
+
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
+# shellcheck source=../lib/install-state.sh
 source "${SCRIPT_DIR}/../lib/install-state.sh"
+# shellcheck source=../lib/project_config.sh
 source "${SCRIPT_DIR}/../lib/project_config.sh"
+# shellcheck source=../lib/status_report.sh
+source "${SCRIPT_DIR}/../lib/status_report.sh"
+# shellcheck source=targets/claude-home.sh
 source "${SCRIPT_DIR}/targets/claude-home.sh"
+# shellcheck source=targets/codex-home.sh
 source "${SCRIPT_DIR}/targets/codex-home.sh"
 
-echo "VibeGuard Installation Status"
-echo "=============================="
+# --- Argument parsing ---
+QUIET=0
+JSON=0
+STRICT=0
+WITH_SUMMARY=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quiet|-q)     QUIET=1; shift ;;
+    --json)         JSON=1; shift ;;
+    --strict)       STRICT=1; shift ;;
+    --no-summary)   WITH_SUMMARY=0; shift ;;
+    --help|-h)
+      cat <<'USAGE'
+Usage: setup.sh --check [--quiet | --json | --strict | --no-summary]
 
-# Check hook wrapper
-VIBEGUARD_HOME="${HOME}/.vibeguard"
-if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
-  _repo=$(<"${VIBEGUARD_HOME}/repo-path")
-  if [[ -d "$_repo/hooks" ]]; then
-    green "[OK] Hook wrapper ready (repo: ${_repo})"
-  else
-    red "[BROKEN] repo-path points to missing directory: ${_repo}"
-  fi
-else
-  yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
-fi
-if [[ -x "${VIBEGUARD_HOME}/installed/bin/vg-helper" ]]; then
-  green "[OK] vg-helper runtime binary installed"
-else
-  red "[MISSING] vg-helper runtime binary (~/.vibeguard/installed/bin/vg-helper)"
-fi
+  --quiet        Suppress healthy [OK] rows; only print problems + summary.
+  --strict       Reflect health in the exit code: 0 healthy, 1 degraded,
+                 2 broken (FAIL/BROKEN/MISSING). Without --strict the exit
+                 code is always 0 for backwards compatibility.
+  --json         Emit a single-line JSON document (counts + events + verdict)
+                 to stdout. Disables human-readable output. Implies --strict.
+  --no-summary   Legacy mode: no rollup table, always exit 0.
+                 Equivalent to the pre-summary behavior.
 
-check_claude_home_installation
-
-# Check scheduled GC
-if [[ "$(uname)" == "Darwin" ]]; then
-  if launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null; then
-    green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
-  elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
-    yellow "[WARN] Scheduled GC plist exists but not loaded"
-  else
-    yellow "[INFO] Scheduled GC not installed (optional)"
-  fi
-elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-  if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
-    green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
-  elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
-    yellow "[WARN] Scheduled GC unit exists but timer not active"
-  else
-    yellow "[INFO] Scheduled GC not installed (optional, run: bash scripts/install-systemd.sh)"
-  fi
-fi
-
-check_codex_home_installation
-
-# Check project-level runtime config
-echo
-echo "Project Config"
-echo "------------------------------"
-project_config_file="$(vg_project_config_file)"
-if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then
-  yellow "[INFO] No project config found (.vibeguard.json optional)"
-else
-  if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
-    green "[OK] Project config valid (${project_config_file})"
-  else
-    red "[FAIL] Project config invalid (${project_config_file})"
-    while IFS= read -r line; do
-      red "  ${line}"
-    done <<< "${project_config_out}"
-  fi
-fi
-
-# Check AUTO_RUN_AGENT_DIR
-if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
-  green "[OK] AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
-else
-  yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
-fi
-
-# Check ast-grep (required by TS and Rust AST-level guards)
-if command -v ast-grep >/dev/null 2>&1; then
-  green "[OK] ast-grep: $(ast-grep --version 2>/dev/null | head -1)"
-else
-  yellow "[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP (install: brew install ast-grep)"
-fi
-
-# Check TypeScript guards
-for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
-  if [[ -x "${REPO_DIR}/guards/typescript/${guard}" ]]; then
-    green "[OK] TypeScript guard: ${guard}"
-  else
-    red "[MISSING] TypeScript guard: ${guard}"
-  fi
+Exit codes (--strict / --json only):
+  0  healthy
+  1  degraded (warnings only)
+  2  broken (FAIL/BROKEN/MISSING present)
+USAGE
+      exit 0
+      ;;
+    *)
+      red "ERROR: unknown argument to --check: $1"
+      exit 64
+      ;;
+  esac
 done
 
-# Check Codex CLI (optional)
-if command -v codex &>/dev/null; then
-  green "[OK] Codex CLI available (enables /vibeguard:cross-review)"
-else
-  yellow "[INFO] Codex CLI not found (install: npm i -g @openai/codex for /vibeguard:cross-review)"
+# --json implies --strict so machine consumers always get a real exit code.
+if [[ "${JSON}" -eq 1 ]]; then
+  STRICT=1
 fi
 
-# Check install state (drift detection)
-echo
-echo "Install State"
-echo "------------------------------"
-drift_output=$(state_check_drift 2>/dev/null)
-if [[ "$drift_output" == "NO_STATE" ]]; then
-  yellow "[INFO] No install state found (re-run setup.sh to enable state tracking)"
-elif echo "$drift_output" | grep -q "STATUS: CLEAN"; then
-  tracked=$(echo "$drift_output" | grep "Total tracked" | head -1)
-  green "[OK] ${tracked}"
-else
-  _hard_drift=0
-  _semantic_drift=0
-  while IFS= read -r line; do
-    [[ "${line}" =~ ^(MISSING|DRIFT): ]] || continue
-    _drift_path="${line#*: }"
-    _drift_path="${_drift_path%% (*}"
-    if [[ "${line}" == DRIFT:* ]] && _semantic_msg="$(codex_semantic_drift_message "${_drift_path}" 2>/dev/null)"; then
-      yellow "  INFO: ${_semantic_msg}"
-      _semantic_drift=1
+# Conflict detection — pick one output style.
+if [[ "${JSON}" -eq 1 && "${QUIET}" -eq 1 ]]; then
+  red "ERROR: --json and --quiet are mutually exclusive"
+  exit 64
+fi
+if [[ "${JSON}" -eq 1 && "${WITH_SUMMARY}" -eq 0 ]]; then
+  red "ERROR: --json and --no-summary are mutually exclusive"
+  exit 64
+fi
+
+# run_legacy_checks
+#   The original sequence of inline probes. Each probe prints a single
+#   `[LEVEL] message` line via green/yellow/red. We do not reorder or
+#   rewrite these — the test suite and downstream tooling grep them.
+run_legacy_checks() {
+  echo "VibeGuard Installation Status"
+  echo "=============================="
+
+  # Check hook wrapper
+  VIBEGUARD_HOME="${HOME}/.vibeguard"
+  if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
+    _repo=$(<"${VIBEGUARD_HOME}/repo-path")
+    if [[ -d "$_repo/hooks" ]]; then
+      green "[OK] Hook wrapper ready (repo: ${_repo})"
     else
-      red "  ${line}"
-      _hard_drift=1
+      red "[BROKEN] repo-path points to missing directory: ${_repo}"
     fi
-  done <<< "${drift_output}"
-  if [[ "${_hard_drift}" -eq 1 ]]; then
-    yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
-  elif [[ "${_semantic_drift}" -eq 1 ]]; then
-    yellow "[INFO] Install-state checksum drift is semantic-only for shared Codex files"
+  else
+    yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
   fi
+  if [[ -x "${VIBEGUARD_HOME}/installed/bin/vg-helper" ]]; then
+    green "[OK] vg-helper runtime binary installed"
+  else
+    red "[MISSING] vg-helper runtime binary (~/.vibeguard/installed/bin/vg-helper)"
+  fi
+
+  check_claude_home_installation
+
+  # Check scheduled GC
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null; then
+      green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
+    elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
+      yellow "[WARN] Scheduled GC plist exists but not loaded"
+    else
+      yellow "[INFO] Scheduled GC not installed (optional)"
+    fi
+  elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+    if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
+      green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
+    elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
+      yellow "[WARN] Scheduled GC unit exists but timer not active"
+    else
+      yellow "[INFO] Scheduled GC not installed (optional, run: bash scripts/install-systemd.sh)"
+    fi
+  fi
+
+  check_codex_home_installation
+
+  # Check project-level runtime config
+  echo
+  echo "Project Config"
+  echo "------------------------------"
+  project_config_file="$(vg_project_config_file)"
+  if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then
+    yellow "[INFO] No project config found (.vibeguard.json optional)"
+  else
+    if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
+      green "[OK] Project config valid (${project_config_file})"
+    else
+      red "[FAIL] Project config invalid (${project_config_file})"
+      while IFS= read -r line; do
+        red "  ${line}"
+      done <<< "${project_config_out}"
+    fi
+  fi
+
+  # Check AUTO_RUN_AGENT_DIR
+  if [[ -n "${AUTO_RUN_AGENT_DIR:-}" ]] && [[ -d "${AUTO_RUN_AGENT_DIR}" ]]; then
+    green "[OK] AUTO_RUN_AGENT_DIR=${AUTO_RUN_AGENT_DIR}"
+  else
+    yellow "[INFO] AUTO_RUN_AGENT_DIR not set (auto-optimize Phase 4 requires it)"
+  fi
+
+  # Check ast-grep (required by TS and Rust AST-level guards)
+  if command -v ast-grep >/dev/null 2>&1; then
+    green "[OK] ast-grep: $(ast-grep --version 2>/dev/null | head -1)"
+  else
+    yellow "[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP (install: brew install ast-grep)"
+  fi
+
+  # Check TypeScript guards
+  for guard in check_any_abuse.sh check_console_residual.sh common.sh; do
+    if [[ -x "${REPO_DIR}/guards/typescript/${guard}" ]]; then
+      green "[OK] TypeScript guard: ${guard}"
+    else
+      red "[MISSING] TypeScript guard: ${guard}"
+    fi
+  done
+
+  # Check Codex CLI (optional)
+  if command -v codex &>/dev/null; then
+    green "[OK] Codex CLI available (enables /vibeguard:cross-review)"
+  else
+    yellow "[INFO] Codex CLI not found (install: npm i -g @openai/codex for /vibeguard:cross-review)"
+  fi
+
+  # Check install state (drift detection)
+  echo
+  echo "Install State"
+  echo "------------------------------"
+  drift_output=$(state_check_drift 2>/dev/null)
+  if [[ "$drift_output" == "NO_STATE" ]]; then
+    yellow "[INFO] No install state found (re-run setup.sh to enable state tracking)"
+  elif echo "$drift_output" | grep -q "STATUS: CLEAN"; then
+    tracked=$(echo "$drift_output" | grep "Total tracked" | head -1)
+    green "[OK] ${tracked}"
+  else
+    _hard_drift=0
+    _semantic_drift=0
+    while IFS= read -r line; do
+      [[ "${line}" =~ ^(MISSING|DRIFT): ]] || continue
+      _drift_path="${line#*: }"
+      _drift_path="${_drift_path%% (*}"
+      if [[ "${line}" == DRIFT:* ]] && _semantic_msg="$(codex_semantic_drift_message "${_drift_path}" 2>/dev/null)"; then
+        yellow "  INFO: ${_semantic_msg}"
+        _semantic_drift=1
+      else
+        red "  ${line}"
+        _hard_drift=1
+      fi
+    done <<< "${drift_output}"
+    if [[ "${_hard_drift}" -eq 1 ]]; then
+      yellow "[WARN] Run 'bash setup.sh' to repair drifted files"
+    elif [[ "${_semantic_drift}" -eq 1 ]]; then
+      yellow "[INFO] Install-state checksum drift is semantic-only for shared Codex files"
+    fi
+  fi
+
+  # Check awk POSIX compliance (BSD awk has no \s \d \w \b)
+  echo
+  echo "Guard Script Portability"
+  echo "------------------------------"
+  _awk_violations=$(create_tmpfile 2>/dev/null || mktemp)
+  # Detect non-POSIX regex shortcuts inside awk regex delimiters (/..\s../)
+  # awk uses /regex/ syntax; grep uses quoted strings — so /...\s.../ is awk-specific
+  find "${REPO_DIR}/guards" -name '*.sh' -print0 2>/dev/null \
+    | xargs -0 grep -rnE '/[^/"]*\\[sdwb]' 2>/dev/null \
+    | grep -vE '^\s*#|grep |sed ' \
+    >> "$_awk_violations" 2>/dev/null || true
+  if [[ -s "$_awk_violations" ]]; then
+    count=$(wc -l < "$_awk_violations" | tr -d ' ')
+    red "[FAIL] ${count} awk line(s) use non-POSIX regex (\\s \\d \\w \\b — breaks on BSD awk):"
+    while IFS= read -r v; do
+      red "  ${v}"
+    done < "$_awk_violations"
+  else
+    green "[OK] All awk blocks use POSIX-compatible regex"
+  fi
+  rm -f "$_awk_violations" 2>/dev/null || true
+}
+
+# --- Capture and dispatch ---
+# We capture stdout once, mirror it (or suppress it for --json/--quiet),
+# then post-process for the summary, JSON, and exit code.
+capture_buf="$(mktemp -t vg-status-buf.XXXXXX 2>/dev/null || mktemp)"
+trap 'rm -f "${capture_buf}" 2>/dev/null || true' EXIT
+status_init "${capture_buf}"
+
+if [[ "${JSON}" -eq 1 ]]; then
+  # JSON mode: probe output goes only to the buffer; nothing leaks to stdout.
+  run_legacy_checks > "${capture_buf}" 2>&1
+elif [[ "${QUIET}" -eq 1 ]]; then
+  # Quiet mode: capture everything, then re-emit only problems + summary.
+  run_legacy_checks > "${capture_buf}" 2>&1
+else
+  # Default mode: stream to user AND capture for the summary.
+  run_legacy_checks 2>&1 | tee "${capture_buf}"
 fi
 
-# Check awk POSIX compliance (BSD awk has no \s \d \w \b)
-echo
-echo "Guard Script Portability"
-echo "------------------------------"
-_awk_violations=$(create_tmpfile 2>/dev/null || mktemp)
-# Detect non-POSIX regex shortcuts inside awk regex delimiters (/..\s../)
-# awk uses /regex/ syntax; grep uses quoted strings — so /...\s.../ is awk-specific
-find "${REPO_DIR}/guards" -name '*.sh' -print0 2>/dev/null \
-  | xargs -0 grep -rnE '/[^/"]*\\[sdwb]' 2>/dev/null \
-  | grep -vE '^\s*#|grep |sed ' \
-  >> "$_awk_violations" 2>/dev/null || true
-if [[ -s "$_awk_violations" ]]; then
-  count=$(wc -l < "$_awk_violations" | tr -d ' ')
-  red "[FAIL] ${count} awk line(s) use non-POSIX regex (\\s \\d \\w \\b — breaks on BSD awk):"
-  while IFS= read -r v; do
-    red "  ${v}"
-  done < "$_awk_violations"
-else
-  green "[OK] All awk blocks use POSIX-compatible regex"
+status_record_buffer
+
+if [[ "${JSON}" -eq 1 ]]; then
+  status_emit_json
+  exit "$(status_exit_code)"
 fi
-rm -f "$_awk_violations" 2>/dev/null || true
+
+if [[ "${WITH_SUMMARY}" -eq 1 ]]; then
+  if [[ "${QUIET}" -eq 1 ]]; then
+    status_print_summary --quiet
+  else
+    status_print_summary
+  fi
+  if [[ "${STRICT}" -eq 1 ]]; then
+    exit "$(status_exit_code)"
+  fi
+  # Without --strict, preserve the original always-exit-0 contract so the
+  # existing test_setup.sh harness, the install scripts, and external CI
+  # callers do not start failing because of a previously-tolerated INFO
+  # or BROKEN row.
+  exit 0
+fi
+
+# --no-summary: preserve the legacy behavior (no rollup, always exit 0).
+exit 0
