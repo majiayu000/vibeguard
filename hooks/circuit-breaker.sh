@@ -22,13 +22,22 @@
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CB_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/circuit-breaker"
+_VG_CB_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! declare -F vg_config_get_int >/dev/null 2>&1 && [[ -f "${_VG_CB_SCRIPT_DIR}/_lib/config.sh" ]]; then
+  source "${_VG_CB_SCRIPT_DIR}/_lib/config.sh"
+fi
 
 # Validate that a value is a non-negative integer; fall back to default if not.
 # Prevents arithmetic errors under set -euo pipefail when env vars are misconfigured.
 _vg_cb_to_int() { local v="$1" d="$2"; [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v" || printf '%s' "$d"; }
 
-CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)   # seconds until OPEN → HALF-OPEN (5 min)
-CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)     # consecutive blocks before tripping to OPEN
+if declare -F vg_config_get_int >/dev/null 2>&1; then
+  CB_COOLDOWN=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_COOLDOWN circuit_breaker.cooldown_seconds 300)" 300)
+  CB_THRESHOLD=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_THRESHOLD circuit_breaker.threshold 3)" 3)
+else
+  CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)
+  CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)
+fi
 
 mkdir -p "$CB_DIR" 2>/dev/null || true
 
