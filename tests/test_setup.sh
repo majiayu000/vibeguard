@@ -25,7 +25,7 @@ header(){ printf '\n\033[1m=== %s ===\033[0m\n' "$1"; }
 assert_contains() {
   local output="$1" expected="$2" desc="$3"
   TOTAL=$((TOTAL + 1))
-  if echo "$output" | grep -qF -- "$expected"; then
+  if grep -qF -- "$expected" <<< "$output"; then
     green "$desc"
     PASS=$((PASS + 1))
   else
