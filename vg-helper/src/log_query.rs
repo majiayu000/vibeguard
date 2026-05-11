@@ -64,8 +64,11 @@ fn count_warn_events(events: &[Value], file_path: &str) -> usize {
     events
         .iter()
         .filter(|e| {
+            let reason = e.get(field::REASON).and_then(Value::as_str).unwrap_or("");
+            let churn_only = reason.contains("[CHURN") && !reason.contains("\n---\n");
             e.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
                 && e.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
+                && !churn_only
                 && e.get(field::DETAIL)
                     .and_then(Value::as_str)
                     .is_some_and(|d| d.split("||").next().unwrap_or("").trim() == file_path)
@@ -189,12 +192,14 @@ mod tests {
         let events = vec![
             json!({"hook": "post-edit-guard", "decision": "warn", "detail": "src/lib.rs || RS-03"}),
             json!({"hook": "post-edit-guard", "decision": "warn", "detail": " src/lib.rs  || DEBUG"}),
+            json!({"hook": "post-edit-guard", "decision": "warn", "reason": "[CHURN WARNING] edit volume", "detail": "src/lib.rs"}),
+            json!({"hook": "post-edit-guard", "decision": "warn", "reason": "[CHURN WARNING] edit volume\n---\n[RS-03] unwrap", "detail": "src/lib.rs"}),
             json!({"hook": "post-edit-guard", "decision": "pass", "detail": "src/lib.rs || OK"}),
             json!({"hook": "pre-edit-guard", "decision": "warn", "detail": "src/lib.rs || BLOCK"}),
             json!({"hook": "post-edit-guard", "decision": "warn", "detail": "src/main.rs || RS-03"}),
         ];
 
-        assert_eq!(count_warn_events(&events, "src/lib.rs"), 2);
+        assert_eq!(count_warn_events(&events, "src/lib.rs"), 3);
     }
 
     #[test]

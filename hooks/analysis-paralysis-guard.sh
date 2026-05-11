@@ -21,7 +21,7 @@ VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 # CI guard: analysis-paralysis warnings are not actionable in CI
 vg_is_ci && exit 0
 
-THRESHOLD="${VG_PARALYSIS_THRESHOLD:-7}"
+THRESHOLD="$(vg_config_get_int VG_PARALYSIS_THRESHOLD paralysis.threshold 7)"
 
 # Count consecutive research-only tool calls (Read/Glob/Grep) at the tail of the session log.
 # Exclude this hook's own log entries (hook == "analysis-paralysis-guard") to avoid self-inflation.

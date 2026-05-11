@@ -28,20 +28,27 @@ STATE_FILE="${HOME}/.vibeguard/install-state.json"
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}"
-  python3 -c "
-import json, datetime
+  local repo_dir
+  repo_dir="$(cat "${HOME}/.vibeguard/repo-path" 2>/dev/null || true)"
+
+  python3 - "$STATE_FILE" "$STATE_VERSION" "$profile" "$languages" "$repo_dir" <<'PY'
+import datetime
+import json
+import sys
+
+state_file, state_version, profile, languages, repo_dir = sys.argv[1:6]
 state = {
-    'version': ${STATE_VERSION},
+    'version': int(state_version),
     'installed_at': datetime.datetime.now().astimezone().isoformat(),
-    'profile': '${profile}',
-    'languages': '${languages}'.split(',') if '${languages}' else [],
-    'repo_dir': '$(cat "${HOME}/.vibeguard/repo-path" 2>/dev/null || echo "")',
+    'profile': profile,
+    'languages': languages.split(',') if languages else [],
+    'repo_dir': repo_dir,
     'files': {}
 }
-with open('${STATE_FILE}', 'w') as f:
+with open(state_file, 'w', encoding='utf-8') as f:
     json.dump(state, f, indent=2)
     f.write('\n')
-"
+PY
 }
 
 # Record a file installation
@@ -57,28 +64,32 @@ state_record_file() {
     fi
   fi
 
-  python3 -c "
+  python3 - "$STATE_FILE" "$STATE_VERSION" "$dest" "$source" "$install_type" "$checksum" <<'PY'
 import json
+import sys
+
+state_file, state_version, dest, source, install_type, checksum = sys.argv[1:7]
+expected_version = int(state_version)
+
 try:
-    with open('${STATE_FILE}') as f:
+    with open(state_file, encoding='utf-8') as f:
         state = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
-    state = {'version': ${STATE_VERSION}, 'files': {}}
+    state = {'version': expected_version, 'files': {}}
 
-version = state.get('version', ${STATE_VERSION})
-if version != ${STATE_VERSION}:
-    raise SystemExit(f'unsupported install-state version: {version} (expected ${STATE_VERSION})')
+version = state.get('version', expected_version)
+if version != expected_version:
+    raise SystemExit(f'unsupported install-state version: {version} (expected {expected_version})')
 
-entry = {'source': '${source}', 'type': '${install_type}'}
-checksum = '${checksum}'
+entry = {'source': source, 'type': install_type}
 if checksum:
     entry['checksum'] = checksum
-state.setdefault('files', {})['${dest}'] = entry
+state.setdefault('files', {})[dest] = entry
 
-with open('${STATE_FILE}', 'w') as f:
+with open(state_file, 'w', encoding='utf-8') as f:
     json.dump(state, f, indent=2)
     f.write('\n')
-"
+PY
 }
 
 # Record all files (regular or symlink) under a directory as installed artifacts.
@@ -103,15 +114,18 @@ state_check_drift() {
     return 0
   fi
 
-  python3 -c "
+  python3 - "$STATE_FILE" "$STATE_VERSION" 2>/dev/null <<'PY'
 import json, os, subprocess
+import sys
 
-with open('${STATE_FILE}') as f:
+state_file, state_version = sys.argv[1], int(sys.argv[2])
+
+with open(state_file, encoding='utf-8') as f:
     state = json.load(f)
 
 version = state.get('version', 1)
-if version != ${STATE_VERSION}:
-    print(f'UNSUPPORTED_STATE_VERSION: {version} (expected ${STATE_VERSION})')
+if version != state_version:
+    print(f'UNSUPPORTED_STATE_VERSION: {version} (expected {state_version})')
     raise SystemExit(0)
 
 files = state.get('files', {})
@@ -153,7 +167,7 @@ if drift_count + missing_count == 0:
     print('STATUS: CLEAN')
 else:
     print(f'STATUS: DRIFT ({drift_count} drifted, {missing_count} missing)')
-" 2>/dev/null
+PY
 }
 
 # List all tracked files
@@ -163,24 +177,28 @@ state_list() {
     return 1
   fi
 
-  python3 -c "
+  python3 - "$STATE_FILE" "$STATE_VERSION" <<'PY'
 import json
-with open('${STATE_FILE}') as f:
+import sys
+
+state_file, expected_version = sys.argv[1], int(sys.argv[2])
+
+with open(state_file, encoding='utf-8') as f:
     state = json.load(f)
 version = state.get('version', 1)
-if version != ${STATE_VERSION}:
-    raise SystemExit(f'Unsupported install-state version: {version} (expected ${STATE_VERSION})')
-print(f'Profile: {state.get(\"profile\", \"unknown\")}')
-print(f'Installed: {state.get(\"installed_at\", \"unknown\")}')
+if version != expected_version:
+    raise SystemExit(f'Unsupported install-state version: {version} (expected {expected_version})')
+print(f'Profile: {state.get("profile", "unknown")}')
+print(f'Installed: {state.get("installed_at", "unknown")}')
 langs = state.get('languages', [])
 if langs:
-    print(f'Languages: {\", \".join(langs)}')
-print(f'Tracked files: {len(state.get(\"files\", {}))}')
+    print(f'Languages: {", ".join(langs)}')
+print(f'Tracked files: {len(state.get("files", {}))}')
 print()
 for dest, info in sorted(state.get('files', {}).items()):
     t = info.get('type', '?')
     print(f'  [{t:7s}] {dest}')
-"
+PY
 }
 
 state_list_tracked_symlinks_under() {
