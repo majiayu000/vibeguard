@@ -23,6 +23,7 @@ shards=(
   "tests/hooks/test_pre_edit_guard.sh"
   "tests/hooks/test_pre_write_guard.sh"
   "tests/hooks/test_post_edit_guard_basic.sh"
+  "tests/hooks/test_post_edit_churn.sh"
   "tests/hooks/test_post_write_guard.sh"
   "tests/hooks/test_post_build_check.sh"
   "tests/hooks/test_precommit_timeout_go.sh"

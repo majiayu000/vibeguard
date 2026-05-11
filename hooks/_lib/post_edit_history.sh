@@ -1,8 +1,40 @@
 #!/usr/bin/env bash
 # Event-log-backed history detectors for post-edit-guard.sh.
 
+vg_post_edit_count_build_failures() {
+  local project_root
+  project_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | if [[ -n "$_VG_HELPER" ]]; then
+        "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$project_root"
+      else
+        VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$project_root" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
+session = os.environ.get("VG_SESSION", "")
+project = os.environ.get("VG_PROJECT", "")
+prefix = project.rstrip("/") + "/" if project else ""
+count = 0
+events = list(iter_events_from_stream(sys.stdin.buffer))
+for e in reversed(events):
+    if e.get("hook") != "post-build-check" or e.get("session") != session:
+        continue
+    detail = e.get("detail", "") or ""
+    if prefix and detail and not detail.startswith(prefix):
+        continue
+    if e.get("decision") == "pass":
+        break
+    if e.get("decision") in {"warn", "escalate"}:
+        count += 1
+print(count)
+'
+      fi 2>/dev/null | tr -d '[:space:]' || echo "0"
+}
+
 vg_post_edit_detect_churn() {
-  local churn_count total
+  local churn_count build_fail_count
   churn_count=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
     | if [[ -n "$_VG_HELPER" ]]; then
         "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
@@ -22,17 +54,28 @@ print(count)
 '
       fi 2>/dev/null | tr -d '[:space:]' || echo "0")
   churn_count="${churn_count:-0}"
+  build_fail_count="0"
 
   if [[ "$churn_count" -ge 20 ]]; then
-    vg_post_edit_append_warning "[CHURN CRITICAL] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — possible edit→fail→fix loop
-FIX: Stop current direction, review full build output, re-examine root cause (W-02)
-DO NOT: Continue editing this file until root cause is confirmed"
-    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x critical" "$FILE_PATH"
+    build_fail_count="$(vg_post_edit_count_build_failures)"
+    build_fail_count="${build_fail_count:-0}"
+  fi
+
+  if [[ "$churn_count" -ge 20 && "$build_fail_count" -ge 5 ]]; then
+    vg_post_edit_append_warning "[CHURN CRITICAL] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times and the project has ${build_fail_count} consecutive build failures — possible edit->fail->fix loop
+FIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)
+DO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause"
+    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x critical build_fails ${build_fail_count}x" "$FILE_PATH"
+  elif [[ "$churn_count" -ge 20 ]]; then
+    vg_post_edit_append_warning "[CHURN WARNING] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — high edit volume without repeated build-failure evidence
+FIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.
+DO NOT: Treat edit count alone as proof of W-02 failure-loop behavior"
+    vg_log "post-edit-guard" "Edit" "correction" "churn ${churn_count}x volume" "$FILE_PATH"
   elif [[ "$churn_count" -ge 10 ]]; then
-    vg_post_edit_append_warning "[CHURN WARNING] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times, possible correction loop
-FIX: Run full build to see the complete picture, or use /vibeguard:learn to extract patterns
+    vg_post_edit_append_warning "[CHURN WARNING] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — high edit volume
+FIX: Run full build to see the complete picture, or classify whether this is a planned refactor before continuing
 DO NOT: Take any action — monitor and decide whether to continue"
-    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x warning" "$FILE_PATH"
+    vg_log "post-edit-guard" "Edit" "correction" "churn ${churn_count}x warning" "$FILE_PATH"
   elif [[ "$churn_count" -ge 5 ]]; then
     vg_post_edit_append_warning "[CHURN] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times
 FIX: Check if you are in a correction loop before continuing
@@ -125,10 +168,7 @@ DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro
 
 vg_post_edit_warn_count_for_file() {
   tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | if [[ -n "$_VG_HELPER" ]]; then
-        "$_VG_HELPER" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
-      else
-        VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
 import sys, os
 sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
 from event_log import iter_events_from_stream
@@ -137,9 +177,12 @@ file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
 count = 0
 for e in iter_events_from_stream(sys.stdin.buffer):
+    reason = e.get("reason", "") or ""
+    churn_only = "[CHURN" in reason and "\n---\n" not in reason
+    if churn_only:
+        continue
     if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
         count += 1
 print(count)
-'
-      fi 2>/dev/null | tr -d '[:space:]' || echo "0"
+' 2>/dev/null | tr -d '[:space:]' || echo "0"
 }
