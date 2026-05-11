@@ -144,6 +144,8 @@ for e in iter_events_from_stream(sys.stdin.buffer):
                 except ValueError:
                     delta = None
                 break
+        if delta is None and e.get("decision") != "pass":
+            continue
         edits.append((ep, delta))
 
 trail = []

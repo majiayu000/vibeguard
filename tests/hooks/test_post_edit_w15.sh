@@ -101,5 +101,20 @@ result_legacy=$(printf '{"tool_input":{"file_path":"%s","old_string":"%s","new_s
   | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_SESSION_ID="w15-legacy" bash hooks/post-edit-guard.sh)
 assert_not_contains "$result_legacy" "[W-15]" "Legacy log entries without delta metadata fail closed"
 
+# ---------------------------------------------------------------------------
+# Case 6: W-14 overlap warning in the same hook run has no delta metadata and
+# must not mask the shrinking-radius W-15 trail.
+# ---------------------------------------------------------------------------
+seed_w15_history "w15-w14-mask" "$_w15_target" 200 100
+printf '{"ts":"%s","session":"w15-w14-mask","hook":"post-edit-guard","tool":"Edit","decision":"warn","reason":"w14 overlap recent session other agent unknown","detail":"%s"}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_w15_target" >> "$_w15_log_file"
+
+result_w14_mask=$(printf '{"tool_input":{"file_path":"%s","old_string":"%s","new_string":"%s"}}' \
+  "$_w15_target" \
+  "$(printf 'a%.0s' {1..10})" \
+  "$(printf 'b%.0s' {1..60})" \
+  | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_SESSION_ID="w15-w14-mask" bash hooks/post-edit-guard.sh)
+assert_contains "$result_w14_mask" "[W-15]" "W-14 no-delta warning does not mask W-15 shrinking-radius detection"
+
 # =========================================================
 hook_test_finish
