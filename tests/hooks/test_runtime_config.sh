@@ -110,12 +110,16 @@ PY
 write_cfg "$cfg" '{"paralysis":{"threshold":2}}'
 paralysis_log="$(make_log_dir)"
 seed_research_events "$paralysis_log" "cfg-paralysis-json" 2
-result=$(VIBEGUARD_LOG_DIR="$paralysis_log" VIBEGUARD_SESSION_ID="cfg-paralysis-json" VIBEGUARD_CONFIG_FILE="$cfg" bash hooks/analysis-paralysis-guard.sh)
+result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+  VIBEGUARD_LOG_DIR="$paralysis_log" VIBEGUARD_SESSION_ID="cfg-paralysis-json" VIBEGUARD_CONFIG_FILE="$cfg" \
+  bash hooks/analysis-paralysis-guard.sh)
 assert_contains "$result" "ANALYSIS PARALYSIS" "JSON paralysis.threshold=2 triggers warning"
 
 paralysis_env_log="$(make_log_dir)"
 seed_research_events "$paralysis_env_log" "cfg-paralysis-env" 2
-result=$(VIBEGUARD_LOG_DIR="$paralysis_env_log" VIBEGUARD_SESSION_ID="cfg-paralysis-env" VIBEGUARD_CONFIG_FILE="$cfg" VG_PARALYSIS_THRESHOLD=5 bash hooks/analysis-paralysis-guard.sh)
+result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+  VIBEGUARD_LOG_DIR="$paralysis_env_log" VIBEGUARD_SESSION_ID="cfg-paralysis-env" VIBEGUARD_CONFIG_FILE="$cfg" \
+  VG_PARALYSIS_THRESHOLD=5 bash hooks/analysis-paralysis-guard.sh)
 assert_not_contains "$result" "ANALYSIS PARALYSIS" "VG_PARALYSIS_THRESHOLD overrides JSON"
 
 header "runtime config — U-16"
