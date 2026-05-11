@@ -91,9 +91,35 @@ DO NOT: Continue parallel/background edits to this file without explicit ownersh
   vg_log "post-edit-guard" "Edit" "warn" "w14 overlap recent session ${other_session} agent ${other_agent:-unknown}" "$FILE_PATH"
 }
 
+# W-15 low-information loop detector.
+#
+# Spec (rules/claude-rules/common/workflow.md, "Low-information loop detection"):
+#   trigger when the change radius shrinks for three consecutive rounds.
+#
+# Implementation:
+#   1. Walk the session's post-edit-guard Edit history backwards.
+#   2. Collect the consecutive trail of edits whose file_path equals the current
+#      one. Stop on the first edit to a different file.
+#   3. Recover each prior edit's size_delta from the detail field (encoded as
+#      "<file_path>||delta=<N>" by post-edit-guard.sh).
+#   4. Combined with the current edit's delta, fire only when:
+#      - past_consecutive >= 2 (i.e. 3+ same-file edits in a row, including
+#        the current one),
+#      - |Δ| is non-increasing across the 3 most recent rounds (radius
+#        actually shrinks per spec — not merely "same file"), and
+#      - |latest_Δ| < 300 chars (caps to micro-tuning; large content adds
+#        such as long markdown sections never qualify as low-yield).
+#
+# Downgrade path (U-32 compliance): set VIBEGUARD_SUPPRESS_W15=1 to skip the
+# detector entirely. Use this when writing long-form markdown / RFC docs where
+# every edit naturally adds a new section.
 vg_post_edit_detect_w15_loop() {
-  local past_consecutive total_consecutive
-  past_consecutive=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+  [[ "${VIBEGUARD_SUPPRESS_W15:-0}" == "1" ]] && return 0
+
+  local current_delta past_consecutive past_deltas raw
+  current_delta="${VG_W15_CURRENT_DELTA:-0}"
+
+  raw=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
     | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
 import sys, os
 sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
@@ -101,25 +127,69 @@ from event_log import iter_events_from_stream
 
 file_path = os.environ.get("VG_FILE_PATH", "")
 session = os.environ.get("VG_SESSION", "")
+
 edits = []
 for e in iter_events_from_stream(sys.stdin.buffer):
     if (e.get("session") == session and e.get("tool") == "Edit"
             and e.get("hook") == "post-edit-guard"):
-        edits.append(e.get("detail", "").split("||")[0].strip())
-consec = 0
-for ep in reversed(edits):
-    if ep == file_path: consec += 1
-    else: break
-print(consec)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
+        detail = e.get("detail", "") or ""
+        parts = detail.split("||")
+        ep = parts[0].strip()
+        delta = None
+        for p in parts[1:]:
+            p = p.strip()
+            if p.startswith("delta="):
+                try:
+                    delta = int(p.split("=", 1)[1])
+                except ValueError:
+                    delta = None
+                break
+        if delta is None and e.get("decision") != "pass":
+            continue
+        edits.append((ep, delta))
+
+trail = []
+for ep, d in reversed(edits):
+    if ep == file_path:
+        trail.append(d)
+    else:
+        break
+
+print(len(trail))
+print(",".join("" if d is None else str(d) for d in trail[:2]))
+' 2>/dev/null || printf "0\n\n")
+
+  past_consecutive=$(printf '%s\n' "$raw" | sed -n '1p' | tr -d '[:space:]')
+  past_deltas=$(printf '%s\n' "$raw" | sed -n '2p')
   past_consecutive="${past_consecutive:-0}"
 
-  if [[ "$past_consecutive" -ge 2 ]]; then
+  [[ "$past_consecutive" -ge 2 ]] || return 0
+
+  local prev_delta prev2_delta cur_abs prev_abs prev2_abs total_consecutive
+  IFS=',' read -r prev_delta prev2_delta <<< "$past_deltas"
+
+  # Need both prior deltas to evaluate radius shrinkage; legacy log entries
+  # without delta metadata cannot be compared and are ignored (fail-closed).
+  if [[ -z "${prev_delta:-}" || -z "${prev2_delta:-}" ]]; then
+    return 0
+  fi
+
+  cur_abs="${current_delta#-}"
+  prev_abs="${prev_delta#-}"
+  prev2_abs="${prev2_delta#-}"
+
+  # Spec: change radius shrinks across the 3 most recent rounds and the latest
+  # round is in the micro-tuning band (<300 chars). Otherwise it is just a
+  # natural sequence of same-file edits (e.g. writing a long doc).
+  if [[ "$prev2_abs" -ge "$prev_abs" ]] \
+     && [[ "$prev_abs" -ge "$cur_abs" ]] \
+     && [[ "$cur_abs" -lt 300 ]]; then
     total_consecutive=$((past_consecutive + 1))
-    vg_post_edit_append_warning "[W-15] [review] [this-file] OBSERVATION: ${total_consecutive} consecutive edits to ${FILE_PATH##*/} with no edits to other files in between (low-info loop suspect)
-FIX: Pause — are these ${total_consecutive} edits solving the same problem? If change scope shrinks each round, report a blocker instead of continuing to round $((total_consecutive + 1))
-DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting"
-    vg_log "post-edit-guard" "Edit" "warn" "w15 consecutive ${total_consecutive}x" "$FILE_PATH"
+    vg_post_edit_append_warning "[W-15] [review] [this-file] OBSERVATION: ${total_consecutive} consecutive edits to ${FILE_PATH##*/} with shrinking change radius (|Δ| ${prev2_abs}→${prev_abs}→${cur_abs} chars; latest <300)
+FIX: Pause — are these ${total_consecutive} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round $((total_consecutive + 1))
+DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting
+ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)"
+    vg_log "post-edit-guard" "Edit" "warn" "w15 shrinking radius ${prev2_abs}>${prev_abs}>${cur_abs}" "$EDIT_DETAIL"
   fi
 }
 

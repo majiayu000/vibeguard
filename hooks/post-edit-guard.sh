@@ -33,6 +33,17 @@ if [[ -z "$FILE_PATH" ]] || [[ -z "$NEW_STRING" ]]; then
   exit 0
 fi
 
+# Compute size_delta = len(new_string) - len(old_string).
+# Used by W-15 to detect shrinking change radius (per spec).
+OLD_STRING=$(echo "$INPUT" | vg_json_field "tool_input.old_string")
+SIZE_DELTA=$(( ${#NEW_STRING} - ${#OLD_STRING} ))
+
+# Encode size_delta in the event-log detail field so future W-15 invocations can
+# read it. Existing parsers (W-14, churn, warn-count) split detail on "||" and
+# only consume the first segment, so appending metadata is backward-compatible.
+EDIT_DETAIL="${FILE_PATH}||delta=${SIZE_DELTA}"
+export VG_W15_CURRENT_DELTA="$SIZE_DELTA"
+
 WARNINGS=""
 
 vg_post_edit_detect_rust
@@ -48,7 +59,7 @@ vg_post_edit_detect_w14_overlap
 vg_post_edit_detect_w15_loop
 
 if [[ -z "$WARNINGS" ]]; then
-  vg_log "post-edit-guard" "Edit" "pass" "" "$FILE_PATH"
+  vg_log "post-edit-guard" "Edit" "pass" "" "$EDIT_DETAIL"
   exit 0
 fi
 
@@ -67,7 +78,7 @@ DO NOT: Continue editing this file without reviewing all warnings
 ${WARNINGS}"
 fi
 
-vg_log "post-edit-guard" "Edit" "$DECISION" "$WARNINGS" "$FILE_PATH"
+vg_log "post-edit-guard" "Edit" "$DECISION" "$WARNINGS" "$EDIT_DETAIL"
 
 # Output warnings (pass parameters through environment variables to avoid injection)
 VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
