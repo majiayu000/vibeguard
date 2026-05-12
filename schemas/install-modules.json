@@ -199,12 +199,14 @@
     {
       "id": "guards-universal",
       "kind": "guards",
-      "description": "Universal guard scripts (code slop, dependency layers, circular deps, doc overload)",
+      "description": "Universal guard scripts (code slop, dependency layers, circular deps, doc overload, SEC-11 review gates)",
       "paths": [
         "guards/universal/check_code_slop.sh",
         "guards/universal/check_dependency_layers.py",
         "guards/universal/check_circular_deps.py",
-        "guards/universal/check_doc_overload.sh"
+        "guards/universal/check_doc_overload.sh",
+        "guards/universal/check_dependency_changes.sh",
+        "guards/universal/check_test_weakening.sh"
       ],
       "defaultInstall": true,
       "languages": [],

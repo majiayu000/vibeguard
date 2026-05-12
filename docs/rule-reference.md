@@ -197,6 +197,8 @@ Static analysis scripts that enforce rules mechanically:
 | `check_circular_deps.py` | Circular dependency chains |
 | `check_doc_overload.sh` | Oversized or overloaded agent-instruction documents |
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
+| `check_dependency_changes.sh` | Dependency version changes requiring OSV/Snyk and human review |
+| `check_test_weakening.sh` | Source+test diffs that weaken assertions, add skips, or add AI-authored tests |
 
 ### Rust
 

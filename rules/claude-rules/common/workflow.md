@@ -113,7 +113,7 @@ When tests fail, fix the production code rather than manipulating the test harne
 **Mechanical checks (agent execution rules)**:
 - If tests fail and the next edit touches a test file instead of source, stop and ask whether you are fixing a real test bug or bypassing the test.
 - If you modify `conftest.py`, pytest config, `jest.config`, or shared test helpers, explain why.
-- If source and tests both change, test changes must not reduce assertion strength.
+- If source and tests both change, test changes must not reduce assertion strength; run `bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD` during PR review when a diff is available.
 
 ## W-14: Parallel-agent file ownership (strict)
 When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another.
