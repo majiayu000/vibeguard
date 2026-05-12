@@ -165,10 +165,12 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 ### 路由契约
 
 工作流路由只在一个地方定义：[`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md)。
+委派式团队执行由 [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md) 定义。
 
 - 优先级：`user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - readiness 输出只有三种：`execute_direct`、`plan_first`、`clarify_first`
 - 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`runtime_pinning_snapshot`、`verification_owner`、`stop_conditions`、`lane_map`
+- 委派 lane 必须声明 `task_slice`、`allowed_files`、`forbidden_files`、`authority`、`required_evidence`、`blocker_conditions`、`integration_owner`
 
 README、workflow prompts、dispatcher 都应该消费这份契约，而不是各自再写一套本地路由规则。
 

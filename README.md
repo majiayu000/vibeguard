@@ -197,10 +197,12 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 **Routing Contract**
 
 Workflow routing is defined once in [workflows/references/routing-contract.md](workflows/references/routing-contract.md).
+Delegated team execution is defined in [workflows/references/delegation-contract.md](workflows/references/delegation-contract.md).
 
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
 - Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
+- Delegated lanes require `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, and `integration_owner`
 
 Use workflow prompts and dispatcher guidance as consumers of that contract, not as independent routing sources.
 

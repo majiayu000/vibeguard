@@ -18,10 +18,12 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 ### 1. Routing Contract
 
 Follow the canonical router in `workflows/references/routing-contract.md`.
+Follow delegated team execution in `workflows/references/delegation-contract.md`.
 
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
 - Planning handoff keys: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
+- Delegated lane assignment keys: `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, `integration_owner`
 
 Do not recreate a separate file-count router inside project-specific CLAUDE instructions.
 
@@ -38,8 +40,9 @@ When readiness resolves to `execute_direct`, make the change directly without ov
 ### 3. Subagent Strategy
 
 - Use child agents to keep the main context window clean
-- Research, exploration, and parallel analysis** offloaded to sub-agents**
+- Research, exploration, and parallel analysis may be offloaded to sub-agents
 - One focused task per sub-agent
+- Write lanes must have disjoint file ownership and one integration owner
 
 ### 4. Autonomous Execution
 
@@ -86,7 +89,7 @@ Hooks + guard script **mechanized execution** without relying on AI consciousnes
 | **L3** | Disable silent exception swallowing; disable Any type | **Hook warning** |
 | **L4** | Blank display with no data; API not invented | **Hook Warning** |
 | **L5** | Only do what is asked | Review constraints |
-| **L6** | Follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
+| **L6** | Follow the canonical routing contract in `workflows/references/routing-contract.md` and delegated execution in `workflows/references/delegation-contract.md` | Process constraints |
 | **L7** | Disable AI tag / force push / key | **Hook interception** |
 
 ---

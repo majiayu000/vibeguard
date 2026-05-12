@@ -20,11 +20,13 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 ## Routing Contract Integration
 
 Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Delegated execution plans must also follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 - Explicit `/plan` usage is a user override that selects the planning lane.
 - User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
 - Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
 - When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
+- When the plan delegates work, include child-agent assignments for each lane and name one integration owner before execution starts.
 
 ## 1. Overall behavioral agreement (must be observed)
 

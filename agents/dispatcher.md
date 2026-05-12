@@ -13,6 +13,7 @@ Analyze task descriptions and change files and route to the most appropriate pro
 
 Boundary:
 - Workflow/lifecycle selection belongs to the higher-level workflow surface (`README.md`, `skills/`, `workflows/`) and follows [`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md).
+- Delegated lane assignment and reintegration follow [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md).
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
 
@@ -35,6 +36,7 @@ Dispatcher rules:
 - If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
 - If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
+- Do not schedule delegated work unless the target lane has a delegation assignment with `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, and `integration_owner`.
 
 ## Scheduling rules
 
@@ -92,6 +94,7 @@ Refer to the OpenAI Harness strategy to allocate model capabilities by stage:
    Scheduling decisions
    ========
    Target Agent: <agent_name>
+   Delegation assignment: <assignment id or none>
    Confidence: high/medium/low
    Reason: <why>
    Inference budget: <budget>

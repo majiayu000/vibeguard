@@ -26,6 +26,7 @@ Trigger this skill when the user asks for one or more of:
 ## Routing Contract Integration
 
 Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Delegated execution must also satisfy [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 Fixflow can start directly when either of these is true:
 
@@ -46,7 +47,7 @@ When Fixflow receives a planning handoff, it must honor all required keys:
 - `stop_conditions`
 - `lane_map`
 
-If `lane_map` does not assign Fixflow-owned work clearly, stop and clarify before editing.
+If `lane_map` does not assign Fixflow-owned work clearly, or a delegated Fixflow lane lacks a valid delegation assignment, stop and clarify before editing.
 
 ## Workflow
 
@@ -103,6 +104,7 @@ For `per_step` (default):
   - Run step-level checks.
   - Commit immediately after step checks pass.
   - Record step -> commit hash mapping.
+  - For delegated lanes, the integration owner accepts the lane before the next dependent step starts.
 
 ### 5. Apply No-Backward-Compatibility Mode (When Requested)
 

@@ -3,6 +3,7 @@
 JSON Schema definition for structured communication between commands. Each command can optionally output JSON format for downstream consumption.
 
 Canonical routing decisions and planning handoffs are defined in `workflows/references/routing-contract.md`.
+Delegated lane assignment and reintegration are defined in `workflows/references/delegation-contract.md`.
 
 ## routing decision Schema
 
@@ -56,6 +57,40 @@ Required handoff keys:
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
+
+## delegation assignment Schema
+
+```json
+{
+  "command": "delegation_assignment",
+  "lane": "docs | tests | implementation | custom",
+  "task_slice": "Bounded objective for this lane",
+  "allowed_files": [
+    "paths or globs this lane may read/write"
+  ],
+  "forbidden_files": [
+    "paths or globs this lane must not modify"
+  ],
+  "authority": "readonly | propose_patch | write_patch | verify_only",
+  "required_evidence": [
+    "commands, logs, screenshots, or diff evidence required from this lane"
+  ],
+  "blocker_conditions": [
+    "conditions that stop this lane and escalate to the leader"
+  ],
+  "integration_owner": "single owner who merges or rejects this lane"
+}
+```
+
+Required delegation assignment keys:
+
+- `task_slice`
+- `allowed_files`
+- `forbidden_files`
+- `authority`
+- `required_evidence`
+- `blocker_conditions`
+- `integration_owner`
 
 ## preflight output Schema
 

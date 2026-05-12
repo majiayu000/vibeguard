@@ -17,6 +17,7 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 ## Routing Contract Integration
 
 Plan Flow owns the task only after the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) resolves to `plan_first`.
+Delegated execution plans must also satisfy [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 Route into Plan Flow when these readiness signals are true:
 
@@ -35,7 +36,7 @@ When Plan Flow finishes planning, emit the shared execution handoff with these r
 - `stop_conditions`
 - `lane_map`
 
-`artifacts` must include the generated `plan/*.md` path. `runtime_pinning_snapshot` must point at the W-20 snapshot for long tasks, or be `None` for short direct work. `lane_map` must name the owner for every delegated lane before execution starts.
+`artifacts` must include the generated `plan/*.md` path. `runtime_pinning_snapshot` must point at the W-20 snapshot for long tasks, or be `None` for short direct work. `lane_map` must name the owner for every delegated lane before execution starts, and each delegated lane must have a child-agent assignment with file ownership, authority, required evidence, blockers, and integration owner.
 
 ## Core Workflow (Analyze -> Plan -> Execute)
 

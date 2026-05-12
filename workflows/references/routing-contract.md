@@ -58,6 +58,7 @@ File count may be used as a secondary hint, but it is not the contract and must 
 - `execute_direct` enters an execution workflow immediately.
 - `plan_first` enters a planning workflow that emits the shared handoff block below.
 - Delegation is allowed only when `lane_map` assigns a single owner to each lane and no lane is left ownerless.
+- Each delegated lane must follow the assignment, ownership, blocker, and reintegration rules in [`delegation-contract.md`](delegation-contract.md).
 - Long tasks that cross 3 or more agent steps, run for 10 minutes or longer, or enter `/vibeguard:interview` / `/vibeguard:exec-plan` must capture a W-20 runtime pinning snapshot before execution starts.
 
 If delegation ownership is missing or conflicting, stop and return `clarify_first`.
@@ -97,6 +98,7 @@ Consumption rules:
 - `verification_owner` names who closes the verification loop.
 - `stop_conditions` are hard boundaries, not suggestions.
 - `lane_map` must show ownership for every delegated lane before parallel work starts.
+- Delegated `lane_map` entries point to assignment blocks shaped by [`delegation-contract.md`](delegation-contract.md).
 
 ## Workflow Ownership
 
@@ -151,3 +153,10 @@ Planner proposes parallel execution but omits who owns doc verification.
 
 - `lane_map` is incomplete
 - output: `clarify_first` until ownership is explicit
+
+### Delegation With File Ownership Conflict
+
+Planner assigns two workers to edit `docs/README_CN.md`.
+
+- delegation contract fails because the same writable file has multiple owners
+- output: serialize under the integration owner, or revise `lane_map`

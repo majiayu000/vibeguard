@@ -161,6 +161,14 @@ assert_cmd "routing contract includes clarify_first" grep -qF "clarify_first" "$
 assert_cmd "routing contract requires handoff fields" bash -c "for key in mode artifacts verification_owner stop_conditions lane_map; do grep -qF \"\$key\" '${ROUTING_CONTRACT}' || exit 1; done"
 assert_cmd "routing surfaces reference canonical contract" bash -c "for file in '${REPO_DIR}/README.md' '${REPO_DIR}/agents/dispatcher.md' '${REPO_DIR}/workflows/fixflow/SKILL.md' '${REPO_DIR}/workflows/plan-flow/SKILL.md' '${REPO_DIR}/workflows/plan-mode/SKILL.md' '${REPO_DIR}/workflows/auto-optimize/SKILL.md' '${REPO_DIR}/workflows/references/delivery-base.md' '${REPO_DIR}/workflows/plan-flow/references/execplan-integration.md' '${REPO_DIR}/docs/command-schemas.md' '${REPO_DIR}/docs/CLAUDE.md.example' '${REPO_DIR}/docs/README_CN.md' '${REPO_DIR}/claude-md/vibeguard-rules.md' '${REPO_DIR}/templates/AGENTS.md'; do grep -qF 'routing-contract.md' \"\$file\" || exit 1; done"
 
+header "delegation contract"
+DELEGATION_CONTRACT="${REPO_DIR}/workflows/references/delegation-contract.md"
+assert_cmd "canonical delegation contract exists" test -f "${DELEGATION_CONTRACT}"
+assert_cmd "delegation contract requires assignment fields" bash -c "for key in task_slice allowed_files forbidden_files authority required_evidence blocker_conditions integration_owner; do grep -qF \"\$key\" '${DELEGATION_CONTRACT}' || exit 1; done"
+assert_cmd "delegation contract includes staged pipeline" bash -c "for stage in solo delegate-readonly team-plan team-exec team-verify fix-loop; do grep -qF \"\$stage\" '${DELEGATION_CONTRACT}' || exit 1; done"
+assert_cmd "delegation contract defines parallelism serialization decisions" bash -c "grep -qF 'Default maximum concurrent write lanes' '${DELEGATION_CONTRACT}' && grep -qF 'Serialize' '${DELEGATION_CONTRACT}'"
+assert_cmd "delegation consumers reference canonical contract" bash -c "for file in '${REPO_DIR}/README.md' '${REPO_DIR}/agents/dispatcher.md' '${REPO_DIR}/workflows/fixflow/SKILL.md' '${REPO_DIR}/workflows/plan-flow/SKILL.md' '${REPO_DIR}/workflows/plan-mode/SKILL.md' '${REPO_DIR}/workflows/auto-optimize/SKILL.md' '${REPO_DIR}/workflows/references/routing-contract.md' '${REPO_DIR}/workflows/references/delivery-base.md' '${REPO_DIR}/docs/command-schemas.md' '${REPO_DIR}/docs/CLAUDE.md.example' '${REPO_DIR}/docs/README_CN.md' '${REPO_DIR}/docs/openai-codex-best-practices.md' '${REPO_DIR}/claude-md/vibeguard-rules.md' '${REPO_DIR}/templates/AGENTS.md'; do grep -qF 'delegation-contract.md' \"\$file\" || exit 1; done"
+
 header "codex config helper"
 CONFIG_FILE="${TMP_DIR}/config.toml"
 enable_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"

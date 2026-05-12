@@ -9,6 +9,7 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 ## Routing Contract Integration
 
 Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Any delegated scan or repair lane must follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 Start autonomous optimization only when both conditions are true:
 
@@ -20,6 +21,7 @@ Do not start autonomous execution when:
 - readiness is `clarify_first`
 - readiness is `plan_first` and no execution handoff exists yet
 - delegation ownership is missing, shared, or contradictory
+- delegated lanes do not have assignment blocks with allowed files, authority, required evidence, blockers, and an integration owner
 
 When Auto-Optimize consumes a planning handoff, it must honor:
 
@@ -70,7 +72,7 @@ The user can specify the dimensions, otherwise the most needed dimensions will b
    for guard in guards/python/check_*.sh; do bash "$guard" /path/to/project; done
    for guard in guards/rust/check_*.sh; do bash "$guard" /path/to/project; done
    ```
-4. Scan in parallel according to the current dimension (use sub-agent to scan by module partition, load `rules/` corresponding language rules)
+4. Scan in parallel only after creating delegation assignments for each module partition; read-only scans may use broad paths, but write lanes require disjoint `allowed_files`
 5. **Merge guard results + LLM scan results**, output the evaluation report to the user, and confirm the optimization direction
 
 ### Phase 2: Classification and design (comply with VibeGuard specification)
