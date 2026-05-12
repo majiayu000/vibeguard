@@ -147,6 +147,8 @@ bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project     # AI c
 python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path      # dependency direction
 python3 ~/vibeguard/guards/universal/check_circular_deps.py /path          # circular deps
 bash ~/vibeguard/guards/universal/check_test_integrity.sh /path            # test shadowing / integrity issues
+bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD  # SEC-11 dependency review
+bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD      # SEC-11/W-12 test weakening
 
 # Rust
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path                 # unwrap/expect in prod
