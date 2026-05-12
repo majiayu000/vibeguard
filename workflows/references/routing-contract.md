@@ -2,6 +2,8 @@
 
 Canonical routing contract for VibeGuard workflow selection. All workflow prompts, public docs, and dispatcher guidance must reference this document instead of redefining routing rules locally.
 
+Delegated execution is defined by [`delegation-contract.md`](delegation-contract.md). This routing contract decides whether delegation can start; the delegation contract defines assignments, parallelism, verification, and reintegration.
+
 ## Precedence
 
 Apply routing in this order:
@@ -58,6 +60,7 @@ File count may be used as a secondary hint, but it is not the contract and must 
 - `execute_direct` enters an execution workflow immediately.
 - `plan_first` enters a planning workflow that emits the shared handoff block below.
 - Delegation is allowed only when `lane_map` assigns a single owner to each lane and no lane is left ownerless.
+- Delegated child-agent work must use the assignment template in [`delegation-contract.md`](delegation-contract.md) before any write lane starts.
 - Long tasks that cross 3 or more agent steps, run for 10 minutes or longer, or enter `/vibeguard:interview` / `/vibeguard:exec-plan` must capture a W-20 runtime pinning snapshot before execution starts.
 
 If delegation ownership is missing or conflicting, stop and return `clarify_first`.
@@ -96,7 +99,7 @@ Consumption rules:
 - `runtime_pinning_snapshot` records the pinned runtime, tool inventory, and VibeGuard rule hash for long tasks.
 - `verification_owner` names who closes the verification loop.
 - `stop_conditions` are hard boundaries, not suggestions.
-- `lane_map` must show ownership for every delegated lane before parallel work starts.
+- `lane_map` must show ownership for every delegated lane before parallel work starts, and every delegated lane must receive a matching delegation assignment.
 
 ## Workflow Ownership
 
@@ -105,6 +108,7 @@ Consumption rules:
 - `fixflow` and other execution workflows own direct execution after `execute_direct`, or after a planning handoff preselects them.
 - `auto-optimize` only runs autonomously when readiness and delegation ownership are already explicit.
 - `agents/dispatcher.md` chooses a specialist inside the already selected lane; it does not infer `plan` vs `execute`.
+- `workflows/references/delegation-contract.md` owns child-agent assignment, team pipeline stages, parallelism limits, and reintegration rules.
 
 ## Examples
 
@@ -151,3 +155,10 @@ Planner proposes parallel execution but omits who owns doc verification.
 
 - `lane_map` is incomplete
 - output: `clarify_first` until ownership is explicit
+
+### Delegation Without Assignment Boundaries
+
+Planner names lane owners but does not provide allowed files, forbidden files, authority, evidence, blockers, or integration owner.
+
+- delegation assignment is incomplete
+- output: `clarify_first` until the missing assignment fields are explicit

@@ -201,6 +201,7 @@ Workflow routing is defined once in [workflows/references/routing-contract.md](w
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
 - Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
+- Delegated multi-agent work uses [workflows/references/delegation-contract.md](workflows/references/delegation-contract.md) for child-agent assignments, parallelism limits, and single-owner reintegration
 
 Use workflow prompts and dispatcher guidance as consumers of that contract, not as independent routing sources.
 

@@ -37,8 +37,10 @@ When readiness resolves to `execute_direct`, make the change directly without ov
 
 ### 3. Subagent Strategy
 
-- Use child agents to keep the main context window clean
-- Research, exploration, and parallel analysis** offloaded to sub-agents**
+- Use child agents to keep the main context window clean only after the routing contract allows delegation
+- Follow `workflows/references/delegation-contract.md` for every child-agent assignment
+- Research, exploration, and parallel analysis can run in `readonly` mode before write ownership is clear
+- Write lanes require a task slice, allowed files, forbidden files, authority, required evidence, blockers, and a single integration owner
 - One focused task per sub-agent
 
 ### 4. Autonomous Execution
