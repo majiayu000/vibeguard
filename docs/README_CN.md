@@ -115,6 +115,7 @@ python3 ~/vibeguard/guards/universal/check_circular_deps.py /path/to/project
 bash ~/vibeguard/guards/universal/check_test_integrity.sh /path/to/project
 bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD
 bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD
+bash ~/vibeguard/guards/universal/check_runtime_drift.sh --snapshot .vibeguard/runtime-pin.json
 
 # Rust
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path

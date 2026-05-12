@@ -75,6 +75,7 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 | W-12 | Strict | Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure. |
 | W-14 | Strict | Parallel agents must have explicit, disjoint file ownership; no shared writable file. |
 | W-16 | Strict | Verification commands must come from this session. "Earlier passed" / "should work" do not count. |
+| W-20 | Strict | Long-running tasks must pin runtime, tools, and rule hashes before execution; drift requires explicit review. |
 | SEC-01 | Critical | No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists. |
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |
 | SEC-11 | Strict | AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`. |

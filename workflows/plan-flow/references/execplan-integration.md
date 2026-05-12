@@ -59,6 +59,9 @@ SPEC.md
 *-execplan.md + shared handoff
     │
     ▼
+W-20 runtime pinning snapshot for long tasks
+    │
+    ▼
 execution workflow consumes:
   mode / artifacts / verification_owner / stop_conditions / lane_map
     │
@@ -87,11 +90,12 @@ When execution resumes with a new session:
 2. Run `/vibeguard:exec-plan status` to view the progress
 3. Find the first `in_progress` or `pending` step
 4. Read the Context chapter to restore the project context
-5. Read the Decision Log to understand the existing decisions
-6. Reuse the last shared handoff fields:
+5. Run `bash guards/universal/check_runtime_drift.sh --check <pin-file>` if the Context chapter names a W-20 runtime pinning snapshot
+6. Read the Decision Log to understand the existing decisions
+7. Reuse the last shared handoff fields:
    - `mode`
    - `artifacts`
    - `verification_owner`
    - `stop_conditions`
    - `lane_map`
-7. Continue execution
+8. Continue execution

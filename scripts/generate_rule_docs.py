@@ -444,6 +444,7 @@ Static analysis scripts that enforce rules mechanically:
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
 | `check_dependency_changes.sh` | Dependency version changes requiring OSV/Snyk and human review |
 | `check_test_weakening.sh` | Source+test diffs that weaken assertions, add skips, or add AI-authored tests |
+| `check_runtime_drift.sh` | Long-task runtime, tool, and rule-surface drift |
 
 ### Rust
 

@@ -24,11 +24,14 @@ tags: [vibeguard, execplan, long-horizon, planning]
 - SPEC generated and confirmed via `/vibeguard:interview`
 - Tasks expected to be completed across 2+ sessions
 - Scenarios where execution context needs to be restored across sessions
+- Long tasks that span 3+ agent steps or are expected to run for 10+ minutes must create a W-20 runtime pinning snapshot before execution
 
 **Guardrails**
 - `init` mode does not make any code modifications, only generates documentation
 - `update` mode only modifies the ExecPlan file itself
 - Does not replace preflight - ExecPlan defines "what to do", preflight defines "what not to do"
+- The first executable step after `init` must run `bash guards/universal/check_runtime_drift.sh --snapshot <pin-file>` and record the snapshot path in Context or Decision Log
+- Before resuming an ExecPlan in a new session, run `bash guards/universal/check_runtime_drift.sh --check <pin-file>`; accepted drift must be recorded in `SECURITY.md` or an equivalent project decision log
 
 ---
 
@@ -59,6 +62,7 @@ Generate ExecPlan files from SPEC.
    - Progress is mapped to a milestone list with checkbox
    - Concrete Steps aligns the Step format of plan-template.md (status/target/file/change/test/judgment)
    - **Nyquist Rule**: Each Step must contain the `verify_cmd` field - a verification command that can be executed within 60 seconds (such as `cargo test --lib`, `curl localhost:8080/health`). Steps that cannot be verified within 60s are marked as `unverifiable` and need to be split or supplemented with verification methods.
+   - **Execution Pinning**: For long tasks, add a runtime pinning step before implementation: `bash guards/universal/check_runtime_drift.sh --snapshot .vibeguard/runtime-pin.json`. Resumed execution must check the same snapshot before continuing.
    - Validation converted from SPEC acceptance criteria (AC-XX)
    - Decision Log is initially empty and records the selection decisions during generation.
 
@@ -135,7 +139,7 @@ View a summary of execution progress.
 **Follow-up connection**
 - Full pipeline: `/vibeguard:interview` → SPEC → `/vibeguard:exec-plan init` → `/vibeguard:preflight` → Execute → `/vibeguard:exec-plan update`
 - ExecPlan and preflight are complementary: ExecPlan defines the execution path, and preflight defines the protection boundary
-- New session recovery: read ExecPlan → `/vibeguard:exec-plan status` → continue execution
+- New session recovery: read ExecPlan → `/vibeguard:exec-plan status` → `check_runtime_drift.sh --check <pin-file>` → continue execution
 
 **Reference**
 - ExecPlan template: `workflows/plan-flow/references/execplan-template.md`

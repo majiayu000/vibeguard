@@ -59,6 +59,7 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 | W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Medium | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
+| W-20 | Execution pinning for long-running tasks | Strict | Long-running agent tasks must pin the execution environment before work starts. |
 
 ## FIX / SKIP / DEFER guidance
 

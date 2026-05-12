@@ -15,6 +15,7 @@ tags: [vibeguard, interview, requirements, spec]
 - Involves the development of new functions/modules
 - Requirements description is vague or incomplete
 - Changes affecting multiple modules (complexity routing 6+ file level)
+- Requirements likely to produce a long task (3+ agent steps or 10+ minutes) that needs W-20 execution pinning before implementation
 
 **Guardrails**
 - No code modifications, only analysis and interviews
@@ -75,6 +76,7 @@ tags: [vibeguard, interview, requirements, spec]
    ## Acceptance criteria
    - [ ] AC-01: ...
    ```
+   - For long tasks, add a non-functional requirement that implementation must create a W-20 runtime pinning snapshot before the first executable step and check it before resumed execution.
 
 4. **Confirm and save**
    - Show SPEC to user for confirmation
@@ -82,5 +84,5 @@ tags: [vibeguard, interview, requirements, spec]
    - Remind users: **It is recommended to execute SPEC in a new session**, clean context implementation is more reliable
 
 **Follow-up connection**
-- In a new session: read SPEC.md → `/vibeguard:preflight` generate constraint set → implement by SPEC
+- In a new session: read SPEC.md → `/vibeguard:exec-plan init` or `/vibeguard:preflight` → create W-20 runtime pinning snapshot for long tasks → implement by SPEC
 <!-- VIBEGUARD:INTERVIEW:END -->

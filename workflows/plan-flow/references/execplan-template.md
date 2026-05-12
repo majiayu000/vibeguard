@@ -34,6 +34,7 @@ Minimal context required to resume execution:
 - **Language/Framework**: <e.g. Rust + Axum>
 - **Key entry**: <e.g. src/main.rs, src/lib.rs>
 - **Related Constraint Set**: <preflight output path | None>
+- **Runtime Pinning Snapshot**: <.vibeguard/runtime-pin.json | None>
 - **Existing decision**: <reference Decision Log entry number>
 
 ## 4. Plan of Work
@@ -127,3 +128,4 @@ Safe retry paths and rollback procedures:
 3. **Decision Log records all reasons for changes** — Deviations from the original SPEC must be recorded.
 4. **ExecPlan is self-contained** — New sessions can resume execution with only the ExecPlan file and no reliance on chat history.
 5. **Prose First** — Code blocks are used only for commands and output, and no nested fenced blocks are allowed.
+6. **Execution Pinning** — Long tasks must create a W-20 runtime pinning snapshot before the first executable step and check it before resumed execution.

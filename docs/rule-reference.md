@@ -77,6 +77,7 @@ Canonical source of truth: `rules/claude-rules/`
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 | W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Medium | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
+| W-20 | Execution pinning for long-running tasks | Strict | Long-running agent tasks must pin the execution environment before work starts. |
 
 ---
 
@@ -199,6 +200,7 @@ Static analysis scripts that enforce rules mechanically:
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
 | `check_dependency_changes.sh` | Dependency version changes requiring OSV/Snyk and human review |
 | `check_test_weakening.sh` | Source+test diffs that weaken assertions, add skips, or add AI-authored tests |
+| `check_runtime_drift.sh` | Long-task runtime, tool, and rule-surface drift |
 
 ### Rust
 

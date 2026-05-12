@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- W-20 execution pinning for long-running tasks, including `check_runtime_drift.sh` snapshot/check support and decision-log recording for accepted drift
 - SEC-11 review gates for dependency version changes and test-trust weakening: `check_dependency_changes.sh`, `check_test_weakening.sh`, and matching unit coverage
 - U-32 live constraint budget tooling: `count_active_constraints.sh`, `scripts/constraints/count_active_constraints.py`, and GC downgrade-candidate reporting
 - CI doc command path validator (`scripts/ci/validate-doc-command-paths.sh`) to catch stale `~/vibeguard/...` shell examples
