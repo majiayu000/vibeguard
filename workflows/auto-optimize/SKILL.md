@@ -25,6 +25,7 @@ When Auto-Optimize consumes a planning handoff, it must honor:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`

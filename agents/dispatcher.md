@@ -23,6 +23,7 @@ mode: execute_direct | plan_first | clarify_first
 handoff:
   mode: <optional preselected execution mode>
   artifacts: [...]
+  runtime_pinning_snapshot: <path | None>
   verification_owner: <owner>
   stop_conditions: [...]
   lane_map: { <lane>: <owner> }
@@ -32,7 +33,7 @@ Dispatcher rules:
 
 - Never infer `plan` vs `execute` locally.
 - If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
-- If a handoff is present, consume its `mode`, `artifacts`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
+- If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
 
 ## Scheduling rules

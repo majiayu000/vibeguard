@@ -36,6 +36,7 @@ Canonical routing decisions and planning handoffs are defined in `workflows/refe
     "plan/task.md",
     "SPEC.md"
   ],
+  "runtime_pinning_snapshot": ".vibeguard/runtime-pinning.snapshot | null",
   "verification_owner": "planner | executor | reviewer | named lane owner",
   "stop_conditions": [
     "Condition that must halt execution"
@@ -51,6 +52,7 @@ Required handoff keys:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`

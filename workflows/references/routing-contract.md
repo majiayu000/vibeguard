@@ -58,6 +58,7 @@ File count may be used as a secondary hint, but it is not the contract and must 
 - `execute_direct` enters an execution workflow immediately.
 - `plan_first` enters a planning workflow that emits the shared handoff block below.
 - Delegation is allowed only when `lane_map` assigns a single owner to each lane and no lane is left ownerless.
+- Long tasks that cross 3 or more agent steps, run for 10 minutes or longer, or enter `/vibeguard:interview` / `/vibeguard:exec-plan` must capture a W-20 runtime pinning snapshot before execution starts.
 
 If delegation ownership is missing or conflicting, stop and return `clarify_first`.
 
@@ -70,6 +71,7 @@ handoff:
   mode: <execution mode selected by the planner>
   artifacts:
     - <paths to the plan, spec, or other required artifacts>
+  runtime_pinning_snapshot: <path to W-20 snapshot | None for short direct tasks>
   verification_owner: <who owns verification for this handoff>
   stop_conditions:
     - <conditions that must halt execution>
@@ -81,15 +83,17 @@ Required keys:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
 
 Consumption rules:
 
-- Execution workflows must honor all five keys.
+- Execution workflows must honor all required keys.
 - `mode` is preselected by planning; execution workflows do not re-route back to planning on their own.
 - `artifacts` are the canonical inputs for downstream execution.
+- `runtime_pinning_snapshot` records the pinned runtime, tool inventory, and VibeGuard rule hash for long tasks.
 - `verification_owner` names who closes the verification loop.
 - `stop_conditions` are hard boundaries, not suggestions.
 - `lane_map` must show ownership for every delegated lane before parallel work starts.

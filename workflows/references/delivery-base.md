@@ -19,6 +19,7 @@ handoff:
   mode: <execution mode selected by the planner>
   artifacts:
     - <required plan/spec paths>
+  runtime_pinning_snapshot: <path | None>
   verification_owner: <who closes verification>
   stop_conditions:
     - <conditions that halt execution>
@@ -30,6 +31,7 @@ Execution workflows must treat these keys as required:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
@@ -38,6 +40,7 @@ Consumption rules:
 
 - `mode` is authoritative for the execution lane.
 - `artifacts` are the only canonical planning inputs.
+- `runtime_pinning_snapshot` is the W-20 runtime/tool/rule baseline for long tasks, or `None` for short direct work.
 - `verification_owner` must be reflected in the verification loop and final handoff.
 - `stop_conditions` must halt work when triggered.
 - `lane_map` must define a single owner for each delegated lane before parallel work starts.

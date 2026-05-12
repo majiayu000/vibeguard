@@ -168,7 +168,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 
 - 优先级：`user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - readiness 输出只有三种：`execute_direct`、`plan_first`、`clarify_first`
-- 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`verification_owner`、`stop_conditions`、`lane_map`
+- 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`runtime_pinning_snapshot`、`verification_owner`、`stop_conditions`、`lane_map`
 
 README、workflow prompts、dispatcher 都应该消费这份契约，而不是各自再写一套本地路由规则。
 

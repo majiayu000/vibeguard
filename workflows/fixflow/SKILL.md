@@ -41,6 +41,7 @@ When Fixflow receives a planning handoff, it must honor all required keys:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`

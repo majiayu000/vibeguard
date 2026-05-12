@@ -21,7 +21,7 @@ Follow the canonical router in `workflows/references/routing-contract.md`.
 
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
-- Planning handoff keys: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, `lane_map`
+- Planning handoff keys: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
 
 Do not recreate a separate file-count router inside project-specific CLAUDE instructions.
 
