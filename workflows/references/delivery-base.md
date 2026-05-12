@@ -9,6 +9,7 @@ Before execution starts, consume the canonical router in [`workflows/references/
 - Start direct execution only after upstream routing resolves to `execute_direct`, or after a planning workflow emits a handoff that preselects execution.
 - If upstream routing resolves to `clarify_first`, stop and clarify before building a plan or editing code.
 - Do not reinterpret the route locally with file-count shortcuts.
+- If execution delegates work, consume [`workflows/references/delegation-contract.md`](delegation-contract.md) before any child-agent or parallel write lane starts.
 
 ## Execution Handoff Contract
 
@@ -44,6 +45,18 @@ Consumption rules:
 - `verification_owner` must be reflected in the verification loop and final handoff.
 - `stop_conditions` must halt work when triggered.
 - `lane_map` must define a single owner for each delegated lane before parallel work starts.
+
+## Delegation Contract
+
+Delegated execution must use the assignment template in [`workflows/references/delegation-contract.md`](delegation-contract.md).
+
+Before starting delegated work:
+
+- name the `leader`, `verification_owner`, and single `integration_owner`
+- assign each child agent a `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, and `blocker_conditions`
+- serialize shared-file, high-context-file, generated-artifact, and security-sensitive work unless isolated worktrees or a single integration owner make the write boundary explicit
+
+Worker outputs are not complete until the `integration_owner` inspects them, merges shared outputs, and reruns the checks owned by `verification_owner`.
 
 ## Define Ready Criteria (DoR)
 

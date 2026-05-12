@@ -197,6 +197,8 @@ Keep one thread per coherent unit of work. If the work is still part of the same
 
 > Use Codex's [multi-agent](/codex/concepts/multi-agents) workflows to offload bounded work from the main thread. Keep the main agent focused on the core problem, and use subagents for tasks like exploration, tests, or triage.
 
+In VibeGuard repositories, apply [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md) before starting parallel write lanes so each child agent has explicit file ownership, evidence requirements, blockers, and a single integration owner.
+
 ## Common mistakes
 
 A few common mistakes to avoid when first using Codex:

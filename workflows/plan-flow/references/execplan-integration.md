@@ -61,6 +61,7 @@ SPEC.md
     ▼
 execution workflow consumes:
   mode / artifacts / runtime_pinning_snapshot / verification_owner / stop_conditions / lane_map
+  delegation assignments from workflows/references/delegation-contract.md when child agents or parallel lanes are used
     │
     ├── step complete → /vibeguard:exec-plan update
     ├── new session → /vibeguard:exec-plan status
@@ -105,5 +106,6 @@ When execution resumes with a new session:
    - `verification_owner`
    - `stop_conditions`
    - `lane_map`
-7. Run `check_runtime_drift.sh check` against `runtime_pinning_snapshot`
-8. Continue execution only if the snapshot still matches or accepted drift has been recorded
+7. Reuse delegation assignments from [`workflows/references/delegation-contract.md`](../../references/delegation-contract.md) before restarting any child-agent or parallel lane
+8. Run `check_runtime_drift.sh check` against `runtime_pinning_snapshot`
+9. Continue execution only if the snapshot still matches or accepted drift has been recorded

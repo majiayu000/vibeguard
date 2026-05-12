@@ -25,6 +25,7 @@ Plan Mode follows the canonical router in [`workflows/references/routing-contrac
 - User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
 - Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
 - When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
+- When the plan delegates work, include assignments from [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) before any child-agent write lane starts.
 
 ## 1. Overall behavioral agreement (must be observed)
 
