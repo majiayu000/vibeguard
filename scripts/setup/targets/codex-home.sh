@@ -37,7 +37,7 @@ install_codex_home_assets() {
     red "  Failed to update ~/.codex/hooks.json"
   fi
 
-  # Enable codex_hooks feature flag in config.toml
+  # Enable Codex lifecycle hooks feature flag in config.toml
   _enable_codex_hooks_feature
   echo
 }
@@ -46,18 +46,18 @@ _enable_codex_hooks_feature() {
   local config="${CODEX_DIR}/config.toml"
   local result
   if ! result=$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${config}" 2>/dev/null); then
-    red "  Failed to enable codex_hooks feature in config.toml"
+    red "  Failed to enable hooks feature in config.toml"
     return 1
   fi
   case "${result}" in
     CHANGED)
-      green "  codex_hooks feature enabled in config.toml"
+      green "  hooks feature enabled in config.toml"
       ;;
     SKIP)
-      green "  codex_hooks feature already enabled"
+      green "  hooks feature already enabled"
       ;;
     *)
-      red "  Failed to enable codex_hooks feature in config.toml"
+      red "  Failed to enable hooks feature in config.toml"
       return 1
       ;;
   esac
@@ -145,11 +145,11 @@ print(total)
     codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
-    green "[OK] codex_hooks feature enabled in config.toml"
+    green "[OK] hooks feature enabled in config.toml"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
-    yellow "[MISSING] codex_hooks feature not enabled in ~/.codex/config.toml"
+    yellow "[MISSING] hooks feature not enabled in ~/.codex/config.toml"
   fi
 
   if _has_legacy_codex_mcp_config; then
@@ -186,7 +186,7 @@ clean_codex_home_installation() {
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   yellow "Removed Codex hook wrapper"
 
-  # Keep codex_hooks flag untouched to avoid affecting other toolchains.
+  # Keep the Codex hooks feature flag untouched to avoid affecting other toolchains.
 
   local cleanup_result
   if ! cleanup_result="$(_remove_legacy_codex_mcp_config 2>/dev/null)"; then

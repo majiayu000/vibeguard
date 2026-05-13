@@ -11,12 +11,36 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/_lib/stub_detect.sh"
-vg_start_timer
 
 INPUT=$(cat)
 
-RESULT=$(echo "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.content")
+if [[ -n "${_VG_HELPER:-}" ]]; then
+  _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+  _VG_SCAN_MAX_FILES="${VG_SCAN_MAX_FILES:-5000}"
+  _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
+    | "$_VG_HELPER" post-write-fast-check "$_VG_U16_BASE_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
+    2>/dev/null || true)
+  _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
+  case "$_VG_FAST_STATUS" in
+    SKIP)
+      exit 0
+      ;;
+    FAST_LOGGED)
+      exit 0
+      ;;
+    FAST_PASS)
+      FILE_PATH="${_VG_FAST_RESULT#*$'\n'}"
+      [[ "$FILE_PATH" == "$_VG_FAST_RESULT" ]] && FILE_PATH=""
+      vg_log "post-write-guard" "Write" "pass" "" "$FILE_PATH"
+      exit 0
+      ;;
+  esac
+fi
+
+source "$(dirname "$0")/_lib/stub_detect.sh"
+vg_start_timer
+
+RESULT=$(printf '%s' "$INPUT" | vg_json_two_fields "tool_input.file_path" "tool_input.content")
 
 FILE_PATH=$(echo "$RESULT" | head -1)
 CONTENT=$(echo "$RESULT" | tail -n +2)
@@ -277,15 +301,17 @@ if [[ -n "$STUB_WARNINGS" ]]; then
 }${STUB_WARNINGS}"
 fi
 
-# --- [U-16] File size guard: 800-line default limit with project exemptions ---
+# --- [U-16] File size guard: configurable limit with project exemptions ---
+# Base limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
 case "$FILE_PATH" in
   *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go)
     case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) ;;
       *)
         _U16_TOTAL=$(echo "$CONTENT" | wc -l | tr -d ' ')
-        if [[ "$_U16_TOTAL" -gt 800 ]]; then
-          _U16_LIMIT=800
+        if [[ "$_U16_TOTAL" -gt "$_U16_BASE_LIMIT" ]]; then
+          _U16_LIMIT="$_U16_BASE_LIMIT"
           if [[ "$PROJECT_DIR" != "/" && -f "$PROJECT_DIR/CLAUDE.md" ]]; then
             _U16_EXEMPT=$(VG_CLAUDE_MD="$PROJECT_DIR/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
 import os, re

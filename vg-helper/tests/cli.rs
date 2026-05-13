@@ -28,7 +28,7 @@ fn unknown_command_exits_2() {
 }
 
 #[test]
-fn help_lists_all_8_commands() {
+fn help_lists_all_commands() {
     let out = bin().output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     for name in &[
@@ -36,10 +36,16 @@ fn help_lists_all_8_commands() {
         "json-two-fields",
         "churn-count",
         "warn-count",
+        "post-edit-history",
         "build-fails",
         "paralysis-count",
         "pkg-rewrite",
         "session-metrics",
+        "pre-write-check",
+        "pre-edit-check",
+        "post-edit-fast-check",
+        "post-write-fast-check",
+        "codex-app-server-wrapper",
     ] {
         assert!(
             stderr.contains(name),

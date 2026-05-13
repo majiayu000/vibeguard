@@ -32,6 +32,7 @@ shards=(
   "tests/hooks/test_post_edit_suppression.sh"
   "tests/hooks/test_log_timer.sh"
   "tests/hooks/test_post_edit_w14.sh"
+  "tests/hooks/test_u16_config.sh"
 )
 
 for shard in "${shards[@]}"; do

@@ -30,10 +30,13 @@ def _table_name(line: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+CODEX_HOOKS_FEATURE = "hooks"
+
+
 def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
     lines = text.splitlines()
     if not lines:
-        return "[features]\ncodex_hooks = true\n", True
+        return f"[features]\n{CODEX_HOOKS_FEATURE} = true\n", True
 
     changed = False
     features_idx: int | None = None
@@ -54,21 +57,21 @@ def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
                 in_features = False
         if in_features:
             key = stripped.split("=", 1)[0].strip()
-            if key == "codex_hooks":
-                if stripped != "codex_hooks = true":
-                    lines[idx] = "codex_hooks = true"
+            if key == CODEX_HOOKS_FEATURE:
+                if stripped != f"{CODEX_HOOKS_FEATURE} = true":
+                    lines[idx] = f"{CODEX_HOOKS_FEATURE} = true"
                     changed = True
                 return "\n".join(lines).rstrip() + "\n", changed
 
     if features_idx is not None:
         assert insert_idx is not None
-        lines.insert(insert_idx, "codex_hooks = true")
+        lines.insert(insert_idx, f"{CODEX_HOOKS_FEATURE} = true")
         changed = True
         return "\n".join(lines).rstrip() + "\n", changed
 
     content = "\n".join(lines).rstrip()
     suffix = "\n\n" if content else ""
-    return content + suffix + "[features]\ncodex_hooks = true\n", True
+    return content + suffix + f"[features]\n{CODEX_HOOKS_FEATURE} = true\n", True
 
 
 def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
@@ -103,7 +106,7 @@ def _check_codex_hooks_enabled(text: str) -> tuple[str, int]:
         return "INVALID", 1
 
     features = data.get("features")
-    if isinstance(features, dict) and features.get("codex_hooks") is True:
+    if isinstance(features, dict) and features.get(CODEX_HOOKS_FEATURE) is True:
         return "OK", 0
     return "MISSING", 1
 
@@ -159,10 +162,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Structured Codex config.toml helper")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    enable = sub.add_parser("enable-codex-hooks", help="Ensure [features].codex_hooks = true")
+    enable = sub.add_parser("enable-codex-hooks", help="Ensure [features].hooks = true")
     enable.add_argument("--config-file", required=True)
 
-    check = sub.add_parser("check-codex-hooks", help="Validate [features].codex_hooks = true")
+    check = sub.add_parser("check-codex-hooks", help="Validate [features].hooks = true")
     check.add_argument("--config-file", required=True)
 
     remove = sub.add_parser("remove-legacy-vibeguard-mcp", help="Remove [mcp_servers.vibeguard] block")

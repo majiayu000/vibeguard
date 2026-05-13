@@ -11,8 +11,8 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `guards/` | Static guard scripts for universal and language-specific checks. |
 | `schemas/` | Install/runtime contracts and project schema definitions. |
 | `scripts/setup/`, `setup.sh` | Public setup entrypoint and target-specific install adapters. |
-| `scripts/lib/`, `scripts/codex/` | Shared install/runtime helpers and Codex adapters. |
-| `vg-helper/` | Required Rust helper for hook-side JSON, metrics, and package-rewrite logic. |
+| `scripts/lib/` | Shared install/runtime helpers. |
+| `vg-helper/` | Required Rust helper for hook-side JSON, metrics, package-rewrite logic, and the Codex app-server wrapper. |
 
 ## Workflow Surface
 

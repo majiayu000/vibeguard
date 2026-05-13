@@ -91,11 +91,10 @@ bench_hook() {
   local latencies=()
 
   for _run in $(seq 1 "$RUNS"); do
-    # Override log file if provided
-    local env_prefix=""
-    if [[ -n "$events_file" ]]; then
-      env_prefix="VIBEGUARD_LOG_FILE=$events_file VIBEGUARD_SESSION_ID=bench VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
-    fi
+    # Keep benchmark runs isolated from the caller's ambient project log and
+    # avoid measuring parent-process session discovery instead of hook work.
+    local bench_log_file="${events_file:-$TMPDIR_BENCH/events-bench.jsonl}"
+    local env_prefix="VIBEGUARD_LOG_DIR=$TMPDIR_BENCH VIBEGUARD_LOG_FILE=$bench_log_file VIBEGUARD_SESSION_ID=bench VIBEGUARD_CLI=bench VIBEGUARD_PROJECT_HASH=bench000 VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
 
     local start=$(_now_ms)
     env $env_prefix bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true

@@ -498,7 +498,7 @@ assert_cmd "post-guard-check is not enabled in the default installation" bash -c
 assert_cmd "skills-loader is not enabled in the default installation" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
 assert_cmd "The default core profile does not enable full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 assert_cmd "~/.codex/hooks.json exists after installation" test -f "${HOME}/.codex/hooks.json"
-assert_cmd "Enable codex_hooks feature after installation" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
+assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
 assert_cmd "Clean legacy Codex MCP block after installation" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
@@ -555,8 +555,8 @@ raise SystemExit(42)
 PY
 fail_install_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1 || true)"
 cp "${_BACKUP_CODEX_CONFIG_HELPER}" "${_ORIG_CODEX_CONFIG_HELPER}"
-assert_contains "${fail_install_out}" "Failed to enable codex_hooks feature in config.toml" "setup reports codex_hooks helper failure"
-assert_cmd "setup exits before reporting success when codex_hooks helper fails" bash -c "! grep -q 'Setup complete! All components installed.' <<< '${fail_install_out}'"
+assert_contains "${fail_install_out}" "Failed to enable hooks feature in config.toml" "setup reports hooks helper failure"
+assert_cmd "setup exits before reporting success when hooks helper fails" bash -c "! grep -q 'Setup complete! All components installed.' <<< '${fail_install_out}'"
 
 header "setup --check rejects invalid codex config"
 _VALID_CODEX_CONFIG="${TMP_HOME}/config.toml.valid.backup"
@@ -564,23 +564,23 @@ cp "${HOME}/.codex/config.toml" "${_VALID_CODEX_CONFIG}"
 cat > "${HOME}/.codex/config.toml" <<'TOML'
 not valid toml =
 [features]
-codex_hooks = true
+hooks = true
 TOML
 invalid_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
 assert_contains "${invalid_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid ~/.codex/config.toml"
-assert_cmd "invalid config does not report codex_hooks enabled" bash -c "! grep -qF '[OK] codex_hooks feature enabled in config.toml' <<< '${invalid_codex_check_out}'"
+assert_cmd "invalid config does not report hooks enabled" bash -c "! grep -qF '[OK] hooks feature enabled in config.toml' <<< '${invalid_codex_check_out}'"
 
 header "setup --check rejects invalid UTF-8 codex config"
 python3 - <<'PY' "${HOME}/.codex/config.toml"
 from pathlib import Path
 import sys
-Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
+Path(sys.argv[1]).write_bytes(b'[features]\nhooks = true\n\xff')
 PY
 invalid_utf8_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
 assert_contains "${invalid_utf8_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid UTF-8 ~/.codex/config.toml"
-assert_cmd "invalid UTF-8 config does not report codex_hooks enabled" bash -c "! grep -qF '[OK] codex_hooks feature enabled in config.toml' <<< '${invalid_utf8_codex_check_out}'"
+assert_cmd "invalid UTF-8 config does not report hooks enabled" bash -c "! grep -qF '[OK] hooks feature enabled in config.toml' <<< '${invalid_utf8_codex_check_out}'"
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"

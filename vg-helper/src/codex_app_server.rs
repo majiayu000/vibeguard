@@ -1,0 +1,208 @@
+use crate::codex_app_server_core::{GateStrategy, NoopGateStrategy, SessionState};
+use crate::codex_app_server_strategies::VibeGuardGateStrategy;
+use serde_json::Value;
+use std::error::Error;
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+struct Args {
+    repo_dir: PathBuf,
+    strategy: String,
+    codex_command: String,
+}
+
+pub fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
+    let args = parse_args(args)?;
+    let strategy: Box<dyn GateStrategy> = match args.strategy.as_str() {
+        "noop" => Box::new(NoopGateStrategy),
+        "vibeguard" => Box::new(VibeGuardGateStrategy::new(&args.repo_dir, None)?),
+        other => return Err(format!("unsupported strategy: {other}").into()),
+    };
+
+    run_proxy(strategy, &args.codex_command)
+}
+
+fn parse_args(args: &[String]) -> Result<Args, Box<dyn Error>> {
+    let mut repo_dir: Option<PathBuf> = None;
+    let mut strategy = "vibeguard".to_string();
+    let mut codex_command = "codex app-server".to_string();
+    let mut idx = 0;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "-h" | "--help" => {
+                print_help();
+                std::process::exit(0);
+            }
+            "--repo-dir" => {
+                idx += 1;
+                repo_dir = Some(PathBuf::from(
+                    args.get(idx).ok_or("--repo-dir requires a value")?,
+                ));
+            }
+            "--strategy" => {
+                idx += 1;
+                strategy = args.get(idx).ok_or("--strategy requires a value")?.clone();
+            }
+            "--codex-command" => {
+                idx += 1;
+                codex_command = args
+                    .get(idx)
+                    .ok_or("--codex-command requires a value")?
+                    .clone();
+            }
+            arg if arg.starts_with("--repo-dir=") => {
+                repo_dir = Some(PathBuf::from(arg.trim_start_matches("--repo-dir=")));
+            }
+            arg if arg.starts_with("--strategy=") => {
+                strategy = arg.trim_start_matches("--strategy=").to_string();
+            }
+            arg if arg.starts_with("--codex-command=") => {
+                codex_command = arg.trim_start_matches("--codex-command=").to_string();
+            }
+            arg => return Err(format!("unknown argument: {arg}").into()),
+        }
+        idx += 1;
+    }
+
+    Ok(Args {
+        repo_dir: repo_dir.unwrap_or_else(default_repo_dir),
+        strategy,
+        codex_command,
+    })
+}
+
+fn print_help() {
+    println!(
+        "Usage: vg-helper codex-app-server-wrapper [--repo-dir DIR] [--strategy vibeguard|noop] [--codex-command CMD]"
+    );
+}
+
+fn default_repo_dir() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let repo_path = PathBuf::from(home).join(".vibeguard/repo-path");
+        if let Ok(text) = std::fs::read_to_string(repo_path) {
+            let path = text.trim();
+            if !path.is_empty() {
+                return PathBuf::from(path);
+            }
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+struct SharedState {
+    strategy: Box<dyn GateStrategy>,
+    session: SessionState,
+}
+
+fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(), Box<dyn Error>> {
+    let mut child = Command::new("bash")
+        .arg("-lc")
+        .arg(codex_command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let child_stdin = child
+        .stdin
+        .take()
+        .ok_or("failed to open app-server stdin")?;
+    let child_stdout = child
+        .stdout
+        .take()
+        .ok_or("failed to open app-server stdout")?;
+    let child_stderr = child
+        .stderr
+        .take()
+        .ok_or("failed to open app-server stderr")?;
+
+    let shared = Arc::new(Mutex::new(SharedState {
+        strategy,
+        session: SessionState::default(),
+    }));
+    let child_stdin = Arc::new(Mutex::new(Some(child_stdin)));
+
+    let stdin_shared = Arc::clone(&shared);
+    let stdin_writer = Arc::clone(&child_stdin);
+    let t_in = thread::spawn(move || {
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines().map_while(Result::ok) {
+            if let Ok(message) = serde_json::from_str::<Value>(line.trim()) {
+                if message.is_object() {
+                    if let Ok(mut guard) = stdin_shared.lock() {
+                        let mut session = std::mem::take(&mut guard.session);
+                        guard.strategy.on_client_message(&message, &mut session);
+                        guard.session = session;
+                    }
+                }
+            }
+            if let Ok(mut writer) = stdin_writer.lock() {
+                if let Some(stdin) = writer.as_mut() {
+                    let _ = writeln!(stdin, "{line}");
+                    let _ = stdin.flush();
+                }
+            }
+        }
+    });
+
+    let stdout_shared = Arc::clone(&shared);
+    let stdout_writer = Arc::clone(&child_stdin);
+    let t_out = thread::spawn(move || {
+        let reader = BufReader::new(child_stdout);
+        for mut line in reader.lines().map_while(Result::ok) {
+            let mut intercepted = false;
+            if let Ok(message) = serde_json::from_str::<Value>(line.trim()) {
+                if message.is_object() {
+                    let method_is_string = message.get("method").and_then(Value::as_str).is_some();
+                    if method_is_string && message.get("id").is_some() {
+                        if let Ok(mut guard) = stdout_shared.lock() {
+                            let mut session = std::mem::take(&mut guard.session);
+                            let mut write_to_server = |obj: Value| {
+                                if let Ok(mut writer) = stdout_writer.lock() {
+                                    if let Some(stdin) = writer.as_mut() {
+                                        let _ = writeln!(stdin, "{}", obj);
+                                        let _ = stdin.flush();
+                                    }
+                                }
+                            };
+                            intercepted = guard.strategy.handle_server_request(
+                                &message,
+                                &mut session,
+                                &mut write_to_server,
+                            );
+                            guard.session = session;
+                        }
+                    } else if method_is_string {
+                        if let Ok(mut guard) = stdout_shared.lock() {
+                            let mut session = std::mem::take(&mut guard.session);
+                            let next = guard.strategy.on_server_notification(message, &mut session);
+                            guard.session = session;
+                            line = next.to_string();
+                        }
+                    }
+                }
+            }
+            if !intercepted {
+                println!("{line}");
+                let _ = std::io::stdout().flush();
+            }
+        }
+    });
+
+    let t_err = thread::spawn(move || {
+        let reader = BufReader::new(child_stderr);
+        for line in reader.lines().map_while(Result::ok) {
+            eprintln!("{line}");
+        }
+    });
+
+    let _ = t_in.join();
+    let _ = t_out.join();
+    let _ = t_err.join();
+    let status = child.wait()?;
+    std::process::exit(status.code().unwrap_or(1));
+}

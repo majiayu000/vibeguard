@@ -42,7 +42,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 
 | Script | Purpose |
 |------|------|
-| `codex/app_server_wrapper.py` | External wrapper for `codex app-server` with VibeGuard gates |
+| `vg-helper codex-app-server-wrapper` | Rust external wrapper for `codex app-server` with VibeGuard gates |
 | `lib/settings_json.py` | Manage Claude Code hook configuration in `~/.claude/settings.json` |
 | `lib/codex_hooks_json.py` | Manage VibeGuard-owned entries in `~/.codex/hooks.json` |
 | `lib/hooks_manifest.py` | Read and validate `hooks/manifest.json` as the hook registration source of truth |

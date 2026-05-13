@@ -31,6 +31,15 @@ vg_append_log_line() {
   return "$status"
 }
 
+vg_log_clean_json_text() {
+  local text="$1"
+  if [[ "$text" =~ ^[A-Za-z0-9_./:\ \(\),-]*$ ]]; then
+    printf '%s' "$text"
+  else
+    printf '%s' "$text" | tr -d '\000-\007\013\016-\037\177'
+  fi
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -57,8 +66,10 @@ vg_log() {
     _VG_START_MS=""
   fi
 
-  mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
-  chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
+  if [[ ! -d "$VIBEGUARD_LOG_DIR" ]]; then
+    mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+    chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
+  fi
 
   # Pure bash JSON serialization (eliminates python3 subprocess)
   local ts
@@ -71,8 +82,8 @@ vg_log() {
   # becomes ]8;;url\x07 with ESC-only stripping; the raw BEL makes JSONL invalid).
   # tr range: 0x00-0x07 (NUL-BEL), 0x0B (VT), 0x0E-0x1F (SO-US incl. ESC), 0x7F (DEL)
   local esc_reason esc_detail
-  esc_reason=$(printf '%s' "$reason" | tr -d '\000-\007\013\016-\037\177')
-  esc_detail=$(printf '%s' "$detail"  | tr -d '\000-\007\013\016-\037\177')
+  esc_reason=$(vg_log_clean_json_text "$reason")
+  esc_detail=$(vg_log_clean_json_text "$detail")
   esc_reason="${esc_reason//\\/\\\\}" esc_detail="${esc_detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
@@ -88,13 +99,17 @@ vg_log() {
   [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
   json="${json}}"
 
+  local _vg_primary_new=0
+  [[ ! -e "$VIBEGUARD_LOG_FILE" ]] && _vg_primary_new=1
   vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"
-  chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
+  [[ "$_vg_primary_new" -eq 1 ]] && chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
 
   # Synchronously write to the global log (for stats.sh aggregation analysis)
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
+    local _vg_global_new=0
+    [[ ! -e "$global_log" ]] && _vg_global_new=1
     vg_append_log_line "$global_log" "$json"
-    chmod 600 "$global_log" 2>/dev/null || true
+    [[ "$_vg_global_new" -eq 1 ]] && chmod 600 "$global_log" 2>/dev/null || true
   fi
 }

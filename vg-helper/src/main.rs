@@ -1,4 +1,8 @@
+mod codex_app_server;
+mod codex_app_server_core;
+mod codex_app_server_strategies;
 mod event_schema;
+mod hook_checks;
 mod json_field;
 mod log_query;
 mod pkg_rewrite;
@@ -38,6 +42,11 @@ static COMMANDS: &[Command] = &[
         handler: log_query::warn_count,
     },
     Command {
+        name: "post-edit-history",
+        usage: "<session> <file> [agent]  — summarize post-edit history signals",
+        handler: log_query::post_edit_history,
+    },
+    Command {
         name: "build-fails",
         usage: "<session> <project>  — count consecutive build failures",
         handler: log_query::build_fails,
@@ -56,6 +65,31 @@ static COMMANDS: &[Command] = &[
         name: "session-metrics",
         usage: "<session> <dir>  — emit session metrics and correction signals",
         handler: session_metrics::run,
+    },
+    Command {
+        name: "pre-write-check",
+        usage: "<base-limit>  — classify PreToolUse(Write) input for hooks",
+        handler: hook_checks::pre_write_check,
+    },
+    Command {
+        name: "pre-edit-check",
+        usage: "<base-limit> <log-file>  — classify and handle PreToolUse(Edit) input for hooks",
+        handler: hook_checks::pre_edit_check,
+    },
+    Command {
+        name: "post-edit-fast-check",
+        usage: "<base-limit> <session> <agent> <log-file>  — fast-pass clean PostToolUse(Edit) inputs",
+        handler: hook_checks::post_edit_fast_check,
+    },
+    Command {
+        name: "post-write-fast-check",
+        usage: "<base-limit> <max-scan-files> <log-file>  — fast-pass simple PostToolUse(Write) inputs",
+        handler: hook_checks::post_write_fast_check,
+    },
+    Command {
+        name: "codex-app-server-wrapper",
+        usage: "[--repo-dir DIR] [--strategy vibeguard|noop] [--codex-command CMD]  — run the Rust Codex app-server guard proxy",
+        handler: codex_app_server::run,
     },
 ];
 

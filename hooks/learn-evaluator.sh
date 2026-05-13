@@ -11,15 +11,33 @@
 # Output suggestions when significant signals are detected (not blocking)
 set -euo pipefail
 source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 
+vg_learn_is_ci() {
+  case "${CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${GITHUB_ACTIONS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TRAVIS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${CIRCLECI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  [[ -n "${JENKINS_URL:-}" ]] && return 0
+  case "${GITLAB_CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TF_BUILD:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  return 1
+}
+
+vg_learn_stop_hook_active_fast() {
+  local input="$1" active=""
+  if [[ -n "$_VG_HELPER" ]]; then
+    active=$(printf '%s' "$input" | "$_VG_HELPER" json-field stop_hook_active 2>/dev/null || true)
+  fi
+  [[ "$active" == "true" ]]
+}
+
 # CI guard: skip in automated environments
-vg_is_ci && exit 0
+vg_learn_is_ci && exit 0
 
 # Read stdin; check stop_hook_active to break Stop-hook chain loops
 INPUT=$(cat 2>/dev/null || true)
-vg_stop_hook_active "$INPUT" && exit 0
+vg_learn_stop_hook_active_fast "$INPUT" && exit 0
 
 # Not in git repository → skip
 if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
@@ -54,7 +72,9 @@ print(json.dumps(result, ensure_ascii=False))
 '
 fi
 
-# Clean up the churn flag file of this session
-find "${HOME}/.vibeguard/" -name ".churn_warned_${VIBEGUARD_SESSION_ID}_*" -delete 2>/dev/null || true
+# Clean up the churn flag file of this session. Keep the scan bounded and
+# respect benchmark/test log isolation.
+_VG_CHURN_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+find "$_VG_CHURN_DIR" -maxdepth 1 -name ".churn_warned_${VIBEGUARD_SESSION_ID}_*" -delete 2>/dev/null || true
 
 exit 0

@@ -8,13 +8,36 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
-vg_start_timer
 
 INPUT=$(cat)
 
+# Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+if [[ -n "${_VG_HELPER:-}" ]]; then
+  _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
+    | "$_VG_HELPER" pre-edit-check "$_U16_BASE_LIMIT" "$VIBEGUARD_LOG_FILE" \
+    2>/dev/null || true)
+  _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
+  case "$_VG_FAST_STATUS" in
+    SKIP)
+      exit 0
+      ;;
+    FAST_LOGGED)
+      exit 0
+      ;;
+    FAST_OUTPUT)
+      _VG_FAST_PAYLOAD="${_VG_FAST_RESULT#*$'\n'}"
+      [[ "$_VG_FAST_PAYLOAD" != "$_VG_FAST_RESULT" ]] && printf '%s\n' "$_VG_FAST_PAYLOAD"
+      exit 0
+      ;;
+  esac
+fi
+
+vg_start_timer
+
 # Complete all checks directly in Python to avoid bash variable passing from destroying old_string
 # (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
-CHECK_RESULT=$(python3 -c '
+CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
@@ -84,7 +107,7 @@ if ext.lower() in SOURCE_EXTS and not is_test and old_string and new_string:
     else:
         estimated = current_lines - old_lines + new_lines
 
-    limit = 800
+    limit = int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800")
     dir_path = os.path.dirname(os.path.abspath(file_path))
     while dir_path and dir_path != "/":
         if os.path.isdir(os.path.join(dir_path, ".git")):

@@ -38,6 +38,14 @@ sys.stdout.write(data[:limit])
 vg_redact_sensitive() {
   local text="$1"
 
+  case "$text" in
+    *[Aa]uthorization*|*[Bb]earer*|*[Tt]oken*|*[Ss]ecret*|*[Pp]assword*|*[Pp]asswd*|*[Aa][Pp][Ii][_-][Kk]ey*) ;;
+    *)
+      printf '%s' "$text"
+      return 0
+      ;;
+  esac
+
   if command -v perl &>/dev/null; then
     printf '%s' "$text" | perl -CS -0777 -pe '
 s/(\bAuthorization\s*:\s*Bearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
