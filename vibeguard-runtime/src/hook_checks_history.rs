@@ -68,7 +68,7 @@ pub(crate) fn post_edit_history_signals(
         .filter(|e| first_detail_path(e) == file_path)
         .count();
     let build_fail_count = if churn_count >= 20 {
-        count_build_fail_events(&events, &current_project_root())
+        count_session_build_fail_events(&events, session, &current_project_root())
     } else {
         0
     };
@@ -80,6 +80,15 @@ pub(crate) fn post_edit_history_signals(
         w15_count: consecutive_post_edit_count(&events, session, file_path),
         overlap: recent_overlap(&events, session, agent, file_path),
     })
+}
+
+fn count_session_build_fail_events(events: &[Value], session: &str, project: &str) -> u32 {
+    let session_events = events
+        .iter()
+        .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
+        .cloned()
+        .collect::<Vec<_>>();
+    count_build_fail_events(&session_events, project)
 }
 
 fn consecutive_post_edit_count(events: &[Value], session: &str, file_path: &str) -> usize {
@@ -537,5 +546,68 @@ mod tests {
             fast_warning_decision(signals.warn_count, Some(&signals)),
             decision::ESCALATE
         );
+    }
+
+    #[test]
+    fn fast_history_build_failures_are_session_scoped() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let log_file =
+            std::env::temp_dir().join(format!("vibeguard-build-fail-session-{unique}.jsonl"));
+        let log_path = log_file.to_string_lossy().to_string();
+        let project = current_project_root();
+        let fail_detail = format!("{}/src/failing.rs", project.trim_end_matches('/'));
+        let mut events = Vec::new();
+        for _ in 0..20 {
+            events.push(serde_json::json!({
+                "session": "current",
+                "tool": "Edit",
+                "hook": "post-edit-guard",
+                "decision": "pass",
+                "detail": "src/lib.rs"
+            }));
+        }
+        for _ in 0..5 {
+            events.push(serde_json::json!({
+                "session": "other",
+                "tool": "Edit",
+                "hook": "post-build-check",
+                "decision": "warn",
+                "detail": fail_detail
+            }));
+        }
+        let text = events
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&log_file, format!("{text}\n")).unwrap();
+
+        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs").unwrap();
+        assert_eq!(signals.churn_count, 20);
+        assert_eq!(signals.build_fail_count, 0);
+
+        for _ in 0..5 {
+            events.push(serde_json::json!({
+                "session": "current",
+                "tool": "Edit",
+                "hook": "post-build-check",
+                "decision": "warn",
+                "detail": fail_detail
+            }));
+        }
+        let text = events
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&log_file, format!("{text}\n")).unwrap();
+
+        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs").unwrap();
+        assert_eq!(signals.build_fail_count, 5);
+
+        let _ = std::fs::remove_file(log_file);
     }
 }

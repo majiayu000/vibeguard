@@ -32,6 +32,16 @@ assert_contains "$result" "malformed PreToolUse(Edit)" "Malformed hook input exp
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Existing file + empty old_string release"
 
+tmp_home=$(mktemp -d)
+tmp_file=$(mktemp)
+printf 'x\n' > "$tmp_file"
+result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$tmp_file" \
+  | env -u VIBEGUARD_LOG_DIR -u VIBEGUARD_PROJECT_LOG_DIR -u VIBEGUARD_LOG_FILE HOME="$tmp_home" bash hooks/pre-edit-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Default log-dir fast path releases valid edits"
+global_log_text="$(cat "$tmp_home/.vibeguard/events.jsonl" 2>/dev/null || true)"
+assert_contains "$global_log_text" '"hook":"pre-edit-guard"' "Default log-dir Rust fast path writes global log"
+rm -rf "$tmp_home" "$tmp_file"
+
 # W-12: Test infrastructure files should be intercepted (conftest.py)
 result=$(echo '{"tool_input":{"file_path":"/any/path/conftest.py","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_contains "$result" '"decision": "block"' "W-12: Block editing conftest.py"

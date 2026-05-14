@@ -19,6 +19,7 @@
 # complete — Operation completion confirmation
 
 VIBEGUARD_LOG_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+export VIBEGUARD_LOG_DIR
 
 # Isolate logs by project unless the caller supplied an explicit log path.
 # Benchmarks and app-server wrappers use these env overrides to avoid reading a
@@ -38,6 +39,8 @@ else
   _vg_project_hash="${VIBEGUARD_PROJECT_HASH:-override0}"
   mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
 fi
+export VIBEGUARD_PROJECT_LOG_DIR
+export VIBEGUARD_LOG_FILE
 
 # Source file extension list (shared constant)
 VG_SOURCE_EXTS="rs py ts js mjs cjs tsx jsx go java kt swift rb"
