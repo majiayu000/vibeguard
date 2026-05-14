@@ -322,13 +322,54 @@ pub(crate) fn append_jsonl(path: &Path, line: &str) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let existed = path.exists();
+    let _lock = JsonlAppendLock::acquire(path)?;
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    file.write_all(line.as_bytes())?;
-    file.write_all(b"\n")?;
+    let mut entry = String::with_capacity(line.len() + 1);
+    entry.push_str(line);
+    entry.push('\n');
+    file.write_all(entry.as_bytes())?;
     if !existed {
         set_owner_only(path);
     }
     Ok(())
+}
+
+struct JsonlAppendLock {
+    lock_dir: PathBuf,
+}
+
+impl JsonlAppendLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let mut lock_dir = path.as_os_str().to_os_string();
+        lock_dir.push(".lock.d");
+        let lock_dir = PathBuf::from(lock_dir);
+
+        for _ in 0..100 {
+            match fs::create_dir(&lock_dir) {
+                Ok(()) => {
+                    return Ok(Self { lock_dir });
+                }
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "timed out waiting for JSONL append lock: {}",
+                lock_dir.display()
+            ),
+        ))
+    }
+}
+
+impl Drop for JsonlAppendLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.lock_dir);
+    }
 }
 
 #[cfg(unix)]
@@ -560,5 +601,47 @@ mod tests {
             &file_path.to_string_lossy(),
             &project_root
         ));
+    }
+
+    #[test]
+    fn append_jsonl_keeps_concurrent_records_parseable() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "vibeguard-jsonl-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let log_file = temp_dir.join("events.jsonl");
+        let mut handles = Vec::new();
+
+        for worker in 0..8 {
+            let log_file = log_file.clone();
+            handles.push(std::thread::spawn(move || {
+                for item in 0..50 {
+                    let line = serde_json::json!({
+                        "worker": worker,
+                        "item": item,
+                    })
+                    .to_string();
+                    append_jsonl(&log_file, &line).unwrap();
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let content = fs::read_to_string(&log_file).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 400);
+        for line in lines {
+            serde_json::from_str::<Value>(line).unwrap();
+        }
+        assert!(!PathBuf::from(format!("{}.lock.d", log_file.display())).exists());
+
+        let _ = fs::remove_dir_all(temp_dir);
     }
 }
