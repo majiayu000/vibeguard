@@ -61,7 +61,8 @@ pub(crate) fn post_edit_history_signals(
         .iter()
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
         .filter(|e| e.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD))
-        .filter(|e| e.get(field::DECISION).and_then(Value::as_str) == Some("warn"))
+        .filter(|e| e.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN))
+        .filter(|e| !is_churn_only_warning(e))
         .filter(|e| first_detail_path(e) == file_path)
         .count();
 
@@ -87,6 +88,14 @@ fn consecutive_post_edit_count(events: &[Value], session: &str, file_path: &str)
         }
     }
     count
+}
+
+fn is_churn_only_warning(event: &Value) -> bool {
+    let reason = event
+        .get(field::REASON)
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    reason.contains("[CHURN") && !reason.contains("\n---\n")
 }
 
 fn recent_overlap(
@@ -404,6 +413,53 @@ mod tests {
             event.get(field::DECISION).and_then(Value::as_str),
             Some(decision::CORRECTION)
         );
+
+        let _ = std::fs::remove_file(log_file);
+    }
+
+    #[test]
+    fn history_warn_count_excludes_churn_only_warnings() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let log_file = std::env::temp_dir().join(format!("vibeguard-warn-count-{unique}.jsonl"));
+        let log_path = log_file.to_string_lossy().to_string();
+        let events = [
+            serde_json::json!({
+                "session": "s",
+                "tool": "Edit",
+                "hook": "post-edit-guard",
+                "decision": "warn",
+                "reason": "[CHURN WARNING] edit volume only",
+                "detail": "src/lib.rs"
+            }),
+            serde_json::json!({
+                "session": "s",
+                "tool": "Edit",
+                "hook": "post-edit-guard",
+                "decision": "warn",
+                "reason": "[CHURN WARNING] edit volume\n---\n[RS-03] unwrap",
+                "detail": "src/lib.rs"
+            }),
+            serde_json::json!({
+                "session": "s",
+                "tool": "Edit",
+                "hook": "post-edit-guard",
+                "decision": "warn",
+                "reason": "[W-14] overlap",
+                "detail": "src/lib.rs"
+            }),
+        ];
+        let text = events
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&log_file, format!("{text}\n")).unwrap();
+
+        let signals = post_edit_history_signals(&log_path, "s", "", "src/lib.rs").unwrap();
+        assert_eq!(signals.warn_count, 2);
 
         let _ = std::fs::remove_file(log_file);
     }
