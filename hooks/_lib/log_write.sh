@@ -31,6 +31,12 @@ vg_append_log_line() {
   return "$status"
 }
 
+vg_private_log_file() {
+  local file="$1"
+  [[ -e "$file" ]] || return 0
+  chmod 600 "$file" 2>/dev/null || true
+}
+
 vg_log_clean_json_text() {
   local text="$1"
   if [[ "$text" =~ ^[A-Za-z0-9_./:\ \(\),-]*$ ]]; then
@@ -99,17 +105,15 @@ vg_log() {
   [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
   json="${json}}"
 
-  local _vg_primary_new=0
-  [[ ! -e "$VIBEGUARD_LOG_FILE" ]] && _vg_primary_new=1
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
   vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"
-  [[ "$_vg_primary_new" -eq 1 ]] && chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
 
   # Synchronously write to the global log (for stats.sh aggregation analysis)
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
-    local _vg_global_new=0
-    [[ ! -e "$global_log" ]] && _vg_global_new=1
+    vg_private_log_file "$global_log"
     vg_append_log_line "$global_log" "$json"
-    [[ "$_vg_global_new" -eq 1 ]] && chmod 600 "$global_log" 2>/dev/null || true
+    vg_private_log_file "$global_log"
   fi
 }

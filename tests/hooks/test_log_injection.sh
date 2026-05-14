@@ -5,6 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/hook_test_lib.sh"
 hook_test_init
 
+file_mode() {
+  local file="$1"
+  if stat -f '%Lp' "$file" >/dev/null 2>&1; then
+    stat -f '%Lp' "$file"
+  else
+    stat -c '%a' "$file"
+  fi
+}
+
 header "log.sh — injection protection"
 # =========================================================
 
@@ -93,20 +102,41 @@ result=$(
     "test" \
     "Bash" \
     "warn" \
-    'Authorization: Bearer sk-reason-secret token=reason-token' \
-    'curl -H "Authorization: Bearer sk-detail-secret" https://example.test?api_key=detail-key password=hunter2 --token cli-token --password cli-password'
+    'Authorization: Bearer sk-reason-secret token=reason-token TOKEN=upper-token SECRET=upper-secret PASSWORD=upper-password apiKey=camel-key' \
+    'curl -H "Authorization: Bearer sk-detail-secret" https://example.test?api_key=detail-key password=hunter2 --token cli-token --password cli-password TOKEN=detail-token SECRET=detail-secret PASSWORD=detail-password apiKey=detail-camel-key'
   cat "$VIBEGUARD_LOG_FILE"
 )
 assert_contains "$result" 'Bearer ***REDACTED***' "Bearer tokens are redacted in event logs"
 assert_contains "$result" 'api_key=***REDACTED***' "API keys are redacted in event logs"
+assert_contains "$result" 'apiKey=***REDACTED***' "CamelCase API keys are redacted in event logs"
 assert_contains "$result" 'password=***REDACTED***' "Password assignments are redacted in event logs"
+assert_contains "$result" 'TOKEN=***REDACTED***' "Uppercase token assignments are redacted in event logs"
+assert_contains "$result" 'SECRET=***REDACTED***' "Uppercase secret assignments are redacted in event logs"
+assert_contains "$result" 'PASSWORD=***REDACTED***' "Uppercase password assignments are redacted in event logs"
 assert_contains "$result" ' --token ***REDACTED***' "Token flags are redacted in event logs"
 assert_contains "$result" ' --password ***REDACTED***' "Password flags are redacted in event logs"
 assert_not_contains "$result" "sk-reason-secret" "Reason bearer secret is not persisted"
 assert_not_contains "$result" "sk-detail-secret" "Detail bearer secret is not persisted"
 assert_not_contains "$result" "detail-key" "API key value is not persisted"
 assert_not_contains "$result" "hunter2" "Password value is not persisted"
+assert_not_contains "$result" "upper-token" "Uppercase token value is not persisted"
+assert_not_contains "$result" "upper-secret" "Uppercase secret value is not persisted"
+assert_not_contains "$result" "upper-password" "Uppercase password value is not persisted"
+assert_not_contains "$result" "camel-key" "CamelCase API key value is not persisted"
 assert_exit_zero "Redacted log remains valid JSON" python3 -c 'import json, sys; json.loads(sys.argv[1])' "$result"
+
+# Existing permissive log files are tightened on append.
+mode_result=$(
+  export VIBEGUARD_LOG_DIR
+  source hooks/log.sh
+  : > "$VIBEGUARD_LOG_FILE"
+  : > "$VIBEGUARD_LOG_DIR/events.jsonl"
+  chmod 644 "$VIBEGUARD_LOG_FILE" "$VIBEGUARD_LOG_DIR/events.jsonl"
+  vg_log "test" "Tool" "pass" "permissions" "existing logs"
+  printf 'primary=%s global=%s' "$(file_mode "$VIBEGUARD_LOG_FILE")" "$(file_mode "$VIBEGUARD_LOG_DIR/events.jsonl")"
+)
+assert_contains "$mode_result" "primary=600" "Existing primary log permissions are tightened"
+assert_contains "$mode_result" "global=600" "Existing global log permissions are tightened"
 
 # =========================================================
 
