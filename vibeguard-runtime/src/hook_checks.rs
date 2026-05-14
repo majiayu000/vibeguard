@@ -218,6 +218,8 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
         println!("SKIP");
         return Ok(());
     }
+    let old_string = nested_str(&data, "tool_input.old_string").unwrap_or_default();
+    let log_detail = post_edit_log_detail(&file_path, &old_string, &new_string);
 
     if !is_clean_rust_fast_path(&file_path, &new_string, base_limit) {
         println!("FALLBACK");
@@ -238,11 +240,11 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
         .unwrap_or_default();
 
     if warnings.is_empty()
-        && write_log_event(log_file, "post-edit-guard", "Edit", "pass", "", &file_path).is_ok()
+        && write_log_event(log_file, "post-edit-guard", "Edit", "pass", "", &log_detail).is_ok()
     {
         println!("FAST_LOGGED");
     } else if !warnings.is_empty() {
-        match build_fast_warning_output(log_file, &file_path, &warnings, history.as_ref()) {
+        match build_fast_warning_output(log_file, &log_detail, &warnings, history.as_ref()) {
             Ok(output) => {
                 println!("FAST_OUTPUT");
                 println!("{output}");
@@ -257,6 +259,12 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
         println!("{file_path}");
     }
     Ok(())
+}
+
+fn post_edit_log_detail(file_path: &str, old_string: &str, new_string: &str) -> String {
+    let old_len = old_string.chars().count() as isize;
+    let new_len = new_string.chars().count() as isize;
+    format!("{file_path}||delta={}", new_len - old_len)
 }
 
 pub fn post_write_fast_check(args: &[String]) -> Result {
@@ -373,5 +381,17 @@ mod tests {
         assert!(pre_edit.to_string().contains("pre-edit-check"));
         assert!(post_edit.to_string().contains("post-edit-fast-check"));
         assert!(post_write.to_string().contains("post-write-fast-check"));
+    }
+
+    #[test]
+    fn post_edit_log_detail_preserves_delta_metadata() {
+        assert_eq!(
+            post_edit_log_detail("src/lib.rs", "old", "newer"),
+            "src/lib.rs||delta=2"
+        );
+        assert_eq!(
+            post_edit_log_detail("src/lib.rs", "abcdef", "xy"),
+            "src/lib.rs||delta=-4"
+        );
     }
 }

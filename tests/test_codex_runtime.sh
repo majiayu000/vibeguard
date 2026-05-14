@@ -321,7 +321,7 @@ printf '%s\n' "$response"
 CHILD
 chmod +x "${TMP_DIR}/child-rewrite.sh"
 rewrite_json="$(run_wrapper "${APP_REPO_REWRITE}" "${TMP_DIR}/child-rewrite.sh" $'{"method":"thread/start","params":{"threadId":"thread/alpha","cwd":"'"${APP_REPO_REWRITE}"'"}}\n{"method":"turn/start","params":{"threadId":"thread/alpha","cwd":"'"${APP_REPO_REWRITE}"'","turnId":"turn-42"}}')"
-assert_contains "${rewrite_json}" '"decision":"approve"' "Rust wrapper intercepts rewritten command approvals"
+assert_contains "${rewrite_json}" '"decision":"accept"' "Rust wrapper intercepts rewritten command approvals"
 assert_contains "${rewrite_json}" 'rewrite=codex-thread-thread-alpha-' "Rust wrapper passes normalized session id to hooks"
 assert_contains "${rewrite_json}" '|thread/alpha|turn-42' "Rust wrapper passes thread and turn context to hooks"
 

@@ -572,7 +572,7 @@ assert_cmd "post-guard-check is not enabled in the default installation" bash -c
 assert_cmd "skills-loader is not enabled in the default installation" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
 assert_cmd "The default core profile does not enable full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 assert_cmd "~/.codex/hooks.json exists after installation" test -f "${HOME}/.codex/hooks.json"
-assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
+assert_cmd "Enable codex_hooks feature after installation" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
 assert_cmd "Clean legacy Codex MCP block after installation" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
@@ -642,7 +642,7 @@ cp "${HOME}/.codex/config.toml" "${_VALID_CODEX_CONFIG}"
 cat > "${HOME}/.codex/config.toml" <<'TOML'
 not valid toml =
 [features]
-hooks = true
+codex_hooks = true
 TOML
 invalid_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
@@ -653,7 +653,7 @@ header "setup --check rejects invalid UTF-8 codex config"
 python3 - <<'PY' "${HOME}/.codex/config.toml"
 from pathlib import Path
 import sys
-Path(sys.argv[1]).write_bytes(b'[features]\nhooks = true\n\xff')
+Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
 PY
 invalid_utf8_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"

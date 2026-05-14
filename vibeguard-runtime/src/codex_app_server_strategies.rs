@@ -175,7 +175,7 @@ impl CommandApprovalStrategy {
         if let Some(updated_command) = result.updated_command {
             write_to_server(json!({
                 "id": msg_id,
-                "result": {"decision": "approve", "updatedInput": {"command": updated_command}}
+                "result": {"decision": "accept", "updatedInput": {"command": updated_command}}
             }));
             eprintln!(
                 "[vibeguard-codex-wrapper] corrected command: {command:?} -> {updated_command:?}"
