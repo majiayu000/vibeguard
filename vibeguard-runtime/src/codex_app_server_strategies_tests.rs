@@ -16,6 +16,12 @@ fn temp_dir(name: &str) -> String {
     root.to_string_lossy().to_string()
 }
 
+fn write_hook(repo_dir: &str, name: &str, body: &str) {
+    let hooks_dir = Path::new(repo_dir).join("hooks");
+    fs::create_dir_all(&hooks_dir).expect("hooks dir should be created");
+    fs::write(hooks_dir.join(name), body).expect("hook should be written");
+}
+
 #[test]
 fn analysis_strategy_classifies_read_and_write_commands() {
     let analysis = AnalysisParalysisStrategy::new().expect("regexes should compile");
@@ -87,6 +93,143 @@ fn patch_update_records_pending_file_changes() {
     assert_eq!(patches[0].normalized_kind(), "update");
 
     let _ = fs::remove_dir_all(repo_dir);
+}
+
+#[cfg(test)]
+mod file_change_approval_tests {
+    use super::*;
+
+    #[test]
+    fn item_started_file_change_approval_uses_cached_changes() {
+        let repo_dir = temp_dir("item_started_file_change");
+        write_hook(
+            &repo_dir,
+            "pre-write-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"block","reason":"blocked from item started"}\n'
+"#,
+        );
+        let mut strategy =
+            VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+        let mut state = SessionState::default();
+
+        strategy.on_server_notification(
+        json!({
+            "method": "item/started",
+            "params": {
+                "threadId": "thread-started",
+                "turnId": "turn-started",
+                "item": {
+                    "id": "item-started",
+                    "type": "fileChange",
+                    "changes": [{"path": "src/lib.rs", "kind": "add", "diff": "@@\n+fn main() {}\n"}]
+                }
+            }
+        }),
+        &mut state,
+    );
+
+        let mut outputs = Vec::new();
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": "req-started",
+                "method": "item/fileChange/requestApproval",
+                "params": {
+                    "threadId": "thread-started",
+                    "turnId": "turn-started",
+                    "itemId": "item-started"
+                }
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+
+        assert!(handled);
+        assert!(outputs.iter().any(|value| {
+            value.get("id").and_then(Value::as_str) == Some("req-started")
+                && value
+                    .get("result")
+                    .and_then(|v| v.get("decision"))
+                    .and_then(Value::as_str)
+                    == Some("decline")
+        }));
+        assert!(
+            outputs
+                .iter()
+                .any(|value| { value.to_string().contains("blocked from item started") })
+        );
+
+        let _ = fs::remove_dir_all(repo_dir);
+    }
+
+    #[test]
+    fn delete_file_changes_run_pre_edit_guard() {
+        let repo_dir = temp_dir("delete_file_change");
+        write_hook(
+            &repo_dir,
+            "pre-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"block","reason":"protected delete"}\n'
+"#,
+        );
+        let mut strategy =
+            VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+        let mut state = SessionState::default();
+
+        strategy.on_server_notification(
+            json!({
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-delete",
+                    "turnId": "turn-delete",
+                    "item": {
+                        "id": "item-delete",
+                        "type": "fileChange",
+                        "changes": [{
+                            "path": "conftest.py",
+                            "kind": "delete",
+                            "diff": "--- a/conftest.py\n+++ /dev/null\n@@\n-fixture\n"
+                        }]
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        let mut outputs = Vec::new();
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": "req-delete",
+                "method": "item/fileChange/requestApproval",
+                "params": {
+                    "threadId": "thread-delete",
+                    "turnId": "turn-delete",
+                    "itemId": "item-delete"
+                }
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+
+        assert!(handled);
+        assert!(outputs.iter().any(|value| {
+            value.get("id").and_then(Value::as_str) == Some("req-delete")
+                && value
+                    .get("result")
+                    .and_then(|v| v.get("decision"))
+                    .and_then(Value::as_str)
+                    == Some("decline")
+        }));
+        assert!(
+            outputs
+                .iter()
+                .any(|value| value.to_string().contains("protected delete"))
+        );
+
+        let _ = fs::remove_dir_all(repo_dir);
+    }
 }
 
 #[test]

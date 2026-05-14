@@ -243,6 +243,7 @@ impl FileChangeApprovalStrategy {
     fn on_server_notification(&mut self, message: &Value, state: &mut SessionState) {
         match message.get("method").and_then(Value::as_str) {
             Some("item/fileChange/patchUpdated") => self.record_patch_update(message, state),
+            Some("item/started") => self.record_started_file_change(message, state),
             Some("turn/completed") => {
                 if let Some(thread_id) = message
                     .get("params")
@@ -467,7 +468,24 @@ impl FileChangeApprovalStrategy {
                     ));
                 }
             }
-            "delete" => {}
+            "delete" => {
+                let old_string = patch
+                    .content
+                    .clone()
+                    .unwrap_or_else(|| split_unified_diff(&patch.diff).0);
+                let payload = json!({
+                    "tool_input": {
+                        "file_path": path,
+                        "old_string": old_string,
+                        "new_string": "",
+                    }
+                });
+                results.push((
+                    "pre-edit-guard.sh".into(),
+                    "pre",
+                    self.hooks.run("pre-edit-guard.sh", &payload, cwd, env),
+                ));
+            }
             other => results.push((
                 "file-change-guard".into(),
                 "pre",
@@ -503,27 +521,70 @@ impl FileChangeApprovalStrategy {
         let Some(changes) = params.get("changes").and_then(Value::as_array) else {
             return;
         };
-        let patches = changes
-            .iter()
-            .filter_map(|change| {
-                Some(FilePatch {
-                    path: change.get("path")?.as_str()?.into(),
-                    kind: change.get("kind")?.as_str()?.into(),
-                    diff: change
-                        .get("diff")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .into(),
-                    content: None,
-                })
-            })
-            .collect::<Vec<_>>();
+        self.record_file_changes(state, thread_id, turn_id, item_id, changes);
+    }
+
+    fn record_started_file_change(&mut self, message: &Value, state: &mut SessionState) {
+        let Some(params) = message.get("params") else {
+            return;
+        };
+        let Some(thread_id) = params.get("threadId").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(turn_id) = params.get("turnId").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(item) = params.get("item") else {
+            return;
+        };
+        if item.get("type").and_then(Value::as_str) != Some("fileChange") {
+            return;
+        }
+        let Some(item_id) = item.get("id").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(changes) = item.get("changes").and_then(Value::as_array) else {
+            return;
+        };
+        self.record_file_changes(state, thread_id, turn_id, item_id, changes);
+    }
+
+    fn record_file_changes(
+        &mut self,
+        state: &mut SessionState,
+        thread_id: &str,
+        turn_id: &str,
+        item_id: &str,
+        changes: &[Value],
+    ) {
+        let patches = patches_from_change_values(changes);
         let thread = state.ensure_thread(thread_id);
         thread.turn_id = Some(turn_id.into());
         if let Some(key) = file_change_key(Some(turn_id), Some(item_id)) {
             thread.pending_file_changes.insert(key, patches);
         }
     }
+}
+
+fn patches_from_change_values(changes: &[Value]) -> Vec<FilePatch> {
+    changes
+        .iter()
+        .filter_map(|change| {
+            Some(FilePatch {
+                path: change.get("path")?.as_str()?.into(),
+                kind: change.get("kind")?.as_str()?.into(),
+                diff: change
+                    .get("diff")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
+                content: change
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            })
+        })
+        .collect::<Vec<_>>()
 }
 
 fn patches_from_apply_patch_params(params: &Value) -> Vec<FilePatch> {
