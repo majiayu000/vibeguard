@@ -393,8 +393,11 @@ IFS= read -r _thread_start
 IFS= read -r _turn_start
 printf '%s\n' '{"method":"item/fileChange/patchUpdated","params":{"threadId":"thread/file-warn","turnId":"turn-file-warn","itemId":"item-warn","changes":[{"path":"new_source.py","kind":"add","diff":"@@\n+print('\''x'\'')\n"}]}}'
 printf '%s\n' '{"id":"req-file-warn","method":"item/fileChange/requestApproval","params":{"threadId":"thread/file-warn","turnId":"turn-file-warn","itemId":"item-warn"}}'
-IFS= read -r warning
-printf '%s\n' "$warning"
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread/file-warn","turnId":"turn-file-warn","item":{"id":"item-warn","type":"fileChange","status":"completed"}}}'
+IFS= read -r forwarded
+printf '%s\n' "$forwarded"
+IFS= read -r completed
+printf '%s\n' "$completed"
 CHILD
 chmod +x "${TMP_DIR}/child-file-warn.sh"
 file_warn_json="$(run_wrapper "${APP_REPO_FILE_WARN}" "${TMP_DIR}/child-file-warn.sh" $'{"method":"thread/start","params":{"threadId":"thread/file-warn","cwd":"'"${APP_REPO_FILE_WARN}"'"}}\n{"method":"turn/start","params":{"threadId":"thread/file-warn","cwd":"'"${APP_REPO_FILE_WARN}"'","turnId":"turn-file-warn"}}')"

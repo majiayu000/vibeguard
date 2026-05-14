@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::event_schema::{decision, field, hook, tool};
 use crate::hook_checks_common::{first_detail_path, write_log_event};
+use crate::log_query::count_build_fail_events;
 use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 const POST_EDIT_HISTORY_LINES: usize = 500;
@@ -12,6 +13,7 @@ const POST_EDIT_HISTORY_LINES: usize = 500;
 #[derive(Default)]
 pub(crate) struct PostEditHistorySignals {
     churn_count: usize,
+    build_fail_count: u32,
     warn_count: usize,
     w15_count: usize,
     overlap: Option<OverlapSignal>,
@@ -65,9 +67,15 @@ pub(crate) fn post_edit_history_signals(
         .filter(|e| !is_churn_only_warning(e))
         .filter(|e| first_detail_path(e) == file_path)
         .count();
+    let build_fail_count = if churn_count >= 20 {
+        count_build_fail_events(&events, &current_project_root())
+    } else {
+        0
+    };
 
     Some(PostEditHistorySignals {
         churn_count,
+        build_fail_count,
         warn_count,
         w15_count: consecutive_post_edit_count(&events, session, file_path),
         overlap: recent_overlap(&events, session, agent, file_path),
@@ -175,6 +183,22 @@ fn normalize_path(path: &str) -> String {
     canonical.to_string_lossy().to_string()
 }
 
+fn current_project_root() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .to_string_lossy()
+                .to_string()
+        })
+}
+
 fn read_tail_lines(path: &str, max_lines: usize) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut pos = file.metadata()?.len();
@@ -220,7 +244,13 @@ pub(crate) fn post_edit_history_warnings(
         .and_then(|s| s.to_str())
         .unwrap_or(file_path);
 
-    if signals.churn_count >= 20 {
+    if signals.churn_count >= 20 && signals.build_fail_count >= 5 {
+        warnings.push(format!(
+            "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {} times and the project has {} consecutive build failures - possible edit->fail->fix loop\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)\nDO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause",
+            signals.churn_count,
+            signals.build_fail_count
+        ));
+    } else if signals.churn_count >= 20 {
         warnings.push(format!(
             "[CHURN WARNING] [review] [this-file] OBSERVATION: {basename} has been edited {} times - high edit volume without repeated build-failure evidence\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.\nDO NOT: Treat edit count alone as proof of W-02 failure-loop behavior",
             signals.churn_count
@@ -297,6 +327,9 @@ fn fast_warning_decision(
     if warn_count >= 3 {
         return decision::ESCALATE;
     }
+    if history.is_some_and(|signals| signals.churn_count >= 20 && signals.build_fail_count >= 5) {
+        return decision::ESCALATE;
+    }
     if history.is_some_and(|signals| {
         signals.churn_count >= 5 && signals.overlap.is_none() && signals.w15_count < 2
     }) {
@@ -367,6 +400,7 @@ mod tests {
     fn w15_candidate_requires_shell_delta_check() {
         let signals = PostEditHistorySignals {
             churn_count: 0,
+            build_fail_count: 0,
             warn_count: 0,
             w15_count: 2,
             overlap: None,
@@ -375,6 +409,7 @@ mod tests {
 
         let signals = PostEditHistorySignals {
             churn_count: 0,
+            build_fail_count: 0,
             warn_count: 0,
             w15_count: 1,
             overlap: None,
@@ -392,6 +427,7 @@ mod tests {
         let log_path = log_file.to_string_lossy().to_string();
         let signals = PostEditHistorySignals {
             churn_count: 5,
+            build_fail_count: 0,
             warn_count: 0,
             w15_count: 0,
             overlap: None,
@@ -468,6 +504,7 @@ mod tests {
     fn churn_only_fast_warnings_do_not_escalate() {
         let signals = PostEditHistorySignals {
             churn_count: 20,
+            build_fail_count: 0,
             warn_count: 0,
             w15_count: 0,
             overlap: None,
@@ -481,5 +518,24 @@ mod tests {
             decision::CORRECTION
         );
         assert_eq!(fast_warning_decision(3, Some(&signals)), decision::ESCALATE);
+    }
+
+    #[test]
+    fn churn_with_repeated_build_failures_stays_critical() {
+        let signals = PostEditHistorySignals {
+            churn_count: 20,
+            build_fail_count: 5,
+            warn_count: 0,
+            w15_count: 0,
+            overlap: None,
+        };
+        let warnings = post_edit_history_warnings("src/lib.rs", &signals);
+
+        assert!(warnings.contains("[CHURN CRITICAL]"));
+        assert!(warnings.contains("5 consecutive build failures"));
+        assert_eq!(
+            fast_warning_decision(signals.warn_count, Some(&signals)),
+            decision::ESCALATE
+        );
     }
 }

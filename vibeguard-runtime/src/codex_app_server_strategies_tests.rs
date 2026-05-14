@@ -1,4 +1,5 @@
 use super::*;
+use crate::codex_app_server_core::file_change_key;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -230,6 +231,186 @@ printf '{"decision":"block","reason":"protected delete"}\n'
 
         let _ = fs::remove_dir_all(repo_dir);
     }
+
+    #[test]
+    fn file_change_post_hooks_wait_for_item_completed() {
+        let repo_dir = temp_dir("file_change_completed");
+        write_hook(
+            &repo_dir,
+            "pre-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"pass"}\n'
+"#,
+        );
+        write_hook(
+            &repo_dir,
+            "post-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"post edit ran"}}\n'
+"#,
+        );
+        let mut strategy =
+            VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+        let mut state = SessionState::default();
+        strategy.on_client_message(
+            &json!({"method": "thread/start", "params": {"threadId": "thread-post", "cwd": repo_dir}}),
+            &mut state,
+        );
+
+        strategy.on_server_notification(
+            json!({
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-post",
+                    "turnId": "turn-post",
+                    "item": {
+                        "id": "item-post",
+                        "type": "fileChange",
+                        "changes": [{
+                            "path": "src/lib.rs",
+                            "kind": "update",
+                            "diff": "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@\n-old\n+new\n"
+                        }]
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        let mut outputs = Vec::new();
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": "req-post",
+                "method": "item/fileChange/requestApproval",
+                "params": {
+                    "threadId": "thread-post",
+                    "turnId": "turn-post",
+                    "itemId": "item-post"
+                }
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+
+        assert!(!handled);
+        assert!(
+            !outputs
+                .iter()
+                .any(|value| value.to_string().contains("post edit ran"))
+        );
+
+        let completed = strategy.on_server_notification(
+            json!({
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-post",
+                    "turnId": "turn-post",
+                    "item": {
+                        "id": "item-post",
+                        "type": "fileChange",
+                        "status": "completed"
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        assert!(completed.to_string().contains("post edit ran"));
+        let thread = state
+            .threads
+            .get("thread-post")
+            .expect("thread should exist");
+        assert!(thread.pending_file_changes.is_empty());
+
+        let _ = fs::remove_dir_all(repo_dir);
+    }
+
+    #[test]
+    fn declined_file_change_drops_pending_patch_without_post_hooks() {
+        let repo_dir = temp_dir("file_change_declined");
+        write_hook(
+            &repo_dir,
+            "pre-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"pass"}\n'
+"#,
+        );
+        write_hook(
+            &repo_dir,
+            "post-edit-guard.sh",
+            r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"post edit ran"}}\n'
+"#,
+        );
+        let mut strategy =
+            VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+        let mut state = SessionState::default();
+
+        strategy.on_server_notification(
+            json!({
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-declined",
+                    "turnId": "turn-declined",
+                    "item": {
+                        "id": "item-declined",
+                        "type": "fileChange",
+                        "changes": [{
+                            "path": "src/lib.rs",
+                            "kind": "update",
+                            "diff": "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@\n-old\n+new\n"
+                        }]
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        let mut outputs = Vec::new();
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": "req-declined",
+                "method": "item/fileChange/requestApproval",
+                "params": {
+                    "threadId": "thread-declined",
+                    "turnId": "turn-declined",
+                    "itemId": "item-declined"
+                }
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+        assert!(!handled);
+
+        let completed = strategy.on_server_notification(
+            json!({
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-declined",
+                    "turnId": "turn-declined",
+                    "item": {
+                        "id": "item-declined",
+                        "type": "fileChange",
+                        "status": "declined"
+                    }
+                }
+            }),
+            &mut state,
+        );
+
+        assert!(!completed.to_string().contains("post edit ran"));
+        let thread = state
+            .threads
+            .get("thread-declined")
+            .expect("thread should exist");
+        assert!(thread.pending_file_changes.is_empty());
+
+        let _ = fs::remove_dir_all(repo_dir);
+    }
 }
 
 #[test]
@@ -246,6 +427,53 @@ fn changed_files_filters_to_source_extensions() {
         .expect("markdown file should be written");
 
     assert_eq!(changed_files(&repo_dir), vec!["src.rs".to_string()]);
+
+    let _ = fs::remove_dir_all(repo_dir);
+}
+
+#[test]
+fn turn_completed_reads_nested_turn_payload() {
+    let repo_dir = temp_dir("nested_turn_completed");
+    write_hook(
+        &repo_dir,
+        "stop-guard.sh",
+        r#"#!/usr/bin/env bash
+cat >/dev/null
+printf '{"stopReason":"stop ran"}\n'
+"#,
+    );
+    let mut strategy =
+        VibeGuardGateStrategy::new(&repo_dir, Some("advisory")).expect("strategy should init");
+    let mut state = SessionState::default();
+    strategy.on_client_message(
+        &json!({"method": "thread/start", "params": {"threadId": "thread-nested", "cwd": repo_dir}}),
+        &mut state,
+    );
+    state
+        .ensure_thread("thread-nested")
+        .pending_file_changes
+        .insert("turn-nested:item-nested".into(), Vec::new());
+
+    let completed = strategy.on_server_notification(
+        json!({
+            "method": "turn/completed",
+            "params": {
+                "turn": {
+                    "id": "turn-nested",
+                    "threadId": "thread-nested"
+                }
+            }
+        }),
+        &mut state,
+    );
+
+    assert!(completed.to_string().contains("stop ran"));
+    let thread = state
+        .threads
+        .get("thread-nested")
+        .expect("thread should exist");
+    assert_eq!(thread.turn_id.as_deref(), Some("turn-nested"));
+    assert!(thread.pending_file_changes.is_empty());
 
     let _ = fs::remove_dir_all(repo_dir);
 }

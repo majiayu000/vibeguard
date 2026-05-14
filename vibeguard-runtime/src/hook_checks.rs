@@ -75,7 +75,12 @@ pub fn pre_edit_check(args: &[String]) -> Result {
     let log_file = &args[1];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("SKIP");
+        write_pre_edit_block(
+            log_file,
+            "Malformed hook input",
+            "",
+            "VIBEGUARD interception: malformed PreToolUse(Edit) hook input. The edit request could not be validated, so it was blocked instead of being treated as a safe skip.",
+        )?;
         return Ok(());
     };
 

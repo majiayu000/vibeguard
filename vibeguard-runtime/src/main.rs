@@ -1,5 +1,6 @@
 mod codex_app_server;
 mod codex_app_server_core;
+mod codex_app_server_file_changes;
 mod codex_app_server_strategies;
 mod event_schema;
 mod hook_checks;

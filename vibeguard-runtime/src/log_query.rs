@@ -187,7 +187,7 @@ fn recent_overlap(
     last
 }
 
-fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
+pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
     let project_prefix = format!("{}/", project.trim_end_matches('/'));
     let mut count = 0u32;
     for e in events.iter().rev() {

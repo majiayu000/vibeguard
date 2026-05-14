@@ -41,7 +41,13 @@ CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
-data = json.load(sys.stdin)
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print("ERROR")
+    print("")
+    print("MALFORMED_JSON")
+    sys.exit(0)
 
 def get_nested(d, path):
     val = d
@@ -140,7 +146,15 @@ CHECK_STATUS=$(echo "$CHECK_RESULT" | sed -n '1p')
 FILE_PATH=$(echo "$CHECK_RESULT" | sed -n '2p')
 DETAIL=$(echo "$CHECK_RESULT" | sed -n '3p')
 
-# No file_path or parsing error → release
+# Malformed hook input is security-sensitive: fail closed instead of treating it
+# as an empty/no-op edit request.
+if [[ "$CHECK_STATUS" == "ERROR" && "$DETAIL" == "MALFORMED_JSON" ]]; then
+  vg_log "pre-edit-guard" "Edit" "block" "Malformed hook input" ""
+  vg_json_output_kv decision block reason "VIBEGUARD interception: malformed PreToolUse(Edit) hook input. The edit request could not be validated, so it was blocked instead of being treated as a safe skip."
+  exit 0
+fi
+
+# No file_path → release
 if [[ "$CHECK_STATUS" != "CHECK" ]]; then
   exit 0
 fi

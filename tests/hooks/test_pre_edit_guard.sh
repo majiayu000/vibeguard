@@ -24,6 +24,10 @@ PY
 assert_contains "$result" '"decision": "block"' "Safe handling of paths containing double quotes and backslashes"
 assert_exit_zero "pre-edit block output remains valid JSON for escaped paths" python3 -c 'import json, sys; json.loads(sys.argv[1])' "$result"
 
+result=$(printf '{"tool_input":' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "Malformed hook input fails closed"
+assert_contains "$result" "malformed PreToolUse(Edit)" "Malformed hook input explains validation failure"
+
 # Existing file + empty old_string should be released
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Existing file + empty old_string release"
