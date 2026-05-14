@@ -222,7 +222,7 @@ pub(crate) fn post_edit_history_warnings(
 
     if signals.churn_count >= 20 {
         warnings.push(format!(
-            "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {} times - possible edit->fail->fix loop\nFIX: Stop current direction, review full build output, re-examine root cause (W-02)\nDO NOT: Continue editing this file until root cause is confirmed",
+            "[CHURN WARNING] [review] [this-file] OBSERVATION: {basename} has been edited {} times - high edit volume without repeated build-failure evidence\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.\nDO NOT: Treat edit count alone as proof of W-02 failure-loop behavior",
             signals.churn_count
         ));
     } else if signals.churn_count >= 10 {
@@ -294,7 +294,7 @@ fn fast_warning_decision(
     warn_count: usize,
     history: Option<&PostEditHistorySignals>,
 ) -> &'static str {
-    if warn_count >= 3 || history.is_some_and(|signals| signals.churn_count >= 10) {
+    if warn_count >= 3 {
         return decision::ESCALATE;
     }
     if history.is_some_and(|signals| {
@@ -462,5 +462,24 @@ mod tests {
         assert_eq!(signals.warn_count, 2);
 
         let _ = std::fs::remove_file(log_file);
+    }
+
+    #[test]
+    fn churn_only_fast_warnings_do_not_escalate() {
+        let signals = PostEditHistorySignals {
+            churn_count: 20,
+            warn_count: 0,
+            w15_count: 0,
+            overlap: None,
+        };
+        let warnings = post_edit_history_warnings("src/lib.rs", &signals);
+
+        assert!(warnings.contains("[CHURN WARNING]"));
+        assert!(!warnings.contains("[CHURN CRITICAL]"));
+        assert_eq!(
+            fast_warning_decision(signals.warn_count, Some(&signals)),
+            decision::CORRECTION
+        );
+        assert_eq!(fast_warning_decision(3, Some(&signals)), decision::ESCALATE);
     }
 }
