@@ -3,7 +3,7 @@
 **Audit date**: 2026-05-01
 **Branch**: `feat/sec14-u33-rules`
 **Auditor**: codebase-audit skill (4 parallel opus agents)
-**Tech stack**: Shell (131 files) + Rust (`vg-helper`, 13 files / 1381 LOC) + Python (25 files) + Markdown rules
+**Tech stack**: Shell (131 files) + Rust (`vibeguard-runtime`, 13 files / 1381 LOC) + Python (25 files) + Markdown rules
 **Method**: Parallel agent isolation, Fact/Inference/Suggestion separation per W-11
 
 This file is the **raw findings snapshot**. The actionable remediation plan with task-four-elements lives in [`plan/spec-codebase-audit-remediation.md`](../../../plan/spec-codebase-audit-remediation.md).
@@ -31,7 +31,7 @@ Four agents launched in parallel, each `model="opus"`:
 |---|-------|------|-------|
 | A1 | Architecture & code quality | `architect` | god files (U-16), declaration-execution gaps (U-26), aliases (U-24), test asymmetry, extension cost |
 | A2 | Security & error handling | `security-reviewer` | SEC-01/03/10/12/13/14 self-application, U-29 silent degradation in Python helpers, hook fail modes |
-| A3 | Multi-language pipeline integrity | `code-reviewer` | shell↔python↔rust contracts, vg-helper boundary, JSON field handling, eval W-18 axes |
+| A3 | Multi-language pipeline integrity | `code-reviewer` | shell↔python↔rust contracts, vibeguard-runtime boundary, JSON field handling, eval W-18 axes |
 | A4 | Config & install schema consistency | `database-reviewer` | install-modules.json vs reality, Claude/Codex symmetry, GC concurrency, settings drift |
 
 Every finding below uses `[source: file:line]` evidence and a confidence label.
@@ -62,15 +62,15 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Suggestion**: add `--dry-run` mode that prints the planned unified diff; require `--yes` (or `VIBEGUARD_SETUP_AUTO=1`) for the actual write.
   - **Alternative**: emit unified diff to stderr and prompt `[y/N]` before each write.
 
-### H3 · DATA-1 · log.sh swallows every vg-helper failure into an empty string
+### H3 · DATA-1 · log.sh swallows every vibeguard-runtime failure into an empty string
 
 - **Severity**: high
 - **Rule**: U-29
 - **Facts**:
-  - [source: `hooks/log.sh:70`] `"$_VG_HELPER" json-field "$field_path" 2>/dev/null || echo ""`
+  - [source: `hooks/log.sh:70`] `"$_VIBEGUARD_RUNTIME" json-field "$field_path" 2>/dev/null || echo ""`
   - [source: `hooks/log.sh:81-82,93,105`] same pattern in Python fallback and `vg_json_two_fields`
-  - [source: `vg-helper/src/main.rs:78`] vg-helper does `eprintln!("vg-helper error: {e}")` + `exit 1` on errors
-  - [source: `vg-helper/tests/cli.rs:98-119`] confirms invalid JSON exits 1
+  - [source: `vibeguard-runtime/src/main.rs:78`] vibeguard-runtime does `eprintln!("vibeguard-runtime error: {e}")` + `exit 1` on errors
+  - [source: `vibeguard-runtime/tests/cli.rs:98-119`] confirms invalid JSON exits 1
 - **Inference (high)**: when stdin contains malformed JSON, callers receive `""` indistinguishable from "field genuinely absent". `pre-bash-guard.sh` then short-circuits via `if [[ -z "$COMMAND" ]]; then exit 0` and lets dangerous commands through. Security-sensitive U-29 violation.
 - **Suggestion**: propagate exit code; emit a sentinel like `__VG_PARSE_ERROR__` when parse fails; pipe stderr through `vg_log warn "$field_path parse failed"` for SEC-13 audit trail.
   - **Alternative**: callers explicitly check `$?` after every `vg_json_field` call.
@@ -80,9 +80,9 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Severity**: high
 - **Rule**: U-24 (no aliases), U-29 (silent degradation)
 - **Facts**:
-  - [source: `vg-helper/src/session_metrics.rs:1-2`] header claims "Replaces hooks/_lib/session_metrics.py"
+  - [source: `vibeguard-runtime/src/session_metrics/mod.rs:1-2`] header claims "Replaces hooks/_lib/session_metrics.py"
   - [source: `hooks/_lib/session_metrics.py`] still 212 lines, complete
-  - [source: `scripts/setup/install.sh:146`] "vg-helper build failed (falling back to Python — hooks still work)"
+  - [source: historical `scripts/setup/install.sh:146`] runtime build failures previously fell back to Python instead of failing installation.
   - **Signal-6 divergence**: Python `:124-133` extracts `paralysis Nx` depth; Rust `:257-267` only emits count
   - **Top-3 truncation**: Python `:144-146` `repeat_rules[:3]`; Rust `:282-286` iterates entire HashMap, non-deterministic order
 - **Inference (high)**: same `events.jsonl` produces different LEARN signals on different machines depending on whether cargo built. User thinks "fallback works", actually gets a different signal set.
@@ -138,10 +138,10 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Rule**: layer violation
 - **Facts**:
   - [source: `hooks/run-hook-codex.sh:50-56,60-69,81-117,123-132,140-161`] five `python3 -c` / `python3 - <<'PY'` blocks each implementing Codex envelope reshape
-  - [source: `hooks/log.sh:69-107`] `vg_json_field` already provides vg-helper-first-with-Python-fallback abstraction
+  - [source: `hooks/log.sh:69-107`] `vg_json_field` already provides vibeguard-runtime-first-with-Python-fallback abstraction
 - **Inference (high)**: 167 LOC contains ~80 LOC of duplication; each heredoc is a fresh `python3` fork (~50 ms cold-start); JSON-escape bug must be fixed in five places.
 - **Suggestion**: extract `hooks/_lib/codex_adapter.sh` providing `codex_pretool_deny`, `codex_pretool_warn`, `codex_posttool_block`. Wrapper collapses to ~30 lines.
-  - **Alternative**: add a `vg-helper codex-adapt --event <name>` subcommand; eliminates Python dependency end-to-end.
+  - **Alternative**: add a `vibeguard-runtime codex-adapt --event <name>` subcommand; eliminates Python dependency end-to-end.
 
 ### H10 · ARCH-9 · Adding a hook requires editing 7+ files (no central manifest)
 
@@ -179,7 +179,7 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Severity**: medium
 - **Rule**: SEC-03 (output escaping)
 - **Facts**: [source: `hooks/pre-edit-guard.sh:127-132,138-145,162-167`] three `cat <<BLOCK_EOF { "decision": "block", "reason": "... ${FILE_PATH} ..." } BLOCK_EOF` blocks; `FILE_PATH` derived from `tool_input.file_path` JSON
-- **Inference (medium)**: a path containing `"` or `\` produces invalid JSON; Codex `extract_payloads` (`vg-helper/src/codex_app_server_core.rs:190`) catches invalid payloads and could silently drop the payload → block degrades to pass → W-12 protection bypassed by naming a file `evil"; "; .py`.
+- **Inference (medium)**: a path containing `"` or `\` produces invalid JSON; Codex `extract_payloads` (`vibeguard-runtime/src/codex_app_server_core.rs:190`) catches invalid payloads and could silently drop the payload → block degrades to pass → W-12 protection bypassed by naming a file `evil"; "; .py`.
 - **Suggestion**: replace each heredoc with `vg_json_output_kv` (already implements escaping at `hooks/log.sh:317`).
 
 ### M3 · SEC-8 · No SEC-13 v2.1.121 self-test for `updatedToolOutput`
@@ -196,17 +196,17 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Rule**: U-26 (declaration-execution gap)
 - **Facts**:
   - [source: `hooks/log.sh:291`] writer assembles `"hook"`, `"tool"`, `"decision"`, `"reason"`, `"detail"`, `"duration_ms"`, `"cli"`, `"agent"`, `"ts"`, `"session"` as raw strings
-  - [source: `vg-helper/src/log_query.rs:48,69,70,118,119,123`] reader hardcodes the same literals
-  - [source: `vg-helper/src/session_metrics.rs:127-304`] reader hardcodes literals
+  - [source: `vibeguard-runtime/src/log_query.rs:48,69,70,118,119,123`] reader hardcodes the same literals
+  - [source: `vibeguard-runtime/src/session_metrics/mod.rs:127-304`] reader hardcodes literals
   - [source: `hooks/_lib/session_metrics.py:48-69`] Python reader uses literals
 - **Inference (high)**: a typo in any one place (e.g. `decison`) is silently dropped by every reader's `unwrap_or("")` / `.get(k, "")`. No compile-time agreement.
-- **Suggestion**: define `pub const HOOK: &str = "hook";` etc. in `vg-helper/src/event_schema.rs`, `pub use` across modules; add a CI grep counting key occurrences across files for the shell side.
+- **Suggestion**: define `pub const HOOK: &str = "hook";` etc. in `vibeguard-runtime/src/event_schema.rs`, `pub use` across modules; add a CI grep counting key occurrences across files for the shell side.
 
-### M5 · DATA-6 · `vg-helper json-field` collapses absent / empty / null to ""
+### M5 · DATA-6 · `vibeguard-runtime json-field` collapses absent / empty / null to ""
 
 - **Severity**: medium
 - **Rule**: contract clarity
-- **Facts**: [source: `vg-helper/src/json_field.rs:15-32`, tested at `tests/cli.rs:73-95`] missing field → `""`, `Null` → `""`, `String("")` → `""`
+- **Facts**: [source: `vibeguard-runtime/src/json_field.rs:15-32`, tested at `tests/cli.rs:73-95`] missing field → `""`, `Null` → `""`, `String("")` → `""`
 - **Inference (high)**: `pre-bash-guard.sh`'s `[[ -z "$COMMAND" ]]` cannot distinguish "JSON has no `tool_input.command` key" (probable injection or schema drift) from "user really sent `command:""`" — same handling.
 - **Suggestion**: add `--strict` flag exiting 3 on missing-field; document the matrix in `json_field.rs` header.
 
@@ -214,18 +214,18 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 
 - **Severity**: medium
 - **Rule**: U-24, U-29
-- **Facts**: `vg-helper/src/pkg_rewrite.rs:16` and `hooks/_lib/pkg_rewrite.py` (99 lines) both exist with the same "Replaces …" comment pattern
+- **Facts**: `vibeguard-runtime/src/pkg_rewrite.rs:16` and `hooks/_lib/pkg_rewrite.py` (99 lines) both exist with the same "Replaces …" comment pattern
 - **Inference (medium)**: structural pattern identical to H4; high probability of similar drift, not yet line-by-line verified
 - **Suggestion**: same treatment as H4 — CI diff test or delete the Python.
 
-### M7 · DATA-9 · vg-helper coverage well below U-22 80% on two modules
+### M7 · DATA-9 · vibeguard-runtime coverage well below U-22 80% on two modules
 
 - **Severity**: medium
 - **Rule**: U-22
 - **Facts**:
-  - [source: `vg-helper/tests/cli.rs`] 158 LOC integration tests; only `json-field` happy/sad paths covered; `pkg-rewrite`, `churn-count`, `warn-count`, `build-fails`, `paralysis-count` have **zero** integration tests
-  - [source: `vg-helper/src/log_query.rs`] 131 LOC, **no `#[cfg(test)]` module**
-  - [source: `vg-helper/src/pkg_rewrite.rs`] 195 LOC with ~20 regex branches in `try_npm`/`try_yarn`/`try_pip`, **no `#[cfg(test)]` module**
+  - [source: `vibeguard-runtime/tests/cli.rs`] 158 LOC integration tests; only `json-field` happy/sad paths covered; `pkg-rewrite`, `churn-count`, `warn-count`, `build-fails`, `paralysis-count` have **zero** integration tests
+  - [source: `vibeguard-runtime/src/log_query.rs`] 131 LOC, **no `#[cfg(test)]` module**
+  - [source: `vibeguard-runtime/src/pkg_rewrite.rs`] 195 LOC with ~20 regex branches in `try_npm`/`try_yarn`/`try_pip`, **no `#[cfg(test)]` module**
   - `session_metrics.rs:391-755` has 364 LOC of `#[cfg(test)]` (this module is well-tested)
 - **Inference (high)**: log_query (4 public fns × 0 tests) and pkg_rewrite (~20 regex branches × 0 tests) are below the U-22 80% bar.
 - **Suggestion**: add `#[cfg(test)]` blocks: minimum 4 tests in log_query, ~20 branch tests in pkg_rewrite. Run `cargo llvm-cov` first to set baseline.
@@ -299,7 +299,7 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 
 | File | Lines | Responsibility overload |
 |------|------|-----------|
-| `vg-helper/src/session_metrics.rs` | 755 | collect + aggregate + serialize + ISO-8601 parsing |
+| `vibeguard-runtime/src/session_metrics/mod.rs` | 755 | collect + aggregate + serialize + ISO-8601 parsing |
 | `hooks/post-edit-guard.sh` | 493 | 7 detectors (unwrap / console / path / Go / diff / churn / W-15) |
 | `scripts/gc/gc-scheduled.sh` | 463 | discover + classify + evict + report |
 | `hooks/log.sh` | 337 | vg_log + JSON helpers + CLI detect (87 LOC ancestor walker) + timer |
@@ -318,9 +318,9 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 | L2 (SEC-4) | No SEC-14 self-test on `rules/**/*.md` (the rule files contain attack strings as documentation; future scanner needs allow-list) | `rules/claude-rules/common/security.md:158-167` |
 | L3 (SEC-6) | Heredoc-stripping regex `<<-?\s*[\"']?(\w+)[\"']?.*?\n\1` with `re.DOTALL` has ReDoS shape; no Python timeout wrap | `hooks/pre-bash-guard.sh:32-38` |
 | L4 (SEC-10) | `run-hook-codex.sh` exits 0 on deny path (mildly inconsistent with shell convention; not exploitable) | `hooks/run-hook-codex.sh:80-93,134,161` |
-| L5 (DATA-4) | `session_metrics.jsonl` lacks `schema_version` — future negative-set changes invalidate baseline silently | `vg-helper/src/session_metrics.rs:316-360` |
-| L6 (DATA-7) | `paralysis_count` ignores time gaps — overnight Reads count toward today's paralysis | `vg-helper/src/log_query.rs:117-128` |
-| L7 (DATA-10) | `chrono_now` shells to `/bin/date` instead of using `SystemTime` | `vg-helper/src/session_metrics.rs:380-389` |
+| L5 (DATA-4) | `session_metrics.jsonl` lacks `schema_version` — future negative-set changes invalidate baseline silently | `vibeguard-runtime/src/session_metrics/mod.rs:316-360` |
+| L6 (DATA-7) | `paralysis_count` ignores time gaps — overnight Reads count toward today's paralysis | `vibeguard-runtime/src/log_query.rs:117-128` |
+| L7 (DATA-10) | `chrono_now` shells to `/bin/date` instead of using `SystemTime` | `vibeguard-runtime/src/session_metrics/mod.rs:380-389` |
 | L8 (CFG-3) | `disabled_hooks` enum lists `skills-loader` but installer never registers it | `schemas/vibeguard-project.schema.json:38` |
 | L9 (CFG-7) | `install-state.json` writes `version:1` but no migration code anywhere | `scripts/lib/install-state.sh:33-44` |
 | L10 (CFG-11) | Retention windows (90d/7d/10MB/3mo) hardcoded; project schema's `additionalProperties:false` blocks user override | `scripts/gc/gc-{scheduled,logs}.sh` |
@@ -333,7 +333,7 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 1. **Self-violation cluster** — VibeGuard violates rules it ships:
    - SEC-13 (H2): `setup.sh` rewrites `~/.claude/CLAUDE.md` and `~/.claude/settings.json` without diff
    - U-29 (H1, H3, H7): timeout fail-open, `2>/dev/null || echo ""` sentinel collapse, `except Exception: pass`
-   - U-22 (M7): vg-helper `log_query.rs` and `pkg_rewrite.rs` have zero tests
+   - U-22 (M7): vibeguard-runtime `log_query.rs` and `pkg_rewrite.rs` have zero tests
    - U-16 (M14): five files at or near the 800-line ceiling
    - U-24 + U-29 (H4, M6): parallel Python+Rust implementations drift in production
    - U-26 (M4, M8, M12): event-schema literals scattered, project schema unwired, mcp-server orphaned
@@ -345,13 +345,13 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 
 3. **Manifest as single source of truth is the highest-leverage refactor** — H10 (extension cost), CFG-1 (M8), CFG-2 (M9) all share one fix: make `schemas/install-modules.json` (and a new `hooks/manifest.json`) load-bearing instead of documentary. After this, four other findings become trivial follow-ups.
 
-4. **Test structure is the canary** — `tests/test_hooks.sh` 1575 LOC and `vg-helper/tests/cli.rs` 158 LOC against 1223 source LOC are both shaped like "tests exist, mechanism doesn't deliver". Coverage measurement is a 5-minute task that should gate the next PR.
+4. **Test structure is the canary** — `tests/test_hooks.sh` 1575 LOC and `vibeguard-runtime/tests/cli.rs` 158 LOC against 1223 source LOC are both shaped like "tests exist, mechanism doesn't deliver". Coverage measurement is a 5-minute task that should gate the next PR.
 
 ---
 
 ## Verified items (no issues found)
 
-- vg-helper Rust prod code: only one `let _ =` (`session_metrics.rs:367` — best-effort metrics write, RS-10 acceptable). No `unsafe`, no `unwrap()` in non-test code.
+- vibeguard-runtime Rust prod code: only one `let _ =` (`session_metrics.rs:367` — best-effort metrics write, RS-10 acceptable). No `unsafe`, no `unwrap()` in non-test code.
 - Hook env-var discipline (per `hooks/CLAUDE.md:51`): hooks consistently pass data via stdin, not argv.
 - `serde_json` errors propagate via `?` (`json_field.rs:41`, `log_query.rs:28`) — no silent parse-failure-as-success.
 - `set -euo pipefail` in every reviewed hook — protects against unset-variable injection.

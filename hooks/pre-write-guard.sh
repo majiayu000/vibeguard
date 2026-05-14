@@ -23,10 +23,10 @@ _pass_and_exit() {
 INPUT=$(cat)
 
 _U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
-if [[ -n "$_VG_HELPER" ]]; then
-  CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VG_HELPER" pre-write-check "$_U16_BASE_LIMIT" 2>/dev/null || printf 'PASS\n')
-else
-  CHECK_RESULT=$(printf 'PASS\n')
+if ! CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-write-check "$_U16_BASE_LIMIT" 2>/dev/null); then
+  vg_log "pre-write-guard" "Write" "block" "vibeguard-runtime pre-write-check failed; fail-closed" ""
+  vg_json_output_kv decision block reason "VIBEGUARD interception: runtime pre-write-check failed; fail-closed."
+  exit 0
 fi
 
 CHECK_STATUS="${CHECK_RESULT%%$'\n'*}"

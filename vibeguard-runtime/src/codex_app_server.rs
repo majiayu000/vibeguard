@@ -77,7 +77,7 @@ fn parse_args(args: &[String]) -> Result<Args, Box<dyn Error>> {
 
 fn print_help() {
     println!(
-        "Usage: vg-helper codex-app-server-wrapper [--repo-dir DIR] [--strategy vibeguard|noop] [--codex-command CMD]"
+        "Usage: vibeguard-runtime codex-app-server-wrapper [--repo-dir DIR] [--strategy vibeguard|noop] [--codex-command CMD]"
     );
 }
 

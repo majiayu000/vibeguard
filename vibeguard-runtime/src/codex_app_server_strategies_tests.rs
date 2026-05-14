@@ -8,7 +8,7 @@ fn temp_dir(name: &str) -> String {
         .unwrap_or_default()
         .as_nanos();
     let root = std::env::temp_dir().join(format!(
-        "vg_helper_strategy_{name}_{}_{}",
+        "vibeguard_runtime_strategy_{name}_{}_{}",
         std::process::id(),
         unique
     ));

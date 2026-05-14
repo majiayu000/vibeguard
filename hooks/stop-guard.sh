@@ -23,9 +23,7 @@ vg_stop_is_ci() {
 
 vg_stop_hook_active_fast() {
   local input="$1" active=""
-  if [[ -n "$_VG_HELPER" ]]; then
-    active=$(printf '%s' "$input" | "$_VG_HELPER" json-field stop_hook_active 2>/dev/null || true)
-  fi
+  active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
   [[ "$active" == "true" ]]
 }
 

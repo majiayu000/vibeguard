@@ -16,10 +16,6 @@ source hooks/log.sh
 source hooks/_lib/post_edit_common.sh
 source hooks/_lib/post_edit_history.sh
 
-# Force the shell/Python path so this test validates the hook contract even when
-# a stale installed vg-helper exists in ~/.vibeguard.
-_VG_HELPER=""
-
 FILE_PATH="$WORK_DIR/planned_refactor.tsx"
 touch "$FILE_PATH"
 

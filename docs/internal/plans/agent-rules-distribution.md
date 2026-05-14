@@ -66,7 +66,7 @@ Codex-facing output and docs must state the exact native support:
 - `PostToolUse(Bash)` -> build/post-command feedback via `vibeguard-post-build-check.sh`
 - `Stop` -> `vibeguard-stop-guard.sh` and `vibeguard-learn-evaluator.sh`
 - `Edit`, `Write`, `Read`, `Glob`, `Grep`, and `analysis-paralysis` are not native Codex CLI hooks in this contract.
-- Full edit/write/read quality coverage requires Claude Code or the Rust `vg-helper codex-app-server-wrapper` path.
+- Full edit/write/read quality coverage requires Claude Code or the Rust `vibeguard-runtime codex-app-server-wrapper` path.
 
 Done-when:
 

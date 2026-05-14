@@ -57,27 +57,26 @@ vg_is_source_file() {
   return 1
 }
 
-# Resolve the canonical vg-helper binary path (Rust, ~4ms).
-_VG_HELPER=""
+# Resolve the canonical vibeguard-runtime binary path (Rust, ~4ms).
+_VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VIBEGUARD_RUNTIME=""
 for _candidate in \
-  "$(dirname "$0")/../vg-helper/target/release/vg-helper" \
-  "${HOME}/.vibeguard/installed/bin/vg-helper" \
-  "$(dirname "$0")/vg-helper"; do
+  "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime" \
+  "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+  "${_VG_HOOK_DIR}/vibeguard-runtime"; do
   if [[ -f "$_candidate" ]] && [[ -x "$_candidate" ]]; then
-    _VG_HELPER="$_candidate"
+    _VIBEGUARD_RUNTIME="$_candidate"
     break
   fi
 done
-_VG_HELPER_JSON_FIELD_STRICT=0
-if [[ -n "$_VG_HELPER" ]]; then
-  # vg-helper is installed from the same VibeGuard release as these hooks.
-  # Avoid a per-hook probe process; strict json-field support is part of the
-  # current Rust helper contract.
-  _VG_HELPER_JSON_FIELD_STRICT=1
+if [[ -z "$_VIBEGUARD_RUNTIME" ]]; then
+  printf '%s\n' "VIBEGUARD ERROR: vibeguard-runtime not found. Run setup.sh or cargo build --release --manifest-path vibeguard-runtime/Cargo.toml." >&2
+  exit 2
 fi
+_VIBEGUARD_RUNTIME_JSON_FIELD_STRICT=1
 
 
-_VG_LOG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/_lib" && pwd)"
+_VG_LOG_LIB_DIR="${_VG_HOOK_DIR}/_lib"
 source "${_VG_LOG_LIB_DIR}/log_json.sh"
 source "${_VG_LOG_LIB_DIR}/log_session.sh"
 source "${_VG_LOG_LIB_DIR}/log_timer.sh"

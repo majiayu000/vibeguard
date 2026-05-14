@@ -103,10 +103,10 @@ run_legacy_checks() {
   else
     yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
   fi
-  if [[ -x "${VIBEGUARD_HOME}/installed/bin/vg-helper" ]]; then
-    green "[OK] vg-helper runtime binary installed"
+  if [[ -x "${VIBEGUARD_HOME}/installed/bin/vibeguard-runtime" ]]; then
+    green "[OK] vibeguard-runtime runtime binary installed"
   else
-    red "[MISSING] vg-helper runtime binary (~/.vibeguard/installed/bin/vg-helper)"
+    red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
 
   check_claude_home_installation

@@ -200,12 +200,7 @@ fi
 # --- Package manager transparent correction (updatedInput) ---
 # Mechanically predictable commands can be rewritten directly without block+retry.
 # Only for simple single commands (chain commands including && and other chain commands are not corrected to avoid mistakenly modifying complex pipelines).
-if [[ -n "$_VG_HELPER" ]]; then
-  _PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VG_HELPER" pkg-rewrite 2>/dev/null || echo "")
-else
-  vg_log "pre-bash-guard" "Bash" "warn" "pkg-rewrite skipped: vg-helper unavailable" "run setup.sh to install vg-helper"
-  _PKG_CORRECTION=""
-fi
+_PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VIBEGUARD_RUNTIME" pkg-rewrite 2>/dev/null || echo "")
 
 if [[ -n "$_PKG_CORRECTION" ]]; then
   # Verify target tool is actually installed before rewriting — avoids turning

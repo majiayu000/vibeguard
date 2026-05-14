@@ -26,9 +26,7 @@ vg_learn_is_ci() {
 
 vg_learn_stop_hook_active_fast() {
   local input="$1" active=""
-  if [[ -n "$_VG_HELPER" ]]; then
-    active=$(printf '%s' "$input" | "$_VG_HELPER" json-field stop_hook_active 2>/dev/null || true)
-  fi
+  active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
   [[ "$active" == "true" ]]
 }
 
@@ -45,15 +43,10 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
 fi
 
 # Collect session metrics for the last 30 minutes of the current project + correct signal detection
-if [[ -n "$_VG_HELPER" ]]; then
-  # Pass the full log file — the 30-minute cutoff is enforced inside vg-helper,
-  # so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
-  LEARN_SUGGESTION=$("$_VG_HELPER" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
-    < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
-else
-  vg_log "learn-evaluator" "Stop" "warn" "session metrics skipped: vg-helper unavailable" "run setup.sh to install vg-helper"
-  LEARN_SUGGESTION=""
-fi
+# Pass the full log file — the 30-minute cutoff is enforced inside vibeguard-runtime,
+# so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
+LEARN_SUGGESTION=$("$_VIBEGUARD_RUNTIME" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
+  < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
 
 # If a correction signal is detected, output suggestions (not blocking)
 if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then

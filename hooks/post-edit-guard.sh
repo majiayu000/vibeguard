@@ -18,10 +18,10 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-if [[ -n "${_VG_HELPER:-}" ]]; then
+if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VG_HELPER" post-edit-fast-check "$_VG_U16_BASE_LIMIT" "$VIBEGUARD_SESSION_ID" "${VIBEGUARD_AGENT_TYPE:-}" "$VIBEGUARD_LOG_FILE" \
+    | "$_VIBEGUARD_RUNTIME" post-edit-fast-check "$_VG_U16_BASE_LIMIT" "$VIBEGUARD_SESSION_ID" "${VIBEGUARD_AGENT_TYPE:-}" "$VIBEGUARD_LOG_FILE" \
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in

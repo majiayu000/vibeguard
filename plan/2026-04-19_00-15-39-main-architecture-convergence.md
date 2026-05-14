@@ -32,7 +32,7 @@ source_ref: origin/main@17504d0
 - Architecture inventory summary:
   - Install entry: `setup.sh`, `scripts/setup/install.sh`, `scripts/setup/check.sh`, `scripts/setup/clean.sh`
   - Client target adapters: `scripts/setup/targets/claude-home.sh`, `scripts/setup/targets/codex-home.sh`
-  - Runtime adapters: `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, `vg-helper/src/codex_app_server.rs`
+  - Runtime adapters: `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, `vibeguard-runtime/src/codex_app_server.rs`
   - Metadata surfaces: `rules/claude-rules/**`, `rules/*.md`, `docs/rule-reference.md`, `schemas/install-modules.json`, `schemas/vibeguard-project.schema.json`
   - Verification surfaces: `.github/workflows/ci.yml`, `tests/test_hooks.sh`, `tests/test_setup.sh`, `tests/run_precision.sh`, `eval/run_eval.py`
   - Product/workflow surfaces: `README.md`, `docs/README_CN.md`, `docs/internal/history/spec.md`, `skills/vibeguard/SKILL.md`, `agents/dispatcher.md`, `workflows/**`
@@ -40,7 +40,7 @@ source_ref: origin/main@17504d0
 
 | id | category | files and symbols | evidence | impact | risk | suggested convergence |
 |----|----------|-------------------|----------|--------|------|-----------------------|
-| F1 | fail-open runtime adapter | `vg-helper/src/codex_app_server.rs`, `hooks/post-build-check.sh`, `hooks/learn-evaluator.sh` | post-turn hooks run but outputs are discarded, so Codex app-server never sees stop/build feedback | critical | high | make hook results first-class protocol events and expose degraded-mode explicitly |
+| F1 | fail-open runtime adapter | `vibeguard-runtime/src/codex_app_server.rs`, `hooks/post-build-check.sh`, `hooks/learn-evaluator.sh` | post-turn hooks run but outputs are discarded, so Codex app-server never sees stop/build feedback | critical | high | make hook results first-class protocol events and expose degraded-mode explicitly |
 | F2 | split install contract | `scripts/lib/settings_json.py`, `scripts/lib/codex_hooks_json.py`, `schemas/install-modules.json`, `schemas/vibeguard-project.schema.json` | profile names and module composition diverge across code, schema, and docs | high | high | define one canonical install/capability manifest and generate/validate secondary surfaces |
 | F3 | runtime artifact split | `scripts/setup/install.sh`, `hooks/run-hook.sh`, `scripts/install-hook.sh`, `scripts/project-init.sh` | Claude/Codex use installed snapshot while Git hooks still point at live repo | high | medium | unify all runtime entrypoints on installed snapshot plus shared wrapper stack |
 | F4 | verification false confidence | `.github/workflows/ci.yml`, `tests/run_precision.sh`, `tests/test_hooks.sh`, `eval/run_eval.py`, `scripts/benchmark.sh` | Windows lane mostly skips behavior tests, precision never fails CI, rewrite path is provisioned but skipped, eval reads `$HOME` | high | medium | convert CI from report-first to contract-first and pin eval inputs to repo snapshot |
@@ -76,7 +76,7 @@ source_ref: origin/main@17504d0
 - status: `completed`
 - Target: ensure post-turn hook outputs are delivered back to the client instead of being computed and discarded.
 - Expected changes to files:
-  - `vg-helper/src/codex_app_server.rs`
+  - `vibeguard-runtime/src/codex_app_server.rs`
   - `hooks/post-build-check.sh`
   - `hooks/learn-evaluator.sh`
   - `tests/test_hooks.sh`
@@ -86,7 +86,7 @@ source_ref: origin/main@17504d0
   - Preserve hook severity and message content in the adapter rather than dropping `HookResult`.
   - Add regression coverage for post-turn feedback flow.
 - step-level test command:
-  - `cargo test --manifest-path vg-helper/Cargo.toml codex_app_server`
+  - `cargo test --manifest-path vibeguard-runtime/Cargo.toml codex_app_server`
   - `bash tests/test_hooks.sh`
 - Completion judgment:
   - Codex app-server path surfaces post-turn warnings/stop reasons to the client.
@@ -97,7 +97,7 @@ source_ref: origin/main@17504d0
 - status: `completed`
 - Target: stop deriving hook identity from `ps` heuristics when the adapter already knows thread/session context.
 - Expected changes to files:
-  - `vg-helper/src/codex_app_server.rs`
+  - `vibeguard-runtime/src/codex_app_server.rs`
   - `hooks/log.sh`
   - `hooks/analysis-paralysis-guard.sh`
   - `hooks/post-build-check.sh`
@@ -297,7 +297,7 @@ source_ref: origin/main@17504d0
       - `P0.1 Define and codify the client capability matrix`
   - Step P0: `completed`
     - Modified files:
-      - `vg-helper/src/codex_app_server.rs`
+      - `vibeguard-runtime/src/codex_app_server.rs`
       - `hooks/run-hook-codex.sh`
       - `scripts/setup/targets/codex-home.sh`
       - `README.md`
@@ -311,7 +311,7 @@ source_ref: origin/main@17504d0
       - Documented the current Codex capability boundary in setup output and user-facing docs.
       - Added a dedicated Codex runtime regression test and wired it into non-Windows CI.
     - Execute tests:
-      - `cargo test --manifest-path vg-helper/Cargo.toml codex_app_server` -> pass
+      - `cargo test --manifest-path vibeguard-runtime/Cargo.toml codex_app_server` -> pass
       - `bash tests/test_codex_runtime.sh` -> pass
       - `bash tests/test_hook_health.sh` -> pass
       - `bash tests/test_setup.sh` -> pass
@@ -370,7 +370,7 @@ source_ref: origin/main@17504d0
 
 ## 6. References
 
-- `vg-helper/src/codex_app_server.rs`
+- `vibeguard-runtime/src/codex_app_server.rs`
 - `hooks/run-hook-codex.sh:20`
 - `hooks/log.sh:109`
 - `scripts/setup/install.sh:111`

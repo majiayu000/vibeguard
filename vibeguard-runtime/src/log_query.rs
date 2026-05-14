@@ -229,10 +229,12 @@ fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
 }
 
 /// Count how many times a file was edited in the current session.
-/// Usage: tail -500 log | vg-helper churn-count <session> <file_path>
+/// Usage: tail -500 log | vibeguard-runtime churn-count <session> <file_path>
 pub fn churn_count(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper churn-count <session> <file_path>".into());
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime churn-count <session> <file_path>".into(),
+        );
     }
     let (session, file_path) = (&args[0], &args[1]);
     let events = read_events(session);
@@ -242,10 +244,12 @@ pub fn churn_count(args: &[String]) -> Result {
 }
 
 /// Count warn events for a specific file in the current session.
-/// Usage: tail -500 log | vg-helper warn-count <session> <file_path>
+/// Usage: tail -500 log | vibeguard-runtime warn-count <session> <file_path>
 pub fn warn_count(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper warn-count <session> <file_path>".into());
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime warn-count <session> <file_path>".into(),
+        );
     }
     let (session, file_path) = (&args[0], &args[1]);
     let events = read_events(session);
@@ -255,11 +259,11 @@ pub fn warn_count(args: &[String]) -> Result {
 }
 
 /// Combined post-edit history query. Replaces multiple tail+Python/helper calls.
-/// Usage: tail -500 log | vg-helper post-edit-history <session> <file_path> [agent]
+/// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent]
 pub fn post_edit_history(args: &[String]) -> Result {
     if args.len() < 2 {
         return Err(
-            "Usage: tail -N log | vg-helper post-edit-history <session> <file_path> [agent]".into(),
+            "Usage: tail -N log | vibeguard-runtime post-edit-history <session> <file_path> [agent]".into(),
         );
     }
     let session = &args[0];
@@ -290,10 +294,12 @@ pub fn post_edit_history(args: &[String]) -> Result {
 }
 
 /// Count consecutive build failures (backwards from end, stop at first pass).
-/// Usage: tail -200 log | vg-helper build-fails <session> <project_root>
+/// Usage: tail -200 log | vibeguard-runtime build-fails <session> <project_root>
 pub fn build_fails(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper build-fails <session> <project>".into());
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime build-fails <session> <project>".into(),
+        );
     }
     let (session, project) = (&args[0], &args[1]);
     let events = read_events(session);
@@ -303,10 +309,10 @@ pub fn build_fails(args: &[String]) -> Result {
 }
 
 /// Count consecutive research-only tool calls at the tail of the session.
-/// Usage: tail -300 log | vg-helper paralysis-count <session>
+/// Usage: tail -300 log | vibeguard-runtime paralysis-count <session>
 pub fn paralysis_count(args: &[String]) -> Result {
     if args.is_empty() {
-        return Err("Usage: tail -N log | vg-helper paralysis-count <session>".into());
+        return Err("Usage: tail -N log | vibeguard-runtime paralysis-count <session>".into());
     }
     let session = &args[0];
     let events = read_events(session);

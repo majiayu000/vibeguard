@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_vg-helper"))
+    Command::new(env!("CARGO_BIN_EXE_vibeguard-runtime"))
 }
 
 #[test]
@@ -191,8 +191,8 @@ fn invalid_json_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 
@@ -210,8 +210,8 @@ fn invalid_json_two_fields_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 
@@ -225,8 +225,8 @@ fn handler_bad_args_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 

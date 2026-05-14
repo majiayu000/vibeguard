@@ -99,7 +99,7 @@ static COMMANDS: &[Command] = &[
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: vg-helper <command> [args...]");
+        eprintln!("Usage: vibeguard-runtime <command> [args...]");
         for cmd in COMMANDS {
             eprintln!("  {}  {}", cmd.name, cmd.usage);
         }
@@ -113,7 +113,7 @@ fn main() {
         }
         Some(cmd) => {
             if let Err(e) = (cmd.handler)(&args[2..]) {
-                eprintln!("vg-helper error: {e}");
+                eprintln!("vibeguard-runtime error: {e}");
                 process::exit(1);
             }
         }

@@ -95,32 +95,10 @@ ${ERRORS}"
 DECISION="warn"
 # Fix post-build: filter by PROJECT_ROOT so failure counts are isolated per project,
 # not accumulated across projects within the same session.
-# Read only last 200 lines and reverse in Python to avoid loading entire file
+# Read only last 200 lines to avoid loading entire file.
 CONSECUTIVE_FAILS=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | if [[ -n "$_VG_HELPER" ]]; then
-      "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT"
-    else
-      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$PROJECT_ROOT" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream
-
-session, project = os.environ["VG_SESSION"], os.environ["VG_PROJECT"]
-count, prefix = 0, project.rstrip("/") + "/"
-events = list(iter_events_from_stream(sys.stdin.buffer))
-for e in reversed(events):
-    if e.get("hook") != "post-build-check" or e.get("session") != session:
-        continue
-    d = e.get("detail", "")
-    if project and d and not d.startswith(prefix):
-        continue
-    if e.get("decision") == "pass":
-        break
-    if e.get("decision") == "warn":
-        count += 1
-print(count)
-'
-    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
+  | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$PROJECT_ROOT" \
+  2>/dev/null | tr -d '[:space:]' || echo "0")
 CONSECUTIVE_FAILS="${CONSECUTIVE_FAILS:-0}"
 
 if [[ "$CONSECUTIVE_FAILS" -ge 5 ]]; then

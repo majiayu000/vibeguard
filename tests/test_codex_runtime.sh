@@ -45,16 +45,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-header "build Rust vg-helper"
+header "build Rust vibeguard-runtime"
 if command -v cargo >/dev/null 2>&1; then
-  cargo build --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet
-  VG_HELPER="${REPO_DIR}/vg-helper/target/debug/vg-helper"
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+  VIBEGUARD_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
   TOTAL=$((TOTAL + 1))
-  if [[ -x "${VG_HELPER}" ]]; then
-    green "vg-helper Rust binary builds"
+  if [[ -x "${VIBEGUARD_RUNTIME}" ]]; then
+    green "vibeguard-runtime Rust binary builds"
     PASS=$((PASS + 1))
   else
-    red "vg-helper Rust binary builds"
+    red "vibeguard-runtime Rust binary builds"
     FAIL=$((FAIL + 1))
   fi
 else
@@ -296,7 +296,7 @@ run_wrapper() {
   local app_repo="$1"
   local child_script="$2"
   local input="$3"
-  printf '%b\n' "${input}" | "${VG_HELPER}" codex-app-server-wrapper \
+  printf '%b\n' "${input}" | "${VIBEGUARD_RUNTIME}" codex-app-server-wrapper \
     --repo-dir "${app_repo}" \
     --codex-command "bash '${child_script}'"
 }

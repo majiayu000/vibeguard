@@ -14,11 +14,11 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-if [[ -n "${_VG_HELPER:-}" ]]; then
+if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
   _VG_SCAN_MAX_FILES="${VG_SCAN_MAX_FILES:-5000}"
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VG_HELPER" post-write-fast-check "$_VG_U16_BASE_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
+    | "$_VIBEGUARD_RUNTIME" post-write-fast-check "$_VG_U16_BASE_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in

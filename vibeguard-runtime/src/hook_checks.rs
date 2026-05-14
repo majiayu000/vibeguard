@@ -68,7 +68,7 @@ pub fn pre_write_check(args: &[String]) -> Result {
 
 pub fn pre_edit_check(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: vg-helper pre-edit-check <base-limit> <log-file>".into());
+        return Err("Usage: vibeguard-runtime pre-edit-check <base-limit> <log-file>".into());
     }
 
     let base_limit = args[0].parse::<usize>().unwrap_or(800);
@@ -197,7 +197,7 @@ fn decision_block_json(reason: &str) -> String {
 pub fn post_edit_fast_check(args: &[String]) -> Result {
     if args.len() < 4 {
         return Err(
-            "Usage: vg-helper post-edit-fast-check <base-limit> <session> <agent> <log-file>"
+            "Usage: vibeguard-runtime post-edit-fast-check <base-limit> <session> <agent> <log-file>"
                 .into(),
         );
     }
@@ -255,7 +255,7 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
 pub fn post_write_fast_check(args: &[String]) -> Result {
     if args.len() < 3 {
         return Err(
-            "Usage: vg-helper post-write-fast-check <base-limit> <max-scan-files> <log-file>"
+            "Usage: vibeguard-runtime post-write-fast-check <base-limit> <max-scan-files> <log-file>"
                 .into(),
         );
     }

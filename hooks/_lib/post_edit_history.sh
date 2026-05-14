@@ -7,54 +7,15 @@ vg_post_edit_count_build_failures() {
   local project_root
   project_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | if [[ -n "$_VG_HELPER" ]]; then
-        "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$project_root"
-      else
-        VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$project_root" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream
-
-session = os.environ.get("VG_SESSION", "")
-project = os.environ.get("VG_PROJECT", "")
-prefix = project.rstrip("/") + "/" if project else ""
-count = 0
-events = list(iter_events_from_stream(sys.stdin.buffer))
-for e in reversed(events):
-    if e.get("hook") != "post-build-check" or e.get("session") != session:
-        continue
-    detail = e.get("detail", "") or ""
-    if prefix and detail and not detail.startswith(prefix):
-        continue
-    if e.get("decision") == "pass":
-        break
-    if e.get("decision") in {"warn", "escalate"}:
-        count += 1
-print(count)
-'
-      fi 2>/dev/null | tr -d '[:space:]' || echo "0"
+    | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$project_root" \
+    2>/dev/null | tr -d '[:space:]' || echo "0"
 }
 
 vg_post_edit_detect_churn() {
   local churn_count build_fail_count
   churn_count=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | if [[ -n "$_VG_HELPER" ]]; then
-        "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
-      else
-        VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream
-
-file_path = os.environ.get("VG_FILE_PATH", "")
-session = os.environ.get("VG_SESSION", "")
-count = 0
-for e in iter_events_from_stream(sys.stdin.buffer):
-    if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
-        count += 1
-print(count)
-'
-      fi 2>/dev/null | tr -d '[:space:]' || echo "0")
+    | "$_VIBEGUARD_RUNTIME" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
+    2>/dev/null | tr -d '[:space:]' || echo "0")
   churn_count="${churn_count:-0}"
   build_fail_count="0"
 
@@ -89,44 +50,8 @@ DO NOT: Take any action — this is informational only"
 vg_post_edit_detect_w14_overlap() {
   local recent_conflict other_session other_agent other_hook other_tool
   recent_conflict=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_AGENT="${VIBEGUARD_AGENT_TYPE:-}" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream, parse_ts
-from datetime import datetime, timezone
-def normalize_path(path):
-    path = (path or "").strip()
-    if not path:
-        return ""
-    if not os.path.isabs(path):
-        path = os.path.join(os.getcwd(), path)
-    return os.path.normcase(os.path.realpath(path))
-
-file_path = normalize_path(os.environ.get("VG_FILE_PATH", ""))
-session = os.environ.get("VG_SESSION", "")
-agent = os.environ.get("VG_AGENT", "")
-now = datetime.now(timezone.utc)
-conflicts = []
-for e in iter_events_from_stream(sys.stdin.buffer):
-    if e.get("tool") not in {"Edit", "Write"}:
-        continue
-    event_path = normalize_path(e.get("detail", "").split("||", 1)[0])
-    if event_path != file_path:
-        continue
-    same_session = e.get("session") == session
-    other_agent = e.get("agent", "") != agent
-    if same_session and not other_agent:
-        continue
-    ts = parse_ts(e.get("ts"))
-    if ts is None:
-        continue
-    if (now - ts).total_seconds() > 1800:
-        continue
-    conflicts.append((e.get("session", "?"), e.get("agent", "?"), e.get("hook", "?"), e.get("tool", "?")))
-if conflicts:
-    session_id, agent_name, hook_name, tool_name = conflicts[-1]
-    print(f"{session_id}|{agent_name}|{hook_name}|{tool_name}")
-' 2>/dev/null | tail -1 | tr -d '\r' || true)
+    | "$_VIBEGUARD_RUNTIME" post-edit-history "$VIBEGUARD_SESSION_ID" "$FILE_PATH" "${VIBEGUARD_AGENT_TYPE:-}" \
+    2>/dev/null | awk -F '\t' '$1 == "W14" { print $2 "|" $3 "|" $4 "|" $5 }' | tail -1 | tr -d '\r' || true)
 
   [[ -n "$recent_conflict" ]] || return 0
   IFS='|' read -r other_session other_agent other_hook other_tool <<< "$recent_conflict"
@@ -240,21 +165,6 @@ ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing
 
 vg_post_edit_warn_count_for_file() {
   tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream
-
-file_path = os.environ.get("VG_FILE_PATH", "")
-session = os.environ.get("VG_SESSION", "")
-count = 0
-for e in iter_events_from_stream(sys.stdin.buffer):
-    reason = e.get("reason", "") or ""
-    churn_only = "[CHURN" in reason and "\n---\n" not in reason
-    if churn_only:
-        continue
-    if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
-        count += 1
-print(count)
-' 2>/dev/null | tr -d '[:space:]' || echo "0"
+    | "$_VIBEGUARD_RUNTIME" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
+    2>/dev/null | tr -d '[:space:]' || echo "0"
 }

@@ -11,7 +11,7 @@ from pathlib import Path
 
 repo = Path(sys.argv[1])
 strict = sys.argv[2] == "1"
-src_dir = repo / "vg-helper/src"
+src_dir = repo / "vibeguard-runtime/src"
 reports: list[str] = []
 errors: list[str] = []
 
