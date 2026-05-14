@@ -2,7 +2,7 @@
 # VibeGuard Hook Latency Benchmark
 #
 # Measures actual execution time of each hook under different data scales.
-# SLA: every hook must complete in <200ms (P95).
+# SLA: every hook must complete in <200ms (P95). P99 is reported for tail-latency tracking.
 #
 # Usage:
 #   bash tests/bench_hook_latency.sh              # normal run
@@ -103,17 +103,20 @@ bench_hook() {
     latencies+=("$elapsed")
   done
 
-  # Calculate P50/P95/max
+  # Calculate P50/P95/P99/max
   local sorted
   sorted=$(printf '%s\n' "${latencies[@]}" | sort -n)
   local count=${#latencies[@]}
   local p50_idx=$(( (count * 50 / 100) ))
   local p95_idx=$(( (count * 95 / 100) ))
+  local p99_idx=$(( (count * 99 / 100) ))
   [[ $p50_idx -ge $count ]] && p50_idx=$((count - 1))
   [[ $p95_idx -ge $count ]] && p95_idx=$((count - 1))
+  [[ $p99_idx -ge $count ]] && p99_idx=$((count - 1))
 
   local p50=$(echo "$sorted" | sed -n "$((p50_idx + 1))p")
   local p95=$(echo "$sorted" | sed -n "$((p95_idx + 1))p")
+  local p99=$(echo "$sorted" | sed -n "$((p99_idx + 1))p")
   local max_lat=$(echo "$sorted" | tail -1)
 
   local status="PASS"
@@ -122,14 +125,14 @@ bench_hook() {
     FAILURES=$((FAILURES + 1))
   fi
 
-  printf "  %-35s P50=%4dms  P95=%4dms  max=%4dms  [%s]\n" "$name" "$p50" "$p95" "$max_lat" "$status"
+  printf "  %-35s P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  [%s]\n" "$name" "$p50" "$p95" "$p99" "$max_lat" "$status"
 
-  RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"max\":$max_lat,\"status\":\"$status\",\"runs\":$RUNS}")
+  RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"status\":\"$status\",\"runs\":$RUNS}")
 }
 
 echo "======================================"
 echo "VibeGuard Hook Latency Benchmark"
-echo "SLA: <${SLA_MS}ms (P95)  Runs: ${RUNS}"
+echo "SLA: <${SLA_MS}ms (P95)  Runs: ${RUNS}  Tail: P99/max reported"
 echo "======================================"
 echo ""
 
@@ -185,8 +188,11 @@ _first=true
   for r in "${RESULTS[@]}"; do
     _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
     _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
+    _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
     if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
     printf '  {"name": "%s (P95)", "unit": "ms", "value": %s}' "$_name" "$_p95"
+    echo ","
+    printf '  {"name": "%s (P99)", "unit": "ms", "value": %s}' "$_name" "$_p99"
   done
   echo ""
   echo "]"
