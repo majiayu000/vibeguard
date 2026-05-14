@@ -74,8 +74,8 @@ vg_log() {
 
   if [[ ! -d "$VIBEGUARD_LOG_DIR" ]]; then
     mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
-    chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
   fi
+  chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
   # Pure bash JSON serialization (eliminates python3 subprocess)
   local ts

@@ -131,10 +131,12 @@ mode_result=$(
   source hooks/log.sh
   : > "$VIBEGUARD_LOG_FILE"
   : > "$VIBEGUARD_LOG_DIR/events.jsonl"
+  chmod 755 "$VIBEGUARD_LOG_DIR"
   chmod 644 "$VIBEGUARD_LOG_FILE" "$VIBEGUARD_LOG_DIR/events.jsonl"
   vg_log "test" "Tool" "pass" "permissions" "existing logs"
-  printf 'primary=%s global=%s' "$(file_mode "$VIBEGUARD_LOG_FILE")" "$(file_mode "$VIBEGUARD_LOG_DIR/events.jsonl")"
+  printf 'dir=%s primary=%s global=%s' "$(file_mode "$VIBEGUARD_LOG_DIR")" "$(file_mode "$VIBEGUARD_LOG_FILE")" "$(file_mode "$VIBEGUARD_LOG_DIR/events.jsonl")"
 )
+assert_contains "$mode_result" "dir=700" "Existing log directory permissions are tightened"
 assert_contains "$mode_result" "primary=600" "Existing primary log permissions are tightened"
 assert_contains "$mode_result" "global=600" "Existing global log permissions are tightened"
 
