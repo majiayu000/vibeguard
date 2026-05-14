@@ -723,3 +723,7 @@ impl GateStrategy for VibeGuardGateStrategy {
         next_message
     }
 }
+
+#[cfg(test)]
+#[path = "codex_app_server_strategies_tests.rs"]
+mod tests;

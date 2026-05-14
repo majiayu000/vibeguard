@@ -341,3 +341,30 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decision_block_json_escapes_reason_text() {
+        let output = decision_block_json("old_string \"missing\"\nread first");
+        let value: serde_json::Value =
+            serde_json::from_str(&output).expect("decision output should be valid JSON");
+
+        assert_eq!(value["decision"], "block");
+        assert_eq!(value["reason"], "old_string \"missing\"\nread first");
+    }
+
+    #[test]
+    fn missing_required_args_return_usage_errors_before_stdin() {
+        let pre_edit = pre_edit_check(&[]).expect_err("pre-edit args should be required");
+        let post_edit = post_edit_fast_check(&[]).expect_err("post-edit args should be required");
+        let post_write =
+            post_write_fast_check(&[]).expect_err("post-write args should be required");
+
+        assert!(pre_edit.to_string().contains("pre-edit-check"));
+        assert!(post_edit.to_string().contains("post-edit-fast-check"));
+        assert!(post_write.to_string().contains("post-write-fast-check"));
+    }
+}

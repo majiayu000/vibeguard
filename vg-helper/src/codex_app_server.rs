@@ -8,6 +8,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[derive(Debug)]
 struct Args {
     repo_dir: PathBuf,
     strategy: String,
@@ -219,5 +220,45 @@ fn write_values_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, values: Vec<Va
             }
             let _ = stdin.flush();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn parse_args_uses_vibeguard_defaults() {
+        let args = parse_args(&[]).expect("default args should parse");
+
+        assert_eq!(args.strategy, "vibeguard");
+        assert_eq!(args.codex_command, "codex app-server");
+        assert!(!args.repo_dir.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn parse_args_accepts_inline_and_separate_values() {
+        let args = parse_args(&strings(&[
+            "--repo-dir=/tmp/vibeguard",
+            "--strategy",
+            "noop",
+            "--codex-command=codex app-server --json",
+        ]))
+        .expect("explicit args should parse");
+
+        assert_eq!(args.repo_dir, PathBuf::from("/tmp/vibeguard"));
+        assert_eq!(args.strategy, "noop");
+        assert_eq!(args.codex_command, "codex app-server --json");
+    }
+
+    #[test]
+    fn parse_args_rejects_unknown_args() {
+        let err = parse_args(&strings(&["--missing"])).expect_err("unknown arg should fail");
+
+        assert!(err.to_string().contains("unknown argument: --missing"));
     }
 }

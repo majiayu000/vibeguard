@@ -554,3 +554,70 @@ pub fn session_id_for_thread(thread_id: &str) -> String {
         hash & 0x0000_ffff_ffff_ffff
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capabilities_advertise_codex_guard_surfaces() {
+        let value = capabilities();
+
+        assert_eq!(value["pre_bash_guard"], true);
+        assert_eq!(value["file_change_guard"], true);
+        assert_eq!(value["post_turn_feedback"], true);
+        assert_eq!(value["analysis_paralysis_guard"], true);
+    }
+
+    #[test]
+    fn extract_payloads_deduplicates_full_and_line_json() {
+        let output = "{\"decision\":\"pass\"}\n{\"decision\":\"pass\"}\nnot-json\n";
+        let payloads = extract_payloads(output);
+
+        assert_eq!(payloads, vec![json!({"decision": "pass"})]);
+    }
+
+    #[test]
+    fn file_patch_normalized_kind_maps_known_aliases() {
+        let add = FilePatch {
+            path: "src/lib.rs".into(),
+            kind: "create".into(),
+            diff: String::new(),
+            content: None,
+        };
+        let update = FilePatch {
+            kind: "edit".into(),
+            ..add.clone()
+        };
+        let delete = FilePatch {
+            kind: "remove".into(),
+            ..add.clone()
+        };
+
+        assert_eq!(add.normalized_kind(), "add");
+        assert_eq!(update.normalized_kind(), "update");
+        assert_eq!(delete.normalized_kind(), "delete");
+    }
+
+    #[test]
+    fn guard_policy_modes_control_blocking() {
+        let advisory = GuardDecisionPolicy::new(Some("advisory"));
+        let guarded = GuardDecisionPolicy::new(Some("guarded"));
+        let strict = GuardDecisionPolicy::new(Some("strict"));
+        let blocked = HookResult {
+            decision: "block".into(),
+            output: String::new(),
+            payloads: Vec::new(),
+            reason: None,
+            updated_command: None,
+            failed: false,
+        };
+
+        assert!(!advisory.blocks_enabled());
+        assert!(!advisory.should_block_pre_hook(&blocked));
+        assert!(guarded.should_block_pre_hook(&blocked));
+        assert_eq!(guarded.file_change_decline(), "decline");
+        assert_eq!(strict.file_change_decline(), "cancel");
+        assert_eq!(strict.apply_patch_decline(), "abort");
+    }
+}
