@@ -178,13 +178,7 @@ pub(crate) fn is_clean_rust_write_fast_path(
 
 fn has_meaningful_rust_definition(content: &str) -> bool {
     for line in content.lines() {
-        let line = line.trim_start();
-        let line = line
-            .strip_prefix("pub ")
-            .or_else(|| line.strip_prefix("pub(crate) "))
-            .or_else(|| line.strip_prefix("pub(super) "))
-            .unwrap_or(line)
-            .trim_start();
+        let line = strip_rust_definition_modifiers(line.trim_start());
         for keyword in ["struct", "enum", "trait", "union", "fn"] {
             let Some(rest) = line.strip_prefix(keyword) else {
                 continue;
@@ -206,6 +200,43 @@ fn has_meaningful_rust_definition(content: &str) -> bool {
         }
     }
     false
+}
+
+fn strip_rust_definition_modifiers(mut line: &str) -> &str {
+    loop {
+        line = line.trim_start();
+        if let Some(rest) = line.strip_prefix("pub ") {
+            line = rest;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("pub(crate) ") {
+            line = rest;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("pub(super) ") {
+            line = rest;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("pub(") {
+            if let Some(end) = rest.find(')') {
+                line = &rest[end + 1..];
+                continue;
+            }
+        }
+        if let Some(rest) = line.strip_prefix("async ") {
+            line = rest;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("const ") {
+            line = rest;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("unsafe ") {
+            line = rest;
+            continue;
+        }
+        return line;
+    }
 }
 
 fn has_let_underscore_assign(content: &str) -> bool {
@@ -316,7 +347,7 @@ pub(crate) fn project_u16_limit(file_path: &str, base_limit: usize) -> usize {
     let mut dir = absolute_parent(file_path);
     while let Some(current) = dir {
         if current.join(".git").exists() {
-            return claude_u16_limit(&current.join("CLAUDE.md"), file_path, base_limit);
+            return claude_u16_limit(&current.join("CLAUDE.md"), file_path, &current, base_limit);
         }
         dir = current.parent().map(Path::to_path_buf);
     }
@@ -333,19 +364,36 @@ pub(crate) fn absolute_parent(file_path: &str) -> Option<PathBuf> {
     absolute.parent().map(Path::to_path_buf)
 }
 
-fn claude_u16_limit(path: &Path, file_path: &str, base_limit: usize) -> usize {
+fn claude_u16_limit(path: &Path, file_path: &str, project_root: &Path, base_limit: usize) -> usize {
     let Ok(text) = fs::read_to_string(path) else {
         return base_limit;
     };
     let mut limit = base_limit;
     for line in text.lines().filter(|line| line.contains("U-16 exempt")) {
         for (pattern, value) in backtick_limit_pairs(line) {
-            if glob_match(&pattern, file_path) {
+            if u16_pattern_matches(&pattern, file_path, project_root) {
                 limit = limit.max(value);
             }
         }
     }
     limit
+}
+
+fn u16_pattern_matches(pattern: &str, file_path: &str, project_root: &Path) -> bool {
+    if glob_match(pattern, file_path) {
+        return true;
+    }
+    let path = Path::new(file_path);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    };
+    if let Ok(relative) = absolute.strip_prefix(project_root) {
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        return glob_match(pattern, &relative);
+    }
+    false
 }
 
 fn backtick_limit_pairs(line: &str) -> Vec<(String, usize)> {
@@ -480,6 +528,37 @@ mod tests {
             "src/lib.py",
             "print('hello')\n",
             800
+        ));
+        assert!(!is_clean_rust_write_fast_path(
+            "src/lib.rs",
+            "pub async fn fetch_user() {}\n",
+            800
+        ));
+        assert!(!is_clean_rust_write_fast_path(
+            "src/lib.rs",
+            "pub(crate) unsafe async fn sync_user() {}\n",
+            800
+        ));
+    }
+
+    #[test]
+    fn relative_u16_exemption_matches_absolute_project_path() {
+        let project_root = std::env::current_dir().unwrap().join("repo-root");
+        let file_path = project_root.join("src").join("large.rs");
+        assert!(u16_pattern_matches(
+            "src/large.rs",
+            &file_path.to_string_lossy(),
+            &project_root
+        ));
+        assert!(u16_pattern_matches(
+            "src/*.rs",
+            &file_path.to_string_lossy(),
+            &project_root
+        ));
+        assert!(!u16_pattern_matches(
+            "tests/*.rs",
+            &file_path.to_string_lossy(),
+            &project_root
         ));
     }
 }

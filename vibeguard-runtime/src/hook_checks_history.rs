@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use crate::event_schema::{field, hook, tool};
+use crate::event_schema::{decision, field, hook, tool};
 use crate::hook_checks_common::{first_detail_path, write_log_event};
 use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
@@ -15,6 +15,12 @@ pub(crate) struct PostEditHistorySignals {
     warn_count: usize,
     w15_count: usize,
     overlap: Option<OverlapSignal>,
+}
+
+impl PostEditHistorySignals {
+    pub(crate) fn needs_shell_w15_check(&self) -> bool {
+        self.w15_count >= 2
+    }
 }
 
 struct OverlapSignal {
@@ -196,7 +202,6 @@ fn read_tail_lines(path: &str, max_lines: usize) -> io::Result<String> {
 }
 
 pub(crate) fn post_edit_history_warnings(
-    log_file: &str,
     file_path: &str,
     signals: &PostEditHistorySignals,
 ) -> String {
@@ -211,34 +216,16 @@ pub(crate) fn post_edit_history_warnings(
             "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {} times - possible edit->fail->fix loop\nFIX: Stop current direction, review full build output, re-examine root cause (W-02)\nDO NOT: Continue editing this file until root cause is confirmed",
             signals.churn_count
         ));
-        let _ = write_fast_log_event(
-            log_file,
-            "escalate",
-            &format!("churn {}x critical", signals.churn_count),
-            file_path,
-        );
     } else if signals.churn_count >= 10 {
         warnings.push(format!(
             "[CHURN WARNING] [info] [this-file] OBSERVATION: {basename} has been edited {} times, possible correction loop\nFIX: Run full build to see the complete picture, or use /vibeguard:learn to extract patterns\nDO NOT: Take any action - monitor and decide whether to continue",
             signals.churn_count
         ));
-        let _ = write_fast_log_event(
-            log_file,
-            "escalate",
-            &format!("churn {}x warning", signals.churn_count),
-            file_path,
-        );
     } else if signals.churn_count >= 5 {
         warnings.push(format!(
             "[CHURN] [info] [this-file] OBSERVATION: {basename} has been edited {} times\nFIX: Check if you are in a correction loop before continuing\nDO NOT: Take any action - this is informational only",
             signals.churn_count
         ));
-        let _ = write_fast_log_event(
-            log_file,
-            "correction",
-            &format!("churn {}x", signals.churn_count),
-            file_path,
-        );
     }
 
     if let Some(overlap) = &signals.overlap {
@@ -251,15 +238,6 @@ pub(crate) fn post_edit_history_warnings(
             "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched {basename} ({} via {}, session {}, agent {})\nFIX: Confirm file ownership before continuing; prefer a dedicated worktree or single-owner merge path\nDO NOT: Continue parallel/background edits to this file without explicit ownership",
             overlap.tool, overlap.hook, overlap.session, agent
         ));
-        let _ = write_fast_log_event(
-            log_file,
-            "warn",
-            &format!(
-                "w14 overlap recent session {} agent {agent}",
-                overlap.session
-            ),
-            file_path,
-        );
     }
 
     if signals.w15_count >= 2 {
@@ -268,12 +246,6 @@ pub(crate) fn post_edit_history_warnings(
             "[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {basename} with no edits to other files in between (low-info loop suspect)\nFIX: Pause - are these {total} edits solving the same problem? If change scope shrinks each round, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting",
             total + 1
         ));
-        let _ = write_fast_log_event(
-            log_file,
-            "warn",
-            &format!("w15 consecutive {total}x"),
-            file_path,
-        );
     }
 
     warnings.join("\n---\n")
@@ -286,18 +258,16 @@ pub(crate) fn build_fast_warning_output(
     history: Option<&PostEditHistorySignals>,
 ) -> io::Result<String> {
     let warn_count = history.map(|s| s.warn_count).unwrap_or(0);
-    let (decision, final_warnings) = if warn_count >= 3 {
-        (
-            "escalate",
-            format!(
-                "[ESCALATE] [review] [this-file] OBSERVATION: this file has triggered {warn_count} warnings - user intervention recommended\nFIX: Stop and review the warnings below before continuing\nDO NOT: Continue editing this file without reviewing all warnings\n---\n{warnings}"
-            ),
+    let event_decision = fast_warning_decision(warn_count, history);
+    let final_warnings = if warn_count >= 3 {
+        format!(
+            "[ESCALATE] [review] [this-file] OBSERVATION: this file has triggered {warn_count} warnings - user intervention recommended\nFIX: Stop and review the warnings below before continuing\nDO NOT: Continue editing this file without reviewing all warnings\n---\n{warnings}"
         )
     } else {
-        ("warn", warnings.to_string())
+        warnings.to_string()
     };
-    write_fast_log_event(log_file, decision, &final_warnings, file_path)?;
-    let prefix = if decision == "escalate" {
+    write_fast_log_event(log_file, event_decision, &final_warnings, file_path)?;
+    let prefix = if event_decision == decision::ESCALATE {
         "VIBEGUARD upgrade warning"
     } else {
         "VIBEGUARD quality warning"
@@ -309,6 +279,21 @@ pub(crate) fn build_fast_warning_output(
         }
     });
     Ok(serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string()))
+}
+
+fn fast_warning_decision(
+    warn_count: usize,
+    history: Option<&PostEditHistorySignals>,
+) -> &'static str {
+    if warn_count >= 3 || history.is_some_and(|signals| signals.churn_count >= 10) {
+        return decision::ESCALATE;
+    }
+    if history.is_some_and(|signals| {
+        signals.churn_count >= 5 && signals.overlap.is_none() && signals.w15_count < 2
+    }) {
+        return decision::CORRECTION;
+    }
+    decision::WARN
 }
 
 fn write_fast_log_event(
@@ -367,5 +352,59 @@ mod tests {
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn w15_candidate_requires_shell_delta_check() {
+        let signals = PostEditHistorySignals {
+            churn_count: 0,
+            warn_count: 0,
+            w15_count: 2,
+            overlap: None,
+        };
+        assert!(signals.needs_shell_w15_check());
+
+        let signals = PostEditHistorySignals {
+            churn_count: 0,
+            warn_count: 0,
+            w15_count: 1,
+            overlap: None,
+        };
+        assert!(!signals.needs_shell_w15_check());
+    }
+
+    #[test]
+    fn fast_history_warning_logs_once() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let log_file = std::env::temp_dir().join(format!("vibeguard-fast-history-{unique}.jsonl"));
+        let log_path = log_file.to_string_lossy().to_string();
+        let signals = PostEditHistorySignals {
+            churn_count: 5,
+            warn_count: 0,
+            w15_count: 0,
+            overlap: None,
+        };
+
+        let warnings = post_edit_history_warnings("src/main.rs", &signals);
+        assert!(warnings.contains("[CHURN]"));
+        assert!(!log_file.exists());
+
+        let output =
+            build_fast_warning_output(&log_path, "src/main.rs", &warnings, Some(&signals)).unwrap();
+        assert!(output.contains("VIBEGUARD quality warning"));
+
+        let log_text = std::fs::read_to_string(&log_file).unwrap();
+        let lines = log_text.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 1);
+        let event = serde_json::from_str::<Value>(lines[0]).unwrap();
+        assert_eq!(
+            event.get(field::DECISION).and_then(Value::as_str),
+            Some(decision::CORRECTION)
+        );
+
+        let _ = std::fs::remove_file(log_file);
     }
 }

@@ -225,9 +225,16 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
     }
 
     let history = post_edit_history_signals(log_file, session, agent, &file_path);
+    if history
+        .as_ref()
+        .is_some_and(|signals| signals.needs_shell_w15_check())
+    {
+        println!("FALLBACK");
+        return Ok(());
+    }
     let warnings = history
         .as_ref()
-        .map(|signals| post_edit_history_warnings(log_file, &file_path, signals))
+        .map(|signals| post_edit_history_warnings(&file_path, signals))
         .unwrap_or_default();
 
     if warnings.is_empty()

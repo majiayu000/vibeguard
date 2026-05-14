@@ -5,8 +5,9 @@ use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
+use std::time::Duration;
 
 #[derive(Debug)]
 struct Args {
@@ -147,6 +148,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
 
     let stdout_shared = Arc::clone(&shared);
     let stdout_writer = Arc::clone(&child_stdin);
+    let (stdout_done_tx, stdout_done_rx) = mpsc::channel();
     let t_out = thread::spawn(move || {
         let reader = BufReader::new(child_stdout);
         for mut line in reader.lines().map_while(Result::ok) {
@@ -184,6 +186,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                 let _ = std::io::stdout().flush();
             }
         }
+        let _ = stdout_done_tx.send(());
     });
 
     let t_err = thread::spawn(move || {
@@ -194,7 +197,14 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     });
 
     let _ = t_in.join();
+    if stdout_done_rx
+        .recv_timeout(Duration::from_millis(250))
+        .is_err()
+    {
+        close_child_stdin(&child_stdin);
+    }
     let _ = t_out.join();
+    close_child_stdin(&child_stdin);
     let _ = t_err.join();
     let status = child.wait()?;
     std::process::exit(status.code().unwrap_or(1));
@@ -220,6 +230,12 @@ fn write_values_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, values: Vec<Va
             }
             let _ = stdin.flush();
         }
+    }
+}
+
+fn close_child_stdin(writer: &Arc<Mutex<Option<ChildStdin>>>) {
+    if let Ok(mut writer) = writer.lock() {
+        let _ = writer.take();
     }
 }
 

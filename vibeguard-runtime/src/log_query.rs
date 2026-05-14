@@ -200,7 +200,7 @@ fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
         }
         match e.get(field::DECISION).and_then(Value::as_str) {
             Some(decision::PASS) => break,
-            Some(decision::WARN) => count += 1,
+            Some(decision::WARN) | Some(decision::ESCALATE) => count += 1,
             _ => {}
         }
     }
@@ -367,13 +367,13 @@ mod tests {
     }
 
     #[test]
-    fn build_fails_counts_tail_warnings_until_project_pass() {
+    fn build_fails_counts_tail_failures_until_project_pass() {
         let events = vec![
             json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/old.rs"}),
             json!({"hook": "post-build-check", "decision": "pass", "detail": "/repo/src/lib.rs"}),
             json!({"hook": "post-build-check", "decision": "warn", "detail": "/other/src/lib.rs"}),
             json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/lib.rs"}),
-            json!({"hook": "post-build-check", "decision": "warn", "detail": "/repo/src/main.rs"}),
+            json!({"hook": "post-build-check", "decision": "escalate", "detail": "/repo/src/main.rs"}),
         ];
 
         assert_eq!(count_build_fail_events(&events, "/repo"), 2);
