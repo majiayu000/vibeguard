@@ -56,11 +56,12 @@ SPEC.md
 /vibeguard:exec-plan init
     │
     ▼
-*-execplan.md + shared handoff
+*-execplan.md + W-20 runtime pinning snapshot + shared handoff
     │
     ▼
 execution workflow consumes:
-  mode / artifacts / verification_owner / stop_conditions / lane_map
+  mode / artifacts / runtime_pinning_snapshot / verification_owner / stop_conditions / lane_map
+  delegation assignments from workflows/references/delegation-contract.md when child agents or parallel lanes are used
     │
     ├── step complete → /vibeguard:exec-plan update
     ├── new session → /vibeguard:exec-plan status
@@ -79,6 +80,16 @@ ExecPlan and preflight are complementary:
 
 Recommended process: First generate ExecPlan (clear execution path), then run preflight (establish protection boundary), and then perform self-check against preflight constraint set when executing ExecPlan steps.
 
+Before a long-running ExecPlan or interview handoff begins execution, capture W-20 pinning evidence:
+
+```bash
+bash guards/universal/check_runtime_drift.sh snapshot \
+  --snapshot .vibeguard/runtime-pinning.snapshot \
+  --tool-inventory .vibeguard/tool-inventory.txt
+```
+
+On cross-session resume, run the same guard in `check` mode before continuing execution. If it reports runtime, tool, or rule drift, stop until the user either rejects the drift or accepts it with a durable decision-log entry.
+
 ## Cross-session recovery protocol
 
 When execution resumes with a new session:
@@ -91,7 +102,10 @@ When execution resumes with a new session:
 6. Reuse the last shared handoff fields:
    - `mode`
    - `artifacts`
+   - `runtime_pinning_snapshot`
    - `verification_owner`
    - `stop_conditions`
    - `lane_map`
-7. Continue execution
+7. Reuse delegation assignments from [`workflows/references/delegation-contract.md`](../../references/delegation-contract.md) before restarting any child-agent or parallel lane
+8. Run `check_runtime_drift.sh check` against `runtime_pinning_snapshot`
+9. Continue execution only if the snapshot still matches or accepted drift has been recorded

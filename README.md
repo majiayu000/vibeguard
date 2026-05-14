@@ -147,6 +147,8 @@ bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project     # AI c
 python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path      # dependency direction
 python3 ~/vibeguard/guards/universal/check_circular_deps.py /path          # circular deps
 bash ~/vibeguard/guards/universal/check_test_integrity.sh /path            # test shadowing / integrity issues
+bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD  # SEC-11 dependency review
+bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD      # SEC-11/W-12 test weakening
 
 # Rust
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path                 # unwrap/expect in prod
@@ -189,7 +191,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:learn` | Generate guard rules from errors / extract Skills from discoveries |
 | `/vibeguard:interview` | Deep requirements interview → SPEC.md |
 | `/vibeguard:exec-plan` | Long-running task execution plan, cross-session resume |
-| `/vibeguard:gc` | Garbage collection (log archival + worktree cleanup + code slop scan) |
+| `/vibeguard:gc` | Garbage collection (logs + worktrees + rule budget + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
 **Routing Contract**
@@ -198,7 +200,8 @@ Workflow routing is defined once in [workflows/references/routing-contract.md](w
 
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
-- Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, `lane_map`
+- Planning surfaces emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
+- Delegated multi-agent work uses [workflows/references/delegation-contract.md](workflows/references/delegation-contract.md) for child-agent assignments, parallelism limits, and single-owner reintegration
 
 Use workflow prompts and dispatcher guidance as consumers of that contract, not as independent routing sources.
 
@@ -263,8 +266,16 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh --check                     # Verify installation
+bash ~/vibeguard/setup.sh --check --quiet             # Show only problems + rollup
+bash ~/vibeguard/setup.sh --check --json              # Machine-readable JSON for CI
+bash ~/vibeguard/setup.sh --check --strict            # Exit 1/2 on warn/broken
 bash ~/vibeguard/setup.sh --clean                     # Uninstall
 ```
+
+`--check` reports a structured rollup (OK / INFO / WARN / FAIL / BROKEN / MISSING)
+plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or `BROKEN`. The default mode
+always exits 0 for backwards compatibility — add `--strict` (or use `--json`,
+which implies it) to make CI fail when the install is broken.
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|

@@ -2,7 +2,7 @@
 
 JSON Schema definition for structured communication between commands. Each command can optionally output JSON format for downstream consumption.
 
-Canonical routing decisions and planning handoffs are defined in `workflows/references/routing-contract.md`.
+Canonical routing decisions and planning handoffs are defined in `workflows/references/routing-contract.md`. Delegated work assignments are defined in `workflows/references/delegation-contract.md`.
 
 ## routing decision Schema
 
@@ -36,6 +36,7 @@ Canonical routing decisions and planning handoffs are defined in `workflows/refe
     "plan/task.md",
     "SPEC.md"
   ],
+  "runtime_pinning_snapshot": ".vibeguard/runtime-pinning.snapshot | null",
   "verification_owner": "planner | executor | reviewer | named lane owner",
   "stop_conditions": [
     "Condition that must halt execution"
@@ -51,9 +52,42 @@ Required handoff keys:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
+
+## delegation assignment Schema
+
+```json
+{
+  "command": "delegation_assignment",
+  "task_slice": "Specific bounded outcome",
+  "allowed_files": [
+    "Files or directories this worker may modify"
+  ],
+  "forbidden_files": [
+    "Files or directories this worker must not modify"
+  ],
+  "read_only_files": [
+    "Files or directories this worker may inspect but not modify"
+  ],
+  "authority": "readonly | propose_patch | write_owned_files | verify_only",
+  "required_evidence": [
+    "Commands, diffs, logs, or findings required for completion"
+  ],
+  "blocker_conditions": [
+    "Conditions that require stopping and escalating"
+  ],
+  "integration_owner": "single named owner",
+  "verification_owner": "owner who runs or accepts checks",
+  "handoff_artifacts": [
+    "Paths or summaries the worker must return"
+  ]
+}
+```
+
+Delegation assignments are required before any child-agent write lane starts. Parallel work must serialize unless assignment file ownership is disjoint or isolated worktrees are explicitly used.
 
 ## preflight output Schema
 

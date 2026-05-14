@@ -113,6 +113,8 @@ bash ~/vibeguard/guards/universal/check_code_slop.sh /path/to/project
 python3 ~/vibeguard/guards/universal/check_dependency_layers.py /path/to/project
 python3 ~/vibeguard/guards/universal/check_circular_deps.py /path/to/project
 bash ~/vibeguard/guards/universal/check_test_integrity.sh /path/to/project
+bash ~/vibeguard/guards/universal/check_dependency_changes.sh --base origin/main --head HEAD
+bash ~/vibeguard/guards/universal/check_test_weakening.sh --base origin/main --head HEAD
 
 # Rust
 bash ~/vibeguard/guards/rust/check_unwrap_in_prod.sh /path
@@ -155,7 +157,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 | `/vibeguard:learn` | 从错误中生成 guard/rule，或提炼 Skill |
 | `/vibeguard:interview` | 深度需求访谈，输出 SPEC.md |
 | `/vibeguard:exec-plan` | 长任务执行计划，支持跨会话恢复 |
-| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + code slop 扫描） |
+| `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + 规则预算 + code slop 扫描） |
 | `/vibeguard:stats` | hook 触发统计 |
 
 快捷别名：`/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`
@@ -166,7 +168,8 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 
 - 优先级：`user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - readiness 输出只有三种：`execute_direct`、`plan_first`、`clarify_first`
-- 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`verification_owner`、`stop_conditions`、`lane_map`
+- 规划类工作流统一输出 handoff 字段：`mode`、`artifacts`、`runtime_pinning_snapshot`、`verification_owner`、`stop_conditions`、`lane_map`
+- 多 agent 委派统一使用 [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md)，明确子任务模板、并发限制和单一集成负责人
 
 README、workflow prompts、dispatcher 都应该消费这份契约，而不是各自再写一套本地路由规则。
 

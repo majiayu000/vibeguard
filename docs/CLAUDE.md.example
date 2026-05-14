@@ -21,7 +21,7 @@ Follow the canonical router in `workflows/references/routing-contract.md`.
 
 - Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
-- Planning handoff keys: `mode`, `artifacts`, `verification_owner`, `stop_conditions`, `lane_map`
+- Planning handoff keys: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
 
 Do not recreate a separate file-count router inside project-specific CLAUDE instructions.
 
@@ -37,8 +37,10 @@ When readiness resolves to `execute_direct`, make the change directly without ov
 
 ### 3. Subagent Strategy
 
-- Use child agents to keep the main context window clean
-- Research, exploration, and parallel analysis** offloaded to sub-agents**
+- Use child agents to keep the main context window clean only after the routing contract allows delegation
+- Follow `workflows/references/delegation-contract.md` for every child-agent assignment
+- Research, exploration, and parallel analysis can run in `readonly` mode before write ownership is clear
+- Write lanes require a task slice, allowed files, forbidden files, authority, required evidence, blockers, and a single integration owner
 - One focused task per sub-agent
 
 ### 4. Autonomous Execution
@@ -204,7 +206,7 @@ interview → preflight → coding → check → review → learn → stats
 | `/vibeguard:build-fix` | Build error fix |
 | `/vibeguard:learn` | Generate new guards from mistakes |
 | `/vibeguard:exec-plan` | Long-term task execution plan (cross-session recovery) |
-| `/vibeguard:gc` | Garbage collection (log archiving + worktree cleaning + code garbage scanning) |
+| `/vibeguard:gc` | Garbage collection (log archiving + worktree cleaning + rule budget + code garbage scanning) |
 | `/vibeguard:stats` | Hook trigger statistics |
 
 ---

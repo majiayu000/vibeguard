@@ -25,11 +25,12 @@ When Auto-Optimize consumes a planning handoff, it must honor:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
 
-Workflow-local judgment does not replace the shared readiness or delegation contract.
+Workflow-local judgment does not replace the shared readiness or delegation contract in [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
 
 ## Core principles (extracted from 30+ practical sessions)
 
@@ -69,7 +70,7 @@ The user can specify the dimensions, otherwise the most needed dimensions will b
    for guard in guards/python/check_*.sh; do bash "$guard" /path/to/project; done
    for guard in guards/rust/check_*.sh; do bash "$guard" /path/to/project; done
    ```
-4. Scan in parallel according to the current dimension (use sub-agent to scan by module partition, load `rules/` corresponding language rules)
+4. Scan in parallel according to the current dimension only after creating delegation assignments with `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, and `integration_owner`
 5. **Merge guard results + LLM scan results**, output the evaluation report to the user, and confirm the optimization direction
 
 ### Phase 2: Classification and design (comply with VibeGuard specification)

@@ -25,7 +25,7 @@ header(){ printf '\n\033[1m=== %s ===\033[0m\n' "$1"; }
 assert_contains() {
   local output="$1" expected="$2" desc="$3"
   TOTAL=$((TOTAL + 1))
-  if echo "$output" | grep -qF -- "$expected"; then
+  if grep -qF -- "$expected" <<< "$output"; then
     green "$desc"
     PASS=$((PASS + 1))
   else
@@ -62,6 +62,24 @@ assert_manifest_skill_links_installed() {
     [[ -L "${dest_dir}/${skill}" ]] || return 1
   done <<< "${links}"
   [[ "${found}" -eq 1 ]]
+}
+
+assert_runtime_config_seeded() {
+  python3 - <<'PY' "${HOME}/.vibeguard/config.json"
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+checks = [
+    data.get("write_mode") == "warn",
+    data.get("u16", {}).get("limit") == 800,
+    data.get("circuit_breaker", {}).get("threshold") == 3,
+    data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,
+    data.get("paralysis", {}).get("threshold") == 7,
+]
+raise SystemExit(0 if all(checks) else 1)
+PY
 }
 
 assert_chat_contract_blocks_match() {
@@ -153,7 +171,10 @@ assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
 assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
 assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/check.sh"
 assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
+assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
+assert_cmd "scripts/codex-contract-check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/codex-contract-check.sh"
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
+assert_cmd "scripts/lib/install-state.sh syntax is correct" bash -n "${REPO_DIR}/scripts/lib/install-state.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
 assert_cmd "scripts/lib/hooks_manifest.py syntax is correct" python3 -m py_compile "${HOOKS_MANIFEST_HELPER}"
 assert_cmd "scripts/lib/project_config_validate.py syntax is correct" python3 -m py_compile "${PROJECT_CONFIG_HELPER}"
@@ -163,6 +184,53 @@ assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_co
 assert_cmd "scripts/setup/regenerate-hooks-from-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh"
 assert_cmd "scripts/ci/validate-hooks-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
 assert_cmd "CLAUDE.md template uses generated rule count placeholder" grep -q "__VIBEGUARD_RULE_COUNT__" "${REPO_DIR}/claude-md/vibeguard-rules.md"
+
+header "install-state argv safety"
+install_state_home="${TMP_HOME}/install-state quote ' home"
+install_state_repo="${TMP_HOME}/repo quote ' newline"$'\n'"dir"
+install_state_dest="${install_state_home}/tracked quote ' newline"$'\n'"file.txt"
+install_state_source="generated/source quote ' newline"$'\n'"file.txt"
+install_state_profile="core quote ' profile"
+install_state_languages="rust,py'thon"$'\n'"go"
+mkdir -p "${install_state_home}/.vibeguard" "$(dirname "${install_state_dest}")" "${install_state_repo}"
+printf '%s' "${install_state_repo}" > "${install_state_home}/.vibeguard/repo-path"
+printf 'tracked\n' > "${install_state_dest}"
+assert_cmd "install-state accepts quoted/newline values via argv" env \
+  HOME="${install_state_home}" \
+  SPECIAL_PROFILE="${install_state_profile}" \
+  SPECIAL_LANGUAGES="${install_state_languages}" \
+  SPECIAL_DEST="${install_state_dest}" \
+  SPECIAL_SOURCE="${install_state_source}" \
+  bash -c '
+    set -euo pipefail
+    source "$1"
+    state_init "$SPECIAL_PROFILE" "$SPECIAL_LANGUAGES"
+    state_record_file "$SPECIAL_DEST" "$SPECIAL_SOURCE" "copy"
+    state_check_drift >/dev/null
+    state_list >/dev/null
+  ' bash "${REPO_DIR}/scripts/lib/install-state.sh"
+assert_cmd "install-state preserves quoted/newline JSON values" python3 - \
+  "${install_state_home}/.vibeguard/install-state.json" \
+  "${install_state_profile}" \
+  "${install_state_languages}" \
+  "${install_state_repo}" \
+  "${install_state_dest}" \
+  "${install_state_source}" <<'PY'
+import json
+import sys
+
+state_file, profile, languages, repo_dir, dest, source = sys.argv[1:7]
+with open(state_file, encoding="utf-8") as f:
+    state = json.load(f)
+
+entry = state["files"][dest]
+assert state["profile"] == profile
+assert state["languages"] == languages.split(",")
+assert state["repo_dir"] == repo_dir
+assert entry["source"] == source
+assert entry["type"] == "copy"
+assert entry["checksum"].startswith("sha256:")
+PY
 
 header "manifest skill enumeration failure"
 manifest_failure_stdout="${TMP_HOME}/manifest-failure.stdout"
@@ -450,13 +518,18 @@ dry_run_codex_config_sha_after="$(shasum -a 256 "${HOME}/.codex/config.toml" | c
 assert_contains "${dry_run_out}" "Mode: dry-run" "--dry-run reports dry-run mode"
 assert_contains "${dry_run_out}" "${HOME}/.claude/settings.json" "--dry-run prints settings.json diff"
 assert_contains "${dry_run_out}" "${HOME}/.claude/CLAUDE.md" "--dry-run prints CLAUDE.md diff"
+assert_contains "${dry_run_out}" "${HOME}/.codex/AGENTS.md" "--dry-run prints Codex AGENTS.md diff"
 assert_cmd "--dry-run does not modify ~/.claude/settings.json" test "${dry_run_settings_sha_before}" = "${dry_run_settings_sha_after}"
 assert_cmd "--dry-run does not modify ~/.codex/hooks.json" test "${dry_run_codex_hooks_sha_before}" = "${dry_run_codex_hooks_sha_after}"
 assert_cmd "--dry-run does not modify ~/.codex/config.toml" test "${dry_run_codex_config_sha_before}" = "${dry_run_codex_config_sha_after}"
 assert_cmd "--dry-run does not create ~/.claude/CLAUDE.md" test ! -e "${HOME}/.claude/CLAUDE.md"
+assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.codex/AGENTS.md"
 
 confirm_fail_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-interactive setup requires --yes for high-context writes"
+assert_contains "${confirm_fail_out}" "~/.vibeguard/config.json seeded" "setup seeds runtime config file before high-context confirmation"
+assert_cmd "~/.vibeguard/config.json exists after setup seed" test -f "${HOME}/.vibeguard/config.json"
+assert_cmd "~/.vibeguard/config.json includes advertised runtime keys after seed" assert_runtime_config_seeded
 
 mkdir -p "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.vibeguard"
 ln -s "${REPO_DIR}/skills/old-retired" "${HOME}/.claude/skills/old-retired"
@@ -482,6 +555,7 @@ assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup i
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vg-helper binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vg-helper"
+assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
 assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "${HOME}/.claude/skills/agentsmd-audit"
@@ -510,6 +584,9 @@ assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existin
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
 assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
+assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.codex/AGENTS.md"
+assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
 assert_cmd "chat contract block matches across source, installed output, and templates" assert_chat_contract_blocks_match
@@ -530,6 +607,7 @@ settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
 custom_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
 assert_contains "${custom_settings_out}" "preserving customized VibeGuard hook command for pre-bash-guard.sh" "setup warns when preserving customized hook command"
+assert_contains "${custom_settings_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves existing runtime config file"
 assert_cmd "customized hook command is preserved by default" grep -q "flock /tmp/vibeguard.lock" "${HOME}/.claude/settings.json"
 force_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes --force-overwrite 2>&1)"
 assert_contains "${force_settings_out}" "Mode: force-overwrite" "--force-overwrite mode is visible"
@@ -582,6 +660,43 @@ cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
 assert_contains "${invalid_utf8_codex_check_out}" "[BROKEN] ~/.codex/config.toml is malformed TOML" "--check reports invalid UTF-8 ~/.codex/config.toml"
 assert_cmd "invalid UTF-8 config does not report hooks enabled" bash -c "! grep -qF '[OK] hooks feature enabled in config.toml' <<< '${invalid_utf8_codex_check_out}'"
 
+header "setup --check validates codex AGENTS"
+_VALID_CODEX_AGENTS="${TMP_HOME}/AGENTS.md.valid.backup"
+cp "${HOME}/.codex/AGENTS.md" "${_VALID_CODEX_AGENTS}"
+: > "${HOME}/.codex/AGENTS.md"
+zero_byte_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${zero_byte_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md is 0 bytes" "--check reports 0-byte ~/.codex/AGENTS.md"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(text.replace("<!-- vibeguard-end -->", "", 1), encoding="utf-8")
+PY
+missing_end_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${missing_end_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports missing Codex AGENTS end marker"
+printf '<!-- vibeguard-start -->\n' >> "${HOME}/.codex/AGENTS.md"
+duplicate_start_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${duplicate_start_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md marker mismatch" "--check reports duplicate Codex AGENTS start marker"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text(text.replace("| SEC-13 |", "| SEC-X |", 1), encoding="utf-8")
+PY
+missing_anchor_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${missing_anchor_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md missing required anchors" "--check reports missing Codex AGENTS required anchors"
+printf '# malicious injection appended by something\n' >> "${HOME}/.codex/AGENTS.md"
+external_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${external_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has 1 non-empty unmanaged line(s) outside VibeGuard block" "--check warns on unmanaged Codex AGENTS content"
+assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash), PostToolUse(Bash), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
+
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
 from pathlib import Path
@@ -592,11 +707,14 @@ updated = re.sub(r'\b\d+ rules\b', '999 rules', text, count=1)
 path.write_text(updated, encoding='utf-8')
 PY
 before_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
+agents_before_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
+agents_after_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
 assert_contains "${check_again_out}" "[OK] vg-helper runtime binary installed" "--check reports vg-helper installed"
 assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
+assert_cmd "--check does not rewrite ~/.codex/AGENTS.md" test "${agents_before_sha}" = "${agents_after_sha}"
 assert_cmd "--check does not drop or duplicate the chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
@@ -682,6 +800,7 @@ python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_STALE_HOOKS}" 
 assert_cmd "upsert repairs Stop entry with spurious matcher; check-vibeguard then passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}"
 
 header "setup --clean"
+printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
 assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
@@ -690,6 +809,8 @@ assert_cmd "~/.claude/skills/trajectory-review has been removed after cleaning" 
 assert_cmd "~/.codex/skills/agentsmd-audit has been removed after cleaning" test ! -e "${HOME}/.codex/skills/agentsmd-audit"
 assert_cmd "~/.codex/skills/trajectory-review has been removed after cleaning" test ! -e "${HOME}/.codex/skills/trajectory-review"
 assert_cmd "~/.codex/hooks.json is preserved after cleaning (for non-VibeGuard hooks)" test -f "${HOME}/.codex/hooks.json"
+assert_cmd "VibeGuard managed Codex AGENTS block removed after cleaning" bash -c "! grep -q 'vibeguard-start' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "Unmanaged Codex AGENTS content remains after cleaning" grep -q 'user codex note' "${HOME}/.codex/AGENTS.md"
 assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
@@ -720,12 +841,14 @@ header "setup install --profile strict"
 install_strict_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile strict)"
 assert_contains "${install_strict_out}" "Profile: strict" "strict profile parameter takes effect"
 assert_cmd "strict profile still configures full hooks" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target full-hooks
+assert_cmd "strict profile enables U-32 constraint budget hook" grep -q "count_active_constraints.sh" "${HOME}/.claude/settings.json"
 assert_cmd "strict profile does not enable session-tagger" bash -c "! grep -q 'session-tagger.sh' '${HOME}/.claude/settings.json' && ! grep -q 'session-tagger.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "strict profile does not enable cognitive-reminder" bash -c "! grep -q 'cognitive-reminder.sh' '${HOME}/.claude/settings.json' && ! grep -q 'cognitive-reminder.sh' '${HOME}/.codex/hooks.json'"
 
 header "setup --clean (after strict)"
 clean_strict_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_strict_out}" "VibeGuard cleaned." "strict profile cleaned successfully"
+assert_cmd "strict profile clean removes U-32 constraint budget hook" bash -c "! grep -q 'count_active_constraints.sh' '${HOME}/.claude/settings.json'"
 
 echo
 echo "=============================="

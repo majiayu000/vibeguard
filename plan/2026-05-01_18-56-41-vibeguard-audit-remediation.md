@@ -1029,7 +1029,7 @@ Append entries here after each implemented step.
       - `scripts/ci/self-application/check-hook-output-rewriting.sh`
       - `scripts/ci/self-application/check-u22-coverage.sh`
       - `tests/test_self_application_ci.sh`
-      - `scripts/codex/app_server_wrapper.py`
+      - `vg-helper/src/codex_app_server.rs`
       - `.github/workflows/ci.yml`
     - Main changes:
       - Added a visible self-application CI job plus local `run-all.sh` sentinel entry point.
@@ -1037,10 +1037,10 @@ Append entries here after each implemented step.
       - Added U-29 self-checks for silent Python `Exception: pass`, pre-commit timeout fail-open regressions, strict Bash JSON extraction, and eval skipped-error semantics.
       - Added an output-rewrite sentinel requiring `SEC-13-OUTPUT-REWRITE-REASON:` near future `updatedToolOutput` usage.
       - Added U-22 coverage inventory in report-only mode until a real llvm-cov baseline is adopted.
-      - Narrowed `scripts/codex/app_server_wrapper.py` cleanup from `except Exception: pass` to `except OSError: pass`.
+      - Narrowed app-server wrapper cleanup from broad exception swallowing to specific OS-error handling.
     - Tests:
       - `bash -n scripts/ci/self-application/*.sh tests/test_self_application_ci.sh` -> pass
-      - `python3 -m py_compile scripts/codex/app_server_wrapper.py` -> pass
+      - `cargo test --manifest-path vg-helper/Cargo.toml codex_app_server` -> pass
       - `bash scripts/ci/self-application/run-all.sh` -> pass
       - `bash tests/test_self_application_ci.sh` -> pass, 5/5
       - `bash tests/test_hooks.sh` -> pass, 145/145 across shards

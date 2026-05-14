@@ -5,10 +5,11 @@
     {
       "id": "rules-common",
       "kind": "rules",
-      "description": "Common rules (U-01 to U-32, W-01 to W-17, SEC-01 to SEC-12)",
+      "description": "Common rules (U-01 to U-32, W-01 to W-20, SEC-01 to SEC-14)",
       "paths": [
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",
+        "rules/claude-rules/common/execution-pinning.md",
         "rules/claude-rules/common/fact-inference-separation.md",
         "rules/claude-rules/common/no-silent-degradation.md",
         "rules/claude-rules/common/publish-action-confirmation.md",
@@ -199,12 +200,15 @@
     {
       "id": "guards-universal",
       "kind": "guards",
-      "description": "Universal guard scripts (code slop, dependency layers, circular deps, doc overload)",
+      "description": "Universal guard scripts (code slop, dependency layers, circular deps, doc overload, SEC-11 review gates, W-20 runtime drift)",
       "paths": [
         "guards/universal/check_code_slop.sh",
         "guards/universal/check_dependency_layers.py",
         "guards/universal/check_circular_deps.py",
-        "guards/universal/check_doc_overload.sh"
+        "guards/universal/check_doc_overload.sh",
+        "guards/universal/check_dependency_changes.sh",
+        "guards/universal/check_test_weakening.sh",
+        "guards/universal/check_runtime_drift.sh"
       ],
       "defaultInstall": true,
       "languages": [],

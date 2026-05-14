@@ -8,7 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SEC-11 review gates for dependency version changes and test-trust weakening: `check_dependency_changes.sh`, `check_test_weakening.sh`, and matching unit coverage
+- U-32 live constraint budget tooling: `count_active_constraints.sh`, `scripts/constraints/count_active_constraints.py`, and GC downgrade-candidate reporting
 - CI doc command path validator (`scripts/ci/validate-doc-command-paths.sh`) to catch stale `~/vibeguard/...` shell examples
+- `setup.sh --check` now emits a structured rollup (counts of OK/INFO/WARN/FAIL/BROKEN/MISSING and a final verdict line) so a single broken probe is not lost in 40+ healthy rows
+- `setup.sh --check --quiet` filters output to problems-only plus the rollup, for fast triage in long install logs
+- `setup.sh --check --json` emits a single-line `schema_version=1` JSON document with counts, verdict (`healthy|degraded|broken`), and the full event list for CI consumers and the `/vibeguard:check` skill
+- `setup.sh --check --strict` reflects health in the exit code (0 healthy, 1 degraded, 2 broken); default mode keeps the historical always-exit-0 contract for backwards compatibility
+- `setup.sh --check --no-summary` preserves the legacy report shape for any consumer that grepped the prior unsummarized output
+- `tests/test_setup_check.sh` covers tally arithmetic, ANSI stripping, JSON shape, exit-code policy, and end-to-end argument parsing for the new modes
 
 ### Fixed
 - `check_code_slop.sh` output wording aligned with unit tests (`Legacy debug code`)

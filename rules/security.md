@@ -66,13 +66,20 @@ exec.Command("sh", "-c", "ls -la " + path)                      // Error
 
 ### SEC-11 review contract
 
-When AI authored code in sensitive areas such as auth, billing, token handling, or `innerHTML` / `eval` / `exec`, the PR description should include:
+When AI authored code in sensitive areas such as auth, billing, token handling, dynamic rendering/execution, dependency version changes, or test-trust changes, the PR description should include:
 
 ```text
 - What/Why: 1-2 sentence intent summary
 - Proof: tests plus manual logs/screenshots
 - AI Role: what AI generated and the risk level
 - Review Focus: 1-2 areas that still need human judgment
+```
+
+Run the SEC-11 diff guards when relevant:
+
+```bash
+bash guards/universal/check_dependency_changes.sh --base origin/main --head HEAD
+bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD
 ```
 
 ### SEC-12 MCP trust checks

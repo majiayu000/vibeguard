@@ -53,7 +53,7 @@ Canonical source of truth: `rules/claude-rules/`
 | U-29 | Error-driven downgrade paths must be observable at error level | Strict | If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. |
 | U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
 | U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
-| U-32 | Rule overload threshold + absolute-language detection | Strict | If one rule file contains more than 30 active constraints, raise an overload warning. |
+| U-32 | Rule overload threshold + absolute-language detection | Strict | Keep the effective constraint set for a single agent task at 15 or fewer items. |
 | U-33 | Code search defaults to glob/grep; vector DB requires written justification | Strict | For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. |
 
 ---
@@ -77,6 +77,7 @@ Canonical source of truth: `rules/claude-rules/`
 | W-17 | Fewer smarter gates beat more mechanical gates | Strict | When the user asks to add a new gate or rule, first ask whether an existing gate can absorb the new condition instead of creating one mor... |
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 | W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Medium | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
+| W-20 | Long tasks must pin runtime, tools, and rules | Strict | Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot... |
 
 ---
 
@@ -197,6 +198,9 @@ Static analysis scripts that enforce rules mechanically:
 | `check_circular_deps.py` | Circular dependency chains |
 | `check_doc_overload.sh` | Oversized or overloaded agent-instruction documents |
 | `check_test_integrity.sh` | Test shadowing and test-environment integrity problems |
+| `check_dependency_changes.sh` | Dependency version changes requiring OSV/Snyk and human review |
+| `check_test_weakening.sh` | Source+test diffs that weaken assertions, add skips, or add AI-authored tests |
+| `check_runtime_drift.sh` | W-20 runtime, tool inventory, and rule-set drift across long tasks |
 
 ### Rust
 

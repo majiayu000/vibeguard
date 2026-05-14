@@ -12,7 +12,13 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
+
+_pass_and_exit() {
+  vg_cb_record_pass "pre-write-guard"
+  exit 0
+}
 
 INPUT=$(cat)
 
@@ -29,7 +35,7 @@ FILE_PATH="${_CHECK_REST%%$'\n'*}"
 [[ "$FILE_PATH" == "$CHECK_RESULT" ]] && FILE_PATH=""
 
 if [[ "$CHECK_STATUS" == "PASS" || -z "$FILE_PATH" ]]; then
-  exit 0
+  _pass_and_exit
 fi
 
 if [[ "$CHECK_STATUS" == "W12" ]]; then
@@ -59,7 +65,7 @@ BLOCK_EOF
 fi
 
 if [[ "$CHECK_STATUS" != "SOURCE_NEW" ]]; then
-  exit 0
+  _pass_and_exit
 fi
 
 # --- Source code files: reminder to search first and then write ---
@@ -69,7 +75,11 @@ fi
 # session the circuit OPENs and subsequent writes pass silently. This prevents
 # 6-file batch writes from injecting 6 redundant advisories. Block mode does not
 # use the circuit breaker so hard rejections are never silenced.
-MODE="${VIBEGUARD_WRITE_MODE:-warn}"
+MODE="$(vg_config_get_str VIBEGUARD_WRITE_MODE write_mode warn)"
+case "$MODE" in
+  block|warn) ;;
+  *) MODE="warn" ;;
+esac
 
 if [[ "$MODE" == "block" ]]; then
   vg_log "pre-write-guard" "Write" "block" "New source code file not searched" "$FILE_PATH"
@@ -80,7 +90,6 @@ if [[ "$MODE" == "block" ]]; then
 }
 EOF
 else
-  source "$(dirname "$0")/circuit-breaker.sh"
   if vg_cb_check "pre-write-guard"; then
     vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
     vg_cb_record_block "pre-write-guard"

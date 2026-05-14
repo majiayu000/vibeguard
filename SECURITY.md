@@ -77,6 +77,9 @@ The following issues are considered **in scope** for VibeGuard:
 ### Bash Pre-tool Guard
 - **pre-bash-guard.sh bypass** — techniques that evade the shell-level command interceptor in `pre-bash-guard.sh`, which blocks force-pushes (`git push --force`), destructive resets (`git reset --hard`), and dangerous `rm -rf` operations.
 
+### Runtime Drift Decisions
+- **Accepted W-20 runtime drift** — if a long-running task continues after a runtime, tool inventory, or VibeGuard rule-set hash changes, record the acceptance here or in an equivalent project decision log before continuing. Each entry must include the snapshot path, current check output, accepted surface, reason, approver, and timestamp.
+
 ## Out of Scope
 
 The following are **not** considered security vulnerabilities for VibeGuard:

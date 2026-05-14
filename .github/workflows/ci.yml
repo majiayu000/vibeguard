@@ -167,6 +167,10 @@ jobs:
         shell: bash
         run: bash tests/test_setup.sh
 
+      - name: Setup --check structured report tests
+        shell: bash
+        run: bash tests/test_setup_check.sh
+
       - name: GC regression tests
         if: runner.os != 'Windows'
         shell: bash

@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -129,8 +129,8 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     let stdin_shared = Arc::clone(&shared);
     let stdin_writer = Arc::clone(&child_stdin);
     let t_in = thread::spawn(move || {
-        let stdin = std::io::stdin();
-        for line in stdin.lock().lines().map_while(Result::ok) {
+        let reader = BufReader::new(std::io::stdin());
+        for line in reader.lines().map_while(Result::ok) {
             if let Ok(message) = serde_json::from_str::<Value>(line.trim()) {
                 if message.is_object() {
                     if let Ok(mut guard) = stdin_shared.lock() {
@@ -140,12 +140,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                     }
                 }
             }
-            if let Ok(mut writer) = stdin_writer.lock() {
-                if let Some(stdin) = writer.as_mut() {
-                    let _ = writeln!(stdin, "{line}");
-                    let _ = stdin.flush();
-                }
-            }
+            write_line_to_child(&stdin_writer, &line);
         }
     });
 
@@ -159,15 +154,11 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                 if message.is_object() {
                     let method_is_string = message.get("method").and_then(Value::as_str).is_some();
                     if method_is_string && message.get("id").is_some() {
+                        let mut server_writes = Vec::new();
                         if let Ok(mut guard) = stdout_shared.lock() {
                             let mut session = std::mem::take(&mut guard.session);
                             let mut write_to_server = |obj: Value| {
-                                if let Ok(mut writer) = stdout_writer.lock() {
-                                    if let Some(stdin) = writer.as_mut() {
-                                        let _ = writeln!(stdin, "{}", obj);
-                                        let _ = stdin.flush();
-                                    }
-                                }
+                                server_writes.push(obj);
                             };
                             intercepted = guard.strategy.handle_server_request(
                                 &message,
@@ -176,6 +167,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                             );
                             guard.session = session;
                         }
+                        write_values_to_child(&stdout_writer, server_writes);
                     } else if method_is_string {
                         if let Ok(mut guard) = stdout_shared.lock() {
                             let mut session = std::mem::take(&mut guard.session);
@@ -205,4 +197,27 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     let _ = t_err.join();
     let status = child.wait()?;
     std::process::exit(status.code().unwrap_or(1));
+}
+
+fn write_line_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, line: &str) {
+    if let Ok(mut writer) = writer.lock() {
+        if let Some(stdin) = writer.as_mut() {
+            let _ = writeln!(stdin, "{line}");
+            let _ = stdin.flush();
+        }
+    }
+}
+
+fn write_values_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, values: Vec<Value>) {
+    if values.is_empty() {
+        return;
+    }
+    if let Ok(mut writer) = writer.lock() {
+        if let Some(stdin) = writer.as_mut() {
+            for value in values {
+                let _ = writeln!(stdin, "{value}");
+            }
+            let _ = stdin.flush();
+        }
+    }
 }

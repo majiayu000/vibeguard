@@ -30,11 +30,14 @@ When Plan Flow finishes planning, emit the shared execution handoff with these r
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
 
-`artifacts` must include the generated `plan/*.md` path. `lane_map` must name the owner for every delegated lane before execution starts.
+`artifacts` must include the generated `plan/*.md` path. `runtime_pinning_snapshot` must point at the W-20 snapshot for long tasks, or be `None` for short direct work. `lane_map` must name the owner for every delegated lane before execution starts.
+
+When Plan Flow proposes child-agent or parallel execution, it must also emit delegation assignments that follow [`workflows/references/delegation-contract.md`](../references/delegation-contract.md). Missing assignment boundaries keep the route in `clarify_first`.
 
 ## Core Workflow (Analyze -> Plan -> Execute)
 

@@ -13,6 +13,7 @@ Analyze task descriptions and change files and route to the most appropriate pro
 
 Boundary:
 - Workflow/lifecycle selection belongs to the higher-level workflow surface (`README.md`, `skills/`, `workflows/`) and follows [`workflows/references/routing-contract.md`](../workflows/references/routing-contract.md).
+- Delegated child-agent assignments follow [`workflows/references/delegation-contract.md`](../workflows/references/delegation-contract.md).
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
 
@@ -23,17 +24,28 @@ mode: execute_direct | plan_first | clarify_first
 handoff:
   mode: <optional preselected execution mode>
   artifacts: [...]
+  runtime_pinning_snapshot: <path | None>
   verification_owner: <owner>
   stop_conditions: [...]
   lane_map: { <lane>: <owner> }
+  # Required only when child-agent or parallel lanes are used.
+  delegation_assignments:
+    - task_slice: <specific bounded outcome>
+      allowed_files: [...]
+      forbidden_files: [...]
+      authority: readonly | propose_patch | write_owned_files | verify_only
+      required_evidence: [...]
+      blocker_conditions: [...]
+      integration_owner: <single owner>
 ```
 
 Dispatcher rules:
 
 - Never infer `plan` vs `execute` locally.
 - If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
-- If a handoff is present, consume its `mode`, `artifacts`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
+- If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
+- Do not schedule child-agent work when the matching delegation assignment is missing `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, or `integration_owner`.
 
 ## Scheduling rules
 

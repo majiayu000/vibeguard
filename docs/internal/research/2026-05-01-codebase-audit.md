@@ -179,7 +179,7 @@ Every finding below uses `[source: file:line]` evidence and a confidence label.
 - **Severity**: medium
 - **Rule**: SEC-03 (output escaping)
 - **Facts**: [source: `hooks/pre-edit-guard.sh:127-132,138-145,162-167`] three `cat <<BLOCK_EOF { "decision": "block", "reason": "... ${FILE_PATH} ..." } BLOCK_EOF` blocks; `FILE_PATH` derived from `tool_input.file_path` JSON
-- **Inference (medium)**: a path containing `"` or `\` produces invalid JSON; Codex `_extract_payloads` (`scripts/codex/app_server_wrapper.py:148`) catches `JSONDecodeError` and silently drops the payload → block degrades to pass → W-12 protection bypassed by naming a file `evil"; "; .py`.
+- **Inference (medium)**: a path containing `"` or `\` produces invalid JSON; Codex `extract_payloads` (`vg-helper/src/codex_app_server_core.rs:190`) catches invalid payloads and could silently drop the payload → block degrades to pass → W-12 protection bypassed by naming a file `evil"; "; .py`.
 - **Suggestion**: replace each heredoc with `vg_json_output_kv` (already implements escaping at `hooks/log.sh:317`).
 
 ### M3 · SEC-8 · No SEC-13 v2.1.121 self-test for `updatedToolOutput`

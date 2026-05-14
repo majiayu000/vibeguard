@@ -22,13 +22,22 @@
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CB_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/circuit-breaker"
+_VG_CB_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! declare -F vg_config_get_int >/dev/null 2>&1 && [[ -f "${_VG_CB_SCRIPT_DIR}/_lib/config.sh" ]]; then
+  source "${_VG_CB_SCRIPT_DIR}/_lib/config.sh"
+fi
 
 # Validate that a value is a non-negative integer; fall back to default if not.
 # Prevents arithmetic errors under set -euo pipefail when env vars are misconfigured.
 _vg_cb_to_int() { local v="$1" d="$2"; [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v" || printf '%s' "$d"; }
 
-CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)   # seconds until OPEN → HALF-OPEN (5 min)
-CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)     # consecutive blocks before tripping to OPEN
+if declare -F vg_config_get_int >/dev/null 2>&1; then
+  CB_COOLDOWN=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_COOLDOWN circuit_breaker.cooldown_seconds 300)" 300)
+  CB_THRESHOLD=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_THRESHOLD circuit_breaker.threshold 3)" 3)
+else
+  CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)
+  CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)
+fi
 
 mkdir -p "$CB_DIR" 2>/dev/null || true
 
@@ -70,18 +79,27 @@ _vg_cb_lock_file() {
 # a mkdir-based spinlock on the lock file path associated with fd $1.
 # Always returns 0 so callers under set -euo pipefail are not aborted.
 _VG_CB_LOCK_OWNED=false
+_VG_CB_LOCK_DIR=""
 
 _vg_cb_try_flock() {
+  local lock_fd="$1"
+  local lock_file_path="${2:-}"
+  _VG_CB_LOCK_OWNED=false
+  _VG_CB_LOCK_DIR=""
+
   if command -v flock >/dev/null 2>&1; then
-    flock -x -w 5 "$1" 2>/dev/null || true
+    flock -x -w 5 "$lock_fd" 2>/dev/null || true
   else
     # macOS fallback: mkdir is atomic on all POSIX systems.
-    # Derive lockdir from the lock_file variable in the calling scope.
-    local lockdir="${lock_file}.d"
+    # Store the acquired lock dir in module state so EXIT traps do not depend
+    # on a caller-local lock_file variable still being in scope.
+    [[ -n "$lock_file_path" ]] || return 0
+    local lockdir="${lock_file_path}.d"
     local _i=0
     while [[ $_i -lt 50 ]]; do
       if mkdir "$lockdir" 2>/dev/null; then
         _VG_CB_LOCK_OWNED=true
+        _VG_CB_LOCK_DIR="$lockdir"
         return 0
       fi
       sleep 0.1
@@ -93,9 +111,10 @@ _vg_cb_try_flock() {
 
 # Release the mkdir-based lock only if this process owns it.
 _vg_cb_release_flock() {
-  if [[ "$_VG_CB_LOCK_OWNED" == "true" ]]; then
-    rmdir "${lock_file}.d" 2>/dev/null || true
+  if [[ "$_VG_CB_LOCK_OWNED" == "true" && -n "$_VG_CB_LOCK_DIR" ]]; then
+    rmdir "$_VG_CB_LOCK_DIR" 2>/dev/null || true
     _VG_CB_LOCK_OWNED=false
+    _VG_CB_LOCK_DIR=""
   fi
 }
 
@@ -177,7 +196,7 @@ vg_cb_check() {
   lock_file=$(_vg_cb_lock_file "$hook")
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
-    _vg_cb_try_flock 9
+    _vg_cb_try_flock 9 "$lock_file"
     trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     now=$(_vg_cb_now)
@@ -226,7 +245,7 @@ vg_cb_record_block() {
   lock_file=$(_vg_cb_lock_file "$hook")
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
-    _vg_cb_try_flock 9
+    _vg_cb_try_flock 9 "$lock_file"
     trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     CB_BLOCKS=$(( CB_BLOCKS + 1 ))
@@ -250,7 +269,7 @@ vg_cb_record_pass() {
   lock_file=$(_vg_cb_lock_file "$hook")
   mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
   (
-    _vg_cb_try_flock 9
+    _vg_cb_try_flock 9 "$lock_file"
     trap '_vg_cb_release_flock' EXIT
     _vg_cb_load "$hook"
     if [[ "$CB_STATE" != "CLOSED" ]] || [[ "$CB_BLOCKS" -gt 0 ]]; then

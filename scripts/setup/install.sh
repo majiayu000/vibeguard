@@ -26,8 +26,9 @@ source "${SCRIPT_DIR}/targets/codex-home.sh"
 
 # --- Mode dispatch ---
 case "${1:-}" in
-  --check) exec bash "${SCRIPT_DIR}/check.sh" ;;
-  --clean) exec bash "${SCRIPT_DIR}/clean.sh" ;;
+  --check) shift; exec bash "${SCRIPT_DIR}/check.sh" "$@" ;;
+  --clean) shift; exec bash "${SCRIPT_DIR}/clean.sh" "$@" ;;
+  --codex-status) shift; exec bash "${SCRIPT_DIR}/codex-status.sh" "$@" ;;
 esac
 
 # --- Argument parsing ---
@@ -124,6 +125,7 @@ fi
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
   configure_claude_home_runtime
   inject_claude_home_rules
+  inject_codex_home_rules
   yellow "Dry run complete. No files were written by setup.sh --dry-run."
   exit 0
 fi
@@ -142,6 +144,8 @@ mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
 cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
+mkdir -p "${VIBEGUARD_HOME}/_lib"
+cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${VIBEGUARD_HOME}/_lib/codex_diag.sh"
 chmod +x "${VIBEGUARD_HOME}/run-hook.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
 green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
 
@@ -149,12 +153,13 @@ green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
 green "  ~/.vibeguard/user-rules/ ready (add custom .md rules here)"
 
-# Seed user config from example on first install (preserve subsequent edits)
+# Seed user config from example on first install. Existing user edits are
+# preserved so setup re-runs do not overwrite tuned thresholds.
 USER_CONFIG_FILE="${VIBEGUARD_HOME}/config.json"
 USER_CONFIG_EXAMPLE="${REPO_DIR}/templates/vibeguard-config.json.example"
 if [[ ! -f "${USER_CONFIG_FILE}" && -f "${USER_CONFIG_EXAMPLE}" ]]; then
   cp "${USER_CONFIG_EXAMPLE}" "${USER_CONFIG_FILE}"
-  green "  ~/.vibeguard/config.json seeded (edit to tune u16.limit, circuit_breaker, etc.)"
+  green "  ~/.vibeguard/config.json seeded (edit to tune write_mode and thresholds)"
 elif [[ -f "${USER_CONFIG_FILE}" ]]; then
   green "  ~/.vibeguard/config.json present (preserved)"
 fi
@@ -226,6 +231,7 @@ fi
 state_init "$PROFILE" "$LANGUAGES"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
+state_record_file "${VIBEGUARD_HOME}/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
 green "  Install state tracker initialized"
 echo
 
@@ -301,6 +307,7 @@ fi
 echo
 
 inject_claude_home_rules
+inject_codex_home_rules
 
 # 11. Verification
 echo "Step 11: Verification"

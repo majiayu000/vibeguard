@@ -41,11 +41,14 @@ When Fixflow receives a planning handoff, it must honor all required keys:
 
 - `mode`
 - `artifacts`
+- `runtime_pinning_snapshot`
 - `verification_owner`
 - `stop_conditions`
 - `lane_map`
 
 If `lane_map` does not assign Fixflow-owned work clearly, stop and clarify before editing.
+
+If Fixflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
 
 ## Workflow
 

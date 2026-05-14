@@ -1,50 +1,83 @@
 #!/usr/bin/env bash
 # Event-log-backed history detectors for post-edit-guard.sh.
 
-_VG_POST_EDIT_HISTORY_LOADED=0
-_VG_POST_EDIT_CHURN_COUNT=0
-_VG_POST_EDIT_W15_COUNT=0
-_VG_POST_EDIT_WARN_COUNT=0
-_VG_POST_EDIT_W14=""
+VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
-vg_post_edit_load_history() {
-  [[ "$_VG_POST_EDIT_HISTORY_LOADED" -eq 0 ]] || return 0
-  _VG_POST_EDIT_HISTORY_LOADED=1
+vg_post_edit_count_build_failures() {
+  local project_root
+  project_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | if [[ -n "$_VG_HELPER" ]]; then
+        "$_VG_HELPER" build-fails "$VIBEGUARD_SESSION_ID" "$project_root"
+      else
+        VG_SESSION="$VIBEGUARD_SESSION_ID" VG_PROJECT="$project_root" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
 
-  if [[ -z "${_VG_HELPER:-}" ]]; then
-    return 0
-  fi
-
-  local history kind a b c d
-  history=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VG_HELPER" post-edit-history "$VIBEGUARD_SESSION_ID" "$FILE_PATH" "${VIBEGUARD_AGENT_TYPE:-}" \
-    2>/dev/null || true)
-
-  while IFS=$'\t' read -r kind a b c d; do
-    case "$kind" in
-      CHURN) _VG_POST_EDIT_CHURN_COUNT="${a:-0}" ;;
-      W15) _VG_POST_EDIT_W15_COUNT="${a:-0}" ;;
-      WARN_COUNT) _VG_POST_EDIT_WARN_COUNT="${a:-0}" ;;
-      W14) _VG_POST_EDIT_W14="${a:-?}|${b:-?}|${c:-?}|${d:-?}" ;;
-    esac
-  done <<< "$history"
+session = os.environ.get("VG_SESSION", "")
+project = os.environ.get("VG_PROJECT", "")
+prefix = project.rstrip("/") + "/" if project else ""
+count = 0
+events = list(iter_events_from_stream(sys.stdin.buffer))
+for e in reversed(events):
+    if e.get("hook") != "post-build-check" or e.get("session") != session:
+        continue
+    detail = e.get("detail", "") or ""
+    if prefix and detail and not detail.startswith(prefix):
+        continue
+    if e.get("decision") == "pass":
+        break
+    if e.get("decision") in {"warn", "escalate"}:
+        count += 1
+print(count)
+'
+      fi 2>/dev/null | tr -d '[:space:]' || echo "0"
 }
 
 vg_post_edit_detect_churn() {
-  local churn_count
-  vg_post_edit_load_history
-  churn_count="${_VG_POST_EDIT_CHURN_COUNT:-0}"
+  local churn_count build_fail_count
+  churn_count=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | if [[ -n "$_VG_HELPER" ]]; then
+        "$_VG_HELPER" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+      else
+        VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+count = 0
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if e.get("session") == session and e.get("tool") == "Edit" and file_path in e.get("detail", ""):
+        count += 1
+print(count)
+'
+      fi 2>/dev/null | tr -d '[:space:]' || echo "0")
+  churn_count="${churn_count:-0}"
+  build_fail_count="0"
 
   if [[ "$churn_count" -ge 20 ]]; then
-    vg_post_edit_append_warning "[CHURN CRITICAL] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — possible edit→fail→fix loop
-FIX: Stop current direction, review full build output, re-examine root cause (W-02)
-DO NOT: Continue editing this file until root cause is confirmed"
-    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x critical" "$FILE_PATH"
+    build_fail_count="$(vg_post_edit_count_build_failures)"
+    build_fail_count="${build_fail_count:-0}"
+  fi
+
+  if [[ "$churn_count" -ge 20 && "$build_fail_count" -ge 5 ]]; then
+    vg_post_edit_append_warning "[CHURN CRITICAL] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times and the project has ${build_fail_count} consecutive build failures — possible edit->fail->fix loop
+FIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)
+DO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause"
+    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x critical build_fails ${build_fail_count}x" "$FILE_PATH"
+  elif [[ "$churn_count" -ge 20 ]]; then
+    vg_post_edit_append_warning "[CHURN WARNING] [review] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — high edit volume without repeated build-failure evidence
+FIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.
+DO NOT: Treat edit count alone as proof of W-02 failure-loop behavior"
+    vg_log "post-edit-guard" "Edit" "correction" "churn ${churn_count}x volume" "$FILE_PATH"
   elif [[ "$churn_count" -ge 10 ]]; then
-    vg_post_edit_append_warning "[CHURN WARNING] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times, possible correction loop
-FIX: Run full build to see the complete picture, or use /vibeguard:learn to extract patterns
+    vg_post_edit_append_warning "[CHURN WARNING] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times — high edit volume
+FIX: Run full build to see the complete picture, or classify whether this is a planned refactor before continuing
 DO NOT: Take any action — monitor and decide whether to continue"
-    vg_log "post-edit-guard" "Edit" "escalate" "churn ${churn_count}x warning" "$FILE_PATH"
+    vg_log "post-edit-guard" "Edit" "correction" "churn ${churn_count}x warning" "$FILE_PATH"
   elif [[ "$churn_count" -ge 5 ]]; then
     vg_post_edit_append_warning "[CHURN] [info] [this-file] OBSERVATION: ${FILE_PATH##*/} has been edited ${churn_count} times
 FIX: Check if you are in a correction loop before continuing
@@ -55,10 +88,47 @@ DO NOT: Take any action — this is informational only"
 
 vg_post_edit_detect_w14_overlap() {
   local recent_conflict other_session other_agent other_hook other_tool
-  vg_post_edit_load_history
-  recent_conflict="${_VG_POST_EDIT_W14:-}"
-  [[ -n "$recent_conflict" ]] || return 0
+  recent_conflict=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_AGENT="${VIBEGUARD_AGENT_TYPE:-}" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream, parse_ts
+from datetime import datetime, timezone
+def normalize_path(path):
+    path = (path or "").strip()
+    if not path:
+        return ""
+    if not os.path.isabs(path):
+        path = os.path.join(os.getcwd(), path)
+    return os.path.normcase(os.path.realpath(path))
 
+file_path = normalize_path(os.environ.get("VG_FILE_PATH", ""))
+session = os.environ.get("VG_SESSION", "")
+agent = os.environ.get("VG_AGENT", "")
+now = datetime.now(timezone.utc)
+conflicts = []
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if e.get("tool") not in {"Edit", "Write"}:
+        continue
+    event_path = normalize_path(e.get("detail", "").split("||", 1)[0])
+    if event_path != file_path:
+        continue
+    same_session = e.get("session") == session
+    other_agent = e.get("agent", "") != agent
+    if same_session and not other_agent:
+        continue
+    ts = parse_ts(e.get("ts"))
+    if ts is None:
+        continue
+    if (now - ts).total_seconds() > 1800:
+        continue
+    conflicts.append((e.get("session", "?"), e.get("agent", "?"), e.get("hook", "?"), e.get("tool", "?")))
+if conflicts:
+    session_id, agent_name, hook_name, tool_name = conflicts[-1]
+    print(f"{session_id}|{agent_name}|{hook_name}|{tool_name}")
+' 2>/dev/null | tail -1 | tr -d '\r' || true)
+
+  [[ -n "$recent_conflict" ]] || return 0
   IFS='|' read -r other_session other_agent other_hook other_tool <<< "$recent_conflict"
   vg_post_edit_append_warning "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown})
 FIX: Confirm file ownership before continuing; prefer a dedicated worktree or single-owner merge path
@@ -66,21 +136,125 @@ DO NOT: Continue parallel/background edits to this file without explicit ownersh
   vg_log "post-edit-guard" "Edit" "warn" "w14 overlap recent session ${other_session} agent ${other_agent:-unknown}" "$FILE_PATH"
 }
 
+# W-15 low-information loop detector.
+#
+# Spec (rules/claude-rules/common/workflow.md, "Low-information loop detection"):
+#   trigger when the change radius shrinks for three consecutive rounds.
+#
+# Implementation:
+#   1. Walk the session's post-edit-guard Edit history backwards.
+#   2. Collect the consecutive trail of edits whose file_path equals the current
+#      one. Stop on the first edit to a different file.
+#   3. Recover each prior edit's size_delta from the detail field (encoded as
+#      "<file_path>||delta=<N>" by post-edit-guard.sh).
+#   4. Combined with the current edit's delta, fire only when:
+#      - past_consecutive >= 2 (i.e. 3+ same-file edits in a row, including
+#        the current one),
+#      - |Δ| is non-increasing across the 3 most recent rounds (radius
+#        actually shrinks per spec — not merely "same file"), and
+#      - |latest_Δ| < 300 chars (caps to micro-tuning; large content adds
+#        such as long markdown sections never qualify as low-yield).
+#
+# Downgrade path (U-32 compliance): set VIBEGUARD_SUPPRESS_W15=1 to skip the
+# detector entirely. Use this when writing long-form markdown / RFC docs where
+# every edit naturally adds a new section.
 vg_post_edit_detect_w15_loop() {
-  local past_consecutive total_consecutive
-  vg_post_edit_load_history
-  past_consecutive="${_VG_POST_EDIT_W15_COUNT:-0}"
+  [[ "${VIBEGUARD_SUPPRESS_W15:-0}" == "1" ]] && return 0
 
-  if [[ "$past_consecutive" -ge 2 ]]; then
+  local current_delta past_consecutive past_deltas raw
+  current_delta="${VG_W15_CURRENT_DELTA:-0}"
+
+  raw=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+
+edits = []
+for e in iter_events_from_stream(sys.stdin.buffer):
+    if (e.get("session") == session and e.get("tool") == "Edit"
+            and e.get("hook") == "post-edit-guard"):
+        detail = e.get("detail", "") or ""
+        parts = detail.split("||")
+        ep = parts[0].strip()
+        delta = None
+        for p in parts[1:]:
+            p = p.strip()
+            if p.startswith("delta="):
+                try:
+                    delta = int(p.split("=", 1)[1])
+                except ValueError:
+                    delta = None
+                break
+        if delta is None and e.get("decision") != "pass":
+            continue
+        edits.append((ep, delta))
+
+trail = []
+for ep, d in reversed(edits):
+    if ep == file_path:
+        trail.append(d)
+    else:
+        break
+
+print(len(trail))
+print(",".join("" if d is None else str(d) for d in trail[:2]))
+' 2>/dev/null || printf "0\n\n")
+
+  past_consecutive=$(printf '%s\n' "$raw" | sed -n '1p' | tr -d '[:space:]')
+  past_deltas=$(printf '%s\n' "$raw" | sed -n '2p')
+  past_consecutive="${past_consecutive:-0}"
+
+  [[ "$past_consecutive" -ge 2 ]] || return 0
+
+  local prev_delta prev2_delta cur_abs prev_abs prev2_abs total_consecutive
+  IFS=',' read -r prev_delta prev2_delta <<< "$past_deltas"
+
+  # Need both prior deltas to evaluate radius shrinkage; legacy log entries
+  # without delta metadata cannot be compared and are ignored (fail-closed).
+  if [[ -z "${prev_delta:-}" || -z "${prev2_delta:-}" ]]; then
+    return 0
+  fi
+
+  cur_abs="${current_delta#-}"
+  prev_abs="${prev_delta#-}"
+  prev2_abs="${prev2_delta#-}"
+
+  # Spec: change radius shrinks across the 3 most recent rounds and the latest
+  # round is in the micro-tuning band (<300 chars). Otherwise it is just a
+  # natural sequence of same-file edits (e.g. writing a long doc).
+  if [[ "$prev2_abs" -ge "$prev_abs" ]] \
+     && [[ "$prev_abs" -ge "$cur_abs" ]] \
+     && [[ "$cur_abs" -lt 300 ]]; then
     total_consecutive=$((past_consecutive + 1))
-    vg_post_edit_append_warning "[W-15] [review] [this-file] OBSERVATION: ${total_consecutive} consecutive edits to ${FILE_PATH##*/} with no edits to other files in between (low-info loop suspect)
-FIX: Pause — are these ${total_consecutive} edits solving the same problem? If change scope shrinks each round, report a blocker instead of continuing to round $((total_consecutive + 1))
-DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting"
-    vg_log "post-edit-guard" "Edit" "warn" "w15 consecutive ${total_consecutive}x" "$FILE_PATH"
+    vg_post_edit_append_warning "[W-15] [review] [this-file] OBSERVATION: ${total_consecutive} consecutive edits to ${FILE_PATH##*/} with shrinking change radius (|Δ| ${prev2_abs}→${prev_abs}→${cur_abs} chars; latest <300)
+FIX: Pause — are these ${total_consecutive} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round $((total_consecutive + 1))
+DO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting
+ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)"
+    vg_log "post-edit-guard" "Edit" "warn" "w15 shrinking radius ${prev2_abs}>${prev_abs}>${cur_abs}" "$EDIT_DETAIL"
   fi
 }
 
 vg_post_edit_warn_count_for_file() {
-  vg_post_edit_load_history
-  printf '%s\n' "${_VG_POST_EDIT_WARN_COUNT:-0}"
+  tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+    | VG_FILE_PATH="$FILE_PATH" VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
+import sys, os
+sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
+from event_log import iter_events_from_stream
+
+file_path = os.environ.get("VG_FILE_PATH", "")
+session = os.environ.get("VG_SESSION", "")
+count = 0
+for e in iter_events_from_stream(sys.stdin.buffer):
+    reason = e.get("reason", "") or ""
+    churn_only = "[CHURN" in reason and "\n---\n" not in reason
+    if churn_only:
+        continue
+    if e.get("session") == session and e.get("hook") == "post-edit-guard" and e.get("decision") == "warn" and e.get("detail", "").split("||")[0].strip() == file_path:
+        count += 1
+print(count)
+' 2>/dev/null | tr -d '[:space:]' || echo "0"
 }

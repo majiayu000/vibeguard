@@ -113,7 +113,7 @@ When tests fail, fix the production code rather than manipulating the test harne
 **Mechanical checks (agent execution rules)**:
 - If tests fail and the next edit touches a test file instead of source, stop and ask whether you are fixing a real test bug or bypassing the test.
 - If you modify `conftest.py`, pytest config, `jest.config`, or shared test helpers, explain why.
-- If source and tests both change, test changes must not reduce assertion strength.
+- If source and tests both change, test changes must not reduce assertion strength; run `bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD` during PR review when a diff is available.
 
 ## W-14: Parallel-agent file ownership (strict)
 When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another.
@@ -178,6 +178,17 @@ If the information gain shrinks for three consecutive rounds, stop that directio
 - After three consecutive edits to the same file, ask whether the edits are really solving one problem and whether the change radius is shrinking.
 - If diff overlap between two consecutive rounds exceeds 50%, it is probably a low-yield loop.
 - Once the loop is detected, do not continue with a fourth round in the same direction without reporting it first.
+
+**Implementation contract** (`hooks/_lib/post_edit_history.sh::vg_post_edit_detect_w15_loop`):
+- Same-file consecutiveness alone is **not** sufficient — the detector reads each prior edit's `len(new_string) - len(old_string)` from the event log and only fires when:
+  1. three or more consecutive edits target the same file, **and**
+  2. the absolute change radius is non-increasing across those three rounds (`|Δ_oldest| ≥ |Δ_mid| ≥ |Δ_latest|`), **and**
+  3. the latest absolute delta is in the micro-tuning band (`|Δ_latest| < 300` chars).
+- This excludes natural long-form writing (markdown sections, RFC drafts) where each edit adds substantial new content (`|Δ| ≥ 300`), which previously produced 100% false positives.
+
+**Downgrade path** (U-32 compliance):
+- `VIBEGUARD_SUPPRESS_W15=1` skips the detector entirely. Use it when intentionally drafting long documents, checklist files, or any flow where same-file consecutiveness is expected.
+- For one-shot suppression in a single edit, the size-cap (300 chars) already prevents large content additions from triggering.
 
 ## W-16: Verification commands must come from this session (strict)
 When you say "fixed", "done", or "verified", you must cite command output produced in this session. Memory, "it passed earlier", or "it should work" do not count.
