@@ -139,7 +139,7 @@ Add a single status surface, either as `bash setup.sh --codex-status` or `bash s
 - Codex CLI path and version if available
 - `~/.codex/AGENTS.md` hygiene status
 - whether `~/.codex/hooks.json` has all VibeGuard-managed entries
-- whether `[features].codex_hooks = true`
+- whether `[features].hooks = true`
 - whether legacy VibeGuard MCP config remains
 - installed wrapper path and executable status
 - latest VibeGuard Codex event timestamp, hook, decision, and project root
@@ -152,20 +152,20 @@ This command must be read-only.
 Done-when:
 
 - Running the status command does not modify `~/.codex/*` or `~/.vibeguard/*`.
-- Missing AGENTS, disabled `codex_hooks`, stale hooks, and no recent log events produce distinct messages.
+- Missing AGENTS, disabled `hooks`, stale hooks, legacy `codex_hooks`, and no recent log events produce distinct messages.
 - A healthy install reports "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop".
 
 ### R5: Semantic Drift Instead of Whole-file Drift
 
 For shared Codex files, `setup.sh --check` must prefer semantic checks over whole-file checksum failure:
 
-- `~/.codex/config.toml`: OK if `codex_hooks = true` and no legacy VibeGuard MCP block exists.
+- `~/.codex/config.toml`: OK if `hooks = true`, no deprecated `codex_hooks` key exists, and no legacy VibeGuard MCP block exists.
 - `~/.codex/hooks.json`: OK if all VibeGuard-managed hooks are present with expected command, matcher, type, and timeout.
 - Whole-file checksum mismatch may be INFO, not a red failure, when semantic checks pass.
 
 Done-when:
 
-- User edits unrelated Codex config but keeps `codex_hooks = true`; status reports semantic OK and checksum INFO.
+- User edits unrelated Codex config but keeps `hooks = true`; status reports semantic OK and checksum INFO.
 - A missing VibeGuard hook entry remains a WARN or FAIL.
 - A malformed TOML/JSON remains BROKEN.
 
@@ -195,7 +195,7 @@ Tests must prove the native Codex contract, not only hand-built idealized payloa
 
 - AGENTS install/check/clean/idempotency
 - AGENTS 0-byte, missing marker, duplicate marker, external content
-- `codex_hooks` semantic status
+- `hooks` feature semantic status plus legacy `codex_hooks` detection
 - native Bash-shaped `PostToolUse` payload behavior
 - `hook-health.sh` with `cli=codex` and `cli=claude` fixture rows
 - `run-hook-codex.sh` wrapper diagnostics
@@ -240,7 +240,7 @@ Verification:
 - `scripts/setup/targets/codex-home.sh`
   - expose reusable status functions
 - `scripts/lib/codex_config_toml.py`
-  - keep semantic `check-codex-hooks`
+  - keep semantic `check-hooks`
 - `scripts/lib/codex_hooks_json.py`
   - keep semantic managed-entry checker
 - `scripts/local-contract-check.sh` or a new Codex contract script under `scripts/`
