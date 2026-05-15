@@ -12,7 +12,16 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "hooks" / "manifest.json"
 PROFILE_ORDER = ("minimal", "core", "full", "strict")
-HOOK_EVENTS = {"PreToolUse", "PostToolUse", "Stop", "SessionStart", "PreCompact", "UserPromptSubmit"}
+HOOK_EVENTS = {
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "Stop",
+    "SessionStart",
+    "PreCompact",
+    "PostCompact",
+    "UserPromptSubmit",
+}
 
 
 def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
@@ -66,15 +75,32 @@ def codex_specs(data: dict[str, Any]) -> list[dict[str, Any]]:
         codex = item.get("codex")
         if not isinstance(codex, dict) or not codex.get("enabled"):
             continue
-        spec: dict[str, Any] = {
-            "name": item["name"],
-            "event": codex["event"],
-            "matcher": codex.get("matcher"),
-            "script": codex["script"],
-        }
-        if isinstance(codex.get("timeout"), int):
-            spec["timeout"] = codex["timeout"]
-        specs.append(spec)
+        entries = codex.get("entries")
+        if isinstance(entries, list):
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError(f"{item.get('name', '<unknown>')}: codex.entries must contain objects")
+                spec: dict[str, Any] = {
+                    "name": item["name"],
+                    "event": entry["event"],
+                    "matcher": entry.get("matcher"),
+                    "script": entry.get("script", codex.get("script")),
+                }
+                if isinstance(entry.get("timeout"), int):
+                    spec["timeout"] = entry["timeout"]
+                elif isinstance(codex.get("timeout"), int):
+                    spec["timeout"] = codex["timeout"]
+                specs.append(spec)
+        else:
+            spec = {
+                "name": item["name"],
+                "event": codex["event"],
+                "matcher": codex.get("matcher"),
+                "script": codex["script"],
+            }
+            if isinstance(codex.get("timeout"), int):
+                spec["timeout"] = codex["timeout"]
+            specs.append(spec)
     return specs
 
 
@@ -144,18 +170,39 @@ def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]
             if not enabled:
                 continue
             try:
-                _validate_event(platform_data.get("event"), f"{prefix}.{platform}.event")
+                codex_entries = platform_data.get("entries") if platform == "codex" else None
+                if platform != "codex" or not isinstance(codex_entries, list):
+                    _validate_event(platform_data.get("event"), f"{prefix}.{platform}.event")
                 if platform == "claude":
                     _validate_profiles(platform_data.get("profiles"), f"{prefix}.claude.profiles")
                     matchers = platform_data.get("matchers")
                     if not isinstance(matchers, list) or not matchers:
                         errors.append(f"{prefix}.claude.matchers must be a non-empty array")
                 if platform == "codex":
-                    codex_script = platform_data.get("script")
-                    if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
-                        errors.append(f"{prefix}.codex.script must be a namespaced vibeguard-* script")
-                    elif not (repo_root / "hooks" / codex_script).exists():
-                        errors.append(f"{prefix}.codex.script missing hooks/{codex_script}")
+                    entries = codex_entries
+                    if isinstance(entries, list):
+                        if not entries:
+                            errors.append(f"{prefix}.codex.entries must be a non-empty array")
+                        for entry_index, entry in enumerate(entries):
+                            entry_prefix = f"{prefix}.codex.entries[{entry_index}]"
+                            if not isinstance(entry, dict):
+                                errors.append(f"{entry_prefix} must be an object")
+                                continue
+                            try:
+                                _validate_event(entry.get("event"), f"{entry_prefix}.event")
+                            except ValueError as exc:
+                                errors.append(str(exc))
+                            codex_script = entry.get("script", platform_data.get("script"))
+                            if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
+                                errors.append(f"{entry_prefix}.script must be a namespaced vibeguard-* script")
+                            elif not (repo_root / "hooks" / codex_script).exists():
+                                errors.append(f"{entry_prefix}.script missing hooks/{codex_script}")
+                    else:
+                        codex_script = platform_data.get("script")
+                        if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
+                            errors.append(f"{prefix}.codex.script must be a namespaced vibeguard-* script")
+                        elif not (repo_root / "hooks" / codex_script).exists():
+                            errors.append(f"{prefix}.codex.script missing hooks/{codex_script}")
             except ValueError as exc:
                 errors.append(str(exc))
 

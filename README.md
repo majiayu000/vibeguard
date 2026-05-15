@@ -121,7 +121,7 @@ Canonical references for this contract:
 
 ### Hooks — Real-Time Interception
 
-Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook, and Codex currently deploys only Bash/Stop hook events:
+Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Codex deploys native Bash/apply_patch/PermissionRequest/Stop hooks; read-only exploration hooks remain Claude Code only:
 
 | Scenario | Hook | Result |
 |----------|------|--------|
@@ -293,15 +293,21 @@ Hooks live in `~/.codex/hooks.json` (requires `codex_hooks = true` in `config.to
 | Event | Hook | Function |
 |-------|------|----------|
 | `PreToolUse(Bash)` | `pre-bash-guard.sh` | Dangerous command interception + package manager correction |
-| `PostToolUse(Bash)` | `post-build-check.sh` | Build failure detection |
+| `PermissionRequest(Bash)` | `pre-bash-guard.sh` | Fail-closed approval gate for dangerous commands |
+| `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | File existence and search-first gates before patching |
+| `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |
+| `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | Build failure detection after commands or patches |
+| `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`, `post-write-guard.sh` | Post-patch quality and duplicate checks |
 | `Stop` | `stop-guard.sh` | Uncommitted changes gate |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
 
-> **Note:** Codex PreToolUse/PostToolUse currently only supports the `Bash` matcher. Edit/Write guards (`pre-edit`, `pre-write`, `post-edit`, `post-write`) and `analysis-paralysis` are not deployable on the native Codex CLI hook path.
+This is the default enforcement layer. It talks to Codex through native hooks
+and does not wrap or replace the Codex server. Codex has no native `Read`,
+`Glob`, or `Grep` hook surface, so `analysis-paralysis` remains Claude Code only.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`). When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
-**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, Codex hooks, and the app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 
 **App-server wrapper** (Symphony-style orchestrators):
 
@@ -311,8 +317,9 @@ python3 ~/vibeguard/scripts/codex/app_server_wrapper.py --codex-command "codex a
 
 - `--strategy vibeguard` (default): applies pre/stop/post gates externally
 - `--strategy noop`: pure pass-through for debugging
-- App-server wrapper scope today: Bash approval interception + post-turn stop/build feedback with explicit `thread/session/turn` propagation
-- Still unsupported on app-server path: `pre-edit`, `pre-write`, `post-edit`, `post-write`, `analysis-paralysis`
+- App-server wrapper is optional and mainly for external orchestrators that already speak `codex app-server`
+- Default local protection should use native Codex hooks in `~/.codex/hooks.json`
+- Still unsupported on native Codex path: `Read`/`Glob`/`Grep` hooks such as `analysis-paralysis`
 
 ### Use with any project
 

@@ -30,6 +30,24 @@ print(json.dumps({
 PY
 }
 
+codex_permission_deny_raw() {
+  local reason="$1"
+  CODEX_REASON="${reason}" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PermissionRequest",
+        "decision": {
+            "behavior": "deny",
+            "message": os.environ.get("CODEX_REASON", ""),
+        },
+    }
+}, ensure_ascii=False))
+PY
+}
+
 codex_diag() {
   local hook_name="$1" event_name="$2" reason="$3" detail="${4:-}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"

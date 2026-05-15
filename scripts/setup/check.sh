@@ -221,7 +221,7 @@ run_legacy_checks() {
   # awk uses /regex/ syntax; grep uses quoted strings — so /...\s.../ is awk-specific
   find "${REPO_DIR}/guards" -name '*.sh' -print0 2>/dev/null \
     | xargs -0 grep -rnE '/[^/"]*\\[sdwb]' 2>/dev/null \
-    | grep -vE '^\s*#|grep |sed ' \
+    | grep -E 'awk[[:space:]].*/[^/"]*\\[sdwb]' \
     >> "$_awk_violations" 2>/dev/null || true
   if [[ -s "$_awk_violations" ]]; then
     count=$(wc -l < "$_awk_violations" | tr -d ' ')

@@ -35,7 +35,11 @@ HOOK_SKIP = {
     "circuit-breaker",
     "vibeguard-learn-evaluator",
     "vibeguard-post-build-check",
+    "vibeguard-post-edit-guard",
+    "vibeguard-post-write-guard",
     "vibeguard-pre-bash-guard",
+    "vibeguard-pre-edit-guard",
+    "vibeguard-pre-write-guard",
     "vibeguard-stop-guard",
 }
 
