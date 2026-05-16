@@ -35,6 +35,7 @@ old_string = get_nested(data, "tool_input.old_string")
 new_string = get_nested(data, "tool_input.new_string")
 tool_input = data.get("tool_input", {}) if isinstance(data.get("tool_input"), dict) else {}
 replace_all = bool(tool_input.get("replace_all", False))
+patch_line_delta = tool_input.get("vibeguard_line_delta")
 
 if not file_path:
     print("PASS")
@@ -75,15 +76,24 @@ SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
 _, ext = os.path.splitext(file_path)
 is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
 
-if ext.lower() in SOURCE_EXTS and not is_test and old_string and new_string:
+if ext.lower() in SOURCE_EXTS and not is_test:
     current_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
-    old_lines = old_string.count("\n") + (1 if old_string and not old_string.endswith("\n") else 0)
-    new_lines = new_string.count("\n") + (1 if new_string and not new_string.endswith("\n") else 0)
-    if replace_all:
-        occurrences = content.count(old_string)
-        estimated = current_lines - (old_lines * occurrences) + (new_lines * occurrences)
-    else:
-        estimated = current_lines - old_lines + new_lines
+    estimated = None
+
+    if isinstance(patch_line_delta, int):
+        estimated = current_lines + patch_line_delta
+    elif old_string and new_string:
+        old_lines = old_string.count("\n") + (1 if old_string and not old_string.endswith("\n") else 0)
+        new_lines = new_string.count("\n") + (1 if new_string and not new_string.endswith("\n") else 0)
+        if replace_all:
+            occurrences = content.count(old_string)
+            estimated = current_lines - (old_lines * occurrences) + (new_lines * occurrences)
+        else:
+            estimated = current_lines - old_lines + new_lines
+
+    if estimated is None:
+        print("OK")
+        sys.exit(0)
 
     limit = int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800")
     dir_path = os.path.dirname(os.path.abspath(file_path))

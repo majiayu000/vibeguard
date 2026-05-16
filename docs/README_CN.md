@@ -91,7 +91,8 @@ VibeGuard 现在明确分成两层：
 
 | 场景 | Hook | 结果 |
 |------|------|------|
-| AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | **拦截**，必须先搜索现有实现 |
+| AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | 默认 **告警**，提醒先搜索现有实现；设置 `VIBEGUARD_WRITE_MODE=block` 或 `write_mode=block` 后硬拦截 |
+| AI 创建或编辑超过 800 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard` | **拦截**，必须先拆分文件 |
 | AI 执行 `git push --force`、`rm -rf`、`reset --hard` | `pre-bash-guard` | **拦截**，给出安全替代命令 |
 | AI 编辑一个不存在的文件 | `pre-edit-guard` | **拦截**，要求先读取文件确认 |
 | AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
@@ -102,6 +103,8 @@ VibeGuard 现在明确分成两层：
 | `git commit` | `pre-commit-guard` | **拦截**，只检查 staged 改动，10 秒硬超时 |
 | AI 想结束但还没有验证改动 | `stop-guard` | **闸门**，要求先补完验证 |
 | 会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
+
+U-16 文件行数限制只覆盖非测试源码扩展名：`.rs`、`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.go`。在 Codex 路径里，`apply_patch Add File` 和 `apply_patch Update File` 都会先被规范化再进入文件 hook；如果 patch 会让生产源码超过 800 行，会在写入前被 deny。
 
 ### 3. 静态 Guards
 
@@ -236,7 +239,7 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 
 这是默认强制层，走 Codex 原生 hooks，不包也不替换 Codex server。Codex 当前没有原生 `Read`、`Glob`、`Grep` hook surface，所以 `analysis-paralysis` 仍然只在 Claude Code 路径生效。
 
-Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异由 `run-hook-codex.sh` 负责适配；Codex 的 `apply_patch` 会先被 wrapper 规范化成 Edit/Write 形状，再复用现有文件 hook。若 hook 给出 `updatedInput` 建议，Codex CLI wrapper 目前不能自动改写命令，VibeGuard 会显式提示建议命令，而不是静默吞掉这条信息。
+Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异由 `run-hook-codex.sh` 负责适配；Codex 的 `apply_patch` 会先被 wrapper 规范化成 Edit/Write 形状，再复用现有文件 hook。对 `Update File` patch，wrapper 还会传递行数 delta，让 `pre-edit-guard.sh` 能在 Codex 真正改文件之前执行 U-16 拦截。若 hook 给出 `updatedInput` 建议，Codex CLI wrapper 目前不能自动改写命令，VibeGuard 会显式提示建议命令，而不是静默吞掉这条信息。
 
 ### App Server 外层封装
 
@@ -256,10 +259,10 @@ python3 ~/vibeguard/scripts/codex/app_server_wrapper.py   --codex-command "codex
 
 ```bash
 # Profiles
-bash ~/vibeguard/setup.sh
-bash ~/vibeguard/setup.sh --profile minimal
-bash ~/vibeguard/setup.sh --profile full
-bash ~/vibeguard/setup.sh --profile strict
+bash ~/vibeguard/setup.sh                              # 默认 core profile
+bash ~/vibeguard/setup.sh --profile minimal           # 最轻量 pre-hooks
+bash ~/vibeguard/setup.sh --profile full              # 增加 Stop Gate、Build Check、学习闭环
+bash ~/vibeguard/setup.sh --profile strict            # 与 full 相同 hook 集合，更严格运行策略
 
 # 只安装指定语言规则/guards
 bash ~/vibeguard/setup.sh --languages rust,python
@@ -267,6 +270,9 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 
 # 检查 / 卸载
 bash ~/vibeguard/setup.sh --check
+bash ~/vibeguard/setup.sh --check --quiet
+bash ~/vibeguard/setup.sh --check --json
+bash ~/vibeguard/setup.sh --check --strict
 bash ~/vibeguard/setup.sh --clean
 ```
 
@@ -278,6 +284,8 @@ bash ~/vibeguard/setup.sh --clean
 | `core` | `minimal` + `post-edit` + `post-write` + `analysis-paralysis` | 默认开发档 |
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
 | `strict` | 与 `full` 相同 hook 集合 | 更严格的运行策略 |
+
+`setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git pre-commit hook。要把 wrapper 接到其他仓库，用 `scripts/project-init.sh` 或目标仓库自己的安装步骤。
 
 ### 给别的仓库做初始化
 

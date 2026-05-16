@@ -24,11 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation command examples updated to current script layout (`scripts/metrics/` and `scripts/verify/`)
 - `doc-freshness-check.sh` now uses `rules/claude-rules/` as canonical rule source and deduplicates guard file reporting
 - Added missing `PY-13` rule definition in Claude-native Python rule set
+- Codex `apply_patch Update File` now passes line deltas into `pre-edit-guard.sh`, so U-16 over-800-line source edits are denied before mutation instead of only warning after the file changes
 
 ### Changed
 - `check_code_slop.sh` supports `--include-fixtures` and `--strict-repo` scanning modes
 - `check_code_slop.sh` now excludes repository-local noise directories by default (`.claude`, `.vibeguard`, `.omx`, `tests/fixtures`)
 - `check_code_slop.sh` TODO stale-date scan limit is configurable via `VIBEGUARD_TODO_SCAN_LIMIT` (default 20)
+- README and Chinese README now document Codex U-16 enforcement, the default advisory search-first mode for new source files, and current pre-commit/profile installation semantics
 
 ## [1.1.0] - 2026-04-02
 

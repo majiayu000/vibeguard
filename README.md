@@ -125,7 +125,8 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 
 | Scenario | Hook | Result |
 |----------|------|--------|
-| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Block** — must search first |
+| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
+| AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
 | AI runs `git push --force`, `rm -rf`, `reset --hard` | `pre-bash-guard` | **Block** — suggests safe alternatives |
 | AI edits non-existent file | `pre-edit-guard` | **Block** — must Read file first |
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
@@ -136,6 +137,8 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
+
+U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the 800-line limit are denied before mutation.
 
 ### Static Guards — Run Anytime
 
@@ -257,7 +260,7 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
-bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + Pre-Commit
+bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: same hook set as full, for stricter runtime policy
 
 # Language selection (only install rules/guards for specified languages)
@@ -284,6 +287,8 @@ which implies it) to make CI fail when the install is broken.
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | same hook set as full | Maximum enforcement |
 
+`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git pre-commit hook during setup. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
+
 ### Codex Integration
 
 VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
@@ -305,7 +310,7 @@ This is the default enforcement layer. It talks to Codex through native hooks
 and does not wrap or replace the Codex server. Codex has no native `Read`,
 `Glob`, or `Grep` hook surface, so `analysis-paralysis` remains Claude Code only.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
 **MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 

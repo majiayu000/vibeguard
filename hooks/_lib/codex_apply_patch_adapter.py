@@ -21,6 +21,7 @@ class PatchChange:
     path: str
     new_path: str | None = None
     added_lines: list[str] = field(default_factory=list)
+    removed_lines: list[str] = field(default_factory=list)
 
 
 def _finish(changes: list[PatchChange], current: PatchChange | None) -> None:
@@ -52,6 +53,8 @@ def parse_apply_patch(command: str) -> list[PatchChange]:
             continue
         if line.startswith("+"):
             current.added_lines.append(line[1:])
+        elif line.startswith("-"):
+            current.removed_lines.append(line[1:])
 
     _finish(changes, current)
     return changes
@@ -127,6 +130,7 @@ def normalized_payloads(hook_name: str, payload: dict[str, Any]) -> list[dict[st
                         "file_path": file_path,
                         "old_string": "",
                         "new_string": "\n".join(change.added_lines),
+                        "vibeguard_line_delta": len(change.added_lines) - len(change.removed_lines),
                     },
                 )
             )

@@ -423,6 +423,43 @@ permission_patch_out="$(
 assert_contains "${permission_patch_out}" '"hookEventName": "PermissionRequest"' "apply_patch PermissionRequest keeps the PermissionRequest event"
 assert_contains "${permission_patch_out}" '"behavior": "deny"' "apply_patch PermissionRequest can be denied through the Write alias"
 
+cat > "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-edit-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+payload=$(cat)
+PAYLOAD="$payload" python3 - <<'PY'
+import json
+import os
+payload = json.loads(os.environ["PAYLOAD"])
+tool_input = payload["tool_input"]
+reason = (
+    f"normalized:{payload['tool_name']}:"
+    f"{tool_input.get('file_path')}:"
+    f"delta={tool_input.get('vibeguard_line_delta')}:"
+    f"new={tool_input.get('new_string')}"
+)
+print(json.dumps({"decision": "block", "reason": reason}))
+PY
+HOOK
+chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-edit-guard.sh"
+
+patch_update_input="$(python3 - <<'PY'
+import json
+patch = """*** Begin Patch
+*** Update File: src/existing.rs
+@@
+ fn main() {}
++println!("hi");
+*** End Patch"""
+print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"command":patch}}))
+PY
+)"
+patch_update_out="$(
+  printf '%s' "${patch_update_input}" \
+    | HOME="${TMP_HOME_PATCH}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-edit-guard.sh
+)"
+assert_contains "${patch_update_out}" '"permissionDecision": "deny"' "apply_patch Update File can be blocked through the Edit alias"
+assert_contains "${patch_update_out}" 'normalized:Edit:src/existing.rs:delta=1' "apply_patch Update File carries line delta to Edit hook"
+
 header "app-server adapter propagates explicit session context and feedback"
 adapter_json="$(python3 - "${REPO_DIR}" "${TMP_DIR}" <<'PYCODE'
 import json
