@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778579929120,
+  "lastUpdate": 1778913177704,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -4967,6 +4967,120 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P95)",
             "value": 137,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bc89d1cae5b169ebc99bb19351f2245801ab49f",
+          "message": "Add Rust Codex gates and optimize hooks (#191)\n\n* fix(pre-write-guard): silence batch L1 advisories via circuit breaker\n\nPreToolUse(Write) emitted the warn-mode L1 advisory on every new source\nfile with no session state, so a 6-file batch write injected 6 redundant\n`additionalContext` blocks and forced the agent to acknowledge each one.\nThe fix is also a self-violation cleanup: vg_cb_check was already declared\nin circuit-breaker.sh and used by analysis-paralysis-guard, but never\nwired into pre-write-guard — the exact declared-but-unwired pattern U-26\nforbids.\n\nWire the existing circuit breaker so consecutive notices auto-OPEN after\nCB_THRESHOLD (default 3); subsequent writes pass silently until the\ncooldown expires. Block mode (VIBEGUARD_WRITE_MODE=block) is unchanged so\nhard rejections are never silenced. Advisory text now declares\nACTION: NONE (advisory only) so the agent does not treat it as actionable.\n\nVerification (this session):\n- 5 new tests in test_pre_write_guard.sh confirm CLOSED→OPEN transition\n  at threshold=2.\n- End-to-end smoke run with default threshold=3 over a 6-file batch:\n  writes #1-3 emit advisory, #4-6 silent — 50% reduction in interrupts.\n- Full hook test suite: 15 files, 0 failures.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(post-write-guard): skip same-name detection for Go files\n\nIn Go, every package is a directory and basename collisions across\npackages are routine: internal/foo/config.go vs internal/cli/config.go,\nor many cmd/*/main.go binaries. The OS forbids same-directory same-name,\nso any Go \"same basename\" hit is necessarily cross-package — that is the\nstandard convention, not a duplicate. The L1 same-name check produced\nfalse positives for any new Go file in a multi-package repo.\n\nSkip same-name scanning for .go and rely on Check 2 (duplicate symbol\ndefinitions) to catch real cross-package duplication of struct/func\nnames. Other languages keep existing behavior.\n\nVerification (this session):\n- New test: Go same-named files in different packages no longer emit\n  \"duplicate filename\".\n- Regression guard test: Python same-name across packages still warns,\n  proving the carve-out is Go-only.\n- Full hook test suite: 15 files, 0 failures (post-write-guard 12/12).\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* feat: add Rust Codex gates and optimize hooks\n\n* test: cover codex gate modules\n\n* bench: report p99 hook latency\n\n* refactor: rename rust runtime\n\n* fix: address rust runtime review comments\n\n* fix: exclude churn-only fast warnings\n\n* fix: guard standard app-server file changes\n\n* fix: align codex review contracts\n\n* fix: harden hook log redaction\n\n* fix: serialize rust jsonl appends\n\n* fix: keep churn-only warnings non-escalating\n\n* fix: address app-server completion review\n\n* fix: address fast path review comments\n\n* fix: tighten existing log directory permissions\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\nCo-authored-by: Lifcc <lifcc@Agent-OS.local>",
+          "timestamp": "2026-05-16T14:26:38+08:00",
+          "tree_id": "1c668395bedd45bf5410316711074baf47542169",
+          "url": "https://github.com/majiayu000/vibeguard/commit/2bc89d1cae5b169ebc99bb19351f2245801ab49f"
+        },
+        "date": 1778913177182,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 102,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 102,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 134,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 134,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 144,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 144,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 23,
             "unit": "ms"
           }
         ]
