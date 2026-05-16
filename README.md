@@ -288,7 +288,7 @@ which implies it) to make CI fail when the install is broken.
 
 VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
 
-Hooks live in `~/.codex/hooks.json` (requires `[features].codex_hooks = true` in `config.toml`):
+Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`):
 
 | Event | Hook | Function |
 |-------|------|----------|

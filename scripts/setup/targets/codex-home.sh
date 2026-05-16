@@ -190,6 +190,8 @@ print(total)
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled in config.toml"
+  elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
+    yellow "[LEGACY] deprecated codex_hooks feature is enabled; run setup.sh to migrate to hooks"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
@@ -324,11 +326,13 @@ print_codex_status() {
     codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
-    green "[OK] codex_hooks feature enabled"
+    green "[OK] hooks feature enabled"
+  elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
+    yellow "[LEGACY] deprecated codex_hooks feature enabled"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
-    yellow "[MISSING] codex_hooks feature not enabled"
+    yellow "[MISSING] hooks feature not enabled"
   fi
 
   if _has_legacy_codex_mcp_config; then

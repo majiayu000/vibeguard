@@ -549,7 +549,8 @@ state = {
 }
 (home / ".vibeguard/install-state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 PY
-install_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+CUSTOM_CARGO_TARGET_DIR="${TMP_HOME}/custom cargo target"
+install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
@@ -572,7 +573,8 @@ assert_cmd "post-guard-check is not enabled in the default installation" bash -c
 assert_cmd "skills-loader is not enabled in the default installation" bash -c "! grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json'"
 assert_cmd "The default core profile does not enable full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 assert_cmd "~/.codex/hooks.json exists after installation" test -f "${HOME}/.codex/hooks.json"
-assert_cmd "Enable codex_hooks feature after installation" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
+assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
+assert_cmd "Deprecated codex_hooks feature not written after installation" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${HOME}/.codex/config.toml'"
 assert_cmd "Clean legacy Codex MCP block after installation" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"

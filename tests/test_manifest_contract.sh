@@ -170,7 +170,7 @@ header "codex config helper"
 CONFIG_FILE="${TMP_DIR}/config.toml"
 enable_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${enable_out}" "CHANGED" "enable-codex-hooks creates config when missing"
-assert_cmd "enable-codex-hooks writes codex_hooks = true" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+assert_cmd "enable-codex-hooks writes hooks = true" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
@@ -180,7 +180,7 @@ TOML
 enable_prefixed_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${enable_prefixed_out}" "CHANGED" "enable-codex-hooks adds canonical key when only prefixed keys exist"
 assert_cmd "enable-codex-hooks preserves prefixed feature keys" grep -Eq '^codex_hooks_beta[[:space:]]*=[[:space:]]*false$' "${CONFIG_FILE}"
-assert_cmd "enable-codex-hooks adds exact codex_hooks key" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+assert_cmd "enable-codex-hooks adds exact hooks key" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features] # user comment
@@ -189,7 +189,17 @@ TOML
 enable_commented_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${enable_commented_out}" "CHANGED" "enable-codex-hooks recognizes commented features table"
 assert_cmd "enable-codex-hooks does not append duplicate commented features table" bash -c "test \$(grep -Ec '^\\[features\\]' '${CONFIG_FILE}') -eq 1"
-assert_cmd "enable-codex-hooks adds exact key under commented features table" grep -Eq '^codex_hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+assert_cmd "enable-codex-hooks adds exact hooks key under commented features table" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
+
+cat > "${CONFIG_FILE}" <<'TOML'
+[features]
+codex_hooks = true
+foo = true
+TOML
+enable_legacy_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
+assert_contains "${enable_legacy_out}" "CHANGED" "enable-codex-hooks migrates legacy codex_hooks"
+assert_cmd "enable-codex-hooks removes deprecated codex_hooks key" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${CONFIG_FILE}'"
+assert_cmd "enable-codex-hooks writes hooks key during migration" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
@@ -215,21 +225,21 @@ assert_cmd "non-legacy tables remain after recursive cleanup" grep -Eq '^\[other
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
-codex_hooks = true
+hooks = true
 TOML
 check_ok_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${check_ok_out}" "OK" "check-codex-hooks accepts valid TOML with feature enabled"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
-hooks = true
+codex_hooks = true
 TOML
 check_legacy_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
-assert_contains "${check_legacy_out}" "MISSING" "check-codex-hooks rejects legacy hooks feature key"
+assert_contains "${check_legacy_out}" "LEGACY" "check-codex-hooks reports deprecated codex_hooks feature key"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
-codex_hooks = true
+hooks = true
 broken = [
 TOML
 check_invalid_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
@@ -238,7 +248,7 @@ assert_contains "${check_invalid_out}" "INVALID" "check-codex-hooks rejects malf
 python3 - <<'PY' "${CONFIG_FILE}"
 from pathlib import Path
 import sys
-Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
+Path(sys.argv[1]).write_bytes(b'[features]\nhooks = true\n\xff')
 PY
 check_invalid_utf8_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
 assert_contains "${check_invalid_utf8_out}" "INVALID" "check-codex-hooks rejects invalid UTF-8"

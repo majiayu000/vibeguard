@@ -192,7 +192,17 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
   elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
     # Output a warning instead of blocking (probably reasonable document creation)
     vg_log "pre-bash-guard" "Bash" "warn" "Non-standard .md file" "$COMMAND"
-    vg_json_output_kv decision warn reason "VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary."
+    VG_CONTEXT="VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary." python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": os.environ["VG_CONTEXT"],
+    }
+}, ensure_ascii=False))
+PY
     exit 0
   fi
 fi

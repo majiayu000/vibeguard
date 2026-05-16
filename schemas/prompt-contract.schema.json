@@ -24,6 +24,22 @@
   ],
   "optional_sections": [
     {
+      "name": "constraints",
+      "heading_text": "Constraints"
+    },
+    {
+      "name": "project-constraints",
+      "heading_text": "Project Constraints To Fill In"
+    },
+    {
+      "name": "architecture-layers",
+      "heading_text": "Architecture Layers"
+    },
+    {
+      "name": "fix-priority",
+      "heading_text": "Fix Priority"
+    },
+    {
       "name": "code-style",
       "heading_text": "Code Style"
     },

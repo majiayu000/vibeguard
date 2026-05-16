@@ -30,7 +30,8 @@ def _table_name(line: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-CODEX_HOOKS_FEATURE = "codex_hooks"
+CODEX_HOOKS_FEATURE = "hooks"
+LEGACY_CODEX_HOOKS_FEATURE = "codex_hooks"
 
 
 def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
@@ -42,6 +43,7 @@ def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
     features_idx: int | None = None
     insert_idx: int | None = None
     in_features = False
+    found_hooks = False
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
@@ -61,12 +63,16 @@ def _ensure_codex_hooks_enabled(text: str) -> tuple[str, bool]:
                 if stripped != f"{CODEX_HOOKS_FEATURE} = true":
                     lines[idx] = f"{CODEX_HOOKS_FEATURE} = true"
                     changed = True
-                return "\n".join(lines).rstrip() + "\n", changed
+                found_hooks = True
+            elif key == LEGACY_CODEX_HOOKS_FEATURE:
+                lines[idx] = ""
+                changed = True
 
     if features_idx is not None:
         assert insert_idx is not None
-        lines.insert(insert_idx, f"{CODEX_HOOKS_FEATURE} = true")
-        changed = True
+        if not found_hooks:
+            lines.insert(insert_idx, f"{CODEX_HOOKS_FEATURE} = true")
+            changed = True
         return "\n".join(lines).rstrip() + "\n", changed
 
     content = "\n".join(lines).rstrip()
@@ -108,6 +114,8 @@ def _check_codex_hooks_enabled(text: str) -> tuple[str, int]:
     features = data.get("features")
     if isinstance(features, dict) and features.get(CODEX_HOOKS_FEATURE) is True:
         return "OK", 0
+    if isinstance(features, dict) and features.get(LEGACY_CODEX_HOOKS_FEATURE) is True:
+        return "LEGACY", 1
     return "MISSING", 1
 
 
@@ -162,10 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Structured Codex config.toml helper")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    enable = sub.add_parser("enable-codex-hooks", help="Ensure [features].codex_hooks = true")
+    enable = sub.add_parser("enable-codex-hooks", help="Ensure [features].hooks = true")
     enable.add_argument("--config-file", required=True)
 
-    check = sub.add_parser("check-codex-hooks", help="Validate [features].codex_hooks = true")
+    check = sub.add_parser("check-codex-hooks", help="Validate [features].hooks = true")
     check.add_argument("--config-file", required=True)
 
     remove = sub.add_parser("remove-legacy-vibeguard-mcp", help="Remove [mcp_servers.vibeguard] block")

@@ -52,6 +52,11 @@ except Exception:
 decision = data.get("decision", "pass")
 reason = data.get("reason", "")
 updated = data.get("updatedInput")
+hook_specific = data.get("hookSpecificOutput")
+
+if isinstance(hook_specific, dict):
+    print(json.dumps(data, ensure_ascii=False))
+    sys.exit(0)
 
 if decision == "block":
     print(json.dumps({

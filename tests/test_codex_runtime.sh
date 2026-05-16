@@ -82,6 +82,21 @@ rewrite_out="$(
 assert_contains "${rewrite_out}" '"systemMessage"' "run-hook-codex emits an explicit note for unsupported rewrites"
 assert_contains "${rewrite_out}" 'pnpm install' "run-hook-codex includes the suggested rewritten command"
 
+header "run-hook-codex passes through pretool additional context"
+cat > "${TMP_FAKE_REPO}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"advisory context"}}\n'
+HOOK
+chmod +x "${TMP_FAKE_REPO}/hooks/vibeguard-pre-bash-guard.sh"
+
+pretool_context_out="$(
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"printf x > notes.md"}}' \
+    | HOME="${TMP_HOME}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${pretool_context_out}" '"hookSpecificOutput"' "run-hook-codex passes through pretool hookSpecificOutput"
+assert_contains "${pretool_context_out}" 'advisory context' "run-hook-codex preserves pretool additional context"
+
 header "run-hook-codex keeps pass-with-no-output silent"
 TMP_HOME_PASSING="${TMP_DIR}/home-passing"
 TMP_FAKE_REPO_PASSING="${TMP_DIR}/fake-repo-passing"

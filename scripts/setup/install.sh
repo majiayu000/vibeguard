@@ -187,8 +187,20 @@ if ! command -v cargo &>/dev/null; then
 fi
 echo "  Building vibeguard-runtime (Rust)..."
 if cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet 2>/dev/null; then
+  if ! _runtime_target_dir="$(
+    cargo metadata --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --no-deps --format-version=1 2>/dev/null \
+      | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])'
+  )" || [[ -z "${_runtime_target_dir}" ]]; then
+    red "  ERROR: unable to resolve vibeguard-runtime Cargo target directory."
+    exit 2
+  fi
+  _runtime_binary="${_runtime_target_dir}/release/vibeguard-runtime"
+  if [[ ! -x "${_runtime_binary}" ]]; then
+    red "  ERROR: vibeguard-runtime build output not found at ${_runtime_binary}"
+    exit 2
+  fi
   mkdir -p "${_INSTALL_TMP}/bin"
-  cp "${REPO_DIR}/vibeguard-runtime/target/release/vibeguard-runtime" "${_INSTALL_TMP}/bin/vibeguard-runtime"
+  cp "${_runtime_binary}" "${_INSTALL_TMP}/bin/vibeguard-runtime"
   chmod +x "${_INSTALL_TMP}/bin/vibeguard-runtime"
   green "  vibeguard-runtime binary prepared"
 else
