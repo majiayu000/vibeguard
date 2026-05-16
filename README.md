@@ -228,9 +228,12 @@ Use workflow prompts and dispatcher guidance as consumers of that contract, not 
 bash ~/vibeguard/scripts/quality-grader.sh              # Quality grade (A/B/C/D)
 bash ~/vibeguard/scripts/stats.sh                       # Hook trigger stats (7 days)
 bash ~/vibeguard/scripts/hook-health.sh 24              # Hook health snapshot
+bash ~/vibeguard/scripts/doctors/codex-doctor.sh        # Codex install + hook capability diagnosis
 bash ~/vibeguard/scripts/metrics/metrics-exporter.sh    # Prometheus metrics export
 bash ~/vibeguard/scripts/verify/doc-freshness-check.sh  # Rule-guard coverage check
 ```
+
+Doctors are read-only diagnosis wrappers over the existing defense system. They summarize installation state, capability gaps, noisy hooks, recent events, and repair commands; hooks and guards remain the enforcement layer that blocks or warns during real tool execution.
 
 ## Learning System
 
