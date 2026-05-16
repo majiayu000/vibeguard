@@ -39,6 +39,171 @@ assert_not_contains() {
   fi
 }
 
+assert_codex_pretool_output_contract() {
+  local output="$1" desc="$2"
+  TOTAL=$((TOTAL + 1))
+  if CODEX_HOOK_OUTPUT="${output}" python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    data = json.loads(os.environ["CODEX_HOOK_OUTPUT"])
+except Exception as exc:
+    print(f"invalid JSON: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+allowed_top = {
+    "continue",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+    "decision",
+    "reason",
+    "hookSpecificOutput",
+}
+extra_top = sorted(set(data) - allowed_top)
+if extra_top:
+    print(f"unknown top-level fields: {extra_top}", file=sys.stderr)
+    raise SystemExit(1)
+if data.get("continue", True) is not True:
+    print("Codex PreToolUse does not support continue:false", file=sys.stderr)
+    raise SystemExit(1)
+if "stopReason" in data:
+    print("Codex PreToolUse does not support stopReason", file=sys.stderr)
+    raise SystemExit(1)
+if data.get("suppressOutput", False):
+    print("Codex PreToolUse does not support suppressOutput:true", file=sys.stderr)
+    raise SystemExit(1)
+
+decision = data.get("decision")
+if decision == "block":
+    if not str(data.get("reason", "")).strip():
+        print("Codex PreToolUse decision:block requires a non-empty reason", file=sys.stderr)
+        raise SystemExit(1)
+elif decision is not None:
+    print(f"unsupported VibeGuard PreToolUse top-level decision: {decision}", file=sys.stderr)
+    raise SystemExit(1)
+elif "reason" in data:
+    print("Codex PreToolUse reason requires decision:block", file=sys.stderr)
+    raise SystemExit(1)
+
+specific = data.get("hookSpecificOutput")
+if specific is None:
+    raise SystemExit(0)
+if not isinstance(specific, dict):
+    print("hookSpecificOutput must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+allowed_specific = {
+    "hookEventName",
+    "permissionDecision",
+    "permissionDecisionReason",
+    "updatedInput",
+    "additionalContext",
+}
+extra_specific = sorted(set(specific) - allowed_specific)
+if extra_specific:
+    print(f"unknown PreToolUse hookSpecificOutput fields: {extra_specific}", file=sys.stderr)
+    raise SystemExit(1)
+if specific.get("hookEventName") != "PreToolUse":
+    print("hookSpecificOutput.hookEventName must be PreToolUse", file=sys.stderr)
+    raise SystemExit(1)
+
+permission_decision = specific.get("permissionDecision")
+if permission_decision == "deny":
+    if not str(specific.get("permissionDecisionReason", "")).strip():
+        print("permissionDecision:deny requires permissionDecisionReason", file=sys.stderr)
+        raise SystemExit(1)
+elif permission_decision is not None:
+    print(f"unsupported VibeGuard PreToolUse permissionDecision: {permission_decision}", file=sys.stderr)
+    raise SystemExit(1)
+elif "permissionDecisionReason" in specific:
+    print("permissionDecisionReason requires permissionDecision", file=sys.stderr)
+    raise SystemExit(1)
+if "updatedInput" in specific:
+    print("VibeGuard Codex wrapper must not emit updatedInput on native PreToolUse", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_codex_posttool_output_contract() {
+  local output="$1" desc="$2"
+  TOTAL=$((TOTAL + 1))
+  if CODEX_HOOK_OUTPUT="${output}" python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    data = json.loads(os.environ["CODEX_HOOK_OUTPUT"])
+except Exception as exc:
+    print(f"invalid JSON: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+allowed_top = {
+    "continue",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+    "decision",
+    "reason",
+    "hookSpecificOutput",
+}
+extra_top = sorted(set(data) - allowed_top)
+if extra_top:
+    print(f"unknown top-level fields: {extra_top}", file=sys.stderr)
+    raise SystemExit(1)
+if data.get("suppressOutput", False):
+    print("Codex PostToolUse does not support suppressOutput:true", file=sys.stderr)
+    raise SystemExit(1)
+
+decision = data.get("decision")
+if decision == "block":
+    if not str(data.get("reason", "")).strip():
+        print("Codex PostToolUse decision:block requires a non-empty reason", file=sys.stderr)
+        raise SystemExit(1)
+elif decision is not None:
+    print(f"unsupported VibeGuard PostToolUse decision: {decision}", file=sys.stderr)
+    raise SystemExit(1)
+elif "reason" in data:
+    print("Codex PostToolUse reason requires decision:block", file=sys.stderr)
+    raise SystemExit(1)
+
+specific = data.get("hookSpecificOutput")
+if specific is None:
+    raise SystemExit(0)
+if not isinstance(specific, dict):
+    print("hookSpecificOutput must be an object", file=sys.stderr)
+    raise SystemExit(1)
+allowed_specific = {"hookEventName", "additionalContext", "updatedMCPToolOutput"}
+extra_specific = sorted(set(specific) - allowed_specific)
+if extra_specific:
+    print(f"unknown PostToolUse hookSpecificOutput fields: {extra_specific}", file=sys.stderr)
+    raise SystemExit(1)
+if specific.get("hookEventName") != "PostToolUse":
+    print("hookSpecificOutput.hookEventName must be PostToolUse", file=sys.stderr)
+    raise SystemExit(1)
+if "updatedMCPToolOutput" in specific:
+    print("VibeGuard Codex wrapper must not emit updatedMCPToolOutput", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -81,6 +246,23 @@ rewrite_out="$(
 )"
 assert_contains "${rewrite_out}" '"systemMessage"' "run-hook-codex emits an explicit note for unsupported rewrites"
 assert_contains "${rewrite_out}" 'pnpm install' "run-hook-codex includes the suggested rewritten command"
+assert_codex_pretool_output_contract "${rewrite_out}" "rewrite advisory matches Codex PreToolUse output contract"
+
+header "run-hook-codex maps Claude PreToolUse blocks to Codex deny schema"
+cat > "${TMP_FAKE_REPO}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"block","reason":"force push denied"}\n'
+HOOK
+chmod +x "${TMP_FAKE_REPO}/hooks/vibeguard-pre-bash-guard.sh"
+
+pretool_block_out="$(
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"git push --force"}}' \
+    | HOME="${TMP_HOME}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${pretool_block_out}" '"permissionDecision": "deny"' "run-hook-codex maps Claude block to Codex permission deny"
+assert_contains "${pretool_block_out}" '"permissionDecisionReason": "force push denied"' "run-hook-codex preserves deny reason for Codex"
+assert_codex_pretool_output_contract "${pretool_block_out}" "mapped pretool block matches Codex PreToolUse output contract"
 
 header "run-hook-codex passes through pretool additional context"
 cat > "${TMP_FAKE_REPO}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
@@ -96,6 +278,7 @@ pretool_context_out="$(
 )"
 assert_contains "${pretool_context_out}" '"hookSpecificOutput"' "run-hook-codex passes through pretool hookSpecificOutput"
 assert_contains "${pretool_context_out}" 'advisory context' "run-hook-codex preserves pretool additional context"
+assert_codex_pretool_output_contract "${pretool_context_out}" "pretool additional context matches Codex PreToolUse output contract"
 
 header "run-hook-codex keeps pass-with-no-output silent"
 TMP_HOME_PASSING="${TMP_DIR}/home-passing"
@@ -147,6 +330,7 @@ set -e
 assert_contains "${failing_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when the wrapped hook exits nonzero"
 assert_contains "${failing_out}" 'hook failed' "run-hook-codex explains wrapped hook failures"
 assert_not_contains "${failing_out}" '"permissionDecision":"allow"' "run-hook-codex does not convert wrapped hook failure into allow"
+assert_codex_pretool_output_contract "${failing_out}" "wrapped hook failure deny matches Codex PreToolUse output contract"
 TOTAL=$((TOTAL + 1))
 if [[ ${failing_rc} -eq 0 ]]; then
   green "run-hook-codex exits successfully when it emits a deny payload for wrapped hook failure"
@@ -216,6 +400,7 @@ invalid_json_rc=$?
 set -e
 assert_contains "${invalid_json_out}" '"permissionDecision": "deny"' "run-hook-codex emits a deny payload when pretool adaptation fails"
 assert_contains "${invalid_json_out}" 'invalid JSON' "run-hook-codex explains invalid pretool hook JSON"
+assert_codex_pretool_output_contract "${invalid_json_out}" "invalid JSON deny matches Codex PreToolUse output contract"
 TOTAL=$((TOTAL + 1))
 if [[ ${invalid_json_rc} -eq 0 ]]; then
   green "run-hook-codex exits successfully when it emits a deny payload on pretool adapter failure"
@@ -251,6 +436,7 @@ missing_hook_out="$(
     | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
 )"
 assert_contains "${missing_hook_out}" '"permissionDecision": "deny"' "missing PreToolUse hook fails closed"
+assert_codex_pretool_output_contract "${missing_hook_out}" "missing hook deny matches Codex PreToolUse output contract"
 assert_contains "$(cat "${DIAG_FILE}")" "missing-hook" "missing hook writes diagnostic event"
 
 cat > "${TMP_FAKE_REPO_DIAG}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
@@ -264,6 +450,7 @@ missing_adapter_out="$(
     | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_ADAPTER_PATH="${TMP_DIR}/missing-adapter.sh" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
 )"
 assert_contains "${missing_adapter_out}" '"permissionDecision": "deny"' "missing adapter fails closed for PreToolUse"
+assert_codex_pretool_output_contract "${missing_adapter_out}" "missing adapter deny matches Codex PreToolUse output contract"
 assert_contains "$(cat "${DIAG_FILE}")" "missing-adapter" "missing adapter writes diagnostic event"
 
 header "run-hook-codex adapts posttool block output"
@@ -285,6 +472,7 @@ posttool_out="$(
 )"
 assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
 assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"
+assert_codex_posttool_output_contract "${posttool_out}" "posttool block matches Codex PostToolUse output contract"
 
 cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh" <<'HOOK'
 #!/usr/bin/env bash
