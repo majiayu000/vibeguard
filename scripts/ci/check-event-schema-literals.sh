@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 repo = Path(sys.argv[1])
-targets = [repo / "vg-helper/src/log_query.rs"]
-session_metrics_dir = repo / "vg-helper/src/session_metrics"
+targets = [repo / "vibeguard-runtime/src/log_query.rs"]
+session_metrics_dir = repo / "vibeguard-runtime/src/session_metrics"
 if session_metrics_dir.exists():
     targets.extend(
         path
@@ -18,7 +18,7 @@ if session_metrics_dir.exists():
         if "tests" not in path.relative_to(session_metrics_dir).parts
     )
 else:
-    targets.append(repo / "vg-helper/src/session_metrics.rs")
+    targets.append(repo / "vibeguard-runtime/src/session_metrics.rs")
 forbidden = [
     '"ts"',
     '"session"',

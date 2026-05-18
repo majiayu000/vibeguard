@@ -31,6 +31,21 @@ vg_append_log_line() {
   return "$status"
 }
 
+vg_private_log_file() {
+  local file="$1"
+  [[ -e "$file" ]] || return 0
+  chmod 600 "$file" 2>/dev/null || true
+}
+
+vg_log_clean_json_text() {
+  local text="$1"
+  if [[ "$text" =~ ^[A-Za-z0-9_./:\ \(\),-]*$ ]]; then
+    printf '%s' "$text"
+  else
+    printf '%s' "$text" | tr -d '\000-\007\013\016-\037\177'
+  fi
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -57,7 +72,9 @@ vg_log() {
     _VG_START_MS=""
   fi
 
-  mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+  if [[ ! -d "$VIBEGUARD_LOG_DIR" ]]; then
+    mkdir -p "$VIBEGUARD_LOG_DIR" 2>/dev/null
+  fi
   chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
   # Pure bash JSON serialization (eliminates python3 subprocess)
@@ -71,8 +88,8 @@ vg_log() {
   # becomes ]8;;url\x07 with ESC-only stripping; the raw BEL makes JSONL invalid).
   # tr range: 0x00-0x07 (NUL-BEL), 0x0B (VT), 0x0E-0x1F (SO-US incl. ESC), 0x7F (DEL)
   local esc_reason esc_detail
-  esc_reason=$(printf '%s' "$reason" | tr -d '\000-\007\013\016-\037\177')
-  esc_detail=$(printf '%s' "$detail"  | tr -d '\000-\007\013\016-\037\177')
+  esc_reason=$(vg_log_clean_json_text "$reason")
+  esc_detail=$(vg_log_clean_json_text "$detail")
   esc_reason="${esc_reason//\\/\\\\}" esc_detail="${esc_detail//\\/\\\\}"
   esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
   esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
@@ -88,13 +105,15 @@ vg_log() {
   [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
   json="${json}}"
 
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
   vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"
-  chmod 600 "$VIBEGUARD_LOG_FILE" 2>/dev/null || true
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
 
   # Synchronously write to the global log (for stats.sh aggregation analysis)
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
+    vg_private_log_file "$global_log"
     vg_append_log_line "$global_log" "$json"
-    chmod 600 "$global_log" 2>/dev/null || true
+    vg_private_log_file "$global_log"
   fi
 }

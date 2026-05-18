@@ -174,33 +174,38 @@ cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
 cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
 printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
 
-# Build vg-helper Rust binary before swapping the installed snapshot.
-# The Python predecessors are no longer runtime fallbacks; missing vg-helper is
-# an explicit degraded install only when VIBEGUARD_ALLOW_NO_HELPER=1 is set.
-if [[ -f "${REPO_DIR}/vg-helper/Cargo.toml" ]]; then
-  if command -v cargo &>/dev/null; then
-    echo "  Building vg-helper (Rust)..."
-    if cargo build --release --manifest-path "${REPO_DIR}/vg-helper/Cargo.toml" --quiet 2>/dev/null; then
-      mkdir -p "${_INSTALL_TMP}/bin"
-      cp "${REPO_DIR}/vg-helper/target/release/vg-helper" "${_INSTALL_TMP}/bin/vg-helper"
-      chmod +x "${_INSTALL_TMP}/bin/vg-helper"
-      green "  vg-helper binary prepared"
-    else
-      if [[ "${VIBEGUARD_ALLOW_NO_HELPER:-0}" == "1" ]]; then
-        yellow "  WARN: vg-helper build failed; installing explicit degraded mode (no package rewrite/session metrics)"
-      else
-        red "  ERROR: vg-helper build failed. Install Rust/Cargo or set VIBEGUARD_ALLOW_NO_HELPER=1 for explicit degraded mode."
-        exit 2
-      fi
-    fi
-  else
-    if [[ "${VIBEGUARD_ALLOW_NO_HELPER:-0}" == "1" ]]; then
-      yellow "  WARN: cargo not found; installing explicit degraded mode (no package rewrite/session metrics)"
-    else
-      red "  ERROR: cargo not found. Install Rust/Cargo or set VIBEGUARD_ALLOW_NO_HELPER=1 for explicit degraded mode."
-      exit 2
-    fi
+# Build vibeguard-runtime Rust binary before swapping the installed snapshot.
+# Runtime installation is fail-closed: there is no Python or no-runtime
+# compatibility path for hook JSON parsing, package rewrite, or metrics.
+if [[ ! -f "${REPO_DIR}/vibeguard-runtime/Cargo.toml" ]]; then
+  red "  ERROR: vibeguard-runtime/Cargo.toml not found; cannot install hooks without the Rust runtime."
+  exit 2
+fi
+if ! command -v cargo &>/dev/null; then
+  red "  ERROR: cargo not found. Install Rust/Cargo before installing VibeGuard."
+  exit 2
+fi
+echo "  Building vibeguard-runtime (Rust)..."
+if cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet 2>/dev/null; then
+  if ! _runtime_target_dir="$(
+    cargo metadata --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --no-deps --format-version=1 2>/dev/null \
+      | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])'
+  )" || [[ -z "${_runtime_target_dir}" ]]; then
+    red "  ERROR: unable to resolve vibeguard-runtime Cargo target directory."
+    exit 2
   fi
+  _runtime_binary="${_runtime_target_dir}/release/vibeguard-runtime"
+  if [[ ! -x "${_runtime_binary}" ]]; then
+    red "  ERROR: vibeguard-runtime build output not found at ${_runtime_binary}"
+    exit 2
+  fi
+  mkdir -p "${_INSTALL_TMP}/bin"
+  cp "${_runtime_binary}" "${_INSTALL_TMP}/bin/vibeguard-runtime"
+  chmod +x "${_INSTALL_TMP}/bin/vibeguard-runtime"
+  green "  vibeguard-runtime binary prepared"
+else
+  red "  ERROR: vibeguard-runtime build failed. Fix the Rust build before installing VibeGuard."
+  exit 2
 fi
 
 # Swap: move old installed aside, rename new into place, restore on failure
@@ -327,7 +332,6 @@ echo "  VIBEGUARD_PROFILE=minimal|core|full|strict   Runtime profile"
 echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo "  VIBEGUARD_GC_*                                 GC thresholds; see schemas/vibeguard-project.schema.json"
-echo "  VIBEGUARD_ALLOW_NO_HELPER=1                    Explicit degraded install without vg-helper"
 echo
 echo "Git Pre-Commit Guard:"
 echo "Automatically installed to VibeGuard repository"

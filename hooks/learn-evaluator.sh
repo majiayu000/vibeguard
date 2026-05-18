@@ -11,15 +11,31 @@
 # Output suggestions when significant signals are detected (not blocking)
 set -euo pipefail
 source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 
+vg_learn_is_ci() {
+  case "${CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${GITHUB_ACTIONS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TRAVIS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${CIRCLECI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  [[ -n "${JENKINS_URL:-}" ]] && return 0
+  case "${GITLAB_CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TF_BUILD:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  return 1
+}
+
+vg_learn_stop_hook_active_fast() {
+  local input="$1" active=""
+  active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
+  [[ "$active" == "true" ]]
+}
+
 # CI guard: skip in automated environments
-vg_is_ci && exit 0
+vg_learn_is_ci && exit 0
 
 # Read stdin; check stop_hook_active to break Stop-hook chain loops
 INPUT=$(cat 2>/dev/null || true)
-vg_stop_hook_active "$INPUT" && exit 0
+vg_learn_stop_hook_active_fast "$INPUT" && exit 0
 
 # Not in git repository → skip
 if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
@@ -27,15 +43,10 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
 fi
 
 # Collect session metrics for the last 30 minutes of the current project + correct signal detection
-if [[ -n "$_VG_HELPER" ]]; then
-  # Pass the full log file — the 30-minute cutoff is enforced inside vg-helper,
-  # so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
-  LEARN_SUGGESTION=$("$_VG_HELPER" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
-    < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
-else
-  vg_log "learn-evaluator" "Stop" "warn" "session metrics skipped: vg-helper unavailable" "run setup.sh to install vg-helper"
-  LEARN_SUGGESTION=""
-fi
+# Pass the full log file — the 30-minute cutoff is enforced inside vibeguard-runtime,
+# so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
+LEARN_SUGGESTION=$("$_VIBEGUARD_RUNTIME" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
+  < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
 
 # If a correction signal is detected, output suggestions (not blocking)
 if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then
@@ -54,7 +65,9 @@ print(json.dumps(result, ensure_ascii=False))
 '
 fi
 
-# Clean up the churn flag file of this session
-find "${HOME}/.vibeguard/" -name ".churn_warned_${VIBEGUARD_SESSION_ID}_*" -delete 2>/dev/null || true
+# Clean up the churn flag file of this session. Keep the scan bounded and
+# respect benchmark/test log isolation.
+_VG_CHURN_DIR="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+find "$_VG_CHURN_DIR" -maxdepth 1 -name ".churn_warned_${VIBEGUARD_SESSION_ID}_*" -delete 2>/dev/null || true
 
 exit 0

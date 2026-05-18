@@ -3,7 +3,7 @@
 #
 # Resolution order:
 #   1. Environment variable supplied by the caller.
-#   2. JSON config file at $VIBEGUARD_CONFIG_FILE, or
+#   2. JSON config file at $_VG_CONFIG_FILE / $VIBEGUARD_CONFIG_FILE, or
 #      ${VIBEGUARD_LOG_DIR:-$HOME/.vibeguard}/config.json.
 #   3. Caller-provided default.
 #
@@ -16,7 +16,7 @@ fi
 _VG_CONFIG_SH_LOADED=1
 
 _vg_config_file() {
-  printf '%s' "${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}"
+  printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
 }
 
 vg_config_get_int() {

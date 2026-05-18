@@ -35,7 +35,8 @@ fi
 # Cover variants: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' etc.
 # This is intentionally line-oriented rather than a DOTALL regex so adversarial
 # unterminated heredocs cannot force broad backtracking across the full command.
-COMMAND_NO_HEREDOC=$(printf '%s' "$COMMAND" | python3 -c '
+if [[ "$COMMAND" == *"<<"* ]]; then
+  COMMAND_NO_HEREDOC=$(printf '%s' "$COMMAND" | python3 -c '
 import re, sys
 
 terminator = None
@@ -60,10 +61,14 @@ for line in sys.stdin.read().splitlines(keepends=True):
 
 sys.stdout.write("".join(out))
 ' 2>/dev/null || printf '%s' "$COMMAND")
+else
+  COMMAND_NO_HEREDOC="$COMMAND"
+fi
 
 # Strip quotation marks (commit message, echo string, etc.) to avoid text content triggering false alarms
 # Keep the command structure and replace the quoted content with an empty string
-COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
+if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
+  COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
 # Remove double quotes and single quotes
@@ -71,16 +76,24 @@ cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
 cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
 " 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
+else
+  COMMAND_STRIPPED="$COMMAND_NO_HEREDOC"
+fi
 
 # Use path scanning: remove quotation marks but retain the content to prevent rm -rf \"/Users/...\" from being bypassed
-COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
+if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
+  COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
+else
+  COMMAND_PATH_SCAN="$COMMAND_NO_HEREDOC"
+fi
 
 # Variant of COMMAND_STRIPPED that converts "." / '.' (standalone quoted dot) into a bare dot
 # before stripping other quoted content. This lets the same no-anchor regex detect both
 # `git checkout .` and `git checkout "."` (including wrappers like `GIT_TRACE=1 git checkout "."`
 # or `echo y | git checkout "."`) without exposing separators that were inside larger quoted
 # strings (which would cause false positives when stripping all quotes via COMMAND_PATH_SCAN).
-COMMAND_STRIPPED_WITH_DOT=$(printf '%s' "$COMMAND_NO_HEREDOC" | python3 -c "
+if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
+  COMMAND_STRIPPED_WITH_DOT=$(printf '%s' "$COMMAND_NO_HEREDOC" | python3 -c "
 import re, sys
 cmd = sys.stdin.read()
 # Replace standalone quoted dot (\".\"/'.') with bare dot before stripping other quoted content
@@ -91,6 +104,9 @@ cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
 cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
 " 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
+else
+  COMMAND_STRIPPED_WITH_DOT="$COMMAND_NO_HEREDOC"
+fi
 
 block() {
   local reason="$1"
@@ -176,7 +192,17 @@ if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/d
   elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
     # Output a warning instead of blocking (probably reasonable document creation)
     vg_log "pre-bash-guard" "Bash" "warn" "Non-standard .md file" "$COMMAND"
-    vg_json_output_kv decision warn reason "VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary."
+    VG_CONTEXT="VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary." python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": os.environ["VG_CONTEXT"],
+    }
+}, ensure_ascii=False))
+PY
     exit 0
   fi
 fi
@@ -184,12 +210,7 @@ fi
 # --- Package manager transparent correction (updatedInput) ---
 # Mechanically predictable commands can be rewritten directly without block+retry.
 # Only for simple single commands (chain commands including && and other chain commands are not corrected to avoid mistakenly modifying complex pipelines).
-if [[ -n "$_VG_HELPER" ]]; then
-  _PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VG_HELPER" pkg-rewrite 2>/dev/null || echo "")
-else
-  vg_log "pre-bash-guard" "Bash" "warn" "pkg-rewrite skipped: vg-helper unavailable" "run setup.sh to install vg-helper"
-  _PKG_CORRECTION=""
-fi
+_PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VIBEGUARD_RUNTIME" pkg-rewrite 2>/dev/null || echo "")
 
 if [[ -n "$_PKG_CORRECTION" ]]; then
   # Verify target tool is actually installed before rewriting — avoids turning

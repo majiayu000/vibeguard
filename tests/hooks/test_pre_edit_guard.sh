@@ -24,6 +24,10 @@ PY
 assert_contains "$result" '"decision": "block"' "Safe handling of paths containing double quotes and backslashes"
 assert_exit_zero "pre-edit block output remains valid JSON for escaped paths" python3 -c 'import json, sys; json.loads(sys.argv[1])' "$result"
 
+result=$(printf '{"tool_input":' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" '"decision": "block"' "Malformed hook input fails closed"
+assert_contains "$result" "malformed PreToolUse(Edit)" "Malformed hook input explains validation failure"
+
 # Existing file + empty old_string should be released
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Existing file + empty old_string release"
@@ -53,6 +57,16 @@ PY
 )
 assert_contains "$result" '"decision": "block"' "U-16: Block Codex apply_patch edit over 800 lines"
 assert_contains "$result" "U-16" "U-16: Codex apply_patch edit block cites rule"
+
+tmp_home=$(mktemp -d)
+tmp_file=$(mktemp)
+printf 'x\n' > "$tmp_file"
+result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$tmp_file" \
+  | env -u VIBEGUARD_LOG_DIR -u VIBEGUARD_PROJECT_LOG_DIR -u VIBEGUARD_LOG_FILE HOME="$tmp_home" bash hooks/pre-edit-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "Default log-dir fast path releases valid edits"
+global_log_text="$(cat "$tmp_home/.vibeguard/events.jsonl" 2>/dev/null || true)"
+assert_contains "$global_log_text" '"hook":"pre-edit-guard"' "Default log-dir Rust fast path writes global log"
+rm -rf "$tmp_home" "$tmp_file"
 
 # W-12: Test infrastructure files should be intercepted (conftest.py)
 result=$(echo '{"tool_input":{"file_path":"/any/path/conftest.py","old_string":""}}' | bash hooks/pre-edit-guard.sh)

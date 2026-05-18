@@ -28,18 +28,22 @@ vg_detect_stubs() {
 
   case "$file_path" in
     *.rs)
+      [[ "$content" == *"todo!("* || "$content" == *"unimplemented!("* || "$content" == *'panic!("not implemented'* ]] || { echo ""; return; }
       stub_count=$(_stub_grep '^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)')
       lang_desc="todo!/unimplemented!"
       ;;
     *.ts|*.tsx|*.js|*.jsx)
+      [[ "$content" == *"not implemented"* || "$content" == *"TODO"* || "$content" == *"FIXME"* || "$content" == *"stub"* ]] || { echo ""; return; }
       stub_count=$(_stub_grep '^\s*(throw new Error\(.*(not implemented|TODO|FIXME)|// TODO|// FIXME|return null.*// stub)')
       lang_desc="throw not implemented / TODO"
       ;;
     *.py)
+      [[ "$content" == *"pass"* || "$content" == *"NotImplementedError"* || "$content" == *"TODO"* || "$content" == *"FIXME"* ]] || { echo ""; return; }
       stub_count=$(_stub_grep '^\s*(pass\s*$|pass\s*#|raise NotImplementedError|# TODO|# FIXME)')
       lang_desc="pass/NotImplementedError/TODO"
       ;;
     *.go)
+      [[ "$content" == *"panic(\"not implemented"* || "$content" == *"TODO"* || "$content" == *"FIXME"* ]] || { echo ""; return; }
       stub_count=$(_stub_grep '^\s*(panic\("not implemented|// TODO|// FIXME)')
       lang_desc="panic not implemented / TODO"
       ;;

@@ -14,6 +14,14 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 STATUS_LIB="${REPO_DIR}/scripts/lib/status_report.sh"
 CHECK_SCRIPT="${REPO_DIR}/scripts/setup/check.sh"
 SETUP_SCRIPT="${REPO_DIR}/setup.sh"
+AWK_PORTABILITY_FIXTURE=""
+
+cleanup() {
+  if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
+    rm -f "${AWK_PORTABILITY_FIXTURE}"
+  fi
+}
+trap cleanup EXIT
 
 PASS=0
 FAIL=0
@@ -241,6 +249,19 @@ default_out="$(bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
 assert_contains "$default_out" "VibeGuard Installation Status" "default: legacy header preserved"
 assert_contains "$default_out" "Summary"        "default: summary block present"
 assert_contains "$default_out" "Verdict :"      "default: verdict line present"
+assert_contains "$default_out" "[OK] All awk blocks use POSIX-compatible regex" "default: Python heredoc regexes do not trip awk portability"
+assert_not_contains "$default_out" "check_dependency_changes.sh:147" "default: dependency Python regex not reported as awk"
+assert_not_contains "$default_out" "check_test_weakening.sh:118" "default: test weakening Python regex not reported as awk"
+
+AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
+cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'
+#!/usr/bin/env bash
+awk '/\sbad/ { print }' "$1"
+SH
+awk_fixture_out="$(bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$awk_fixture_out" "vg-test-non-posix-awk.sh" "check reports real non-POSIX awk regex"
+rm -f "${AWK_PORTABILITY_FIXTURE}"
+AWK_PORTABILITY_FIXTURE=""
 
 no_summary_out="$(bash "${SETUP_SCRIPT}" --check --no-summary 2>&1 || true)"
 assert_contains "$no_summary_out" "VibeGuard Installation Status" "no-summary: legacy header preserved"

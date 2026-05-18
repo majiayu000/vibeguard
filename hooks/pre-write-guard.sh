@@ -15,9 +15,6 @@ source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 
-# Helper: a write that does not trigger a new-source advisory should reset the
-# warn-mode breaker so its count tracks consecutive batched-source writes, not
-# cumulative session-wide advisories.
 _pass_and_exit() {
   vg_cb_record_pass "pre-write-guard"
   exit 0
@@ -25,26 +22,23 @@ _pass_and_exit() {
 
 INPUT=$(cat)
 
-FILE_PATH=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+if ! CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-write-check "$_U16_BASE_LIMIT" 2>/dev/null); then
+  vg_log "pre-write-guard" "Write" "block" "vibeguard-runtime pre-write-check failed; fail-closed" ""
+  vg_json_output_kv decision block reason "VIBEGUARD interception: runtime pre-write-check failed; fail-closed."
+  exit 0
+fi
 
-if [[ -z "$FILE_PATH" ]]; then
+CHECK_STATUS="${CHECK_RESULT%%$'\n'*}"
+_CHECK_REST="${CHECK_RESULT#*$'\n'}"
+FILE_PATH="${_CHECK_REST%%$'\n'*}"
+[[ "$FILE_PATH" == "$CHECK_RESULT" ]] && FILE_PATH=""
+
+if [[ "$CHECK_STATUS" == "PASS" || -z "$FILE_PATH" ]]; then
   _pass_and_exit
 fi
 
-# W-12: Block writes to test infrastructure files (new or existing)
-# Resolve symlinks first to prevent bypass via aliases (e.g. safe.txt -> conftest.py)
-_REAL_PATH=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
-BASENAME=$(basename "$_REAL_PATH")
-# Normalise to lowercase for case-insensitive filesystem safety (e.g. default macOS HFS+)
-BASENAME_LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
-_is_test_infra=false
-case "$BASENAME_LOWER" in
-  conftest.py|pytest.ini|.coveragerc|setup.cfg)
-    _is_test_infra=true ;;
-  jest.config.*|vitest.config.*|karma.config.*|babel.config.*)
-    _is_test_infra=true ;;
-esac
-if [[ "$_is_test_infra" == "true" ]]; then
+if [[ "$CHECK_STATUS" == "W12" ]]; then
   vg_log "pre-write-guard" "Write" "block" "Test Infrastructure File Guard (W-12)" "$FILE_PATH"
   cat <<'EOF'
 {
@@ -55,56 +49,11 @@ EOF
   exit 0
 fi
 
-# --- [U-16] File size block: reject source files over limit before writing ---
-_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
-_U16_RESULT=$(echo "$INPUT" | VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
-import json, sys, os, re
-from pathlib import PurePath
-
-data = json.load(sys.stdin)
-file_path = data.get("tool_input", {}).get("file_path", "")
-content = data.get("tool_input", {}).get("content", "")
-lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
-
-base_limit = int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800")
-SOURCE_EXTS = {".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"}
-_, ext = os.path.splitext(file_path)
-is_test = any(p in file_path for p in ["/tests/", "/test/", "/__tests__/", "/spec/", "/fixtures/", "/mocks/", "/testdata/", "_test.", ".test.", ".spec.", "_test.rs", "/test_"])
-if ext.lower() not in SOURCE_EXTS or is_test or lines <= base_limit:
-    print("OK")
-    sys.exit(0)
-
-limit = base_limit
-dir_path = os.path.dirname(os.path.abspath(file_path)) if file_path else ""
-while dir_path and dir_path != "/":
-    if os.path.isdir(os.path.join(dir_path, ".git")):
-        claude_md = os.path.join(dir_path, "CLAUDE.md")
-        if os.path.isfile(claude_md):
-            try:
-                with open(claude_md) as cf:
-                    for cline in cf:
-                        if "U-16 exempt" in cline:
-                            for m in re.finditer(r"`([^`]+)`\s*\u2192\s*(\d+)", cline):
-                                pattern, lim = m.group(1), int(m.group(2))
-                                try:
-                                    if PurePath(file_path).match(pattern):
-                                        limit = max(limit, lim)
-                                except (ValueError, TypeError):
-                                    pass
-            except (OSError, IOError):
-                pass
-        break
-    dir_path = os.path.dirname(dir_path)
-
-if lines > limit:
-    print(f"BLOCK:{lines}:{limit}")
-else:
-    print("OK")
-' 2>/dev/null || echo "OK")
-
-if [[ "$_U16_RESULT" == BLOCK:* ]]; then
-  _U16_LINES=$(echo "$_U16_RESULT" | cut -d: -f2)
-  _U16_LIM=$(echo "$_U16_RESULT" | cut -d: -f3)
+if [[ "$CHECK_STATUS" == "U16_BLOCK" ]]; then
+  _CHECK_REST="${_CHECK_REST#*$'\n'}"
+  _U16_LINES="${_CHECK_REST%%$'\n'*}"
+  _CHECK_REST="${_CHECK_REST#*$'\n'}"
+  _U16_LIM="${_CHECK_REST%%$'\n'*}"
   vg_log "pre-write-guard" "Write" "block" "U-16 file size: ${_U16_LINES} > ${_U16_LIM}" "$FILE_PATH"
   cat <<BLOCK_EOF
 {
@@ -115,35 +64,7 @@ BLOCK_EOF
   exit 0
 fi
 
-# File already exists (edit) → Release
-if [[ -e "$FILE_PATH" ]]; then
-  _pass_and_exit
-fi
-
-#Extract file name and extension
-BASENAME=$(basename "$FILE_PATH")
-EXT="${BASENAME##*.}"
-
-# Release list: configuration, document, lock file, test file
-case "$BASENAME" in
-  *.md|*.txt|*.json|*.yaml|*.yml|*.toml|*.lock|*.css|*.html|*.svg|*.png|*.jpg)
-    _pass_and_exit ;;
-  *.test.*|*.spec.*|*_test.*|*_spec.*)
-    _pass_and_exit ;;
-  test_*|spec_*)
-    _pass_and_exit ;;
-  .gitignore|.env*|Makefile|Dockerfile|*.sh)
-    _pass_and_exit ;;
-esac
-
-# Release: files in the test directory
-case "$FILE_PATH" in
-  */tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*)
-    _pass_and_exit ;;
-esac
-
-# Source code file: check whether interception is required
-if ! vg_is_source_file "$FILE_PATH"; then
+if [[ "$CHECK_STATUS" != "SOURCE_NEW" ]]; then
   _pass_and_exit
 fi
 
@@ -169,7 +90,6 @@ if [[ "$MODE" == "block" ]]; then
 }
 EOF
 else
-  source "$(dirname "$0")/circuit-breaker.sh"
   if vg_cb_check "pre-write-guard"; then
     vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
     vg_cb_record_block "pre-write-guard"

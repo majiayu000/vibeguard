@@ -59,27 +59,27 @@ Stop and re-plan before continuing if any of these happens:
 
 | Area | Current anchors | Problem shape |
 |------|-----------------|---------------|
-| Hook JSON parsing | `hooks/log.sh`, `vg-helper/src/json_field.rs`, `hooks/pre-bash-guard.sh` | Parse errors collapse to empty strings, allowing security-sensitive hooks to pass silently. |
+| Hook JSON parsing | `hooks/log.sh`, `vibeguard-runtime/src/json_field.rs`, `hooks/pre-bash-guard.sh` | Parse errors collapse to empty strings, allowing security-sensitive hooks to pass silently. |
 | Pre-commit quality gate | `hooks/pre-commit-guard.sh`, `guards/**` | Timeout returns success and is excluded from build failure handling. |
 | Setup high-context writes | `scripts/setup/targets/claude-home.sh`, `scripts/lib/settings_json.py`, `scripts/lib/claude_md.py` | Installer modifies high-context files without SEC-13 diff/confirmation. |
-| Runtime event log | `hooks/log.sh`, `scripts/gc/gc-logs.sh`, `scripts/gc/gc-scheduled.sh`, `vg-helper/src/log_query.rs` | Race-prone GC, duplicated global/project logs, scattered field names, no redaction. |
-| Cross-language helpers | `vg-helper/src/session_metrics.rs`, `hooks/_lib/session_metrics.py`, `vg-helper/src/pkg_rewrite.rs`, `hooks/_lib/pkg_rewrite.py` | Rust and Python implementations coexist and have already drifted. |
+| Runtime event log | `hooks/log.sh`, `scripts/gc/gc-logs.sh`, `scripts/gc/gc-scheduled.sh`, `vibeguard-runtime/src/log_query.rs` | Race-prone GC, duplicated global/project logs, scattered field names, no redaction. |
+| Cross-language helpers | `vibeguard-runtime/src/session_metrics/mod.rs`, `hooks/_lib/session_metrics.py`, `vibeguard-runtime/src/pkg_rewrite.rs`, `hooks/_lib/pkg_rewrite.py` | Rust and Python implementations coexist and have already drifted. |
 | Eval pipeline | `eval/run_eval.py`, `eval/**`, `scripts/benchmark.sh` | API errors count as misses and calibration is absent. |
 | Hook registration | `scripts/lib/codex_hooks_json.py`, `scripts/lib/settings_json.py`, `hooks/CLAUDE.md`, `hooks/vibeguard-*.sh` | No central hook manifest; adding a hook touches many files. |
-| Tests | `tests/test_hooks.sh`, `tests/test_codex_runtime.sh`, `vg-helper/tests/cli.rs` | Hook tests are a mega-file; vg-helper module coverage is uneven. |
+| Tests | `tests/test_hooks.sh`, `tests/test_codex_runtime.sh`, `vibeguard-runtime/tests/cli.rs` | Hook tests are a mega-file; vibeguard-runtime module coverage is uneven. |
 
 ### Duplicate / Drift Candidates
 
 | id | category | files and symbols | evidence | impact | risk | convergence direction |
 |----|----------|-------------------|----------|--------|------|-----------------------|
 | D1 | fail-open gate | `hooks/pre-commit-guard.sh::run_guard`, `run_build_check` | timeout code `124` returns or counts as success | high | low | fail-closed by default with explicit warn override |
-| D2 | JSON parse contract | `hooks/log.sh::vg_json_field`, `vg-helper/src/json_field.rs`, pre hooks | invalid JSON becomes empty field | high | medium | add strict APIs and migrate security-sensitive hooks first |
+| D2 | JSON parse contract | `hooks/log.sh::vg_json_field`, `vibeguard-runtime/src/json_field.rs`, pre hooks | invalid JSON becomes empty field | high | medium | add strict APIs and migrate security-sensitive hooks first |
 | D3 | high-context writer | `claude-home.sh`, `settings_json.py`, `claude_md_helper.py` | direct writes with no diff | high | medium | central SEC-13 diff/apply helper |
 | D4 | parallel implementation | Rust/Python `session_metrics` | paralysis depth and top-N behavior differ | high | medium | Rust canonical, Python deprecate/remove or CI equivalence |
 | D5 | parallel implementation | Rust/Python `pkg_rewrite` | same "replaces Python" pattern remains | medium | medium | Rust canonical, Python deprecate/remove or CI equivalence |
 | D6 | log lifecycle | `hooks/log.sh`, `gc-logs.sh`, `gc-scheduled.sh` | append vs truncate rewrite race and uneven GC | high | medium | atomic GC + one retention policy |
 | D7 | hook registry | `codex_hooks_json.py::MANAGED_SPECS`, setup targets, docs | hook addition requires 7+ edits | high | high | `hooks/manifest.json` plus generated outputs |
-| D8 | output adaptation | `run-hook-codex.sh` inline Python heredocs | 5 adapter blocks | medium | medium | `hooks/_lib/codex_adapter.sh` or `vg-helper codex-adapt` |
+| D8 | output adaptation | `run-hook-codex.sh` inline Python heredocs | 5 adapter blocks | medium | medium | `hooks/_lib/codex_adapter.sh` or `vibeguard-runtime codex-adapt` |
 
 ## 2. Execution Protocol
 
@@ -98,7 +98,7 @@ Default health checks:
 bash setup.sh --check
 bash tests/test_hooks.sh
 bash tests/test_setup.sh
-(cd vg-helper && cargo test)
+(cd vibeguard-runtime && cargo test)
 ```
 
 Use the closest subset when the full command is unrelated or too slow, and record why.
@@ -136,17 +136,17 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 - Expected files:
   - `hooks/log.sh`
   - `hooks/pre-bash-guard.sh`
-  - `vg-helper/src/json_field.rs`
-  - `vg-helper/tests/cli.rs`
+  - `vibeguard-runtime/src/json_field.rs`
+  - `vibeguard-runtime/tests/cli.rs`
   - hook tests
 - Detailed changes:
   - Add strict shell helper such as `vg_json_field_strict`.
-  - Add `vg-helper json-field --strict` or a separate strict subcommand that distinguishes absent/null/empty/parse-error.
+  - Add `vibeguard-runtime json-field --strict` or a separate strict subcommand that distinguishes absent/null/empty/parse-error.
   - Migrate `pre-bash-guard.sh` command extraction to strict mode.
   - On parse error, log a warning and fail closed.
   - Keep tolerant `vg_json_field` behavior for legacy callers.
 - Step tests:
-  - `(cd vg-helper && cargo test json_field)`
+  - `(cd vibeguard-runtime && cargo test json_field)`
   - `bash tests/test_hooks.sh test_log_sh_strict_parse`
   - `printf '{"tool_input":' | bash hooks/pre-bash-guard.sh` should not pass silently.
 - Completion judgment:
@@ -279,19 +279,19 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 - Findings: H4
 - Target: one canonical implementation emits LEARN/session metrics.
 - Expected files:
-  - `vg-helper/src/session_metrics.rs`
+  - `vibeguard-runtime/src/session_metrics/mod.rs`
   - `hooks/_lib/session_metrics.py` (deleted by PR #147)
   - `hooks/learn-evaluator.sh`
   - `scripts/setup/install.sh`
-  - `vg-helper/tests/cli.rs`
+  - `vibeguard-runtime/tests/cli.rs`
   - `tests/fixtures/session-metrics/**`
 - Detailed changes:
   - Decide and record canonical implementation: Rust is preferred.
-  - Remove the Python fallback after production callers use `vg-helper session-metrics`.
+  - Remove the Python fallback after production callers use `vibeguard-runtime session-metrics`.
   - Align Signal 6 depth and repeat-rule top-N behavior before removing fallback.
-  - Make setup fail loudly if `vg-helper` cannot build, unless `VIBEGUARD_ALLOW_NO_HELPER=1` explicitly requests degraded mode.
+  - Make setup fail loudly if `vibeguard-runtime` cannot build; no no-runtime compatibility mode is provided.
 - Step tests:
-  - `(cd vg-helper && cargo test session_metrics)`
+  - `(cd vibeguard-runtime && cargo test session_metrics)`
   - `bash tests/test_hooks.sh test_session_metrics_canonical`
   - `rg "session_metrics.py" hooks scripts` should return only deprecation/removal references.
 - Completion judgment:
@@ -307,16 +307,16 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 - Findings: M6
 - Target: `pkg_rewrite` follows the same single-implementation policy as session metrics.
 - Expected files:
-  - `vg-helper/src/pkg_rewrite.rs`
+  - `vibeguard-runtime/src/pkg_rewrite.rs`
   - `hooks/_lib/pkg_rewrite.py` (deleted by PR #147)
   - `hooks/pre-bash-guard.sh`
-  - `vg-helper/tests/cli.rs`
+  - `vibeguard-runtime/tests/cli.rs`
 - Detailed changes:
   - Add Rust test coverage for every package-manager rewrite branch.
-  - Migrate production callers to `vg-helper`.
+  - Migrate production callers to `vibeguard-runtime`.
   - Remove Python fallback under the same policy as P1.3.
 - Step tests:
-  - `(cd vg-helper && cargo test pkg_rewrite)`
+  - `(cd vibeguard-runtime && cargo test pkg_rewrite)`
   - `bash tests/test_hooks.sh test_pkg_rewrite_canonical`
 - Completion judgment:
   - Rewrite behavior is covered in Rust.
@@ -411,7 +411,7 @@ Use the closest subset when the full command is unrelated or too slow, and recor
   - `tests/test_codex_runtime.sh`
 - Detailed changes:
   - Extract PreToolUse deny/warn/update and PostToolUse block/warn adaptation.
-  - Prefer `vg-helper codex-adapt` if Rust canonicalization from P1 is stable; otherwise shell helper is acceptable.
+  - Prefer `vibeguard-runtime codex-adapt` if Rust canonicalization from P1 is stable; otherwise shell helper is acceptable.
   - Normalize invalid wrapped-hook output to a deny payload with visible reason.
   - Decide exit-code convention and document it at script head.
 - Step tests:
@@ -457,10 +457,10 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 - Findings: M4, M5
 - Target: event field names and json-field semantics are declared and validated.
 - Expected files:
-  - `vg-helper/src/event_schema.rs`
-  - `vg-helper/src/log_query.rs`
-  - `vg-helper/src/session_metrics.rs`
-  - `vg-helper/src/json_field.rs`
+  - `vibeguard-runtime/src/event_schema.rs`
+  - `vibeguard-runtime/src/log_query.rs`
+  - `vibeguard-runtime/src/session_metrics/mod.rs`
+  - `vibeguard-runtime/src/json_field.rs`
   - `hooks/log.sh`
   - `scripts/ci/check-event-schema-literals.sh`
 - Detailed changes:
@@ -469,7 +469,7 @@ Use the closest subset when the full command is unrelated or too slow, and recor
   - Add a shell-side CI grep to catch accidental new raw field names.
   - Document absent/null/empty/parse-error matrix.
 - Step tests:
-  - `(cd vg-helper && cargo test)`
+  - `(cd vibeguard-runtime && cargo test)`
   - `bash scripts/ci/check-event-schema-literals.sh`
 - Completion judgment:
   - Rust readers share one field declaration.
@@ -509,7 +509,7 @@ Use the closest subset when the full command is unrelated or too slow, and recor
 - Findings: M14
 - Target: reduce large files after behavior is covered by tests.
 - Expected files:
-  - `vg-helper/src/session_metrics.rs` -> `vg-helper/src/session_metrics/{mod.rs,collect.rs,aggregate.rs,render.rs}`
+  - `vibeguard-runtime/src/session_metrics/mod.rs` -> `vibeguard-runtime/src/session_metrics/{mod.rs,collect.rs,aggregate.rs,render.rs}`
   - `hooks/post-edit-guard.sh` -> detector libs under `hooks/_lib/`
   - `scripts/gc/gc-scheduled.sh` -> discover/classify/evict/report helpers
   - `hooks/log.sh` -> `hooks/_lib/{json,log,session,timer}.sh`
@@ -519,7 +519,7 @@ Use the closest subset when the full command is unrelated or too slow, and recor
   - Split one file per PR.
   - Preserve exported shell function names through compatibility sources.
 - Step tests:
-  - For Rust split: `(cd vg-helper && cargo test)`
+  - For Rust split: `(cd vibeguard-runtime && cargo test)`
   - For each hook split: `bash tests/hooks/test_<hook>.sh`
   - For log split: `bash tests/test_hooks.sh`
 - Completion judgment:
@@ -540,8 +540,8 @@ Use the closest subset when the full command is unrelated or too slow, and recor
   - `scripts/lib/project_config.sh`
   - `scripts/gc/gc-*.sh`
   - `README.md`
-  - `vg-helper/src/log_query.rs`
-  - `vg-helper/src/session_metrics/time.rs`
+  - `vibeguard-runtime/src/log_query.rs`
+  - `vibeguard-runtime/src/session_metrics/time.rs`
   - `hooks/pre-bash-guard.sh`
   - `hooks/run-hook-codex.sh`
 - Detailed changes:
@@ -553,7 +553,7 @@ Use the closest subset when the full command is unrelated or too slow, and recor
   - Resolve `skills-loader` enum mismatch.
   - Decide `mcp-server/`: deprecate in docs or wire into installer.
 - Step tests:
-  - `(cd vg-helper && cargo test)`
+  - `(cd vibeguard-runtime && cargo test)`
   - `bash tests/test_setup.sh`
   - `bash scripts/ci/self-application/run-all.sh`
 - Completion judgment:
@@ -582,7 +582,7 @@ bash setup.sh --check
 ```bash
 bash tests/test_hooks.sh test_log_redaction
 bash tests/test_gc_logs_concurrent.sh
-(cd vg-helper && cargo test)
+(cd vibeguard-runtime && cargo test)
 bash tests/test_hooks.sh test_session_metrics_canonical
 bash tests/test_hooks.sh test_pkg_rewrite_canonical
 uv run python -m pytest eval/test_run_eval.py::test_calibration
@@ -604,7 +604,7 @@ bash scripts/verify/check-test-file-sizes.sh
 ```bash
 bash scripts/ci/self-application/run-all.sh
 bash scripts/ci/check-event-schema-literals.sh
-(cd vg-helper && cargo test)
+(cd vibeguard-runtime && cargo test)
 bash tests/test_hooks.sh
 bash tests/test_setup.sh
 ```
@@ -617,7 +617,7 @@ bash setup.sh --check
 bash tests/test_hooks.sh
 bash tests/test_setup.sh
 bash tests/test_codex_runtime.sh
-(cd vg-helper && cargo test)
+(cd vibeguard-runtime && cargo test)
 uv run python -m pytest eval scripts
 bash scripts/ci/self-application/run-all.sh
 ```
@@ -693,19 +693,19 @@ Append entries here after each implemented step.
       - `bash tests/test_hooks.sh` -> pass, 129/129
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 91/91
-      - `(cd vg-helper && cargo test)` -> pass, 31/31
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 31/31
     - Notes:
       - `setup.sh --check` drift warnings are pre-existing install-state issues and not caused by P0.1.
   - Step P0.2: `completed`
     - Modified files:
-      - `vg-helper/src/json_field.rs`
-      - `vg-helper/tests/cli.rs`
+      - `vibeguard-runtime/src/json_field.rs`
+      - `vibeguard-runtime/tests/cli.rs`
       - `hooks/log.sh`
       - `hooks/pre-bash-guard.sh`
       - `tests/test_hooks.sh`
     - Main changes:
-      - Added `vg-helper json-field --strict` so missing/null fields fail distinctly from empty strings.
-      - Added `vg_json_field_strict` with automatic Python strict fallback when an installed old `vg-helper` does not support `--strict`.
+      - Added `vibeguard-runtime json-field --strict` so missing/null fields fail distinctly from empty strings.
+      - Added `vg_json_field_strict`; the current hook contract requires the Rust runtime to provide `json-field --strict`.
       - Migrated `pre-bash-guard.sh` command extraction to fail closed on malformed input or missing `tool_input.command`.
       - Fixed one pre-existing hook test payload that accidentally generated invalid JSON through shell `printf`.
     - Tests:
@@ -713,7 +713,7 @@ Append entries here after each implemented step.
       - `bash tests/test_hooks.sh` -> pass, 133/133
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 91/91
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - `setup.sh --check` drift warnings are still pre-existing install-state issues.
   - Step P0.3: `completed`
@@ -734,7 +734,7 @@ Append entries here after each implemented step.
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash tests/test_hooks.sh` -> pass, 133/133
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - `--yes` still prints the diff to stderr before applying so SEC-13 visibility is preserved in automation logs.
   - Step P0.4: `completed`
@@ -749,7 +749,7 @@ Append entries here after each implemented step.
       - `bash tests/test_hooks.sh` -> pass, 135/135
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 100/100
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - The audit called out three heredocs; implementation fixed all four pre-edit block payload heredocs found in the file.
   - Step P0.5: `completed`
@@ -769,7 +769,7 @@ Append entries here after each implemented step.
       - `bash tests/test_hooks.sh` -> pass, 135/135
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 100/100
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - Network/API failures are now visible as skipped samples and excluded from score denominators.
   - Step P1.1: `completed`
@@ -786,7 +786,7 @@ Append entries here after each implemented step.
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 100/100
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - Redaction runs before truncation so partially truncated secrets are not persisted.
   - Step P1.2: `completed`
@@ -806,54 +806,54 @@ Append entries here after each implemented step.
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
       - `bash tests/test_setup.sh` -> pass, 100/100
-      - `(cd vg-helper && cargo test)` -> pass, 34/34
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 34/34
     - Notes:
       - The concurrency test holds the writer lock, appends a current-month event, then verifies GC retains it after archiving old-month events.
   - Step P1.3: `completed`
     - Modified files:
-      - `vg-helper/src/session_metrics.rs`
+      - `vibeguard-runtime/src/session_metrics/mod.rs`
       - `hooks/learn-evaluator.sh`
       - `hooks/_lib/session_metrics.py` (deleted in PR #147)
     - Main changes:
-      - Declared Rust `vg-helper session-metrics` as canonical.
+      - Declared Rust `vibeguard-runtime session-metrics` as canonical.
       - Removed runtime fallback use in PR #146 and deleted the Python helper in PR #147.
       - Aligned Signal 6 with Python by including max `Nx` analysis-paralysis depth.
       - Made repeated-rule signals deterministic and capped to top 3 by count then rule id.
-      - Setup now builds `vg-helper` by default and only permits missing helper via explicit degraded mode.
+      - Setup now requires `vibeguard-runtime`; missing runtime fails installation.
     - Tests:
-      - `(cd vg-helper && cargo test session_metrics)` -> pass, 25/25
+      - `(cd vibeguard-runtime && cargo test session_metrics)` -> pass, 25/25
       - `bash -n hooks/learn-evaluator.sh hooks/log.sh` -> pass
       - `bash tests/test_hooks.sh` -> pass, 145/145
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 36/36
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 36/36
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
-      - Follow-up PR #147: `(cd vg-helper && cargo test)` -> pass, 52 unit + 13 CLI tests
+      - Follow-up PR #147: `(cd vibeguard-runtime && cargo test)` -> pass, 52 unit + 13 CLI tests
       - Follow-up PR #147: `bash tests/unit/run_all.sh` -> pass, 20/20
       - Follow-up PR #147: `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/test_hooks.sh` -> pass, all hook shards
     - Notes:
       - Python fallback no longer exists; historical path references are kept only in audit/spec docs and CI sentinel fixtures.
   - Step P1.4: `completed`
     - Modified files:
-      - `vg-helper/src/pkg_rewrite.rs`
+      - `vibeguard-runtime/src/pkg_rewrite.rs`
       - `hooks/pre-bash-guard.sh`
       - `hooks/_lib/pkg_rewrite.py` (deleted in PR #147)
     - Main changes:
-      - Declared Rust `vg-helper pkg-rewrite` as canonical.
+      - Declared Rust `vibeguard-runtime pkg-rewrite` as canonical.
       - Removed runtime fallback use in PR #146 and deleted the Python helper in PR #147.
       - Added Rust branch tests for npm/yarn/pip/python -m pip rewrites, unsupported flags, and complex command pass-through.
-      - Setup now builds `vg-helper` by default and only permits missing helper via explicit degraded mode.
+      - Setup now requires `vibeguard-runtime`; missing runtime fails installation.
     - Tests:
-      - `(cd vg-helper && cargo test pkg_rewrite)` -> pass, 9/9
+      - `(cd vibeguard-runtime && cargo test pkg_rewrite)` -> pass, 9/9
       - `bash -n hooks/pre-bash-guard.sh hooks/log.sh` -> pass
       - `bash tests/test_hooks.sh` -> pass, 145/145
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 6/6
-      - Follow-up PR #147: `(cd vg-helper && cargo test)` -> pass, 52 unit + 13 CLI tests
+      - Follow-up PR #147: `(cd vibeguard-runtime && cargo test)` -> pass, 52 unit + 13 CLI tests
       - Follow-up PR #147: `bash tests/unit/run_all.sh` -> pass, 20/20
       - Follow-up PR #147: `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/hooks/test_pre_bash_guard.sh` -> pass, 54/54
     - Notes:
@@ -875,7 +875,7 @@ Append entries here after each implemented step.
       - `bash tests/test_hooks.sh` -> pass, 145/145
       - `bash tests/test_setup.sh` -> pass, 100/100
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
     - Notes:
       - Live API calibration smoke was not run because no credential-dependent eval run was required for this local contract change.
   - Step P2.1: `completed`
@@ -906,7 +906,7 @@ Append entries here after each implemented step.
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 10/10
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
     - Notes:
       - `setup.sh --check` drift warnings are still pre-existing install-state issues.
@@ -931,7 +931,7 @@ Append entries here after each implemented step.
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 10/10
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
       - `bash scripts/ci/validate-hooks-manifest.sh` -> pass
     - Notes:
@@ -960,7 +960,7 @@ Append entries here after each implemented step.
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 10/10
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
       - Follow-up sentinel: `bash tests/test_self_application_ci.sh` -> pass, 39/39
       - Follow-up sentinel: `bash scripts/ci/self-application/run-all.sh` -> pass
@@ -987,17 +987,17 @@ Append entries here after each implemented step.
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 10/10
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
     - Notes:
       - The split is mechanical; the per-shard assertion totals sum to the original 145 assertions.
   - Step P3.1: `completed`
     - Modified files:
-      - `vg-helper/src/event_schema.rs`
-      - `vg-helper/src/main.rs`
-      - `vg-helper/src/log_query.rs`
-      - `vg-helper/src/session_metrics.rs`
-      - `vg-helper/src/json_field.rs`
+      - `vibeguard-runtime/src/event_schema.rs`
+      - `vibeguard-runtime/src/main.rs`
+      - `vibeguard-runtime/src/log_query.rs`
+      - `vibeguard-runtime/src/session_metrics/mod.rs`
+      - `vibeguard-runtime/src/json_field.rs`
       - `scripts/ci/check-event-schema-literals.sh`
       - `.github/workflows/ci.yml`
     - Main changes:
@@ -1006,9 +1006,9 @@ Append entries here after each implemented step.
       - Documented tolerant vs strict `json-field` behavior for invalid JSON, absent fields, null fields, and empty strings.
       - Added `check-event-schema-literals.sh` and wired it into Linux/macOS and Windows-smoke CI.
     - Tests:
-      - `cargo fmt --manifest-path vg-helper/Cargo.toml --check` -> pass
+      - `cargo fmt --manifest-path vibeguard-runtime/Cargo.toml --check` -> pass
       - `bash scripts/ci/check-event-schema-literals.sh` -> pass
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_hooks.sh` -> pass, 145/145 across shards
       - `bash tests/test_setup.sh` -> pass, 114/114
       - `bash tests/test_codex_runtime.sh` -> pass, 40/40
@@ -1029,7 +1029,7 @@ Append entries here after each implemented step.
       - `scripts/ci/self-application/check-hook-output-rewriting.sh`
       - `scripts/ci/self-application/check-u22-coverage.sh`
       - `tests/test_self_application_ci.sh`
-      - `scripts/codex/app_server_wrapper.py`
+      - `vibeguard-runtime/src/codex_app_server.rs`
       - `.github/workflows/ci.yml`
     - Main changes:
       - Added a visible self-application CI job plus local `run-all.sh` sentinel entry point.
@@ -1037,10 +1037,10 @@ Append entries here after each implemented step.
       - Added U-29 self-checks for silent Python `Exception: pass`, pre-commit timeout fail-open regressions, strict Bash JSON extraction, and eval skipped-error semantics.
       - Added an output-rewrite sentinel requiring `SEC-13-OUTPUT-REWRITE-REASON:` near future `updatedToolOutput` usage.
       - Added U-22 coverage inventory in report-only mode until a real llvm-cov baseline is adopted.
-      - Narrowed `scripts/codex/app_server_wrapper.py` cleanup from `except Exception: pass` to `except OSError: pass`.
+      - Narrowed app-server wrapper cleanup from broad exception swallowing to specific OS-error handling.
     - Tests:
       - `bash -n scripts/ci/self-application/*.sh tests/test_self_application_ci.sh` -> pass
-      - `python3 -m py_compile scripts/codex/app_server_wrapper.py` -> pass
+      - `cargo test --manifest-path vibeguard-runtime/Cargo.toml codex_app_server` -> pass
       - `bash scripts/ci/self-application/run-all.sh` -> pass
       - `bash tests/test_self_application_ci.sh` -> pass, 5/5
       - `bash tests/test_hooks.sh` -> pass, 145/145 across shards
@@ -1049,7 +1049,7 @@ Append entries here after each implemented step.
       - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13
       - `python3 -m unittest scripts/test_constraint_recommender.py eval/test_run_eval.py` -> pass, 10/10
       - `bash setup.sh --check` -> pass exit 0, existing drift warnings for missing skills/rule count/config checksum
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash tests/test_eval_contract.sh` -> pass, 3/3
       - `bash scripts/ci/check-event-schema-literals.sh` -> pass
       - `bash scripts/ci/validate-hooks-manifest.sh` -> pass
@@ -1059,7 +1059,7 @@ Append entries here after each implemented step.
       - The self-application test includes negative fixtures for unreasoned hook output rewriting and silent `Exception: pass`.
   - Step P3.3: `completed`
     - Modified files:
-      - `vg-helper/src/session_metrics/{mod.rs,engine.rs,signals.rs,time.rs,tests/mod.rs,tests/run.rs,tests/time.rs}`
+      - `vibeguard-runtime/src/session_metrics/{mod.rs,engine.rs,signals.rs,time.rs,tests/mod.rs,tests/run.rs,tests/time.rs}`
       - `hooks/log.sh`
       - `hooks/_lib/log_json.sh`
       - `hooks/_lib/log_session.sh`
@@ -1074,8 +1074,8 @@ Append entries here after each implemented step.
       - Updated event-schema literal CI to scan the new Rust module layout.
       - Updated U-22 inventory to scan nested Rust modules.
     - Tests:
-      - `cargo fmt --manifest-path vg-helper/Cargo.toml --check` -> pass
-      - `(cd vg-helper && cargo test)` -> pass, 45/45
+      - `cargo fmt --manifest-path vibeguard-runtime/Cargo.toml --check` -> pass
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 45/45
       - `bash -n hooks/log.sh hooks/_lib/log_*.sh` -> pass
       - `bash scripts/ci/validate-hooks.sh` -> pass
       - `bash tests/test_hooks.sh` -> pass, 145/145 across shards
@@ -1094,11 +1094,11 @@ Append entries here after each implemented step.
       - `post-edit-guard.sh` and `gc-scheduled.sh` remain large; this step addressed the highest-coverage Rust god file and the shared hook logging god file without changing detector semantics.
   - Step P3.4: `completed`
     - Modified files:
-      - `vg-helper/src/time_utils.rs`
-      - `vg-helper/src/main.rs`
-      - `vg-helper/src/session_metrics/time.rs`
-      - `vg-helper/src/log_query.rs`
-      - `vg-helper/tests/cli.rs`
+      - `vibeguard-runtime/src/time_utils.rs`
+      - `vibeguard-runtime/src/main.rs`
+      - `vibeguard-runtime/src/session_metrics/time.rs`
+      - `vibeguard-runtime/src/log_query.rs`
+      - `vibeguard-runtime/tests/cli.rs`
       - `schemas/vibeguard-project.schema.json`
       - `rules/claude-rules/common/security.md`
       - `scripts/lib/install-state.sh`
@@ -1122,8 +1122,8 @@ Append entries here after each implemented step.
       - Documented `mcp-server/` as a legacy, unsupported runtime prototype instead of a silently orphaned install surface.
       - Added a package-correction argv-only contract and self-application sentinel so `_PKG_CORRECTION` cannot be inlined into Python source.
     - Tests:
-      - `cargo fmt --manifest-path vg-helper/Cargo.toml` -> pass
-      - `(cd vg-helper && cargo test)` -> pass, 49/49
+      - `cargo fmt --manifest-path vibeguard-runtime/Cargo.toml` -> pass
+      - `(cd vibeguard-runtime && cargo test)` -> pass, 49/49
       - `bash -n scripts/lib/install-state.sh` -> pass
       - `python3 -m json.tool schemas/vibeguard-project.schema.json >/dev/null` -> pass
       - `bash scripts/ci/check-event-schema-literals.sh` -> pass
@@ -1207,7 +1207,7 @@ Append entries here after each implemented step.
     - `bash tests/test_codex_runtime.sh` -> pass, 40/40.
     - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13.
     - `bash tests/test_gc_config.sh` -> pass, 7/7.
-    - `(cd vg-helper && cargo test)` -> pass, 65/65.
+    - `(cd vibeguard-runtime && cargo test)` -> pass, 65/65.
     - `uv run python -m pytest eval scripts` -> unavailable: `/Users/apple/.local/share/uv/python/cpython-3.14.2-macos-aarch64-none/bin/python3.14: No module named pytest`.
     - `uv run --with pytest python -m pytest eval/test_run_eval.py scripts/test_constraint_recommender.py` -> pass, 10/10.
     - `bash scripts/ci/self-application/run-all.sh` -> pass.

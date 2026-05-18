@@ -489,7 +489,7 @@ cat > "${bad_runtime_fallback}/hooks/learn-evaluator.sh" <<'EOF'
 python3 "$(dirname "$0")/_lib/session_metrics.py"
 EOF
 cat > "${bad_runtime_fallback}/scripts/setup/install.sh" <<'EOF'
-echo "SKIP vg-helper (cargo not found — using Python fallback)"
+echo "SKIP vibeguard-runtime (cargo not found — using Python fallback)"
 EOF
 cat > "${bad_runtime_fallback}/eval/run_eval.py" <<'PY'
 def x():

@@ -12,6 +12,14 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
 
+## Operating Principles
+
+- Search before adding files, functions, rules, hooks, workflows, or tests.
+- Do not commit secrets, credentials, tokens, or private keys.
+- Do not use AI marker tags in commits, PRs, comments, generated files, or shipped text.
+- Do not force push unless the human explicitly authorizes the exact branch and reason.
+- Fail loudly on user-visible missing data, wrong output, malformed inputs, or broken validation.
+
 ## Constraints
 
 | ID | Rule |
@@ -38,6 +46,13 @@ Before completing any task:
 - TypeScript: `npx tsc --noEmit` then project test command
 - Go: `go build ./...` then `go test ./...`
 - Python: `pytest`
+
+## Routing
+
+Follow `workflows/references/routing-contract.md`:
+- `execute_direct`: clear, low-risk, local change with known verification.
+- `plan_first`: multi-file, architectural, migration, or ambiguous implementation path.
+- `clarify_first`: missing goal, context, constraints, or done-when would make execution unsafe.
 
 ## Architecture Layers
 

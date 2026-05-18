@@ -4,6 +4,10 @@
 # Session ID: events within the same CLI session share the same session_id.
 # Strategy: ancestor process PID + 30-minute inactivity window + process startup time anchor.
 # Also infer the caller CLI so events can distinguish Claude Code vs Codex.
+if [[ -z "${VIBEGUARD_CLI:-}" && -n "${VIBEGUARD_SESSION_ID:-}" ]]; then
+  VIBEGUARD_CLI="unknown"
+fi
+
 if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   _vg_parent_pid=""
   _vg_parent_cli=""

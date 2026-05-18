@@ -24,7 +24,7 @@ All P0-P3 execution-plan steps are complete on `main` through PR #154. The imple
 - Not rewriting passing systems. Verified items (atomic install, env-var convergence, SEC-12 nested-table cleanup, etc.) remain untouched.
 - Not introducing a new rule. Every fix maps to an existing rule already in `rules/claude-rules/`.
 - Not shipping the legacy `mcp-server/` prototype as a supported runtime surface. It is documented as legacy/deprecated; any future MCP reintroduction needs a separate install path and audit/hash baseline.
-- Not refactoring well-tested modules (`vg-helper/src/session_metrics.rs` `#[cfg(test)]` block at lines 391-755 is fine).
+- Not refactoring well-tested modules (`vibeguard-runtime/src/session_metrics/mod.rs` `#[cfg(test)]` block at lines 391-755 is fine).
 - Not adding new dependencies. Every fix uses existing tools (bash, python3, serde_json, regex).
 
 ---
@@ -45,7 +45,7 @@ All P0-P3 execution-plan steps are complete on `main` through PR #154. The imple
 | U-29 | H1, H3, H7, M13 | high — silent degradation in prod paths |
 | U-24 + U-29 | H4, M6 | high — Python/Rust parallel drift |
 | U-26 | H10, M4, M8, M12 | medium — declaration-execution gaps |
-| U-22 | M7 | medium — vg-helper modules at zero coverage |
+| U-22 | M7 | medium — vibeguard-runtime modules at zero coverage |
 | U-16 | M14 | medium — five files near 800-line ceiling |
 | W-18 | H5 | high — eval is output-only |
 
@@ -150,18 +150,18 @@ Rollback: revert the helper and target script changes; the diff helper itself is
 
 Self-application sentinel: add `scripts/ci/self-application/check-sec13-self-apply.sh` that greps `setup/targets/*.sh` for direct `>>` or `python3 ... write` to `~/.claude/CLAUDE.md` or `~/.claude/settings.json` without going through the diff-helper. Run from CI.
 
-#### T3 · log.sh must not collapse vg-helper failures into empty strings (H3)
+#### T3 · log.sh must not collapse vibeguard-runtime failures into empty strings (H3)
 
-- **Goal**: callers of `vg_json_field` can distinguish "field absent / null / empty" from "vg-helper failed".
+- **Goal**: callers of `vg_json_field` can distinguish "field absent / null / empty" from "vibeguard-runtime failed".
 - **Context**: `hooks/log.sh:70,81-82,93,105` use `2>/dev/null || echo ""`. `pre-bash-guard.sh` then `[[ -z "$COMMAND" ]] && exit 0` lets dangerous commands through on parse failure.
 - **Constraints**:
   - Backward-compat: existing callers that don't care about parse failure must continue to work.
-  - New behavior: stderr from vg-helper is captured into `events.jsonl` at `warn` level for SEC-13 audit trail.
+  - New behavior: stderr from vibeguard-runtime is captured into `events.jsonl` at `warn` level for SEC-13 audit trail.
   - Add `vg_json_field_strict` variant that exits non-zero on parse failure; migrate `pre-bash-guard.sh` to it.
 - **Done-when**:
   - Feeding `{"tool_input":` (truncated JSON) to `pre-bash-guard.sh` produces `events.jsonl` line with `decision: "warn", reason: "json parse failed"` and exits 2 (block, fail-closed).
   - Existing `vg_json_field` callers see no behavior change for valid JSON.
-  - `vg-helper/tests/cli.rs` adds an integration test for the strict variant.
+  - `vibeguard-runtime/tests/cli.rs` adds an integration test for the strict variant.
   - Verification: `bash tests/test_hooks.sh test_log_sh_strict_parse` exits 0.
 
 Fix sketch:
@@ -172,7 +172,7 @@ vg_json_field_strict() {
   local err_file
   err_file=$(mktemp)
   local out
-  if out=$("$_VG_HELPER" json-field "$field_path" 2>"$err_file"); then
+  if out=$("$_VIBEGUARD_RUNTIME" json-field "$field_path" 2>"$err_file"); then
     rm -f "$err_file"
     printf '%s\n' "$out"
     return 0
@@ -207,21 +207,21 @@ Rollback: revert both files; no schema change since `skipped` is an additive fie
 #### T4 · Collapse Python/Rust session_metrics into a single canonical implementation (H4)
 
 - **Goal**: only one implementation of session-metrics emits LEARN signals.
-- **Context**: at audit time, `vg-helper/src/session_metrics.rs` (canonical, 755 LOC) and `hooks/_lib/session_metrics.py` (212 LOC fallback) drifted in Signal-6 depth and top-3 truncation.
+- **Context**: at audit time, `vibeguard-runtime/src/session_metrics/mod.rs` (canonical, 755 LOC) and `hooks/_lib/session_metrics.py` (212 LOC fallback) drifted in Signal-6 depth and top-3 truncation.
 - **Constraints**:
   - **Decision**: delete the Python fallback. Setup must require cargo OR fail loudly with a one-line install hint (not a silent fallback).
-  - Implementation note (2026-05-02): PR #146 removed runtime Python fallback use and PR #147 deleted the legacy Python implementation, with `VIBEGUARD_ALLOW_NO_HELPER=1` as the explicit degraded install escape hatch.
-  - All hook entry points that import `hooks/_lib/session_metrics.py` switch to `vg-helper session-metrics` subcommand.
+  - Implementation note (2026-05-02): PR #146 removed runtime Python fallback use and PR #147 deleted the legacy Python implementation.
+  - All hook entry points that import `hooks/_lib/session_metrics.py` switch to `vibeguard-runtime session-metrics` subcommand.
 - **Done-when**:
   - `rg "from session_metrics import|import session_metrics"` in `hooks/` and `scripts/` returns zero hits.
   - `test ! -e hooks/_lib/session_metrics.py` exits 0.
   - `bash setup.sh --check` reports cargo as required, not optional.
-  - Integration test in `vg-helper/tests/cli.rs` covers Signal 1-6 emission with a fixture from `tests/fixtures/session-metrics/`.
+  - Integration test in `vibeguard-runtime/tests/cli.rs` covers Signal 1-6 emission with a fixture from `tests/fixtures/session-metrics/`.
   - Verification: `cargo test --test cli session_metrics` exits 0; `bash tests/test_hooks.sh test_session_metrics_canonical` exits 0.
 
 Fix sketch:
-1. Search-replace runtime Python helper calls with `vg-helper session-metrics`.
-2. Make setup build/install `vg-helper` by default and fail loudly on cargo/build errors.
+1. Search-replace runtime Python helper calls with `vibeguard-runtime session-metrics`.
+2. Make setup build/install `vibeguard-runtime` by default and fail loudly on cargo/build errors.
 3. Delete `hooks/_lib/session_metrics.py` once no runtime caller remains.
 
 Alternative (if cargo-required is unacceptable): keep both implementations and add a CI diff test feeding the same fixture to both. Less preferred — drift will recur.
@@ -231,7 +231,7 @@ Rollback: revert the deprecation banner and the search-replace; Python file rema
 #### T5 · pkg_rewrite same treatment as T4 (M6)
 
 - **Goal**: same as T4 for `pkg_rewrite`.
-- **Context**: at audit time, `vg-helper/src/pkg_rewrite.rs:16` and `hooks/_lib/pkg_rewrite.py` (99 LOC) followed the same parallel-implementation pattern as session_metrics.
+- **Context**: at audit time, `vibeguard-runtime/src/pkg_rewrite.rs:16` and `hooks/_lib/pkg_rewrite.py` (99 LOC) followed the same parallel-implementation pattern as session_metrics.
 - **Constraints**: identical to T4. Bundled with T4 in the same PR if scoped together; otherwise separate.
 - **Done-when**:
   - `rg "from pkg_rewrite import"` returns zero hits in non-test code.
@@ -378,7 +378,7 @@ Rollback: `git revert` the split commit; the orchestrator script can re-bundle b
 
 - **Goal**: bring all U-16 violators below 300 LOC per file.
 - **Files** (in priority order; each is a separate sub-task):
-  1. `vg-helper/src/session_metrics.rs` (755 → 4 modules: `mod.rs` + `collect.rs` + `aggregate.rs` + `render.rs`).
+  1. `vibeguard-runtime/src/session_metrics/mod.rs` (755 → 4 modules: `mod.rs` + `collect.rs` + `aggregate.rs` + `render.rs`).
   2. `hooks/post-edit-guard.sh` (493 → orchestrator + `hooks/_lib/detect_*.sh` per detector: unwrap, console, path, go_discard, oversize_diff, churn, w15_loop).
   3. `scripts/gc/gc-scheduled.sh` (463 → `gc-{discover,classify,evict,report}.sh` + 50-line orchestrator).
   4. `hooks/log.sh` (337 → `_lib/{session,json,log,timer}.sh`; existing hooks source `_lib/log.sh` with re-exports for backward compat).
@@ -399,7 +399,7 @@ Rollback: `git revert` the split commit; the orchestrator script can re-bundle b
   - New directory `scripts/ci/self-application/` containing one script per rule:
     - `check-sec13-self-apply.sh` — greps `setup/targets/*.sh` for direct writes to `~/.claude/CLAUDE.md` / `~/.claude/settings.json` not going through the diff-helper.
     - `check-u29-no-pass.sh` — greps non-test Python for `except Exception:\s*pass` and similar silent-degradation patterns; allow-list documented exceptions.
-    - `check-u22-coverage.sh` — runs `cargo llvm-cov` on `vg-helper`, fails if any source file has < 80% line coverage.
+    - `check-u22-coverage.sh` — runs `cargo llvm-cov` on `vibeguard-runtime`, fails if any source file has < 80% line coverage.
     - `check-w18-eval-axes.sh` — verifies `eval/run_eval.py` emits at minimum `accuracy` and `ece` fields per severity bucket.
     - `check-sec14-self.sh` — scans `rules/**/*.md` for SEC-14 forbidden phrases with allow-list for `rules/claude-rules/common/security.md` (which legitimately quotes attack strings).
   - All run from `.github/workflows/ci.yml` self-application job.
@@ -420,9 +420,9 @@ Each item below was handled in the P3.4 cleanup stream or explicitly retained as
 | L2 | Implemented: SEC-14 defensive examples in `rules/claude-rules/common/security.md` are documented as rule text, not MCP description surfaces. | `bash scripts/ci/self-application/check-sec14-mcp-descriptions.sh` |
 | L3 | Implemented differently: heredoc stripping is now a linear parser instead of a regex plus timeout. | `VIBEGUARD_TEST_UPDATED_INPUT=1 bash tests/hooks/test_pre_bash_guard.sh` |
 | L4 | Intentionally retained: Codex native hooks consume JSON `permissionDecision: "deny"` payloads while the wrapper exits 0 after emitting a valid payload; changing to exit 1 would turn an intentional deny into wrapper failure semantics. | `bash tests/test_codex_runtime.sh`; `hooks/run-hook-codex.sh` header documents the Codex contract |
-| L5 | Implemented: session metrics emit `schema_version` and tests assert the field. | `(cd vg-helper && cargo test)` |
-| L6 | Implemented: `paralysis-count` applies a 30-minute timestamp window while preserving legacy timestamp-less events. | `(cd vg-helper && cargo test)` |
-| L7 | Implemented: session metrics time helpers use Rust `SystemTime` instead of shelling out to `/bin/date`. | `(cd vg-helper && cargo test)` |
+| L5 | Implemented: session metrics emit `schema_version` and tests assert the field. | `(cd vibeguard-runtime && cargo test)` |
+| L6 | Implemented: `paralysis-count` applies a 30-minute timestamp window while preserving legacy timestamp-less events. | `(cd vibeguard-runtime && cargo test)` |
+| L7 | Implemented: session metrics time helpers use Rust `SystemTime` instead of shelling out to `/bin/date`. | `(cd vibeguard-runtime && cargo test)` |
 | L8 | Implemented by narrowing schema/runtime contract: `skills-loader` remains an optional manual hook, not a registered disabled-hook enum value. | `bash tests/test_setup.sh`; `README.md` hook table |
 | L9 | Implemented: install-state helpers fail visibly on unsupported state versions. | `bash tests/test_setup.sh` |
 | L10 | Implemented: GC retention/threshold knobs are schema-backed and read via shared project config helpers. | `bash tests/test_gc_config.sh` |
@@ -432,10 +432,10 @@ Each item below was handled in the P3.4 cleanup stream or explicitly retained as
 
 ## Risks and trade-offs
 
-### Decision: delete Python fallback for vg-helper-replaced modules (T4, T5)
+### Decision: delete Python fallback for vibeguard-runtime-replaced modules (T4, T5)
 
 - **Risk**: users without cargo or with cargo build failures lose all hook functionality.
-- **Mitigation**: setup.sh fails loudly with a one-line install hint (`Install cargo: curl https://sh.rustup.rs -sSf | sh`); `VIBEGUARD_ALLOW_NO_HELPER=1` enables an explicit degraded install that disables package rewrite/session-metrics instead of silently degrading to Python.
+- **Mitigation**: setup.sh fails loudly with a one-line install hint (`Install cargo: curl https://sh.rustup.rs -sSf | sh`); no no-runtime compatibility path is provided.
 - **Alternative considered**: keep both implementations with CI diff test. Rejected because parallel implementations have already drifted twice (session_metrics, pkg_rewrite); cost of guaranteeing equivalence forever exceeds cost of a clean uninstall path.
 - **Confidence**: medium. If cargo-required turns out to break a meaningful user segment (e.g. a Codex-only ChromeOS workflow), revert to keep-both with diff test.
 
@@ -478,7 +478,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 - Full historical cleanup of non-symlink retired skill directories (CFG-2 residual). Active Claude/Codex skill install, check, clean, and tracked retired symlink cleanup now use `schemas/install-modules.json` plus install-state; user-owned regular directories remain untouched.
 - Full historical `events.jsonl` migration tooling (M4). New runtime events now carry `schema_version: 1`; backfilling old logs remains out of scope.
 - Workflow-template W-18 axis-1/2 coverage for tool-using agents — eval/run_eval.py is single-shot text completion; if other eval harnesses (eval-harness skill?) emerge later, they need their own SPEC entry.
-- vg-helper coverage automation (T13's `check-u22-coverage.sh`) requires `cargo-llvm-cov` install in CI — handled in T13.
+- vibeguard-runtime coverage automation (T13's `check-u22-coverage.sh`) requires `cargo-llvm-cov` install in CI — handled in T13.
 
 ---
 
@@ -508,7 +508,7 @@ Each command must exit 0 with output captured in this session (W-16: verificatio
 | M2 | (P3 — small fix; replace heredoc with `vg_json_output_kv`) |
 | M3 | T13 (`check-hook-output-rewriting.sh`) |
 | M4 | T9 + P3 follow-up (`event_schema.rs` constants and additive runtime `schema_version: 1`) |
-| M5 | (P3 — `--strict` flag on `vg-helper json-field`; bundled with T11 split) |
+| M5 | (P3 — `--strict` flag on `vibeguard-runtime json-field`; bundled with T11 split) |
 | M6 | T5 |
 | M7 | T13 (`check-u22-coverage.sh`) + add tests as separate small PRs |
 | M8 | (P3 — wire `validate_contract` into install or delete schema) |
@@ -530,7 +530,7 @@ Accepted on `main` after the full remediation plan reached P3.6 and the final re
 2. `bash tests/test_hooks.sh`
 3. `bash tests/test_setup.sh`
 4. `bash tests/test_codex_runtime.sh`
-5. `(cd vg-helper && cargo test)`
+5. `(cd vibeguard-runtime && cargo test)`
 6. `uv run --with pytest python -m pytest eval/test_run_eval.py scripts/test_constraint_recommender.py`
 7. `bash scripts/ci/self-application/run-all.sh`
 

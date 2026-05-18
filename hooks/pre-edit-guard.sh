@@ -8,18 +8,46 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
-vg_start_timer
 
 INPUT=$(cat)
 
+# Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
+_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
+  _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
+    | "$_VIBEGUARD_RUNTIME" pre-edit-check "$_U16_BASE_LIMIT" "$VIBEGUARD_LOG_FILE" \
+    2>/dev/null || true)
+  _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
+  case "$_VG_FAST_STATUS" in
+    SKIP)
+      exit 0
+      ;;
+    FAST_LOGGED)
+      exit 0
+      ;;
+    FAST_OUTPUT)
+      _VG_FAST_PAYLOAD="${_VG_FAST_RESULT#*$'\n'}"
+      [[ "$_VG_FAST_PAYLOAD" != "$_VG_FAST_RESULT" ]] && printf '%s\n' "$_VG_FAST_PAYLOAD"
+      exit 0
+      ;;
+  esac
+fi
+
+vg_start_timer
+
 # Complete all checks directly in Python to avoid bash variable passing from destroying old_string
 # (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
-_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
 CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
-data = json.load(sys.stdin)
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    print("ERROR")
+    print("")
+    print("MALFORMED_JSON")
+    sys.exit(0)
 
 def get_nested(d, path):
     val = d
@@ -128,7 +156,15 @@ CHECK_STATUS=$(echo "$CHECK_RESULT" | sed -n '1p')
 FILE_PATH=$(echo "$CHECK_RESULT" | sed -n '2p')
 DETAIL=$(echo "$CHECK_RESULT" | sed -n '3p')
 
-# No file_path or parsing error → release
+# Malformed hook input is security-sensitive: fail closed instead of treating it
+# as an empty/no-op edit request.
+if [[ "$CHECK_STATUS" == "ERROR" && "$DETAIL" == "MALFORMED_JSON" ]]; then
+  vg_log "pre-edit-guard" "Edit" "block" "Malformed hook input" ""
+  vg_json_output_kv decision block reason "VIBEGUARD interception: malformed PreToolUse(Edit) hook input. The edit request could not be validated, so it was blocked instead of being treated as a safe skip."
+  exit 0
+fi
+
+# No file_path → release
 if [[ "$CHECK_STATUS" != "CHECK" ]]; then
   exit 0
 fi

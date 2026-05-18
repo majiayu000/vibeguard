@@ -72,6 +72,11 @@ assert_not_contains "$result" '"decision": "block"' "commit message with semicol
 result=$(echo '{"tool_input":{"command":"echo \"note && git restore .\"" }}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "echo string with && before restore mention not blocked"
 
+result=$(echo '{"tool_input":{"command":"printf x > notes.md"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"hookSpecificOutput"' "non-standard markdown write emits schema-valid advisory context"
+assert_contains "$result" '"hookEventName": "PreToolUse"' "non-standard markdown advisory targets PreToolUse"
+assert_not_contains "$result" '"decision": "warn"' "non-standard markdown advisory does not emit invalid warn decision"
+
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"

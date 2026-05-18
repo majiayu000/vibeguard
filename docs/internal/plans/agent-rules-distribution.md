@@ -71,7 +71,7 @@ Codex-facing output and docs must state the exact native support:
 - `PostToolUse(Edit/Write via apply_patch)` -> file quality checks via `vibeguard-post-edit-guard.sh` and `vibeguard-post-write-guard.sh`
 - `Stop` -> `vibeguard-stop-guard.sh` and `vibeguard-learn-evaluator.sh`
 - `Read`, `Glob`, `Grep`, and `analysis-paralysis` are not native Codex CLI hooks in this contract.
-- Full read-only exploration coverage still requires Claude Code.
+- Full read-only exploration coverage requires Claude Code or the Rust `vibeguard-runtime codex-app-server-wrapper` path.
 
 Done-when:
 
@@ -152,7 +152,7 @@ This command must be read-only.
 Done-when:
 
 - Running the status command does not modify `~/.codex/*` or `~/.vibeguard/*`.
-- Missing AGENTS, disabled `hooks`, stale hooks, legacy `codex_hooks`, and no recent log events produce distinct messages.
+- Missing AGENTS, disabled `hooks`, deprecated `codex_hooks`, stale hooks, and no recent log events produce distinct messages.
 - A healthy install reports "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop".
 
 ### R5: Semantic Drift Instead of Whole-file Drift
@@ -195,7 +195,7 @@ Tests must prove the native Codex contract, not only hand-built idealized payloa
 
 - AGENTS install/check/clean/idempotency
 - AGENTS 0-byte, missing marker, duplicate marker, external content
-- `hooks` feature semantic status plus legacy `codex_hooks` detection
+- `hooks` semantic status plus `codex_hooks` deprecation status
 - native Bash-shaped `PostToolUse` payload behavior
 - `hook-health.sh` with `cli=codex` and `cli=claude` fixture rows
 - `run-hook-codex.sh` wrapper diagnostics

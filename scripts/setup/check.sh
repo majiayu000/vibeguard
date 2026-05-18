@@ -103,10 +103,10 @@ run_legacy_checks() {
   else
     yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
   fi
-  if [[ -x "${VIBEGUARD_HOME}/installed/bin/vg-helper" ]]; then
-    green "[OK] vg-helper runtime binary installed"
+  if [[ -x "${VIBEGUARD_HOME}/installed/bin/vibeguard-runtime" ]]; then
+    green "[OK] vibeguard-runtime runtime binary installed"
   else
-    red "[MISSING] vg-helper runtime binary (~/.vibeguard/installed/bin/vg-helper)"
+    red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
 
   check_claude_home_installation
@@ -217,12 +217,53 @@ run_legacy_checks() {
   echo "Guard Script Portability"
   echo "------------------------------"
   _awk_violations=$(create_tmpfile 2>/dev/null || mktemp)
-  # Detect non-POSIX regex shortcuts inside awk regex delimiters (/..\s../)
-  # awk uses /regex/ syntax; grep uses quoted strings — so /...\s.../ is awk-specific
-  find "${REPO_DIR}/guards" -name '*.sh' -print0 2>/dev/null \
-    | xargs -0 grep -rnE '/[^/"]*\\[sdwb]' 2>/dev/null \
-    | grep -E 'awk[[:space:]].*/[^/"]*\\[sdwb]' \
-    >> "$_awk_violations" 2>/dev/null || true
+  # Detect non-POSIX regex shortcuts only in awk command contexts. Python
+  # heredocs and quoted Python regexes may legitimately use \s, \d, \w, or \b.
+  python3 - <<'PY' "${REPO_DIR}/guards" > "$_awk_violations" 2>/dev/null || true
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+awk_word = re.compile(r"\b(?:awk|gawk|mawk|nawk)\b")
+non_posix = re.compile(r"/[^/\"']*\\[sdwb][^/\"']*/")
+
+for path in sorted(root.rglob("*.sh")):
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        continue
+
+    in_awk_program = False
+    quote = ""
+    for line_no, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        inspect_line = False
+        if in_awk_program:
+            inspect_line = True
+            if quote and quote in line:
+                in_awk_program = False
+                quote = ""
+        elif awk_word.search(line):
+            inspect_line = True
+            after_awk = awk_word.split(line, maxsplit=1)[1]
+            single_count = after_awk.count("'")
+            double_count = after_awk.count('"')
+            if single_count % 2 == 1:
+                in_awk_program = True
+                quote = "'"
+            elif double_count % 2 == 1:
+                in_awk_program = True
+                quote = '"'
+
+        if inspect_line and non_posix.search(line):
+            print(f"{path}:{line_no}:{line}")
+PY
   if [[ -s "$_awk_violations" ]]; then
     count=$(wc -l < "$_awk_violations" | tr -d ' ')
     red "[FAIL] ${count} awk line(s) use non-POSIX regex (\\s \\d \\w \\b — breaks on BSD awk):"

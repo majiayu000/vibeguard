@@ -1,19 +1,42 @@
-# VibeGuard User Config
+# VibeGuard user config (`~/.vibeguard/config.json`)
 
-`setup.sh` seeds `~/.vibeguard/config.json` from `templates/vibeguard-config.json.example` on first install and preserves the file on later installs.
+User-level overrides for hook thresholds. Hooks resolve each value in priority order:
 
-Resolution order is:
+1. **Environment variable** (highest) — e.g. `VG_U16_LIMIT=1500 cargo build`
+2. **JSON config file** — `~/.vibeguard/config.json` (this file)
+3. **Built-in default** (lowest)
 
-1. Environment variable
-2. `VIBEGUARD_CONFIG_FILE`, or `~/.vibeguard/config.json`
-3. Built-in default
+Malformed JSON or wrong-typed values silently fall through to the next layer — your hooks never break because of a bad config edit.
 
-| JSON key | Environment override | Default | Runtime surface |
-| --- | --- | --- | --- |
-| `u16.limit` | `VG_U16_LIMIT` | `800` | Pre-write, pre-edit, post-write, and post-edit U-16 file-size checks |
-| `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `pre-write-guard.sh` new-source handling (`warn` or `block`) |
-| `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` | Consecutive warns/blocks before a hook circuit opens |
-| `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` | Seconds an open hook circuit waits before half-open probe |
-| `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` | Consecutive read-only operations before analysis-paralysis warning |
+## Keys
 
-Malformed JSON, missing keys, wrong value types, and unsupported `write_mode` values fall back to the next layer instead of breaking hooks.
+| JSON path | Env var | Default | Effect |
+|-----------|---------|---------|--------|
+| `u16.limit` | `VG_U16_LIMIT` | `800` | Source-file line limit. Files over this trigger block on `Write`/`Edit` and warn after `PostToolUse`. Per-file `CLAUDE.md` exemptions (`U-16 exempt: \`pattern\` → N`) can raise it further per repo. |
+| `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` | Consecutive blocks before the hook circuit trips OPEN (silences batch advisories). |
+| `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` | Seconds an OPEN circuit waits before HALF-OPEN. |
+| `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` | W-13 read-only-action streak before paralysis warning. |
+| `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `warn` = advisory; `block` = hard reject new source files without prior search. |
+
+## Example: raise U-16 for a Rust-heavy machine
+
+```json
+{
+  "version": 1,
+  "u16": { "limit": 1200 }
+}
+```
+
+## Example: per-shell one-off override
+
+```sh
+VG_U16_LIMIT=2000 git commit -m "checkpoint"
+```
+
+## How to edit
+
+```sh
+$EDITOR ~/.vibeguard/config.json
+```
+
+`setup.sh` seeds this file from `templates/vibeguard-config.json.example` on first install and never overwrites your edits afterward. Re-running `setup.sh` is safe.

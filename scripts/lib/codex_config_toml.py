@@ -30,10 +30,14 @@ def _table_name(line: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+CODEX_HOOKS_FEATURE = "hooks"
+LEGACY_CODEX_HOOKS_FEATURE = "codex_hooks"
+
+
 def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
     lines = text.splitlines()
     if not lines:
-        return "[features]\nhooks = true\n", True
+        return f"[features]\n{CODEX_HOOKS_FEATURE} = true\n", True
 
     changed = False
     features_idx: int | None = None
@@ -56,12 +60,12 @@ def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
                 in_features = False
         if in_features:
             key = stripped.split("=", 1)[0].strip()
-            if key == "hooks":
+            if key == CODEX_HOOKS_FEATURE:
                 hooks_idx = idx
-                if stripped != "hooks = true":
-                    lines[idx] = "hooks = true"
+                if stripped != f"{CODEX_HOOKS_FEATURE} = true":
+                    lines[idx] = f"{CODEX_HOOKS_FEATURE} = true"
                     changed = True
-            elif key == "codex_hooks":
+            elif key == LEGACY_CODEX_HOOKS_FEATURE:
                 legacy_indices.append(idx)
 
     if features_idx is not None:
@@ -81,7 +85,7 @@ def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
 
     content = "\n".join(lines).rstrip()
     suffix = "\n\n" if content else ""
-    return content + suffix + "[features]\nhooks = true\n", True
+    return content + suffix + f"[features]\n{CODEX_HOOKS_FEATURE} = true\n", True
 
 
 def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
@@ -116,9 +120,9 @@ def _check_hooks_enabled(text: str) -> tuple[str, int]:
         return "INVALID", 1
 
     features = data.get("features")
-    if isinstance(features, dict) and "codex_hooks" in features:
+    if isinstance(features, dict) and LEGACY_CODEX_HOOKS_FEATURE in features:
         return "LEGACY", 1
-    if isinstance(features, dict) and features.get("hooks") is True:
+    if isinstance(features, dict) and features.get(CODEX_HOOKS_FEATURE) is True:
         return "OK", 0
     return "MISSING", 1
 

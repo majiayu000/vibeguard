@@ -70,13 +70,13 @@ except Exception:
 decision = data.get("decision", "pass")
 reason = data.get("reason", "")
 updated = data.get("updatedInput")
-native_output = isinstance(data.get("hookSpecificOutput"), dict) or "systemMessage" in data
+hook_specific = data.get("hookSpecificOutput")
+native_output = isinstance(hook_specific, dict) or "systemMessage" in data
 
 def native_pretool_output() -> dict:
     output = {}
     if "systemMessage" in data:
         output["systemMessage"] = data["systemMessage"]
-    hook_specific = data.get("hookSpecificOutput")
     if isinstance(hook_specific, dict):
         output["hookSpecificOutput"] = dict(hook_specific)
     return output

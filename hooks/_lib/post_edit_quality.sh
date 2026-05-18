@@ -8,8 +8,8 @@ vg_post_edit_detect_rust() {
   esac
 
   local filtered unsafe_count safe_count real_count silent_count
-  filtered=$(printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "RS-03")
-  if printf '%s\n' "$filtered" | grep -qE '\.(unwrap|expect)\(' 2>/dev/null; then
+  if [[ "$NEW_STRING" == *".unwrap("* || "$NEW_STRING" == *".expect("* ]]; then
+    filtered=$(printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "RS-03")
     unsafe_count=$(printf '%s\n' "$filtered" | grep -cE '\.(unwrap|expect)\(' 2>/dev/null || true)
     safe_count=$(printf '%s\n' "$filtered" | grep -cE '\.(unwrap_or|unwrap_or_else|unwrap_or_default)\(' 2>/dev/null || true)
     real_count=$((unsafe_count - safe_count))
@@ -20,12 +20,14 @@ ACTION: REVIEW"
     fi
   fi
 
-  silent_count=$(printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "RS-10" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null || true)
-  silent_count="${silent_count:-0}"
-  if [[ $silent_count -gt 0 ]]; then
-    vg_post_edit_append_warning "[RS-10] [review] [this-edit] OBSERVATION: ${silent_count} new let _ = silent discard(s) added
+  if [[ "$NEW_STRING" =~ (^|[[:space:]])let[[:space:]]+_[[:space:]]*= ]]; then
+    silent_count=$(printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "RS-10" | grep -cE '^\s*let\s+_\s*=' 2>/dev/null || true)
+    silent_count="${silent_count:-0}"
+    if [[ $silent_count -gt 0 ]]; then
+      vg_post_edit_append_warning "[RS-10] [review] [this-edit] OBSERVATION: ${silent_count} new let _ = silent discard(s) added
 SCOPE: this-edit only — do not refactor calling code or add new error types
 ACTION: REVIEW"
+    fi
   fi
 }
 
@@ -97,6 +99,7 @@ DO NOT: Modify logging configuration or other files"
 }
 
 vg_post_edit_detect_hardcoded_db_path() {
+  [[ "$NEW_STRING" == *".db\""* || "$NEW_STRING" == *".sqlite\""* ]] || return 0
   printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "U-11" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null || return 0
   case "$FILE_PATH" in
     */tests/*|*_test.*|*.test.*|*.spec.*) return 0 ;;
@@ -140,7 +143,12 @@ vg_post_edit_detect_stubs() {
 
 vg_post_edit_detect_large_edit() {
   local diff_lines
-  diff_lines=$(printf '%s\n' "$NEW_STRING" | wc -l | tr -d ' ')
+  if [[ -z "$NEW_STRING" ]]; then
+    diff_lines=0
+  else
+    local without_newlines="${NEW_STRING//$'\n'/}"
+    diff_lines=$(( ${#NEW_STRING} - ${#without_newlines} + 1 ))
+  fi
   if [[ $diff_lines -gt 200 ]]; then
     vg_post_edit_append_warning "[LARGE-EDIT] [info] [this-edit] OBSERVATION: single edit contains ${diff_lines} lines, exceeding 200-line threshold
 FIX: Verify the edit content is correct and intentional
@@ -159,6 +167,7 @@ vg_post_edit_detect_u16_size() {
   [[ -f "$FILE_PATH" ]] || return 0
 
   local total limit dir exempt base_limit
+  # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
   base_limit=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
   total=$(wc -l < "$FILE_PATH" | tr -d ' ')
   [[ "$total" -gt "$base_limit" ]] || return 0

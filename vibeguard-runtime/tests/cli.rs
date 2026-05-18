@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_vg-helper"))
+    Command::new(env!("CARGO_BIN_EXE_vibeguard-runtime"))
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn unknown_command_exits_2() {
 }
 
 #[test]
-fn help_lists_all_8_commands() {
+fn help_lists_all_commands() {
     let out = bin().output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     for name in &[
@@ -36,10 +36,16 @@ fn help_lists_all_8_commands() {
         "json-two-fields",
         "churn-count",
         "warn-count",
+        "post-edit-history",
         "build-fails",
         "paralysis-count",
         "pkg-rewrite",
         "session-metrics",
+        "pre-write-check",
+        "pre-edit-check",
+        "post-edit-fast-check",
+        "post-write-fast-check",
+        "codex-app-server-wrapper",
     ] {
         assert!(
             stderr.contains(name),
@@ -185,8 +191,8 @@ fn invalid_json_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 
@@ -204,8 +210,8 @@ fn invalid_json_two_fields_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 
@@ -219,8 +225,8 @@ fn handler_bad_args_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("vg-helper error:"),
-        "expected 'vg-helper error:' in stderr: {stderr}"
+        stderr.contains("vibeguard-runtime error:"),
+        "expected 'vibeguard-runtime error:' in stderr: {stderr}"
     );
 }
 

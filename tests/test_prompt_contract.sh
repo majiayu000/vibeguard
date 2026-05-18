@@ -84,7 +84,14 @@ assert_stderr_contains "missing Verification surfaces in stderr" \
 
 header "missing must-mention token"
 TARGET_NOFORCE="${WORK_DIR}/agents-no-force-push.md"
-sed 's/No force push/No rebase merge/' "$REAL_AGENTS" > "$TARGET_NOFORCE"
+python3 - <<'PY' "$REAL_AGENTS" "$TARGET_NOFORCE"
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+target.write_text(source.read_text(encoding="utf-8").replace("force push", "rebase merge"), encoding="utf-8")
+PY
 assert_cmd_fail "missing 'force push' token -> error" \
   run_validator --target "$TARGET_NOFORCE"
 assert_stderr_contains "missing force-push surfaces in stderr" \

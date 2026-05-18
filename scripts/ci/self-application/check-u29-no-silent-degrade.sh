@@ -80,6 +80,7 @@ if prebash.exists():
 runtime_python_fallbacks = {
     "hooks/pre-bash-guard.sh": "_lib/pkg_rewrite.py",
     "hooks/learn-evaluator.sh": "_lib/session_metrics.py",
+    "hooks/_lib/log_json.sh": "python3 -c",
 }
 for rel, fallback_ref in runtime_python_fallbacks.items():
     path = repo / rel
@@ -100,6 +101,9 @@ if setup_install.exists():
     for phrase in ("falls back to Python", "falling back to Python", "using Python fallback"):
         if phrase in text:
             errors.append(f"scripts/setup/install.sh: helper build must not advertise {phrase!r}")
+    for phrase in ("VIBEGUARD_ALLOW_NO_RUNTIME", "explicit degraded mode", "degraded install without"):
+        if phrase in text:
+            errors.append(f"scripts/setup/install.sh: no-runtime compatibility path remains ({phrase!r})")
 
 if errors:
     print("FAIL: U-29 silent-degradation checks failed")

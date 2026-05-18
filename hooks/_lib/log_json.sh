@@ -5,20 +5,7 @@
 # Usage: value=$(echo "$INPUT" | vg_json_field "tool_input.file_path")
 vg_json_field() {
   local field_path="$1"
-  if [[ -n "$_VG_HELPER" ]]; then
-    "$_VG_HELPER" json-field "$field_path" 2>/dev/null || echo ""
-  else
-    python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-keys = sys.argv[1].split('.')
-val = data
-for k in keys:
-    if isinstance(val, dict): val = val.get(k, '')
-    else: val = ''; break
-print(val if isinstance(val, str) else '')
-" "$field_path" 2>/dev/null || echo ""
-  fi
+  "$_VIBEGUARD_RUNTIME" json-field "$field_path" 2>/dev/null
 }
 
 # Strict field extraction for security-sensitive hooks.
@@ -29,44 +16,12 @@ vg_json_field_strict() {
   local out err status
   err=$(mktemp)
 
-  if [[ -n "$_VG_HELPER" && "$_VG_HELPER_JSON_FIELD_STRICT" -eq 1 ]]; then
-    if out=$("$_VG_HELPER" json-field --strict "$field_path" 2>"$err"); then
-      rm -f "$err"
-      printf '%s\n' "$out"
-      return 0
-    else
-      status=$?
-    fi
+  if out=$("$_VIBEGUARD_RUNTIME" json-field --strict "$field_path" 2>"$err"); then
+    rm -f "$err"
+    printf '%s\n' "$out"
+    return 0
   else
-    if out=$(python3 -c "
-import json, sys
-field_path = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except Exception as exc:
-    print(f'json parse failed: {exc}', file=sys.stderr)
-    sys.exit(1)
-val = data
-for key in field_path.split('.'):
-    if isinstance(val, dict) and key in val:
-        val = val[key]
-    else:
-        print(f'missing field: {field_path}', file=sys.stderr)
-        sys.exit(1)
-if val is None:
-    print(f'null field: {field_path}', file=sys.stderr)
-    sys.exit(1)
-if isinstance(val, str):
-    print(val)
-else:
-    print(json.dumps(val, separators=(',', ':')))
-" "$field_path" 2>"$err"); then
-      rm -f "$err"
-      printf '%s\n' "$out"
-      return 0
-    else
-      status=$?
-    fi
+    status=$?
   fi
 
   local msg
@@ -83,21 +38,7 @@ else:
 vg_json_two_fields() {
   local field1="$1"
   local field2="$2"
-  if [[ -n "$_VG_HELPER" ]]; then
-    "$_VG_HELPER" json-two-fields "$field1" "$field2" 2>/dev/null || echo ""
-  else
-    python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-def get_nested(d, path):
-    val = d
-    for k in path.split('.'):
-        val = val.get(k, '') if isinstance(val, dict) else ''
-    return val if isinstance(val, str) else ''
-print(get_nested(data, sys.argv[1]))
-print(get_nested(data, sys.argv[2]))
-" "$field1" "$field2" 2>/dev/null || echo ""
-  fi
+  "$_VIBEGUARD_RUNTIME" json-two-fields "$field1" "$field2" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------

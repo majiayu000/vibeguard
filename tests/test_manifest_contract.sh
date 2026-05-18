@@ -202,6 +202,9 @@ assert_contains "${enable_legacy_out}" "CHANGED" "enable-hooks removes deprecate
 assert_cmd "enable-hooks keeps hooks enabled during legacy cleanup" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 assert_cmd "enable-hooks removes exact deprecated codex_hooks key" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${CONFIG_FILE}'"
 
+alias_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
+assert_contains "${alias_out}" "SKIP" "enable-codex-hooks remains a compatibility alias"
+
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
 foo = true
@@ -238,6 +241,9 @@ codex_hooks = true
 TOML
 check_legacy_out="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${CONFIG_FILE}" || true)"
 assert_contains "${check_legacy_out}" "LEGACY" "check-hooks rejects deprecated codex_hooks even when hooks is enabled"
+
+check_legacy_alias_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
+assert_contains "${check_legacy_alias_out}" "LEGACY" "check-codex-hooks remains a compatibility alias"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]

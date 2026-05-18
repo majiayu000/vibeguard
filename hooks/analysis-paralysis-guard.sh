@@ -28,31 +28,8 @@ THRESHOLD="$(vg_config_get_int VG_PARALYSIS_THRESHOLD paralysis.threshold 7)"
 # Note: Glob/Grep hooks also log via this same hook (matcher: Read|Glob|Grep in settings.json).
 # Read only last 300 lines to avoid O(n) full-file scan on long sessions
 CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-  | if [[ -n "$_VG_HELPER" ]]; then
-      "$_VG_HELPER" paralysis-count "$VIBEGUARD_SESSION_ID"
-    else
-      VG_SESSION="$VIBEGUARD_SESSION_ID" VG_EVENT_LOG_LIB="$VG_EVENT_LOG_LIB" python3 -c '
-import sys, os
-sys.path.insert(0, os.environ["VG_EVENT_LOG_LIB"])
-from event_log import iter_events_from_stream
-
-session = os.environ.get("VG_SESSION", "")
-research_tools = {"Read", "Glob", "Grep"}
-action_tools = {"Write", "Edit", "Bash"}
-events = []
-for e in iter_events_from_stream(sys.stdin.buffer):
-    if e.get("session") == session:
-        events.append(e)
-consecutive = 0
-for e in reversed(events):
-    hook, decision = e.get("hook", ""), e.get("decision", "")
-    if hook == "analysis-paralysis-guard" and decision != "pass": continue
-    tool = e.get("tool", "")
-    if tool in research_tools: consecutive += 1
-    elif tool in action_tools: break
-print(consecutive)
-'
-    fi 2>/dev/null | tr -d '[:space:]' || echo "0")
+  | "$_VIBEGUARD_RUNTIME" paralysis-count "$VIBEGUARD_SESSION_ID" \
+  2>/dev/null | tr -d '[:space:]' || echo "0")
 
 CONSECUTIVE="${CONSECUTIVE:-0}"
 

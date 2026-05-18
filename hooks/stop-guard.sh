@@ -8,18 +8,34 @@
 set -euo pipefail
 
 source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 
+vg_stop_is_ci() {
+  case "${CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${GITHUB_ACTIONS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TRAVIS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${CIRCLECI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  [[ -n "${JENKINS_URL:-}" ]] && return 0
+  case "${GITLAB_CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  case "${TF_BUILD:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
+  return 1
+}
+
+vg_stop_hook_active_fast() {
+  local input="$1" active=""
+  active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
+  [[ "$active" == "true" ]]
+}
+
 # CI guard: skip interactive hooks in CI environments
-vg_is_ci && exit 0
+vg_stop_is_ci && exit 0
 
 # Read stdin once (Stop hook receives JSON input)
 INPUT=$(cat 2>/dev/null || true)
 
 # stop_hook_active: platform sets this when a Stop hook triggered another Stop hook.
 # Checking it breaks the feedback → Stop hook → feedback → Stop hook infinite loop.
-vg_stop_hook_active "$INPUT" && exit 0
+vg_stop_hook_active_fast "$INPUT" && exit 0
 
 # Not in git repository → skip
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then

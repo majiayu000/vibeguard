@@ -38,6 +38,21 @@ sys.stdout.write(data[:limit])
 vg_redact_sensitive() {
   local text="$1"
 
+  case "$text" in
+    *[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]*) ;;
+    *[Bb][Ee][Aa][Rr][Ee][Rr]*) ;;
+    *[Tt][Oo][Kk][Ee][Nn]*) ;;
+    *[Ss][Ee][Cc][Rr][Ee][Tt]*) ;;
+    *[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]*) ;;
+    *[Pp][Aa][Ss][Ss][Ww][Dd]*) ;;
+    *[Aa][Pp][Ii][_-][Kk][Ee][Yy]*) ;;
+    *[Aa][Pp][Ii][Kk][Ee][Yy]*) ;;
+    *)
+      printf '%s' "$text"
+      return 0
+      ;;
+  esac
+
   if command -v perl &>/dev/null; then
     printf '%s' "$text" | perl -CS -0777 -pe '
 s/(\bAuthorization\s*:\s*Bearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;

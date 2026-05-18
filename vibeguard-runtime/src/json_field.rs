@@ -46,11 +46,11 @@ fn parse_field_args(args: &[String]) -> std::result::Result<(bool, &str), String
     match args {
         [field] => Ok((false, field.as_str())),
         [flag, field] if flag == "--strict" => Ok((true, field.as_str())),
-        _ => Err("Usage: vg-helper json-field [--strict] <field_path>".into()),
+        _ => Err("Usage: vibeguard-runtime json-field [--strict] <field_path>".into()),
     }
 }
 
-/// vg-helper json-field <field_path>
+/// vibeguard-runtime json-field <field_path>
 /// Reads JSON from stdin, prints the field value to stdout.
 pub fn run_field(args: &[String]) -> Result {
     let (strict, field_path) = parse_field_args(args)?;
@@ -66,11 +66,11 @@ pub fn run_field(args: &[String]) -> Result {
     Ok(())
 }
 
-/// vg-helper json-two-fields <field1> <field2>
+/// vibeguard-runtime json-two-fields <field1> <field2>
 /// Reads JSON from stdin, prints field1 on first line, field2 on remaining lines.
 pub fn run_two_fields(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: vg-helper json-two-fields <field1> <field2>".into());
+        return Err("Usage: vibeguard-runtime json-two-fields <field1> <field2>".into());
     }
     let input = read_stdin()?;
     let data: Value = serde_json::from_str(&input)?;

@@ -14,7 +14,7 @@ use super::time::{
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
-/// Usage: tail -1000 $LOG | vg-helper session-metrics <session_id> <project_log_dir>
+/// Usage: tail -1000 $LOG | vibeguard-runtime session-metrics <session_id> <project_log_dir>
 pub fn run(args: &[String]) -> Result {
     let cutoff_secs = now_unix_secs().saturating_sub(30 * 60);
     run_inner(args, io::stdin().lock(), &mut io::stdout(), cutoff_secs)
@@ -27,7 +27,9 @@ pub(super) fn run_inner(
     cutoff_secs: u64,
 ) -> Result {
     if args.len() < 2 {
-        return Err("Usage: tail -N log | vg-helper session-metrics <session> <dir>".into());
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime session-metrics <session> <dir>".into(),
+        );
     }
     let session = &args[0];
     let project_dir = &args[1];
