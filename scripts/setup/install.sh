@@ -172,6 +172,9 @@ _INSTALL_TMP=$(mktemp -d "${VIBEGUARD_HOME}/installed_tmp_XXXXXX")
 trap 'rm -rf "$_INSTALL_TMP"' EXIT
 cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
 cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
+mkdir -p "${_INSTALL_TMP}/schemas" "${_INSTALL_TMP}/scripts/lib"
+cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
+cp "${REPO_DIR}/scripts/lib/project_config_validate.py" "${_INSTALL_TMP}/scripts/lib/"
 printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
 
 # Build vibeguard-runtime Rust binary before swapping the installed snapshot.
