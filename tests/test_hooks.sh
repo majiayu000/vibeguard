@@ -34,6 +34,7 @@ shards=(
   "tests/hooks/test_post_edit_w14.sh"
   "tests/hooks/test_post_edit_w15.sh"
   "tests/hooks/test_runtime_config.sh"
+  "tests/hooks/test_runtime_policy.sh"
   "tests/hooks/test_count_active_constraints.sh"
   "tests/hooks/test_u16_config.sh"
 )

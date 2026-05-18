@@ -7,8 +7,9 @@
 #      ${VIBEGUARD_LOG_DIR:-$HOME/.vibeguard}/config.json.
 #   3. Caller-provided default.
 #
-# Config parse errors, missing keys, and wrong types fall through to the next
-# layer so a bad user edit cannot break hook execution.
+# Standalone helper reads stay permissive for non-critical tuning fields. The
+# wrapper policy gate validates malformed JSON before hooks execute, so parse
+# errors cannot silently weaken runtime enforcement.
 
 if [[ -n "${_VG_CONFIG_SH_LOADED:-}" ]]; then
   return 0

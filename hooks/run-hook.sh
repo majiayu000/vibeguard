@@ -9,6 +9,7 @@
 
 set -euo pipefail
 
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export VIBEGUARD_WRAPPER="${VIBEGUARD_WRAPPER:-run-hook.sh}"
 export VIBEGUARD_SOURCE_CONFIG="${VIBEGUARD_SOURCE_CONFIG:-${HOME}/.claude/settings.json}"
 export VIBEGUARD_HOOK_PROTOCOL_VERSION="${VIBEGUARD_HOOK_PROTOCOL_VERSION:-claude-code-hooks-v1}"
@@ -33,6 +34,26 @@ fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   echo "ERROR: hook not found: ${HOOK_PATH}" >&2
+  exit 1
+fi
+
+POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
+[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
+[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
+if [[ ! -f "${POLICY_PATH}" ]]; then
+  echo "ERROR: VibeGuard policy helper not found for ${HOOK_NAME}" >&2
+  exit 1
+fi
+# shellcheck source=hooks/_lib/policy.sh
+source "${POLICY_PATH}"
+policy_status=0
+vg_policy_check_hook "${HOOK_NAME}" || policy_status=$?
+if [[ ${policy_status} -eq 10 ]]; then
+  vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
+  exit 0
+elif [[ ${policy_status} -ne 0 ]]; then
+  vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
+  printf '%s\n' "${VG_POLICY_REASON}" >&2
   exit 1
 fi
 

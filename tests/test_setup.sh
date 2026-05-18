@@ -563,6 +563,8 @@ assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup i
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
+assert_cmd "runtime policy project validator installed after setup" test -f "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard is copied after installation" bash -c "test -d '${HOME}/.codex/skills/vibeguard' && test ! -L '${HOME}/.codex/skills/vibeguard'"
