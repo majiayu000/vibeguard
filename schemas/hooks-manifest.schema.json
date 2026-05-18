@@ -36,8 +36,21 @@
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-        "script": {"type": "string", "pattern": "^[a-z0-9-]+\\.sh$"},
+        "script": {"type": "string", "pattern": "^[a-z0-9_-]+\\.sh$"},
         "kind": {"enum": ["hook", "library", "wrapper", "manual", "git-hook"]},
+        "install_targets": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "uniqueItems": true
+        },
+        "config_exposure": {
+          "type": "object",
+          "required": ["disabled_hook"],
+          "additionalProperties": false,
+          "properties": {
+            "disabled_hook": {"type": "boolean"}
+          }
+        },
         "trigger": {"type": "string"},
         "responsibilities": {"type": "string"},
         "decision_types": {

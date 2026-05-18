@@ -30,6 +30,7 @@
         "type": "string",
         "enum": [
           "analysis-paralysis-guard",
+          "count-active-constraints",
           "learn-evaluator",
           "post-build-check",
           "post-edit-guard",

@@ -12,6 +12,7 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "hooks" / "manifest.json"
 PROFILE_ORDER = ("minimal", "core", "full", "strict")
+DISABLEABLE_KINDS = {"hook", "git-hook"}
 HOOK_EVENTS = {
     "PreToolUse",
     "PermissionRequest",
@@ -116,6 +117,18 @@ def all_managed_script_names(data: dict[str, Any]) -> set[str]:
     return names
 
 
+def disableable_hook_names(data: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for item in hooks(data):
+        exposure = item.get("config_exposure")
+        if not isinstance(exposure, dict) or exposure.get("disabled_hook") is not True:
+            continue
+        name = item.get("name")
+        if isinstance(name, str):
+            names.append(name)
+    return sorted(names)
+
+
 def _validate_event(value: Any, path: str) -> None:
     if value not in HOOK_EVENTS:
         raise ValueError(f"{path} must be one of {sorted(HOOK_EVENTS)}")
@@ -157,6 +170,19 @@ def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]
             errors.append(f"{prefix}.script must be a shell script name")
         elif not (repo_root / "hooks" / script).exists():
             errors.append(f"{prefix}.script missing hooks/{script}")
+
+        kind = item.get("kind")
+        if kind in DISABLEABLE_KINDS:
+            install_targets = item.get("install_targets")
+            if not isinstance(install_targets, list):
+                errors.append(f"{prefix}.install_targets must be an array")
+            elif not all(isinstance(target, str) and target for target in install_targets):
+                errors.append(f"{prefix}.install_targets must contain non-empty strings")
+            exposure = item.get("config_exposure")
+            if not isinstance(exposure, dict):
+                errors.append(f"{prefix}.config_exposure must be an object")
+            elif not isinstance(exposure.get("disabled_hook"), bool):
+                errors.append(f"{prefix}.config_exposure.disabled_hook must be boolean")
 
         for platform in ("claude", "codex"):
             platform_data = item.get(platform)
@@ -262,6 +288,12 @@ def cmd_codex_specs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_disableable_hook_names(args: argparse.Namespace) -> int:
+    for name in disableable_hook_names(load_manifest(Path(args.manifest))):
+        print(name)
+    return 0
+
+
 def cmd_claude_specs(args: argparse.Namespace) -> int:
     _print_json(claude_specs(load_manifest(Path(args.manifest)), args.profile))
     return 0
@@ -275,6 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("validate").set_defaults(func=cmd_validate)
     sub.add_parser("render-doc-table").set_defaults(func=cmd_render_doc_table)
     sub.add_parser("codex-specs").set_defaults(func=cmd_codex_specs)
+    sub.add_parser("disableable-hook-names").set_defaults(func=cmd_disableable_hook_names)
 
     claude = sub.add_parser("claude-specs")
     claude.add_argument("--profile", choices=PROFILE_ORDER)

@@ -82,6 +82,10 @@ assert_cmd "manifest contract validates" python3 "${MANIFEST_HELPER}" validate
 profiles_out="$(python3 "${MANIFEST_HELPER}" profile-names)"
 assert_contains "${profiles_out}" "core" "profile list contains core"
 assert_contains "${profiles_out}" "full" "profile list contains full"
+hooks_out="$(python3 "${MANIFEST_HELPER}" hook-names)"
+assert_contains "${hooks_out}" "count-active-constraints" "hook list comes from manifest names"
+assert_not_contains "${hooks_out}" "count_active_constraints" "hook list does not use script stems"
+assert_not_contains "${hooks_out}" "skills-loader" "manual hooks are not exposed through disabled_hooks"
 rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source canonical --scope common)"
 assert_contains "${rules_out}" "W-17" "canonical common rule ids include W-17"
 assert_contains "${rules_out}" "U-32" "canonical common rule ids include U-32"
@@ -113,6 +117,42 @@ JSON
 bad_skill_paths_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${BAD_SKILL_PATHS_MANIFEST}" 2>&1 || true)"
 assert_contains "${bad_skill_paths_validate_out}" "module bad-skill-module: paths must be a list" "manifest validation reports malformed skill paths"
 assert_not_contains "${bad_skill_paths_validate_out}" "Traceback" "manifest validation reports malformed skill paths without traceback"
+
+BAD_PROJECT_SCHEMA="${TMP_DIR}/bad-vibeguard-project.schema.json"
+python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${BAD_PROJECT_SCHEMA}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+enum = data["properties"]["disabled_hooks"]["items"]["enum"]
+enum.remove("count-active-constraints")
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_project_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema "${BAD_PROJECT_SCHEMA}" 2>&1 || true)"
+assert_contains "${bad_project_schema_out}" "project schema disabled_hooks enum drift" "manifest validation detects disabled_hooks schema drift"
+assert_not_contains "${bad_project_schema_out}" "Traceback" "disabled_hooks schema drift reports without traceback"
+
+BAD_HOOKS_MANIFEST="${TMP_DIR}/bad-hooks-manifest.json"
+python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_HOOKS_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+for hook in data["hooks"]:
+    if hook["name"] == "pre-bash-guard":
+        hook["install_targets"] = []
+        break
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_hooks_manifest_out="$(python3 "${MANIFEST_HELPER}" validate --hooks-manifest "${BAD_HOOKS_MANIFEST}" 2>&1 || true)"
+assert_contains "${bad_hooks_manifest_out}" "hook install target drift for hooks-pre" "manifest validation detects hook install target drift"
+assert_not_contains "${bad_hooks_manifest_out}" "Traceback" "hook install target drift reports without traceback"
 
 ESCAPING_SKILL_PATH_MANIFEST="${TMP_DIR}/escaping-skill-path-install-modules.json"
 cat > "${ESCAPING_SKILL_PATH_MANIFEST}" <<'JSON'

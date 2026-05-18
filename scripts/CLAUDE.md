@@ -48,7 +48,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `vibeguard-runtime codex-app-server-wrapper` | Rust external wrapper for `codex app-server` with VibeGuard gates |
 | `lib/settings_json.py` | Manage Claude Code hook configuration in `~/.claude/settings.json` |
 | `lib/codex_hooks_json.py` | Manage VibeGuard-owned entries in `~/.codex/hooks.json` |
-| `lib/hooks_manifest.py` | Read and validate `hooks/manifest.json` as the hook registration source of truth |
+| `lib/hooks_manifest.py` | Read and validate `hooks/manifest.json` as the hook registration, install-target, and disabled-hook exposure source of truth |
 | `setup/` | Install, check, clean, and target-specific setup logic |
 
 ## Quick usage

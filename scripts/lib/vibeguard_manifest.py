@@ -10,10 +10,13 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
+from hooks_manifest import disableable_hook_names, load_manifest as load_hooks_manifest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_FILE = ROOT / "schemas" / "install-modules.json"
 PROJECT_SCHEMA_FILE = ROOT / "schemas" / "vibeguard-project.schema.json"
+HOOKS_MANIFEST_FILE = ROOT / "hooks" / "manifest.json"
 PROMPT_CONTRACT_SCHEMA_FILE = ROOT / "schemas" / "prompt-contract.schema.json"
 DEFAULT_PROMPT_TARGET = ROOT / "templates" / "AGENTS.md"
 CANONICAL_RULES_DIR = ROOT / "rules" / "claude-rules"
@@ -27,22 +30,6 @@ PROMPT_FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:")
 RULE_ID_HEADING_RE = re.compile(r"^##\s+((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\b", re.MULTILINE)
 RULE_ID_TABLE_RE = re.compile(r"^\|\s*((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+)\s*\|", re.MULTILINE)
 GUARD_RULE_RE = re.compile(r"\b(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+\b")
-
-HOOK_SKIP = {
-    "run-hook",
-    "run-hook-codex",
-    "log",
-    "circuit-breaker",
-    "vibeguard-learn-evaluator",
-    "vibeguard-post-build-check",
-    "vibeguard-post-edit-guard",
-    "vibeguard-post-write-guard",
-    "vibeguard-pre-bash-guard",
-    "vibeguard-pre-edit-guard",
-    "vibeguard-pre-write-guard",
-    "vibeguard-stop-guard",
-}
-
 
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as f:
@@ -105,13 +92,7 @@ def guard_rule_ids() -> list[str]:
 
 
 def hook_names() -> list[str]:
-    names: list[str] = []
-    for file in sorted(HOOKS_DIR.glob("*.sh")):
-        name = file.stem
-        if name in HOOK_SKIP:
-            continue
-        names.append(name)
-    return names
+    return disableable_hook_names(load_hooks_manifest(HOOKS_MANIFEST_FILE))
 
 
 def guard_names() -> list[str]:
@@ -241,18 +222,97 @@ def _validate_profiles(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
-def _validate_project_schema(manifest: dict[str, Any], project_schema: dict[str, Any]) -> list[str]:
+def _validate_project_schema(
+    manifest: dict[str, Any],
+    project_schema: dict[str, Any],
+    hooks_manifest: dict[str, Any],
+) -> list[str]:
     errors: list[str] = []
     manifest_profiles = sorted(profile_names(manifest))
-    project_profile = (
-        project_schema.get("properties", {})
-        .get("profile", {})
-        .get("enum", [])
-    )
+    properties = project_schema.get("properties", {})
+    project_profile = properties.get("profile", {}).get("enum", [])
     if sorted(project_profile) != manifest_profiles:
         errors.append(
             "project schema profile enum drift: "
             f"manifest={manifest_profiles} schema={project_profile}"
+        )
+    disabled_hook_enum = (
+        properties.get("disabled_hooks", {})
+        .get("items", {})
+        .get("enum", [])
+    )
+    expected_disabled_hooks = disableable_hook_names(hooks_manifest)
+    if sorted(disabled_hook_enum) != expected_disabled_hooks:
+        errors.append(
+            "project schema disabled_hooks enum drift: "
+            f"manifest={expected_disabled_hooks} schema={disabled_hook_enum}"
+        )
+    return errors
+
+
+def _hook_modules(manifest: dict[str, Any]) -> tuple[dict[str, set[str]], list[str]]:
+    modules: dict[str, set[str]] = {}
+    errors: list[str] = []
+    for module in manifest.get("modules", []):
+        if not isinstance(module, dict) or module.get("kind") != "hooks":
+            continue
+        module_id = str(module.get("id", ""))
+        paths = module.get("paths", [])
+        if not module_id:
+            errors.append("hook module has empty id")
+            continue
+        if not isinstance(paths, list):
+            errors.append(f"module {module_id}: paths must be a list")
+            continue
+        module_paths: set[str] = set()
+        for path in paths:
+            if not isinstance(path, str):
+                errors.append(f"module {module_id}: non-string hook path")
+                continue
+            module_paths.add(path)
+        modules[module_id] = module_paths
+    return modules, errors
+
+
+def _validate_hook_install_targets(
+    manifest: dict[str, Any],
+    hooks_manifest: dict[str, Any],
+) -> list[str]:
+    modules, errors = _hook_modules(manifest)
+    expected = {module_id: set() for module_id in modules}
+
+    for index, item in enumerate(hooks_manifest.get("hooks", [])):
+        if not isinstance(item, dict):
+            errors.append(f"hooks[{index}] is not an object")
+            continue
+        script = item.get("script")
+        targets = item.get("install_targets", [])
+        if targets is None:
+            targets = []
+        if not isinstance(targets, list):
+            errors.append(f"hooks[{index}].install_targets must be a list")
+            continue
+        if not targets:
+            continue
+        if not isinstance(script, str):
+            errors.append(f"hooks[{index}].script must be a string for install_targets")
+            continue
+        hook_path = f"hooks/{script}"
+        for target in targets:
+            if target not in modules:
+                errors.append(f"hook {script}: unknown install target {target!r}")
+                continue
+            expected[target].add(hook_path)
+
+    for module_id, actual_paths in sorted(modules.items()):
+        expected_paths = expected.get(module_id, set())
+        if actual_paths == expected_paths:
+            continue
+        manifest_only = sorted(expected_paths - actual_paths)
+        install_only = sorted(actual_paths - expected_paths)
+        errors.append(
+            f"hook install target drift for {module_id}: "
+            f"manifest_only={manifest_only} install_only={install_only}"
         )
     return errors
 
@@ -392,9 +452,14 @@ def validate_prompt_contract(
     return errors, warnings
 
 
-def validate_contract(manifest_path: Path, project_schema_path: Path) -> list[str]:
+def validate_contract(
+    manifest_path: Path,
+    project_schema_path: Path,
+    hooks_manifest_path: Path,
+) -> list[str]:
     manifest = load_manifest(manifest_path)
     project_schema = load_json(project_schema_path)
+    hooks_manifest = load_hooks_manifest(hooks_manifest_path)
 
     errors: list[str] = []
     module_ids = _module_ids(manifest)
@@ -402,7 +467,8 @@ def validate_contract(manifest_path: Path, project_schema_path: Path) -> list[st
         errors.append("duplicate module ids detected in manifest")
     errors.extend(_validate_paths(manifest))
     errors.extend(_validate_profiles(manifest))
-    errors.extend(_validate_project_schema(manifest, project_schema))
+    errors.extend(_validate_project_schema(manifest, project_schema, hooks_manifest))
+    errors.extend(_validate_hook_install_targets(manifest, hooks_manifest))
     errors.extend(_validate_skill_links(manifest))
     return errors
 
@@ -419,6 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate", help="Validate manifest/profile/schema contract")
     validate.add_argument("--manifest-file", default=str(MANIFEST_FILE))
     validate.add_argument("--project-schema", default=str(PROJECT_SCHEMA_FILE))
+    validate.add_argument("--hooks-manifest", default=str(HOOKS_MANIFEST_FILE))
 
     profiles = sub.add_parser("profile-names", help="List canonical profile names")
     profiles.add_argument("--manifest-file", default=str(MANIFEST_FILE))
@@ -448,7 +515,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "validate":
-        errors = validate_contract(Path(args.manifest_file), Path(args.project_schema))
+        errors = validate_contract(
+            Path(args.manifest_file),
+            Path(args.project_schema),
+            Path(args.hooks_manifest),
+        )
         if errors:
             for error in errors:
                 print(error, file=sys.stderr)
