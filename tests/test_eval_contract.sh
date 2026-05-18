@@ -48,12 +48,33 @@ assert_contains() {
 
 header "eval runner syntax"
 assert_cmd "eval/run_eval.py syntax is correct" python3 -m py_compile "${REPO_DIR}/eval/run_eval.py"
+assert_cmd "eval support modules syntax is correct" python3 -m py_compile \
+  "${REPO_DIR}/eval/dataset.py" \
+  "${REPO_DIR}/eval/scoring.py" \
+  "${REPO_DIR}/eval/artifacts.py" \
+  "${REPO_DIR}/eval/samples.py"
 
 header "dry-run uses repository snapshot by default"
 dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run)"
 normalized_out="$(printf '%s' "${dry_run_out}" | tr '\\' '/')"
+assert_contains "${normalized_out}" "Dataset source: ${REPO_DIR_RESOLVED}/eval/datasets/v1.jsonl" "dry-run reports versioned dataset source"
+assert_contains "${normalized_out}" "Sample digest:" "dry-run reports sample digest"
 assert_contains "${normalized_out}" "Rules source: ${REPO_DIR_RESOLVED}/rules/claude-rules" "dry-run reports repository rule source"
+assert_contains "${normalized_out}" "Rule digest:" "dry-run reports rule digest"
 assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-rules.md" "dry-run reports repository core rules source"
+assert_cmd "dry-run does not write mutable eval/results.json" test ! -e "${REPO_DIR}/eval/results.json"
+
+header "dataset contract"
+assert_cmd "default dataset loads with schema validation" python3 -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, '${REPO_DIR}/eval')
+from dataset import DEFAULT_DATASET_PATH, load_dataset, sample_set_digest
+samples = load_dataset(DEFAULT_DATASET_PATH)
+assert len(samples) >= 40
+assert len(sample_set_digest(samples)) == 64
+assert all('id' in sample and 'expected_action' in sample for sample in samples)
+"
 
 echo
 echo "=============================="

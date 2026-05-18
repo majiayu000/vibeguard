@@ -13,25 +13,26 @@ usage:
 """
 
 import argparse
-import json
 import os
-import re
 import sys
 import time
 from pathlib import Path
 
-from samples import SAMPLES
+from artifacts import DEFAULT_RUNS_DIR, build_run_dir, current_commit, write_run_artifacts
+from dataset import (
+    DEFAULT_DATASET_PATH,
+    DatasetError,
+    file_digest,
+    load_dataset,
+    sample_set_digest,
+    sha256_text,
+)
+from scoring import CONFIDENCE_SCORES, ScorerParseError, parse_confidence, parse_scorer_output
 
 MODELS = {
     "haiku": "claude-haiku-4-5-20251001",
     "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
-}
-
-CONFIDENCE_SCORES = {
-    "low": 0.33,
-    "medium": 0.66,
-    "high": 0.90,
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,17 +80,22 @@ def build_system_prompt(rules: str) -> str:
 
 When a user gives you code, you must:
 1. Review all applicable rules one by one
-2. List each violation in the format [RULE_ID]: Problem description
-3. If there are no code violations, reply [CLEAN]
-4. End with exactly one line: CONFIDENCE: low|medium|high
-5. Don't suggest improvements - only report violations"""
+2. Return JSON only, with this exact shape:
+   {{"detected": true|false, "rule_ids": ["RULE-ID"], "confidence": "low|medium|high", "reason": "one sentence"}}
+3. For clean code, return detected=false and rule_ids=[]
+4. Don't suggest improvements - only report rule compliance verdicts"""
 
 
-def parse_confidence(reply: str) -> str | None:
-    match = re.search(r"\bconfidence\s*[:=-]\s*(low|medium|high)\b", reply, re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).lower()
+def build_user_message(sample: dict) -> str:
+    user_prompt = sample.get("prompt") or "Review this code for VibeGuard rule compliance."
+    source = sample.get("input", sample.get("code", ""))
+    return (
+        f"Scenario: {sample.get('context', 'reviewing')}\n"
+        f"Expected action: {sample.get('expected_action', 'warn_or_refuse')}\n"
+        f"Task: {user_prompt}\n\n"
+        f"Review the following {sample['lang']} code:\n\n"
+        f"```{sample['lang']}\n{source.strip()}\n```"
+    )
 
 
 def evaluate_sample(
@@ -99,7 +105,8 @@ def evaluate_sample(
     sample: dict,
 ) -> dict:
     """Run evaluation on a single sample"""
-    user_msg = f"Review the following {sample['lang']} code and list all violating rules:\n\n```{sample['lang']}\n{sample['code'].strip()}\n````"
+    user_msg = build_user_message(sample)
+    started = time.time()
 
     try:
         response = client.messages.create(
@@ -111,101 +118,130 @@ def evaluate_sample(
         reply = response.content[0].text
     except Exception as e:
         return {
+            "id": sample.get("id"),
             "rule": "FP-CHECK" if sample["rule"] == "NONE" else sample["rule"],
             "expected": "CLEAN" if sample["rule"] == "NONE" else sample["rule"],
             "severity": sample.get("severity"),
+            "expected_action": sample.get("expected_action"),
             "skipped": True,
             "error": str(e),
             "response": "",
+            "raw_response": "",
             "description": sample["description"],
+            "latency_seconds": round(time.time() - started, 3),
         }
 
-    confidence = parse_confidence(reply)
+    try:
+        scorer = parse_scorer_output(reply)
+    except ScorerParseError as e:
+        return {
+            "id": sample.get("id"),
+            "rule": "FP-CHECK" if sample["rule"] == "NONE" else sample["rule"],
+            "expected": "CLEAN" if sample["rule"] == "NONE" else sample["rule"],
+            "severity": sample.get("severity"),
+            "expected_action": sample.get("expected_action"),
+            "skipped": True,
+            "error": str(e),
+            "response": reply,
+            "raw_response": reply,
+            "description": sample["description"],
+            "latency_seconds": round(time.time() - started, 3),
+        }
+
+    confidence = scorer.get("confidence")
     expected_rule = sample["rule"]
     is_clean = expected_rule == "NONE"
 
     if is_clean:
-        # False positive detection: clean code should not trigger any rules
-        has_false_positive = "[CLEAN]" not in reply and any(
-            f"[{r}]" in reply or f"{r}:" in reply or f"{r}]" in reply
-            for r in _all_rule_ids()
-        )
+        has_false_positive = bool(scorer["detected"] or scorer["rule_ids"])
         result = {
+            "id": sample.get("id"),
             "rule": "FP-CHECK",
             "expected": "CLEAN",
+            "expected_action": sample.get("expected_action"),
             "detected_fp": has_false_positive,
-            "response": reply[:500],
+            "rule_ids": scorer["rule_ids"],
+            "reason": scorer["reason"],
+            "response": reply,
+            "raw_response": reply,
             "description": sample["description"],
             "severity": "clean",
+            "latency_seconds": round(time.time() - started, 3),
         }
         if confidence:
             result["confidence"] = confidence
         return result
 
-    # Check if the rule is mentioned
-    detected = (
-        f"[{expected_rule}]" in reply
-        or f"{expected_rule}:" in reply
-        or f"{expected_rule}]" in reply
-        or expected_rule.lower() in reply.lower()
-    )
+    detected = bool(scorer["detected"] and expected_rule.upper() in scorer["rule_ids"])
 
     result = {
+        "id": sample.get("id"),
         "rule": expected_rule,
         "severity": sample["severity"],
+        "expected_action": sample.get("expected_action"),
         "detected": detected,
-        "response": reply[:500],
+        "rule_ids": scorer["rule_ids"],
+        "reason": scorer["reason"],
+        "response": reply,
+        "raw_response": reply,
         "description": sample["description"],
+        "latency_seconds": round(time.time() - started, 3),
     }
     if confidence:
         result["confidence"] = confidence
     return result
 
 
-def _all_rule_ids() -> list[str]:
-    prefixes = ["SEC", "PY", "TS", "GO", "RS", "U", "W", "L", "TASTE"]
-    ids = []
-    for p in prefixes:
-        for i in range(1, 30):
-            ids.append(f"{p}-{i:02d}")
-            ids.append(f"{p}-{i}")
-    return ids
+def filter_samples(samples: list[dict], args) -> list[dict]:
+    filtered = samples
+    if args.rules:
+        prefix = args.rules.upper()
+        filtered = [
+            s
+            for s in filtered
+            if s["rule"].startswith(prefix) or s["rule"] == "NONE"
+        ]
+        print(f"Number of samples after filtering: {len(filtered)} (prefix: {prefix})")
+    if args.type:
+        if args.type == "tp":
+            filtered = [s for s in filtered if s["type"] == "tp"]
+        elif args.type == "fp":
+            filtered = [s for s in filtered if s["type"] == "fp"]
+        print(f"Number of samples after type filtering: {len(filtered)} (Type: {args.type})")
+    return filtered
 
 
 def run_eval(args):
     rules_dir = Path(args.rules_dir).resolve()
     core_rules_file = Path(args.core_rules_file).resolve() if args.core_rules_file else None
+    dataset_path = Path(args.dataset).resolve()
+    try:
+        all_samples = load_dataset(dataset_path)
+    except DatasetError as e:
+        print(f"Invalid eval dataset: {e}", file=sys.stderr)
+        sys.exit(2)
+
     rules = load_rules(rules_dir, core_rules_file)
     system_prompt = build_system_prompt(rules)
+    rule_digest = sha256_text(rules)
+    dataset_digest = file_digest(dataset_path)
+    samples = filter_samples(all_samples, args)
+    filtered_sample_digest = sample_set_digest(samples)
 
     if args.dry_run:
         print(f"Rule text length: {len(rules)} characters")
-        print(f"Number of samples: {len(SAMPLES)}")
+        print(f"Number of samples: {len(samples)}")
+        print(f"Dataset source: {dataset_path}")
+        print(f"Sample digest: {filtered_sample_digest}")
         print(f"Rules source: {rules_dir}")
+        print(f"Rule digest: {rule_digest}")
         if core_rules_file:
             print(f"Core constraint source: {core_rules_file}")
         print(f"\nSample list:")
-        for s in SAMPLES:
-            tag = "FP" if s["rule"] == "NONE" else s["rule"]
-            print(f"  [{tag}] {s['description']}")
+        for s in samples:
+            tag = "FP" if s["type"] == "fp" else s["rule"]
+            print(f"  [{tag}] {s['id']}: {s['description']}")
         return
-
-    # Filter samples
-    samples = SAMPLES
-    if args.rules:
-        prefix = args.rules.upper()
-        samples = [
-            s
-            for s in SAMPLES
-            if s["rule"].startswith(prefix) or s["rule"] == "NONE"
-        ]
-        print(f"Number of samples after filtering: {len(samples)} (prefix: {prefix})")
-    if args.type:
-        if args.type == "tp":
-            samples = [s for s in samples if s["rule"] != "NONE"]
-        elif args.type == "fp":
-            samples = [s for s in samples if s["rule"] == "NONE"]
-        print(f"Number of samples after type filtering: {len(samples)} (Type: {args.type})")
 
     model = MODELS.get(args.model, args.model)
     try:
@@ -218,11 +254,15 @@ def run_eval(args):
     print(f"Model: {model}")
     print(f"Number of samples: {len(samples)}")
     print(f"Rule text: {len(rules)} characters")
+    print(f"Dataset source: {dataset_path}")
+    print(f"Sample digest: {filtered_sample_digest}")
+    print(f"Rule digest: {rule_digest}")
     print("=" * 60)
 
     results = []
+    started = time.time()
     for i, sample in enumerate(samples):
-        tag = "FP" if sample["rule"] == "NONE" else sample["rule"]
+        tag = "FP" if sample["type"] == "fp" else sample["rule"]
         print(f"[{i + 1}/{len(samples)}] {tag}: {sample['description']}...", end=" ", flush=True)
 
         result = evaluate_sample(client, model, system_prompt, sample)
@@ -242,19 +282,32 @@ def run_eval(args):
 
     print_report(results, model)
 
-    # Save results
-    output_path = Path(__file__).parent / "results.json"
-    with open(output_path, "w") as f:
-        json.dump(
-            {"model": model, "timestamp": time.strftime("%Y-%m-%d %H:%M"), "results": results},
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
+    skipped_count = count_skipped(results)
+    metadata = {
+        "model": model,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "commit": current_commit(short=False),
+        "scorer_version": "structured-json-v1",
+        "dataset_source": str(dataset_path),
+        "dataset_digest": dataset_digest,
+        "sample_set_digest": filtered_sample_digest,
+        "sample_count": len(samples),
+        "rules_source": str(rules_dir),
+        "core_rules_source": str(core_rules_file) if core_rules_file else None,
+        "rule_digest": rule_digest,
+        "skipped_count": skipped_count,
+        "latency_seconds": round(time.time() - started, 3),
+    }
+    run_dir = build_run_dir(args.artifact_root)
+    output_path = write_run_artifacts(
+        run_dir,
+        metadata=metadata,
+        samples=samples,
+        results=results,
+    )
     print(f"\nResult saved: {output_path}")
 
     max_api_failures = read_max_api_failures()
-    skipped_count = count_skipped(results)
     if skipped_count > max_api_failures:
         print(
             f"Eval failed: {skipped_count} skipped sample(s) exceeded "
@@ -462,6 +515,16 @@ def main():
     parser.add_argument("--rules", help="Rule prefix filtering (such as SEC, PY, TS, GO, RS)")
     parser.add_argument("--type", choices=["tp", "fp"], help="Sample type filtering: tp=violation, fp=legal")
     parser.add_argument("--dry-run", action="store_true", help="Only display samples without adjusting API")
+    parser.add_argument(
+        "--dataset",
+        default=str(DEFAULT_DATASET_PATH),
+        help="Versioned JSONL dataset to evaluate",
+    )
+    parser.add_argument(
+        "--artifact-root",
+        default=str(DEFAULT_RUNS_DIR),
+        help="Directory where immutable eval run artifacts are written",
+    )
     parser.add_argument(
         "--rules-dir",
         default=str(DEFAULT_RULES_DIR),

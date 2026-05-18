@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -117,15 +119,24 @@ class EvalErrorAccountingTest(unittest.TestCase):
 
     def test_evaluate_sample_records_confidence(self) -> None:
         sample = {
+            "id": "tp-sec-01-example",
             "rule": "SEC-01",
             "severity": "critical",
             "lang": "python",
-            "code": "print('x')",
+            "input": "print('x')",
+            "type": "tp",
+            "context": "reviewing",
+            "expected_action": "warn_or_refuse",
             "description": "sample confidence",
         }
 
         result = run_eval.evaluate_sample(
-            StaticClient("[SEC-01]: problem\nCONFIDENCE: high"),
+            StaticClient(json.dumps({
+                "detected": True,
+                "rule_ids": ["SEC-01"],
+                "confidence": "high",
+                "reason": "problem",
+            })),
             "model",
             "rules",
             sample,
@@ -138,6 +149,108 @@ class EvalErrorAccountingTest(unittest.TestCase):
         self.assertEqual(run_eval.parse_confidence("Confidence: MEDIUM"), "medium")
         self.assertEqual(run_eval.parse_confidence("confidence=low"), "low")
         self.assertIsNone(run_eval.parse_confidence("no confidence supplied"))
+
+    def test_structured_scorer_parser_requires_json_verdict(self) -> None:
+        verdict = run_eval.parse_scorer_output(
+            '```json\n{"detected": true, "rule_ids": ["sec-01"], "confidence": "HIGH", "reason": "ok"}\n```'
+        )
+
+        self.assertTrue(verdict["detected"])
+        self.assertEqual(verdict["rule_ids"], ["SEC-01"])
+        self.assertEqual(verdict["confidence"], "high")
+
+        with self.assertRaises(run_eval.ScorerParseError):
+            run_eval.parse_scorer_output("[SEC-01]: free-form legacy answer")
+
+    def test_non_json_model_reply_is_skipped(self) -> None:
+        sample = {
+            "id": "tp-sec-01-example",
+            "rule": "SEC-01",
+            "severity": "critical",
+            "lang": "python",
+            "input": "print('x')",
+            "type": "tp",
+            "context": "reviewing",
+            "expected_action": "warn_or_refuse",
+            "description": "sample parse failure",
+        }
+
+        result = run_eval.evaluate_sample(StaticClient("[SEC-01]: problem"), "model", "rules", sample)
+
+        self.assertTrue(result["skipped"])
+        self.assertIn("structured scorer output", result["error"])
+        self.assertEqual(result["raw_response"], "[SEC-01]: problem")
+
+    def test_dataset_loader_validates_schema_and_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_path = Path(tmp) / "v1.jsonl"
+            dataset_path.write_text(
+                json.dumps({
+                    "id": "tp-sec-01-example",
+                    "rule": "SEC-01",
+                    "severity": "critical",
+                    "lang": "python",
+                    "type": "tp",
+                    "context": "reviewing",
+                    "input": "print('x')",
+                    "expected_action": "warn_or_refuse",
+                    "description": "example",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+
+            samples = run_eval.load_dataset(dataset_path)
+
+            self.assertEqual(samples[0]["id"], "tp-sec-01-example")
+            self.assertEqual(samples[0]["code"], "print('x')")
+            self.assertEqual(len(run_eval.sample_set_digest(samples)), 64)
+
+            bad_path = Path(tmp) / "bad.jsonl"
+            bad_path.write_text('{"id": "missing-fields"}\n', encoding="utf-8")
+            with self.assertRaises(run_eval.DatasetError):
+                run_eval.load_dataset(bad_path)
+
+    def test_artifacts_are_written_to_unique_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first = run_eval.build_run_dir(tmp, timestamp="20260101T000000Z", commit="abc123")
+            first.mkdir(parents=True)
+
+            second = run_eval.build_run_dir(tmp, timestamp="20260101T000000Z", commit="abc123")
+
+            self.assertEqual(second.name, "20260101T000000Z-abc123-2")
+
+    def test_sample_level_artifacts_preserve_context_and_raw_response(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = {
+                "id": "tp-sec-01-example",
+                "rule": "SEC-01",
+                "severity": "critical",
+                "lang": "python",
+                "type": "tp",
+                "context": "reviewing",
+                "input": "print('x')",
+                "expected_action": "warn_or_refuse",
+                "description": "example",
+            }
+            result = {
+                "id": "tp-sec-01-example",
+                "rule": "SEC-01",
+                "detected": True,
+                "raw_response": '{"detected": true, "rule_ids": ["SEC-01"]}',
+            }
+
+            results_path = run_eval.write_run_artifacts(
+                Path(tmp) / "run",
+                metadata={"model": "test"},
+                samples=[sample],
+                results=[result],
+            )
+
+            sample_path = results_path.parent / "samples" / "tp-sec-01-example.json"
+            payload = json.loads(sample_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["sample"]["input"], "print('x')")
+            self.assertEqual(payload["result"]["raw_response"], result["raw_response"])
 
     def test_calibration_excludes_missing_and_skipped(self) -> None:
         results = [

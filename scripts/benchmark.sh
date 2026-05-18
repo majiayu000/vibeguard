@@ -11,8 +11,11 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULTS_DIR="$REPO_DIR/data"
-DATE=$(date +%Y-%m-%d)
+RESULTS_DIR="${VIBEGUARD_BENCHMARK_RESULTS_DIR:-$REPO_DIR/data}"
+DATE=$(date -u +%Y-%m-%d)
+RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+COMMIT_SHA=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+RUN_ID="${RUN_TIMESTAMP}-${COMMIT_SHA}"
 MODE="fast"
 L2_MODEL="haiku"
 
@@ -32,6 +35,7 @@ mkdir -p "$RESULTS_DIR"
 
 echo "====== VibeGuard Benchmark ======"
 echo "Date: $DATE"
+echo "Run: $RUN_ID"
 echo "Mode: $MODE"
 echo ""
 
@@ -121,13 +125,15 @@ if [[ "$MODE" == "standard" ]] || [[ "$MODE" == "full" ]]; then
 
   # Run LLM-as-Judge evaluation
   L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" $L2_RULES_FLAG 2>&1)
+  L2_RESULT_PATH=$(printf '%s\n' "$L2_OUTPUT" | awk -F'Result saved: ' '/Result saved:/ {print $2}' | tail -1)
 
-  # Read results from results.json
-  if [[ -f "$REPO_DIR/eval/results.json" ]]; then
+  # Read the immutable eval run artifact emitted by run_eval.py.
+  if [[ -n "$L2_RESULT_PATH" ]] && [[ -f "$L2_RESULT_PATH" ]]; then
     L2_RESULT=$(python3 -c "
 import json
+import sys
 
-with open('$REPO_DIR/eval/results.json') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 
 results = data.get('results', [])
@@ -156,7 +162,7 @@ print(json.dumps({
     'detection_rate': round(dr * 100, 1),
     'total_samples': len(results),
 }))
-")
+" "$L2_RESULT_PATH")
 
     L2_SCORE=$(echo "$L2_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['layer2_score'])")
     L2_DR=$(echo "$L2_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['detection_rate'])")
@@ -166,7 +172,7 @@ print(json.dumps({
     echo "  Samples: $L2_SAMPLES  DR: ${L2_DR}%  FPR: ${L2_FPR}%"
     echo "  Layer2_Score: $L2_SCORE"
   else
-    echo "[Skip] eval/results.json not generated"
+    echo "[Skip] eval immutable results artifact not generated"
   fi
   echo ""
 fi
@@ -223,11 +229,14 @@ fi
 # Archive
 # ============================================================
 
-OUTPUT_FILE="$RESULTS_DIR/$DATE.json"
+OUTPUT_FILE="$RESULTS_DIR/$RUN_ID.json"
 python3 -c "
 import json
 result = {
+    'run_id': '$RUN_ID',
     'date': '$DATE',
+    'created_at': '$RUN_TIMESTAMP',
+    'commit': '$COMMIT_SHA',
     'mode': '$MODE',
     'score': $SCORE,
     'grade': '$GRADE',
