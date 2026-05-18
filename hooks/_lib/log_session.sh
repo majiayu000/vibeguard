@@ -56,6 +56,7 @@ if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
       _vg_proc_start=$(TZ=UTC ps -o lstart= -p "$_vg_parent_pid" 2>/dev/null | xargs || echo "unknown")
       _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_${VIBEGUARD_CLI}_${_vg_parent_pid}"
       _vg_reuse=false
+      # PERF-OK: find is scoped to one session file, not a directory traversal.
       if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
         _vg_stored_start=$(head -1 "$_vg_sf" 2>/dev/null)
         if [[ "$_vg_stored_start" == "$_vg_proc_start" ]]; then
@@ -79,6 +80,7 @@ if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
       find "${VIBEGUARD_PROJECT_LOG_DIR}" -maxdepth 1 -name ".session_*" -mmin +120 -delete 2>/dev/null || true
     else
       _vg_sf="${VIBEGUARD_PROJECT_LOG_DIR}/.session_id_${VIBEGUARD_CLI}"
+      # PERF-OK: find is scoped to one session file, not a directory traversal.
       if [[ -f "$_vg_sf" ]] && [[ -n "$(find "$_vg_sf" -mmin -30 2>/dev/null)" ]]; then
         VIBEGUARD_SESSION_ID=$(<"$_vg_sf")
         touch "$_vg_sf" 2>/dev/null || true

@@ -118,6 +118,7 @@ FILE_COUNT=0
 if [[ "${HAS_RG}" -eq 1 ]]; then
   FILE_COUNT=$({ rg --files "${RG_EXCLUDES[@]}" "$PROJECT_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')
 else
+  # PERF-OK: rg is preferred; fallback scan only decides whether to skip deeper checks.
   FILE_COUNT=$(find "$PROJECT_DIR" \
     -type f \
     -not -path "*/node_modules/*" \
@@ -143,6 +144,7 @@ if [[ "${HAS_RG}" -eq 1 ]]; then
     | grep -Fvx -- "$FILE_PATH_ABS" \
     | head -"${MAX_MATCHES}" || true)
 else
+  # PERF-OK: rg is preferred; fallback output is capped by VG_SCAN_MATCH_LIMIT.
   SAME_NAME_FILES=$(find "$PROJECT_DIR" \
     -name "$BASENAME" \
     -not -path "$FILE_PATH" \
@@ -189,6 +191,7 @@ fi
 
 # --- Check 2: Duplicate key definition ---
 #Extract key definition names from the new file contents
+# PERF-OK: one Python parser over this write payload avoids per-definition forks.
 DEFINITIONS=$(echo "$CONTENT" | EXT="$EXT" python3 -c "
 import sys, re, os
 
@@ -245,6 +248,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
   while IFS= read -r defname; do
     # Search for this definition name in the project (excluding the new file itself)
     if [[ "${HAS_RG}" -eq 1 ]]; then
+      # PERF-OK: definitions are capped by VG_SCAN_MAX_DEFS before this loop.
       FOUND=$(rg -l "${RG_EXCLUDES[@]}" -g "**/*.${EXT}" \
         -e "struct[[:space:]]+${defname}\\b" \
         -e "class[[:space:]]+${defname}\\b" \
@@ -259,6 +263,7 @@ if [[ -n "$DEFINITIONS" ]] && [[ "${SCAN_DEGRADED}" -eq 0 ]]; then
         | grep -Fvx -- "$FILE_PATH_ABS" \
         | head -3 || true)
     else
+      # PERF-OK: definitions are capped by VG_SCAN_MAX_DEFS before this loop.
       FOUND=$(grep -rl --include="*.${EXT}" \
         -e "struct ${defname}" \
         -e "class ${defname}" \

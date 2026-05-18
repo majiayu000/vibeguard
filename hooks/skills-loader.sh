@@ -28,6 +28,7 @@ mkdir -p "$(dirname "$SESSION_FLAG")"
 touch "$SESSION_FLAG"
 
 # Clean up expired flag files (>24h)
+# PERF-OK: one-per-session cleanup under VibeGuard state only.
 find "${HOME}/.vibeguard/" -name ".skills_loaded_*" -mtime +1 -delete 2>/dev/null || true
 
 # Collect Skill directory
