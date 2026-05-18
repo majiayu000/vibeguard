@@ -37,6 +37,47 @@ MANAGED_MARKERS = LEGACY_MARKERS | all_managed_script_names(MANIFEST)
 _MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
 
 
+def _display_path(path: Path, home: Path) -> str:
+    try:
+        return "~/" + path.relative_to(home).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _expand_shell_path(token: str, home: Path) -> Path | None:
+    if token.startswith("~/"):
+        return home / token[2:]
+    if token.startswith("$HOME/"):
+        return home / token[len("$HOME/"):]
+    if token.startswith("${HOME}/"):
+        return home / token[len("${HOME}/"):]
+    if token.startswith("/"):
+        return Path(token)
+    return None
+
+
+def _hook_target_from_command(command: str, home: Path) -> Path | None:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+
+    for index, token in enumerate(parts):
+        path = _expand_shell_path(token, home)
+        if path is None:
+            continue
+        path_text = path.as_posix()
+        if "/.vibeguard/installed/hooks/" in path_text:
+            return path
+        if path_text.endswith("/.vibeguard/run-hook-codex.sh") and index + 1 < len(parts):
+            script_name = parts[index + 1]
+            if script_name and "/" not in script_name:
+                installed_dir = path.parent / "installed/hooks"
+                if installed_dir.exists():
+                    return installed_dir / script_name
+    return None
+
+
 def load_hooks(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -137,6 +178,109 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
     return changed
 
 
+def _iter_hook_commands(data: dict[str, Any]) -> list[tuple[str, str, str]]:
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+
+    commands: list[tuple[str, str, str]] = []
+    for event, entries in hooks.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            matcher = entry.get("matcher")
+            matcher_text = matcher if isinstance(matcher, str) and matcher else "<none>"
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                continue
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    continue
+                command = hook.get("command")
+                if isinstance(command, str) and command:
+                    commands.append((str(event), matcher_text, command))
+    return commands
+
+
+def stale_hook_findings(path: Path, home: Path) -> list[dict[str, str]]:
+    data = load_hooks(path)
+    findings: list[dict[str, str]] = []
+    for event, matcher, command in _iter_hook_commands(data):
+        hook_target = _hook_target_from_command(command, home)
+        if hook_target is None or hook_target.exists():
+            continue
+        findings.append(
+            {
+                "client": "Codex",
+                "config": _display_path(path, home),
+                "event": event,
+                "matcher": matcher,
+                "command_path": str(hook_target),
+                "repair": "bash setup.sh --yes",
+            }
+        )
+    return findings
+
+
+def _prune_stale_installed_hook_entries(data: dict[str, Any], home: Path) -> bool:
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+
+    changed = False
+    for event, entries in list(hooks.items()):
+        if not isinstance(entries, list):
+            continue
+
+        new_entries: list[Any] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                new_entries.append(entry)
+                continue
+
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                new_entries.append(entry)
+                continue
+
+            kept_hooks: list[Any] = []
+            removed_any = False
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    kept_hooks.append(hook)
+                    continue
+                command = hook.get("command")
+                if isinstance(command, str):
+                    hook_target = _hook_target_from_command(command, home)
+                    if hook_target is not None and not hook_target.exists():
+                        removed_any = True
+                        changed = True
+                        continue
+                kept_hooks.append(hook)
+
+            if removed_any:
+                if kept_hooks:
+                    next_entry = dict(entry)
+                    next_entry["hooks"] = kept_hooks
+                    new_entries.append(next_entry)
+            else:
+                new_entries.append(entry)
+
+        if new_entries:
+            hooks[event] = new_entries
+        else:
+            hooks.pop(event, None)
+            changed = True
+
+    if not hooks:
+        data.pop("hooks", None)
+        changed = True
+
+    return changed
+
+
 def _build_entry(wrapper: str, spec: HookSpec) -> dict[str, Any]:
     hook: dict[str, Any] = {
         "type": "command",
@@ -198,6 +342,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
 
     _ensure_hooks_root(data)
     _prune_vibeguard_entries(data)
+    _prune_stale_installed_hook_entries(data, Path.home())
     hooks = _ensure_hooks_root(data)
 
     for spec in MANAGED_SPECS:
@@ -244,6 +389,19 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_stale_hooks(args: argparse.Namespace) -> int:
+    hooks_path = Path(args.hooks_file)
+    if not hooks_path.exists():
+        return 0
+    findings = stale_hook_findings(hooks_path, Path.home())
+    for finding in findings:
+        print(
+            "stale {client} hook command: config={config} event={event} "
+            "matcher={matcher} command_path={command_path} repair={repair}".format(**finding)
+        )
+    return 1 if findings else 0
+
+
 def cmd_check_vibeguard(args: argparse.Namespace) -> int:
     hooks_path = Path(args.hooks_file)
     data = load_hooks(hooks_path)
@@ -282,6 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--hooks-file", required=True)
     check.add_argument("--wrapper", required=True)
     check.set_defaults(func=cmd_check_vibeguard)
+
+    stale = sub.add_parser("check-stale-hooks", help="Detect stale hook commands")
+    stale.add_argument("--hooks-file", required=True)
+    stale.set_defaults(func=cmd_check_stale_hooks)
 
     return parser
 

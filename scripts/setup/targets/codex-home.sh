@@ -204,6 +204,15 @@ print(total)
     else
       yellow "[MISSING] VibeGuard hooks not fully configured in ~/.codex/hooks.json"
     fi
+
+    local stale_hooks_report
+    if stale_hooks_report="$(python3 "${CODEX_HOOKS_HELPER}" check-stale-hooks --hooks-file "${CODEX_DIR}/hooks.json" 2>&1)"; then
+      :
+    else
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] && red "[BROKEN] ${line}"
+      done <<< "${stale_hooks_report}"
+    fi
   else
     yellow "[MISSING] Codex hooks.json not installed"
   fi
