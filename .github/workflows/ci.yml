@@ -159,6 +159,11 @@ jobs:
         shell: bash
         run: bash tests/test_eval_contract.sh
 
+      - name: Behavior eval regression gate
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_behavior_eval.sh
+
       - name: Rust guard regression tests
         shell: bash
         run: bash tests/test_rust_guards.sh

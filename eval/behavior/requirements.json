@@ -1,0 +1,14 @@
+[
+  {
+    "platform": "claude",
+    "hook": "pre-bash-guard",
+    "profile": "default",
+    "severity": "critical"
+  },
+  {
+    "platform": "codex",
+    "hook": "pre-bash-guard",
+    "profile": "default",
+    "severity": "critical"
+  }
+]
