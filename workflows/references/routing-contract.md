@@ -4,6 +4,13 @@ Canonical routing contract for VibeGuard workflow selection. All workflow prompt
 
 Delegated execution is defined by [`delegation-contract.md`](delegation-contract.md). This routing contract decides whether delegation can start; the delegation contract defines assignments, parallelism, verification, and reintegration.
 
+Executable schema sources:
+
+- `schemas/workflow-routing-decision.schema.json`
+- `schemas/workflow-execution-handoff.schema.json`
+- `schemas/workflow-lane-map.schema.json`
+- `schemas/workflow-verification-gate.schema.json`
+
 ## Precedence
 
 Apply routing in this order:

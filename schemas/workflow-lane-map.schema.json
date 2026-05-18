@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/workflow-lane-map.schema.json",
+  "title": "VibeGuard Workflow Lane Map",
+  "description": "Ownership map for delegated or parallel workflow lanes.",
+  "type": "object",
+  "minProperties": 1,
+  "propertyNames": {
+    "pattern": "^[a-z][a-z0-9_-]*$"
+  },
+  "additionalProperties": {
+    "type": "string",
+    "minLength": 1
+  },
+  "x_markdown_tokens": ["lane_map"]
+}

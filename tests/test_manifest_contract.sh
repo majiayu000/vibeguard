@@ -8,6 +8,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST_HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
+WORKFLOW_CONTRACT_HELPER="${REPO_DIR}/scripts/lib/workflow_contracts.py"
 
 PASS=0
 FAIL=0
@@ -76,6 +77,7 @@ trap cleanup EXIT
 header "helper syntax"
 assert_cmd "manifest helper syntax is correct" python3 -m py_compile "${MANIFEST_HELPER}"
 assert_cmd "codex config helper syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
+assert_cmd "workflow contract helper syntax is correct" python3 -m py_compile "${WORKFLOW_CONTRACT_HELPER}"
 
 header "manifest contract"
 assert_cmd "manifest contract validates" python3 "${MANIFEST_HELPER}" validate
@@ -192,19 +194,12 @@ absolute_skill_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-
 assert_contains "${absolute_skill_validate_out}" "module absolute-skill-module: skill path must be repo-relative: /tmp/skill" "manifest validation reports absolute skill paths"
 assert_not_contains "${absolute_skill_validate_out}" "Traceback" "manifest validation reports absolute skill paths without traceback"
 
-header "routing contract"
-ROUTING_CONTRACT="${REPO_DIR}/workflows/references/routing-contract.md"
-DELEGATION_CONTRACT="${REPO_DIR}/workflows/references/delegation-contract.md"
-assert_cmd "canonical routing contract exists" test -f "${ROUTING_CONTRACT}"
-assert_cmd "routing contract includes execute_direct" grep -qF "execute_direct" "${ROUTING_CONTRACT}"
-assert_cmd "routing contract includes plan_first" grep -qF "plan_first" "${ROUTING_CONTRACT}"
-assert_cmd "routing contract includes clarify_first" grep -qF "clarify_first" "${ROUTING_CONTRACT}"
-assert_cmd "routing contract requires handoff fields" bash -c "for key in mode artifacts verification_owner stop_conditions lane_map; do grep -qF \"\$key\" '${ROUTING_CONTRACT}' || exit 1; done"
-assert_cmd "routing surfaces reference canonical contract" bash -c "for file in '${REPO_DIR}/README.md' '${REPO_DIR}/agents/dispatcher.md' '${REPO_DIR}/workflows/fixflow/SKILL.md' '${REPO_DIR}/workflows/plan-flow/SKILL.md' '${REPO_DIR}/workflows/plan-mode/SKILL.md' '${REPO_DIR}/workflows/auto-optimize/SKILL.md' '${REPO_DIR}/workflows/references/delivery-base.md' '${REPO_DIR}/workflows/plan-flow/references/execplan-integration.md' '${REPO_DIR}/docs/command-schemas.md' '${REPO_DIR}/docs/CLAUDE.md.example' '${REPO_DIR}/docs/README_CN.md' '${REPO_DIR}/claude-md/vibeguard-rules.md' '${REPO_DIR}/templates/AGENTS.md'; do grep -qF 'routing-contract.md' \"\$file\" || exit 1; done"
-assert_cmd "canonical delegation contract exists" test -f "${DELEGATION_CONTRACT}"
-assert_cmd "delegation contract defines assignment fields" bash -c "for key in task_slice allowed_files forbidden_files authority required_evidence blocker_conditions integration_owner; do grep -qF \"\$key\" '${DELEGATION_CONTRACT}' || exit 1; done"
-assert_cmd "delegation contract defines staged team pipeline" bash -c "for stage in solo delegate_readonly team_plan team_exec team_verify fix_loop; do grep -qF \"\$stage\" '${DELEGATION_CONTRACT}' || exit 1; done"
-assert_cmd "delegation consumers reference canonical contract" bash -c "for file in '${REPO_DIR}/README.md' '${REPO_DIR}/agents/dispatcher.md' '${REPO_DIR}/workflows/fixflow/SKILL.md' '${REPO_DIR}/workflows/plan-flow/SKILL.md' '${REPO_DIR}/workflows/plan-mode/SKILL.md' '${REPO_DIR}/workflows/auto-optimize/SKILL.md' '${REPO_DIR}/workflows/references/routing-contract.md' '${REPO_DIR}/workflows/references/delivery-base.md' '${REPO_DIR}/workflows/plan-flow/references/execplan-integration.md' '${REPO_DIR}/docs/command-schemas.md' '${REPO_DIR}/docs/CLAUDE.md.example' '${REPO_DIR}/docs/openai-codex-best-practices.md' '${REPO_DIR}/docs/README_CN.md'; do grep -qF 'delegation-contract.md' \"\$file\" || exit 1; done"
+header "workflow contracts"
+assert_cmd "workflow contracts validate from schema registry" python3 "${WORKFLOW_CONTRACT_HELPER}" validate
+handoff_required_out="$(python3 "${WORKFLOW_CONTRACT_HELPER}" list-required execution_handoff)"
+assert_contains "${handoff_required_out}" "runtime_pinning_snapshot" "execution handoff required keys come from schema"
+delegation_required_out="$(python3 "${WORKFLOW_CONTRACT_HELPER}" list-required delegation_assignment)"
+assert_contains "${delegation_required_out}" "handoff_artifacts" "delegation assignment required keys come from schema"
 
 header "codex config helper"
 CONFIG_FILE="${TMP_DIR}/config.toml"

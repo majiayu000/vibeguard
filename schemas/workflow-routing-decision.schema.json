@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/workflow-routing-decision.schema.json",
+  "title": "VibeGuard Workflow Routing Decision",
+  "description": "Machine-readable contract for routing decisions before workflow execution.",
+  "type": "object",
+  "required": ["readiness"],
+  "additionalProperties": false,
+  "x_markdown_tokens": ["readiness", "execute_direct", "plan_first", "clarify_first"],
+  "properties": {
+    "command": {
+      "const": "routing_decision"
+    },
+    "precedence": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "user_override",
+          "risk_destructive_gate",
+          "ambiguity_gate",
+          "readiness_classifier",
+          "execution_or_delegation_lane"
+        ]
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "required": ["decision", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": ["execute_direct", "plan_first", "clarify_first"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "blockingQuestions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

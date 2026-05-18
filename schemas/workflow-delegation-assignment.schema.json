@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/workflow-delegation-assignment.schema.json",
+  "title": "VibeGuard Workflow Delegation Assignment",
+  "description": "Per-worker assignment contract for delegated workflow lanes.",
+  "type": "object",
+  "required": [
+    "task_slice",
+    "allowed_files",
+    "forbidden_files",
+    "read_only_files",
+    "authority",
+    "required_evidence",
+    "blocker_conditions",
+    "integration_owner",
+    "verification_owner",
+    "handoff_artifacts"
+  ],
+  "additionalProperties": false,
+  "x_markdown_tokens": [
+    "task_slice",
+    "allowed_files",
+    "forbidden_files",
+    "read_only_files",
+    "authority",
+    "required_evidence",
+    "blocker_conditions",
+    "integration_owner",
+    "verification_owner",
+    "handoff_artifacts"
+  ],
+  "properties": {
+    "command": {
+      "const": "delegation_assignment"
+    },
+    "task_slice": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allowed_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "forbidden_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "read_only_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "authority": {
+      "enum": ["readonly", "propose_patch", "write_owned_files", "verify_only"]
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "blocker_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "integration_owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verification_owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoff_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

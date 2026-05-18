@@ -4,11 +4,17 @@ Canonical delegation contract for VibeGuard multi-agent work. Use this document 
 
 This contract extends the routing handoff in [`routing-contract.md`](routing-contract.md). The routing handoff decides whether delegation is allowed; this document defines how delegated work is assigned, executed, verified, and reintegrated.
 
+Executable schema sources:
+
+- `schemas/workflow-delegation-assignment.schema.json`
+- `schemas/workflow-lane-map.schema.json`
+- `schemas/workflow-verification-gate.schema.json`
+
 ## Roles
 
 | Role | Responsibility |
 |------|----------------|
-| `leader` | Owns scope, task slicing, `lane_map`, stop conditions, and final user handoff. |
+| `leader` | Owns scope, task slicing, `lane_map`, `stop_conditions`, and final user handoff. |
 | `worker` | Owns only the assigned task slice and allowed files. Reports evidence and blockers. |
 | `verification_owner` | Owns the required checks and decides whether evidence is sufficient. |
 | `integration_owner` | Single writer for shared outputs, conflict resolution, final diff shaping, and merge readiness. |

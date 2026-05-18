@@ -6,8 +6,9 @@ Delivery step base shared by fixflow and optflow. Both reuse common processes by
 
 Before execution starts, consume the canonical router in [`workflows/references/routing-contract.md`](routing-contract.md).
 
-- Start direct execution only after upstream routing resolves to `execute_direct`, or after a planning workflow emits a handoff that preselects execution.
+- Start direct execution only after upstream `readiness` resolves to `execute_direct`, or after a planning workflow emits a handoff that preselects execution.
 - If upstream routing resolves to `clarify_first`, stop and clarify before building a plan or editing code.
+- If upstream `readiness` resolves to `plan_first`, wait for a planning handoff before editing.
 - Do not reinterpret the route locally with file-count shortcuts.
 - If execution delegates work, consume [`workflows/references/delegation-contract.md`](delegation-contract.md) before any child-agent or parallel write lane starts.
 
@@ -53,7 +54,7 @@ Delegated execution must use the assignment template in [`workflows/references/d
 Before starting delegated work:
 
 - name the `leader`, `verification_owner`, and single `integration_owner`
-- assign each child agent a `task_slice`, `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, and `blocker_conditions`
+- assign each child agent a `task_slice`, `allowed_files`, `forbidden_files`, `read_only_files`, `authority`, `required_evidence`, `blocker_conditions`, `verification_owner`, and `handoff_artifacts`
 - serialize shared-file, high-context-file, generated-artifact, and security-sensitive work unless isolated worktrees or a single integration owner make the write boundary explicit
 
 Worker outputs are not complete until the `integration_owner` inspects them, merges shared outputs, and reruns the checks owned by `verification_owner`.
