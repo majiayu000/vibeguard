@@ -65,16 +65,15 @@ assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED
 assert_cmd "dry-run does not write mutable eval/results.json" test ! -e "${REPO_DIR}/eval/results.json"
 
 header "dataset contract"
-assert_cmd "default dataset loads with schema validation" python3 -c "
+assert_cmd "default dataset loads with schema validation" python3 -c '
 import sys
-from pathlib import Path
-sys.path.insert(0, '${REPO_DIR}/eval')
+sys.path.insert(0, sys.argv[1])
 from dataset import DEFAULT_DATASET_PATH, load_dataset, sample_set_digest
 samples = load_dataset(DEFAULT_DATASET_PATH)
 assert len(samples) >= 40
 assert len(sample_set_digest(samples)) == 64
-assert all('id' in sample and 'expected_action' in sample for sample in samples)
-"
+assert all("id" in sample and "expected_action" in sample for sample in samples)
+' "${REPO_DIR}/eval"
 
 echo
 echo "=============================="
