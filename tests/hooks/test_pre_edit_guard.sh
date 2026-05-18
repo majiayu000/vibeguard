@@ -32,6 +32,32 @@ assert_contains "$result" "malformed PreToolUse(Edit)" "Malformed hook input exp
 result=$(echo '{"tool_input":{"file_path":"hooks/log.sh","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Existing file + empty old_string release"
 
+# Codex apply_patch updates do not provide old_string; line_delta must still
+# hard-block edits that would cross the U-16 limit.
+u16_file="${VIBEGUARD_LOG_DIR}/u16_probe.ts"
+python3 - <<'PY' "${u16_file}"
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text("".join(f"// line {i:03d}\n" for i in range(1, 801)), encoding="utf-8")
+PY
+result=$(python3 - <<'PY' "${u16_file}" | bash hooks/pre-edit-guard.sh
+import json
+import sys
+
+print(json.dumps({
+    "tool_input": {
+        "file_path": sys.argv[1],
+        "old_string": "",
+        "new_string": "// line 801",
+        "vibeguard_line_delta": 1,
+    }
+}))
+PY
+)
+assert_contains "$result" '"decision": "block"' "U-16: Block Codex apply_patch edit over 800 lines"
+assert_contains "$result" "U-16" "U-16: Codex apply_patch edit block cites rule"
+
 tmp_home=$(mktemp -d)
 tmp_file=$(mktemp)
 printf 'x\n' > "$tmp_file"

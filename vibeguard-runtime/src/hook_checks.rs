@@ -92,6 +92,10 @@ pub fn pre_edit_check(args: &[String]) -> Result {
         .and_then(|v| v.get("replace_all"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
+    let patch_line_delta = data
+        .get("tool_input")
+        .and_then(|v| v.get("vibeguard_line_delta"))
+        .and_then(serde_json::Value::as_i64);
 
     if file_path.is_empty() {
         println!("SKIP");
@@ -133,37 +137,49 @@ pub fn pre_edit_check(args: &[String]) -> Result {
         return Ok(());
     }
 
-    if is_pre_edit_u16_source(&file_path)
-        && !is_test_path(&file_path)
-        && !old_string.is_empty()
-        && !new_string.is_empty()
-    {
+    if is_pre_edit_u16_source(&file_path) && !is_test_path(&file_path) {
         let current_lines = count_lines(&content);
-        let old_lines = count_lines(&old_string);
-        let new_lines = count_lines(&new_string);
-        let occurrences = if replace_all {
-            content.matches(&old_string).count()
+        let estimated = if let Some(delta) = patch_line_delta {
+            if delta >= 0 {
+                Some(current_lines.saturating_add(delta as usize))
+            } else {
+                let decrease = usize::try_from(delta.unsigned_abs()).unwrap_or(usize::MAX);
+                Some(current_lines.saturating_sub(decrease))
+            }
+        } else if !old_string.is_empty() && !new_string.is_empty() {
+            let old_lines = count_lines(&old_string);
+            let new_lines = count_lines(&new_string);
+            let occurrences = if replace_all {
+                content.matches(&old_string).count()
+            } else {
+                1
+            };
+            Some(
+                current_lines
+                    .saturating_sub(old_lines.saturating_mul(occurrences))
+                    .saturating_add(new_lines.saturating_mul(occurrences)),
+            )
         } else {
-            1
+            None
         };
-        let estimated = current_lines
-            .saturating_sub(old_lines.saturating_mul(occurrences))
-            .saturating_add(new_lines.saturating_mul(occurrences));
-        let limit = project_u16_limit(&file_path, base_limit);
-        if estimated > limit {
-            write_pre_edit_block(
-                log_file,
-                &format!("U-16 file size: {estimated} > {limit}"),
-                &file_path,
-                &format!(
-                    "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
-                    Path::new(&file_path)
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or(&file_path)
-                ),
-            )?;
-            return Ok(());
+
+        if let Some(estimated) = estimated {
+            let limit = project_u16_limit(&file_path, base_limit);
+            if estimated > limit {
+                write_pre_edit_block(
+                    log_file,
+                    &format!("U-16 file size: {estimated} > {limit}"),
+                    &file_path,
+                    &format!(
+                        "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
+                        Path::new(&file_path)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(&file_path)
+                    ),
+                )?;
+                return Ok(());
+            }
         }
     }
 

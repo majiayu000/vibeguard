@@ -99,7 +99,7 @@ config_after="$(shasum -a 256 "${HOME}/.codex/config.toml" | cut -d' ' -f1)"
 
 assert_contains "${status_out}" "VibeGuard Codex Status" "Codex status command has a clear title"
 assert_contains "${status_out}" "VibeGuard-managed Codex hooks semantic check passed" "Codex status reports hook semantic health"
-assert_contains "${status_out}" "Codex native support: PreToolUse(Bash), PostToolUse(Bash), Stop" "Codex status reports exact native support"
+assert_contains "${status_out}" "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop" "Codex status reports exact native support"
 assert_contains "${status_out}" "Latest Codex event: 2026-05-05T00:00:00Z | pre-bash-guard | pass | ${REPO_DIR}" "Codex status reports latest Codex event"
 assert_cmd "Codex status does not rewrite AGENTS" test "${agents_before}" = "${agents_after}"
 assert_cmd "Codex status does not rewrite hooks.json" test "${hooks_before}" = "${hooks_after}"

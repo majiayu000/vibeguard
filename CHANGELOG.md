@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `scripts/doctors/codex-doctor.sh`, a read-only Codex diagnosis entry point that summarizes install state, native hook coverage, capability gaps, latest events, and repair guidance without moving enforcement out of hooks/guards
 - SEC-11 review gates for dependency version changes and test-trust weakening: `check_dependency_changes.sh`, `check_test_weakening.sh`, and matching unit coverage
 - U-32 live constraint budget tooling: `count_active_constraints.sh`, `scripts/constraints/count_active_constraints.py`, and GC downgrade-candidate reporting
 - CI doc command path validator (`scripts/ci/validate-doc-command-paths.sh`) to catch stale `~/vibeguard/...` shell examples
@@ -24,11 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation command examples updated to current script layout (`scripts/metrics/` and `scripts/verify/`)
 - `doc-freshness-check.sh` now uses `rules/claude-rules/` as canonical rule source and deduplicates guard file reporting
 - Added missing `PY-13` rule definition in Claude-native Python rule set
+- Codex `apply_patch Update File` now passes line deltas into `pre-edit-guard.sh`, so U-16 over-800-line source edits are denied before mutation instead of only warning after the file changes
 
 ### Changed
 - `check_code_slop.sh` supports `--include-fixtures` and `--strict-repo` scanning modes
 - `check_code_slop.sh` now excludes repository-local noise directories by default (`.claude`, `.vibeguard`, `.omx`, `tests/fixtures`)
 - `check_code_slop.sh` TODO stale-date scan limit is configurable via `VIBEGUARD_TODO_SCAN_LIMIT` (default 20)
+- README and Chinese README now document Codex U-16 enforcement, the default advisory search-first mode for new source files, and current pre-commit/profile installation semantics
 
 ## [1.1.0] - 2026-04-02
 

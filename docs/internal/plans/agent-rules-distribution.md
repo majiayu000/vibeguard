@@ -34,7 +34,8 @@ P3 remains optional: `codex debug prompt-input` proof is still version-gated and
 ## Non-goals
 
 - Do not claim Claude Code parity for Codex native hooks.
-- Do not add Edit/Write/Read native hook support unless Codex itself supports those events. VibeGuard may document the app-server wrapper as the full-surface alternative.
+- Do not claim native Read/Glob/Grep hook support until Codex exposes those tool events.
+- Do not route default local enforcement through a Codex server proxy when native hooks cover the requested surface.
 - Do not delete user-managed content from `~/.codex/AGENTS.md` automatically. Marker-external content is reported first; cleanup requires explicit setup/clean behavior or user confirmation.
 - Do not rewrite the whole install system. Keep changes scoped to Codex-specific status, rule distribution, wrapper diagnostics, and tests.
 - Do not introduce a new daemon, MCP server, ORM, front-end framework, or microservice.
@@ -43,7 +44,7 @@ P3 remains optional: `codex debug prompt-input` proof is still version-gated and
 
 - `~/.codex/AGENTS.md` and `~/.codex/agents.md` were previously 0 bytes; when no repo-level `AGENTS.md` exists, Codex has no durable VibeGuard reasoning context.
 - The current setup path injects `claude-md/vibeguard-rules.md` into `~/.codex/AGENTS.md` through `scripts/setup/targets/codex-home.sh`.
-- Current Codex native hook support must be described as `PreToolUse(Bash)`, `PostToolUse(Bash)`, and `Stop(stop-guard/learn-evaluator)`.
+- Current Codex native hook support must be described as `PreToolUse(Bash/apply_patch)`, `PermissionRequest(Bash/apply_patch)`, `PostToolUse(Bash/apply_patch)`, and `Stop(stop-guard/learn-evaluator)`.
 - `scripts/lib/codex_hooks_json.py` generates `~/.codex/hooks.json` commands as `bash <wrapper> <vibeguard-*.sh>`, with matcher and timeout derived from `hooks/manifest.json`.
 - `hooks/run-hook-codex.sh` sets `VIBEGUARD_CLI=codex` and `VIBEGUARD_AGENT_TYPE=codex`, then adapts Claude-style hook output to Codex output.
 - The latest audit found that `~/.codex/AGENTS.md` can contain marker-external content after the managed block, while `setup.sh --check` still reports OK.
@@ -63,16 +64,20 @@ P3 remains optional: `codex debug prompt-input` proof is still version-gated and
 Codex-facing output and docs must state the exact native support:
 
 - `PreToolUse(Bash)` -> command approval guard via `vibeguard-pre-bash-guard.sh`
-- `PostToolUse(Bash)` -> build/post-command feedback via `vibeguard-post-build-check.sh`
+- `PermissionRequest(Bash)` -> fail-closed approval guard via `vibeguard-pre-bash-guard.sh`
+- `PreToolUse(Edit/Write via apply_patch)` -> file gates via `vibeguard-pre-edit-guard.sh` and `vibeguard-pre-write-guard.sh`
+- `PermissionRequest(Edit/Write via apply_patch)` -> fail-closed privileged patch gates via `vibeguard-pre-edit-guard.sh` and `vibeguard-pre-write-guard.sh`
+- `PostToolUse(Bash/apply_patch)` -> build/post-command feedback via `vibeguard-post-build-check.sh`
+- `PostToolUse(Edit/Write via apply_patch)` -> file quality checks via `vibeguard-post-edit-guard.sh` and `vibeguard-post-write-guard.sh`
 - `Stop` -> `vibeguard-stop-guard.sh` and `vibeguard-learn-evaluator.sh`
-- `Edit`, `Write`, `Read`, `Glob`, `Grep`, and `analysis-paralysis` are not native Codex CLI hooks in this contract.
-- Full edit/write/read quality coverage requires Claude Code or the Rust `vibeguard-runtime codex-app-server-wrapper` path.
+- `Read`, `Glob`, `Grep`, and `analysis-paralysis` are not native Codex CLI hooks in this contract.
+- Full read-only exploration coverage requires Claude Code or the Rust `vibeguard-runtime codex-app-server-wrapper` path.
 
 Done-when:
 
 - `setup.sh --check` prints the exact capability list.
 - README and Codex rule text do not imply Claude Code parity.
-- Tests assert the capability wording contains `PreToolUse(Bash)`, `PostToolUse(Bash)`, and `Stop`.
+- Tests assert the capability wording contains `PreToolUse(Bash/apply_patch)`, `PermissionRequest(Bash/apply_patch)`, `PostToolUse(Bash/apply_patch)`, and `Stop`.
 
 ### R2: Rule Distribution Split
 
@@ -148,13 +153,13 @@ Done-when:
 
 - Running the status command does not modify `~/.codex/*` or `~/.vibeguard/*`.
 - Missing AGENTS, disabled `hooks`, deprecated `codex_hooks`, stale hooks, and no recent log events produce distinct messages.
-- A healthy install reports "Codex native support: PreToolUse(Bash), PostToolUse(Bash), Stop".
+- A healthy install reports "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop".
 
 ### R5: Semantic Drift Instead of Whole-file Drift
 
 For shared Codex files, `setup.sh --check` must prefer semantic checks over whole-file checksum failure:
 
-- `~/.codex/config.toml`: OK if `hooks = true` and no legacy VibeGuard MCP block exists.
+- `~/.codex/config.toml`: OK if `hooks = true`, no deprecated `codex_hooks` key exists, and no legacy VibeGuard MCP block exists.
 - `~/.codex/hooks.json`: OK if all VibeGuard-managed hooks are present with expected command, matcher, type, and timeout.
 - Whole-file checksum mismatch may be INFO, not a red failure, when semantic checks pass.
 
@@ -235,7 +240,7 @@ Verification:
 - `scripts/setup/targets/codex-home.sh`
   - expose reusable status functions
 - `scripts/lib/codex_config_toml.py`
-  - keep semantic `check-codex-hooks`
+  - keep semantic `check-hooks`
 - `scripts/lib/codex_hooks_json.py`
   - keep semantic managed-entry checker
 - `scripts/local-contract-check.sh` or a new Codex contract script under `scripts/`
@@ -340,7 +345,7 @@ handoff:
     - docs/internal/plans/agent-rules-distribution.md
   verification_owner: main agent
   stop_conditions:
-    - Codex native hook support expands beyond Bash/Stop and invalidates the capability contract
+    - Codex native hook support expands to Read/Glob/Grep and invalidates the capability contract
     - setup/check changes would delete user-managed AGENTS content without confirmation
     - tests require real model calls instead of local CLI/debug surfaces
   lane_map:

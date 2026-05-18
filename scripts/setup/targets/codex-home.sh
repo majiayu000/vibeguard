@@ -8,9 +8,8 @@ install_codex_home_assets() {
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     if [[ -d "${REPO_DIR}/${source_path}" ]]; then
-      safe_symlink "${REPO_DIR}/${source_path}" "${CODEX_DIR}/skills/${skill}"
-      state_record_file "${CODEX_DIR}/skills/${skill}" "${source_path}" "symlink"
-      green "  ${skill} -> ~/.codex/skills/${skill}"
+      install_codex_skill_copy "${REPO_DIR}/${source_path}" "${CODEX_DIR}/skills/${skill}" "${source_path}"
+      green "  ${skill} copied to ~/.codex/skills/${skill}"
     else
       yellow "  SKIP ${skill} (source not found: ${source_path})"
     fi
@@ -22,9 +21,11 @@ install_codex_home_assets() {
   cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
   mkdir -p "${HOME}/.vibeguard/_lib"
   cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${HOME}/.vibeguard/_lib/codex_diag.sh"
+  cp "${REPO_DIR}/hooks/_lib/codex_runner.sh" "${HOME}/.vibeguard/_lib/codex_runner.sh"
   chmod +x "${HOME}/.vibeguard/run-hook-codex.sh"
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
+  state_record_file "${HOME}/.vibeguard/_lib/codex_runner.sh" "hooks/_lib/codex_runner.sh" "copy"
   green "  ~/.vibeguard/run-hook-codex.sh ready"
 
   # Merge VibeGuard hooks into ~/.codex/hooks.json (do not overwrite existing hooks)
@@ -35,20 +36,49 @@ install_codex_home_assets() {
   if [[ "${hooks_result}" == "CHANGED" || "${hooks_result}" == "SKIP" ]]; then
     state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
     green "  ~/.codex/hooks.json merged (VibeGuard hooks upserted)"
-    yellow "  Codex capability profile: Bash approvals + Stop hooks are native; Edit/Write hooks stay unsupported here"
+    yellow "  Codex capability profile: native Bash/apply_patch gates + PermissionRequest + Stop; Read hooks remain unavailable"
   else
     red "  Failed to update ~/.codex/hooks.json"
   fi
 
-  # Enable Codex lifecycle hooks feature flag in config.toml
+  # Enable native Codex hooks feature flag in config.toml
   _enable_codex_hooks_feature
   echo
+}
+
+install_codex_skill_copy() {
+  local src="$1" dst="$2" source_path="$3"
+  local parent parent_abs skills_abs tmp
+
+  case "$(basename "${dst}")" in
+    ""|"."|".."|*/*)
+      red "  ERROR: invalid Codex skill destination: ${dst}"
+      return 1
+      ;;
+  esac
+
+  parent="$(dirname "${dst}")"
+  mkdir -p "${parent}" "${CODEX_DIR}/skills"
+  parent_abs="$(cd "${parent}" && pwd -P)"
+  skills_abs="$(cd "${CODEX_DIR}/skills" && pwd -P)"
+  if [[ "${parent_abs}" != "${skills_abs}" ]]; then
+    red "  ERROR: refusing to install Codex skill outside ~/.codex/skills/: ${dst}"
+    return 1
+  fi
+
+  tmp="${dst}.tmp.$$"
+  rm -rf "${tmp}"
+  mkdir -p "${tmp}"
+  cp -R "${src}/." "${tmp}/"
+  rm -rf "${dst}"
+  mv "${tmp}" "${dst}"
+  state_record_tree "${dst}" "${source_path}"
 }
 
 _enable_codex_hooks_feature() {
   local config="${CODEX_DIR}/config.toml"
   local result
-  if ! result=$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${config}" 2>/dev/null); then
+  if ! result=$(python3 "${CODEX_CONFIG_HELPER}" enable-hooks --config-file "${config}" 2>/dev/null); then
     red "  Failed to enable hooks feature in config.toml"
     return 1
   fi
@@ -77,7 +107,7 @@ _has_legacy_codex_mcp_config() {
 }
 
 codex_native_capability_summary() {
-  printf '%s\n' "Codex native support: PreToolUse(Bash), PostToolUse(Bash), Stop"
+  printf '%s\n' "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop"
 }
 
 inject_codex_home_rules() {
@@ -141,12 +171,16 @@ check_codex_home_installation() {
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CODEX_DIR}/skills/${skill}"
-    if [[ -L "${link}" ]]; then
-      if [[ -e "${link}" ]]; then
-        green "[OK] ${skill} skill symlinked to ~/.codex/skills/"
+    if [[ -d "${link}" && ! -L "${link}" ]]; then
+      if diff -qr "${REPO_DIR}/${source_path}" "${link}" >/dev/null 2>&1; then
+        green "[OK] ${skill} skill copied to ~/.codex/skills/"
       else
-        red "[BROKEN] ${skill} symlink exists but target missing: $(readlink "${link}")"
+        yellow "[WARN] ${skill} skill copy differs from ${source_path}"
       fi
+    elif [[ -L "${link}" ]]; then
+      yellow "[WARN] ${skill} skill is still a symlink; re-run setup.sh to install a fresh copy"
+    elif [[ -e "${link}" ]]; then
+      red "[BROKEN] ${skill} skill path exists but is not a directory"
     else
       yellow "[MISSING] ${skill} skill not in ~/.codex/skills/"
     fi
@@ -180,18 +214,18 @@ print(total)
     yellow "[MISSING] Codex hook wrapper not installed"
   fi
 
-  yellow "[INFO] Codex native hooks: PreToolUse(Bash), PostToolUse(Bash), Stop(stop-guard/learn-evaluator); Edit/Write/Read require Claude Code or the app-server wrapper"
+  yellow "[INFO] Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator); Read/Glob/Grep remain unavailable"
 
   # Check feature flag
   local config="${CODEX_DIR}/config.toml"
   local codex_hooks_status="MISSING"
   if [[ -f "${config}" ]]; then
-    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
+    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled in config.toml"
   elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
-    yellow "[LEGACY] deprecated codex_hooks feature is enabled; run setup.sh to migrate to hooks"
+    yellow "[LEGACY] deprecated codex_hooks feature still present in ~/.codex/config.toml (repair: bash setup.sh --yes)"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
@@ -213,7 +247,7 @@ codex_semantic_drift_message() {
   if [[ "${path}" == "${config}" ]]; then
     local codex_hooks_status="MISSING"
     if [[ -f "${config}" ]]; then
-      codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
+      codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
     fi
     if [[ "${codex_hooks_status}" == "OK" ]] && ! _has_legacy_codex_mcp_config; then
       printf '%s\n' "${path} (checksum drift; Codex config semantics OK)"
@@ -323,12 +357,12 @@ print_codex_status() {
   local config="${CODEX_DIR}/config.toml"
   local codex_hooks_status="MISSING"
   if [[ -f "${config}" ]]; then
-    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${config}" 2>/dev/null || true)"
+    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled"
   elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
-    yellow "[LEGACY] deprecated codex_hooks feature enabled"
+    yellow "[LEGACY] deprecated codex_hooks feature still present"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
@@ -349,7 +383,7 @@ print_codex_status() {
     green "[OK] Latest Codex event: ${latest_event}"
   fi
 
-  yellow "[INFO] $(codex_native_capability_summary); Edit/Write/Read require Claude Code or the app-server wrapper"
+  yellow "[INFO] $(codex_native_capability_summary); Read/Glob/Grep hooks require Claude Code"
   echo "Repair command: bash setup.sh --yes"
 }
 
@@ -436,7 +470,7 @@ clean_codex_home_installation() {
   skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    rm -f "${CODEX_DIR}/skills/${skill}"
+    rm -rf "${CODEX_DIR}/skills/${skill}"
   done <<< "${skill_links}"
   cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
@@ -457,6 +491,7 @@ clean_codex_home_installation() {
 
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_diag.sh"
+  rm -f "${HOME}/.vibeguard/_lib/codex_runner.sh"
   rmdir "${HOME}/.vibeguard/_lib" 2>/dev/null || true
   yellow "Removed Codex hook wrapper"
 

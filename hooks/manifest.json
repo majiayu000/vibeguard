@@ -49,10 +49,12 @@
       "codex": {
         "enabled": true,
         "support": "native",
-        "event": "PreToolUse",
-        "matcher": "Bash",
         "script": "vibeguard-pre-bash-guard.sh",
-        "timeout": 10
+        "timeout": 10,
+        "entries": [
+          {"event": "PreToolUse", "matcher": "Bash"},
+          {"event": "PermissionRequest", "matcher": "Bash"}
+        ]
       }
     },
     {
@@ -68,7 +70,16 @@
         "matchers": ["Edit"],
         "profiles": ["minimal", "core", "full", "strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex hooks do not expose Edit matcher support here"}
+      "codex": {
+        "enabled": true,
+        "support": "native",
+        "script": "vibeguard-pre-edit-guard.sh",
+        "timeout": 10,
+        "entries": [
+          {"event": "PreToolUse", "matcher": "Edit"},
+          {"event": "PermissionRequest", "matcher": "Edit"}
+        ]
+      }
     },
     {
       "name": "pre-write-guard",
@@ -83,7 +94,16 @@
         "matchers": ["Write"],
         "profiles": ["minimal", "core", "full", "strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex hooks do not expose Write matcher support here"}
+      "codex": {
+        "enabled": true,
+        "support": "native",
+        "script": "vibeguard-pre-write-guard.sh",
+        "timeout": 10,
+        "entries": [
+          {"event": "PreToolUse", "matcher": "Write"},
+          {"event": "PermissionRequest", "matcher": "Write"}
+        ]
+      }
     },
     {
       "name": "post-edit-guard",
@@ -98,7 +118,14 @@
         "matchers": ["Edit"],
         "profiles": ["minimal", "core", "full", "strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex hooks do not expose Edit matcher support here"}
+      "codex": {
+        "enabled": true,
+        "support": "native",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": "vibeguard-post-edit-guard.sh",
+        "timeout": 10
+      }
     },
     {
       "name": "post-write-guard",
@@ -113,7 +140,14 @@
         "matchers": ["Write"],
         "profiles": ["minimal", "core", "full", "strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex hooks do not expose Write matcher support here"}
+      "codex": {
+        "enabled": true,
+        "support": "native",
+        "event": "PostToolUse",
+        "matcher": "Write",
+        "script": "vibeguard-post-write-guard.sh",
+        "timeout": 10
+      }
     },
     {
       "name": "analysis-paralysis-guard",
@@ -128,7 +162,7 @@
         "matchers": ["Read|Glob|Grep"],
         "profiles": ["core", "full", "strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex runtime scope uses Bash approvals and Stop hooks only"}
+      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex native hooks do not expose Read, Glob, or Grep tool events"}
     },
     {
       "name": "count-active-constraints",
@@ -143,7 +177,7 @@
         "matchers": [null],
         "profiles": ["strict"]
       },
-      "codex": {"enabled": false, "support": "unsupported", "reason": "Codex runtime scope uses Bash approvals and Stop hooks only"}
+      "codex": {"enabled": false, "support": "unsupported", "reason": "Not part of the default Codex native enforcement layer"}
     },
     {
       "name": "post-build-check",
@@ -161,10 +195,12 @@
       "codex": {
         "enabled": true,
         "support": "native",
-        "event": "PostToolUse",
-        "matcher": "Bash",
         "script": "vibeguard-post-build-check.sh",
-        "timeout": 30
+        "timeout": 30,
+        "entries": [
+          {"event": "PostToolUse", "matcher": "Bash"},
+          {"event": "PostToolUse", "matcher": "Edit|Write"}
+        ]
       }
     },
     {

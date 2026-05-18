@@ -121,11 +121,12 @@ Canonical references for this contract:
 
 ### Hooks — Real-Time Interception
 
-Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Codex native hooks currently deploy only Bash/Stop hook events; the app-server wrapper adds external file-change and analysis-loop coverage for orchestrators that run through `codex app-server`.
+Most hooks trigger automatically during AI operations. `skills-loader` remains an optional manual hook. Codex deploys native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks; read-only exploration hooks remain Claude Code or app-server-wrapper only:
 
 | Scenario | Hook | Result |
 |----------|------|--------|
-| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Block** — must search first |
+| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
+| AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
 | AI runs `git push --force`, `rm -rf`, `reset --hard` | `pre-bash-guard` | **Block** — suggests safe alternatives |
 | AI edits non-existent file | `pre-edit-guard` | **Block** — must Read file first |
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
@@ -136,6 +137,8 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
 | AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
+
+U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the 800-line limit are denied before mutation.
 
 ### Static Guards — Run Anytime
 
@@ -225,9 +228,12 @@ Use workflow prompts and dispatcher guidance as consumers of that contract, not 
 bash ~/vibeguard/scripts/quality-grader.sh              # Quality grade (A/B/C/D)
 bash ~/vibeguard/scripts/stats.sh                       # Hook trigger stats (7 days)
 bash ~/vibeguard/scripts/hook-health.sh 24              # Hook health snapshot
+bash ~/vibeguard/scripts/doctors/codex-doctor.sh        # Codex install + hook capability diagnosis
 bash ~/vibeguard/scripts/metrics/metrics-exporter.sh    # Prometheus metrics export
 bash ~/vibeguard/scripts/verify/doc-freshness-check.sh  # Rule-guard coverage check
 ```
+
+Doctors are read-only diagnosis wrappers over the existing defense system. They summarize installation state, capability gaps, noisy hooks, recent events, and repair commands; hooks and guards remain the enforcement layer that blocks or warns during real tool execution.
 
 ## Learning System
 
@@ -257,7 +263,7 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
-bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + Pre-Commit
+bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: same hook set as full, for stricter runtime policy
 
 # Language selection (only install rules/guards for specified languages)
@@ -284,6 +290,8 @@ which implies it) to make CI fail when the install is broken.
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | same hook set as full | Maximum enforcement |
 
+`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git pre-commit hook during setup. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
+
 ### Codex Integration
 
 VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
@@ -293,15 +301,21 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 | Event | Hook | Function |
 |-------|------|----------|
 | `PreToolUse(Bash)` | `pre-bash-guard.sh` | Dangerous command interception + package manager correction |
-| `PostToolUse(Bash)` | `post-build-check.sh` | Build failure detection |
+| `PermissionRequest(Bash)` | `pre-bash-guard.sh` | Fail-closed approval gate for dangerous commands |
+| `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | File existence and search-first gates before patching |
+| `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |
+| `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | Build failure detection after commands or patches |
+| `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`, `post-write-guard.sh` | Post-patch quality and duplicate checks |
 | `Stop` | `stop-guard.sh` | Uncommitted changes gate |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
 
-> **Note:** Codex PreToolUse/PostToolUse currently only supports the `Bash` matcher. Edit/Write guards (`pre-edit`, `pre-write`, `post-edit`, `post-write`) and `analysis-paralysis` are not deployable on the native Codex CLI hook path.
+This is the default enforcement layer. It talks to Codex through native hooks
+and does not wrap or replace the Codex server. Codex has no native `Read`,
+`Glob`, or `Grep` hook surface, so `analysis-paralysis` remains Claude Code only.
 
-Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` → Codex `permissionDecision:deny`). When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
+Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
-**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, Codex hooks, and the app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
+**MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 
 **App-server wrapper** (Symphony-style orchestrators):
 
@@ -312,9 +326,11 @@ Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions 
 - `--strategy vibeguard` (default): applies strategy-based command, file-change, analysis-loop, and post-turn gates externally
 - `--strategy noop`: pure pass-through for debugging
 - Runtime: Rust-only via `vibeguard-runtime`; there is no Python app-server wrapper fallback.
+- App-server wrapper is optional and mainly for external orchestrators that already speak `codex app-server`
 - App-server wrapper scope today: Bash approval interception; `applyPatchApproval` / `item/fileChange/requestApproval` file-change guards mapped to `pre-edit`, `pre-write`, `post-edit`, and `post-write`; proxy-native `analysis-paralysis` warnings for read-only command streaks; post-turn stop/build feedback with explicit `thread/session/turn` propagation.
 - Guard mode: `VIBEGUARD_CODEX_GUARD_MODE=guarded` by default. `decline` / `denied` tells Codex to continue the turn with a warning; `strict` upgrades file changes to `cancel` / `abort`; `advisory` emits warnings without blocking.
-- Still unsupported on native Codex hook path: Edit/Write matchers and Read/Glob/Grep analysis hooks. Use the app-server wrapper path when those gates are required.
+- Default local protection should use native Codex hooks in `~/.codex/hooks.json`
+- Still unsupported on native Codex path: `Read`/`Glob`/`Grep` hooks such as `analysis-paralysis`
 
 ### Use with any project
 

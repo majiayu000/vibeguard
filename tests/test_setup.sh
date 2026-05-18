@@ -59,7 +59,7 @@ assert_manifest_skill_links_installed() {
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     found=1
-    [[ -L "${dest_dir}/${skill}" ]] || return 1
+    [[ -e "${dest_dir}/${skill}" ]] || return 1
   done <<< "${links}"
   [[ "${found}" -eq 1 ]]
 }
@@ -181,6 +181,11 @@ assert_cmd "scripts/lib/project_config_validate.py syntax is correct" python3 -m
 assert_cmd "scripts/lib/claude_md.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/claude_md.py"
 assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_compile "${CODEX_HOOKS_HELPER}"
 assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
+assert_cmd "hooks/_lib/codex_apply_patch_adapter.py syntax is correct" python3 -m py_compile "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py"
+assert_cmd "vibeguard-pre-edit namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-pre-edit-guard.sh"
+assert_cmd "vibeguard-pre-write namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-pre-write-guard.sh"
+assert_cmd "vibeguard-post-edit namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-post-edit-guard.sh"
+assert_cmd "vibeguard-post-write namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-post-write-guard.sh"
 assert_cmd "scripts/setup/regenerate-hooks-from-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh"
 assert_cmd "scripts/ci/validate-hooks-manifest.sh syntax is correct" bash -n "${REPO_DIR}/scripts/ci/validate-hooks-manifest.sh"
 assert_cmd "CLAUDE.md template uses generated rule count placeholder" grep -q "__VIBEGUARD_RULE_COUNT__" "${REPO_DIR}/claude-md/vibeguard-rules.md"
@@ -534,6 +539,8 @@ assert_cmd "~/.vibeguard/config.json includes advertised runtime keys after seed
 mkdir -p "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.vibeguard"
 ln -s "${REPO_DIR}/skills/old-retired" "${HOME}/.claude/skills/old-retired"
 ln -s "${REPO_DIR}/workflows/old-flow" "${HOME}/.codex/skills/old-flow"
+mkdir -p "${HOME}/.codex/skills/vibeguard"
+printf 'stale codex skill copy\n' > "${HOME}/.codex/skills/vibeguard/STALE.txt"
 python3 - <<'PY' "${HOME}"
 import json
 import sys
@@ -558,11 +565,13 @@ assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
-assert_cmd "~/.codex/skills/vibeguard exists after installation" test -L "${HOME}/.codex/skills/vibeguard"
+assert_cmd "~/.codex/skills/vibeguard is copied after installation" bash -c "test -d '${HOME}/.codex/skills/vibeguard' && test ! -L '${HOME}/.codex/skills/vibeguard'"
+assert_cmd "~/.codex/skills/vibeguard stale files are removed during copy install" test ! -e "${HOME}/.codex/skills/vibeguard/STALE.txt"
+assert_cmd "~/.codex/skills/vibeguard matches repository source" diff -qr "${REPO_DIR}/skills/vibeguard" "${HOME}/.codex/skills/vibeguard"
 assert_cmd "~/.claude/skills/agentsmd-audit exists after installation" test -L "${HOME}/.claude/skills/agentsmd-audit"
 assert_cmd "~/.claude/skills/trajectory-review exists after installation" test -L "${HOME}/.claude/skills/trajectory-review"
-assert_cmd "~/.codex/skills/agentsmd-audit exists after installation" test -L "${HOME}/.codex/skills/agentsmd-audit"
-assert_cmd "~/.codex/skills/trajectory-review exists after installation" test -L "${HOME}/.codex/skills/trajectory-review"
+assert_cmd "~/.codex/skills/agentsmd-audit is copied after installation" bash -c "test -d '${HOME}/.codex/skills/agentsmd-audit' && test ! -L '${HOME}/.codex/skills/agentsmd-audit'"
+assert_cmd "~/.codex/skills/trajectory-review is copied after installation" bash -c "test -d '${HOME}/.codex/skills/trajectory-review' && test ! -L '${HOME}/.codex/skills/trajectory-review'"
 assert_cmd "all manifest Claude skill links are installed" assert_manifest_skill_links_installed "~/.claude/skills/" "${HOME}/.claude/skills"
 assert_cmd "all manifest Codex skill links are installed" assert_manifest_skill_links_installed "~/.codex/skills/" "${HOME}/.codex/skills"
 assert_cmd "Clean legacy Claude MCP block after installation" bash -c "! grep -q 'mcp-server/dist/index.js' '${HOME}/.claude/settings.json'"
@@ -574,9 +583,10 @@ assert_cmd "skills-loader is not enabled in the default installation" bash -c "!
 assert_cmd "The default core profile does not enable full hooks" bash -c "python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target full-hooks >/dev/null 2>&1; test \$? -ne 0"
 assert_cmd "~/.codex/hooks.json exists after installation" test -f "${HOME}/.codex/hooks.json"
 assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${HOME}/.codex/config.toml"
-assert_cmd "Deprecated codex_hooks feature not written after installation" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${HOME}/.codex/config.toml'"
+assert_cmd "Remove deprecated codex_hooks feature after installation" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${HOME}/.codex/config.toml'"
 assert_cmd "Clean legacy Codex MCP block after installation" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
-assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "Codex hooks include PermissionRequest native gates" bash -c "grep -q '\"PermissionRequest\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Edit\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Write\"' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
 assert_cmd "Legacy non-namespaced Codex hook command is removed" bash -c "! grep -q 'run-hook-codex.sh pre-bash-guard.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "run-hook-codex rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); test -z \"\$out\""
@@ -644,7 +654,7 @@ cp "${HOME}/.codex/config.toml" "${_VALID_CODEX_CONFIG}"
 cat > "${HOME}/.codex/config.toml" <<'TOML'
 not valid toml =
 [features]
-codex_hooks = true
+hooks = true
 TOML
 invalid_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
@@ -655,7 +665,7 @@ header "setup --check rejects invalid UTF-8 codex config"
 python3 - <<'PY' "${HOME}/.codex/config.toml"
 from pathlib import Path
 import sys
-Path(sys.argv[1]).write_bytes(b'[features]\ncodex_hooks = true\n\xff')
+Path(sys.argv[1]).write_bytes(b'[features]\nhooks = true\n\xff')
 PY
 invalid_utf8_codex_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_CONFIG}" "${HOME}/.codex/config.toml"
@@ -697,7 +707,7 @@ printf '# malicious injection appended by something\n' >> "${HOME}/.codex/AGENTS
 external_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${external_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has 1 non-empty unmanaged line(s) outside VibeGuard block" "--check warns on unmanaged Codex AGENTS content"
-assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash), PostToolUse(Bash), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
+assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
@@ -743,7 +753,7 @@ header "remove-vibeguard cleans custom-wrapper-path hooks"
 # the wrapper path does not contain 'run-hook-codex.sh'.
 python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${_IDEMPOTENT_HOOKS}"
 assert_cmd "remove-vibeguard removes custom-wrapper vibeguard hooks" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${_IDEMPOTENT_HOOKS}'"
-assert_cmd "remove-vibeguard removes all managed hook scripts" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${_IDEMPOTENT_HOOKS}'"
+assert_cmd "remove-vibeguard removes all managed hook scripts" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${_IDEMPOTENT_HOOKS}'"
 
 header "_has_entry validates type and timeout (Issue 2 guard)"
 # A stale entry that has the correct command but is missing 'type: command' or
@@ -813,7 +823,7 @@ assert_cmd "~/.codex/skills/trajectory-review has been removed after cleaning" t
 assert_cmd "~/.codex/hooks.json is preserved after cleaning (for non-VibeGuard hooks)" test -f "${HOME}/.codex/hooks.json"
 assert_cmd "VibeGuard managed Codex AGENTS block removed after cleaning" bash -c "! grep -q 'vibeguard-start' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "Unmanaged Codex AGENTS content remains after cleaning" grep -q 'user codex note' "${HOME}/.codex/AGENTS.md"
-assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && ! grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
+assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 
