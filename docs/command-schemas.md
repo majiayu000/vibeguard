@@ -4,7 +4,17 @@ JSON Schema definition for structured communication between commands. Each comma
 
 Canonical routing decisions and planning handoffs are defined in `workflows/references/routing-contract.md`. Delegated work assignments are defined in `workflows/references/delegation-contract.md`.
 
+Executable schema sources:
+
+- `schemas/workflow-routing-decision.schema.json`
+- `schemas/workflow-execution-handoff.schema.json`
+- `schemas/workflow-delegation-assignment.schema.json`
+- `schemas/workflow-lane-map.schema.json`
+- `schemas/workflow-verification-gate.schema.json`
+
 ## routing decision Schema
+
+Allowed `readiness.decision` values are `execute_direct`, `plan_first`, and `clarify_first`.
 
 ```json
 {
@@ -17,11 +27,8 @@ Canonical routing decisions and planning handoffs are defined in `workflows/refe
     "execution_or_delegation_lane"
   ],
   "readiness": {
-    "decision": "execute_direct | plan_first | clarify_first",
-    "reason": "Short deterministic explanation",
-    "blockingQuestions": [
-      "Present only when decision = clarify_first"
-    ]
+    "decision": "execute_direct",
+    "reason": "Task is bounded, ownership is clear, and verification can run immediately"
   }
 }
 ```
@@ -31,15 +38,14 @@ Canonical routing decisions and planning handoffs are defined in `workflows/refe
 ```json
 {
   "command": "execution_handoff",
-  "mode": "fixflow | plan_flow_execution | execplan_execution | auto_optimize | custom",
+  "mode": "fixflow",
   "artifacts": [
-    "plan/task.md",
-    "SPEC.md"
+    "plan/task.md"
   ],
-  "runtime_pinning_snapshot": ".vibeguard/runtime-pinning.snapshot | null",
-  "verification_owner": "planner | executor | reviewer | named lane owner",
+  "runtime_pinning_snapshot": null,
+  "verification_owner": "executor",
   "stop_conditions": [
-    "Condition that must halt execution"
+    "Stop if a required check cannot run"
   ],
   "lane_map": {
     "implementation": "fixflow",
@@ -64,20 +70,20 @@ Required handoff keys:
   "command": "delegation_assignment",
   "task_slice": "Specific bounded outcome",
   "allowed_files": [
-    "Files or directories this worker may modify"
+    "src/owned-module"
   ],
   "forbidden_files": [
-    "Files or directories this worker must not modify"
+    "AGENTS.md"
   ],
   "read_only_files": [
-    "Files or directories this worker may inspect but not modify"
+    "workflows/references"
   ],
-  "authority": "readonly | propose_patch | write_owned_files | verify_only",
+  "authority": "write_owned_files",
   "required_evidence": [
-    "Commands, diffs, logs, or findings required for completion"
+    "Focused test output"
   ],
   "blocker_conditions": [
-    "Conditions that require stopping and escalating"
+    "Unexpected edits outside allowed_files"
   ],
   "integration_owner": "single named owner",
   "verification_owner": "owner who runs or accepts checks",
@@ -88,6 +94,29 @@ Required handoff keys:
 ```
 
 Delegation assignments are required before any child-agent write lane starts. Parallel work must serialize unless assignment file ownership is disjoint or isolated worktrees are explicitly used.
+
+## lane map ownership Schema
+
+```json
+{
+  "implementation": "fixflow",
+  "verification": "reviewer"
+}
+```
+
+## verification gate Schema
+
+```json
+{
+  "verification_owner": "executor",
+  "stop_conditions": [
+    "Stop if a required check cannot run"
+  ],
+  "required_checks": [
+    "bash tests/test_manifest_contract.sh"
+  ]
+}
+```
 
 ## preflight output Schema
 

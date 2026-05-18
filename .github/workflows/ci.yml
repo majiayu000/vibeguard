@@ -115,6 +115,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-manifest-contract.sh
 
+      - name: Validate workflow contracts
+        shell: bash
+        run: bash scripts/ci/validate-workflow-contracts.sh
+
       # --- Cross-platform contract validation (Python-embedded shell scripts) ---
       # Uses Git Bash on Windows; Python 3 is available from setup-python above.
       - name: Validate doc paths
@@ -154,6 +158,10 @@ jobs:
       - name: Manifest contract regression tests
         shell: bash
         run: bash tests/test_manifest_contract.sh
+
+      - name: Workflow contract regression tests
+        shell: bash
+        run: bash tests/test_workflow_contracts.sh
 
       - name: Eval contract regression tests
         shell: bash
@@ -279,6 +287,9 @@ jobs:
       - name: Validate manifest contract
         run: bash scripts/ci/validate-manifest-contract.sh
 
+      - name: Validate workflow contracts
+        run: bash scripts/ci/validate-workflow-contracts.sh
+
       - name: Validate hooks manifest
         run: bash scripts/ci/validate-hooks-manifest.sh
 
@@ -293,6 +304,9 @@ jobs:
 
       - name: Manifest contract regression tests
         run: bash tests/test_manifest_contract.sh
+
+      - name: Workflow contract regression tests
+        run: bash tests/test_workflow_contracts.sh
 
       - name: Eval contract regression tests
         run: bash tests/test_eval_contract.sh

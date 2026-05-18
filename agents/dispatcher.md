@@ -17,7 +17,7 @@ Boundary:
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
 
-Required upstream routing input:
+Required upstream routing input. The upstream `readiness` decision must be one of `execute_direct`, `plan_first`, or `clarify_first`:
 
 ```yaml
 mode: execute_direct | plan_first | clarify_first
@@ -33,10 +33,13 @@ handoff:
     - task_slice: <specific bounded outcome>
       allowed_files: [...]
       forbidden_files: [...]
+      read_only_files: [...]
       authority: readonly | propose_patch | write_owned_files | verify_only
       required_evidence: [...]
       blocker_conditions: [...]
       integration_owner: <single owner>
+      verification_owner: <owner>
+      handoff_artifacts: [...]
 ```
 
 Dispatcher rules:
@@ -45,7 +48,7 @@ Dispatcher rules:
 - If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
 - If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
-- Do not schedule child-agent work when the matching delegation assignment is missing `allowed_files`, `forbidden_files`, `authority`, `required_evidence`, `blocker_conditions`, or `integration_owner`.
+- Do not schedule child-agent work when the matching delegation assignment is missing `task_slice`, `allowed_files`, `forbidden_files`, `read_only_files`, `authority`, `required_evidence`, `blocker_conditions`, `integration_owner`, `verification_owner`, or `handoff_artifacts`.
 
 ## Scheduling rules
 

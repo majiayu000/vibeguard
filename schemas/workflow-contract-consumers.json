@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "schema_files": {
+    "routing_decision": "workflow-routing-decision.schema.json",
+    "execution_handoff": "workflow-execution-handoff.schema.json",
+    "delegation_assignment": "workflow-delegation-assignment.schema.json",
+    "lane_map": "workflow-lane-map.schema.json",
+    "verification_gate": "workflow-verification-gate.schema.json"
+  },
+  "markdown_examples": [
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "routing decision Schema",
+      "schema": "routing_decision"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "execution handoff Schema",
+      "schema": "execution_handoff"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "delegation assignment Schema",
+      "schema": "delegation_assignment"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "lane map ownership Schema",
+      "schema": "lane_map"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "verification gate Schema",
+      "schema": "verification_gate"
+    }
+  ],
+  "consumers": [
+    {
+      "path": "workflows/references/routing-contract.md",
+      "references": ["delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/references/delegation-contract.md",
+      "references": ["routing-contract.md"],
+      "requires": ["delegation_assignment", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/references/delivery-base.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "agents/dispatcher.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/fixflow/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/plan-flow/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/plan-mode/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/auto-optimize/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/plan-flow/references/execplan-integration.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "README.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": []
+    },
+    {
+      "path": "docs/CLAUDE.md.example",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": []
+    },
+    {
+      "path": "docs/openai-codex-best-practices.md",
+      "references": ["delegation-contract.md"],
+      "requires": []
+    },
+    {
+      "path": "docs/README_CN.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": []
+    },
+    {
+      "path": "claude-md/vibeguard-rules.md",
+      "references": ["routing-contract.md"],
+      "requires": []
+    },
+    {
+      "path": "templates/AGENTS.md",
+      "references": ["routing-contract.md"],
+      "requires": []
+    }
+  ],
+  "legacy_routing_markers": [
+    "1-2 files",
+    "3-5 files",
+    "6+ files",
+    "1-2 File",
+    "3-5 File",
+    "6+ Documentation",
+    "1-2 个文件",
+    "3-5 个文件",
+    "6 个及以上文件",
+    "1-2 file directly",
+    "3-5 `/vibeguard:preflight`"
+  ]
+}

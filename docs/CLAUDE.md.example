@@ -40,7 +40,7 @@ When readiness resolves to `execute_direct`, make the change directly without ov
 - Use child agents to keep the main context window clean only after the routing contract allows delegation
 - Follow `workflows/references/delegation-contract.md` for every child-agent assignment
 - Research, exploration, and parallel analysis can run in `readonly` mode before write ownership is clear
-- Write lanes require a task slice, allowed files, forbidden files, authority, required evidence, blockers, and a single integration owner
+- Write lanes require a task slice, allowed files, forbidden files, read-only files, authority, required evidence, blockers, a single integration owner, verification owner, and handoff artifacts
 - One focused task per sub-agent
 
 ### 4. Autonomous Execution
