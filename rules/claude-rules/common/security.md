@@ -206,6 +206,41 @@ Canonical VibeGuard rule files may quote SEC-14 forbidden phrases as defensive e
 - Relying on SEC-12 hash drift alone — fresh installs have no baseline to drift from.
 - Allow-listing an entire MCP server after one acknowledgement, instead of acknowledging the specific phrase.
 
+## SEC-16: CWE-stratified AI patch safety policy (strict)
+
+AI-generated security patches do not have a uniform safety profile. Token-level substitutions such as weak-crypto upgrades can be reliable, while data-flow-dependent fixes such as SQL parameterization or path containment can fail or introduce new vulnerabilities. Treat the CWE class as part of the merge gate, not as background context.
+
+**Sources** (candidate-rule promotion, 2026-05):
+- Rex Coleman, "Your AI Makes SQL Injection Worse: CWE-Stratified Patch Safety for LLM-generated Code": controlled study across 50 vulnerable snippets in five CWE categories found high variance by CWE class, including 0% fix rate and 50% regression rate for CWE-89 SQL injection patches.
+- SEC-11 baseline — AI-generated code requires higher review intensity in security-sensitive areas.
+- SEC-01 and SEC-07 baselines — injection and path validation fixes depend on correct boundary handling, not only local string edits.
+
+**Policy by CWE class**:
+
+| CWE class | AI patch policy |
+| --- | --- |
+| CWE-327 weak cryptography | AI patches may proceed after standard review and ecosystem-appropriate security checks |
+| CWE-79 cross-site scripting | AI patches require explicit human security review before merge |
+| CWE-120 buffer overflow | AI patches require explicit human security review before merge |
+| CWE-22 path traversal | AI patches must not be accepted as final remediation without a human-owned fix and validation |
+| CWE-89 SQL injection | AI patches must not be accepted as final remediation; parameterization and query-shape validation must be human-owned |
+
+**Mechanical checks (agent execution rules)**:
+- Identify the CWE class before merging a security patch using a scanner finding, PR label, issue label, commit message tag, or maintainer note.
+- If a patch touches SQL query construction, ORM escape hatches, raw query helpers, shell-like database calls, file path joins, archive extraction, upload paths, or filesystem boundary checks, classify it as CWE-89 or CWE-22 until proven otherwise.
+- For CWE-79 and CWE-120 patches with AI-authored code, require an explicit human security-review line in the PR or review thread before merge.
+- For CWE-22 and CWE-89 patches with AI-authored code, do not merge until a human reviewer owns the remediation strategy, verifies the data-flow boundary, and records the validation evidence.
+- Report `SEC-16` when commit metadata, PR text, or review notes indicate AI-authored remediation for a blocked CWE class without the required human-owned validation.
+
+**Downgrade path**:
+If a project has a dedicated security pipeline that re-validates every AI-generated security patch against the original CWE intent, the CWE-22 and CWE-89 block may be downgraded to a warning. The downgrade must be recorded in `SECURITY.md` or an equivalent ADR and must name the scanner, reviewer role, and required validation artifact.
+
+**Anti-patterns**:
+- Averaging AI patch success rates across CWE classes and treating the aggregate as a merge signal.
+- Accepting a SQL injection fix because the diff "uses placeholders" without verifying every query parameter and execution path.
+- Accepting a path traversal fix because it normalizes strings without verifying containment under the intended base directory.
+- Letting an AI-generated test be the only evidence that an AI-generated CWE-22 or CWE-89 fix is correct.
+
 ## SEC-17: Third-party agent skills require source review and local rebuild before enable (strict)
 
 Third-party agent skills are persistent instruction and execution surfaces. A hostile skill can exfiltrate data, rewrite memory or context files, register hooks, alter agent behavior, or move laterally through tools after the user has forgotten the original install decision.
