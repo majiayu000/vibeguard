@@ -48,6 +48,24 @@ print(json.dumps({
 PY
 }
 
+codex_set_caller_identity() {
+  local event_name="$1"
+  export VIBEGUARD_WRAPPER="${VIBEGUARD_WRAPPER:-run-hook-codex.sh}"
+  export VIBEGUARD_SOURCE_CONFIG="${VIBEGUARD_SOURCE_CONFIG:-${HOME}/.codex/hooks.json}"
+  export VIBEGUARD_HOOK_PROTOCOL_VERSION="${VIBEGUARD_HOOK_PROTOCOL_VERSION:-codex-hooks-v1}"
+  if [[ -n "${event_name}" ]]; then
+    export VIBEGUARD_AGENT_TYPE="${VIBEGUARD_AGENT_TYPE:-codex}"
+    export VIBEGUARD_CLI="${VIBEGUARD_CLI:-codex}"
+    export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-codex}"
+    export VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-codex-cli-hooks}"
+    export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-codex-hook-payload}"
+  else
+    export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}"
+    export VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}"
+    export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-missing-codex-hook-payload}"
+  fi
+}
+
 codex_diag() {
   local hook_name="$1" event_name="$2" reason="$3" detail="${4:-}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"

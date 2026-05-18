@@ -69,6 +69,8 @@ events = [
         "decision": "pass",
         "reason": "",
         "detail": "cargo check",
+        "cli": "claude",
+        "client": "claude",
     },
     {
         "ts": (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z"),
@@ -78,6 +80,8 @@ events = [
         "decision": "gate",
         "reason": "uncommitted source changes",
         "detail": "src/main.rs",
+        "cli": "codex",
+        "client": "codex",
     },
     {
         "ts": (now - timedelta(hours=3)).isoformat().replace("+00:00", "Z"),
@@ -119,9 +123,12 @@ assert_contains "${health_out}" "Total triggers: 4" "Filter out events within 24
 assert_contains "${health_out}" "Pass: 1" "Pass statistics are correct"
 assert_contains "${health_out}" "Risk (non-pass): 3" "Risk statistics are correct"
 assert_contains "${health_out}" "Risk rate: 75.0%" "Risk rate calculation is correct"
+assert_contains "${health_out}" "Client distribution:" "Output client distribution"
+assert_contains "${health_out}" "claude: 1" "Client distribution includes Claude"
+assert_contains "${health_out}" "codex: 1" "Client distribution includes Codex"
 assert_contains "${health_out}" "Risk Hook Top 5:" "Output risk hook ranking"
 assert_contains "${health_out}" "Top 10 recent risk events:" "Output the latest risk events"
-assert_contains "${health_out}" "stop-guard | gate" "Risk event contains gate"
+assert_contains "${health_out}" "stop-guard | gate | cli=codex | client=codex" "Risk event contains caller split"
 
 header "Malformed UTF-8 and broken JSON lines are tolerated"
 python3 - "${TMP_DIR}/log/events-malformed.jsonl" <<'PY'

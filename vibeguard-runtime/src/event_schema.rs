@@ -15,6 +15,14 @@ pub mod field {
     pub const REASON: &str = "reason";
     pub const DETAIL: &str = "detail";
     pub const DURATION_MS: &str = "duration_ms";
+    pub const CLI: &str = "cli";
+    pub const AGENT: &str = "agent";
+    pub const CLIENT: &str = "client";
+    pub const CLIENT_VARIANT: &str = "client_variant";
+    pub const WRAPPER: &str = "wrapper";
+    pub const SOURCE_CONFIG: &str = "source_config";
+    pub const HOOK_PROTOCOL_VERSION: &str = "hook_protocol_version";
+    pub const CALLER_EVIDENCE: &str = "caller_evidence";
 }
 
 pub mod decision {

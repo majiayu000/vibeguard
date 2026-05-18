@@ -46,6 +46,27 @@ vg_log_clean_json_text() {
   fi
 }
 
+vg_log_json_escape() {
+  local text
+  text="$(vg_log_clean_json_text "$1")"
+  text="${text//\\/\\\\}"
+  text="${text//\"/\\\"}"
+  text="${text//$'\n'/\\n}"
+  text="${text//$'\r'/\\r}"
+  text="${text//$'\t'/\\t}"
+  text="${text//$'\b'/\\b}"
+  text="${text//$'\f'/\\f}"
+  printf '%s' "$text"
+}
+
+vg_log_append_string_field() {
+  local json="$1"
+  local field="$2"
+  local value="$3"
+  [[ -n "$value" ]] || { printf '%s' "$json"; return 0; }
+  printf '%s, "%s": "%s"' "$json" "$field" "$(vg_log_json_escape "$value")"
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -88,21 +109,20 @@ vg_log() {
   # becomes ]8;;url\x07 with ESC-only stripping; the raw BEL makes JSONL invalid).
   # tr range: 0x00-0x07 (NUL-BEL), 0x0B (VT), 0x0E-0x1F (SO-US incl. ESC), 0x7F (DEL)
   local esc_reason esc_detail
-  esc_reason=$(vg_log_clean_json_text "$reason")
-  esc_detail=$(vg_log_clean_json_text "$detail")
-  esc_reason="${esc_reason//\\/\\\\}" esc_detail="${esc_detail//\\/\\\\}"
-  esc_reason="${esc_reason//\"/\\\"}" esc_detail="${esc_detail//\"/\\\"}"
-  esc_reason="${esc_reason//$'\n'/\\n}" esc_detail="${esc_detail//$'\n'/\\n}"
-  esc_reason="${esc_reason//$'\r'/\\r}" esc_detail="${esc_detail//$'\r'/\\r}"
-  esc_reason="${esc_reason//$'\t'/\\t}" esc_detail="${esc_detail//$'\t'/\\t}"
-  esc_reason="${esc_reason//$'\b'/\\b}" esc_detail="${esc_detail//$'\b'/\\b}"
-  esc_reason="${esc_reason//$'\f'/\\f}" esc_detail="${esc_detail//$'\f'/\\f}"
+  esc_reason=$(vg_log_json_escape "$reason")
+  esc_detail=$(vg_log_json_escape "$detail")
 
   local json
   json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"session\": \"${VIBEGUARD_SESSION_ID}\", \"hook\": \"${hook}\", \"tool\": \"${tool}\", \"decision\": \"${decision}\", \"reason\": \"${esc_reason}\", \"detail\": \"${esc_detail}\""
   [[ -n "$duration_ms" ]] && json="${json}, \"duration_ms\": ${duration_ms}"
-  [[ -n "${VIBEGUARD_CLI:-}" ]] && json="${json}, \"cli\": \"${VIBEGUARD_CLI}\""
-  [[ -n "${VIBEGUARD_AGENT_TYPE:-}" ]] && json="${json}, \"agent\": \"${VIBEGUARD_AGENT_TYPE}\""
+  json="$(vg_log_append_string_field "$json" "cli" "${VIBEGUARD_CLI:-}")"
+  json="$(vg_log_append_string_field "$json" "agent" "${VIBEGUARD_AGENT_TYPE:-}")"
+  json="$(vg_log_append_string_field "$json" "client" "${VIBEGUARD_CLIENT:-}")"
+  json="$(vg_log_append_string_field "$json" "client_variant" "${VIBEGUARD_CLIENT_VARIANT:-}")"
+  json="$(vg_log_append_string_field "$json" "wrapper" "${VIBEGUARD_WRAPPER:-}")"
+  json="$(vg_log_append_string_field "$json" "source_config" "${VIBEGUARD_SOURCE_CONFIG:-}")"
+  json="$(vg_log_append_string_field "$json" "hook_protocol_version" "${VIBEGUARD_HOOK_PROTOCOL_VERSION:-}")"
+  json="$(vg_log_append_string_field "$json" "caller_evidence" "${VIBEGUARD_CALLER_EVIDENCE:-}")"
   json="${json}}"
 
   vg_private_log_file "$VIBEGUARD_LOG_FILE"

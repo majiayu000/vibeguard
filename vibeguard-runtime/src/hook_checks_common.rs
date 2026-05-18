@@ -286,8 +286,6 @@ pub(crate) fn write_log_event(
     detail: &str,
 ) -> io::Result<()> {
     let session = env::var("VIBEGUARD_SESSION_ID").unwrap_or_else(|_| "unknown".to_string());
-    let cli = env::var("VIBEGUARD_CLI").ok();
-    let agent = env::var("VIBEGUARD_AGENT_TYPE").ok();
     let ts = format_unix_secs_utc(now_unix_secs());
     let mut event = serde_json::json!({
         "schema_version": 1,
@@ -299,11 +297,33 @@ pub(crate) fn write_log_event(
         "reason": reason,
         "detail": detail,
     });
-    if let Some(cli) = cli.filter(|s| !s.is_empty()) {
-        event["cli"] = serde_json::Value::String(cli);
-    }
-    if let Some(agent) = agent.filter(|s| !s.is_empty()) {
-        event["agent"] = serde_json::Value::String(agent);
+    for (env_name, field_name) in [
+        ("VIBEGUARD_CLI", crate::event_schema::field::CLI),
+        ("VIBEGUARD_AGENT_TYPE", crate::event_schema::field::AGENT),
+        ("VIBEGUARD_CLIENT", crate::event_schema::field::CLIENT),
+        (
+            "VIBEGUARD_CLIENT_VARIANT",
+            crate::event_schema::field::CLIENT_VARIANT,
+        ),
+        ("VIBEGUARD_WRAPPER", crate::event_schema::field::WRAPPER),
+        (
+            "VIBEGUARD_SOURCE_CONFIG",
+            crate::event_schema::field::SOURCE_CONFIG,
+        ),
+        (
+            "VIBEGUARD_HOOK_PROTOCOL_VERSION",
+            crate::event_schema::field::HOOK_PROTOCOL_VERSION,
+        ),
+        (
+            "VIBEGUARD_CALLER_EVIDENCE",
+            crate::event_schema::field::CALLER_EVIDENCE,
+        ),
+    ] {
+        if let Ok(value) = env::var(env_name) {
+            if !value.is_empty() {
+                event[field_name] = serde_json::Value::String(value);
+            }
+        }
     }
     let line = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
     append_jsonl(Path::new(log_file), &line)?;

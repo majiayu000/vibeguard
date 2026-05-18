@@ -91,4 +91,36 @@ if [[ -z "${VIBEGUARD_CLI:-}" || -z "${VIBEGUARD_SESSION_ID:-}" ]]; then
   fi
 fi
 
+if [[ -z "${VIBEGUARD_CLIENT:-}" ]]; then
+  case "${VIBEGUARD_CLI:-unknown}" in
+    claude)
+      VIBEGUARD_CLIENT="claude"
+      VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-claude-code-hooks}"
+      VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-parent-process}"
+      ;;
+    codex)
+      VIBEGUARD_CLIENT="codex"
+      VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-codex-cli-hooks}"
+      VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-parent-process}"
+      ;;
+    *)
+      VIBEGUARD_CLIENT="unknown"
+      VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}"
+      VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-no-client-evidence}"
+      ;;
+  esac
+elif [[ -z "${VIBEGUARD_CLIENT_VARIANT:-}" ]]; then
+  case "${VIBEGUARD_CLIENT}" in
+    claude) VIBEGUARD_CLIENT_VARIANT="claude-code-hooks" ;;
+    codex) VIBEGUARD_CLIENT_VARIANT="codex-cli-hooks" ;;
+    *) VIBEGUARD_CLIENT_VARIANT="unknown" ;;
+  esac
+fi
+
+if [[ -z "${VIBEGUARD_CALLER_EVIDENCE:-}" ]]; then
+  VIBEGUARD_CALLER_EVIDENCE="explicit-client"
+fi
+
 export VIBEGUARD_CLI VIBEGUARD_SESSION_ID
+export VIBEGUARD_CLIENT VIBEGUARD_CLIENT_VARIANT VIBEGUARD_CALLER_EVIDENCE
+export VIBEGUARD_WRAPPER VIBEGUARD_SOURCE_CONFIG VIBEGUARD_HOOK_PROTOCOL_VERSION

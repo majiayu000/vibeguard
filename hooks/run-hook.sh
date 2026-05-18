@@ -9,6 +9,11 @@
 
 set -euo pipefail
 
+export VIBEGUARD_WRAPPER="${VIBEGUARD_WRAPPER:-run-hook.sh}"
+export VIBEGUARD_SOURCE_CONFIG="${VIBEGUARD_SOURCE_CONFIG:-${HOME}/.claude/settings.json}"
+export VIBEGUARD_HOOK_PROTOCOL_VERSION="${VIBEGUARD_HOOK_PROTOCOL_VERSION:-claude-code-hooks-v1}"
+export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-wrapper-and-parent-process}"
+
 HOOK_NAME="${1:?Usage: run-hook.sh <hook-name>}"
 shift
 
