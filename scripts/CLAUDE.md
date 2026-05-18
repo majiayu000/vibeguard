@@ -13,6 +13,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `constraint-recommender.py` | Generate an initial preflight constraint draft from project structure |
 | `log-capability-change.sh` | Extract a capability-change timeline from git history |
 | `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
+| `live_truth.py` | Verify mutable claims such as latest, PR-ready, merged, running, deployed, and published with fresh facts/inferences/gaps |
 
 ## GC / Metrics / Verification
 
@@ -56,6 +57,7 @@ bash scripts/stats.sh
 bash scripts/hook-health.sh 24
 bash scripts/quality-grader.sh
 python3 scripts/authorized-discard.py --plan
+python3 scripts/live_truth.py checklist
 bash scripts/ci/validate-hooks-manifest.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh

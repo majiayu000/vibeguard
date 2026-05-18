@@ -202,6 +202,10 @@ jobs:
         shell: bash
         run: bash tests/test_local_contract_gate.sh
 
+      - name: Live truth regression tests
+        shell: bash
+        run: bash tests/test_live_truth.sh
+
       - name: Guard unit tests
         shell: bash
         run: bash tests/unit/run_all.sh

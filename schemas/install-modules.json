@@ -190,7 +190,7 @@
     {
       "id": "commands",
       "kind": "commands",
-      "description": "VibeGuard slash commands (10 commands)",
+      "description": "VibeGuard slash commands (11 commands)",
       "paths": [".claude/commands/vibeguard/"],
       "target": "~/.claude/commands/",
       "defaultInstall": true,

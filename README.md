@@ -186,7 +186,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 
 ## Slash Commands
 
-10 custom commands covering the full development lifecycle. Shortcuts: `/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`.
+11 custom commands covering the full development lifecycle. Shortcuts: `/vg:pf` `/vg:gc` `/vg:ck` `/vg:lrn`.
 
 | Command | Purpose |
 |---------|---------|
@@ -198,6 +198,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path                # dea
 | `/vibeguard:learn` | Generate guard rules from errors / extract Skills from discoveries |
 | `/vibeguard:interview` | Deep requirements interview → SPEC.md |
 | `/vibeguard:exec-plan` | Long-running task execution plan, cross-session resume |
+| `/vibeguard:live-truth` | Fresh evidence gates for latest, PR-ready, merged, running, deployed, and published claims |
 | `/vibeguard:gc` | Garbage collection (logs + worktrees + rule budget + code slop scan) |
 | `/vibeguard:stats` | Hook trigger statistics |
 

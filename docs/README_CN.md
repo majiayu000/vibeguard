@@ -148,7 +148,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 
 ## Slash Commands
 
-仓库内置了 10 个自定义命令，覆盖从需求澄清到验证复盘的完整流程：
+仓库内置了 11 个自定义命令，覆盖从需求澄清到验证复盘的完整流程：
 
 | 命令 | 作用 |
 |------|------|
@@ -160,6 +160,7 @@ python3 ~/vibeguard/guards/python/check_dead_shims.py /path
 | `/vibeguard:learn` | 从错误中生成 guard/rule，或提炼 Skill |
 | `/vibeguard:interview` | 深度需求访谈，输出 SPEC.md |
 | `/vibeguard:exec-plan` | 长任务执行计划，支持跨会话恢复 |
+| `/vibeguard:live-truth` | 为 latest、PR ready、merged、running、deployed、published 等可变状态声明提供新鲜证据门 |
 | `/vibeguard:gc` | 垃圾回收（日志归档 + worktree 清理 + 规则预算 + code slop 扫描） |
 | `/vibeguard:stats` | hook 触发统计 |
 

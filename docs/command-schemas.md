@@ -144,6 +144,30 @@ Delegation assignments are required before any child-agent write lane starts. Pa
 }
 ```
 
+## live_truth output Schema
+
+```json
+{
+  "command": "live_truth",
+  "claim_type": "latest | pr-ready | merged | running | deployed | published",
+  "verdict": "pass | fail | gap",
+  "facts": [
+    {
+      "key": "active_branch",
+      "value": "main"
+    }
+  ],
+  "inferences": [
+    "local branch contains the fetched origin/main ref"
+  ],
+  "unresolved_gaps": [
+    "worktree has uncommitted changes"
+  ]
+}
+```
+
+The text artifact emitted by `scripts/live_truth.py` uses these same sections so final answers and PR comments do not mix facts with assumptions.
+
 ## review output Schema
 
 ```json
