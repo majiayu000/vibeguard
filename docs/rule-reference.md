@@ -81,6 +81,7 @@ Canonical source of truth: `rules/claude-rules/`
 | W-30 | Harness audits must measure boundary, fidelity, and stability | Strict | Agent harness evaluation must audit the trajectory, not only final task completion. |
 | W-37 | Agent learning must draw from successful and failed trajectories | Strict | An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories. |
 | W-38 | Tool-need recognition and tool-call execution are separate metrics | Strict | Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. |
+| W-41 | Long-term vibe coding production should expose five invariants | Guideline | Long-term production workflows that rely on vibe-coding style agent iteration should make five risk-control invariants visible before tre... |
 | W-42 | Long-horizon artifact workflows must measure fidelity at checkpoints | Strict | Agent workflows that repeatedly modify and hand off the same artifact must measure semantic fidelity at fixed checkpoints. |
 
 ---
