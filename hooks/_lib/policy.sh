@@ -118,8 +118,10 @@ elif event == "PostToolUse":
             "additionalContext": reason,
         },
     }
+elif event == "Stop":
+    payload = {"stopReason": reason}
 else:
-    payload = {"decision": "block", "reason": reason}
+    payload = {"systemMessage": reason}
 print(json.dumps(payload, ensure_ascii=False))
 PY
 }

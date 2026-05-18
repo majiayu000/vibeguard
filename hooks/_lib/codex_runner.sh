@@ -36,11 +36,7 @@ codex_run_hook() {
     if [[ ${hook_exit} -ne 0 ]]; then
       codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${hook_err:-${hook_output}}"
       rm -f "${normalized_file}" 2>/dev/null || true
-      if [[ "${event_name}" == "PreToolUse" ]]; then
-        codex_pretool_deny "VIBEGUARD hook failed: wrapped hook exited nonzero."
-      elif [[ "${event_name}" == "PermissionRequest" ]]; then
-        codex_permission_deny "VIBEGUARD hook failed: wrapped hook exited nonzero."
-      fi
+      codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped hook exited nonzero."
       return 0
     fi
 
@@ -91,7 +87,9 @@ codex_run_hook() {
       posttool_output=$(codex_adapt_posttool "${hook_output}" 2>/dev/null) || posttool_status=$?
       if [[ ${posttool_status} -ne 0 ]]; then
         codex_diag "${hook_name}" "${event_name}" "posttool-adapter-failed" "${hook_output}"
-        continue
+        rm -f "${normalized_file}" 2>/dev/null || true
+        codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped PostToolUse output could not be adapted."
+        return 0
       fi
       if [[ -n "${posttool_output}" ]]; then
         if [[ "${posttool_output}" == *'"decision": "block"'* || "${posttool_output}" == *'"decision":"block"'* ]]; then

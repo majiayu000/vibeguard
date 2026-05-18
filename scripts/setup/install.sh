@@ -320,7 +320,10 @@ inject_codex_home_rules
 # 11. Verification
 echo "Step 11: Verification"
 echo "=============================="
-bash "${SCRIPT_DIR}/check.sh"
+if ! bash "${SCRIPT_DIR}/check.sh" --install; then
+  red "ERROR: strict install verification failed. Run 'bash setup.sh --check --install' for details."
+  exit 2
+fi
 echo
 green "Setup complete! All components installed."
 echo

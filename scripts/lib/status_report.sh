@@ -250,3 +250,15 @@ status_exit_code() {
     printf '0\n'
   fi
 }
+
+# status_install_exit_code — echo 0|2 for install final verification.
+# WARN rows are allowed here because optional integrations can be degraded
+# without making the freshly written required runtime unusable.
+status_install_exit_code() {
+  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  if (( total_problems > 0 )); then
+    printf '2\n'
+  else
+    printf '0\n'
+  fi
+}

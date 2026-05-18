@@ -7,12 +7,14 @@
 #   bash setup.sh --check --quiet        # only show problem rows + summary
 #   bash setup.sh --check --json         # machine-readable JSON, no TTY output
 #   bash setup.sh --check --no-summary   # legacy behavior (no rollup, exit 0)
+#   bash setup.sh --check --install      # install final verification, fail on broken required state
 #
 # Exit code
 #   Default mode  : 0 always (backward compatible with pre-summary callers).
 #   --strict      : 0 healthy, 1 degraded (warn only), 2 broken (FAIL/BROKEN/MISSING).
 #   --json        : implies --strict (machine consumers want a real exit code).
 #   --no-summary  : 0 always.
+#   --install     : 0 healthy/degraded, 2 broken required state.
 
 set -uo pipefail
 
@@ -35,28 +37,32 @@ QUIET=0
 JSON=0
 STRICT=0
 WITH_SUMMARY=1
+INSTALL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
     --json)         JSON=1; shift ;;
     --strict)       STRICT=1; shift ;;
+    --install)      INSTALL=1; shift ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
     --help|-h)
       cat <<'USAGE'
-Usage: setup.sh --check [--quiet | --json | --strict | --no-summary]
+Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary]
 
   --quiet        Suppress healthy [OK] rows; only print problems + summary.
   --strict       Reflect health in the exit code: 0 healthy, 1 degraded,
                  2 broken (FAIL/BROKEN/MISSING). Without --strict the exit
                  code is always 0 for backwards compatibility.
+  --install      Final install verification mode: exit 2 on broken required
+                 state, but allow WARN/INFO rows for optional integrations.
   --json         Emit a single-line JSON document (counts + events + verdict)
                  to stdout. Disables human-readable output. Implies --strict.
   --no-summary   Legacy mode: no rollup table, always exit 0.
                  Equivalent to the pre-summary behavior.
 
-Exit codes (--strict / --json only):
+Exit codes (--strict / --json / --install only):
   0  healthy
-  1  degraded (warnings only)
+  1  degraded (warnings only; --strict/--json)
   2  broken (FAIL/BROKEN/MISSING present)
 USAGE
       exit 0
@@ -80,6 +86,10 @@ if [[ "${JSON}" -eq 1 && "${QUIET}" -eq 1 ]]; then
 fi
 if [[ "${JSON}" -eq 1 && "${WITH_SUMMARY}" -eq 0 ]]; then
   red "ERROR: --json and --no-summary are mutually exclusive"
+  exit 64
+fi
+if [[ "${JSON}" -eq 1 && "${INSTALL}" -eq 1 ]]; then
+  red "ERROR: --json and --install are mutually exclusive"
   exit 64
 fi
 
@@ -309,6 +319,9 @@ if [[ "${WITH_SUMMARY}" -eq 1 ]]; then
   fi
   if [[ "${STRICT}" -eq 1 ]]; then
     exit "$(status_exit_code)"
+  fi
+  if [[ "${INSTALL}" -eq 1 ]]; then
+    exit "$(status_install_exit_code)"
   fi
   # Without --strict, preserve the original always-exit-0 contract so the
   # existing test_setup.sh harness, the install scripts, and external CI

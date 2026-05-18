@@ -340,7 +340,7 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-header "run-hook-codex keeps best-effort stop hooks non-blocking"
+header "run-hook-codex surfaces failed stop hooks without shell failure"
 TMP_HOME_STOP_FAILING="${TMP_DIR}/home-stop-failing"
 TMP_FAKE_REPO_STOP_FAILING="${TMP_DIR}/fake-repo-stop-failing"
 mkdir -p "${TMP_HOME_STOP_FAILING}/.vibeguard" "${TMP_FAKE_REPO_STOP_FAILING}/hooks"
@@ -363,20 +363,14 @@ stop_rc=$?
 set -e
 TOTAL=$((TOTAL + 1))
 if [[ ${stop_rc} -eq 0 ]]; then
-  green "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  green "run-hook-codex exits successfully after reporting failed stop hooks"
   PASS=$((PASS + 1))
 else
-  red "run-hook-codex swallows nonzero exits for best-effort stop hooks"
+  red "run-hook-codex exits successfully after reporting failed stop hooks"
   FAIL=$((FAIL + 1))
 fi
-TOTAL=$((TOTAL + 1))
-if [[ -z "${stop_out}" ]]; then
-  green "run-hook-codex keeps failed best-effort stop hooks silent"
-  PASS=$((PASS + 1))
-else
-  red "run-hook-codex keeps failed best-effort stop hooks silent"
-  FAIL=$((FAIL + 1))
-fi
+assert_contains "${stop_out}" '"stopReason"' "run-hook-codex emits visible Stop feedback on wrapped hook failure"
+assert_contains "${stop_out}" 'wrapped hook exited nonzero' "run-hook-codex explains failed Stop hook"
 
 header "run-hook-codex denies invalid pretool adapter output on any adapter failure"
 TMP_HOME_INVALID_JSON="${TMP_DIR}/home-invalid-json"
@@ -452,6 +446,26 @@ missing_adapter_out="$(
 assert_contains "${missing_adapter_out}" '"permissionDecision": "deny"' "missing adapter fails closed for PreToolUse"
 assert_codex_pretool_output_contract "${missing_adapter_out}" "missing adapter deny matches Codex PreToolUse output contract"
 assert_contains "$(cat "${DIAG_FILE}")" "missing-adapter" "missing adapter writes diagnostic event"
+
+missing_posttool_hook_out="$(
+  printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.ts"}}' \
+    | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-edit-guard.sh
+)"
+assert_contains "${missing_posttool_hook_out}" '"decision": "block"' "missing PostToolUse hook emits visible feedback"
+assert_codex_posttool_output_contract "${missing_posttool_hook_out}" "missing PostToolUse hook output matches Codex contract"
+
+cat > "${TMP_FAKE_REPO_DIAG}/hooks/vibeguard-post-edit-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+HOOK
+chmod +x "${TMP_FAKE_REPO_DIAG}/hooks/vibeguard-post-edit-guard.sh"
+missing_posttool_adapter_out="$(
+  printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.ts"}}' \
+    | HOME="${TMP_HOME_DIAG}" VIBEGUARD_CODEX_ADAPTER_PATH="${TMP_DIR}/missing-adapter.sh" VIBEGUARD_CODEX_DIAG_FILE="${DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-edit-guard.sh
+)"
+assert_contains "${missing_posttool_adapter_out}" '"decision": "block"' "missing PostToolUse adapter emits visible feedback"
+assert_codex_posttool_output_contract "${missing_posttool_adapter_out}" "missing PostToolUse adapter output matches Codex contract"
 
 header "run-hook-codex adapts posttool block output"
 TMP_HOME_POSTTOOL="${TMP_DIR}/home-posttool"
@@ -560,14 +574,9 @@ bad_posttool_out="$({
   printf '{"hook_event_name":"PostToolUse","tool_input":{"command":"cargo check"}}' \
     | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${posttool_bad_diag}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
 } 2>/dev/null)"
-TOTAL=$((TOTAL + 1))
-if [[ -z "${bad_posttool_out}" ]]; then
-  green "invalid PostToolUse hook output stays stdout-silent"
-  PASS=$((PASS + 1))
-else
-  red "invalid PostToolUse hook output stays stdout-silent"
-  FAIL=$((FAIL + 1))
-fi
+assert_contains "${bad_posttool_out}" '"decision": "block"' "invalid PostToolUse hook output emits visible feedback"
+assert_contains "${bad_posttool_out}" 'could not be adapted' "invalid PostToolUse hook output explains adapter failure"
+assert_codex_posttool_output_contract "${bad_posttool_out}" "invalid PostToolUse failure output matches Codex contract"
 assert_contains "$(cat "${posttool_bad_diag}")" "posttool-adapter-failed" "invalid PostToolUse output writes diagnostic event"
 
 header "run-hook-codex adapts PermissionRequest decisions"

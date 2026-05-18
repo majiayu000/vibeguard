@@ -32,6 +32,12 @@ else
   codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
   codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD install incomplete."}}\n'; }
   codex_permission_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"VIBEGUARD install incomplete."}}}\n'; }
+  codex_visible_failure_raw() {
+    [[ "$1" == "PreToolUse" ]] && { codex_pretool_deny_raw "$2"; return; }
+    [[ "$1" == "PermissionRequest" ]] && { codex_permission_deny_raw "$2"; return; }
+    [[ "$1" == "Stop" ]] && { printf '{"stopReason":"VIBEGUARD install incomplete."}\n'; return; }
+    printf '{"systemMessage":"VIBEGUARD install incomplete."}\n'
+  }
   codex_set_caller_identity() { export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}" VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}" VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-missing-codex-diag-helper}"; }
   codex_diag() { return 0; }
 fi
@@ -65,11 +71,7 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
     codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-repo-path" "${REPO_PATH_FILE}"
-    if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
-      codex_pretool_deny_raw "VIBEGUARD install incomplete: missing repo-path."
-    elif [[ "$EVENT_NAME" == "PermissionRequest" ]]; then
-      codex_permission_deny_raw "VIBEGUARD install incomplete: missing repo-path."
-    fi
+    codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing repo-path."
     exit 0
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
@@ -90,8 +92,7 @@ POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
 [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
 if [[ ! -f "${POLICY_PATH}" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "policy_error" "missing policy helper"
-  [[ "$EVENT_NAME" == "PreToolUse" ]] && codex_pretool_deny_raw "VIBEGUARD install incomplete: missing policy helper."
-  [[ "$EVENT_NAME" == "PermissionRequest" ]] && codex_permission_deny_raw "VIBEGUARD install incomplete: missing policy helper."
+  codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing policy helper."
   exit 0
 fi
 # shellcheck source=hooks/_lib/policy.sh
@@ -100,21 +101,13 @@ vg_policy_codex_gate "${HOOK_NAME}" "${EVENT_NAME}" || exit 0
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-hook" "${HOOK_PATH}"
-  if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
-    codex_pretool_deny_raw "VIBEGUARD install incomplete: missing hook ${HOOK_NAME}."
-  elif [[ "$EVENT_NAME" == "PermissionRequest" ]]; then
-    codex_permission_deny_raw "VIBEGUARD install incomplete: missing hook ${HOOK_NAME}."
-  fi
+  codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing hook ${HOOK_NAME}."
   exit 0
 fi
 
 if [[ ! -f "${ADAPTER_PATH}" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-adapter" "${ADAPTER_PATH}"
-  if [[ "$EVENT_NAME" == "PreToolUse" ]]; then
-    codex_pretool_deny_raw "VIBEGUARD install incomplete: missing Codex adapter."
-  elif [[ "$EVENT_NAME" == "PermissionRequest" ]]; then
-    codex_permission_deny_raw "VIBEGUARD install incomplete: missing Codex adapter."
-  fi
+  codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing Codex adapter."
   exit 0
 fi
 
@@ -125,8 +118,7 @@ if ! declare -F codex_adapt_permission_request >/dev/null 2>&1; then codex_adapt
 
 if [[ ! -f "${RUNNER_PATH}" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-runner" "${RUNNER_PATH}"
-  [[ "${EVENT_NAME}" == "PreToolUse" ]] && codex_pretool_deny "VIBEGUARD install incomplete: missing Codex runner."
-  [[ "${EVENT_NAME}" == "PermissionRequest" ]] && codex_permission_deny "VIBEGUARD install incomplete: missing Codex runner."
+  codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing Codex runner."
   exit 0
 fi
 

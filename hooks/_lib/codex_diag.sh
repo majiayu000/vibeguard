@@ -48,6 +48,46 @@ print(json.dumps({
 PY
 }
 
+codex_visible_failure_raw() {
+  local event_name="$1" reason="$2"
+  CODEX_EVENT_NAME="${event_name}" CODEX_REASON="${reason}" python3 - <<'PY'
+import json
+import os
+
+event = os.environ.get("CODEX_EVENT_NAME", "")
+reason = os.environ.get("CODEX_REASON", "")
+if event == "PreToolUse":
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+elif event == "PermissionRequest":
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "deny", "message": reason},
+        }
+    }
+elif event == "PostToolUse":
+    payload = {
+        "decision": "block",
+        "reason": reason,
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": reason,
+        },
+    }
+elif event == "Stop":
+    payload = {"stopReason": reason}
+else:
+    payload = {"systemMessage": reason}
+print(json.dumps(payload, ensure_ascii=False))
+PY
+}
+
 codex_set_caller_identity() {
   local event_name="$1"
   export VIBEGUARD_WRAPPER="${VIBEGUARD_WRAPPER:-run-hook-codex.sh}"

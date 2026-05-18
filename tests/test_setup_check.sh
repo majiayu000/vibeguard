@@ -228,6 +228,7 @@ help_rc=$?
 assert_eq "$help_rc" "0" "check --help: exit 0"
 assert_contains "$help_out" "Usage: setup.sh --check" "check --help: prints usage"
 assert_contains "$help_out" "Exit codes"             "check --help: documents exit codes"
+assert_contains "$help_out" "--install"              "check --help: documents install verification mode"
 
 # Unknown flag should exit 64 (sysexits.h EX_USAGE).
 err_out="$(bash "${SETUP_SCRIPT}" --check --bogus 2>&1)"
@@ -244,6 +245,10 @@ assert_contains "$conf_out" "mutually exclusive" "check --json --quiet: error me
 conf_out2="$(bash "${SETUP_SCRIPT}" --check --json --no-summary 2>&1)"
 conf_rc2=$?
 assert_eq "$conf_rc2" "64" "check --json --no-summary: rejected with exit 64"
+
+conf_out3="$(bash "${SETUP_SCRIPT}" --check --json --install 2>&1)"
+conf_rc3=$?
+assert_eq "$conf_rc3" "64" "check --json --install: rejected with exit 64"
 
 # --- End-to-end check ---
 header "check.sh end-to-end"
@@ -340,6 +345,11 @@ assert_contains "$stale_check_out" "stale Codex hook command" "stale hook check:
 assert_contains "$stale_check_out" "config=~/.codex/hooks.json event=Stop matcher=<none>" "stale hook check: names Codex config/event/matcher"
 assert_contains "$stale_check_out" "repair=bash setup.sh --yes" "stale hook check: names repair action"
 
+stale_install_check_out="$(HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --install 2>&1)"
+stale_install_check_rc=$?
+assert_eq "$stale_install_check_rc" "2" "install check: broken required state exits 2"
+assert_contains "$stale_install_check_out" "stale Codex hook command" "install check: reports broken required hook state"
+
 HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" upsert-vibeguard \
   --settings-file "${STALE_HOOK_HOME}/.claude/settings.json" \
   --repo-dir "${REPO_DIR}" \
@@ -365,7 +375,7 @@ bash "${SETUP_SCRIPT}" --check --no-summary >/dev/null 2>&1
 no_sum_rc=$?
 assert_eq "$no_sum_rc" "0" "no-summary mode: exit 0 (compat)"
 
-# --strict and --json should reflect the verdict in the exit code.
+# --strict, --install, and --json should reflect the verdict in the exit code.
 # We can only assert that the result is one of {0, 1, 2}.
 bash "${SETUP_SCRIPT}" --check --strict >/dev/null 2>&1
 strict_rc=$?
@@ -374,6 +384,15 @@ if [[ "$strict_rc" == "0" || "$strict_rc" == "1" || "$strict_rc" == "2" ]]; then
   green "strict mode: exit code in {0,1,2} (got ${strict_rc})"; PASS=$((PASS + 1))
 else
   red "strict mode: unexpected exit code ${strict_rc}"; FAIL=$((FAIL + 1))
+fi
+
+bash "${SETUP_SCRIPT}" --check --install >/dev/null 2>&1
+install_rc=$?
+TOTAL=$((TOTAL + 1))
+if [[ "$install_rc" == "0" || "$install_rc" == "2" ]]; then
+  green "install mode: exit code in {0,2} (got ${install_rc})"; PASS=$((PASS + 1))
+else
+  red "install mode: unexpected exit code ${install_rc}"; FAIL=$((FAIL + 1))
 fi
 
 bash "${SETUP_SCRIPT}" --check --json >/dev/null 2>&1
