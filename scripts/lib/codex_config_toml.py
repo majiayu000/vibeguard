@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import argparse
 import re
-import tempfile
 from pathlib import Path
+
+from file_ops import write_text_atomic
 
 try:
     import tomllib
@@ -15,14 +16,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
         import tomli as tomllib
     except ModuleNotFoundError:  # pragma: no cover - pip vendor fallback
         from pip._vendor import tomli as tomllib
-
-
-def _write_atomic(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=path.parent) as tmp:
-        tmp.write(content)
-        tmp_path = Path(tmp.name)
-    tmp_path.replace(path)
 
 
 def _table_name(line: str) -> str | None:
@@ -132,7 +125,7 @@ def cmd_enable_hooks(args: argparse.Namespace) -> int:
     old = path.read_text(encoding="utf-8") if path.exists() else ""
     new, changed = _ensure_hooks_enabled(old)
     if changed or not path.exists():
-        _write_atomic(path, new)
+        write_text_atomic(path, new)
         print("CHANGED")
     else:
         print("SKIP")
@@ -150,7 +143,7 @@ def cmd_remove_legacy_vibeguard_mcp(args: argparse.Namespace) -> int:
         print("SKIP")
         return 0
     if new:
-        _write_atomic(path, new)
+        write_text_atomic(path, new)
     else:
         path.unlink(missing_ok=True)
     print("CHANGED")

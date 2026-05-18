@@ -51,17 +51,27 @@ require(
     "settings.json diff confirmation",
 )
 require(
-    "scripts/setup/targets/claude-home.sh",
-    'confirm_high_context_write "~/.claude/CLAUDE.md"',
-    "CLAUDE.md diff confirmation",
+    "scripts/setup/lib.sh",
+    "inject_vibeguard_rules()",
+    "shared CLAUDE/AGENTS rule injection helper",
 )
+require(
+    "scripts/setup/lib.sh",
+    'confirm_high_context_write "${display_label}"',
+    "shared rule diff confirmation",
+)
+if (
+    'confirm_high_context_write "${display_label}"' not in (repo / "scripts/setup/lib.sh").read_text(encoding="utf-8")
+    or '"~/.claude/CLAUDE.md"' not in (repo / "scripts/setup/targets/claude-home.sh").read_text(encoding="utf-8")
+):
+    errors.append("scripts/setup/lib.sh + scripts/setup/targets/claude-home.sh: CLAUDE.md injection must route through shared confirmation helper")
 require(
     "scripts/setup/targets/claude-home.sh",
     "settings_upsert_diff",
     "settings diff computation before write",
 )
 require(
-    "scripts/setup/targets/claude-home.sh",
+    "scripts/setup/lib.sh",
     "diff-inject",
     "CLAUDE.md diff computation before write",
 )

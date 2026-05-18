@@ -184,6 +184,10 @@ jobs:
         shell: bash
         run: bash tests/test_setup.sh
 
+      - name: Setup hardening regression tests
+        shell: bash
+        run: bash tests/test_setup_hardening.sh
+
       - name: Setup --check structured report tests
         shell: bash
         run: bash tests/test_setup_check.sh

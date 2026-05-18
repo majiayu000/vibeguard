@@ -48,21 +48,16 @@ _remove_rule_subtree_if_safe() {
   rm -rf "${dest_dir}"
 }
 
+_install_claude_skill_link() {
+  local src="$1" dst="$2" source_path="$3" skill="$4"
+  safe_symlink "${src}" "${dst}"
+  state_record_file "${dst}" "${source_path}" "symlink"
+  green "  ${skill} -> ~/.claude/skills/${skill}"
+}
+
 install_claude_home_assets() {
   echo "Step 2: Install Claude Code skills"
-  mkdir -p "${CLAUDE_DIR}/skills"
-  local skill_links source_path skill
-  skill_links="$(manifest_skill_links_checked "~/.claude/skills/")" || return 1
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
-      safe_symlink "${REPO_DIR}/${source_path}" "${CLAUDE_DIR}/skills/${skill}"
-      state_record_file "${CLAUDE_DIR}/skills/${skill}" "${source_path}" "symlink"
-      green "  ${skill} -> ~/.claude/skills/${skill}"
-    else
-      yellow "  SKIP ${skill} (source not found: ${source_path})"
-    fi
-  done <<< "${skill_links}"
+  install_manifest_skills "~/.claude/skills/" "${CLAUDE_DIR}/skills" _install_claude_skill_link || return 1
   echo
 
   echo "Step 3: Install agents"
@@ -79,15 +74,7 @@ install_claude_home_assets() {
   echo
 
   echo "Step 4: Install context profiles"
-  mkdir -p "${CLAUDE_DIR}/context-profiles"
-  for profile in "${REPO_DIR}"/context-profiles/*.md; do
-    [[ -f "$profile" ]] || continue
-    local name
-    name=$(basename "$profile")
-    cp "$profile" "${CLAUDE_DIR}/context-profiles/${name}"
-    state_record_file "${CLAUDE_DIR}/context-profiles/${name}" "context-profiles/${name}" "copy"
-    green "  ${name} -> ~/.claude/context-profiles/${name}"
-  done
+  install_context_profiles "${CLAUDE_DIR}/context-profiles" "~/.claude/context-profiles"
   echo
 
   echo "Step 5: Install custom commands"
@@ -240,29 +227,7 @@ configure_claude_home_runtime() {
 
 inject_claude_home_rules() {
   echo "Step 10: Update VibeGuard rules in CLAUDE.md"
-  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
-  local rules_diff rule_count
-  rule_count=$(claude_rule_count_for_banner)
-  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
-    red "  Failed to compute CLAUDE.md diff"
-    return 1
-  fi
-  if ! confirm_high_context_write "~/.claude/CLAUDE.md" "${rules_diff}"; then
-    if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
-      echo
-      return 0
-    fi
-    return 1
-  fi
-  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${CLAUDE_DIR}/CLAUDE.md" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
-    if [[ -f "${CLAUDE_DIR}/CLAUDE.md" ]]; then
-      state_record_file "${CLAUDE_DIR}/CLAUDE.md" "generated/CLAUDE.md" "copy"
-    fi
-    green "  VibeGuard rules synced to ~/.claude/CLAUDE.md (${result})"
-  else
-    red "  Failed to update CLAUDE.md"
-  fi
-  echo
+  inject_vibeguard_rules "${CLAUDE_DIR}/CLAUDE.md" "~/.claude/CLAUDE.md" "generated/CLAUDE.md"
 }
 
 check_claude_home_installation() {

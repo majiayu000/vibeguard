@@ -24,6 +24,7 @@
 
 STATE_VERSION=1
 STATE_FILE="${HOME}/.vibeguard/install-state.json"
+INSTALL_STATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Initialize or load state
 state_init() {
@@ -31,12 +32,15 @@ state_init() {
   local repo_dir
   repo_dir="$(cat "${HOME}/.vibeguard/repo-path" 2>/dev/null || true)"
 
-  python3 - "$STATE_FILE" "$STATE_VERSION" "$profile" "$languages" "$repo_dir" <<'PY'
+  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" "$profile" "$languages" "$repo_dir" <<'PY'
 import datetime
-import json
 import sys
+from pathlib import Path
 
-state_file, state_version, profile, languages, repo_dir = sys.argv[1:6]
+lib_dir, state_file, state_version, profile, languages, repo_dir = sys.argv[1:7]
+sys.path.insert(0, lib_dir)
+from file_ops import write_json_atomic
+
 state = {
     'version': int(state_version),
     'installed_at': datetime.datetime.now().astimezone().isoformat(),
@@ -45,34 +49,29 @@ state = {
     'repo_dir': repo_dir,
     'files': {}
 }
-with open(state_file, 'w', encoding='utf-8') as f:
-    json.dump(state, f, indent=2)
-    f.write('\n')
+write_json_atomic(Path(state_file), state)
 PY
 }
 
 # Record a file installation
 state_record_file() {
   local dest="$1" source="$2" install_type="${3:-copy}"
-  local checksum=""
 
-  if [[ "$install_type" != "symlink" ]] && [[ -f "$dest" ]]; then
-    if command -v shasum &>/dev/null; then
-      checksum="sha256:$(shasum -a 256 "$dest" | cut -d' ' -f1)"
-    elif command -v sha256sum &>/dev/null; then
-      checksum="sha256:$(sha256sum "$dest" | cut -d' ' -f1)"
-    fi
-  fi
-
-  python3 - "$STATE_FILE" "$STATE_VERSION" "$dest" "$source" "$install_type" "$checksum" <<'PY'
+  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" "$dest" "$source" "$install_type" <<'PY'
 import json
 import sys
+from pathlib import Path
 
-state_file, state_version, dest, source, install_type, checksum = sys.argv[1:7]
+lib_dir, state_file, state_version, dest, source, install_type = sys.argv[1:7]
+sys.path.insert(0, lib_dir)
+from file_ops import sha256_file, write_json_atomic
+
 expected_version = int(state_version)
+state_path = Path(state_file)
+dest_path = Path(dest)
 
 try:
-    with open(state_file, encoding='utf-8') as f:
+    with state_path.open(encoding='utf-8') as f:
         state = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     state = {'version': expected_version, 'files': {}}
@@ -82,13 +81,11 @@ if version != expected_version:
     raise SystemExit(f'unsupported install-state version: {version} (expected {expected_version})')
 
 entry = {'source': source, 'type': install_type}
-if checksum:
-    entry['checksum'] = checksum
+if install_type != 'symlink' and dest_path.is_file():
+    entry['checksum'] = 'sha256:' + sha256_file(dest_path)
 state.setdefault('files', {})[dest] = entry
 
-with open(state_file, 'w', encoding='utf-8') as f:
-    json.dump(state, f, indent=2)
-    f.write('\n')
+write_json_atomic(state_path, state)
 PY
 }
 
@@ -114,11 +111,14 @@ state_check_drift() {
     return 0
   fi
 
-  python3 - "$STATE_FILE" "$STATE_VERSION" 2>/dev/null <<'PY'
-import json, os, subprocess
+  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" 2>/dev/null <<'PY'
+import json, os
 import sys
+from pathlib import Path
 
-state_file, state_version = sys.argv[1], int(sys.argv[2])
+lib_dir, state_file, state_version = sys.argv[1], sys.argv[2], int(sys.argv[3])
+sys.path.insert(0, lib_dir)
+from file_ops import sha256_file
 
 with open(state_file, encoding='utf-8') as f:
     state = json.load(f)
@@ -147,18 +147,10 @@ for dest, info in files.items():
             print(f'MISSING: {dest}')
             missing_count += 1
         elif 'checksum' in info:
-            try:
-                result = subprocess.run(
-                    ['shasum', '-a', '256', expanded],
-                    capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    actual = 'sha256:' + result.stdout.split()[0]
-                    if actual != info['checksum']:
-                        print(f'DRIFT: {dest} (checksum mismatch)')
-                        drift_count += 1
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+            actual = 'sha256:' + sha256_file(Path(expanded))
+            if actual != info['checksum']:
+                print(f'DRIFT: {dest} (checksum mismatch)')
+                drift_count += 1
 
 total = len(files)
 print(f'---')

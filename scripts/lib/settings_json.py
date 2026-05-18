@@ -11,10 +11,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from file_ops import write_json_atomic
+from hook_config_model import hook_command_identity, normalize_hook_entry
 from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
 
 
 MANIFEST = load_manifest()
+MANAGED_SCRIPT_NAMES = all_managed_script_names(MANIFEST)
+LEGACY_SCRIPT_NAMES: frozenset[str] = frozenset(
+    {"post-guard-check.sh", "session-tagger.sh", "cognitive-reminder.sh"}
+)
+WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook.sh"})
 
 
 def load_settings(path: Path) -> dict[str, Any]:
@@ -28,10 +35,7 @@ def load_settings(path: Path) -> dict[str, Any]:
 
 
 def save_settings(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_atomic(path, data)
 
 
 def render_settings(data: dict[str, Any]) -> str:
@@ -49,11 +53,39 @@ def unified_diff(path: Path, before: str, after: str) -> str:
     )
 
 
-def _entry_contains(entry: Any, needle: str) -> bool:
-    try:
-        return needle in json.dumps(entry, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return False
+def _entry_identities(event: str, entry: Any) -> list[Any]:
+    return normalize_hook_entry(
+        platform="claude",
+        event=event,
+        entry=entry,
+        managed_scripts=MANAGED_SCRIPT_NAMES,
+        legacy_scripts=LEGACY_SCRIPT_NAMES,
+        wrapper_names=WRAPPER_NAMES,
+        standalone_legacy_scripts=LEGACY_SCRIPT_NAMES,
+    )
+
+
+def _hook_identity(event: str, matcher: str | None, hook: dict[str, Any]) -> Any:
+    command = hook.get("command")
+    if not isinstance(command, str):
+        command = ""
+    timeout_value = hook.get("timeout")
+    timeout = timeout_value if isinstance(timeout_value, int) else None
+    return hook_command_identity(
+        platform="claude",
+        event=event,
+        matcher=matcher,
+        command=command,
+        timeout=timeout,
+        managed_scripts=MANAGED_SCRIPT_NAMES,
+        legacy_scripts=LEGACY_SCRIPT_NAMES,
+        wrapper_names=WRAPPER_NAMES,
+        standalone_legacy_scripts=LEGACY_SCRIPT_NAMES,
+    )
+
+
+def _entry_has_script(event: str, entry: Any, scripts: set[str] | frozenset[str]) -> bool:
+    return any(identity.script in scripts for identity in _entry_identities(event, entry))
 
 
 def _display_path(path: Path, home: Path) -> str:
@@ -214,12 +246,8 @@ def _has_hook_spec(data: dict[str, Any], spec: dict[str, Any]) -> bool:
                 continue
         elif "matcher" in entry and entry.get("matcher") not in ("", None):
             continue
-        hook_entries = entry.get("hooks")
-        if not isinstance(hook_entries, list):
-            continue
-        for hook in hook_entries:
-            if isinstance(hook, dict) and spec["script"] in str(hook.get("command", "")):
-                return True
+        if any(identity.script == spec["script"] for identity in _entry_identities(str(spec["event"]), entry)):
+            return True
     return False
 
 
@@ -294,8 +322,6 @@ def _remove_legacy_hook_entries(data: dict[str, Any]) -> bool:
         return False
 
     changed = False
-    legacy_keys = ("post-guard-check", "session-tagger", "cognitive-reminder")
-
     for event in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
         entries = hooks.get(event)
         if not isinstance(entries, list):
@@ -303,7 +329,7 @@ def _remove_legacy_hook_entries(data: dict[str, Any]) -> bool:
 
         filtered = [
             entry for entry in entries
-            if not any(_entry_contains(entry, key) for key in legacy_keys)
+            if not _entry_has_script(str(event), entry, LEGACY_SCRIPT_NAMES)
         ]
         if len(filtered) == len(entries):
             continue
@@ -325,7 +351,7 @@ def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict
     entries = hooks.get(event)
     if not isinstance(entries, list):
         return
-    filtered = [e for e in entries if not _entry_contains(e, script_name)]
+    filtered = [e for e in entries if not _entry_has_script(event, e, frozenset({script_name}))]
     if len(filtered) != len(entries):
         if filtered:
             hooks[event] = filtered
@@ -356,16 +382,12 @@ def upsert_hook(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        identities = _entry_identities(event, entry)
         if matcher:
             if entry.get("matcher") != matcher:
                 continue
-        else:
-            hook_entries = entry.get("hooks", [])
-            if not any(
-                isinstance(h, dict) and script_name in str(h.get("command", ""))
-                for h in hook_entries
-            ):
-                continue
+        elif not any(identity.script == script_name for identity in identities):
+            continue
 
         hook_entries = entry.get("hooks")
         if not isinstance(hook_entries, list):
@@ -377,8 +399,11 @@ def upsert_hook(
         for hook in hook_entries:
             if not isinstance(hook, dict):
                 continue
+            matcher_value = entry.get("matcher")
+            entry_matcher = matcher_value if isinstance(matcher_value, str) and matcher_value else None
+            identity = _hook_identity(event, entry_matcher, hook)
             cmd = hook.get("command", "")
-            if script_name not in str(cmd):
+            if identity.script != script_name:
                 continue
             found = True
             if hook.get("type") != "command":
@@ -496,45 +521,21 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
 
     hooks = data.get("hooks")
     if isinstance(hooks, dict):
-        if "PreToolUse" in hooks and isinstance(hooks["PreToolUse"], list):
-            original = hooks["PreToolUse"]
-            filtered = [
-                h for h in original
-                if not any(
-                    _entry_contains(h, key)
-                    for key in all_managed_script_names(MANIFEST)
-                )
-            ]
-            if len(filtered) != len(original):
-                if filtered:
-                    hooks["PreToolUse"] = filtered
-                else:
-                    hooks.pop("PreToolUse", None)
-                changed = True
-
-        if "PostToolUse" in hooks and isinstance(hooks["PostToolUse"], list):
-            original = hooks["PostToolUse"]
-            filtered = [
-                h for h in original
-                if not any(
-                    _entry_contains(h, key)
-                    for key in all_managed_script_names(MANIFEST) | {"post-guard-check.sh"}
-                )
-            ]
-            if len(filtered) != len(original):
-                if filtered:
-                    hooks["PostToolUse"] = filtered
-                else:
-                    hooks.pop("PostToolUse", None)
-                changed = True
-
-        for event in ("Stop", "SessionStart", "PreCompact", "UserPromptSubmit"):
+        event_scripts: dict[str, frozenset[str]] = {
+            "PreToolUse": frozenset(MANAGED_SCRIPT_NAMES),
+            "PostToolUse": frozenset(MANAGED_SCRIPT_NAMES | {"post-guard-check.sh"}),
+            "Stop": frozenset(MANAGED_SCRIPT_NAMES),
+            "SessionStart": frozenset(MANAGED_SCRIPT_NAMES),
+            "PreCompact": frozenset(MANAGED_SCRIPT_NAMES),
+            "UserPromptSubmit": frozenset(MANAGED_SCRIPT_NAMES),
+        }
+        for event, scripts in event_scripts.items():
             if event not in hooks or not isinstance(hooks[event], list):
                 continue
             original = hooks[event]
             filtered = [
                 h for h in original
-                if not any(_entry_contains(h, key) for key in all_managed_script_names(MANIFEST))
+                if not _entry_has_script(event, h, scripts)
             ]
             if len(filtered) != len(original):
                 if filtered:
