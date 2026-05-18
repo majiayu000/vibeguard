@@ -5,7 +5,7 @@
     {
       "id": "rules-common",
       "kind": "rules",
-      "description": "Common rules (U-01 to U-32, W-01 to W-20, SEC-01 to SEC-14)",
+      "description": "Common rules (U-series, W-series, SEC-series)",
       "paths": [
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",

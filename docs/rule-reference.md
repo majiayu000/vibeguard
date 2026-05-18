@@ -99,6 +99,7 @@ Canonical source of truth: `rules/claude-rules/`
 | SEC-12 | Silent drift in MCP tool descriptions | Strict | The description field of an MCP tool is effectively an instruction fed to the LLM. |
 | SEC-13 | High-context file integrity protection | Strict | `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude//*.md`, hook configurations and hook scripts (`.claude/hooks/`, the `hooks`... |
 | SEC-14 | MCP tool descriptions must reject authority-claim and override language | Strict | A tool description that claims "absolute authority", "supersedes user requests", or asks the agent to "ignore prior instructions" is func... |
+| SEC-17 | Third-party agent skills require source review and local rebuild before enable | Strict | Third-party agent skills are persistent instruction and execution surfaces. |
 
 ---
 
