@@ -329,6 +329,21 @@ pub fn hook_env(thread_id: Option<&str>, thread: Option<&ThreadState>) -> HashMa
     let mut env = HashMap::from([
         ("VIBEGUARD_CLI".into(), "codex".into()),
         ("VIBEGUARD_AGENT_TYPE".into(), "codex".into()),
+        ("VIBEGUARD_CLIENT".into(), "codex".into()),
+        ("VIBEGUARD_CLIENT_VARIANT".into(), "codex-app-server".into()),
+        (
+            "VIBEGUARD_WRAPPER".into(),
+            "codex-app-server-wrapper".into(),
+        ),
+        ("VIBEGUARD_SOURCE_CONFIG".into(), "codex app-server".into()),
+        (
+            "VIBEGUARD_HOOK_PROTOCOL_VERSION".into(),
+            "codex-app-server-jsonrpc-v1".into(),
+        ),
+        (
+            "VIBEGUARD_CALLER_EVIDENCE".into(),
+            "codex-app-server-wrapper".into(),
+        ),
     ]);
     if let Some(thread) = thread {
         if let Some(session_id) = &thread.session_id {
@@ -567,6 +582,38 @@ mod tests {
         assert_eq!(value["file_change_guard"], true);
         assert_eq!(value["post_turn_feedback"], true);
         assert_eq!(value["analysis_paralysis_guard"], true);
+    }
+
+    #[test]
+    fn hook_env_records_codex_app_server_caller_identity() {
+        let env = hook_env(None, None);
+
+        assert_eq!(env.get("VIBEGUARD_CLI").map(String::as_str), Some("codex"));
+        assert_eq!(
+            env.get("VIBEGUARD_AGENT_TYPE").map(String::as_str),
+            Some("codex")
+        );
+        assert_eq!(
+            env.get("VIBEGUARD_CLIENT").map(String::as_str),
+            Some("codex")
+        );
+        assert_eq!(
+            env.get("VIBEGUARD_CLIENT_VARIANT").map(String::as_str),
+            Some("codex-app-server")
+        );
+        assert_eq!(
+            env.get("VIBEGUARD_WRAPPER").map(String::as_str),
+            Some("codex-app-server-wrapper")
+        );
+        assert_eq!(
+            env.get("VIBEGUARD_HOOK_PROTOCOL_VERSION")
+                .map(String::as_str),
+            Some("codex-app-server-jsonrpc-v1")
+        );
+        assert_eq!(
+            env.get("VIBEGUARD_CALLER_EVIDENCE").map(String::as_str),
+            Some("codex-app-server-wrapper")
+        );
     }
 
     #[test]

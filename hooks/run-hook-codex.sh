@@ -3,9 +3,6 @@
 
 set -euo pipefail
 
-export VIBEGUARD_AGENT_TYPE="codex"
-export VIBEGUARD_CLI="codex"
-
 WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
@@ -35,11 +32,13 @@ else
   codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
   codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD install incomplete."}}\n'; }
   codex_permission_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"VIBEGUARD install incomplete."}}}\n'; }
+  codex_set_caller_identity() { export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}" VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}" VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-missing-codex-diag-helper}"; }
   codex_diag() { return 0; }
 fi
 
 INPUT=$(cat)
 EVENT_NAME=$(codex_raw_event_name "$INPUT")
+codex_set_caller_identity "${EVENT_NAME}"
 
 if [[ "${HOOK_NAME}" != vibeguard-* ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "non-namespaced-hook" "${HOOK_NAME}"

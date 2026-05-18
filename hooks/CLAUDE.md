@@ -48,6 +48,12 @@ run-hook.sh (wrapper) run-hook-codex.sh (wrapper + format adaptation)
 Hooks are logged to events.jsonl using the following decision types:
 `pass` / `warn` / `block` / `gate` / `escalate` / `correction` / `complete`
 
+Each event keeps the backward-compatible `cli` / `agent` fields and may include
+caller identity fields: `client`, `client_variant`, `wrapper`,
+`source_config`, `hook_protocol_version`, and `caller_evidence`. Unknown or
+manual callers must be recorded as `client: "unknown"` instead of being
+silently attributed to Claude or Codex.
+
 ## Development specifications
 
 - All hooks must introduce shared functions in `source log.sh`

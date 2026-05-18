@@ -22,6 +22,70 @@ rm -rf "$_timer_log"
 assert_contains "$_timer_result" '"duration_ms":' "vg_start_timer: duration_ms field written to events.jsonl"
 assert_contains "$_timer_result" '"schema_version": 1' "vg_log: events.jsonl includes schema_version"
 
+header "log.sh — caller identity fields"
+
+_manual_log=$(mktemp -d)
+_manual_result=$(
+  export VIBEGUARD_LOG_DIR="$_manual_log"
+  export VIBEGUARD_SESSION_ID="manual-session"
+  unset VIBEGUARD_CLI VIBEGUARD_CLIENT VIBEGUARD_CLIENT_VARIANT VIBEGUARD_CALLER_EVIDENCE
+  source hooks/log.sh
+  vg_log "manual-hook" "Tool" "pass" "" ""
+  cat "$VIBEGUARD_LOG_FILE"
+)
+rm -rf "$_manual_log"
+assert_contains "$_manual_result" '"cli": "unknown"' "manual caller: legacy cli field is unknown"
+assert_contains "$_manual_result" '"client": "unknown"' "manual caller: client field is unknown"
+assert_contains "$_manual_result" '"client_variant": "unknown"' "manual caller: client_variant field is unknown"
+assert_contains "$_manual_result" '"caller_evidence": "no-client-evidence"' "manual caller: evidence explains unknown attribution"
+
+_conflict_log=$(mktemp -d)
+_conflict_result=$(
+  export VIBEGUARD_LOG_DIR="$_conflict_log"
+  export VIBEGUARD_SESSION_ID="conflict-session"
+  export VIBEGUARD_CLI="codex"
+  export VIBEGUARD_CLIENT="claude"
+  export VIBEGUARD_CLIENT_VARIANT="claude-code-hooks"
+  export VIBEGUARD_CALLER_EVIDENCE="explicit-test"
+  source hooks/log.sh
+  vg_log "conflict-hook" "Tool" "pass" "" ""
+  cat "$VIBEGUARD_LOG_FILE"
+)
+rm -rf "$_conflict_log"
+assert_contains "$_conflict_result" '"cli": "codex"' "conflicting signals: legacy cli is preserved"
+assert_contains "$_conflict_result" '"client": "claude"' "conflicting signals: explicit client is preserved"
+assert_contains "$_conflict_result" '"caller_evidence": "explicit-test"' "conflicting signals: evidence is preserved"
+
+_claude_home=$(mktemp -d)
+_claude_log=$(mktemp -d)
+mkdir -p "$_claude_home/.vibeguard"
+printf '%s' "$PWD" > "$_claude_home/.vibeguard/repo-path"
+printf '%s\n' '{"tool_input":{"command":"echo hello"}}' \
+  | HOME="$_claude_home" VIBEGUARD_LOG_DIR="$_claude_log" VIBEGUARD_CLI="claude" bash hooks/run-hook.sh pre-bash-guard.sh >/dev/null 2>&1 || true
+_claude_result=$(cat "$_claude_log/events.jsonl" 2>/dev/null || true)
+assert_contains "$_claude_result" '"client": "claude"' "Claude wrapper: client is inferred from caller CLI"
+assert_contains "$_claude_result" '"client_variant": "claude-code-hooks"' "Claude wrapper: client_variant is recorded"
+assert_contains "$_claude_result" '"wrapper": "run-hook.sh"' "Claude wrapper: wrapper is recorded"
+assert_contains "$_claude_result" "\"source_config\": \"$_claude_home/.claude/settings.json\"" "Claude wrapper: source_config is recorded"
+assert_contains "$_claude_result" '"hook_protocol_version": "claude-code-hooks-v1"' "Claude wrapper: hook protocol is recorded"
+rm -rf "$_claude_home" "$_claude_log"
+
+_codex_home=$(mktemp -d)
+_codex_log=$(mktemp -d)
+mkdir -p "$_codex_home/.vibeguard"
+printf '%s' "$PWD" > "$_codex_home/.vibeguard/repo-path"
+printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
+  | HOME="$_codex_home" VIBEGUARD_LOG_DIR="$_codex_log" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
+_codex_result=$(cat "$_codex_log/events.jsonl" 2>/dev/null || true)
+assert_contains "$_codex_result" '"cli": "codex"' "Codex wrapper: legacy cli remains compatible"
+assert_contains "$_codex_result" '"client": "codex"' "Codex wrapper: client is recorded from hook payload"
+assert_contains "$_codex_result" '"client_variant": "codex-cli-hooks"' "Codex wrapper: client_variant is recorded"
+assert_contains "$_codex_result" '"wrapper": "run-hook-codex.sh"' "Codex wrapper: wrapper is recorded"
+assert_contains "$_codex_result" "\"source_config\": \"$_codex_home/.codex/hooks.json\"" "Codex wrapper: source_config is recorded"
+assert_contains "$_codex_result" '"hook_protocol_version": "codex-hooks-v1"' "Codex wrapper: hook protocol is recorded"
+assert_contains "$_codex_result" '"caller_evidence": "codex-hook-payload"' "Codex wrapper: evidence records payload-based attribution"
+rm -rf "$_codex_home" "$_codex_log"
+
 # Extract duration_ms value and verify it's a positive integer >= 1
 _dur=$(echo "$_timer_result" | python3 -c "import sys,json; e=json.loads(sys.stdin.read()); print(e.get('duration_ms','missing'))" 2>/dev/null || echo "missing")
 TOTAL=$((TOTAL + 1))
