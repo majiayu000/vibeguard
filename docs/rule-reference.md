@@ -54,7 +54,7 @@ Canonical source of truth: `rules/claude-rules/`
 | U-30 | Cross-boundary Pydantic models must use `extra="allow"` | Strict | Any Pydantic model that receives external or cross-boundary data must set `extra="allow"` so `model_validate()` does not silently drop un... |
 | U-31 | Cache keys must include code version | Strict | When builder or generation logic changes, old cache entries must invalidate automatically. |
 | U-32 | Rule overload threshold + absolute-language detection | Strict | Keep the effective constraint set for a single agent task at 15 or fewer items. |
-| U-33 | Code search defaults to glob/grep; vector DB requires written justification | Strict | For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. |
+| U-33 | Code search defaults to glob/grep; large codebases require structural navigation | Strict | For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. |
 
 ---
 

@@ -135,29 +135,35 @@ Keep the effective constraint set for a single agent task at 15 or fewer items. 
 - Low-frequency specialized workflows stay in persistent context instead of moving to a skill, hook, or verify script.
 - A second summary repeats the canonical rule text and drifts away from the real source.
 
-## U-33: Code search defaults to glob/grep; vector DB requires written justification (strict)
+## U-33: Code search defaults to glob/grep; large codebases require structural navigation (strict)
 
-For agent code retrieval, plain glob/grep driven by the model has empirically beaten vector indexes in production. Adopting a vector DB or RAG layer for code search requires a written justification of why filesystem traversal is insufficient.
+For agent code retrieval, plain glob/grep driven by the model remains the default for small and medium single-repository work. When the codebase is at least 400K lines of code or the task spans repositories, lexical search alone must be augmented with structural navigation before escalating to vector DB or RAG.
 
-**Sources** (multi-source convergence, 2026-04-28 RSS scout):
+**Sources** (multi-source convergence, updated 2026-05-18):
 - Boris Cherny (Anthropic Claude Code lead), Pragmatic Engineer interview, 2026-03-04: "plain glob and grep, driven by the model, beat everything." Anthropic explicitly rejected local vector DB and recursive model-based indexing in production due to stale-index and permission-complexity problems.
 - Sebastian Raschka, "Components of a Coding Agent" (2026-04-04): file tools listed as the canonical retrieval primitive in the 6-component agent framework; states "much of apparent model quality is really context quality."
 - LangChain, "How agents can use filesystems for context engineering" (2026-04-27): cites Claude Code, Manus, and Deep Agents as production examples of filesystem-as-context.
 - zilliztech/claude-context (TypeScript, 9884 stars, last updated 2026-04-28, verified via `gh api repos/zilliztech/claude-context`): production MCP that exposes the codebase via filesystem-style traversal rather than as an embedding index.
+- Sourcegraph, "Why coding agents fail in large codebases (and what to do about it)" (2026-05-08): CodeScaleBench found agents with only local tools begin to struggle systematically above roughly 400K LOC; code intelligence tools had a +0.259 reward delta in the 400K-2M LOC band, with structural navigation called out as the fix for wrong-symbol and lost-in-codebase failures.
 
 **Mechanical checks (agent execution rules)**:
-- When designing a code-retrieval feature for an agent, the default tool set must be `ls`, `glob`, `grep`, `rg`, `find`, plus repository-aware variants (`git grep`, `gh search code`).
+- When designing a code-retrieval feature for an agent, the default tool set for small and medium single-repository work must be `ls`, `glob`, `grep`, `rg`, `find`, plus repository-aware variants (`git grep`, `gh search code`).
+- At session start, estimate effective project size with existing project inventory, `tokei`, `cloc`, or an equivalent method when the task may exceed one package or repository; generated, vendored, and dependency code may be excluded if the exclusion is documented.
+- If the effective codebase is at least 400K LOC, add structural navigation to the retrieval plan: go-to-definition, find-references, type hierarchy, symbol search, code graph, or MCP-exposed code-intelligence tools.
+- Multi-repository tasks must include cross-repository reference lookup, or explicitly report that cross-repo code intelligence is unavailable.
 - If the agent or the user proposes adding a vector DB, embedding index, or RAG layer to a coding agent, require a one-paragraph justification covering: (1) the specific retrieval task glob/grep cannot solve; (2) the staleness/permission strategy for the index; (3) cost and latency vs grep on the same workload.
+- Reject "grep failed, so we need vector DB" arguments unless structural navigation was tried first or was explicitly unavailable.
 - Cross-language semantic search (e.g. "find the function that loads YAML config across Go and Python files") may justify a vector DB; same-repo lexical or symbol search does not.
+- More than 50 keyword or grep-style searches on one task is retrieval thrashing; stop, reassess the search strategy, and switch to structural navigation or report the missing code-intelligence capability before continuing.
 
 **Downgrade path** (U-32 compliance):
-If the project already ships a vector DB and removing it is out of scope, mark the existing component as `legacy: vector-db` in the README or architecture doc and require the justification at the next significant change to retrieval logic. Do not block existing systems — the rule applies forward.
+If the project already ships a vector DB and removing it is out of scope, mark the existing component as `legacy: vector-db` in the README or architecture doc and require the justification at the next significant change to retrieval logic. If a large or multi-repo codebase has no LSP, code graph, or code-intelligence tool available, report degraded retrieval instead of treating grep-only exploration as satisfying this rule. Small single-package fixes do not require a full LOC census.
 
 **Relation to U-19** (Repository pattern):
 U-19 covers business data access via a Repository abstraction. U-33 explicitly carves out agent code retrieval as a domain where wrapping a vector DB in a Repository layer is an anti-pattern, not best practice — the Unix toolset is the abstraction.
 
 **Anti-patterns**:
-- "We need semantic search for the codebase" — almost always means grep plus disciplined naming was never tried.
+- "We need semantic search for the codebase" — almost always means grep plus disciplined naming, and then structural navigation at large scale, were never tried.
 - Building an embedding index because "it feels faster" without measuring grep cost on the actual codebase.
 - Re-indexing on every commit to fight staleness; grep has no staleness because it reads the live tree.
 - Treating "RAG" as the default architecture for any retrieval problem, including code.
