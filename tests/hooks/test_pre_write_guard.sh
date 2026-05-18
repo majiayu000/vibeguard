@@ -5,6 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/hook_test_lib.sh"
 hook_test_init
 
+header "pre-write-guard.sh — missing runtime fails closed"
+
+runtime_missing_dir=$(mktemp -d)
+mkdir -p "$runtime_missing_dir/home"
+cp -R hooks "$runtime_missing_dir/hooks"
+set +e
+runtime_missing_stdout=$(printf '%s' '{"tool_input":{"file_path":"/project/conftest.py","content":"# bypass"}}' \
+  | HOME="$runtime_missing_dir/home" bash "$runtime_missing_dir/hooks/pre-write-guard.sh" 2>"$runtime_missing_dir/stderr")
+runtime_missing_rc=$?
+set -e
+runtime_missing_stderr="$(cat "$runtime_missing_dir/stderr")"
+assert_contains "rc=$runtime_missing_rc" "rc=2" "missing runtime exits nonzero instead of silently passing"
+assert_contains "$runtime_missing_stderr" "vibeguard-runtime not found" "missing runtime reports explicit install/build error"
+assert_not_contains "$runtime_missing_stdout" '"decision": "pass"' "missing runtime does not emit a pass decision"
+rm -rf "$runtime_missing_dir"
+unset runtime_missing_dir runtime_missing_stdout runtime_missing_rc runtime_missing_stderr
+
 header "pre-write-guard.sh — search first and then write"
 # =========================================================
 
