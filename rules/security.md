@@ -24,6 +24,7 @@ Security review checklist and remediation guidance derived from OWASP-style fail
 | SEC-14 | MCP tool descriptions must reject authority-claim and override language | Strict | A tool description that claims "absolute authority", "supersedes user requests", or asks the agent to "ignore prior instructions" is func... |
 | SEC-16 | CWE-stratified AI patch safety policy | Strict | AI-generated security patches do not have a uniform safety profile. |
 | SEC-17 | Third-party agent skills require source review and local rebuild before enable | Strict | Third-party agent skills are persistent instruction and execution surfaces. |
+| SEC-18 | External agent input safety requires semantic scoring, not keyword filters alone | Strict | External content that reaches an agent can be malicious even when it contains no obvious override keywords. |
 
 ## Key management expectations
 

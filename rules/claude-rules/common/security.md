@@ -270,3 +270,34 @@ Third-party agent skills are persistent instruction and execution surfaces. A ho
 - Reviewing only `SKILL.md` while ignoring referenced scripts or hidden support files.
 - Treating a one-time install approval as a permanent allow-list across future upstream updates.
 - Allowing a skill to register hooks or rewrite tool output without showing the hook body under SEC-13.
+
+## SEC-18: External agent input safety requires semantic scoring, not keyword filters alone (strict)
+
+External content that reaches an agent can be malicious even when it contains no obvious override keywords. Domain-aligned instructions, retrieved documents, tool output, emails, chat messages, or web pages may look like normal task context while still steering the agent toward unsafe actions.
+
+**Sources** (candidate-rule promotion, 2026-05):
+- Rex Coleman, "Privilege Escalation Cascades at 98% While Domain-Aligned Attacks Are Invisible": Claude Haiku multi-agent experiments found domain-aligned attacks at 0% detection, privilege-escalation cascades near 98%, roughly 17.5 percentage-point poison reduction per delegation hop, and a reviewer-role bottleneck improvement around 40 percentage points.
+- SEC-14 baseline - keyword and authority-claim checks catch first-install poisoned descriptions but do not cover semantic alignment attacks that avoid forbidden phrases.
+- W-10 baseline - high-risk action confirmation must account for the trustworthiness of the external content that initiated the action.
+
+**Rules**:
+1. Keyword filters such as SEC-14 forbidden-phrase matching are first-pass checks only. They are necessary but not sufficient for external content ingestion.
+2. Before external content influences a high-stakes action, score it against a semantic vulnerability model that includes keyword detectability, role framing, domain plausibility, authority claims, and task semantic distance.
+3. Treat domain-plausible content with actionable instructions as higher risk, even when it is keyword-clean. The dangerous case is content that looks close to the declared task.
+4. Prompt-only safety is not an acceptable last line of defense for external content that can trigger publishing, permission changes, data exfiltration, secret handling, payments, infrastructure mutation, or code execution.
+
+**Mechanical checks (agent execution rules)**:
+- For web fetches, email, Slack/Teams messages, RAG retrieval, MCP/tool output, issue bodies, comments, and dependency-provided high-context files, run both lexical checks and semantic/task-distance review before passing instructions into the agent loop for high-stakes actions.
+- If semantic scoring is automated, record the scoring method, threshold, model/version, and calibration set or fixture pack. Uncalibrated embedding similarity may inform review but must not silently auto-approve.
+- If semantic scoring is manual, the reviewer must state why the content is in-scope for the declared task and whether it contains actionable instructions that were not requested by the user.
+- Place reviewer-role agents at delegation bottlenecks when adversarial external input is plausible; analyst-style "include everything" roles are not enough.
+- Report `SEC-18` when an agent executes high-stakes instructions sourced from external content after only keyword filtering, or when domain-plausible actionable content bypasses review because it lacks forbidden phrases.
+
+**Downgrade path**:
+For agents that only consume user-typed prompts and no external content, SEC-18 is vacuous. For external content from a fully trusted source, such as signed manifests or an internal database with strict authorization and provenance, the semantic scoring requirement may be downgraded to monitor-and-alert. The downgrade must be recorded in `SECURITY.md` or an equivalent ADR and name the trusted source boundary.
+
+**Anti-patterns**:
+- Declaring input safe because it does not contain "ignore previous instructions" or other SEC-14 phrases.
+- Passing retrieved documents directly into a planner and letting them add new actions to the plan.
+- Treating domain plausibility as safety rather than as the hardest attack class.
+- Using an embedding score without a threshold, calibration set, or review artifact and calling it a gate.
