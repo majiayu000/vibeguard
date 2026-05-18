@@ -15,10 +15,14 @@ STATUS_LIB="${REPO_DIR}/scripts/lib/status_report.sh"
 CHECK_SCRIPT="${REPO_DIR}/scripts/setup/check.sh"
 SETUP_SCRIPT="${REPO_DIR}/setup.sh"
 AWK_PORTABILITY_FIXTURE=""
+STALE_HOOK_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
     rm -f "${AWK_PORTABILITY_FIXTURE}"
+  fi
+  if [[ -n "${STALE_HOOK_HOME}" ]]; then
+    rm -rf "${STALE_HOOK_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -285,6 +289,68 @@ else
 fi
 assert_json_path "$json_full_out" 'd["schema_version"]' "1" "json end-to-end: schema_version=1"
 assert_json_path "$json_full_out" 'd["verdict"] in ("healthy","degraded","broken")' "True" "json end-to-end: verdict in expected set"
+
+# --- Stale hook registry detection ---
+header "stale hook registry detection"
+STALE_HOOK_HOME="$(mktemp -d)"
+mkdir -p "${STALE_HOOK_HOME}/.claude" "${STALE_HOOK_HOME}/.codex" "${STALE_HOOK_HOME}/.vibeguard/installed/hooks"
+cp "${REPO_DIR}/hooks/run-hook.sh" "${STALE_HOOK_HOME}/.vibeguard/run-hook.sh"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${STALE_HOOK_HOME}/.vibeguard/run-hook-codex.sh"
+cp -R "${REPO_DIR}/hooks/." "${STALE_HOOK_HOME}/.vibeguard/installed/hooks/"
+cat > "${STALE_HOOK_HOME}/.claude/settings.json" <<JSON
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${STALE_HOOK_HOME}/.vibeguard/installed/hooks/session-tagger.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+cat > "${STALE_HOOK_HOME}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${STALE_HOOK_HOME}/.vibeguard/installed/hooks/session-tagger.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+
+stale_check_out="$(HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --strict 2>&1)"
+stale_check_rc=$?
+assert_eq "$stale_check_rc" "2" "stale hook check: strict mode exits broken"
+assert_contains "$stale_check_out" "stale Claude hook command" "stale hook check: reports Claude stale command"
+assert_contains "$stale_check_out" "config=~/.claude/settings.json event=Stop matcher=<none>" "stale hook check: names Claude config/event/matcher"
+assert_contains "$stale_check_out" "command_path=${STALE_HOOK_HOME}/.vibeguard/installed/hooks/session-tagger.sh" "stale hook check: names missing installed hook path"
+assert_contains "$stale_check_out" "stale Codex hook command" "stale hook check: reports Codex stale command"
+assert_contains "$stale_check_out" "config=~/.codex/hooks.json event=Stop matcher=<none>" "stale hook check: names Codex config/event/matcher"
+assert_contains "$stale_check_out" "repair=bash setup.sh --yes" "stale hook check: names repair action"
+
+HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" upsert-vibeguard \
+  --settings-file "${STALE_HOOK_HOME}/.claude/settings.json" \
+  --repo-dir "${REPO_DIR}" \
+  --profile core >/dev/null
+HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" upsert-vibeguard \
+  --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json" \
+  --wrapper "${STALE_HOOK_HOME}/.vibeguard/run-hook-codex.sh" >/dev/null
+assert_cmd "stale hook repair: Claude installed hook path removed" bash -c "! grep -q '.vibeguard/installed/hooks/session-tagger.sh' '${STALE_HOOK_HOME}/.claude/settings.json'"
+assert_cmd "stale hook repair: Codex installed hook path removed" bash -c "! grep -q '.vibeguard/installed/hooks/session-tagger.sh' '${STALE_HOOK_HOME}/.codex/hooks.json'"
+assert_cmd "stale hook repair: Claude stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" check-stale-hooks --settings-file "${STALE_HOOK_HOME}/.claude/settings.json"
+assert_cmd "stale hook repair: Codex stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json"
 
 # --- Backwards-compat exit code contract ---
 header "exit code contract"

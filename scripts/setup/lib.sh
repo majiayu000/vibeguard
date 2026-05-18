@@ -25,6 +25,12 @@ settings_check() {
   python3 "${SETTINGS_HELPER}" check --settings-file "${settings_file}" --target "${target}" >/dev/null 2>&1
 }
 
+settings_stale_hooks_report() {
+  local settings_file="$1"
+  [[ -f "${settings_file}" ]] || return 0
+  python3 "${SETTINGS_HELPER}" check-stale-hooks --settings-file "${settings_file}"
+}
+
 settings_upsert() {
   local settings_file="$1" profile="$2"
   local args=(upsert-vibeguard --settings-file "${settings_file}" --repo-dir "${REPO_DIR}" --profile "${profile}")

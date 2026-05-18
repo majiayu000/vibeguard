@@ -357,6 +357,15 @@ check_claude_home_installation() {
   else
     yellow "[INFO] Full profile hooks not configured (current install may be core profile)"
   fi
+
+  local stale_hooks_report
+  if stale_hooks_report="$(settings_stale_hooks_report "${SETTINGS_FILE}" 2>&1)"; then
+    :
+  else
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "[BROKEN] ${line}"
+    done <<< "${stale_hooks_report}"
+  fi
 }
 
 clean_claude_home_installation() {
