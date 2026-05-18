@@ -197,12 +197,9 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     });
 
     let _ = t_in.join();
-    // Client EOF may be the shutdown signal. Give the child one short drain
-    // window for responses triggered by the final input, then propagate EOF.
-    if stdout_done_rx
-        .recv_timeout(Duration::from_millis(250))
-        .is_err()
-    {
+    // Client EOF may be the shutdown signal. Give the child a drain window for
+    // responses triggered by the final input, then propagate EOF.
+    if stdout_done_rx.recv_timeout(Duration::from_secs(2)).is_err() {
         close_child_stdin(&child_stdin);
     }
     let _ = t_out.join();

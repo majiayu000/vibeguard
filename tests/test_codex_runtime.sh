@@ -706,6 +706,9 @@ cat > "${TMP_DIR}/child-rewrite.sh" <<'CHILD'
 #!/usr/bin/env bash
 IFS= read -r _thread_start
 IFS= read -r _turn_start
+# Exercise the wrapper's EOF drain path: CI can be slow enough that a final
+# approval request arrives after the parent stdin has already closed.
+sleep 0.4
 printf '{"id":"req-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/alpha","command":"npm install"}}\n'
 IFS= read -r response
 printf '%s\n' "$response"
