@@ -206,6 +206,10 @@ jobs:
         shell: bash
         run: bash tests/test_live_truth.sh
 
+      - name: Skill validation regression tests
+        shell: bash
+        run: bash tests/test_skill_validate.sh
+
       - name: Guard unit tests
         shell: bash
         run: bash tests/unit/run_all.sh

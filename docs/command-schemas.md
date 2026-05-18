@@ -168,6 +168,36 @@ Delegation assignments are required before any child-agent write lane starts. Pa
 
 The text artifact emitted by `scripts/live_truth.py` uses these same sections so final answers and PR comments do not mix facts with assumptions.
 
+## skill_validate output Schema
+
+```json
+{
+  "command": "skill_validate",
+  "skill_name": "demo-skill",
+  "proposed_skill": "path/to/SKILL.md",
+  "decision_set": "baseline | held_out",
+  "verdict": "pass | fail | stale | needs_justification | advisory",
+  "counts": {
+    "repair": 1,
+    "regression": 0,
+    "no_change": 2,
+    "unrelated_regression": 0
+  },
+  "freshness_gaps": [],
+  "scenarios": [
+    {
+      "scenario_id": "incident-1",
+      "scenario_type": "target",
+      "without_skill": "failure",
+      "with_skill": "success",
+      "classification": "repair"
+    }
+  ]
+}
+```
+
+`scripts/skill_validate.py` appends this artifact as JSONL under `.vibeguard/skill-validate/` unless `--no-persist` is used.
+
 ## review output Schema
 
 ```json
