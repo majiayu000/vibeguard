@@ -163,6 +163,10 @@ jobs:
         shell: bash
         run: bash tests/test_rust_guards.sh
 
+      - name: Authorized discard regression tests
+        shell: bash
+        run: bash tests/test_authorized_discard.sh
+
       - name: Setup regression tests
         shell: bash
         run: bash tests/test_setup.sh

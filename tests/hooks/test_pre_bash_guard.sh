@@ -23,6 +23,7 @@ assert_not_contains "$result" '"decision": "block"' "Release git reset --hard (p
 # git checkout . should be intercepted
 result=$(echo '{"tool_input":{"command":"git checkout ."}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Intercept git checkout ."
+assert_contains "$result" "authorized-discard.py" "git checkout . block points to authorized discard workflow"
 
 # git checkout "." (quoted dot) should be intercepted
 result=$(echo '{"tool_input":{"command":"git checkout \".\"" }}' | bash hooks/pre-bash-guard.sh)
@@ -80,6 +81,7 @@ assert_not_contains "$result" '"decision": "warn"' "non-standard markdown adviso
 # git clean -f should be intercepted
 result=$(echo '{"tool_input":{"command":"git clean -fd"}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "intercept git clean -f"
+assert_contains "$result" "authorized-discard.py" "git clean -f block points to authorized discard workflow"
 
 # rm -rf / should be intercepted
 result=$(echo '{"tool_input":{"command":"rm -rf /"}}' | bash hooks/pre-bash-guard.sh)

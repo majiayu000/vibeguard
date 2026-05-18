@@ -13,6 +13,7 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 - Duplicate files and reinvented modules
 - Invented APIs, fake libraries, and hardcoded placeholder values
 - Dangerous shell/git commands (`rm -rf`, `push --force`, `reset --hard`)
+- Audited cleanup for intentional local discards, with exact path plans and confirmation gates
 - Analysis paralysis and unverified "I'm done" claims
 - Silent exception swallowing and `Any`-type abuse
 - AI-slop patterns flagged on every commit
@@ -72,6 +73,9 @@ AI:   → tries to create auth_service.py
 
       → runs `git push --force`
       ✗ VibeGuard denies — suggests `--force-with-lease`
+
+      → runs `git clean -fd`
+      ✗ VibeGuard denies — points to an authorized discard workflow with an exact deletion plan
 
       → keeps reading files without acting
       ⚠ VibeGuard escalates — force a concrete next step or report blocker

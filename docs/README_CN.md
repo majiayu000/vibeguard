@@ -93,7 +93,7 @@ VibeGuard 现在明确分成两层：
 |------|------|------|
 | AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | 默认 **告警**，提醒先搜索现有实现；设置 `VIBEGUARD_WRITE_MODE=block` 或 `write_mode=block` 后硬拦截 |
 | AI 创建或编辑超过 800 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard` | **拦截**，必须先拆分文件 |
-| AI 执行 `git push --force`、`rm -rf`、`reset --hard` | `pre-bash-guard` | **拦截**，给出安全替代命令 |
+| AI 执行 `git push --force`、`rm -rf`、`git clean -fd`、批量 `git checkout/restore .` | `pre-bash-guard` | **拦截**，给出安全替代命令；如确实要清理本地改动，先运行 `python3 ~/vibeguard/scripts/authorized-discard.py --plan` 查看逐路径计划，再用确认短语执行 |
 | AI 编辑一个不存在的文件 | `pre-edit-guard` | **拦截**，要求先读取文件确认 |
 | AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
 | AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |

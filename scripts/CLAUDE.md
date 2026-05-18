@@ -12,6 +12,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `project-init.sh` | Bootstrap another repository with detected languages, recommended constraints, and git hook wiring |
 | `constraint-recommender.py` | Generate an initial preflight constraint draft from project structure |
 | `log-capability-change.sh` | Extract a capability-change timeline from git history |
+| `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
 
 ## GC / Metrics / Verification
 
@@ -54,6 +55,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 bash scripts/stats.sh
 bash scripts/hook-health.sh 24
 bash scripts/quality-grader.sh
+python3 scripts/authorized-discard.py --plan
 bash scripts/ci/validate-hooks-manifest.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh

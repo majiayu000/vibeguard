@@ -115,6 +115,11 @@ block() {
   exit 0
 }
 
+authorized_discard_hint() {
+  local root="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+  printf ' To perform an audited cleanup, run: python3 "%s/scripts/authorized-discard.py" --plan, then rerun with --confirm "discard listed changes" after reviewing the enumerated paths.' "$root"
+}
+
 # git reset --hard — Allow execution (users need to use it in scenarios such as rebase conflicts)
 
 # git checkout . / git restore . (discard all changes)
@@ -124,12 +129,12 @@ block() {
 # and shell redirections such as heredoc openers) without false-positives from separators
 # inside commit messages or string arguments.
 if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||[<>]|$)'; then
-  block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
+  block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding.$(authorized_discard_hint)"
 fi
 
 # git clean -f (delete untracked files)
 if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
-  block "Disable git clean -f (untracked files are permanently deleted and cannot be recovered). Alternatives: git clean -n (dry run preview) to see what will be deleted first; git stash --include-untracked to temporarily store untracked files; manually rm to specify files."
+  block "Disable git clean -f (untracked files are permanently deleted and cannot be recovered). Alternatives: git clean -n (dry run preview) to see what will be deleted first; git stash --include-untracked to temporarily store untracked files; manually rm to specify files.$(authorized_discard_hint)"
 fi
 
 # rm -rf dangerous path detection (covers rm -rf, rm -fr, rm -Rf, rm --recursive --force and other variants)
