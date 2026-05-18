@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 
+_install_codex_manifest_skill() {
+  local src="$1" dst="$2" source_path="$3" skill="$4"
+  install_codex_skill_copy "${src}" "${dst}" "${source_path}"
+  green "  ${skill} copied to ~/.codex/skills/${skill}"
+}
+
 install_codex_home_assets() {
   echo "Step 6: Install Codex skills"
-  mkdir -p "${CODEX_DIR}/skills"
-  local skill_links source_path skill
-  skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
-      install_codex_skill_copy "${REPO_DIR}/${source_path}" "${CODEX_DIR}/skills/${skill}" "${source_path}"
-      green "  ${skill} copied to ~/.codex/skills/${skill}"
-    else
-      yellow "  SKIP ${skill} (source not found: ${source_path})"
-    fi
-  done <<< "${skill_links}"
+  install_manifest_skills "~/.codex/skills/" "${CODEX_DIR}/skills" _install_codex_manifest_skill || return 1
   echo
 
   echo "Step 6.5: Install Codex hooks"
@@ -112,37 +107,8 @@ codex_native_capability_summary() {
 
 inject_codex_home_rules() {
   echo "Step 10.1: Update VibeGuard rules in ~/.codex/AGENTS.md"
-  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
   local agents_md="${CODEX_DIR}/AGENTS.md"
-  local rules_diff rule_count
-  rule_count=$(claude_rule_count_for_banner)
-  mkdir -p "${CODEX_DIR}"
-  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${agents_md}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
-    red "  Failed to compute ~/.codex/AGENTS.md diff"
-    return 1
-  fi
-  if ! confirm_high_context_write "~/.codex/AGENTS.md" "${rules_diff}"; then
-    if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
-      echo
-      return 0
-    fi
-    return 1
-  fi
-  if [[ "${rules_diff}" == "SKIP" ]]; then
-    green "  ~/.codex/AGENTS.md already up to date"
-    echo
-    return 0
-  fi
-  local result
-  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${agents_md}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
-    if [[ -f "${agents_md}" ]]; then
-      state_record_file "${agents_md}" "generated/AGENTS.md" "copy"
-    fi
-    green "  VibeGuard rules synced to ~/.codex/AGENTS.md (${result})"
-  else
-    red "  Failed to update ~/.codex/AGENTS.md"
-  fi
-  echo
+  inject_vibeguard_rules "${agents_md}" "~/.codex/AGENTS.md" "generated/AGENTS.md"
 }
 
 configure_codex_home_runtime() {

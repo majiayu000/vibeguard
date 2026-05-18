@@ -127,6 +127,70 @@ cleanup_retired_manifest_skill_links() {
   done < <(state_list_tracked_symlinks_under "${dest_dir}")
 }
 
+install_manifest_skills() {
+  local target_uri="$1" dest_dir="$2" install_fn="$3"
+  local skill_links source_path skill
+
+  mkdir -p "${dest_dir}"
+  skill_links="$(manifest_skill_links_checked "${target_uri}")" || return 1
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    if [[ -d "${REPO_DIR}/${source_path}" ]]; then
+      "${install_fn}" "${REPO_DIR}/${source_path}" "${dest_dir}/${skill}" "${source_path}" "${skill}" || return 1
+    else
+      yellow "  SKIP ${skill} (source not found: ${source_path})"
+    fi
+  done <<< "${skill_links}"
+}
+
+install_context_profiles() {
+  local target_dir="$1" display_prefix="$2"
+  mkdir -p "${target_dir}"
+  local profile name
+  for profile in "${REPO_DIR}"/context-profiles/*.md; do
+    [[ -f "${profile}" ]] || continue
+    name=$(basename "${profile}")
+    cp "${profile}" "${target_dir}/${name}"
+    state_record_file "${target_dir}/${name}" "context-profiles/${name}" "copy"
+    green "  ${name} -> ${display_prefix}/${name}"
+  done
+}
+
+inject_vibeguard_rules() {
+  local target_file="$1" display_label="$2" state_source="$3"
+  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
+  local rules_diff rule_count result
+
+  rule_count=$(claude_rule_count_for_banner)
+  mkdir -p "$(dirname "${target_file}")"
+  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+    red "  Failed to compute ${display_label} diff"
+    return 1
+  fi
+  if ! confirm_high_context_write "${display_label}" "${rules_diff}"; then
+    if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+      echo
+      return 0
+    fi
+    return 1
+  fi
+  if [[ "${rules_diff}" == "SKIP" ]]; then
+    green "  ${display_label} already up to date"
+    echo
+    return 0
+  fi
+  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+    if [[ -f "${target_file}" ]]; then
+      state_record_file "${target_file}" "${state_source}" "copy"
+    fi
+    green "  VibeGuard rules synced to ${display_label} (${result})"
+  else
+    red "  Failed to update ${display_label}"
+    return 1
+  fi
+  echo
+}
+
 confirm_high_context_write() {
   local label="$1"
   local diff_output="$2"

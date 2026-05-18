@@ -9,6 +9,8 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from file_ops import write_json_atomic
+from hook_config_model import hook_command_identity
 from hooks_manifest import all_managed_script_names, codex_specs, load_manifest
 
 
@@ -35,6 +37,10 @@ MANAGED_MARKERS = LEGACY_MARKERS | all_managed_script_names(MANIFEST)
 # unambiguous enough to identify VibeGuard entries without inspecting the
 # wrapper path, so removal works even when a non-standard wrapper is used.
 _MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
+_WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook-codex.sh"})
+_STANDALONE_LEGACY_SCRIPTS: frozenset[str] = frozenset(
+    {"session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh"}
+)
 
 
 def _display_path(path: Path, home: Path) -> str:
@@ -89,10 +95,7 @@ def load_hooks(path: Path) -> dict[str, Any]:
 
 
 def save_hooks(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_atomic(path, data)
 
 
 def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
@@ -103,21 +106,23 @@ def _ensure_hooks_root(data: dict[str, Any]) -> dict[str, Any]:
     return hooks
 
 
-def _is_vibeguard_command(command: str) -> bool:
+def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) -> Any:
+    command = hook.get("command")
     if not isinstance(command, str):
-        return False
-    # Pure-legacy hooks that were never invoked via run-hook-codex.sh.
-    if any(marker in command for marker in ("session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh")):
-        return True
-    # Namespaced vibeguard-* scripts are unambiguous regardless of wrapper path,
-    # so custom-wrapper installs are correctly detected during removal.
-    if any(script in command for script in _MANAGED_SCRIPT_NAMES):
-        return True
-    # Un-namespaced legacy markers still require the canonical wrapper name to
-    # avoid false positives against user scripts with similar short names.
-    if "run-hook-codex.sh" not in command:
-        return False
-    return any(marker in command for marker in MANAGED_MARKERS)
+        command = ""
+    timeout_value = hook.get("timeout")
+    timeout = timeout_value if isinstance(timeout_value, int) else None
+    return hook_command_identity(
+        platform="codex",
+        event=event,
+        matcher=matcher,
+        command=command,
+        timeout=timeout,
+        managed_scripts=_MANAGED_SCRIPT_NAMES,
+        legacy_scripts=MANAGED_MARKERS,
+        wrapper_names=_WRAPPER_NAMES,
+        standalone_legacy_scripts=_STANDALONE_LEGACY_SCRIPTS,
+    )
 
 
 def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
@@ -135,6 +140,8 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
             if not isinstance(entry, dict):
                 new_entries.append(entry)
                 continue
+            matcher_value = entry.get("matcher")
+            matcher = matcher_value if isinstance(matcher_value, str) and matcher_value else None
 
             hook_entries = entry.get("hooks")
             if not isinstance(hook_entries, list):
@@ -147,8 +154,7 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
                 if not isinstance(hook, dict):
                     kept_hooks.append(hook)
                     continue
-                command = str(hook.get("command", ""))
-                if _is_vibeguard_command(command):
+                if _identity_for_hook(str(event), matcher, hook).is_managed:
                     removed_any = True
                     changed = True
                     continue
@@ -318,6 +324,9 @@ def _has_entry(
             continue
         for hook in hook_entries:
             if not isinstance(hook, dict):
+                continue
+            identity = _identity_for_hook("", expected_matcher, hook)
+            if not identity.is_managed:
                 continue
             if hook.get("command") != expected_command:
                 continue
