@@ -222,9 +222,13 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-hook-perf.sh
 
+      - name: Hook performance contract regression tests
+        shell: bash
+        run: bash tests/test_hook_perf_contract.sh
+
       - name: Hook latency benchmark
         shell: bash
-        run: bash tests/bench_hook_latency.sh --sla=500 --runs=3
+        run: bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression
 
       - name: Upload benchmark results
         if: runner.os == 'Linux'

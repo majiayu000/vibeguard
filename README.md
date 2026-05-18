@@ -239,6 +239,8 @@ bash ~/vibeguard/scripts/verify/doc-freshness-check.sh  # Rule-guard coverage ch
 
 Doctors are read-only diagnosis wrappers over the existing defense system. They summarize installation state, capability gaps, noisy hooks, recent events, and repair commands; hooks and guards remain the enforcement layer that blocks or warns during real tool execution.
 
+Hook latency is also a product contract. See [Hook Latency Contract](docs/reference/hook-latency-contract.md) for per-hook P95 budgets, hotspot attribution, and the static gates that block expensive hook patterns.
+
 ## Learning System
 
 Closed-loop learning evolves defenses from mistakes:
