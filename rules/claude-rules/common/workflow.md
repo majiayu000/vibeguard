@@ -312,13 +312,14 @@ Every eval suite that gates a release or guards a production agent must validate
 **Downgrade path**:
 For pure text generation tasks with no tools and no required intermediate steps, axes 1 and 2 are vacuous and may be skipped if the eval suite explicitly states so. Axis 3 (calibration) is never optional whenever the model emits or implies a confidence value to a caller.
 
-## W-19: AGENTS.md / CLAUDE.md sustainable size and pairing (medium)
+## W-19: AGENTS.md / CLAUDE.md sustainable size and pairing (strict)
 Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohibitions, or inline the full text of canonical vibeguard rules. Long instruction files trigger overexploration (agents read more surrounding docs and produce worse output) and warning cascades (agents over-validate against rules irrelevant to the current task).
 
-**Sources** (three-source convergence, 2026-04):
+**Sources** (four-source convergence, 2026-04 to 2026-05):
 - Augment Code, "A good AGENTS.md is a model upgrade. A bad one is worse than no docs at all." (AuggieBench measured 10-15% cross-metric drop on bloated docs).
 - Anthropic Claude Code Best Practices: a bloated `CLAUDE.md` causes Claude to ignore the instructions that actually matter.
 - Complement to U-32 (rule overload): U-32 sets the threshold (>30 rules per file), W-19 enforces it on the specific class of agent-instruction docs.
+- Alex Kim, "You've been doing harness engineering all along": independently re-derives W-19's shape from production practice by keeping root docs under roughly 150-200 lines, splitting detailed procedures into skills/reference files, encoding rules as checks, and requiring evidence instead of prose-only claims.
 
 **Detection thresholds**:
 
