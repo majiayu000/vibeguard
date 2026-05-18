@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779114098387,
+  "lastUpdate": 1779115465768,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -8786,6 +8786,165 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P99)",
             "value": 21,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f03b62375646c369569d3f74439d6d6c60250b6",
+          "message": "Merge pull request #239 from majiayu000/codex/u33-structural-navigation-threshold\n\nRevise U-33 large codebase retrieval guidance",
+          "timestamp": "2026-05-18T22:35:29+08:00",
+          "tree_id": "ac020a20c96043cb5650885a1978e577fce2138d",
+          "url": "https://github.com/majiayu000/vibeguard/commit/7f03b62375646c369569d3f74439d6d6c60250b6"
+        },
+        "date": 1779115464730,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P50)",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 120,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 120,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P50)",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 158,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 158,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P50)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 165,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 165,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P50)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P50)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 24,
             "unit": "ms"
           }
         ]
