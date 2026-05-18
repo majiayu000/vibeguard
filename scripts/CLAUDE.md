@@ -14,6 +14,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `log-capability-change.sh` | Extract a capability-change timeline from git history |
 | `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
 | `live_truth.py` | Verify mutable claims such as latest, PR-ready, merged, running, deployed, and published with fresh facts/inferences/gaps |
+| `skill_validate.py` | Score proposed skill changes with with/without repair and regression evidence |
 
 ## GC / Metrics / Verification
 
@@ -58,6 +59,7 @@ bash scripts/hook-health.sh 24
 bash scripts/quality-grader.sh
 python3 scripts/authorized-discard.py --plan
 python3 scripts/live_truth.py checklist
+python3 scripts/skill_validate.py --proposed-skill path/to/SKILL.md --baseline-trajectories path/to/baseline.jsonl
 bash scripts/ci/validate-hooks-manifest.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh
