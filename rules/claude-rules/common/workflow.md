@@ -376,3 +376,32 @@ For stateless single-turn agents with no persistent memory or experience retriev
 - Keeping only "golden" traces because failed runs look messy.
 - Deleting failure logs immediately after fixing a bug, before extracting the decision boundary that caused it.
 - Treating failed tests, blocked tool calls, or rejected plans as disposable noise instead of learning material.
+
+## W-38: Tool-need recognition and tool-call execution are separate metrics (strict)
+Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. Collapsing both into one "tool-use accuracy" number hides the knowing-doing gap and leads to the wrong remediation.
+
+**Sources** (2026-05):
+- arXiv:2605.14038, "Model-Adaptive Tool Necessity Reveals the Knowing-Doing Gap in LLM Tool Use" — reports cognition-action mismatch rates of 26.5-54.0% on arithmetic tasks and 30.8-41.8% on factual QA tasks.
+- The same paper finds late-layer directions for tool-need recognition and tool-call execution are nearly orthogonal, which means the failure can sit in the transition from recognition to action rather than in task understanding alone.
+- W-18 baseline: trajectory evals must validate tool selection, not only final output.
+- W-01 baseline: the first fix must distinguish the root cause, not patch every "tool was not used" symptom the same way.
+
+**Required eval coverage (strict)**:
+1. Tool-using agent evals must report **tool-need recognition** separately from **tool-call execution**.
+2. Tool-need recognition may be measured from explicit reasoning traces, labeled task intent, a classifier, or a review judge. Ordinary CI does not need hidden-state probes.
+3. Tool-call execution must be measured from actual trace evidence: emitted tool calls, structured action records, or audited MCP / CLI events.
+4. A mismatch where recognition is correct but execution is missing must be reported as an action-layer failure, not folded into generic tool-use accuracy.
+
+**Mechanical checks (agent execution rules)**:
+- Flag eval reports that publish only one "tool-use accuracy" number for a tool-using agent.
+- When debugging "the agent did not use the tool", first ask whether it recognized the tool need. If yes, target the action layer: forced invocation, retry policy, structured action format, or lower-temperature tool-decision step. If no, target the cognition layer: context, examples, retrieval, or prompt clarity.
+- If recognition-correct / execution-missing mismatches exceed 20% on the eval set, remediation must include an action-layer change before adding more cognition examples.
+- Report W-38 when a PR claims to fix tool use by adding examples but provides no evidence that recognition was the failing sub-axis.
+
+**Downgrade path**:
+For agents with no tools, W-38 is vacuous. For agents with exactly one mandatory tool and no choice about whether to use it, only the execution metric applies; recognition is trivially satisfied if the task class itself requires that tool.
+
+**Anti-patterns**:
+- Treating "the tool was not called" as a prompt clarity bug without checking whether the agent knew the tool was needed.
+- Averaging correct recognition and missed execution into one score, then calling the eval stable.
+- Adding more few-shot examples when the trace already shows correct tool intent but no emitted action.
