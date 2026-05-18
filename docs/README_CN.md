@@ -87,7 +87,7 @@ VibeGuard 现在明确分成两层：
 
 ### 2. Hooks 实时拦截
 
-多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；Codex 会部署原生 Bash/apply_patch/PermissionRequest/Stop hooks，读操作相关 hooks 仍只在 Claude Code 路径生效：
+多数 hooks 都是在 AI 操作过程中自动触发。`skills-loader` 是可选的手动脚本；Codex 会部署原生 Bash/apply_patch/PermissionRequest/Stop hooks，读操作相关 hooks 仍只在 Claude Code 或 app-server wrapper 路径生效：
 
 | 场景 | Hook | 结果 |
 |------|------|------|
@@ -242,13 +242,13 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 | `Stop` | `stop-guard.sh` | 未验证改动的结束闸门 |
 | `Stop` | `learn-evaluator.sh` | 会话指标与纠错信号采集 |
 
-这是默认强制层，走 Codex 原生 hooks，不包也不替换 Codex server。Codex 当前没有原生 `Read`、`Glob`、`Grep` hook surface，所以 `analysis-paralysis` 仍然只在 Claude Code 路径生效。
+这是默认强制层，走 Codex 原生 hooks，不包也不替换 Codex server。Codex 当前没有原生 `Read`、`Glob`、`Grep` hook surface，所以 `analysis-paralysis` 不在原生 Codex 路径生效；需要读操作循环拦截时优先用 Claude Code。只有已经必须接入 `codex app-server` 的外部编排系统，才需要考虑下面的可选 wrapper。
 
 Codex 中的 hook 命令名会使用 `vibeguard-*.sh` 命名空间，避免与别的工具链共享 `~/.codex/hooks.json` 时发生冲突。Claude 和 Codex 输出格式差异由 `run-hook-codex.sh` 负责适配；Codex 的 `apply_patch` 会先被 wrapper 规范化成 Edit/Write 形状，再复用现有文件 hook。对 `Update File` patch，wrapper 还会传递行数 delta，让 `pre-edit-guard.sh` 能在 Codex 真正改文件之前执行 U-16 拦截。若 hook 给出 `updatedInput` 建议，Codex CLI wrapper 目前不能自动改写命令，VibeGuard 会显式提示建议命令，而不是静默吞掉这条信息。
 
-### App Server 外层封装
+### 可选 App Server 外层封装
 
-如果你在用 `codex app-server` 这类编排器，可以选择在外层再包一层 VibeGuard：
+普通本地 Codex 使用不需要这一层，本地默认保护应使用 `~/.codex/hooks.json` 里的 Codex 原生 hooks。只有你已经在用 `codex app-server` 这类编排器，才需要考虑在外层再包一层 VibeGuard：
 
 ```bash
 ~/.vibeguard/installed/bin/vibeguard-runtime codex-app-server-wrapper \

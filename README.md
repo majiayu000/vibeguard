@@ -319,13 +319,20 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 
 This is the default enforcement layer. It talks to Codex through native hooks
 and does not wrap or replace the Codex server. Codex has no native `Read`,
-`Glob`, or `Grep` hook surface, so `analysis-paralysis` remains Claude Code only.
+`Glob`, or `Grep` hook surface, so `analysis-paralysis` is not available on
+the native Codex path. Use Claude Code when read-only exploration gating is
+required; the optional app-server wrapper is only for external orchestrators
+that already require `codex app-server`.
 
 Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
 **MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 
-**App-server wrapper** (Symphony-style orchestrators):
+**Optional app-server wrapper** (advanced orchestrators only):
+
+Most local Codex setups do not need this path. It is not the default
+protection layer; use native Codex hooks in `~/.codex/hooks.json` for local
+protection.
 
 ```bash
 ~/.vibeguard/installed/bin/vibeguard-runtime codex-app-server-wrapper --repo-dir ~/vibeguard --codex-command "codex app-server"
