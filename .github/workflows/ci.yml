@@ -133,6 +133,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-doc-command-paths.sh
 
+      - name: Validate no personal paths
+        shell: bash
+        run: bash scripts/ci/validate-no-personal-paths.sh
+
       - name: Validate doc freshness
         if: runner.os != 'Windows'
         shell: bash
@@ -234,6 +238,10 @@ jobs:
       - name: Skill format regression tests
         shell: bash
         run: bash tests/test_skill_format.sh
+
+      - name: No personal paths regression tests
+        shell: bash
+        run: bash tests/test_no_personal_paths.sh
 
       - name: Guard unit tests
         shell: bash

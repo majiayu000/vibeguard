@@ -25,6 +25,10 @@ while IFS= read -r match; do
   # Skip this validator script itself
   [[ "$file" == *"validate-no-personal-paths.sh" ]] && continue
 
+  # Skip git metadata. In linked worktrees, .git is a file containing
+  # the path to the real gitdir, so --exclude-dir=.git is not enough.
+  [[ "$file" == "${REPO_DIR}/.git" ]] && continue
+
   # Skip test files that may legitimately test path patterns
   [[ "$file" == *"/tests/"* ]] && continue
 
@@ -53,6 +57,7 @@ while IFS= read -r match; do
 
   # Skip this script, tests, docs
   [[ "$file" == *"validate-no-personal-paths.sh" ]] && continue
+  [[ "$file" == "${REPO_DIR}/.git" ]] && continue
   [[ "$file" == *"/tests/"* ]] && continue
   [[ "$file" == *".md" ]] && continue
 
