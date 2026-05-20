@@ -75,6 +75,31 @@ header "format gate"
 assert_cmd "format-only accepts shaped skill" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md"
 
+MARKDOWN_LINK_DIR="${TMP_DIR}/markdown-link"
+mkdir -p "${MARKDOWN_LINK_DIR}"
+cat > "${MARKDOWN_LINK_DIR}/SKILL.md" <<'MD'
+---
+name: markdown-link
+description: Use when testing Markdown link list items.
+---
+
+# Markdown Link
+
+## When to Activate
+
+- Validate a draft skill that links to shared contracts.
+
+## Red Flags
+
+- [Routing Contract](../references/routing-contract.md) is not reflected in the skill handoff.
+
+## Checklist
+
+- [Delivery Base](../references/delivery-base.md) was reviewed before final verification.
+MD
+assert_cmd "format-only accepts Markdown-link list items" \
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${MARKDOWN_LINK_DIR}/SKILL.md"
+
 MISSING_SECTION_DIR="${TMP_DIR}/missing-section"
 mkdir -p "${MISSING_SECTION_DIR}"
 cat > "${MISSING_SECTION_DIR}/SKILL.md" <<'MD'

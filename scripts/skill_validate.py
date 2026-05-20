@@ -179,7 +179,13 @@ def useful_list_item(line: str) -> bool:
     lower = item.strip(" .").lower()
     if not lower or lower in {"...", "todo", "tbd", "n/a", "none", "placeholder"}:
         return False
-    if lower.startswith(("todo:", "tbd:", "[", "<")):
+    starts_with_markdown_link = re.match(
+        r"^\[[^\]\n]+\](?:\([^)]+\)|\[[^\]\n]*\])",
+        item,
+    ) is not None
+    if lower.startswith(("todo:", "tbd:", "<")):
+        return False
+    if lower.startswith("[") and not starts_with_markdown_link:
         return False
     return True
 
