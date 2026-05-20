@@ -9,6 +9,24 @@ description: "Iterative retrieval — 4-stage loop (DISPATCH→EVALUATE→REFINE
 
 In large code bases, one search is often not enough. This skill iterates through a search loop, gradually narrowing the scope and pinpointing the relevant code.
 
+## When to Activate
+
+- A first search returns too many partially related results or misses the target surface.
+- A codebase question spans file names, symbols, docs, and generated artifacts.
+- A user needs evidence-backed repository orientation before implementation.
+
+## Red Flags
+
+- The same broad query is repeated without changing terms or scope.
+- Low-relevance results are read in depth before high-relevance anchors.
+- Search history is lost, so later conclusions cannot be traced back to evidence.
+
+## Checklist
+
+- Start with 2-3 concrete keywords from the user request.
+- Score search results before expanding into neighboring files.
+- Stop after three rounds with an explicit unresolved-questions list.
+
 ## 4 stage cycle
 
 ### 1. DISPATCH (distribution search)

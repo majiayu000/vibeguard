@@ -13,6 +13,9 @@ from pathlib import Path
 
 OUTCOMES = {"success", "failure"}
 DEFAULT_OUTPUT_DIR = ".vibeguard/skill-validate"
+FORMAT_PATH_PATTERNS = ("skills/*/SKILL.md", "workflows/*/SKILL.md")
+FORMAT_REQUIRED_SECTIONS = ("## When to Activate", "## Red Flags", "## Checklist")
+FORMAT_LIST_SECTIONS = ("## Red Flags", "## Checklist")
 
 
 class SkillValidateError(Exception):
@@ -155,6 +158,99 @@ def extract_skill_name(path: Path) -> str:
     raise SkillValidateError("cannot infer skill name")
 
 
+def markdown_sections(text: str) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line.strip()
+            sections[current] = []
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def useful_list_item(line: str) -> bool:
+    match = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<item>\S.*)$", line)
+    if not match:
+        return False
+    item = re.sub(r"^\[[ xX]\]\s+", "", match.group("item").strip())
+    lower = item.strip(" .").lower()
+    if not lower or lower in {"...", "todo", "tbd", "n/a", "none", "placeholder"}:
+        return False
+    if lower.startswith(("todo:", "tbd:", "[", "<")):
+        return False
+    return True
+
+
+def skill_format_errors(path: Path) -> list[str]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"cannot read skill file: {exc}"]
+    sections = markdown_sections(text)
+    errors: list[str] = []
+    for heading in FORMAT_REQUIRED_SECTIONS:
+        body = sections.get(heading)
+        if body is None:
+            errors.append(f"missing required section: {heading}")
+            continue
+        if not any(line.strip() for line in body):
+            errors.append(f"{heading} is empty")
+    for heading in FORMAT_LIST_SECTIONS:
+        body = sections.get(heading)
+        if body is not None and not any(useful_list_item(line) for line in body):
+            errors.append(f"{heading} has no useful list items")
+    return errors
+
+
+def repo_skill_paths(repo_root: Path) -> list[Path]:
+    paths: list[Path] = []
+    for pattern in FORMAT_PATH_PATTERNS:
+        paths.extend(repo_root.glob(pattern))
+    return sorted(path for path in paths if path.is_file())
+
+
+def build_format_artifact(paths: list[Path], repo_root: Path | None) -> dict[str, object]:
+    errors: list[dict[str, str]] = []
+    for path in paths:
+        display_path = str(path.relative_to(repo_root)) if repo_root else str(path)
+        for message in skill_format_errors(path):
+            errors.append({"path": display_path, "message": message})
+    verdict = "pass" if not errors and paths else "fail"
+    if not paths:
+        errors.append({"path": str(repo_root or "."), "message": "no skill files found"})
+    return {
+        "command": "skill_validate",
+        "mode": "format",
+        "verdict": verdict,
+        "paths_checked": len(paths),
+        "required_sections": list(FORMAT_REQUIRED_SECTIONS),
+        "list_required_sections": list(FORMAT_LIST_SECTIONS),
+        "errors": errors,
+    }
+
+
+def print_format_report(artifact: dict[str, object]) -> None:
+    print("SKILL-FORMAT")
+    print(f"verdict: {artifact['verdict']}")
+    print(f"paths_checked: {artifact['paths_checked']}")
+    print("required_sections:")
+    for heading in artifact["required_sections"]:
+        print(f"- {heading}")
+    print("list_required_sections:")
+    for heading in artifact["list_required_sections"]:
+        print(f"- {heading}")
+    print("errors:")
+    errors = artifact["errors"]
+    if errors:
+        for error in errors:
+            print(f"- {error['path']}: {error['message']}")
+    else:
+        print("- none")
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip().lower()).strip("-")
     return slug or "skill"
@@ -227,6 +323,10 @@ def print_report(artifact: dict[str, object], artifact_path: Path | None) -> Non
 def build_artifact(args: argparse.Namespace) -> tuple[dict[str, object], Path | None]:
     proposed_skill = Path(args.proposed_skill).resolve()
     skill_name = extract_skill_name(proposed_skill)
+    format_errors = skill_format_errors(proposed_skill)
+    if format_errors:
+        joined = "; ".join(format_errors)
+        raise SkillValidateError(f"proposed skill format failed: {joined}")
     as_of = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
     baseline_records = read_jsonl(Path(args.baseline_trajectories), "baseline")
     held_out_records = read_jsonl(Path(args.held_out), "held_out") if args.held_out else []
@@ -270,10 +370,10 @@ def build_artifact(args: argparse.Namespace) -> tuple[dict[str, object], Path | 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Score proposed skills with with/without repair and regression evidence.",
+        description="Validate proposed skill format and score repair/regression evidence.",
     )
-    parser.add_argument("--proposed-skill", required=True, help="Path to draft SKILL.md")
-    parser.add_argument("--baseline-trajectories", required=True, help="JSONL with paired without/with outcomes")
+    parser.add_argument("--proposed-skill", help="Path to draft SKILL.md")
+    parser.add_argument("--baseline-trajectories", help="JSONL with paired without/with outcomes")
     parser.add_argument("--held-out", help="Optional held-out JSONL used for the final verdict")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory for verdict JSONL artifacts")
     parser.add_argument("--no-persist", action="store_true", help="Print only; do not write an artifact")
@@ -282,12 +382,39 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--as-of", help="Evaluation date, YYYY-MM-DD; defaults to today")
     parser.add_argument("--allow-stale", action="store_true", help="Report stale gaps without failing the verdict")
     parser.add_argument("--regression-justification", help="Required when regression count is nonzero")
+    format_group = parser.add_mutually_exclusive_group()
+    format_group.add_argument(
+        "--format-only",
+        action="store_true",
+        help="Validate only the required SKILL.md structural sections.",
+    )
+    format_group.add_argument(
+        "--check-repo-format",
+        action="store_true",
+        help="Validate skills/*/SKILL.md and workflows/*/SKILL.md under --repo-root.",
+    )
+    parser.add_argument("--repo-root", default=".", help="Repository root for --check-repo-format")
     return parser
 
 
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.check_repo_format:
+        repo_root = Path(args.repo_root).resolve()
+        artifact = build_format_artifact(repo_skill_paths(repo_root), repo_root)
+        print_format_report(artifact)
+        return 0 if artifact["verdict"] == "pass" else 1
+    if args.format_only:
+        if not args.proposed_skill:
+            parser.error("--format-only requires --proposed-skill")
+        artifact = build_format_artifact([Path(args.proposed_skill).resolve()], None)
+        print_format_report(artifact)
+        return 0 if artifact["verdict"] == "pass" else 1
+    if not args.proposed_skill:
+        parser.error("--proposed-skill is required unless --check-repo-format is used")
+    if not args.baseline_trajectories:
+        parser.error("--baseline-trajectories is required unless --format-only or --check-repo-format is used")
     try:
         artifact, artifact_path = build_artifact(args)
     except SkillValidateError as exc:

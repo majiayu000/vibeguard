@@ -13,7 +13,7 @@ This skill takes a captured trajectory (tool calls, intermediate outputs, final 
 
 The taxonomy and four-stage diagnostic procedure are adapted from Microsoft Research's AgentRx framework (2026-04). The classes themselves are stable across agent stacks; the diagnostic stages are how this skill operates inside a Claude Code or Codex session.
 
-## When to use
+## When to Activate
 
 - An agent run produced a wrong or incomplete result and you have the trajectory.
 - A user reports "the agent is broken" and a postmortem is needed.
@@ -117,13 +117,20 @@ If the first `fail` is genuinely a system-level fault (F9), say so without escal
 - It does **not** rewrite the agent's prompt or skills. Recommendations are descriptive; implementation is a separate explicit ask.
 - For a passing trajectory whose path concerns you anyway, switch to W-18 three-axis evaluation rather than running this skill.
 
-## Anti-patterns inside this skill
+## Red Flags
 
 - Marking the **last** failed step instead of the first unrecoverable one. The last step is usually a downstream consequence.
 - Defaulting to F2 (hallucination) without checking F4 (misread). They look identical in the final answer but require opposite fixes.
 - Classifying an F9 system failure as F1 plan adherence because the agent retried oddly after the timeout. The retry behavior is a symptom, not the cause.
 - Producing a class with no citation. Every F-class assignment must point to a specific step and contract.
 - Building a multi-step reasoning chain on top of a step that was already marked `fail`. The classification stops at the first unrecoverable step.
+
+## Checklist
+
+- Inventory the available trajectory inputs before assigning a failure class.
+- Identify the first unrecoverable step, not the noisiest downstream symptom.
+- Cite the concrete event or missing event that supports each classification.
+- Separate recommendations for the agent, harness, and task prompt.
 
 ## Related rules
 

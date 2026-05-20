@@ -54,10 +54,110 @@ description: Use when validating a proposed skill change.
 ---
 
 # Demo Skill
+
+## When to Activate
+
+- Validate a proposed VibeGuard skill before adoption.
+
+## Red Flags
+
+- The proposed skill has no repeatable trigger condition.
+
+## Checklist
+
+- Confirm the skill has repair evidence and no unrelated regressions.
 MD
 
 header "syntax"
 assert_cmd "skill_validate.py syntax is valid" python3 -m py_compile "${SKILL_VALIDATE}"
+
+header "format gate"
+assert_cmd "format-only accepts shaped skill" \
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md"
+
+MISSING_SECTION_DIR="${TMP_DIR}/missing-section"
+mkdir -p "${MISSING_SECTION_DIR}"
+cat > "${MISSING_SECTION_DIR}/SKILL.md" <<'MD'
+---
+name: missing-section
+description: Use when testing missing sections.
+---
+
+# Missing Section
+
+## Red Flags
+
+- A required heading is absent.
+
+## Checklist
+
+- Detect the missing heading.
+MD
+missing_section_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --format-only \
+    --proposed-skill "${MISSING_SECTION_DIR}/SKILL.md" 2>&1 || true
+)"
+assert_contains "${missing_section_out}" "missing required section: ## When to Activate" "format gate reports missing activation section"
+
+EMPTY_LIST_DIR="${TMP_DIR}/empty-list"
+mkdir -p "${EMPTY_LIST_DIR}"
+cat > "${EMPTY_LIST_DIR}/SKILL.md" <<'MD'
+---
+name: empty-list
+description: Use when testing empty Red Flags and Checklist sections.
+---
+
+# Empty List
+
+## When to Activate
+
+- Validate a draft skill.
+
+## Red Flags
+
+This section has prose but no list item.
+
+## Checklist
+
+- [Checklist item]
+MD
+empty_list_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --format-only \
+    --proposed-skill "${EMPTY_LIST_DIR}/SKILL.md" 2>&1 || true
+)"
+assert_contains "${empty_list_out}" "## Red Flags has no useful list items" "format gate rejects Red Flags without list items"
+assert_contains "${empty_list_out}" "## Checklist has no useful list items" "format gate rejects placeholder Checklist items"
+
+COVERAGE_REPO="${TMP_DIR}/coverage-repo"
+mkdir -p "${COVERAGE_REPO}/skills/good" "${COVERAGE_REPO}/workflows/bad"
+cp "${SKILL_DIR}/SKILL.md" "${COVERAGE_REPO}/skills/good/SKILL.md"
+cat > "${COVERAGE_REPO}/workflows/bad/SKILL.md" <<'MD'
+---
+name: bad-workflow
+description: Use when testing workflow coverage.
+---
+
+# Bad Workflow
+
+## When to Activate
+
+- Validate workflow skill coverage.
+
+## Red Flags
+
+- The repository check ignores workflow skills.
+MD
+coverage_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --check-repo-format \
+    --repo-root "${COVERAGE_REPO}" 2>&1 || true
+)"
+assert_contains "${coverage_out}" "workflows/bad/SKILL.md: missing required section: ## Checklist" "repo format gate covers workflows"
+
+assert_cmd "repo skill and workflow format gate passes" \
+  python3 "${SKILL_VALIDATE}" --check-repo-format --repo-root "${REPO_DIR}"
 
 header "passing repair evidence"
 PASSING_JSONL="${TMP_DIR}/passing.jsonl"

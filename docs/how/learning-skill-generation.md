@@ -226,10 +226,10 @@ Triggered explicitly via the `/vibeguard:learn` command, dual-mode routing.
 2. Deduplication check — rg searches .claude/skills/ and ~/.claude/skills/
 3. Extract knowledge - question + non-obvious part + trigger condition
 4. Conditional Web research (3 types of scenarios need to be searched)
-5. Structured into SKILL.md (6 sections according to template)
+5. Structured into SKILL.md with activation cues, Red Flags, and a checklist
 6. Save location decisions (project-level vs. global)
 7. [Stop] AskUserQuestion Confirm
-8. Output extraction report (6 quality checks)
+8. Output extraction report and run the SKILL.md format gate
 ```
 
 **4 quality gates (extract only when all are met): **
@@ -240,6 +240,14 @@ Triggered explicitly via the `/vibeguard:learn` command, dual-mode routing.
 | Non-trivial | Requires exploration to discover | "npm install installation dependencies" |
 | Specific | With precise trigger conditions and steps | "React sometimes reports an error" |
 | Verified | Actual tested | "It should be solved with XX" |
+
+**Format gate:** generated skills must include `## When to Activate`, `## Red Flags`, and `## Checklist`.
+`## Red Flags` and `## Checklist` must contain useful list items, not empty prose or template placeholders.
+Validate a single draft with:
+
+```bash
+python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md
+```
 
 ### SKILL.md file structure
 
@@ -254,7 +262,7 @@ date: YYYY-MM-DD
 ---
 ```
 
-Text: Problem → Context/Trigger → Solution(step-by-step) → Verification → Example(Before/After) → Notes → References
+Text: Problem → When to Activate → Red Flags → Checklist → Solution(step-by-step) → Verification → Example(Before/After) → Notes → References
 
 ### Deduplication decision table
 
@@ -393,6 +401,7 @@ Hook upgrade (forced warning, interrupting Agent cycle)
 | `scripts/gc/gc-scheduled.sh` | GC scheduled learning (cross-session pattern recognition) |
 | `.claude/commands/vibeguard/learn.md` | /vibeguard:learn command (dual-mode routing) |
 | `templates/skill-template.md` | SKILL.md writing template |
+| `scripts/skill_validate.py --check-repo-format --repo-root .` | Repository-owned skill/workflow format gate |
 | `skills/*/SKILL.md` | Extracted Skill files |
 
 ## Benchmarking with OpenAI Harness
@@ -404,4 +413,4 @@ Hook upgrade (forced warning, interrupting Agent cycle)
 | Failure-driven improvements | /vibeguard:learn Mode A (5-Why + guard generation) |
 | Optional prompt loading | skills-loader.sh (can be manually linked to PreToolUse Read) |
 | Knowledge deduplication | Deduplication decision table (5 processing paths) |
-| Quality Gating | 4 criteria (reusable, non-trivial, specific, verified) |
+| Quality Gating | 4 criteria (reusable, non-trivial, specific, verified) + SKILL.md format gate |

@@ -14,6 +14,24 @@ Use this skill when the user needs:
 
 This skill is repository-agnostic. It defines how to analyze and plan, not only what was done in one specific repo.
 
+## When to Activate
+
+- The canonical router resolved the task to `plan_first`.
+- The user needs a durable `plan/*.md` artifact with file-level steps and evidence.
+- The work requires duplicate/redundant design analysis before edits.
+
+## Red Flags
+
+- A plan step lacks exact files, symbols, or verification commands.
+- Execution starts from a `clarify_first` situation with unresolved boundaries.
+- Multiple plan items are completed without updating status and evidence.
+
+## Checklist
+
+- Capture baseline branch, dirty state, constraints, and known blockers.
+- Convert every finding into a scoped step with owner and validation.
+- Keep exactly one plan item in progress and update it before moving on.
+
 ## Routing Contract Integration
 
 Plan Flow owns the task only after the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) resolves to `plan_first`.

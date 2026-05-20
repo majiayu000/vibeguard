@@ -27,6 +27,12 @@ macOS 自带 BSD awk 严格遵循 POSIX 标准，不支持 GNU awk (gawk) 的正
 - 使用 awk 正则做代码模式检测（guard/linter/hook）
 - 错误现象：Linux 上能检测到问题，macOS 上检测为 0
 
+## When to Activate
+
+- A shell guard or hook uses `awk` regexes and must run on both macOS and Linux.
+- A pattern works under GNU awk but silently misses under BSD awk.
+- A guard needs brace-depth, loop-scope, or nested-function analysis in plain POSIX awk.
+
 ## Solution
 
 ### 1. 正则替换规则（6 条）
@@ -126,6 +132,18 @@ total_depth += opens - closes
 # Fix 3: func literal 作用域隔离
 if (match(line, /defer/) && loop_depth > 0 && flit_depth == 0)
 ```
+
+## Red Flags
+
+- The awk program uses GNU-only escapes such as `\s`, `\d`, `\w`, or `\b`.
+- A script counts braces with line-level regex matches instead of character counts.
+- A macOS check returns no findings while Linux finds real violations.
+
+## Checklist
+
+- Replace GNU regex escapes with POSIX character classes or explicit ranges.
+- Count syntax delimiters with `gsub` when scope depth matters.
+- Test the guard on the macOS default awk path before claiming portability.
 
 ## Notes
 

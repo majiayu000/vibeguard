@@ -15,7 +15,7 @@ date: YYYY-MM-DD
 
 [Problem description: What are the pain points? Why not obvious? 1-2 paragraphs]
 
-## Context / Trigger Conditions
+## When to Activate
 
 [When should this Skill be activated? List specific conditions:]
 
@@ -23,6 +23,22 @@ date: YYYY-MM-DD
 - [Exact error message 2]
 - [observable symptoms or behaviors]
 - [Environmental conditions (framework/tools/platform)]
+
+## Red Flags
+
+[Failure patterns or anti-patterns this Skill should help catch:]
+
+- [Specific warning sign 1]
+- [Specific warning sign 2]
+- [Anti-pattern that means this Skill may be misapplied]
+
+## Checklist
+
+[Pre-delivery checks before claiming the Skill was applied correctly:]
+
+- [Required check 1]
+- [Required check 2]
+- [Verification or regression check]
 
 ## Solution
 
