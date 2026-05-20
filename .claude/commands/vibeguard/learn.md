@@ -261,7 +261,7 @@ Automatically select a mode based on parameters and context:
    ## Problem
    [Problem description: What are the pain points? Why not obvious? ]
 
-   ## Context / Trigger Conditions
+   ## When to Activate
    - [Exact error message]
    - [Observable Symptoms/Behaviors]
    - [Environmental conditions (framework/tools/platform)]
@@ -273,6 +273,16 @@ Automatically select a mode based on parameters and context:
 
    ## Verification
    [How to confirm that the plan is effective]
+
+   ## Red Flags
+   - **[Anti-pattern 1]** - [Why it causes this failure to recur]
+   - **[Anti-pattern 2]** - [Why it causes this failure to recur]
+   - **[Anti-pattern 3]** - [Why it causes this failure to recur]
+
+   ## Checklist
+   - [ ] Activation cues match the current task
+   - [ ] Existing skills were searched before creating or updating this one
+   - [ ] Verification steps were actually run or clearly marked as not run
 
    ## Example
    **Scenario**: [Specific case]
@@ -320,6 +330,7 @@ Automatically select a mode based on parameters and context:
    - Verified: ✓
    - No duplication: ✓
    - No sensitive information: ✓
+   - Format gate (`validate-skill-format.sh`): ✓
 
    ## Skill life cycle
    Create → iterate (version +minor when new scenes are discovered) → discard (mark when underlying changes) → archive

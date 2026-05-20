@@ -13,7 +13,7 @@ Use this skill to discover repository optimization opportunities and execute sel
 - Execute in strict sequence with validation and explicit commit policy.
 - Add BDD behavior specs when requested or when requirements are ambiguous.
 
-## Trigger Cues
+## When to Activate
 
 Trigger this skill when the user asks for one or more of:
 - Ask to find optimization opportunities in a repository/library.
@@ -127,3 +127,18 @@ Expected Gains:
 - Do not claim compatibility if user explicitly requested no compatibility work.
 - Do not include unrelated pre-existing dirty files in commits.
 - Do not hand off without concrete validation evidence.
+
+## Red Flags
+
+- **Optimization without evidence** - a finding needs file, metric, or log evidence before execution.
+- **Scope creep disguised as cleanup** - unrelated refactors should stay out of an optimization pass.
+- **No risk scoring** - effort, impact, risk, and confidence must shape the execution order.
+- **Verification deferred to CI only** - local focused checks should run whenever available.
+
+## Checklist
+
+- [ ] Gather concrete findings before writing an optimization plan.
+- [ ] Score each finding for impact, effort, risk, and confidence.
+- [ ] Select a bounded set of findings for the current execution pass.
+- [ ] Keep changes tied to the selected finding list.
+- [ ] Run and report focused verification for each completed fix.

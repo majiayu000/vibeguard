@@ -6,6 +6,13 @@ description: Automate analysis, evaluation, design and optimization of target pr
 
 Integrate the project autonomous optimization workflow of the VibeGuard guard system.
 
+## When to Activate
+
+- The user asks for repository optimization discovery and implementation.
+- A project needs a rotating scan across security, quality, reliability, performance, and maintainability.
+- Existing guard or audit findings should be converted into prioritized implementation work.
+- The task needs an optimization report before deciding which fixes to execute.
+
 ## Routing Contract Integration
 
 Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
@@ -223,3 +230,18 @@ Rule format: Each rule has ID, category, description, and example. Workers refer
 - The target project must be committed cleanly before branching to ensure that it can be rolled back
 - Workspace uses soft links and does not copy code
 - Multiple projects can run at the same time without affecting each other (note the API rate limit)
+
+## Red Flags
+
+- **Optimizing without a baseline** - improvements cannot be trusted if the current guard/test state was not recorded first.
+- **Implementing low-priority cleanup first** - security and correctness findings take priority over style cleanup.
+- **Creating tasks from stale notes** - old research must be checked against current files before becoming work.
+- **Skipping user confirmation** - optimization direction must be confirmed before files are created or edited.
+
+## Checklist
+
+- [ ] Record the selected scan dimensions and current baseline.
+- [ ] Search for existing fixes, plans, and guard coverage before proposing new tasks.
+- [ ] Prioritize by security, logic, and data integrity before maintainability.
+- [ ] Show the optimization report before Phase 2 task creation.
+- [ ] Attach focused verification commands to every implemented finding.

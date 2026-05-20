@@ -22,7 +22,7 @@ Calling `/vibeguard` can:
 - View the scoring matrix for risk assessment
 - Get weekly review template
 
-## Trigger conditions
+## When to Activate
 
 Triggered when user mentions:
 - "Check anti-hallucination specifications", "vibeguard"
@@ -90,3 +90,18 @@ Refer to references/review-template.md, record:
 - Conduct a review every Friday, using review template
 - When a regression is discovered, first locate the failed defense line and then strengthen the rules.
 - New rules must have corresponding automatic detection methods (guard/hook/test)
+
+## Red Flags
+
+- **Rule-only fix** - adding prose without a guard, hook, test, or eval creates an illusion of enforcement.
+- **Unsearched new surface** - new rules, hooks, workflows, or skills must be searched against existing ones first.
+- **Silent degradation** - user-visible missing data or wrong output must fail loudly.
+- **Workflow drift** - routing decisions must follow the shared routing contract rather than ad hoc judgment.
+
+## Checklist
+
+- [ ] Confirm the task goal, context, constraints, and done-when criteria.
+- [ ] Search for existing rules, hooks, workflows, skills, and tests before adding new ones.
+- [ ] Pick the correct routing lane: `execute_direct`, `plan_first`, or `clarify_first`.
+- [ ] Attach a focused verification command to every behavior change.
+- [ ] Preserve the L1-L7 constraint summary in handoffs and compactions.

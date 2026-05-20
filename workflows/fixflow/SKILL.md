@@ -14,7 +14,7 @@ Use this skill to deliver end-to-end engineering work in one run:
 - Use explicit commit policy (`per_step` default; `final_only`/`milestone` when requested).
 - Add BDD behavior specs when requested or when requirements are ambiguous.
 
-## Trigger Cues
+## When to Activate
 
 Trigger this skill when the user asks for one or more of:
 - Full plan + sequential execution.
@@ -128,3 +128,18 @@ For `per_step` (default):
 - Do not claim compatibility if user explicitly requested no compatibility work.
 - Do not include unrelated pre-existing dirty files in commits.
 - Do not hand off without concrete validation evidence.
+
+## Red Flags
+
+- **Planning as a substitute for delivery** - Fixflow is for executing when readiness is already resolved.
+- **Advancing with red checks** - build or focused test failures must be fixed before the next step.
+- **Bundling unrelated dirty files** - commits must include only the current step's owned files.
+- **Skipping commit policy** - `per_step` is the default unless the user explicitly selects another policy.
+
+## Checklist
+
+- [ ] Confirm routing readiness is `execute_direct` or a valid handoff selected Fixflow.
+- [ ] Build a step plan with owned files, checks, and stop conditions.
+- [ ] Run step-level verification before moving to the next step.
+- [ ] Commit per step unless the user requested `final_only` or `milestone`.
+- [ ] Report fresh validation evidence in the handoff.

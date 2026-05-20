@@ -9,6 +9,13 @@ description: "Iterative retrieval — 4-stage loop (DISPATCH→EVALUATE→REFINE
 
 In large code bases, one search is often not enough. This skill iterates through a search loop, gradually narrowing the scope and pinpointing the relevant code.
 
+## When to Activate
+
+- Research requires multiple searches because the first result set is incomplete or low-confidence.
+- A claim depends on current external documentation, issue state, API behavior, or release notes.
+- Search results disagree and need a refinement loop before conclusions are trusted.
+- A task needs fact/inference separation before implementation or recommendation.
+
 ## 4 stage cycle
 
 ### 1. DISPATCH (distribution search)
@@ -73,3 +80,18 @@ Adjust your search strategy based on the evaluation results:
 
 - Marking in search results has been implemented (supports L1 search first and write later)
 - Mark when duplicate code is found (supports anti-duplication checking)
+
+## Red Flags
+
+- **Stopping after the first plausible result** - early matches can be stale, promotional, or unrelated.
+- **Changing the query without recording why** - the final answer becomes impossible to audit.
+- **Mixing facts and inferences** - source text and model judgment must be distinguishable.
+- **Looping past the cap** - more searches are not progress if the unresolved question is unchanged.
+
+## Checklist
+
+- [ ] State the research question before the first search.
+- [ ] Record each query, result quality, and refinement reason.
+- [ ] Separate sourced facts from inferred conclusions.
+- [ ] Stop after the cap with explicit unresolved gaps.
+- [ ] Prefer primary sources when the result affects implementation or policy.

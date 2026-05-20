@@ -13,7 +13,7 @@ This skill takes a captured trajectory (tool calls, intermediate outputs, final 
 
 The taxonomy and four-stage diagnostic procedure are adapted from Microsoft Research's AgentRx framework (2026-04). The classes themselves are stable across agent stacks; the diagnostic stages are how this skill operates inside a Claude Code or Codex session.
 
-## When to use
+## When to Activate
 
 - An agent run produced a wrong or incomplete result and you have the trajectory.
 - A user reports "the agent is broken" and a postmortem is needed.
@@ -124,6 +124,21 @@ If the first `fail` is genuinely a system-level fault (F9), say so without escal
 - Classifying an F9 system failure as F1 plan adherence because the agent retried oddly after the timeout. The retry behavior is a symptom, not the cause.
 - Producing a class with no citation. Every F-class assignment must point to a specific step and contract.
 - Building a multi-step reasoning chain on top of a step that was already marked `fail`. The classification stops at the first unrecoverable step.
+
+## Red Flags
+
+- **Last-failure anchoring** - downstream errors usually obscure the first unrecoverable step.
+- **Uncited taxonomy choice** - an F-class without a trajectory citation is just a guess.
+- **Blaming the model before checking tools** - tool output, stale context, and harness failures can mimic hallucination.
+- **Turning one trajectory into a global rule** - single-run evidence should produce a candidate fix, not a universal claim.
+
+## Checklist
+
+- [ ] Identify the first unrecoverable step before naming the root cause.
+- [ ] Cite the exact trajectory evidence for every failed check.
+- [ ] Distinguish model error, tool error, and harness/environment error.
+- [ ] Recommend the smallest prompt, rule, guard, or eval change that would catch this class.
+- [ ] Keep aggregate conclusions out of a single-trajectory review.
 
 ## Related rules
 

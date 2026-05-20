@@ -20,7 +20,7 @@ macOS 自带 BSD awk 严格遵循 POSIX 标准，不支持 GNU awk (gawk) 的正
 
 这类 bug 极难调试：脚本不报错，只是检测不到任何匹配，看起来像"没有问题"。
 
-## Context / Trigger Conditions
+## When to Activate
 
 - 编写包含 `awk '...'` 的 shell 脚本
 - 脚本需要在 macOS + Linux 上运行
@@ -133,6 +133,21 @@ if (match(line, /defer/) && loop_depth > 0 && flit_depth == 0)
 - `IGNORECASE = 1` 是 gawk 扩展，POSIX awk 不支持 — 用 `tolower()` 替代
 - macOS 上 `awk` 就是 BSD awk；即使安装了 `gawk`，脚本中写 `awk` 仍调用 BSD 版本
 - 自动检测已集成到 `scripts/setup/check.sh`（"Guard Script Portability" 段）
+
+## Red Flags
+
+- **Using gawk-only regex in hook scripts** - `\s`, `\w`, and `\b` can pass on Linux and fail on macOS BSD awk.
+- **Counting braces per line only** - nested blocks on a single line can corrupt scope tracking.
+- **Treating function literals as loop bodies** - `go func(){ defer ... }` inside a loop is not the same as `defer` in the loop scope.
+- **Testing only on one awk implementation** - portability bugs usually appear only when the script runs under BSD awk.
+
+## Checklist
+
+- [ ] Replace gawk-only regex tokens with POSIX character classes.
+- [ ] Count opening and closing braces by character, not by line presence.
+- [ ] Isolate function literal scope before reporting loop-local defer usage.
+- [ ] Run the guard on macOS/BSD awk or an equivalent compatibility fixture.
+- [ ] Add a regression fixture for every portability bug fixed.
 
 ## References
 

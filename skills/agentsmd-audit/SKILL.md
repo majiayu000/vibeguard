@@ -11,7 +11,7 @@ A high-quality `AGENTS.md` (or `CLAUDE.md`) raises agent code quality by a measu
 
 This skill audits a project's high-context instruction file against five patterns observed to correlate with measurable improvement, and against four known anti-patterns. Output is a per-pattern score, an anti-pattern report, and a concrete fix list — never a rewrite without user approval.
 
-## When to use
+## When to Activate
 
 - A new `AGENTS.md` or `CLAUDE.md` was added or substantially edited.
 - The agent appears to ignore project conventions despite documentation existing.
@@ -102,6 +102,21 @@ Total: <sum>/10
 - Counting line totals as the only signal — a 60-line file with no procedural workflow scores low even if it is short.
 - Producing a rewrite. The user asked for an audit; a rewrite is a separate explicit ask.
 - Inventing examples. Every cited line range must come from the file as it exists at audit time.
+
+## Red Flags
+
+- **Rewrite request hidden inside an audit** - if the user asks for an audit, report findings and stop before editing high-context files.
+- **Single-file tunnel vision** - only checking root `AGENTS.md` misses nested path-scoped rules that can override or duplicate the root guidance.
+- **Line count as the only verdict** - short files can still lack routing, verification, or safety constraints.
+- **Uncited structural claims** - every score must point to the source lines that support it.
+
+## Checklist
+
+- [ ] Search for `AGENTS.md`, `CLAUDE.md`, and nested high-context files before scoring.
+- [ ] Score each of the five patterns with line-level evidence.
+- [ ] Separate audit findings from rewrite suggestions.
+- [ ] Call out SEC-13 risks before any ordinary quality suggestions.
+- [ ] Keep recommendations scoped to the audited file set.
 
 ## Related rules
 

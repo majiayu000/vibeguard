@@ -119,6 +119,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-workflow-contracts.sh
 
+      - name: Validate skill format
+        shell: bash
+        run: bash scripts/ci/validate-skill-format.sh
+
       # --- Cross-platform contract validation (Python-embedded shell scripts) ---
       # Uses Git Bash on Windows; Python 3 is available from setup-python above.
       - name: Validate doc paths
@@ -226,6 +230,10 @@ jobs:
       - name: Skill validation regression tests
         shell: bash
         run: bash tests/test_skill_validate.sh
+
+      - name: Skill format regression tests
+        shell: bash
+        run: bash tests/test_skill_format.sh
 
       - name: Guard unit tests
         shell: bash

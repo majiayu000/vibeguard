@@ -15,7 +15,7 @@ date: YYYY-MM-DD
 
 [Problem description: What are the pain points? Why not obvious? 1-2 paragraphs]
 
-## Context / Trigger Conditions
+## When to Activate
 
 [When should this Skill be activated? List specific conditions:]
 
@@ -51,6 +51,22 @@ date: YYYY-MM-DD
 1. [Verification Step 1]
 2. [Verification Step 2]
 3. [Expected results]
+
+## Red Flags
+
+[List concrete anti-patterns that indicate the skill is being misapplied or the work is drifting.]
+
+- **[Red flag 1]** - [Why this causes a production or delivery failure]
+- **[Red flag 2]** - [Why this causes a production or delivery failure]
+- **[Red flag 3]** - [Why this causes a production or delivery failure]
+
+## Checklist
+
+- [ ] [Activation conditions match this task; otherwise do not use this skill]
+- [ ] [Existing files, rules, hooks, or workflows were searched before adding a new one]
+- [ ] [The solution steps are concrete and testable]
+- [ ] [Verification commands or manual checks are listed with expected results]
+- [ ] [Red flags name real failure modes, not generic advice]
 
 ## Example
 
