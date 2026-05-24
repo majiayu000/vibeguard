@@ -8,7 +8,7 @@
 # bash worktree-guard.sh remove <name> # Delete worktree
 # bash worktree-guard.sh status <name> # Check worktree status
 #
-# worktree is created under .vibeguard/worktrees/, and the branch name is vg/<name>
+# worktree is created under <repo>.wt/ by default, and the branch name is vg/<name>
 
 set -euo pipefail
 
@@ -52,7 +52,23 @@ case "$ACTION" in
     ;;
 
   list)
-    git worktree list | grep -E "\.vibeguard/worktrees" || yellow "No active VibeGuard worktree"
+    LIST_BASE="${WORKTREE_BASE%/}"
+    if [[ -d "$LIST_BASE" ]]; then
+      LIST_BASE="$(cd "$LIST_BASE" && pwd -P)"
+    fi
+
+    git worktree list --porcelain \
+      | awk -v base="$LIST_BASE" '
+          /^worktree / {
+            path = substr($0, 10)
+            if (path == base || index(path, base "/") == 1) {
+              print path
+              found = 1
+            }
+          }
+          END { exit found ? 0 : 1 }
+        ' \
+      || yellow "No active VibeGuard worktree"
     ;;
 
   status)
