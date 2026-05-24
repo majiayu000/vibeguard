@@ -90,6 +90,42 @@ if [[ "$MODE" == "block" ]]; then
 }
 EOF
 else
+  # Escalation: count prior unheeded advisories in this session. After N hits
+  # the agent has demonstrably ignored the warning, so the next attempt is
+  # blocked. Threshold is configurable; set to 0 to disable escalation.
+  ESCALATE_THRESHOLD=$(vg_config_get_int VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD write_escalate_threshold 5)
+  PRIOR_WARN_COUNT=0
+  if [[ "$ESCALATE_THRESHOLD" -gt 0 ]]; then
+    PRIOR_WARN_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
+      | VG_SID="$VIBEGUARD_SESSION_ID" python3 -c '
+import sys, os, json
+sid = os.environ.get("VG_SID", "")
+n = 0
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    if (e.get("session") == sid
+            and e.get("hook") == "pre-write-guard"
+            and e.get("reason") == "New source file reminder"):
+        n += 1
+print(n)
+' 2>/dev/null || echo 0)
+    PRIOR_WARN_COUNT="${PRIOR_WARN_COUNT:-0}"
+  fi
+
+  if [[ "$ESCALATE_THRESHOLD" -gt 0 && "$PRIOR_WARN_COUNT" -ge "$ESCALATE_THRESHOLD" ]]; then
+    vg_log "pre-write-guard" "Write" "escalate" "L1 escalation after ${PRIOR_WARN_COUNT} unheeded advisories" "$FILE_PATH"
+    cat <<EOF
+{
+  "decision": "block",
+  "reason": "VIBEGUARD [L1] [block] [escalation] OBSERVATION: ${PRIOR_WARN_COUNT} 'New source file' advisories in this session went unheeded\nSCOPE: pause new file creation — run Grep for similar function/class names and Glob for same-named files in this repo before any further Write\nACTION: REVIEW — confirm no duplicate exists; to continue creating new files set VIBEGUARD_WRITE_MODE=warn after manual verification, or raise VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD"
+}
+EOF
+    exit 0
+  fi
+
   if vg_cb_check "pre-write-guard"; then
     vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
     vg_cb_record_block "pre-write-guard"
