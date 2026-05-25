@@ -21,6 +21,18 @@ Trigger this skill when the user asks for one or more of:
 - Require test-first optimization delivery and commit (final or per step).
 - Require behavior-driven delivery (BDD) or acceptance scenarios.
 
+## Red Flags
+
+- Optimization begins before a repository scan identifies measurable evidence.
+- A change claims performance, reliability, security, or DX gain without a before/after check.
+- Low-confidence findings are batched with high-confidence fixes in one implementation step.
+
+## Checklist
+
+- [ ] Inventory optimization candidates before selecting work.
+- [ ] Prioritize by impact, effort, risk, and confidence.
+- [ ] Verify each selected optimization with the smallest command that proves the claimed gain.
+
 ## Workflow
 
 ### 0. Discover Optimization Backlog

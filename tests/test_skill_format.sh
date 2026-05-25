@@ -106,6 +106,14 @@ perl -0pi -e 's/## Checklist\n\n.*\z/## Checklist\n\nNo checkbox items here.\n/s
 empty_checklist_out="$(python3 "${VALIDATOR}" "${EMPTY_CHECKLIST}" 2>&1 || true)"
 assert_contains "${empty_checklist_out}" "## Checklist must contain at least 3 checkbox items" "empty checklist fails"
 
+header "frontmatter delimiter"
+MISSING_CLOSING_WITH_BODY_RULE="${TMP_DIR}/missing-closing-body-rule/SKILL.md"
+write_valid_skill "${MISSING_CLOSING_WITH_BODY_RULE}"
+perl -0pi -e 's/^---\nname: demo-skill\ndescription: Use when validating VibeGuard skill format structure\.\n---\n/---\nname: demo-skill\ndescription: Use when validating VibeGuard skill format structure.\n/s' "${MISSING_CLOSING_WITH_BODY_RULE}"
+perl -0pi -e 's/\n## When to Activate/\n---\n\n## When to Activate/s' "${MISSING_CLOSING_WITH_BODY_RULE}"
+missing_closing_body_out="$(python3 "${VALIDATOR}" "${MISSING_CLOSING_WITH_BODY_RULE}" 2>&1 || true)"
+assert_contains "${missing_closing_body_out}" "invalid frontmatter line before closing delimiter" "body delimiter does not hide missing frontmatter closing"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

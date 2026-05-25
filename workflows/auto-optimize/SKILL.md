@@ -12,6 +12,21 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 - A project needs a rotating scan across security, quality, reliability, performance, and maintainability.
 - Existing guard or audit findings should be converted into prioritized implementation work.
 - The task needs an optimization report before deciding which fixes to execute.
+- The task is already routed to executable optimization work, not open-ended discovery.
+- A planning handoff selected this workflow and supplied lane ownership plus stop conditions.
+- The user explicitly asks for autonomous optimization across quality, reliability, security, or DX dimensions.
+
+## Red Flags
+
+- The workflow starts from `clarify_first` or `plan_first` without a completed handoff.
+- Delegated lanes share writable files or lack explicit ownership.
+- A finding is repaired before it has evidence, classification, and a verification command.
+
+## Checklist
+
+- [ ] Confirm routing readiness and lane ownership before execution.
+- [ ] Classify every finding as FIX, SKIP, or DEFER with evidence.
+- [ ] Run VibeGuard deterministic checks before and after implemented fixes.
 
 ## Routing Contract Integration
 

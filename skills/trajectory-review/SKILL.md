@@ -117,20 +117,13 @@ If the first `fail` is genuinely a system-level fault (F9), say so without escal
 - It does **not** rewrite the agent's prompt or skills. Recommendations are descriptive; implementation is a separate explicit ask.
 - For a passing trajectory whose path concerns you anyway, switch to W-18 three-axis evaluation rather than running this skill.
 
-## Anti-patterns inside this skill
+## Red Flags
 
 - Marking the **last** failed step instead of the first unrecoverable one. The last step is usually a downstream consequence.
 - Defaulting to F2 (hallucination) without checking F4 (misread). They look identical in the final answer but require opposite fixes.
 - Classifying an F9 system failure as F1 plan adherence because the agent retried oddly after the timeout. The retry behavior is a symptom, not the cause.
 - Producing a class with no citation. Every F-class assignment must point to a specific step and contract.
 - Building a multi-step reasoning chain on top of a step that was already marked `fail`. The classification stops at the first unrecoverable step.
-
-## Red Flags
-
-- **Last-failure anchoring** - downstream errors usually obscure the first unrecoverable step.
-- **Uncited taxonomy choice** - an F-class without a trajectory citation is just a guess.
-- **Blaming the model before checking tools** - tool output, stale context, and harness failures can mimic hallucination.
-- **Turning one trajectory into a global rule** - single-run evidence should produce a candidate fix, not a universal claim.
 
 ## Checklist
 

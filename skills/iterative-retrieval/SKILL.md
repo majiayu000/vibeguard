@@ -15,6 +15,21 @@ In large code bases, one search is often not enough. This skill iterates through
 - A claim depends on current external documentation, issue state, API behavior, or release notes.
 - Search results disagree and need a refinement loop before conclusions are trusted.
 - A task needs fact/inference separation before implementation or recommendation.
+- A first search returns too many partially related results or misses the target surface.
+- A codebase question spans file names, symbols, docs, and generated artifacts.
+- A user needs evidence-backed repository orientation before implementation.
+
+## Red Flags
+
+- The same broad query is repeated without changing terms or scope.
+- Low-relevance results are read in depth before high-relevance anchors.
+- Search history is lost, so later conclusions cannot be traced back to evidence.
+
+## Checklist
+
+- [ ] Start with 2-3 concrete keywords from the user request.
+- [ ] Score search results before expanding into neighboring files.
+- [ ] Stop after three rounds with an explicit unresolved-questions list.
 
 ## 4 stage cycle
 

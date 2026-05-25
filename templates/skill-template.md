@@ -24,6 +24,22 @@ date: YYYY-MM-DD
 - [observable symptoms or behaviors]
 - [Environmental conditions (framework/tools/platform)]
 
+## Red Flags
+
+[Failure patterns or anti-patterns this Skill should help catch:]
+
+- [Specific warning sign 1]
+- [Specific warning sign 2]
+- [Anti-pattern that means this Skill may be misapplied]
+
+## Checklist
+
+[Pre-delivery checks before claiming the Skill was applied correctly:]
+
+- [Required check 1]
+- [Required check 2]
+- [Verification or regression check]
+
 ## Solution
 
 [Step-by-step solution, usually 3-5 steps]

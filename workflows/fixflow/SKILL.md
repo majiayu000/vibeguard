@@ -23,6 +23,18 @@ Trigger this skill when the user asks for one or more of:
 - Commit after completion or commit before each next step.
 - Behavior-driven delivery (BDD) or acceptance scenarios.
 
+## Red Flags
+
+- Execution starts while requirements, non-goals, or compatibility policy are still ambiguous.
+- Multiple feature steps are implemented before any mapped test command runs.
+- Commit policy is implicit, changes mid-run, or ignores user override.
+
+## Checklist
+
+- [ ] Pin the commit policy before editing.
+- [ ] Map each feature step to at least one concrete validation command.
+- [ ] Complete the current step, run its checks, and record status before starting the next step.
+
 ## Routing Contract Integration
 
 Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).

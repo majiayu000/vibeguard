@@ -12,6 +12,7 @@ from pathlib import Path
 REQUIRED_SECTIONS = ("When to Activate", "Red Flags", "Checklist")
 MIN_RED_FLAGS = 3
 MIN_CHECKLIST_ITEMS = 3
+FRONTMATTER_FIELD_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*.*$")
 
 
 class SkillFormatError(Exception):
@@ -46,14 +47,25 @@ def count_checklist_items(body: str) -> int:
 
 def validate_frontmatter(path: Path, text: str) -> list[str]:
     errors: list[str] = []
-    if not text.startswith("---\n"):
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
         errors.append("missing YAML frontmatter opening")
         return errors
-    parts = text.split("---", 2)
-    if len(parts) < 3:
+
+    closing_index = next((index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"), None)
+    if closing_index is None:
         errors.append("missing YAML frontmatter closing")
         return errors
-    frontmatter = parts[1]
+
+    frontmatter_lines = lines[1:closing_index]
+    for line_number, line in enumerate(frontmatter_lines, start=2):
+        if not line.strip() or line.startswith((" ", "\t")):
+            continue
+        if not FRONTMATTER_FIELD_PATTERN.match(line):
+            errors.append(f"invalid frontmatter line before closing delimiter: line {line_number}")
+            return errors
+
+    frontmatter = "\n".join(frontmatter_lines)
     for field in ("name", "description"):
         if not re.search(rf"(?m)^{field}:\s*\S", frontmatter):
             errors.append(f"missing frontmatter field: {field}")

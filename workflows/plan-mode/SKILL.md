@@ -21,6 +21,24 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 > - Enter `/` and select `/prompts:plan` in the pop-up window; or
 > - Configure shortcut keys in the terminal and automatically enter `/prompts:plan` to obtain a one-click experience similar to "/plan".
 
+## When to Activate
+
+- The user explicitly asks for Plan mode, `/prompts:plan`, `/plan`, or a plan file under `plan/`.
+- The task should be decomposed before implementation instead of executed directly.
+- A previous plan needs a deliberate update or replacement with traceable scope.
+
+## Red Flags
+
+- The task is treated as executable while non-goals, decision boundaries, or lane ownership are unknown.
+- A new plan is created when the user meant to update the current plan.
+- The plan lacks verification commands, risks, or a clear plan file path.
+
+## Checklist
+
+- [ ] Decide whether this is a new plan or an update to an existing plan.
+- [ ] Write or update a `plan/*.md` artifact with snake_case metadata.
+- [ ] Include executable phases, key decisions, risks, references, and verification.
+
 ## Routing Contract Integration
 
 Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).

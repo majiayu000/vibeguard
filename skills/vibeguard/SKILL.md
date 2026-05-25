@@ -31,6 +31,18 @@ Triggered when user mentions:
 - "risk assessment", "risk scoring"
 - "code quality guard", "guard rules"
 
+## Red Flags
+
+- A new guard or rule is proposed without a corresponding automated detection method.
+- A workflow skips the routing contract or omits the shared handoff fields.
+- A completion claim lacks fresh verification output from the current session.
+
+## Checklist
+
+- [ ] Confirm the task goal, data source, constraints, and done-when condition.
+- [ ] Map the work to the relevant L1-L7 layer before changing rules or hooks.
+- [ ] Run the focused guard, hook, or documentation check that covers the changed surface.
+
 ## Quick review of seven-layer defense architecture
 
 | Hierarchy | Name | Key Tools/Rules |

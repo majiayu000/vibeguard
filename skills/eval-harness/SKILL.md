@@ -15,6 +15,21 @@ Evaluation-driven development: Not just "can the code run", but quantify "how go
 - Comparing prompt, skill, hook, or workflow variants with measurable outcomes.
 - Adding a regression gate that must prove repair without hiding unrelated-task regressions.
 - Converting subjective review criteria into deterministic or model-graded metrics.
+- A guard, hook, workflow, or skill needs measurable repair/regression evidence before adoption.
+- A user asks whether an agent workflow is actually improving quality rather than only passing one example.
+- A change affects scoring, grading, or benchmark thresholds.
+
+## Red Flags
+
+- Only one hand-picked success case exists and there is no held-out or unrelated task coverage.
+- A probabilistic grader is used where a deterministic build, test, lint, or coverage check is available.
+- pass@k improves while pass^k or unrelated-task behavior regresses.
+
+## Checklist
+
+- [ ] Define deterministic checks before adding model-judged grading.
+- [ ] Record target and unrelated scenarios with before/after outcomes.
+- [ ] Report pass@k, pass^k, and regression counts separately.
 
 ## Core indicators
 

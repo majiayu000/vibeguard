@@ -17,6 +17,21 @@ Core principle: **Compress at logical boundaries, not at any time. **
 - Work is crossing a phase boundary such as discovery to implementation or implementation to verification.
 - A session must preserve decisions, modified files, constraints, tests, and unfinished steps.
 - The user asks to compress, checkpoint, or make the current state resumable.
+- A session is about to cross a planning, implementation, validation, or handoff boundary.
+- The context window is close to compaction and important decisions must survive.
+- The user asks to save or preserve state before continuing later.
+
+## Red Flags
+
+- Compression happens midway through an implementation step with unstated file changes.
+- The retained summary omits constraints, modified files, validation commands, or current priority.
+- Exploration transcripts are preserved while actual decisions and blockers are lost.
+
+## Checklist
+
+- [ ] Record the current mission, constraints, modified files, and next step.
+- [ ] Preserve verification commands and whether they passed or failed.
+- [ ] Drop redundant search output after retaining the evidence-backed conclusions.
 
 ## Compress decision table
 
