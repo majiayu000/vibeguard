@@ -11,6 +11,10 @@ Evaluation-driven development: Not just "can the code run", but quantify "how go
 
 ## When to Activate
 
+- Designing or changing an evaluation harness for agent behavior or guard quality.
+- Comparing prompt, skill, hook, or workflow variants with measurable outcomes.
+- Adding a regression gate that must prove repair without hiding unrelated-task regressions.
+- Converting subjective review criteria into deterministic or model-graded metrics.
 - A guard, hook, workflow, or skill needs measurable repair/regression evidence before adoption.
 - A user asks whether an agent workflow is actually improving quality rather than only passing one example.
 - A change affects scoring, grading, or benchmark thresholds.
@@ -23,9 +27,9 @@ Evaluation-driven development: Not just "can the code run", but quantify "how go
 
 ## Checklist
 
-- Define deterministic checks before adding model-judged grading.
-- Record target and unrelated scenarios with before/after outcomes.
-- Report pass@k, pass^k, and regression counts separately.
+- [ ] Define deterministic checks before adding model-judged grading.
+- [ ] Record target and unrelated scenarios with before/after outcomes.
+- [ ] Report pass@k, pass^k, and regression counts separately.
 
 ## Core indicators
 
@@ -83,3 +87,18 @@ Evaluation-driven development: Not just "can the code run", but quantify "how go
 - Code base Grader can reuse guard script output (such as `guards/<lang>/check_*.sh`)
 - Security Grader reference `vibeguard/rules/security.md`
 - Quality Grader reference `vibeguard/rules/universal.md`
+
+## Red Flags
+
+- **No baseline** - a score without previous behavior cannot prove improvement.
+- **Only happy-path samples** - evals that skip failure cases will bless fragile workflows.
+- **Mixed deterministic and model scores** - combining them without labels hides which result is reproducible.
+- **No held-out set** - tuning directly on the decision set overfits the workflow.
+
+## Checklist
+
+- [ ] Define the target behavior, baseline, and pass threshold before running the eval.
+- [ ] Include target repairs and unrelated regression cases.
+- [ ] Label each grader as deterministic or probabilistic.
+- [ ] Persist the artifact path or command output used for the verdict.
+- [ ] Re-run the focused eval after any harness or scoring change.

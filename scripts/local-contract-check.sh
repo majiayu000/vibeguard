@@ -65,7 +65,9 @@ run_check "validate-hooks"           "$REPO_DIR/scripts/ci/validate-hooks.sh"   
 run_check "validate-rules"           "$REPO_DIR/scripts/ci/validate-rules.sh"           "true"
 run_check "validate-doc-paths"       "$REPO_DIR/scripts/ci/validate-doc-paths.sh"       "false"
 run_check "validate-doc-command-paths" "$REPO_DIR/scripts/ci/validate-doc-command-paths.sh" "false"
+run_check "validate-no-personal-paths" "$REPO_DIR/scripts/ci/validate-no-personal-paths.sh" "false"
 run_check "validate-prompt-contract" "$REPO_DIR/scripts/ci/validate-prompt-contract.sh" "true"
+run_check "validate-skill-format"    "$REPO_DIR/scripts/ci/validate-skill-format.sh"    "false"
 
 if [[ "$QUICK" -eq 0 ]]; then
   run_check "doc-freshness (--strict)" "$REPO_DIR/scripts/verify/doc-freshness-check.sh" "true" --strict

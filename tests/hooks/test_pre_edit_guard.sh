@@ -12,6 +12,10 @@ header "pre-edit-guard.sh — anti-hallucination editing"
 result=$(echo '{"tool_input":{"file_path":"/nonexistent/file.rs","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
 assert_contains "$result" '"decision": "block"' "Block editing of non-existent files"
 
+result=$(echo '{"tool_input":{"file_path":"hoks/pre-edit-guard.sh","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
+assert_contains "$result" "Likely candidates" "Missing-file fast path includes candidate heading"
+assert_contains "$result" "${REPO_DIR}/hooks/pre-edit-guard.sh" "Missing-file fast path suggests tracked candidate"
+
 # Paths containing single quotes should be handled safely (without crashing)
 result=$(echo '{"tool_input":{"file_path":"/tmp/file'\''with'\''quotes.rs","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
 assert_contains "$result" '"decision": "block"' "Safe handling of paths containing single quotes"

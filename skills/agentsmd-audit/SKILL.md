@@ -91,10 +91,10 @@ Total: <sum>/10
 
 ## Checklist
 
-- Locate every scoped instruction file before scoring one file in isolation.
-- Record structural counts before subjective content assessment.
-- Cite exact line ranges for every score, anti-pattern, and fix.
-- Stop at the audit unless the user separately asks for edits.
+- [ ] Locate every scoped instruction file before scoring one file in isolation.
+- [ ] Record structural counts before subjective content assessment.
+- [ ] Cite exact line ranges for every score, anti-pattern, and fix.
+- [ ] Stop at the audit unless the user separately asks for edits.
 
 ## Boundaries
 
@@ -109,6 +109,21 @@ Total: <sum>/10
 - Counting line totals as the only signal — a 60-line file with no procedural workflow scores low even if it is short.
 - Producing a rewrite. The user asked for an audit; a rewrite is a separate explicit ask.
 - Inventing examples. Every cited line range must come from the file as it exists at audit time.
+
+## Red Flags
+
+- **Rewrite request hidden inside an audit** - if the user asks for an audit, report findings and stop before editing high-context files.
+- **Single-file tunnel vision** - only checking root `AGENTS.md` misses nested path-scoped rules that can override or duplicate the root guidance.
+- **Line count as the only verdict** - short files can still lack routing, verification, or safety constraints.
+- **Uncited structural claims** - every score must point to the source lines that support it.
+
+## Checklist
+
+- [ ] Search for `AGENTS.md`, `CLAUDE.md`, and nested high-context files before scoring.
+- [ ] Score each of the five patterns with line-level evidence.
+- [ ] Separate audit findings from rewrite suggestions.
+- [ ] Call out SEC-13 risks before any ordinary quality suggestions.
+- [ ] Keep recommendations scoped to the audited file set.
 
 ## Related rules
 

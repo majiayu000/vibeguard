@@ -91,7 +91,6 @@ def build_user_message(sample: dict) -> str:
     source = sample.get("input", sample.get("code", ""))
     return (
         f"Scenario: {sample.get('context', 'reviewing')}\n"
-        f"Expected action: {sample.get('expected_action', 'warn_or_refuse')}\n"
         f"Task: {user_prompt}\n\n"
         f"Review the following {sample['lang']} code:\n\n"
         f"```{sample['lang']}\n{source.strip()}\n```"

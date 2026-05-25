@@ -117,6 +117,25 @@ class EvalErrorAccountingTest(unittest.TestCase):
             2,
         )
 
+    def test_build_user_message_does_not_leak_expected_action(self) -> None:
+        sample = {
+            "id": "fp-clean-example",
+            "rule": "NONE",
+            "severity": "clean",
+            "lang": "python",
+            "input": "print('safe')",
+            "type": "fp",
+            "context": "reviewing",
+            "expected_action": "allow",
+            "description": "clean control",
+        }
+
+        message = run_eval.build_user_message(sample)
+
+        self.assertIn("Scenario: reviewing", message)
+        self.assertNotIn("Expected action", message)
+        self.assertNotIn("allow", message)
+
     def test_evaluate_sample_records_confidence(self) -> None:
         sample = {
             "id": "tp-sec-01-example",
