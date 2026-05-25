@@ -179,16 +179,23 @@ if [[ "$DETAIL" == "FILE_NOT_FOUND" ]]; then
   # Surface likely candidates by basename stem so the agent can correct path
   # hallucinations on the spot instead of re-guessing.
   CANDIDATES=""
+  CANDIDATE_LOOKUP_ERROR=""
   if [[ "${VIBEGUARD_PRE_EDIT_SUGGEST:-1}" == "1" ]]; then
     _MISSING_BASENAME=$(basename "$FILE_PATH")
     _MISSING_STEM="${_MISSING_BASENAME%.*}"
     if [[ -n "$_MISSING_STEM" ]]; then
       _CANDIDATE_REPO=$(git rev-parse --show-toplevel 2>/dev/null || true)
       if [[ -n "$_CANDIDATE_REPO" ]]; then
-        CANDIDATES=$(git -C "$_CANDIDATE_REPO" ls-files 2>/dev/null \
+        _CANDIDATE_FILES=""
+        if ! _CANDIDATE_FILES=$(git -C "$_CANDIDATE_REPO" ls-files 2>&1); then
+          CANDIDATE_LOOKUP_ERROR=$(printf '%s' "$_CANDIDATE_FILES" | sed -n '1p')
+          [[ -z "$CANDIDATE_LOOKUP_ERROR" ]] && CANDIDATE_LOOKUP_ERROR="git ls-files exited non-zero"
+        else
+          CANDIDATES=$(printf '%s\n' "$_CANDIDATE_FILES" \
           | { grep -iF -- "/$_MISSING_STEM" 2>/dev/null || true; } \
           | head -3 \
           | sed "s|^|  ${_CANDIDATE_REPO}/|")
+        fi
       fi
     fi
   fi
@@ -197,6 +204,8 @@ if [[ "$DETAIL" == "FILE_NOT_FOUND" ]]; then
     vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. Likely candidates (by basename stem '${_MISSING_STEM}'):
 ${CANDIDATES}
 Verify which (if any) matches before retrying; do not re-guess the original path. Set VIBEGUARD_PRE_EDIT_SUGGEST=0 to disable candidate hints."
+  elif [[ -n "$CANDIDATE_LOOKUP_ERROR" ]]; then
+    vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. Could not search tracked files for similar paths: ${CANDIDATE_LOOKUP_ERROR}. The AI may have hallucinated the path. Use Glob/Grep to search manually before retrying."
   else
     vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. No similar tracked files found by basename stem. The AI may have hallucinated the path. Use Glob/Grep with a different basename before retrying."
   fi

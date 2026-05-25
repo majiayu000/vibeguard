@@ -13,6 +13,7 @@ REQUIRED_SECTIONS = ("When to Activate", "Red Flags", "Checklist")
 MIN_RED_FLAGS = 3
 MIN_CHECKLIST_ITEMS = 3
 FRONTMATTER_FIELD_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*.*$")
+FRONTMATTER_BLOCK_SCALAR_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*[|>][+-]?\s*(?:#.*)?$")
 
 
 class SkillFormatError(Exception):
@@ -58,12 +59,21 @@ def validate_frontmatter(path: Path, text: str) -> list[str]:
         return errors
 
     frontmatter_lines = lines[1:closing_index]
+    in_block_scalar = False
     for line_number, line in enumerate(frontmatter_lines, start=2):
-        if not line.strip() or line.startswith((" ", "\t")):
+        if not line.strip():
             continue
+        if line.startswith((" ", "\t")):
+            if in_block_scalar:
+                continue
+            errors.append(f"invalid indented frontmatter line before closing delimiter: line {line_number}")
+            return errors
+        in_block_scalar = False
         if not FRONTMATTER_FIELD_PATTERN.match(line):
             errors.append(f"invalid frontmatter line before closing delimiter: line {line_number}")
             return errors
+        if FRONTMATTER_BLOCK_SCALAR_PATTERN.match(line):
+            in_block_scalar = True
 
     frontmatter = "\n".join(frontmatter_lines)
     for field in ("name", "description"):

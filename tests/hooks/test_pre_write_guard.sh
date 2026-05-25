@@ -132,6 +132,8 @@ assert_not_contains "$result" "VIBEGUARD" "escalate: write #3 is also silenced b
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_escalate_4.go"}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "escalate: write #4 blocks after counted source-new attempts"
 assert_contains "$result" "3 new source file attempts" "escalate: block message reports counted attempts"
+assert_contains "$result" "VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0" "escalate: block message names an effective disable knob"
+assert_not_contains "$result" "VIBEGUARD_WRITE_MODE=warn" "escalate: block message does not suggest no-op warn mode"
 
 rm -rf "$cb_state_dir"
 unset VG_CB_THRESHOLD VG_CB_COOLDOWN VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD cb_state_dir

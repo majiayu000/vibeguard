@@ -16,6 +16,37 @@ result=$(echo '{"tool_input":{"file_path":"hoks/pre-edit-guard.sh","old_string":
 assert_contains "$result" "Likely candidates" "Missing-file fast path includes candidate heading"
 assert_contains "$result" "${REPO_DIR}/hooks/pre-edit-guard.sh" "Missing-file fast path suggests tracked candidate"
 
+fallback_hook_dir=$(mktemp -d)
+fake_git_dir=$(mktemp -d)
+cp hooks/pre-edit-guard.sh hooks/log.sh "$fallback_hook_dir/"
+cp -R hooks/_lib "$fallback_hook_dir/_lib"
+cat > "$fallback_hook_dir/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+printf 'FALLBACK\n'
+SH
+chmod +x "$fallback_hook_dir/vibeguard-runtime"
+real_git=$(command -v git)
+cat > "$fake_git_dir/git" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == "rev-parse --show-toplevel" ]]; then
+  pwd
+  exit 0
+fi
+if [[ "$1" == "-C" && "$3" == "ls-files" ]]; then
+  printf 'fatal: unable to read index\n' >&2
+  exit 128
+fi
+exec "$REAL_GIT" "$@"
+SH
+chmod +x "$fake_git_dir/git"
+result=$(REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" \
+  echo '{"tool_input":{"file_path":"missing-pre-edit-guard.sh","old_string":"test"}}' \
+  | REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" bash "$fallback_hook_dir/pre-edit-guard.sh")
+assert_contains "$result" '"decision": "block"' "Missing-file fallback still emits block JSON when candidate lookup fails"
+assert_contains "$result" "Could not search tracked files" "Missing-file fallback reports git ls-files lookup failure"
+assert_exit_zero "fallback lookup failure block output remains valid JSON" python3 -c 'import json, sys; json.loads(sys.argv[1])' "$result"
+rm -rf "$fallback_hook_dir" "$fake_git_dir"
+
 # Paths containing single quotes should be handled safely (without crashing)
 result=$(echo '{"tool_input":{"file_path":"/tmp/file'\''with'\''quotes.rs","old_string":"test"}}' | bash hooks/pre-edit-guard.sh)
 assert_contains "$result" '"decision": "block"' "Safe handling of paths containing single quotes"

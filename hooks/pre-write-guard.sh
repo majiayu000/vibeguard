@@ -120,7 +120,7 @@ print(n)
     cat <<EOF
 {
   "decision": "block",
-  "reason": "VIBEGUARD [L1] [block] [escalation] OBSERVATION: ${PRIOR_SOURCE_NEW_COUNT} new source file attempts in this session went unheeded\nSCOPE: pause new file creation — run Grep for similar function/class names and Glob for same-named files in this repo before any further Write\nACTION: REVIEW — confirm no duplicate exists; to continue creating new files set VIBEGUARD_WRITE_MODE=warn after manual verification, or raise VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD"
+  "reason": "VIBEGUARD [L1] [block] [escalation] OBSERVATION: ${PRIOR_SOURCE_NEW_COUNT} new source file attempts in this session went unheeded\nSCOPE: pause new file creation — run Grep for similar function/class names and Glob for same-named files in this repo before any further Write\nACTION: REVIEW — confirm no duplicate exists; after manual verification start a new session, raise VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD, or set VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0 to disable escalation for this session"
 }
 EOF
     exit 0
