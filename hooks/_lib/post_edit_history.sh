@@ -93,7 +93,8 @@ vg_post_edit_detect_w15_loop() {
   if [[ "${VIBEGUARD_W15_SKIP_DOCS:-1}" == "1" ]]; then
     case "$FILE_PATH" in
       *.md|*.markdown|*.rst|*.txt|*.adoc) return 0 ;;
-      */notes/*|*/docs/daily/*|*/CHANGELOG*|*/TODO*|*/HISTORY*) return 0 ;;
+      notes/*|*/notes/*|docs/daily/*|*/docs/daily/*) return 0 ;;
+      CHANGELOG*|*/CHANGELOG*|TODO*|*/TODO*|HISTORY*|*/HISTORY*) return 0 ;;
     esac
   fi
 

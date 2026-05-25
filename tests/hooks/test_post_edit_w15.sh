@@ -9,7 +9,15 @@ header "post-edit-guard.sh — W-15 spec compliance (size delta semantics)"
 # =========================================================
 
 _w15_dir=$(mktemp -d "$REPO_DIR/.tmp-w15.XXXXXX")
-trap 'rm -rf "$_w15_dir"' EXIT
+_w15_root_files=()
+cleanup_w15() {
+  rm -rf "$_w15_dir" "$VIBEGUARD_LOG_DIR"
+  for file in "${_w15_root_files[@]}"; do
+    rm -f "$REPO_DIR/$file"
+  done
+  rmdir "$REPO_DIR/notes" "$REPO_DIR/docs/daily" "$REPO_DIR/docs" 2>/dev/null || true
+}
+trap cleanup_w15 EXIT
 _w15_project_hash=$(printf '%s' "$REPO_DIR" | shasum -a 256 2>/dev/null | cut -c1-8)
 _w15_log_dir="$VIBEGUARD_LOG_DIR/projects/${_w15_project_hash}"
 _w15_log_file="$_w15_log_dir/events.jsonl"
@@ -59,6 +67,24 @@ result_md=$(printf '{"tool_input":{"file_path":"%s","old_string":"","new_string"
   "$(printf '# section\n%.0s' {1..120})" \
   | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_SESSION_ID="w15-md-session" bash hooks/post-edit-guard.sh)
 assert_not_contains "$result_md" "[W-15]" "W-15 does not fire when markdown sections keep growing"
+
+# ---------------------------------------------------------------------------
+# Case 2b: root-relative doc/notes/TODO paths skip W-15 by default.
+# These paths are common hook inputs and do not include a leading directory.
+# ---------------------------------------------------------------------------
+for root_path in "notes/today" "docs/daily/2026-05-25" "TODO"; do
+  mkdir -p "$(dirname "$REPO_DIR/$root_path")"
+  printf 'item\n' > "$REPO_DIR/$root_path"
+  _w15_root_files+=("$root_path")
+  session="w15-root-doc-${root_path//\//-}"
+  seed_w15_history "$session" "$root_path" 200 100
+  result_root_doc=$(printf '{"tool_input":{"file_path":"%s","old_string":"%s","new_string":"%s"}}' \
+    "$root_path" \
+    "$(printf 'a%.0s' {1..10})" \
+    "$(printf 'b%.0s' {1..60})" \
+    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_SESSION_ID="$session" bash hooks/post-edit-guard.sh)
+  assert_not_contains "$result_root_doc" "[W-15]" "W-15 skips root-relative doc path: $root_path"
+done
 
 # ---------------------------------------------------------------------------
 # Case 3: VIBEGUARD_SUPPRESS_W15=1 honors the downgrade path even when the

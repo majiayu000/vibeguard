@@ -188,7 +188,7 @@ If the information gain shrinks for three consecutive rounds, stop that directio
 
 **Downgrade path** (U-32 compliance):
 - `VIBEGUARD_SUPPRESS_W15=1` skips the detector entirely. Use it when intentionally drafting long documents, checklist files, or any flow where same-file consecutiveness is expected.
-- `VIBEGUARD_W15_SKIP_DOCS=1` (default on) skips documentation, notes, changelog, and TODO paths (`*.md`, `*.markdown`, `*.rst`, `*.txt`, `*.adoc`, `*/notes/*`, `*/docs/daily/*`, `*/CHANGELOG*`, `*/TODO*`, `*/HISTORY*`). Empirically the largest FP class — daily-log append sequences of ~25-30 chars per round stably match the micro-tuning band. Set `VIBEGUARD_W15_SKIP_DOCS=0` to opt back into detection on doc paths.
+- `VIBEGUARD_W15_SKIP_DOCS=1` (default on) skips documentation, notes, changelog, and TODO paths (`*.md`, `*.markdown`, `*.rst`, `*.txt`, `*.adoc`, `notes/*`, `*/notes/*`, `docs/daily/*`, `*/docs/daily/*`, `CHANGELOG*`, `*/CHANGELOG*`, `TODO*`, `*/TODO*`, `HISTORY*`, `*/HISTORY*`). Empirically the largest FP class — daily-log append sequences of ~25-30 chars per round stably match the micro-tuning band. Set `VIBEGUARD_W15_SKIP_DOCS=0` to opt back into detection on doc paths.
 - For one-shot suppression in a single edit, the size-cap (300 chars) already prevents large content additions from triggering.
 
 ## W-16: Verification commands must come from this session (strict)
