@@ -55,9 +55,15 @@ vg_post_edit_detect_w14_overlap() {
 
   [[ -n "$recent_conflict" ]] || return 0
   IFS='|' read -r other_session other_agent other_hook other_tool <<< "$recent_conflict"
-  vg_post_edit_append_warning "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown})
-FIX: Confirm file ownership before continuing; prefer a dedicated worktree or single-owner merge path
-DO NOT: Continue parallel/background edits to this file without explicit ownership"
+  vg_post_edit_append_warning "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown})"'
+FIX: Isolate via a dedicated worktree before continuing. Copy-paste:
+  REPO=$(git rev-parse --show-toplevel) && SID=${VIBEGUARD_SESSION_ID:-$(date +%s)}
+  BASE=${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}
+  case "$BASE" in /*) ;; *) BASE="${REPO}/${BASE}" ;; esac
+  BASE=${BASE%/}
+  git worktree add "$BASE/$SID" -b "vg/$SID" HEAD
+  cd "$BASE/$SID"
+DO NOT: Continue parallel/background edits to this file without an isolated worktree'
   vg_log "post-edit-guard" "Edit" "warn" "w14 overlap recent session ${other_session} agent ${other_agent:-unknown}" "$FILE_PATH"
 }
 

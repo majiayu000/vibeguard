@@ -28,9 +28,9 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 
 ## Checklist
 
-- Capture baseline branch, dirty state, constraints, and known blockers.
-- Convert every finding into a scoped step with owner and validation.
-- Keep exactly one plan item in progress and update it before moving on.
+- [ ] Capture baseline branch, dirty state, constraints, and known blockers.
+- [ ] Convert every finding into a scoped step with owner and validation.
+- [ ] Keep exactly one plan item in progress and update it before moving on.
 
 ## Routing Contract Integration
 
@@ -126,7 +126,7 @@ When Plan Flow proposes child-agent or parallel execution, it must also emit del
 - `scripts/plan_lint.py <plan/file.md>`
   - Validate plan state machine, test evidence, and execution-log completeness for completed steps.
 
-## Trigger Cues
+## When to Activate
 
 Trigger this skill when user asks for:
 - "Analyze what duplicate designs/redundant designs there are in this library"
@@ -140,3 +140,18 @@ Trigger this skill when user asks for:
 - Keep plan language specific to file paths, symbols, and commands.
 - Avoid mixing analysis conclusions with unverified assumptions.
 - If new evidence contradicts earlier assumptions, revise plan before coding.
+
+## Red Flags
+
+- **Plan before duplicate search** - planning without redundancy evidence can institutionalize duplicated design.
+- **Vague tasks** - steps without file paths, symbols, or done conditions are not executable.
+- **Unowned parallel work** - delegated tasks must have disjoint ownership before execution.
+- **Assumptions treated as findings** - every finding needs evidence or an explicit uncertainty marker.
+
+## Checklist
+
+- [ ] Run or document the duplicate/redundancy search before drafting the plan.
+- [ ] Convert findings into scored, phased execution steps.
+- [ ] Include artifacts, runtime pinning, verification owner, stop conditions, and lane map.
+- [ ] Validate the plan with `plan_lint.py` when a plan file is created.
+- [ ] Update the plan when new evidence invalidates an earlier assumption.

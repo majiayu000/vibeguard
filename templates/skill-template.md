@@ -68,6 +68,22 @@ date: YYYY-MM-DD
 2. [Verification Step 2]
 3. [Expected results]
 
+## Red Flags
+
+[List concrete anti-patterns that indicate the skill is being misapplied or the work is drifting.]
+
+- **[Red flag 1]** - [Why this causes a production or delivery failure]
+- **[Red flag 2]** - [Why this causes a production or delivery failure]
+- **[Red flag 3]** - [Why this causes a production or delivery failure]
+
+## Checklist
+
+- [ ] [Activation conditions match this task; otherwise do not use this skill]
+- [ ] [Existing files, rules, hooks, or workflows were searched before adding a new one]
+- [ ] [The solution steps are concrete and testable]
+- [ ] [Verification commands or manual checks are listed with expected results]
+- [ ] [Red flags name real failure modes, not generic advice]
+
 ## Example
 
 **Scenario**: [Specific real case]

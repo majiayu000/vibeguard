@@ -29,9 +29,9 @@ Trigger this skill when the user asks for one or more of:
 
 ## Checklist
 
-- Inventory optimization candidates before selecting work.
-- Prioritize by impact, effort, risk, and confidence.
-- Verify each selected optimization with the smallest command that proves the claimed gain.
+- [ ] Inventory optimization candidates before selecting work.
+- [ ] Prioritize by impact, effort, risk, and confidence.
+- [ ] Verify each selected optimization with the smallest command that proves the claimed gain.
 
 ## Workflow
 
@@ -139,3 +139,18 @@ Expected Gains:
 - Do not claim compatibility if user explicitly requested no compatibility work.
 - Do not include unrelated pre-existing dirty files in commits.
 - Do not hand off without concrete validation evidence.
+
+## Red Flags
+
+- **Optimization without evidence** - a finding needs file, metric, or log evidence before execution.
+- **Scope creep disguised as cleanup** - unrelated refactors should stay out of an optimization pass.
+- **No risk scoring** - effort, impact, risk, and confidence must shape the execution order.
+- **Verification deferred to CI only** - local focused checks should run whenever available.
+
+## Checklist
+
+- [ ] Gather concrete findings before writing an optimization plan.
+- [ ] Score each finding for impact, effort, risk, and confidence.
+- [ ] Select a bounded set of findings for the current execution pass.
+- [ ] Keep changes tied to the selected finding list.
+- [ ] Run and report focused verification for each completed fix.

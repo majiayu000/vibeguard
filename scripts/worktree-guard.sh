@@ -8,7 +8,7 @@
 # bash worktree-guard.sh remove <name> # Delete worktree
 # bash worktree-guard.sh status <name> # Check worktree status
 #
-# worktree is created under .vibeguard/worktrees/, and the branch name is vg/<name>
+# worktree is created under <repo>.wt/ by default, and the branch name is vg/<name>
 
 set -euo pipefail
 
@@ -22,8 +22,56 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-WORKTREE_BASE="${REPO_ROOT}/.vibeguard/worktrees"
 ACTION="${1:-help}"
+
+normalize_worktree_base() {
+  local base="${1%/}"
+  local parent name
+
+  [[ "$base" == /* ]] || base="${REPO_ROOT}/${base}"
+
+  if [[ -d "$base" ]]; then
+    cd "$base" && pwd -P
+    return 0
+  fi
+
+  parent=$(dirname "$base")
+  name=$(basename "$base")
+  if [[ -d "$parent" ]]; then
+    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
+    return 0
+  fi
+
+  printf '%s\n' "$base"
+}
+
+# Default base sits next to the repo (<repo>.wt/) to keep the repo tree clean.
+# Override with VIBEGUARD_WORKTREE_BASE for external SSDs, alternate hosts, etc.
+WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
+LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
+
+same_path() {
+  [[ "${1%/}" == "${2%/}" ]]
+}
+
+resolve_worktree_path() {
+  local name="$1"
+  local path="${WORKTREE_BASE}/${name}"
+
+  if [[ -d "$path" ]]; then
+    printf '%s\n' "$path"
+    return 0
+  fi
+
+  local legacy_path="${LEGACY_WORKTREE_BASE}/${name}"
+  if ! same_path "$legacy_path" "$path" && [[ -d "$legacy_path" ]]; then
+    printf '%s\n' "$legacy_path"
+    return 0
+  fi
+
+  printf '%s\n' "$path"
+  return 1
+}
 
 case "$ACTION" in
   create)
@@ -50,13 +98,44 @@ case "$ACTION" in
     ;;
 
   list)
-    git worktree list | grep -E "\.vibeguard/worktrees" || yellow "No active VibeGuard worktree"
+    LIST_BASES=()
+
+    for base in "$WORKTREE_BASE" "$LEGACY_WORKTREE_BASE"; do
+      duplicate=0
+      # ${arr[@]+...} idiom so empty arrays don't trip `set -u` on bash 3.2.
+      for existing in ${LIST_BASES[@]+"${LIST_BASES[@]}"}; do
+        if same_path "$base" "$existing"; then
+          duplicate=1
+          break
+        fi
+      done
+
+      if [[ "$duplicate" -eq 0 && -d "$base" ]]; then
+        LIST_BASES+=("$(cd "$base" && pwd -P)")
+      fi
+    done
+
+    found=0
+    if [[ "${#LIST_BASES[@]}" -gt 0 ]]; then
+      while IFS= read -r line; do
+        [[ "$line" == worktree\ * ]] || continue
+        path="${line#worktree }"
+        for base in "${LIST_BASES[@]}"; do
+          if [[ "$path" == "$base" || "$path" == "$base"/* ]]; then
+            echo "$path"
+            found=1
+            break
+          fi
+        done
+      done < <(git worktree list --porcelain)
+    fi
+
+    [[ "$found" -eq 1 ]] || yellow "No active VibeGuard worktree"
     ;;
 
   status)
     NAME="${2:?Usage: worktree-guard.sh status <name>}"
-    WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
-    if [[ ! -d "$WORKTREE_PATH" ]]; then
+    if ! WORKTREE_PATH="$(resolve_worktree_path "$NAME")"; then
       red "Error: worktree does not exist: ${WORKTREE_PATH}"
       exit 1
     fi
@@ -72,9 +151,8 @@ case "$ACTION" in
   merge)
     NAME="${2:?Usage: worktree-guard.sh merge <name>}"
     BRANCH="vg/${NAME}"
-    WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
 
-    if [[ ! -d "$WORKTREE_PATH" ]]; then
+    if ! WORKTREE_PATH="$(resolve_worktree_path "$NAME")"; then
       red "Error: worktree does not exist: ${WORKTREE_PATH}"
       exit 1
     fi
@@ -97,9 +175,8 @@ case "$ACTION" in
   remove)
     NAME="${2:?Usage: worktree-guard.sh remove <name>}"
     BRANCH="vg/${NAME}"
-    WORKTREE_PATH="${WORKTREE_BASE}/${NAME}"
 
-    if [[ -d "$WORKTREE_PATH" ]]; then
+    if WORKTREE_PATH="$(resolve_worktree_path "$NAME")"; then
       git worktree remove "$WORKTREE_PATH" --force
       green "Deleted worktree: ${WORKTREE_PATH}"
     else

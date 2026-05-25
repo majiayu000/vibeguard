@@ -127,10 +127,11 @@ If the first `fail` is genuinely a system-level fault (F9), say so without escal
 
 ## Checklist
 
-- Inventory the available trajectory inputs before assigning a failure class.
-- Identify the first unrecoverable step, not the noisiest downstream symptom.
-- Cite the concrete event or missing event that supports each classification.
-- Separate recommendations for the agent, harness, and task prompt.
+- [ ] Identify the first unrecoverable step before naming the root cause.
+- [ ] Cite the exact trajectory evidence for every failed check.
+- [ ] Distinguish model error, tool error, and harness/environment error.
+- [ ] Recommend the smallest prompt, rule, guard, or eval change that would catch this class.
+- [ ] Keep aggregate conclusions out of a single-trajectory review.
 
 ## Related rules
 

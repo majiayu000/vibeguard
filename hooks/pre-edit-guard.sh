@@ -176,8 +176,30 @@ if [[ "$DETAIL" == "TEST_INFRA_PROTECTED" ]]; then
 fi
 
 if [[ "$DETAIL" == "FILE_NOT_FOUND" ]]; then
+  # Surface likely candidates by basename stem so the agent can correct path
+  # hallucinations on the spot instead of re-guessing.
+  CANDIDATES=""
+  if [[ "${VIBEGUARD_PRE_EDIT_SUGGEST:-1}" == "1" ]]; then
+    _MISSING_BASENAME=$(basename "$FILE_PATH")
+    _MISSING_STEM="${_MISSING_BASENAME%.*}"
+    if [[ -n "$_MISSING_STEM" ]]; then
+      _CANDIDATE_REPO=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      if [[ -n "$_CANDIDATE_REPO" ]]; then
+        CANDIDATES=$(git -C "$_CANDIDATE_REPO" ls-files 2>/dev/null \
+          | { grep -iF -- "/$_MISSING_STEM" 2>/dev/null || true; } \
+          | head -3 \
+          | sed "s|^|  ${_CANDIDATE_REPO}/|")
+      fi
+    fi
+  fi
   vg_log "pre-edit-guard" "Edit" "block" "File does not exist" "$FILE_PATH"
-  vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
+  if [[ -n "$CANDIDATES" ]]; then
+    vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. Likely candidates (by basename stem '${_MISSING_STEM}'):
+${CANDIDATES}
+Verify which (if any) matches before retrying; do not re-guess the original path. Set VIBEGUARD_PRE_EDIT_SUGGEST=0 to disable candidate hints."
+  else
+    vg_json_output_kv decision block reason "VIBEGUARD interception: File does not exist - ${FILE_PATH}. No similar tracked files found by basename stem. The AI may have hallucinated the path. Use Glob/Grep with a different basename before retrying."
+  fi
   exit 0
 fi
 

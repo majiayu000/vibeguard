@@ -13,6 +13,10 @@ Core principle: **Compress at logical boundaries, not at any time. **
 
 ## When to Activate
 
+- A long-running task is approaching context limits and needs a compact handoff.
+- Work is crossing a phase boundary such as discovery to implementation or implementation to verification.
+- A session must preserve decisions, modified files, constraints, tests, and unfinished steps.
+- The user asks to compress, checkpoint, or make the current state resumable.
 - A session is about to cross a planning, implementation, validation, or handoff boundary.
 - The context window is close to compaction and important decisions must survive.
 - The user asks to save or preserve state before continuing later.
@@ -25,9 +29,9 @@ Core principle: **Compress at logical boundaries, not at any time. **
 
 ## Checklist
 
-- Record the current mission, constraints, modified files, and next step.
-- Preserve verification commands and whether they passed or failed.
-- Drop redundant search output after retaining the evidence-backed conclusions.
+- [ ] Record the current mission, constraints, modified files, and next step.
+- [ ] Preserve verification commands and whether they passed or failed.
+- [ ] Drop redundant search output after retaining the evidence-backed conclusions.
 
 ## Compress decision table
 
@@ -65,8 +69,17 @@ When it feels like the context is running out:
 3. If appropriate, organize summaries by retention list
 4. Perform compression
 
-## Anti-pattern
+## Red Flags
 
-- Minification mid-implementation → Loss of critical context, resulting in duplication of work
-- Constraints discarded during compression → subsequent steps violate rules
-- No compression until overflow → Passive truncation is more dangerous than active compression
+- **Compacting mid-implementation** - losing the current edit path can cause duplicated or contradictory work.
+- **Dropping constraints** - the next session may violate VibeGuard rules without realizing the guardrail existed.
+- **No modified-file list** - resume work becomes guesswork.
+- **Waiting for overflow** - passive truncation is less reliable than deliberate compression.
+
+## Checklist
+
+- [ ] Preserve current goal, constraints, and done-when criteria.
+- [ ] List modified files and pending verification commands.
+- [ ] Record key decisions and why they were made.
+- [ ] Keep unresolved blockers and next priority explicit.
+- [ ] Remove bulky intermediate search details once the conclusion is captured.
