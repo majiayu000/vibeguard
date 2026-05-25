@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use crate::hook_checks_common::{
     count_lines, is_allowed_new_file, is_clean_rust_fast_path, is_clean_rust_write_fast_path,
@@ -12,6 +13,13 @@ use crate::hook_checks_history::{
 use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_duplicate};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+
+#[derive(Debug, PartialEq, Eq)]
+enum MissingFileCandidates {
+    Found(Vec<String>),
+    Empty,
+    LookupFailed(String),
+}
 
 pub fn pre_write_check(args: &[String]) -> Result {
     let base_limit = args
@@ -119,9 +127,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
             log_file,
             "File does not exist",
             &file_path,
-            &format!(
-                "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
-            ),
+            &missing_file_reason(&file_path),
         )?;
         return Ok(());
     }
@@ -208,6 +214,93 @@ fn write_pre_edit_block(
     println!("FAST_OUTPUT");
     println!("{}", decision_block_json(output_reason));
     Ok(())
+}
+
+fn missing_file_reason(file_path: &str) -> String {
+    let stem = Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim();
+
+    let suggestions_enabled = std::env::var("VIBEGUARD_PRE_EDIT_SUGGEST")
+        .map(|value| value != "0")
+        .unwrap_or(true);
+
+    if !suggestions_enabled {
+        return format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
+        );
+    }
+
+    match missing_file_candidates(file_path, stem) {
+        MissingFileCandidates::Found(candidates) => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. Likely candidates (by basename stem '{stem}'):\n{}\nVerify which (if any) matches before retrying; do not re-guess the original path. Set VIBEGUARD_PRE_EDIT_SUGGEST=0 to disable candidate hints.",
+            candidates
+                .iter()
+                .map(|candidate| format!("  {candidate}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        MissingFileCandidates::Empty => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. No similar tracked files found by basename stem. The AI may have hallucinated the path. Use Glob/Grep with a different basename before retrying."
+        ),
+        MissingFileCandidates::LookupFailed(detail) => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. Could not search tracked files for similar paths: {detail}. The AI may have hallucinated the path. Use Glob/Grep to search manually before retrying."
+        ),
+    }
+}
+
+fn missing_file_candidates(file_path: &str, stem: &str) -> MissingFileCandidates {
+    if stem.is_empty() {
+        return MissingFileCandidates::Empty;
+    }
+
+    let Some(project_dir) = find_project_dir(file_path) else {
+        return MissingFileCandidates::LookupFailed("no git project root found".to_string());
+    };
+
+    let output = match Command::new("git")
+        .arg("-C")
+        .arg(&project_dir)
+        .arg("ls-files")
+        .output()
+    {
+        Ok(output) => output,
+        Err(exc) => {
+            return MissingFileCandidates::LookupFailed(format!(
+                "git ls-files could not run: {exc}"
+            ));
+        }
+    };
+    if !output.status.success() {
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr_text.lines().next().map(str::trim);
+        let detail = match stderr.filter(|line| !line.is_empty()) {
+            Some(line) => format!("git ls-files exited with {}: {line}", output.status),
+            None => format!("git ls-files exited with {}", output.status),
+        };
+        return MissingFileCandidates::LookupFailed(detail);
+    }
+
+    let stem_lower = stem.to_ascii_lowercase();
+    let candidates = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|candidate| {
+            Path::new(candidate)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|candidate_stem| candidate_stem.to_ascii_lowercase().contains(&stem_lower))
+                .unwrap_or(false)
+        })
+        .take(3)
+        .map(|candidate| project_dir.join(candidate).display().to_string())
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        MissingFileCandidates::Empty
+    } else {
+        MissingFileCandidates::Found(candidates)
+    }
 }
 
 fn decision_block_json(reason: &str) -> String {
@@ -381,6 +474,37 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    fn temp_project(name: &str) -> PathBuf {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "vibeguard_runtime_hook_checks_{name}_{}_{}",
+            std::process::id(),
+            unique
+        ))
+    }
+
+    fn init_git_repo(root: &Path) -> io::Result<()> {
+        fs::create_dir_all(root)?;
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("init")
+            .arg("-q")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
+    }
 
     #[test]
     fn decision_block_json_escapes_reason_text() {
@@ -402,6 +526,57 @@ mod tests {
         assert!(pre_edit.to_string().contains("pre-edit-check"));
         assert!(post_edit.to_string().contains("post-edit-fast-check"));
         assert!(post_write.to_string().contains("post-write-fast-check"));
+    }
+
+    #[test]
+    fn missing_file_candidates_distinguishes_empty_from_lookup_failure() -> TestResult {
+        let root = temp_project("empty");
+        init_git_repo(&root)?;
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir)?;
+        let tracked = src_dir.join("lib.rs");
+        fs::write(&tracked, "pub fn lib() {}\n")?;
+        let add_output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("src/lib.rs")
+            .output()?;
+        assert!(
+            add_output.status.success(),
+            "git add failed: {}",
+            String::from_utf8_lossy(&add_output.stderr)
+        );
+
+        let missing = root.join("src").join("missing_name.rs");
+        assert_eq!(
+            missing_file_candidates(missing.to_string_lossy().as_ref(), "missing_name"),
+            MissingFileCandidates::Empty
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn missing_file_candidates_reports_git_lookup_failure() -> TestResult {
+        let root = temp_project("bad_git");
+        fs::create_dir_all(root.join(".git"))?;
+        fs::create_dir_all(root.join("src"))?;
+        let missing = root.join("src").join("lib.rs");
+
+        let result = missing_file_candidates(missing.to_string_lossy().as_ref(), "lib");
+        assert!(
+            matches!(
+                result,
+                MissingFileCandidates::LookupFailed(ref detail)
+                    if detail.contains("git ls-files")
+            ),
+            "expected lookup failure that names git ls-files, got {result:?}"
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[test]
