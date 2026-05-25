@@ -38,14 +38,40 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-WORKTREE_BASE="${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}"
-LEGACY_WORKTREE_BASE="${REPO_ROOT}/.vibeguard/worktrees"
+
+normalize_worktree_base() {
+  local base="${1%/}"
+  local parent name
+
+  [[ "$base" == /* ]] || base="${REPO_ROOT}/${base}"
+
+  if [[ -d "$base" ]]; then
+    cd "$base" && pwd -P
+    return 0
+  fi
+
+  parent=$(dirname "$base")
+  name=$(basename "$base")
+  if [[ -d "$parent" ]]; then
+    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
+    return 0
+  fi
+
+  printf '%s\n' "$base"
+}
+
+same_path() {
+  [[ "${1%/}" == "${2%/}" ]]
+}
+
+WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
+LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
 
 WORKTREE_DIRS=()
 [[ -d "$WORKTREE_BASE" ]] && WORKTREE_DIRS+=("$WORKTREE_BASE")
 # Back-compat: pre-feature/wt-base-config worktrees lived in-repo. Scan them too
 # so they still get cleaned, even when the new base is set elsewhere.
-if [[ "$LEGACY_WORKTREE_BASE" != "$WORKTREE_BASE" && -d "$LEGACY_WORKTREE_BASE" ]]; then
+if ! same_path "$LEGACY_WORKTREE_BASE" "$WORKTREE_BASE" && [[ -d "$LEGACY_WORKTREE_BASE" ]]; then
   WORKTREE_DIRS+=("$LEGACY_WORKTREE_BASE")
 fi
 

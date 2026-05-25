@@ -22,11 +22,33 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
+ACTION="${1:-help}"
+
+normalize_worktree_base() {
+  local base="${1%/}"
+  local parent name
+
+  [[ "$base" == /* ]] || base="${REPO_ROOT}/${base}"
+
+  if [[ -d "$base" ]]; then
+    cd "$base" && pwd -P
+    return 0
+  fi
+
+  parent=$(dirname "$base")
+  name=$(basename "$base")
+  if [[ -d "$parent" ]]; then
+    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
+    return 0
+  fi
+
+  printf '%s\n' "$base"
+}
+
 # Default base sits next to the repo (<repo>.wt/) to keep the repo tree clean.
 # Override with VIBEGUARD_WORKTREE_BASE for external SSDs, alternate hosts, etc.
-WORKTREE_BASE="${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}"
-LEGACY_WORKTREE_BASE="${REPO_ROOT}/.vibeguard/worktrees"
-ACTION="${1:-help}"
+WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
+LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
 
 same_path() {
   [[ "${1%/}" == "${2%/}" ]]

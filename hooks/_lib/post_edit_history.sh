@@ -58,8 +58,11 @@ vg_post_edit_detect_w14_overlap() {
   vg_post_edit_append_warning "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown})"'
 FIX: Isolate via a dedicated worktree before continuing. Copy-paste:
   REPO=$(git rev-parse --show-toplevel) && SID=${VIBEGUARD_SESSION_ID:-$(date +%s)}
-  git worktree add "${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}/$SID" -b vg/$SID HEAD
-  cd "${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}/$SID"
+  BASE=${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}
+  case "$BASE" in /*) ;; *) BASE="${REPO}/${BASE}" ;; esac
+  BASE=${BASE%/}
+  git worktree add "$BASE/$SID" -b "vg/$SID" HEAD
+  cd "$BASE/$SID"
 DO NOT: Continue parallel/background edits to this file without an isolated worktree'
   vg_log "post-edit-guard" "Edit" "warn" "w14 overlap recent session ${other_session} agent ${other_agent:-unknown}" "$FILE_PATH"
 }

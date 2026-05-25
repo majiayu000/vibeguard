@@ -81,4 +81,27 @@ status_output="$(
 
 assert_contains "$status_output" "Path: ${legacy_status_path}" "status resolves legacy worktree fallback"
 
+header "worktree-guard.sh relative base"
+
+relative_base="../relative.wt"
+relative_base_abs="$(cd "$TMP_ROOT" && pwd -P)/relative.wt"
+mkdir -p "${fixture_repo}/subdir"
+
+(
+  cd "$fixture_repo"
+  VIBEGUARD_WORKTREE_BASE="$relative_base" bash "$REPO_DIR/scripts/worktree-guard.sh" create relative >/dev/null
+)
+
+relative_list_output="$(
+  cd "${fixture_repo}/subdir"
+  VIBEGUARD_WORKTREE_BASE="$relative_base" bash "$REPO_DIR/scripts/worktree-guard.sh" list
+)"
+relative_status_output="$(
+  cd "${fixture_repo}/subdir"
+  VIBEGUARD_WORKTREE_BASE="$relative_base" bash "$REPO_DIR/scripts/worktree-guard.sh" status relative
+)"
+
+assert_contains "$relative_list_output" "${relative_base_abs}/relative" "list resolves relative base against repo root"
+assert_contains "$relative_status_output" "Path: ${relative_base_abs}/relative" "status resolves relative base against repo root"
+
 finish
