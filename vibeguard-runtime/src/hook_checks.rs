@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use crate::hook_checks_common::{
     count_lines, is_allowed_new_file, is_clean_rust_fast_path, is_clean_rust_write_fast_path,
@@ -119,9 +120,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
             log_file,
             "File does not exist",
             &file_path,
-            &format!(
-                "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
-            ),
+            &missing_file_reason(&file_path),
         )?;
         return Ok(());
     }
@@ -208,6 +207,76 @@ fn write_pre_edit_block(
     println!("FAST_OUTPUT");
     println!("{}", decision_block_json(output_reason));
     Ok(())
+}
+
+fn missing_file_reason(file_path: &str) -> String {
+    let stem = Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim();
+
+    let suggestions_enabled = std::env::var("VIBEGUARD_PRE_EDIT_SUGGEST")
+        .map(|value| value != "0")
+        .unwrap_or(true);
+
+    if !suggestions_enabled {
+        return format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
+        );
+    }
+
+    let candidates = missing_file_candidates(file_path, stem);
+    if candidates.is_empty() {
+        return format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. No similar tracked files found by basename stem. The AI may have hallucinated the path. Use Glob/Grep with a different basename before retrying."
+        );
+    }
+
+    format!(
+        "VIBEGUARD interception: File does not exist - {file_path}. Likely candidates (by basename stem '{stem}'):\n{}\nVerify which (if any) matches before retrying; do not re-guess the original path. Set VIBEGUARD_PRE_EDIT_SUGGEST=0 to disable candidate hints.",
+        candidates
+            .iter()
+            .map(|candidate| format!("  {candidate}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn missing_file_candidates(file_path: &str, stem: &str) -> Vec<String> {
+    if stem.is_empty() {
+        return Vec::new();
+    }
+
+    let Some(project_dir) = find_project_dir(file_path) else {
+        return Vec::new();
+    };
+
+    let Ok(output) = Command::new("git")
+        .arg("-C")
+        .arg(&project_dir)
+        .arg("ls-files")
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let stem_lower = stem.to_ascii_lowercase();
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|candidate| {
+            Path::new(candidate)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|candidate_stem| candidate_stem.to_ascii_lowercase().contains(&stem_lower))
+                .unwrap_or(false)
+        })
+        .take(3)
+        .map(|candidate| project_dir.join(candidate).display().to_string())
+        .collect()
 }
 
 fn decision_block_json(reason: &str) -> String {
