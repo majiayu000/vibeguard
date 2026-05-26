@@ -1,7 +1,7 @@
 # SPEC: Codex Experience Remediation
 
 - Date: 2026-05-05
-- Status: P0-P2 implemented, P3 optional
+- Status: P0-P2 implemented, P3 optional; Codex rule compiler follow-up open
 - Owner: VibeGuard setup/runtime
 - Scope: Codex CLI native hooks, AGENTS rule distribution, setup/check UX, regression tests
 - Related files: `AGENTS.md`, `claude-md/vibeguard-rules.md`, `templates/AGENTS.md`, `scripts/setup/targets/codex-home.sh`, `scripts/setup/install.sh`, `scripts/lib/codex_hooks_json.py`, `hooks/run-hook-codex.sh`, `hooks/_lib/codex_adapter.sh`, `tests/test_setup.sh`, `tests/test_codex_runtime.sh`, `tests/test_hook_health.sh`
@@ -31,6 +31,14 @@ P1-P2 are also implemented:
 
 P3 remains optional: `codex debug prompt-input` proof is still version-gated and should be added only if the local Codex CLI keeps that debug surface stable.
 
+2026-05-26 follow-up: Claude Code and Codex have different rule-loading
+products. Claude Code natively discovers `.claude/rules/**/*.md` and
+`~/.claude/rules/**/*.md`, with `paths` frontmatter providing path-scoped rule
+activation. Codex source inspection shows `AGENTS.md` / `AGENTS.override.md`
+assembly for model-visible instructions, while `~/.codex/rules/*.rules` is used
+for command execution policy. VibeGuard must not document Codex as loading
+`rules/claude-rules/**` natively.
+
 ## Non-goals
 
 - Do not claim Claude Code parity for Codex native hooks.
@@ -49,6 +57,8 @@ P3 remains optional: `codex debug prompt-input` proof is still version-gated and
 - `hooks/run-hook-codex.sh` sets `VIBEGUARD_CLI=codex` and `VIBEGUARD_AGENT_TYPE=codex`, then adapts Claude-style hook output to Codex output.
 - The latest audit found that `~/.codex/AGENTS.md` can contain marker-external content after the managed block, while `setup.sh --check` still reports OK.
 - `~/.codex/config.toml` and `~/.codex/hooks.json` are shared files that other tools may legitimately mutate; whole-file checksum drift can be noisy even when VibeGuard-managed semantics remain healthy.
+- VibeGuard's Claude Code setup symlinks `rules/claude-rules/**` into `~/.claude/rules/vibeguard/`; language-specific files use `paths` frontmatter such as `**/*.rs,**/Cargo.toml,**/Cargo.lock`.
+- Codex CLI source-level behavior is separate: `AGENTS.md` content is assembled as user instructions, while `~/.codex/rules/default.rules` contains `prefix_rule(...)` command policy entries.
 
 ## Inferences
 
@@ -56,6 +66,10 @@ P3 remains optional: `codex debug prompt-input` proof is still version-gated and
 - Global `~/.codex/AGENTS.md` should contain only cross-repo durable rules. Repo-specific facts such as "no ORM, no front-end framework, no microservices" belong in a repo-level `AGENTS.md`.
 - Wrapper-level silent exits are acceptable for normal Codex UX only if there is a separate diagnostic path. Without that path, broken installs look like "VibeGuard did nothing."
 - A Codex-specific contract gate is needed because generic local checks do not currently prove AGENTS visibility, native payload shape, or Codex status output.
+- The remaining runtime parity gap is a product-design difference, not a model
+  capability difference: Claude Code has native path-scoped markdown rules;
+  Codex currently requires VibeGuard to compile selected rule content into
+  `AGENTS.md`.
 
 ## Requirements
 
@@ -108,6 +122,34 @@ Done-when:
 - VibeGuard repo root has an `AGENTS.md` carrying local repo constraints.
 - `templates/AGENTS.md` no longer claims equivalence to full `CLAUDE.md` unless it actually carries the same contract.
 - `templates/AGENTS.md` no longer conflicts with U-16.
+
+### R2.5: Codex Rule Compiler
+
+Codex needs a compiler layer for Claude-style rule sources because it does not
+load `rules/claude-rules/**` as native model-visible instructions.
+
+Compiler requirements:
+
+- Input: canonical rule markdown under `rules/claude-rules/**`.
+- Parse frontmatter `paths` as selection metadata, preserving rule body text.
+- Always include broadly applicable `common/` rules unless an explicit mode
+  excludes them.
+- Select language rules by one of:
+  - explicit `--languages rust,python,...`
+  - project file scan matching frontmatter globs
+  - future task-path hints when available
+- Render compact Codex output for `~/.codex/AGENTS.md` or repo-level
+  `AGENTS.md`; do not write to `~/.codex/rules/` for model-visible rules.
+- Keep output size bounded and prefer rule IDs plus concise constraints over
+  inlining every long explanation.
+
+Done-when:
+
+- A mixed-language fixture proves Rust/Python/TypeScript/Go rule selection.
+- `setup.sh --codex-status` reports which rule bundle mode is installed.
+- Documentation states that Codex `*.rules` files are exec policy only.
+- `bash scripts/ci/validate-doc-paths.sh` and
+  `bash scripts/ci/validate-doc-command-paths.sh` pass after docs changes.
 
 ### R3: AGENTS Hygiene and SEC-13 Check
 
@@ -281,6 +323,26 @@ Verification:
 - `docs/internal/plans/agent-rules-distribution.md`
   - update status as steps land
 
+### P4: Codex Rule Compiler
+
+- `scripts/setup/targets/codex-home.sh`
+  - add a selected/full compiler mode for Codex rule bundles
+- a new helper under `scripts/lib/`
+  - parse Claude-style rule frontmatter and select rules by language or project
+    file scan
+- `tests/`
+  - add mixed-language fixture coverage for compiler selection and rendered
+    bundle size
+- `docs/how/memory-files.md`
+  - document Claude Code native rules vs Codex compiled AGENTS path
+
+Verification:
+
+- focused compiler tests
+- `bash setup.sh --codex-status`
+- `bash scripts/ci/validate-doc-paths.sh`
+- `bash scripts/ci/validate-doc-command-paths.sh`
+
 Verification:
 
 - the optional prompt-input test created in P3
@@ -360,3 +422,5 @@ handoff:
 - Need a current-session `codex debug prompt-input` proof before claiming Codex prompt visibility beyond file presence.
 - Need a real native Bash `PostToolUse` payload sample from Codex logs or controlled hook fixture before changing `post-build-check` behavior.
 - Need to decide whether the status command is `setup.sh --codex-status`, `setup.sh --check --codex`, or a standalone script under `scripts/`.
+- Need to decide compiler UX: `summary`, `selected`, or `full` bundle modes,
+  and whether language selection is explicit, inferred from repo files, or both.

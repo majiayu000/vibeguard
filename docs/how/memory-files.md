@@ -2,6 +2,10 @@
 
 Claude Code loads several memory surfaces automatically at session start. VibeGuard builds on top of them so that behavior constraints, reusable rules, and project memory persist across sessions.
 
+Codex uses a different product contract. It automatically assembles user
+instructions from `AGENTS.md` / `AGENTS.override.md`; its `~/.codex/rules/*.rules`
+files are command execution policy files, not model-visible rule documents.
+
 ## Three file classes, three responsibilities
 
 ### 1. `CLAUDE.md` — Constitution
@@ -69,6 +73,44 @@ Session start
 ```
 
 If more detail is needed, the agent can then load linked docs, plans, or project memory files on demand.
+
+## Claude Code and Codex rule loading
+
+Claude Code has a native rule-loading surface. Markdown files under
+`.claude/rules/` and `~/.claude/rules/` are discovered recursively. Rules
+without `paths` frontmatter are loaded at launch; path-scoped rules load when
+Claude reads matching files. VibeGuard uses this by symlinking
+`rules/claude-rules/**` into `~/.claude/rules/vibeguard/`.
+
+Example language rule:
+
+```yaml
+---
+paths: **/*.rs,**/Cargo.toml,**/Cargo.lock
+---
+```
+
+That is why Claude Code appears to load language-specific VibeGuard rules: the
+runtime matches task files against `paths`, not because the model guesses a
+language from the prompt.
+
+Codex does not currently have an equivalent native markdown rule directory. Its
+durable reasoning surface is:
+
+- global `~/.codex/AGENTS.md`
+- repo-level `AGENTS.md`
+- deeper `AGENTS.md` / `AGENTS.override.md` files closer to the working
+  directory
+
+For VibeGuard, the practical Codex path is therefore a rule compiler: parse the
+Claude-style rule source under `rules/claude-rules/**`, select the rules that
+match the requested languages or project files, and render a compact
+Codex-friendly bundle into `AGENTS.md` rather than relying on `~/.codex/rules/`.
+
+References:
+
+- Claude Code memory and rules: <https://code.claude.com/docs/en/memory>
+- Claude Code `.claude` directory: <https://code.claude.com/docs/en/claude-directory>
 
 ## Relationship with hooks
 
