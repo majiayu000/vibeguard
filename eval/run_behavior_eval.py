@@ -46,6 +46,14 @@ class BehaviorDatasetError(ValueError):
     """Raised when a behavior eval dataset cannot be trusted."""
 
 
+def timeout_stream_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value
+
+
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as f:
@@ -141,8 +149,8 @@ def evaluate_sample(sample: dict[str, Any], repo_root: Path, timeout_seconds: fl
                 "passed": False,
                 "status": "fail",
                 "error": f"timed out after {timeout_seconds:g}s",
-                "stdout": exc.stdout or "",
-                "stderr": exc.stderr or "",
+                "stdout": timeout_stream_text(exc.stdout),
+                "stderr": timeout_stream_text(exc.stderr),
                 "checks": [{"name": "timeout", "passed": False}],
             }
 

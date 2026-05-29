@@ -33,9 +33,24 @@ perf_ok_nearby() {
 }
 
 line_is_comment() {
+  local line="$1"
+  [[ "${line}" =~ ^[[:space:]]*# ]]
+}
+
+find_command_has_maxdepth() {
   local file="$1"
   local line_no="$2"
-  sed -n "${line_no}p" "$file" 2>/dev/null | grep -q '^[[:space:]]*#'
+  local command="$3"
+  local next_line next_no
+
+  next_no="${line_no}"
+  while [[ "${command}" =~ \\[[:space:]]*$ ]]; do
+    next_no=$((next_no + 1))
+    next_line="$(sed -n "${next_no}p" "${file}" 2>/dev/null || true)"
+    command="${command%\\}${next_line}"
+  done
+
+  [[ "${command}" == *"-maxdepth"* ]]
 }
 
 echo "======================================"
@@ -49,9 +64,9 @@ echo "[PERF-01] Unbounded JSONL file read in Python"
 while IFS= read -r file; do
   # Check for Python code that opens log_file/events file directly
   OPEN_VIOLATION=false
-  while IFS=: read -r line_no _line; do
+  while IFS=: read -r line_no line; do
     [[ -z "${line_no}" ]] && continue
-    if ! line_is_comment "$file" "$line_no" && ! perf_ok_nearby "$file" "$line_no"; then
+    if ! line_is_comment "$line" && ! perf_ok_nearby "$file" "$line_no"; then
       OPEN_VIOLATION=true
     fi
   done < <(grep -n 'with open(log_file)' "$file" 2>/dev/null || true)
@@ -79,7 +94,10 @@ while IFS= read -r file; do
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       line_no="${line%%:*}"
-      if perf_ok_nearby "$file" "$line_no"; then
+      command="${line#*:}"
+      if find_command_has_maxdepth "$file" "$line_no" "$command"; then
+        green "${file##*/}:${line_no}: bounded find"
+      elif perf_ok_nearby "$file" "$line_no"; then
         green "${file##*/}:${line_no}: documented unbounded find"
       else
         red "${file##*/}:${line}"
@@ -114,7 +132,7 @@ while IFS= read -r file; do
   LINE_NUM=0
   while IFS= read -r line; do
     LINE_NUM=$((LINE_NUM + 1))
-    if line_is_comment "$file" "$LINE_NUM"; then
+    if line_is_comment "$line"; then
       continue
     fi
     case "$line" in

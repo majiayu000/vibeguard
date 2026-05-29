@@ -40,6 +40,10 @@ class BehaviorEvalTest(unittest.TestCase):
 
         self.assertTrue(all(check["passed"] for check in checks))
 
+    def test_timeout_stream_text_decodes_bytes(self) -> None:
+        self.assertEqual(run_behavior_eval.timeout_stream_text(b"partial\n"), "partial\n")
+        self.assertEqual(run_behavior_eval.timeout_stream_text(None), "")
+
     def test_missing_required_coverage_reduces_score_and_fails(self) -> None:
         samples = [
             {

@@ -191,6 +191,8 @@ def check_policy(hook_name: str, user_config: str) -> tuple[int, str]:
     enforcement = config.get("enforcement", "block")
     if enforcement == "off":
         return SKIP, "VibeGuard policy skip: enforcement=off"
+    if enforcement == "warn":
+        return ALLOW, "VibeGuard policy warn: enforcement=warn"
 
     disabled_hooks = config.get("disabled_hooks", [])
     if isinstance(disabled_hooks, list) and canonical_hook in disabled_hooks:

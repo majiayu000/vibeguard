@@ -54,6 +54,10 @@ assert_cmd "eval support modules syntax is correct" python3 -m py_compile \
   "${REPO_DIR}/eval/scoring.py" \
   "${REPO_DIR}/eval/artifacts.py" \
   "${REPO_DIR}/eval/samples.py"
+assert_cmd "eval.samples package import works from repo root" bash -c "cd '${REPO_DIR}' && python3 - <<'PY'
+import eval.samples
+assert eval.samples.SAMPLES
+PY"
 
 header "dry-run uses repository snapshot by default"
 dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run)"

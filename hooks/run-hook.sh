@@ -48,6 +48,7 @@ fi
 source "${POLICY_PATH}"
 policy_status=0
 vg_policy_check_hook "${HOOK_NAME}" || policy_status=$?
+export VIBEGUARD_POLICY_ENFORCEMENT="${VG_POLICY_ENFORCEMENT:-block}"
 if [[ ${policy_status} -eq 10 ]]; then
   vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
   exit 0
@@ -60,5 +61,15 @@ fi
 # Ensure Python writes UTF-8 regardless of the terminal's default encoding (fixes Windows CP-1252)
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
+
+if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
+  hook_output=""
+  hook_status=0
+  hook_output="$(bash "$HOOK_PATH" "$@" 2>&1)" || hook_status=$?
+  if [[ -n "${hook_output}" ]]; then
+    vg_policy_downgrade_output "${hook_output}"
+  fi
+  exit "${hook_status}"
+fi
 
 exec bash "$HOOK_PATH" "$@"

@@ -100,6 +100,12 @@ struct SharedState {
     session: SessionState,
 }
 
+enum StdoutSignal {
+    RequestStarted,
+    RequestFinished,
+    Done,
+}
+
 fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(), Box<dyn Error>> {
     let mut child = Command::new("bash")
         .arg("-lc")
@@ -148,7 +154,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
 
     let stdout_shared = Arc::clone(&shared);
     let stdout_writer = Arc::clone(&child_stdin);
-    let (stdout_done_tx, stdout_done_rx) = mpsc::channel();
+    let (stdout_signal_tx, stdout_signal_rx) = mpsc::channel();
     let t_out = thread::spawn(move || {
         let reader = BufReader::new(child_stdout);
         for mut line in reader.lines().map_while(Result::ok) {
@@ -157,6 +163,9 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                 if message.is_object() {
                     let method_is_string = message.get("method").and_then(Value::as_str).is_some();
                     if method_is_string && message.get("id").is_some() {
+                        if stdout_signal_tx.send(StdoutSignal::RequestStarted).is_err() {
+                            break;
+                        }
                         let mut server_writes = Vec::new();
                         if let Ok(mut guard) = stdout_shared.lock() {
                             let mut session = std::mem::take(&mut guard.session);
@@ -171,6 +180,12 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                             guard.session = session;
                         }
                         write_values_to_child(&stdout_writer, server_writes);
+                        if stdout_signal_tx
+                            .send(StdoutSignal::RequestFinished)
+                            .is_err()
+                        {
+                            break;
+                        }
                     } else if method_is_string {
                         if let Ok(mut guard) = stdout_shared.lock() {
                             let mut session = std::mem::take(&mut guard.session);
@@ -186,7 +201,9 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                 let _ = std::io::stdout().flush();
             }
         }
-        let _ = stdout_done_tx.send(());
+        if stdout_signal_tx.send(StdoutSignal::Done).is_err() {
+            return;
+        }
     });
 
     let t_err = thread::spawn(move || {
@@ -197,9 +214,10 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     });
 
     let _ = t_in.join();
-    // Client EOF may be the shutdown signal. Give the child a drain window for
-    // responses triggered by the final input, then propagate EOF.
-    if stdout_done_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+    // Client EOF may arrive while the server is still asking for a final
+    // approval. Keep stdin open until in-flight server requests finish, then
+    // give the child one quiet drain window before propagating EOF.
+    if !wait_for_stdout_drain(&stdout_signal_rx, Duration::from_secs(2)) {
         close_child_stdin(&child_stdin);
     }
     let _ = t_out.join();
@@ -207,6 +225,24 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     let _ = t_err.join();
     let status = child.wait()?;
     std::process::exit(status.code().unwrap_or(1));
+}
+
+fn wait_for_stdout_drain(signals: &mpsc::Receiver<StdoutSignal>, quiet_window: Duration) -> bool {
+    let mut active_requests = 0usize;
+    loop {
+        match signals.recv_timeout(quiet_window) {
+            Ok(StdoutSignal::RequestStarted) => {
+                active_requests = active_requests.saturating_add(1);
+            }
+            Ok(StdoutSignal::RequestFinished) => {
+                active_requests = active_requests.saturating_sub(1);
+            }
+            Ok(StdoutSignal::Done) => return true,
+            Err(mpsc::RecvTimeoutError::Timeout) if active_requests == 0 => return false,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return true,
+        }
+    }
 }
 
 fn write_line_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, line: &str) {
@@ -275,5 +311,29 @@ mod tests {
         let err = parse_args(&strings(&["--missing"])).expect_err("unknown arg should fail");
 
         assert!(err.to_string().contains("unknown argument: --missing"));
+    }
+
+    #[test]
+    fn stdout_drain_waits_for_in_flight_request() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        assert!(tx.send(StdoutSignal::RequestStarted).is_ok());
+        let finish_tx = tx.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            assert!(finish_tx.send(StdoutSignal::RequestFinished).is_ok());
+        });
+        let started = std::time::Instant::now();
+
+        assert!(!wait_for_stdout_drain(&rx, Duration::from_millis(5)));
+        assert!(started.elapsed() >= Duration::from_millis(25));
+        assert!(handle.join().is_ok());
+    }
+
+    #[test]
+    fn stdout_drain_finishes_when_stdout_is_done() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        assert!(tx.send(StdoutSignal::Done).is_ok());
+
+        assert!(wait_for_stdout_drain(&rx, Duration::from_millis(5)));
     }
 }

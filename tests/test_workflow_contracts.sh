@@ -100,6 +100,37 @@ assert_cmd "workflow contract helper syntax is correct" python3 -m py_compile "$
 assert_cmd "workflow contracts validate" python3 "${HELPER}" validate
 required_out="$(python3 "${HELPER}" list-required execution_handoff)"
 assert_contains "${required_out}" "runtime_pinning_snapshot" "handoff required fields come from schema"
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/workflow-routing-decision.schema.json").read_text(encoding="utf-8"))
+payload = {
+    "readiness": {
+        "decision": "clarify_first",
+        "reason": "Need scope confirmation",
+        "blocking_questions": ["Which path is in scope?"],
+    }
+}
+errors = module.validate_instance(payload, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "routing schema accepts snake_case blocking_questions"
+  PASS=$((PASS + 1))
+else
+  red "routing schema accepts snake_case blocking_questions"
+  FAIL=$((FAIL + 1))
+fi
 
 header "consumer drift failures"
 HANDOFF_FIXTURE="${TMP_DIR}/handoff"

@@ -87,6 +87,67 @@ hook_test_init() {
   trap 'rm -rf "$VIBEGUARD_LOG_DIR"' EXIT
 }
 
+hook_test_install_runtime_stub() {
+  local home_dir="$1"
+  local runtime="${home_dir}/.vibeguard/installed/bin/vibeguard-runtime"
+  mkdir -p "$(dirname "$runtime")"
+  cat > "$runtime" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+  json-field)
+    strict=0
+    if [[ "${1:-}" == "--strict" ]]; then
+      strict=1
+      shift
+    fi
+    field="${1:-}"
+    input="$(cat)"
+    RUNTIME_INPUT="$input" python3 - "$field" "$strict" <<'PY'
+import json
+import os
+import sys
+
+field = sys.argv[1]
+strict = sys.argv[2] == "1"
+try:
+    value = json.loads(os.environ.get("RUNTIME_INPUT", ""))
+    for part in field.split("."):
+        value = value[part]
+except Exception:
+    if strict:
+        raise SystemExit(1)
+    print("")
+    raise SystemExit(0)
+if value is None:
+    if strict:
+        raise SystemExit(1)
+    print("")
+elif isinstance(value, str):
+    print(value)
+else:
+    print(json.dumps(value))
+PY
+    ;;
+  pkg-rewrite)
+    cat >/dev/null
+    ;;
+  pre-write-check)
+    cat >/dev/null
+    printf 'PASS\n'
+    ;;
+  *)
+    cat >/dev/null || true
+    ;;
+esac
+STUB
+  chmod +x "$runtime"
+}
+
 hook_test_finish() {
   echo
   echo "=============================="

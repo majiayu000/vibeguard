@@ -91,6 +91,20 @@ assert_not_contains "${hooks_out}" "skills-loader" "manual hooks are not exposed
 rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source canonical --scope common)"
 assert_contains "${rules_out}" "W-17" "canonical common rule ids include W-17"
 assert_contains "${rules_out}" "U-32" "canonical common rule ids include U-32"
+common_paths_out="$(python3 - "${REPO_DIR}/schemas/install-modules.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for module in manifest["modules"]:
+    if module.get("id") == "rules-common":
+        print("\n".join(module["paths"]))
+        break
+PY
+)"
+assert_contains "${common_paths_out}" "rules/claude-rules/common/agent-harness-audit.md" "rules-common installs W-30 rule file"
+assert_contains "${common_paths_out}" "rules/claude-rules/common/long-horizon-reliability.md" "rules-common installs W-42 rule file"
 reference_rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source reference)"
 assert_contains "${reference_rules_out}" "TASTE-ANSI" "reference rule ids include TASTE-prefixed rules"
 claude_skills_out="$(python3 "${MANIFEST_HELPER}" skill-links --target "~/.claude/skills/")"

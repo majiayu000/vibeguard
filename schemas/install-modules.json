@@ -7,10 +7,12 @@
       "kind": "rules",
       "description": "Common rules (U-series, W-series, SEC-series)",
       "paths": [
+        "rules/claude-rules/common/agent-harness-audit.md",
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",
         "rules/claude-rules/common/execution-pinning.md",
         "rules/claude-rules/common/fact-inference-separation.md",
+        "rules/claude-rules/common/long-horizon-reliability.md",
         "rules/claude-rules/common/no-silent-degradation.md",
         "rules/claude-rules/common/publish-action-confirmation.md",
         "rules/claude-rules/common/security.md",

@@ -37,7 +37,7 @@
           "type": "string",
           "minLength": 1
         },
-        "blockingQuestions": {
+        "blocking_questions": {
           "type": "array",
           "items": {
             "type": "string",
