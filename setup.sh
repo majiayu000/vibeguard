@@ -36,6 +36,29 @@ case "${1:-}" in
     shift || true
     run_setup "codex-status.sh" "$@"
     ;;
+  packs)
+    shift || true
+    run_setup "guard-packs.sh" "$@"
+    ;;
+  demo)
+    shift || true
+    run_setup "guard-packs.sh" demo "$@"
+    ;;
+  install)
+    shift || true
+    _has_pack_arg=0
+    for _arg in "$@"; do
+      if [[ "${_arg}" == "--pack" || "${_arg}" == --pack=* ]]; then
+        _has_pack_arg=1
+        break
+      fi
+    done
+    if [[ "${_has_pack_arg}" == "1" ]]; then
+      run_setup "guard-packs.sh" install "$@"
+    else
+      run_setup "install.sh" "$@"
+    fi
+    ;;
   *)
     run_setup "install.sh" "$@"
     ;;

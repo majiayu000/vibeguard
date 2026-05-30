@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "id": "safe-bash",
+  "version": "0.1.0",
+  "display_name": "Safe Bash",
+  "status": "experimental",
+  "summary": "Adopt the existing pre-bash guard as a small pack for dangerous shell-command interception.",
+  "adoption_layer_only": true,
+  "adoption_layer_statement": "Guard Packs are an adoption layer over VibeGuard Core; this pack does not change hook or rule semantics.",
+  "source_of_truth": {
+    "hooks": [
+      "hooks/pre-bash-guard.sh",
+      "hooks/vibeguard-pre-bash-guard.sh"
+    ],
+    "manifests": [
+      "hooks/manifest.json",
+      "schemas/install-modules.json"
+    ],
+    "rules": [
+      "rules/claude-rules/common/security.md",
+      "rules/claude-rules/common/publish-action-confirmation.md"
+    ],
+    "schema": [
+      "schemas/guard-pack.schema.json"
+    ]
+  },
+  "targets": {
+    "claude-code": {
+      "support": "native",
+      "surfaces": [
+        "PreToolUse(Bash)"
+      ],
+      "would_install": [
+        "hooks/pre-bash-guard.sh",
+        "hooks/log.sh",
+        "hooks/_lib/",
+        "vibeguard-runtime"
+      ],
+      "would_modify": [
+        "~/.claude/settings.json"
+      ],
+      "limitations": [
+        "Non-dry-run install only writes a receipt after audit READY; use full setup.sh to create Core hook/runtime files."
+      ],
+      "audit_checks": [
+        {
+          "id": "runtime-binary",
+          "kind": "file_executable",
+          "path": "~/.vibeguard/installed/bin/vibeguard-runtime"
+        },
+        {
+          "id": "installed-pre-bash-hook",
+          "kind": "file_exists",
+          "path": "~/.vibeguard/installed/hooks/pre-bash-guard.sh"
+        },
+        {
+          "id": "claude-pre-bash-config",
+          "kind": "claude_hook",
+          "path": "~/.claude/settings.json",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "script": "pre-bash-guard.sh"
+        }
+      ]
+    },
+    "codex": {
+      "support": "native",
+      "surfaces": [
+        "PreToolUse(Bash)",
+        "PermissionRequest(Bash)"
+      ],
+      "would_install": [
+        "hooks/vibeguard-pre-bash-guard.sh",
+        "hooks/pre-bash-guard.sh",
+        "hooks/run-hook-codex.sh",
+        "hooks/log.sh",
+        "hooks/_lib/",
+        "vibeguard-runtime"
+      ],
+      "would_modify": [
+        "~/.codex/hooks.json",
+        "~/.codex/config.toml"
+      ],
+      "limitations": [
+        "Only Bash is covered by this pack; Read/Glob/Grep surfaces are outside Codex native hook support."
+      ],
+      "audit_checks": [
+        {
+          "id": "runtime-binary",
+          "kind": "file_executable",
+          "path": "~/.vibeguard/installed/bin/vibeguard-runtime"
+        },
+        {
+          "id": "installed-pre-bash-hook",
+          "kind": "file_exists",
+          "path": "~/.vibeguard/installed/hooks/pre-bash-guard.sh"
+        },
+        {
+          "id": "codex-wrapper",
+          "kind": "file_executable",
+          "path": "~/.vibeguard/run-hook-codex.sh"
+        },
+        {
+          "id": "codex-pre-bash-config",
+          "kind": "codex_hook",
+          "path": "~/.codex/hooks.json",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "script": "vibeguard-pre-bash-guard.sh"
+        },
+        {
+          "id": "codex-permission-bash-config",
+          "kind": "codex_hook",
+          "path": "~/.codex/hooks.json",
+          "event": "PermissionRequest",
+          "matcher": "Bash",
+          "script": "vibeguard-pre-bash-guard.sh"
+        },
+        {
+          "id": "codex-hooks-feature",
+          "kind": "codex_feature",
+          "path": "~/.codex/config.toml",
+          "feature": "hooks",
+          "expected": true
+        }
+      ]
+    },
+    "generic-cli": {
+      "support": "partial",
+      "surfaces": [
+        "dry-run",
+        "demo"
+      ],
+      "would_install": [],
+      "would_modify": [],
+      "limitations": [
+        "Generic CLI mode has no agent hook surface; it can only explain and demonstrate the pack."
+      ],
+      "audit_checks": []
+    }
+  },
+  "profiles": {
+    "default": "core",
+    "allowed": [
+      "minimal",
+      "core",
+      "full",
+      "strict"
+    ]
+  },
+  "behavior": {
+    "default_decision": "block",
+    "fail_mode": "fail-closed on invalid hook input JSON",
+    "modifies_project_files": false,
+    "blocks": [
+      "git checkout .",
+      "git restore .",
+      "git clean -f",
+      "rm -rf dangerous paths"
+    ],
+    "corrects": [
+      "npm install to pnpm install when pnpm exists",
+      "pip install to uv pip install when uv and a venv exist"
+    ]
+  },
+  "demo": {
+    "command": "bash setup.sh demo safe-bash",
+    "blocked_example": "rm -rf $HOME",
+    "expected_decision": "block",
+    "expected_reason_contains": "VIBEGUARD interception: Prohibit rm -rf dangerous paths",
+    "executes_user_command": false
+  },
+  "tests": [
+    {
+      "name": "block-rm-rf-home",
+      "fixture": "packs/safe-bash/fixtures/block-rm-rf-home.json",
+      "expected_decision": "block"
+    },
+    {
+      "name": "allow-safe-ls",
+      "fixture": "packs/safe-bash/fixtures/allow-safe-ls.json",
+      "expected_decision": "pass"
+    }
+  ]
+}

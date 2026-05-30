@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST_HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
 WORKFLOW_CONTRACT_HELPER="${REPO_DIR}/scripts/lib/workflow_contracts.py"
+GUARD_PACKS_HELPER="${REPO_DIR}/scripts/lib/guard_packs.py"
 
 PASS=0
 FAIL=0
@@ -78,6 +79,7 @@ header "helper syntax"
 assert_cmd "manifest helper syntax is correct" python3 -m py_compile "${MANIFEST_HELPER}"
 assert_cmd "codex config helper syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
 assert_cmd "workflow contract helper syntax is correct" python3 -m py_compile "${WORKFLOW_CONTRACT_HELPER}"
+assert_cmd "guard packs helper syntax is correct" python3 -m py_compile "${GUARD_PACKS_HELPER}"
 
 header "manifest contract"
 assert_cmd "manifest contract validates" python3 "${MANIFEST_HELPER}" validate
@@ -193,6 +195,27 @@ assert_cmd_fail "skill-links rejects absolute skill paths" python3 "${MANIFEST_H
 absolute_skill_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${ABSOLUTE_SKILL_PATH_MANIFEST}" 2>&1 || true)"
 assert_contains "${absolute_skill_validate_out}" "module absolute-skill-module: skill path must be repo-relative: /tmp/skill" "manifest validation reports absolute skill paths"
 assert_not_contains "${absolute_skill_validate_out}" "Traceback" "manifest validation reports absolute skill paths without traceback"
+
+header "guard pack contract"
+assert_cmd "guard pack manifests validate" python3 "${GUARD_PACKS_HELPER}" validate
+guard_packs_out="$(python3 "${GUARD_PACKS_HELPER}" list)"
+assert_contains "${guard_packs_out}" "safe-bash" "guard pack list contains safe-bash"
+safe_bash_explain_out="$(python3 "${GUARD_PACKS_HELPER}" explain safe-bash)"
+assert_contains "${safe_bash_explain_out}" "Guard Packs are an adoption layer" "safe-bash explain states adoption boundary"
+assert_contains "${safe_bash_explain_out}" "hooks/pre-bash-guard.sh" "safe-bash explain points to source hook"
+assert_contains "${safe_bash_explain_out}" "claude-code: native" "safe-bash explain declares Claude Code target"
+assert_contains "${safe_bash_explain_out}" "codex: native" "safe-bash explain declares Codex target"
+safe_bash_dry_run_out="$(python3 "${GUARD_PACKS_HELPER}" install --target claude-code --pack safe-bash --dry-run)"
+assert_contains "${safe_bash_dry_run_out}" "DRY-RUN: install guard pack safe-bash for claude-code" "safe-bash install dry-run reports target"
+assert_contains "${safe_bash_dry_run_out}" "Would modify:" "safe-bash dry-run shows planned writes"
+assert_contains "${safe_bash_dry_run_out}" "writes=0" "safe-bash dry-run receipt records no writes"
+safe_bash_receipt_out="$(python3 "${GUARD_PACKS_HELPER}" receipt safe-bash --target claude-code)"
+assert_contains "${safe_bash_receipt_out}" '"rollback_plan": [' "safe-bash receipt includes rollback plan"
+assert_contains "${safe_bash_receipt_out}" '"check_ids": [' "safe-bash receipt includes audit check ids"
+safe_bash_demo_out="$(python3 "${GUARD_PACKS_HELPER}" demo safe-bash)"
+assert_contains "${safe_bash_demo_out}" "No command is executed" "safe-bash demo is side-effect free"
+assert_contains "${safe_bash_demo_out}" "Expected decision: block" "safe-bash demo shows block decision"
+assert_cmd_fail "guard pack explain rejects unknown pack" python3 "${GUARD_PACKS_HELPER}" explain missing-pack
 
 header "workflow contracts"
 assert_cmd "workflow contracts validate from schema registry" python3 "${WORKFLOW_CONTRACT_HELPER}" validate
