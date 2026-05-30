@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 struct Args {
@@ -217,7 +217,11 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     // Client EOF may arrive while the server is still asking for a final
     // approval. Keep stdin open until in-flight server requests finish, then
     // give the child one quiet drain window before propagating EOF.
-    if !wait_for_stdout_drain(&stdout_signal_rx, Duration::from_secs(2)) {
+    if !wait_for_stdout_drain(
+        &stdout_signal_rx,
+        Duration::from_secs(2),
+        Duration::from_secs(30),
+    ) {
         close_child_stdin(&child_stdin);
     }
     let _ = t_out.join();
@@ -227,10 +231,25 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn wait_for_stdout_drain(signals: &mpsc::Receiver<StdoutSignal>, quiet_window: Duration) -> bool {
+fn wait_for_stdout_drain(
+    signals: &mpsc::Receiver<StdoutSignal>,
+    quiet_window: Duration,
+    max_total_wait: Duration,
+) -> bool {
+    let deadline = Instant::now() + max_total_wait;
     let mut active_requests = 0usize;
     loop {
-        match signals.recv_timeout(quiet_window) {
+        // Global backstop: a hung hook or a permanently held lock can keep
+        // `active_requests > 0` forever and the `RequestFinished` / `Done`
+        // signals may never arrive. Once the total budget is exhausted, force
+        // EOF propagation instead of looping unbounded.
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let remaining = deadline - now;
+        let recv_timeout = quiet_window.min(remaining);
+        match signals.recv_timeout(recv_timeout) {
             Ok(StdoutSignal::RequestStarted) => {
                 active_requests = active_requests.saturating_add(1);
             }
@@ -322,9 +341,13 @@ mod tests {
             thread::sleep(Duration::from_millis(30));
             assert!(finish_tx.send(StdoutSignal::RequestFinished).is_ok());
         });
-        let started = std::time::Instant::now();
+        let started = Instant::now();
 
-        assert!(!wait_for_stdout_drain(&rx, Duration::from_millis(5)));
+        assert!(!wait_for_stdout_drain(
+            &rx,
+            Duration::from_millis(5),
+            Duration::from_secs(5),
+        ));
         assert!(started.elapsed() >= Duration::from_millis(25));
         assert!(handle.join().is_ok());
     }
@@ -334,6 +357,31 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         assert!(tx.send(StdoutSignal::Done).is_ok());
 
-        assert!(wait_for_stdout_drain(&rx, Duration::from_millis(5)));
+        assert!(wait_for_stdout_drain(
+            &rx,
+            Duration::from_millis(5),
+            Duration::from_secs(5),
+        ));
+    }
+
+    #[test]
+    fn stdout_drain_returns_false_when_request_never_finishes() {
+        // A hung hook can leave `active_requests > 0` while neither
+        // RequestFinished nor Done ever arrives. The global deadline must
+        // still force a `false` return instead of looping forever.
+        let (tx, rx) = std::sync::mpsc::channel();
+        assert!(tx.send(StdoutSignal::RequestStarted).is_ok());
+        // Keep the sender alive so the channel never disconnects, forcing the
+        // function to rely on the total deadline rather than Disconnected.
+        let _keep_alive = tx;
+        let started = Instant::now();
+
+        assert!(!wait_for_stdout_drain(
+            &rx,
+            Duration::from_millis(5),
+            Duration::from_millis(50),
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(45));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

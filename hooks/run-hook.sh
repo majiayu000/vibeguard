@@ -65,7 +65,14 @@ export PYTHONIOENCODING=utf-8
 if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
   hook_output=""
   hook_status=0
-  hook_output="$(bash "$HOOK_PATH" "$@" 2>&1)" || hook_status=$?
+  # Separate stderr from stdout: only stdout feeds the JSON downgrade path.
+  # Mixing stderr in (2>&1) corrupts the JSON parsed by vg_policy_downgrade_output.
+  hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-warn-hook.XXXXXX")"
+  hook_output="$(bash "$HOOK_PATH" "$@" 2>"${hook_err_file}")" || hook_status=$?
+  if [[ -s "${hook_err_file}" ]]; then
+    cat "${hook_err_file}" >&2
+  fi
+  rm -f "${hook_err_file}" 2>/dev/null || true
   if [[ -n "${hook_output}" ]]; then
     vg_policy_downgrade_output "${hook_output}"
   fi
