@@ -112,6 +112,11 @@ write_valid_skill "${BLOCK_SCALAR_SKILL}"
 perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: |\n  Use when validating VibeGuard skill format structure.\n  Covers multiline descriptions./' "${BLOCK_SCALAR_SKILL}"
 assert_cmd "valid block scalar frontmatter passes" python3 "${VALIDATOR}" "${BLOCK_SCALAR_SKILL}"
 
+NUMERIC_BLOCK_SCALAR_SKILL="${TMP_DIR}/numeric-block-scalar/SKILL.md"
+write_valid_skill "${NUMERIC_BLOCK_SCALAR_SKILL}"
+perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: |2\n  Use when validating VibeGuard skill format structure.\n  Numeric block scalar indentation indicator./' "${NUMERIC_BLOCK_SCALAR_SKILL}"
+assert_cmd "block scalar with numeric indentation indicator passes" python3 "${VALIDATOR}" "${NUMERIC_BLOCK_SCALAR_SKILL}"
+
 INDENTED_BODY_SKILL="${TMP_DIR}/indented-body/SKILL.md"
 write_valid_skill "${INDENTED_BODY_SKILL}"
 perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: Use when validating VibeGuard skill format structure.\n  This indented body text is not a YAML block scalar./' "${INDENTED_BODY_SKILL}"

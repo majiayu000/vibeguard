@@ -13,7 +13,7 @@ REQUIRED_SECTIONS = ("When to Activate", "Red Flags", "Checklist")
 MIN_RED_FLAGS = 3
 MIN_CHECKLIST_ITEMS = 3
 FRONTMATTER_FIELD_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*.*$")
-FRONTMATTER_BLOCK_SCALAR_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*[|>][+-]?\s*(?:#.*)?$")
+FRONTMATTER_BLOCK_SCALAR_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*[|>][0-9]*[+-]?\s*(?:#.*)?$")
 
 
 class SkillFormatError(Exception):
