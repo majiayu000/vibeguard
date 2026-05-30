@@ -45,12 +45,37 @@ _stub_guards="$(make_stub_guard_dir)"
 assert_exit_nonzero "Rust pre-commit fails when cargo fmt -- --check reports a diff" bash -c "cd '$tmp_repo_fmt_fails' && PATH='$tmp_repo_fmt_fails/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
 rm -rf "$_stub_guards" "$tmp_repo_fmt_fails"
 
-# NOTE: A "fmt + check both pass -> hook allows" sanity case is intentionally
-# omitted here. The existing test_precommit_nested_roots.sh has two pre-existing
-# baseline failures on origin/main where a clean stub repo still returns
-# exit 2 (parent-workspace and unstaged-manifest cases). Adding the same shape
-# of assertion here would only re-surface that unrelated baseline issue. The
-# fmt-fail case above is sufficient to lock in the new step's behaviour;
-# regression against the clean path is covered indirectly by nested_roots.
+# --- Case 2: cargo fmt + cargo check both pass -> pre-commit must allow ------
+# Positive counterpart to Case 1 (issue #260 acceptance criterion 2). Self-
+# contained single-root repo so it does not depend on nested_roots fixtures.
+# stub cargo returns 0 for every subcommand (fmt --check clean, check clean).
+tmp_repo_clean="$(mktemp -d)"
+git -C "$tmp_repo_clean" init -q
+mkdir -p "$tmp_repo_clean/bin" "$tmp_repo_clean/src"
+
+cat >"$tmp_repo_clean/Cargo.toml" <<'EOF'
+[package]
+name = "fmt-clean-demo"
+version = "0.1.0"
+edition = "2021"
+EOF
+
+cat >"$tmp_repo_clean/src/lib.rs" <<'EOF'
+pub fn demo() -> i32 {
+    1
+}
+EOF
+
+cat >"$tmp_repo_clean/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+# Clean repo: `cargo fmt -- --check` and `cargo check` both succeed.
+exit 0
+EOF
+
+chmod +x "$tmp_repo_clean/bin/cargo"
+git -C "$tmp_repo_clean" add Cargo.toml src/lib.rs
+_stub_guards_clean="$(make_stub_guard_dir)"
+assert_exit_zero "Rust pre-commit allows when cargo fmt -- --check and cargo check both pass" bash -c "cd '$tmp_repo_clean' && PATH='$tmp_repo_clean/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards_clean' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+rm -rf "$_stub_guards_clean" "$tmp_repo_clean"
 
 hook_test_finish
