@@ -73,12 +73,12 @@ status_classify_line() {
   local plain
   plain="$(status_plain_line "$line")"
   case "$plain" in
-    *"[OK]"*)      printf 'OK' ;;
-    *"[INFO]"*)    printf 'INFO' ;;
-    *"[WARN]"*)    printf 'WARN' ;;
-    *"[FAIL]"*)    printf 'FAIL' ;;
-    *"[BROKEN]"*)  printf 'BROKEN' ;;
-    *"[MISSING]"*) printf 'MISSING' ;;
+    "[OK]"*)      printf 'OK' ;;
+    "[INFO]"*)    printf 'INFO' ;;
+    "[WARN]"*)    printf 'WARN' ;;
+    "[FAIL]"*)    printf 'FAIL' ;;
+    "[BROKEN]"*)  printf 'BROKEN' ;;
+    "[MISSING]"*) printf 'MISSING' ;;
     *)             printf '' ;;
   esac
 }
@@ -247,7 +247,7 @@ LEVELS = ("OK", "INFO", "WARN", "FAIL", "BROKEN", "MISSING")
 def classify(line: str):
     plain = ANSI.sub("", line)
     for level in LEVELS:
-        if f"[{level}]" in plain:
+        if plain.startswith(f"[{level}]"):
             return level, plain
     return None, plain
 

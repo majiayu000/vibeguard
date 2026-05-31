@@ -146,6 +146,35 @@ _check_repo_git_hook() {
   green "[OK] VibeGuard repo ${hook_name} hook installed"
 }
 
+_check_installed_snapshot_version() {
+  local version_file="${HOME}/.vibeguard/installed/version"
+  local installed_version=""
+  local repo_version=""
+
+  if [[ ! -f "${version_file}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot version missing (${version_file}); run: bash setup.sh --yes"
+    return 0
+  fi
+
+  installed_version="$(tr -d '[:space:]' < "${version_file}")"
+  repo_version="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || true)"
+
+  if [[ -z "${repo_version}" ]]; then
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo HEAD unavailable)"
+    return 0
+  fi
+  if [[ -z "${installed_version}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot version empty (${version_file}); run: bash setup.sh --yes"
+    return 0
+  fi
+  if [[ "${installed_version}" != "${repo_version}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot is stale: ${installed_version} (current repo: ${repo_version}; run: bash setup.sh --yes)"
+    return 0
+  fi
+
+  green "[OK] Installed hooks+guards snapshot matches repo HEAD (${repo_version})"
+}
+
 # run_legacy_checks
 #   The original sequence of inline probes. Each probe prints a single
 #   `[LEVEL] message` line via green/yellow/red. We do not reorder or
@@ -168,6 +197,7 @@ run_legacy_checks() {
   fi
   if [[ -x "${VIBEGUARD_HOME}/installed/bin/vibeguard-runtime" ]]; then
     green "[OK] vibeguard-runtime runtime binary installed"
+    _check_installed_snapshot_version
   else
     red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
