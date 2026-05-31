@@ -105,3 +105,15 @@ PY
 
   printf '%s' "$default_val"
 }
+
+vg_u16_warn_limit() {
+  local hard_limit="$1"
+  local warn_limit
+
+  warn_limit=$(vg_config_get_int VG_U16_WARN_LIMIT u16.warn_limit 400)
+  if [[ "$warn_limit" -ge "$hard_limit" ]]; then
+    printf '%s' "$hard_limit"
+  else
+    printf '%s' "$warn_limit"
+  fi
+}

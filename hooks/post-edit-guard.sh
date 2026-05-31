@@ -20,8 +20,9 @@ INPUT=$(cat)
 
 if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+  _VG_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_VG_U16_BASE_LIMIT")
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VIBEGUARD_RUNTIME" post-edit-fast-check "$_VG_U16_BASE_LIMIT" "$VIBEGUARD_SESSION_ID" "${VIBEGUARD_AGENT_TYPE:-}" "$VIBEGUARD_LOG_FILE" \
+    | "$_VIBEGUARD_RUNTIME" post-edit-fast-check "$_VG_U16_WARN_LIMIT" "$VIBEGUARD_SESSION_ID" "${VIBEGUARD_AGENT_TYPE:-}" "$VIBEGUARD_LOG_FILE" \
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in
@@ -88,8 +89,9 @@ case "$FILE_PATH" in
     fi
     if [[ "$_VG_FAST_STATELESS" -eq 1 && -f "$FILE_PATH" ]]; then
       _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+      _VG_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_VG_U16_BASE_LIMIT")
       _VG_FILE_LINES=$(wc -l < "$FILE_PATH" | tr -d ' ')
-      [[ "${_VG_FILE_LINES:-0}" -gt "$_VG_U16_BASE_LIMIT" ]] && _VG_FAST_STATELESS=0
+      [[ "${_VG_FILE_LINES:-0}" -gt "$_VG_U16_WARN_LIMIT" ]] && _VG_FAST_STATELESS=0
     fi
     ;;
 esac

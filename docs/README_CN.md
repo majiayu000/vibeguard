@@ -92,6 +92,7 @@ VibeGuard 现在明确分成两层：
 | 场景 | Hook | 结果 |
 |------|------|------|
 | AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | 默认 **告警**，提醒先搜索现有实现；设置 `VIBEGUARD_WRITE_MODE=block` 或 `write_mode=block` 后硬拦截 |
+| AI 创建或编辑超过 400 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard`、`post-write-guard`、`post-edit-guard` | **告警**，提示已超过典型范围；当前改动保持局部，后续再规划拆分 |
 | AI 创建或编辑超过 800 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard` | **拦截**，必须先拆分文件 |
 | AI 执行 `git push --force`、`rm -rf`、`git clean -fd`、批量 `git checkout/restore .` | `pre-bash-guard` | **拦截**，给出安全替代命令；如确实要清理本地改动，先运行 `python3 ~/vibeguard/scripts/authorized-discard.py --plan` 查看逐路径计划，再用确认短语执行 |
 | AI 编辑一个不存在的文件 | `pre-edit-guard` | **拦截**，要求先读取文件确认 |
@@ -104,7 +105,7 @@ VibeGuard 现在明确分成两层：
 | AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
 | 会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
 
-U-16 文件行数限制只覆盖非测试源码扩展名：`.rs`、`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.go`。在 Codex 路径里，`apply_patch Add File` 和 `apply_patch Update File` 都会先被规范化再进入文件 hook；如果 patch 会让生产源码超过 800 行，会在写入前被 deny。
+U-16 文件行数限制只覆盖非测试源码扩展名：`.rs`、`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.go`。默认 400 行以上触发典型范围告警（`u16.warn_limit` / `VG_U16_WARN_LIMIT`），800 行仍是硬上限（`u16.limit` / `VG_U16_LIMIT`）。在 Codex 路径里，`apply_patch Add File` 和 `apply_patch Update File` 都会先被规范化再进入文件 hook；如果 patch 会让生产源码超过硬上限，会在写入前被 deny。
 
 ### 3. 静态 Guards
 

@@ -23,7 +23,8 @@ _pass_and_exit() {
 INPUT=$(cat)
 
 _U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
-if ! CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-write-check "$_U16_BASE_LIMIT" 2>/dev/null); then
+_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_U16_BASE_LIMIT")
+if ! CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-write-check "$_U16_BASE_LIMIT" "$_U16_WARN_LIMIT" 2>/dev/null); then
   vg_log "pre-write-guard" "Write" "block" "vibeguard-runtime pre-write-check failed; fail-closed" ""
   vg_json_output_kv decision block reason "VIBEGUARD interception: runtime pre-write-check failed; fail-closed."
   exit 0
@@ -72,6 +73,54 @@ if [[ "$CHECK_STATUS" == "U16_BLOCK" ]]; then
   "reason": "VIBEGUARD [U-16] block: writing ${FILE_PATH##*/} with ${_U16_LINES} lines exceeds the ${_U16_LIM}-line limit. Split into focused submodules first. Do NOT proceed with this write."
 }
 BLOCK_EOF
+  exit 0
+fi
+
+if [[ "$CHECK_STATUS" == "U16_WARN" || "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]]; then
+  _CHECK_REST="${_CHECK_REST#*$'\n'}"
+  _U16_LINES="${_CHECK_REST%%$'\n'*}"
+  _CHECK_REST="${_CHECK_REST#*$'\n'}"
+  _U16_WARN="${_CHECK_REST%%$'\n'*}"
+  _CHECK_REST="${_CHECK_REST#*$'\n'}"
+  _U16_LIM="${_CHECK_REST%%$'\n'*}"
+  vg_log "pre-write-guard" "Write" "warn" "U-16 file size advisory: ${_U16_LINES} > ${_U16_WARN}" "$FILE_PATH"
+  if [[ "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]]; then
+    vg_log "pre-write-guard" "Write" "warn" "New source file attempt" "$FILE_PATH"
+  fi
+  VG_U16_FILE="${FILE_PATH##*/}" \
+  VG_U16_LINES="$_U16_LINES" \
+  VG_U16_WARN="$_U16_WARN" \
+  VG_U16_LIMIT="$_U16_LIM" \
+  VG_U16_SOURCE_NEW="$([[ "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]] && printf 1 || printf 0)" \
+  python3 - <<'PY'
+import json
+import os
+
+file_name = os.environ.get("VG_U16_FILE", "file")
+line_count = os.environ.get("VG_U16_LINES", "0")
+warn_limit = os.environ.get("VG_U16_WARN", "400")
+hard_limit = os.environ.get("VG_U16_LIMIT", "800")
+context = (
+    f"VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing {file_name} "
+    f"with {line_count} lines exceeds the {warn_limit}-line typical range but stays "
+    f"under the {hard_limit}-line hard limit\n"
+    "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
+    "ACTION: NONE — advisory only, continue without acknowledgement"
+)
+if os.environ.get("VG_U16_SOURCE_NEW") == "1":
+    context += (
+        "\n---\n"
+        "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\n"
+        "SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\n"
+        "ACTION: NONE — advisory only, continue without acknowledgement"
+    )
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": context,
+    }
+}, ensure_ascii=False))
+PY
   exit 0
 fi
 

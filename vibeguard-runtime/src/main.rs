@@ -78,12 +78,12 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "pre-write-check",
-        usage: "<base-limit>  — classify PreToolUse(Write) input for hooks",
+        usage: "<base-limit> [warn-limit]  — classify PreToolUse(Write) input for hooks",
         handler: hook_checks::pre_write_check,
     },
     Command {
         name: "pre-edit-check",
-        usage: "<base-limit> <log-file>  — classify and handle PreToolUse(Edit) input for hooks",
+        usage: "<base-limit> [warn-limit] <log-file>  — classify and handle PreToolUse(Edit) input for hooks",
         handler: hook_checks::pre_edit_check,
     },
     Command {
