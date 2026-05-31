@@ -121,9 +121,15 @@ def total_selected(plan: dict[str, list[str]]) -> int:
 
 
 def checked_target(repo: Path, path: str) -> Path:
+    relative = Path(path)
+    if relative.is_absolute() or any(part == ".." for part in relative.parts):
+        raise RuntimeError(f"refusing path outside repository: {path}")
     target = repo / path
     resolved_repo = repo.resolve()
-    resolved_target = target.resolve(strict=False)
+    # Resolve the containing directory only. The final path may be a symlink to
+    # an external target; cleanup should unlink that repository entry without
+    # following it.
+    resolved_target = target.parent.resolve(strict=False)
     try:
         resolved_target.relative_to(resolved_repo)
     except ValueError as exc:

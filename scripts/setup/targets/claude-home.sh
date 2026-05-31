@@ -318,7 +318,7 @@ check_claude_home_installation() {
   fi
 
   if settings_check "${SETTINGS_FILE}" "full-hooks"; then
-    green "[OK] Full profile hooks configured (Stop gate + Build check + Learn evaluator)"
+    green "[OK] Full profile hooks configured (Stop signal + Build check + Learn evaluator)"
   else
     yellow "[INFO] Full profile hooks not configured (current install may be core profile)"
   fi

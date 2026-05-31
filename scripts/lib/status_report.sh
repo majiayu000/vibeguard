@@ -22,7 +22,7 @@
 # Exit-code policy
 #   0 — no [WARN]/[FAIL]/[BROKEN]/[MISSING]
 #   1 — only [WARN] (degraded but functional)
-#   2 — at least one [FAIL]/[BROKEN]/[MISSING] (broken — needs repair)
+#   2 — at least one [FAIL]/[BROKEN]/required [MISSING] (broken — needs repair)
 #
 # Per the VibeGuard "no silent degradation" rule (U-29), [INFO] is treated
 # as neutral and never affects exit code or verdict.
@@ -57,14 +57,21 @@ status_init() {
 # status_classify_line <line>
 #   Echo the level (OK|INFO|WARN|FAIL|BROKEN|MISSING) or empty string.
 #   Strips ANSI color codes before matching. Pure function — no globals.
-status_classify_line() {
+status_plain_line() {
   local line="$1"
-  # Drop ANSI SGR escapes inline so we do not depend on `sed` here.
-  # Pattern matches ESC [ ... letter and removes it via parameter expansion.
   local plain="$line"
   while [[ "$plain" == *$'\033['* ]]; do
     plain="${plain%%$'\033['*}${plain#*$'\033['*[a-zA-Z]}"
   done
+  printf '%s' "$plain"
+}
+
+status_classify_line() {
+  local line="$1"
+  # Drop ANSI SGR escapes inline so we do not depend on `sed` here.
+  # Pattern matches ESC [ ... letter and removes it via parameter expansion.
+  local plain
+  plain="$(status_plain_line "$line")"
   case "$plain" in
     *"[OK]"*)      printf 'OK' ;;
     *"[INFO]"*)    printf 'INFO' ;;
@@ -74,6 +81,40 @@ status_classify_line() {
     *"[MISSING]"*) printf 'MISSING' ;;
     *)             printf '' ;;
   esac
+}
+
+status_optional_missing_line() {
+  local line="$1"
+  local plain
+  plain="$(status_plain_line "$line")"
+  case "$plain" in
+    *"ast-grep not installed"*|\
+    *"agents not in ~/.claude/agents/"*|\
+    *"context profiles not in ~/.claude/context-profiles/"*|\
+    *" skill not in ~/.codex/skills/"*|\
+    *"VibeGuard hooks not fully configured in ~/.codex/hooks.json"*|\
+    *"Codex hooks.json not installed"*|\
+    *"Codex hook wrapper not installed"*|\
+    *"Codex hook wrapper: "*|\
+    *"hooks feature not enabled"*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+status_required_missing_count() {
+  local required=0 line level
+  [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]] || { printf '0\n'; return 0; }
+  while IFS= read -r line; do
+    level="$(status_classify_line "$line")"
+    if [[ "$level" == "MISSING" ]] && ! status_optional_missing_line "$line"; then
+      required=$((required + 1))
+    fi
+  done < "${_VG_STATUS_BUFFER}"
+  printf '%d\n' "$required"
 }
 
 # status_record_buffer
@@ -255,7 +296,9 @@ status_exit_code() {
 # WARN rows are allowed here because optional integrations can be degraded
 # without making the freshly written required runtime unusable.
 status_install_exit_code() {
-  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local required_missing
+  required_missing="$(status_required_missing_count)"
+  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
   if (( total_problems > 0 )); then
     printf '2\n'
   else

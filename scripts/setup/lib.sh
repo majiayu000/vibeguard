@@ -175,6 +175,9 @@ inject_vibeguard_rules() {
     return 1
   fi
   if [[ "${rules_diff}" == "SKIP" ]]; then
+    if [[ -f "${target_file}" ]]; then
+      state_record_file "${target_file}" "${state_source}" "copy"
+    fi
     green "  ${display_label} already up to date"
     echo
     return 0

@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # How to use:
 # bash install.sh # Install (default core)
-# bash install.sh --profile full # Install full (including Stop Gate/Build Check)
+# bash install.sh --profile full # Install full (including Stop signal/Build Check)
 # bash install.sh --profile minimal # Minimal installation (pre-hooks only)
 # bash install.sh --profile strict # Strict mode (same hook set as full)
 # bash install.sh --languages rust,python # Only install rules and guards for the specified language
@@ -290,8 +290,8 @@ else
 fi
 echo
 
-# 9.7. Install pre-commit hook wrapper
-echo "Step 9.7: Install pre-commit hook"
+# 9.7. Install git hook wrappers
+echo "Step 9.7: Install git hooks"
 PRE_COMMIT_WRAPPER="${VIBEGUARD_HOME}/pre-commit"
 cat > "${PRE_COMMIT_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
@@ -306,11 +306,29 @@ WRAPPER
 chmod +x "${PRE_COMMIT_WRAPPER}"
 state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
 green "  ~/.vibeguard/pre-commit wrapper ready"
-# Automatically install to VibeGuard's own warehouse
-VG_GIT_HOOKS="${REPO_DIR}/.git/hooks"
-if [[ -d "${VG_GIT_HOOKS}" ]]; then
-  ln -sf "${PRE_COMMIT_WRAPPER}" "${VG_GIT_HOOKS}/pre-commit"
-  green "  pre-commit hook installed to vibeguard repo"
+
+install_repo_git_hook() {
+  local hook_name="$1"
+  local target="$2"
+  local hook_path="${VG_GIT_HOOKS}/${hook_name}"
+
+  if [[ -e "${hook_path}" && ! -L "${hook_path}" ]]; then
+    red "  ERROR: ${hook_path} already exists and is not a symlink; refusing to overwrite"
+    return 1
+  fi
+  ln -sfn "${target}" "${hook_path}"
+  green "  ${hook_name} hook installed to vibeguard repo"
+}
+
+# Automatically install to VibeGuard's own repository. Use git's hook path so
+# linked worktrees and non-standard git dirs are handled correctly.
+VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
+if [[ -n "${VG_GIT_HOOKS}" ]]; then
+  mkdir -p "${VG_GIT_HOOKS}"
+  install_repo_git_hook "pre-commit" "${PRE_COMMIT_WRAPPER}"
+  install_repo_git_hook "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+else
+  yellow "  SKIP repo git hooks (not a git repository)"
 fi
 echo
 
@@ -339,6 +357,6 @@ echo "  VIBEGUARD_ENFORCEMENT=block|warn|off          Enforcement level"
 echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable specific hooks"
 echo "  VIBEGUARD_GC_*                                 GC thresholds; see schemas/vibeguard-project.schema.json"
 echo
-echo "Git Pre-Commit Guard:"
-echo "Automatically installed to VibeGuard repository"
+echo "Git Hooks:"
+echo "Automatically installed to VibeGuard repository (pre-commit + pre-push)"
 echo "Other projects: bash scripts/project-init.sh <project_dir>"

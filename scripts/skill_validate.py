@@ -132,12 +132,20 @@ def freshness_gaps(
 
 
 def count_classifications(classified: list[dict[str, object]]) -> dict[str, int]:
-    counts = {"repair": 0, "regression": 0, "no_change": 0, "unrelated_regression": 0}
+    counts = {
+        "repair": 0,
+        "regression": 0,
+        "no_change": 0,
+        "unrelated_regression": 0,
+        "unrelated_no_change": 0,
+    }
     for item in classified:
         classification = str(item["classification"])
         counts[classification] += 1
         if classification == "regression" and item.get("scenario_type") == "unrelated":
             counts["unrelated_regression"] += 1
+        if classification == "no_change" and item.get("scenario_type") == "unrelated":
+            counts["unrelated_no_change"] += 1
     return counts
 
 
@@ -272,11 +280,14 @@ def determine_verdict(
     repairs = counts["repair"]
     regressions = counts["regression"]
     unrelated_regressions = counts["unrelated_regression"]
+    unrelated_no_change = counts["unrelated_no_change"]
 
     if stale_gaps and not allow_stale:
         return ("stale", ["freshness evidence is stale or incomplete"])
     if repairs == 0:
         return ("fail", ["repair count is zero"])
+    if unrelated_no_change < 2:
+        return ("fail", ["fewer than two unrelated no-change scenarios"])
     if repairs <= regressions:
         return ("fail", ["repair count is not greater than regression count"])
     if unrelated_regressions > 0:
@@ -305,7 +316,7 @@ def print_report(artifact: dict[str, object], artifact_path: Path | None) -> Non
     print(f"decision_set: {artifact['decision_set']}")
     print(f"artifact: {artifact_path if artifact_path else 'not written'}")
     print("counts:")
-    for key in ("repair", "regression", "no_change", "unrelated_regression"):
+    for key in ("repair", "regression", "no_change", "unrelated_regression", "unrelated_no_change"):
         print(f"- {key}: {counts[key]}")
     print("reasons:")
     for reason in artifact["reasons"]:

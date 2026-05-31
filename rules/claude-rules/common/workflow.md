@@ -389,7 +389,7 @@ Tool-use evals must distinguish whether an agent recognized that a tool was need
 
 **Required eval coverage (strict)**:
 1. Tool-using agent evals must report **tool-need recognition** separately from **tool-call execution**.
-2. Tool-need recognition may be measured from explicit reasoning traces, labeled task intent, a classifier, or a review judge. Ordinary CI does not need hidden-state probes.
+2. Tool-need recognition may be measured from agent-derived evidence: explicit reasoning traces, tool-intent annotations, a classifier over the agent trajectory, or a review judge. Task labels alone describe necessity, not recognition. Ordinary CI does not need hidden-state probes.
 3. Tool-call execution must be measured from actual trace evidence: emitted tool calls, structured action records, or audited MCP / CLI events.
 4. A mismatch where recognition is correct but execution is missing must be reported as an action-layer failure, not folded into generic tool-use accuracy.
 

@@ -114,6 +114,21 @@ assert_contains "${pr_ready_out}" "verdict: pass" "pr-ready passes with open mer
 assert_contains "${pr_ready_out}" "checks_passing: 2" "pr-ready records passing check count"
 assert_contains "${pr_ready_out}" "review_decision: APPROVED" "pr-ready records review decision"
 
+PR_REVIEW_REQUIRED_FIXTURE="${TMP_DIR}/pr-review-required.json"
+python3 - "${PR_READY_FIXTURE}" "${PR_REVIEW_REQUIRED_FIXTURE}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source, target = map(Path, sys.argv[1:])
+data = json.loads(source.read_text(encoding="utf-8"))
+data["reviewDecision"] = "REVIEW_REQUIRED"
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+review_required_out="$(python3 "${LIVE_TRUTH}" pr-ready --fixture "${PR_REVIEW_REQUIRED_FIXTURE}" 2>&1 || true)"
+assert_contains "${review_required_out}" "verdict: fail" "pr-ready fails when review is still required"
+assert_contains "${review_required_out}" "review decision is REVIEW_REQUIRED" "pr-ready reports review-required blocker"
+
 header "published artifact mismatch fixture"
 PUBLISHED_FIXTURE="${TMP_DIR}/published-mismatch.json"
 cat > "${PUBLISHED_FIXTURE}" <<'JSON'

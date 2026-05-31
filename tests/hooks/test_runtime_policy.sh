@@ -13,6 +13,7 @@ make_home() {
   local home_dir="$1"
   mkdir -p "${home_dir}/.vibeguard"
   printf '%s' "${REPO_DIR}" > "${home_dir}/.vibeguard/repo-path"
+  hook_test_install_runtime_stub "${home_dir}"
 }
 
 make_project() {
@@ -51,6 +52,8 @@ run_codex_wrapper() {
 
 pretool_block_input='{"tool_input":{"command":"git push --force"}}'
 codex_pretool_input='{"hook_event_name":"PreToolUse","tool_input":{"command":"git push --force"}}'
+pretool_danger_input='{"tool_input":{"command":"git clean -f"}}'
+codex_pretool_danger_input='{"hook_event_name":"PreToolUse","tool_input":{"command":"git clean -f"}}'
 
 header "runtime policy — disabled hooks"
 disabled_home="${WORK_DIR}/home-disabled"
@@ -71,6 +74,21 @@ set -e
 assert_empty_success "${disabled_codex_status}" "${disabled_codex_out}" "Codex wrapper honors disabled_hooks before executing hook"
 
 assert_contains "$(cat "${disabled_home}/.vibeguard/policy.jsonl")" "policy_skip" "runtime policy emits policy_skip telemetry"
+
+header "runtime policy — warn enforcement"
+warn_home="${WORK_DIR}/home-warn"
+warn_project="${WORK_DIR}/project-warn"
+make_home "${warn_home}"
+make_project "${warn_project}" '{"enforcement":"warn"}'
+
+warn_claude_out="$(run_claude_wrapper "${warn_home}" "${warn_project}" pre-bash-guard.sh "${pretool_danger_input}" 2>&1)"
+assert_contains "${warn_claude_out}" '"decision": "warn"' "Claude wrapper downgrades block output in warn mode"
+assert_not_contains "${warn_claude_out}" '"decision": "block"' "Claude wrapper does not hard-block in warn mode"
+
+warn_codex_out="$(run_codex_wrapper "${warn_home}" "${warn_project}" vibeguard-pre-bash-guard.sh "${codex_pretool_danger_input}" 2>&1)"
+assert_contains "${warn_codex_out}" "systemMessage" "Codex wrapper emits advisory in warn mode"
+assert_not_contains "${warn_codex_out}" '"permissionDecision": "deny"' "Codex wrapper does not deny in warn mode"
+assert_contains "$(cat "${warn_home}/.vibeguard/projects/"*/events.jsonl)" '"decision": "warn"' "warn mode records downgraded warning telemetry"
 
 header "runtime policy — invalid project config"
 bad_project_home="${WORK_DIR}/home-bad-project"

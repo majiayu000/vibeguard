@@ -34,6 +34,17 @@ _CHECK_REST="${CHECK_RESULT#*$'\n'}"
 FILE_PATH="${_CHECK_REST%%$'\n'*}"
 [[ "$FILE_PATH" == "$CHECK_RESULT" ]] && FILE_PATH=""
 
+if [[ "$CHECK_STATUS" == "MALFORMED" ]]; then
+  vg_log "pre-write-guard" "Write" "block" "Malformed hook input" ""
+  cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "VIBEGUARD interception: malformed PreToolUse(Write) hook input. The write request could not be validated, so it was blocked instead of being treated as a safe skip."
+}
+EOF
+  exit 0
+fi
+
 if [[ "$CHECK_STATUS" == "PASS" || -z "$FILE_PATH" ]]; then
   _pass_and_exit
 fi

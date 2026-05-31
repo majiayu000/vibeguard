@@ -151,6 +151,13 @@ assert_contains "$broken_summary" "BROKEN"       "broken: verdict is BROKEN"
 broken_rc="$(run_with_buffer "$broken_buf" 'status_exit_code')"
 assert_eq "$broken_rc" "2" "broken: exit code 2"
 
+optional_missing_buf=$'[OK] base\n[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] Codex hooks.json not installed\n'
+optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
+assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
+required_missing_buf=$'[OK] base\n[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)\n'
+required_install_rc="$(run_with_buffer "$required_missing_buf" 'status_install_exit_code')"
+assert_eq "$required_install_rc" "2" "install mode: required missing rows still fail"
+
 # [INFO] is neutral and never affects the verdict.
 info_buf=$'[OK] up\n[INFO] optional module not configured\n'
 info_summary="$(run_with_buffer "$info_buf" 'status_print_summary')"

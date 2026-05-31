@@ -130,6 +130,12 @@ perl -0pi -e 's/\n## When to Activate/\n---\n\n## When to Activate/s' "${MISSING
 missing_closing_body_out="$(python3 "${VALIDATOR}" "${MISSING_CLOSING_WITH_BODY_RULE}" 2>&1 || true)"
 assert_contains "${missing_closing_body_out}" "invalid frontmatter line before closing delimiter" "body delimiter does not hide missing frontmatter closing"
 
+INDENTED_BODY_BEFORE_CLOSE="${TMP_DIR}/indented-body-before-close/SKILL.md"
+write_valid_skill "${INDENTED_BODY_BEFORE_CLOSE}"
+perl -0pi -e 's/^---\nname: demo-skill\ndescription: Use when validating VibeGuard skill format structure\.\n---\n/---\nname: demo-skill\ndescription: Use when validating VibeGuard skill format structure.\n  This body line is not YAML frontmatter.\n---\n/s' "${INDENTED_BODY_BEFORE_CLOSE}"
+indented_body_out="$(python3 "${VALIDATOR}" "${INDENTED_BODY_BEFORE_CLOSE}" 2>&1 || true)"
+assert_contains "${indented_body_out}" "invalid indented frontmatter line before closing delimiter" "indented non-YAML before close fails"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

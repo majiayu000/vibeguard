@@ -85,6 +85,12 @@ GOOD_HOOKS="${TMP_DIR}/good-hooks"
 write_hook "${GOOD_HOOKS}" "good-hook.sh" 'find "$PROJECT_DIR" -maxdepth 1 -type f >/dev/null 2>&1 || true'
 assert_cmd "bounded find passes static validator" env VIBEGUARD_HOOKS_DIR="${GOOD_HOOKS}" bash "${VALIDATOR}"
 
+MULTILINE_HOOKS="${TMP_DIR}/multiline-hooks"
+write_hook "${MULTILINE_HOOKS}" "multiline-hook.sh" 'find "$PROJECT_DIR" \
+  -maxdepth 1 \
+  -type f >/dev/null 2>&1 || true'
+assert_cmd "multiline bounded find passes static validator" env VIBEGUARD_HOOKS_DIR="${MULTILINE_HOOKS}" bash "${VALIDATOR}"
+
 DOCUMENTED_HOOKS="${TMP_DIR}/documented-hooks"
 write_hook "${DOCUMENTED_HOOKS}" "documented-hook.sh" '# PERF-OK: fixture intentionally scans its temp project root.
 find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'

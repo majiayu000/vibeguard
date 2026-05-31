@@ -17,10 +17,12 @@ Boundary:
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
 
-Required upstream routing input. The upstream `readiness` decision must be one of `execute_direct`, `plan_first`, or `clarify_first`:
+Required upstream routing input. The upstream `routing_decision.readiness.decision` value must be one of `execute_direct`, `plan_first`, or `clarify_first`:
 
 ```yaml
-mode: execute_direct | plan_first | clarify_first
+routing_decision:
+  readiness:
+    decision: execute_direct | plan_first | clarify_first
 handoff:
   mode: <optional preselected execution mode>
   artifacts: [...]
@@ -45,7 +47,7 @@ handoff:
 Dispatcher rules:
 
 - Never infer `plan` vs `execute` locally.
-- If upstream `mode` is `clarify_first`, return clarification needs instead of dispatching execution.
+- If upstream `readiness.decision` is `clarify_first`, return clarification needs instead of dispatching execution.
 - If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
 - Do not schedule child-agent work when the matching delegation assignment is missing `task_slice`, `allowed_files`, `forbidden_files`, `read_only_files`, `authority`, `required_evidence`, `blocker_conditions`, `integration_owner`, `verification_owner`, or `handoff_artifacts`.
@@ -90,7 +92,7 @@ Refer to the OpenAI Harness strategy to allocate model capabilities by stage:
 ## Scheduling process
 
 1. **Collect signals**
-   - Read upstream `mode` and any handoff block first
+   - Read upstream `readiness.decision` and any handoff block first
    - Read the list of changed files (`git diff --name-only`)
    - Read error output (if any)
    - Test item language

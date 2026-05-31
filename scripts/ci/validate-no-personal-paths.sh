@@ -10,8 +10,8 @@ checked=0
 echo "Scanning for hardcoded personal paths..."
 
 # Patterns to detect (case-insensitive home directory references)
-# Excludes: .git/, node_modules/, dist/, .benchmarks/, *.jsonl, *.lock
-EXCLUDE_DIRS="--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.benchmarks --exclude-dir=.vibeguard --exclude-dir=.pytest_cache --exclude-dir=worktrees --exclude-dir=target --exclude-dir=.claude --exclude-dir=__pycache__"
+# Excludes: .git/, node_modules/, dist/, .benchmarks/, local agent state, *.jsonl, *.lock
+EXCLUDE_DIRS="--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.benchmarks --exclude-dir=.vibeguard --exclude-dir=.omx --exclude-dir=.pytest_cache --exclude-dir=worktrees --exclude-dir=target --exclude-dir=.claude --exclude-dir=__pycache__"
 EXCLUDE_FILES="--exclude=*.jsonl --exclude=*.lock --exclude=bun.lock --exclude=package-lock.json"
 
 # Pattern: /Users/<anything>/ or /home/<anything>/ (common home dir patterns)

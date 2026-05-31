@@ -189,6 +189,7 @@ PASSING_JSONL="${TMP_DIR}/passing.jsonl"
 cat > "${PASSING_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 passing_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -202,12 +203,30 @@ assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
 assert_cmd "pass verdict writes an artifact" test -f "${TMP_DIR}/artifacts/demo-skill-2026-05-18.jsonl"
 
+header "unrelated evidence is required"
+NO_UNRELATED_JSONL="${TMP_DIR}/no-unrelated.jsonl"
+cat > "${NO_UNRELATED_JSONL}" <<'JSONL'
+{"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+JSONL
+no_unrelated_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${SKILL_DIR}/SKILL.md" \
+    --baseline-trajectories "${NO_UNRELATED_JSONL}" \
+    --no-persist \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18 2>&1 || true
+)"
+assert_contains "${no_unrelated_out}" "verdict: fail" "missing unrelated scenarios fails verdict"
+assert_contains "${no_unrelated_out}" "fewer than two unrelated no-change scenarios" "missing unrelated scenarios explains requirement"
+
 header "regression needs justification"
 REGRESSION_JSONL="${TMP_DIR}/regression.jsonl"
 cat > "${REGRESSION_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"incident-2","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"adjacent-1","scenario_type":"target","without_skill":{"outcome":"success"},"with_skill":{"outcome":"failure"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 regression_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -226,6 +245,8 @@ cat > "${UNRELATED_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"incident-2","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"failure"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-3","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 unrelated_out="$(
   python3 "${SKILL_VALIDATE}" \
