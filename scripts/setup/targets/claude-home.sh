@@ -98,7 +98,8 @@ _check_claude_skill_symlink() {
 _check_claude_rule_symlink_targets() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local checked_count=0 broken_count=0
-  local rule_links source_path dest_rel label link expected_target actual_target
+  local rule_links all_labels source_path dest_rel label link expected_target actual_target
+  local file
 
   rule_links="$(manifest_rule_links_checked "")" || return 1
   while IFS=$'\t' read -r source_path dest_rel label; do
@@ -119,6 +120,27 @@ _check_claude_rule_symlink_targets() {
       broken_count=$((broken_count + 1))
     fi
   done <<< "${rule_links}"
+
+  all_labels="$(manifest_rule_labels_checked "")" || return 1
+  while IFS= read -r label; do
+    [[ -n "${label}" ]] || continue
+    [[ -d "${rules_dest}/${label}" ]] || continue
+    while IFS= read -r file; do
+      [[ -L "${file}" ]] || continue
+      dest_rel="${file#"${rules_dest}/"}"
+      if _rule_dest_is_declared "${dest_rel}" "${rule_links}"; then
+        continue
+      fi
+      actual_target="$(readlink "${file}" 2>/dev/null || true)"
+      if [[ -z "${actual_target}" ]]; then
+        red "[BROKEN] Native rule symlink target cannot be read: ${file}"
+        broken_count=$((broken_count + 1))
+      elif [[ "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* ]]; then
+        red "[BROKEN] Native rule symlink not declared by manifest: ${file} -> ${actual_target}"
+        broken_count=$((broken_count + 1))
+      fi
+    done < <(find "${rules_dest}/${label}" -name "*.md" -type l 2>/dev/null)
+  done <<< "${all_labels}"
 
   if [[ "${checked_count}" -gt 0 && "${broken_count}" -eq 0 ]]; then
     green "[OK] Native rule symlink targets match current repo"

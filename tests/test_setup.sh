@@ -745,6 +745,10 @@ drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)
 assert_contains "${drift_claude_rule_check_out}" "[BROKEN] Native rule symlink target drift:" "--check reports native rule symlink target drift"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
 ln -s "${REPO_DIR}/rules/claude-rules/common/security.md" "${HOME}/.claude/rules/vibeguard/common/security.md"
+ln -s "${REPO_DIR}/rules/claude-rules/common/workflow.md" "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
+stale_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${stale_claude_rule_check_out}" "[BROKEN] Native rule symlink not declared by manifest:" "--check reports repo-owned native rule symlinks not declared by manifest"
+rm -f "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
 rm -f "${HOME}/.claude/commands/vg"
 ln -s "${REPO_DIR}/.claude/commands/missing-vg" "${HOME}/.claude/commands/vg"
 broken_vg_commands_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
@@ -1108,6 +1112,12 @@ assert_cmd "Unmanaged Codex AGENTS content remains after cleaning" grep -q 'user
 assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
+
+header "setup install default languages before rust filter"
+install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
+assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "default install writes manifest native rules"
+assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
