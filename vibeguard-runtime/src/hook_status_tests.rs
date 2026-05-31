@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::*;
 
 #[test]
@@ -59,6 +60,22 @@ fn diag_adapter_reason_becomes_adapter_error() {
     let entry = normalize_diag_event(&event, "codex-wrapper.jsonl");
     assert_eq!(entry.status, status::ADAPTER_ERROR);
     assert!(!entry.model_context);
+}
+
+#[test]
+fn diag_explicit_block_preserves_model_context() {
+    let event = json!({
+        "ts": "2026-05-31T00:00:00Z",
+        "hook": "post-build-check",
+        "event": "PostToolUse",
+        "status": "block",
+        "reason": "build failed",
+        "detail": "Edit src/main.rs"
+    });
+    let entry = normalize_diag_event(&event, "codex-wrapper.jsonl");
+    assert_eq!(entry.status, status::BLOCK);
+    assert_eq!(entry.reason, "build failed");
+    assert!(entry.model_context);
 }
 
 #[test]

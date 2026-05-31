@@ -527,6 +527,18 @@ fn normalize_status(
     if status_lower == status::HOOK_ERROR {
         return status::HOOK_ERROR.to_string();
     }
+    match status_lower.as_str() {
+        status::PASS => return status::PASS.to_string(),
+        status::SKIPPED => return status::SKIPPED.to_string(),
+        status::WARN => return status::WARN.to_string(),
+        status::BLOCK => return status::BLOCK.to_string(),
+        status::GATE => return status::GATE.to_string(),
+        status::ESCALATE => return status::ESCALATE.to_string(),
+        status::CORRECTION => return status::CORRECTION.to_string(),
+        status::COMPLETE => return status::COMPLETE.to_string(),
+        status::SLOW => return status::SLOW.to_string(),
+        _ => {}
+    }
     if reason_lower.starts_with("skip:")
         || reason_lower.starts_with("skipped")
         || reason_lower.contains(" skipped")
