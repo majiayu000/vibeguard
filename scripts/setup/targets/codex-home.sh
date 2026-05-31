@@ -179,6 +179,20 @@ print(total)
         [[ -n "${line}" ]] && red "[BROKEN] ${line}"
       done <<< "${stale_hooks_report}"
     fi
+
+    local timeout_hooks_report
+    if timeout_hooks_report="$(python3 "${CODEX_HOOKS_HELPER}" check-timeouts --hooks-file "${CODEX_DIR}/hooks.json" 2>&1)"; then
+      :
+    else
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${line}" == managed* ]]; then
+          red "[BROKEN] ${line}"
+        else
+          yellow "[WARN] ${line}"
+        fi
+      done <<< "${timeout_hooks_report}"
+    fi
   else
     yellow "[MISSING] Codex hooks.json not installed"
   fi

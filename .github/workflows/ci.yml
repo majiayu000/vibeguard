@@ -223,6 +223,10 @@ jobs:
         shell: bash
         run: bash tests/test_hook_health.sh
 
+      - name: Hook status regression tests
+        shell: bash
+        run: bash tests/test_hook_status.sh
+
       - name: Stats regression tests
         if: runner.os != 'Windows'
         shell: bash

@@ -283,6 +283,7 @@ assert_codex_pretool_output_contract "${pretool_context_out}" "pretool additiona
 header "run-hook-codex keeps pass-with-no-output silent"
 TMP_HOME_PASSING="${TMP_DIR}/home-passing"
 TMP_FAKE_REPO_PASSING="${TMP_DIR}/fake-repo-passing"
+PASSING_DIAG_FILE="${TMP_DIR}/passing-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_PASSING}/.vibeguard" "${TMP_FAKE_REPO_PASSING}/hooks"
 printf '%s' "${TMP_FAKE_REPO_PASSING}" > "${TMP_HOME_PASSING}/.vibeguard/repo-path"
 
@@ -295,7 +296,7 @@ chmod +x "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh"
 
 passing_out="$({
   printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
-    | HOME="${TMP_HOME_PASSING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+    | HOME="${TMP_HOME_PASSING}" VIBEGUARD_CODEX_DIAG_FILE="${PASSING_DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
 } 2>/dev/null)"
 TOTAL=$((TOTAL + 1))
 if [[ -z "${passing_out}" ]]; then
@@ -305,6 +306,8 @@ else
   red "run-hook-codex keeps empty pass responses silent"
   FAIL=$((FAIL + 1))
 fi
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "running"' "run-hook-codex writes running status for pass hooks"
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "pass"' "run-hook-codex writes pass status without stdout noise"
 
 header "run-hook-codex denies wrapped hook failures instead of passing silently"
 TMP_HOME_FAILING="${TMP_DIR}/home-failing"
@@ -470,6 +473,7 @@ assert_codex_posttool_output_contract "${missing_posttool_adapter_out}" "missing
 header "run-hook-codex adapts posttool block output"
 TMP_HOME_POSTTOOL="${TMP_DIR}/home-posttool"
 TMP_FAKE_REPO_POSTTOOL="${TMP_DIR}/fake-repo-posttool"
+POSTTOOL_DIAG_FILE="${TMP_DIR}/posttool-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_POSTTOOL}/.vibeguard" "${TMP_FAKE_REPO_POSTTOOL}/hooks"
 printf '%s' "${TMP_FAKE_REPO_POSTTOOL}" > "${TMP_HOME_POSTTOOL}/.vibeguard/repo-path"
 
@@ -482,11 +486,13 @@ chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh"
 
 posttool_out="$(
   printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.rs"}}' \
-    | HOME="${TMP_HOME_POSTTOOL}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
+    | HOME="${TMP_HOME_POSTTOOL}" VIBEGUARD_CODEX_DIAG_FILE="${POSTTOOL_DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-build-check.sh
 )"
 assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
 assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"
 assert_codex_posttool_output_contract "${posttool_out}" "posttool block matches Codex PostToolUse output contract"
+assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status": "running"' "run-hook-codex writes running status before posttool output"
+assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status": "block"' "run-hook-codex writes final status for posttool output"
 
 header "run-hook-codex passes native Codex hook output through"
 TMP_HOME_NATIVE="${TMP_DIR}/home-native"

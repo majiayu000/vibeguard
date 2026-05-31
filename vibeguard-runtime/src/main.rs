@@ -7,6 +7,7 @@ mod hook_checks;
 mod hook_checks_common;
 mod hook_checks_history;
 mod hook_checks_scan;
+mod hook_status;
 mod json_field;
 mod log_query;
 mod pkg_rewrite;
@@ -69,6 +70,11 @@ static COMMANDS: &[Command] = &[
         name: "session-metrics",
         usage: "<session> <dir>  — emit session metrics and correction signals",
         handler: session_metrics::run,
+    },
+    Command {
+        name: "hook-status",
+        usage: "[--mode minimal|focused|full] [--json] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
+        handler: hook_status::run,
     },
     Command {
         name: "pre-write-check",
