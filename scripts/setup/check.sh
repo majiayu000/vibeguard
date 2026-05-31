@@ -182,7 +182,7 @@ run_legacy_checks() {
   echo
   echo "Repository Git Hooks"
   echo "------------------------------"
-  if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --git-path hooks 2>/dev/null)"; then
+  if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
     _check_repo_git_hook "pre-commit" "${HOME}/.vibeguard/pre-commit"
     _check_repo_git_hook "pre-push" "${REPO_DIR}/hooks/git/pre-push"
   else

@@ -322,7 +322,7 @@ install_repo_git_hook() {
 
 # Automatically install to VibeGuard's own repository. Use git's hook path so
 # linked worktrees and non-standard git dirs are handled correctly.
-VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --git-path hooks 2>/dev/null || true)"
+VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
 if [[ -n "${VG_GIT_HOOKS}" ]]; then
   mkdir -p "${VG_GIT_HOOKS}"
   install_repo_git_hook "pre-commit" "${PRE_COMMIT_WRAPPER}"
