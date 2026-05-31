@@ -80,6 +80,10 @@ if [[ -f "$REPO_DIR/tests/test_manifest_contract.sh" ]]; then
   run_check "test_manifest_contract" "$REPO_DIR/tests/test_manifest_contract.sh" "true"
 fi
 
+if [[ -f "$REPO_DIR/tests/test_prompt_contract.sh" ]]; then
+  run_check "test_prompt_contract" "$REPO_DIR/tests/test_prompt_contract.sh" "true"
+fi
+
 if [[ -f "$REPO_DIR/tests/test_eval_contract.sh" ]]; then
   run_check "test_eval_contract"     "$REPO_DIR/tests/test_eval_contract.sh"     "true"
 fi

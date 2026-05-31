@@ -130,6 +130,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-workflow-contracts.sh
 
+      - name: Validate prompt contract
+        shell: bash
+        run: bash scripts/ci/validate-prompt-contract.sh --strict
+
       - name: Validate skill format
         shell: bash
         run: bash scripts/ci/validate-skill-format.sh
@@ -185,6 +189,10 @@ jobs:
       - name: Eval contract regression tests
         shell: bash
         run: bash tests/test_eval_contract.sh
+
+      - name: Prompt contract regression tests
+        shell: bash
+        run: bash tests/test_prompt_contract.sh
 
       - name: Behavior eval regression gate
         if: runner.os != 'Windows'
@@ -324,6 +332,9 @@ jobs:
 
       - name: Validate workflow contracts
         run: bash scripts/ci/validate-workflow-contracts.sh
+
+      - name: Validate prompt contract
+        run: bash scripts/ci/validate-prompt-contract.sh --strict
 
       - name: Validate hooks manifest
         run: bash scripts/ci/validate-hooks-manifest.sh
