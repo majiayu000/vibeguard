@@ -10,6 +10,13 @@ use std::io::{self, BufRead, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 use crate::event_schema::{UNKNOWN, decision, field, status, tool};
+use crate::time_utils::{now_unix_secs, parse_iso_ts};
+
+#[path = "hook_status_render.rs"]
+mod hook_status_render;
+#[cfg(test)]
+use hook_status_render::minimal_line;
+use hook_status_render::{render_human, render_json};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -133,6 +140,7 @@ pub fn run(args: &[String]) -> Result {
     }
 
     entries.sort_by(|a, b| a.ts.cmp(&b.ts));
+    let entries = drop_stale_running(entries);
     let entries = latest_entries(entries, options.limit);
 
     if options.json {
@@ -363,6 +371,38 @@ fn normalize_diag_event(value: &Value, log_path: &str) -> HookStatusEntry {
     let reason = string_field(value, field::REASON);
     let hook_name = non_empty_or(string_field(value, field::HOOK), UNKNOWN);
     let event = non_empty_or(string_field(value, field::EVENT), UNKNOWN);
+    let explicit_status = string_field(value, field::STATUS);
+    if !explicit_status.is_empty() {
+        let duration_ms = numeric_field(value, field::DURATION_MS);
+        let normalized_status = normalize_status(
+            &explicit_status,
+            &string_field(value, field::DECISION),
+            &reason,
+            duration_ms,
+            DEFAULT_SLOW_MS,
+            false,
+        );
+        let elapsed_ms =
+            normalize_elapsed_ms(&normalized_status, &string_field(value, field::TS), value);
+        return HookStatusEntry {
+            ts: string_field(value, field::TS),
+            session: string_field(value, field::SESSION),
+            source: "codex_diag".to_string(),
+            hook: hook_name,
+            event,
+            matcher: non_empty_or(string_field(value, field::MATCHER), "<none>"),
+            status: normalized_status.clone(),
+            decision: string_field(value, field::DECISION),
+            reason: normalize_reason(&reason, &normalized_status),
+            detail: string_field(value, field::DETAIL),
+            duration_ms,
+            elapsed_ms,
+            timeout_ms: numeric_field(value, field::TIMEOUT_MS),
+            model_context: model_context_for_status(&normalized_status),
+            log_path: log_path.to_string(),
+        };
+    }
+
     let status_value = if is_adapter_error_reason(&reason) {
         status::ADAPTER_ERROR
     } else {
@@ -385,6 +425,17 @@ fn normalize_diag_event(value: &Value, log_path: &str) -> HookStatusEntry {
         timeout_ms: numeric_field(value, field::TIMEOUT_MS),
         model_context: false,
         log_path: log_path.to_string(),
+    }
+}
+
+fn normalize_elapsed_ms(normalized_status: &str, ts: &str, value: &Value) -> Option<u64> {
+    let explicit = numeric_field(value, field::ELAPSED_MS);
+    if normalized_status != status::RUNNING {
+        return explicit.or_else(|| numeric_field(value, field::DURATION_MS));
+    }
+    match explicit {
+        Some(ms) if ms > 0 => Some(ms),
+        _ => parse_iso_ts(ts).map(|started| now_unix_secs().saturating_sub(started) * 1_000),
     }
 }
 
@@ -553,196 +604,33 @@ fn latest_entries(mut entries: Vec<HookStatusEntry>, limit: usize) -> Vec<HookSt
     entries
 }
 
-fn render_json(entries: &[HookStatusEntry], mode: Mode) -> Result<String> {
-    let summary = summary_json(entries);
-    let mode_value = match mode {
-        Mode::Minimal => "minimal",
-        Mode::Focused => "focused",
-        Mode::Full => "full",
-    };
-    let payload = json!({
-        "schema_version": HOOK_STATUS_SCHEMA_VERSION,
-        "mode": mode_value,
-        "summary": summary,
-        "entries": entries.iter().map(HookStatusEntry::to_json).collect::<Vec<_>>(),
-    });
-    Ok(serde_json::to_string_pretty(&payload)?)
-}
-
-fn summary_json(entries: &[HookStatusEntry]) -> Value {
-    let total = entries.len();
-    let running = entries.iter().filter(|entry| entry.is_running()).count();
-    let attention = entries
-        .iter()
-        .filter(|entry| entry.is_attention_state())
-        .count();
-    let model_context = entries.iter().filter(|entry| entry.model_context).count();
-    let event = entries
-        .last()
-        .map(|entry| entry.event.as_str())
-        .unwrap_or(UNKNOWN);
-    json!({
-        "event": event,
-        "total": total,
-        "complete": total.saturating_sub(running),
-        "running": running,
-        "attention": attention,
-        "model_context_entries": model_context,
-    })
-}
-
-fn render_human(entries: &[HookStatusEntry], mode: Mode) -> String {
-    if entries.is_empty() {
-        return "No hook status events found.\n".to_string();
-    }
-
-    let mut out = String::new();
-    out.push_str(&minimal_line(entries));
-    out.push('\n');
-
-    if matches!(mode, Mode::Focused | Mode::Full) {
-        for entry in entries {
-            out.push_str(&format_entry_line(entry, mode));
-            out.push('\n');
+fn drop_stale_running(entries: Vec<HookStatusEntry>) -> Vec<HookStatusEntry> {
+    let mut kept = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        if entry.is_running()
+            && entries
+                .iter()
+                .skip(index + 1)
+                .any(|later| !later.is_running() && same_hook_event(entry, later))
+        {
+            continue;
         }
+        kept.push(entry.clone());
     }
-    out
+    kept
 }
 
-fn minimal_line(entries: &[HookStatusEntry]) -> String {
-    let event = entries
-        .last()
-        .map(|entry| entry.event.as_str())
-        .unwrap_or(UNKNOWN);
-    if let Some(entry) = entries
-        .iter()
-        .rev()
-        .find(|entry| entry.status == status::TIMEOUT)
-    {
-        return format!(
-            "{} hook timed out - {} - {}\nLast action: {}\nLog: {}\nSafe to interrupt: {}",
-            entry.event,
-            entry.hook,
-            format_duration(entry.display_duration_ms()),
-            non_empty_or(entry.detail.clone(), UNKNOWN),
-            non_empty_or(entry.log_path.clone(), UNKNOWN),
-            if entry.event == "PostToolUse" {
-                "yes, hook ran after the tool action"
-            } else {
-                "check the hook event before interrupting"
-            }
-        );
-    }
-    if let Some(entry) = entries
-        .iter()
-        .rev()
-        .find(|entry| entry.status == status::ADAPTER_ERROR)
-    {
-        return format!(
-            "{} hook adapter_error - {} - {}\nLast action: {}\nLog: {}",
-            entry.event,
-            entry.hook,
-            non_empty_or(entry.reason.clone(), UNKNOWN),
-            non_empty_or(entry.detail.clone(), UNKNOWN),
-            non_empty_or(entry.log_path.clone(), UNKNOWN)
-        );
-    }
-
-    let total = entries.len();
-    let running = entries.iter().filter(|entry| entry.is_running()).count();
-    if running > 0 {
-        let elapsed = entries
-            .iter()
-            .filter(|entry| entry.is_running())
-            .filter_map(HookStatusEntry::display_duration_ms)
-            .max();
-        let timeout = entries
-            .iter()
-            .filter(|entry| entry.is_running())
-            .filter_map(|entry| entry.timeout_ms)
-            .max();
-        return format!(
-            "{} checks  {}/{} running - {} / {}",
-            event,
-            running,
-            total,
-            format_duration(elapsed),
-            format_duration(timeout)
-        );
-    }
-
-    let total_duration = entries
-        .iter()
-        .filter_map(|entry| entry.duration_ms)
-        .sum::<u64>();
-    format!(
-        "{} checks  {}/{} complete - {}",
-        event,
-        total,
-        total,
-        format_duration(Some(total_duration))
-    )
+fn same_hook_event(left: &HookStatusEntry, right: &HookStatusEntry) -> bool {
+    left.event == right.event && canonical_hook_name(&left.hook) == canonical_hook_name(&right.hook)
 }
 
-fn format_entry_line(entry: &HookStatusEntry, mode: Mode) -> String {
-    let mut line = format!(
-        "[{}] {} {}({}) {}",
-        status_label(&entry.status),
-        entry.hook,
-        entry.event,
-        entry.matcher,
-        entry.status
-    );
-    if !entry.reason.is_empty() {
-        line.push_str(" - ");
-        line.push_str(&entry.reason);
-    }
-    if let Some(ms) = entry.display_duration_ms() {
-        line.push_str(" - ");
-        line.push_str(&format_duration(Some(ms)));
-    }
-    if entry.status == status::RUNNING {
-        if let Some(timeout_ms) = entry.timeout_ms {
-            line.push_str(" / ");
-            line.push_str(&format_duration(Some(timeout_ms)));
-        }
-    }
-    if matches!(mode, Mode::Full) {
-        line.push_str(&format!(
-            " - model_context={} - log={}",
-            entry.model_context,
-            non_empty_or(entry.log_path.clone(), UNKNOWN)
-        ));
-        if !entry.detail.is_empty() {
-            line.push_str(" - last_action=");
-            line.push_str(&entry.detail);
-        }
-    }
-    line
-}
-
-fn status_label(value: &str) -> &str {
-    match value {
-        status::PASS => "pass",
-        status::SKIPPED => "skip",
-        status::WARN => "warn",
-        status::BLOCK => "block",
-        status::SLOW => "slow",
-        status::TIMEOUT => "timeout",
-        status::RUNNING => "running",
-        status::ADAPTER_ERROR => "error",
-        status::HOOK_ERROR => "error",
-        _ => "info",
-    }
-}
-
-fn format_duration(ms: Option<u64>) -> String {
-    match ms {
-        None => "?".to_string(),
-        Some(value) if value < 1_000 => format!("{value}ms"),
-        Some(value) if value % 1_000 == 0 => format!("{}s", value / 1_000),
-        Some(value) => format!("{:.1}s", value as f64 / 1_000.0),
-    }
+fn canonical_hook_name(hook_name: &str) -> String {
+    hook_name
+        .strip_prefix("vibeguard-")
+        .unwrap_or(hook_name)
+        .strip_suffix(".sh")
+        .unwrap_or_else(|| hook_name.strip_prefix("vibeguard-").unwrap_or(hook_name))
+        .to_string()
 }
 
 #[cfg(test)]

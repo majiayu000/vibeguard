@@ -40,6 +40,10 @@ else
   }
   codex_set_caller_identity() { export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}" VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}" VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-missing-codex-diag-helper}"; }
   codex_diag() { return 0; }
+  codex_hook_timeout_ms() { printf '%s\n' ""; }
+  codex_hook_status_detail() { printf '%s\n' ""; }
+  codex_hook_status_matcher() { printf '%s\n' ""; }
+  codex_hook_status() { return 0; }
 fi
 
 INPUT=$(cat)

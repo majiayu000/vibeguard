@@ -283,6 +283,7 @@ assert_codex_pretool_output_contract "${pretool_context_out}" "pretool additiona
 header "run-hook-codex keeps pass-with-no-output silent"
 TMP_HOME_PASSING="${TMP_DIR}/home-passing"
 TMP_FAKE_REPO_PASSING="${TMP_DIR}/fake-repo-passing"
+PASSING_DIAG_FILE="${TMP_DIR}/passing-codex-wrapper.jsonl"
 mkdir -p "${TMP_HOME_PASSING}/.vibeguard" "${TMP_FAKE_REPO_PASSING}/hooks"
 printf '%s' "${TMP_FAKE_REPO_PASSING}" > "${TMP_HOME_PASSING}/.vibeguard/repo-path"
 
@@ -295,7 +296,7 @@ chmod +x "${TMP_FAKE_REPO_PASSING}/hooks/vibeguard-pre-bash-guard.sh"
 
 passing_out="$({
   printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
-    | HOME="${TMP_HOME_PASSING}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
+    | HOME="${TMP_HOME_PASSING}" VIBEGUARD_CODEX_DIAG_FILE="${PASSING_DIAG_FILE}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
 } 2>/dev/null)"
 TOTAL=$((TOTAL + 1))
 if [[ -z "${passing_out}" ]]; then
@@ -305,6 +306,8 @@ else
   red "run-hook-codex keeps empty pass responses silent"
   FAIL=$((FAIL + 1))
 fi
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "running"' "run-hook-codex writes running status for pass hooks"
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "pass"' "run-hook-codex writes pass status without stdout noise"
 
 header "run-hook-codex denies wrapped hook failures instead of passing silently"
 TMP_HOME_FAILING="${TMP_DIR}/home-failing"

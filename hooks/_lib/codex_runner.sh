@@ -25,13 +25,19 @@ codex_run_hook() {
   while IFS= read -r normalized_input || [[ -n "${normalized_input:-}" ]]; do
     [[ -n "${normalized_input}" ]] || continue
 
+    hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-hook.XXXXXX")"
+    event_name=$(codex_event_name "${normalized_input}")
+    local hook_matcher hook_detail hook_timeout_ms
+    hook_matcher="$(codex_hook_status_matcher "${normalized_input}" 2>/dev/null || true)"
+    hook_detail="$(codex_hook_status_detail "${normalized_input}" 2>/dev/null || true)"
+    hook_timeout_ms="$(codex_hook_timeout_ms "${hook_name}" 2>/dev/null || true)"
+    codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "running" "" "${hook_detail}" "${hook_timeout_ms}"
+
     hook_output=""
     hook_exit=0
-    hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-hook.XXXXXX")"
     hook_output=$(printf '%s' "${normalized_input}" | bash "${hook_path}" "$@" 2>"${hook_err_file}") || hook_exit=$?
     hook_err="$(cat "${hook_err_file}" 2>/dev/null || true)"
     rm -f "${hook_err_file}" 2>/dev/null || true
-    event_name=$(codex_event_name "${normalized_input}")
 
     if [[ ${hook_exit} -ne 0 ]]; then
       codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${hook_err:-${hook_output}}"
@@ -40,7 +46,10 @@ codex_run_hook() {
       return 0
     fi
 
-    [[ -n "${hook_output}" ]] || continue
+    if [[ -z "${hook_output}" ]]; then
+      codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "pass" "" "${hook_detail}" "${hook_timeout_ms}"
+      continue
+    fi
     if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
       hook_output="$(vg_policy_downgrade_output "${hook_output}")"
     fi

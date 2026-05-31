@@ -69,6 +69,7 @@ cat > "${HOOK_LOG}" <<'JSONL'
 JSONL
 
 cat > "${DIAG_LOG}" <<'JSONL'
+{"ts":"2026-05-31T00:00:00Z","cli":"codex","hook":"post-build-check","event":"PostToolUse","matcher":"Bash","status":"running","detail":"Edit src/foo.ts","timeout_ms":30000}
 {"ts":"2026-05-31T00:00:07Z","cli":"codex","hook":"vibeguard-post-build-check.sh","event":"PostToolUse","reason":"posttool-adapter-failed","detail":"invalid json"}
 JSONL
 
@@ -84,10 +85,18 @@ assert_contains "$focused_out" "Last action: Edit src/foo.ts" "focused: timeout 
 assert_contains "$focused_out" "Log: ${HOOK_LOG}" "focused: timeout includes log path"
 assert_contains "$focused_out" "[skip] post-build-check PostToolUse(<none>) skipped - missing file_path - 28ms" "focused: skip result is visible"
 assert_contains "$focused_out" "[error] vibeguard-post-build-check.sh PostToolUse(<none>) adapter_error - posttool-adapter-failed" "focused: adapter error is visible"
+assert_not_contains "$focused_out" "[running] post-build-check" "focused: completed hooks drop stale running status"
 assert_not_contains "$focused_out" "additionalContext" "focused: pass/skip summaries do not inject model context"
 
 running_out="$("${RUNTIME}" hook-status --mode minimal --log-file "${RUNNING_LOG}" --slow-ms 2000 2>&1)"
 assert_contains "$running_out" "PostToolUse checks  1/2 running - 12s / 30s" "minimal: running state shows elapsed and timeout"
+
+cat > "${TMP_DIR}/mixed-events.jsonl" <<'JSONL'
+{"ts":"2026-05-31T00:00:01Z","session":"s1","hook":"pre-bash-guard","tool":"Bash","decision":"pass","reason":"","detail":"git status","duration_ms":18}
+{"ts":"2026-05-31T00:00:02Z","session":"s1","hook":"post-build-check","tool":"PostToolUse","decision":"pass","reason":"skip: missing file_path","detail":"","duration_ms":28}
+JSONL
+mixed_out="$("${RUNTIME}" hook-status --mode minimal --log-file "${TMP_DIR}/mixed-events.jsonl" --slow-ms 2000 2>&1)"
+assert_contains "$mixed_out" "PostToolUse checks  1/1 complete - 28ms" "minimal: summary counts only the displayed event"
 
 header "json output"
 "${RUNTIME}" hook-status --json --mode full --log-file "${HOOK_LOG}" --diag-file "${DIAG_LOG}" --slow-ms 2000 > "${JSON_OUT}"

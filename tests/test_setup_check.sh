@@ -391,6 +391,16 @@ cat > "${TIMEOUT_HOOK_HOME}/.codex/hooks.json" <<'JSON'
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /tmp/orca/stop-bridge.js"
+          }
+        ]
+      }
     ]
   }
 }
@@ -400,6 +410,8 @@ timeout_helper_out="$(HOME="${TIMEOUT_HOOK_HOME}" python3 "${REPO_DIR}/scripts/l
 assert_contains "$timeout_helper_out" "unmanaged Codex hook without timeout" "timeout helper: reports unmanaged hook"
 assert_contains "$timeout_helper_out" "event=PostToolUse matcher=Bash" "timeout helper: reports event and matcher"
 assert_contains "$timeout_helper_out" "command=node /tmp/orca/codex-bridge.js" "timeout helper: reports Orca bridge command"
+assert_contains "$timeout_helper_out" "event=Stop matcher=<none>" "timeout helper: reports unmanaged Stop hook"
+assert_contains "$timeout_helper_out" "command=node /tmp/orca/stop-bridge.js" "timeout helper: reports Stop bridge command"
 assert_contains "$timeout_helper_out" "repair=add timeout or consult hook owner" "timeout helper: reports repair direction"
 
 timeout_check_out="$(HOME="${TIMEOUT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"

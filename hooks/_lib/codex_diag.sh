@@ -123,8 +123,9 @@ import os
 from pathlib import Path
 
 path = Path(os.environ["VIBEGUARD_DIAG_FILE"])
+ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 entry = {
-    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "ts": ts,
     "cli": "codex",
     "hook": os.environ.get("VIBEGUARD_DIAG_HOOK", ""),
     "event": os.environ.get("VIBEGUARD_DIAG_EVENT", ""),
@@ -132,6 +133,107 @@ entry = {
     "detail": os.environ.get("VIBEGUARD_DIAG_DETAIL", "")[:300],
     "cwd": os.environ.get("VIBEGUARD_DIAG_CWD", ""),
 }
+with path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+try:
+    path.chmod(0o600)
+except OSError:
+    pass
+PY
+}
+
+codex_hook_timeout_ms() {
+  local hook_name="$1"
+  case "${hook_name}" in
+    *post-build-check*) printf '%s\n' "30000" ;;
+    *pre-*|*post-edit*|*post-write*) printf '%s\n' "10000" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+codex_hook_status_detail() {
+  local input="$1"
+  CODEX_INPUT="${input}" python3 - <<'PY'
+import json
+import os
+
+try:
+    payload = json.loads(os.environ.get("CODEX_INPUT", ""))
+except Exception:
+    print("")
+    raise SystemExit
+
+tool_input = payload.get("tool_input")
+if not isinstance(tool_input, dict):
+    print("")
+    raise SystemExit
+
+for key in ("file_path", "command"):
+    value = tool_input.get(key)
+    if isinstance(value, str) and value:
+        print(value[:300])
+        raise SystemExit
+print("")
+PY
+}
+
+codex_hook_status_matcher() {
+  local input="$1"
+  CODEX_INPUT="${input}" python3 - <<'PY'
+import json
+import os
+
+try:
+    payload = json.loads(os.environ.get("CODEX_INPUT", ""))
+except Exception:
+    print("")
+    raise SystemExit
+
+tool_name = payload.get("tool_name")
+print(tool_name if isinstance(tool_name, str) else "")
+PY
+}
+
+codex_hook_status() {
+  local hook_name="$1" event_name="$2" matcher="$3" status="$4" reason="${5:-}" detail="${6:-}"
+  local timeout_ms="${7:-}"
+  local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
+  mkdir -p "$(dirname "${diag_file}")" 2>/dev/null || return 0
+  VIBEGUARD_DIAG_FILE="${diag_file}" \
+  VIBEGUARD_DIAG_HOOK="${hook_name}" \
+  VIBEGUARD_DIAG_EVENT="${event_name}" \
+  VIBEGUARD_DIAG_MATCHER="${matcher}" \
+  VIBEGUARD_DIAG_STATUS="${status}" \
+  VIBEGUARD_DIAG_REASON="${reason}" \
+  VIBEGUARD_DIAG_DETAIL="${detail}" \
+  VIBEGUARD_DIAG_TIMEOUT_MS="${timeout_ms}" \
+    python3 - <<'PY' 2>/dev/null || true
+import datetime
+import json
+import os
+from pathlib import Path
+
+def clean_hook(name: str) -> str:
+    if name.startswith("vibeguard-"):
+        name = name[len("vibeguard-"):]
+    if name.endswith(".sh"):
+        name = name[:-3]
+    return name
+
+path = Path(os.environ["VIBEGUARD_DIAG_FILE"])
+entry = {
+    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "cli": "codex",
+    "hook": clean_hook(os.environ.get("VIBEGUARD_DIAG_HOOK", "")),
+    "event": os.environ.get("VIBEGUARD_DIAG_EVENT", ""),
+    "matcher": os.environ.get("VIBEGUARD_DIAG_MATCHER", ""),
+    "status": os.environ.get("VIBEGUARD_DIAG_STATUS", ""),
+    "reason": os.environ.get("VIBEGUARD_DIAG_REASON", ""),
+    "detail": os.environ.get("VIBEGUARD_DIAG_DETAIL", "")[:300],
+}
+timeout_ms = os.environ.get("VIBEGUARD_DIAG_TIMEOUT_MS", "")
+if timeout_ms.isdigit():
+    entry["timeout_ms"] = int(timeout_ms)
 with path.open("a", encoding="utf-8") as f:
     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 try:

@@ -243,16 +243,17 @@ def timeout_findings(path: Path, home: Path) -> list[dict[str, str]]:
     for event, matcher_text, hook in _iter_hook_records(data):
         # VibeGuard's managed Stop entries intentionally have no timeout because
         # Codex's Stop output surface is non-blocking and historically rejected
-        # spurious Stop timeouts in check-vibeguard.
-        if event == "Stop":
+        # spurious Stop timeouts in check-vibeguard. External Stop hooks are
+        # still reported so their owner can make an explicit timeout decision.
+        matcher = None if matcher_text == "<none>" else matcher_text
+        identity = _identity_for_hook(event, matcher, hook)
+        if event == "Stop" and identity.is_managed:
             continue
         command = hook.get("command")
         if not isinstance(command, str) or not command:
             continue
         if isinstance(hook.get("timeout"), int) and hook["timeout"] > 0:
             continue
-        matcher = None if matcher_text == "<none>" else matcher_text
-        identity = _identity_for_hook(event, matcher, hook)
         managed_state = "managed" if identity.is_managed else "unmanaged"
         repair = "bash setup.sh --yes" if identity.is_managed else "add timeout or consult hook owner"
         findings.append(
