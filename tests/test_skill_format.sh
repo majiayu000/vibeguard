@@ -117,6 +117,16 @@ write_valid_skill "${NUMERIC_BLOCK_SCALAR_SKILL}"
 perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: |2\n  Use when validating VibeGuard skill format structure.\n  Numeric block scalar indentation indicator./' "${NUMERIC_BLOCK_SCALAR_SKILL}"
 assert_cmd "block scalar with numeric indentation indicator passes" python3 "${VALIDATOR}" "${NUMERIC_BLOCK_SCALAR_SKILL}"
 
+CHOMPING_FIRST_BLOCK_SCALAR_SKILL="${TMP_DIR}/chomping-first-block-scalar/SKILL.md"
+write_valid_skill "${CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: |-2\n  Use when validating VibeGuard skill format structure.\n  Chomping indicator before numeric indentation indicator./' "${CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+assert_cmd "block scalar with chomping-before-indent indicator passes" python3 "${VALIDATOR}" "${CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+
+FOLDED_CHOMPING_FIRST_BLOCK_SCALAR_SKILL="${TMP_DIR}/folded-chomping-first-block-scalar/SKILL.md"
+write_valid_skill "${FOLDED_CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: >+2\n  Use when validating VibeGuard skill format structure.\n  Folded scalar with chomping before indentation indicator./' "${FOLDED_CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+assert_cmd "folded block scalar with chomping-before-indent indicator passes" python3 "${VALIDATOR}" "${FOLDED_CHOMPING_FIRST_BLOCK_SCALAR_SKILL}"
+
 INDENTED_BODY_SKILL="${TMP_DIR}/indented-body/SKILL.md"
 write_valid_skill "${INDENTED_BODY_SKILL}"
 perl -0pi -e 's/description: Use when validating VibeGuard skill format structure\./description: Use when validating VibeGuard skill format structure.\n  This indented body text is not a YAML block scalar./' "${INDENTED_BODY_SKILL}"
