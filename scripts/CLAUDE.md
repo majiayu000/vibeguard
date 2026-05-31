@@ -14,8 +14,8 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `log-capability-change.sh` | Extract a capability-change timeline from git history |
 | `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
 | `live_truth.py` | Verify mutable claims such as latest, PR-ready, merged, running, deployed, and published with fresh facts/inferences/gaps |
-| `skill_validate.py` | Validate SKILL.md structure and score proposed skill changes with with/without repair and regression evidence |
-| `ci/validate-skill-format.py` | Validate VibeGuard skill/workflow SKILL.md structure (`When to Activate`, `Red Flags`, `Checklist`) |
+| `skill_validate.py` | Validate SKILL.md and template structure, then score proposed skill changes with with/without repair and regression evidence |
+| `ci/validate-skill-format.py` | Validate VibeGuard skill/workflow SKILL.md and template structure (`When to Activate`, `Red Flags`, `Checklist`) |
 
 ## GC / Metrics / Verification
 
@@ -39,7 +39,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `validate-doc-paths.sh` | Check backtick path references in markdown docs |
 | `validate-doc-command-paths.sh` | Check shell command paths and stale command aliases in user-facing docs |
 | `validate-no-personal-paths.sh` | Catch accidental personal absolute paths in tracked files |
-| `validate-skill-format.sh` | Check VibeGuard skill/workflow SKILL.md activation, red-flag, and checklist sections |
+| `validate-skill-format.sh` | Check VibeGuard skill/workflow SKILL.md and template activation, red-flag, and checklist sections |
 | `check-branch-protection.sh` | Verify branch protection settings |
 | `apply-branch-protection.sh` | Apply the expected branch protection policy |
 

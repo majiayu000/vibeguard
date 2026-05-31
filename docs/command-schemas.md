@@ -235,7 +235,7 @@ python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.m
 python3 scripts/skill_validate.py --check-repo-format --repo-root .
 ```
 
-`--check-repo-format` scans both `skills/*/SKILL.md` and `workflows/*/SKILL.md`.
+`--check-repo-format` scans `skills/*/SKILL.md`, `workflows/*/SKILL.md`, and `templates/skill-template.md`.
 
 ## review output Schema
 

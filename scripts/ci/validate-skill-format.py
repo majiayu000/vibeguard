@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate VibeGuard-owned SKILL.md structure."""
+"""Validate VibeGuard-owned SKILL.md and skill template structure."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ def default_skill_paths(repo_dir: Path) -> list[Path]:
     for root in (repo_dir / "skills", repo_dir / "workflows"):
         if root.is_dir():
             paths.extend(sorted(root.glob("*/SKILL.md")))
+    template = repo_dir / "templates" / "skill-template.md"
+    if template.is_file():
+        paths.append(template)
     return paths
 
 
@@ -106,11 +109,14 @@ def validate_skill(path: Path) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Validate VibeGuard skill and workflow SKILL.md files.")
+    parser = argparse.ArgumentParser(description="Validate VibeGuard skill, workflow, and skill template files.")
     parser.add_argument(
         "paths",
         nargs="*",
-        help="Specific SKILL.md files to validate. Defaults to skills/*/SKILL.md and workflows/*/SKILL.md.",
+        help=(
+            "Specific SKILL.md files to validate. Defaults to skills/*/SKILL.md, "
+            "workflows/*/SKILL.md, and templates/skill-template.md."
+        ),
     )
     parser.add_argument(
         "--repo-dir",

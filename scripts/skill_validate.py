@@ -13,7 +13,7 @@ from pathlib import Path
 
 OUTCOMES = {"success", "failure"}
 DEFAULT_OUTPUT_DIR = ".vibeguard/skill-validate"
-FORMAT_PATH_PATTERNS = ("skills/*/SKILL.md", "workflows/*/SKILL.md")
+FORMAT_PATH_PATTERNS = ("skills/*/SKILL.md", "workflows/*/SKILL.md", "templates/skill-template.md")
 FORMAT_REQUIRED_SECTIONS = ("## When to Activate", "## Red Flags", "## Checklist")
 FORMAT_LIST_SECTIONS = ("## Red Flags", "## Checklist")
 
@@ -408,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     format_group.add_argument(
         "--check-repo-format",
         action="store_true",
-        help="Validate skills/*/SKILL.md and workflows/*/SKILL.md under --repo-root.",
+        help="Validate skills/*/SKILL.md, workflows/*/SKILL.md, and templates/skill-template.md under --repo-root.",
     )
     parser.add_argument("--repo-root", default=".", help="Repository root for --check-repo-format")
     return parser

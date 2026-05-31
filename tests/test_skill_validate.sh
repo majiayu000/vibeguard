@@ -74,6 +74,8 @@ assert_cmd "skill_validate.py syntax is valid" python3 -m py_compile "${SKILL_VA
 header "format gate"
 assert_cmd "format-only accepts shaped skill" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md"
+assert_cmd "format-only accepts repository skill template" \
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${REPO_DIR}/templates/skill-template.md" --no-persist
 
 MARKDOWN_LINK_DIR="${TMP_DIR}/markdown-link"
 mkdir -p "${MARKDOWN_LINK_DIR}"
@@ -181,7 +183,28 @@ coverage_out="$(
 )"
 assert_contains "${coverage_out}" "workflows/bad/SKILL.md: missing required section: ## Checklist" "repo format gate covers workflows"
 
-assert_cmd "repo skill and workflow format gate passes" \
+TEMPLATE_COVERAGE_REPO="${TMP_DIR}/template-coverage-repo"
+mkdir -p "${TEMPLATE_COVERAGE_REPO}/templates"
+cat > "${TEMPLATE_COVERAGE_REPO}/templates/skill-template.md" <<'MD'
+---
+name: bad-template
+description: Use when testing template coverage.
+---
+
+# Bad Template
+
+## When to Activate
+
+- Validate template coverage.
+MD
+template_coverage_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --check-repo-format \
+    --repo-root "${TEMPLATE_COVERAGE_REPO}" 2>&1 || true
+)"
+assert_contains "${template_coverage_out}" "templates/skill-template.md: missing required section: ## Red Flags" "repo format gate covers skill template"
+
+assert_cmd "repo skill, workflow, and template format gate passes" \
   python3 "${SKILL_VALIDATE}" --check-repo-format --repo-root "${REPO_DIR}"
 
 header "passing repair evidence"

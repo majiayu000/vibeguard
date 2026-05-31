@@ -78,8 +78,12 @@ header "syntax"
 assert_cmd "validate-skill-format.py syntax is valid" python3 -m py_compile "${VALIDATOR}"
 
 header "repository coverage"
-assert_cmd "repository skills and workflows pass format validation" \
+assert_cmd "repository skills, workflows, and template pass format validation" \
   bash "${REPO_DIR}/scripts/ci/validate-skill-format.sh"
+repo_format_out="$(python3 "${VALIDATOR}" --repo-dir "${REPO_DIR}")"
+assert_contains "${repo_format_out}" "templates/skill-template.md" "repository format coverage includes skill template"
+assert_cmd "skill template passes direct format validation" \
+  python3 "${VALIDATOR}" "${REPO_DIR}/templates/skill-template.md"
 
 header "single-file validation"
 VALID_SKILL="${TMP_DIR}/skills/demo/SKILL.md"
