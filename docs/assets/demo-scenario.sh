@@ -70,10 +70,10 @@ type_out "$ bash ${VG}/guards/universal/check_code_slop.sh ${DEMO_DIR}"
 bash "${VG}/guards/universal/check_code_slop.sh" "${DEMO_DIR}" 2>&1 || true
 pause 1
 
-section "3. Block dangerous shell commands"
+section "3. Block destructive git operations"
 type_out '$ # AI tries: git push --force'
-echo -e '\033[1;31m✗ pre-bash-guard: blocked `git push --force`\033[0m'
-echo '  → suggests: git push --force-with-lease'
+echo -e '\033[1;31m✗ git pre-push hook: blocked non-fast-forward push\033[0m'
+echo '  → use --force-with-lease only after explicit intent'
 pause 1
 
 section "4. Every finding ships with a fix instruction"

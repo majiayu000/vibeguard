@@ -83,13 +83,13 @@ Hooks + guard script **mechanized execution** without relying on AI consciousnes
 
 | Layers | Constraints | Execution Mode |
 |----|------|----------|
-| **L1** | Must search for existing implementations before creating new one | **Hook automatic interception** |
+| **L1** | Must search for existing implementations before creating new one | **Hook reminder by default; block when configured** |
 | **L2** | Python snake_case, API camelCase | Guard script |
 | **L3** | Disable silent exception swallowing; disable Any type | **Hook warning** |
 | **L4** | Blank display with no data; API not invented | **Hook Warning** |
 | **L5** | Only do what is asked | Review constraints |
 | **L6** | Follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
-| **L7** | Disable AI tag / force push / key | **Hook interception** |
+| **L7** | Disable AI tag / force push / key | **Hook + git hook interception** |
 
 ---
 
@@ -99,8 +99,9 @@ Hooks + guard script **mechanized execution** without relying on AI consciousnes
 
 | Trigger conditions | Behavior |
 |----------|------|
-| `Write` creates a new source code file | **Block** — Search for existing implementations first |
-| `Bash` force push / rm -rf / reset --hard | **Block** — gives a safe alternative |
+| `Write` creates a new source code file | **Warn by default** — Search for existing implementations first; configure `write_mode=block` to hard-block |
+| `Bash` dangerous local cleanup (`rm -rf`, `git clean -f`, `git checkout/restore .`) | **Block** — gives a safe alternative |
+| git `pre-push` detects non-fast-forward push / branch deletion | **Block** — protects remote history; use `--force-with-lease` only after explicit intent |
 | `Edit` non-existent file | **Block** — Read first to confirm |
 | `Edit` added unwrap/expect (Rust) | **Warn** — Output repair method |
 | `Edit` adds hardcoded path | **Warn** — Prompt configuration |

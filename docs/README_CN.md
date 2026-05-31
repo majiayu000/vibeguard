@@ -94,7 +94,8 @@ VibeGuard 现在明确分成两层：
 | AI 创建新的 `.py/.ts/.rs/.go/.js` 文件 | `pre-write-guard` | 默认 **告警**，提醒先搜索现有实现；设置 `VIBEGUARD_WRITE_MODE=block` 或 `write_mode=block` 后硬拦截 |
 | AI 创建或编辑超过 400 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard`、`post-write-guard`、`post-edit-guard` | **告警**，提示已超过典型范围；当前改动保持局部，后续再规划拆分 |
 | AI 创建或编辑超过 800 行的生产源码文件 | `pre-write-guard`、`pre-edit-guard` | **拦截**，必须先拆分文件 |
-| AI 执行 `git push --force`、`rm -rf`、`git clean -fd`、批量 `git checkout/restore .` | `pre-bash-guard` | **拦截**，给出安全替代命令；如确实要清理本地改动，先运行 `python3 ~/vibeguard/scripts/authorized-discard.py --plan` 查看逐路径计划，再用确认短语执行 |
+| AI 执行危险本地清理（危险路径 `rm -rf`、`git clean -f`、批量 `git checkout/restore .`） | `pre-bash-guard` | **拦截**，给出安全替代命令；如确实要清理本地改动，先运行 `python3 ~/vibeguard/scripts/authorized-discard.py --plan` 查看逐路径计划，再用确认短语执行 |
+| AI 推送非快进更新或删除远端分支 | git `pre-push` | **拦截**，保护远端历史；只有明确需要改写历史时才使用 `--force-with-lease` |
 | AI 编辑一个不存在的文件 | `pre-edit-guard` | **拦截**，要求先读取文件确认 |
 | AI 编辑后引入 `unwrap()`、硬编码路径等问题 | `post-edit-guard` | **告警**，直接给修复建议 |
 | AI 编辑后留下 `console.log` / `print()` | `post-edit-guard` | **告警**，要求换成正式日志方案 |
@@ -234,7 +235,7 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 
 | 事件 | Hook | 作用 |
 |------|------|------|
-| `PreToolUse(Bash)` | `pre-bash-guard.sh` | 危险命令拦截 + 包管理器纠偏 |
+| `PreToolUse(Bash)` | `pre-bash-guard.sh` | 危险本地清理拦截 + 包管理器纠偏 |
 | `PermissionRequest(Bash)` | `pre-bash-guard.sh` | 危险命令审批前的 fail-closed 闸门 |
 | `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`、`pre-write-guard.sh` | patch 前检查文件存在性和 search-first |
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`、`pre-write-guard.sh` | 需要额外权限的 patch 审批前闸门 |
@@ -295,7 +296,7 @@ bash ~/vibeguard/setup.sh --clean
 | `full` | `core` + `stop-guard` + `learn-evaluator` + `post-build-check` | 完整防线 + 学习闭环 |
 | `strict` | 与 `full` 相同 hook 集合 | 更严格的运行策略 |
 
-`setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git pre-commit hook。要把 wrapper 接到其他仓库，用 `scripts/project-init.sh` 或目标仓库自己的安装步骤。
+`setup.sh` 同时会准备共享的 pre-commit wrapper：`~/.vibeguard/pre-commit`，并给本仓库安装 git `pre-commit` 和 `pre-push` hooks。git `pre-push` hook 负责非快进推送/删除远端分支保护；`pre-bash-guard` 不用正则匹配 `git push --force`。要把 wrapper 接到其他仓库，用 `scripts/project-init.sh` 或目标仓库自己的安装步骤。
 
 ### 给别的仓库做初始化
 

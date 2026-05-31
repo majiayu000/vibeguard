@@ -12,7 +12,7 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 
 - Duplicate files and reinvented modules
 - Invented APIs, fake libraries, and hardcoded placeholder values
-- Dangerous shell/git commands (`rm -rf`, `push --force`, `reset --hard`)
+- Dangerous shell/git operations (`rm -rf` dangerous paths, `git clean -f`, non-fast-forward pushes)
 - Audited cleanup for intentional local discards, with exact path plans and confirmation gates
 - Analysis paralysis and unverified "I'm done" claims
 - Silent exception swallowing and `Any`-type abuse
@@ -72,7 +72,7 @@ AI:   → tries to create auth_service.py
       ✗ VibeGuard flags — use env var or secret manager
 
       → runs `git push --force`
-      ✗ VibeGuard denies — suggests `--force-with-lease`
+      ✗ VibeGuard git pre-push hook denies — use `--force-with-lease` only after explicit intent
 
       → runs `git clean -fd`
       ✗ VibeGuard denies — points to an authorized discard workflow with an exact deletion plan
@@ -132,7 +132,8 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
 | AI creates or edits production source above 400 lines | `pre-write-guard`, `pre-edit-guard`, `post-write-guard`, `post-edit-guard` | **Warn** — typical-size advisory; keep the current change localized and plan a later split if growth continues |
 | AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
-| AI runs `git push --force`, `rm -rf`, `reset --hard` | `pre-bash-guard` | **Block** — suggests safe alternatives |
+| AI runs destructive local cleanup (`rm -rf` dangerous paths, `git clean -f`, `git checkout/restore .`) | `pre-bash-guard` | **Block** — suggests safe alternatives and audited discard flow |
+| AI pushes a non-fast-forward update or branch deletion | git `pre-push` | **Block** — protects remote history; use `--force-with-lease` only after explicit intent |
 | AI edits non-existent file | `pre-edit-guard` | **Block** — must Read file first |
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
 | AI adds `console.log` / `print()` debug statements | `post-edit-guard` | **Warn** — use logger instead |
@@ -299,7 +300,7 @@ which implies it) to make CI fail when the install is broken.
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
 | `strict` | same hook set as full | Maximum enforcement |
 
-`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git pre-commit hook during setup. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
+`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
 
 ### Codex Integration
 
@@ -309,7 +310,7 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 
 | Event | Hook | Function |
 |-------|------|----------|
-| `PreToolUse(Bash)` | `pre-bash-guard.sh` | Dangerous command interception + package manager correction |
+| `PreToolUse(Bash)` | `pre-bash-guard.sh` | Destructive local cleanup interception + package manager correction |
 | `PermissionRequest(Bash)` | `pre-bash-guard.sh` | Fail-closed approval gate for dangerous commands |
 | `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | File existence and search-first gates before patching |
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |

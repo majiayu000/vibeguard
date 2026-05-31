@@ -40,7 +40,7 @@
       "install_targets": ["hooks-pre"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "PreToolUse(Bash)",
-      "responsibilities": "Intercept dangerous commands: force push, rm -rf /, reset --hard, etc.",
+      "responsibilities": "Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook.",
       "decision_types": ["pass", "warn", "block", "correction"],
       "claude": {
         "enabled": true,
