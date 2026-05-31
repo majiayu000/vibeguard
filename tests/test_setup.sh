@@ -118,13 +118,54 @@ assert_claude_rule_banner_matches_installed_rules() {
   [[ "${declared}" == "${actual}" ]]
 }
 
+assert_repo_git_hook_target() {
+  local hook_name="$1"
+  local expected="$2"
+  local hook_path="${REPO_GIT_HOOK_DIR}/${hook_name}"
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 1
+  [[ -L "${hook_path}" ]] || return 1
+  [[ "$(readlink "${hook_path}")" == "${expected}" ]] || return 1
+  [[ -x "${hook_path}" ]]
+}
+
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
 ORIG_PATH="${PATH}"
+REPO_GIT_HOOK_DIR="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
+REPO_GIT_HOOK_BACKUP="${TMP_HOME}/repo-git-hooks-backup"
+
+backup_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_BACKUP}"
+  local hook hook_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    if [[ -e "${hook_path}" || -L "${hook_path}" ]]; then
+      cp -pP "${hook_path}" "${REPO_GIT_HOOK_BACKUP}/${hook}"
+    fi
+  done
+}
+
+restore_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_DIR}"
+  local hook hook_path backup_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    backup_path="${REPO_GIT_HOOK_BACKUP}/${hook}"
+    rm -f "${hook_path}"
+    if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+      cp -pP "${backup_path}" "${hook_path}"
+    fi
+  done
+}
+
+backup_repo_git_hooks
 
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
+  restore_repo_git_hooks
   rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
@@ -566,6 +607,33 @@ assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vi
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
 assert_cmd "runtime policy project validator installed after setup" test -f "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
+assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+installed_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-commit hook installed" "--check reports repo pre-commit hook healthy"
+assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-push hook installed" "--check reports repo pre-push hook healthy"
+ln -sfn "${TMP_HOME}/unexpected-pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
+drift_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${drift_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-commit hook target drift" "--check reports repo pre-commit hook target drift"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-push"
+missing_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${missing_git_hook_check_out}" "[MISSING] VibeGuard repo pre-push hook" "--check reports missing repo pre-push hook"
+rm -f "${HOME}/.vibeguard/pre-commit"
+ln -sfn "${HOME}/.vibeguard/pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
+broken_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${broken_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-commit hook target missing" "--check reports broken repo pre-commit hook symlink"
+git_hook_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${git_hook_repair_out}" "Setup complete! All components installed." "setup repairs missing/broken repo git hooks"
+assert_cmd "repo pre-commit hook repaired by setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "repo pre-push hook repaired by setup" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+outside_cwd="${TMP_HOME}/outside-cwd"
+mkdir -p "${outside_cwd}"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-commit" "${REPO_GIT_HOOK_DIR}/pre-push"
+outside_install_out="$(cd "${outside_cwd}" && bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${outside_install_out}" "Setup complete! All components installed." "setup succeeds from outside repo cwd"
+assert_cmd "outside-cwd setup installs repo pre-commit hook in real repo" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "outside-cwd setup installs repo pre-push hook in real repo" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+assert_cmd "outside-cwd setup does not create stray hook directory" test ! -e "${outside_cwd}/.git/hooks/pre-commit"
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard is copied after installation" bash -c "test -d '${HOME}/.codex/skills/vibeguard' && test ! -L '${HOME}/.codex/skills/vibeguard'"
 assert_cmd "~/.codex/skills/vibeguard stale files are removed during copy install" test ! -e "${HOME}/.codex/skills/vibeguard/STALE.txt"
