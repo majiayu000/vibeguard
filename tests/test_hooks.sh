@@ -6,8 +6,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-if [[ -f "vibeguard-runtime/Cargo.toml" ]] \
-    && [[ ! -x "vibeguard-runtime/target/release/vibeguard-runtime" ]]; then
+if [[ -f "vibeguard-runtime/Cargo.toml" ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
     echo "tests/test_hooks.sh requires cargo to build vibeguard-runtime" >&2
     exit 2

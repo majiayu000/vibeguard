@@ -22,6 +22,12 @@ assert_not_contains "$runtime_missing_stdout" '"decision": "pass"' "missing runt
 rm -rf "$runtime_missing_dir"
 unset runtime_missing_dir runtime_missing_stdout runtime_missing_rc runtime_missing_stderr
 
+header "pre-write-guard.sh — malformed input fails closed"
+
+result=$(printf '%s' '{"tool_input":' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "Malformed Write hook JSON fails closed"
+assert_contains "$result" "malformed PreToolUse(Write)" "Malformed Write hook input explains validation failure"
+
 header "pre-write-guard.sh — search first and then write"
 # =========================================================
 

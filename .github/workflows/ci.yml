@@ -71,6 +71,12 @@ jobs:
           fi
           echo "Installed: $(ast-grep --version)"
 
+      - name: Rust runtime checks
+        shell: bash
+        run: |
+          cargo check --manifest-path vibeguard-runtime/Cargo.toml
+          cargo test --manifest-path vibeguard-runtime/Cargo.toml
+
       # --- Shell-based validation ---
       # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
       # which have no meaning on NTFS and would produce false-positive passes.

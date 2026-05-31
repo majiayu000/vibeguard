@@ -6,6 +6,8 @@ MIN_PRECISION="${MIN_PRECISION:-75}"
 MIN_RECALL="${MIN_RECALL:-75}"
 MIN_F1="${MIN_F1:-75}"
 
+cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+
 CSV_OUTPUT="$(bash "${REPO_DIR}/tests/run_precision.sh" --all --csv)"
 
 VG_PRECISION_CSV="${CSV_OUTPUT}" python3 - "$MIN_PRECISION" "$MIN_RECALL" "$MIN_F1" <<'PY'
