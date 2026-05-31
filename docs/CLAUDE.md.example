@@ -105,7 +105,7 @@ Hooks + guard script **mechanized execution** without relying on AI consciousnes
 | `Edit` added unwrap/expect (Rust) | **Warn** — Output repair method |
 | `Edit` adds hardcoded path | **Warn** — Prompt configuration |
 | `Edit` added console.log / print | **Warn** — Prompt to use logger |
-| `Stop` has unverified source code changes | **Gate** — reminds to complete verification |
+| `Stop` has unverified source code changes | **Signal** — logs a reminder; Stop exits 0 to avoid feedback loops |
 
 ### Observability
 

@@ -139,7 +139,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Escalate** — force a concrete next step or blocker report |
 | AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
-| AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
+| AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
 U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the 800-line limit are denied before mutation.
@@ -314,7 +314,7 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |
 | `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | Build failure detection after commands or patches |
 | `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`, `post-write-guard.sh` | Post-patch quality and duplicate checks |
-| `Stop` | `stop-guard.sh` | Uncommitted changes gate |
+| `Stop` | `stop-guard.sh` | Uncommitted changes signal (logs a `gate` event, non-blocking Stop) |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
 
 This is the default enforcement layer. It talks to Codex through native hooks

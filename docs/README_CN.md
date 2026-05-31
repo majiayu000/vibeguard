@@ -101,7 +101,7 @@ VibeGuard 现在明确分成两层：
 | AI 连续搜索/读取却迟迟不行动 | `analysis-paralysis-guard` | **升级**，要求明确下一步或说明阻塞 |
 | `full` / `strict` 档位下编辑源码 | `post-build-check` | **告警**，自动跑对应语言的构建检查 |
 | `git commit` | `pre-commit-guard` | **拦截**，只检查 staged 改动，10 秒硬超时 |
-| AI 想结束但还没有验证改动 | `stop-guard` | **闸门**，要求先补完验证 |
+| AI 想结束但还没有验证改动 | `stop-guard` | **信号**，记录 Stop 提醒；Stop hook 退出 0 以避免反馈循环 |
 | 会话结束 | `learn-evaluator` | **评估**，收集指标并识别纠错信号 |
 
 U-16 文件行数限制只覆盖非测试源码扩展名：`.rs`、`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.go`。在 Codex 路径里，`apply_patch Add File` 和 `apply_patch Update File` 都会先被规范化再进入文件 hook；如果 patch 会让生产源码超过 800 行，会在写入前被 deny。
@@ -239,7 +239,7 @@ VibeGuard 会同时给 Claude Code 和 Codex CLI 安装技能与 hooks。
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`、`pre-write-guard.sh` | 需要额外权限的 patch 审批前闸门 |
 | `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | 命令或 patch 后的构建失败检测 |
 | `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`、`post-write-guard.sh` | patch 后质量检查与重复实现检查 |
-| `Stop` | `stop-guard.sh` | 未验证改动的结束闸门 |
+| `Stop` | `stop-guard.sh` | 未验证改动信号（记录 `gate` 事件，但 Stop 不阻塞） |
 | `Stop` | `learn-evaluator.sh` | 会话指标与纠错信号采集 |
 
 这是默认强制层，走 Codex 原生 hooks，不包也不替换 Codex server。Codex 当前没有原生 `Read`、`Glob`、`Grep` hook surface，所以 `analysis-paralysis` 不在原生 Codex 路径生效；需要读操作循环拦截时优先用 Claude Code。只有已经必须接入 `codex app-server` 的外部编排系统，才需要考虑下面的可选 wrapper。
