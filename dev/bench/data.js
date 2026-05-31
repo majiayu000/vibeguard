@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780223693052,
+  "lastUpdate": 1780224812919,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -11330,6 +11330,165 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P99)",
             "value": 20,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f7019aadfa16e63d6c622e26338e3a7c186a49a",
+          "message": "Fix review thread followups\n\nFixes #258.\n\nSummary:\n- reject indented non-YAML frontmatter lines while preserving legal YAML block scalars, including numeric/chomping indicator order variants\n- make the W-15 root-relative doc path regression hermetic\n- make pre-edit fallback report git ls-files lookup failures as normal block JSON\n- replace ineffective warn-mode escalation advice with effective recovery knobs\n\nValidation:\n- independent review thread 019e7d96-4879-72e1-822d-112418ecca97: first found YAML indicator-order edge case; fixed; re-review returned No findings; safe to merge\n- python3 -m py_compile scripts/ci/validate-skill-format.py\n- bash tests/test_skill_format.sh\n- bash scripts/ci/validate-skill-format.sh\n- bash tests/hooks/test_pre_edit_guard.sh\n- bash tests/hooks/test_pre_write_guard.sh\n- bash tests/hooks/test_post_edit_w15.sh\n- bash scripts/ci/validate-doc-paths.sh\n- bash scripts/ci/validate-doc-command-paths.sh\n- cargo fmt --manifest-path vibeguard-runtime/Cargo.toml --check\n- cargo check --manifest-path vibeguard-runtime/Cargo.toml\n- cargo test --manifest-path vibeguard-runtime/Cargo.toml\n- bash tests/test_setup.sh\n- GitHub Actions run 26710299426 green",
+          "timestamp": "2026-05-31T18:45:25+08:00",
+          "tree_id": "efcb82cbc59a918979731778c0ff40aa9850016e",
+          "url": "https://github.com/majiayu000/vibeguard/commit/9f7019aadfa16e63d6c622e26338e3a7c186a49a"
+        },
+        "date": 1780224812518,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P50)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 162,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 162,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P50)",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P50)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 161,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 161,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 21,
             "unit": "ms"
           }
         ]
