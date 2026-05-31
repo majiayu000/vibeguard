@@ -1,7 +1,7 @@
 # CLAUDE.md — 10x Engineer Configuration
 
 > Integrated Anthropic official best practices + VibeGuard seven-layer defense.
-> Different from "recommended compliance" configuration - rules are automatically intercepted by Hooks + enforced by guard scripts.
+> Different from "recommended compliance" configuration - rules, guard scripts, hooks, and workflow commands provide layered coverage; not every rule is mechanically blocked.
 
 ---
 

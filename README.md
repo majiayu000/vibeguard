@@ -385,7 +385,7 @@ Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there a
 
 | Principle | From | Implementation |
 |-----------|------|----------------|
-| Automation over documentation | Harness #3 | Hooks + guard scripts enforce mechanically |
+| Automation over documentation | Harness #3 | Mechanized checks complement rules, workflows, and review |
 | Error messages = fix instructions | Harness #3 | Every interception tells AI how to fix, not just what's wrong |
 | Maps not manuals | Harness #5 | 7-layer index + negative constraints + lazy loading |
 | Failure → capability | Harness #2 | Mistake → learn → new guard → never again |

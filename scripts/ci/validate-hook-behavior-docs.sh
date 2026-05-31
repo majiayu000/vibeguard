@@ -37,6 +37,10 @@ require_absent "README.md" '| AI tries to finish with unverified changes | `stop
   "README.md must not describe stop-guard as a blocking Gate"
 require_present "README.md" '| AI tries to finish with unverified changes | `stop-guard` | **Signal**' \
   "README.md must describe stop-guard as a non-blocking Signal"
+require_absent "README.md" 'Hooks + guard scripts enforce mechanically' \
+  "README.md must not imply all rule coverage is mechanically enforced"
+require_present "README.md" 'Mechanized checks complement rules, workflows, and review' \
+  "README.md design principles must describe mixed coverage"
 require_present "README.md" '| `Stop` | `stop-guard.sh` | Uncommitted changes signal (logs a `gate` event, non-blocking Stop) |' \
   "README.md Codex hook table must explain stop-guard logs gate events without blocking Stop"
 require_absent "README.md" 'Stop Gate' \
@@ -97,6 +101,10 @@ require_absent "docs/CLAUDE.md.example" '| `Stop` has unverified source code cha
   "docs/CLAUDE.md.example must not describe stop-guard as a blocking Gate"
 require_absent "docs/CLAUDE.md.example" 'Stop Gate' \
   "docs/CLAUDE.md.example must not use the old Stop Gate wording"
+require_absent "docs/CLAUDE.md.example" 'rules are automatically intercepted by Hooks + enforced by guard scripts' \
+  "docs/CLAUDE.md.example intro must not imply all rule coverage is mechanically enforced"
+require_present "docs/CLAUDE.md.example" 'rules, guard scripts, hooks, and workflow commands provide layered coverage; not every rule is mechanically blocked' \
+  "docs/CLAUDE.md.example intro must describe mixed coverage"
 require_absent "docs/CLAUDE.md.example" 'Seven-Layer Defense (Seven-Layer Defense - Enforced)' \
   "docs/CLAUDE.md.example must not claim the seven-layer block is fully enforced"
 require_present "docs/CLAUDE.md.example" '## Seven-Layer Defense (Mixed Coverage)' \
