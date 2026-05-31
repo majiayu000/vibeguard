@@ -61,6 +61,11 @@
     },
     {
       "path": "docs/command-schemas.md",
+      "heading": "skill_validate format output Schema",
+      "schema": "skill_validate_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
       "heading": "review output Schema",
       "schema": "review_output"
     },

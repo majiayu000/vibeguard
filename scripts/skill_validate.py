@@ -366,6 +366,7 @@ def build_artifact(args: argparse.Namespace) -> tuple[dict[str, object], Path | 
     )
     artifact: dict[str, object] = {
         "command": "skill_validate",
+        "mode": "evidence",
         "skill_name": skill_name,
         "proposed_skill": str(proposed_skill),
         "decision_set": decision_set,
@@ -399,6 +400,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--as-of", help="Evaluation date, YYYY-MM-DD; defaults to today")
     parser.add_argument("--allow-stale", action="store_true", help="Report stale gaps without failing the verdict")
     parser.add_argument("--regression-justification", help="Required when regression count is nonzero")
+    parser.add_argument("--json", action="store_true", help="Emit the structured artifact as JSON")
     format_group = parser.add_mutually_exclusive_group()
     format_group.add_argument(
         "--format-only",
@@ -420,13 +422,19 @@ def main(argv: list[str]) -> int:
     if args.check_repo_format:
         repo_root = Path(args.repo_root).resolve()
         artifact = build_format_artifact(repo_skill_paths(repo_root), repo_root)
-        print_format_report(artifact)
+        if args.json:
+            print(json.dumps(artifact, sort_keys=True))
+        else:
+            print_format_report(artifact)
         return 0 if artifact["verdict"] == "pass" else 1
     if args.format_only:
         if not args.proposed_skill:
             parser.error("--format-only requires --proposed-skill")
         artifact = build_format_artifact([Path(args.proposed_skill).resolve()], None)
-        print_format_report(artifact)
+        if args.json:
+            print(json.dumps(artifact, sort_keys=True))
+        else:
+            print_format_report(artifact)
         return 0 if artifact["verdict"] == "pass" else 1
     if not args.proposed_skill:
         parser.error("--proposed-skill is required unless --check-repo-format is used")
@@ -437,7 +445,10 @@ def main(argv: list[str]) -> int:
     except SkillValidateError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print_report(artifact, artifact_path)
+    if args.json:
+        print(json.dumps(artifact, sort_keys=True))
+    else:
+        print_report(artifact, artifact_path)
     return 0 if artifact["verdict"] == "pass" else 1
 
 

@@ -153,6 +153,7 @@ spec.loader.exec_module(module)
 schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
 payload = {
     "command": "skill_validate",
+    "mode": "evidence",
     "skill_name": "demo-skill",
     "proposed_skill": "/tmp/demo/SKILL.md",
     "decision_set": "baseline",
@@ -192,6 +193,72 @@ PY
   PASS=$((PASS + 1))
 else
   red "skill_validate schema accepts persisted artifact fields"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+payload = {
+    "command": "skill_validate",
+    "mode": "format",
+    "verdict": "pass",
+    "paths_checked": 1,
+    "required_sections": ["## When to Activate", "## Red Flags", "## Checklist"],
+    "list_required_sections": ["## Red Flags", "## Checklist"],
+    "errors": [],
+}
+errors = module.validate_instance(payload, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "skill_validate schema accepts format-only artifact fields"
+  PASS=$((PASS + 1))
+else
+  red "skill_validate schema accepts format-only artifact fields"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+payload = {
+    "command": "skill_validate",
+    "mode": "format",
+    "verdict": "stale",
+    "paths_checked": 1,
+    "required_sections": ["## When to Activate", "## Red Flags", "## Checklist"],
+    "list_required_sections": ["## Red Flags", "## Checklist"],
+    "errors": [],
+}
+errors = module.validate_instance(payload, schema)
+if not errors:
+    raise SystemExit("expected stale verdict to fail for format mode")
+PY
+  green "skill_validate format-only artifact uses the format verdict set"
+  PASS=$((PASS + 1))
+else
+  red "skill_validate format-only artifact uses the format verdict set"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
@@ -241,6 +308,7 @@ expected_examples = {
     ("check output Schema", "check_output"),
     ("live_truth output Schema", "live_truth_output"),
     ("skill_validate output Schema", "skill_validate_output"),
+    ("skill_validate format output Schema", "skill_validate_output"),
     ("review output Schema", "review_output"),
     ("learn output Schema", "learn_output"),
 }

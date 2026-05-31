@@ -2,22 +2,58 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vibeguard.local/schemas/command-skill-validate-output.schema.json",
   "title": "VibeGuard Skill Validate Command Output",
-  "description": "Structured output contract for scripts/skill_validate.py evidence artifacts.",
+  "description": "Structured output contract for scripts/skill_validate.py evidence and format artifacts.",
   "type": "object",
-  "required": [
-    "command",
-    "skill_name",
-    "proposed_skill",
-    "decision_set",
-    "verdict",
-    "counts",
-    "freshness_gaps",
-    "scenarios"
-  ],
+  "required": ["command", "mode", "verdict"],
   "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "command",
+        "mode",
+        "skill_name",
+        "proposed_skill",
+        "decision_set",
+        "verdict",
+        "counts",
+        "freshness_gaps",
+        "scenarios"
+      ],
+      "properties": {
+        "mode": {
+          "const": "evidence"
+        },
+        "decision_set": {
+          "enum": ["baseline", "held_out"]
+        }
+      }
+    },
+    {
+      "required": [
+        "command",
+        "mode",
+        "verdict",
+        "paths_checked",
+        "required_sections",
+        "list_required_sections",
+        "errors"
+      ],
+      "properties": {
+        "mode": {
+          "const": "format"
+        },
+        "verdict": {
+          "enum": ["pass", "fail"]
+        }
+      }
+    }
+  ],
   "properties": {
     "command": {
       "const": "skill_validate"
+    },
+    "mode": {
+      "enum": ["evidence", "format"]
     },
     "skill_name": {
       "type": "string",
@@ -123,6 +159,41 @@
           },
           "notes": {
             "type": ["string", "object", "null"]
+          }
+        }
+      }
+    },
+    "paths_checked": {
+      "type": "integer"
+    },
+    "required_sections": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "list_required_sections": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

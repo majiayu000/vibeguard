@@ -86,6 +86,26 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
     if "enum" in schema and instance not in schema["enum"]:
         errors.append(f"{path}: expected one of {schema['enum']}, got {instance!r}")
 
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        matches: list[int] = []
+        branch_errors: list[str] = []
+        for index, branch in enumerate(one_of):
+            if not isinstance(branch, dict):
+                branch_errors.append(f"schema {index}: branch must be an object")
+                continue
+            current_errors = validate_instance(instance, branch, path)
+            if current_errors:
+                branch_errors.append(f"schema {index}: {'; '.join(current_errors)}")
+            else:
+                matches.append(index)
+        if len(matches) != 1:
+            if matches:
+                errors.append(f"{path}: matched multiple oneOf schemas: {matches}")
+            else:
+                detail = "; ".join(branch_errors[:3])
+                errors.append(f"{path}: must match exactly one oneOf schema; {detail}")
+
     if isinstance(instance, str):
         min_length = schema.get("minLength")
         if isinstance(min_length, int) and len(instance) < min_length:

@@ -208,6 +208,7 @@ The text artifact emitted by `scripts/live_truth.py` uses these same sections so
 ```json
 {
   "command": "skill_validate",
+  "mode": "evidence",
   "skill_name": "demo-skill",
   "proposed_skill": "path/to/SKILL.md",
   "decision_set": "baseline",
@@ -245,11 +246,32 @@ The text artifact emitted by `scripts/live_truth.py` uses these same sections so
 `scripts/skill_validate.py` appends this artifact as JSONL under `.vibeguard/skill-validate/` unless `--no-persist` is used.
 Evidence validation also fails when the proposed `SKILL.md` is missing the required reusable-skill sections: `## When to Activate`, `## Red Flags`, and `## Checklist`.
 
-Format-only checks use the same command surface:
+## skill_validate format output Schema
+
+```json
+{
+  "command": "skill_validate",
+  "mode": "format",
+  "verdict": "pass",
+  "paths_checked": 1,
+  "required_sections": [
+    "## When to Activate",
+    "## Red Flags",
+    "## Checklist"
+  ],
+  "list_required_sections": [
+    "## Red Flags",
+    "## Checklist"
+  ],
+  "errors": []
+}
+```
+
+Format-only checks use the same command surface. Add `--json` when another tool needs the schema-compatible artifact:
 
 ```bash
-python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md
-python3 scripts/skill_validate.py --check-repo-format --repo-root .
+python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md --json
+python3 scripts/skill_validate.py --check-repo-format --repo-root . --json
 ```
 
 `--check-repo-format` scans `skills/*/SKILL.md`, `workflows/*/SKILL.md`, and `templates/skill-template.md`.

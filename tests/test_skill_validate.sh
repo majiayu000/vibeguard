@@ -76,6 +76,37 @@ assert_cmd "format-only accepts shaped skill" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md"
 assert_cmd "format-only accepts repository skill template" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${REPO_DIR}/templates/skill-template.md" --no-persist
+format_json="$(
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md" --json
+)"
+TOTAL=$((TOTAL + 1))
+if FORMAT_JSON="${format_json}" python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+artifact = json.loads(os.environ["FORMAT_JSON"])
+if artifact.get("mode") != "format":
+    raise SystemExit(f"expected mode=format, got {artifact.get('mode')!r}")
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+errors = module.validate_instance(artifact, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "format-only JSON output matches skill_validate schema"
+  PASS=$((PASS + 1))
+else
+  red "format-only JSON output matches skill_validate schema"
+  FAIL=$((FAIL + 1))
+fi
 
 MARKDOWN_LINK_DIR="${TMP_DIR}/markdown-link"
 mkdir -p "${MARKDOWN_LINK_DIR}"
@@ -225,6 +256,43 @@ passing_out="$(
 assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats regression"
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
 assert_cmd "pass verdict writes an artifact" test -f "${TMP_DIR}/artifacts/demo-skill-2026-05-18.jsonl"
+passing_json="$(
+  python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${SKILL_DIR}/SKILL.md" \
+    --baseline-trajectories "${PASSING_JSONL}" \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18 \
+    --no-persist \
+    --json
+)"
+TOTAL=$((TOTAL + 1))
+if PASSING_JSON="${passing_json}" python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+artifact = json.loads(os.environ["PASSING_JSON"])
+if artifact.get("mode") != "evidence":
+    raise SystemExit(f"expected mode=evidence, got {artifact.get('mode')!r}")
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+errors = module.validate_instance(artifact, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "evidence JSON output matches skill_validate schema"
+  PASS=$((PASS + 1))
+else
+  red "evidence JSON output matches skill_validate schema"
+  FAIL=$((FAIL + 1))
+fi
 
 header "unrelated evidence is required"
 NO_UNRELATED_JSONL="${TMP_DIR}/no-unrelated.jsonl"
