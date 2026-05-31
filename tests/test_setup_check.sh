@@ -217,6 +217,16 @@ assert_json_path "$mixed_json" 'd["counts"]["ok"]'   "1" "json: counts.ok unaffe
 assert_json_path "$mixed_json" 'd["counts"]["info"]' "1" "json: counts.info still counted"
 assert_json_path "$mixed_json" 'len(d["events"])'    "2" "json: untagged line excluded from events"
 
+spoof_buf=$'[WARN] stale snapshot: [OK]\nfree-form note [BROKEN]\n'
+spoof_summary="$(run_with_buffer "$spoof_buf" 'status_print_summary')"
+assert_contains "$spoof_summary" "OK      : 0" "status parser: embedded OK marker does not override line prefix"
+assert_contains "$spoof_summary" "WARN    : 1" "status parser: warning prefix wins over embedded marker"
+assert_contains "$spoof_summary" "BROKEN  : 0" "status parser: embedded BROKEN marker in untagged line ignored"
+spoof_json="$(run_with_buffer "$spoof_buf" 'status_emit_json')"
+assert_json_path "$spoof_json" 'd["counts"]["warn"]' "1" "json: embedded OK marker still counts as warn"
+assert_json_path "$spoof_json" 'd["events"][0]["level"]' "WARN" "json: embedded status marker cannot spoof level"
+assert_json_path "$spoof_json" 'len(d["events"])' "1" "json: unprefixed embedded marker ignored"
+
 # --- ANSI stripping ---
 header "ANSI stripping"
 # Real probes print colored output; the library must strip color before
