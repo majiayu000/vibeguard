@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780223134929,
+  "lastUpdate": 1780223693052,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -11171,6 +11171,165 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P99)",
             "value": 22,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "01f5e32f510b9194c81acabce2e160f13e8b3099",
+          "message": "Fix review follow-ups from issue 262\n\nFixes #262.\n\nSummary:\n- apply the unresolved review-thread fixes collected in issue #262 across hook identity, discard safety, hook performance validation, live truth, skill validation, warn policy, setup/install status, eval, workflow schema/docs, install-state tracking, rule recognition evidence, manifest registration, app-server stdout drain, and skill frontmatter validation\n- keep the branch updated with latest main including guard-pack manifest/setup changes from #265\n- add focused regression coverage for the changed surfaces\n\nValidation:\n- independent review thread 019e7d8c-15c2-71b1-91e1-0d0fcfc1db7b: No findings; safe to merge\n- git diff --check origin/main...HEAD\n- python3 -m py_compile scripts/authorized-discard.py scripts/live_truth.py scripts/skill_validate.py hooks/_lib/policy.py eval/samples.py eval/run_behavior_eval.py scripts/ci/validate-skill-format.py scripts/lib/workflow_contracts.py\n- bash -n changed shell scripts\n- focused shell regression tests for authorized discard, hook perf, live truth, skill validation, setup check, eval, workflow contracts, skill format, manifest, log timer, runtime policy\n- bash scripts/ci/validate-doc-paths.sh\n- bash scripts/ci/validate-doc-command-paths.sh\n- bash scripts/ci/validate-rules.sh\n- bash scripts/ci/validate-canonical-rule-language.sh\n- bash scripts/ci/validate-generated-rule-docs.sh\n- bash tests/test_setup.sh\n- cargo fmt --manifest-path vibeguard-runtime/Cargo.toml --check\n- cargo check --manifest-path vibeguard-runtime/Cargo.toml\n- cargo test --manifest-path vibeguard-runtime/Cargo.toml\n- GitHub Actions run 26709927869 green",
+          "timestamp": "2026-05-31T18:27:27+08:00",
+          "tree_id": "e55b9d92610275c42fe67e06c51cfab16a803f84",
+          "url": "https://github.com/majiayu000/vibeguard/commit/01f5e32f510b9194c81acabce2e160f13e8b3099"
+        },
+        "date": 1780223692039,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P50)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P50)",
+            "value": 130,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P50)",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P50)",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 141,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 141,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P50)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P50)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 148,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 148,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P50)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P50)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P50)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 20,
             "unit": "ms"
           }
         ]
