@@ -54,6 +54,11 @@
           "path": "~/.vibeguard/installed/hooks/pre-bash-guard.sh"
         },
         {
+          "id": "claude-wrapper",
+          "kind": "file_executable",
+          "path": "~/.vibeguard/run-hook.sh"
+        },
+        {
           "id": "claude-pre-bash-config",
           "kind": "claude_hook",
           "path": "~/.claude/settings.json",

@@ -377,12 +377,7 @@ def load_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def hook_config_has_script(
-    data: dict[str, Any],
-    *,
-    event: str,
-    matcher: str,
-    script: str,
-    platform: str,
+    data: dict[str, Any], *, event: str, matcher: str, script: str, platform: str, home: Path
 ) -> bool:
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
@@ -409,26 +404,38 @@ def hook_config_has_script(
                 command,
                 script,
                 wrappers,
+                home,
                 require_wrapper=platform == "codex",
             ):
                 return True
     return False
 
 
+def expand_shell_path(token: str, home: Path) -> Path | None:
+    if token.startswith("~/"):
+        return home / token[2:]
+    if token.startswith("$HOME/"):
+        return home / token[len("$HOME/") :]
+    if token.startswith("${HOME}/"):
+        return home / token[len("${HOME}/") :]
+    if token.startswith("/"):
+        return Path(token)
+    return None
+
+
+def token_matches_path(token: str, expected: Path, home: Path) -> bool:
+    path = expand_shell_path(token, home)
+    if path is None:
+        return False
+    return path.resolve(strict=False) == expected.resolve(strict=False)
+
+
 def is_path_like_command_token(token: str) -> bool:
-    return (
-        "/" in token
-        or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/"))
-        or Path(token).is_absolute()
-    )
+    return "/" in token or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/"))
 
 
 def command_invokes_script(
-    command: str,
-    script: str,
-    wrapper_names: frozenset[str],
-    *,
-    require_wrapper: bool = False,
+    command: str, script: str, wrapper_names: frozenset[str], home: Path, *, require_wrapper: bool = False
 ) -> bool:
     try:
         parts = shlex.split(command)
@@ -438,11 +445,17 @@ def command_invokes_script(
         token_base = Path(token).name
         if token_base in wrapper_names and index + 1 < len(parts):
             next_script = Path(parts[index + 1]).name
-            if next_script == script and token_is_invoked(parts, index):
+            wrapper_path = home / ".vibeguard" / token_base
+            if next_script == script and token_is_invoked(parts, index) and token_matches_path(
+                token, wrapper_path, home
+            ):
                 return True
         if require_wrapper:
             continue
-        if token_base == script and token_is_invoked(parts, index):
+        hook_path = home / ".vibeguard" / "installed" / "hooks" / script
+        if token_base == script and token_is_invoked(parts, index) and token_matches_path(
+            token, hook_path, home
+        ):
             return True
     return False
 
@@ -465,6 +478,7 @@ def audit_hook_json(check: dict[str, Any], home: Path, client: str) -> dict[str,
         matcher=str(check["matcher"]),
         script=str(check["script"]),
         platform=client.lower(),
+        home=home,
     )
     if found:
         detail = f"{client} config includes {check['event']}({check['matcher']}) {check['script']}"

@@ -116,6 +116,7 @@ assert data["plan"]["would_modify"] == ["~/.claude/settings.json"]
 assert data["audit"]["check_ids"] == [
     "runtime-binary",
     "installed-pre-bash-hook",
+    "claude-wrapper",
     "claude-pre-bash-config",
 ]
 ' <<< "${safe_bash_receipt_out}"
@@ -136,6 +137,8 @@ mkdir -p \
 touch "${audit_ready_home}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod +x "${audit_ready_home}/.vibeguard/installed/bin/vibeguard-runtime"
 touch "${audit_ready_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${audit_ready_home}/.vibeguard/run-hook.sh"
+chmod +x "${audit_ready_home}/.vibeguard/run-hook.sh"
 cat > "${audit_ready_home}/.claude/settings.json" <<JSON
 {
   "hooks": {
@@ -165,6 +168,8 @@ mkdir -p \
 touch "${audit_fake_home}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod +x "${audit_fake_home}/.vibeguard/installed/bin/vibeguard-runtime"
 touch "${audit_fake_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${audit_fake_home}/.vibeguard/run-hook.sh"
+chmod +x "${audit_fake_home}/.vibeguard/run-hook.sh"
 cat > "${audit_fake_home}/.claude/settings.json" <<JSON
 {
   "hooks": {
@@ -187,6 +192,40 @@ assert_contains "${audit_fake_out}" "Status: INCOMPLETE" "audit rejects non-Vibe
 assert_contains "${audit_fake_out}" "MISSING claude-pre-bash-config" "audit reports fake Claude hook as missing"
 assert_cmd_fail "audit exits non-zero for fake hook command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_fake_home}"
 
+audit_external_wrapper_home="${TMP_DIR}/audit-external-wrapper-home"
+external_wrapper="${TMP_DIR}/outside/run-hook.sh"
+mkdir -p \
+  "${audit_external_wrapper_home}/.vibeguard/installed/bin" \
+  "${audit_external_wrapper_home}/.vibeguard/installed/hooks" \
+  "${audit_external_wrapper_home}/.claude" \
+  "$(dirname "${external_wrapper}")"
+touch "${audit_external_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${audit_external_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+touch "${audit_external_wrapper_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${audit_external_wrapper_home}/.vibeguard/run-hook.sh" "${external_wrapper}"
+chmod +x "${audit_external_wrapper_home}/.vibeguard/run-hook.sh" "${external_wrapper}"
+cat > "${audit_external_wrapper_home}/.claude/settings.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_wrapper} pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+audit_external_wrapper_out="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_external_wrapper_home}" 2>&1 || true)"
+assert_contains "${audit_external_wrapper_out}" "Status: INCOMPLETE" "audit rejects same-name wrapper outside VibeGuard home"
+assert_contains "${audit_external_wrapper_out}" "MISSING claude-pre-bash-config" "audit reports external wrapper config as missing"
+assert_cmd_fail "audit exits non-zero for external wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_external_wrapper_home}"
+
 audit_missing_type_home="${TMP_DIR}/audit-missing-type-home"
 mkdir -p \
   "${audit_missing_type_home}/.vibeguard/installed/bin" \
@@ -195,6 +234,8 @@ mkdir -p \
 touch "${audit_missing_type_home}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod +x "${audit_missing_type_home}/.vibeguard/installed/bin/vibeguard-runtime"
 touch "${audit_missing_type_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${audit_missing_type_home}/.vibeguard/run-hook.sh"
+chmod +x "${audit_missing_type_home}/.vibeguard/run-hook.sh"
 cat > "${audit_missing_type_home}/.claude/settings.json" <<JSON
 {
   "hooks": {
@@ -257,6 +298,8 @@ mkdir -p \
 touch "${receipt_write_blocked_home}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod +x "${receipt_write_blocked_home}/.vibeguard/installed/bin/vibeguard-runtime"
 touch "${receipt_write_blocked_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${receipt_write_blocked_home}/.vibeguard/run-hook.sh"
+chmod +x "${receipt_write_blocked_home}/.vibeguard/run-hook.sh"
 touch "${receipt_write_blocked_home}/.vibeguard/guard-packs/safe-bash/claude-code"
 cat > "${receipt_write_blocked_home}/.claude/settings.json" <<JSON
 {
@@ -325,6 +368,56 @@ codex_audit_json="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target cod
 assert_contains "${codex_audit_json}" '"status": "READY"' "Codex audit JSON reports ready"
 assert_contains "${codex_audit_json}" '"id": "codex-hooks-feature"' "Codex audit checks hooks feature"
 
+codex_external_wrapper_home="${TMP_DIR}/codex-external-wrapper-home"
+external_codex_wrapper="${TMP_DIR}/outside/run-hook-codex.sh"
+mkdir -p \
+  "${codex_external_wrapper_home}/.vibeguard/installed/bin" \
+  "${codex_external_wrapper_home}/.vibeguard/installed/hooks" \
+  "${codex_external_wrapper_home}/.codex" \
+  "$(dirname "${external_codex_wrapper}")"
+touch "${codex_external_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${codex_external_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+touch "${codex_external_wrapper_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${codex_external_wrapper_home}/.vibeguard/run-hook-codex.sh" "${external_codex_wrapper}"
+chmod +x "${codex_external_wrapper_home}/.vibeguard/run-hook-codex.sh" "${external_codex_wrapper}"
+cat > "${codex_external_wrapper_home}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_codex_wrapper} vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_codex_wrapper} vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+cat > "${codex_external_wrapper_home}/.codex/config.toml" <<'TOML'
+[features]
+hooks = true
+TOML
+codex_external_wrapper_out="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_external_wrapper_home}" 2>&1 || true)"
+assert_contains "${codex_external_wrapper_out}" "Status: INCOMPLETE" "Codex audit rejects same-name wrapper outside VibeGuard home"
+assert_contains "${codex_external_wrapper_out}" "MISSING codex-pre-bash-config" "Codex audit reports external pre hook as missing"
+assert_contains "${codex_external_wrapper_out}" "MISSING codex-permission-bash-config" "Codex audit reports external permission hook as missing"
+assert_cmd_fail "Codex audit exits non-zero for external wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_external_wrapper_home}"
+
 codex_direct_hook_home="${TMP_DIR}/codex-direct-hook-home"
 mkdir -p \
   "${codex_direct_hook_home}/.vibeguard/installed/bin" \
@@ -375,6 +468,8 @@ assert_contains "${codex_direct_hook_out}" "MISSING codex-permission-bash-config
 assert_cmd_fail "Codex audit exits non-zero for direct hook script" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_direct_hook_home}"
 
 mkdir -p "${codex_ready_home}/.claude"
+touch "${codex_ready_home}/.vibeguard/run-hook.sh"
+chmod +x "${codex_ready_home}/.vibeguard/run-hook.sh"
 cat > "${codex_ready_home}/.claude/settings.json" <<JSON
 {
   "hooks": {
