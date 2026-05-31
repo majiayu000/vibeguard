@@ -16,9 +16,10 @@ INPUT=$(cat)
 
 if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+  _VG_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_VG_U16_BASE_LIMIT")
   _VG_SCAN_MAX_FILES="${VG_SCAN_MAX_FILES:-5000}"
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VIBEGUARD_RUNTIME" post-write-fast-check "$_VG_U16_BASE_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
+    | "$_VIBEGUARD_RUNTIME" post-write-fast-check "$_VG_U16_WARN_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in
@@ -309,13 +310,14 @@ fi
 # --- [U-16] File size guard: configurable limit with project exemptions ---
 # Base limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
 _U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_U16_BASE_LIMIT")
 case "$FILE_PATH" in
   *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go)
     case "$FILE_PATH" in
       */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) ;;
       *)
         _U16_TOTAL=$(echo "$CONTENT" | wc -l | tr -d ' ')
-        if [[ "$_U16_TOTAL" -gt "$_U16_BASE_LIMIT" ]]; then
+        if [[ "$_U16_TOTAL" -gt "$_U16_WARN_LIMIT" ]]; then
           _U16_LIMIT="$_U16_BASE_LIMIT"
           if [[ "$PROJECT_DIR" != "/" && -f "$PROJECT_DIR/CLAUDE.md" ]]; then
             _U16_EXEMPT=$(VG_CLAUDE_MD="$PROJECT_DIR/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
@@ -350,6 +352,12 @@ print(limit)
 ---
 }[U-16] [review] [this-file] OBSERVATION: file has ${_U16_TOTAL} lines, exceeding ${_U16_LIMIT}-line limit
 FIX: Split into focused submodules by responsibility; plan as a separate task
+DO NOT: Start splitting now — finish the current task first, then refactor"
+          elif [[ "$_U16_LIMIT" -le "$_U16_BASE_LIMIT" && "$_U16_TOTAL" -gt "$_U16_WARN_LIMIT" ]]; then
+            WARNINGS="${WARNINGS:+${WARNINGS}
+---
+}[U-16] [advisory] [this-file] OBSERVATION: file has ${_U16_TOTAL} lines, exceeding the ${_U16_WARN_LIMIT}-line typical range while staying under the ${_U16_LIMIT}-line hard limit
+FIX: Keep the current change localized; plan a split if this file keeps growing
 DO NOT: Start splitting now — finish the current task first, then refactor"
           fi
         fi

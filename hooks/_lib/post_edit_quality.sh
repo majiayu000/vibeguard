@@ -169,8 +169,10 @@ vg_post_edit_detect_u16_size() {
   local total limit dir exempt base_limit
   # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
   base_limit=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+  local warn_limit
+  warn_limit=$(vg_u16_warn_limit "$base_limit")
   total=$(wc -l < "$FILE_PATH" | tr -d ' ')
-  [[ "$total" -gt "$base_limit" ]] || return 0
+  [[ "$total" -gt "$warn_limit" ]] || return 0
 
   limit="$base_limit"
   dir="$FILE_PATH"
@@ -210,6 +212,10 @@ print(limit)
   if [[ "$total" -gt "$limit" ]]; then
     vg_post_edit_append_warning "[U-16] [review] [this-file] OBSERVATION: file has ${total} lines, exceeding ${limit}-line limit
 FIX: Split into focused submodules by responsibility; plan as a separate task
+DO NOT: Start splitting now — finish the current task first, then refactor"
+  elif [[ "$limit" -le "$base_limit" && "$total" -gt "$warn_limit" ]]; then
+    vg_post_edit_append_warning "[U-16] [advisory] [this-file] OBSERVATION: file has ${total} lines, exceeding the ${warn_limit}-line typical range while staying under the ${limit}-line hard limit
+FIX: Keep the current change localized; plan a split if this file keeps growing
 DO NOT: Start splitting now — finish the current task first, then refactor"
   fi
 }

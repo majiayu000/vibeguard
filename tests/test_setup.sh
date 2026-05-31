@@ -73,6 +73,7 @@ from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 checks = [
     data.get("write_mode") == "warn",
+    data.get("u16", {}).get("warn_limit") == 400,
     data.get("u16", {}).get("limit") == 800,
     data.get("circuit_breaker", {}).get("threshold") == 3,
     data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,

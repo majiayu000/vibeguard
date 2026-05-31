@@ -13,9 +13,10 @@ INPUT=$(cat)
 
 # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
 _U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_U16_BASE_LIMIT")
 if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VIBEGUARD_RUNTIME" pre-edit-check "$_U16_BASE_LIMIT" "$VIBEGUARD_LOG_FILE" \
+    | "$_VIBEGUARD_RUNTIME" pre-edit-check "$_U16_BASE_LIMIT" "$_U16_WARN_LIMIT" "$VIBEGUARD_LOG_FILE" \
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in
@@ -37,7 +38,7 @@ vg_start_timer
 
 # Complete all checks directly in Python to avoid bash variable passing from destroying old_string
 # (<<<heredoc appends \n, $() swallows trailing newlines, echo escapes special characters)
-CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" python3 -c '
+CHECK_RESULT=$(VG_U16_BASE_LIMIT="$_U16_BASE_LIMIT" VG_U16_WARN_LIMIT="$_U16_WARN_LIMIT" python3 -c '
 import json, sys, os, re
 from pathlib import PurePath
 
@@ -145,8 +146,17 @@ if ext.lower() in SOURCE_EXTS and not is_test:
             break
         dir_path = os.path.dirname(dir_path)
 
+    warn_limit = int(os.environ.get("VG_U16_WARN_LIMIT", "400") or "400")
+    if limit > int(os.environ.get("VG_U16_BASE_LIMIT", "800") or "800"):
+        warn_limit = limit
+    else:
+        warn_limit = min(warn_limit, limit)
+
     if estimated > limit:
         print(f"U16_OVER_LIMIT:{estimated}:{limit}")
+        sys.exit(0)
+    if warn_limit < limit and estimated > warn_limit:
+        print(f"U16_OVER_TYPICAL:{estimated}:{warn_limit}:{limit}")
         sys.exit(0)
 
 print("OK")
@@ -223,6 +233,40 @@ if [[ "$DETAIL" == U16_OVER_LIMIT:* ]]; then
   _U16_LIM=$(echo "$DETAIL" | cut -d: -f3)
   vg_log "pre-edit-guard" "Edit" "block" "U-16 file size: ${_U16_EST} > ${_U16_LIM}" "$FILE_PATH"
   vg_json_output_kv decision block reason "VIBEGUARD [U-16] block: this edit would bring ${FILE_PATH##*/} to ~${_U16_EST} lines (limit: ${_U16_LIM}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit."
+  exit 0
+fi
+
+if [[ "$DETAIL" == U16_OVER_TYPICAL:* ]]; then
+  _U16_EST=$(echo "$DETAIL" | cut -d: -f2)
+  _U16_WARN=$(echo "$DETAIL" | cut -d: -f3)
+  _U16_LIM=$(echo "$DETAIL" | cut -d: -f4)
+  vg_log "pre-edit-guard" "Edit" "warn" "U-16 file size advisory: ${_U16_EST} > ${_U16_WARN}" "$FILE_PATH"
+  VG_U16_FILE="${FILE_PATH##*/}" \
+  VG_U16_LINES="$_U16_EST" \
+  VG_U16_WARN="$_U16_WARN" \
+  VG_U16_LIMIT="$_U16_LIM" \
+  python3 - <<'PY'
+import json
+import os
+
+file_name = os.environ.get("VG_U16_FILE", "file")
+line_count = os.environ.get("VG_U16_LINES", "0")
+warn_limit = os.environ.get("VG_U16_WARN", "400")
+hard_limit = os.environ.get("VG_U16_LIMIT", "800")
+context = (
+    f"VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: this edit would leave {file_name} "
+    f"with {line_count} lines, exceeding the {warn_limit}-line typical range but staying "
+    f"under the {hard_limit}-line hard limit\n"
+    "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
+    "ACTION: NONE — advisory only, continue without acknowledgement"
+)
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": context,
+    }
+}, ensure_ascii=False))
+PY
   exit 0
 fi
 

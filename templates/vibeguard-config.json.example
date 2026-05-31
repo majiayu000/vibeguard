@@ -1,6 +1,7 @@
 {
   "version": 1,
   "u16": {
+    "warn_limit": 400,
     "limit": 800
   },
   "circuit_breaker": {

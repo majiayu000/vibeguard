@@ -26,6 +26,10 @@ pub fn pre_write_check(args: &[String]) -> Result {
         .first()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(800);
+    let warn_limit = args
+        .get(1)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(400);
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
         println!("MALFORMED");
@@ -46,7 +50,8 @@ pub fn pre_write_check(args: &[String]) -> Result {
 
     let content = nested_str(&data, "tool_input.content").unwrap_or_default();
     let line_count = count_lines(&content);
-    if is_source_path(&file_path) && !is_test_path(&file_path) && line_count > base_limit {
+    let mut u16_advisory = None;
+    if is_source_path(&file_path) && !is_test_path(&file_path) {
         let limit = project_u16_limit(&file_path, base_limit);
         if line_count > limit {
             println!("U16_BLOCK");
@@ -55,9 +60,21 @@ pub fn pre_write_check(args: &[String]) -> Result {
             println!("{limit}");
             return Ok(());
         }
+        let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
+        if advisory_limit < limit && line_count > advisory_limit {
+            u16_advisory = Some((line_count, advisory_limit, limit));
+        }
     }
 
     if Path::new(&file_path).exists() {
+        if let Some((line_count, advisory_limit, limit)) = u16_advisory {
+            println!("U16_WARN");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{advisory_limit}");
+            println!("{limit}");
+            return Ok(());
+        }
         println!("EXISTS");
         println!("{file_path}");
         return Ok(());
@@ -69,6 +86,15 @@ pub fn pre_write_check(args: &[String]) -> Result {
         return Ok(());
     }
 
+    if let Some((line_count, advisory_limit, limit)) = u16_advisory {
+        println!("U16_WARN_SOURCE_NEW");
+        println!("{file_path}");
+        println!("{line_count}");
+        println!("{advisory_limit}");
+        println!("{limit}");
+        return Ok(());
+    }
+
     println!("SOURCE_NEW");
     println!("{file_path}");
     Ok(())
@@ -76,11 +102,17 @@ pub fn pre_write_check(args: &[String]) -> Result {
 
 pub fn pre_edit_check(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: vibeguard-runtime pre-edit-check <base-limit> <log-file>".into());
+        return Err(
+            "Usage: vibeguard-runtime pre-edit-check <base-limit> [warn-limit] <log-file>".into(),
+        );
     }
 
     let base_limit = args[0].parse::<usize>().unwrap_or(800);
-    let log_file = &args[1];
+    let (warn_limit, log_file) = if args.len() >= 3 {
+        (args[1].parse::<usize>().unwrap_or(400), &args[2])
+    } else {
+        (400, &args[1])
+    };
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
         write_pre_edit_block(
@@ -184,6 +216,38 @@ pub fn pre_edit_check(args: &[String]) -> Result {
                             .unwrap_or(&file_path)
                     ),
                 )?;
+                return Ok(());
+            }
+            let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
+            if advisory_limit < limit && estimated > advisory_limit {
+                if write_log_event(
+                    log_file,
+                    "pre-edit-guard",
+                    "Edit",
+                    "warn",
+                    &format!("U-16 file size advisory: {estimated} > {advisory_limit}"),
+                    &file_path,
+                )
+                .is_err()
+                {
+                    println!("FALLBACK");
+                    return Ok(());
+                }
+                println!("FAST_OUTPUT");
+                println!(
+                    "{}",
+                    hook_context_json(
+                        "PreToolUse",
+                        &u16_advisory_context(
+                            &file_path,
+                            estimated,
+                            advisory_limit,
+                            limit,
+                            "this edit would leave",
+                            false,
+                        )
+                    )
+                );
                 return Ok(());
             }
         }
@@ -306,6 +370,44 @@ fn missing_file_candidates(file_path: &str, stem: &str) -> MissingFileCandidates
 fn decision_block_json(reason: &str) -> String {
     let escaped = serde_json::to_string(reason).unwrap_or_else(|_| "\"\"".to_string());
     format!("{{ \"decision\": \"block\", \"reason\": {escaped} }}")
+}
+
+fn hook_context_json(event_name: &str, context: &str) -> String {
+    let escaped = serde_json::to_string(context).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        "{{\"hookSpecificOutput\":{{\"hookEventName\":\"{event_name}\",\"additionalContext\":{escaped}}}}}"
+    )
+}
+
+fn u16_advisory_limit(base_limit: usize, hard_limit: usize, warn_limit: usize) -> usize {
+    if hard_limit > base_limit {
+        hard_limit
+    } else {
+        warn_limit.min(hard_limit)
+    }
+}
+
+fn u16_advisory_context(
+    file_path: &str,
+    line_count: usize,
+    warn_limit: usize,
+    hard_limit: usize,
+    action: &str,
+    include_search: bool,
+) -> String {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_path);
+    let mut context = format!(
+        "VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: {action} {file_name} with {line_count} lines exceeds the {warn_limit}-line typical range but stays under the {hard_limit}-line hard limit\nSCOPE: keep the current change localized; plan a split if this file keeps growing\nACTION: NONE — advisory only, continue without acknowledgement"
+    );
+    if include_search {
+        context.push_str(
+            "\n---\nVIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement",
+        );
+    }
+    context
 }
 
 pub fn post_edit_fast_check(args: &[String]) -> Result {
