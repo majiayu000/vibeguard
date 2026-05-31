@@ -160,17 +160,7 @@ install_claude_home_assets() {
 }
 
 claude_rule_id_count() {
-  local root="$1"
-  local total=0 file_count rule_file
-  if [[ ! -d "${root}" ]]; then
-    printf '0\n'
-    return 0
-  fi
-  while IFS= read -r rule_file; do
-    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
-    total=$((total + file_count))
-  done < <(find "${root}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
-  printf '%s\n' "${total}"
+  vibeguard_rule_id_count "$1"
 }
 
 claude_rule_count_for_banner() {
@@ -316,12 +306,15 @@ check_claude_home_installation() {
     actual_rule_count=$(claude_rule_id_count "${rules_dest}")
     claude_md="${CLAUDE_DIR}/CLAUDE.md"
     if [[ -f "${claude_md}" ]]; then
-      declared_count=$(grep -o '[0-9]* rules' "${claude_md}" 2>/dev/null | grep -o '[0-9]*' | head -1)
-      declared_count="${declared_count:-0}"
-      if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
-        green "[OK] Rule count in sync: ${actual_rule_count} rules"
+      if declared_count=$(vibeguard_managed_rule_banner_count "${claude_md}"); then
+        if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
+          green "[OK] Rule count in sync: ${actual_rule_count} rules"
+        else
+          yellow "[DRIFT] CLAUDE.md declares ${declared_count} rules, actual: ${actual_rule_count}"
+          yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.claude/CLAUDE.md"
+        fi
       else
-        yellow "[DRIFT] CLAUDE.md declares ${declared_count} rules, actual: ${actual_rule_count}"
+        yellow "[DRIFT] CLAUDE.md missing VibeGuard rule count banner, actual: ${actual_rule_count}"
         yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.claude/CLAUDE.md"
       fi
     fi

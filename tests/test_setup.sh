@@ -34,6 +34,18 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local output="$1" unexpected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$unexpected" <<< "$output"; then
+    red "$desc (unexpectedly contained: $unexpected)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_cmd() {
   local desc="$1"
   shift
@@ -62,6 +74,24 @@ assert_manifest_skill_links_installed() {
     [[ -e "${dest_dir}/${skill}" ]] || return 1
   done <<< "${links}"
   [[ "${found}" -eq 1 ]]
+}
+
+managed_rule_banner_count_for_test() {
+  python3 - <<'PY' "$1"
+from pathlib import Path
+import re
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = text.find("<!-- vibeguard-start -->")
+end = text.find("<!-- vibeguard-end -->", start)
+if start == -1 or end == -1 or end <= start:
+    raise SystemExit(1)
+match = re.search(r"([0-9]+) rules", text[start:end])
+if not match:
+    raise SystemExit(1)
+print(match.group(1))
+PY
 }
 
 assert_runtime_config_seeded() {
@@ -115,7 +145,18 @@ assert_claude_rule_banner_matches_installed_rules() {
     file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
     actual=$((actual + file_count))
   done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
-  declared=$(grep -o '[0-9]* rules' "${HOME}/.claude/CLAUDE.md" 2>/dev/null | grep -o '[0-9]*' | head -1 || true)
+  declared=$(managed_rule_banner_count_for_test "${HOME}/.claude/CLAUDE.md")
+  [[ "${declared}" == "${actual}" ]]
+}
+
+assert_codex_rule_banner_matches_installed_rules() {
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local actual=0 declared file_count rule_file
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
+    actual=$((actual + file_count))
+  done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  declared=$(managed_rule_banner_count_for_test "${HOME}/.codex/AGENTS.md")
   [[ "${declared}" == "${actual}" ]]
 }
 
@@ -708,6 +749,7 @@ assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installa
 assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
 assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.codex/AGENTS.md"
 assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "~/.codex/AGENTS.md rule banner matches installed rules" assert_codex_rule_banner_matches_installed_rules
 assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
@@ -813,11 +855,42 @@ PY
 missing_anchor_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${missing_anchor_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md missing required anchors" "--check reports missing Codex AGENTS required anchors"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated, count = re.subn(r"\b[0-9]+ rules total\b", "999 rules total", text, count=1)
+if count != 1:
+    raise SystemExit(1)
+path.write_text(updated, encoding="utf-8")
+PY
+stale_banner_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${stale_banner_agents_check_out}" "~/.codex/AGENTS.md declares 999 rules" "--check reports stale Codex AGENTS rule banner"
 printf '# malicious injection appended by something\n' >> "${HOME}/.codex/AGENTS.md"
 external_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${external_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has 1 non-empty unmanaged line(s) outside VibeGuard block" "--check warns on unmanaged Codex AGENTS content"
 assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
+
+header "setup --check uses managed rule count banners"
+_VALID_CLAUDE_MD="${TMP_HOME}/CLAUDE.md.valid.backup"
+cp "${HOME}/.claude/CLAUDE.md" "${_VALID_CLAUDE_MD}"
+python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text("Personal note: 5 rules I keep locally.\n" + text, encoding="utf-8")
+PY
+external_rule_count_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CLAUDE_MD}" "${HOME}/.claude/CLAUDE.md"
+assert_contains "${external_rule_count_check_out}" "[OK] Rule count in sync:" "--check ignores unmanaged Claude rule count text"
+assert_not_contains "${external_rule_count_check_out}" "CLAUDE.md declares 5 rules" "--check does not read rule count outside the VibeGuard Claude block"
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
@@ -828,12 +901,25 @@ text = path.read_text(encoding='utf-8')
 updated = re.sub(r'\b\d+ rules\b', '999 rules', text, count=1)
 path.write_text(updated, encoding='utf-8')
 PY
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated, count = re.subn(r"\b[0-9]+ rules total\b", "999 rules total", text, count=1)
+if count != 1:
+    raise SystemExit(1)
+path.write_text(updated, encoding="utf-8")
+PY
 before_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 agents_before_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 agents_after_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
+assert_contains "${check_again_out}" "~/.codex/AGENTS.md declares 999 rules" "--check reports Codex AGENTS.md drift"
 assert_contains "${check_again_out}" "[OK] vibeguard-runtime runtime binary installed" "--check reports vibeguard-runtime installed"
 assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
 assert_cmd "--check does not rewrite ~/.codex/AGENTS.md" test "${agents_before_sha}" = "${agents_after_sha}"
@@ -841,6 +927,7 @@ assert_cmd "--check does not drop or duplicate the chat contract block" python3 
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
 assert_cmd "repair restores CLAUDE.md rule banner count" assert_claude_rule_banner_matches_installed_rules
+assert_cmd "repair restores Codex AGENTS.md rule banner count" assert_codex_rule_banner_matches_installed_rules
 assert_cmd "repeat setup keeps exactly one chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 
 header "upsert idempotency with non-standard wrapper path"

@@ -425,6 +425,25 @@ check_codex_agents_hygiene() {
     return 0
   fi
 
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local actual_rule_count declared_count
+  if [[ -d "${rules_dest}" ]]; then
+    actual_rule_count=$(vibeguard_rule_id_count "${rules_dest}")
+    if declared_count=$(vibeguard_managed_rule_banner_count "${agents_md}"); then
+      if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
+        green "[OK] Rule count in ~/.codex/AGENTS.md: ${actual_rule_count} rules"
+      else
+        yellow "[DRIFT] ~/.codex/AGENTS.md declares ${declared_count} rules, actual: ${actual_rule_count}"
+        yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
+      fi
+    else
+      yellow "[DRIFT] ~/.codex/AGENTS.md missing VibeGuard rule count banner, actual: ${actual_rule_count}"
+      yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
+    fi
+  else
+    yellow "[INFO] Rule count in ~/.codex/AGENTS.md not checked because ~/.claude/rules/vibeguard/ is missing"
+  fi
+
   green "[OK] VibeGuard rules in ~/.codex/AGENTS.md"
 
   local outside_count outside_first
