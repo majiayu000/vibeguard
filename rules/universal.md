@@ -24,13 +24,13 @@ Reference index for VibeGuard rules that apply across languages, workflows, and 
 | U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
 | U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
 | U-16 | Keep file size under control | Guideline | 200-400 lines is typical, 800 lines is the hard ceiling. |
-| U-17 | Handle errors completely | Strict | Cover error paths thoroughly. |
+| U-17 | Handle errors completely | Strict | See U-29 for canonical error-handling guidance. |
 | U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
 | U-19 | Use the Repository pattern | Guideline | Encapsulate data access in a Repository layer. |
 | U-20 | Keep API response shapes consistent | Guideline | Use a standard envelope such as `{ data, error, meta }`. |
 | U-21 | Commit messages must follow the Lore protocol | Strict | Record why the change exists, not just what changed. |
 | U-22 | Test coverage | Strict | New code must reach at least 80% line coverage. |
-| U-23 | No silent degradation | Strict | Unsupported strategies or configurations must fail explicitly or be marked as DEFER. |
+| U-23 | No silent degradation | Strict | See U-29 for canonical no-silent-degradation guidance. |
 | U-24 | No aliases | Strict | Do not keep function, type, command, or directory aliases. |
 | U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
 | U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |

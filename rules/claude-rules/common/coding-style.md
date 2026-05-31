@@ -37,7 +37,7 @@ Create new objects instead of mutating existing ones. Treat function parameters 
 200-400 lines is typical, 800 lines is the hard ceiling. Files above 800 lines must be split.
 
 ## U-17: Handle errors completely (strict)
-Cover error paths thoroughly. Do not swallow exceptions silently. Provide user-friendly error messages.
+See U-29 for canonical error-handling guidance. U-17 keeps the compatibility-level principle: do not swallow exception or error paths; surface user-visible failures at error level or raise.
 
 ## U-18: Validate inputs (guideline)
 Validate all user input at system boundaries. Internal code can trust framework guarantees.
@@ -61,7 +61,7 @@ New code must reach at least 80% line coverage. Critical paths require 100% cove
 - If you refactor hook or module interfaces, update every test mock that depends on the module shape as well (see TS-14).
 
 ## U-23: No silent degradation (strict)
-Unsupported strategies or configurations must fail explicitly or be marked as DEFER. Do not silently fall back to a default strategy.
+See U-29 for canonical no-silent-degradation guidance. Unsupported strategies or configurations must fail explicitly or be marked as DEFER; do not invent default fallback semantics.
 
 ## U-24: No aliases (strict)
 Do not keep function, type, command, or directory aliases. If you find the old name, replace it everywhere and delete the alias.
