@@ -271,7 +271,7 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
-bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + learning
+bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
 bash ~/vibeguard/setup.sh --profile strict            # Strict: same hook set as full, for stricter runtime policy
 
 # Language selection (only install rules/guards for specified languages)

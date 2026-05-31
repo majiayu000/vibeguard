@@ -229,7 +229,7 @@ interview → preflight → coding → check → review → learn → stats
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh #default core
-bash ~/vibeguard/setup.sh --profile full # additionally enable Stop Gate / Learn evaluator
+bash ~/vibeguard/setup.sh --profile full # additionally enable Stop signal / Learn evaluator
 ```
 
-It takes effect when you open a new Claude Code session. The default `core` profile injects seven layers of rules and core Hooks; the `full` profile additionally enables Stop Gate.
+It takes effect when you open a new Claude Code session. The default `core` profile injects seven layers of rules and core Hooks; the `full` profile additionally enables the Stop signal.
