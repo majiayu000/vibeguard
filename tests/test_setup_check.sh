@@ -16,6 +16,7 @@ CHECK_SCRIPT="${REPO_DIR}/scripts/setup/check.sh"
 SETUP_SCRIPT="${REPO_DIR}/setup.sh"
 AWK_PORTABILITY_FIXTURE=""
 STALE_HOOK_HOME=""
+TIMEOUT_HOOK_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -23,6 +24,9 @@ cleanup() {
   fi
   if [[ -n "${STALE_HOOK_HOME}" ]]; then
     rm -rf "${STALE_HOOK_HOME}"
+  fi
+  if [[ -n "${TIMEOUT_HOOK_HOME}" ]]; then
+    rm -rf "${TIMEOUT_HOOK_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -368,6 +372,38 @@ assert_cmd "stale hook repair: Claude installed hook path removed" bash -c "! gr
 assert_cmd "stale hook repair: Codex installed hook path removed" bash -c "! grep -q '.vibeguard/installed/hooks/session-tagger.sh' '${STALE_HOOK_HOME}/.codex/hooks.json'"
 assert_cmd "stale hook repair: Claude stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" check-stale-hooks --settings-file "${STALE_HOOK_HOME}/.claude/settings.json"
 assert_cmd "stale hook repair: Codex stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json"
+
+# --- Codex hook timeout diagnostics ---
+header "codex hook timeout diagnostics"
+TIMEOUT_HOOK_HOME="$(mktemp -d)"
+mkdir -p "${TIMEOUT_HOOK_HOME}/.codex" "${TIMEOUT_HOOK_HOME}/.vibeguard/installed/hooks"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${TIMEOUT_HOOK_HOME}/.vibeguard/run-hook-codex.sh"
+cat > "${TIMEOUT_HOOK_HOME}/.codex/hooks.json" <<'JSON'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /tmp/orca/codex-bridge.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+
+timeout_helper_out="$(HOME="${TIMEOUT_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-timeouts --hooks-file "${TIMEOUT_HOOK_HOME}/.codex/hooks.json" 2>&1 || true)"
+assert_contains "$timeout_helper_out" "unmanaged Codex hook without timeout" "timeout helper: reports unmanaged hook"
+assert_contains "$timeout_helper_out" "event=PostToolUse matcher=Bash" "timeout helper: reports event and matcher"
+assert_contains "$timeout_helper_out" "command=node /tmp/orca/codex-bridge.js" "timeout helper: reports Orca bridge command"
+assert_contains "$timeout_helper_out" "repair=add timeout or consult hook owner" "timeout helper: reports repair direction"
+
+timeout_check_out="$(HOME="${TIMEOUT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$timeout_check_out" "[WARN] unmanaged Codex hook without timeout" "setup --check: surfaces unmanaged hook without timeout"
 
 # --- Backwards-compat exit code contract ---
 header "exit code contract"
