@@ -76,6 +76,10 @@ BLOCK_EOF
   exit 0
 fi
 
+_U16_SOURCE_NEW_LINES=""
+_U16_SOURCE_NEW_WARN=""
+_U16_SOURCE_NEW_LIMIT=""
+
 if [[ "$CHECK_STATUS" == "U16_WARN" || "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]]; then
   _CHECK_REST="${_CHECK_REST#*$'\n'}"
   _U16_LINES="${_CHECK_REST%%$'\n'*}"
@@ -85,14 +89,16 @@ if [[ "$CHECK_STATUS" == "U16_WARN" || "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" 
   _U16_LIM="${_CHECK_REST%%$'\n'*}"
   vg_log "pre-write-guard" "Write" "warn" "U-16 file size advisory: ${_U16_LINES} > ${_U16_WARN}" "$FILE_PATH"
   if [[ "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]]; then
-    vg_log "pre-write-guard" "Write" "warn" "New source file attempt" "$FILE_PATH"
-  fi
-  VG_U16_FILE="${FILE_PATH##*/}" \
-  VG_U16_LINES="$_U16_LINES" \
-  VG_U16_WARN="$_U16_WARN" \
-  VG_U16_LIMIT="$_U16_LIM" \
-  VG_U16_SOURCE_NEW="$([[ "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" ]] && printf 1 || printf 0)" \
-  python3 - <<'PY'
+    _U16_SOURCE_NEW_LINES="$_U16_LINES"
+    _U16_SOURCE_NEW_WARN="$_U16_WARN"
+    _U16_SOURCE_NEW_LIMIT="$_U16_LIM"
+    CHECK_STATUS="SOURCE_NEW"
+  else
+    VG_U16_FILE="${FILE_PATH##*/}" \
+    VG_U16_LINES="$_U16_LINES" \
+    VG_U16_WARN="$_U16_WARN" \
+    VG_U16_LIMIT="$_U16_LIM" \
+    python3 - <<'PY'
 import json
 import os
 
@@ -107,13 +113,6 @@ context = (
     "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
     "ACTION: NONE — advisory only, continue without acknowledgement"
 )
-if os.environ.get("VG_U16_SOURCE_NEW") == "1":
-    context += (
-        "\n---\n"
-        "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\n"
-        "SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\n"
-        "ACTION: NONE — advisory only, continue without acknowledgement"
-    )
 print(json.dumps({
     "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -121,7 +120,8 @@ print(json.dumps({
     }
 }, ensure_ascii=False))
 PY
-  exit 0
+    exit 0
+  fi
 fi
 
 if [[ "$CHECK_STATUS" != "SOURCE_NEW" ]]; then
@@ -191,14 +191,39 @@ EOF
   if vg_cb_check "pre-write-guard"; then
     vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
     vg_cb_record_block "pre-write-guard"
-    cat <<'EOF'
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "additionalContext": "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement"
-  }
-}
-EOF
+    VG_U16_FILE="${FILE_PATH##*/}" \
+    VG_U16_LINES="$_U16_SOURCE_NEW_LINES" \
+    VG_U16_WARN="$_U16_SOURCE_NEW_WARN" \
+    VG_U16_LIMIT="$_U16_SOURCE_NEW_LIMIT" \
+    python3 - <<'PY'
+import json
+import os
+
+contexts = []
+line_count = os.environ.get("VG_U16_LINES", "")
+if line_count:
+    file_name = os.environ.get("VG_U16_FILE", "file")
+    warn_limit = os.environ.get("VG_U16_WARN", "400")
+    hard_limit = os.environ.get("VG_U16_LIMIT", "800")
+    contexts.append(
+        f"VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing {file_name} "
+        f"with {line_count} lines exceeds the {warn_limit}-line typical range but stays "
+        f"under the {hard_limit}-line hard limit\n"
+        "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
+        "ACTION: NONE — advisory only, continue without acknowledgement"
+    )
+contexts.append(
+    "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\n"
+    "SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\n"
+    "ACTION: NONE — advisory only, continue without acknowledgement"
+)
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": "\n---\n".join(contexts),
+    }
+}, ensure_ascii=False))
+PY
   fi
   # Circuit OPEN: silent pass (vg_cb_check already logged the auto-pass).
 fi

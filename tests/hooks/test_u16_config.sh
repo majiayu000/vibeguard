@@ -11,6 +11,7 @@ hook_test_init
 # --- Fixture setup ---------------------------------------------------------
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR" "$VIBEGUARD_LOG_DIR"' EXIT
+export VG_CB_THRESHOLD=999
 
 # 850-line python source (over default 800)
 big_py_content=$(python3 -c 'print("\n".join(f"x = {i}" for i in range(850)))')
@@ -94,6 +95,13 @@ result=$(run_pre_write_medium)
 assert_not_contains "$result" '"decision": "block"' "default 400/800: 450-line write is advisory only"
 assert_contains "$result" "[U-16]" "default 400/800: 450-line write emits U-16 advisory"
 assert_contains "$result" "400-line typical range" "write advisory cites typical threshold"
+assert_contains "$result" "[L1]" "450-line new source write still includes search-first advisory"
+
+export VIBEGUARD_WRITE_MODE=block
+result=$(run_pre_write_medium)
+assert_contains "$result" '"decision": "block"' "write_mode=block still blocks 450-line new source writes"
+assert_contains "$result" "[L1] [block]" "write_mode=block block reason stays L1 search-first"
+unset VIBEGUARD_WRITE_MODE
 
 export VG_U16_WARN_LIMIT=600
 result=$(run_pre_write_medium)
