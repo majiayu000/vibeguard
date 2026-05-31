@@ -325,6 +325,55 @@ codex_audit_json="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target cod
 assert_contains "${codex_audit_json}" '"status": "READY"' "Codex audit JSON reports ready"
 assert_contains "${codex_audit_json}" '"id": "codex-hooks-feature"' "Codex audit checks hooks feature"
 
+codex_direct_hook_home="${TMP_DIR}/codex-direct-hook-home"
+mkdir -p \
+  "${codex_direct_hook_home}/.vibeguard/installed/bin" \
+  "${codex_direct_hook_home}/.vibeguard/installed/hooks" \
+  "${codex_direct_hook_home}/.codex"
+touch "${codex_direct_hook_home}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${codex_direct_hook_home}/.vibeguard/installed/bin/vibeguard-runtime"
+touch "${codex_direct_hook_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
+touch "${codex_direct_hook_home}/.vibeguard/run-hook-codex.sh"
+chmod +x "${codex_direct_hook_home}/.vibeguard/run-hook-codex.sh"
+cat > "${codex_direct_hook_home}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+cat > "${codex_direct_hook_home}/.codex/config.toml" <<'TOML'
+[features]
+hooks = true
+TOML
+codex_direct_hook_out="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_direct_hook_home}" 2>&1 || true)"
+assert_contains "${codex_direct_hook_out}" "Status: INCOMPLETE" "Codex audit rejects direct hook script without wrapper"
+assert_contains "${codex_direct_hook_out}" "MISSING codex-pre-bash-config" "Codex audit requires pre-bash wrapper command"
+assert_contains "${codex_direct_hook_out}" "MISSING codex-permission-bash-config" "Codex audit requires permission wrapper command"
+assert_cmd_fail "Codex audit exits non-zero for direct hook script" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_direct_hook_home}"
+
 mkdir -p "${codex_ready_home}/.claude"
 cat > "${codex_ready_home}/.claude/settings.json" <<JSON
 {

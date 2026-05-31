@@ -405,7 +405,12 @@ def hook_config_has_script(
             if not isinstance(command, str):
                 continue
             wrappers = CLAUDE_WRAPPER_NAMES if platform == "claude" else CODEX_WRAPPER_NAMES
-            if command_invokes_script(command, script, wrappers):
+            if command_invokes_script(
+                command,
+                script,
+                wrappers,
+                require_wrapper=platform == "codex",
+            ):
                 return True
     return False
 
@@ -418,7 +423,13 @@ def is_path_like_command_token(token: str) -> bool:
     )
 
 
-def command_invokes_script(command: str, script: str, wrapper_names: frozenset[str]) -> bool:
+def command_invokes_script(
+    command: str,
+    script: str,
+    wrapper_names: frozenset[str],
+    *,
+    require_wrapper: bool = False,
+) -> bool:
     try:
         parts = shlex.split(command)
     except ValueError:
@@ -429,6 +440,8 @@ def command_invokes_script(command: str, script: str, wrapper_names: frozenset[s
             next_script = Path(parts[index + 1]).name
             if next_script == script and token_is_invoked(parts, index):
                 return True
+        if require_wrapper:
+            continue
         if token_base == script and token_is_invoked(parts, index):
             return True
     return False
