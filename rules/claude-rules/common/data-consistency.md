@@ -1,6 +1,14 @@
+---
+paths: **/*.rs,**/*.go,**/*.py,**/*.ts,**/*.tsx,**/*.js,**/*.jsx,**/Cargo.toml,**/Cargo.lock,**/go.mod,**/go.sum,**/pyproject.toml,**/setup.py,**/package.json,**/package-lock.json,**/pnpm-lock.yaml,**/yarn.lock
+---
+
 # Cross-Entry Data Consistency Rules
 
 When multiple binaries in a monorepo or workspace share one data source, configuration must converge.
+
+## Applicability
+
+U-11 through U-14 apply when a project has multiple entry points, binaries, services, CLIs, workers, or UI/server surfaces that share persisted database or cache state. For a single-entry-point project, or a project with no persisted shared state, treat these rules as not applicable and do not create work solely to satisfy them.
 
 ## U-11: Inconsistent default DB/cache paths across binaries (high)
 Different entry points hardcode different data paths, which splits user data. Fix: make every entry point call the same shared `default_db_path()` helper in the core layer, and standardize environment-variable names.

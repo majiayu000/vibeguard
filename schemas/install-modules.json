@@ -10,6 +10,7 @@
         "rules/claude-rules/common/agent-harness-audit.md",
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",
+        "rules/claude-rules/common/eval-validation.md",
         "rules/claude-rules/common/execution-pinning.md",
         "rules/claude-rules/common/fact-inference-separation.md",
         "rules/claude-rules/common/long-horizon-reliability.md",

@@ -97,6 +97,17 @@ assert_contains "${path_json}" '"id": "PY-01"' "path-scoped rule activates for m
 no_path_json="$(python3 "${COUNTER}" --root "${PATH_REPO}" --home "${PATH_HOME}" --task-path README.md --json)"
 assert_not_contains "${no_path_json}" '"id": "PY-01"' "path-scoped rule stays unloaded for non-matching task path"
 
+canonical_readme_json="$(python3 "${COUNTER}" --root "${REPO_DIR}" --home "${PATH_HOME}" --include-canonical-rules --task-path README.md --json)"
+assert_not_contains "${canonical_readme_json}" '"id": "U-11"' "data consistency rules stay unloaded for unrelated docs task"
+assert_not_contains "${canonical_readme_json}" '"id": "W-18"' "eval validation rule stays unloaded for unrelated docs task"
+
+canonical_eval_json="$(python3 "${COUNTER}" --root "${REPO_DIR}" --home "${PATH_HOME}" --include-canonical-rules --task-path evals/agent_eval.py --json)"
+assert_contains "${canonical_eval_json}" '"id": "W-18"' "eval validation rule activates for eval task path"
+
+canonical_python_json="$(python3 "${COUNTER}" --root "${REPO_DIR}" --home "${PATH_HOME}" --include-canonical-rules --task-path src/main.py --json)"
+assert_contains "${canonical_python_json}" '"id": "U-11"' "data consistency rules activate for source task path"
+assert_not_contains "${canonical_python_json}" '"id": "W-18"' "eval validation rule stays scoped away from ordinary source path"
+
 GC_HOME="${TMP_ROOT}/home-gc"
 GC_REPO="${TMP_ROOT}/repo-gc"
 make_home "${GC_HOME}"

@@ -106,6 +106,7 @@ for module in manifest["modules"]:
 PY
 )"
 assert_contains "${common_paths_out}" "rules/claude-rules/common/agent-harness-audit.md" "rules-common installs W-30 rule file"
+assert_contains "${common_paths_out}" "rules/claude-rules/common/eval-validation.md" "rules-common installs scoped W-18 rule file"
 assert_contains "${common_paths_out}" "rules/claude-rules/common/long-horizon-reliability.md" "rules-common installs W-42 rule file"
 reference_rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source reference)"
 assert_contains "${reference_rules_out}" "TASTE-ANSI" "reference rule ids include TASTE-prefixed rules"
