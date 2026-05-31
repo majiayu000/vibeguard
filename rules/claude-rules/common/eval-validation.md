@@ -1,5 +1,5 @@
 ---
-paths: **/evals/**,**/eval/**,**/evaluations/**,**/benchmarks/**,**/tests/eval*/**,**/*eval*.py,**/*eval*.ts,**/*eval*.tsx,**/*eval*.js,**/*eval*.rs,**/*eval*.go,**/pyproject.toml,**/package.json,**/Cargo.toml,**/go.mod
+paths: evals/**,**/evals/**,eval/**,**/eval/**,evaluations/**,**/evaluations/**,benchmarks/**,**/benchmarks/**,tests/eval*/**,**/tests/eval*/**,*eval*.py,**/*eval*.py,*eval*.ts,**/*eval*.ts,*eval*.tsx,**/*eval*.tsx,*eval*.js,**/*eval*.js,*eval*.rs,**/*eval*.rs,*eval*.go,**/*eval*.go
 ---
 
 # Evaluation Validation Rules

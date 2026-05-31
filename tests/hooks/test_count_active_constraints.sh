@@ -107,12 +107,20 @@ canonical_readme_ids="$(canonical_ids_for_task_path README.md)"
 assert_not_contains "${canonical_readme_ids}" "U-11" "data consistency rules stay unloaded for unrelated docs task"
 assert_not_contains "${canonical_readme_ids}" "W-18" "eval validation rule stays unloaded for unrelated docs task"
 
-canonical_eval_ids="$(canonical_ids_for_task_path evals/agent_eval.py)"
-assert_contains "${canonical_eval_ids}" "W-18" "eval validation rule activates for eval task path"
+canonical_eval_ids="$(canonical_ids_for_task_path evals/runner.py)"
+assert_contains "${canonical_eval_ids}" "W-18" "eval validation rule activates for eval directory task path"
+
+canonical_eval_manifest_ids="$(canonical_ids_for_task_path evals/package.json)"
+assert_contains "${canonical_eval_manifest_ids}" "W-18" "eval validation rule activates for eval-scoped dependency manifest"
 
 canonical_python_ids="$(canonical_ids_for_task_path src/main.py)"
 assert_contains "${canonical_python_ids}" "U-11" "data consistency rules activate for source task path"
 assert_not_contains "${canonical_python_ids}" "W-18" "eval validation rule stays scoped away from ordinary source path"
+
+for ordinary_manifest_path in package.json pyproject.toml Cargo.toml go.mod; do
+  ordinary_manifest_ids="$(canonical_ids_for_task_path "${ordinary_manifest_path}")"
+  assert_not_contains "${ordinary_manifest_ids}" "W-18" "eval validation rule stays scoped away from ordinary ${ordinary_manifest_path}"
+done
 
 GC_HOME="${TMP_ROOT}/home-gc"
 GC_REPO="${TMP_ROOT}/repo-gc"
