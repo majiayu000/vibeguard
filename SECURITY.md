@@ -75,7 +75,10 @@ The following issues are considered **in scope** for VibeGuard:
 - **pre-commit-guard.sh bypass** — techniques that allow language-quality guards or build checks to be silently skipped (e.g., bypassing the `VIBEGUARD_SKIP_PRECOMMIT` escape hatch in an unauthorized context).
 
 ### Bash Pre-tool Guard
-- **pre-bash-guard.sh bypass** — techniques that evade the shell-level command interceptor in `pre-bash-guard.sh`, which blocks force-pushes (`git push --force`), destructive resets (`git reset --hard`), and dangerous `rm -rf` operations.
+- **pre-bash-guard.sh bypass** — techniques that evade the shell-level command interceptor in `pre-bash-guard.sh`, which blocks dangerous local cleanup such as risky `rm -rf` targets, `git clean -f`, and batch `git checkout/restore .` operations.
+
+### Git Pre-push Guard
+- **git pre-push bypass** — techniques that evade the repository git `pre-push` hook, which blocks non-fast-forward updates, remote branch deletion, and force-like push options by default.
 
 ### Runtime Drift Decisions
 - **Accepted W-20 runtime drift** — if a long-running task continues after a runtime, tool inventory, or VibeGuard rule-set hash changes, record the acceptance here or in an equivalent project decision log before continuing. Each entry must include the snapshot path, current check output, accepted surface, reason, approver, and timestamp.
