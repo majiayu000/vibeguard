@@ -488,9 +488,20 @@ cat > "${COMMAND_DOC_PATH_FIXTURE}/.claude/commands/vg/bad.md" <<'MD'
 bash ~/vibeguard/scripts/missing-shortcut.sh
 ```
 MD
+set +e
 command_doc_path_out="$(
-  bash "${REPO_DIR}/scripts/ci/validate-doc-command-paths.sh" "${COMMAND_DOC_PATH_FIXTURE}" 2>&1 || true
+  bash "${REPO_DIR}/scripts/ci/validate-doc-command-paths.sh" "${COMMAND_DOC_PATH_FIXTURE}" 2>&1
 )"
+command_doc_path_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ ${command_doc_path_status} -ne 0 ]]; then
+  green "command doc missing paths exit nonzero"
+  PASS=$((PASS + 1))
+else
+  red "command doc missing paths exit nonzero (expected failure)"
+  FAIL=$((FAIL + 1))
+fi
 assert_contains "${command_doc_path_out}" ".claude/commands/vibeguard/bad.md" "full command doc missing path fails validation"
 assert_contains "${command_doc_path_out}" ".claude/commands/vg/bad.md" "shortcut command doc missing path fails validation"
 
