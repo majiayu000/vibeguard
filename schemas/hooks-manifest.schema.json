@@ -58,11 +58,11 @@
           "items": {"enum": ["pass", "warn", "block", "gate", "escalate", "correction", "complete"]},
           "uniqueItems": true
         },
-        "claude": {"$ref": "#/$defs/platform"},
-        "codex": {"$ref": "#/$defs/platform"}
+        "claude": {"$ref": "#/$defs/claude_platform"},
+        "codex": {"$ref": "#/$defs/codex_platform"}
       }
     },
-    "platform": {
+    "claude_platform": {
       "type": "object",
       "required": ["enabled"],
       "additionalProperties": false,
@@ -96,6 +96,58 @@
         "script": {"type": "string", "pattern": "^vibeguard-[a-z0-9-]+\\.sh$"},
         "timeout": {"type": "integer", "minimum": 1}
       }
+    },
+    "codex_platform": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "support": {"enum": ["native", "unsupported", "manual", "not-applicable"]},
+        "reason": {"type": "string"},
+        "event": {"$ref": "#/$defs/codex_event"},
+        "matcher": {
+          "anyOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ]
+        },
+        "script": {"type": "string", "pattern": "^vibeguard-[a-z0-9-]+\\.sh$"},
+        "timeout": {"type": "integer", "minimum": 1},
+        "entries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/codex_entry"},
+          "minItems": 1
+        }
+      }
+    },
+    "codex_entry": {
+      "type": "object",
+      "required": ["event"],
+      "additionalProperties": false,
+      "properties": {
+        "event": {"$ref": "#/$defs/codex_event"},
+        "matcher": {
+          "anyOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ]
+        },
+        "script": {"type": "string", "pattern": "^vibeguard-[a-z0-9-]+\\.sh$"},
+        "timeout": {"type": "integer", "minimum": 1}
+      }
+    },
+    "codex_event": {
+      "enum": [
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "Stop",
+        "SessionStart",
+        "PreCompact",
+        "PostCompact",
+        "UserPromptSubmit"
+      ]
     }
   }
 }

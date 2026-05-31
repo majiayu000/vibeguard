@@ -212,6 +212,25 @@ bad_hooks_manifest_out="$(python3 "${MANIFEST_HELPER}" validate --hooks-manifest
 assert_contains "${bad_hooks_manifest_out}" "hook install target drift for hooks-pre" "manifest validation detects hook install target drift"
 assert_not_contains "${bad_hooks_manifest_out}" "Traceback" "hook install target drift reports without traceback"
 
+BAD_CODEX_ENTRIES_HOOKS_MANIFEST="${TMP_DIR}/bad-codex-entries-hooks-manifest.json"
+python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_CODEX_ENTRIES_HOOKS_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+for hook in data["hooks"]:
+    if hook["name"] == "pre-bash-guard":
+        hook["codex"]["entries"][0]["extra_field"] = True
+        break
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_codex_entries_out="$(python3 "${REPO_DIR}/scripts/lib/hooks_manifest.py" --manifest "${BAD_CODEX_ENTRIES_HOOKS_MANIFEST}" validate 2>&1 || true)"
+assert_contains "${bad_codex_entries_out}" "codex.entries[0].extra_field" "hooks manifest schema rejects malformed codex entries"
+assert_not_contains "${bad_codex_entries_out}" "Traceback" "malformed codex entries report without traceback"
+
 BAD_GIT_HOOKS_MANIFEST="${TMP_DIR}/bad-git-hooks-manifest.json"
 python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_GIT_HOOKS_MANIFEST}" <<'PY'
 import json

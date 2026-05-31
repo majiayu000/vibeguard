@@ -8,9 +8,12 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from workflow_contracts import validate_instance
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "hooks" / "manifest.json"
+DEFAULT_SCHEMA = ROOT / "schemas" / "hooks-manifest.schema.json"
 PROFILE_ORDER = ("minimal", "core", "full", "strict")
 DISABLEABLE_KINDS = {"hook", "git-hook"}
 HOOK_EVENTS = {
@@ -66,6 +69,14 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("hooks manifest root must be an object")
+    return data
+
+
+def load_schema(path: Path = DEFAULT_SCHEMA) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("hooks manifest schema root must be an object")
     return data
 
 
@@ -309,7 +320,9 @@ def _print_json(items: Iterable[dict[str, Any]]) -> None:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     manifest = load_manifest(Path(args.manifest))
-    errors = validate_manifest(manifest, ROOT)
+    schema = load_schema(Path(args.schema))
+    errors = [f"schema: {error}" for error in validate_instance(manifest, schema)]
+    errors.extend(validate_manifest(manifest, ROOT))
     if errors:
         for error in errors:
             print(f"FAIL: {error}")
@@ -343,6 +356,7 @@ def cmd_claude_specs(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="VibeGuard hooks manifest helper")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    parser.add_argument("--schema", default=str(DEFAULT_SCHEMA))
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate").set_defaults(func=cmd_validate)

@@ -70,8 +70,34 @@ def _type_matches(value: Any, expected: str) -> bool:
     return False
 
 
-def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+def _resolve_schema_ref(ref: str, root_schema: dict[str, Any]) -> dict[str, Any] | None:
+    if not ref.startswith("#/"):
+        return None
+    current: Any = root_schema
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current if isinstance(current, dict) else None
+
+
+def validate_instance(
+    instance: Any,
+    schema: dict[str, Any],
+    path: str = "$",
+    root_schema: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
+    if root_schema is None:
+        root_schema = schema
+
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        resolved = _resolve_schema_ref(ref, root_schema)
+        if resolved is None:
+            return [f"{path}: unresolved schema ref {ref!r}"]
+        return validate_instance(instance, resolved, path, root_schema)
 
     expected_type = schema.get("type")
     if expected_type is not None:
@@ -86,6 +112,21 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
     if "enum" in schema and instance not in schema["enum"]:
         errors.append(f"{path}: expected one of {schema['enum']}, got {instance!r}")
 
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        branch_errors: list[str] = []
+        for index, branch in enumerate(any_of):
+            if not isinstance(branch, dict):
+                branch_errors.append(f"schema {index}: branch must be an object")
+                continue
+            current_errors = validate_instance(instance, branch, path, root_schema)
+            if not current_errors:
+                break
+            branch_errors.append(f"schema {index}: {'; '.join(current_errors)}")
+        else:
+            detail = "; ".join(branch_errors[:3])
+            errors.append(f"{path}: must match at least one anyOf schema; {detail}")
+
     one_of = schema.get("oneOf")
     if isinstance(one_of, list):
         matches: list[int] = []
@@ -94,7 +135,7 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
             if not isinstance(branch, dict):
                 branch_errors.append(f"schema {index}: branch must be an object")
                 continue
-            current_errors = validate_instance(instance, branch, path)
+            current_errors = validate_instance(instance, branch, path, root_schema)
             if current_errors:
                 branch_errors.append(f"schema {index}: {'; '.join(current_errors)}")
             else:
@@ -114,6 +155,11 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
         if isinstance(pattern, str) and not re.search(pattern, instance):
             errors.append(f"{path}: string does not match pattern {pattern!r}")
 
+    if isinstance(instance, (int, float)) and not isinstance(instance, bool):
+        minimum = schema.get("minimum")
+        if isinstance(minimum, (int, float)) and instance < minimum:
+            errors.append(f"{path}: number is less than minimum {minimum}")
+
     if isinstance(instance, list):
         min_items = schema.get("minItems")
         if isinstance(min_items, int) and len(instance) < min_items:
@@ -125,7 +171,7 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(instance):
-                errors.extend(validate_instance(item, item_schema, f"{path}[{index}]"))
+                errors.extend(validate_instance(item, item_schema, f"{path}[{index}]", root_schema))
 
     if isinstance(instance, dict):
         min_properties = schema.get("minProperties")
@@ -151,11 +197,11 @@ def validate_instance(instance: Any, schema: dict[str, Any], path: str = "$") ->
             for key, value in instance.items():
                 child_path = f"{path}.{key}"
                 if key in properties and isinstance(properties[key], dict):
-                    errors.extend(validate_instance(value, properties[key], child_path))
+                    errors.extend(validate_instance(value, properties[key], child_path, root_schema))
                 elif additional is False:
                     errors.append(f"{child_path}: additional property is not allowed")
                 elif isinstance(additional, dict):
-                    errors.extend(validate_instance(value, additional, child_path))
+                    errors.extend(validate_instance(value, additional, child_path, root_schema))
 
     return errors
 
