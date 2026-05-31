@@ -44,6 +44,10 @@ else
   codex_hook_status_detail() { printf '%s\n' ""; }
   codex_hook_status_matcher() { printf '%s\n' ""; }
   codex_hook_status() { return 0; }
+  codex_hook_status_from_output() { return 0; }
+fi
+if ! declare -F codex_hook_status_from_output >/dev/null 2>&1; then
+  codex_hook_status_from_output() { return 0; }
 fi
 
 INPUT=$(cat)

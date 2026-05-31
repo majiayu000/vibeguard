@@ -242,3 +242,49 @@ except OSError:
     pass
 PY
 }
+
+codex_hook_status_from_output() {
+  local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
+  local parsed hook_status hook_reason
+  parsed=$(CODEX_HOOK_OUTPUT="${hook_output}" python3 - <<'PY' 2>/dev/null || true
+import json
+import os
+
+try:
+    data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
+except Exception:
+    print("hook_error\tinvalid-json")
+    raise SystemExit
+
+decision = data.get("decision", "pass")
+reason = data.get("reason", "")
+hook_specific = data.get("hookSpecificOutput")
+if not isinstance(reason, str):
+    reason = ""
+if not isinstance(decision, str):
+    decision = "pass"
+
+status = "pass"
+if decision in {"warn", "block", "gate", "escalate", "correction"}:
+    status = decision
+elif decision == "skip":
+    status = "skipped"
+elif isinstance(hook_specific, dict):
+    if hook_specific.get("permissionDecision") == "deny":
+        status = "block"
+    nested_decision = hook_specific.get("decision")
+    if isinstance(nested_decision, dict) and nested_decision.get("behavior") == "deny":
+        status = "block"
+
+reason = reason.replace("\t", " ").replace("\n", " ")[:300]
+print(f"{status}\t{reason}")
+PY
+)
+  hook_status="${parsed%%$'\t'*}"
+  hook_reason="${parsed#*$'\t'}"
+  if [[ "${hook_status}" == "${parsed}" ]]; then
+    hook_reason=""
+  fi
+  [[ -n "${hook_status}" ]] || hook_status="hook_error"
+  codex_hook_status "${hook_name}" "${event_name}" "${matcher}" "${hook_status}" "${hook_reason}" "${detail}" "${timeout_ms}"
+}

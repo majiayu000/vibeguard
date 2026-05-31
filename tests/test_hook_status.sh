@@ -98,6 +98,15 @@ JSONL
 mixed_out="$("${RUNTIME}" hook-status --mode minimal --log-file "${TMP_DIR}/mixed-events.jsonl" --slow-ms 2000 2>&1)"
 assert_contains "$mixed_out" "PostToolUse checks  1/1 complete - 28ms" "minimal: summary counts only the displayed event"
 
+cat > "${TMP_DIR}/same-second-events.jsonl" <<'JSONL'
+{"ts":"2026-05-31T00:00:00Z","session":"s1","hook":"post-build-check","tool":"PostToolUse","decision":"warn","reason":"build warning","detail":"Edit src/foo.ts","duration_ms":44}
+JSONL
+cat > "${TMP_DIR}/same-second-diag.jsonl" <<'JSONL'
+{"ts":"2026-05-31T00:00:00Z","cli":"codex","hook":"post-build-check","event":"PostToolUse","matcher":"Bash","status":"running","detail":"Edit src/foo.ts","timeout_ms":30000}
+JSONL
+same_second_out="$("${RUNTIME}" hook-status --mode focused --log-file "${TMP_DIR}/same-second-events.jsonl" --diag-file "${TMP_DIR}/same-second-diag.jsonl" --slow-ms 2000 2>&1)"
+assert_not_contains "$same_second_out" "[running] post-build-check" "focused: same-second completion drops stale running status"
+
 header "json output"
 "${RUNTIME}" hook-status --json --mode full --log-file "${HOOK_LOG}" --diag-file "${DIAG_LOG}" --slow-ms 2000 > "${JSON_OUT}"
 assert_cmd "json: output parses" python3 -c "import json; json.load(open('${JSON_OUT}'))"

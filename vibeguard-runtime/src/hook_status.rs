@@ -139,7 +139,10 @@ pub fn run(args: &[String]) -> Result {
         }
     }
 
-    entries.sort_by(|a, b| a.ts.cmp(&b.ts));
+    entries.sort_by(|a, b| {
+        a.ts.cmp(&b.ts)
+            .then_with(|| entry_sort_rank(a).cmp(&entry_sort_rank(b)))
+    });
     let entries = drop_stale_running(entries);
     let entries = latest_entries(entries, options.limit);
 
@@ -602,6 +605,10 @@ fn latest_entries(mut entries: Vec<HookStatusEntry>, limit: usize) -> Vec<HookSt
     }
     entries.drain(0..entries.len() - limit);
     entries
+}
+
+fn entry_sort_rank(entry: &HookStatusEntry) -> u8 {
+    if entry.is_running() { 0 } else { 1 }
 }
 
 fn drop_stale_running(entries: Vec<HookStatusEntry>) -> Vec<HookStatusEntry> {

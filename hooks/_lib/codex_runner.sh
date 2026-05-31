@@ -53,6 +53,7 @@ codex_run_hook() {
     if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
       hook_output="$(vg_policy_downgrade_output "${hook_output}")"
     fi
+    codex_hook_status_from_output "${hook_name}" "${event_name}" "${hook_matcher}" "${hook_output}" "${hook_detail}" "${hook_timeout_ms}"
 
     if [[ "${event_name}" == "PreToolUse" ]]; then
       pretool_status=0
