@@ -175,6 +175,7 @@ TMP_HOME="$(mktemp -d)"
 ORIG_PATH="${PATH}"
 REPO_GIT_HOOK_DIR="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
 REPO_GIT_HOOK_BACKUP="${TMP_HOME}/repo-git-hooks-backup"
+LINKED_WORKTREE_PATH=""
 
 backup_repo_git_hooks() {
   [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
@@ -207,6 +208,10 @@ backup_repo_git_hooks
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
+  if [[ -n "${LINKED_WORKTREE_PATH}" ]]; then
+    git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null 2>&1 || true
+    git -C "${REPO_DIR}" worktree prune >/dev/null 2>&1 || true
+  fi
   restore_repo_git_hooks
   rm -rf "${TMP_HOME}"
 }
@@ -679,8 +684,9 @@ assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vi
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
 assert_cmd "runtime policy project validator installed after setup" test -f "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
+assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
 assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
-assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
 managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
@@ -706,15 +712,24 @@ assert_contains "${broken_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-comm
 git_hook_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${git_hook_repair_out}" "Setup complete! All components installed." "setup repairs missing/broken repo git hooks"
 assert_cmd "repo pre-commit hook repaired by setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
-assert_cmd "repo pre-push hook repaired by setup" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+assert_cmd "repo pre-push hook repaired by setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 outside_cwd="${TMP_HOME}/outside-cwd"
 mkdir -p "${outside_cwd}"
 rm -f "${REPO_GIT_HOOK_DIR}/pre-commit" "${REPO_GIT_HOOK_DIR}/pre-push"
 outside_install_out="$(cd "${outside_cwd}" && bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${outside_install_out}" "Setup complete! All components installed." "setup succeeds from outside repo cwd"
 assert_cmd "outside-cwd setup installs repo pre-commit hook in real repo" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
-assert_cmd "outside-cwd setup installs repo pre-push hook in real repo" assert_repo_git_hook_target "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+assert_cmd "outside-cwd setup installs repo pre-push hook in real repo" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 assert_cmd "outside-cwd setup does not create stray hook directory" test ! -e "${outside_cwd}/.git/hooks/pre-commit"
+LINKED_WORKTREE_PATH="${TMP_HOME}/linked-worktree"
+git -C "${REPO_DIR}" worktree add --detach "${LINKED_WORKTREE_PATH}" HEAD >/dev/null 2>&1
+# Keep this linked worktree test valid while running against uncommitted local edits.
+cp "${REPO_DIR}/scripts/setup/check.sh" "${LINKED_WORKTREE_PATH}/scripts/setup/check.sh"
+linked_worktree_check_out="$(cd "${LINKED_WORKTREE_PATH}" && bash setup.sh --check)"
+assert_contains "${linked_worktree_check_out}" "[OK] VibeGuard repo pre-push hook installed" "--check from linked worktree accepts shared repo pre-push hook"
+assert_not_contains "${linked_worktree_check_out}" "VibeGuard repo pre-push hook target drift" "--check from linked worktree does not report shared pre-push hook drift"
+git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null
+LINKED_WORKTREE_PATH=""
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard is copied after installation" bash -c "test -d '${HOME}/.codex/skills/vibeguard' && test ! -L '${HOME}/.codex/skills/vibeguard'"
 assert_cmd "~/.codex/skills/vibeguard stale files are removed during copy install" test ! -e "${HOME}/.codex/skills/vibeguard/STALE.txt"

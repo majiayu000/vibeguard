@@ -184,7 +184,7 @@ run_legacy_checks() {
   echo "------------------------------"
   if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
     _check_repo_git_hook "pre-commit" "${HOME}/.vibeguard/pre-commit"
-    _check_repo_git_hook "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+    _check_repo_git_hook "pre-push" "${HOME}/.vibeguard/pre-push"
   else
     yellow "[INFO] Repository git hooks not checked (not a git repository)"
   fi

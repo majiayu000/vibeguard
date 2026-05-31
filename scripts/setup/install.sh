@@ -307,6 +307,23 @@ chmod +x "${PRE_COMMIT_WRAPPER}"
 state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
 green "  ~/.vibeguard/pre-commit wrapper ready"
 
+PRE_PUSH_WRAPPER="${VIBEGUARD_HOME}/pre-push"
+cat > "${PRE_PUSH_WRAPPER}" <<'WRAPPER'
+#!/usr/bin/env bash
+# VibeGuard Pre-Push Hook Wrapper — auto-installed by install.sh
+set -euo pipefail
+VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/git/pre-push" ]]; then
+  export VIBEGUARD_DIR
+  exec bash "$VIBEGUARD_DIR/hooks/git/pre-push" "$@"
+fi
+echo "vibeguard: pre-push hook source not found; re-run bash setup.sh --yes" >&2
+exit 1
+WRAPPER
+chmod +x "${PRE_PUSH_WRAPPER}"
+state_record_file "${PRE_PUSH_WRAPPER}" "generated/pre-push-wrapper" "copy"
+green "  ~/.vibeguard/pre-push wrapper ready"
+
 install_repo_git_hook() {
   local hook_name="$1"
   local target="$2"
@@ -326,7 +343,7 @@ VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path
 if [[ -n "${VG_GIT_HOOKS}" ]]; then
   mkdir -p "${VG_GIT_HOOKS}"
   install_repo_git_hook "pre-commit" "${PRE_COMMIT_WRAPPER}"
-  install_repo_git_hook "pre-push" "${REPO_DIR}/hooks/git/pre-push"
+  install_repo_git_hook "pre-push" "${PRE_PUSH_WRAPPER}"
 else
   yellow "  SKIP repo git hooks (not a git repository)"
 fi
