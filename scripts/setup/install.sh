@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # How to use:
 # bash install.sh # Install (default core)
-# bash install.sh --profile full # Install full (including Stop Gate/Build Check)
+# bash install.sh --profile full # Install full (including Stop signal/Build Check)
 # bash install.sh --profile minimal # Minimal installation (pre-hooks only)
 # bash install.sh --profile strict # Strict mode (same hook set as full)
 # bash install.sh --languages rust,python # Only install rules and guards for the specified language

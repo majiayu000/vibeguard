@@ -117,6 +117,11 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-generated-rule-docs.sh
 
+      - name: Validate hook behavior docs
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-hook-behavior-docs.sh
+
       - name: Validate manifest contract
         shell: bash
         run: bash scripts/ci/validate-manifest-contract.sh
