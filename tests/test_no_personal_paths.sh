@@ -61,6 +61,11 @@ chmod +x "${FAKE_REPO}/scripts/ci/validate-no-personal-paths.sh"
 printf 'gitdir: /Users/alice/project/.git/worktrees/repo\n' > "${FAKE_REPO}/.git"
 assert_cmd "linked-worktree .git file is ignored" bash "${FAKE_REPO}/scripts/ci/validate-no-personal-paths.sh"
 
+header "local agent state"
+mkdir -p "${FAKE_REPO}/.omx/state"
+printf '{"path": "/Users/alice/project/cache"}\n' > "${FAKE_REPO}/.omx/state/local.json"
+assert_cmd "ignored local .omx state is not scanned" bash "${FAKE_REPO}/scripts/ci/validate-no-personal-paths.sh"
+
 header "real source leak"
 printf 'command: /Users/alice/project/run.sh\n' > "${FAKE_REPO}/leak.txt"
 assert_fails_with "ordinary file with personal path still fails" "leak.txt" \

@@ -16,6 +16,7 @@
         "rules/claude-rules/common/no-silent-degradation.md",
         "rules/claude-rules/common/publish-action-confirmation.md",
         "rules/claude-rules/common/security.md",
+        "rules/claude-rules/common/vibe-coding-production.md",
         "rules/claude-rules/common/workflow.md"
       ],
       "target": "~/.claude/rules/vibeguard/common/",
@@ -28,7 +29,10 @@
       "id": "rules-rust",
       "kind": "rules",
       "description": "Rust-specific quality rules",
-      "paths": ["rules/claude-rules/rust/quality.md"],
+      "paths": [
+        "rules/claude-rules/rust/quality.md",
+        "rules/claude-rules/rust/struct-field-change-checklist.md"
+      ],
       "target": "~/.claude/rules/vibeguard/rust/",
       "defaultInstall": true,
       "languages": ["rust"],

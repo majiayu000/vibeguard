@@ -180,6 +180,36 @@ def _validate_paths(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _validate_rule_paths(manifest: dict[str, Any]) -> list[str]:
+    modules = manifest.get("modules", [])
+    if not isinstance(modules, list):
+        return []
+
+    actual: set[str] = set()
+    for module in modules:
+        if not isinstance(module, dict) or module.get("kind") != "rules":
+            continue
+        paths = module.get("paths", [])
+        if not isinstance(paths, list):
+            continue
+        for path in paths:
+            if isinstance(path, str):
+                actual.add(path.rstrip("/"))
+
+    expected = {
+        path.relative_to(ROOT).as_posix()
+        for path in sorted(CANONICAL_RULES_DIR.rglob("*.md"))
+    }
+    if actual == expected:
+        return []
+
+    return [
+        "rule install path drift: "
+        f"manifest_missing={sorted(expected - actual)} "
+        f"manifest_extra={sorted(actual - expected)}"
+    ]
+
+
 def _validate_profiles(manifest: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     modules = set(_module_ids(manifest))
@@ -466,6 +496,7 @@ def validate_contract(
     if len(module_ids) != len(set(module_ids)):
         errors.append("duplicate module ids detected in manifest")
     errors.extend(_validate_paths(manifest))
+    errors.extend(_validate_rule_paths(manifest))
     errors.extend(_validate_profiles(manifest))
     errors.extend(_validate_project_schema(manifest, project_schema, hooks_manifest))
     errors.extend(_validate_hook_install_targets(manifest, hooks_manifest))
