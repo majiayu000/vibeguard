@@ -20,6 +20,12 @@ if ! grep -Fq "${expected_strict}" docs/rule-reference.md; then
   exit 1
 fi
 
+expected_guideline='| Guideline | Preferred pattern; follow when it helps the current task without expanding scope. |'
+if ! grep -Fq "${expected_guideline}" docs/rule-reference.md; then
+  echo "docs/rule-reference.md must define Guideline as a preferred pattern, not a required block" >&2
+  exit 1
+fi
+
 expected_u08='| U-08 | Do not skip verification steps | Strict | See W-03 and W-16 for canonical verification guidance. |'
 if ! grep -Fq "${expected_u08}" docs/rule-reference.md; then
   echo "docs/rule-reference.md must keep U-08 as a pointer to canonical W-03/W-16 guidance" >&2
