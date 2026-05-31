@@ -33,6 +33,33 @@ Trigger this skill when the user asks for one or more of:
 - [ ] Prioritize by impact, effort, risk, and confidence.
 - [ ] Verify each selected optimization with the smallest command that proves the claimed gain.
 
+## Routing Contract Integration
+
+Optflow follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+
+Optflow can start discovery or execution only when either condition is true:
+
+- upstream readiness resolved to `execute_direct`
+- a planning workflow already emitted a handoff that preselects Optflow
+
+Optflow must not start execution when either condition is true:
+
+- upstream readiness resolved to `clarify_first`
+- upstream readiness resolved to `plan_first` and no execution handoff exists yet
+
+When Optflow receives a planning handoff, it must honor:
+
+- `mode`
+- `artifacts`
+- `runtime_pinning_snapshot`
+- `verification_owner`
+- `stop_conditions`
+- `lane_map`
+
+If `lane_map` does not assign Optflow-owned work clearly, stop and clarify before editing.
+
+If Optflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
+
 ## Workflow
 
 ### 0. Discover Optimization Backlog

@@ -139,20 +139,32 @@ from pathlib import Path
 
 repo = Path(sys.argv[1])
 registry = json.loads((repo / "schemas/workflow-contract-consumers.json").read_text(encoding="utf-8"))
-for consumer in registry["consumers"]:
-    if consumer.get("path") == ".claude/commands/vibeguard/preflight.md":
-        if "routing-contract.md" not in consumer.get("references", []):
-            raise SystemExit("preflight missing routing-contract.md reference")
-        if "routing_decision" not in consumer.get("requires", []):
-            raise SystemExit("preflight missing routing_decision requirement")
-        break
-else:
-    raise SystemExit("preflight command is not a workflow contract consumer")
+consumers = {consumer.get("path"): consumer for consumer in registry["consumers"]}
+expected = {
+    ".claude/commands/vibeguard/preflight.md": {
+        "references": {"routing-contract.md"},
+        "requires": {"routing_decision"},
+    },
+    "workflows/optflow/SKILL.md": {
+        "references": {"routing-contract.md", "delegation-contract.md"},
+        "requires": {"routing_decision", "execution_handoff", "lane_map", "verification_gate"},
+    },
+}
+for path, contract in expected.items():
+    consumer = consumers.get(path)
+    if consumer is None:
+        raise SystemExit(f"{path} is not a workflow contract consumer")
+    missing_references = contract["references"] - set(consumer.get("references", []))
+    if missing_references:
+        raise SystemExit(f"{path} missing references: {sorted(missing_references)}")
+    missing_requires = contract["requires"] - set(consumer.get("requires", []))
+    if missing_requires:
+        raise SystemExit(f"{path} missing requirements: {sorted(missing_requires)}")
 PY
-  green "preflight command is registered as a routing contract consumer"
+  green "command and workflow routing consumers stay registered"
   PASS=$((PASS + 1))
 else
-  red "preflight command is registered as a routing contract consumer"
+  red "command and workflow routing consumers stay registered"
   FAIL=$((FAIL + 1))
 fi
 

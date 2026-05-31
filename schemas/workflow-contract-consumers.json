@@ -66,6 +66,11 @@
       "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
     },
     {
+      "path": "workflows/optflow/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
       "path": "workflows/plan-flow/SKILL.md",
       "references": ["routing-contract.md", "delegation-contract.md"],
       "requires": ["execution_handoff", "lane_map", "verification_gate"]
