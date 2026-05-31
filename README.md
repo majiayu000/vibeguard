@@ -326,6 +326,8 @@ that already require `codex app-server`.
 
 Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
 
+Hook status is a separate human diagnostics surface. Use `vibeguard-runtime hook-status --mode focused --log-file ~/.vibeguard/events.jsonl` to inspect recent `pass`, `skipped`, `slow`, `timeout`, and adapter-error states without adding successful hook summaries to the model context. Only actionable `warn` / `block` results should continue through `hookSpecificOutput.additionalContext`. See `docs/reference/codex-hook-status.md`.
+
 **MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 
 **Optional app-server wrapper** (advanced orchestrators only):

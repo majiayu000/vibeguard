@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/schemas/hook-status.schema.json",
+  "title": "VibeGuard Hook Status",
+  "type": "object",
+  "required": ["schema_version", "mode", "summary", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mode": { "enum": ["minimal", "focused", "full"] },
+    "summary": {
+      "type": "object",
+      "required": ["event", "total", "complete", "running", "attention", "model_context_entries"],
+      "additionalProperties": false,
+      "properties": {
+        "event": { "type": "string" },
+        "total": { "type": "integer", "minimum": 0 },
+        "complete": { "type": "integer", "minimum": 0 },
+        "running": { "type": "integer", "minimum": 0 },
+        "attention": { "type": "integer", "minimum": 0 },
+        "model_context_entries": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ts",
+          "session",
+          "source",
+          "hook",
+          "event",
+          "matcher",
+          "status",
+          "decision",
+          "reason",
+          "detail",
+          "duration_ms",
+          "elapsed_ms",
+          "timeout_ms",
+          "model_context",
+          "log_path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ts": { "type": "string" },
+          "session": { "type": "string" },
+          "source": { "enum": ["event_log", "codex_diag"] },
+          "hook": { "type": "string" },
+          "event": { "type": "string" },
+          "matcher": { "type": "string" },
+          "status": {
+            "enum": [
+              "pass",
+              "skipped",
+              "warn",
+              "block",
+              "gate",
+              "escalate",
+              "correction",
+              "complete",
+              "slow",
+              "timeout",
+              "running",
+              "adapter_error",
+              "hook_error",
+              "unknown"
+            ]
+          },
+          "decision": { "type": "string" },
+          "reason": { "type": "string" },
+          "detail": { "type": "string" },
+          "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "elapsed_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "timeout_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "model_context": { "type": "boolean" },
+          "log_path": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -9,12 +9,20 @@ pub const SESSION_METRICS_SCHEMA_VERSION: u64 = 1;
 pub mod field {
     pub const TS: &str = "ts";
     pub const SESSION: &str = "session";
+    pub const EVENT: &str = "event";
     pub const HOOK: &str = "hook";
     pub const TOOL: &str = "tool";
+    pub const MATCHER: &str = "matcher";
     pub const DECISION: &str = "decision";
+    pub const STATUS: &str = "status";
     pub const REASON: &str = "reason";
     pub const DETAIL: &str = "detail";
     pub const DURATION_MS: &str = "duration_ms";
+    pub const ELAPSED_MS: &str = "elapsed_ms";
+    pub const TIMEOUT_MS: &str = "timeout_ms";
+    pub const LOG_PATH: &str = "log_path";
+    pub const MODEL_CONTEXT: &str = "model_context";
+    pub const SOURCE: &str = "source";
     pub const CLI: &str = "cli";
     pub const AGENT: &str = "agent";
     pub const CLIENT: &str = "client";
@@ -29,11 +37,30 @@ pub mod decision {
     pub const PASS: &str = "pass";
     pub const WARN: &str = "warn";
     pub const BLOCK: &str = "block";
+    pub const GATE: &str = "gate";
     pub const ESCALATE: &str = "escalate";
     pub const CORRECTION: &str = "correction";
+    pub const COMPLETE: &str = "complete";
 
     pub const NEGATIVE: [&str; 4] = [WARN, BLOCK, ESCALATE, CORRECTION];
     pub const RULE_REPEAT: [&str; 3] = [WARN, BLOCK, ESCALATE];
+}
+
+pub mod status {
+    pub const PASS: &str = super::decision::PASS;
+    pub const SKIPPED: &str = "skipped";
+    pub const WARN: &str = super::decision::WARN;
+    pub const BLOCK: &str = super::decision::BLOCK;
+    pub const GATE: &str = super::decision::GATE;
+    pub const ESCALATE: &str = super::decision::ESCALATE;
+    pub const CORRECTION: &str = super::decision::CORRECTION;
+    pub const COMPLETE: &str = super::decision::COMPLETE;
+    pub const SLOW: &str = "slow";
+    pub const TIMEOUT: &str = "timeout";
+    pub const RUNNING: &str = "running";
+    pub const ADAPTER_ERROR: &str = "adapter_error";
+    pub const HOOK_ERROR: &str = "hook_error";
+    pub const UNKNOWN: &str = super::UNKNOWN;
 }
 
 pub mod hook {

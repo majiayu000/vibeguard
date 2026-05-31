@@ -184,12 +184,12 @@ def _prune_vibeguard_entries(data: dict[str, Any]) -> bool:
     return changed
 
 
-def _iter_hook_commands(data: dict[str, Any]) -> list[tuple[str, str, str]]:
+def _iter_hook_records(data: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
         return []
 
-    commands: list[tuple[str, str, str]] = []
+    records: list[tuple[str, str, dict[str, Any]]] = []
     for event, entries in hooks.items():
         if not isinstance(entries, list):
             continue
@@ -204,9 +204,16 @@ def _iter_hook_commands(data: dict[str, Any]) -> list[tuple[str, str, str]]:
             for hook in hook_entries:
                 if not isinstance(hook, dict):
                     continue
-                command = hook.get("command")
-                if isinstance(command, str) and command:
-                    commands.append((str(event), matcher_text, command))
+                records.append((str(event), matcher_text, hook))
+    return records
+
+
+def _iter_hook_commands(data: dict[str, Any]) -> list[tuple[str, str, str]]:
+    commands: list[tuple[str, str, str]] = []
+    for event, matcher, hook in _iter_hook_records(data):
+        command = hook.get("command")
+        if isinstance(command, str) and command:
+            commands.append((event, matcher, command))
     return commands
 
 
@@ -225,6 +232,38 @@ def stale_hook_findings(path: Path, home: Path) -> list[dict[str, str]]:
                 "matcher": matcher,
                 "command_path": str(hook_target),
                 "repair": "bash setup.sh --yes",
+            }
+        )
+    return findings
+
+
+def timeout_findings(path: Path, home: Path) -> list[dict[str, str]]:
+    data = load_hooks(path)
+    findings: list[dict[str, str]] = []
+    for event, matcher_text, hook in _iter_hook_records(data):
+        # VibeGuard's managed Stop entries intentionally have no timeout because
+        # Codex's Stop output surface is non-blocking and historically rejected
+        # spurious Stop timeouts in check-vibeguard.
+        if event == "Stop":
+            continue
+        command = hook.get("command")
+        if not isinstance(command, str) or not command:
+            continue
+        if isinstance(hook.get("timeout"), int) and hook["timeout"] > 0:
+            continue
+        matcher = None if matcher_text == "<none>" else matcher_text
+        identity = _identity_for_hook(event, matcher, hook)
+        managed_state = "managed" if identity.is_managed else "unmanaged"
+        repair = "bash setup.sh --yes" if identity.is_managed else "add timeout or consult hook owner"
+        findings.append(
+            {
+                "client": "Codex",
+                "config": _display_path(path, home),
+                "event": event,
+                "matcher": matcher_text,
+                "command": command,
+                "managed": managed_state,
+                "repair": repair,
             }
         )
     return findings
@@ -411,6 +450,19 @@ def cmd_check_stale_hooks(args: argparse.Namespace) -> int:
     return 1 if findings else 0
 
 
+def cmd_check_timeouts(args: argparse.Namespace) -> int:
+    hooks_path = Path(args.hooks_file)
+    if not hooks_path.exists():
+        return 0
+    findings = timeout_findings(hooks_path, Path.home())
+    for finding in findings:
+        print(
+            "{managed} {client} hook without timeout: config={config} event={event} "
+            "matcher={matcher} command={command} repair={repair}".format(**finding)
+        )
+    return 1 if findings else 0
+
+
 def cmd_check_vibeguard(args: argparse.Namespace) -> int:
     hooks_path = Path(args.hooks_file)
     data = load_hooks(hooks_path)
@@ -453,6 +505,10 @@ def build_parser() -> argparse.ArgumentParser:
     stale = sub.add_parser("check-stale-hooks", help="Detect stale hook commands")
     stale.add_argument("--hooks-file", required=True)
     stale.set_defaults(func=cmd_check_stale_hooks)
+
+    timeouts = sub.add_parser("check-timeouts", help="Detect hook entries without timeout")
+    timeouts.add_argument("--hooks-file", required=True)
+    timeouts.set_defaults(func=cmd_check_timeouts)
 
     return parser
 
