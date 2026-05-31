@@ -36,14 +36,21 @@ VibeGuard installs native rule files under `common/`, `rust/`, `golang/`, `types
 ```text
 ~/.claude/rules/vibeguard/
 ├── common/
+│   ├── agent-harness-audit.md
 │   ├── coding-style.md
 │   ├── data-consistency.md
+│   ├── eval-validation.md
+│   ├── execution-pinning.md
 │   ├── fact-inference-separation.md
+│   ├── long-horizon-reliability.md
 │   ├── no-silent-degradation.md
 │   ├── publish-action-confirmation.md
 │   ├── security.md
+│   ├── vibe-coding-production.md
 │   └── workflow.md
-├── rust/quality.md
+├── rust/
+│   ├── quality.md
+│   └── struct-field-change-checklist.md
 ├── golang/quality.md
 ├── typescript/quality.md
 └── python/

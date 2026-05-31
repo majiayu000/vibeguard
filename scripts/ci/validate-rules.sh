@@ -39,6 +39,33 @@ for rule_file in "${RULES_DIR}"/*.md; do
   fi
 done
 
+echo
+echo "Checking canonical rule applicability boundaries..."
+DATA_CONSISTENCY_RULE="${RULES_DIR}/claude-rules/common/data-consistency.md"
+EVAL_VALIDATION_RULE="${RULES_DIR}/claude-rules/common/eval-validation.md"
+WORKFLOW_RULE="${RULES_DIR}/claude-rules/common/workflow.md"
+
+if grep -q '^paths:' "${DATA_CONSISTENCY_RULE}" && grep -q '^## Applicability' "${DATA_CONSISTENCY_RULE}"; then
+  echo "OK: data-consistency.md has path and applicability scope"
+else
+  echo "FAIL: data-consistency.md must declare paths and an Applicability section"
+  ((errors++))
+fi
+
+if [[ -f "${EVAL_VALIDATION_RULE}" ]] && grep -q '^paths:' "${EVAL_VALIDATION_RULE}" && grep -q '^## W-18:' "${EVAL_VALIDATION_RULE}" && grep -q '^## Applicability' "${EVAL_VALIDATION_RULE}"; then
+  echo "OK: eval-validation.md scopes W-18"
+else
+  echo "FAIL: eval-validation.md must exist with paths, W-18, and an Applicability section"
+  ((errors++))
+fi
+
+if grep -q '^## W-18:' "${WORKFLOW_RULE}"; then
+  echo "FAIL: W-18 must stay in eval-validation.md so workflow.md remains broadly scoped"
+  ((errors++))
+else
+  echo "OK: workflow.md does not carry W-18"
+fi
+
 # Check vibeguard-rules.md index file
 RULES_INDEX="${REPO_DIR}/claude-md/vibeguard-rules.md"
 if [[ -f "$RULES_INDEX" ]]; then
