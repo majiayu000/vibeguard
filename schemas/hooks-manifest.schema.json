@@ -36,7 +36,7 @@
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-        "script": {"type": "string", "pattern": "^[a-z0-9_-]+\\.sh$"},
+        "script": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_/-]*(\\.sh)?$"},
         "kind": {"enum": ["hook", "library", "wrapper", "manual", "git-hook"]},
         "install_targets": {
           "type": "array",

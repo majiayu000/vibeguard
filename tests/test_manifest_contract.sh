@@ -89,7 +89,10 @@ assert_contains "${profiles_out}" "full" "profile list contains full"
 hooks_out="$(python3 "${MANIFEST_HELPER}" hook-names)"
 assert_contains "${hooks_out}" "count-active-constraints" "hook list comes from manifest names"
 assert_not_contains "${hooks_out}" "count_active_constraints" "hook list does not use script stems"
+assert_not_contains "${hooks_out}" "git-pre-push" "git pre-push is tracked but not exposed through disabled_hooks"
 assert_not_contains "${hooks_out}" "skills-loader" "manual hooks are not exposed through disabled_hooks"
+hooks_table_out="$(python3 "${REPO_DIR}/scripts/lib/hooks_manifest.py" render-doc-table)"
+assert_contains "${hooks_table_out}" '`git/pre-push` | git pre-push' "hooks manifest renders git pre-push inventory row"
 rules_out="$(python3 "${MANIFEST_HELPER}" rule-ids --source canonical --scope common)"
 assert_contains "${rules_out}" "W-17" "canonical common rule ids include W-17"
 assert_contains "${rules_out}" "U-32" "canonical common rule ids include U-32"
@@ -186,6 +189,22 @@ PY
 bad_hooks_manifest_out="$(python3 "${MANIFEST_HELPER}" validate --hooks-manifest "${BAD_HOOKS_MANIFEST}" 2>&1 || true)"
 assert_contains "${bad_hooks_manifest_out}" "hook install target drift for hooks-pre" "manifest validation detects hook install target drift"
 assert_not_contains "${bad_hooks_manifest_out}" "Traceback" "hook install target drift reports without traceback"
+
+BAD_GIT_HOOKS_MANIFEST="${TMP_DIR}/bad-git-hooks-manifest.json"
+python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_GIT_HOOKS_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+data["hooks"] = [hook for hook in data["hooks"] if hook["name"] != "git-pre-push"]
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_git_hooks_manifest_out="$(python3 "${REPO_DIR}/scripts/lib/hooks_manifest.py" --manifest "${BAD_GIT_HOOKS_MANIFEST}" validate 2>&1 || true)"
+assert_contains "${bad_git_hooks_manifest_out}" "hooks/git/pre-push missing from hooks manifest" "hooks manifest validation detects missing git pre-push source"
+assert_not_contains "${bad_git_hooks_manifest_out}" "Traceback" "git pre-push manifest drift reports without traceback"
 
 BAD_RULE_PATHS_MANIFEST="${TMP_DIR}/bad-rule-paths-install-modules.json"
 python3 - "${REPO_DIR}/schemas/install-modules.json" "${BAD_RULE_PATHS_MANIFEST}" <<'PY'

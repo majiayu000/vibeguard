@@ -286,6 +286,18 @@
       "decision_types": ["pass", "warn", "block"],
       "claude": {"enabled": false, "support": "not-applicable", "reason": "git hook"},
       "codex": {"enabled": false, "support": "not-applicable", "reason": "git hook"}
+    },
+    {
+      "name": "git-pre-push",
+      "script": "git/pre-push",
+      "kind": "git-hook",
+      "install_targets": [],
+      "config_exposure": {"disabled_hook": false},
+      "trigger": "git pre-push",
+      "responsibilities": "Block non-fast-forward pushes, remote branch deletion, and force-like push options by default.",
+      "decision_types": ["pass", "block"],
+      "claude": {"enabled": false, "support": "not-applicable", "reason": "git hook"},
+      "codex": {"enabled": false, "support": "not-applicable", "reason": "git hook"}
     }
   ]
 }

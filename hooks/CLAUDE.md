@@ -22,6 +22,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal. | native |
 | `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |
 | `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check plus build check, timeout hard limit. | - |
+| `git/pre-push` | git pre-push | Block non-fast-forward pushes, remote branch deletion, and force-like push options by default. | - |
 <!-- hooks-manifest-table:end -->
 
 **Codex column description**: `native` = deployed to `~/.codex/hooks.json`, `unsupported` = Codex does not expose the required native event/tool surface, `-` = not applicable.
