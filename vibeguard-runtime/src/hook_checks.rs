@@ -28,7 +28,7 @@ pub fn pre_write_check(args: &[String]) -> Result {
         .unwrap_or(800);
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("PASS");
+        println!("MALFORMED");
         return Ok(());
     };
 

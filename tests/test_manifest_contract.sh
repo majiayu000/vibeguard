@@ -156,6 +156,29 @@ bad_hooks_manifest_out="$(python3 "${MANIFEST_HELPER}" validate --hooks-manifest
 assert_contains "${bad_hooks_manifest_out}" "hook install target drift for hooks-pre" "manifest validation detects hook install target drift"
 assert_not_contains "${bad_hooks_manifest_out}" "Traceback" "hook install target drift reports without traceback"
 
+BAD_RULE_PATHS_MANIFEST="${TMP_DIR}/bad-rule-paths-install-modules.json"
+python3 - "${REPO_DIR}/schemas/install-modules.json" "${BAD_RULE_PATHS_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+for module in data["modules"]:
+    if module.get("id") == "rules-common":
+        module["paths"] = [
+            path for path in module["paths"]
+            if path != "rules/claude-rules/common/agent-harness-audit.md"
+        ]
+        break
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_rule_paths_validate_out="$(python3 "${MANIFEST_HELPER}" validate --manifest-file "${BAD_RULE_PATHS_MANIFEST}" 2>&1 || true)"
+assert_contains "${bad_rule_paths_validate_out}" "rule install path drift" "manifest validation detects missing canonical rule paths"
+assert_contains "${bad_rule_paths_validate_out}" "rules/claude-rules/common/agent-harness-audit.md" "manifest rule drift reports the missing rule path"
+assert_not_contains "${bad_rule_paths_validate_out}" "Traceback" "manifest rule drift reports without traceback"
+
 ESCAPING_SKILL_PATH_MANIFEST="${TMP_DIR}/escaping-skill-path-install-modules.json"
 cat > "${ESCAPING_SKILL_PATH_MANIFEST}" <<'JSON'
 {

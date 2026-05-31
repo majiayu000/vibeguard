@@ -381,7 +381,7 @@ Canonical source of truth: `rules/claude-rules/`
 
 | Layer | Enforcement | Mechanism |
 |-------|------------|-----------|
-| L1 | Search before create | `pre-write-guard.sh` hook (block) |
+| L1 | Search before create | `pre-write-guard.sh` hook (warn by default; block via `VIBEGUARD_WRITE_MODE=block` / `write_mode=block` or escalation) |
 | L2 | Naming conventions | `check_naming_convention.py` guard |
 | L3 | Quality baseline | `post-edit-guard.sh` hook (warn/escalate) |
 | L4 | Data integrity | Rules injection + guards |

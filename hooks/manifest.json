@@ -236,7 +236,7 @@
       "install_targets": ["hooks-full"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "Stop",
-      "responsibilities": "Verify access control before completion and check for uncommitted source code changes.",
+      "responsibilities": "Record uncommitted source code changes as a non-blocking Stop signal.",
       "decision_types": ["pass", "gate"],
       "claude": {
         "enabled": true,
