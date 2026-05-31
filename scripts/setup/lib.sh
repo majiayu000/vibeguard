@@ -156,6 +156,37 @@ install_context_profiles() {
   done
 }
 
+vibeguard_rule_id_count() {
+  local root="$1"
+  local total=0 file_count rule_file
+  if [[ ! -d "${root}" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
+    total=$((total + file_count))
+  done < <(find "${root}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  printf '%s\n' "${total}"
+}
+
+vibeguard_managed_rule_banner_count() {
+  local file="$1"
+  [[ -f "${file}" ]] || return 1
+  awk '
+    /<!-- vibeguard-start -->/ { in_block = 1; next }
+    /<!-- vibeguard-end -->/ { in_block = 0 }
+    in_block && match($0, /[0-9][0-9]* rules/) {
+      text = substr($0, RSTART, RLENGTH)
+      sub(/ rules$/, "", text)
+      print text
+      found = 1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ' "${file}"
+}
+
 inject_vibeguard_rules() {
   local target_file="$1" display_label="$2" state_source="$3"
   local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
