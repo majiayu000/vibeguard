@@ -22,7 +22,7 @@ Use the standard library first. Avoid dependency bloat.
 Style-only edits should be a separate commit.
 
 ## U-08: Do not skip verification steps (strict)
-Every fix must independently pass lint and tests.
+See W-03 and W-16 for canonical verification guidance. U-08 keeps the compatibility-level principle: a fix is not complete until focused lint, test, or check evidence for the changed surface was produced in the current session.
 
 ## U-09: Do not bundle unrelated fixes into one commit (strict)
 Keep commits atomic so they are easy to review and revert.

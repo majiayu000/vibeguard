@@ -31,7 +31,7 @@ Canonical source of truth: `rules/claude-rules/`
 | U-05 | Do not delete code that merely looks unused without confirming first | Strict | It may be a work-in-progress feature. |
 | U-06 | Do not add dependencies for problems the standard library can solve | Strict | Use the standard library first. |
 | U-07 | Do not change code style while fixing behavior | Strict | Style-only edits should be a separate commit. |
-| U-08 | Do not skip verification steps | Strict | Every fix must independently pass lint and tests. |
+| U-08 | Do not skip verification steps | Strict | See W-03 and W-16 for canonical verification guidance. |
 | U-09 | Do not bundle unrelated fixes into one commit | Strict | Keep commits atomic so they are easy to review and revert. |
 | U-10 | Do not guess user intent | Strict | If the intent is unclear, mark it as DEFER or ask the user to clarify. |
 | U-11 | Inconsistent default DB/cache paths across binaries | High | Different entry points hardcode different data paths, which splits user data. |
