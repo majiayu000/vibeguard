@@ -226,6 +226,41 @@ assert_contains "${audit_external_wrapper_out}" "Status: INCOMPLETE" "audit reje
 assert_contains "${audit_external_wrapper_out}" "MISSING claude-pre-bash-config" "audit reports external wrapper config as missing"
 assert_cmd_fail "audit exits non-zero for external wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_external_wrapper_home}"
 
+audit_symlink_wrapper_home="${TMP_DIR}/audit-symlink-wrapper-home"
+external_symlink_wrapper="${TMP_DIR}/outside-symlink/run-hook.sh"
+mkdir -p \
+  "${audit_symlink_wrapper_home}/.vibeguard/installed/bin" \
+  "${audit_symlink_wrapper_home}/.vibeguard/installed/hooks" \
+  "${audit_symlink_wrapper_home}/.claude" \
+  "$(dirname "${external_symlink_wrapper}")"
+touch "${audit_symlink_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${audit_symlink_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+touch "${audit_symlink_wrapper_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${audit_symlink_wrapper_home}/.vibeguard/run-hook.sh"
+chmod +x "${audit_symlink_wrapper_home}/.vibeguard/run-hook.sh"
+ln -s "${audit_symlink_wrapper_home}/.vibeguard/run-hook.sh" "${external_symlink_wrapper}"
+cat > "${audit_symlink_wrapper_home}/.claude/settings.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_symlink_wrapper} pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+audit_symlink_wrapper_out="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_symlink_wrapper_home}" 2>&1 || true)"
+assert_contains "${audit_symlink_wrapper_out}" "Status: INCOMPLETE" "audit rejects external symlink wrapper outside VibeGuard home"
+assert_contains "${audit_symlink_wrapper_out}" "MISSING claude-pre-bash-config" "audit reports external symlink config as missing"
+assert_cmd_fail "audit exits non-zero for external symlink wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target claude-code --home "${audit_symlink_wrapper_home}"
+
 audit_missing_type_home="${TMP_DIR}/audit-missing-type-home"
 mkdir -p \
   "${audit_missing_type_home}/.vibeguard/installed/bin" \
@@ -417,6 +452,57 @@ assert_contains "${codex_external_wrapper_out}" "Status: INCOMPLETE" "Codex audi
 assert_contains "${codex_external_wrapper_out}" "MISSING codex-pre-bash-config" "Codex audit reports external pre hook as missing"
 assert_contains "${codex_external_wrapper_out}" "MISSING codex-permission-bash-config" "Codex audit reports external permission hook as missing"
 assert_cmd_fail "Codex audit exits non-zero for external wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_external_wrapper_home}"
+
+codex_symlink_wrapper_home="${TMP_DIR}/codex-symlink-wrapper-home"
+external_codex_symlink="${TMP_DIR}/outside-symlink/run-hook-codex.sh"
+mkdir -p \
+  "${codex_symlink_wrapper_home}/.vibeguard/installed/bin" \
+  "${codex_symlink_wrapper_home}/.vibeguard/installed/hooks" \
+  "${codex_symlink_wrapper_home}/.codex" \
+  "$(dirname "${external_codex_symlink}")"
+touch "${codex_symlink_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+chmod +x "${codex_symlink_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+touch "${codex_symlink_wrapper_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+touch "${codex_symlink_wrapper_home}/.vibeguard/run-hook-codex.sh"
+chmod +x "${codex_symlink_wrapper_home}/.vibeguard/run-hook-codex.sh"
+ln -s "${codex_symlink_wrapper_home}/.vibeguard/run-hook-codex.sh" "${external_codex_symlink}"
+cat > "${codex_symlink_wrapper_home}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_codex_symlink} vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${external_codex_symlink} vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+cat > "${codex_symlink_wrapper_home}/.codex/config.toml" <<'TOML'
+[features]
+hooks = true
+TOML
+codex_symlink_wrapper_out="$(python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_symlink_wrapper_home}" 2>&1 || true)"
+assert_contains "${codex_symlink_wrapper_out}" "Status: INCOMPLETE" "Codex audit rejects external symlink wrapper outside VibeGuard home"
+assert_contains "${codex_symlink_wrapper_out}" "MISSING codex-pre-bash-config" "Codex audit reports symlink pre hook as missing"
+assert_contains "${codex_symlink_wrapper_out}" "MISSING codex-permission-bash-config" "Codex audit reports symlink permission hook as missing"
+assert_cmd_fail "Codex audit exits non-zero for external symlink wrapper command" python3 "${GUARD_PACKS_HELPER}" audit safe-bash --target codex --home "${codex_symlink_wrapper_home}"
 
 codex_direct_hook_home="${TMP_DIR}/codex-direct-hook-home"
 mkdir -p \

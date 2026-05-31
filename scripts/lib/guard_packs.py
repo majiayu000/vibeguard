@@ -427,7 +427,7 @@ def token_matches_path(token: str, expected: Path, home: Path) -> bool:
     path = expand_shell_path(token, home)
     if path is None:
         return False
-    return path.resolve(strict=False) == expected.resolve(strict=False)
+    return Path(os.path.abspath(path)) == Path(os.path.abspath(expected))
 
 
 def is_path_like_command_token(token: str) -> bool:
