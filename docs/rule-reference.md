@@ -20,6 +20,19 @@ Canonical source of truth: `rules/claude-rules/`
 
 ---
 
+## Severity Semantics
+
+Severity labels describe the agent/reviewer contract. They do not, by themselves, promise that every rule is hook-blocked.
+
+| Severity | Meaning |
+|----------|---------|
+| Critical | Security or data-loss risk that should block until fixed or explicitly accepted. |
+| High / Medium / Low | Risk-ranked findings for guard outputs and review triage. |
+| Strict | Non-negotiable agent/reviewer rule. If enforcement is not mechanical, violations still need a fix, explicit DEFER, or documented downgrade path. |
+| Guideline | Preferred pattern; follow when it helps the current task without expanding scope. |
+
+---
+
 ## Common Rules (U-series)
 
 | ID | Name | Severity | Summary |
