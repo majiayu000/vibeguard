@@ -19,7 +19,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `count_active_constraints.sh` | SessionStart | Count effective task constraints loaded into agent context and enforce the U-32 live-context budget in strict profile. | unsupported |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
-| `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes. | native |
+| `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal. | native |
 | `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |
 | `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check plus build check, timeout hard limit. | - |
 <!-- hooks-manifest-table:end -->
