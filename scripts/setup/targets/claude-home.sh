@@ -259,12 +259,36 @@ check_claude_home_installation() {
     red "[MISSING] vibeguard commands not in ~/.claude/commands/"
   fi
 
-  local agent_count
-  if [[ -d "${CLAUDE_DIR}/agents" ]] && [[ -n "$(ls -A "${CLAUDE_DIR}/agents" 2>/dev/null)" ]]; then
-    agent_count=$(ls "${CLAUDE_DIR}/agents"/*.md 2>/dev/null | wc -l | tr -d ' ')
-    green "[OK] ${agent_count} agents installed in ~/.claude/agents/"
+  local expected_agent_count=0 missing_agent_count=0 unmanaged_agent_count=0
+  local missing_agents="" unmanaged_agents="" agent name installed_agent
+  for agent in "${REPO_DIR}"/agents/*.md; do
+    [[ -f "${agent}" ]] || continue
+    expected_agent_count=$((expected_agent_count + 1))
+    name="$(basename "${agent}")"
+    if [[ ! -f "${CLAUDE_DIR}/agents/${name}" ]]; then
+      missing_agent_count=$((missing_agent_count + 1))
+      missing_agents="${missing_agents}${missing_agents:+, }${name}"
+    fi
+  done
+  if [[ "${expected_agent_count}" -eq 0 ]]; then
+    yellow "[MISSING] no VibeGuard agent sources found in repo agents/"
+  elif [[ "${missing_agent_count}" -eq 0 ]]; then
+    green "[OK] ${expected_agent_count} VibeGuard agents installed in ~/.claude/agents/"
   else
-    yellow "[MISSING] agents not in ~/.claude/agents/"
+    red "[MISSING] ${missing_agent_count}/${expected_agent_count} VibeGuard agent(s) missing in ~/.claude/agents/: ${missing_agents}"
+  fi
+  if [[ -d "${CLAUDE_DIR}/agents" ]]; then
+    for installed_agent in "${CLAUDE_DIR}"/agents/*.md; do
+      [[ -f "${installed_agent}" ]] || continue
+      name="$(basename "${installed_agent}")"
+      if [[ ! -f "${REPO_DIR}/agents/${name}" ]]; then
+        unmanaged_agent_count=$((unmanaged_agent_count + 1))
+        unmanaged_agents="${unmanaged_agents}${unmanaged_agents:+, }${name}"
+      fi
+    done
+    if [[ "${unmanaged_agent_count}" -gt 0 ]]; then
+      yellow "[INFO] ${unmanaged_agent_count} unmanaged Claude agent(s) present in ~/.claude/agents/: ${unmanaged_agents}"
+    fi
   fi
 
   if [[ -d "${CLAUDE_DIR}/context-profiles" ]] && [[ -n "$(ls -A "${CLAUDE_DIR}/context-profiles" 2>/dev/null)" ]]; then
