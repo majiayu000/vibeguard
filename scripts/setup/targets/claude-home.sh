@@ -96,35 +96,91 @@ _check_claude_skill_symlink() {
 }
 
 _check_claude_rule_symlink_targets() {
-  local rules_src="${REPO_DIR}/rules/claude-rules"
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local checked_count=0 broken_count=0
-  local subdir link name expected_target actual_target
+  local rule_links source_path dest_rel label link expected_target actual_target
 
-  for subdir in common rust golang typescript python; do
-    [[ -d "${rules_dest}/${subdir}" ]] || continue
-    for link in "${rules_dest}/${subdir}"/*.md; do
-      [[ -L "${link}" ]] || continue
-      checked_count=$((checked_count + 1))
-      name="$(basename "${link}")"
-      expected_target="${rules_src}/${subdir}/${name}"
-      actual_target="$(readlink "${link}" 2>/dev/null || true)"
-      if [[ -z "${actual_target}" ]]; then
-        red "[BROKEN] Native rule symlink target cannot be read: ${link}"
-        broken_count=$((broken_count + 1))
-      elif [[ "${actual_target}" != "${expected_target}" ]]; then
-        red "[BROKEN] Native rule symlink target drift: ${link} -> ${actual_target} (expected: ${expected_target})"
-        broken_count=$((broken_count + 1))
-      elif [[ ! -e "${link}" ]]; then
-        red "[BROKEN] Native rule symlink target missing: ${link} -> ${actual_target}"
-        broken_count=$((broken_count + 1))
-      fi
-    done
-  done
+  rule_links="$(manifest_rule_links_checked "")" || return 1
+  while IFS=$'\t' read -r source_path dest_rel label; do
+    [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
+    link="${rules_dest}/${dest_rel}"
+    [[ -L "${link}" ]] || continue
+    checked_count=$((checked_count + 1))
+    expected_target="${REPO_DIR}/${source_path}"
+    actual_target="$(readlink "${link}" 2>/dev/null || true)"
+    if [[ -z "${actual_target}" ]]; then
+      red "[BROKEN] Native rule symlink target cannot be read: ${link}"
+      broken_count=$((broken_count + 1))
+    elif [[ "${actual_target}" != "${expected_target}" ]]; then
+      red "[BROKEN] Native rule symlink target drift: ${link} -> ${actual_target} (expected: ${expected_target})"
+      broken_count=$((broken_count + 1))
+    elif [[ ! -e "${link}" ]]; then
+      red "[BROKEN] Native rule symlink target missing: ${link} -> ${actual_target}"
+      broken_count=$((broken_count + 1))
+    fi
+  done <<< "${rule_links}"
 
   if [[ "${checked_count}" -gt 0 && "${broken_count}" -eq 0 ]]; then
     green "[OK] Native rule symlink targets match current repo"
   fi
+}
+
+_rule_label_is_selected() {
+  local label="$1" selected_labels="$2"
+  while IFS= read -r selected_label; do
+    [[ "${selected_label}" == "${label}" ]] && return 0
+  done <<< "${selected_labels}"
+  return 1
+}
+
+_rule_dest_is_declared() {
+  local dest_rel="$1" rule_links="$2"
+  printf '%s\n' "${rule_links}" \
+    | awk -F '\t' -v dest_rel="${dest_rel}" '$2 == dest_rel { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
+_cleanup_unlisted_rule_files() {
+  local dest_dir="$1" label="$2" rule_links="$3"
+  [[ -d "${dest_dir}" ]] || return 0
+
+  local file rel actual_target
+  while IFS= read -r file; do
+    [[ -e "${file}" || -L "${file}" ]] || continue
+    rel="${file#"${dest_dir}/"}"
+    rel="${label}/${rel}"
+    if _rule_dest_is_declared "${rel}" "${rule_links}"; then
+      continue
+    fi
+    if [[ -L "${file}" ]]; then
+      actual_target="$(readlink "${file}" 2>/dev/null || true)"
+      if [[ -z "${actual_target}" || "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* || ! -e "${file}" ]]; then
+        yellow "  Removed stale manifest rule symlink: ${file}"
+        rm -f "${file}"
+      else
+        yellow "  Preserved unmanaged rule symlink not present in manifest: ${file} -> ${actual_target}"
+      fi
+      continue
+    fi
+    if _force_overwrite_enabled; then
+      yellow "  FORCE: removing stale local rule copy ${file}"
+      rm -f "${file}"
+    else
+      red "  ERROR: refusing to remove local rule file not present in manifest: ${file}"
+      red "  Re-run with --force-overwrite only if this local ${label} rule copy should be removed."
+      return 1
+    fi
+  done < <(find "${dest_dir}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+}
+
+_install_manifest_rule_file() {
+  local source_path="$1" dest_rel="$2" label="$3" rules_dest="$4"
+  local src="${REPO_DIR}/${source_path}"
+  local dest="${rules_dest}/${dest_rel}"
+
+  mkdir -p "$(dirname "${dest}")"
+  _protect_rule_file_overwrite "${src}" "${dest}" "${label}" || return 1
+  ln -sf "${src}" "${dest}"
+  state_record_file "${dest}" "${source_path}" "symlink"
 }
 
 _clean_command_symlink_if_managed() {
@@ -175,60 +231,38 @@ install_claude_home_assets() {
   echo
 
   echo "Step 5.5: Install native rules (symlinked)"
-  local rules_src="${REPO_DIR}/rules/claude-rules"
   local rules_dest="${HOME}/.claude/rules/vibeguard"
-  if [[ -d "${rules_src}" ]]; then
-    mkdir -p "${rules_dest}"
-    # Helper: symlink each .md file in a subdirectory
-    _symlink_rule_dir() {
-      local src_dir="$1" dest_dir="$2" label="$3"
-      mkdir -p "${dest_dir}"
-      # Remove only safe stale copies that are now replaced by symlinks.
-      for f in "${dest_dir}"/*.md; do
-        [[ -f "$f" && ! -L "$f" ]] || continue
-        local stale_name stale_src
-        stale_name=$(basename "$f")
-        stale_src="${src_dir}/${stale_name}"
-        if [[ -f "${stale_src}" ]]; then
-          _protect_rule_file_overwrite "${stale_src}" "$f" "${label}" || return 1
-        elif _force_overwrite_enabled; then
-          yellow "  FORCE: removing stale local rule copy ${f}"
-          rm -f "$f"
-        else
-          red "  ERROR: refusing to remove local rule file not present in source: ${f}"
-          red "  Re-run with --force-overwrite only if this local ${label} rule copy should be removed."
-          return 1
-        fi
-      done
-      local count=0
-      for f in "${src_dir}"/*.md; do
-        [[ -f "$f" ]] || continue
-        local name
-        name=$(basename "$f")
-        _protect_rule_file_overwrite "$f" "${dest_dir}/${name}" "${label}" || return 1
-        ln -sf "$f" "${dest_dir}/${name}"
-        state_record_file "${dest_dir}/${name}" "${label}/${name}" "symlink"
-        count=$((count + 1))
-      done
-      green "  ${label}/ -> ~/.claude/rules/vibeguard/${label}/ (${count} rules, symlinked)"
-    }
-    if [[ -d "${rules_src}/common" ]]; then
-      _symlink_rule_dir "${rules_src}/common" "${rules_dest}/common" "common"
+  local rule_links selected_labels all_labels source_path dest_rel label installed_count
+  rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
+  selected_labels="$(manifest_rule_labels_checked "${LANGUAGES:-}")" || return 1
+  all_labels="$(manifest_rule_labels_checked "")" || return 1
+
+  mkdir -p "${rules_dest}"
+  while IFS= read -r label; do
+    [[ -n "${label}" ]] || continue
+    if _rule_label_is_selected "${label}" "${selected_labels}"; then
+      continue
     fi
-    for subdir in rust golang typescript python; do
-      if [[ -d "${rules_src}/${subdir}" ]]; then
-        if lang_selected "$subdir"; then
-          _symlink_rule_dir "${rules_src}/${subdir}" "${rules_dest}/${subdir}" "${subdir}"
-        else
-          if [[ -d "${rules_dest}/${subdir}" ]]; then
-            _remove_rule_subtree_if_safe "${rules_src}/${subdir}" "${rules_dest}/${subdir}" "${subdir}" || return 1
-            yellow "  ${subdir}/ removed (not in --languages filter)"
-          else
-            yellow "  SKIP ${subdir}/ (not in --languages filter)"
-          fi
-        fi
-      fi
-    done
+    if [[ -d "${rules_dest}/${label}" ]]; then
+      _remove_rule_subtree_if_safe "${REPO_DIR}/rules/claude-rules/${label}" "${rules_dest}/${label}" "${label}" || return 1
+      yellow "  ${label}/ removed (not in --languages filter)"
+    fi
+  done <<< "${all_labels}"
+
+  while IFS= read -r label; do
+    [[ -n "${label}" ]] || continue
+    _cleanup_unlisted_rule_files "${rules_dest}/${label}" "${label}" "${rule_links}" || return 1
+  done <<< "${selected_labels}"
+
+  installed_count=0
+  while IFS=$'\t' read -r source_path dest_rel label; do
+    [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
+    _install_manifest_rule_file "${source_path}" "${dest_rel}" "${label}" "${rules_dest}" || return 1
+    installed_count=$((installed_count + 1))
+  done <<< "${rule_links}"
+  green "  manifest rules -> ~/.claude/rules/vibeguard/ (${installed_count} files, symlinked)"
+
+  if [[ -d "${rules_dest}" ]]; then
     if [[ -d "${VIBEGUARD_HOME}/user-rules" ]]; then
       local local_rules_count
       local_rules_count=$(find "${VIBEGUARD_HOME}/user-rules" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
@@ -242,9 +276,8 @@ install_claude_home_assets() {
         green "  custom/ -> ~/.claude/rules/vibeguard/custom/ (${local_rules_count} user rules, symlinked)"
       fi
     fi
-    unset -f _symlink_rule_dir
   else
-    yellow "  SKIP native rules (source not found: ${rules_src})"
+    yellow "  SKIP native rules (destination not available: ${rules_dest})"
   fi
   echo
 }
@@ -255,26 +288,19 @@ claude_rule_id_count() {
 
 claude_rule_count_for_banner() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local rules_src="${REPO_DIR}/rules/claude-rules"
-  local total=0 dir_count subdir
+  local total=0 dir_count rule_links source_path dest_rel label
 
   if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" && -d "${rules_dest}" ]]; then
     claude_rule_id_count "${rules_dest}"
     return 0
   fi
 
-  if [[ -d "${rules_src}/common" ]]; then
-    dir_count=$(claude_rule_id_count "${rules_src}/common")
+  rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
+  while IFS=$'\t' read -r source_path dest_rel label; do
+    [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
+    dir_count=$(claude_rule_id_count "${REPO_DIR}/${source_path}")
     total=$((total + dir_count))
-  fi
-  for subdir in rust golang typescript python; do
-    if [[ -d "${rules_src}/${subdir}" ]]; then
-      if ! declare -F lang_selected >/dev/null || lang_selected "${subdir}"; then
-        dir_count=$(claude_rule_id_count "${rules_src}/${subdir}")
-        total=$((total + dir_count))
-      fi
-    fi
-  done
+  done <<< "${rule_links}"
   if [[ -d "${HOME}/.vibeguard/user-rules" ]]; then
     dir_count=$(claude_rule_id_count "${HOME}/.vibeguard/user-rules")
     total=$((total + dir_count))

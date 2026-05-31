@@ -1112,6 +1112,10 @@ assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ !
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
+assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
+assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+assert_cmd "--languages removes unselected Python native rules" test ! -e "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "--languages removes unselected Go native rules" test ! -e "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 assert_cmd "--languages after installation --check executable" bash -c "bash '${REPO_DIR}/setup.sh' --check >/dev/null 2>&1"
 
 header "setup --clean (after --languages)"

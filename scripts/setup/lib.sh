@@ -59,6 +59,58 @@ manifest_skill_links() {
   python3 "${MANIFEST_HELPER}" skill-links --target "${target}"
 }
 
+manifest_rule_links() {
+  local languages="${1:-}"
+  if [[ -n "${languages}" ]]; then
+    python3 "${MANIFEST_HELPER}" rule-links --languages "${languages}"
+  else
+    python3 "${MANIFEST_HELPER}" rule-links
+  fi
+}
+
+manifest_rule_labels() {
+  local languages="${1:-}"
+  if [[ -n "${languages}" ]]; then
+    python3 "${MANIFEST_HELPER}" rule-labels --languages "${languages}"
+  else
+    python3 "${MANIFEST_HELPER}" rule-labels
+  fi
+}
+
+manifest_rule_links_checked() {
+  local languages="${1:-}"
+  local output
+  if ! output="$(manifest_rule_links "${languages}" 2>&1)"; then
+    red "  ERROR: failed to enumerate manifest rules" >&2
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}" >&2
+    done <<< "${output}"
+    return 1
+  fi
+  if [[ -z "${output//[[:space:]]/}" ]]; then
+    red "  ERROR: no manifest rules declared" >&2
+    return 1
+  fi
+  printf '%s\n' "${output}"
+}
+
+manifest_rule_labels_checked() {
+  local languages="${1:-}"
+  local output
+  if ! output="$(manifest_rule_labels "${languages}" 2>&1)"; then
+    red "  ERROR: failed to enumerate manifest rule labels" >&2
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && red "  ${line}" >&2
+    done <<< "${output}"
+    return 1
+  fi
+  if [[ -z "${output//[[:space:]]/}" ]]; then
+    red "  ERROR: no manifest rule labels declared" >&2
+    return 1
+  fi
+  printf '%s\n' "${output}"
+}
+
 manifest_skill_links_checked() {
   local target="$1"
   local output
@@ -159,6 +211,10 @@ install_context_profiles() {
 vibeguard_rule_id_count() {
   local root="$1"
   local total=0 file_count rule_file
+  if [[ -f "${root}" ]]; then
+    grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${root}" 2>/dev/null || true
+    return 0
+  fi
   if [[ ! -d "${root}" ]]; then
     printf '0\n'
     return 0
