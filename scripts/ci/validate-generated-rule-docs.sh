@@ -26,6 +26,14 @@ if ! grep -Fq "${expected_guideline}" docs/rule-reference.md; then
   exit 1
 fi
 
+expected_linter_boundary='These rules do not replace native linters. Treat lint-equivalent entries as agent reminders and review triage; use the verification command below for mechanical enforcement.'
+for generated_language_doc in rules/python.md rules/typescript.md rules/go.md rules/rust.md; do
+  if ! grep -Fq "${expected_linter_boundary}" "${generated_language_doc}"; then
+    echo "${generated_language_doc} must state the lint-vs-agent boundary" >&2
+    exit 1
+  fi
+done
+
 expected_u08='| U-08 | Do not skip verification steps | Strict | See W-03 and W-16 for canonical verification guidance. |'
 if ! grep -Fq "${expected_u08}" docs/rule-reference.md; then
   echo "docs/rule-reference.md must keep U-08 as a pointer to canonical W-03/W-16 guidance" >&2

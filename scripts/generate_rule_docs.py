@@ -292,6 +292,10 @@ def render_language_rules(title: str, intro: str, rule_list: list[Rule], verific
 
 {intro}
 
+## Linter Boundary
+
+These rules do not replace native linters. Treat lint-equivalent entries as agent reminders and review triage; use the verification command below for mechanical enforcement. Semantic/contextual entries remain useful when native linters lack project-level context.
+
 ## Scan checklist
 
 {make_table(["ID", "Rule", "Severity", "Summary"], rows_for(rule_list))}
