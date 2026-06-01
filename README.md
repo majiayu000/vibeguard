@@ -31,6 +31,19 @@ Requires Python 3 and Rust/Cargo for the `vibeguard-runtime` runtime binary.
 
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
 
+## Current status
+
+The current mainline is install-verified on macOS and CI-verified on Ubuntu, macOS, and Windows.
+
+- Latest release train: `v1.1.x`
+- Local health gate: `bash setup.sh --check --strict`
+- Expected verdict after a healthy install: `HEALTHY`
+- Claude Code: native rules, skills, commands, hooks, git hooks, and scheduled GC are installed by `setup.sh`
+- Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
+- Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
+
+Latest benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report. Lower is better; the latest mainline run stayed below the regression threshold and improved the hot-path P95 samples versus the previous main commit.
+
 ## What you actually get
 
 | Layer | What it does |
