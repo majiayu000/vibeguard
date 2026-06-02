@@ -211,7 +211,7 @@ run_legacy_checks() {
     elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
       yellow "[WARN] Scheduled GC plist exists but not loaded"
     else
-      yellow "[INFO] Scheduled GC not installed (optional)"
+      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
     fi
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
     if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
@@ -219,7 +219,7 @@ run_legacy_checks() {
     elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
       yellow "[WARN] Scheduled GC unit exists but timer not active"
     else
-      yellow "[INFO] Scheduled GC not installed (optional, run: bash scripts/install-systemd.sh)"
+      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
     fi
   fi
 

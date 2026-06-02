@@ -60,8 +60,10 @@ status_init() {
 status_plain_line() {
   local line="$1"
   local plain="$line"
-  while [[ "$plain" == *$'\033['* ]]; do
-    plain="${plain%%$'\033['*}${plain#*$'\033['*[a-zA-Z]}"
+  local esc=$'\033'
+  local ansi_re="${esc}\\[[0-9;]*[A-Za-z]"
+  while [[ "$plain" =~ $ansi_re ]]; do
+    plain="${plain/${BASH_REMATCH[0]}/}"
   done
   printf '%s' "$plain"
 }
@@ -214,11 +216,7 @@ status_emit_json() {
       while IFS= read -r line; do
         level="$(status_classify_line "$line")"
         [[ -z "$level" ]] && continue
-        # Reuse the ANSI strip from classify_line.
-        message="$line"
-        while [[ "$message" == *$'\033['* ]]; do
-          message="${message%%$'\033['*}${message#*$'\033['*[a-zA-Z]}"
-        done
+        message="$(status_plain_line "$line")"
         esc="${message//\\/\\\\}"
         esc="${esc//\"/\\\"}"
         esc="${esc//	/ }"

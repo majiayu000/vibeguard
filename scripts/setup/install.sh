@@ -13,6 +13,7 @@ set -euo pipefail
 # bash install.sh --profile full --languages rust # Use in combination
 # bash install.sh --dry-run # Show high-context diffs without writing
 # bash install.sh --yes # Apply high-context diffs non-interactively
+# bash install.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
 # bash install.sh --force-overwrite # Replace user-customized managed files/commands
 # bash install.sh --check # Check status only
 # bash install.sh --clean # Clean installation
@@ -37,12 +38,15 @@ LANGUAGES=""
 VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
+WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)
       VIBEGUARD_SETUP_DRY_RUN=1; shift ;;
     --yes|-y)
       VIBEGUARD_SETUP_AUTO=1; shift ;;
+    --with-scheduler)
+      WITH_SCHEDULER=1; shift ;;
     --force-overwrite)
       VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
     --profile)
@@ -57,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash install.sh [--yes] [--dry-run] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash install.sh [--yes] [--dry-run] [--with-scheduler] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
@@ -104,6 +108,9 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
 fi
 if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
   echo "Mode: force-overwrite (user-customized managed files may be replaced)"
+fi
+if [[ "${WITH_SCHEDULER}" == "1" ]]; then
+  echo "Mode: with-scheduler (install launchd/systemd scheduled GC)"
 fi
 echo "=============================="
 echo
@@ -262,10 +269,13 @@ configure_claude_home_runtime
 # 9.2. Remove legacy Codex MCP config from previous installs
 configure_codex_home_runtime
 
-# 9.5. Install scheduled GC (launchd on macOS, systemd on Linux)
-echo "Step 9.5: Install scheduled GC"
-chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
-if [[ "$(uname)" == "Darwin" ]]; then
+# 9.5. Scheduled GC is opt-in. Default setup must not create launchd/systemd jobs.
+echo "Step 9.5: Scheduled GC"
+if [[ "${WITH_SCHEDULER}" != "1" ]]; then
+  yellow "  Scheduled GC not installed by default (opt in: bash setup.sh --yes --with-scheduler)"
+  echo "  On-demand GC: /vibeguard:gc or bash scripts/gc/gc-scheduled.sh"
+elif [[ "$(uname)" == "Darwin" ]]; then
+  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
   PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   if [[ -f "${PLIST_SRC}" ]]; then
@@ -282,6 +292,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     yellow "  SKIP scheduled GC (plist not found)"
   fi
 elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
   bash "${REPO_DIR}/scripts/install-systemd.sh" \
     && green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)" \
     || yellow "  Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"

@@ -170,6 +170,32 @@ assert_repo_git_hook_target() {
   [[ -x "${hook_path}" ]]
 }
 
+assert_scheduled_gc_absent() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    [[ ! -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]] || return 1
+    ! launchctl print "gui/$(id -u)/com.vibeguard.gc" >/dev/null 2>&1
+  elif [[ "$(uname)" == "Linux" ]]; then
+    [[ ! -f "${HOME}/.config/systemd/user/vibeguard-gc.service" ]] || return 1
+    [[ ! -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]] || return 1
+    ! systemctl --user is-active vibeguard-gc.timer >/dev/null 2>&1
+  else
+    return 0
+  fi
+}
+
+assert_scheduled_gc_present() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]] || return 1
+    launchctl print "gui/$(id -u)/com.vibeguard.gc" >/dev/null 2>&1
+  elif [[ "$(uname)" == "Linux" ]]; then
+    [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.service" ]] || return 1
+    [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]] || return 1
+    systemctl --user is-active vibeguard-gc.timer >/dev/null 2>&1
+  else
+    return 0
+  fi
+}
+
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
 ORIG_PATH="${PATH}"
@@ -252,6 +278,53 @@ case "${1:-}" in
 esac
 SH
 chmod +x "${TMP_HOME}/bin/launchctl"
+cat > "${TMP_HOME}/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+state="${HOME}/.systemctl-vibeguard-gc-active"
+if [[ "${1:-}" == "--user" ]]; then
+  shift
+fi
+case "${1:-}" in
+  daemon-reload)
+    exit 0
+    ;;
+  enable)
+    if [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$state"
+    fi
+    exit 0
+    ;;
+  start)
+    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$state"
+    fi
+    exit 0
+    ;;
+  stop|disable)
+    rm -f "$state"
+    exit 0
+    ;;
+  is-active)
+    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
+    exit 3
+    ;;
+  status)
+    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
+    exit 3
+    ;;
+  list-timers)
+    if [[ -f "$state" ]]; then
+      printf 'NEXT LEFT LAST PASSED UNIT ACTIVATES\n'
+      printf 'Sun 03:00 - - - vibeguard-gc.timer vibeguard-gc.service\n'
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+chmod +x "${TMP_HOME}/bin/systemctl"
 export PATH="${TMP_HOME}/bin:${PATH}"
 
 header "setup scripts syntax"
@@ -697,6 +770,8 @@ PY
 CUSTOM_CARGO_TARGET_DIR="${TMP_HOME}/custom cargo target"
 install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
+assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
@@ -709,6 +784,15 @@ assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" 
 assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
 assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
+default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
+assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--check does not warn when scheduled GC is absent"
+scheduler_install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes --with-scheduler)"
+assert_contains "${scheduler_install_out}" "Mode: with-scheduler" "--with-scheduler mode is visible"
+assert_contains "${scheduler_install_out}" "Scheduled GC installed via" "--with-scheduler installs scheduled GC"
+assert_cmd "--with-scheduler creates scheduled GC entry" assert_scheduled_gc_present
+scheduler_active_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${scheduler_active_check_out}" "[OK] Scheduled GC active" "--check reports opt-in scheduled GC active"
 expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
 managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
@@ -1099,6 +1183,7 @@ header "setup --clean"
 printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
+assert_cmd "--clean removes scheduled GC entry" assert_scheduled_gc_absent
 assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.claude/commands/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vibeguard"
 assert_cmd "~/.claude/commands/vg has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vg"
