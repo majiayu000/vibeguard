@@ -253,15 +253,42 @@ if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
 fi
 mkdir -p "${TMP_HOME}/bin"
 REAL_UNAME="$(command -v uname)"
+REAL_CARGO="$(command -v cargo || true)"
 cat > "${TMP_HOME}/bin/uname" <<SH
 #!/usr/bin/env bash
 if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" ]]; then
-  printf 'Linux\n'
+  case "\${1:-}" in
+    -m)
+      printf '%s\n' "\${VIBEGUARD_TEST_UNAME_M:-x86_64}"
+      ;;
+    -s|"")
+      printf 'Linux\n'
+      ;;
+    *)
+      exec "${REAL_UNAME}" "\$@"
+      ;;
+  esac
 else
   exec "${REAL_UNAME}" "\$@"
 fi
 SH
 chmod +x "${TMP_HOME}/bin/uname"
+cat > "${TMP_HOME}/bin/cargo" <<SH
+#!/usr/bin/env bash
+if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
+  printf 'cargo unavailable for test\n' >&2
+  exit 127
+fi
+if [[ -n "\${VIBEGUARD_TEST_CARGO_LOG:-}" ]]; then
+  printf '%s\n' "\$*" >> "\${VIBEGUARD_TEST_CARGO_LOG}"
+fi
+if [[ -z "${REAL_CARGO}" ]]; then
+  printf 'real cargo not found\n' >&2
+  exit 127
+fi
+exec "${REAL_CARGO}" "\$@"
+SH
+chmod +x "${TMP_HOME}/bin/cargo"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
 state="${HOME}/.launchctl-vibeguard-loaded"
@@ -338,7 +365,104 @@ case "${1:-}" in
 esac
 SH
 chmod +x "${TMP_HOME}/bin/systemctl"
+cat > "${TMP_HOME}/bin/gh" <<'SH'
+#!/usr/bin/env bash
+if [[ "${VIBEGUARD_TEST_DOWNLOAD_FAIL:-0}" == "1" || "${VIBEGUARD_TEST_GH_FAIL:-0}" == "1" ]]; then
+  exit 1
+fi
+if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
+  shift 2
+  tag="${1:-}"
+  shift || true
+  dir="."
+  patterns=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir)
+        dir="$2"; shift 2 ;;
+      --pattern)
+        patterns+=("$2"); shift 2 ;;
+      --repo)
+        shift 2 ;;
+      *)
+        shift ;;
+    esac
+  done
+  [[ -n "${tag}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+  mkdir -p "${dir}"
+  for pattern in "${patterns[@]}"; do
+    if [[ "${pattern}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${dir}/SHA256SUMS"
+    else
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/${pattern}" "${dir}/${pattern}"
+    fi
+  done
+  exit 0
+fi
+exit 1
+SH
+chmod +x "${TMP_HOME}/bin/gh"
+cat > "${TMP_HOME}/bin/curl" <<'SH'
+#!/usr/bin/env bash
+if [[ "${VIBEGUARD_TEST_DOWNLOAD_FAIL:-0}" == "1" ]]; then
+  exit 22
+fi
+out=""
+url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      out="$2"; shift 2 ;;
+    -*)
+      shift ;;
+    *)
+      url="$1"; shift ;;
+  esac
+done
+[[ -n "${out}" && -n "${url}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+asset="${url##*/}"
+mkdir -p "$(dirname "${out}")"
+if [[ "${asset}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${out}"
+else
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/${asset}" "${out}"
+fi
+SH
+chmod +x "${TMP_HOME}/bin/curl"
 export PATH="${TMP_HOME}/bin:${PATH}"
+
+TEST_RELEASE_DIR="${TMP_HOME}/release-assets"
+mkdir -p "${TEST_RELEASE_DIR}"
+: > "${TEST_RELEASE_DIR}/SHA256SUMS"
+for target in \
+  aarch64-apple-darwin \
+  x86_64-apple-darwin \
+  x86_64-unknown-linux-musl \
+  aarch64-unknown-linux-musl; do
+  asset="${TEST_RELEASE_DIR}/vibeguard-runtime-${target}"
+  cat > "${asset}" <<SH
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "${asset}"
+  asset_hash="$(shasum -a 256 "${asset}" | cut -d' ' -f1)"
+  printf '%s  %s\n' "${asset_hash}" "vibeguard-runtime-${target}" >> "${TEST_RELEASE_DIR}/SHA256SUMS"
+done
+python3 - <<'PY' "${TEST_RELEASE_DIR}/SHA256SUMS" "${TEST_RELEASE_DIR}/SHA256SUMS.bad"
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+lines = src.read_text(encoding="utf-8").splitlines()
+bad_lines = []
+for line in lines:
+    digest, asset = line.split(None, 1)
+    bad_lines.append("0" * len(digest) + "  " + asset)
+lines = bad_lines
+dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+export VIBEGUARD_TEST_RELEASE_DIR="${TEST_RELEASE_DIR}"
 
 header "setup scripts syntax"
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
@@ -781,8 +905,65 @@ state = {
 (home / ".vibeguard/install-state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 PY
 CUSTOM_CARGO_TARGET_DIR="${TMP_HOME}/custom cargo target"
-install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
+
+checksum_fail_home="${TMP_HOME}/checksum-fail-home"
+mkdir -p "${checksum_fail_home}"
+set +e
+checksum_fail_out="$(HOME="${checksum_fail_home}" VIBEGUARD_TEST_BAD_SHA=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+checksum_fail_rc=$?
+set -e
+assert_cmd "tampered prebuilt checksum exits nonzero" test "${checksum_fail_rc}" -ne 0
+assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification failed" "tampered prebuilt checksum reports verification failure"
+assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
+assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
+
+curl_download_home="${TMP_HOME}/curl-download-home"
+mkdir -p "${curl_download_home}"
+curl_download_out="$(
+  command() {
+    if [[ "${1:-}" == "-v" && "${2:-}" == "gh" ]]; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+  export -f command
+  HOME="${curl_download_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes
+)"
+assert_contains "${curl_download_out}" "vibeguard-runtime downloaded and verified" "prebuilt runtime downloads when gh is absent and curl is available"
+assert_not_contains "${curl_download_out}" "Falling back to source build" "curl download path does not use source fallback"
+
+source_build_home="${TMP_HOME}/source-build-home"
+source_cargo_log="${TMP_HOME}/source-cargo.log"
+mkdir -p "${source_build_home}"
+: > "${source_cargo_log}"
+source_build_out="$(HOME="${source_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_CARGO_LOG="${source_cargo_log}" bash "${REPO_DIR}/setup.sh" --yes --build-from-source)"
+assert_contains "${source_build_out}" "Mode: build-from-source" "--build-from-source reports source mode"
+assert_contains "${source_build_out}" "Building vibeguard-runtime from source (Rust)..." "--build-from-source builds runtime from source"
+assert_cmd "--build-from-source invokes cargo build" grep -qF "build --release" "${source_cargo_log}"
+
+offline_build_home="${TMP_HOME}/offline-build-home"
+offline_cargo_log="${TMP_HOME}/offline-cargo.log"
+mkdir -p "${offline_build_home}"
+: > "${offline_cargo_log}"
+offline_build_out="$(HOME="${offline_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_DOWNLOAD_FAIL=1 VIBEGUARD_TEST_CARGO_LOG="${offline_cargo_log}" bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${offline_build_out}" "Falling back to source build" "offline prebuilt download falls back to source build"
+assert_cmd "offline fallback invokes cargo build" grep -qF "build --release" "${offline_cargo_log}"
+
+switch_runtime_home="${TMP_HOME}/switch-runtime-home"
+mkdir -p "${switch_runtime_home}"
+HOME="${switch_runtime_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes --build-from-source >/dev/null
+switch_download_out="$(HOME="${switch_runtime_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${switch_download_out}" "vibeguard-runtime downloaded and verified" "source-built install can switch to downloaded runtime"
+set +e
+switch_check_out="$(HOME="${switch_runtime_home}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)"
+switch_check_rc=$?
+set -e
+assert_cmd "source-to-download switch remains healthy under --check --strict" test "${switch_check_rc}" -eq 0
+assert_not_contains "${switch_check_out}" "[BROKEN]" "source-to-download switch does not report BROKEN"
+
+install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "default setup uses verified prebuilt runtime without cargo"
 assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
 assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
