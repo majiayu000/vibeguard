@@ -78,8 +78,9 @@ systemctl --user daemon-reload
 if systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
   green "  vibeguard-gc.timer enabled and started (every Sunday 3:00 AM)"
 else
-  yellow "  Timer installed but could not be started automatically."
-  yellow "  Run manually: systemctl --user enable --now vibeguard-gc.timer"
+  red "ERROR: Timer installed but could not be started automatically."
+  red "Run manually: systemctl --user enable --now vibeguard-gc.timer"
+  exit 1
 fi
 
 # Show timer status

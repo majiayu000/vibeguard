@@ -285,19 +285,27 @@ elif [[ "$(uname)" == "Darwin" ]]; then
     # Replace placeholders and install
     sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
       "${PLIST_SRC}" > "${PLIST_DEST}"
-    launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null \
-      && green "  Scheduled GC installed via launchd (every Sunday 3:00 AM)" \
-      || yellow "  Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
+    if launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null; then
+      green "  Scheduled GC installed via launchd (every Sunday 3:00 AM)"
+    else
+      red "ERROR: Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
+      exit 1
+    fi
   else
-    yellow "  SKIP scheduled GC (plist not found)"
+    red "ERROR: scheduled GC plist not found: ${PLIST_SRC}"
+    exit 1
   fi
 elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
   chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
-  bash "${REPO_DIR}/scripts/install-systemd.sh" \
-    && green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)" \
-    || yellow "  Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"
+  if bash "${REPO_DIR}/scripts/install-systemd.sh"; then
+    green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)"
+  else
+    red "ERROR: Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"
+    exit 1
+  fi
 else
-  yellow "  SKIP scheduled GC (unsupported OS or systemd not found)"
+  red "ERROR: --with-scheduler requires macOS launchd or Linux systemd"
+  exit 1
 fi
 echo
 

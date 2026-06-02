@@ -252,6 +252,16 @@ if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
   export RUSTUP_HOME="${ORIG_HOME}/.rustup"
 fi
 mkdir -p "${TMP_HOME}/bin"
+REAL_UNAME="$(command -v uname)"
+cat > "${TMP_HOME}/bin/uname" <<SH
+#!/usr/bin/env bash
+if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" ]]; then
+  printf 'Linux\n'
+else
+  exec "${REAL_UNAME}" "\$@"
+fi
+SH
+chmod +x "${TMP_HOME}/bin/uname"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
 state="${HOME}/.launchctl-vibeguard-loaded"
@@ -290,6 +300,9 @@ case "${1:-}" in
     ;;
   enable)
     if [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]]; then
+      if [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]]; then
+        exit 1
+      fi
       touch "$state"
     fi
     exit 0
@@ -787,6 +800,15 @@ assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_ta
 default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
 assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--check does not warn when scheduled GC is absent"
+scheduler_fail_home="${TMP_HOME}/scheduler-enable-fail-home"
+mkdir -p "${scheduler_fail_home}"
+set +e
+scheduler_fail_out="$(HOME="${scheduler_fail_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL=1 bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1)"
+scheduler_fail_rc=$?
+set -e
+assert_cmd "--with-scheduler exits nonzero when systemd enable fails" test "${scheduler_fail_rc}" -ne 0
+assert_contains "${scheduler_fail_out}" "ERROR: Scheduled GC systemd install failed" "--with-scheduler reports systemd enable failure"
+assert_not_contains "${scheduler_fail_out}" "Setup complete! All components installed." "--with-scheduler failure does not report setup complete"
 scheduler_install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes --with-scheduler)"
 assert_contains "${scheduler_install_out}" "Mode: with-scheduler" "--with-scheduler mode is visible"
 assert_contains "${scheduler_install_out}" "Scheduled GC installed via" "--with-scheduler installs scheduled GC"
