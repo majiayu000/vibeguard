@@ -389,6 +389,9 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
     esac
   done
   [[ -n "${tag}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+  if [[ -n "${VIBEGUARD_TEST_DOWNLOAD_LOG:-}" ]]; then
+    printf 'gh tag=%s patterns=%s\n' "${tag}" "${patterns[*]}" >> "${VIBEGUARD_TEST_DOWNLOAD_LOG}"
+  fi
   mkdir -p "${dir}"
   for pattern in "${patterns[@]}"; do
     if [[ "${pattern}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
@@ -421,6 +424,9 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "${out}" && -n "${url}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
 asset="${url##*/}"
+if [[ -n "${VIBEGUARD_TEST_DOWNLOAD_LOG:-}" ]]; then
+  printf 'curl url=%s asset=%s\n' "${url}" "${asset}" >> "${VIBEGUARD_TEST_DOWNLOAD_LOG}"
+fi
 mkdir -p "$(dirname "${out}")"
 if [[ "${asset}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${out}"
@@ -916,6 +922,25 @@ assert_cmd "tampered prebuilt checksum exits nonzero" test "${checksum_fail_rc}"
 assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification failed" "tampered prebuilt checksum reports verification failure"
 assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
 assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
+
+empty_version_home="${TMP_HOME}/empty-version-home"
+mkdir -p "${empty_version_home}"
+set +e
+empty_version_out="$(HOME="${empty_version_home}" bash "${REPO_DIR}/setup.sh" --yes --runtime-version= 2>&1)"
+empty_version_rc=$?
+set -e
+assert_cmd "empty --runtime-version exits nonzero" test "${empty_version_rc}" -ne 0
+assert_contains "${empty_version_out}" "--runtime-version requires a non-empty value" "empty --runtime-version reports explicit error"
+assert_not_contains "${empty_version_out}" "Setup complete! All components installed." "empty --runtime-version does not report setup complete"
+
+version_override_home="${TMP_HOME}/version-override-home"
+version_override_log="${TMP_HOME}/version-override-download.log"
+mkdir -p "${version_override_home}"
+: > "${version_override_log}"
+version_override_out="$(HOME="${version_override_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_TEST_DOWNLOAD_LOG="${version_override_log}" bash "${REPO_DIR}/setup.sh" --yes --runtime-version v9.9.9)"
+assert_contains "${version_override_out}" "Runtime version override: v9.9.9" "--runtime-version reports selected release tag"
+assert_contains "${version_override_out}" "vibeguard-runtime downloaded and verified (v9.9.9," "--runtime-version downloads selected release tag"
+assert_cmd "--runtime-version passes selected tag to release download" grep -qF "tag=v9.9.9" "${version_override_log}"
 
 curl_download_home="${TMP_HOME}/curl-download-home"
 mkdir -p "${curl_download_home}"

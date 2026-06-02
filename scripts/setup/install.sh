@@ -42,7 +42,12 @@ VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
-RUNTIME_VERSION_OVERRIDE="${VIBEGUARD_SETUP_RUNTIME_VERSION:-}"
+RUNTIME_VERSION_OVERRIDE=""
+RUNTIME_VERSION_OVERRIDE_SET=0
+if [[ -n "${VIBEGUARD_SETUP_RUNTIME_VERSION+x}" ]]; then
+  RUNTIME_VERSION_OVERRIDE="${VIBEGUARD_SETUP_RUNTIME_VERSION}"
+  RUNTIME_VERSION_OVERRIDE_SET=1
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)
@@ -53,9 +58,9 @@ while [[ $# -gt 0 ]]; do
       BUILD_FROM_SOURCE=1; shift ;;
     --runtime-version)
       [[ $# -lt 2 ]] && { red "ERROR: --runtime-version requires a value (e.g. v1.2.3)"; exit 1; }
-      RUNTIME_VERSION_OVERRIDE="$2"; shift 2 ;;
+      RUNTIME_VERSION_OVERRIDE="$2"; RUNTIME_VERSION_OVERRIDE_SET=1; shift 2 ;;
     --runtime-version=*)
-      RUNTIME_VERSION_OVERRIDE="${1#*=}"; shift ;;
+      RUNTIME_VERSION_OVERRIDE="${1#*=}"; RUNTIME_VERSION_OVERRIDE_SET=1; shift ;;
     --with-scheduler)
       WITH_SCHEDULER=1; shift ;;
     --force-overwrite)
@@ -77,6 +82,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+
+if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE}" ]]; then
+  red "ERROR: --runtime-version requires a non-empty value (e.g. v1.2.3)"
+  exit 1
+fi
 
 case "${PROFILE}" in
   minimal|core|full|strict) ;;
@@ -127,8 +137,9 @@ runtime_release_target() {
 
 runtime_release_tag() {
   local version version_file
-  version="${RUNTIME_VERSION_OVERRIDE}"
-  if [[ -z "${version}" ]]; then
+  if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
+    version="${RUNTIME_VERSION_OVERRIDE}"
+  else
     version_file="${REPO_DIR}/vibeguard-runtime/VERSION"
     [[ -f "${version_file}" ]] || return 1
     version="$(tr -d '[:space:]' < "${version_file}")"
