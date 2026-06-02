@@ -130,6 +130,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-workflow-contracts.sh
 
+      - name: Validate release workflow contract
+        shell: bash
+        run: bash tests/test_release_workflow.sh
+
       - name: Validate prompt contract
         shell: bash
         run: bash scripts/ci/validate-prompt-contract.sh --strict
@@ -332,6 +336,9 @@ jobs:
 
       - name: Validate workflow contracts
         run: bash scripts/ci/validate-workflow-contracts.sh
+
+      - name: Validate release workflow contract
+        run: bash tests/test_release_workflow.sh
 
       - name: Validate prompt contract
         run: bash scripts/ci/validate-prompt-contract.sh --strict

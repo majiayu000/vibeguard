@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 defaults:
   run:
@@ -27,6 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Assert VERSION matches release tag
         env:
@@ -43,6 +46,18 @@ jobs:
             exit 1
           fi
           echo "Runtime version ${version} matches release tag ${TAG_NAME}"
+
+      - name: Assert tag commit is on main
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          tag_commit="$(git rev-list -n 1 "${TAG_NAME}")"
+          if ! git merge-base --is-ancestor "${tag_commit}" origin/main; then
+            echo "ERROR: release tag ${TAG_NAME} (${tag_commit}) is not reachable from origin/main" >&2
+            exit 1
+          fi
+          echo "Release tag ${TAG_NAME} points to ${tag_commit}, reachable from origin/main"
 
   build-runtime:
     name: Build runtime (${{ matrix.target }})
@@ -74,6 +89,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install pinned Rust toolchain
         run: |
@@ -132,6 +149,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-runtime
     timeout-minutes: 10
+    permissions:
+      contents: write
 
     steps:
       - name: Download runtime artifacts
@@ -152,9 +171,9 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
-            gh release upload "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS --clobber
-          else
-            gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
-              --title "${TAG_NAME}" \
-              --notes "VibeGuard runtime binaries for ${TAG_NAME}."
+            echo "ERROR: release ${TAG_NAME} already exists; refusing to mutate release assets" >&2
+            exit 1
           fi
+          gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
+            --title "${TAG_NAME}" \
+            --notes "VibeGuard runtime binaries for ${TAG_NAME}."
