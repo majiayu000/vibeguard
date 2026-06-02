@@ -16,11 +16,38 @@ env:
   RUST_VERSION: "1.85.1"
   CROSS_VERSION: "0.2.5"
   RUNTIME_MANIFEST: vibeguard-runtime/Cargo.toml
+  RUNTIME_VERSION_FILE: vibeguard-runtime/VERSION
 
 jobs:
+  validate-runtime-version:
+    name: Validate runtime version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Assert VERSION matches release tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(tr -d '[:space:]' < "${RUNTIME_VERSION_FILE}")"
+          if [[ -z "${version}" ]]; then
+            echo "ERROR: ${RUNTIME_VERSION_FILE} is empty" >&2
+            exit 1
+          fi
+          expected_tag="v${version}"
+          if [[ "${TAG_NAME}" != "${expected_tag}" ]]; then
+            echo "ERROR: release tag ${TAG_NAME} does not match ${RUNTIME_VERSION_FILE} (${expected_tag})" >&2
+            exit 1
+          fi
+          echo "Runtime version ${version} matches release tag ${TAG_NAME}"
+
   build-runtime:
     name: Build runtime (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    needs: validate-runtime-version
     timeout-minutes: 30
 
     strategy:
