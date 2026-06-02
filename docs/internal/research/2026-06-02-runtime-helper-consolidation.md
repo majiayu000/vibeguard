@@ -18,7 +18,7 @@ helpers.
 
 | Helper | Current callers | Role | Existing Rust coverage | Port complexity | Recommendation |
 |--------|-----------------|------|------------------------|-----------------|----------------|
-| `event_log.py` | `scripts/hook-health.sh`, `scripts/stats.sh`, `scripts/quality-grader.sh`, `hooks/_lib/post_edit_history.sh` | Decode JSONL event logs, tolerate malformed UTF-8, filter by timestamp | Partial: `vibeguard-runtime hook-status`, `log-query`, and `session-metrics` already parse event logs for narrower commands | Low | Go first. Add a generic runtime event-log reader/query subcommand or extend existing log-query paths, then migrate read-only report scripts. |
+| `event_log.py` | `scripts/hook-health.sh`, `scripts/stats.sh`, `scripts/quality-grader.sh`, `hooks/_lib/post_edit_history.sh` | Decode JSONL event logs, tolerate malformed UTF-8, filter by timestamp | Partial: `vibeguard-runtime hook-status`, `session-metrics`, and the `log_query.rs`-backed commands already parse event logs for narrower commands | Low | Go first. Add a generic runtime event-log reader/query subcommand or extend existing `log_query.rs` paths, then migrate read-only report scripts. |
 | `policy.py` | `hooks/_lib/policy.sh`, reached by `run-hook.sh` and `run-hook-codex.sh` before wrapped hooks execute | Validate user/project config, resolve hook manifest entries, apply enforcement/profile/disabled hook policy | Partial: Rust runtime has event schema, hook status, JSON helpers, and hook checks, but no policy/config gate equivalent | Medium | Go second. Port only after a Rust project-config validator and manifest lookup API exist; keep fail-closed semantics and diagnostics parity. |
 | `codex_apply_patch_adapter.py` | `hooks/_lib/codex_runner.sh` via `run-hook-codex.sh` | Normalize Codex `apply_patch` command payloads into Write/Edit-shaped hook payloads | Partial: `vibeguard-runtime codex-app-server-wrapper` has Codex protocol logic, but this native-hook apply_patch normalizer is separate | High | Go last. Port only with fixture parity tests for add/update/delete/move patches, multi-file patches, malformed payloads, and permission/PostToolUse behavior. |
 
@@ -75,7 +75,11 @@ sit on different risk surfaces:
 - `bash tests/test_setup_check.sh`
 - `bash tests/test_codex_runtime.sh`
 - `bash tests/test_hook_status.sh`
+- `bash tests/test_hook_health.sh`
+- `bash tests/test_quality_grader.sh`
 - `bash tests/test_stats.sh`
+- `bash tests/hooks/test_runtime_policy.sh`
+- `bash tests/test_hooks.sh`
 - `bash scripts/ci/validate-doc-paths.sh`
 - `cargo test --locked --manifest-path vibeguard-runtime/Cargo.toml`
 
