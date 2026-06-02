@@ -40,8 +40,8 @@ meaningful adoption blocker.
   release tag, so the binary always matches the hook contract it ships with.
 
 **Non-goals**
-- Windows prebuilt binaries (hooks run through bash; track separately — see §9).
-- Removing the Rust runtime or its `python3` hook helpers (separate roadmap, §5.4).
+- Windows prebuilt binaries (hooks run through bash; track separately — see §7).
+- Removing the Rust runtime or its `python3` hook helpers (separate roadmap, §3.5).
 - Publishing to npm / PyPI / Homebrew (possible later; out of scope here).
 
 ## 3. Design
@@ -131,6 +131,9 @@ true `curl | sh` one-liner. Tracked as a follow-up; large and out of scope here.
 - AC6: A tag push publishes 4 platform binaries + `SHA256SUMS` to the Release.
 - AC7: README install section reflects the no-Rust default path and the prerequisites
   matrix.
+- AC8: A release tag whose `vibeguard-runtime/VERSION` does not match the tag fails
+  before any release asset is published.
+- AC9: The binary download path succeeds when `gh` is absent but `curl` is present.
 
 ## 6. Work breakdown (→ issues)
 
