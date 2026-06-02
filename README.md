@@ -27,7 +27,9 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
-Requires Python 3 and Rust/Cargo for the `vibeguard-runtime` runtime binary.
+Requires Python 3. On supported macOS/Linux targets, setup downloads a
+prebuilt `vibeguard-runtime` release binary and verifies it with `SHA256SUMS`,
+so Rust/Cargo is not required by default.
 
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
 
@@ -38,7 +40,7 @@ The current mainline is install-verified on macOS and CI-verified on Ubuntu, mac
 - Latest release train: `v1.1.x`
 - Local health gate: `bash setup.sh --check --strict`
 - Expected verdict after a healthy install: `HEALTHY`
-- Claude Code: native rules, skills, commands, hooks, git hooks, and scheduled GC are installed by `setup.sh`
+- Claude Code: native rules, skills, commands, hooks, and git hooks are installed by `setup.sh`; scheduled GC is opt-in with `--with-scheduler`
 - Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
 - Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
 
@@ -280,6 +282,25 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 ## Installation
 
+### Runtime prerequisites
+
+Default setup downloads and verifies the pinned `vibeguard-runtime` release for
+supported platforms. Source builds remain available for unsupported/offline
+installs and for users who explicitly request them.
+
+| Platform | Default runtime path | Rust/Cargo needed? |
+|----------|----------------------|--------------------|
+| macOS arm64 (`aarch64-apple-darwin`) | Prebuilt release binary | No |
+| macOS x86_64 (`x86_64-apple-darwin`) | Prebuilt release binary | No |
+| Linux x86_64 (`x86_64-unknown-linux-musl`) | Prebuilt release binary | No |
+| Linux arm64 (`aarch64-unknown-linux-musl`) | Prebuilt release binary | No |
+| Other targets, offline installs, or `--build-from-source` | Local source build | Yes |
+
+`setup.sh` uses `gh release download` when `gh` is available, otherwise `curl`.
+If a supported-target download fails, it falls back to `cargo build` when Cargo
+is available. Checksum mismatch or a missing checksum entry is fatal and does
+not fall back to source.
+
 ### Profiles and languages
 
 ```bash
@@ -292,6 +313,10 @@ bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Cla
 # Language selection (only install rules/guards for specified languages)
 bash ~/vibeguard/setup.sh --languages rust,python
 bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
+
+# Runtime / scheduler
+bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
+bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh --check                     # Verify installation
