@@ -81,6 +81,7 @@ sit on different risk surfaces:
 - `bash tests/hooks/test_runtime_policy.sh`
 - `bash tests/test_hooks.sh`
 - `bash scripts/ci/validate-doc-paths.sh`
+- `bash scripts/ci/validate-doc-command-paths.sh`
 - `cargo test --locked --manifest-path vibeguard-runtime/Cargo.toml`
 
 Only after all three follow-up ports and the separate inline-Python inventory
