@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-skill-validate-output.schema.json",
+  "title": "VibeGuard Skill Validate Command Output",
+  "description": "Structured output contract for scripts/skill_validate.py evidence and format artifacts.",
+  "type": "object",
+  "required": ["command", "mode", "verdict"],
+  "oneOf": [
+    {
+      "required": [
+        "command",
+        "mode",
+        "skill_name",
+        "proposed_skill",
+        "decision_set",
+        "verdict",
+        "counts",
+        "freshness_gaps",
+        "scenarios"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "skill_validate"
+        },
+        "mode": {
+          "const": "evidence"
+        },
+        "skill_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proposed_skill": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_set": {
+          "enum": ["baseline", "held_out"]
+        },
+        "verdict": {
+          "enum": ["pass", "fail", "stale", "needs_justification", "advisory"]
+        },
+        "counts": {
+          "type": "object",
+          "required": ["repair", "regression", "no_change", "unrelated_regression", "unrelated_no_change"],
+          "additionalProperties": false,
+          "properties": {
+            "repair": {
+              "type": "integer"
+            },
+            "regression": {
+              "type": "integer"
+            },
+            "no_change": {
+              "type": "integer"
+            },
+            "unrelated_regression": {
+              "type": "integer"
+            },
+            "unrelated_no_change": {
+              "type": "integer"
+            }
+          }
+        },
+        "freshness_gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "regression_justification": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "scored_against_agent": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "scored_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+        },
+        "artifact_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["scenario_id", "scenario_type", "without_skill", "with_skill", "classification"],
+            "additionalProperties": false,
+            "properties": {
+              "scenario_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scenario_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "without_skill": {
+                "enum": ["success", "failure"]
+              },
+              "with_skill": {
+                "enum": ["success", "failure"]
+              },
+              "classification": {
+                "enum": ["repair", "regression", "no_change"]
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scored_against_agent": {
+                "type": ["string", "null"],
+                "minLength": 1
+              },
+              "scored_at": {
+                "type": ["string", "null"],
+                "minLength": 1
+              },
+              "notes": {
+                "type": ["string", "object", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "command",
+        "mode",
+        "verdict",
+        "paths_checked",
+        "required_sections",
+        "list_required_sections",
+        "errors"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "skill_validate"
+        },
+        "mode": {
+          "const": "format"
+        },
+        "verdict": {
+          "enum": ["pass", "fail"]
+        },
+        "paths_checked": {
+          "type": "integer"
+        },
+        "required_sections": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "list_required_sections": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

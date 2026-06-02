@@ -262,7 +262,15 @@ date: YYYY-MM-DD
 ---
 ```
 
-Text: Problem → When to Activate → Red Flags → Checklist → Solution(step-by-step) → Verification → Example(Before/After) → Notes → References
+Text: Problem -> When to Activate -> Red Flags -> Checklist -> Solution(step-by-step) -> Verification -> Example(Before/After) -> Notes -> References
+
+Every generated skill must include:
+
+- `## When to Activate` with concrete trigger bullets.
+- `## Red Flags` with at least three specific anti-patterns or failure modes.
+- `## Checklist` with at least three `- [ ]` pre-delivery items.
+
+Run `bash scripts/ci/validate-skill-format.sh` before accepting the skill into this repository; the gate also validates `templates/skill-template.md` so future skills do not start from a stale shape.
 
 ### Deduplication decision table
 

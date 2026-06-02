@@ -329,6 +329,10 @@ for lang in $DETECTED_LANGS; do
       while IFS= read -r build_root; do
         [[ -z "$build_root" ]] && continue
         build_root_q=$(printf '%q' "$build_root")
+        # fmt before check: cargo fmt -- --check fails in <1s when rustfmt
+        # would re-flow the file. Catching it locally avoids the CI round-trip
+        # where cargo check passes but `cargo fmt -- --check` fails (see #260).
+        run_build_check "cd ${build_root_q} && cargo fmt -- --check" "cargo fmt --check failed (${build_root})"
         run_build_check "cd ${build_root_q} && cargo check --quiet" "cargo check failed (${build_root})"
       done <<< "$RUST_BUILD_ROOTS"
       ;;

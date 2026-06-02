@@ -179,6 +179,20 @@ print(total)
         [[ -n "${line}" ]] && red "[BROKEN] ${line}"
       done <<< "${stale_hooks_report}"
     fi
+
+    local timeout_hooks_report
+    if timeout_hooks_report="$(python3 "${CODEX_HOOKS_HELPER}" check-timeouts --hooks-file "${CODEX_DIR}/hooks.json" 2>&1)"; then
+      :
+    else
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${line}" == managed* ]]; then
+          red "[BROKEN] ${line}"
+        else
+          yellow "[WARN] ${line}"
+        fi
+      done <<< "${timeout_hooks_report}"
+    fi
   else
     yellow "[MISSING] Codex hooks.json not installed"
   fi
@@ -409,6 +423,25 @@ check_codex_agents_hygiene() {
   if [[ "${#missing_anchors[@]}" -gt 0 ]]; then
     red "[BROKEN] ~/.codex/AGENTS.md missing required anchors: ${missing_anchors[*]} (rerun setup)"
     return 0
+  fi
+
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local actual_rule_count declared_count
+  if [[ -d "${rules_dest}" ]]; then
+    actual_rule_count=$(vibeguard_rule_id_count "${rules_dest}")
+    if declared_count=$(vibeguard_managed_rule_banner_count "${agents_md}"); then
+      if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
+        green "[OK] Rule count in ~/.codex/AGENTS.md: ${actual_rule_count} rules"
+      else
+        yellow "[DRIFT] ~/.codex/AGENTS.md declares ${declared_count} rules, actual: ${actual_rule_count}"
+        yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
+      fi
+    else
+      yellow "[DRIFT] ~/.codex/AGENTS.md missing VibeGuard rule count banner, actual: ${actual_rule_count}"
+      yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
+    fi
+  else
+    yellow "[INFO] Rule count in ~/.codex/AGENTS.md not checked because ~/.claude/rules/vibeguard/ is missing"
   fi
 
   green "[OK] VibeGuard rules in ~/.codex/AGENTS.md"

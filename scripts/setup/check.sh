@@ -93,6 +93,88 @@ if [[ "${JSON}" -eq 1 && "${INSTALL}" -eq 1 ]]; then
   exit 64
 fi
 
+_check_repo_git_hook() {
+  local hook_name="$1"
+  local expected_target="$2"
+  local hook_path="${_vg_hook_dir}/${hook_name}"
+
+  if [[ ! -e "${hook_path}" && ! -L "${hook_path}" ]]; then
+    red "[MISSING] VibeGuard repo ${hook_name} hook (${hook_path})"
+    return 0
+  fi
+  if [[ ! -L "${hook_path}" ]]; then
+    red "[BROKEN] VibeGuard repo ${hook_name} hook is not a symlink: ${hook_path}"
+    return 0
+  fi
+
+  local actual_target
+  actual_target="$(readlink "${hook_path}" 2>/dev/null || true)"
+  if [[ -z "${actual_target}" ]]; then
+    red "[BROKEN] VibeGuard repo ${hook_name} hook target cannot be read: ${hook_path}"
+    return 0
+  fi
+  if [[ "${actual_target}" != "${expected_target}" ]]; then
+    red "[BROKEN] VibeGuard repo ${hook_name} hook target drift: ${actual_target} (expected: ${expected_target})"
+    return 0
+  fi
+  if [[ ! -e "${hook_path}" ]]; then
+    red "[BROKEN] VibeGuard repo ${hook_name} hook target missing: ${actual_target}"
+    return 0
+  fi
+  if [[ ! -x "${hook_path}" ]]; then
+    red "[BROKEN] VibeGuard repo ${hook_name} hook target not executable: ${actual_target}"
+    return 0
+  fi
+  if [[ "${hook_name}" == "pre-push" && "${expected_target}" == "${HOME}/.vibeguard/pre-push" ]]; then
+    local wrapper_repo_path="${HOME}/.vibeguard/repo-path"
+    local wrapper_repo=""
+    local wrapper_source=""
+    if [[ -f "${wrapper_repo_path}" ]]; then
+      wrapper_repo="$(<"${wrapper_repo_path}")"
+    fi
+    wrapper_source="${wrapper_repo}/hooks/git/pre-push"
+    if [[ -z "${wrapper_repo}" || ! -f "${wrapper_source}" ]]; then
+      red "[BROKEN] VibeGuard repo pre-push hook wrapper source missing: ${wrapper_source}"
+      return 0
+    fi
+    if [[ ! -r "${wrapper_source}" ]]; then
+      red "[BROKEN] VibeGuard repo pre-push hook wrapper source not readable: ${wrapper_source}"
+      return 0
+    fi
+  fi
+
+  green "[OK] VibeGuard repo ${hook_name} hook installed"
+}
+
+_check_installed_snapshot_version() {
+  local version_file="${HOME}/.vibeguard/installed/version"
+  local installed_version=""
+  local repo_version=""
+
+  if [[ ! -f "${version_file}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot version missing (${version_file}); run: bash setup.sh --yes"
+    return 0
+  fi
+
+  installed_version="$(tr -d '[:space:]' < "${version_file}")"
+  repo_version="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || true)"
+
+  if [[ -z "${repo_version}" ]]; then
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo HEAD unavailable)"
+    return 0
+  fi
+  if [[ -z "${installed_version}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot version empty (${version_file}); run: bash setup.sh --yes"
+    return 0
+  fi
+  if [[ "${installed_version}" != "${repo_version}" ]]; then
+    yellow "[WARN] Installed hooks+guards snapshot is stale: ${installed_version} (current repo: ${repo_version}; run: bash setup.sh --yes)"
+    return 0
+  fi
+
+  green "[OK] Installed hooks+guards snapshot matches repo HEAD (${repo_version})"
+}
+
 # run_legacy_checks
 #   The original sequence of inline probes. Each probe prints a single
 #   `[LEVEL] message` line via green/yellow/red. We do not reorder or
@@ -115,6 +197,7 @@ run_legacy_checks() {
   fi
   if [[ -x "${VIBEGUARD_HOME}/installed/bin/vibeguard-runtime" ]]; then
     green "[OK] vibeguard-runtime runtime binary installed"
+    _check_installed_snapshot_version
   else
     red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
@@ -128,7 +211,7 @@ run_legacy_checks() {
     elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
       yellow "[WARN] Scheduled GC plist exists but not loaded"
     else
-      yellow "[INFO] Scheduled GC not installed (optional)"
+      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
     fi
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
     if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
@@ -136,11 +219,22 @@ run_legacy_checks() {
     elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
       yellow "[WARN] Scheduled GC unit exists but timer not active"
     else
-      yellow "[INFO] Scheduled GC not installed (optional, run: bash scripts/install-systemd.sh)"
+      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
     fi
   fi
 
   check_codex_home_installation
+
+  # Check repository git hooks used by VibeGuard's own development workflow.
+  echo
+  echo "Repository Git Hooks"
+  echo "------------------------------"
+  if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
+    _check_repo_git_hook "pre-commit" "${HOME}/.vibeguard/pre-commit"
+    _check_repo_git_hook "pre-push" "${HOME}/.vibeguard/pre-push"
+  else
+    yellow "[INFO] Repository git hooks not checked (not a git repository)"
+  fi
 
   # Check project-level runtime config
   echo

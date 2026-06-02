@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-review-output.schema.json",
+  "title": "VibeGuard Review Command Output",
+  "description": "Structured output contract for /vibeguard:review.",
+  "type": "object",
+  "required": ["command", "scope", "findings", "passedItems", "verdict"],
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "const": "review"
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["priority", "file", "issue", "suggestion", "ruleId"],
+        "additionalProperties": false,
+        "properties": {
+          "priority": {
+            "enum": ["P0", "P1", "P2", "P3"]
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1
+          },
+          "suggestion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ruleId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "passedItems": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "verdict": {
+      "enum": ["pass", "warn", "fail"]
+    }
+  }
+}

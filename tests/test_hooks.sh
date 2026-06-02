@@ -6,8 +6,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-if [[ -f "vibeguard-runtime/Cargo.toml" ]] \
-    && [[ ! -x "vibeguard-runtime/target/release/vibeguard-runtime" ]]; then
+if [[ -f "vibeguard-runtime/Cargo.toml" ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
     echo "tests/test_hooks.sh requires cargo to build vibeguard-runtime" >&2
     exit 2
@@ -26,6 +25,7 @@ shards=(
   "tests/hooks/test_post_write_guard.sh"
   "tests/hooks/test_post_build_check.sh"
   "tests/hooks/test_precommit_timeout_go.sh"
+  "tests/hooks/test_precommit_rust_fmt.sh"
   "tests/hooks/test_precommit_ts_quality.sh"
   "tests/hooks/test_precommit_nested_roots.sh"
   "tests/hooks/test_log_session.sh"

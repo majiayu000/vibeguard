@@ -102,6 +102,17 @@ assert_contains "$untracked_run" "Authorized discard complete." "env token autho
 assert_cmd "untracked file removed" test ! -e "${untracked_repo}/scratch/tmp.txt"
 assert_cmd "empty untracked parent pruned" test ! -d "${untracked_repo}/scratch"
 
+header "untracked symlink cleanup"
+symlink_repo="$(make_repo symlink)"
+external_target="${TMP_DIR}/external-target"
+mkdir -p "$external_target"
+printf 'outside\n' > "${external_target}/kept.txt"
+ln -s "${external_target}/kept.txt" "${symlink_repo}/external-link"
+symlink_run="$(cd "$symlink_repo" && python3 "$SCRIPT" --confirm "discard listed changes")"
+assert_contains "$symlink_run" "Authorized discard complete." "external symlink cleanup completes"
+assert_cmd "external symlink entry removed" test ! -e "${symlink_repo}/external-link"
+assert_cmd "external symlink target preserved" test -e "${external_target}/kept.txt"
+
 header "mixed tracked and untracked cleanup"
 mixed_repo="$(make_repo mixed)"
 printf 'changed\n' > "${mixed_repo}/tracked.txt"

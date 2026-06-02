@@ -62,10 +62,14 @@ description: Use when validating a proposed skill change.
 ## Red Flags
 
 - The proposed skill has no repeatable trigger condition.
+- The proposed skill does not define observable failure modes.
+- The proposed skill cannot be verified with focused evidence.
 
 ## Checklist
 
-- Confirm the skill has repair evidence and no unrelated regressions.
+- [ ] Confirm the skill has repair evidence and no unrelated regressions.
+- [ ] Confirm the activation cue matches the task.
+- [ ] Run focused verification before handoff.
 MD
 
 header "syntax"
@@ -74,6 +78,39 @@ assert_cmd "skill_validate.py syntax is valid" python3 -m py_compile "${SKILL_VA
 header "format gate"
 assert_cmd "format-only accepts shaped skill" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md"
+assert_cmd "format-only accepts repository skill template" \
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${REPO_DIR}/templates/skill-template.md" --no-persist
+format_json="$(
+  python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${SKILL_DIR}/SKILL.md" --json
+)"
+TOTAL=$((TOTAL + 1))
+if FORMAT_JSON="${format_json}" python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+artifact = json.loads(os.environ["FORMAT_JSON"])
+if artifact.get("mode") != "format":
+    raise SystemExit(f"expected mode=format, got {artifact.get('mode')!r}")
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+errors = module.validate_instance(artifact, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "format-only JSON output matches skill_validate schema"
+  PASS=$((PASS + 1))
+else
+  red "format-only JSON output matches skill_validate schema"
+  FAIL=$((FAIL + 1))
+fi
 
 MARKDOWN_LINK_DIR="${TMP_DIR}/markdown-link"
 mkdir -p "${MARKDOWN_LINK_DIR}"
@@ -92,10 +129,14 @@ description: Use when testing Markdown link list items.
 ## Red Flags
 
 - [Routing Contract](../references/routing-contract.md) is not reflected in the skill handoff.
+- [Delivery Contract](../references/delivery-contract.md) is missing from the review.
+- [Verification Contract](../references/verification-contract.md) is absent from the checklist.
 
 ## Checklist
 
-- [Delivery Base](../references/delivery-base.md) was reviewed before final verification.
+- [ ] [Delivery Base](../references/delivery-base.md) was reviewed before final verification.
+- [ ] [Routing Contract](../references/routing-contract.md) was reflected in the handoff.
+- [ ] [Verification Contract](../references/verification-contract.md) was checked before completion.
 MD
 assert_cmd "format-only accepts Markdown-link list items" \
   python3 "${SKILL_VALIDATE}" --format-only --proposed-skill "${MARKDOWN_LINK_DIR}/SKILL.md"
@@ -116,7 +157,9 @@ description: Use when testing missing sections.
 
 ## Checklist
 
-- Detect the missing heading.
+- [ ] Detect the missing heading.
+- [ ] Report the missing heading.
+- [ ] Keep the failure message specific.
 MD
 missing_section_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -173,6 +216,8 @@ description: Use when testing workflow coverage.
 ## Red Flags
 
 - The repository check ignores workflow skills.
+- The repository check ignores required workflow sections.
+- The repository check accepts incomplete workflow checklists.
 MD
 coverage_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -181,7 +226,28 @@ coverage_out="$(
 )"
 assert_contains "${coverage_out}" "workflows/bad/SKILL.md: missing required section: ## Checklist" "repo format gate covers workflows"
 
-assert_cmd "repo skill and workflow format gate passes" \
+TEMPLATE_COVERAGE_REPO="${TMP_DIR}/template-coverage-repo"
+mkdir -p "${TEMPLATE_COVERAGE_REPO}/templates"
+cat > "${TEMPLATE_COVERAGE_REPO}/templates/skill-template.md" <<'MD'
+---
+name: bad-template
+description: Use when testing template coverage.
+---
+
+# Bad Template
+
+## When to Activate
+
+- Validate template coverage.
+MD
+template_coverage_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --check-repo-format \
+    --repo-root "${TEMPLATE_COVERAGE_REPO}" 2>&1 || true
+)"
+assert_contains "${template_coverage_out}" "templates/skill-template.md: missing required section: ## Red Flags" "repo format gate covers skill template"
+
+assert_cmd "repo skill, workflow, and template format gate passes" \
   python3 "${SKILL_VALIDATE}" --check-repo-format --repo-root "${REPO_DIR}"
 
 header "passing repair evidence"
@@ -189,6 +255,7 @@ PASSING_JSONL="${TMP_DIR}/passing.jsonl"
 cat > "${PASSING_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 passing_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -201,6 +268,59 @@ passing_out="$(
 assert_contains "${passing_out}" "verdict: pass" "pass verdict when repair beats regression"
 assert_contains "${passing_out}" "repair: 1" "pass output records repair count"
 assert_cmd "pass verdict writes an artifact" test -f "${TMP_DIR}/artifacts/demo-skill-2026-05-18.jsonl"
+passing_json="$(
+  python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${SKILL_DIR}/SKILL.md" \
+    --baseline-trajectories "${PASSING_JSONL}" \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18 \
+    --no-persist \
+    --json
+)"
+TOTAL=$((TOTAL + 1))
+if PASSING_JSON="${passing_json}" python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+artifact = json.loads(os.environ["PASSING_JSON"])
+if artifact.get("mode") != "evidence":
+    raise SystemExit(f"expected mode=evidence, got {artifact.get('mode')!r}")
+spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+schema = json.loads((repo / "schemas/command-skill-validate-output.schema.json").read_text(encoding="utf-8"))
+errors = module.validate_instance(artifact, schema)
+if errors:
+    raise SystemExit("\n".join(errors))
+PY
+  green "evidence JSON output matches skill_validate schema"
+  PASS=$((PASS + 1))
+else
+  red "evidence JSON output matches skill_validate schema"
+  FAIL=$((FAIL + 1))
+fi
+
+header "unrelated evidence is required"
+NO_UNRELATED_JSONL="${TMP_DIR}/no-unrelated.jsonl"
+cat > "${NO_UNRELATED_JSONL}" <<'JSONL'
+{"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+JSONL
+no_unrelated_out="$(
+  python3 "${SKILL_VALIDATE}" \
+    --proposed-skill "${SKILL_DIR}/SKILL.md" \
+    --baseline-trajectories "${NO_UNRELATED_JSONL}" \
+    --no-persist \
+    --current-agent claude-opus-4-7 \
+    --as-of 2026-05-18 2>&1 || true
+)"
+assert_contains "${no_unrelated_out}" "verdict: fail" "missing unrelated scenarios fails verdict"
+assert_contains "${no_unrelated_out}" "fewer than two unrelated no-change scenarios" "missing unrelated scenarios explains requirement"
 
 header "regression needs justification"
 REGRESSION_JSONL="${TMP_DIR}/regression.jsonl"
@@ -208,6 +328,8 @@ cat > "${REGRESSION_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"incident-2","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"adjacent-1","scenario_type":"target","without_skill":{"outcome":"success"},"with_skill":{"outcome":"failure"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 regression_out="$(
   python3 "${SKILL_VALIDATE}" \
@@ -226,6 +348,8 @@ cat > "${UNRELATED_JSONL}" <<'JSONL'
 {"scenario_id":"incident-1","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"incident-2","scenario_type":"target","without_skill":{"outcome":"failure"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 {"scenario_id":"unrelated-1","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"failure"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-2","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
+{"scenario_id":"unrelated-3","scenario_type":"unrelated","without_skill":{"outcome":"success"},"with_skill":{"outcome":"success"},"scored_against_agent":"claude-opus-4-7","scored_at":"2026-05-18"}
 JSONL
 unrelated_out="$(
   python3 "${SKILL_VALIDATE}" \

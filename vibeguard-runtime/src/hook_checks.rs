@@ -1,5 +1,6 @@
 use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use crate::hook_checks_common::{
     count_lines, is_allowed_new_file, is_clean_rust_fast_path, is_clean_rust_write_fast_path,
@@ -13,20 +14,34 @@ use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_dup
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[derive(Debug, PartialEq, Eq)]
+enum MissingFileCandidates {
+    Found(Vec<String>),
+    Empty,
+    LookupFailed(String),
+}
+
 pub fn pre_write_check(args: &[String]) -> Result {
     let base_limit = args
         .first()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(800);
+    let warn_limit = args
+        .get(1)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(400);
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("PASS");
+        println!("MALFORMED");
         return Ok(());
     };
 
-    let file_path = nested_str(&data, "tool_input.file_path").unwrap_or_default();
+    let Some(file_path) = nested_str(&data, "tool_input.file_path") else {
+        println!("MALFORMED");
+        return Ok(());
+    };
     if file_path.is_empty() {
-        println!("PASS");
+        println!("MALFORMED");
         return Ok(());
     }
 
@@ -38,7 +53,8 @@ pub fn pre_write_check(args: &[String]) -> Result {
 
     let content = nested_str(&data, "tool_input.content").unwrap_or_default();
     let line_count = count_lines(&content);
-    if is_source_path(&file_path) && !is_test_path(&file_path) && line_count > base_limit {
+    let mut u16_advisory = None;
+    if is_source_path(&file_path) && !is_test_path(&file_path) {
         let limit = project_u16_limit(&file_path, base_limit);
         if line_count > limit {
             println!("U16_BLOCK");
@@ -47,9 +63,21 @@ pub fn pre_write_check(args: &[String]) -> Result {
             println!("{limit}");
             return Ok(());
         }
+        let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
+        if advisory_limit < limit && line_count > advisory_limit {
+            u16_advisory = Some((line_count, advisory_limit, limit));
+        }
     }
 
     if Path::new(&file_path).exists() {
+        if let Some((line_count, advisory_limit, limit)) = u16_advisory {
+            println!("U16_WARN");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{advisory_limit}");
+            println!("{limit}");
+            return Ok(());
+        }
         println!("EXISTS");
         println!("{file_path}");
         return Ok(());
@@ -61,6 +89,15 @@ pub fn pre_write_check(args: &[String]) -> Result {
         return Ok(());
     }
 
+    if let Some((line_count, advisory_limit, limit)) = u16_advisory {
+        println!("U16_WARN_SOURCE_NEW");
+        println!("{file_path}");
+        println!("{line_count}");
+        println!("{advisory_limit}");
+        println!("{limit}");
+        return Ok(());
+    }
+
     println!("SOURCE_NEW");
     println!("{file_path}");
     Ok(())
@@ -68,11 +105,17 @@ pub fn pre_write_check(args: &[String]) -> Result {
 
 pub fn pre_edit_check(args: &[String]) -> Result {
     if args.len() < 2 {
-        return Err("Usage: vibeguard-runtime pre-edit-check <base-limit> <log-file>".into());
+        return Err(
+            "Usage: vibeguard-runtime pre-edit-check <base-limit> [warn-limit] <log-file>".into(),
+        );
     }
 
     let base_limit = args[0].parse::<usize>().unwrap_or(800);
-    let log_file = &args[1];
+    let (warn_limit, log_file) = if args.len() >= 3 {
+        (args[1].parse::<usize>().unwrap_or(400), &args[2])
+    } else {
+        (400, &args[1])
+    };
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
         write_pre_edit_block(
@@ -119,9 +162,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
             log_file,
             "File does not exist",
             &file_path,
-            &format!(
-                "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
-            ),
+            &missing_file_reason(&file_path),
         )?;
         return Ok(());
     }
@@ -180,6 +221,38 @@ pub fn pre_edit_check(args: &[String]) -> Result {
                 )?;
                 return Ok(());
             }
+            let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
+            if advisory_limit < limit && estimated > advisory_limit {
+                if write_log_event(
+                    log_file,
+                    "pre-edit-guard",
+                    "Edit",
+                    "warn",
+                    &format!("U-16 file size advisory: {estimated} > {advisory_limit}"),
+                    &file_path,
+                )
+                .is_err()
+                {
+                    println!("FALLBACK");
+                    return Ok(());
+                }
+                println!("FAST_OUTPUT");
+                println!(
+                    "{}",
+                    hook_context_json(
+                        "PreToolUse",
+                        &u16_advisory_context(
+                            &file_path,
+                            estimated,
+                            advisory_limit,
+                            limit,
+                            "this edit would leave",
+                            false,
+                        )
+                    )
+                );
+                return Ok(());
+            }
         }
     }
 
@@ -210,9 +283,134 @@ fn write_pre_edit_block(
     Ok(())
 }
 
+fn missing_file_reason(file_path: &str) -> String {
+    let stem = Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim();
+
+    let suggestions_enabled = std::env::var("VIBEGUARD_PRE_EDIT_SUGGEST")
+        .map(|value| value != "0")
+        .unwrap_or(true);
+
+    if !suggestions_enabled {
+        return format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. The AI may have hallucinated the file path. Please use Glob/Grep to search for the correct file path first."
+        );
+    }
+
+    match missing_file_candidates(file_path, stem) {
+        MissingFileCandidates::Found(candidates) => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. Likely candidates (by basename stem '{stem}'):\n{}\nVerify which (if any) matches before retrying; do not re-guess the original path. Set VIBEGUARD_PRE_EDIT_SUGGEST=0 to disable candidate hints.",
+            candidates
+                .iter()
+                .map(|candidate| format!("  {candidate}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        MissingFileCandidates::Empty => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. No similar tracked files found by basename stem. The AI may have hallucinated the path. Use Glob/Grep with a different basename before retrying."
+        ),
+        MissingFileCandidates::LookupFailed(detail) => format!(
+            "VIBEGUARD interception: File does not exist - {file_path}. Could not search tracked files for similar paths: {detail}. The AI may have hallucinated the path. Use Glob/Grep to search manually before retrying."
+        ),
+    }
+}
+
+fn missing_file_candidates(file_path: &str, stem: &str) -> MissingFileCandidates {
+    if stem.is_empty() {
+        return MissingFileCandidates::Empty;
+    }
+
+    let Some(project_dir) = find_project_dir(file_path) else {
+        return MissingFileCandidates::LookupFailed("no git project root found".to_string());
+    };
+
+    let output = match Command::new("git")
+        .arg("-C")
+        .arg(&project_dir)
+        .arg("ls-files")
+        .output()
+    {
+        Ok(output) => output,
+        Err(exc) => {
+            return MissingFileCandidates::LookupFailed(format!(
+                "git ls-files could not run: {exc}"
+            ));
+        }
+    };
+    if !output.status.success() {
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr_text.lines().next().map(str::trim);
+        let detail = match stderr.filter(|line| !line.is_empty()) {
+            Some(line) => format!("git ls-files exited with {}: {line}", output.status),
+            None => format!("git ls-files exited with {}", output.status),
+        };
+        return MissingFileCandidates::LookupFailed(detail);
+    }
+
+    let stem_lower = stem.to_ascii_lowercase();
+    let candidates = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|candidate| {
+            Path::new(candidate)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|candidate_stem| candidate_stem.to_ascii_lowercase().contains(&stem_lower))
+                .unwrap_or(false)
+        })
+        .take(3)
+        .map(|candidate| project_dir.join(candidate).display().to_string())
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        MissingFileCandidates::Empty
+    } else {
+        MissingFileCandidates::Found(candidates)
+    }
+}
+
 fn decision_block_json(reason: &str) -> String {
     let escaped = serde_json::to_string(reason).unwrap_or_else(|_| "\"\"".to_string());
     format!("{{ \"decision\": \"block\", \"reason\": {escaped} }}")
+}
+
+fn hook_context_json(event_name: &str, context: &str) -> String {
+    let escaped = serde_json::to_string(context).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        "{{\"hookSpecificOutput\":{{\"hookEventName\":\"{event_name}\",\"additionalContext\":{escaped}}}}}"
+    )
+}
+
+fn u16_advisory_limit(base_limit: usize, hard_limit: usize, warn_limit: usize) -> usize {
+    if hard_limit > base_limit {
+        hard_limit
+    } else {
+        warn_limit.min(hard_limit)
+    }
+}
+
+fn u16_advisory_context(
+    file_path: &str,
+    line_count: usize,
+    warn_limit: usize,
+    hard_limit: usize,
+    action: &str,
+    include_search: bool,
+) -> String {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_path);
+    let mut context = format!(
+        "VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: {action} {file_name} with {line_count} lines exceeds the {warn_limit}-line typical range but stays under the {hard_limit}-line hard limit\nSCOPE: keep the current change localized; plan a split if this file keeps growing\nACTION: NONE — advisory only, continue without acknowledgement"
+    );
+    if include_search {
+        context.push_str(
+            "\n---\nVIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement",
+        );
+    }
+    context
 }
 
 pub fn post_edit_fast_check(args: &[String]) -> Result {
@@ -381,6 +579,37 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    fn temp_project(name: &str) -> PathBuf {
+        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "vibeguard_runtime_hook_checks_{name}_{}_{}",
+            std::process::id(),
+            unique
+        ))
+    }
+
+    fn init_git_repo(root: &Path) -> io::Result<()> {
+        fs::create_dir_all(root)?;
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .arg("init")
+            .arg("-q")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
+    }
 
     #[test]
     fn decision_block_json_escapes_reason_text() {
@@ -402,6 +631,57 @@ mod tests {
         assert!(pre_edit.to_string().contains("pre-edit-check"));
         assert!(post_edit.to_string().contains("post-edit-fast-check"));
         assert!(post_write.to_string().contains("post-write-fast-check"));
+    }
+
+    #[test]
+    fn missing_file_candidates_distinguishes_empty_from_lookup_failure() -> TestResult {
+        let root = temp_project("empty");
+        init_git_repo(&root)?;
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir)?;
+        let tracked = src_dir.join("lib.rs");
+        fs::write(&tracked, "pub fn lib() {}\n")?;
+        let add_output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("add")
+            .arg("src/lib.rs")
+            .output()?;
+        assert!(
+            add_output.status.success(),
+            "git add failed: {}",
+            String::from_utf8_lossy(&add_output.stderr)
+        );
+
+        let missing = root.join("src").join("missing_name.rs");
+        assert_eq!(
+            missing_file_candidates(missing.to_string_lossy().as_ref(), "missing_name"),
+            MissingFileCandidates::Empty
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn missing_file_candidates_reports_git_lookup_failure() -> TestResult {
+        let root = temp_project("bad_git");
+        fs::create_dir_all(root.join(".git"))?;
+        fs::create_dir_all(root.join("src"))?;
+        let missing = root.join("src").join("lib.rs");
+
+        let result = missing_file_candidates(missing.to_string_lossy().as_ref(), "lib");
+        assert!(
+            matches!(
+                result,
+                MissingFileCandidates::LookupFailed(ref detail)
+                    if detail.contains("git ls-files")
+            ),
+            "expected lookup failure that names git ls-files, got {result:?}"
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[test]

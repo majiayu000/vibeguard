@@ -1,0 +1,180 @@
+name: vibeguard-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RUST_VERSION: "1.85.1"
+  CROSS_VERSION: "0.2.5"
+  RUNTIME_MANIFEST: vibeguard-runtime/Cargo.toml
+  RUNTIME_VERSION_FILE: vibeguard-runtime/VERSION
+
+jobs:
+  validate-runtime-version:
+    name: Validate runtime version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert VERSION matches release tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(tr -d '[:space:]' < "${RUNTIME_VERSION_FILE}")"
+          if [[ -z "${version}" ]]; then
+            echo "ERROR: ${RUNTIME_VERSION_FILE} is empty" >&2
+            exit 1
+          fi
+          expected_tag="v${version}"
+          if [[ "${TAG_NAME}" != "${expected_tag}" ]]; then
+            echo "ERROR: release tag ${TAG_NAME} does not match ${RUNTIME_VERSION_FILE} (${expected_tag})" >&2
+            exit 1
+          fi
+          echo "Runtime version ${version} matches release tag ${TAG_NAME}"
+
+      - name: Assert tag commit is on main
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          tag_commit="$(git rev-list -n 1 "${TAG_NAME}")"
+          if ! git merge-base --is-ancestor "${tag_commit}" origin/main; then
+            echo "ERROR: release tag ${TAG_NAME} (${tag_commit}) is not reachable from origin/main" >&2
+            exit 1
+          fi
+          echo "Release tag ${TAG_NAME} points to ${tag_commit}, reachable from origin/main"
+
+  build-runtime:
+    name: Build runtime (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: validate-runtime-version
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            builder: cargo
+            smoke: "1"
+          - os: macos-14
+            target: x86_64-apple-darwin
+            builder: cargo
+            smoke: "0"
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            builder: cargo
+            smoke: "1"
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            builder: cross
+            smoke: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup default "${RUST_VERSION}"
+          rustup target add "${{ matrix.target }}"
+          rustc --version
+
+      - name: Install musl tools (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross (Linux aarch64)
+        if: matrix.builder == 'cross'
+        run: cargo install cross --version "${CROSS_VERSION}" --locked
+
+      - name: Build runtime
+        env:
+          TARGET: ${{ matrix.target }}
+          BUILDER: ${{ matrix.builder }}
+        run: |
+          if [[ "${BUILDER}" == "cross" ]]; then
+            cross build --release --locked --target "${TARGET}" --manifest-path "${RUNTIME_MANIFEST}"
+          else
+            cargo build --release --locked --target "${TARGET}" --manifest-path "${RUNTIME_MANIFEST}"
+          fi
+
+      - name: Package binary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "dist/${TARGET}"
+          cp "vibeguard-runtime/target/${TARGET}/release/vibeguard-runtime" \
+            "dist/${TARGET}/vibeguard-runtime-${TARGET}"
+          chmod 0755 "dist/${TARGET}/vibeguard-runtime-${TARGET}"
+
+      - name: Smoke test native binary
+        if: matrix.smoke == '1'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          output="$(printf '{"tool":"Bash"}\n' | "dist/${TARGET}/vibeguard-runtime-${TARGET}" json-field tool)"
+          test "${output}" = "Bash"
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: vibeguard-runtime-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/vibeguard-runtime-${{ matrix.target }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    needs: build-runtime
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download runtime artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "ERROR: release ${TAG_NAME} already exists; refusing to mutate release assets" >&2
+            exit 1
+          fi
+          gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
+            --title "${TAG_NAME}" \
+            --notes "VibeGuard runtime binaries for ${TAG_NAME}."

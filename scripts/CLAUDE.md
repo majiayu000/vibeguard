@@ -14,7 +14,8 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `log-capability-change.sh` | Extract a capability-change timeline from git history |
 | `authorized-discard.py` | Print and execute an explicit, confirmed Git cleanup plan for tracked, untracked, and selected ignored paths |
 | `live_truth.py` | Verify mutable claims such as latest, PR-ready, merged, running, deployed, and published with fresh facts/inferences/gaps |
-| `skill_validate.py` | Validate SKILL.md structure and score proposed skill changes with with/without repair and regression evidence |
+| `skill_validate.py` | Validate SKILL.md and template structure, then score proposed skill changes with with/without repair and regression evidence |
+| `ci/validate-skill-format.py` | Validate VibeGuard skill/workflow SKILL.md and template structure (`When to Activate`, `Red Flags`, `Checklist`) |
 
 ## GC / Metrics / Verification
 
@@ -36,8 +37,9 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | `validate-hooks.sh` | Validate hook script presence and contract basics |
 | `validate-rules.sh` | Validate rule file format and ID uniqueness |
 | `validate-doc-paths.sh` | Check backtick path references in markdown docs |
-| `validate-doc-command-paths.sh` | Check `~/vibeguard/...` shell command paths in user-facing docs |
+| `validate-doc-command-paths.sh` | Check shell command paths and stale command aliases in user-facing docs |
 | `validate-no-personal-paths.sh` | Catch accidental personal absolute paths in tracked files |
+| `validate-skill-format.sh` | Check VibeGuard skill/workflow SKILL.md and template activation, red-flag, and checklist sections |
 | `check-branch-protection.sh` | Verify branch protection settings |
 | `apply-branch-protection.sh` | Apply the expected branch protection policy |
 
@@ -62,6 +64,7 @@ python3 scripts/live_truth.py checklist
 python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md
 python3 scripts/skill_validate.py --check-repo-format --repo-root .
 python3 scripts/skill_validate.py --proposed-skill path/to/SKILL.md --baseline-trajectories path/to/baseline.jsonl
+bash scripts/ci/validate-skill-format.sh
 bash scripts/ci/validate-hooks-manifest.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh

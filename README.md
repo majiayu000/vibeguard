@@ -12,7 +12,7 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 
 - Duplicate files and reinvented modules
 - Invented APIs, fake libraries, and hardcoded placeholder values
-- Dangerous shell/git commands (`rm -rf`, `git clean -f`, `git checkout .`, force-push)
+- Dangerous shell/git operations (`rm -rf` dangerous paths, `git clean -f`, non-fast-forward pushes)
 - Audited cleanup for intentional local discards, with exact path plans and confirmation gates
 - Analysis paralysis and unverified "I'm done" claims
 - Silent exception swallowing and `Any`-type abuse
@@ -27,9 +27,24 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
-Requires Python 3 and Rust/Cargo for the `vibeguard-runtime` runtime binary.
+Requires Python 3. On supported macOS/Linux targets, setup downloads a
+prebuilt `vibeguard-runtime` release binary and verifies it with `SHA256SUMS`,
+so Rust/Cargo is not required by default.
 
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
+
+## Current status
+
+The current mainline is install-verified on macOS and CI-verified on Ubuntu, macOS, and Windows.
+
+- Latest release train: `v1.1.x`
+- Local health gate: `bash setup.sh --check --strict`
+- Expected verdict after a healthy install: `HEALTHY`
+- Claude Code: native rules, skills, commands, hooks, and git hooks are installed by `setup.sh`; scheduled GC is opt-in with `--with-scheduler`
+- Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
+- Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
+
+Latest benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report. Lower is better; the latest mainline run stayed below the regression threshold and improved the hot-path P95 samples versus the previous main commit.
 
 ## What you actually get
 
@@ -76,7 +91,7 @@ AI:   → tries to create auth_service.py
       ✗ VibeGuard flags — use env var or secret manager
 
       → runs `git push --force`
-      ✗ VibeGuard denies — suggests `--force-with-lease`
+      ✗ VibeGuard git pre-push hook denies — history rewrites require explicit human approval
 
       → runs `git clean -fd`
       ✗ VibeGuard denies — points to an authorized discard workflow with an exact deletion plan
@@ -134,9 +149,10 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | Scenario | Hook | Result |
 |----------|------|--------|
 | AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
+| AI creates or edits production source above 400 lines | `pre-write-guard`, `pre-edit-guard`, `post-write-guard`, `post-edit-guard` | **Warn** — typical-size advisory; keep the current change localized and plan a later split if growth continues |
 | AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
-| AI runs `rm -rf` on system paths, `git clean -f`, `git checkout .` | `pre-bash-guard` | **Block** — safe alternatives + audited-discard workflow |
-| AI runs `git push --force` (non-fast-forward / branch delete) | `git/pre-push` (per-project hook) | **Block** — suggests `--force-with-lease` |
+| AI runs destructive local cleanup (`rm -rf` dangerous paths, `git clean -f`, `git checkout/restore .`) | `pre-bash-guard` | **Block** — suggests safe alternatives and audited discard flow |
+| AI pushes a non-fast-forward update or branch deletion | git `pre-push` | **Block** — protects remote history; rewrites and deletions require explicit human approval plus the repository bypass policy |
 | AI edits non-existent file | `pre-edit-guard` | **Block** — must Read file first |
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
 | AI adds `console.log` / `print()` debug statements | `post-edit-guard` | **Warn** — use logger instead |
@@ -144,10 +160,10 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI keeps reading/searching without acting | `analysis-paralysis-guard` | **Escalate** — force a concrete next step or blocker report |
 | AI edits code in `full` / `strict` profile | `post-build-check` | **Warn** — run language-appropriate build check |
 | `git commit` | `pre-commit-guard` | **Block** — quality + build checks (staged files only), 10s timeout |
-| AI tries to finish with unverified changes | `stop-guard` | **Gate** — complete verification first |
+| AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
-U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the 800-line limit are denied before mutation.
+U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. The default typical-size advisory starts above 400 lines (`u16.warn_limit` / `VG_U16_WARN_LIMIT`), while the hard limit remains 800 lines (`u16.limit` / `VG_U16_LIMIT`). For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the hard limit are denied before mutation.
 
 ### Static Guards — Run Anytime
 
@@ -278,18 +294,41 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 
 ## Installation
 
+### Runtime prerequisites
+
+Default setup downloads and verifies the pinned `vibeguard-runtime` release for
+supported platforms. Source builds remain available for unsupported/offline
+installs and for users who explicitly request them.
+
+| Platform | Default runtime path | Rust/Cargo needed? |
+|----------|----------------------|--------------------|
+| macOS arm64 (`aarch64-apple-darwin`) | Prebuilt release binary | No |
+| macOS x86_64 (`x86_64-apple-darwin`) | Prebuilt release binary | No |
+| Linux x86_64 (`x86_64-unknown-linux-musl`) | Prebuilt release binary | No |
+| Linux arm64 (`aarch64-unknown-linux-musl`) | Prebuilt release binary | No |
+| Other targets, offline installs, or `--build-from-source` | Local source build | Yes |
+
+`setup.sh` uses `gh release download` when `gh` is available, otherwise `curl`.
+If a supported-target download fails, it falls back to `cargo build` when Cargo
+is available. Checksum mismatch or a missing checksum entry is fatal and does
+not fall back to source.
+
 ### Profiles and languages
 
 ```bash
 # Profiles
 bash ~/vibeguard/setup.sh                              # Install (default: core profile)
 bash ~/vibeguard/setup.sh --profile minimal           # Minimal: pre-hooks only (lightweight)
-bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop Gate + Build Check + learning
-bash ~/vibeguard/setup.sh --profile strict            # Strict: same hook set as full, for stricter runtime policy
+bash ~/vibeguard/setup.sh --profile full              # Full: adds Stop signal + Build Check + learning
+bash ~/vibeguard/setup.sh --profile strict            # Strict: full hooks + Claude Code U-32 SessionStart constraint budget
 
 # Language selection (only install rules/guards for specified languages)
 bash ~/vibeguard/setup.sh --languages rust,python
 bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
+
+# Runtime / scheduler
+bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
+bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh --check                     # Verify installation
@@ -309,9 +348,9 @@ which implies it) to make CI fail when the install is broken.
 | `minimal` | pre-write, pre-edit, pre-bash | Lightweight — only critical interception |
 | `core` (default) | minimal + post-edit, post-write, analysis-paralysis | Standard development |
 | `full` | core + stop-guard, learn-evaluator, post-build-check | Full defense + learning |
-| `strict` | same hook set as full | Maximum enforcement |
+| `strict` | full + Claude Code count-active-constraints (SessionStart/U-32); Codex native hooks remain full | Maximum enforcement |
 
-`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git pre-commit hook during setup. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
+`setup.sh` also prepares the shared pre-commit wrapper at `~/.vibeguard/pre-commit` and installs this repository's git `pre-commit` and `pre-push` hooks during setup. The git `pre-push` hook owns force-push / branch-deletion protection; `pre-bash-guard` does not regex-match `git push --force`. To attach the wrapper to another repository, use `scripts/project-init.sh` or that repository's own install step.
 
 ### Codex Integration
 
@@ -321,13 +360,13 @@ Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `conf
 
 | Event | Hook | Function |
 |-------|------|----------|
-| `PreToolUse(Bash)` | `pre-bash-guard.sh` | Dangerous command interception + package manager correction |
+| `PreToolUse(Bash)` | `pre-bash-guard.sh` | Destructive local cleanup interception + package manager correction |
 | `PermissionRequest(Bash)` | `pre-bash-guard.sh` | Fail-closed approval gate for dangerous commands |
 | `PreToolUse(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | File existence and search-first gates before patching |
 | `PermissionRequest(Edit/Write via apply_patch)` | `pre-edit-guard.sh`, `pre-write-guard.sh` | Fail-closed approval gate before privileged patching |
 | `PostToolUse(Bash/apply_patch)` | `post-build-check.sh` | Build failure detection after commands or patches |
 | `PostToolUse(Edit/Write via apply_patch)` | `post-edit-guard.sh`, `post-write-guard.sh` | Post-patch quality and duplicate checks |
-| `Stop` | `stop-guard.sh` | Uncommitted changes gate |
+| `Stop` | `stop-guard.sh` | Uncommitted changes signal (logs a `gate` event, non-blocking Stop) |
 | `Stop` | `learn-evaluator.sh` | Session metrics collection |
 
 This is the default enforcement layer. It talks to Codex through native hooks
@@ -338,6 +377,8 @@ required; the optional app-server wrapper is only for external orchestrators
 that already require `codex app-server`.
 
 Codex hook command names are namespaced as `vibeguard-*.sh` to avoid collisions with other toolchains sharing `~/.codex/hooks.json`. Output format differences are handled by the `run-hook-codex.sh` wrapper (Claude Code `decision:block` -> Codex deny payloads). Codex sends `apply_patch` as a patch command, so the wrapper normalizes that payload into Edit/Write-shaped inputs before calling the existing VibeGuard file hooks. For `Update File` patches, the wrapper also passes the line delta so `pre-edit-guard.sh` can enforce U-16 before Codex mutates the file. When a hook suggests `updatedInput`, the Codex CLI wrapper cannot apply it automatically, so VibeGuard emits an explicit note with the suggested replacement command instead of silently dropping it.
+
+Hook status is a separate human diagnostics surface. Use `vibeguard-runtime hook-status --mode focused --log-file ~/.vibeguard/events.jsonl` to inspect recent `pass`, `skipped`, `slow`, `timeout`, and adapter-error states without adding successful hook summaries to the model context. Only actionable `warn` / `block` results should continue through `hookSpecificOutput.additionalContext`. See `docs/reference/codex-hook-status.md`.
 
 **MCP server status:** the legacy `mcp-server/` prototype is not installed by `setup.sh` and is not part of the supported runtime surface. Supported integrations are the Claude Code hooks, native Codex hooks, and the optional app-server wrapper below; any future MCP reintroduction must go through an explicit install path and hash/audit baseline.
 
@@ -394,7 +435,7 @@ Add your own rules to `~/.vibeguard/user-rules/`. Any `.md` files placed there a
 
 | Principle | From | Implementation |
 |-----------|------|----------------|
-| Automation over documentation | Harness #3 | Hooks + guard scripts enforce mechanically |
+| Automation over documentation | Harness #3 | Mechanized checks complement rules, workflows, and review |
 | Error messages = fix instructions | Harness #3 | Every interception tells AI how to fix, not just what's wrong |
 | Maps not manuals | Harness #5 | 7-layer index + negative constraints + lazy loading |
 | Failure → capability | Harness #2 | Mistake → learn → new guard → never again |

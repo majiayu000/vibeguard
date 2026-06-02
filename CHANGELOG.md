@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-01
+
 ### Added
 - `scripts/doctors/codex-doctor.sh`, a read-only Codex diagnosis entry point that summarizes install state, native hook coverage, capability gaps, latest events, and repair guidance without moving enforcement out of hooks/guards
 - SEC-11 review gates for dependency version changes and test-trust weakening: `check_dependency_changes.sh`, `check_test_weakening.sh`, and matching unit coverage
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `setup.sh --check --strict` reflects health in the exit code (0 healthy, 1 degraded, 2 broken); default mode keeps the historical always-exit-0 contract for backwards compatibility
 - `setup.sh --check --no-summary` preserves the legacy report shape for any consumer that grepped the prior unsummarized output
 - `tests/test_setup_check.sh` covers tally arithmetic, ANSI stripping, JSON shape, exit-code policy, and end-to-end argument parsing for the new modes
+- CI-published `Hook Latency (P95)` benchmark reporting for hook hot paths, with lower-is-better regression tracking
 
 ### Fixed
 - `check_code_slop.sh` output wording aligned with unit tests (`Legacy debug code`)
@@ -26,12 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `doc-freshness-check.sh` now uses `rules/claude-rules/` as canonical rule source and deduplicates guard file reporting
 - Added missing `PY-13` rule definition in Claude-native Python rule set
 - Codex `apply_patch Update File` now passes line deltas into `pre-edit-guard.sh`, so U-16 over-800-line source edits are denied before mutation instead of only warning after the file changes
+- Claude native rule installation now derives installed rule files from `schemas/install-modules.json` instead of hardcoded rule directories
+- `setup.sh --check` now detects native rule symlink target drift, repo-owned stale rule symlinks no longer declared by the manifest, installed snapshot drift, managed agent drift, shortcut command drift, and repository git hook drift
+- Codex hook entry validation now rejects malformed or partial managed hook entries instead of treating them as healthy
+- Rule count banners now include non-numeric canonical rule IDs such as `TASTE-*`
+- Workflow, command, skill-template, and command-output schema validators now cover previously documentation-only surfaces
 
 ### Changed
 - `check_code_slop.sh` supports `--include-fixtures` and `--strict-repo` scanning modes
 - `check_code_slop.sh` now excludes repository-local noise directories by default (`.claude`, `.vibeguard`, `.omx`, `tests/fixtures`)
 - `check_code_slop.sh` TODO stale-date scan limit is configurable via `VIBEGUARD_TODO_SCAN_LIMIT` (default 20)
 - README and Chinese README now document Codex U-16 enforcement, the default advisory search-first mode for new source files, and current pre-commit/profile installation semantics
+- README now publishes the current install/CI/Codex/benchmark status so users can tell which surfaces are actually active after setup
+- Rule and workflow wording now distinguishes hook enforcement from agent guidance, including strict-profile and severity semantics
 
 ## [1.1.0] - 2026-04-02
 
@@ -218,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto-optimize` workflow integrated into VibeGuard
 - `setup.sh` and install scripts for one-command installation
 
-[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/majiayu000/vibeguard/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/majiayu000/vibeguard/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/majiayu000/vibeguard/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/majiayu000/vibeguard/compare/v0.7.0...v0.8.0

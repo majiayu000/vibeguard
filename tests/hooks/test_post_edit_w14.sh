@@ -26,5 +26,7 @@ _w14_result=$(
 )
 rm -rf "$_w14_dir"
 assert_contains "$_w14_result" "[W-14]" "W-14 detects relative/absolute matches for the same file"
+assert_contains "$_w14_result" 'BASE=${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}' "W-14 worktree hint reads configured base"
+assert_contains "$_w14_result" 'case \"$BASE\" in /*)' "W-14 worktree hint resolves relative base against repo root"
 
 hook_test_finish

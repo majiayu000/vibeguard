@@ -5,8 +5,8 @@ set -euo pipefail
 # Check whether the current project complies with the VibeGuard anti-hallucination specification
 #
 # How to use:
-#   bash vibeguard/scripts/compliance_check.sh [project_dir]
-#   bash vibeguard/scripts/compliance_check.sh /path/to/my-project
+#   bash vibeguard/scripts/verify/compliance_check.sh [project_dir]
+#   bash vibeguard/scripts/verify/compliance_check.sh /path/to/my-project
 
 PROJECT_DIR="${1:-.}"
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"

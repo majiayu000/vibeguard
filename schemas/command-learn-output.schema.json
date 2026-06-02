@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-learn-output.schema.json",
+  "title": "VibeGuard Learn Command Output",
+  "description": "Structured output contract for /vibeguard:learn.",
+  "type": "object",
+  "required": ["command", "error", "rootCause", "improvements", "verification"],
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "const": "learn"
+    },
+    "error": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rootCause": {
+      "type": "object",
+      "required": ["surface", "direct", "root"],
+      "additionalProperties": false,
+      "properties": {
+        "surface": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direct": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "improvements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "target", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["new_guard", "enhance_guard", "new_hook", "new_rule", "claude_md"]
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["newGuardPassed", "noRegression"],
+      "additionalProperties": false,
+      "properties": {
+        "newGuardPassed": {
+          "type": "boolean"
+        },
+        "noRegression": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

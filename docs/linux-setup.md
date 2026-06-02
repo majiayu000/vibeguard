@@ -4,22 +4,45 @@ VibeGuard supports Linux via **systemd user units** as the scheduled task mechan
 
 ## Requirements
 
-- Linux with systemd (most modern distros: Ubuntu 16.04+, Debian 9+, Fedora, Arch, etc.)
-- `systemctl` available in `$PATH`
-- A user session with `systemd --user` support (most desktop/server setups)
+- Python 3.
+- `gh` or `curl` for the default prebuilt `vibeguard-runtime` download.
+- Rust/Cargo only for unsupported targets, offline installs, or `--build-from-source`.
+- Linux with systemd, `systemctl` in `$PATH`, and a `systemd --user` session only if
+  you opt in to the scheduled GC timer.
 
 ## Installation
 
-Run the standard setup script — it automatically detects Linux and installs the systemd timer:
+Run the standard setup script to install VibeGuard without a background scheduler:
 
 ```bash
-bash setup.sh
+bash setup.sh --yes
 ```
 
-The installer will:
+On `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, the default
+runtime path downloads a release binary and verifies it against `SHA256SUMS`, so
+Rust/Cargo is not required. To force a local build:
+
+```bash
+bash setup.sh --yes --build-from-source
+```
+
+Scheduled GC is opt-in. To install and enable the systemd timer:
+
+```bash
+bash setup.sh --yes --with-scheduler
+```
+
+The opt-in scheduler path will:
 1. Copy `scripts/systemd/vibeguard-gc.{service,timer}` to `~/.config/systemd/user/`
 2. Substitute `__VIBEGUARD_DIR__` and `__HOME__` with the actual paths
 3. Enable and start `vibeguard-gc.timer` via `systemctl --user enable --now`
+
+You can also run GC on demand:
+
+```bash
+/vibeguard:gc
+bash scripts/gc/gc-scheduled.sh
+```
 
 ### Manual installation
 

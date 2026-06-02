@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-check-output.schema.json",
+  "title": "VibeGuard Check Command Output",
+  "description": "Structured output contract for /vibeguard:check.",
+  "type": "object",
+  "required": ["command", "project", "date", "guardResults", "complianceScore", "baselineComparison"],
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "const": "check"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+    },
+    "guardResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["guardId", "name", "count", "severity", "details"],
+        "additionalProperties": false,
+        "properties": {
+          "guardId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "count": {
+            "type": "integer"
+          },
+          "severity": {
+            "enum": ["low", "medium", "high", "pass"]
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "complianceScore": {
+      "type": "number"
+    },
+    "baselineComparison": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["before", "after", "delta"],
+        "additionalProperties": false,
+        "properties": {
+          "before": {
+            "type": "number"
+          },
+          "after": {
+            "type": "number"
+          },
+          "delta": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

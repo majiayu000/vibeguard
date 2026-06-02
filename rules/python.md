@@ -4,6 +4,10 @@
 
 Reference index for scanning and repairing Python projects.
 
+## Linter Boundary
+
+These rules do not replace native linters. Treat lint-equivalent entries as agent reminders and review triage; use the verification command below for mechanical enforcement. Semantic/contextual entries remain useful when native linters lack project-level context.
+
 ## Scan checklist
 
 | ID | Rule | Severity | Summary |

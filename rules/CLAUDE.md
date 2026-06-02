@@ -24,7 +24,7 @@ VibeGuard rule files define inspection standards for each language and domain.
 ## Each rule contains
 
 1. ID and name
-2. Severity (high/medium/low)
+2. Severity (critical/strict/high/medium/low/guideline)
 3. Description of inspection items
 4. Repair mode (specific code repair method)
 5. FIX/SKIP judgment matrix

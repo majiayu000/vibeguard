@@ -103,6 +103,37 @@ def guard_names() -> list[str]:
     return sorted(names)
 
 
+def normalize_language(value: str) -> str:
+    language = value.strip().lower()
+    if language == "golang":
+        return "go"
+    return language
+
+
+def language_filter(languages: str | None) -> set[str]:
+    if not languages:
+        return set()
+    return {
+        normalize_language(part)
+        for part in languages.split(",")
+        if normalize_language(part)
+    }
+
+
+def _module_languages(module: dict[str, Any], module_id: str) -> set[str]:
+    languages = module.get("languages", [])
+    if not isinstance(languages, list):
+        raise ValueError(f"module {module_id}: languages must be a list")
+    normalized: set[str] = set()
+    for item in languages:
+        if not isinstance(item, str):
+            raise ValueError(f"module {module_id}: non-string language entry")
+        language = normalize_language(item)
+        if language:
+            normalized.add(language)
+    return normalized
+
+
 def normalize_skill_source(path_str: str, module_id: str) -> str:
     source = path_str.rstrip("/")
     if not source:
@@ -118,6 +149,74 @@ def normalize_skill_source(path_str: str, module_id: str) -> str:
     if normalized in {"", "."} or not PurePosixPath(normalized).name:
         raise ValueError(f"module {module_id}: skill path must name a skill directory: {path_str}")
     return normalized
+
+
+def normalize_rule_source(path_str: str, module_id: str) -> tuple[str, str, str]:
+    source = path_str.rstrip("/")
+    if not source:
+        raise ValueError(f"module {module_id}: rule path must name a Markdown file: {path_str}")
+    if "\\" in source:
+        raise ValueError(f"module {module_id}: rule path must use forward slashes: {path_str}")
+    path = PurePosixPath(source)
+    if path.is_absolute():
+        raise ValueError(f"module {module_id}: rule path must be repo-relative: {path_str}")
+    if ".." in path.parts:
+        raise ValueError(f"module {module_id}: rule path must not contain '..': {path_str}")
+    if path.suffix != ".md":
+        raise ValueError(f"module {module_id}: rule path must be a Markdown file: {path_str}")
+
+    rules_root = PurePosixPath("rules/claude-rules")
+    try:
+        dest_rel_path = path.relative_to(rules_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"module {module_id}: rule path must live under rules/claude-rules/: {path_str}"
+        ) from exc
+    if not dest_rel_path.parts:
+        raise ValueError(f"module {module_id}: rule path must include a rule subdirectory: {path_str}")
+
+    normalized = path.as_posix()
+    if not (ROOT / normalized).is_file():
+        raise ValueError(f"module {module_id}: missing rule path {normalized}")
+    return normalized, dest_rel_path.as_posix(), dest_rel_path.parts[0]
+
+
+def rule_links(
+    manifest: dict[str, Any],
+    languages: str | None = None,
+) -> list[tuple[str, str, str]]:
+    selected_languages = language_filter(languages)
+    links: list[tuple[str, str, str]] = []
+    modules = manifest.get("modules", [])
+    if not isinstance(modules, list):
+        raise ValueError("manifest modules must be a list")
+    for module in modules:
+        if not isinstance(module, dict):
+            raise ValueError("manifest module entry is not an object")
+        if module.get("kind") != "rules":
+            continue
+        module_id = str(module.get("id", "<unknown>"))
+        module_languages = _module_languages(module, module_id)
+        if selected_languages and module_languages and selected_languages.isdisjoint(module_languages):
+            continue
+        paths = module.get("paths", [])
+        if not isinstance(paths, list):
+            raise ValueError(f"module {module_id}: paths must be a list")
+        for path_str in paths:
+            if not isinstance(path_str, str):
+                raise ValueError(f"module {module_id}: non-string rule path")
+            links.append(normalize_rule_source(path_str, module_id))
+    return links
+
+
+def rule_labels(manifest: dict[str, Any], languages: str | None = None) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for _source, _dest_rel, label in rule_links(manifest, languages):
+        if label not in seen:
+            labels.append(label)
+            seen.add(label)
+    return labels
 
 
 def skill_links(manifest: dict[str, Any], target: str) -> list[tuple[str, str]]:
@@ -178,6 +277,36 @@ def _validate_paths(manifest: dict[str, Any]) -> list[str]:
             if not path.exists():
                 errors.append(f"module {module_id}: missing path {path_str}")
     return errors
+
+
+def _validate_rule_paths(manifest: dict[str, Any]) -> list[str]:
+    modules = manifest.get("modules", [])
+    if not isinstance(modules, list):
+        return []
+
+    actual: set[str] = set()
+    for module in modules:
+        if not isinstance(module, dict) or module.get("kind") != "rules":
+            continue
+        paths = module.get("paths", [])
+        if not isinstance(paths, list):
+            continue
+        for path in paths:
+            if isinstance(path, str):
+                actual.add(path.rstrip("/"))
+
+    expected = {
+        path.relative_to(ROOT).as_posix()
+        for path in sorted(CANONICAL_RULES_DIR.rglob("*.md"))
+    }
+    if actual == expected:
+        return []
+
+    return [
+        "rule install path drift: "
+        f"manifest_missing={sorted(expected - actual)} "
+        f"manifest_extra={sorted(actual - expected)}"
+    ]
 
 
 def _validate_profiles(manifest: dict[str, Any]) -> list[str]:
@@ -466,6 +595,7 @@ def validate_contract(
     if len(module_ids) != len(set(module_ids)):
         errors.append("duplicate module ids detected in manifest")
     errors.extend(_validate_paths(manifest))
+    errors.extend(_validate_rule_paths(manifest))
     errors.extend(_validate_profiles(manifest))
     errors.extend(_validate_project_schema(manifest, project_schema, hooks_manifest))
     errors.extend(_validate_hook_install_targets(manifest, hooks_manifest))
@@ -496,6 +626,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("hook-names", help="List user-disableable hook names")
     sub.add_parser("guard-names", help="List known guard names")
+    rule_link = sub.add_parser("rule-links", help="List installable rule files")
+    rule_link.add_argument("--languages", default="")
+    rule_link.add_argument("--manifest-file", default=str(MANIFEST_FILE))
+    rule_label = sub.add_parser("rule-labels", help="List installable rule labels")
+    rule_label.add_argument("--languages", default="")
+    rule_label.add_argument("--manifest-file", default=str(MANIFEST_FILE))
     skill = sub.add_parser("skill-links", help="List installable skill links for a target")
     skill.add_argument("--target", required=True)
     skill.add_argument("--manifest-file", default=str(MANIFEST_FILE))
@@ -547,6 +683,17 @@ def main() -> int:
 
     if args.command == "guard-names":
         print_lines(guard_names())
+        return 0
+
+    if args.command == "rule-links":
+        manifest = load_manifest(Path(args.manifest_file))
+        for source, dest_rel, label in rule_links(manifest, args.languages):
+            print(f"{source}\t{dest_rel}\t{label}")
+        return 0
+
+    if args.command == "rule-labels":
+        manifest = load_manifest(Path(args.manifest_file))
+        print_lines(rule_labels(manifest, args.languages))
         return 0
 
     if args.command == "skill-links":

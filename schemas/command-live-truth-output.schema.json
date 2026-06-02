@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-live-truth-output.schema.json",
+  "title": "VibeGuard Live Truth Command Output",
+  "description": "Structured output contract for scripts/live_truth.py artifacts.",
+  "type": "object",
+  "required": ["command", "claim_type", "verdict", "facts", "inferences", "unresolved_gaps"],
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "const": "live_truth"
+    },
+    "claim_type": {
+      "enum": ["latest", "pr-ready", "merged", "running", "deployed", "published"]
+    },
+    "verdict": {
+      "enum": ["pass", "fail", "gap"]
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        }
+      }
+    },
+    "inferences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unresolved_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

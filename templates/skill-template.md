@@ -28,17 +28,19 @@ date: YYYY-MM-DD
 
 [Failure patterns or anti-patterns this Skill should help catch:]
 
-- [Specific warning sign 1]
-- [Specific warning sign 2]
-- [Anti-pattern that means this Skill may be misapplied]
+- Source search was skipped before adding a new skill, rule, hook, workflow, or test.
+- Activation cues are generic and do not name a concrete error, symptom, or scenario.
+- Verification is described as intent instead of a runnable command or observable result.
 
 ## Checklist
 
 [Pre-delivery checks before claiming the Skill was applied correctly:]
 
-- [Required check 1]
-- [Required check 2]
-- [Verification or regression check]
+- [ ] Activation conditions match this task; otherwise do not use this skill.
+- [ ] Existing files, rules, hooks, or workflows were searched before adding a new one.
+- [ ] The solution steps are concrete and testable.
+- [ ] Verification commands or manual checks are listed with expected results.
+- [ ] Red flags name real failure modes, not generic advice.
 
 ## Solution
 

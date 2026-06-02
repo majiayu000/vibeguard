@@ -1,4 +1,4 @@
-{"version":2,"width":90,"height":28,"timestamp":1776354715,"idle_time_limit":1.5,"command":"bash /Users/lifcc/Desktop/code/AI/tools/vibeguard/docs/assets/demo-scenario.sh","env":{"SHELL":"/bin/zsh"}}
+{"version":2,"width":90,"height":28,"timestamp":1776354715,"idle_time_limit":1.5,"command":"bash docs/assets/demo-scenario.sh","env":{"SHELL":"/bin/zsh"}}
 [0.023025, "o", "\u001b[1;36m┌─────────────────────────────────────────────────────────────────────────┐\r\n│  VibeGuard · stop AI from hallucinating code                            │\r\n"]
 [0.023203, "o", "└─────────────────────────────────────────────────────────────────────────┘\u001b[0m\r\n"]
 [1.231112, "o", "\r\n"]
@@ -310,7 +310,7 @@
 [12.645378, "o", "Check for very long files...\r\n"]
 [12.654502, "o", "\r\n---\r\n"]
 [12.654508, "o", "\u001b[32mNo code garbage found\u001b[0m\r\n"]
-[13.662138, "o", "\r\n\u001b[1;34m── 3. Block dangerous shell commands ──\u001b[0m\r\n"]
+[13.662138, "o", "\r\n\u001b[1;34m── 3. Block destructive git operations ──\u001b[0m\r\n"]
 [14.071608, "o", "$"]
 [14.100292, "o", " "]
 [14.128892, "o", "#"]
@@ -342,8 +342,8 @@
 [14.833758, "o", "c"]
 [14.86111, "o", "e"]
 [14.886879, "o", "\r\n"]
-[14.886888, "o", "\u001b[1;31m✗ pre-bash-guard: blocked `git push --force`\u001b[0m\r\n"]
-[14.886906, "o", "  → suggests: git push --force-with-lease\r\n"]
+[14.886888, "o", "\u001b[1;31m✗ git pre-push hook: blocked non-fast-forward push\u001b[0m\r\n"]
+[14.886906, "o", "  → history rewrites require explicit human approval\r\n"]
 [15.894603, "o", "\r\n\u001b[1;34m── 4. Every finding ships with a fix instruction ──\u001b[0m\r\n"]
 [16.298231, "o", "$"]
 [16.327624, "o", " "]

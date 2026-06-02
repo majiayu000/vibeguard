@@ -34,6 +34,18 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local output="$1" unexpected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$unexpected" <<< "$output"; then
+    red "$desc (unexpectedly contained: $unexpected)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_cmd() {
   local desc="$1"
   shift
@@ -64,6 +76,24 @@ assert_manifest_skill_links_installed() {
   [[ "${found}" -eq 1 ]]
 }
 
+managed_rule_banner_count_for_test() {
+  python3 - <<'PY' "$1"
+from pathlib import Path
+import re
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = text.find("<!-- vibeguard-start -->")
+end = text.find("<!-- vibeguard-end -->", start)
+if start == -1 or end == -1 or end <= start:
+    raise SystemExit(1)
+match = re.search(r"([0-9]+) rules", text[start:end])
+if not match:
+    raise SystemExit(1)
+print(match.group(1))
+PY
+}
+
 assert_runtime_config_seeded() {
   python3 - <<'PY' "${HOME}/.vibeguard/config.json"
 import json
@@ -73,6 +103,7 @@ from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 checks = [
     data.get("write_mode") == "warn",
+    data.get("u16", {}).get("warn_limit") == 400,
     data.get("u16", {}).get("limit") == 800,
     data.get("circuit_breaker", {}).get("threshold") == 3,
     data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,
@@ -111,20 +142,103 @@ assert_claude_rule_banner_matches_installed_rules() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local actual=0 declared file_count rule_file
   while IFS= read -r rule_file; do
-    file_count=$(grep -cE '^## [A-Z]+-[0-9]+' "${rule_file}" 2>/dev/null || true)
+    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
     actual=$((actual + file_count))
   done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
-  declared=$(grep -o '[0-9]* rules' "${HOME}/.claude/CLAUDE.md" 2>/dev/null | grep -o '[0-9]*' | head -1 || true)
+  declared=$(managed_rule_banner_count_for_test "${HOME}/.claude/CLAUDE.md")
   [[ "${declared}" == "${actual}" ]]
+}
+
+assert_codex_rule_banner_matches_installed_rules() {
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local actual=0 declared file_count rule_file
+  while IFS= read -r rule_file; do
+    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
+    actual=$((actual + file_count))
+  done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  declared=$(managed_rule_banner_count_for_test "${HOME}/.codex/AGENTS.md")
+  [[ "${declared}" == "${actual}" ]]
+}
+
+assert_repo_git_hook_target() {
+  local hook_name="$1"
+  local expected="$2"
+  local hook_path="${REPO_GIT_HOOK_DIR}/${hook_name}"
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 1
+  [[ -L "${hook_path}" ]] || return 1
+  [[ "$(readlink "${hook_path}")" == "${expected}" ]] || return 1
+  [[ -x "${hook_path}" ]]
+}
+
+assert_scheduled_gc_absent() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    [[ ! -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]] || return 1
+    ! launchctl print "gui/$(id -u)/com.vibeguard.gc" >/dev/null 2>&1
+  elif [[ "$(uname)" == "Linux" ]]; then
+    [[ ! -f "${HOME}/.config/systemd/user/vibeguard-gc.service" ]] || return 1
+    [[ ! -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]] || return 1
+    ! systemctl --user is-active vibeguard-gc.timer >/dev/null 2>&1
+  else
+    return 0
+  fi
+}
+
+assert_scheduled_gc_present() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]] || return 1
+    launchctl print "gui/$(id -u)/com.vibeguard.gc" >/dev/null 2>&1
+  elif [[ "$(uname)" == "Linux" ]]; then
+    [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.service" ]] || return 1
+    [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]] || return 1
+    systemctl --user is-active vibeguard-gc.timer >/dev/null 2>&1
+  else
+    return 0
+  fi
 }
 
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
 ORIG_PATH="${PATH}"
+REPO_GIT_HOOK_DIR="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
+REPO_GIT_HOOK_BACKUP="${TMP_HOME}/repo-git-hooks-backup"
+LINKED_WORKTREE_PATH=""
+
+backup_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_BACKUP}"
+  local hook hook_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    if [[ -e "${hook_path}" || -L "${hook_path}" ]]; then
+      cp -pP "${hook_path}" "${REPO_GIT_HOOK_BACKUP}/${hook}"
+    fi
+  done
+}
+
+restore_repo_git_hooks() {
+  [[ -n "${REPO_GIT_HOOK_DIR}" ]] || return 0
+  mkdir -p "${REPO_GIT_HOOK_DIR}"
+  local hook hook_path backup_path
+  for hook in pre-commit pre-push; do
+    hook_path="${REPO_GIT_HOOK_DIR}/${hook}"
+    backup_path="${REPO_GIT_HOOK_BACKUP}/${hook}"
+    rm -f "${hook_path}"
+    if [[ -e "${backup_path}" || -L "${backup_path}" ]]; then
+      cp -pP "${backup_path}" "${hook_path}"
+    fi
+  done
+}
+
+backup_repo_git_hooks
 
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
+  if [[ -n "${LINKED_WORKTREE_PATH}" ]]; then
+    git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null 2>&1 || true
+    git -C "${REPO_DIR}" worktree prune >/dev/null 2>&1 || true
+  fi
+  restore_repo_git_hooks
   rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
@@ -138,6 +252,43 @@ if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
   export RUSTUP_HOME="${ORIG_HOME}/.rustup"
 fi
 mkdir -p "${TMP_HOME}/bin"
+REAL_UNAME="$(command -v uname)"
+REAL_CARGO="$(command -v cargo || true)"
+cat > "${TMP_HOME}/bin/uname" <<SH
+#!/usr/bin/env bash
+if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" ]]; then
+  case "\${1:-}" in
+    -m)
+      printf '%s\n' "\${VIBEGUARD_TEST_UNAME_M:-x86_64}"
+      ;;
+    -s|"")
+      printf 'Linux\n'
+      ;;
+    *)
+      exec "${REAL_UNAME}" "\$@"
+      ;;
+  esac
+else
+  exec "${REAL_UNAME}" "\$@"
+fi
+SH
+chmod +x "${TMP_HOME}/bin/uname"
+cat > "${TMP_HOME}/bin/cargo" <<SH
+#!/usr/bin/env bash
+if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
+  printf 'cargo unavailable for test\n' >&2
+  exit 127
+fi
+if [[ -n "\${VIBEGUARD_TEST_CARGO_LOG:-}" ]]; then
+  printf '%s\n' "\$*" >> "\${VIBEGUARD_TEST_CARGO_LOG}"
+fi
+if [[ -z "${REAL_CARGO}" ]]; then
+  printf 'real cargo not found\n' >&2
+  exit 127
+fi
+exec "${REAL_CARGO}" "\$@"
+SH
+chmod +x "${TMP_HOME}/bin/cargo"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
 state="${HOME}/.launchctl-vibeguard-loaded"
@@ -164,7 +315,160 @@ case "${1:-}" in
 esac
 SH
 chmod +x "${TMP_HOME}/bin/launchctl"
+cat > "${TMP_HOME}/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+state="${HOME}/.systemctl-vibeguard-gc-active"
+if [[ "${1:-}" == "--user" ]]; then
+  shift
+fi
+case "${1:-}" in
+  daemon-reload)
+    exit 0
+    ;;
+  enable)
+    if [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]]; then
+      if [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]]; then
+        exit 1
+      fi
+      touch "$state"
+    fi
+    exit 0
+    ;;
+  start)
+    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$state"
+    fi
+    exit 0
+    ;;
+  stop|disable)
+    rm -f "$state"
+    exit 0
+    ;;
+  is-active)
+    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
+    exit 3
+    ;;
+  status)
+    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
+    exit 3
+    ;;
+  list-timers)
+    if [[ -f "$state" ]]; then
+      printf 'NEXT LEFT LAST PASSED UNIT ACTIVATES\n'
+      printf 'Sun 03:00 - - - vibeguard-gc.timer vibeguard-gc.service\n'
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+chmod +x "${TMP_HOME}/bin/systemctl"
+cat > "${TMP_HOME}/bin/gh" <<'SH'
+#!/usr/bin/env bash
+if [[ "${VIBEGUARD_TEST_DOWNLOAD_FAIL:-0}" == "1" || "${VIBEGUARD_TEST_GH_FAIL:-0}" == "1" ]]; then
+  exit 1
+fi
+if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
+  shift 2
+  tag="${1:-}"
+  shift || true
+  dir="."
+  patterns=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dir)
+        dir="$2"; shift 2 ;;
+      --pattern)
+        patterns+=("$2"); shift 2 ;;
+      --repo)
+        shift 2 ;;
+      *)
+        shift ;;
+    esac
+  done
+  [[ -n "${tag}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+  if [[ -n "${VIBEGUARD_TEST_DOWNLOAD_LOG:-}" ]]; then
+    printf 'gh tag=%s patterns=%s\n' "${tag}" "${patterns[*]}" >> "${VIBEGUARD_TEST_DOWNLOAD_LOG}"
+  fi
+  mkdir -p "${dir}"
+  for pattern in "${patterns[@]}"; do
+    if [[ "${pattern}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${dir}/SHA256SUMS"
+    else
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/${pattern}" "${dir}/${pattern}"
+    fi
+  done
+  exit 0
+fi
+exit 1
+SH
+chmod +x "${TMP_HOME}/bin/gh"
+cat > "${TMP_HOME}/bin/curl" <<'SH'
+#!/usr/bin/env bash
+if [[ "${VIBEGUARD_TEST_DOWNLOAD_FAIL:-0}" == "1" ]]; then
+  exit 22
+fi
+out=""
+url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      out="$2"; shift 2 ;;
+    -*)
+      shift ;;
+    *)
+      url="$1"; shift ;;
+  esac
+done
+[[ -n "${out}" && -n "${url}" && -n "${VIBEGUARD_TEST_RELEASE_DIR:-}" ]] || exit 1
+asset="${url##*/}"
+if [[ -n "${VIBEGUARD_TEST_DOWNLOAD_LOG:-}" ]]; then
+  printf 'curl url=%s asset=%s\n' "${url}" "${asset}" >> "${VIBEGUARD_TEST_DOWNLOAD_LOG}"
+fi
+mkdir -p "$(dirname "${out}")"
+if [[ "${asset}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${out}"
+else
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/${asset}" "${out}"
+fi
+SH
+chmod +x "${TMP_HOME}/bin/curl"
 export PATH="${TMP_HOME}/bin:${PATH}"
+
+TEST_RELEASE_DIR="${TMP_HOME}/release-assets"
+mkdir -p "${TEST_RELEASE_DIR}"
+: > "${TEST_RELEASE_DIR}/SHA256SUMS"
+for target in \
+  aarch64-apple-darwin \
+  x86_64-apple-darwin \
+  x86_64-unknown-linux-musl \
+  aarch64-unknown-linux-musl; do
+  asset="${TEST_RELEASE_DIR}/vibeguard-runtime-${target}"
+  cat > "${asset}" <<SH
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "${asset}"
+  asset_hash="$(shasum -a 256 "${asset}" | cut -d' ' -f1)"
+  printf '%s  %s\n' "${asset_hash}" "vibeguard-runtime-${target}" >> "${TEST_RELEASE_DIR}/SHA256SUMS"
+done
+python3 - <<'PY' "${TEST_RELEASE_DIR}/SHA256SUMS" "${TEST_RELEASE_DIR}/SHA256SUMS.bad"
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+lines = src.read_text(encoding="utf-8").splitlines()
+bad_lines = []
+for line in lines:
+    digest, asset = line.split(None, 1)
+    bad_lines.append("0" * len(digest) + "  " + asset)
+lines = bad_lines
+dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+export VIBEGUARD_TEST_RELEASE_DIR="${TEST_RELEASE_DIR}"
 
 header "setup scripts syntax"
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
@@ -179,6 +483,36 @@ assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compil
 assert_cmd "scripts/lib/hooks_manifest.py syntax is correct" python3 -m py_compile "${HOOKS_MANIFEST_HELPER}"
 assert_cmd "scripts/lib/project_config_validate.py syntax is correct" python3 -m py_compile "${PROJECT_CONFIG_HELPER}"
 assert_cmd "scripts/lib/claude_md.py syntax is correct" python3 -m py_compile "${REPO_DIR}/scripts/lib/claude_md.py"
+assert_cmd "CLAUDE.md helper counts canonical non-numeric rule ids" python3 - "${REPO_DIR}" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+repo_dir = Path(sys.argv[1])
+sys.path.insert(0, str(repo_dir / "scripts/lib"))
+import claude_md
+
+canonical = subprocess.check_output(
+    [
+        sys.executable,
+        str(repo_dir / "scripts/lib/vibeguard_manifest.py"),
+        "rule-ids",
+        "--source",
+        "canonical",
+    ],
+    text=True,
+).splitlines()
+assert "TASTE-ANSI" in canonical
+assert claude_md.count_rule_headings(repo_dir / "rules/claude-rules") == len(canonical)
+PY
+assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash -c "
+  set -euo pipefail
+  source '${REPO_DIR}/scripts/setup/lib.sh'
+  source '${REPO_DIR}/scripts/setup/targets/claude-home.sh'
+  actual=\"\$(claude_rule_id_count '${REPO_DIR}/rules/claude-rules')\"
+  expected=\"\$(python3 '${REPO_DIR}/scripts/lib/vibeguard_manifest.py' rule-ids --source canonical | wc -l | tr -d ' ')\"
+  test \"\${actual}\" = \"\${expected}\"
+"
 assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_compile "${CODEX_HOOKS_HELPER}"
 assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
 assert_cmd "hooks/_lib/codex_apply_patch_adapter.py syntax is correct" python3 -m py_compile "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py"
@@ -313,7 +647,8 @@ mkdir -p \
   "${broken_clean_home}/.claude/rules/vibeguard/common" \
   "${broken_clean_home}/.codex" \
   "${broken_clean_home}/.vibeguard"
-touch "${broken_clean_home}/.claude/commands/vibeguard"
+ln -s "${REPO_DIR}/.claude/commands/vibeguard" "${broken_clean_home}/.claude/commands/vibeguard"
+ln -s "${REPO_DIR}/.claude/commands/vg" "${broken_clean_home}/.claude/commands/vg"
 touch "${broken_clean_home}/.claude/agents/dispatcher.md"
 touch "${broken_clean_home}/.claude/context-profiles/dev.md"
 touch "${broken_clean_home}/.claude/rules/vibeguard/common/security.md"
@@ -339,12 +674,31 @@ broken_clean_out="$(
 )"
 assert_contains "${broken_clean_out}" "skipping skill link cleanup" "clean warns when manifest skill enumeration fails"
 assert_cmd "clean continues after Claude manifest failure" test ! -e "${broken_clean_home}/.claude/commands/vibeguard"
+assert_cmd "clean removes Claude vg shortcut commands after manifest failure" test ! -e "${broken_clean_home}/.claude/commands/vg"
 assert_cmd "clean removes Claude agents after manifest failure" test ! -e "${broken_clean_home}/.claude/agents/dispatcher.md"
 assert_cmd "clean removes Claude rules after manifest failure" test ! -e "${broken_clean_home}/.claude/rules/vibeguard"
 assert_cmd "clean removes Claude hooks after manifest failure" bash -c "! grep -q 'pre-bash-guard.sh' '${broken_clean_home}/.claude/settings.json'"
 assert_cmd "clean continues after Codex manifest failure" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${broken_clean_home}/.codex/hooks.json'"
 assert_cmd "clean removes Codex wrapper after manifest failure" test ! -e "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
 assert_cmd "clean removes legacy Codex MCP after manifest failure" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${broken_clean_home}/.codex/config.toml'"
+
+header "clean preserves unmanaged Claude command paths"
+unmanaged_commands_home="${TMP_HOME}/unmanaged-commands-home"
+mkdir -p \
+  "${unmanaged_commands_home}/.claude/commands/vg" \
+  "${unmanaged_commands_home}/.vibeguard"
+printf 'custom shortcut\n' > "${unmanaged_commands_home}/.claude/commands/vg/custom.md"
+unmanaged_commands_clean_out="$(
+  HOME="${unmanaged_commands_home}" bash -c "
+    set -euo pipefail
+    source '${REPO_DIR}/scripts/setup/lib.sh'
+    source '${REPO_DIR}/scripts/lib/install-state.sh'
+    source '${REPO_DIR}/scripts/setup/targets/claude-home.sh'
+    clean_claude_home_installation
+  " 2>&1
+)"
+assert_contains "${unmanaged_commands_clean_out}" "Preserved unmanaged vg shortcut commands path" "clean warns before preserving unmanaged vg commands directory"
+assert_cmd "clean preserves unmanaged vg commands directory" test -f "${unmanaged_commands_home}/.claude/commands/vg/custom.md"
 
 header "retired manifest skill cleanup"
 retired_home="${TMP_HOME}/retired-skill-home"
@@ -557,15 +911,209 @@ state = {
 (home / ".vibeguard/install-state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 PY
 CUSTOM_CARGO_TARGET_DIR="${TMP_HOME}/custom cargo target"
-install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
+
+checksum_fail_home="${TMP_HOME}/checksum-fail-home"
+mkdir -p "${checksum_fail_home}"
+set +e
+checksum_fail_out="$(HOME="${checksum_fail_home}" VIBEGUARD_TEST_BAD_SHA=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+checksum_fail_rc=$?
+set -e
+assert_cmd "tampered prebuilt checksum exits nonzero" test "${checksum_fail_rc}" -ne 0
+assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification failed" "tampered prebuilt checksum reports verification failure"
+assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
+assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
+
+empty_version_home="${TMP_HOME}/empty-version-home"
+mkdir -p "${empty_version_home}"
+set +e
+empty_version_out="$(HOME="${empty_version_home}" bash "${REPO_DIR}/setup.sh" --yes --runtime-version= 2>&1)"
+empty_version_rc=$?
+set -e
+assert_cmd "empty --runtime-version exits nonzero" test "${empty_version_rc}" -ne 0
+assert_contains "${empty_version_out}" "--runtime-version requires a non-empty value" "empty --runtime-version reports explicit error"
+assert_not_contains "${empty_version_out}" "Setup complete! All components installed." "empty --runtime-version does not report setup complete"
+
+version_override_home="${TMP_HOME}/version-override-home"
+version_override_log="${TMP_HOME}/version-override-download.log"
+mkdir -p "${version_override_home}"
+: > "${version_override_log}"
+version_override_out="$(HOME="${version_override_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_TEST_DOWNLOAD_LOG="${version_override_log}" bash "${REPO_DIR}/setup.sh" --yes --runtime-version v9.9.9)"
+assert_contains "${version_override_out}" "Runtime version override: v9.9.9" "--runtime-version reports selected release tag"
+assert_contains "${version_override_out}" "vibeguard-runtime downloaded and verified (v9.9.9," "--runtime-version downloads selected release tag"
+assert_cmd "--runtime-version passes selected tag to release download" grep -qF "tag=v9.9.9" "${version_override_log}"
+
+curl_download_home="${TMP_HOME}/curl-download-home"
+mkdir -p "${curl_download_home}"
+curl_download_out="$(
+  command() {
+    if [[ "${1:-}" == "-v" && "${2:-}" == "gh" ]]; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+  export -f command
+  HOME="${curl_download_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes
+)"
+assert_contains "${curl_download_out}" "vibeguard-runtime downloaded and verified" "prebuilt runtime downloads when gh is absent and curl is available"
+assert_not_contains "${curl_download_out}" "Falling back to source build" "curl download path does not use source fallback"
+
+source_build_home="${TMP_HOME}/source-build-home"
+source_cargo_log="${TMP_HOME}/source-cargo.log"
+mkdir -p "${source_build_home}"
+: > "${source_cargo_log}"
+source_build_out="$(HOME="${source_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_CARGO_LOG="${source_cargo_log}" bash "${REPO_DIR}/setup.sh" --yes --build-from-source)"
+assert_contains "${source_build_out}" "Mode: build-from-source" "--build-from-source reports source mode"
+assert_contains "${source_build_out}" "Building vibeguard-runtime from source (Rust)..." "--build-from-source builds runtime from source"
+assert_cmd "--build-from-source invokes cargo build" grep -qF "build --release" "${source_cargo_log}"
+
+offline_build_home="${TMP_HOME}/offline-build-home"
+offline_cargo_log="${TMP_HOME}/offline-cargo.log"
+mkdir -p "${offline_build_home}"
+: > "${offline_cargo_log}"
+offline_build_out="$(HOME="${offline_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_DOWNLOAD_FAIL=1 VIBEGUARD_TEST_CARGO_LOG="${offline_cargo_log}" bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${offline_build_out}" "Falling back to source build" "offline prebuilt download falls back to source build"
+assert_cmd "offline fallback invokes cargo build" grep -qF "build --release" "${offline_cargo_log}"
+
+switch_runtime_home="${TMP_HOME}/switch-runtime-home"
+mkdir -p "${switch_runtime_home}"
+HOME="${switch_runtime_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes --build-from-source >/dev/null
+switch_download_out="$(HOME="${switch_runtime_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${switch_download_out}" "vibeguard-runtime downloaded and verified" "source-built install can switch to downloaded runtime"
+set +e
+switch_check_out="$(HOME="${switch_runtime_home}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)"
+switch_check_rc=$?
+set -e
+assert_cmd "source-to-download switch remains healthy under --check --strict" test "${switch_check_rc}" -eq 0
+assert_not_contains "${switch_check_out}" "[BROKEN]" "source-to-download switch does not report BROKEN"
+
+install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "default setup uses verified prebuilt runtime without cargo"
+assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
+assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
+assert_cmd "vg shortcut commands are installed after setup" test -L "${HOME}/.claude/commands/vg"
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
 assert_cmd "runtime policy project validator installed after setup" test -f "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
+assert_contains "${install_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "setup install reports current installed snapshot"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
+assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
+assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
+default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
+assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--check does not warn when scheduled GC is absent"
+scheduler_fail_home="${TMP_HOME}/scheduler-enable-fail-home"
+mkdir -p "${scheduler_fail_home}"
+set +e
+scheduler_fail_out="$(HOME="${scheduler_fail_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL=1 bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1)"
+scheduler_fail_rc=$?
+set -e
+assert_cmd "--with-scheduler exits nonzero when systemd enable fails" test "${scheduler_fail_rc}" -ne 0
+assert_contains "${scheduler_fail_out}" "ERROR: Scheduled GC systemd install failed" "--with-scheduler reports systemd enable failure"
+assert_not_contains "${scheduler_fail_out}" "Setup complete! All components installed." "--with-scheduler failure does not report setup complete"
+scheduler_install_out="$(CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes --with-scheduler)"
+assert_contains "${scheduler_install_out}" "Mode: with-scheduler" "--with-scheduler mode is visible"
+assert_contains "${scheduler_install_out}" "Scheduled GC installed via" "--with-scheduler installs scheduled GC"
+assert_cmd "--with-scheduler creates scheduled GC entry" assert_scheduled_gc_present
+scheduler_active_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${scheduler_active_check_out}" "[OK] Scheduled GC active" "--check reports opt-in scheduled GC active"
+expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
+printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
+managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${managed_agent_check_out}" "[OK] ${expected_agent_count} VibeGuard agents installed in ~/.claude/agents/" "--check counts only VibeGuard-managed agents"
+assert_contains "${managed_agent_check_out}" "[INFO] 1 unmanaged Claude agent(s) present in ~/.claude/agents/: user-blog-agent.md" "--check reports unmanaged Claude agents separately"
+rm -f "${HOME}/.claude/agents/dispatcher.md"
+missing_managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${missing_managed_agent_check_out}" "[MISSING] 1/${expected_agent_count} VibeGuard agent(s) missing in ~/.claude/agents/: dispatcher.md" "--check reports missing VibeGuard-managed agents"
+cp "${REPO_DIR}/agents/dispatcher.md" "${HOME}/.claude/agents/dispatcher.md"
+installed_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${installed_git_hook_check_out}" "[OK] vg shortcut commands symlinked to ~/.claude/commands/" "--check reports vg shortcut commands healthy"
+assert_contains "${installed_git_hook_check_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "--check reports installed snapshot healthy"
+printf 'oldsha\n' > "${HOME}/.vibeguard/installed/version"
+stale_snapshot_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
+assert_contains "${stale_snapshot_check_out}" "[WARN] Installed hooks+guards snapshot is stale: oldsha" "--check reports stale installed snapshot"
+printf '[OK]\n' > "${HOME}/.vibeguard/installed/version"
+spoof_snapshot_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
+assert_contains "${spoof_snapshot_check_out}" "[WARN] Installed hooks+guards snapshot is stale: [OK]" "--check treats marker-like installed snapshot as stale"
+assert_contains "${spoof_snapshot_check_out}" "DEGRADED" "--check strict summary is degraded for marker-like installed snapshot"
+git -C "${REPO_DIR}" rev-parse --short HEAD > "${HOME}/.vibeguard/installed/version"
+wrong_claude_skill_target="${TMP_HOME}/wrong-claude-skill"
+mkdir -p "${wrong_claude_skill_target}"
+rm -f "${HOME}/.claude/skills/vibeguard"
+ln -s "${wrong_claude_skill_target}" "${HOME}/.claude/skills/vibeguard"
+drift_claude_skill_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${drift_claude_skill_check_out}" "[BROKEN] vibeguard skill symlink target drift:" "--check reports Claude skill symlink target drift"
+rm -f "${HOME}/.claude/skills/vibeguard"
+ln -s "${REPO_DIR}/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
+wrong_rule_target="${TMP_HOME}/wrong-security-rule.md"
+printf '## U-17: Wrong source\n' > "${wrong_rule_target}"
+rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
+ln -s "${wrong_rule_target}" "${HOME}/.claude/rules/vibeguard/common/security.md"
+drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${drift_claude_rule_check_out}" "[BROKEN] Native rule symlink target drift:" "--check reports native rule symlink target drift"
+rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
+ln -s "${REPO_DIR}/rules/claude-rules/common/security.md" "${HOME}/.claude/rules/vibeguard/common/security.md"
+ln -s "${REPO_DIR}/rules/claude-rules/common/workflow.md" "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
+stale_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${stale_claude_rule_check_out}" "[BROKEN] Native rule symlink not declared by manifest:" "--check reports repo-owned native rule symlinks not declared by manifest"
+rm -f "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
+rm -f "${HOME}/.claude/commands/vg"
+ln -s "${REPO_DIR}/.claude/commands/missing-vg" "${HOME}/.claude/commands/vg"
+broken_vg_commands_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${broken_vg_commands_check_out}" "[BROKEN] vg shortcut commands symlink target missing:" "--check reports broken vg shortcut commands symlink"
+rm -f "${HOME}/.claude/commands/vg"
+wrong_vg_commands_target="${TMP_HOME}/wrong-vg-commands"
+mkdir -p "${wrong_vg_commands_target}"
+ln -s "${wrong_vg_commands_target}" "${HOME}/.claude/commands/vg"
+drift_vg_commands_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${drift_vg_commands_check_out}" "[BROKEN] vg shortcut commands symlink target drift:" "--check reports vg shortcut commands target drift"
+rm -f "${HOME}/.claude/commands/vg"
+missing_vg_commands_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+assert_contains "${missing_vg_commands_check_out}" "[MISSING] vg shortcut commands not in ~/.claude/commands/" "--check reports missing vg shortcut commands"
+ln -s "${REPO_DIR}/.claude/commands/vg" "${HOME}/.claude/commands/vg"
+assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-commit hook installed" "--check reports repo pre-commit hook healthy"
+assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-push hook installed" "--check reports repo pre-push hook healthy"
+fake_wrapper_repo="${TMP_HOME}/fake-wrapper-repo"
+mkdir -p "${fake_wrapper_repo}/hooks/git"
+printf '%s' "${fake_wrapper_repo}" > "${HOME}/.vibeguard/repo-path"
+missing_wrapper_source_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${missing_wrapper_source_check_out}" "[BROKEN] VibeGuard repo pre-push hook wrapper source missing" "--check reports missing pre-push wrapper source"
+printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
+ln -sfn "${TMP_HOME}/unexpected-pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
+drift_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${drift_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-commit hook target drift" "--check reports repo pre-commit hook target drift"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-push"
+missing_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${missing_git_hook_check_out}" "[MISSING] VibeGuard repo pre-push hook" "--check reports missing repo pre-push hook"
+rm -f "${HOME}/.vibeguard/pre-commit"
+ln -sfn "${HOME}/.vibeguard/pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
+broken_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${broken_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-commit hook target missing" "--check reports broken repo pre-commit hook symlink"
+git_hook_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${git_hook_repair_out}" "Setup complete! All components installed." "setup repairs missing/broken repo git hooks"
+assert_cmd "repo pre-commit hook repaired by setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "repo pre-push hook repaired by setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
+outside_cwd="${TMP_HOME}/outside-cwd"
+mkdir -p "${outside_cwd}"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-commit" "${REPO_GIT_HOOK_DIR}/pre-push"
+outside_install_out="$(cd "${outside_cwd}" && bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${outside_install_out}" "Setup complete! All components installed." "setup succeeds from outside repo cwd"
+assert_cmd "outside-cwd setup installs repo pre-commit hook in real repo" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
+assert_cmd "outside-cwd setup installs repo pre-push hook in real repo" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
+assert_cmd "outside-cwd setup does not create stray hook directory" test ! -e "${outside_cwd}/.git/hooks/pre-commit"
+LINKED_WORKTREE_PATH="${TMP_HOME}/linked-worktree"
+git -C "${REPO_DIR}" worktree add --detach "${LINKED_WORKTREE_PATH}" HEAD >/dev/null 2>&1
+# Keep this linked worktree test valid while running against uncommitted local edits.
+cp "${REPO_DIR}/scripts/setup/check.sh" "${LINKED_WORKTREE_PATH}/scripts/setup/check.sh"
+linked_worktree_check_out="$(cd "${LINKED_WORKTREE_PATH}" && bash setup.sh --check)"
+assert_contains "${linked_worktree_check_out}" "[OK] VibeGuard repo pre-push hook installed" "--check from linked worktree accepts shared repo pre-push hook"
+assert_not_contains "${linked_worktree_check_out}" "VibeGuard repo pre-push hook target drift" "--check from linked worktree does not report shared pre-push hook drift"
+git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null
+LINKED_WORKTREE_PATH=""
 assert_cmd "~/.claude/skills/vibeguard exists after installation" test -L "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.codex/skills/vibeguard is copied after installation" bash -c "test -d '${HOME}/.codex/skills/vibeguard' && test ! -L '${HOME}/.codex/skills/vibeguard'"
 assert_cmd "~/.codex/skills/vibeguard stale files are removed during copy install" test ! -e "${HOME}/.codex/skills/vibeguard/STALE.txt"
@@ -600,6 +1148,7 @@ assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installa
 assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
 assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.codex/AGENTS.md"
 assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
+assert_cmd "~/.codex/AGENTS.md rule banner matches installed rules" assert_codex_rule_banner_matches_installed_rules
 assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"
@@ -705,11 +1254,42 @@ PY
 missing_anchor_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${missing_anchor_agents_check_out}" "[BROKEN] ~/.codex/AGENTS.md missing required anchors" "--check reports missing Codex AGENTS required anchors"
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated, count = re.subn(r"\b[0-9]+ rules total\b", "999 rules total", text, count=1)
+if count != 1:
+    raise SystemExit(1)
+path.write_text(updated, encoding="utf-8")
+PY
+stale_banner_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${stale_banner_agents_check_out}" "~/.codex/AGENTS.md declares 999 rules" "--check reports stale Codex AGENTS rule banner"
 printf '# malicious injection appended by something\n' >> "${HOME}/.codex/AGENTS.md"
 external_agents_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
 assert_contains "${external_agents_check_out}" "[WARN] ~/.codex/AGENTS.md has 1 non-empty unmanaged line(s) outside VibeGuard block" "--check warns on unmanaged Codex AGENTS content"
 assert_contains "${external_agents_check_out}" "Codex native hooks: PreToolUse(Bash/Edit/Write via apply_patch), PermissionRequest(Bash/Edit/Write via apply_patch), PostToolUse(Bash/Edit/Write via apply_patch), Stop(stop-guard/learn-evaluator)" "--check reports exact Codex native hook scope"
+
+header "setup --check uses managed rule count banners"
+_VALID_CLAUDE_MD="${TMP_HOME}/CLAUDE.md.valid.backup"
+cp "${HOME}/.claude/CLAUDE.md" "${_VALID_CLAUDE_MD}"
+python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+path.write_text("Personal note: 5 rules I keep locally.\n" + text, encoding="utf-8")
+PY
+external_rule_count_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+cp "${_VALID_CLAUDE_MD}" "${HOME}/.claude/CLAUDE.md"
+assert_contains "${external_rule_count_check_out}" "[OK] Rule count in sync:" "--check ignores unmanaged Claude rule count text"
+assert_not_contains "${external_rule_count_check_out}" "CLAUDE.md declares 5 rules" "--check does not read rule count outside the VibeGuard Claude block"
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"
@@ -720,12 +1300,25 @@ text = path.read_text(encoding='utf-8')
 updated = re.sub(r'\b\d+ rules\b', '999 rules', text, count=1)
 path.write_text(updated, encoding='utf-8')
 PY
+python3 - <<'PY' "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+updated, count = re.subn(r"\b[0-9]+ rules total\b", "999 rules total", text, count=1)
+if count != 1:
+    raise SystemExit(1)
+path.write_text(updated, encoding="utf-8")
+PY
 before_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 agents_before_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 check_again_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 after_sha="$(shasum -a 256 "${HOME}/.claude/CLAUDE.md" | cut -d' ' -f1)"
 agents_after_sha="$(shasum -a 256 "${HOME}/.codex/AGENTS.md" | cut -d' ' -f1)"
 assert_contains "${check_again_out}" "CLAUDE.md declares 999 rules" "--check reports CLAUDE.md drift"
+assert_contains "${check_again_out}" "~/.codex/AGENTS.md declares 999 rules" "--check reports Codex AGENTS.md drift"
 assert_contains "${check_again_out}" "[OK] vibeguard-runtime runtime binary installed" "--check reports vibeguard-runtime installed"
 assert_cmd "--check does not rewrite ~/.claude/CLAUDE.md" test "${before_sha}" = "${after_sha}"
 assert_cmd "--check does not rewrite ~/.codex/AGENTS.md" test "${agents_before_sha}" = "${agents_after_sha}"
@@ -733,6 +1326,7 @@ assert_cmd "--check does not drop or duplicate the chat contract block" python3 
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
 assert_cmd "repair restores CLAUDE.md rule banner count" assert_claude_rule_banner_matches_installed_rules
+assert_cmd "repair restores Codex AGENTS.md rule banner count" assert_codex_rule_banner_matches_installed_rules
 assert_cmd "repeat setup keeps exactly one chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 
 header "upsert idempotency with non-standard wrapper path"
@@ -817,7 +1411,10 @@ header "setup --clean"
 printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
+assert_cmd "--clean removes scheduled GC entry" assert_scheduled_gc_absent
 assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
+assert_cmd "~/.claude/commands/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vibeguard"
+assert_cmd "~/.claude/commands/vg has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vg"
 assert_cmd "~/.claude/skills/agentsmd-audit has been removed after cleaning" test ! -e "${HOME}/.claude/skills/agentsmd-audit"
 assert_cmd "~/.claude/skills/trajectory-review has been removed after cleaning" test ! -e "${HOME}/.claude/skills/trajectory-review"
 assert_cmd "~/.codex/skills/agentsmd-audit has been removed after cleaning" test ! -e "${HOME}/.codex/skills/agentsmd-audit"
@@ -829,9 +1426,19 @@ assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! gre
 assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "legacy Codex MCP block has been removed after cleaning" bash -c "[ ! -f '${HOME}/.codex/config.toml' ] || ! grep -q '^\[mcp_servers\.vibeguard\]' '${HOME}/.codex/config.toml'"
 
+header "setup install default languages before rust filter"
+install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
+assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "default install writes manifest native rules"
+assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
+assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
+assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+assert_cmd "--languages removes unselected Python native rules" test ! -e "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "--languages removes unselected Go native rules" test ! -e "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 assert_cmd "--languages after installation --check executable" bash -c "bash '${REPO_DIR}/setup.sh' --check >/dev/null 2>&1"
 
 header "setup --clean (after --languages)"

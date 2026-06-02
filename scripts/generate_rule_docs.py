@@ -292,6 +292,10 @@ def render_language_rules(title: str, intro: str, rule_list: list[Rule], verific
 
 {intro}
 
+## Linter Boundary
+
+These rules do not replace native linters. Treat lint-equivalent entries as agent reminders and review triage; use the verification command below for mechanical enforcement. Semantic/contextual entries remain useful when native linters lack project-level context.
+
 ## Scan checklist
 
 {make_table(["ID", "Rule", "Severity", "Summary"], rows_for(rule_list))}
@@ -381,13 +385,26 @@ Canonical source of truth: `rules/claude-rules/`
 
 | Layer | Enforcement | Mechanism |
 |-------|------------|-----------|
-| L1 | Search before create | `pre-write-guard.sh` hook (block) |
+| L1 | Search before create | `pre-write-guard.sh` hook (warn by default; block via `VIBEGUARD_WRITE_MODE=block` / `write_mode=block` or escalation) |
 | L2 | Naming conventions | `check_naming_convention.py` guard |
 | L3 | Quality baseline | `post-edit-guard.sh` hook (warn/escalate) |
 | L4 | Data integrity | Rules injection + guards |
 | L5 | Minimal changes | Rules injection |
 | L6 | Process gates | `/vibeguard:preflight` + `/vibeguard:interview` + `/vibeguard:exec-plan` |
-| L7 | Commit discipline | `pre-commit-guard.sh` hook (block) |
+| L7 | Commit discipline | Agent/review contract + `pre-commit-guard.sh` quality/build gate + git `pre-push` remote-history gate |
+
+---
+
+## Severity Semantics
+
+Severity labels describe the agent/reviewer contract. They do not, by themselves, promise that every rule is hook-blocked.
+
+| Severity | Meaning |
+|----------|---------|
+| Critical | Security or data-loss risk that should block until fixed or explicitly accepted. |
+| High / Medium / Low | Risk-ranked findings for guard outputs and review triage. |
+| Strict | Non-negotiable agent/reviewer rule. If enforcement is not mechanical, violations still need a fix, explicit DEFER, or documented downgrade path. |
+| Guideline | Preferred pattern; follow when it helps the current task without expanding scope. |
 
 ---
 

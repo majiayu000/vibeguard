@@ -6,6 +6,12 @@ Canonical routing decisions and planning handoffs are defined in `workflows/refe
 
 Executable schema sources:
 
+- `schemas/command-preflight-output.schema.json`
+- `schemas/command-check-output.schema.json`
+- `schemas/command-live-truth-output.schema.json`
+- `schemas/command-skill-validate-output.schema.json`
+- `schemas/command-review-output.schema.json`
+- `schemas/command-learn-output.schema.json`
 - `schemas/workflow-routing-decision.schema.json`
 - `schemas/workflow-execution-handoff.schema.json`
 - `schemas/workflow-delegation-assignment.schema.json`
@@ -123,11 +129,11 @@ Delegation assignments are required before any child-agent write lane starts. Pa
 ```json
 {
   "command": "preflight",
-  "projectType": "rust | typescript | python | go",
+  "projectType": "rust",
   "constraints": [
     {
       "id": "C-01",
-      "category": "data_convergence | type_unique | interface_stable | error_handling | naming | guard_baseline",
+      "category": "data_convergence",
       "description": "Constraint description",
       "source": "source evidence",
       "verification": "verification method"
@@ -155,13 +161,13 @@ Delegation assignments are required before any child-agent write lane starts. Pa
 {
   "command": "check",
   "project": "project name",
-  "date": "ISO8601",
+  "date": "2026-05-31T00:00:00Z",
   "guardResults": [
     {
       "guardId": "RS-03",
       "name": "unwrap/expect",
       "count": 50,
-      "severity": "medium | high | pass",
+      "severity": "medium",
       "details": ["file:line description"]
     }
   ],
@@ -178,8 +184,8 @@ Delegation assignments are required before any child-agent write lane starts. Pa
 ```json
 {
   "command": "live_truth",
-  "claim_type": "latest | pr-ready | merged | running | deployed | published",
-  "verdict": "pass | fail | gap",
+  "claim_type": "latest",
+  "verdict": "gap",
   "facts": [
     {
       "key": "active_branch",
@@ -202,24 +208,36 @@ The text artifact emitted by `scripts/live_truth.py` uses these same sections so
 ```json
 {
   "command": "skill_validate",
+  "mode": "evidence",
   "skill_name": "demo-skill",
   "proposed_skill": "path/to/SKILL.md",
-  "decision_set": "baseline | held_out",
-  "verdict": "pass | fail | stale | needs_justification | advisory",
+  "decision_set": "baseline",
+  "verdict": "pass",
   "counts": {
     "repair": 1,
     "regression": 0,
     "no_change": 2,
-    "unrelated_regression": 0
+    "unrelated_regression": 0,
+    "unrelated_no_change": 2
   },
   "freshness_gaps": [],
+  "reasons": [
+    "repair count is greater than regression count with no regressions"
+  ],
+  "regression_justification": null,
+  "scored_against_agent": "claude-opus-4-7",
+  "scored_at": "2026-05-31",
   "scenarios": [
     {
       "scenario_id": "incident-1",
       "scenario_type": "target",
       "without_skill": "failure",
       "with_skill": "success",
-      "classification": "repair"
+      "classification": "repair",
+      "source": "baseline",
+      "scored_against_agent": "claude-opus-4-7",
+      "scored_at": "2026-05-31",
+      "notes": null
     }
   ]
 }
@@ -228,14 +246,35 @@ The text artifact emitted by `scripts/live_truth.py` uses these same sections so
 `scripts/skill_validate.py` appends this artifact as JSONL under `.vibeguard/skill-validate/` unless `--no-persist` is used.
 Evidence validation also fails when the proposed `SKILL.md` is missing the required reusable-skill sections: `## When to Activate`, `## Red Flags`, and `## Checklist`.
 
-Format-only checks use the same command surface:
+## skill_validate format output Schema
 
-```bash
-python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md
-python3 scripts/skill_validate.py --check-repo-format --repo-root .
+```json
+{
+  "command": "skill_validate",
+  "mode": "format",
+  "verdict": "pass",
+  "paths_checked": 1,
+  "required_sections": [
+    "## When to Activate",
+    "## Red Flags",
+    "## Checklist"
+  ],
+  "list_required_sections": [
+    "## Red Flags",
+    "## Checklist"
+  ],
+  "errors": []
+}
 ```
 
-`--check-repo-format` scans both `skills/*/SKILL.md` and `workflows/*/SKILL.md`.
+Format-only checks use the same command surface. Add `--json` when another tool needs the schema-compatible artifact:
+
+```bash
+python3 scripts/skill_validate.py --format-only --proposed-skill path/to/SKILL.md --json
+python3 scripts/skill_validate.py --check-repo-format --repo-root . --json
+```
+
+`--check-repo-format` scans `skills/*/SKILL.md`, `workflows/*/SKILL.md`, and `templates/skill-template.md`.
 
 ## review output Schema
 
@@ -245,17 +284,17 @@ python3 scripts/skill_validate.py --check-repo-format --repo-root .
   "scope": "File or directory path",
   "findings": [
     {
-      "priority": "P0 | P1 | P2 | P3",
+      "priority": "P2",
       "file": "file_path:line",
       "issue": "Problem description",
       "suggestion": "Repair suggestion",
-      "ruleId": "RS-03 | U-11 | ..."
+      "ruleId": "U-11"
     }
   ],
   "passedItems": [
     "Confirm that there are no problems with the inspection items"
   ],
-  "verdict": "pass | warn | fail"
+  "verdict": "warn"
 }
 ```
 
@@ -272,7 +311,7 @@ python3 scripts/skill_validate.py --check-repo-format --repo-root .
   },
   "improvements": [
     {
-      "type": "new_guard | enhance_guard | new_hook | new_rule | claude_md",
+      "type": "enhance_guard",
       "target": "target file path",
       "description": "Improve description"
     }

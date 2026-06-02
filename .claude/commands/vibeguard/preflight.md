@@ -12,16 +12,18 @@ tags: [vibeguard, preflight, constraints, prevention]
 - The constraint set guides all subsequent coding, eliminating the need to make architectural decisions during the implementation phase
 - Each constraint must be verifiable — either by writing a guard script or by writing a test assertion
 
-**Complexity Routing** (automatically determine process depth)
+**Routing**
 
-| Scale | Process | Action |
-|------|------|------|
-| 1-2 files | Direct implementation | Skip preflight and code directly |
-| 3-5 File | Lightweight preflight | Perform steps 1-5 below to generate a constraint set |
-| 6+ files | Complete planning | First `/vibeguard:interview` generates SPEC → then execute preflight |
+Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. The `readiness` decision has exactly three outputs:
 
-**Trigger Condition** (3+ file levels)
-- Changes involving 3+ files
+- `execute_direct`: skip preflight when the task is bounded, the next edit is clear, and verification can be owned immediately.
+- `plan_first`: run preflight when the task is well-specified but broad enough that a constraint set or planning handoff is needed before code changes.
+- `clarify_first`: ask for the missing scope, non-goals, decision boundaries, or delegation ownership before reading further or planning.
+
+File count can inform the routing decision as a secondary signal, but it is not the routing contract and must not replace `execute_direct`, `plan_first`, or `clarify_first`.
+
+**Trigger Condition**
+- Changes involving several file levels or cross-cutting areas
 - Added new entry point (binary/service/CLI subcommand)
 - Modify the data layer (database, cache, file storage)
 - Cross-module refactoring
@@ -56,7 +58,7 @@ tags: [vibeguard, preflight, constraints, prevention]
 3.5. **Reference Implementation Search (Skeleton Projects)**
    - Before implementing new functions, first search whether there are similar implementations inside and outside the project for reference.
    - **Search within the project**: Use Grep/Glob to search for keywords, function names, and pattern names to confirm that no existing implementations are missing
-   - **Search outside project** (only large changes to 6+ files):
+   - **Search outside project** (only for large cross-cutting changes):
      - Use WebSearch to search for "battle-tested" open source implementations (e.g. `"<feature> implementation" site:github.com`)
      - Evaluate the suitability of candidate implementations (license compatibility, dependencies, maintenance activity)
      - **Not copy**, but extract design decisions as input to constraint sets

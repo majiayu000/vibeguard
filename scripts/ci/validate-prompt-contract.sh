@@ -35,9 +35,10 @@ run_one() {
 run_one "${REPO_DIR}/templates/AGENTS.md"
 
 if [[ -d "${REPO_DIR}/agents" ]]; then
-  while IFS= read -r -d '' role; do
+  for role in "${REPO_DIR}/agents"/*.md; do
+    [[ -f "${role}" ]] || continue
     run_one "$role"
-  done < <(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' -print0)
+  done
 fi
 
 exit $((FAIL > 0 ? 1 : 0))

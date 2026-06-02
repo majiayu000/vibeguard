@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # VibeGuard GC — Worktree Cleanup
 #
-# Scan .vibeguard/worktrees/ and delete worktrees that have been inactive for more than the specified number of days.
+# Scan the active worktree base (VIBEGUARD_WORKTREE_BASE, default <repo>.wt/)
+# plus the legacy in-repo path (.vibeguard/worktrees/) and delete worktrees
+# that have been inactive for more than the specified number of days.
 # Worktrees with unmerged changes will only be warned but not deleted.
 #
 # Usage:
@@ -36,9 +38,44 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
 fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-WORKTREE_BASE="${REPO_ROOT}/.vibeguard/worktrees"
 
-if [[ ! -d "$WORKTREE_BASE" ]]; then
+normalize_worktree_base() {
+  local base="${1%/}"
+  local parent name
+
+  [[ "$base" == /* ]] || base="${REPO_ROOT}/${base}"
+
+  if [[ -d "$base" ]]; then
+    cd "$base" && pwd -P
+    return 0
+  fi
+
+  parent=$(dirname "$base")
+  name=$(basename "$base")
+  if [[ -d "$parent" ]]; then
+    printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
+    return 0
+  fi
+
+  printf '%s\n' "$base"
+}
+
+same_path() {
+  [[ "${1%/}" == "${2%/}" ]]
+}
+
+WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
+LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
+
+WORKTREE_DIRS=()
+[[ -d "$WORKTREE_BASE" ]] && WORKTREE_DIRS+=("$WORKTREE_BASE")
+# Back-compat: pre-feature/wt-base-config worktrees lived in-repo. Scan them too
+# so they still get cleaned, even when the new base is set elsewhere.
+if ! same_path "$LEGACY_WORKTREE_BASE" "$WORKTREE_BASE" && [[ -d "$LEGACY_WORKTREE_BASE" ]]; then
+  WORKTREE_DIRS+=("$LEGACY_WORKTREE_BASE")
+fi
+
+if [[ ${#WORKTREE_DIRS[@]} -eq 0 ]]; then
   green "No worktree directory, skip"
   exit 0
 fi
@@ -63,58 +100,64 @@ mtime_or_now() {
   echo "$NOW"
 }
 
-for wt_dir in "${WORKTREE_BASE}"/*/; do
-  [[ -d "$wt_dir" ]] || continue
-  NAME=$(basename "$wt_dir")
+for base in "${WORKTREE_DIRS[@]}"; do
+  base_tag=""
+  [[ "$base" == "$LEGACY_WORKTREE_BASE" ]] && base_tag=" [legacy]"
 
-  # Get the latest modification time (get the latest file in the .git file or directory)
-  if [[ -f "${wt_dir}.git" ]]; then
-    LAST_MOD=$(mtime_or_now "${wt_dir}.git")
-  else
-    LAST_MOD=$(find "$wt_dir" -maxdepth 2 -type f -newer "$wt_dir" -print -quit 2>/dev/null | head -1)
-    if [[ -z "$LAST_MOD" ]]; then
-      LAST_MOD=$(mtime_or_now "$wt_dir")
+  for wt_dir in "${base}"/*/; do
+    [[ -d "$wt_dir" ]] || continue
+    NAME=$(basename "$wt_dir")
+    LABEL="${NAME}${base_tag}"
+
+    # Get the latest modification time (get the latest file in the .git file or directory)
+    if [[ -f "${wt_dir}.git" ]]; then
+      LAST_MOD=$(mtime_or_now "${wt_dir}.git")
     else
-      LAST_MOD=$(mtime_or_now "$LAST_MOD")
+      LAST_MOD=$(find "$wt_dir" -maxdepth 2 -type f -newer "$wt_dir" -print -quit 2>/dev/null | head -1)
+      if [[ -z "$LAST_MOD" ]]; then
+        LAST_MOD=$(mtime_or_now "$wt_dir")
+      else
+        LAST_MOD=$(mtime_or_now "$LAST_MOD")
+      fi
     fi
-  fi
 
-  DAYS_OLD=$(( (NOW - LAST_MOD) / 86400 ))
+    DAYS_OLD=$(( (NOW - LAST_MOD) / 86400 ))
 
-  if [[ "$DAYS_OLD" -lt "$MAX_DAYS" ]]; then
-    echo "${NAME}: ${DAYS_OLD} days — reserved"
-    continue
-  fi
+    if [[ "$DAYS_OLD" -lt "$MAX_DAYS" ]]; then
+      echo "${LABEL}: ${DAYS_OLD} days — reserved"
+      continue
+    fi
 
-  # Check for unmerged changes
-  HAS_CHANGES=false
-  if git -C "$wt_dir" status --porcelain 2>/dev/null | grep -q .; then
-    HAS_CHANGES=true
-  fi
+    # Check for unmerged changes
+    HAS_CHANGES=false
+    if git -C "$wt_dir" status --porcelain 2>/dev/null | grep -q .; then
+      HAS_CHANGES=true
+    fi
 
-  BRANCH="vg/${NAME}"
-  UNMERGED=false
-  if git branch --no-merged 2>/dev/null | grep -q "$BRANCH"; then
-    UNMERGED=true
-  fi
+    BRANCH="vg/${NAME}"
+    UNMERGED=false
+    if git branch --no-merged 2>/dev/null | grep -q "$BRANCH"; then
+      UNMERGED=true
+    fi
 
-  if [[ "$HAS_CHANGES" == "true" ]] || [[ "$UNMERGED" == "true" ]]; then
-    yellow " ${NAME}: ${DAYS_OLD} days — unmerged changes, skip"
-    [[ "$HAS_CHANGES" == "true" ]] && yellow "Uncommitted changes"
-    [[ "$UNMERGED" == "true" ]] && yellow "Branch ${BRANCH} is not merged"
-    WARNED=$((WARNED + 1))
-    continue
-  fi
+    if [[ "$HAS_CHANGES" == "true" ]] || [[ "$UNMERGED" == "true" ]]; then
+      yellow " ${LABEL}: ${DAYS_OLD} days — unmerged changes, skip"
+      [[ "$HAS_CHANGES" == "true" ]] && yellow "Uncommitted changes"
+      [[ "$UNMERGED" == "true" ]] && yellow "Branch ${BRANCH} is not merged"
+      WARNED=$((WARNED + 1))
+      continue
+    fi
 
-  if [[ "$DRY_RUN" == "true" ]]; then
-    yellow " [DRY-RUN] ${NAME}: ${DAYS_OLD} days — will be deleted"
-  else
-    git worktree remove "$wt_dir" --force 2>/dev/null || rm -rf "$wt_dir"
-    # Clean up branch
-    git branch -d "$BRANCH" 2>/dev/null || true
-    green " ${NAME}: ${DAYS_OLD} days — deleted"
-  fi
-  CLEANED=$((CLEANED + 1))
+    if [[ "$DRY_RUN" == "true" ]]; then
+      yellow " [DRY-RUN] ${LABEL}: ${DAYS_OLD} days — will be deleted"
+    else
+      git worktree remove "$wt_dir" --force 2>/dev/null || rm -rf "$wt_dir"
+      # Clean up branch
+      git branch -d "$BRANCH" 2>/dev/null || true
+      green " ${LABEL}: ${DAYS_OLD} days — deleted"
+    fi
+    CLEANED=$((CLEANED + 1))
+  done
 done
 
 echo ""

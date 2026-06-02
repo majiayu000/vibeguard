@@ -56,6 +56,11 @@ vg_json_output_kv() {
   local first=true
   while [[ $# -ge 2 ]]; do
     local key="$1" val="$2"; shift 2
+    if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" && "${key}" == "decision" ]]; then
+      case "${val}" in
+        block|gate|escalate) val="warn" ;;
+      esac
+    fi
     # JSON escape value
     val="${val//\\/\\\\}"
     val="${val//\"/\\\"}"

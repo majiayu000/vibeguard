@@ -8,9 +8,12 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from workflow_contracts import validate_instance
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "hooks" / "manifest.json"
+DEFAULT_SCHEMA = ROOT / "schemas" / "hooks-manifest.schema.json"
 PROFILE_ORDER = ("minimal", "core", "full", "strict")
 DISABLEABLE_KINDS = {"hook", "git-hook"}
 HOOK_EVENTS = {
@@ -25,11 +28,55 @@ HOOK_EVENTS = {
 }
 
 
+def _script_path_is_safe(script: str) -> bool:
+    path = Path(script)
+    return not path.is_absolute() and ".." not in path.parts and all(path.parts)
+
+
+def _validate_script(
+    script: Any,
+    kind: Any,
+    prefix: str,
+    repo_root: Path,
+) -> tuple[str | None, list[str]]:
+    errors: list[str] = []
+    if not isinstance(script, str) or not script:
+        return None, [f"{prefix}.script must be a non-empty string"]
+    if not _script_path_is_safe(script):
+        return script, [f"{prefix}.script must be a safe hooks-relative path"]
+    if kind != "git-hook" and ("/" in script or not script.endswith(".sh")):
+        errors.append(f"{prefix}.script must be a shell script name")
+    if kind == "git-hook" and not (script.endswith(".sh") or "/" in script):
+        errors.append(f"{prefix}.script must be a shell script name or git hook path")
+    if not (repo_root / "hooks" / script).is_file():
+        errors.append(f"{prefix}.script missing hooks/{script}")
+    return script, errors
+
+
+def _git_hook_sources(repo_root: Path) -> set[str]:
+    git_hooks_dir = repo_root / "hooks" / "git"
+    if not git_hooks_dir.is_dir():
+        return set()
+    return {
+        f"git/{path.name}"
+        for path in git_hooks_dir.iterdir()
+        if path.is_file() and not path.name.startswith(".")
+    }
+
+
 def load_manifest(path: Path = DEFAULT_MANIFEST) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("hooks manifest root must be an object")
+    return data
+
+
+def load_schema(path: Path = DEFAULT_SCHEMA) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("hooks manifest schema root must be an object")
     return data
 
 
@@ -145,6 +192,7 @@ def _validate_profiles(value: Any, path: str) -> None:
 def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     names: set[str] = set()
+    git_hook_scripts: set[str] = set()
 
     if data.get("schema_version") != 1:
         errors.append("schema_version must be 1")
@@ -166,12 +214,12 @@ def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]
         else:
             names.add(name)
 
-        if not isinstance(script, str) or not script.endswith(".sh"):
-            errors.append(f"{prefix}.script must be a shell script name")
-        elif not (repo_root / "hooks" / script).exists():
-            errors.append(f"{prefix}.script missing hooks/{script}")
-
         kind = item.get("kind")
+        script, script_errors = _validate_script(script, kind, prefix, repo_root)
+        errors.extend(script_errors)
+        if kind == "git-hook" and isinstance(script, str):
+            git_hook_scripts.add(script)
+
         if kind in DISABLEABLE_KINDS:
             install_targets = item.get("install_targets")
             if not isinstance(install_targets, list):
@@ -232,6 +280,10 @@ def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]
             except ValueError as exc:
                 errors.append(str(exc))
 
+    missing_git_hooks = sorted(_git_hook_sources(repo_root) - git_hook_scripts)
+    for script in missing_git_hooks:
+        errors.append(f"hooks/{script} missing from hooks manifest")
+
     return errors
 
 
@@ -268,7 +320,9 @@ def _print_json(items: Iterable[dict[str, Any]]) -> None:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     manifest = load_manifest(Path(args.manifest))
-    errors = validate_manifest(manifest, ROOT)
+    schema = load_schema(Path(args.schema))
+    errors = [f"schema: {error}" for error in validate_instance(manifest, schema)]
+    errors.extend(validate_manifest(manifest, ROOT))
     if errors:
         for error in errors:
             print(f"FAIL: {error}")
@@ -302,6 +356,7 @@ def cmd_claude_specs(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="VibeGuard hooks manifest helper")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    parser.add_argument("--schema", default=str(DEFAULT_SCHEMA))
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate").set_defaults(func=cmd_validate)

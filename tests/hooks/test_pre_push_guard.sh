@@ -54,11 +54,21 @@ git -C "$tmp_repo_push" commit --allow-empty -m "diverged"
 REMOTE_SHA=$(git -C "$tmp_repo_push" rev-parse HEAD)
 
 # LOCAL_SHA and REMOTE_SHA fork from BASE_SHA → non-fastforward → intercept
-if ! (cd "$tmp_repo_push" && echo "refs/heads/main $LOCAL_SHA refs/heads/main $REMOTE_SHA" | bash "$PREPUSH_SCRIPT") 2>/dev/null; then
+non_ff_output="$(cd "$tmp_repo_push" && echo "refs/heads/main $LOCAL_SHA refs/heads/main $REMOTE_SHA" | bash "$PREPUSH_SCRIPT" 2>&1 || true)"
+if [[ "$non_ff_output" == *"force push blocked"* ]]; then
   green "Intercept non-fast forward push (force push)"
   PASS=$((PASS + 1))
 else
   red "Intercept non-fast-forward push (force push)"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+
+if [[ "$non_ff_output" == *"blocks history rewrites by default"* && "$non_ff_output" != *"Use --force-with-lease"* ]]; then
+  green "Non-fast-forward guidance does not suggest force-with-lease bypass"
+  PASS=$((PASS + 1))
+else
+  red "Non-fast-forward guidance does not suggest force-with-lease bypass"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))

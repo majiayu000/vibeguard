@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/command-preflight-output.schema.json",
+  "title": "VibeGuard Preflight Command Output",
+  "description": "Structured output contract for /vibeguard:preflight.",
+  "type": "object",
+  "required": ["command", "projectType", "constraints", "guardBaseline", "unclear"],
+  "additionalProperties": false,
+  "properties": {
+    "command": {
+      "const": "preflight"
+    },
+    "projectType": {
+      "enum": ["rust", "typescript", "python", "go", "unknown"]
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "description", "source", "verification"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "enum": [
+              "data_convergence",
+              "type_unique",
+              "interface_stable",
+              "error_handling",
+              "naming",
+              "guard_baseline"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verification": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "guardBaseline": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "unclear": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "options"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "options": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

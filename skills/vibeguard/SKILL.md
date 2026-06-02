@@ -12,6 +12,7 @@ VibeGuard is an anti-hallucination framework for AI-assisted development that sy
 Canonical contract sources for this skill:
 - `README.md` — product entry and current Core vs Workflow boundary
 - `docs/rule-reference.md` — public rule/guard summary
+- `workflows/references/routing-contract.md` — canonical `readiness` decisions and execution handoff fields
 - `schemas/install-modules.json` — install/runtime contract
 
 `docs/internal/history/spec.md` remains a historical design snapshot and should not be treated as the authoritative implementation contract.
@@ -34,14 +35,14 @@ Triggered when user mentions:
 ## Red Flags
 
 - A new guard or rule is proposed without a corresponding automated detection method.
-- A workflow skips the routing contract or omits the shared handoff fields.
+- A workflow skips the routing contract or omits `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, or `lane_map`.
 - A completion claim lacks fresh verification output from the current session.
 
 ## Checklist
 
-- Confirm the task goal, data source, constraints, and done-when condition.
-- Map the work to the relevant L1-L7 layer before changing rules or hooks.
-- Run the focused guard, hook, or documentation check that covers the changed surface.
+- [ ] Confirm the task goal, data source, constraints, and done-when condition.
+- [ ] Map the work to the relevant L1-L7 layer before changing rules or hooks.
+- [ ] Run the focused guard, hook, or documentation check that covers the changed surface.
 
 ## Quick review of seven-layer defense architecture
 
@@ -102,3 +103,19 @@ Refer to references/review-template.md, record:
 - Conduct a review every Friday, using review template
 - When a regression is discovered, first locate the failed defense line and then strengthen the rules.
 - New rules must have corresponding automatic detection methods (guard/hook/test)
+
+## Red Flags
+
+- **Rule-only fix** - adding prose without a guard, hook, test, or eval creates an illusion of enforcement.
+- **Unsearched new surface** - new rules, hooks, workflows, or skills must be searched against existing ones first.
+- **Silent degradation** - user-visible missing data or wrong output must fail loudly.
+- **Workflow drift** - routing decisions must follow the shared routing contract rather than ad hoc judgment.
+
+## Checklist
+
+- [ ] Confirm the task goal, context, constraints, and done-when criteria.
+- [ ] Search for existing rules, hooks, workflows, skills, and tests before adding new ones.
+- [ ] Pick the correct routing lane by setting `readiness`: `execute_direct`, `plan_first`, or `clarify_first`.
+- [ ] Carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` when planning hands off to execution.
+- [ ] Attach a focused verification command to every behavior change.
+- [ ] Preserve the L1-L7 constraint summary in handoffs and compactions.

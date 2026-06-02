@@ -9,7 +9,10 @@ from typing import Optional
 START = "<!-- vibeguard-start -->"
 END = "<!-- vibeguard-end -->"
 RULE_COUNT_PLACEHOLDER = "__VIBEGUARD_RULE_COUNT__"
-RULE_HEADING_RE = re.compile(r"^## [A-Z]+-[0-9]+", re.MULTILINE)
+RULE_HEADING_RE = re.compile(
+    r"^##\s+(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+(?:\s|:|$)",
+    re.MULTILINE,
+)
 
 
 def count_rule_headings(root: Path) -> int:

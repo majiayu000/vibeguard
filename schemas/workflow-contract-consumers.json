@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "schema_files": {
+    "check_output": "command-check-output.schema.json",
+    "learn_output": "command-learn-output.schema.json",
+    "live_truth_output": "command-live-truth-output.schema.json",
+    "preflight_output": "command-preflight-output.schema.json",
+    "review_output": "command-review-output.schema.json",
+    "skill_validate_output": "command-skill-validate-output.schema.json",
     "routing_decision": "workflow-routing-decision.schema.json",
     "execution_handoff": "workflow-execution-handoff.schema.json",
     "delegation_assignment": "workflow-delegation-assignment.schema.json",
@@ -32,6 +38,41 @@
       "path": "docs/command-schemas.md",
       "heading": "verification gate Schema",
       "schema": "verification_gate"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "preflight output Schema",
+      "schema": "preflight_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "check output Schema",
+      "schema": "check_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "live_truth output Schema",
+      "schema": "live_truth_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "skill_validate output Schema",
+      "schema": "skill_validate_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "skill_validate format output Schema",
+      "schema": "skill_validate_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "review output Schema",
+      "schema": "review_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "learn output Schema",
+      "schema": "learn_output"
     }
   ],
   "consumers": [
@@ -56,7 +97,17 @@
       "requires": ["routing_decision", "execution_handoff", "delegation_assignment", "lane_map", "verification_gate"]
     },
     {
+      "path": ".claude/commands/vibeguard/preflight.md",
+      "references": ["routing-contract.md"],
+      "requires": ["routing_decision"]
+    },
+    {
       "path": "workflows/fixflow/SKILL.md",
+      "references": ["routing-contract.md", "delegation-contract.md"],
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
+    },
+    {
+      "path": "workflows/optflow/SKILL.md",
       "references": ["routing-contract.md", "delegation-contract.md"],
       "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
     },
@@ -89,6 +140,16 @@
       "path": "README.md",
       "references": ["routing-contract.md", "delegation-contract.md"],
       "requires": []
+    },
+    {
+      "path": "AGENTS.md",
+      "references": ["routing-contract.md"],
+      "requires": ["routing_decision", "execution_handoff"]
+    },
+    {
+      "path": "skills/vibeguard/SKILL.md",
+      "references": ["routing-contract.md"],
+      "requires": ["routing_decision", "execution_handoff"]
     },
     {
       "path": "docs/CLAUDE.md.example",

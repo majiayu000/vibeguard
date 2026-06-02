@@ -10,7 +10,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `log.sh` | Used by other hook sources | Log module, providing shared functions such as vg_log, JSON parsing, source code judgment, etc. | - |
 | `circuit-breaker.sh` | Checked by other hook sources | Circuit breaker library: CLOSED to OPEN to HALF-OPEN state machine, CI guard, stop_hook_active. | - |
 | `run-hook-codex.sh` | Codex wrapper | Codex output format adapter (decision:block to permissionDecision:deny). | - |
-| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept dangerous commands: force push, rm -rf /, reset --hard, etc. | native |
+| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook. | native |
 | `pre-edit-guard.sh` | PreToolUse(Edit) | Block editing of non-existent files (anti-hallucination). | native |
 | `pre-write-guard.sh` | PreToolUse(Write) | Remind you to search for existing implementation before creating a new source code file. | native |
 | `post-edit-guard.sh` | PostToolUse(Edit) | Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop. | native |
@@ -19,9 +19,10 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `count_active_constraints.sh` | SessionStart | Count effective task constraints loaded into agent context and enforce the U-32 live-context budget in strict profile. | unsupported |
 | `post-build-check.sh` | PostToolUse(Edit/Write) | Automatically run the build check corresponding to the language after editing. | native |
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
-| `stop-guard.sh` | Stop | Verify access control before completion and check for uncommitted source code changes. | native |
+| `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal. | native |
 | `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |
 | `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check plus build check, timeout hard limit. | - |
+| `git/pre-push` | git pre-push | Block non-fast-forward pushes, remote branch deletion, and force-like push options by default. | - |
 <!-- hooks-manifest-table:end -->
 
 **Codex column description**: `native` = deployed to `~/.codex/hooks.json`, `unsupported` = Codex does not expose the required native event/tool surface, `-` = not applicable.

@@ -36,5 +36,22 @@ if errors:
         print(f"FAIL: {error}")
     raise SystemExit(1)
 print("OK: install hook modules are covered by hooks manifest")
+
+expected_decisions = {
+    "post-edit-guard": ["pass", "warn", "escalate", "correction"],
+    "post-write-guard": ["pass", "warn"],
+    "post-build-check": ["pass", "warn", "escalate"],
+}
+hooks_by_name = {item.get("name"): item for item in manifest.get("hooks", [])}
+decision_errors = []
+for hook_name, expected in expected_decisions.items():
+    actual = hooks_by_name.get(hook_name, {}).get("decision_types")
+    if actual != expected:
+        decision_errors.append(f"{hook_name}: decision_types={actual!r}, expected={expected!r}")
+if decision_errors:
+    for error in decision_errors:
+        print(f"FAIL: {error}")
+    raise SystemExit(1)
+print("OK: post hook decision_types match actual logging contract")
 PY
 bash "${REPO_DIR}/scripts/setup/regenerate-hooks-from-manifest.sh" --check

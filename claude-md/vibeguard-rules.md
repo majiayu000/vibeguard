@@ -3,7 +3,7 @@
 
 > __VIBEGUARD_RULE_COUNT__ rules total. Claude loads the full set from `~/.claude/rules/vibeguard/`; Codex sees the L1-L7 layers + Key Detailed Rules table below. Repo-specific facts belong in the repo-level `AGENTS.md`.
 
-## Constraints (L1-L7 are enforced by Hooks)
+## Constraints (L1-L7 use rules, hooks, guards, and workflows)
 
 | Layers | Rules |
 |----|------|

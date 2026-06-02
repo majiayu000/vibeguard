@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HELPER="${REPO_DIR}/scripts/lib/vibeguard_manifest.py"
 SCHEMA="${REPO_DIR}/schemas/prompt-contract.schema.json"
 REAL_AGENTS="${REPO_DIR}/templates/AGENTS.md"
+CI_WORKFLOW="${REPO_DIR}/.github/workflows/ci.yml"
 
 PASS=0
 FAIL=0
@@ -185,6 +186,12 @@ assert_cmd "exceeds max budget without --strict -> warning only" \
   run_validator --target "$LARGE_TARGET"
 assert_cmd_fail "exceeds max budget under --strict -> error" \
   run_validator --target "$LARGE_TARGET" --strict
+
+header "CI wiring"
+assert_cmd "GitHub CI runs prompt contract validator" \
+  grep -qF "bash scripts/ci/validate-prompt-contract.sh --strict" "$CI_WORKFLOW"
+assert_cmd "GitHub CI runs prompt contract regression tests" \
+  grep -qF "bash tests/test_prompt_contract.sh" "$CI_WORKFLOW"
 
 header "summary"
 echo

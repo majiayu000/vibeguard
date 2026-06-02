@@ -40,7 +40,7 @@
       "install_targets": ["hooks-pre"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "PreToolUse(Bash)",
-      "responsibilities": "Intercept dangerous commands: force push, rm -rf /, reset --hard, etc.",
+      "responsibilities": "Intercept destructive local cleanup commands: dangerous rm -rf paths, git clean -f, and batch git checkout/restore .; force-push protection lives in the git pre-push hook.",
       "decision_types": ["pass", "warn", "block", "correction"],
       "claude": {
         "enabled": true,
@@ -93,7 +93,7 @@
       "config_exposure": {"disabled_hook": true},
       "trigger": "PreToolUse(Write)",
       "responsibilities": "Remind you to search for existing implementation before creating a new source code file.",
-      "decision_types": ["pass", "warn"],
+      "decision_types": ["pass", "warn", "block", "escalate"],
       "claude": {
         "enabled": true,
         "event": "PreToolUse",
@@ -119,7 +119,7 @@
       "config_exposure": {"disabled_hook": true},
       "trigger": "PostToolUse(Edit)",
       "responsibilities": "Detect quality problems after editing: unwrap, console.log, hard-coded path, Go error discard, oversized diff, repeated editing of the same file (churn), W-15 consecutive same-file edit loop.",
-      "decision_types": ["pass", "warn", "block"],
+      "decision_types": ["pass", "warn", "escalate", "correction"],
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -143,7 +143,7 @@
       "config_exposure": {"disabled_hook": true},
       "trigger": "PostToolUse(Write)",
       "responsibilities": "Detect duplicate definitions and files with the same name after creating a new file.",
-      "decision_types": ["pass", "warn", "block"],
+      "decision_types": ["pass", "warn"],
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -201,7 +201,7 @@
       "config_exposure": {"disabled_hook": true},
       "trigger": "PostToolUse(Edit/Write)",
       "responsibilities": "Automatically run the build check corresponding to the language after editing.",
-      "decision_types": ["pass", "warn", "block"],
+      "decision_types": ["pass", "warn", "escalate"],
       "claude": {
         "enabled": true,
         "event": "PostToolUse",
@@ -236,7 +236,7 @@
       "install_targets": ["hooks-full"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "Stop",
-      "responsibilities": "Verify access control before completion and check for uncommitted source code changes.",
+      "responsibilities": "Record uncommitted source code changes as a non-blocking Stop signal.",
       "decision_types": ["pass", "gate"],
       "claude": {
         "enabled": true,
@@ -284,6 +284,18 @@
       "trigger": "git pre-commit",
       "responsibilities": "Automatic guard before submission: quality check plus build check, timeout hard limit.",
       "decision_types": ["pass", "warn", "block"],
+      "claude": {"enabled": false, "support": "not-applicable", "reason": "git hook"},
+      "codex": {"enabled": false, "support": "not-applicable", "reason": "git hook"}
+    },
+    {
+      "name": "git-pre-push",
+      "script": "git/pre-push",
+      "kind": "git-hook",
+      "install_targets": [],
+      "config_exposure": {"disabled_hook": false},
+      "trigger": "git pre-push",
+      "responsibilities": "Block non-fast-forward pushes, remote branch deletion, and force-like push options by default.",
+      "decision_types": ["pass", "block"],
       "claude": {"enabled": false, "support": "not-applicable", "reason": "git hook"},
       "codex": {"enabled": false, "support": "not-applicable", "reason": "git hook"}
     }

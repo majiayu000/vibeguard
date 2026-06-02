@@ -10,13 +10,26 @@ Canonical source of truth: `rules/claude-rules/`
 
 | Layer | Enforcement | Mechanism |
 |-------|------------|-----------|
-| L1 | Search before create | `pre-write-guard.sh` hook (block) |
+| L1 | Search before create | `pre-write-guard.sh` hook (warn by default; block via `VIBEGUARD_WRITE_MODE=block` / `write_mode=block` or escalation) |
 | L2 | Naming conventions | `check_naming_convention.py` guard |
 | L3 | Quality baseline | `post-edit-guard.sh` hook (warn/escalate) |
 | L4 | Data integrity | Rules injection + guards |
 | L5 | Minimal changes | Rules injection |
 | L6 | Process gates | `/vibeguard:preflight` + `/vibeguard:interview` + `/vibeguard:exec-plan` |
-| L7 | Commit discipline | `pre-commit-guard.sh` hook (block) |
+| L7 | Commit discipline | Agent/review contract + `pre-commit-guard.sh` quality/build gate + git `pre-push` remote-history gate |
+
+---
+
+## Severity Semantics
+
+Severity labels describe the agent/reviewer contract. They do not, by themselves, promise that every rule is hook-blocked.
+
+| Severity | Meaning |
+|----------|---------|
+| Critical | Security or data-loss risk that should block until fixed or explicitly accepted. |
+| High / Medium / Low | Risk-ranked findings for guard outputs and review triage. |
+| Strict | Non-negotiable agent/reviewer rule. If enforcement is not mechanical, violations still need a fix, explicit DEFER, or documented downgrade path. |
+| Guideline | Preferred pattern; follow when it helps the current task without expanding scope. |
 
 ---
 
@@ -31,7 +44,7 @@ Canonical source of truth: `rules/claude-rules/`
 | U-05 | Do not delete code that merely looks unused without confirming first | Strict | It may be a work-in-progress feature. |
 | U-06 | Do not add dependencies for problems the standard library can solve | Strict | Use the standard library first. |
 | U-07 | Do not change code style while fixing behavior | Strict | Style-only edits should be a separate commit. |
-| U-08 | Do not skip verification steps | Strict | Every fix must independently pass lint and tests. |
+| U-08 | Do not skip verification steps | Strict | See W-03 and W-16 for canonical verification guidance. |
 | U-09 | Do not bundle unrelated fixes into one commit | Strict | Keep commits atomic so they are easy to review and revert. |
 | U-10 | Do not guess user intent | Strict | If the intent is unclear, mark it as DEFER or ask the user to clarify. |
 | U-11 | Inconsistent default DB/cache paths across binaries | High | Different entry points hardcode different data paths, which splits user data. |
@@ -40,13 +53,13 @@ Canonical source of truth: `rules/claude-rules/`
 | U-14 | CLI default path uses a different base directory than GUI/server | Medium | Different entry points use different base directories. |
 | U-15 | Prefer immutability | Guideline | Create new objects instead of mutating existing ones. |
 | U-16 | Keep file size under control | Guideline | 200-400 lines is typical, 800 lines is the hard ceiling. |
-| U-17 | Handle errors completely | Strict | Cover error paths thoroughly. |
+| U-17 | Handle errors completely | Strict | See U-29 for canonical error-handling guidance. |
 | U-18 | Validate inputs | Guideline | Validate all user input at system boundaries. |
 | U-19 | Use the Repository pattern | Guideline | Encapsulate data access in a Repository layer. |
 | U-20 | Keep API response shapes consistent | Guideline | Use a standard envelope such as `{ data, error, meta }`. |
 | U-21 | Commit messages must follow the Lore protocol | Strict | Record why the change exists, not just what changed. |
 | U-22 | Test coverage | Strict | New code must reach at least 80% line coverage. |
-| U-23 | No silent degradation | Strict | Unsupported strategies or configurations must fail explicitly or be marked as DEFER. |
+| U-23 | No silent degradation | Strict | See U-29 for canonical no-silent-degradation guidance. |
 | U-24 | No aliases | Strict | Do not keep function, type, command, or directory aliases. |
 | U-25 | Fix build failures first | Strict | When a build failure is detected, you must fix the build before continuing any other edits. |
 | U-26 | Declaration-execution completeness | Strict | When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup... |

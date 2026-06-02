@@ -8,6 +8,10 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 
 ## When to Activate
 
+- The user asks for repository optimization discovery and implementation.
+- A project needs a rotating scan across security, quality, reliability, performance, and maintainability.
+- Existing guard or audit findings should be converted into prioritized implementation work.
+- The task needs an optimization report before deciding which fixes to execute.
 - The task is already routed to executable optimization work, not open-ended discovery.
 - A planning handoff selected this workflow and supplied lane ownership plus stop conditions.
 - The user explicitly asks for autonomous optimization across quality, reliability, security, or DX dimensions.
@@ -20,9 +24,9 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 
 ## Checklist
 
-- Confirm routing readiness and lane ownership before execution.
-- Classify every finding as FIX, SKIP, or DEFER with evidence.
-- Run VibeGuard deterministic checks before and after implemented fixes.
+- [ ] Confirm routing readiness and lane ownership before execution.
+- [ ] Classify every finding as FIX, SKIP, or DEFER with evidence.
+- [ ] Run VibeGuard deterministic checks before and after implemented fixes.
 
 ## Routing Contract Integration
 
@@ -201,7 +205,7 @@ cd "${AUTO_RUN_AGENT_DIR}"
 1. After all FIX are completed, run the full test suite
 2. **Run VibeGuard Compliance Check**:
    ```bash
-   bash "${VIBEGUARD_ROOT:-$(dirname "$0")/../..}/scripts/compliance_check.sh" /path/to/project
+   bash "${VIBEGUARD_ROOT:-$(dirname "$0")/../..}/scripts/verify/compliance_check.sh" /path/to/project
    ```
 3. Fix the problems found in the compliance check (if any)
 4. bump version（patch for fixes, minor for new features）
@@ -241,3 +245,18 @@ Rule format: Each rule has ID, category, description, and example. Workers refer
 - The target project must be committed cleanly before branching to ensure that it can be rolled back
 - Workspace uses soft links and does not copy code
 - Multiple projects can run at the same time without affecting each other (note the API rate limit)
+
+## Red Flags
+
+- **Optimizing without a baseline** - improvements cannot be trusted if the current guard/test state was not recorded first.
+- **Implementing low-priority cleanup first** - security and correctness findings take priority over style cleanup.
+- **Creating tasks from stale notes** - old research must be checked against current files before becoming work.
+- **Skipping user confirmation** - optimization direction must be confirmed before files are created or edited.
+
+## Checklist
+
+- [ ] Record the selected scan dimensions and current baseline.
+- [ ] Search for existing fixes, plans, and guard coverage before proposing new tasks.
+- [ ] Prioritize by security, logic, and data integrity before maintainability.
+- [ ] Show the optimization report before Phase 2 task creation.
+- [ ] Attach focused verification commands to every implemented finding.

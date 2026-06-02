@@ -10,12 +10,16 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from skill_format import (  # noqa: E402
+    FORMAT_LIST_SECTIONS,
+    FORMAT_REQUIRED_SECTIONS,
+    default_skill_paths,
+    skill_format_errors,
+)
 
 OUTCOMES = {"success", "failure"}
 DEFAULT_OUTPUT_DIR = ".vibeguard/skill-validate"
-FORMAT_PATH_PATTERNS = ("skills/*/SKILL.md", "workflows/*/SKILL.md")
-FORMAT_REQUIRED_SECTIONS = ("## When to Activate", "## Red Flags", "## Checklist")
-FORMAT_LIST_SECTIONS = ("## Red Flags", "## Checklist")
 
 
 class SkillValidateError(Exception):
@@ -132,12 +136,20 @@ def freshness_gaps(
 
 
 def count_classifications(classified: list[dict[str, object]]) -> dict[str, int]:
-    counts = {"repair": 0, "regression": 0, "no_change": 0, "unrelated_regression": 0}
+    counts = {
+        "repair": 0,
+        "regression": 0,
+        "no_change": 0,
+        "unrelated_regression": 0,
+        "unrelated_no_change": 0,
+    }
     for item in classified:
         classification = str(item["classification"])
         counts[classification] += 1
         if classification == "regression" and item.get("scenario_type") == "unrelated":
             counts["unrelated_regression"] += 1
+        if classification == "no_change" and item.get("scenario_type") == "unrelated":
+            counts["unrelated_no_change"] += 1
     return counts
 
 
@@ -158,64 +170,8 @@ def extract_skill_name(path: Path) -> str:
     raise SkillValidateError("cannot infer skill name")
 
 
-def markdown_sections(text: str) -> dict[str, list[str]]:
-    sections: dict[str, list[str]] = {}
-    current: str | None = None
-    for line in text.splitlines():
-        if line.startswith("## "):
-            current = line.strip()
-            sections[current] = []
-            continue
-        if current is not None:
-            sections[current].append(line)
-    return sections
-
-
-def useful_list_item(line: str) -> bool:
-    match = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<item>\S.*)$", line)
-    if not match:
-        return False
-    item = re.sub(r"^\[[ xX]\]\s+", "", match.group("item").strip())
-    lower = item.strip(" .").lower()
-    if not lower or lower in {"...", "todo", "tbd", "n/a", "none", "placeholder"}:
-        return False
-    starts_with_markdown_link = re.match(
-        r"^\[[^\]\n]+\](?:\([^)]+\)|\[[^\]\n]*\])",
-        item,
-    ) is not None
-    if lower.startswith(("todo:", "tbd:", "<")):
-        return False
-    if lower.startswith("[") and not starts_with_markdown_link:
-        return False
-    return True
-
-
-def skill_format_errors(path: Path) -> list[str]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return [f"cannot read skill file: {exc}"]
-    sections = markdown_sections(text)
-    errors: list[str] = []
-    for heading in FORMAT_REQUIRED_SECTIONS:
-        body = sections.get(heading)
-        if body is None:
-            errors.append(f"missing required section: {heading}")
-            continue
-        if not any(line.strip() for line in body):
-            errors.append(f"{heading} is empty")
-    for heading in FORMAT_LIST_SECTIONS:
-        body = sections.get(heading)
-        if body is not None and not any(useful_list_item(line) for line in body):
-            errors.append(f"{heading} has no useful list items")
-    return errors
-
-
 def repo_skill_paths(repo_root: Path) -> list[Path]:
-    paths: list[Path] = []
-    for pattern in FORMAT_PATH_PATTERNS:
-        paths.extend(repo_root.glob(pattern))
-    return sorted(path for path in paths if path.is_file())
+    return default_skill_paths(repo_root)
 
 
 def build_format_artifact(paths: list[Path], repo_root: Path | None) -> dict[str, object]:
@@ -272,11 +228,14 @@ def determine_verdict(
     repairs = counts["repair"]
     regressions = counts["regression"]
     unrelated_regressions = counts["unrelated_regression"]
+    unrelated_no_change = counts["unrelated_no_change"]
 
     if stale_gaps and not allow_stale:
         return ("stale", ["freshness evidence is stale or incomplete"])
     if repairs == 0:
         return ("fail", ["repair count is zero"])
+    if unrelated_no_change < 2:
+        return ("fail", ["fewer than two unrelated no-change scenarios"])
     if repairs <= regressions:
         return ("fail", ["repair count is not greater than regression count"])
     if unrelated_regressions > 0:
@@ -305,7 +264,7 @@ def print_report(artifact: dict[str, object], artifact_path: Path | None) -> Non
     print(f"decision_set: {artifact['decision_set']}")
     print(f"artifact: {artifact_path if artifact_path else 'not written'}")
     print("counts:")
-    for key in ("repair", "regression", "no_change", "unrelated_regression"):
+    for key in ("repair", "regression", "no_change", "unrelated_regression", "unrelated_no_change"):
         print(f"- {key}: {counts[key]}")
     print("reasons:")
     for reason in artifact["reasons"]:
@@ -355,6 +314,7 @@ def build_artifact(args: argparse.Namespace) -> tuple[dict[str, object], Path | 
     )
     artifact: dict[str, object] = {
         "command": "skill_validate",
+        "mode": "evidence",
         "skill_name": skill_name,
         "proposed_skill": str(proposed_skill),
         "decision_set": decision_set,
@@ -388,6 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--as-of", help="Evaluation date, YYYY-MM-DD; defaults to today")
     parser.add_argument("--allow-stale", action="store_true", help="Report stale gaps without failing the verdict")
     parser.add_argument("--regression-justification", help="Required when regression count is nonzero")
+    parser.add_argument("--json", action="store_true", help="Emit the structured artifact as JSON")
     format_group = parser.add_mutually_exclusive_group()
     format_group.add_argument(
         "--format-only",
@@ -397,7 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
     format_group.add_argument(
         "--check-repo-format",
         action="store_true",
-        help="Validate skills/*/SKILL.md and workflows/*/SKILL.md under --repo-root.",
+        help="Validate skills/*/SKILL.md, workflows/*/SKILL.md, and templates/skill-template.md under --repo-root.",
     )
     parser.add_argument("--repo-root", default=".", help="Repository root for --check-repo-format")
     return parser
@@ -409,13 +370,19 @@ def main(argv: list[str]) -> int:
     if args.check_repo_format:
         repo_root = Path(args.repo_root).resolve()
         artifact = build_format_artifact(repo_skill_paths(repo_root), repo_root)
-        print_format_report(artifact)
+        if args.json:
+            print(json.dumps(artifact, sort_keys=True))
+        else:
+            print_format_report(artifact)
         return 0 if artifact["verdict"] == "pass" else 1
     if args.format_only:
         if not args.proposed_skill:
             parser.error("--format-only requires --proposed-skill")
         artifact = build_format_artifact([Path(args.proposed_skill).resolve()], None)
-        print_format_report(artifact)
+        if args.json:
+            print(json.dumps(artifact, sort_keys=True))
+        else:
+            print_format_report(artifact)
         return 0 if artifact["verdict"] == "pass" else 1
     if not args.proposed_skill:
         parser.error("--proposed-skill is required unless --check-repo-format is used")
@@ -426,7 +393,10 @@ def main(argv: list[str]) -> int:
     except SkillValidateError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print_report(artifact, artifact_path)
+    if args.json:
+        print(json.dumps(artifact, sort_keys=True))
+    else:
+        print_report(artifact, artifact_path)
     return 0 if artifact["verdict"] == "pass" else 1
 
 

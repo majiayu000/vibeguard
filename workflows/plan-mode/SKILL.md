@@ -5,11 +5,15 @@ description: Use when the user asks to enter Plan mode, says /prompts:plan or /p
 
 # Plan Mode
 
-## Trigger and target
+## When to Activate
 
 This skill is enabled when the user explicitly requests to enter "Plan mode" or enters `/prompts:plan` / `/plan`. Treat the task description given by the user as `$ARGUMENTS` (if the user directly enters `/prompts:plan <description>`, then `<description>` will be `$ARGUMENTS`).
 
 Goal: Develop a implementable and traceable technical execution plan for the task description `$ARGUMENTS` in the current working directory, and save the plan to the `plan/` directory of this project.
+
+- User explicitly says `/plan`, `/prompts:plan`, or "enter Plan mode".
+- User wants a structured execution plan written under `plan/`.
+- User asks for planning before implementation and does not want code changes yet.
 
 > Note: This skill only takes effect when the user explicitly triggers Plan mode and does not affect normal conversations.
 > In actual use, you can pass:
@@ -31,9 +35,9 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 
 ## Checklist
 
-- Decide whether this is a new plan or an update to an existing plan.
-- Write or update a `plan/*.md` artifact with snake_case metadata.
-- Include executable phases, key decisions, risks, references, and verification.
+- [ ] Decide whether this is a new plan or an update to an existing plan.
+- [ ] Write or update a `plan/*.md` artifact with snake_case metadata.
+- [ ] Include executable phases, key decisions, risks, references, and verification.
 
 ## Routing Contract Integration
 
@@ -216,3 +220,18 @@ You need to determine whether to "continue the same Plan" or "create a new Plan"
    - If necessary, note "relationship with the old Plan" at the beginning of the new Plan file (for example, rewrite, branch plan, etc.).
 
 Always keep the plan simple, clear, and executable, avoid over-designing for the sake of showing off skills, and adhere to the KISS / YAGNI principle.
+
+## Red Flags
+
+- **Editing during Plan mode** - this mode produces a plan and must not change code unless the user exits planning.
+- **Creating a new plan for a continuation** - repeated Plan prompts often mean update the existing plan, not start over.
+- **Vague implementation steps** - a plan without files, tests, and done conditions cannot be executed safely.
+- **Ignoring routing readiness** - unclear or risky requirements should remain in `clarify_first` or `plan_first`.
+
+## Checklist
+
+- [ ] Determine whether this is a new plan or an update to the current plan.
+- [ ] Capture goal, context, constraints, and done-when criteria.
+- [ ] Include artifacts, runtime pinning, verification owner, stop conditions, and lane map.
+- [ ] Keep implementation work out of Plan mode unless explicitly requested.
+- [ ] Record the plan file path when a plan artifact is created or updated.

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeGuard Guard Pack Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "display_name",
+    "status",
+    "summary",
+    "adoption_layer_only",
+    "adoption_layer_statement",
+    "source_of_truth",
+    "targets",
+    "profiles",
+    "behavior",
+    "demo",
+    "tests"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "version": { "type": "string" },
+    "display_name": { "type": "string" },
+    "status": { "enum": ["experimental", "stable", "deprecated"] },
+    "summary": { "type": "string" },
+    "adoption_layer_only": { "const": true },
+    "adoption_layer_statement": { "type": "string" },
+    "source_of_truth": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["support", "surfaces", "would_install", "would_modify", "limitations"],
+        "additionalProperties": true,
+        "properties": {
+          "support": { "enum": ["native", "partial", "unsupported"] },
+          "surfaces": { "type": "array", "items": { "type": "string" } },
+          "would_install": { "type": "array", "items": { "type": "string" } },
+          "would_modify": { "type": "array", "items": { "type": "string" } },
+          "limitations": { "type": "array", "items": { "type": "string" } },
+          "audit_checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "path"],
+              "additionalProperties": true,
+              "properties": {
+                "id": { "type": "string" },
+                "kind": {
+                  "enum": [
+                    "file_exists",
+                    "file_executable",
+                    "claude_hook",
+                    "codex_hook",
+                    "codex_feature"
+                  ]
+                },
+                "path": { "type": "string", "pattern": "^~/" },
+                "event": { "type": "string" },
+                "matcher": { "type": "string" },
+                "script": { "type": "string" },
+                "feature": { "type": "string" },
+                "expected": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "required": ["default", "allowed"],
+      "additionalProperties": false,
+      "properties": {
+        "default": { "type": "string" },
+        "allowed": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "required": ["default_decision", "fail_mode", "modifies_project_files"],
+      "additionalProperties": true,
+      "properties": {
+        "default_decision": { "enum": ["block", "warn", "pass", "gate"] },
+        "fail_mode": { "type": "string" },
+        "modifies_project_files": { "const": false }
+      }
+    },
+    "demo": {
+      "type": "object",
+      "required": [
+        "command",
+        "blocked_example",
+        "expected_decision",
+        "expected_reason_contains",
+        "executes_user_command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string" },
+        "blocked_example": { "type": "string" },
+        "expected_decision": { "type": "string" },
+        "expected_reason_contains": { "type": "string" },
+        "executes_user_command": { "const": false }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "fixture", "expected_decision"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "fixture": { "type": "string" },
+          "expected_decision": { "type": "string" }
+        }
+      }
+    }
+  }
+}

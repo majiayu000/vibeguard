@@ -327,12 +327,16 @@ def command_pr_ready(args: argparse.Namespace) -> int:
         gaps.append(f"pending or unknown checks: {', '.join(pending_checks)}")
     if not checks:
         gaps.append("no CI/check evidence was present")
-    if review_decision == "CHANGES_REQUESTED":
+    if review_decision == "APPROVED":
+        inferences.append("review decision is APPROVED")
+    elif review_decision == "CHANGES_REQUESTED":
         failures.append("latest review decision requests changes")
+    elif review_decision == "REVIEW_REQUIRED":
+        failures.append("review decision is REVIEW_REQUIRED")
     elif review_decision in {"UNKNOWN", ""}:
         gaps.append("review decision is unknown")
     else:
-        inferences.append(f"review decision is {review_decision}")
+        failures.append(f"review decision is {review_decision}, not APPROVED")
 
     if not failures and not gaps:
         inferences.append("PR-ready claim has state, mergeability, CI, and review evidence")

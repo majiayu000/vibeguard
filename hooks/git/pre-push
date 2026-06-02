@@ -27,7 +27,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # Deleting a remote branch — treated as a destructive force operation
   if [[ "$local_sha" == "$ZEROS" ]]; then
     echo "vibeguard: force push blocked — branch deletion on $remote_ref" >&2
-    echo "  Use 'git push origin --delete <branch>' only after explicit confirmation." >&2
+    echo "  VibeGuard blocks remote branch deletion by default." >&2
+    echo "  A human-approved deletion must follow the repository bypass policy." >&2
     exit 1
   fi
 
@@ -37,7 +38,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if [[ "$merge_base" != "$remote_sha" ]]; then
       echo "vibeguard: force push blocked — non-fast-forward push to $remote_ref" >&2
       echo "  The remote ref ($remote_sha) is not an ancestor of your local commit." >&2
-      echo "  Use --force-with-lease if you intentionally need to rewrite history." >&2
+      echo "  VibeGuard blocks history rewrites by default; do not retry with --force or --force-with-lease from an agent." >&2
+      echo "  A human-approved rewrite must follow the repository bypass policy." >&2
       exit 1
     fi
   fi

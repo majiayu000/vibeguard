@@ -74,6 +74,15 @@ vg_log() {
   local reason="${4:-}"
   local detail="${5:-}"
 
+  if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]]; then
+    case "${decision}" in
+      block|gate|escalate)
+        decision="warn"
+        reason="warn-mode advisory: ${reason}"
+        ;;
+    esac
+  fi
+
   reason="$(vg_redact_sensitive "$reason")"
   detail="$(vg_redact_sensitive "$detail")"
 

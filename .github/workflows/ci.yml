@@ -71,6 +71,12 @@ jobs:
           fi
           echo "Installed: $(ast-grep --version)"
 
+      - name: Rust runtime checks
+        shell: bash
+        run: |
+          cargo check --manifest-path vibeguard-runtime/Cargo.toml
+          cargo test --manifest-path vibeguard-runtime/Cargo.toml
+
       # --- Shell-based validation ---
       # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
       # which have no meaning on NTFS and would produce false-positive passes.
@@ -111,6 +117,11 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-generated-rule-docs.sh
 
+      - name: Validate hook behavior docs
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-hook-behavior-docs.sh
+
       - name: Validate manifest contract
         shell: bash
         run: bash scripts/ci/validate-manifest-contract.sh
@@ -118,6 +129,18 @@ jobs:
       - name: Validate workflow contracts
         shell: bash
         run: bash scripts/ci/validate-workflow-contracts.sh
+
+      - name: Validate release workflow contract
+        shell: bash
+        run: bash tests/test_release_workflow.sh
+
+      - name: Validate prompt contract
+        shell: bash
+        run: bash scripts/ci/validate-prompt-contract.sh --strict
+
+      - name: Validate skill format
+        shell: bash
+        run: bash scripts/ci/validate-skill-format.sh
 
       # --- Cross-platform contract validation (Python-embedded shell scripts) ---
       # Uses Git Bash on Windows; Python 3 is available from setup-python above.
@@ -128,6 +151,10 @@ jobs:
       - name: Validate doc command paths
         shell: bash
         run: bash scripts/ci/validate-doc-command-paths.sh
+
+      - name: Validate no personal paths
+        shell: bash
+        run: bash scripts/ci/validate-no-personal-paths.sh
 
       - name: Validate doc freshness
         if: runner.os != 'Windows'
@@ -167,6 +194,10 @@ jobs:
         shell: bash
         run: bash tests/test_eval_contract.sh
 
+      - name: Prompt contract regression tests
+        shell: bash
+        run: bash tests/test_prompt_contract.sh
+
       - name: Behavior eval regression gate
         if: runner.os != 'Windows'
         shell: bash
@@ -204,6 +235,10 @@ jobs:
         shell: bash
         run: bash tests/test_hook_health.sh
 
+      - name: Hook status regression tests
+        shell: bash
+        run: bash tests/test_hook_status.sh
+
       - name: Stats regression tests
         if: runner.os != 'Windows'
         shell: bash
@@ -226,6 +261,14 @@ jobs:
       - name: Skill validation regression tests
         shell: bash
         run: bash tests/test_skill_validate.sh
+
+      - name: Skill format regression tests
+        shell: bash
+        run: bash tests/test_skill_format.sh
+
+      - name: No personal paths regression tests
+        shell: bash
+        run: bash tests/test_no_personal_paths.sh
 
       - name: Guard unit tests
         shell: bash
@@ -293,6 +336,12 @@ jobs:
 
       - name: Validate workflow contracts
         run: bash scripts/ci/validate-workflow-contracts.sh
+
+      - name: Validate release workflow contract
+        run: bash tests/test_release_workflow.sh
+
+      - name: Validate prompt contract
+        run: bash scripts/ci/validate-prompt-contract.sh --strict
 
       - name: Validate hooks manifest
         run: bash scripts/ci/validate-hooks-manifest.sh

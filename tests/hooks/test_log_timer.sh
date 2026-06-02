@@ -60,6 +60,7 @@ _claude_home=$(mktemp -d)
 _claude_log=$(mktemp -d)
 mkdir -p "$_claude_home/.vibeguard"
 printf '%s' "$PWD" > "$_claude_home/.vibeguard/repo-path"
+hook_test_install_runtime_stub "$_claude_home"
 printf '%s\n' '{"tool_input":{"command":"echo hello"}}' \
   | HOME="$_claude_home" VIBEGUARD_LOG_DIR="$_claude_log" VIBEGUARD_CLI="claude" bash hooks/run-hook.sh pre-bash-guard.sh >/dev/null 2>&1 || true
 _claude_result=$(cat "$_claude_log/events.jsonl" 2>/dev/null || true)
@@ -74,6 +75,7 @@ _codex_home=$(mktemp -d)
 _codex_log=$(mktemp -d)
 mkdir -p "$_codex_home/.vibeguard"
 printf '%s' "$PWD" > "$_codex_home/.vibeguard/repo-path"
+hook_test_install_runtime_stub "$_codex_home"
 printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
   | HOME="$_codex_home" VIBEGUARD_LOG_DIR="$_codex_log" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
 _codex_result=$(cat "$_codex_log/events.jsonl" 2>/dev/null || true)
@@ -85,6 +87,18 @@ assert_contains "$_codex_result" "\"source_config\": \"$_codex_home/.codex/hooks
 assert_contains "$_codex_result" '"hook_protocol_version": "codex-hooks-v1"' "Codex wrapper: hook protocol is recorded"
 assert_contains "$_codex_result" '"caller_evidence": "codex-hook-payload"' "Codex wrapper: evidence records payload-based attribution"
 rm -rf "$_codex_home" "$_codex_log"
+
+_stale_codex_home=$(mktemp -d)
+_stale_codex_log=$(mktemp -d)
+mkdir -p "$_stale_codex_home/.vibeguard"
+printf '%s' "$PWD" > "$_stale_codex_home/.vibeguard/repo-path"
+hook_test_install_runtime_stub "$_stale_codex_home"
+printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
+  | HOME="$_stale_codex_home" VIBEGUARD_LOG_DIR="$_stale_codex_log" VIBEGUARD_CLI="claude" VIBEGUARD_CLIENT="claude" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
+_stale_codex_result=$(cat "$_stale_codex_log/events.jsonl" 2>/dev/null || true)
+assert_contains "$_stale_codex_result" '"cli": "codex"' "Codex wrapper: hook payload overrides stale ambient cli"
+assert_contains "$_stale_codex_result" '"client": "codex"' "Codex wrapper: hook payload overrides stale ambient client"
+rm -rf "$_stale_codex_home" "$_stale_codex_log"
 
 # Extract duration_ms value and verify it's a positive integer >= 1
 _dur=$(echo "$_timer_result" | python3 -c "import sys,json; e=json.loads(sys.stdin.read()); print(e.get('duration_ms','missing'))" 2>/dev/null || echo "missing")

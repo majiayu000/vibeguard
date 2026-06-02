@@ -16,6 +16,7 @@ CHECK_SCRIPT="${REPO_DIR}/scripts/setup/check.sh"
 SETUP_SCRIPT="${REPO_DIR}/setup.sh"
 AWK_PORTABILITY_FIXTURE=""
 STALE_HOOK_HOME=""
+TIMEOUT_HOOK_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -23,6 +24,9 @@ cleanup() {
   fi
   if [[ -n "${STALE_HOOK_HOME}" ]]; then
     rm -rf "${STALE_HOOK_HOME}"
+  fi
+  if [[ -n "${TIMEOUT_HOOK_HOME}" ]]; then
+    rm -rf "${TIMEOUT_HOOK_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -151,6 +155,13 @@ assert_contains "$broken_summary" "BROKEN"       "broken: verdict is BROKEN"
 broken_rc="$(run_with_buffer "$broken_buf" 'status_exit_code')"
 assert_eq "$broken_rc" "2" "broken: exit code 2"
 
+optional_missing_buf=$'[OK] base\n[MISSING] ast-grep not installed — TS/Rust AST guards will SKIP\n[MISSING] agents not in ~/.claude/agents/\n[MISSING] Codex hooks.json not installed\n'
+optional_install_rc="$(run_with_buffer "$optional_missing_buf" 'status_install_exit_code')"
+assert_eq "$optional_install_rc" "0" "install mode: optional missing rows do not fail"
+required_missing_buf=$'[OK] base\n[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)\n'
+required_install_rc="$(run_with_buffer "$required_missing_buf" 'status_install_exit_code')"
+assert_eq "$required_install_rc" "2" "install mode: required missing rows still fail"
+
 # [INFO] is neutral and never affects the verdict.
 info_buf=$'[OK] up\n[INFO] optional module not configured\n'
 info_summary="$(run_with_buffer "$info_buf" 'status_print_summary')"
@@ -205,6 +216,16 @@ assert_not_contains "$mixed_json" "free-form section header" "json: untagged lin
 assert_json_path "$mixed_json" 'd["counts"]["ok"]'   "1" "json: counts.ok unaffected by untagged lines"
 assert_json_path "$mixed_json" 'd["counts"]["info"]' "1" "json: counts.info still counted"
 assert_json_path "$mixed_json" 'len(d["events"])'    "2" "json: untagged line excluded from events"
+
+spoof_buf=$'[WARN] stale snapshot: [OK]\nfree-form note [BROKEN]\n'
+spoof_summary="$(run_with_buffer "$spoof_buf" 'status_print_summary')"
+assert_contains "$spoof_summary" "OK      : 0" "status parser: embedded OK marker does not override line prefix"
+assert_contains "$spoof_summary" "WARN    : 1" "status parser: warning prefix wins over embedded marker"
+assert_contains "$spoof_summary" "BROKEN  : 0" "status parser: embedded BROKEN marker in untagged line ignored"
+spoof_json="$(run_with_buffer "$spoof_buf" 'status_emit_json')"
+assert_json_path "$spoof_json" 'd["counts"]["warn"]' "1" "json: embedded OK marker still counts as warn"
+assert_json_path "$spoof_json" 'd["events"][0]["level"]' "WARN" "json: embedded status marker cannot spoof level"
+assert_json_path "$spoof_json" 'len(d["events"])' "1" "json: unprefixed embedded marker ignored"
 
 # --- ANSI stripping ---
 header "ANSI stripping"
@@ -361,6 +382,50 @@ assert_cmd "stale hook repair: Claude installed hook path removed" bash -c "! gr
 assert_cmd "stale hook repair: Codex installed hook path removed" bash -c "! grep -q '.vibeguard/installed/hooks/session-tagger.sh' '${STALE_HOOK_HOME}/.codex/hooks.json'"
 assert_cmd "stale hook repair: Claude stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" check-stale-hooks --settings-file "${STALE_HOOK_HOME}/.claude/settings.json"
 assert_cmd "stale hook repair: Codex stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json"
+
+# --- Codex hook timeout diagnostics ---
+header "codex hook timeout diagnostics"
+TIMEOUT_HOOK_HOME="$(mktemp -d)"
+mkdir -p "${TIMEOUT_HOOK_HOME}/.codex" "${TIMEOUT_HOOK_HOME}/.vibeguard/installed/hooks"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${TIMEOUT_HOOK_HOME}/.vibeguard/run-hook-codex.sh"
+cat > "${TIMEOUT_HOOK_HOME}/.codex/hooks.json" <<'JSON'
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /tmp/orca/codex-bridge.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /tmp/orca/stop-bridge.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+
+timeout_helper_out="$(HOME="${TIMEOUT_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-timeouts --hooks-file "${TIMEOUT_HOOK_HOME}/.codex/hooks.json" 2>&1 || true)"
+assert_contains "$timeout_helper_out" "unmanaged Codex hook without timeout" "timeout helper: reports unmanaged hook"
+assert_contains "$timeout_helper_out" "event=PostToolUse matcher=Bash" "timeout helper: reports event and matcher"
+assert_contains "$timeout_helper_out" "command=node /tmp/orca/codex-bridge.js" "timeout helper: reports Orca bridge command"
+assert_contains "$timeout_helper_out" "event=Stop matcher=<none>" "timeout helper: reports unmanaged Stop hook"
+assert_contains "$timeout_helper_out" "command=node /tmp/orca/stop-bridge.js" "timeout helper: reports Stop bridge command"
+assert_contains "$timeout_helper_out" "repair=add timeout or consult hook owner" "timeout helper: reports repair direction"
+
+timeout_check_out="$(HOME="${TIMEOUT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
+assert_contains "$timeout_check_out" "[WARN] unmanaged Codex hook without timeout" "setup --check: surfaces unmanaged hook without timeout"
 
 # --- Backwards-compat exit code contract ---
 header "exit code contract"

@@ -7,13 +7,17 @@
       "kind": "rules",
       "description": "Common rules (U-series, W-series, SEC-series)",
       "paths": [
+        "rules/claude-rules/common/agent-harness-audit.md",
         "rules/claude-rules/common/coding-style.md",
         "rules/claude-rules/common/data-consistency.md",
+        "rules/claude-rules/common/eval-validation.md",
         "rules/claude-rules/common/execution-pinning.md",
         "rules/claude-rules/common/fact-inference-separation.md",
+        "rules/claude-rules/common/long-horizon-reliability.md",
         "rules/claude-rules/common/no-silent-degradation.md",
         "rules/claude-rules/common/publish-action-confirmation.md",
         "rules/claude-rules/common/security.md",
+        "rules/claude-rules/common/vibe-coding-production.md",
         "rules/claude-rules/common/workflow.md"
       ],
       "target": "~/.claude/rules/vibeguard/common/",
@@ -26,7 +30,10 @@
       "id": "rules-rust",
       "kind": "rules",
       "description": "Rust-specific quality rules",
-      "paths": ["rules/claude-rules/rust/quality.md"],
+      "paths": [
+        "rules/claude-rules/rust/quality.md",
+        "rules/claude-rules/rust/struct-field-change-checklist.md"
+      ],
       "target": "~/.claude/rules/vibeguard/rust/",
       "defaultInstall": true,
       "languages": ["rust"],
@@ -190,8 +197,11 @@
     {
       "id": "commands",
       "kind": "commands",
-      "description": "VibeGuard slash commands (12 commands)",
-      "paths": [".claude/commands/vibeguard/"],
+      "description": "VibeGuard slash commands and /vg shortcuts",
+      "paths": [
+        ".claude/commands/vibeguard/",
+        ".claude/commands/vg/"
+      ],
       "target": "~/.claude/commands/",
       "defaultInstall": true,
       "cost": "light",
@@ -287,7 +297,7 @@
       "modules": ["hooks-full"]
     },
     "strict": {
-      "description": "Maximum enforcement — same hook set as full, reserved for stricter runtime policy",
+      "description": "Maximum enforcement — full hooks plus Claude Code U-32 SessionStart constraint budget; Codex native hooks remain full",
       "extends": "full",
       "modules": []
     }
