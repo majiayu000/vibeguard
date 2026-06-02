@@ -12,7 +12,7 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 
 - Duplicate files and reinvented modules
 - Invented APIs, fake libraries, and hardcoded placeholder values
-- Dangerous shell/git commands (`rm -rf`, `push --force`, `reset --hard`)
+- Dangerous shell/git commands (`rm -rf`, `git clean -f`, `git checkout .`, force-push)
 - Audited cleanup for intentional local discards, with exact path plans and confirmation gates
 - Analysis paralysis and unverified "I'm done" claims
 - Silent exception swallowing and `Any`-type abuse
@@ -131,7 +131,8 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 |----------|------|--------|
 | AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
 | AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
-| AI runs `git push --force`, `rm -rf`, `reset --hard` | `pre-bash-guard` | **Block** — suggests safe alternatives |
+| AI runs `rm -rf` on system paths, `git clean -f`, `git checkout .` | `pre-bash-guard` | **Block** — safe alternatives + audited-discard workflow |
+| AI runs `git push --force` (non-fast-forward / branch delete) | `git/pre-push` (per-project hook) | **Block** — suggests `--force-with-lease` |
 | AI edits non-existent file | `pre-edit-guard` | **Block** — must Read file first |
 | AI adds `unwrap()`, hardcoded paths | `post-edit-guard` | **Warn** — with fix instructions |
 | AI adds `console.log` / `print()` debug statements | `post-edit-guard` | **Warn** — use logger instead |
@@ -242,6 +243,14 @@ bash ~/vibeguard/scripts/verify/doc-freshness-check.sh  # Rule-guard coverage ch
 Doctors are read-only diagnosis wrappers over the existing defense system. They summarize installation state, capability gaps, noisy hooks, recent events, and repair commands; hooks and guards remain the enforcement layer that blocks or warns during real tool execution.
 
 Hook latency is also a product contract. See [Hook Latency Contract](docs/reference/hook-latency-contract.md) for per-hook P95 budgets, hotspot attribution, and the static gates that block expensive hook patterns.
+
+## Tested and Evaluated
+
+VibeGuard guards its own behavior — the test suite and eval harness ship in the repo, not as an afterthought.
+
+- **Behavior eval (CI-blocking):** a zero-cost gate that runs the real guard hooks end-to-end and asserts the actual block/deny decision on both the Claude Code hook and the Codex wrapper. Enforced in CI at a 100% pass / 100% coverage threshold — removing a required platform slice fails the build (`eval/run_behavior_eval.py`).
+- **Rule-detection benchmark:** a 40-sample, schema-validated, digest-pinned dataset (planted rule violations across SEC / Python / TypeScript / Go / Rust / universal rules, plus clean controls) scored on detection rate, a severity-weighted score, and **per-severity Expected Calibration Error (ECE)** — calibration, not just accuracy. Run manually with `python3 eval/run_eval.py` (uses the Claude API; not a merge gate).
+- **Test suite:** ~40 hook/guard test scripts under `tests/` and 100+ unit tests in the Rust `vibeguard-runtime` crate. CI runs on Linux, macOS, and Windows.
 
 ## Learning System
 
