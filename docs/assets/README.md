@@ -10,6 +10,7 @@ Scripts and rendered media for the README demo.
 | `demo-scenario.sh` | Scripted scenario that invokes real VibeGuard guards against a throw-away project |
 | `demo.cast` | Latest asciinema recording (asciicast-v2, generated) |
 | `demo.gif` | Rendered GIF that can be embedded in the README (generated) |
+| `codex-l1-duplicate-path-blocked.png` | Real Codex hook screenshot showing L1 duplicate detection and a blocked hallucinated file path |
 
 ## Recording a fresh demo
 

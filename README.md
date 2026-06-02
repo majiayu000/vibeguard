@@ -59,6 +59,10 @@ For repository layout ownership, see [Directory Map](docs/directory-map.md).
 
 ![VibeGuard demo](docs/assets/demo.gif)
 
+Real Codex hook output:
+
+![Codex L1 duplicate path interception](docs/assets/codex-l1-duplicate-path-blocked.png)
+
 ```text
 You:  "Add a login endpoint"
 
