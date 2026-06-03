@@ -134,6 +134,29 @@ func TestRun(t *testing.T) {
 EOF
 assert_ok "discarded error in _test.go is excluded" bash "$GUARD" --strict "$proj_test"
 
+# --- FAIL: staged mode works when bash mapfile is unavailable ---
+proj_staged_no_mapfile="${tmpdir}/fail_staged_no_mapfile"
+mkdir -p "${proj_staged_no_mapfile}"
+proj_staged_no_mapfile="$(cd "${proj_staged_no_mapfile}" && pwd -P)"
+git -C "${proj_staged_no_mapfile}" init -q
+cat > "${proj_staged_no_mapfile}/main.go" <<'EOF'
+package main
+
+import "os"
+
+func main() {
+    _ = os.Remove("/tmp/old-file.txt")
+}
+EOF
+git -C "${proj_staged_no_mapfile}" add main.go
+staged_no_mapfile_list="${tmpdir}/go_staged_files.txt"
+printf '%s\n' "${proj_staged_no_mapfile}/main.go" > "$staged_no_mapfile_list"
+disable_mapfile_env="${tmpdir}/disable_mapfile.bashenv"
+printf '%s\n' 'enable -n mapfile 2>/dev/null || true' > "$disable_mapfile_env"
+assert_output_contains "staged mode without mapfile reports GO-01" "[GO-01]" \
+  env BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
+  bash "$GUARD" --strict "$proj_staged_no_mapfile"
+
 # --- PASS: code with no blank identifier assignments ---
 proj_clean2="${tmpdir}/pass_clean2"
 mkdir -p "${proj_clean2}"

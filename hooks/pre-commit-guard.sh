@@ -303,12 +303,31 @@ fi
 # --- Build check: all detected languages run (not elif) ---
 BUILD_FAILS=""
 
+append_build_failure() {
+  local fail_msg="$1"
+  local output="${2:-}"
+  local excerpt=""
+
+  BUILD_FAILS="${BUILD_FAILS}  ${fail_msg}\n"
+
+  if [[ -n "$output" ]]; then
+    excerpt=$(printf '%s\n' "$output" | sed '/^[[:space:]]*$/d' | sed -n '1,8p')
+    if [[ -n "$excerpt" ]]; then
+      BUILD_FAILS="${BUILD_FAILS}    output excerpt:\n"
+      while IFS= read -r line; do
+        BUILD_FAILS="${BUILD_FAILS}      ${line}\n"
+      done <<< "$excerpt"
+    fi
+  fi
+}
+
 run_build_check() {
   local cmd="$1"
   local fail_msg="$2"
   local code=0
+  local output=""
 
-  run_with_timeout "$cmd" >/dev/null 2>&1 || code=$?
+  output=$(run_with_timeout "$cmd" 2>&1) || code=$?
   if [[ $code -eq 124 ]]; then
     if [[ "$TIMEOUT_BEHAVIOR" == "warn" ]]; then
       vg_log "pre-commit-guard" "git-commit" "warn" "build timeout after ${TIMEOUT}s; allowed by VIBEGUARD_PRECOMMIT_TIMEOUT_BEHAVIOR=warn" "$fail_msg"
@@ -319,7 +338,7 @@ run_build_check() {
     return 0
   fi
   if [[ $code -ne 0 ]]; then
-    BUILD_FAILS="${BUILD_FAILS}  ${fail_msg}\n"
+    append_build_failure "$fail_msg" "$output"
   fi
 }
 
@@ -341,7 +360,7 @@ for lang in $DETECTED_LANGS; do
         [[ -z "$build_root" ]] && continue
         build_root_q=$(printf '%q' "$build_root")
         repo_root_q=$(printf '%q' "$REPO_ROOT")
-        run_build_check "cd ${build_root_q} && tsc_cmd=''; search_dir=\"\$PWD\"; while true; do if [[ -x \"\$search_dir/node_modules/.bin/tsc\" ]]; then tsc_cmd=\"\$search_dir/node_modules/.bin/tsc\"; break; fi; [[ \"\$search_dir\" == ${repo_root_q} ]] && break; parent_dir=\$(dirname \"\$search_dir\"); [[ \"\$parent_dir\" == \"\$search_dir\" ]] && break; search_dir=\"\$parent_dir\"; done; [[ -z \"\$tsc_cmd\" ]] && command -v tsc >/dev/null 2>&1 && tsc_cmd=\$(command -v tsc); [[ -z \"\$tsc_cmd\" ]] && exit 0; \"\$tsc_cmd\" --noEmit" "tsc --noEmit failed (${build_root})"
+        run_build_check "cd ${build_root_q} && tsc_cmd=''; search_dir=\"\$PWD\"; while true; do if [[ -x \"\$search_dir/node_modules/.bin/tsc\" ]]; then tsc_cmd=\"\$search_dir/node_modules/.bin/tsc\"; break; fi; [[ \"\$search_dir\" == ${repo_root_q} ]] && break; parent_dir=\$(dirname \"\$search_dir\"); [[ \"\$parent_dir\" == \"\$search_dir\" ]] && break; search_dir=\"\$parent_dir\"; done; [[ -z \"\$tsc_cmd\" ]] && command -v tsc >/dev/null 2>&1 && tsc_cmd=\$(command -v tsc); [[ -z \"\$tsc_cmd\" ]] && exit 0; printf 'tsc command: %s\n' \"\$tsc_cmd\" >&2; \"\$tsc_cmd\" --noEmit" "tsc --noEmit failed (${build_root})"
       done <<< "$TYPESCRIPT_BUILD_ROOTS"
       ;;
     javascript)

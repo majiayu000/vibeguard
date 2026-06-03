@@ -33,6 +33,7 @@ EOF
 
 cat >"$tmp_repo_precommit_ts_js/bin/tsc" <<'EOF'
 #!/usr/bin/env bash
+echo "simulated tsc stderr: cannot find name missingSymbol" >&2
 exit 1
 EOF
 
@@ -40,6 +41,10 @@ chmod +x "$tmp_repo_precommit_ts_js/bin/node" "$tmp_repo_precommit_ts_js/bin/tsc
 git -C "$tmp_repo_precommit_ts_js" add tsconfig.json src/bad.js
 _stub_guards="$(make_stub_guard_dir)"
 assert_exit_nonzero "JS-only staged changes in a TS repo still run tsc --noEmit" bash -c "cd '$tmp_repo_precommit_ts_js' && PATH='$tmp_repo_precommit_ts_js/bin:/usr/bin:/bin:$PATH' VIBEGUARD_DIR='$_stub_guards' bash '$REPO_DIR/hooks/pre-commit-guard.sh'"
+ts_build_diag_out=$(cd "$tmp_repo_precommit_ts_js" && PATH="$tmp_repo_precommit_ts_js/bin:/usr/bin:/bin:$PATH" VIBEGUARD_DIR="$_stub_guards" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1 || true)
+assert_contains "$ts_build_diag_out" "Build failed:" "TypeScript build failure prints build section"
+assert_contains "$ts_build_diag_out" "tsc command:" "TypeScript build failure includes resolved tsc command"
+assert_contains "$ts_build_diag_out" "simulated tsc stderr" "TypeScript build failure includes stderr excerpt"
 rm -rf "$_stub_guards" "$tmp_repo_precommit_ts_js"
 
 # Mixed TS + JS staged changes should only run the shared TS quality guards once.
