@@ -146,6 +146,34 @@ describe("handler", () => {
 EOF
 assert_ok "console.log in .test.ts is excluded" bash "$GUARD" --strict "$proj_test"
 
+# --- FAIL: staged mode works when bash mapfile is unavailable ---
+proj_staged_no_mapfile="${tmpdir}/fail_staged_no_mapfile"
+mkdir -p "${proj_staged_no_mapfile}/src"
+proj_staged_no_mapfile="$(cd "${proj_staged_no_mapfile}" && pwd -P)"
+git -C "${proj_staged_no_mapfile}" init -q
+cat > "${proj_staged_no_mapfile}/src/staged.ts" <<'EOF'
+export function run(): void {
+  console.log("debug");
+}
+EOF
+git -C "${proj_staged_no_mapfile}" add src/staged.ts
+staged_no_mapfile_list="${tmpdir}/ts_console_staged_files.txt"
+printf '%s\n' "${proj_staged_no_mapfile}/src/staged.ts" > "$staged_no_mapfile_list"
+disable_mapfile_env="${tmpdir}/disable_mapfile.bashenv"
+printf '%s\n' 'enable -n mapfile 2>/dev/null || true' > "$disable_mapfile_env"
+ast_grep_stub_dir="${tmpdir}/ast_grep_stub_ts_console"
+mkdir -p "$ast_grep_stub_dir"
+cat > "$ast_grep_stub_dir/ast-grep" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+target="${!#}"
+printf '[{"file":"%s","range":{"start":{"line":1}},"message":"stub console residual"}]\n' "$target"
+EOF
+chmod +x "$ast_grep_stub_dir/ast-grep"
+assert_output_contains "staged mode without mapfile uses ast-grep target collection" "stub console residual" \
+  env PATH="$ast_grep_stub_dir:$PATH" BASH_ENV="$disable_mapfile_env" VIBEGUARD_STAGED_FILES="$staged_no_mapfile_list" \
+  bash "$GUARD" --strict "$proj_staged_no_mapfile"
+
 # --- PASS: console in comment is not flagged ---
 proj_commented="${tmpdir}/pass_commented"
 mkdir -p "${proj_commented}/src"

@@ -49,7 +49,10 @@ if command -v ast-grep >/dev/null 2>&1; then
   else
     # staged mode: only scan staged TS files to avoid full warehouse scanning blocking irrelevant submissions
     if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]]; then
-      mapfile -t _ASG_TARGETS < <(grep -E '\.(ts|tsx|js|jsx)$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null || true)
+      _ASG_TARGETS=()
+      while IFS= read -r _VG_TARGET; do
+        [[ -n "$_VG_TARGET" ]] && _ASG_TARGETS+=("$_VG_TARGET")
+      done < <(list_ts_files "${TARGET_DIR}")
     else
       _ASG_TARGETS=("${TARGET_DIR}")
     fi
