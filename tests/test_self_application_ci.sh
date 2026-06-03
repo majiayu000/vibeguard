@@ -109,6 +109,26 @@ print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
 EOF
 assert_cmd "argv-only package correction passes" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${good_pkg_correction}"
 
+good_runtime_pkg_correction="${TMP_DIR}/good-runtime-pkg-correction"
+mkdir -p "${good_runtime_pkg_correction}/hooks"
+cat > "${good_runtime_pkg_correction}/hooks/pre-bash-guard.sh" <<'EOF'
+#!/usr/bin/env bash
+PRE_BASH_RESULT=$("$_VIBEGUARD_RUNTIME" pre-bash-check "$VIBEGUARD_ROOT")
+CORRECTED=$(pre_bash_required_field corrected)
+printf '%s\n' "$CORRECTED"
+EOF
+assert_cmd "runtime-owned package correction passes taint check" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${good_runtime_pkg_correction}"
+
+bad_runtime_pkg_eval="${TMP_DIR}/bad-runtime-pkg-eval"
+mkdir -p "${bad_runtime_pkg_eval}/hooks"
+cat > "${bad_runtime_pkg_eval}/hooks/pre-bash-guard.sh" <<'EOF'
+#!/usr/bin/env bash
+PRE_BASH_RESULT=$("$_VIBEGUARD_RUNTIME" pre-bash-check "$VIBEGUARD_ROOT")
+CORRECTED=$(pre_bash_required_field corrected)
+eval "$CORRECTED"
+EOF
+assert_fails "runtime-owned package correction eval fails taint check" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${bad_runtime_pkg_eval}"
+
 bad_pkg_correction="${TMP_DIR}/bad-pkg-correction"
 mkdir -p "${bad_pkg_correction}/hooks"
 cat > "${bad_pkg_correction}/hooks/pre-bash-guard.sh" <<'EOF'

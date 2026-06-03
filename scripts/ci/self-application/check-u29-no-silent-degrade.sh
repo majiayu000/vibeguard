@@ -72,8 +72,8 @@ if precommit.exists():
 prebash = repo / "hooks/pre-bash-guard.sh"
 if prebash.exists():
     text = prebash.read_text(encoding="utf-8")
-    if 'vg_json_field_strict "tool_input.command"' not in text:
-        errors.append("hooks/pre-bash-guard.sh: Bash command extraction is not strict")
+    if "pre-bash-check" not in text:
+        errors.append("hooks/pre-bash-guard.sh: Bash command extraction is not runtime fail-closed")
     if "invalid Bash hook input JSON; fail-closed" not in text:
         errors.append("hooks/pre-bash-guard.sh: missing fail-closed parse warning")
 

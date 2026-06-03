@@ -5,6 +5,7 @@ mod codex_app_server_file_changes;
 mod codex_app_server_strategies;
 mod event_schema;
 mod hook_checks;
+mod hook_checks_bash;
 mod hook_checks_common;
 mod hook_checks_history;
 mod hook_checks_scan;
@@ -77,6 +78,11 @@ static COMMANDS: &[Command] = &[
         name: "pkg-rewrite",
         usage: "  — rewrite package manager command from stdin",
         handler: pkg_rewrite::run,
+    },
+    Command {
+        name: "pre-bash-check",
+        usage: "<vibeguard-root>  — classify PreToolUse(Bash) input for hooks",
+        handler: hook_checks_bash::pre_bash_check,
     },
     Command {
         name: "session-metrics",

@@ -62,6 +62,7 @@ fn help_lists_all_commands() {
         "append-jsonl",
         "circuit-breaker",
         "pkg-rewrite",
+        "pre-bash-check",
         "session-metrics",
         "pre-write-check",
         "pre-edit-check",
@@ -74,6 +75,85 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+fn run_pre_bash_check(input: &str) -> std::process::Output {
+    let mut child = bin()
+        .args(["pre-bash-check", "/repo"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn pre_bash_check_blocks_dangerous_command() {
+    let out = run_pre_bash_check(r#"{"tool_input":{"command":"git checkout ."}}"#);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("BLOCK\n"), "{stdout}");
+    assert!(stdout.contains("Disable git checkout/restore"), "{stdout}");
+    assert!(
+        stdout.contains("\\\"decision\\\": \\\"block\\\""),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn pre_bash_check_warns_for_nonstandard_markdown() {
+    let out = run_pre_bash_check(r#"{"tool_input":{"command":"printf x > notes.md"}}"#);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("WARN\n"), "{stdout}");
+    assert!(
+        stdout.contains("\\\"hookEventName\\\": \\\"PreToolUse\\\""),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn pre_bash_check_reports_correction_payload() {
+    let out = run_pre_bash_check(r#"{"tool_input":{"command":"npm install lodash"}}"#);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("CORRECTION\n"), "{stdout}");
+    assert!(
+        stdout.contains("\"corrected\":\"pnpm add lodash\""),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("\\\"command\\\": \\\"pnpm add lodash\\\""),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn pre_bash_check_pass_marks_precommit_bridge() {
+    let out = run_pre_bash_check(r#"{"tool_input":{"command":"git commit -m ok"}}"#);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("PASS\n"), "{stdout}");
+    assert!(stdout.contains("\"precommit\":true"), "{stdout}");
+}
+
+#[test]
+fn pre_bash_check_malformed_input_fails_closed() {
+    let out = run_pre_bash_check(r#"{"tool_input":"#);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("BLOCK\n"), "{stdout}");
+    assert!(
+        stdout.contains("invalid Bash hook input JSON; fail-closed"),
+        "{stdout}"
+    );
 }
 
 fn run_circuit_breaker(

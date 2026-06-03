@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Bash) Hook
 #
-# Hard interception of irreversible dangerous commands:
-# - git checkout . / git restore . (discard all changes)
-# - git clean -f (remove untracked files)
-# - rm -rf project root directory or sensitive path
-#
-# Transparently correct (updatedInput) mechanically predictable commands:
-#   - npm install / yarn install → pnpm install
-#   - npm install <pkg> / yarn add <pkg> → pnpm add <pkg>
-#   - pip install / pip3 install / python -m pip install → uv pip install
-#
-# Note: force push detection has been moved to hooks/git/pre-push (git native hook),
-# This hook is installed to each project .git/hooks/pre-push through scripts/install-hook.sh.
+# Rust classifies Bash input; this shell wrapper preserves hook logging,
+# package-tool availability checks, and the git-commit pre-commit bridge.
+# Runtime malformed input contract: invalid Bash hook input JSON; fail-closed.
 
 set -euo pipefail
 
@@ -20,229 +11,116 @@ source "$(dirname "$0")/log.sh"
 vg_start_timer
 
 INPUT=$(cat)
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+VIBEGUARD_ROOT="${VIBEGUARD_DIR:-$(cd "$HOOK_DIR/.." && pwd)}"
 
-if ! COMMAND=$(printf '%s' "$INPUT" | vg_json_field_strict "tool_input.command"); then
-  vg_log "pre-bash-guard" "Bash" "block" "invalid Bash hook input JSON; fail-closed" ""
-  vg_json_output_kv decision block reason "VIBEGUARD interception: invalid Bash hook input JSON; fail-closed because tool_input.command could not be parsed."
-  exit 0
-fi
-
-if [[ -z "$COMMAND" ]]; then
-  exit 0
-fi
-
-# Remove heredoc bodies to avoid false positives caused by multi-line text.
-# Cover variants: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' etc.
-# This is intentionally line-oriented rather than a DOTALL regex so adversarial
-# unterminated heredocs cannot force broad backtracking across the full command.
-if [[ "$COMMAND" == *"<<"* ]]; then
-  COMMAND_NO_HEREDOC=$(printf '%s' "$COMMAND" | python3 -c '
-import re, sys
-
-terminator = None
-strip_tabs = False
-out = []
-
-for line in sys.stdin.read().splitlines(keepends=True):
-    if terminator is not None:
-        candidate = line.rstrip("\r\n")
-        if strip_tabs:
-            candidate = candidate.lstrip("\t")
-        if candidate == terminator:
-            terminator = None
-            strip_tabs = False
-        continue
-
-    out.append(line)
-    match = re.search(r"<<(?P<dash>-?)\s*([\"'"'"']?)(?P<tag>[A-Za-z0-9_]+)\2", line)
-    if match:
-        terminator = match.group("tag")
-        strip_tabs = bool(match.group("dash"))
-
-sys.stdout.write("".join(out))
-' 2>/dev/null || printf '%s' "$COMMAND")
-else
-  COMMAND_NO_HEREDOC="$COMMAND"
-fi
-
-# Strip quotation marks (commit message, echo string, etc.) to avoid text content triggering false alarms
-# Keep the command structure and replace the quoted content with an empty string
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
-import re, sys
-cmd = sys.stdin.read()
-# Remove double quotes and single quotes
-cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
-cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
-print(cmd)
-" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
-else
-  COMMAND_STRIPPED="$COMMAND_NO_HEREDOC"
-fi
-
-# Use path scanning: remove quotation marks but retain the content to prevent rm -rf \"/Users/...\" from being bypassed
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
-else
-  COMMAND_PATH_SCAN="$COMMAND_NO_HEREDOC"
-fi
-
-# Variant of COMMAND_STRIPPED that converts "." / '.' (standalone quoted dot) into a bare dot
-# before stripping other quoted content. This lets the same no-anchor regex detect both
-# `git checkout .` and `git checkout "."` (including wrappers like `GIT_TRACE=1 git checkout "."`
-# or `echo y | git checkout "."`) without exposing separators that were inside larger quoted
-# strings (which would cause false positives when stripping all quotes via COMMAND_PATH_SCAN).
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_STRIPPED_WITH_DOT=$(printf '%s' "$COMMAND_NO_HEREDOC" | python3 -c "
-import re, sys
-cmd = sys.stdin.read()
-# Replace standalone quoted dot (\".\"/'.') with bare dot before stripping other quoted content
-cmd = re.sub(r'\"\.\"', '.', cmd)
-cmd = re.sub(r\"'\\.'\", '.', cmd)
-# Strip remaining quoted content so separators inside strings stay invisible
-cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
-cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
-print(cmd)
-" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
-else
-  COMMAND_STRIPPED_WITH_DOT="$COMMAND_NO_HEREDOC"
-fi
-
-block() {
+fail_closed_runtime() {
   local reason="$1"
-  vg_log "pre-bash-guard" "Bash" "block" "$reason" "$COMMAND"
+  local detail="${2:-}"
+  vg_log "pre-bash-guard" "Bash" "block" "$reason" "$detail"
   vg_json_output_kv decision block reason "VIBEGUARD interception: ${reason}"
   exit 0
 }
 
-authorized_discard_hint() {
-  local root="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-  printf ' To perform an audited cleanup, run: python3 "%s/scripts/authorized-discard.py" --plan, then rerun with --confirm "discard listed changes" after reviewing the enumerated paths.' "$root"
+pre_bash_required_field() {
+  local field="$1"
+  printf '%s' "$PRE_BASH_BODY" | vg_json_field_strict "$field"
 }
 
-# git reset --hard — Allow execution (users need to use it in scenarios such as rebase conflicts)
-
-# git checkout . / git restore . (discard all changes)
-# Only matches pure "." endings, excluding legal path operations such as git checkout ./src/file
-# COMMAND_STRIPPED_WITH_DOT converts "." / '.' to a bare dot then strips other quoted content,
-# so a no-anchor regex safely detects all wrapper forms (env vars, pipes, `command`, `env`,
-# and shell redirections such as heredoc openers) without false-positives from separators
-# inside commit messages or string arguments.
-if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||[<>]|$)'; then
-  block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding.$(authorized_discard_hint)"
+runtime_err=$(mktemp "${TMPDIR:-/tmp}/vibeguard-pre-bash.XXXXXX") || \
+  fail_closed_runtime "pre-bash-check stderr capture could not be created" ""
+if PRE_BASH_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-bash-check "$VIBEGUARD_ROOT" 2>"$runtime_err"); then
+  runtime_status=0
+else
+  runtime_status=$?
 fi
-
-# git clean -f (delete untracked files)
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
-  block "Disable git clean -f (untracked files are permanently deleted and cannot be recovered). Alternatives: git clean -n (dry run preview) to see what will be deleted first; git stash --include-untracked to temporarily store untracked files; manually rm to specify files.$(authorized_discard_hint)"
-fi
-
-# rm -rf dangerous path detection (covers rm -rf, rm -fr, rm -Rf, rm --recursive --force and other variants)
-# First identify the rm -rf command in the command structure of "remove quotation marks", and then perform dangerous path matching in the text that retains the path content.
-if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?(\\?rm)[[:space:]]+((-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR]))|(--(recursive|force)[[:space:]]+--(recursive|force)))([[:space:]]|$)'; then
-  DANGEROUS=false
-  # Dangerous paths: root directory, home directory (including /Users/xxx, /home/xxx), system directory
-  for pattern in \
-    '[[:space:]]/([[:space:];|&]|$)' \
-    '[[:space:]]~([[:space:];|&/]|$)' \
-    '\$HOME' \
-    '[[:space:]]/Users(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
-    '[[:space:]]/home(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
-    '[[:space:]]/(etc|var|usr|bin|sbin|opt|System|Library)([[:space:];|&/]|$)'; do
-    if echo "$COMMAND_PATH_SCAN" | grep -qE "$pattern"; then
-      DANGEROUS=true
-      break
-    fi
-  done
-  if [[ "$DANGEROUS" == true ]]; then
-    block "Prohibit rm -rf dangerous paths (the root directory, home directory, and system directory are not recoverable). Alternatives: rm -rf <specific deep subdirectory> specifies the exact path; rm -ri interactively confirms; first confirm the target with ls and then delete it."
+if ! runtime_stderr=$(cat "$runtime_err"); then
+  if ! rm -f "$runtime_err"; then
+    printf 'VIBEGUARD ERROR: failed to remove pre-bash stderr capture: %s\n' "$runtime_err" >&2
   fi
+  fail_closed_runtime "pre-bash-check stderr capture could not be read" ""
+fi
+if ! rm -f "$runtime_err"; then
+  fail_closed_runtime "pre-bash-check stderr capture could not be removed" ""
+fi
+if [[ "$runtime_status" -ne 0 ]]; then
+  fail_closed_runtime "pre-bash-check runtime failed: ${runtime_stderr:-exit $runtime_status}" ""
+fi
+if [[ -n "$runtime_stderr" ]]; then
+  fail_closed_runtime "pre-bash-check runtime wrote stderr: $runtime_stderr" ""
 fi
 
+PRE_BASH_TOKEN="${PRE_BASH_RESULT%%$'\n'*}"
+PRE_BASH_BODY="${PRE_BASH_RESULT#*$'\n'}"
+[[ "$PRE_BASH_BODY" == "$PRE_BASH_RESULT" ]] && PRE_BASH_BODY="{}"
 
-# --- git commit interception: Claude Code has no PreCommit event, and is filled in through Bash hook ---
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
-  # Explicit skip
-  if ! echo "$COMMAND" | grep -qE 'VIBEGUARD_SKIP_PRECOMMIT=1'; then
-    HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-    PRECOMMIT_SCRIPT="${HOOK_DIR}/pre-commit-guard.sh"
-    if [[ -f "$PRECOMMIT_SCRIPT" ]]; then
-      PRECOMMIT_EXIT=0
-      PRECOMMIT_OUTPUT=$(VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$HOOK_DIR/.." && pwd)}" bash "$PRECOMMIT_SCRIPT" 2>&1) || PRECOMMIT_EXIT=$?
-      if [[ $PRECOMMIT_EXIT -ne 0 ]]; then
-        vg_log "pre-bash-guard" "Bash" "block" "pre-commit check failed" "$COMMAND"
-        # Embed detailed output into reason so Claude Code can see it
-        # (stderr is not visible to the agent, only the JSON reason field is)
-        # Pass via stdin to avoid execve argv+env size limit on large output.
-        printf '%s' "$PRECOMMIT_OUTPUT" | python3 -c '
-import json, sys
-output = sys.stdin.read()
-reason = "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。\n\n" + output
-print(json.dumps({"decision": "block", "reason": reason}))
-'
-        exit 0
+case "$PRE_BASH_TOKEN" in
+  EMPTY)
+    exit 0
+    ;;
+  BLOCK)
+    if ! LOG_REASON=$(pre_bash_required_field log_reason) \
+        || ! DETAIL=$(pre_bash_required_field detail) \
+        || ! HOOK_OUTPUT=$(pre_bash_required_field output); then
+      fail_closed_runtime "pre-bash-check emitted invalid BLOCK payload" ""
+    fi
+    vg_log "pre-bash-guard" "Bash" "block" "$LOG_REASON" "$DETAIL"
+    printf '%s\n' "$HOOK_OUTPUT"
+    exit 0
+    ;;
+  WARN)
+    if ! LOG_REASON=$(pre_bash_required_field log_reason) \
+        || ! DETAIL=$(pre_bash_required_field detail) \
+        || ! HOOK_OUTPUT=$(pre_bash_required_field output); then
+      fail_closed_runtime "pre-bash-check emitted invalid WARN payload" ""
+    fi
+    vg_log "pre-bash-guard" "Bash" "warn" "$LOG_REASON" "$DETAIL"
+    printf '%s\n' "$HOOK_OUTPUT"
+    exit 0
+    ;;
+  CORRECTION)
+    if ! COMMAND=$(pre_bash_required_field command) \
+        || ! CORRECTED=$(pre_bash_required_field corrected) \
+        || ! HOOK_OUTPUT=$(pre_bash_required_field output); then
+      fail_closed_runtime "pre-bash-check emitted invalid CORRECTION payload" ""
+    fi
+    target_tool="${CORRECTED%% *}"
+    if ! command -v "$target_tool" &>/dev/null; then
+      vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (${target_tool} not found)" "${COMMAND:0:120}"
+      exit 0
+    fi
+    if [[ "$CORRECTED" == uv\ pip\ install* ]] \
+        && [[ -z "${VIRTUAL_ENV:-}" ]] && [[ ! -d ".venv" ]]; then
+      vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (no active venv for uv pip)" "${COMMAND:0:120}"
+      exit 0
+    fi
+    vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $CORRECTED"
+    printf '%s\n' "$HOOK_OUTPUT"
+    exit 0
+    ;;
+  PASS)
+    if ! COMMAND=$(pre_bash_required_field command) \
+        || ! PRECOMMIT=$(pre_bash_required_field precommit); then
+      fail_closed_runtime "pre-bash-check emitted invalid PASS payload" ""
+    fi
+    if [[ "$PRECOMMIT" == "true" ]]; then
+      PRECOMMIT_SCRIPT="${HOOK_DIR}/pre-commit-guard.sh"
+      if [[ -f "$PRECOMMIT_SCRIPT" ]]; then
+        PRECOMMIT_EXIT=0
+        PRECOMMIT_OUTPUT=$(VIBEGUARD_DIR="$VIBEGUARD_ROOT" bash "$PRECOMMIT_SCRIPT" 2>&1) || PRECOMMIT_EXIT=$?
+        if [[ $PRECOMMIT_EXIT -ne 0 ]]; then
+          vg_log "pre-bash-guard" "Bash" "block" "pre-commit check failed" "$COMMAND"
+          vg_json_output_kv decision block reason "VIBEGUARD Pre-Commit 检查失败。请根据上方错误信息修复问题后重新提交。禁止使用环境变量绕过。
+
+$PRECOMMIT_OUTPUT"
+          exit 0
+        fi
       fi
     fi
-  fi
-fi
-
-# --- doc-file-blocker: Detect creation of non-standard .md files ---
-# Allowed .md files: README, CLAUDE, CONTRIBUTING, CHANGELOG, LICENSE, SKILL
-# Fix doc-file-blocker: exclude temp file paths and paths containing numbers
-# (e.g. /tmp/doc123.md, mktemp output) which are not persistent documentation.
-if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
-  # Skip if writing to a temp/system directory (not a project doc)
-  if echo "$COMMAND_STRIPPED" | grep -qE ">.*(/tmp/|/var/|/proc/|\$TMPDIR|\$TEMP|mktemp)" 2>/dev/null; then
-    true  # temp path — pass through
-  elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
-    # Output a warning instead of blocking (probably reasonable document creation)
-    vg_log "pre-bash-guard" "Bash" "warn" "Non-standard .md file" "$COMMAND"
-    VG_CONTEXT="VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary." python3 - <<'PY'
-import json
-import os
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "additionalContext": os.environ["VG_CONTEXT"],
-    }
-}, ensure_ascii=False))
-PY
+    vg_log "pre-bash-guard" "Bash" "pass" "" "$COMMAND"
     exit 0
-  fi
-fi
-
-# --- Package manager transparent correction (updatedInput) ---
-# Mechanically predictable commands can be rewritten directly without block+retry.
-# Only for simple single commands (chain commands including && and other chain commands are not corrected to avoid mistakenly modifying complex pipelines).
-_PKG_CORRECTION=$(printf '%s' "$COMMAND" | "$_VIBEGUARD_RUNTIME" pkg-rewrite 2>/dev/null || echo "")
-
-if [[ -n "$_PKG_CORRECTION" ]]; then
-  # Verify target tool is actually installed before rewriting — avoids turning
-  # a working command into one that will always fail (e.g. no pnpm/uv on PATH).
-  _target_tool="${_PKG_CORRECTION%% *}"
-  if ! command -v "$_target_tool" &>/dev/null; then
-    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (${_target_tool} not found)" "${COMMAND:0:120}"
-    exit 0
-  fi
-  # For uv pip install, also require an active or local virtual environment;
-  # without one uv pip fails immediately, making the rewrite harmful.
-  if [[ "$_PKG_CORRECTION" == uv\ pip\ install* ]] \
-      && [[ -z "${VIRTUAL_ENV:-}" ]] && [[ ! -d ".venv" ]]; then
-    vg_log "pre-bash-guard" "Bash" "pass" "pkg-rewrite skipped (no active venv for uv pip)" "${COMMAND:0:120}"
-    exit 0
-  fi
-  vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
-  # PKG-CORRECTION-ARGV-CONTRACT: pass the generated command as sys.argv[1].
-  # Never interpolate _PKG_CORRECTION into inline Python source or shell eval.
-  python3 -c "
-import json, sys
-corrected = sys.argv[1]
-print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
-" "$_PKG_CORRECTION"
-  exit 0
-fi
-
-# Pass all checks → Release
-vg_log "pre-bash-guard" "Bash" "pass" "" "$COMMAND"
-exit 0
+    ;;
+  *)
+    fail_closed_runtime "pre-bash-check emitted unexpected token: $PRE_BASH_TOKEN" ""
+    ;;
+esac

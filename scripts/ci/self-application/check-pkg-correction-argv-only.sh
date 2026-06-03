@@ -20,9 +20,6 @@ def shell_var_ref(name: str) -> re.Pattern[str]:
     return re.compile(rf"\${escaped}(?![A-Za-z0-9_])|\$\{{{escaped}[^}}]*\}}")
 
 
-pkg_correction_ref = shell_var_ref("_PKG_CORRECTION")
-
-
 def shell_word_plain(raw: str) -> str:
     try:
         parts = shlex.split(raw, posix=True)
@@ -134,34 +131,43 @@ if not path.exists():
 else:
     text = path.read_text(encoding="utf-8")
 
-    if "PKG-CORRECTION-ARGV-CONTRACT" not in text:
-        errors.append("missing PKG-CORRECTION-ARGV-CONTRACT comment")
+    runtime_owned = "pre-bash-check" in text and "_PKG_CORRECTION" not in text
+    taint_source_vars = {"_PKG_CORRECTION"}
+    if runtime_owned:
+        taint_source_vars.add("CORRECTED")
 
-    if "corrected = sys.argv[1]" not in text:
-        errors.append("package correction JSON emitter must read sys.argv[1]")
+    if not runtime_owned:
+        if "PKG-CORRECTION-ARGV-CONTRACT" not in text:
+            errors.append("missing PKG-CORRECTION-ARGV-CONTRACT comment")
+
+        if "corrected = sys.argv[1]" not in text:
+            errors.append("package correction JSON emitter must read sys.argv[1]")
 
     python_sources = list(iter_python_c_sources(text))
     argv_ref_pattern = re.compile(
         r'\s+"(?:\$_PKG_CORRECTION|\$\{_PKG_CORRECTION\})"'
     )
-    if not any(
-        "sys.argv[1]" in src and argv_ref_pattern.match(text[quote_end:])
-        for src, _start, quote_end in python_sources
-    ):
-        errors.append("_PKG_CORRECTION is not passed as a python3 argv argument")
+    if not runtime_owned:
+        if not any(
+            "sys.argv[1]" in src and argv_ref_pattern.match(text[quote_end:])
+            for src, _start, quote_end in python_sources
+        ):
+            errors.append("_PKG_CORRECTION is not passed as a python3 argv argument")
 
     for src, start, _quote_end in python_sources:
-        if pkg_correction_ref.search(src):
-            line = text[:start].count("\n") + 1
-            errors.append(
-                f"line {line}: _PKG_CORRECTION is interpolated into inline Python source"
-            )
+        for tainted in sorted(taint_source_vars):
+            if shell_var_ref(tainted).search(src):
+                line = text[:start].count("\n") + 1
+                errors.append(
+                    f"line {line}: {tainted} is interpolated into inline Python source"
+                )
 
     for src, line in iter_python_stdin_sources(text):
-        if pkg_correction_ref.search(src):
-            errors.append(
-                f"line {line}: _PKG_CORRECTION is interpolated into stdin Python source"
-            )
+        for tainted in sorted(taint_source_vars):
+            if shell_var_ref(tainted).search(src):
+                errors.append(
+                    f"line {line}: {tainted} is interpolated into stdin Python source"
+                )
 
     shell_eval_pattern = re.compile(r"\b(?:eval|bash\s+-c|sh\s+-c)\b")
     assignment_pattern = re.compile(
@@ -170,7 +176,7 @@ else:
         r"([A-Za-z_][A-Za-z0-9_]*)=([^;#]*)"
     )
     set_positional_pattern = re.compile(r"(?:^|[;&|])\s*set\s+--\s+([^;#]*)")
-    tainted_vars = {"_PKG_CORRECTION"}
+    tainted_vars = set(taint_source_vars)
     for line_no, line in iter_shell_logical_lines(text):
         if line.lstrip().startswith("#"):
             continue
@@ -185,7 +191,7 @@ else:
         if shell_eval_pattern.search(line) and any(
             shell_var_ref(tainted).search(line) for tainted in tainted_vars
         ):
-            errors.append(f"line {line_no}: _PKG_CORRECTION flows through shell evaluation")
+            errors.append(f"line {line_no}: package correction value flows through shell evaluation")
 
 if errors:
     print("FAIL: package correction argv-only contract failed")

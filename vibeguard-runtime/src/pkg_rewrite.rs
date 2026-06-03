@@ -16,7 +16,7 @@ pub fn run(_args: &[String]) -> Result {
     Ok(())
 }
 
-fn rewrite_command(cmd: &str) -> Option<String> {
+pub(crate) fn rewrite_command(cmd: &str) -> Option<String> {
     // Skip complex commands (&&, ||, ;, pipe, redirection, $(), backtick)
     let complex = Regex::new(r"&&|&|\|\||;|[|<>\n\r]|\$\(|`").ok()?;
     if complex.is_match(cmd) {
