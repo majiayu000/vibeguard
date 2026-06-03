@@ -9,6 +9,7 @@ mod hook_checks_history;
 mod hook_checks_scan;
 mod hook_status;
 mod json_field;
+mod log_append;
 mod log_query;
 mod pkg_rewrite;
 mod session_metrics;
@@ -60,6 +61,11 @@ static COMMANDS: &[Command] = &[
         name: "paralysis-count",
         usage: "<session>  — count consecutive read-only tool calls",
         handler: log_query::paralysis_count,
+    },
+    Command {
+        name: "append-jsonl",
+        usage: "<log-file>  — append one stdin JSONL line with runtime locking",
+        handler: log_append::run,
     },
     Command {
         name: "pkg-rewrite",

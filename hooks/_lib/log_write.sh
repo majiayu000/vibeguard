@@ -4,12 +4,38 @@
 vg_append_log_line() {
   local file="$1"
   local line="$2"
+  local status=0
+  local runtime_stderr=""
+
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "$_VIBEGUARD_RUNTIME" ]]; then
+    if runtime_stderr=$("$_VIBEGUARD_RUNTIME" append-jsonl "$file" <<<"$line" 2>&1); then
+      return 0
+    else
+      status=$?
+    fi
+
+    if [[ "$runtime_stderr" == *"Unknown command: append-jsonl"* ]]; then
+      _vg_append_log_line_shell "$file" "$line"
+      return $?
+    fi
+
+    [[ -z "$runtime_stderr" ]] || printf '%s\n' "$runtime_stderr" >&2
+    printf 'VIBEGUARD ERROR: runtime JSONL append failed for %s\n' "$file" >&2
+    return "$status"
+  fi
+
+  _vg_append_log_line_shell "$file" "$line"
+}
+
+_vg_append_log_line_shell() {
+  local file="$1"
+  local line="$2"
+  local status=0
   local lock_dir="${file}.lock.d"
   local acquired="false"
   local attempts=0
   local max_attempts="${VIBEGUARD_LOG_LOCK_ATTEMPTS:-100}"
   local sleep_seconds="${VIBEGUARD_LOG_LOCK_SLEEP_SECONDS:-0.01}"
-  local status=0
 
   [[ "$max_attempts" =~ ^[0-9]+$ ]] || max_attempts=100
   [[ "$max_attempts" -gt 0 ]] || max_attempts=1

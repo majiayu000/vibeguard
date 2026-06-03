@@ -3,8 +3,9 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 
@@ -343,14 +344,19 @@ pub(crate) fn append_jsonl(path: &Path, line: &str) -> io::Result<()> {
     }
     let existed = path.exists();
     let _lock = JsonlAppendLock::acquire(path)?;
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    if existed {
+        set_owner_only(path);
+    }
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path)?;
     let mut entry = String::with_capacity(line.len() + 1);
     entry.push_str(line);
     entry.push('\n');
     file.write_all(entry.as_bytes())?;
-    if !existed {
-        set_owner_only(path);
-    }
+    set_owner_only(path);
     Ok(())
 }
 
@@ -363,14 +369,18 @@ impl JsonlAppendLock {
         let mut lock_dir = path.as_os_str().to_os_string();
         lock_dir.push(".lock.d");
         let lock_dir = PathBuf::from(lock_dir);
+        let max_attempts = jsonl_lock_attempts();
+        let sleep_duration = jsonl_lock_sleep_duration();
 
-        for _ in 0..100 {
+        for attempt in 0..max_attempts {
             match fs::create_dir(&lock_dir) {
                 Ok(()) => {
                     return Ok(Self { lock_dir });
                 }
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    if attempt + 1 < max_attempts && !sleep_duration.is_zero() {
+                        std::thread::sleep(sleep_duration);
+                    }
                 }
                 Err(err) => return Err(err),
             }
@@ -379,11 +389,28 @@ impl JsonlAppendLock {
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
             format!(
-                "timed out waiting for JSONL append lock: {}",
+                "timed out waiting for JSONL append lock after {max_attempts} attempts: {}",
                 lock_dir.display()
             ),
         ))
     }
+}
+
+fn jsonl_lock_attempts() -> usize {
+    env::var("VIBEGUARD_LOG_LOCK_ATTEMPTS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|value| value.max(1))
+        .unwrap_or(100)
+}
+
+fn jsonl_lock_sleep_duration() -> Duration {
+    env::var("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or_else(|| Duration::from_millis(10))
 }
 
 impl Drop for JsonlAppendLock {
