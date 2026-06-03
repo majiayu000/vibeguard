@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Default setup now downloads the pinned `vibeguard-runtime` release binary on supported macOS and Linux targets, verifies it against `SHA256SUMS`, and keeps source builds available through `--build-from-source` or unsupported/offline fallback paths.
+- `setup.sh --runtime-version` can install a specific runtime release tag for verification and rollback workflows.
+- README, Chinese README, and Linux setup docs now describe the prebuilt-runtime install path, source-build fallback, `--with-scheduler`, and the supported runtime target matrix.
+- Codex L1 duplicate-path blocking now has a README screenshot asset and docs asset index entry.
+- Runtime helper consolidation has an internal feasibility assessment covering remaining Python helpers, callers, Rust coverage, and staged follow-up recommendations.
+
+### Fixed
+- Release publishing now pins `GH_REPO` so `gh release view` works in the publish job even when the job has no repository checkout.
+- Release workflow contract tests now assert the pinned release repository.
+- Setup regression coverage now includes checksum mismatch failures, `gh`-absent curl downloads, offline fallback, source-built to downloaded runtime switching, and runtime-version overrides.
+
+### Changed
+- Install documentation no longer presents Rust/Cargo as a default requirement for supported macOS and Linux prebuilt-runtime targets.
+
+## [1.1.2] - 2026-06-02
+
+### Added
+- Tag-triggered release workflow for `vibeguard-runtime` binaries on `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl`, and `aarch64-unknown-linux-musl`, with `SHA256SUMS` publication.
+- `vibeguard-runtime/VERSION` now pins the runtime release version and release CI fails before publishing when the tag does not match the pinned version.
+- Release workflow contract tests cover release job structure, immutable assets, version/tag matching, matrix targets, and release-write permission scope.
+- Install-friction reduction spec documents the prebuilt-runtime release train, checksum verification, runtime version pinning, source-build fallback, and scheduled-GC policy.
+
+### Fixed
+- `tests/test_stats.sh` avoids a macOS `pipefail` false negative by removing the producer pipe from `grep -q` assertions.
+- Status summary counting now strips ANSI markers before tallying warning, missing, and broken rows.
+
+### Changed
+- Scheduled GC is opt-in through `setup.sh --with-scheduler`; default setup no longer installs launchd/systemd scheduled GC.
+- `setup.sh --check` reports an absent scheduled-GC job as informational instead of warning or missing.
+- `setup.sh --clean` continues to remove scheduled-GC entries when they are present.
+- Runtime release CI keeps the default token read-only and limits release-write permission to the publish job.
+
 ## [1.1.1] - 2026-06-01
 
 ### Added
@@ -228,7 +261,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto-optimize` workflow integrated into VibeGuard
 - `setup.sh` and install scripts for one-command installation
 
-[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/majiayu000/vibeguard/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/majiayu000/vibeguard/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/majiayu000/vibeguard/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/majiayu000/vibeguard/compare/v0.8.0...v1.0.0
