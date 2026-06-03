@@ -68,6 +68,7 @@ fn help_lists_all_commands() {
         "pre-edit-check",
         "post-edit-fast-check",
         "post-write-fast-check",
+        "post-write-check",
         "codex-app-server-wrapper",
     ] {
         assert!(
@@ -75,6 +76,86 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+fn run_post_write_check(input: &str, log_file: &std::path::Path) -> std::process::Output {
+    let mut child = bin()
+        .args([
+            "post-write-check",
+            "800",
+            "400",
+            "5000",
+            "20",
+            "5",
+            log_file.to_string_lossy().as_ref(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("VIBEGUARD_HOOK_START_MS", "1")
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn post_write_check_reports_duplicate_definition() {
+    let root = unique_temp_dir("post-write-dup");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src").join("existing.py"),
+        "def processOrder():\n    return 1\n",
+    )
+    .unwrap();
+    let log_file = root.join("events.jsonl");
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": root.join("src").join("new.py"),
+            "content": "def processOrder():\n    return 2\n"
+        }
+    })
+    .to_string();
+
+    let out = run_post_write_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("PostToolUse"), "{stdout}");
+    assert!(stdout.contains("duplicate definition"), "{stdout}");
+    assert!(
+        fs::read_to_string(&log_file)
+            .unwrap()
+            .contains("processOrder")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_write_check_silent_pass_for_non_source() {
+    let root = unique_temp_dir("post-write-pass");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    let log_file = root.join("events.jsonl");
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": root.join("README.md"),
+            "content": "# title"
+        }
+    })
+    .to_string();
+
+    let out = run_post_write_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty());
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("Non-source file"));
+    assert!(log_text.contains("\"duration_ms\":"), "{log_text}");
+    let _ = fs::remove_dir_all(root);
 }
 
 fn run_pre_bash_check(input: &str) -> std::process::Output {

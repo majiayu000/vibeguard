@@ -7,7 +7,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
+use crate::time_utils::{format_unix_secs_utc, now_unix_millis, now_unix_secs};
 
 pub(crate) fn read_stdin() -> io::Result<String> {
     let mut input = String::new();
@@ -298,6 +298,9 @@ pub(crate) fn write_log_event(
         "reason": reason,
         "detail": detail,
     });
+    if let Some(duration_ms) = runtime_hook_duration_ms() {
+        event[crate::event_schema::field::DURATION_MS] = serde_json::Value::from(duration_ms);
+    }
     for (env_name, field_name) in [
         ("VIBEGUARD_CLI", crate::event_schema::field::CLI),
         ("VIBEGUARD_AGENT_TYPE", crate::event_schema::field::AGENT),
@@ -336,6 +339,14 @@ pub(crate) fn write_log_event(
         }
     }
     Ok(())
+}
+
+fn runtime_hook_duration_ms() -> Option<u64> {
+    let start_ms = env::var("VIBEGUARD_HOOK_START_MS")
+        .ok()?
+        .parse::<u64>()
+        .ok()?;
+    Some(now_unix_millis().saturating_sub(start_ms))
 }
 
 pub(crate) fn append_jsonl(path: &Path, line: &str) -> io::Result<()> {

@@ -12,6 +12,20 @@ header "post-write-guard.sh — duplicate detection"
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"
 
+# Runtime-owned post-write logs should preserve the shell hook timer telemetry.
+tmp_repo_duration="$(mktemp -d)"
+git -C "$tmp_repo_duration" init -q
+tmp_duration_dir="$(mktemp -d)"
+tmp_duration_log="$tmp_duration_dir/events.jsonl"
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"# test"}}' "$tmp_repo_duration/README.md")
+result=$(echo "$json_payload" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_duration_dir" \
+    VIBEGUARD_LOG_FILE="$tmp_duration_log" \
+    bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Post-write duration fixture is silent"
+assert_contains "$(cat "$tmp_duration_log")" '"duration_ms":' "Runtime post-write log preserves duration_ms"
+rm -rf "$tmp_repo_duration" "$tmp_duration_dir"
+
 # Release when there is no git project (use a path that does not exist under /tmp)
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_no_git_project/src/main.rs","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Release if there is no git project"
@@ -113,6 +127,23 @@ json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"def beta():\\n
 result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
 assert_contains "$result" "duplicate filename" "Python: same basename across packages still warns (Go-only carve-out)"
 rm -rf "$tmp_repo_py_check"
+
+# Runtime failures must remain visible even when the fallback log write also
+# fails, because PostToolUse is review-only and should not fail silently.
+tmp_repo_runtime_fail="$(mktemp -d)"
+git -C "$tmp_repo_runtime_fail" init -q
+tmp_log_dir="$(mktemp -d)"
+locked_log="$tmp_log_dir/events.jsonl"
+mkdir "${locked_log}.lock.d"
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"# x"}}' "$tmp_repo_runtime_fail/README.md")
+result=$(echo "$json_payload" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_log_dir" \
+    VIBEGUARD_LOG_FILE="$locked_log" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/post-write-guard.sh 2>/dev/null)
+assert_contains "$result" "post-write runtime check failed" "Runtime failure remains visible when fallback logging fails"
+rm -rf "$tmp_repo_runtime_fail" "$tmp_log_dir"
 
 # =========================================================
 

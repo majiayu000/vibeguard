@@ -8,6 +8,16 @@ pub(crate) fn now_unix_secs() -> u64 {
         .as_secs()
 }
 
+/// Returns milliseconds since Unix epoch via SystemTime.
+pub(crate) fn now_unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 /// Parse ISO 8601 UTC timestamp (YYYY-MM-DDTHH:MM:SSZ or +00:00) to Unix seconds.
 /// Returns None if the string cannot be parsed.
 pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {

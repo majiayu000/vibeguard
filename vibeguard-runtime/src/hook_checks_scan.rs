@@ -102,7 +102,7 @@ fn should_skip_scan_dir(path: &Path) -> bool {
     )
 }
 
-fn absolute_path(path: &str) -> PathBuf {
+pub(crate) fn absolute_path(path: &str) -> PathBuf {
     let path = Path::new(path);
     if path.is_absolute() {
         path.to_path_buf()
