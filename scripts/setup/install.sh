@@ -261,15 +261,9 @@ prepare_runtime_from_source() {
     exit 2
   fi
   echo "  Building vibeguard-runtime from source (Rust)..."
-  if cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet 2>/dev/null; then
-    local runtime_target_dir runtime_binary
-    if ! runtime_target_dir="$(
-      cargo metadata --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --no-deps --format-version=1 2>/dev/null \
-        | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])'
-    )" || [[ -z "${runtime_target_dir}" ]]; then
-      red "  ERROR: unable to resolve vibeguard-runtime Cargo target directory."
-      exit 2
-    fi
+  local runtime_target_dir="${_INSTALL_TMP}/cargo-target"
+  if cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --target-dir "${runtime_target_dir}" --quiet 2>/dev/null; then
+    local runtime_binary
     runtime_binary="${runtime_target_dir}/release/vibeguard-runtime"
     if [[ ! -x "${runtime_binary}" ]]; then
       red "  ERROR: vibeguard-runtime build output not found at ${runtime_binary}"
@@ -278,6 +272,7 @@ prepare_runtime_from_source() {
     mkdir -p "${_INSTALL_TMP}/bin"
     cp "${runtime_binary}" "${_INSTALL_TMP}/bin/vibeguard-runtime"
     chmod +x "${_INSTALL_TMP}/bin/vibeguard-runtime"
+    rm -rf "${runtime_target_dir}"
     green "  vibeguard-runtime binary prepared from source"
   else
     red "  ERROR: vibeguard-runtime build failed. Fix the Rust build before installing VibeGuard."

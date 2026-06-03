@@ -196,6 +196,24 @@ assert_scheduled_gc_present() {
   fi
 }
 
+assert_prepare_runtime_from_source_no_cargo_metadata() {
+  python3 - <<'PY' "${REPO_DIR}/scripts/setup/install.sh"
+from pathlib import Path
+import re
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r"^prepare_runtime_from_source\(\) \{\n(?P<body>.*?)(?=^}\n\nprepare_runtime_binary\(\) \{)",
+    text,
+    re.MULTILINE | re.DOTALL,
+)
+if not match:
+    raise SystemExit(1)
+raise SystemExit(1 if "cargo metadata" in match.group("body") else 0)
+PY
+}
+
 ORIG_HOME="${HOME}"
 TMP_HOME="$(mktemp -d)"
 ORIG_PATH="${PATH}"
@@ -473,6 +491,7 @@ export VIBEGUARD_TEST_RELEASE_DIR="${TEST_RELEASE_DIR}"
 header "setup scripts syntax"
 assert_cmd "setup.sh syntax is correct" bash -n "${REPO_DIR}/setup.sh"
 assert_cmd "scripts/setup/install.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/install.sh"
+assert_cmd "source runtime build does not call cargo metadata" assert_prepare_runtime_from_source_no_cargo_metadata
 assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/check.sh"
 assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
 assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
@@ -965,6 +984,8 @@ source_build_out="$(HOME="${source_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO
 assert_contains "${source_build_out}" "Mode: build-from-source" "--build-from-source reports source mode"
 assert_contains "${source_build_out}" "Building vibeguard-runtime from source (Rust)..." "--build-from-source builds runtime from source"
 assert_cmd "--build-from-source invokes cargo build" grep -qF "build --release" "${source_cargo_log}"
+assert_cmd "--build-from-source uses setup-owned target dir" grep -qF -- "--target-dir" "${source_cargo_log}"
+assert_cmd "--build-from-source does not install cargo target tree" test ! -d "${source_build_home}/.vibeguard/installed/cargo-target"
 
 offline_build_home="${TMP_HOME}/offline-build-home"
 offline_cargo_log="${TMP_HOME}/offline-cargo.log"
@@ -973,6 +994,8 @@ mkdir -p "${offline_build_home}"
 offline_build_out="$(HOME="${offline_build_home}" CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" VIBEGUARD_TEST_DOWNLOAD_FAIL=1 VIBEGUARD_TEST_CARGO_LOG="${offline_cargo_log}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${offline_build_out}" "Falling back to source build" "offline prebuilt download falls back to source build"
 assert_cmd "offline fallback invokes cargo build" grep -qF "build --release" "${offline_cargo_log}"
+assert_cmd "offline fallback uses setup-owned target dir" grep -qF -- "--target-dir" "${offline_cargo_log}"
+assert_cmd "offline fallback does not install cargo target tree" test ! -d "${offline_build_home}/.vibeguard/installed/cargo-target"
 
 switch_runtime_home="${TMP_HOME}/switch-runtime-home"
 mkdir -p "${switch_runtime_home}"
