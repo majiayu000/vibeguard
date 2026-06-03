@@ -3,15 +3,15 @@
 
 codex_event_name() {
   local input="$1"
-  CODEX_INPUT="${input}" python3 - <<'PY'
+  printf '%s' "${input}" | python3 -c '
 import json
-import os
+import sys
 
 try:
-    print(json.loads(os.environ.get("CODEX_INPUT", "")).get("hook_event_name", ""))
+    print(json.loads(sys.stdin.read()).get("hook_event_name", ""))
 except Exception:
     print("")
-PY
+'
 }
 
 codex_pretool_deny() {
@@ -50,13 +50,12 @@ PY
 
 codex_adapt_pretool() {
   local hook_output="$1"
-  CODEX_HOOK_OUTPUT="${hook_output}" python3 - <<'PY'
+  printf '%s' "${hook_output}" | python3 -c '
 import json
-import os
 import sys
 
 try:
-    data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
+    data = json.loads(sys.stdin.read())
 except Exception:
     print(json.dumps({
         "hookSpecificOutput": {
@@ -114,18 +113,17 @@ elif decision == "allow" and isinstance(updated, dict):
                 "Suggested command: " + command
             )
         }, ensure_ascii=False))
-PY
+'
 }
 
 codex_adapt_posttool() {
   local hook_output="$1"
-  CODEX_HOOK_OUTPUT="${hook_output}" python3 - <<'PY'
+  printf '%s' "${hook_output}" | python3 -c '
 import json
-import os
 import sys
 
 try:
-    data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
+    data = json.loads(sys.stdin.read())
 except Exception:
     sys.exit(3)
 
@@ -167,18 +165,17 @@ elif decision == "warn":
         output["systemMessage"] = reason
     if output:
         print(json.dumps(output, ensure_ascii=False))
-PY
+'
 }
 
 codex_adapt_permission_request() {
   local hook_output="$1"
-  CODEX_HOOK_OUTPUT="${hook_output}" python3 - <<'PY'
+  printf '%s' "${hook_output}" | python3 -c '
 import json
-import os
 import sys
 
 try:
-    data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
+    data = json.loads(sys.stdin.read())
 except Exception:
     print(json.dumps({
         "hookSpecificOutput": {
@@ -228,5 +225,5 @@ elif decision == "allow" and isinstance(updated, dict):
                 "Suggested command: " + command
             )
         }, ensure_ascii=False))
-PY
+'
 }

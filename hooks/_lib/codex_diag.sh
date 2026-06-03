@@ -3,15 +3,15 @@
 
 codex_raw_event_name() {
   local input="$1"
-  CODEX_INPUT="${input}" python3 - <<'PY'
+  printf '%s' "${input}" | python3 -c '
 import json
-import os
+import sys
 
 try:
-    print(json.loads(os.environ.get("CODEX_INPUT", "")).get("hook_event_name", ""))
+    print(json.loads(sys.stdin.read()).get("hook_event_name", ""))
 except Exception:
     print("")
-PY
+'
 }
 
 codex_pretool_deny_raw() {
@@ -108,13 +108,14 @@ codex_set_caller_identity() {
 
 codex_diag() {
   local hook_name="$1" event_name="$2" reason="$3" detail="${4:-}"
+  local detail_excerpt="${detail:0:300}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
   mkdir -p "$(dirname "${diag_file}")" 2>/dev/null || return 0
   VIBEGUARD_DIAG_FILE="${diag_file}" \
   VIBEGUARD_DIAG_HOOK="${hook_name}" \
   VIBEGUARD_DIAG_EVENT="${event_name}" \
   VIBEGUARD_DIAG_REASON="${reason}" \
-  VIBEGUARD_DIAG_DETAIL="${detail}" \
+  VIBEGUARD_DIAG_DETAIL="${detail_excerpt}" \
   VIBEGUARD_DIAG_CWD="${PWD}" \
     python3 - <<'PY' 2>/dev/null || true
 import datetime
@@ -153,12 +154,12 @@ codex_hook_timeout_ms() {
 
 codex_hook_status_detail() {
   local input="$1"
-  CODEX_INPUT="${input}" python3 - <<'PY'
+  printf '%s' "${input}" | python3 -c '
 import json
-import os
+import sys
 
 try:
-    payload = json.loads(os.environ.get("CODEX_INPUT", ""))
+    payload = json.loads(sys.stdin.read())
 except Exception:
     print("")
     raise SystemExit
@@ -174,29 +175,30 @@ for key in ("file_path", "command"):
         print(value[:300])
         raise SystemExit
 print("")
-PY
+'
 }
 
 codex_hook_status_matcher() {
   local input="$1"
-  CODEX_INPUT="${input}" python3 - <<'PY'
+  printf '%s' "${input}" | python3 -c '
 import json
-import os
+import sys
 
 try:
-    payload = json.loads(os.environ.get("CODEX_INPUT", ""))
+    payload = json.loads(sys.stdin.read())
 except Exception:
     print("")
     raise SystemExit
 
 tool_name = payload.get("tool_name")
 print(tool_name if isinstance(tool_name, str) else "")
-PY
+'
 }
 
 codex_hook_status() {
   local hook_name="$1" event_name="$2" matcher="$3" status="$4" reason="${5:-}" detail="${6:-}"
   local timeout_ms="${7:-}"
+  local detail_excerpt="${detail:0:300}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
   mkdir -p "$(dirname "${diag_file}")" 2>/dev/null || return 0
   VIBEGUARD_DIAG_FILE="${diag_file}" \
@@ -205,7 +207,7 @@ codex_hook_status() {
   VIBEGUARD_DIAG_MATCHER="${matcher}" \
   VIBEGUARD_DIAG_STATUS="${status}" \
   VIBEGUARD_DIAG_REASON="${reason}" \
-  VIBEGUARD_DIAG_DETAIL="${detail}" \
+  VIBEGUARD_DIAG_DETAIL="${detail_excerpt}" \
   VIBEGUARD_DIAG_TIMEOUT_MS="${timeout_ms}" \
     python3 - <<'PY' 2>/dev/null || true
 import datetime
@@ -246,12 +248,12 @@ PY
 codex_hook_status_from_output() {
   local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
   local parsed hook_status hook_reason
-  parsed=$(CODEX_HOOK_OUTPUT="${hook_output}" python3 - <<'PY' 2>/dev/null || true
+  parsed=$(printf '%s' "${hook_output}" | python3 -c '
 import json
-import os
+import sys
 
 try:
-    data = json.loads(os.environ.get("CODEX_HOOK_OUTPUT", ""))
+    data = json.loads(sys.stdin.read())
 except Exception:
     print("hook_error\tinvalid-json")
     raise SystemExit
@@ -278,7 +280,7 @@ elif isinstance(hook_specific, dict):
 
 reason = reason.replace("\t", " ").replace("\n", " ")[:300]
 print(f"{status}\t{reason}")
-PY
+' 2>/dev/null || true
 )
   hook_status="${parsed%%$'\t'*}"
   hook_reason="${parsed#*$'\t'}"
