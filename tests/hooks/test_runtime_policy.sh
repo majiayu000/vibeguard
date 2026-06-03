@@ -50,6 +50,54 @@ run_codex_wrapper() {
       bash "${REPO_DIR}/hooks/run-hook-codex.sh" "${hook_name}"
 }
 
+probe_large_claude_stdin() {
+  local home_dir="$1" project_dir="$2" hook_name="$3"
+  node - "${home_dir}" "${project_dir}" "${hook_name}" "${REPO_DIR}" <<'NODE'
+const { spawn } = require('node:child_process');
+
+const [homeDir, projectDir, hookName, repoDir] = process.argv.slice(2);
+const child = spawn('bash', [`${repoDir}/hooks/run-hook.sh`, hookName], {
+  cwd: projectDir,
+  env: {
+    ...process.env,
+    HOME: homeDir,
+    VIBEGUARD_LOG_DIR: `${homeDir}/.vibeguard`,
+  },
+  stdio: ['pipe', 'pipe', 'pipe'],
+});
+
+let stdinError = '';
+let stdout = '';
+let stderr = '';
+
+child.stdout.on('data', (data) => { stdout += data; });
+child.stderr.on('data', (data) => { stderr += data; });
+child.stdin.on('error', (error) => { stdinError = error.code || String(error); });
+
+const payload = JSON.stringify({
+  tool_input: {
+    command: 'git push --force',
+    content: 'x'.repeat(8 * 1024 * 1024),
+  },
+});
+
+child.stdin.write(payload, (error) => {
+  if (error) stdinError = error.code || String(error);
+});
+child.stdin.end();
+
+child.on('close', (code, signal) => {
+  console.log(JSON.stringify({
+    code,
+    signal,
+    stdinError,
+    stdout: stdout.slice(0, 120),
+    stderr: stderr.slice(0, 120),
+  }));
+});
+NODE
+}
+
 pretool_block_input='{"tool_input":{"command":"git push --force"}}'
 codex_pretool_input='{"hook_event_name":"PreToolUse","tool_input":{"command":"git push --force"}}'
 pretool_danger_input='{"tool_input":{"command":"git clean -f"}}'
@@ -72,6 +120,12 @@ disabled_codex_out="$(run_codex_wrapper "${disabled_home}" "${disabled_project}"
 disabled_codex_status=$?
 set -e
 assert_empty_success "${disabled_codex_status}" "${disabled_codex_out}" "Codex wrapper honors disabled_hooks before executing hook"
+
+disabled_large_stdin_out="$(probe_large_claude_stdin "${disabled_home}" "${disabled_project}" pre-bash-guard.sh)"
+assert_contains "${disabled_large_stdin_out}" '"code":0' "Claude wrapper disabled hook exits cleanly after large stdin"
+assert_contains "${disabled_large_stdin_out}" '"stdinError":""' "Claude wrapper drains large stdin before disabled hook skip"
+assert_contains "${disabled_large_stdin_out}" '"stdout":""' "Claude wrapper disabled hook produces no stdout after large stdin"
+assert_contains "${disabled_large_stdin_out}" '"stderr":""' "Claude wrapper disabled hook produces no stderr after large stdin"
 
 assert_contains "$(cat "${disabled_home}/.vibeguard/policy.jsonl")" "policy_skip" "runtime policy emits policy_skip telemetry"
 

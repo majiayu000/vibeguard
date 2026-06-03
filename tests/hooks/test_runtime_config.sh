@@ -122,6 +122,67 @@ result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_U
   VG_PARALYSIS_THRESHOLD=5 bash hooks/analysis-paralysis-guard.sh)
 assert_not_contains "$result" "ANALYSIS PARALYSIS" "VG_PARALYSIS_THRESHOLD overrides JSON"
 
+paralysis_drain_log="$(make_log_dir)"
+seed_research_events "$paralysis_drain_log" "cfg-paralysis-drain" 2
+paralysis_drain_out=$(node - "${REPO_DIR}" "$paralysis_drain_log" "$cfg" <<'NODE'
+const { spawn } = require('node:child_process');
+
+const [repoDir, logDir, configFile] = process.argv.slice(2);
+const child = spawn('bash', ['hooks/analysis-paralysis-guard.sh'], {
+  cwd: repoDir,
+  env: {
+    ...process.env,
+    CI: 'false',
+    GITHUB_ACTIONS: 'false',
+    TRAVIS: 'false',
+    CIRCLECI: 'false',
+    JENKINS_URL: '',
+    GITLAB_CI: 'false',
+    TF_BUILD: 'false',
+    VIBEGUARD_LOG_DIR: logDir,
+    VIBEGUARD_SESSION_ID: 'cfg-paralysis-drain',
+    VIBEGUARD_CONFIG_FILE: configFile,
+  },
+  stdio: ['pipe', 'pipe', 'pipe'],
+});
+
+let stdinError = '';
+let stdout = '';
+let stderr = '';
+
+child.stdout.on('data', (data) => { stdout += data; });
+child.stderr.on('data', (data) => { stderr += data; });
+child.stdin.on('error', (error) => { stdinError = error.code || String(error); });
+
+const payload = JSON.stringify({
+  hook_event_name: 'PostToolUse',
+  tool_name: 'Read',
+  tool_input: {
+    file_path: '/tmp/example',
+    content: 'x'.repeat(8 * 1024 * 1024),
+  },
+});
+
+child.stdin.write(payload, (error) => {
+  if (error) stdinError = error.code || String(error);
+});
+child.stdin.end();
+
+child.on('close', (code, signal) => {
+  console.log(JSON.stringify({
+    code,
+    signal,
+    stdinError,
+    stdout: stdout.slice(0, 500),
+    stderr: stderr.slice(0, 120),
+  }));
+});
+NODE
+)
+assert_contains "$paralysis_drain_out" '"code":0' "analysis-paralysis warning path exits cleanly after large stdin"
+assert_contains "$paralysis_drain_out" '"stdinError":""' "analysis-paralysis drains large stdin before warning"
+assert_contains "$paralysis_drain_out" "ANALYSIS PARALYSIS" "analysis-paralysis still emits warning after draining large stdin"
+
 header "runtime config — U-16"
 big_write_input="$WORK_DIR/big-write.json"
 python3 - "$WORK_DIR/big.py" > "$big_write_input" <<'PY'

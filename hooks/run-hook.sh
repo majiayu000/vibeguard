@@ -18,6 +18,22 @@ export VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-wrapper-and-paren
 HOOK_NAME="${1:?Usage: run-hook.sh <hook-name>}"
 shift
 
+_VG_HOOK_STDIN_FILE=""
+_vg_cleanup_hook_stdin() {
+  if [[ -n "${_VG_HOOK_STDIN_FILE}" ]]; then
+    rm -f "${_VG_HOOK_STDIN_FILE}" 2>/dev/null || true
+  fi
+}
+trap _vg_cleanup_hook_stdin EXIT
+
+if [[ ! -t 0 ]]; then
+  _VG_HOOK_STDIN_FILE="$(mktemp "${TMPDIR:-/tmp}/vibeguard-hook-stdin.XXXXXX")"
+  if ! cat > "${_VG_HOOK_STDIN_FILE}"; then
+    echo "ERROR: failed to drain hook stdin for ${HOOK_NAME}" >&2
+    exit 1
+  fi
+fi
+
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
 
@@ -68,7 +84,11 @@ if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
   # Separate stderr from stdout: only stdout feeds the JSON downgrade path.
   # Mixing stderr in (2>&1) corrupts the JSON parsed by vg_policy_downgrade_output.
   hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-warn-hook.XXXXXX")"
-  hook_output="$(bash "$HOOK_PATH" "$@" 2>"${hook_err_file}")" || hook_status=$?
+  if [[ -n "${_VG_HOOK_STDIN_FILE}" ]]; then
+    hook_output="$(bash "$HOOK_PATH" "$@" < "${_VG_HOOK_STDIN_FILE}" 2>"${hook_err_file}")" || hook_status=$?
+  else
+    hook_output="$(bash "$HOOK_PATH" "$@" 2>"${hook_err_file}")" || hook_status=$?
+  fi
   if [[ -s "${hook_err_file}" ]]; then
     cat "${hook_err_file}" >&2
   fi
@@ -79,4 +99,11 @@ if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
   exit "${hook_status}"
 fi
 
-exec bash "$HOOK_PATH" "$@"
+if [[ -z "${_VG_HOOK_STDIN_FILE}" ]]; then
+  trap - EXIT
+  exec bash "$HOOK_PATH" "$@"
+fi
+
+hook_status=0
+bash "$HOOK_PATH" "$@" < "${_VG_HOOK_STDIN_FILE}" || hook_status=$?
+exit "${hook_status}"

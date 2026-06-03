@@ -13,6 +13,13 @@
 
 set -euo pipefail
 
+if [[ ! -t 0 ]]; then
+  if ! cat >/dev/null; then
+    echo "ERROR: failed to drain analysis-paralysis hook stdin" >&2
+    exit 1
+  fi
+fi
+
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
