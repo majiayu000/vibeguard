@@ -134,6 +134,77 @@ _vg_cb_release_flock() {
   fi
 }
 
+_vg_cb_runtime_available() {
+  [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "$_VIBEGUARD_RUNTIME" ]]
+}
+
+_vg_cb_runtime_call() {
+  local action="$1"
+  local hook="$2"
+  local state_file lock_file output err_file err_output status token reason
+  state_file=$(_vg_cb_state_file "$hook")
+  lock_file=$(_vg_cb_lock_file "$hook")
+
+  if ! err_file=$(mktemp "${TMPDIR:-/tmp}/vibeguard-cb-runtime.XXXXXX"); then
+    printf 'VIBEGUARD ERROR: failed to create circuit breaker runtime stderr capture\n' >&2
+    return 2
+  fi
+
+  if output=$("$_VIBEGUARD_RUNTIME" circuit-breaker "$action" "$hook" "$state_file" "$lock_file" "$CB_THRESHOLD" "$CB_COOLDOWN" "$CB_LOCK_TIMEOUT_SECONDS" 2>"$err_file"); then
+    status=0
+  else
+    status=$?
+  fi
+  if ! err_output=$(cat "$err_file"); then
+    printf 'VIBEGUARD ERROR: failed to read circuit breaker runtime stderr: %s\n' "$err_file" >&2
+    rm -f "$err_file" || printf 'VIBEGUARD ERROR: failed to remove circuit breaker runtime stderr capture: %s\n' "$err_file" >&2
+    return 2
+  fi
+  if ! rm -f "$err_file"; then
+    printf 'VIBEGUARD ERROR: failed to remove circuit breaker runtime stderr capture: %s\n' "$err_file" >&2
+    return 2
+  fi
+
+  if [[ "$status" -ne 0 ]]; then
+    if [[ "$err_output" == *"Unknown command: circuit-breaker"* || "$output" == *"Unknown command: circuit-breaker"* ]]; then
+      return 127
+    fi
+    [[ -z "$err_output" ]] || printf '%s\n' "$err_output" >&2
+    [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+    return 2
+  fi
+
+  if [[ -n "$err_output" ]]; then
+    printf '%s\n' "$err_output" >&2
+    return 2
+  fi
+
+  token="${output%%$'\n'*}"
+  reason="${output#*$'\n'}"
+  [[ "$reason" == "$output" ]] && reason=""
+
+  case "$action:$token" in
+    check:RUN)
+      return 0
+      ;;
+    check:AUTO_PASS)
+      [[ -z "$reason" ]] || _vg_cb_log "$hook" "circuit-breaker" "pass" "$reason" ""
+      return 1
+      ;;
+    record-block:RECORDED|record-pass:RECORDED)
+      return 0
+      ;;
+    record-block:OPENED)
+      [[ -z "$reason" ]] || _vg_cb_log "$hook" "circuit-breaker" "warn" "$reason" ""
+      return 0
+      ;;
+    *)
+      printf 'VIBEGUARD ERROR: unexpected circuit breaker runtime output for %s/%s: %s\n' "$action" "$hook" "$output" >&2
+      return 2
+      ;;
+  esac
+}
+
 # Load state for <hook> into CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION
 _vg_cb_load() {
   local hook="$1"
@@ -230,6 +301,22 @@ _vg_cb_save() {
 # concurrent hook invocations from racing on the state file.
 vg_cb_check() {
   local hook="$1"
+  local status
+  if _vg_cb_runtime_available; then
+    if _vg_cb_runtime_call "check" "$hook"; then
+      return 0
+    else
+      status=$?
+      if [[ "$status" -ne 127 ]]; then
+        return "$status"
+      fi
+    fi
+  fi
+  _vg_cb_check_shell "$hook"
+}
+
+_vg_cb_check_shell() {
+  local hook="$1"
   local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")
   if ! mkdir -p "$(dirname "$lock_file")" 2>/dev/null; then
@@ -292,6 +379,22 @@ vg_cb_check() {
 # Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_block() {
   local hook="$1"
+  local status
+  if _vg_cb_runtime_available; then
+    if _vg_cb_runtime_call "record-block" "$hook"; then
+      return 0
+    else
+      status=$?
+      if [[ "$status" -ne 127 ]]; then
+        return "$status"
+      fi
+    fi
+  fi
+  _vg_cb_record_block_shell "$hook"
+}
+
+_vg_cb_record_block_shell() {
+  local hook="$1"
   local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")
   if ! mkdir -p "$(dirname "$lock_file")" 2>/dev/null; then
@@ -328,6 +431,22 @@ vg_cb_record_block() {
 # Records a successful (non-blocking) result. Resets circuit to CLOSED.
 # Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_pass() {
+  local hook="$1"
+  local status
+  if _vg_cb_runtime_available; then
+    if _vg_cb_runtime_call "record-pass" "$hook"; then
+      return 0
+    else
+      status=$?
+      if [[ "$status" -ne 127 ]]; then
+        return "$status"
+      fi
+    fi
+  fi
+  _vg_cb_record_pass_shell "$hook"
+}
+
+_vg_cb_record_pass_shell() {
   local hook="$1"
   local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")

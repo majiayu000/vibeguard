@@ -1,3 +1,4 @@
+mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
@@ -66,6 +67,11 @@ static COMMANDS: &[Command] = &[
         name: "append-jsonl",
         usage: "<log-file>  — append one stdin JSONL line with runtime locking",
         handler: log_append::run,
+    },
+    Command {
+        name: "circuit-breaker",
+        usage: "<check|record-block|record-pass> <hook> <state-file> <lock-file> <threshold> <cooldown> <lock-timeout>  — update hook circuit breaker state with runtime locking",
+        handler: circuit_breaker::run,
     },
     Command {
         name: "pkg-rewrite",

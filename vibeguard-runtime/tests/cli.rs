@@ -60,6 +60,7 @@ fn help_lists_all_commands() {
         "build-fails",
         "paralysis-count",
         "append-jsonl",
+        "circuit-breaker",
         "pkg-rewrite",
         "session-metrics",
         "pre-write-check",
@@ -73,6 +74,139 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+fn run_circuit_breaker(
+    action: &str,
+    hook: &str,
+    state_file: &std::path::Path,
+    lock_file: &std::path::Path,
+    session: &str,
+) -> std::process::Output {
+    bin()
+        .args([
+            "circuit-breaker",
+            action,
+            hook,
+            state_file.to_str().unwrap(),
+            lock_file.to_str().unwrap(),
+            "2",
+            "9999",
+            "0",
+        ])
+        .env("VIBEGUARD_SESSION_ID", session)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn circuit_breaker_command_opens_and_resets_state() {
+    let dir = unique_temp_dir("circuit-breaker-state");
+    let state_file = dir.join("hook.cb");
+    let lock_file = dir.join("hook.cb.lock");
+
+    let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "RUN\n");
+
+    let out = run_circuit_breaker(
+        "record-block",
+        "cb-hook",
+        &state_file,
+        &lock_file,
+        "session-a",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "RECORDED\n");
+
+    let out = run_circuit_breaker(
+        "record-block",
+        "cb-hook",
+        &state_file,
+        &lock_file,
+        "session-a",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("OPENED"));
+    assert!(stdout.contains("CB tripped OPEN"));
+
+    let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("AUTO_PASS"));
+    assert!(stdout.contains("CB OPEN: auto-pass"));
+
+    let out = run_circuit_breaker(
+        "record-pass",
+        "cb-hook",
+        &state_file,
+        &lock_file,
+        "session-a",
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "RECORDED\n");
+
+    let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "RUN\n");
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn circuit_breaker_command_lock_timeout_is_error() {
+    use std::os::fd::AsRawFd;
+
+    let dir = unique_temp_dir("circuit-breaker-lock-timeout");
+    fs::create_dir_all(&dir).unwrap();
+    let state_file = dir.join("hook.cb");
+    let lock_file = dir.join("hook.cb.lock");
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&lock_file)
+        .unwrap();
+    let lock_rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    assert_eq!(lock_rc, 0);
+
+    let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("circuit breaker lock timeout"),
+        "expected lock timeout in stderr: {stderr}"
+    );
+
+    unsafe {
+        let _ = libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    }
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn circuit_breaker_command_mkdir_lock_timeout_is_error() {
+    let dir = unique_temp_dir("circuit-breaker-mkdir-lock-timeout");
+    fs::create_dir_all(&dir).unwrap();
+    let state_file = dir.join("hook.cb");
+    let lock_file = dir.join("hook.cb.lock");
+    fs::create_dir(&dir.join("hook.cb.lock.d")).unwrap();
+
+    let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("circuit breaker lock timeout"),
+        "expected mkdir lock timeout in stderr: {stderr}"
+    );
+
+    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]

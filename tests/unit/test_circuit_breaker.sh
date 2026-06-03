@@ -511,6 +511,69 @@ else
 fi
 teardown
 
+setup
+STALE_RUNTIME_FALLBACK_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  fake_runtime='${CB_TMPDIR}/stale-runtime'
+  printf '#!/usr/bin/env bash\nprintf \"Unknown command: %%s\\\\n\" \"\$1\" >&2\nexit 2\n' > \"\$fake_runtime\"
+  chmod +x \"\$fake_runtime\"
+  source '${CB_SCRIPT}'
+  _VIBEGUARD_RUNTIME=\"\$fake_runtime\"
+  vg_cb_record_block 'stale-runtime-hook'
+  vg_cb_check 'stale-runtime-hook'
+  printf 'rc=%s\n' \"\$?\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$STALE_RUNTIME_FALLBACK_TEST" | grep -q "rc=0"; then
+  green "Stale runtime without circuit-breaker command falls back to shell state machine"; PASS=$((PASS+1))
+else
+  red "Stale runtime fallback: expected rc=0, got: $STALE_RUNTIME_FALLBACK_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+RUNTIME_ERROR_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  fake_runtime='${CB_TMPDIR}/broken-runtime'
+  printf '#!/usr/bin/env bash\nprintf \"runtime exploded\\\\n\" >&2\nexit 1\n' > \"\$fake_runtime\"
+  chmod +x \"\$fake_runtime\"
+  source '${CB_SCRIPT}'
+  _VIBEGUARD_RUNTIME=\"\$fake_runtime\"
+  vg_cb_check 'broken-runtime-hook'
+  printf 'rc=%s\n' \"\$?\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$RUNTIME_ERROR_TEST" | grep -q "rc=2" \
+    && echo "$RUNTIME_ERROR_TEST" | grep -q "runtime exploded"; then
+  green "Runtime circuit-breaker errors return status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "Runtime circuit-breaker error: expected rc=2 with diagnostic, got: $RUNTIME_ERROR_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+RUNTIME_SUCCESS_STDERR_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  fake_runtime='${CB_TMPDIR}/noisy-runtime'
+  printf '#!/usr/bin/env bash\nprintf \"RUN\\\\n\"\nprintf \"cleanup failed\\\\n\" >&2\nexit 0\n' > \"\$fake_runtime\"
+  chmod +x \"\$fake_runtime\"
+  source '${CB_SCRIPT}'
+  _VIBEGUARD_RUNTIME=\"\$fake_runtime\"
+  vg_cb_check 'noisy-runtime-hook'
+  printf 'rc=%s\n' \"\$?\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$RUNTIME_SUCCESS_STDERR_TEST" | grep -q "rc=2" \
+    && echo "$RUNTIME_SUCCESS_STDERR_TEST" | grep -q "cleanup failed"; then
+  green "Runtime circuit-breaker success stderr returns status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "Runtime circuit-breaker success stderr: expected rc=2 with diagnostic, got: $RUNTIME_SUCCESS_STDERR_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
