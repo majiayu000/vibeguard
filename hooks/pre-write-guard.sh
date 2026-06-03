@@ -16,7 +16,10 @@ source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 
 _pass_and_exit() {
-  vg_cb_record_pass "pre-write-guard"
+  if ! vg_cb_record_pass "pre-write-guard"; then
+    vg_log "pre-write-guard" "Write" "block" "Circuit breaker state error; fail-closed" ""
+    vg_json_output_kv decision block reason "VIBEGUARD interception: pre-write circuit breaker state could not be updated; fail-closed instead of silently continuing."
+  fi
   exit 0
 }
 
@@ -188,9 +191,20 @@ EOF
 
   vg_log "pre-write-guard" "Write" "warn" "New source file attempt" "$FILE_PATH"
 
+  CB_STATUS=0
   if vg_cb_check "pre-write-guard"; then
+    CB_STATUS=0
+  else
+    CB_STATUS=$?
+  fi
+
+  if [[ "$CB_STATUS" -eq 0 ]]; then
     vg_log "pre-write-guard" "Write" "warn" "New source file reminder" "$FILE_PATH"
-    vg_cb_record_block "pre-write-guard"
+    if ! vg_cb_record_block "pre-write-guard"; then
+      vg_log "pre-write-guard" "Write" "block" "Circuit breaker state error; fail-closed" "$FILE_PATH"
+      vg_json_output_kv decision block reason "VIBEGUARD interception: pre-write circuit breaker state could not be persisted; fail-closed instead of silently continuing."
+      exit 0
+    fi
     VG_U16_FILE="${FILE_PATH##*/}" \
     VG_U16_LINES="$_U16_SOURCE_NEW_LINES" \
     VG_U16_WARN="$_U16_SOURCE_NEW_WARN" \
@@ -224,6 +238,11 @@ print(json.dumps({
     }
 }, ensure_ascii=False))
 PY
+  elif [[ "$CB_STATUS" -eq 1 ]]; then
+    : # Circuit OPEN: silent pass (vg_cb_check already logged the auto-pass).
+  else
+    vg_log "pre-write-guard" "Write" "block" "Circuit breaker state error; fail-closed" "$FILE_PATH"
+    vg_json_output_kv decision block reason "VIBEGUARD interception: pre-write circuit breaker state could not be read; fail-closed instead of silently auto-passing."
+    exit 0
   fi
-  # Circuit OPEN: silent pass (vg_cb_check already logged the auto-pass).
 fi

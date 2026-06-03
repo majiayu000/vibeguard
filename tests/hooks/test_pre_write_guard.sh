@@ -132,6 +132,41 @@ assert_not_contains "$result" "VIBEGUARD" "CB OPEN: write #4 also silent"
 rm -rf "$cb_state_dir"
 unset VG_CB_THRESHOLD VG_CB_COOLDOWN cb_state_dir
 
+header "pre-write-guard.sh — circuit breaker errors fail closed"
+
+cb_state_dir=$(mktemp -d)
+export VIBEGUARD_LOG_DIR="$cb_state_dir"
+export VIBEGUARD_SESSION_ID="prewrite-cb-error"
+export VG_CB_LOCK_TIMEOUT_SECONDS=0
+lock_file=$(bash -c 'source hooks/log.sh; source hooks/circuit-breaker.sh; _vg_cb_lock_file "pre-write-guard"')
+mkdir -p "$(dirname "$lock_file")"
+
+if command -v flock >/dev/null 2>&1; then
+  ready_file="${cb_state_dir}/lock-ready"
+  (
+    exec 8>"$lock_file"
+    flock -x 8
+    : > "$ready_file"
+    sleep 1
+  ) &
+  lock_holder=$!
+  while [[ ! -f "$ready_file" ]]; do sleep 0.01; done
+  result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_error.go"}}' | bash hooks/pre-write-guard.sh 2>&1)
+  wait "$lock_holder" 2>/dev/null || true
+  unset lock_holder ready_file
+else
+  mkdir "${lock_file}.d"
+  result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_error.go"}}' | bash hooks/pre-write-guard.sh 2>&1)
+  rmdir "${lock_file}.d"
+fi
+
+assert_contains "$result" '"decision": "block"' "CB lock error blocks instead of silently passing"
+assert_contains "$result" "circuit breaker state" "CB lock error explains state failure"
+
+rm -rf "$cb_state_dir"
+export VIBEGUARD_LOG_DIR="$prev_log_dir"
+unset VIBEGUARD_SESSION_ID VG_CB_LOCK_TIMEOUT_SECONDS cb_state_dir lock_file
+
 # Escalation must count source-new attempts even when the circuit breaker is
 # OPEN and individual reminder advisories are being silenced.
 header "pre-write-guard.sh — escalation counts circuit-breaker auto-pass attempts"

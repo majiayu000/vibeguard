@@ -7,26 +7,35 @@ vg_append_log_line() {
   local lock_dir="${file}.lock.d"
   local acquired="false"
   local attempts=0
+  local max_attempts="${VIBEGUARD_LOG_LOCK_ATTEMPTS:-100}"
+  local sleep_seconds="${VIBEGUARD_LOG_LOCK_SLEEP_SECONDS:-0.01}"
   local status=0
 
-  while [[ "$attempts" -lt 100 ]]; do
+  [[ "$max_attempts" =~ ^[0-9]+$ ]] || max_attempts=100
+  [[ "$max_attempts" -gt 0 ]] || max_attempts=1
+
+  while [[ "$attempts" -lt "$max_attempts" ]]; do
     if mkdir "$lock_dir" 2>/dev/null; then
       acquired="true"
       break
     fi
     attempts=$((attempts + 1))
-    sleep 0.01 2>/dev/null || true
+    sleep "$sleep_seconds" 2>/dev/null || true
   done
+
+  if [[ "$acquired" != "true" ]]; then
+    printf 'VIBEGUARD ERROR: failed to acquire log lock for %s after %s attempts\n' "$file" "$max_attempts" >&2
+    return 1
+  fi
 
   if printf '%s\n' "$line" >> "$file"; then
     status=0
   else
     status=$?
+    printf 'VIBEGUARD ERROR: failed to append log line to %s\n' "$file" >&2
   fi
 
-  if [[ "$acquired" == "true" ]]; then
-    rmdir "$lock_dir" 2>/dev/null || true
-  fi
+  rmdir "$lock_dir" 2>/dev/null || true
 
   return "$status"
 }
@@ -135,14 +144,18 @@ vg_log() {
   json="${json}}"
 
   vg_private_log_file "$VIBEGUARD_LOG_FILE"
-  vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"
+  if ! vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"; then
+    printf 'VIBEGUARD ERROR: primary event log write failed: %s\n' "$VIBEGUARD_LOG_FILE" >&2
+  fi
   vg_private_log_file "$VIBEGUARD_LOG_FILE"
 
   # Synchronously write to the global log (for stats.sh aggregation analysis)
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
     vg_private_log_file "$global_log"
-    vg_append_log_line "$global_log" "$json"
+    if ! vg_append_log_line "$global_log" "$json"; then
+      printf 'VIBEGUARD ERROR: global event log write failed: %s\n' "$global_log" >&2
+    fi
     vg_private_log_file "$global_log"
   fi
 }

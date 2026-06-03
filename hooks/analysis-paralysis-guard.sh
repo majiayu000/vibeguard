@@ -25,6 +25,17 @@ source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer
 VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 
+_emit_cb_state_error() {
+  cat <<'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "VIBEGUARD circuit breaker state error: analysis-paralysis-guard could not update its circuit breaker state; reporting visibly instead of silently auto-passing."
+  }
+}
+EOF
+}
+
 # CI guard: analysis-paralysis warnings are not actionable in CI
 vg_is_ci && exit 0
 
@@ -46,11 +57,22 @@ vg_log "analysis-paralysis-guard" "Read" "pass" "consecutive_reads=${CONSECUTIVE
 if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   # Circuit breaker check: if this hook has been firing repeatedly without
   # resolution, open the circuit and auto-pass to prevent 716x warn loops.
+  CB_STATUS=0
   if vg_cb_check "analysis-paralysis-guard"; then
+    CB_STATUS=0
+  else
+    CB_STATUS=$?
+  fi
+
+  if [[ "$CB_STATUS" -eq 0 ]]; then
     WARNING="[ANALYSIS PARALYSIS] There have been ${CONSECUTIVE} consecutive read-only operations (Read/Glob/Grep) without any writes. You may be stuck in a \"read-read\" loop. You must choose: (1) Start writing code/editing files (2) Report the blocker to the user and explain where it is stuck."
 
     vg_log "analysis-paralysis-guard" "Read" "warn" "paralysis ${CONSECUTIVE}x" ""
-    vg_cb_record_block "analysis-paralysis-guard"
+    if ! vg_cb_record_block "analysis-paralysis-guard"; then
+      vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+      _emit_cb_state_error
+      exit 0
+    fi
 
     VG_WARNINGS="$WARNING" python3 -c '
 import json, os
@@ -63,9 +85,15 @@ result = {
 }
 print(json.dumps(result, ensure_ascii=False))
 '
+  elif [[ "$CB_STATUS" -eq 1 ]]; then
+    : # Circuit OPEN: vg_cb_check already logged the auto-pass.
+  else
+    vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+    _emit_cb_state_error
   fi
-  # If circuit is OPEN, vg_cb_check returned 1 and already logged the auto-pass.
-  # We silently skip the warn to break the loop.
 else
-  vg_cb_record_pass "analysis-paralysis-guard"
+  if ! vg_cb_record_pass "analysis-paralysis-guard"; then
+    vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+    _emit_cb_state_error
+  fi
 fi

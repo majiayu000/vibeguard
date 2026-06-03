@@ -183,6 +183,35 @@ assert_contains "$paralysis_drain_out" '"code":0' "analysis-paralysis warning pa
 assert_contains "$paralysis_drain_out" '"stdinError":""' "analysis-paralysis drains large stdin before warning"
 assert_contains "$paralysis_drain_out" "ANALYSIS PARALYSIS" "analysis-paralysis still emits warning after draining large stdin"
 
+paralysis_cb_error_log="$(make_log_dir)"
+seed_research_events "$paralysis_cb_error_log" "cfg-paralysis-cb-error" 2
+lock_file=$(VIBEGUARD_LOG_DIR="$paralysis_cb_error_log" VIBEGUARD_SESSION_ID="cfg-paralysis-cb-error" bash -c 'source hooks/log.sh; source hooks/circuit-breaker.sh; _vg_cb_lock_file "analysis-paralysis-guard"')
+mkdir -p "$(dirname "$lock_file")"
+if command -v flock >/dev/null 2>&1; then
+  ready_file="${paralysis_cb_error_log}/lock-ready"
+  (
+    exec 8>"$lock_file"
+    flock -x 8
+    : > "$ready_file"
+    sleep 1
+  ) &
+  lock_holder=$!
+  while [[ ! -f "$ready_file" ]]; do sleep 0.01; done
+  result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+    VIBEGUARD_LOG_DIR="$paralysis_cb_error_log" VIBEGUARD_SESSION_ID="cfg-paralysis-cb-error" VIBEGUARD_CONFIG_FILE="$cfg" \
+    VG_CB_LOCK_TIMEOUT_SECONDS=0 bash hooks/analysis-paralysis-guard.sh 2>&1)
+  wait "$lock_holder" 2>/dev/null || true
+  unset lock_holder ready_file
+else
+  mkdir "${lock_file}.d"
+  result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+    VIBEGUARD_LOG_DIR="$paralysis_cb_error_log" VIBEGUARD_SESSION_ID="cfg-paralysis-cb-error" VIBEGUARD_CONFIG_FILE="$cfg" \
+    VG_CB_LOCK_TIMEOUT_SECONDS=0 bash hooks/analysis-paralysis-guard.sh 2>&1)
+  rmdir "${lock_file}.d"
+fi
+assert_contains "$result" "VIBEGUARD circuit breaker state error" "analysis-paralysis CB lock error is visible"
+unset lock_file
+
 header "runtime config — U-16"
 big_write_input="$WORK_DIR/big-write.json"
 python3 - "$WORK_DIR/big.py" > "$big_write_input" <<'PY'

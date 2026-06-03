@@ -13,7 +13,12 @@
 #   source "$(dirname "$0")/circuit-breaker.sh"
 #
 #   # In a hook that can block:
-#   vg_cb_check "my-hook" || { vg_log "my-hook" "Tool" "pass" "CB auto-pass" ""; exit 0; }
+#   if vg_cb_check "my-hook"; then
+#     cb_status=0
+#   else
+#     cb_status=$?
+#   fi
+#   # cb_status: 0 = run normally, 1 = circuit auto-pass, 2+ = lock/state error
 #   if [[ blocking_condition ]]; then
 #     vg_cb_record_block "my-hook"
 #     exit 2
@@ -34,9 +39,11 @@ _vg_cb_to_int() { local v="$1" d="$2"; [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v
 if declare -F vg_config_get_int >/dev/null 2>&1; then
   CB_COOLDOWN=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_COOLDOWN circuit_breaker.cooldown_seconds 300)" 300)
   CB_THRESHOLD=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_THRESHOLD circuit_breaker.threshold 3)" 3)
+  CB_LOCK_TIMEOUT_SECONDS=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_LOCK_TIMEOUT_SECONDS circuit_breaker.lock_timeout_seconds 5)" 5)
 else
   CB_COOLDOWN=$(_vg_cb_to_int "${VG_CB_COOLDOWN:-300}" 300)
   CB_THRESHOLD=$(_vg_cb_to_int "${VG_CB_THRESHOLD:-3}" 3)
+  CB_LOCK_TIMEOUT_SECONDS=$(_vg_cb_to_int "${VG_CB_LOCK_TIMEOUT_SECONDS:-5}" 5)
 fi
 
 mkdir -p "$CB_DIR" 2>/dev/null || true
@@ -74,10 +81,9 @@ _vg_cb_lock_file() {
   printf '%s.lock' "$(_vg_cb_state_file "$hook")"
 }
 
-# Acquire an exclusive lock on fd $1, waiting up to 5 seconds.
+# Acquire an exclusive lock on fd $1, waiting up to CB_LOCK_TIMEOUT_SECONDS.
 # Uses flock(1) when available (Linux). On macOS (no flock), falls back to
 # a mkdir-based spinlock on the lock file path associated with fd $1.
-# Always returns 0 so callers under set -euo pipefail are not aborted.
 _VG_CB_LOCK_OWNED=false
 _VG_CB_LOCK_DIR=""
 
@@ -88,15 +94,24 @@ _vg_cb_try_flock() {
   _VG_CB_LOCK_DIR=""
 
   if command -v flock >/dev/null 2>&1; then
-    flock -x -w 5 "$lock_fd" 2>/dev/null || true
+    if flock -x -w "$CB_LOCK_TIMEOUT_SECONDS" "$lock_fd" 2>/dev/null; then
+      return 0
+    fi
+    printf 'VIBEGUARD ERROR: circuit breaker lock timeout for %s after %ss\n' "${lock_file_path:-fd:$lock_fd}" "$CB_LOCK_TIMEOUT_SECONDS" >&2
+    return 2
   else
     # macOS fallback: mkdir is atomic on all POSIX systems.
     # Store the acquired lock dir in module state so EXIT traps do not depend
     # on a caller-local lock_file variable still being in scope.
-    [[ -n "$lock_file_path" ]] || return 0
+    if [[ -z "$lock_file_path" ]]; then
+      printf 'VIBEGUARD ERROR: circuit breaker lock path missing for fd %s\n' "$lock_fd" >&2
+      return 2
+    fi
     local lockdir="${lock_file_path}.d"
+    local max_attempts=$(( CB_LOCK_TIMEOUT_SECONDS * 10 ))
+    [[ "$max_attempts" -gt 0 ]] || max_attempts=1
     local _i=0
-    while [[ $_i -lt 50 ]]; do
+    while [[ $_i -lt "$max_attempts" ]]; do
       if mkdir "$lockdir" 2>/dev/null; then
         _VG_CB_LOCK_OWNED=true
         _VG_CB_LOCK_DIR="$lockdir"
@@ -105,7 +120,8 @@ _vg_cb_try_flock() {
       sleep 0.1
       _i=$((_i + 1))
     done
-    # Timeout: proceed without lock rather than blocking the hook
+    printf 'VIBEGUARD ERROR: circuit breaker lock timeout for %s after %ss\n' "$lock_file_path" "$CB_LOCK_TIMEOUT_SECONDS" >&2
+    return 2
   fi
 }
 
@@ -152,7 +168,10 @@ _vg_cb_load() {
           [[ "$_val" =~ ^[a-zA-Z0-9_=-]*$ ]] && CB_SESSION="$_val"
           ;;
       esac
-    done < "$state_file"
+    done < "$state_file" || {
+      printf 'VIBEGUARD ERROR: failed to read circuit breaker state: %s\n' "$state_file" >&2
+      return 2
+    }
   fi
   # Reset if the state belongs to a different session
   local cur_session="${VIBEGUARD_SESSION_ID:-}"
@@ -161,8 +180,9 @@ _vg_cb_load() {
     CB_BLOCKS=0
     CB_LAST_BLOCK=0
     CB_SESSION=""
-    _vg_cb_save "$hook"
+    _vg_cb_save "$hook" || return 2
   fi
+  return 0
 }
 
 # Persist CB_STATE / CB_BLOCKS / CB_LAST_BLOCK / CB_SESSION for <hook>.
@@ -172,14 +192,32 @@ _vg_cb_save() {
   local hook="$1"
   local state_file tmp_file
   state_file=$(_vg_cb_state_file "$hook")
-  mkdir -p "$(dirname "$state_file")" 2>/dev/null || true
+  if ! mkdir -p "$(dirname "$state_file")" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to create circuit breaker state directory: %s\n' "$(dirname "$state_file")" >&2
+    return 2
+  fi
   tmp_file="${state_file}.tmp.$$"
-  {
+  if ! ( : > "$tmp_file" ) 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to write circuit breaker state temp file: %s\n' "$tmp_file" >&2
+    rm -f "$tmp_file" 2>/dev/null || true
+    return 2
+  fi
+  if ! {
     printf 'CB_STATE=%s\n' "$CB_STATE"
     printf 'CB_BLOCKS=%s\n' "$CB_BLOCKS"
     printf 'CB_LAST_BLOCK=%s\n' "$CB_LAST_BLOCK"
     printf 'CB_SESSION=%s\n' "${VIBEGUARD_SESSION_ID:-}"
-  } > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$state_file" 2>/dev/null || true
+  } > "$tmp_file" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to write circuit breaker state temp file: %s\n' "$tmp_file" >&2
+    rm -f "$tmp_file" 2>/dev/null || true
+    return 2
+  fi
+  if ! mv "$tmp_file" "$state_file" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to persist circuit breaker state: %s\n' "$state_file" >&2
+    rm -f "$tmp_file" 2>/dev/null || true
+    return 2
+  fi
+  return 0
 }
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -192,13 +230,20 @@ _vg_cb_save() {
 # concurrent hook invocations from racing on the state file.
 vg_cb_check() {
   local hook="$1"
-  local lock_file
+  local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")
-  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
-  (
-    _vg_cb_try_flock 9 "$lock_file"
+  if ! mkdir -p "$(dirname "$lock_file")" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to create circuit breaker lock directory: %s\n' "$(dirname "$lock_file")" >&2
+    return 2
+  fi
+  if ! exec {lock_fd}>"$lock_file"; then
+    printf 'VIBEGUARD ERROR: failed to open circuit breaker lock file: %s\n' "$lock_file" >&2
+    return 2
+  fi
+  if (
+    _vg_cb_try_flock "$lock_fd" "$lock_file" || exit 2
     trap '_vg_cb_release_flock' EXIT
-    _vg_cb_load "$hook"
+    _vg_cb_load "$hook" || exit 2
     now=$(_vg_cb_now)
 
     case "$CB_STATE" in
@@ -210,7 +255,7 @@ vg_cb_check() {
         if [[ "$elapsed" -ge "$CB_COOLDOWN" ]]; then
           CB_STATE="HALF-OPEN"
           CB_LAST_BLOCK=$(_vg_cb_now)
-          _vg_cb_save "$hook"
+          _vg_cb_save "$hook" || exit 2
           exit 0  # Let one probe through
         else
           remaining=$(( CB_COOLDOWN - elapsed ))
@@ -229,11 +274,17 @@ vg_cb_check() {
         ;;
       *)
         CB_STATE="CLOSED"; CB_BLOCKS=0
-        _vg_cb_save "$hook"
+        _vg_cb_save "$hook" || exit 2
         exit 0
         ;;
     esac
-  ) 9>"$lock_file"
+  ); then
+    status=0
+  else
+    status=$?
+  fi
+  exec {lock_fd}>&-
+  return "$status"
 }
 
 # vg_cb_record_block <hook>
@@ -241,13 +292,20 @@ vg_cb_check() {
 # Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_block() {
   local hook="$1"
-  local lock_file
+  local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")
-  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
-  (
-    _vg_cb_try_flock 9 "$lock_file"
+  if ! mkdir -p "$(dirname "$lock_file")" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to create circuit breaker lock directory: %s\n' "$(dirname "$lock_file")" >&2
+    return 2
+  fi
+  if ! exec {lock_fd}>"$lock_file"; then
+    printf 'VIBEGUARD ERROR: failed to open circuit breaker lock file: %s\n' "$lock_file" >&2
+    return 2
+  fi
+  if (
+    _vg_cb_try_flock "$lock_fd" "$lock_file" || exit 2
     trap '_vg_cb_release_flock' EXIT
-    _vg_cb_load "$hook"
+    _vg_cb_load "$hook" || exit 2
     CB_BLOCKS=$(( CB_BLOCKS + 1 ))
     CB_LAST_BLOCK=$(_vg_cb_now)
 
@@ -256,8 +314,14 @@ vg_cb_record_block() {
       _vg_cb_log "$hook" "circuit-breaker" "warn" \
         "CB tripped OPEN: ${CB_BLOCKS} consecutive blocks, cooldown ${CB_COOLDOWN}s" ""
     fi
-    _vg_cb_save "$hook"
-  ) 9>"$lock_file"
+    _vg_cb_save "$hook" || exit 2
+  ); then
+    status=0
+  else
+    status=$?
+  fi
+  exec {lock_fd}>&-
+  return "$status"
 }
 
 # vg_cb_record_pass <hook>
@@ -265,20 +329,33 @@ vg_cb_record_block() {
 # Protected by an exclusive flock to prevent lost-update races under concurrent access.
 vg_cb_record_pass() {
   local hook="$1"
-  local lock_file
+  local lock_file lock_fd status
   lock_file=$(_vg_cb_lock_file "$hook")
-  mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
-  (
-    _vg_cb_try_flock 9 "$lock_file"
+  if ! mkdir -p "$(dirname "$lock_file")" 2>/dev/null; then
+    printf 'VIBEGUARD ERROR: failed to create circuit breaker lock directory: %s\n' "$(dirname "$lock_file")" >&2
+    return 2
+  fi
+  if ! exec {lock_fd}>"$lock_file"; then
+    printf 'VIBEGUARD ERROR: failed to open circuit breaker lock file: %s\n' "$lock_file" >&2
+    return 2
+  fi
+  if (
+    _vg_cb_try_flock "$lock_fd" "$lock_file" || exit 2
     trap '_vg_cb_release_flock' EXIT
-    _vg_cb_load "$hook"
+    _vg_cb_load "$hook" || exit 2
     if [[ "$CB_STATE" != "CLOSED" ]] || [[ "$CB_BLOCKS" -gt 0 ]]; then
       CB_STATE="CLOSED"
       CB_BLOCKS=0
       CB_LAST_BLOCK=0
-      _vg_cb_save "$hook"
+      _vg_cb_save "$hook" || exit 2
     fi
-  ) 9>"$lock_file"
+  ); then
+    status=0
+  else
+    status=$?
+  fi
+  exec {lock_fd}>&-
+  return "$status"
 }
 
 # ── CI guard ─────────────────────────────────────────────────────────────────

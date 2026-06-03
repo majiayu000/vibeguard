@@ -366,6 +366,151 @@ else
 fi
 teardown
 
+# ── 12. Failure states are distinct from circuit auto-pass ───────────────────
+printf '\n--- Lock and persistence failures ---\n'
+
+setup
+AUTO_PASS_STATUS_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  export VG_CB_THRESHOLD=1
+  export VG_CB_COOLDOWN=9999
+  source '${CB_SCRIPT}'
+  vg_cb_record_block 'status-hook'
+  vg_cb_check 'status-hook'
+  printf 'rc=%s\n' \"\$?\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$AUTO_PASS_STATUS_TEST" | grep -q "rc=1"; then
+  green "OPEN circuit returns exact status 1 for auto-pass"; PASS=$((PASS+1))
+else
+  red "OPEN circuit status: expected rc=1, got: $AUTO_PASS_STATUS_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+if command -v flock >/dev/null 2>&1; then
+  LOCK_FAILURE_TEST=$(bash -c "
+    export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+    export VIBEGUARD_SESSION_ID='testsession01'
+    export VG_CB_LOCK_TIMEOUT_SECONDS=0
+    source '${CB_SCRIPT}'
+    lock_file=\$(_vg_cb_lock_file 'lock-hook')
+    mkdir -p \"\$(dirname \"\$lock_file\")\"
+    ready='${CB_TMPDIR}/lock-ready'
+    (
+      exec 8>\"\$lock_file\"
+      flock -x 8
+      : > \"\$ready\"
+      sleep 1
+    ) &
+    holder=\$!
+    while [[ ! -f \"\$ready\" ]]; do sleep 0.01; done
+    vg_cb_check 'lock-hook'
+    rc=\$?
+    wait \"\$holder\" 2>/dev/null || true
+    printf 'rc=%s\n' \"\$rc\"
+  " 2>&1 || true)
+else
+  LOCK_FAILURE_TEST=$(bash -c "
+    export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+    export VIBEGUARD_SESSION_ID='testsession01'
+    export VG_CB_LOCK_TIMEOUT_SECONDS=0
+    source '${CB_SCRIPT}'
+    lock_file=\$(_vg_cb_lock_file 'lock-hook')
+    mkdir -p \"\$(dirname \"\$lock_file\")\"
+    mkdir \"\${lock_file}.d\"
+    vg_cb_check 'lock-hook'
+    rc=\$?
+    rmdir \"\${lock_file}.d\"
+    printf 'rc=%s\n' \"\$rc\"
+  " 2>&1 || true)
+fi
+TOTAL=$((TOTAL+1))
+if echo "$LOCK_FAILURE_TEST" | grep -q "rc=2" \
+    && echo "$LOCK_FAILURE_TEST" | grep -q "circuit breaker lock timeout"; then
+  green "Lock contention returns status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "Lock contention: expected rc=2 with diagnostic, got: $LOCK_FAILURE_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+LOCK_OPEN_FAILURE_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  source '${CB_SCRIPT}'
+  lock_file=\$(_vg_cb_lock_file 'lock-open-hook')
+  mkdir -p \"\$(dirname \"\$lock_file\")\"
+  mkdir \"\$lock_file\"
+  vg_cb_check 'lock-open-hook'
+  rc=\$?
+  rmdir \"\$lock_file\"
+  printf 'rc=%s\n' \"\$rc\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$LOCK_OPEN_FAILURE_TEST" | grep -q "rc=2" \
+    && echo "$LOCK_OPEN_FAILURE_TEST" | grep -q "failed to open circuit breaker lock file"; then
+  green "Lock file open failure returns status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "Lock file open failure: expected rc=2 with diagnostic, got: $LOCK_OPEN_FAILURE_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+STATE_READ_FAILURE_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  source '${CB_SCRIPT}'
+  state_file=\$(_vg_cb_state_file 'state-read-hook')
+  mkdir -p \"\$(dirname \"\$state_file\")\"
+  printf 'CB_STATE=OPEN\nCB_BLOCKS=3\nCB_LAST_BLOCK=%s\nCB_SESSION=testsession01\n' \"\$(date +%s)\" > \"\$state_file\"
+  chmod 000 \"\$state_file\"
+  vg_cb_check 'state-read-hook'
+  rc=\$?
+  chmod 600 \"\$state_file\"
+  printf 'rc=%s\n' \"\$rc\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$STATE_READ_FAILURE_TEST" | grep -q "rc=2" \
+    && echo "$STATE_READ_FAILURE_TEST" | grep -q "failed to read circuit breaker state"; then
+  green "State read failure returns status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "State read failure: expected rc=2 with diagnostic, got: $STATE_READ_FAILURE_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
+setup
+SAVE_FAILURE_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  fake_bin='${CB_TMPDIR}/fake-bin'
+  mkdir -p \"\$fake_bin\"
+  printf '#!/usr/bin/env bash\nexit 0\n' > \"\$fake_bin/flock\"
+  chmod +x \"\$fake_bin/flock\"
+  PATH=\"\$fake_bin:\$PATH\"
+  source '${CB_SCRIPT}'
+  state_file=\$(_vg_cb_state_file 'save-hook')
+  lock_file=\$(_vg_cb_lock_file 'save-hook')
+  state_dir=\$(dirname \"\$state_file\")
+  mkdir -p \"\$state_dir\"
+  : > \"\$lock_file\"
+  chmod 600 \"\$lock_file\"
+  chmod 500 \"\$state_dir\"
+  vg_cb_record_block 'save-hook'
+  rc=\$?
+  chmod 700 \"\$state_dir\"
+  printf 'rc=%s\n' \"\$rc\"
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$SAVE_FAILURE_TEST" | grep -q "rc=2" \
+    && echo "$SAVE_FAILURE_TEST" | grep -q "failed to write circuit breaker state temp file"; then
+  green "Persistence failure returns status 2 with diagnostic"; PASS=$((PASS+1))
+else
+  red "Persistence failure: expected rc=2 with diagnostic, got: $SAVE_FAILURE_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

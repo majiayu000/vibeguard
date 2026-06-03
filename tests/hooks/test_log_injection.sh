@@ -140,6 +140,29 @@ assert_contains "$mode_result" "dir=700" "Existing log directory permissions are
 assert_contains "$mode_result" "primary=600" "Existing primary log permissions are tightened"
 assert_contains "$mode_result" "global=600" "Existing global log permissions are tightened"
 
+header "log.sh — lock contention"
+
+lock_test_dir="$(mktemp -d)"
+lock_test_file="${lock_test_dir}/events.jsonl"
+lock_test_stderr="${lock_test_dir}/stderr"
+: > "$lock_test_file"
+mkdir "${lock_test_file}.lock.d"
+
+set +e
+lock_result=$(
+  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
+  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
+  source hooks/_lib/log_write.sh
+  vg_append_log_line "$lock_test_file" '{"locked":true}' 2>"$lock_test_stderr"
+  printf 'rc=%s' "$?"
+)
+set -e
+
+assert_contains "$lock_result" "rc=1" "Log append lock contention returns nonzero"
+assert_contains "$(cat "$lock_test_stderr")" "failed to acquire log lock" "Log append lock contention reports diagnostic"
+assert_not_contains "$(cat "$lock_test_file")" '{"locked":true}' "Log append lock contention does not write unlocked"
+rm -rf "$lock_test_dir"
+
 # =========================================================
 
 hook_test_finish
