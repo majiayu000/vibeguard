@@ -9,6 +9,8 @@ mod hook_checks_bash;
 mod hook_checks_common;
 mod hook_checks_history;
 mod hook_checks_scan;
+mod hook_checks_write;
+mod hook_checks_write_scan;
 mod hook_status;
 mod json_field;
 mod log_append;
@@ -113,6 +115,11 @@ static COMMANDS: &[Command] = &[
         name: "post-write-fast-check",
         usage: "<base-limit> <max-scan-files> <log-file>  — fast-pass simple PostToolUse(Write) inputs",
         handler: hook_checks::post_write_fast_check,
+    },
+    Command {
+        name: "post-write-check",
+        usage: "<base-limit> <warn-limit> <max-scan-files> <max-scan-defs> <max-matches> <log-file>  — classify and handle PostToolUse(Write) input for hooks",
+        handler: hook_checks_write::post_write_check,
     },
     Command {
         name: "codex-app-server-wrapper",

@@ -114,6 +114,23 @@ result=$(echo "$json_payload" | bash hooks/post-write-guard.sh)
 assert_contains "$result" "duplicate filename" "Python: same basename across packages still warns (Go-only carve-out)"
 rm -rf "$tmp_repo_py_check"
 
+# Runtime failures must remain visible even when the fallback log write also
+# fails, because PostToolUse is review-only and should not fail silently.
+tmp_repo_runtime_fail="$(mktemp -d)"
+git -C "$tmp_repo_runtime_fail" init -q
+tmp_log_dir="$(mktemp -d)"
+locked_log="$tmp_log_dir/events.jsonl"
+mkdir "${locked_log}.lock.d"
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"# x"}}' "$tmp_repo_runtime_fail/README.md")
+result=$(echo "$json_payload" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_log_dir" \
+    VIBEGUARD_LOG_FILE="$locked_log" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/post-write-guard.sh 2>/dev/null)
+assert_contains "$result" "post-write runtime check failed" "Runtime failure remains visible when fallback logging fails"
+rm -rf "$tmp_repo_runtime_fail" "$tmp_log_dir"
+
 # =========================================================
 
 hook_test_finish
