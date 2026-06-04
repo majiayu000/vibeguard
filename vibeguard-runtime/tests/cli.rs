@@ -64,6 +64,10 @@ fn help_lists_all_commands() {
         "pkg-rewrite",
         "pre-bash-check",
         "session-metrics",
+        "codex-event-name",
+        "codex-status-detail",
+        "codex-status-matcher",
+        "codex-status-from-output",
         "pre-write-check",
         "pre-edit-check",
         "post-edit-fast-check",
@@ -76,6 +80,81 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Output {
+    let mut child = bin()
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn codex_event_name_extracts_event_and_tolerates_invalid_json() {
+    let out = run_runtime_with_stdin(
+        &["codex-event-name"],
+        r#"{"hook_event_name":"PermissionRequest"}"#,
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "PermissionRequest\n");
+
+    let invalid = run_runtime_with_stdin(&["codex-event-name"], "{not-json");
+    assert_eq!(invalid.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&invalid.stdout), "\n");
+}
+
+#[test]
+fn codex_status_helpers_extract_matcher_and_detail() {
+    let payload =
+        r#"{"tool_name":"Bash","tool_input":{"file_path":"src/lib.rs","command":"cargo test"}}"#;
+    let matcher = run_runtime_with_stdin(&["codex-status-matcher"], payload);
+    assert_eq!(matcher.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&matcher.stdout), "Bash\n");
+
+    let detail = run_runtime_with_stdin(&["codex-status-detail"], payload);
+    assert_eq!(detail.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&detail.stdout), "src/lib.rs\n");
+
+    let command_detail = run_runtime_with_stdin(
+        &["codex-status-detail"],
+        r#"{"tool_input":{"command":"rg TODO"}}"#,
+    );
+    assert_eq!(command_detail.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&command_detail.stdout), "rg TODO\n");
+}
+
+#[test]
+fn codex_status_from_output_maps_decisions_and_invalid_json() {
+    let block = run_runtime_with_stdin(
+        &["codex-status-from-output"],
+        r#"{"decision":"block","reason":"no"}"#,
+    );
+    assert_eq!(block.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&block.stdout), "block\tno\n");
+
+    let nested = run_runtime_with_stdin(
+        &["codex-status-from-output"],
+        r#"{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"stop"}}}"#,
+    );
+    assert_eq!(nested.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&nested.stdout), "block\t\n");
+
+    let invalid = run_runtime_with_stdin(&["codex-status-from-output"], "{not-json");
+    assert_eq!(invalid.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&invalid.stdout),
+        "hook_error\tinvalid-json\n"
+    );
 }
 
 fn run_post_write_check(input: &str, log_file: &std::path::Path) -> std::process::Output {

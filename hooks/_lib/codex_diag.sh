@@ -1,8 +1,37 @@
 #!/usr/bin/env bash
 # Codex wrapper diagnostics and tiny JSON helpers.
 
+codex_runtime_path() {
+  local helper_dir wrapper_dir candidate
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
+  for candidate in \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${wrapper_dir}/vibeguard-runtime"; do
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+codex_runtime_stdin() {
+  local command_name="$1" input="$2" runtime_path
+  if ! runtime_path="$(codex_runtime_path)"; then
+    return 127
+  fi
+  printf '%s' "${input}" | "${runtime_path}" "${command_name}"
+}
+
 codex_raw_event_name() {
   local input="$1"
+  if codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
+    return 0
+  fi
   printf '%s' "${input}" | python3 -c '
 import json
 import sys
@@ -154,6 +183,9 @@ codex_hook_timeout_ms() {
 
 codex_hook_status_detail() {
   local input="$1"
+  if codex_runtime_stdin "codex-status-detail" "${input}" 2>/dev/null; then
+    return 0
+  fi
   printf '%s' "${input}" | python3 -c '
 import json
 import sys
@@ -180,6 +212,9 @@ print("")
 
 codex_hook_status_matcher() {
   local input="$1"
+  if codex_runtime_stdin "codex-status-matcher" "${input}" 2>/dev/null; then
+    return 0
+  fi
   printf '%s' "${input}" | python3 -c '
 import json
 import sys
@@ -248,7 +283,8 @@ PY
 codex_hook_status_from_output() {
   local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
   local parsed hook_status hook_reason
-  parsed=$(printf '%s' "${hook_output}" | python3 -c '
+  if ! parsed=$(codex_runtime_stdin "codex-status-from-output" "${hook_output}" 2>/dev/null); then
+    parsed=$(printf '%s' "${hook_output}" | python3 -c '
 import json
 import sys
 
@@ -281,7 +317,8 @@ elif isinstance(hook_specific, dict):
 reason = reason.replace("\t", " ").replace("\n", " ")[:300]
 print(f"{status}\t{reason}")
 ' 2>/dev/null || true
-)
+    )
+  fi
   hook_status="${parsed%%$'\t'*}"
   hook_reason="${parsed#*$'\t'}"
   if [[ "${hook_status}" == "${parsed}" ]]; then

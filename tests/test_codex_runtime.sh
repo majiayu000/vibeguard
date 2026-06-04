@@ -225,6 +225,40 @@ else
   exit 1
 fi
 
+header "Codex protocol helpers use runtime without python3"
+NO_PYTHON_BIN="${TMP_DIR}/no-python-bin"
+mkdir -p "${NO_PYTHON_BIN}"
+cat > "${NO_PYTHON_BIN}/python3" <<'SH'
+#!/usr/bin/env bash
+exit 99
+SH
+chmod +x "${NO_PYTHON_BIN}/python3"
+
+protocol_helper_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" bash -c '
+    source "$1"
+    source "$2"
+    payload="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test\"}}"
+    printf "raw_event=%s\n" "$(codex_raw_event_name "${payload}")"
+    printf "adapter_event=%s\n" "$(codex_event_name "${payload}")"
+    printf "matcher=%s\n" "$(codex_hook_status_matcher "${payload}")"
+    printf "detail=%s\n" "$(codex_hook_status_detail "${payload}")"
+    codex_hook_status() { printf "status=%s reason=%s\n" "$4" "$5"; }
+    codex_hook_status_from_output "vibeguard-pre-bash-guard.sh" "PreToolUse" "Bash" "{\"hookSpecificOutput\":{\"decision\":{\"behavior\":\"deny\",\"message\":\"stop\"}}}"
+  ' -- "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+)"
+assert_contains "${protocol_helper_out}" "raw_event=PreToolUse" "codex_raw_event_name works without python3"
+assert_contains "${protocol_helper_out}" "adapter_event=PreToolUse" "codex_event_name works without python3"
+assert_contains "${protocol_helper_out}" "matcher=Bash" "codex_hook_status_matcher works without python3"
+assert_contains "${protocol_helper_out}" "detail=cargo test" "codex_hook_status_detail works without python3"
+assert_contains "${protocol_helper_out}" "status=block reason=" "codex_hook_status_from_output works without python3"
+
+status_parse_out="$(
+  printf '{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"stop"}}}' \
+    | "${VIBEGUARD_RUNTIME}" codex-status-from-output
+)"
+assert_contains "${status_parse_out}" $'block\t' "runtime maps nested Codex deny status"
+
 header "run-hook-codex surfaces unsupported command rewrite"
 TMP_HOME="${TMP_DIR}/home"
 TMP_FAKE_REPO="${TMP_DIR}/fake-repo"
