@@ -288,6 +288,7 @@ fn app_server_canonical_hook_name(hook_name: &str) -> String {
 
 fn profile_allows_hook(profile: &str, hook_name: &str) -> bool {
     match hook_name {
+        "analysis-paralysis-guard" => matches!(profile, "core" | "full" | "strict"),
         "post-build-check" | "stop-guard" | "learn-evaluator" => {
             matches!(profile, "full" | "strict")
         }
@@ -352,6 +353,52 @@ mod tests {
             }
         ));
         let _ = fs::remove_dir_all(repo);
+    }
+
+    #[test]
+    fn minimal_profile_excludes_analysis_paralysis_guard() {
+        let repo = temp_policy_dir("minimal_analysis");
+        if let Err(err) = fs::write(repo.join(".vibeguard.json"), r#"{"profile":"minimal"}"#) {
+            panic!("project config should be written: {err}");
+        }
+
+        let decision = evaluate_hook_policy(
+            "analysis-paralysis-guard.sh",
+            repo.to_str(),
+            &HashMap::new(),
+        );
+
+        assert!(
+            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=minimal excludes analysis-paralysis-guard"))
+        );
+        if let Err(err) = fs::remove_dir_all(&repo) {
+            panic!("temp policy dir should be removed: {err}");
+        }
+    }
+
+    #[test]
+    fn core_profile_allows_analysis_paralysis_guard() {
+        let repo = temp_policy_dir("core_analysis");
+        if let Err(err) = fs::write(repo.join(".vibeguard.json"), r#"{"profile":"core"}"#) {
+            panic!("project config should be written: {err}");
+        }
+
+        let decision = evaluate_hook_policy(
+            "analysis-paralysis-guard.sh",
+            repo.to_str(),
+            &HashMap::new(),
+        );
+
+        assert!(matches!(
+            decision,
+            HookPolicyDecision::Run {
+                warn_mode: false,
+                ..
+            }
+        ));
+        if let Err(err) = fs::remove_dir_all(&repo) {
+            panic!("temp policy dir should be removed: {err}");
+        }
     }
 
     #[test]

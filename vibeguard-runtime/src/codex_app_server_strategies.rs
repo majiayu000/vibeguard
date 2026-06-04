@@ -5,6 +5,7 @@ use crate::codex_app_server_core::{
 use crate::codex_app_server_file_changes::{
     FileChangeApprovalStrategy, attach_vibeguard_feedback, params_thread_id, params_turn_id,
 };
+use crate::codex_app_server_policy::{HookPolicyDecision, evaluate_hook_policy};
 use regex::Regex;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -141,7 +142,14 @@ impl CommandApprovalStrategy {
         if result.decision == "warn" {
             let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
-            self.observe(command, thread_id.as_deref(), state, write_to_server);
+            self.observe(
+                command,
+                thread_id.as_deref(),
+                cwd.as_deref(),
+                &env,
+                state,
+                write_to_server,
+            );
             return false;
         }
 
@@ -190,6 +198,8 @@ impl CommandApprovalStrategy {
             self.observe(
                 &updated_command,
                 thread_id.as_deref(),
+                cwd.as_deref(),
+                &env,
                 state,
                 write_to_server,
             );
@@ -209,7 +219,14 @@ impl CommandApprovalStrategy {
             );
         }
 
-        self.observe(command, thread_id.as_deref(), state, write_to_server);
+        self.observe(
+            command,
+            thread_id.as_deref(),
+            cwd.as_deref(),
+            &env,
+            state,
+            write_to_server,
+        );
         false
     }
 
@@ -217,9 +234,23 @@ impl CommandApprovalStrategy {
         &self,
         command: &str,
         thread_id: Option<&str>,
+        cwd: Option<&str>,
+        env: &std::collections::HashMap<String, String>,
         state: &mut SessionState,
         write_to_server: &mut WriteServer<'_>,
     ) {
+        match evaluate_hook_policy("analysis-paralysis-guard.sh", cwd, env) {
+            HookPolicyDecision::Run { .. } => {}
+            HookPolicyDecision::Skip(_) => return,
+            HookPolicyDecision::Error(reason) => {
+                emit_warning(
+                    write_to_server,
+                    format!("analysis-paralysis-guard.sh: {reason}"),
+                    thread_id,
+                );
+                return;
+            }
+        }
         let thread = thread_id.map(|id| state.ensure_thread(id));
         self.analysis
             .observe_command(command, thread_id, thread, write_to_server);
@@ -391,6 +422,10 @@ impl GateStrategy for VibeGuardGateStrategy {
         attach_vibeguard_feedback(message, feedback)
     }
 }
+
+#[cfg(test)]
+#[path = "codex_app_server_profile_tests.rs"]
+mod profile_tests;
 
 #[cfg(test)]
 #[path = "codex_app_server_strategies_tests.rs"]
