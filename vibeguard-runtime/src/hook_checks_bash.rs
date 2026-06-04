@@ -2,7 +2,7 @@ use regex::Regex;
 use serde_json::{Value, json};
 use std::io::{self, Read};
 
-use crate::hook_checks_common::nested_str;
+use crate::hook_checks_common::{nested_str, truncate_chars};
 use crate::pkg_rewrite::rewrite_command;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -324,10 +324,6 @@ fn should_run_precommit(command_stripped: &str, command: &str) -> bool {
 
 fn regex_is_match(pattern: &str, text: &str) -> bool {
     Regex::new(pattern).is_ok_and(|regex| regex.is_match(text))
-}
-
-fn truncate_chars(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]

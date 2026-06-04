@@ -3,6 +3,9 @@
 
 codex_event_name() {
   local input="$1"
+  if declare -F codex_runtime_stdin >/dev/null 2>&1 && codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
+    return 0
+  fi
   printf '%s' "${input}" | python3 -c '
 import json
 import sys

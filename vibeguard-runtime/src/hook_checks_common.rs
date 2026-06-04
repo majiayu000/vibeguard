@@ -23,6 +23,10 @@ pub(crate) fn nested_str(data: &Value, path: &str) -> Option<String> {
     node.as_str().map(str::to_string)
 }
 
+pub(crate) fn truncate_chars(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
 fn basename_lower(path: &str) -> String {
     let real = fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
     real.file_name()

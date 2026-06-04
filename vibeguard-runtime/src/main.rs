@@ -3,6 +3,7 @@ mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
 mod codex_app_server_strategies;
+mod codex_hooks;
 mod event_schema;
 mod hook_checks;
 mod hook_checks_bash;
@@ -95,6 +96,26 @@ static COMMANDS: &[Command] = &[
         name: "hook-status",
         usage: "[--mode minimal|focused|full] [--json] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
         handler: hook_status::run,
+    },
+    Command {
+        name: "codex-event-name",
+        usage: "  — extract hook_event_name from Codex hook stdin",
+        handler: codex_hooks::event_name,
+    },
+    Command {
+        name: "codex-status-detail",
+        usage: "  — extract Codex hook status detail from stdin",
+        handler: codex_hooks::status_detail,
+    },
+    Command {
+        name: "codex-status-matcher",
+        usage: "  — extract Codex hook status matcher from stdin",
+        handler: codex_hooks::status_matcher,
+    },
+    Command {
+        name: "codex-status-from-output",
+        usage: "  — classify wrapped hook output status from stdin",
+        handler: codex_hooks::status_from_output,
     },
     Command {
         name: "pre-write-check",
