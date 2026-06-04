@@ -68,6 +68,11 @@ fn help_lists_all_commands() {
         "codex-status-detail",
         "codex-status-matcher",
         "codex-status-from-output",
+        "codex-pretool-deny",
+        "codex-permission-deny",
+        "codex-adapt-pretool",
+        "codex-adapt-posttool",
+        "codex-adapt-permission-request",
         "pre-write-check",
         "pre-edit-check",
         "post-edit-fast-check",
@@ -154,6 +159,114 @@ fn codex_status_from_output_maps_decisions_and_invalid_json() {
     assert_eq!(
         String::from_utf8_lossy(&invalid.stdout),
         "hook_error\tinvalid-json\n"
+    );
+}
+
+#[test]
+fn codex_deny_helpers_emit_native_deny_payloads() {
+    let pretool = run_runtime_with_stdin(&["codex-pretool-deny"], "blocked");
+    assert_eq!(pretool.status.code(), Some(0));
+    let pretool_json: serde_json::Value = serde_json::from_slice(&pretool.stdout).unwrap();
+    assert_eq!(
+        pretool_json["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        pretool_json["hookSpecificOutput"]["permissionDecisionReason"],
+        "blocked"
+    );
+
+    let permission = run_runtime_with_stdin(&["codex-permission-deny"], "blocked");
+    assert_eq!(permission.status.code(), Some(0));
+    let permission_json: serde_json::Value = serde_json::from_slice(&permission.stdout).unwrap();
+    assert_eq!(
+        permission_json["hookSpecificOutput"]["decision"]["behavior"],
+        "deny"
+    );
+    assert_eq!(
+        permission_json["hookSpecificOutput"]["decision"]["message"],
+        "blocked"
+    );
+}
+
+#[test]
+fn codex_adapter_commands_map_wrapped_outputs() {
+    let pretool = run_runtime_with_stdin(
+        &["codex-adapt-pretool"],
+        r#"{"decision":"block","reason":"force push denied"}"#,
+    );
+    assert_eq!(pretool.status.code(), Some(0));
+    let pretool_json: serde_json::Value = serde_json::from_slice(&pretool.stdout).unwrap();
+    assert_eq!(
+        pretool_json["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        pretool_json["hookSpecificOutput"]["permissionDecisionReason"],
+        "force push denied"
+    );
+
+    let rewrite = run_runtime_with_stdin(
+        &["codex-adapt-pretool"],
+        r#"{"decision":"allow","updatedInput":{"command":"pnpm install"}}"#,
+    );
+    assert_eq!(rewrite.status.code(), Some(0));
+    let rewrite_json: serde_json::Value = serde_json::from_slice(&rewrite.stdout).unwrap();
+    assert!(
+        rewrite_json["systemMessage"]
+            .as_str()
+            .unwrap()
+            .contains("pnpm install")
+    );
+
+    let posttool = run_runtime_with_stdin(
+        &["codex-adapt-posttool"],
+        r#"{"decision":"escalate","reason":"build failed"}"#,
+    );
+    assert_eq!(posttool.status.code(), Some(0));
+    let posttool_json: serde_json::Value = serde_json::from_slice(&posttool.stdout).unwrap();
+    assert_eq!(posttool_json["decision"], "block");
+    assert_eq!(
+        posttool_json["hookSpecificOutput"]["additionalContext"],
+        "build failed"
+    );
+
+    let permission = run_runtime_with_stdin(
+        &["codex-adapt-permission-request"],
+        r#"{"decision":"block","reason":"permission denied"}"#,
+    );
+    assert_eq!(permission.status.code(), Some(0));
+    let permission_json: serde_json::Value = serde_json::from_slice(&permission.stdout).unwrap();
+    assert_eq!(
+        permission_json["hookSpecificOutput"]["decision"]["behavior"],
+        "deny"
+    );
+    assert_eq!(
+        permission_json["hookSpecificOutput"]["decision"]["message"],
+        "permission denied"
+    );
+}
+
+#[test]
+fn codex_adapter_commands_fail_closed_on_invalid_json() {
+    let pretool = run_runtime_with_stdin(&["codex-adapt-pretool"], "{not-json");
+    assert_eq!(pretool.status.code(), Some(3));
+    let pretool_json: serde_json::Value = serde_json::from_slice(&pretool.stdout).unwrap();
+    assert_eq!(
+        pretool_json["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+
+    let posttool = run_runtime_with_stdin(&["codex-adapt-posttool"], "{not-json");
+    assert_eq!(posttool.status.code(), Some(3));
+    assert!(posttool.stdout.is_empty());
+
+    let permission = run_runtime_with_stdin(&["codex-adapt-permission-request"], "{not-json");
+    assert_eq!(permission.status.code(), Some(3));
+    let permission_json: serde_json::Value = serde_json::from_slice(&permission.stdout).unwrap();
+    assert_eq!(
+        permission_json["hookSpecificOutput"]["decision"]["behavior"],
+        "deny"
     );
 }
 
