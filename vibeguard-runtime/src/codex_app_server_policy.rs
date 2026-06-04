@@ -46,12 +46,11 @@ pub fn evaluate_hook_policy(
         ));
     }
 
-    if let Some(profile) = config.profile.as_deref() {
-        if !profile_allows_hook(profile, &canonical_hook) {
-            return HookPolicyDecision::Skip(format!(
-                "VibeGuard policy skip: profile={profile} excludes {canonical_hook}"
-            ));
-        }
+    let profile = config.profile.as_deref().unwrap_or("core");
+    if !profile_allows_hook(profile, &canonical_hook) {
+        return HookPolicyDecision::Skip(format!(
+            "VibeGuard policy skip: profile={profile} excludes {canonical_hook}"
+        ));
     }
 
     if enforcement == "warn" {
@@ -396,6 +395,23 @@ mod tests {
                 ..
             }
         ));
+        if let Err(err) = fs::remove_dir_all(&repo) {
+            panic!("temp policy dir should be removed: {err}");
+        }
+    }
+
+    #[test]
+    fn omitted_profile_uses_core_default_for_full_only_hooks() {
+        let repo = temp_policy_dir("default_core_profile");
+        if let Err(err) = fs::write(repo.join(".vibeguard.json"), r#"{"enforcement":"block"}"#) {
+            panic!("project config should be written: {err}");
+        }
+
+        let decision = evaluate_hook_policy("post-build-check.sh", repo.to_str(), &HashMap::new());
+
+        assert!(
+            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes post-build-check"))
+        );
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
         }
