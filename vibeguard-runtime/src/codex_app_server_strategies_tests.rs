@@ -104,7 +104,10 @@ fn patch_update_records_pending_file_changes() {
 #[test]
 fn command_approval_skips_disabled_pre_bash_policy() {
     let repo_dir = temp_dir("disabled_pre_bash");
-    write_project_policy(&repo_dir, r#"{"disabled_hooks":["pre-bash-guard"]}"#);
+    write_project_policy(
+        &repo_dir,
+        r#"{"enforcement":"warn","disabled_hooks":["pre-bash-guard"]}"#,
+    );
     write_hook(
         &repo_dir,
         "pre-bash-guard.sh",
@@ -143,6 +146,39 @@ printf '{"decision":"block","reason":"should not run"}\n'
             .iter()
             .any(|value| value.to_string().contains("\"decision\":\"decline\""))
     );
+
+    let _ = fs::remove_dir_all(repo_dir);
+}
+
+#[test]
+fn command_policy_skip_does_not_emit_analysis_warnings() {
+    let repo_dir = temp_dir("policy_skip_no_analysis");
+    write_project_policy(&repo_dir, r#"{"enforcement":"off"}"#);
+    let mut strategy =
+        VibeGuardGateStrategy::new(&repo_dir, Some("guarded")).expect("strategy should init");
+    let mut state = SessionState::default();
+    strategy.on_client_message(
+        &json!({"method": "thread/start", "params": {"threadId": "thread-off", "cwd": repo_dir}}),
+        &mut state,
+    );
+
+    let mut outputs = Vec::new();
+    for i in 0..7 {
+        let handled = strategy.handle_server_request(
+            &json!({
+                "id": format!("req-off-{i}"),
+                "method": "item/commandExecution/requestApproval",
+                "params": {"threadId": "thread-off", "command": "rg TODO src"}
+            }),
+            &mut state,
+            &mut |value| outputs.push(value),
+        );
+        assert!(!handled);
+    }
+
+    let rendered = outputs.iter().map(Value::to_string).collect::<String>();
+    assert!(rendered.contains("enforcement=off"));
+    assert!(!rendered.contains("analysis paralysis warning"));
 
     let _ = fs::remove_dir_all(repo_dir);
 }

@@ -148,7 +148,6 @@ impl CommandApprovalStrategy {
         if result.decision == "skip" {
             let text = primary_feedback_text("pre-bash-guard.sh", &result, "");
             emit_warning(write_to_server, text, thread_id.as_deref());
-            self.observe(command, thread_id.as_deref(), state, write_to_server);
             return false;
         }
 

@@ -31,17 +31,9 @@ pub fn evaluate_hook_policy(
     };
 
     let canonical_hook = app_server_canonical_hook_name(hook_name);
-    match config.enforcement.as_deref().unwrap_or("block") {
-        "off" => {
-            return HookPolicyDecision::Skip("VibeGuard policy skip: enforcement=off".into());
-        }
-        "warn" => {
-            return HookPolicyDecision::Run {
-                warn_mode: true,
-                reason: Some("VibeGuard policy warn: enforcement=warn".into()),
-            };
-        }
-        _ => {}
+    let enforcement = config.enforcement.as_deref().unwrap_or("block");
+    if enforcement == "off" {
+        return HookPolicyDecision::Skip("VibeGuard policy skip: enforcement=off".into());
     }
 
     if config
@@ -60,6 +52,13 @@ pub fn evaluate_hook_policy(
                 "VibeGuard policy skip: profile={profile} excludes {canonical_hook}"
             ));
         }
+    }
+
+    if enforcement == "warn" {
+        return HookPolicyDecision::Run {
+            warn_mode: true,
+            reason: Some("VibeGuard policy warn: enforcement=warn".into()),
+        };
     }
 
     HookPolicyDecision::Run {
@@ -317,11 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn disabled_hook_policy_skips_canonical_name() {
+    fn warn_mode_disabled_hook_policy_skips_canonical_name() {
         let repo = temp_policy_dir("disabled");
         fs::write(
             repo.join(".vibeguard.json"),
-            r#"{"disabled_hooks":["pre-bash-guard"]}"#,
+            r#"{"enforcement":"warn","disabled_hooks":["pre-bash-guard"]}"#,
         )
         .expect("project config should be written");
 
