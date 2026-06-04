@@ -299,6 +299,92 @@ broken_runtime_wrapper_out="$(
 assert_contains "${broken_runtime_wrapper_out}" '"permissionDecision": "deny"' "run-hook-codex still denies when adapter runtime exits nonzero"
 assert_contains "${broken_runtime_wrapper_out}" 'wrapped hook output could not be adapted' "run-hook-codex explains broken adapter runtime fallback"
 
+TMP_HOME_NO_PYTHON_PATCH="${TMP_DIR}/home-no-python-patch"
+TMP_FAKE_REPO_NO_PYTHON_PATCH="${TMP_DIR}/fake-repo-no-python-patch"
+mkdir -p "${TMP_HOME_NO_PYTHON_PATCH}/.vibeguard" "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks"
+printf '%s' "${TMP_FAKE_REPO_NO_PYTHON_PATCH}" > "${TMP_HOME_NO_PYTHON_PATCH}/.vibeguard/repo-path"
+cat > "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+input="$(cat)"
+if [[ "${input}" == *'"tool_name":"Write"'* && "${input}" == *'src/no_python.rs'* ]]; then
+  printf '{"decision":"block","reason":"apply_patch normalized without python"}\n'
+else
+  printf '{"decision":"pass"}\n'
+fi
+HOOK
+chmod +x "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh"
+no_python_patch_payload='{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: src/no_python.rs\n+fn main() {}\n*** End Patch"}}'
+no_python_patch_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" VIBEGUARD_RUNTIME="${VIBEGUARD_RUNTIME}" bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    EVENT_NAME=PreToolUse
+    codex_diag() { return 0; }
+    codex_hook_status() { return 0; }
+    codex_run_hook "vibeguard-pre-write-guard.sh" "$4" "$5" "$6"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py" \
+    "${no_python_patch_payload}"
+)"
+assert_contains "${no_python_patch_out}" '"permissionDecision": "deny"' "codex_run_hook apply_patch normalizer works without python3"
+assert_contains "${no_python_patch_out}" 'apply_patch normalized without python' "codex_run_hook apply_patch path reaches normalized Write hook without python3"
+
+old_normalizer_runtime="${TMP_DIR}/old-normalizer-runtime"
+cat > "${old_normalizer_runtime}" <<'SH'
+#!/usr/bin/env bash
+printf 'Unknown command: %s\n' "$1" >&2
+exit 2
+SH
+chmod +x "${old_normalizer_runtime}"
+old_runtime_patch_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${old_normalizer_runtime}" bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    EVENT_NAME=PreToolUse
+    codex_diag() { return 0; }
+    codex_hook_status() { return 0; }
+    codex_run_hook "vibeguard-pre-write-guard.sh" "$4" "$5" "$6"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py" \
+    "${no_python_patch_payload}"
+)"
+assert_contains "${old_runtime_patch_out}" '"permissionDecision": "deny"' "codex_run_hook falls back when old runtime lacks apply_patch normalizer"
+assert_contains "${old_runtime_patch_out}" 'apply_patch normalized without python' "old runtime fallback still normalizes apply_patch payloads"
+
+broken_no_python_patch_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" VIBEGUARD_RUNTIME="${BROKEN_RUNTIME}" bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    EVENT_NAME=PreToolUse
+    codex_diag() { return 0; }
+    codex_hook_status() { return 0; }
+    codex_run_hook "vibeguard-pre-write-guard.sh" "$4" "$5" "$6"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py" \
+    "${no_python_patch_payload}"
+)"
+assert_contains "${broken_no_python_patch_out}" '"permissionDecision":"deny"' "codex_run_hook fails closed when runtime normalizer and python fallback both fail"
+assert_contains "${broken_no_python_patch_out}" 'Codex apply_patch normalizer failed' "broken apply_patch normalizer failure is visible"
+assert_not_contains "${broken_no_python_patch_out}" 'apply_patch normalized without python' "broken apply_patch normalizer does not raw-pass to file hook"
+
 status_parse_out="$(
   printf '{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"stop"}}}' \
     | "${VIBEGUARD_RUNTIME}" codex-status-from-output

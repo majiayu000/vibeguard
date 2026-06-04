@@ -1,6 +1,90 @@
 #!/usr/bin/env bash
 # Codex wrapper execution loop. Keep run-hook-codex.sh as a thin dispatcher.
 
+_codex_normalize_apply_patch_runtime() {
+  local hook_name="$1" input="$2" runtime_path
+  if ! declare -F codex_runtime_path >/dev/null 2>&1; then
+    return 127
+  fi
+  if ! runtime_path="$(codex_runtime_path)"; then
+    return 127
+  fi
+  printf '%s' "${input}" | "${runtime_path}" codex-normalize-apply-patch "${hook_name}"
+}
+
+_codex_input_looks_apply_patch() {
+  local input="$1"
+  [[ "${input}" == *'"tool_name":"apply_patch"'* \
+    || "${input}" == *'"tool_name": "apply_patch"'* \
+    || "${input}" == *"*** Begin Patch"* ]]
+}
+
+_codex_normalize_apply_patch_python() {
+  local hook_name="$1" normalizer_path="$2" input="$3" normalized_file="$4"
+  [[ -f "${normalizer_path}" ]] || return 127
+  printf '%s' "${input}" | python3 "${normalizer_path}" "${hook_name}" >"${normalized_file}"
+}
+
+_codex_normalizer_fail_closed() {
+  local event_name="$1"
+  local reason="VIBEGUARD hook failed: Codex apply_patch normalizer failed."
+  case "${event_name}" in
+    PreToolUse)
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "${reason}"
+      ;;
+    PermissionRequest)
+      printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "${reason}"
+      ;;
+    PostToolUse)
+      printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "${reason}" "${reason}"
+      ;;
+    Stop)
+      printf '{"stopReason":"%s"}\n' "${reason}"
+      ;;
+    *)
+      printf '{"systemMessage":"%s"}\n' "${reason}"
+      ;;
+  esac
+}
+
+_codex_write_normalized_inputs() {
+  local hook_name="$1" normalizer_path="$2" input="$3" normalized_file="$4"
+  local status=0 stderr_file stderr_text
+
+  if stderr_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-normalizer.XXXXXX")"; then
+    if _codex_normalize_apply_patch_runtime "${hook_name}" "${input}" >"${normalized_file}" 2>"${stderr_file}"; then
+      rm -f "${stderr_file}" 2>/dev/null || true
+      return 0
+    else
+      status=$?
+    fi
+    stderr_text="$(cat "${stderr_file}" 2>/dev/null || true)"
+    rm -f "${stderr_file}" 2>/dev/null || true
+
+    if [[ "${status}" -ne 127 && "${stderr_text}" != *"Unknown command: codex-normalize-apply-patch"* ]]; then
+      if _codex_normalize_apply_patch_python "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
+        return 0
+      fi
+      codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${stderr_text:-runtime exit ${status}}"
+      if _codex_input_looks_apply_patch "${input}"; then
+        return 1
+      fi
+      printf '%s\n' "${input}" >"${normalized_file}"
+      return 0
+    fi
+  fi
+
+  if _codex_normalize_apply_patch_python "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
+    return 0
+  fi
+
+  codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${normalizer_path}"
+  if _codex_input_looks_apply_patch "${input}"; then
+    return 1
+  fi
+  printf '%s\n' "${input}" >"${normalized_file}"
+}
+
 codex_run_hook() {
   local hook_name="$1" hook_path="$2" normalizer_path="$3" input="$4"
   shift 4
@@ -9,13 +93,10 @@ codex_run_hook() {
 
   local normalized_file
   normalized_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-inputs.XXXXXX")"
-  if [[ -f "${normalizer_path}" ]]; then
-    if ! printf '%s' "${input}" | python3 "${normalizer_path}" "${hook_name}" >"${normalized_file}"; then
-      codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${normalizer_path}"
-      printf '%s\n' "${input}" >"${normalized_file}"
-    fi
-  else
-    printf '%s\n' "${input}" >"${normalized_file}"
+  if ! _codex_write_normalized_inputs "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
+    rm -f "${normalized_file}" 2>/dev/null || true
+    _codex_normalizer_fail_closed "${EVENT_NAME}"
+    return 0
   fi
 
   local first_adapted_output=""

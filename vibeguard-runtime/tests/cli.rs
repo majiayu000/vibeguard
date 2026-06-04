@@ -73,6 +73,7 @@ fn help_lists_all_commands() {
         "codex-adapt-pretool",
         "codex-adapt-posttool",
         "codex-adapt-permission-request",
+        "codex-normalize-apply-patch",
         "pre-write-check",
         "pre-edit-check",
         "post-edit-fast-check",
@@ -267,6 +268,107 @@ fn codex_adapter_commands_fail_closed_on_invalid_json() {
     assert_eq!(
         permission_json["hookSpecificOutput"]["decision"]["behavior"],
         "deny"
+    );
+}
+
+#[test]
+fn codex_apply_patch_normalizer_maps_file_hook_payloads() {
+    let input = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "apply_patch",
+        "tool_input": {
+            "command": "*** Begin Patch\n*** Add File: src/new.rs\n+fn main() {}\n*** Update File: src/existing.rs\n-old\n+new\n*** End Patch"
+        }
+    })
+    .to_string();
+
+    let write = run_runtime_with_stdin(
+        &[
+            "codex-normalize-apply-patch",
+            "vibeguard-pre-write-guard.sh",
+        ],
+        &input,
+    );
+    assert_eq!(write.status.code(), Some(0));
+    let write_lines = String::from_utf8_lossy(&write.stdout);
+    let write_json: Vec<serde_json::Value> = write_lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(write_json.len(), 1);
+    assert_eq!(write_json[0]["tool_name"], "Write");
+    assert_eq!(write_json[0]["tool_input"]["file_path"], "src/new.rs");
+    assert_eq!(write_json[0]["tool_input"]["content"], "fn main() {}");
+
+    let edit = run_runtime_with_stdin(
+        &["codex-normalize-apply-patch", "vibeguard-pre-edit-guard.sh"],
+        &input,
+    );
+    assert_eq!(edit.status.code(), Some(0));
+    let edit_lines = String::from_utf8_lossy(&edit.stdout);
+    let edit_json: Vec<serde_json::Value> = edit_lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(edit_json.len(), 1);
+    assert_eq!(edit_json[0]["tool_name"], "Edit");
+    assert_eq!(edit_json[0]["tool_input"]["file_path"], "src/existing.rs");
+    assert_eq!(edit_json[0]["tool_input"]["new_string"], "new");
+    assert_eq!(edit_json[0]["tool_input"]["vibeguard_line_delta"], 0);
+
+    let post_build = run_runtime_with_stdin(
+        &[
+            "codex-normalize-apply-patch",
+            "vibeguard-post-build-check.sh",
+        ],
+        &input,
+    );
+    assert_eq!(post_build.status.code(), Some(0));
+    let post_build_lines = String::from_utf8_lossy(&post_build.stdout);
+    let post_build_json: Vec<serde_json::Value> = post_build_lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(post_build_json.len(), 2);
+    assert_eq!(post_build_json[0]["tool_name"], "Write");
+    assert_eq!(post_build_json[1]["tool_name"], "Edit");
+
+    let moved_delete_input = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "tool_name": "apply_patch",
+        "tool_input": {
+            "command": "*** Begin Patch\n*** Update File: src/old.rs\n*** Move to: src/current.rs\n-old\n+new\n*** Delete File: src/dead.rs\n-gone\n*** End Patch"
+        }
+    })
+    .to_string();
+    let moved_delete = run_runtime_with_stdin(
+        &[
+            "codex-normalize-apply-patch",
+            "vibeguard-post-edit-guard.sh",
+        ],
+        &moved_delete_input,
+    );
+    assert_eq!(moved_delete.status.code(), Some(0));
+    let moved_delete_lines = String::from_utf8_lossy(&moved_delete.stdout);
+    let moved_delete_json: Vec<serde_json::Value> = moved_delete_lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(moved_delete_json.len(), 2);
+    assert_eq!(moved_delete_json[0]["hook_event_name"], "PostToolUse");
+    assert_eq!(
+        moved_delete_json[0]["tool_input"]["file_path"],
+        "src/current.rs"
+    );
+    assert_eq!(moved_delete_json[0]["tool_input"]["new_string"], "new");
+    assert_eq!(
+        moved_delete_json[1]["tool_input"]["file_path"],
+        "src/dead.rs"
+    );
+    assert_eq!(moved_delete_json[1]["tool_input"]["new_string"], "");
+    assert_eq!(
+        moved_delete_json[1]["tool_input"]["vibeguard_line_delta"],
+        -1
     );
 }
 
