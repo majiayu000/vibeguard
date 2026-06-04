@@ -118,6 +118,31 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks::status_from_output,
     },
     Command {
+        name: "codex-pretool-deny",
+        usage: "  — emit a Codex PreToolUse deny payload from stdin reason",
+        handler: codex_hooks::deny_pretool,
+    },
+    Command {
+        name: "codex-permission-deny",
+        usage: "  — emit a Codex PermissionRequest deny payload from stdin reason",
+        handler: codex_hooks::deny_permission,
+    },
+    Command {
+        name: "codex-adapt-pretool",
+        usage: "  — adapt wrapped hook output to Codex PreToolUse JSON",
+        handler: codex_hooks::adapt_pretool,
+    },
+    Command {
+        name: "codex-adapt-posttool",
+        usage: "  — adapt wrapped hook output to Codex PostToolUse JSON",
+        handler: codex_hooks::adapt_posttool,
+    },
+    Command {
+        name: "codex-adapt-permission-request",
+        usage: "  — adapt wrapped hook output to Codex PermissionRequest JSON",
+        handler: codex_hooks::adapt_permission_request,
+    },
+    Command {
         name: "pre-write-check",
         usage: "<base-limit> [warn-limit]  — classify PreToolUse(Write) input for hooks",
         handler: hook_checks::pre_write_check,

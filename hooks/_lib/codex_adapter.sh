@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # Shared Codex hook output adapter.
 
+_codex_runtime_adapter() {
+  local command_name="$1" input="$2" status
+  if ! declare -F codex_runtime_stdin >/dev/null 2>&1; then
+    return 127
+  fi
+  codex_runtime_stdin "${command_name}" "${input}" 2>/dev/null
+  status=$?
+  case "${status}" in
+    0|3) return "${status}" ;;
+    2|127) return 127 ;;
+    *) return "${status}" ;;
+  esac
+}
+
 codex_event_name() {
   local input="$1"
   if declare -F codex_runtime_stdin >/dev/null 2>&1 && codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
@@ -19,6 +33,18 @@ except Exception:
 
 codex_pretool_deny() {
   local reason="$1"
+  local runtime_status=0
+  _codex_runtime_adapter "codex-pretool-deny" "${reason}" || runtime_status=$?
+  if [[ "${runtime_status}" -eq 0 ]]; then
+    return "${runtime_status}"
+  fi
+  if [[ "${runtime_status}" -eq 3 ]]; then
+    return "${runtime_status}"
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD hook failed: Codex deny adapter unavailable."}}\n'
+    return 0
+  fi
   CODEX_REASON="${reason}" python3 - <<'PY'
 import json
 import os
@@ -35,6 +61,18 @@ PY
 
 codex_permission_deny() {
   local reason="$1"
+  local runtime_status=0
+  _codex_runtime_adapter "codex-permission-deny" "${reason}" || runtime_status=$?
+  if [[ "${runtime_status}" -eq 0 ]]; then
+    return "${runtime_status}"
+  fi
+  if [[ "${runtime_status}" -eq 3 ]]; then
+    return "${runtime_status}"
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"VIBEGUARD hook failed: Codex deny adapter unavailable."}}}\n'
+    return 0
+  fi
   CODEX_REASON="${reason}" python3 - <<'PY'
 import json
 import os
@@ -53,6 +91,14 @@ PY
 
 codex_adapt_pretool() {
   local hook_output="$1"
+  local runtime_status=0
+  _codex_runtime_adapter "codex-adapt-pretool" "${hook_output}" || runtime_status=$?
+  if [[ "${runtime_status}" -eq 0 || "${runtime_status}" -eq 3 ]]; then
+    return "${runtime_status}"
+  fi
+  if [[ "${runtime_status}" -ne 127 ]]; then
+    return "${runtime_status}"
+  fi
   printf '%s' "${hook_output}" | python3 -c '
 import json
 import sys
@@ -121,6 +167,14 @@ elif decision == "allow" and isinstance(updated, dict):
 
 codex_adapt_posttool() {
   local hook_output="$1"
+  local runtime_status=0
+  _codex_runtime_adapter "codex-adapt-posttool" "${hook_output}" || runtime_status=$?
+  if [[ "${runtime_status}" -eq 0 || "${runtime_status}" -eq 3 ]]; then
+    return "${runtime_status}"
+  fi
+  if [[ "${runtime_status}" -ne 127 ]]; then
+    return "${runtime_status}"
+  fi
   printf '%s' "${hook_output}" | python3 -c '
 import json
 import sys
@@ -173,6 +227,14 @@ elif decision == "warn":
 
 codex_adapt_permission_request() {
   local hook_output="$1"
+  local runtime_status=0
+  _codex_runtime_adapter "codex-adapt-permission-request" "${hook_output}" || runtime_status=$?
+  if [[ "${runtime_status}" -eq 0 || "${runtime_status}" -eq 3 ]]; then
+    return "${runtime_status}"
+  fi
+  if [[ "${runtime_status}" -ne 127 ]]; then
+    return "${runtime_status}"
+  fi
   printf '%s' "${hook_output}" | python3 -c '
 import json
 import sys
