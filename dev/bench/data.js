@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780529623612,
+  "lastUpdate": 1780531300453,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -19265,6 +19265,165 @@ window.BENCHMARK_DATA = {
           {
             "name": "stop-guard (5000) (P99)",
             "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 21,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db41ee4fedc1b66539acc4ded14c7796159c9300",
+          "message": "Merge pull request #367 from majiayu000/codex/install-source-runtime-json\n\nAvoid cargo metadata in source runtime install",
+          "timestamp": "2026-06-04T07:51:17+08:00",
+          "tree_id": "e0664e3b3860f1943b4f3330a4615c92ef863af4",
+          "url": "https://github.com/majiayu000/vibeguard/commit/db41ee4fedc1b66539acc4ded14c7796159c9300"
+        },
+        "date": 1780531299972,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P50)",
+            "value": 26,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P50)",
+            "value": 160,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 213,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 213,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P50)",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P50)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 169,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 169,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P50)",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 41,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 41,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P50)",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 154,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 154,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P50)",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 35,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 35,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P50)",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 22,
             "unit": "ms"
           },
           {
