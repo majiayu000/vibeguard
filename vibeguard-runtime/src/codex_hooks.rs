@@ -207,6 +207,179 @@ fn deny_permission_payload(reason: &str) -> Value {
     })
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PatchChange {
+    kind: String,
+    path: String,
+    new_path: Option<String>,
+    added_lines: Vec<String>,
+    removed_lines: Vec<String>,
+}
+
+impl PatchChange {
+    fn new(kind: &str, path: &str) -> Self {
+        Self {
+            kind: kind.to_string(),
+            path: path.trim().to_string(),
+            new_path: None,
+            added_lines: Vec::new(),
+            removed_lines: Vec::new(),
+        }
+    }
+}
+
+fn finish_patch_change(changes: &mut Vec<PatchChange>, current: &mut Option<PatchChange>) {
+    if let Some(change) = current.take() {
+        changes.push(change);
+    }
+}
+
+fn parse_apply_patch(command: &str) -> Vec<PatchChange> {
+    let mut changes = Vec::new();
+    let mut current: Option<PatchChange> = None;
+
+    for line in command.lines() {
+        if let Some(path) = line.strip_prefix("*** Add File: ") {
+            finish_patch_change(&mut changes, &mut current);
+            current = Some(PatchChange::new("add", path));
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("*** Update File: ") {
+            finish_patch_change(&mut changes, &mut current);
+            current = Some(PatchChange::new("update", path));
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("*** Delete File: ") {
+            finish_patch_change(&mut changes, &mut current);
+            current = Some(PatchChange::new("delete", path));
+            continue;
+        }
+
+        let Some(change) = current.as_mut() else {
+            continue;
+        };
+        if let Some(path) = line.strip_prefix("*** Move to: ") {
+            change.new_path = Some(path.trim().to_string());
+        } else if let Some(added) = line.strip_prefix('+') {
+            change.added_lines.push(added.to_string());
+        } else if let Some(removed) = line.strip_prefix('-') {
+            change.removed_lines.push(removed.to_string());
+        }
+    }
+
+    finish_patch_change(&mut changes, &mut current);
+    changes
+}
+
+fn apply_patch_command(payload: &Map<String, Value>) -> &str {
+    payload
+        .get("tool_input")
+        .and_then(Value::as_object)
+        .and_then(|tool_input| tool_input.get("command"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn is_apply_patch_payload(payload: &Map<String, Value>) -> bool {
+    if payload.get("tool_name").and_then(Value::as_str) == Some("apply_patch") {
+        return true;
+    }
+    apply_patch_command(payload)
+        .trim_start()
+        .starts_with("*** Begin Patch")
+}
+
+fn normalized_tool_payload(
+    payload: &Map<String, Value>,
+    tool_name: &str,
+    tool_input: Value,
+) -> Value {
+    let mut normalized = payload.clone();
+    normalized.insert("tool_name".to_string(), json!(tool_name));
+    normalized.insert("tool_input".to_string(), tool_input);
+    Value::Object(normalized)
+}
+
+fn normalized_apply_patch_payloads(hook_name: &str, payload: &Map<String, Value>) -> Vec<Value> {
+    let event = payload
+        .get("hook_event_name")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !matches!(event, "PreToolUse" | "PermissionRequest" | "PostToolUse")
+        || !is_apply_patch_payload(payload)
+    {
+        return vec![Value::Object(payload.clone())];
+    }
+
+    let changes = parse_apply_patch(apply_patch_command(payload));
+    if changes.is_empty() {
+        return vec![Value::Object(payload.clone())];
+    }
+
+    if hook_name.contains("pre-write") || hook_name.contains("post-write") {
+        return changes
+            .into_iter()
+            .filter(|change| change.kind == "add")
+            .map(|change| {
+                normalized_tool_payload(
+                    payload,
+                    "Write",
+                    json!({
+                        "file_path": change.path,
+                        "content": change.added_lines.join("\n"),
+                    }),
+                )
+            })
+            .collect();
+    }
+
+    if hook_name.contains("pre-edit") || hook_name.contains("post-edit") {
+        return changes
+            .into_iter()
+            .filter(|change| change.kind != "add")
+            .map(|change| {
+                let file_path = if change.kind == "update" {
+                    change
+                        .new_path
+                        .clone()
+                        .unwrap_or_else(|| change.path.clone())
+                } else {
+                    change.path.clone()
+                };
+                let line_delta =
+                    change.added_lines.len() as i64 - change.removed_lines.len() as i64;
+                normalized_tool_payload(
+                    payload,
+                    "Edit",
+                    json!({
+                        "file_path": file_path,
+                        "old_string": "",
+                        "new_string": change.added_lines.join("\n"),
+                        "vibeguard_line_delta": line_delta,
+                    }),
+                )
+            })
+            .collect();
+    }
+
+    if hook_name.contains("post-build-check") {
+        return changes
+            .into_iter()
+            .map(|change| {
+                let file_path = change.new_path.unwrap_or(change.path);
+                let tool_name = if change.kind == "add" {
+                    "Write"
+                } else {
+                    "Edit"
+                };
+                normalized_tool_payload(payload, tool_name, json!({ "file_path": file_path }))
+            })
+            .collect();
+    }
+
+    vec![Value::Object(payload.clone())]
+}
+
 pub fn event_name(args: &[String]) -> Result {
     ensure_no_args(args, "Usage: vibeguard-runtime codex-event-name")?;
     let data = read_json_tolerant()?;
@@ -391,6 +564,23 @@ pub fn adapt_permission_request(args: &[String]) -> Result {
     Ok(())
 }
 
+pub fn normalize_apply_patch(args: &[String]) -> Result {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime codex-normalize-apply-patch <hook-name>".into());
+    }
+
+    let input = read_stdin()?;
+    let Ok(Value::Object(payload)) = serde_json::from_str::<Value>(&input) else {
+        println!("{input}");
+        return Ok(());
+    };
+
+    for item in normalized_apply_patch_payloads(&args[0], &payload) {
+        println!("{}", serde_json::to_string(&item)?);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,5 +686,50 @@ mod tests {
             deny_permission_payload("blocked")["hookSpecificOutput"]["decision"]["behavior"],
             "deny"
         );
+    }
+
+    #[test]
+    fn parse_apply_patch_collects_change_shapes() {
+        let changes = parse_apply_patch(
+            "*** Begin Patch\n*** Add File: src/new.rs\n+fn main() {}\n*** Update File: src/old.rs\n*** Move to: src/current.rs\n-old\n+new\n*** Delete File: src/dead.rs\n-old\n*** End Patch",
+        );
+        assert_eq!(changes.len(), 3);
+        assert_eq!(changes[0].kind, "add");
+        assert_eq!(changes[0].added_lines, vec!["fn main() {}".to_string()]);
+        assert_eq!(changes[1].new_path.as_deref(), Some("src/current.rs"));
+        assert_eq!(changes[1].removed_lines, vec!["old".to_string()]);
+        assert_eq!(changes[2].kind, "delete");
+    }
+
+    #[test]
+    fn normalize_apply_patch_fans_out_by_hook_kind() {
+        let payload = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "apply_patch",
+            "tool_input": {
+                "command": "*** Begin Patch\n*** Add File: src/new.rs\n+one\n+two\n*** Update File: src/existing.rs\n-old\n+new\n*** End Patch"
+            },
+        })
+        .as_object()
+        .expect("payload object")
+        .clone();
+
+        let write_payloads =
+            normalized_apply_patch_payloads("vibeguard-pre-write-guard.sh", &payload);
+        assert_eq!(write_payloads.len(), 1);
+        assert_eq!(write_payloads[0]["tool_name"], "Write");
+        assert_eq!(write_payloads[0]["tool_input"]["file_path"], "src/new.rs");
+        assert_eq!(write_payloads[0]["tool_input"]["content"], "one\ntwo");
+
+        let edit_payloads =
+            normalized_apply_patch_payloads("vibeguard-pre-edit-guard.sh", &payload);
+        assert_eq!(edit_payloads.len(), 1);
+        assert_eq!(edit_payloads[0]["tool_name"], "Edit");
+        assert_eq!(
+            edit_payloads[0]["tool_input"]["file_path"],
+            "src/existing.rs"
+        );
+        assert_eq!(edit_payloads[0]["tool_input"]["new_string"], "new");
+        assert_eq!(edit_payloads[0]["tool_input"]["vibeguard_line_delta"], 0);
     }
 }

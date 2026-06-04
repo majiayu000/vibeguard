@@ -143,6 +143,11 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks::adapt_permission_request,
     },
     Command {
+        name: "codex-normalize-apply-patch",
+        usage: "<hook-name>  — normalize Codex apply_patch payloads for file hooks",
+        handler: codex_hooks::normalize_apply_patch,
+    },
+    Command {
         name: "pre-write-check",
         usage: "<base-limit> [warn-limit]  — classify PreToolUse(Write) input for hooks",
         handler: hook_checks::pre_write_check,
