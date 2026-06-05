@@ -15,14 +15,53 @@ if [[ -n "${_VG_CONFIG_SH_LOADED:-}" ]]; then
   return 0
 fi
 _VG_CONFIG_SH_LOADED=1
+_VG_CONFIG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 _vg_config_file() {
   printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
 }
 
+_vg_config_runtime_path() {
+  local wrapper_dir candidate
+  wrapper_dir="$(cd "${_VG_CONFIG_LIB_DIR}/.." && pwd)"
+  for candidate in \
+    "${_VIBEGUARD_RUNTIME:-}" \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${wrapper_dir}/vibeguard-runtime"; do
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      if _vg_config_runtime_supports "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+_vg_config_runtime_supports() {
+  local candidate="$1" probe_file int_probe str_probe
+  probe_file="${TMPDIR:-/tmp}/vibeguard-runtime-config-probe.$$.json"
+  printf '{"probe":{"int":19,"str":"probe-hit"}}\n' > "${probe_file}" || return 1
+  int_probe="$(
+    _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      "${candidate}" runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ probe.int 17 2>/dev/null
+  )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
+  [[ "${int_probe}" == "19" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
+  str_probe="$(
+    _VG_CONFIG_FILE="${probe_file}" VIBEGUARD_CONFIG_FILE="${probe_file}" \
+      "${candidate}" runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ probe.str probe-default 2>/dev/null
+  )" || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
+  [[ "${str_probe}" == "probe-hit" ]] || { rm -f "${probe_file}" 2>/dev/null || true; return 1; }
+  rm -f "${probe_file}" 2>/dev/null || true
+  return 0
+}
+
 vg_config_get_int() {
   local env_name="$1" json_path="$2" default_val="$3"
-  local val config_file
+  local val runtime_path config_file
 
   val="${!env_name:-}"
   if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
@@ -31,33 +70,18 @@ vg_config_get_int() {
   fi
 
   config_file="$(_vg_config_file)"
-  if [[ -f "$config_file" ]]; then
-    val=$(python3 - "$config_file" "$json_path" <<'PY'
-import json
-import sys
-
-config_file, json_path = sys.argv[1:3]
-try:
-    with open(config_file, encoding="utf-8") as f:
-        node = json.load(f)
-except Exception:
-    raise SystemExit(1)
-
-for key in json_path.split("."):
-    if isinstance(node, dict) and key in node:
-        node = node[key]
-    else:
-        raise SystemExit(1)
-
-if isinstance(node, bool) or not isinstance(node, int):
-    raise SystemExit(1)
-print(node)
-PY
-    ) || val=""
+  if runtime_path="$(_vg_config_runtime_path)"; then
+    val="$(
+      _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+        "${runtime_path}" runtime-config-get-int "$env_name" "$json_path" "$default_val" 2>/dev/null || true
+    )"
     if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
       printf '%s' "$val"
       return 0
     fi
+  elif [[ -f "$config_file" ]]; then
+    printf 'VibeGuard runtime config read failed: vibeguard-runtime with runtime-config-get-int is required to read %s\n' "$config_file" >&2
+    return 2
   fi
 
   printf '%s' "$default_val"
@@ -65,7 +89,7 @@ PY
 
 vg_config_get_str() {
   local env_name="$1" json_path="$2" default_val="$3"
-  local val config_file
+  local val runtime_path config_file
 
   val="${!env_name:-}"
   if [[ -n "$val" ]]; then
@@ -74,33 +98,18 @@ vg_config_get_str() {
   fi
 
   config_file="$(_vg_config_file)"
-  if [[ -f "$config_file" ]]; then
-    val=$(python3 - "$config_file" "$json_path" <<'PY'
-import json
-import sys
-
-config_file, json_path = sys.argv[1:3]
-try:
-    with open(config_file, encoding="utf-8") as f:
-        node = json.load(f)
-except Exception:
-    raise SystemExit(1)
-
-for key in json_path.split("."):
-    if isinstance(node, dict) and key in node:
-        node = node[key]
-    else:
-        raise SystemExit(1)
-
-if not isinstance(node, str):
-    raise SystemExit(1)
-print(node)
-PY
-    ) || val=""
+  if runtime_path="$(_vg_config_runtime_path)"; then
+    val="$(
+      _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
+        "${runtime_path}" runtime-config-get-str "$env_name" "$json_path" "$default_val" 2>/dev/null || true
+    )"
     if [[ -n "$val" ]]; then
       printf '%s' "$val"
       return 0
     fi
+  elif [[ -f "$config_file" ]]; then
+    printf 'VibeGuard runtime config read failed: vibeguard-runtime with runtime-config-get-str is required to read %s\n' "$config_file" >&2
+    return 2
   fi
 
   printf '%s' "$default_val"

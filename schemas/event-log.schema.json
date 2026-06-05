@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/schemas/event-log.schema.json",
+  "title": "VibeGuard Event Log Row",
+  "description": "Schema v1 for one events.jsonl row. Normalized reader fields are optional so legacy hook rows remain valid.",
+  "type": "object",
+  "required": ["ts", "session", "hook", "tool", "decision"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "ts": { "type": "string", "minLength": 1 },
+    "session": { "type": "string" },
+    "event": { "type": "string" },
+    "hook": { "type": "string", "minLength": 1 },
+    "tool": { "type": "string" },
+    "matcher": { "type": "string" },
+    "decision": {
+      "enum": ["pass", "warn", "block", "gate", "escalate", "correction", "complete"]
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "skipped",
+        "warn",
+        "block",
+        "gate",
+        "escalate",
+        "correction",
+        "complete",
+        "slow",
+        "timeout",
+        "running",
+        "adapter_error",
+        "hook_error",
+        "unknown"
+      ]
+    },
+    "reason": { "type": "string" },
+    "detail": { "type": "string" },
+    "duration_ms": { "$ref": "#/$defs/non_negative_integerish" },
+    "elapsed_ms": { "$ref": "#/$defs/non_negative_integerish" },
+    "timeout_ms": { "$ref": "#/$defs/non_negative_integerish" },
+    "log_path": { "type": "string" },
+    "model_context": { "type": "boolean" },
+    "source": { "enum": ["event_log", "codex_diag"] },
+    "cli": { "type": "string" },
+    "agent": { "type": "string" },
+    "client": { "type": "string" },
+    "client_variant": { "type": "string" },
+    "wrapper": { "type": "string" },
+    "source_config": { "type": "string" },
+    "hook_protocol_version": { "type": "string" },
+    "caller_evidence": { "type": "string" }
+  },
+  "$defs": {
+    "non_negative_integerish": {
+      "anyOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+$" }
+      ]
+    }
+  }
+}

@@ -173,6 +173,16 @@ static COMMANDS: &[Command] = &[
         handler: runtime_policy::runtime_policy_diag,
     },
     Command {
+        name: "runtime-config-get-int",
+        usage: "<env-name> <json-path> <default>  — read an integer from runtime config",
+        handler: runtime_config::runtime_config_get_int,
+    },
+    Command {
+        name: "runtime-config-get-str",
+        usage: "<env-name> <json-path> <default>  — read a string from runtime config",
+        handler: runtime_config::runtime_config_get_str,
+    },
+    Command {
         name: "pre-write-check",
         usage: "<base-limit> [warn-limit]  — classify PreToolUse(Write) input for hooks",
         handler: hook_checks::pre_write_check,

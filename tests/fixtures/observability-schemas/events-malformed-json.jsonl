@@ -1,0 +1,2 @@
+{"schema_version":1,"ts":"2026-05-31T00:00:05Z","session":"s-malformed","hook":"pre-bash-guard","tool":"Bash","decision":"pass","reason":"","detail":"cargo check"}
+{"schema_version":1,"ts":"broken-json"

@@ -255,4 +255,39 @@ got=$(vg_config_get_str VG_TEST_MODE write_mode block)
 [[ "$got" == "warn" ]] && green "vg_config_get_str env beats JSON" || { red "vg_config_get_str env (got: $got)"; FAIL=$((FAIL + 1)); }
 TOTAL=$((TOTAL + 1)); [[ "$got" == "warn" ]] && PASS=$((PASS + 1))
 
+partial_runtime="$WORK_DIR/partial-runtime"
+cat > "$partial_runtime" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "json-field" ]]; then
+  exit 0
+fi
+echo "missing helper: ${1:-}" >&2
+exit 2
+SH
+chmod +x "$partial_runtime"
+unset VG_TEST_X
+got=$(VIBEGUARD_RUNTIME="$partial_runtime" vg_config_get_int VG_TEST_X u16.limit 800)
+[[ "$got" == "1234" ]] && green "vg_config_get_int skips runtimes missing config helpers" || { red "vg_config_get_int stale runtime fallback (got: $got)"; FAIL=$((FAIL + 1)); }
+TOTAL=$((TOTAL + 1)); [[ "$got" == "1234" ]] && PASS=$((PASS + 1))
+
+default_only_runtime="$WORK_DIR/default-only-runtime"
+cat > "$default_only_runtime" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  runtime-config-get-int|runtime-config-get-str)
+    printf '%s\n' "${4:?}"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$default_only_runtime"
+unset VG_TEST_MODE
+got=$(VIBEGUARD_RUNTIME="$default_only_runtime" vg_config_get_str VG_TEST_MODE write_mode warn)
+[[ "$got" == "block" ]] && green "vg_config_get_str rejects runtimes that cannot read JSON values" || { red "vg_config_get_str default-only runtime fallback (got: $got)"; FAIL=$((FAIL + 1)); }
+TOTAL=$((TOTAL + 1)); [[ "$got" == "block" ]] && PASS=$((PASS + 1))
+
+assert_not_contains "$(sed -n '1,180p' hooks/_lib/config.sh)" "python3" "runtime config helper no longer shells out to python3"
+
 hook_test_finish

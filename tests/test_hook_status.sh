@@ -6,6 +6,7 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 TMP_DIR="$(mktemp -d)"
+export VIBEGUARD_CODEX_DIAG_FILE="${TMP_DIR}/missing-codex-wrapper.jsonl"
 
 cleanup() {
   rm -rf "${TMP_DIR}"

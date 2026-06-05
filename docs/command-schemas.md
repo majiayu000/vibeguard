@@ -12,6 +12,8 @@ Executable schema sources:
 - `schemas/command-skill-validate-output.schema.json`
 - `schemas/command-review-output.schema.json`
 - `schemas/command-learn-output.schema.json`
+- `schemas/event-log.schema.json`
+- `schemas/session-metrics.schema.json`
 - `schemas/workflow-routing-decision.schema.json`
 - `schemas/workflow-execution-handoff.schema.json`
 - `schemas/workflow-delegation-assignment.schema.json`
@@ -123,6 +125,15 @@ Delegation assignments are required before any child-agent write lane starts. Pa
   ]
 }
 ```
+
+## observability JSONL Schemas
+
+Runtime observability rows are validated one JSONL row at a time:
+
+- `schemas/event-log.schema.json` describes `events.jsonl` hook events.
+- `schemas/session-metrics.schema.json` describes `session-metrics.jsonl` rows emitted by `vibeguard-runtime session-metrics`.
+
+Schema v1 keeps normalized event-log fields optional. Legacy hook rows that only contain `ts`, `session`, `hook`, `tool`, `decision`, `reason`, and `detail` remain valid, while current rows may also include `event`, `matcher`, `status`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
 
 ## preflight output Schema
 

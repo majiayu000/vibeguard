@@ -1,0 +1,1 @@
+{"schema_version":1,"ts":"2026-05-31T00:05:00Z","session":"s-current","event_count":4,"decisions":{"pass":2,"warn":1,"block":1},"hooks":{"pre-bash-guard":2,"post-edit-guard":2},"tools":{"Bash":2,"Edit":2},"top_edited_files":{"src/lib.rs":2},"avg_duration_ms":42,"slow_ops":0,"correction_signals":["high friction session: warn_ratio=0.5"],"warn_ratio":0.5}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/schemas/session-metrics.schema.json",
+  "title": "VibeGuard Session Metrics Row",
+  "description": "Schema v1 for one session-metrics.jsonl row emitted by vibeguard-runtime session-metrics.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ts",
+    "session",
+    "event_count",
+    "decisions",
+    "hooks",
+    "tools",
+    "top_edited_files",
+    "avg_duration_ms",
+    "slow_ops",
+    "correction_signals",
+    "warn_ratio"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "ts": { "type": "string", "minLength": 1 },
+    "session": { "type": "string", "minLength": 1 },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "decisions": { "$ref": "#/$defs/count_map" },
+    "hooks": { "$ref": "#/$defs/count_map" },
+    "tools": { "$ref": "#/$defs/count_map" },
+    "top_edited_files": { "$ref": "#/$defs/count_map" },
+    "avg_duration_ms": { "type": "integer", "minimum": 0 },
+    "slow_ops": { "type": "integer", "minimum": 0 },
+    "correction_signals": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "warn_ratio": { "type": "number", "minimum": 0 }
+  },
+  "$defs": {
+    "count_map": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    }
+  }
+}
