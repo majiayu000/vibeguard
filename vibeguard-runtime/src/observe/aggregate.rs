@@ -142,7 +142,7 @@ fn observe_normalized_decision(event: &Value) -> String {
 fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
     let explicit = observe_string_field(event, field::STATUS).to_ascii_lowercase();
     if !explicit.is_empty() {
-        return explicit;
+        return observe_canonical_status(&explicit);
     }
     let decision_value = observe_normalized_decision(event);
     let reason = observe_string_field(event, field::REASON).to_ascii_lowercase();
@@ -158,7 +158,28 @@ fn observe_normalized_status(event: &Value, slow_ms: u64) -> String {
     {
         return status::SLOW.to_string();
     }
-    observe_non_empty_or(decision_value, UNKNOWN)
+    observe_canonical_status(&decision_value)
+}
+
+fn observe_canonical_status(value: &str) -> String {
+    match value {
+        status::PASS => status::PASS,
+        status::SKIPPED => status::SKIPPED,
+        status::WARN => status::WARN,
+        status::BLOCK => status::BLOCK,
+        status::GATE => status::GATE,
+        status::ESCALATE => status::ESCALATE,
+        status::CORRECTION => status::CORRECTION,
+        status::COMPLETE => status::COMPLETE,
+        status::SLOW => status::SLOW,
+        status::TIMEOUT => status::TIMEOUT,
+        status::RUNNING => status::RUNNING,
+        status::ADAPTER_ERROR => status::ADAPTER_ERROR,
+        status::HOOK_ERROR => status::HOOK_ERROR,
+        status::UNKNOWN | "" => status::UNKNOWN,
+        _ => status::UNKNOWN,
+    }
+    .to_string()
 }
 
 fn observe_event_name(event: &Value) -> String {
@@ -289,5 +310,31 @@ mod tests {
         assert_eq!(rendered[field::STATUS], status::SLOW);
         assert_eq!(rendered["diagnostic"], "slow");
         assert_eq!(rendered[field::MODEL_CONTEXT], false);
+    }
+
+    #[test]
+    fn unknown_status_values_render_schema_safe_status() {
+        let explicit_status = json!({
+            "ts":"2026-06-01T00:00:06Z",
+            "session":"s1",
+            "hook":"post-build-check",
+            "decision":"pass",
+            "status":"healthy"
+        });
+        let unknown_decision = json!({
+            "ts":"2026-06-01T00:00:07Z",
+            "session":"s1",
+            "hook":"pre-bash-guard",
+            "decision":"allow"
+        });
+
+        assert_eq!(
+            observe_event_json(&explicit_status, 2_000)[field::STATUS],
+            status::UNKNOWN
+        );
+        assert_eq!(
+            observe_event_json(&unknown_decision, 2_000)[field::STATUS],
+            status::UNKNOWN
+        );
     }
 }
