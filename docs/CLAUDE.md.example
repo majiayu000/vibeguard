@@ -99,7 +99,7 @@ Rules, guard scripts, hooks, and workflow commands provide the coverage. Not eve
 
 | Trigger conditions | Behavior |
 |----------|------|
-| `Write` creates a new source code file | **Warn by default** — Search for existing implementations first; configure `write_mode=block` to hard-block |
+| `Write` creates a new source code file | **Warn by default** — Search for existing implementations first; configure `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` in `~/.vibeguard/config.json` to hard-block |
 | `Bash` dangerous local cleanup (`rm -rf`, `git clean -f`, `git checkout/restore .`) | **Block** — gives a safe alternative |
 | git `pre-push` detects non-fast-forward push / branch deletion | **Block** — protects remote history; rewrites and deletions require explicit human approval plus the repository bypass policy |
 | `Edit` non-existent file | **Block** — Read first to confirm |

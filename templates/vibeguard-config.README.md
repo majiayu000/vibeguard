@@ -1,12 +1,19 @@
 # VibeGuard user config (`~/.vibeguard/config.json`)
 
-User-level overrides for hook thresholds. Hooks resolve each value in priority order:
+User-level runtime tuning for hook thresholds. This is separate from the
+repository policy file `.vibeguard.json`, which accepts project policy keys such
+as `profile`, `enforcement`, `disabled_hooks`, `disabled_rules`,
+`disabled_guards`, and `gc`.
+
+Hooks resolve each runtime value in priority order:
 
 1. **Environment variable** (highest) — e.g. `VG_U16_LIMIT=1500 cargo build`
 2. **JSON config file** — `~/.vibeguard/config.json` (this file)
 3. **Built-in default** (lowest)
 
-Malformed JSON or wrong-typed values silently fall through to the next layer — your hooks never break because of a bad config edit.
+Malformed JSON fails closed in the runtime wrapper. Missing or wrong-typed
+individual values fall through to the next layer, so one bad tuning key does not
+weaken unrelated hook behavior.
 
 ## Keys
 

@@ -11,8 +11,25 @@ from pathlib import Path
 from typing import Any
 
 
+_RUNTIME_CONFIG_KEY_HINTS = {
+    "write_mode": "write_mode belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+    "u16": "u16.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+    "u16.limit": "u16.limit belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+    "u16.warn_limit": "u16.warn_limit belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+    "circuit_breaker": "circuit_breaker.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+    "paralysis": "paralysis.* belongs in ~/.vibeguard/config.json, not .vibeguard.json",
+}
+
+
 def _label(path: list[str]) -> str:
     return "." + ".".join(path) if path else "$"
+
+
+def _unknown_property_error(path: list[str]) -> str:
+    message = f"{_label(path)}: unknown property"
+    if len(path) == 1 and path[0] in _RUNTIME_CONFIG_KEY_HINTS:
+        message = f"{message}; {_RUNTIME_CONFIG_KEY_HINTS[path[0]]}"
+    return message
 
 
 def _load_json(path: Path) -> Any:
@@ -81,7 +98,7 @@ def _validate_gc(value: Any, schema: dict[str, Any], errors: list[str]) -> None:
     props = gc_schema.get("properties", {})
     allowed = set(props)
     for key in sorted(set(value) - allowed):
-        errors.append(f"{_label(path + [key])}: unknown property")
+        errors.append(_unknown_property_error(path + [key]))
 
     for key, item in value.items():
         if key not in props:
@@ -102,7 +119,7 @@ def validate(config: Any, schema: dict[str, Any]) -> list[str]:
     props = schema.get("properties", {})
     allowed_top = set(props)
     for key in sorted(set(config) - allowed_top):
-        errors.append(f"{_label([key])}: unknown property")
+        errors.append(_unknown_property_error([key]))
 
     if "profile" in config:
         _validate_string_enum(config["profile"], _string_enum(schema, "profile"), ["profile"], errors)

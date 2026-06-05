@@ -148,7 +148,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 
 | Scenario | Hook | Result |
 |----------|------|--------|
-| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` to hard-block |
+| AI creates new `.py/.ts/.rs/.go/.js` file | `pre-write-guard` | **Warn by default** — search-first reminder; set `VIBEGUARD_WRITE_MODE=block` or `write_mode=block` in `~/.vibeguard/config.json` to hard-block |
 | AI creates or edits production source above 400 lines | `pre-write-guard`, `pre-edit-guard`, `post-write-guard`, `post-edit-guard` | **Warn** — typical-size advisory; keep the current change localized and plan a later split if growth continues |
 | AI creates or edits production source above 800 lines | `pre-write-guard`, `pre-edit-guard` | **Block** — split the file before writing or patching |
 | AI runs destructive local cleanup (`rm -rf` dangerous paths, `git clean -f`, `git checkout/restore .`) | `pre-bash-guard` | **Block** — suggests safe alternatives and audited discard flow |
@@ -163,7 +163,7 @@ Most hooks trigger automatically during AI operations. `skills-loader` remains a
 | AI tries to finish with unverified changes | `stop-guard` | **Signal** — logs a Stop reminder; the Stop hook exits 0 to avoid feedback loops |
 | Session ends | `learn-evaluator` | **Evaluate** — collect metrics and detect correction signals |
 
-U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. The default typical-size advisory starts above 400 lines (`u16.warn_limit` / `VG_U16_WARN_LIMIT`), while the hard limit remains 800 lines (`u16.limit` / `VG_U16_LIMIT`). For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the hard limit are denied before mutation.
+U-16 file-size enforcement applies to non-test source files with `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, or `.go` extensions. The default typical-size advisory starts above 400 lines (`u16.warn_limit` in `~/.vibeguard/config.json` / `VG_U16_WARN_LIMIT`), while the hard limit remains 800 lines (`u16.limit` in `~/.vibeguard/config.json` / `VG_U16_LIMIT`). For Codex, `apply_patch Add File` and `apply_patch Update File` are both normalized before the file hook runs, so edits that would take a production source file past the hard limit are denied before mutation.
 
 ### Static Guards — Run Anytime
 
