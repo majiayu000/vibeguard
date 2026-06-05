@@ -184,7 +184,7 @@ events = [
         "tool": "Edit",
         "decision": "warn",
         "reason": "U-16 block for customer@example.com command cargo test -- --ignored",
-        "detail": "Edit /Users/alice/project/src/private_token.rs",
+        "detail": "Edit /var/tmp/vibeguard/project/src/private_token.rs",
         "duration_ms": 250,
     }
 ]
@@ -202,7 +202,7 @@ assert_contains "${prom_out}" "vibeguard_hook_duration_seconds_sum" "Duration su
 assert_not_contains "${prom_out}" "secret-session" "Session id is not exported as a label"
 assert_not_contains "${prom_out}" "customer@example.com" "Raw reason content is absent"
 assert_not_contains "${prom_out}" "cargo test -- --ignored" "Raw command-like reason content is absent"
-assert_not_contains "${prom_out}" "/Users/alice" "Full path detail is absent"
+assert_not_contains "${prom_out}" "/var/tmp/vibeguard" "Full path detail is absent"
 assert_not_contains "${prom_out}" "private_token" "Raw filename detail is absent"
 
 prom_file="${TMP_DIR}/metrics.prom"

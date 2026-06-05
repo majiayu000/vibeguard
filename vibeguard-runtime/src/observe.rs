@@ -519,7 +519,7 @@ mod tests {
             "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
             "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
             "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
-            "\"detail\":\"Edit /Users/alice/project/src/private_token.rs\",",
+            "\"detail\":\"Edit /var/tmp/vibeguard/project/src/private_token.rs\",",
             "\"duration_ms\":250}\n"
         );
         let out = render(input);
@@ -533,7 +533,7 @@ mod tests {
             "secret-session",
             "customer@example.com",
             "cargo test -- --ignored",
-            "/Users/alice",
+            "/var/tmp/vibeguard",
             "private_token",
         ] {
             assert!(
