@@ -297,6 +297,8 @@
     - Main changes:
       - Captured baseline facts, production-path scope, non-goals, findings,
         and phased execution plan.
+      - Captured the W-20 VibeGuard rule hash for `rules/claude-rules`:
+        `59ef8b07443f0103c85b4ad3d4f6400d37c5c47f2f9b953547268b2e09065437`.
     - Execute tests:
       - `git status --short --branch` -> pass; showed `main...origin/main`
         and a pre-existing unrelated untracked docs spec file.

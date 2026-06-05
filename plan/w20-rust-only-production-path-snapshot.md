@@ -23,6 +23,14 @@
 - `Python 3.11.2`
 - `gh version 2.86.0 (2026-01-21)`
 
+## VibeGuard Rule Pin
+
+- Rules directory: `rules/claude-rules`
+- Rule file count: 18 markdown files
+- Rule hash: `59ef8b07443f0103c85b4ad3d4f6400d37c5c47f2f9b953547268b2e09065437`
+- Hash method: `guards/universal/check_runtime_drift.sh snapshot` with
+  `--rules-dir rules/claude-rules`, hashing sorted per-file SHA-256 entries.
+
 ## Current Runtime Dependency Surface
 
 `vibeguard-runtime/Cargo.toml` currently declares:
