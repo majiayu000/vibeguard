@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_vibeguard-runtime"))
@@ -20,6 +21,25 @@ fn unique_temp_dir(label: &str) -> PathBuf {
 fn write_policy(repo: &Path, body: &str) {
     fs::create_dir_all(repo).expect("repo temp dir should be created");
     fs::write(repo.join(".vibeguard.json"), body).expect("project policy should be written");
+}
+
+fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Output {
+    let mut child = bin()
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("runtime helper should spawn");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should be piped")
+        .write_all(input.as_bytes())
+        .expect("runtime helper stdin should be written");
+    child
+        .wait_with_output()
+        .expect("runtime helper should finish")
 }
 
 fn run_runtime_policy(repo: &Path, hook_name: &str) -> std::process::Output {
@@ -148,5 +168,149 @@ fn runtime_policy_check_uses_shared_profile_filtering_for_strict_only_hooks() {
         String::from_utf8_lossy(&output.stdout)
             .contains("profile=core excludes count-active-constraints")
     );
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_downgrade_output_converts_block_to_warn() {
+    let output = run_runtime_with_stdin(
+        &["runtime-policy-downgrade-output"],
+        r#"{"decision":"block","reason":"dangerous command"}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(value["decision"], "warn");
+    assert_eq!(
+        value["reason"],
+        "VIBEGUARD warn-mode advisory: dangerous command"
+    );
+}
+
+#[test]
+fn runtime_policy_downgrade_output_removes_codex_pretool_denial() {
+    let output = run_runtime_with_stdin(
+        &["runtime-policy-downgrade-output"],
+        r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"blocked by policy"}}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(
+        value["systemMessage"],
+        "VIBEGUARD warn-mode advisory: blocked by policy"
+    );
+    assert!(value["hookSpecificOutput"]["permissionDecision"].is_null());
+    assert!(value["hookSpecificOutput"]["permissionDecisionReason"].is_null());
+}
+
+#[test]
+fn runtime_policy_downgrade_output_removes_codex_permission_denial() {
+    let output = run_runtime_with_stdin(
+        &["runtime-policy-downgrade-output"],
+        r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"permission denied"}}}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(
+        value["systemMessage"],
+        "VIBEGUARD warn-mode advisory: permission denied"
+    );
+    assert!(value["hookSpecificOutput"]["decision"].is_null());
+}
+
+#[test]
+fn runtime_policy_downgrade_output_preserves_non_json_text() {
+    let output = run_runtime_with_stdin(&["runtime-policy-downgrade-output"], "not json");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "not json\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn runtime_policy_codex_error_outputs_event_specific_payloads() {
+    let pretool = run_runtime_with_stdin(
+        &["runtime-policy-codex-error", "PreToolUse"],
+        "project config invalid",
+    );
+    let pretool_value: serde_json::Value =
+        serde_json::from_slice(&pretool.stdout).expect("PreToolUse payload should be JSON");
+    assert_eq!(
+        pretool_value["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        pretool_value["hookSpecificOutput"]["permissionDecisionReason"],
+        "project config invalid"
+    );
+
+    let permission = run_runtime_with_stdin(
+        &["runtime-policy-codex-error", "PermissionRequest"],
+        "policy denied",
+    );
+    let permission_value: serde_json::Value = serde_json::from_slice(&permission.stdout)
+        .expect("PermissionRequest payload should be JSON");
+    assert_eq!(
+        permission_value["hookSpecificOutput"]["decision"]["behavior"],
+        "deny"
+    );
+    assert_eq!(
+        permission_value["hookSpecificOutput"]["decision"]["message"],
+        "policy denied"
+    );
+
+    let posttool = run_runtime_with_stdin(
+        &["runtime-policy-codex-error", "PostToolUse"],
+        "posttool denied",
+    );
+    let posttool_value: serde_json::Value =
+        serde_json::from_slice(&posttool.stdout).expect("PostToolUse payload should be JSON");
+    assert_eq!(posttool_value["decision"], "block");
+    assert_eq!(
+        posttool_value["hookSpecificOutput"]["additionalContext"],
+        "posttool denied"
+    );
+
+    let stop = run_runtime_with_stdin(&["runtime-policy-codex-error", "Stop"], "stop denied");
+    let stop_value: serde_json::Value =
+        serde_json::from_slice(&stop.stdout).expect("Stop payload should be JSON");
+    assert_eq!(stop_value["stopReason"], "stop denied");
+}
+
+#[test]
+fn runtime_policy_diag_appends_jsonl_event() {
+    let repo = unique_temp_dir("diag");
+    fs::create_dir_all(&repo).expect("diag dir should be created");
+    let diag_file = repo.join("policy.jsonl");
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-diag",
+            diag_file.to_str().expect("diag path should be utf8"),
+            "pre-bash-guard.sh",
+            "PreToolUse",
+            "policy_error",
+            "run-hook-codex.sh",
+        ],
+        "runtime missing",
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let line = fs::read_to_string(&diag_file).expect("diag event should be written");
+    let value: serde_json::Value =
+        serde_json::from_str(line.trim()).expect("diag event should be JSON");
+    assert!(value["ts"].as_str().unwrap_or("").ends_with('Z'));
+    assert_eq!(value["wrapper"], "run-hook-codex.sh");
+    assert_eq!(value["hook"], "pre-bash-guard.sh");
+    assert_eq!(value["event"], "PreToolUse");
+    assert_eq!(value["kind"], "policy_error");
+    assert_eq!(value["reason"], "runtime missing");
     let _ = fs::remove_dir_all(repo);
 }

@@ -110,7 +110,26 @@ codex_pretool_danger_input='{"hook_event_name":"PreToolUse","tool_input":{"comma
 
 header "runtime policy — runtime resolver"
 explicit_runtime="${WORK_DIR}/explicit-runtime"
-printf '#!/usr/bin/env bash\nexit 0\n' > "${explicit_runtime}"
+cat > "${explicit_runtime}" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  runtime-policy-check)
+    exit 0
+    ;;
+  runtime-policy-downgrade-output)
+    printf '{"decision":"warn","reason":"probe"}\n'
+    ;;
+  runtime-policy-codex-error)
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"probe"}}\n'
+    ;;
+  runtime-policy-diag)
+    printf '{"kind":"policy_error"}\n' >>"${2:?}"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
 chmod +x "${explicit_runtime}"
 resolver_out="$(
   WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_POLICY_RUNTIME="${explicit_runtime}" bash -c '
@@ -135,6 +154,28 @@ resolver_out="$(
   '
 )"
 assert_contains "${resolver_out}" "${explicit_runtime}" "runtime policy resolver honors VIBEGUARD_RUNTIME before installed binaries"
+
+partial_runtime="${WORK_DIR}/partial-runtime"
+cat > "${partial_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "runtime-policy-check" ]]; then
+  exit 0
+fi
+echo "missing helper: ${1:-}" >&2
+exit 2
+SH
+chmod +x "${partial_runtime}"
+resolver_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" \
+  VIBEGUARD_POLICY_RUNTIME="${partial_runtime}" \
+  VIBEGUARD_RUNTIME="${RUNTIME_BIN}" \
+  bash -c '
+    source hooks/_lib/policy.sh
+    vg_policy_runtime_path
+  '
+)"
+assert_not_contains "${resolver_out}" "${partial_runtime}" "runtime policy resolver rejects runtimes missing helper commands"
+assert_contains "${resolver_out}" "${RUNTIME_BIN}" "runtime policy resolver falls through to helper-capable runtime"
 
 header "runtime policy — disabled hooks"
 disabled_home="${WORK_DIR}/home-disabled"
@@ -261,5 +302,8 @@ fi
 assert_contains "${bad_user_codex_out}" '"permissionDecision": "deny"' "Codex wrapper denies malformed runtime config"
 assert_contains "${bad_user_codex_out}" "VibeGuard runtime config invalid JSON" "Codex wrapper explains malformed runtime config"
 assert_contains "$(cat "${bad_user_home}/.vibeguard/policy.jsonl")" "config_parse_error" "runtime policy emits config_parse_error telemetry"
+
+header "runtime policy — no Python policy helpers"
+assert_not_contains "$(sed -n '1,240p' "${REPO_DIR}/hooks/_lib/policy.sh")" "python3" "policy helper no longer shells out to python3"
 
 hook_test_finish

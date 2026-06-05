@@ -156,6 +156,21 @@ static COMMANDS: &[Command] = &[
         handler: runtime_policy::runtime_policy_check,
     },
     Command {
+        name: "runtime-policy-downgrade-output",
+        usage: "  — downgrade stdin hook JSON to warn-mode advisory output",
+        handler: runtime_policy::runtime_policy_downgrade_output,
+    },
+    Command {
+        name: "runtime-policy-codex-error",
+        usage: "<event-name>  — emit Codex-visible policy error JSON from stdin reason",
+        handler: runtime_policy::runtime_policy_codex_error,
+    },
+    Command {
+        name: "runtime-policy-diag",
+        usage: "<diag-file> <hook-name> <event-name> <kind> <wrapper>  — append policy diagnostic JSONL from stdin reason",
+        handler: runtime_policy::runtime_policy_diag,
+    },
+    Command {
         name: "pre-write-check",
         usage: "<base-limit> [warn-limit]  — classify PreToolUse(Write) input for hooks",
         handler: hook_checks::pre_write_check,
