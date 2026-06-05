@@ -243,3 +243,82 @@ fn unknown_property_error(path: &[&str]) -> String {
         None => format!("{label}: unknown property"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn object_from(value: Value) -> serde_json::Map<String, Value> {
+        match value {
+            Value::Object(object) => object,
+            other => panic!("expected JSON object, got {other}"),
+        }
+    }
+
+    #[test]
+    fn accepts_allowed_project_config_fields() {
+        let object = object_from(json!({
+            "profile": "strict",
+            "enforcement": "warn",
+            "languages": ["go", "javascript", "python", "rust", "typescript"],
+            "disabled_hooks": ["pre-bash-guard", "post-edit-guard"],
+            "disabled_rules": ["SEC-01", "TASTE-readable-guard"],
+            "disabled_guards": ["check_unwrap_in_prod", "check_any_abuse"],
+            "gc": {
+                "log_threshold_mb": 10,
+                "archive_retain_months": 6,
+                "worktree_max_days": 30,
+                "session_metrics_retain_days": 14,
+                "learning_window_days": 7,
+                "gc_log_max_kb": 512
+            }
+        }));
+
+        assert!(collect_project_config_errors(&object).is_empty());
+    }
+
+    #[test]
+    fn reports_precise_project_config_errors_and_hints() {
+        let object = object_from(json!({
+            "profile": "strictest",
+            "languages": ["rust", 7, "ruby"],
+            "disabled_hooks": ["pre-edit-guard", "missing-hook"],
+            "disabled_rules": ["SEC-01", "bad"],
+            "disabled_guards": [true, "check_missing"],
+            "gc": {
+                "log_threshold_mb": 0,
+                "archive_retain_months": true,
+                "unexpected": 1
+            },
+            "write_mode": "block"
+        }));
+
+        let errors = collect_project_config_errors(&object).join("\n");
+        assert!(errors.contains(".profile: unsupported value \"strictest\""));
+        assert!(errors.contains(".languages.1: expected string"));
+        assert!(errors.contains(".languages.2: unsupported value \"ruby\""));
+        assert!(errors.contains(".disabled_hooks.1: unsupported value \"missing-hook\""));
+        assert!(errors.contains(".disabled_rules.1: does not match"));
+        assert!(errors.contains(".disabled_guards.0: expected string"));
+        assert!(errors.contains(".disabled_guards.1: unsupported value \"check_missing\""));
+        assert!(errors.contains(".gc.log_threshold_mb: expected integer >= 1"));
+        assert!(errors.contains(".gc.archive_retain_months: expected integer >= 1"));
+        assert!(errors.contains(".gc.unexpected: unknown property"));
+        assert!(errors.contains(
+            ".write_mode: unknown property; write_mode belongs in ~/.vibeguard/config.json"
+        ));
+    }
+
+    #[test]
+    fn unknown_property_errors_point_user_config_fields_to_user_config() {
+        assert_eq!(
+            unknown_property_error(&["u16"]),
+            ".u16: unknown property; u16.* belongs in ~/.vibeguard/config.json, not .vibeguard.json"
+        );
+        assert_eq!(
+            unknown_property_error(&["gc", "surprise"]),
+            ".gc.surprise: unknown property"
+        );
+    }
+}

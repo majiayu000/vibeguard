@@ -295,3 +295,81 @@ fn print_with_newline(raw: &str) {
         println!();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_path(label: &str) -> PathBuf {
+        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(_) => 0,
+        };
+        std::env::temp_dir().join(format!(
+            "vibeguard-runtime-policy-{label}-{}-{nanos}.json",
+            std::process::id()
+        ))
+    }
+
+    fn remove_temp_file(path: PathBuf) {
+        if let Err(err) = std::fs::remove_file(&path) {
+            if err.kind() != ErrorKind::NotFound {
+                panic!("temp fixture should be removed: {}: {err}", path.display());
+            }
+        }
+    }
+
+    #[test]
+    fn runtime_config_validation_accepts_missing_and_valid_json() {
+        let missing = unique_temp_path("missing");
+        let missing_path = missing.to_string_lossy().into_owned();
+        assert!(validate_runtime_config(&missing_path).is_ok());
+
+        let valid = unique_temp_path("valid");
+        if let Err(err) = std::fs::write(&valid, r#"{"write_mode":"warn"}"#) {
+            panic!("valid runtime config fixture should be written: {err}");
+        }
+        let valid_path = valid.to_string_lossy().into_owned();
+        assert!(validate_runtime_config(&valid_path).is_ok());
+
+        remove_temp_file(valid);
+    }
+
+    #[test]
+    fn runtime_config_validation_reports_invalid_json() {
+        let invalid = unique_temp_path("invalid");
+        if let Err(err) = std::fs::write(&invalid, r#"{"write_mode":"#) {
+            panic!("invalid runtime config fixture should be written: {err}");
+        }
+        let invalid_path = invalid.to_string_lossy().into_owned();
+        let err = match validate_runtime_config(&invalid_path) {
+            Ok(()) => panic!("invalid runtime config should fail validation"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("VibeGuard runtime config invalid JSON"));
+        assert!(err.contains(&invalid_path));
+
+        remove_temp_file(invalid);
+    }
+
+    #[test]
+    fn config_parse_error_classifier_matches_parse_and_io_failures() {
+        assert!(is_config_parse_error(
+            "VibeGuard runtime config invalid JSON"
+        ));
+        assert!(is_config_parse_error(
+            "VibeGuard runtime config invalid UTF-8"
+        ));
+        assert!(is_config_parse_error(
+            "VibeGuard runtime config cannot be read"
+        ));
+        assert!(!is_config_parse_error(
+            "VibeGuard policy skip: enforcement=off"
+        ));
+        assert!(!is_config_parse_error("unexpected hook policy"));
+    }
+}
