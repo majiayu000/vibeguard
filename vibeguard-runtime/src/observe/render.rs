@@ -284,3 +284,34 @@ fn observe_percentage(count: usize, total: usize) -> f64 {
 fn observe_blank_as_unknown(value: &str) -> &str {
     if value.is_empty() { UNKNOWN } else { value }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duration_stats_reports_sorted_bounds_and_slow_count() {
+        let stats = observe_duration_stats_json(&[5, 10, 2_500, 30_000], 2_000);
+
+        assert_eq!(stats["count"], 4);
+        assert_eq!(stats["avg_ms"], 8_128);
+        assert_eq!(stats["min_ms"], 5);
+        assert_eq!(stats["p95_ms"], 30_000);
+        assert_eq!(stats["max_ms"], 30_000);
+        assert_eq!(stats["slow_count"], 2);
+    }
+
+    #[test]
+    fn top_counts_sort_by_count_then_name() {
+        let mut counts = BTreeMap::new();
+        counts.insert("zeta".to_string(), 2);
+        counts.insert("alpha".to_string(), 2);
+        counts.insert("beta".to_string(), 1);
+
+        let sorted = observe_sorted_counts(&counts);
+
+        assert_eq!(sorted[0], ("alpha".to_string(), 2));
+        assert_eq!(sorted[1], ("zeta".to_string(), 2));
+        assert_eq!(sorted[2], ("beta".to_string(), 1));
+    }
+}

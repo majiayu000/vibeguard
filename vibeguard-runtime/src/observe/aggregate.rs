@@ -249,3 +249,45 @@ fn observe_reason_code(reason: &str) -> Option<String> {
     }
     Some(head.chars().take(80).collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn aggregate_counts_attention_diagnostics_and_rule_ids() {
+        let events = vec![
+            json!({"ts":"2026-06-01T00:00:01Z","session":"s1","hook":"pre-bash-guard","decision":"pass","duration_ms":10,"client":"codex"}),
+            json!({"ts":"2026-06-01T00:00:02Z","session":"s1","hook":"post-edit-guard","decision":"warn","reason":"U-16 file too large","duration_ms":30,"client":"codex"}),
+            json!({"ts":"2026-06-01T00:00:03Z","session":"s2","hook":"post-build-check","status":"timeout","reason":"timeout","duration_ms":30000,"client":"claude"}),
+        ];
+
+        let aggregate = aggregate_events(&events, 2_000);
+
+        assert_eq!(aggregate.event_count, 3);
+        assert_eq!(aggregate.attention_count, 2);
+        assert_eq!(aggregate.decision_counts.get("pass"), Some(&1));
+        assert_eq!(aggregate.decision_counts.get("warn"), Some(&1));
+        assert_eq!(aggregate.decision_counts.get("timeout"), Some(&1));
+        assert_eq!(aggregate.rule_ids.get("U-16"), Some(&1));
+        assert_eq!(aggregate.client_distribution.get("codex"), Some(&2));
+    }
+
+    #[test]
+    fn slow_pass_diagnostic_does_not_set_model_context() {
+        let event = json!({
+            "ts":"2026-06-01T00:00:05Z",
+            "session":"s1",
+            "hook":"post-write-guard",
+            "decision":"pass",
+            "duration_ms":2500
+        });
+
+        let rendered = observe_event_json(&event, 2_000);
+
+        assert_eq!(rendered[field::STATUS], status::SLOW);
+        assert_eq!(rendered["diagnostic"], "slow");
+        assert_eq!(rendered[field::MODEL_CONTEXT], false);
+    }
+}

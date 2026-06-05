@@ -196,3 +196,51 @@ fn parse_hours_window(value: &str) -> Result<TimeWindow> {
 fn usage() -> &'static str {
     "Usage: vibeguard-runtime observe <summary|health|session> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N] [--slow-ms MS] [--top N]"
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn summary_defaults_to_json_false_and_seven_days() {
+        let options = match parse_observe_args(&args(&["summary"])) {
+            Ok(options) => options,
+            Err(error) => panic!("summary options should parse: {error}"),
+        };
+
+        assert!(matches!(options.command, ObserveCommand::Summary));
+        assert!(!options.json);
+        assert_eq!(options.window.label(), "last 7 days");
+    }
+
+    #[test]
+    fn session_accepts_id_and_common_options() {
+        let options = match parse_observe_args(&args(&[
+            "session", "s1", "--json", "--hours", "all", "--limit", "42", "--top", "3",
+        ])) {
+            Ok(options) => options,
+            Err(error) => panic!("session options should parse: {error}"),
+        };
+
+        assert!(matches!(options.command, ObserveCommand::Session));
+        assert_eq!(options.session.as_deref(), Some("s1"));
+        assert!(options.json);
+        assert_eq!(options.window.label(), "all history");
+        assert_eq!(options.limit, 42);
+        assert_eq!(options.top, 3);
+    }
+
+    #[test]
+    fn zero_limit_is_rejected() {
+        let error = match parse_observe_args(&args(&["health", "--limit", "0"])) {
+            Ok(_) => panic!("zero limit should fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("--limit must be greater than 0"));
+    }
+}
