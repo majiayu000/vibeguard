@@ -238,6 +238,15 @@ assert_contains "${project_prom_out}" 'vibeguard_tool_total{tool="Bash"} 1' "Exp
 assert_contains "${project_prom_out}" 'reason_code="dangerous_command"' "Project exporter output preserves derived labels"
 assert_not_contains "${project_prom_out}" "git push --force" "Project exporter output avoids raw command detail"
 
+missing_prom_file="${TMP_DIR}/missing.prom"
+set +e
+missing_export_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-missing-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all --file "${missing_prom_file}" 2>&1)"
+missing_export_status=$?
+set -e
+assert_cmd "Exporter missing log exits nonzero" test "${missing_export_status}" -ne 0
+assert_contains "${missing_export_out}" "Log file does not exist" "Exporter missing log reports the missing log"
+assert_cmd "Exporter missing log does not create textfile output" test ! -e "${missing_prom_file}"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"

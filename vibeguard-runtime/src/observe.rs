@@ -150,7 +150,9 @@ fn parse_since(value: &str) -> Result<Option<u64>> {
 fn render_prometheus_from_path(path: &Path, cutoff_secs: Option<u64>) -> Result<String> {
     match File::open(path) {
         Ok(file) => render_prometheus(file, cutoff_secs),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            Err(format!("Log file does not exist: {}", path.display()).into())
+        }
         Err(e) => Err(e.into()),
     }
 }

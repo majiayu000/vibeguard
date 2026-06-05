@@ -201,6 +201,39 @@ fn observe_export_prometheus_project_scope_reads_project_log_dir() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn observe_export_prometheus_missing_log_reports_error_without_output_file() {
+    let root = unique_temp_dir("observe-missing-log");
+    fs::create_dir_all(&root).unwrap();
+    let missing = root.join("missing-events.jsonl");
+    let output_file = root.join("metrics.prom");
+
+    let out = bin()
+        .args([
+            "observe",
+            "export",
+            "prometheus",
+            "--since",
+            "all",
+            "--input-file",
+        ])
+        .arg(&missing)
+        .args(["--file"])
+        .arg(&output_file)
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Log file does not exist"), "{stderr}");
+    assert!(
+        stderr.contains(&missing.to_string_lossy().to_string()),
+        "{stderr}"
+    );
+    assert!(!output_file.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
 fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Output {
     let mut child = bin()
         .args(args)
