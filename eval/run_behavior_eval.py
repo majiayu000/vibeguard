@@ -381,6 +381,8 @@ def run_model_gate(args: argparse.Namespace) -> dict[str, Any]:
         str(REPO_ROOT / "eval" / "run_eval.py"),
         "--model",
         args.model,
+        "--artifact-root",
+        args.artifact_root,
     ]
     if args.model_rules:
         command.extend(["--rules", args.model_rules])

@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import run_behavior_eval
 
@@ -117,6 +120,27 @@ class BehaviorEvalTest(unittest.TestCase):
         self.assertEqual(summary["pass_rate"], 50.0)
         self.assertEqual(summary["coverage_rate"], 75.0)
         self.assertEqual(summary["slice_failures"], [{"dimension": "rule", "value": "L1"}])
+
+    def test_model_gate_uses_behavior_artifact_root(self) -> None:
+        args = argparse.Namespace(
+            model="haiku",
+            model_rules=None,
+            artifact_root="/tmp/custom-runs",
+        )
+
+        with patch("run_behavior_eval.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="Result saved: /tmp/custom-runs/model/results.json\n",
+                stderr="",
+            )
+            result = run_behavior_eval.run_model_gate(args)
+
+        command = run.call_args.args[0]
+        self.assertIn("--artifact-root", command)
+        self.assertEqual(command[command.index("--artifact-root") + 1], "/tmp/custom-runs")
+        self.assertEqual(result["result_path"], "/tmp/custom-runs/model/results.json")
 
 
 if __name__ == "__main__":
