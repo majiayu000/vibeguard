@@ -180,14 +180,7 @@ fn observe_export_prometheus_project_scope_reads_project_log_dir() {
     .unwrap();
 
     let out = bin()
-        .args([
-            "observe",
-            "export",
-            "prometheus",
-            "--scope",
-            "project",
-            "--project",
-        ])
+        .args(["observe", "export", "prometheus", "--project"])
         .arg(&project_root)
         .args(["--since", "all"])
         .env("VIBEGUARD_LOG_DIR", &log_root)

@@ -84,6 +84,7 @@ impl ObserveArgs {
                 }
                 "--project" => {
                     project = Some(require_value(args, i, "--project")?);
+                    scope = LogScope::Project;
                     i += 2;
                 }
                 "--since" => {
