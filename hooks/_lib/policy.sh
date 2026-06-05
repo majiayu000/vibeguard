@@ -7,7 +7,27 @@ fi
 _VG_POLICY_SH_LOADED=1
 
 _VG_POLICY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_VG_POLICY_PY="${_VG_POLICY_LIB_DIR}/policy.py"
+
+vg_policy_runtime_path() {
+  local candidate
+  for candidate in \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${_VIBEGUARD_RUNTIME:-}" \
+    "${_VG_POLICY_LIB_DIR}/../../vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${_VG_POLICY_LIB_DIR}/../../vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${_VG_POLICY_LIB_DIR}/../vibeguard-runtime"; do
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      if VIBEGUARD_PROJECT_CONFIG="${TMPDIR:-/tmp}/vibeguard-missing-policy-probe.json" \
+          VIBEGUARD_USER_CONFIG_FILE="" \
+          "${candidate}" runtime-policy-check __vibeguard_policy_probe__ --cwd "${TMPDIR:-/tmp}" >/dev/null 2>&1; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
 
 vg_policy_user_config_file() {
   printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
@@ -15,20 +35,15 @@ vg_policy_user_config_file() {
 
 vg_policy_check_hook() {
   local hook_name="$1"
-  local output status
+  local output status runtime_path
 
   VG_POLICY_REASON=""
   VG_POLICY_KIND=""
   VG_POLICY_ENFORCEMENT="block"
   export VIBEGUARD_POLICY_ENFORCEMENT="block"
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    VG_POLICY_REASON="VibeGuard policy error: python3 is required for runtime policy checks."
-    VG_POLICY_KIND="policy_error"
-    return 20
-  fi
-  if [[ ! -f "${_VG_POLICY_PY}" ]]; then
-    VG_POLICY_REASON="VibeGuard policy error: policy helper missing at ${_VG_POLICY_PY}"
+  if ! runtime_path="$(vg_policy_runtime_path)"; then
+    VG_POLICY_REASON="VibeGuard policy error: vibeguard-runtime is required for runtime policy checks."
     VG_POLICY_KIND="policy_error"
     return 20
   fi
@@ -36,7 +51,7 @@ vg_policy_check_hook() {
   status=0
   output="$(
     VIBEGUARD_USER_CONFIG_FILE="$(vg_policy_user_config_file)" \
-      python3 "${_VG_POLICY_PY}" check "${hook_name}" 2>&1
+      "${runtime_path}" runtime-policy-check "${hook_name}" 2>&1
   )" || status=$?
 
   case "${status}" in
@@ -69,120 +84,75 @@ vg_policy_check_hook() {
 
 vg_policy_downgrade_output() {
   local output="$1"
+  local runtime_path runtime_output status
   if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" != "warn" || -z "${output}" ]]; then
     printf '%s\n' "${output}"
     return 0
   fi
 
-  VG_POLICY_HOOK_OUTPUT="${output}" python3 - <<'PY' || printf '%s\n' "${output}"
-import json
-import os
-import sys
-
-raw = os.environ.get("VG_POLICY_HOOK_OUTPUT", "")
-try:
-    data = json.loads(raw)
-except json.JSONDecodeError:
-    sys.stdout.write(raw)
-    if raw and not raw.endswith("\n"):
-        sys.stdout.write("\n")
-    raise SystemExit(0)
-
-if not isinstance(data, dict):
-    print(json.dumps(data, ensure_ascii=False))
-    raise SystemExit(0)
-
-reason = data.get("reason")
-changed = False
-if data.get("decision") in {"block", "gate", "escalate"}:
-    data["decision"] = "warn"
-    changed = True
-if isinstance(reason, str) and reason and changed:
-    data["reason"] = f"VIBEGUARD warn-mode advisory: {reason}"
-
-hook_specific = data.get("hookSpecificOutput")
-if isinstance(hook_specific, dict):
-    if hook_specific.get("permissionDecision") == "deny":
-        message = hook_specific.pop("permissionDecisionReason", None)
-        hook_specific.pop("permissionDecision", None)
-        if isinstance(message, str) and message and "systemMessage" not in data:
-            data["systemMessage"] = f"VIBEGUARD warn-mode advisory: {message}"
-    decision = hook_specific.get("decision")
-    if isinstance(decision, dict) and decision.get("behavior") == "deny":
-        message = decision.get("message")
-        hook_specific.pop("decision", None)
-        if isinstance(message, str) and message and "systemMessage" not in data:
-            data["systemMessage"] = f"VIBEGUARD warn-mode advisory: {message}"
-
-print(json.dumps(data, ensure_ascii=False))
-PY
+  if ! runtime_path="$(vg_policy_runtime_path)"; then
+    printf '%s\n' "VibeGuard policy error: vibeguard-runtime missing during warn-mode downgrade." >&2
+    printf '%s\n' "${output}"
+    return 0
+  fi
+  status=0
+  runtime_output="$(printf '%s' "${output}" | "${runtime_path}" runtime-policy-downgrade-output 2>/dev/null)" || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    printf '%s\n' "${runtime_output}"
+  else
+    printf '%s\n' "VibeGuard policy error: runtime-policy-downgrade-output failed." >&2
+    printf '%s\n' "${output}"
+  fi
 }
 
 vg_policy_diag() {
   local hook_name="$1" event_name="${2:-}" kind="$3" reason="$4"
-  local diag_file diag_dir
+  local diag_file diag_dir runtime_path
   diag_file="${VIBEGUARD_POLICY_DIAG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/policy.jsonl}"
   diag_dir="$(dirname "${diag_file}")"
   mkdir -p "${diag_dir}" 2>/dev/null || return 0
-  VIBEGUARD_POLICY_DIAG_HOOK="${hook_name}" \
-    VIBEGUARD_POLICY_DIAG_EVENT="${event_name}" \
-    VIBEGUARD_POLICY_DIAG_KIND="${kind}" \
-    VIBEGUARD_POLICY_DIAG_REASON="${reason}" \
-    VIBEGUARD_POLICY_DIAG_WRAPPER="${VIBEGUARD_WRAPPER:-unknown}" \
-    python3 - <<'PY' >>"${diag_file}" 2>/dev/null || true
-import json
-import os
-from datetime import datetime, timezone
+  runtime_path="$(vg_policy_runtime_path)" || return 0
+  printf '%s' "${reason}" \
+    | "${runtime_path}" runtime-policy-diag "${diag_file}" "${hook_name}" "${event_name}" "${kind}" "${VIBEGUARD_WRAPPER:-unknown}" \
+    >/dev/null 2>&1 || true
+}
 
-print(json.dumps({
-    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "wrapper": os.environ.get("VIBEGUARD_POLICY_DIAG_WRAPPER", ""),
-    "hook": os.environ.get("VIBEGUARD_POLICY_DIAG_HOOK", ""),
-    "event": os.environ.get("VIBEGUARD_POLICY_DIAG_EVENT", ""),
-    "kind": os.environ.get("VIBEGUARD_POLICY_DIAG_KIND", ""),
-    "reason": os.environ.get("VIBEGUARD_POLICY_DIAG_REASON", ""),
-}, ensure_ascii=False))
-PY
+vg_policy_json_escape() {
+  local text="$1"
+  text="${text//\\/\\\\}"
+  text="${text//\"/\\\"}"
+  text="${text//$'\n'/\\n}"
+  text="${text//$'\r'/\\r}"
+  text="${text//$'\t'/\\t}"
+  printf '%s' "${text}"
 }
 
 vg_policy_codex_error_output() {
   local event_name="$1" reason="$2"
-  VIBEGUARD_POLICY_EVENT="${event_name}" VIBEGUARD_POLICY_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-event = os.environ.get("VIBEGUARD_POLICY_EVENT", "")
-reason = os.environ.get("VIBEGUARD_POLICY_REASON", "")
-if event == "PreToolUse":
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }
-    }
-elif event == "PermissionRequest":
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": {"behavior": "deny", "message": reason},
-        }
-    }
-elif event == "PostToolUse":
-    payload = {
-        "decision": "block",
-        "reason": reason,
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": reason,
-        },
-    }
-elif event == "Stop":
-    payload = {"stopReason": reason}
-else:
-    payload = {"systemMessage": reason}
-print(json.dumps(payload, ensure_ascii=False))
-PY
+  local runtime_path escaped
+  if runtime_path="$(vg_policy_runtime_path)"; then
+    if printf '%s' "${reason}" | "${runtime_path}" runtime-policy-codex-error "${event_name}" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  escaped="$(vg_policy_json_escape "${reason}")"
+  case "${event_name}" in
+    PreToolUse)
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "${escaped}"
+      ;;
+    PermissionRequest)
+      printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "${escaped}"
+      ;;
+    PostToolUse)
+      printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "${escaped}" "${escaped}"
+      ;;
+    Stop)
+      printf '{"stopReason":"%s"}\n' "${escaped}"
+      ;;
+    *)
+      printf '{"systemMessage":"%s"}\n' "${escaped}"
+      ;;
+  esac
 }
 
 vg_policy_codex_gate() {

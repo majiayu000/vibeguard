@@ -208,6 +208,10 @@ fn load_project_config(path: &Path) -> Result<ProjectConfig, String> {
     })
 }
 
+pub fn validate_project_config_path(path: &Path) -> Result<(), String> {
+    crate::project_config_validation::validate_path(path)
+}
+
 fn validate_known_properties(
     path: &Path,
     object: &serde_json::Map<String, Value>,
@@ -344,7 +348,7 @@ fn validate_disabled_rules(
     Ok(())
 }
 
-fn valid_disabled_rule_id(rule: &str) -> bool {
+pub(crate) fn valid_disabled_rule_id(rule: &str) -> bool {
     let Some((prefix, suffix)) = rule.split_once('-') else {
         return false;
     };
@@ -416,6 +420,7 @@ fn app_server_canonical_hook_name(hook_name: &str) -> String {
 fn profile_allows_hook(profile: &str, hook_name: &str) -> bool {
     match hook_name {
         "analysis-paralysis-guard" => matches!(profile, "core" | "full" | "strict"),
+        "count-active-constraints" => profile == "strict",
         "post-build-check" | "stop-guard" | "learn-evaluator" => {
             matches!(profile, "full" | "strict")
         }

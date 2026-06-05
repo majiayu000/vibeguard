@@ -74,6 +74,14 @@ fn help_lists_all_commands() {
         "codex-adapt-posttool",
         "codex-adapt-permission-request",
         "codex-normalize-apply-patch",
+        "runtime-policy-check",
+        "runtime-policy-downgrade-output",
+        "runtime-policy-codex-error",
+        "runtime-policy-diag",
+        "project-config-validate",
+        "project-config-value",
+        "runtime-config-get-int",
+        "runtime-config-get-str",
         "pre-write-check",
         "pre-edit-check",
         "post-edit-fast-check",
@@ -86,6 +94,142 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+#[test]
+fn runtime_policy_check_reports_skip_and_warn_modes() {
+    let repo = unique_temp_dir("runtime-policy-check");
+    fs::create_dir_all(&repo).unwrap();
+
+    fs::write(
+        repo.join(".vibeguard.json"),
+        r#"{"disabled_hooks":["pre-bash-guard"]}"#,
+    )
+    .unwrap();
+    let disabled = bin()
+        .arg("runtime-policy-check")
+        .arg("vibeguard-pre-bash-guard.sh")
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert_eq!(disabled.status.code(), Some(10));
+    assert!(
+        String::from_utf8_lossy(&disabled.stdout)
+            .contains("disabled_hooks contains pre-bash-guard")
+    );
+
+    fs::write(repo.join(".vibeguard.json"), r#"{"enforcement":"warn"}"#).unwrap();
+    let warn = bin()
+        .arg("runtime-policy-check")
+        .arg("pre-bash-guard.sh")
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert_eq!(warn.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&warn.stdout).contains("enforcement=warn"));
+
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_check_validates_user_runtime_config() {
+    let root = unique_temp_dir("runtime-policy-user-config");
+    fs::create_dir_all(&root).unwrap();
+    let config = root.join("bad-config.json");
+    fs::write(&config, r#"{"write_mode":"#).unwrap();
+
+    let out = bin()
+        .arg("runtime-policy-check")
+        .arg("pre-bash-guard.sh")
+        .env("VIBEGUARD_USER_CONFIG_FILE", &config)
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(30));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("VibeGuard runtime config invalid JSON"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn runtime_policy_downgrade_output_rewrites_block_payloads() {
+    let out = run_runtime_with_stdin(
+        &["runtime-policy-downgrade-output"],
+        r#"{"decision":"block","reason":"danger"}"#,
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let payload: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(payload["decision"], "warn");
+    assert!(
+        payload["reason"]
+            .as_str()
+            .unwrap()
+            .contains("warn-mode advisory")
+    );
+}
+
+#[test]
+fn runtime_config_helpers_resolve_env_json_and_defaults() {
+    let root = unique_temp_dir("runtime-config-helper");
+    fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.json");
+    fs::write(&config, r#"{"u16":{"limit":1234},"write_mode":"block"}"#).unwrap();
+
+    let int_from_json = bin()
+        .args([
+            "runtime-config-get-int",
+            "VG_TEST_X",
+            "u16.limit",
+            "800",
+            config.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(int_from_json.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&int_from_json.stdout), "1234\n");
+
+    let str_from_env = bin()
+        .args([
+            "runtime-config-get-str",
+            "VG_TEST_MODE",
+            "write_mode",
+            "warn",
+            config.to_str().unwrap(),
+        ])
+        .env("VG_TEST_MODE", "warn")
+        .output()
+        .unwrap();
+    assert_eq!(str_from_env.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&str_from_env.stdout), "warn\n");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn project_config_validate_reports_field_path_errors() {
+    let root = unique_temp_dir("project-config-validate");
+    fs::create_dir_all(&root).unwrap();
+    let config = root.join("bad-vibeguard.json");
+    fs::write(
+        &config,
+        r#"{"profile":"strictest","gc":{"log_threshold_mb":0,"unexpected_gc_key":1},"write_mode":"block"}"#,
+    )
+    .unwrap();
+
+    let out = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(20));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(".profile: unsupported value"));
+    assert!(stderr.contains(".gc.log_threshold_mb: expected integer >= 1"));
+    assert!(stderr.contains(".gc.unexpected_gc_key: unknown property"));
+    assert!(stderr.contains(".write_mode: unknown property"));
+    assert!(stderr.contains("write_mode belongs in ~/.vibeguard/config.json"));
+
+    let _ = fs::remove_dir_all(root);
 }
 
 fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Output {

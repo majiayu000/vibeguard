@@ -5,6 +5,21 @@ _VG_PROJECT_CONFIG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _VG_PROJECT_CONFIG_VALIDATOR="${_VG_PROJECT_CONFIG_LIB_DIR}/project_config_validate.py"
 _VG_PROJECT_CONFIG_SCHEMA="${_VG_PROJECT_CONFIG_LIB_DIR}/../../schemas/vibeguard-project.schema.json"
 
+vg_project_config_runtime_path() {
+  local candidate
+  for candidate in \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${_VIBEGUARD_RUNTIME:-}"; do
+    if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      if "${candidate}" project-config-value "${TMPDIR:-/tmp}/vibeguard-missing-project-probe.json" missing.path __default__ >/dev/null 2>&1; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
 vg_project_config_file() {
   if [[ -n "${VIBEGUARD_PROJECT_CONFIG:-}" ]]; then
     printf '%s\n' "${VIBEGUARD_PROJECT_CONFIG}"
@@ -33,6 +48,12 @@ vg_validate_project_config() {
     return 0
   fi
 
+  local runtime_path
+  if runtime_path="$(vg_project_config_runtime_path)"; then
+    "${runtime_path}" project-config-validate "$config_file"
+    return $?
+  fi
+
   if ! command -v python3 >/dev/null 2>&1; then
     printf 'VibeGuard project config invalid: python3 is required to validate %s\n' "$config_file" >&2
     return 1
@@ -55,13 +76,24 @@ vg_config_value() {
   local config_file
   config_file="$(vg_project_config_file)"
 
-  if [[ -z "$config_file" || ! -f "$config_file" ]] || ! command -v python3 >/dev/null 2>&1; then
+  if [[ -z "$config_file" || ! -f "$config_file" ]]; then
     printf '%s\n' "$default_value"
     return 0
   fi
 
   if ! vg_validate_project_config "$config_file"; then
     return 2
+  fi
+
+  local runtime_path
+  if runtime_path="$(vg_project_config_runtime_path)"; then
+    "${runtime_path}" project-config-value "$config_file" "$key_path" "$default_value"
+    return $?
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' "$default_value"
+    return 0
   fi
 
   python3 - "$config_file" "$key_path" "$default_value" <<'PY'

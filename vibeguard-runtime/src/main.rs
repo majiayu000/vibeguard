@@ -18,6 +18,9 @@ mod json_field;
 mod log_append;
 mod log_query;
 mod pkg_rewrite;
+mod project_config_validation;
+mod runtime_config;
+mod runtime_policy_cli;
 mod session_metrics;
 mod time_utils;
 
@@ -147,6 +150,46 @@ static COMMANDS: &[Command] = &[
         name: "codex-normalize-apply-patch",
         usage: "<hook-name>  — normalize Codex apply_patch payloads for file hooks",
         handler: codex_hooks::normalize_apply_patch,
+    },
+    Command {
+        name: "runtime-policy-check",
+        usage: "<hook-name> [--cwd DIR] [--user-config PATH]  — evaluate VibeGuard project policy for a hook",
+        handler: runtime_policy_cli::check,
+    },
+    Command {
+        name: "runtime-policy-downgrade-output",
+        usage: "  — downgrade a hook JSON payload for project enforcement=warn",
+        handler: runtime_policy_cli::downgrade_output,
+    },
+    Command {
+        name: "runtime-policy-codex-error",
+        usage: "<event-name>  — emit a Codex-visible policy error payload from stdin",
+        handler: runtime_policy_cli::codex_error,
+    },
+    Command {
+        name: "runtime-policy-diag",
+        usage: "<diag-file> <hook> <event> <kind> <wrapper>  — append runtime policy telemetry",
+        handler: runtime_policy_cli::diag,
+    },
+    Command {
+        name: "project-config-validate",
+        usage: "<config-file>  — validate a project-level .vibeguard.json",
+        handler: runtime_policy_cli::project_config_validate,
+    },
+    Command {
+        name: "project-config-value",
+        usage: "<config-file> <json-path> <default>  — read a validated project config value",
+        handler: runtime_policy_cli::project_config_value,
+    },
+    Command {
+        name: "runtime-config-get-int",
+        usage: "<env-name> <json-path> <default> [config-file]  — resolve a runtime config integer",
+        handler: runtime_config::get_int,
+    },
+    Command {
+        name: "runtime-config-get-str",
+        usage: "<env-name> <json-path> <default> [config-file]  — resolve a runtime config string",
+        handler: runtime_config::get_str,
     },
     Command {
         name: "pre-write-check",
