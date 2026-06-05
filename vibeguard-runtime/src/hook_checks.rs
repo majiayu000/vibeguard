@@ -427,7 +427,19 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
     let log_file = &args[3];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("SKIP");
+        let context = "VIBEGUARD ERROR: malformed PostToolUse(Edit) hook input. The edit result could not be inspected, so this warning is reported visibly instead of silently passing.";
+        if let Err(exc) = write_log_event(
+            log_file,
+            "post-edit-guard",
+            "Edit",
+            "warn",
+            "Malformed hook input",
+            "",
+        ) {
+            eprintln!("post-edit malformed input log failed: {exc}");
+        }
+        println!("FAST_OUTPUT");
+        println!("{}", hook_context_json("PostToolUse", context));
         return Ok(());
     };
 

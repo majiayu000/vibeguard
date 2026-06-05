@@ -8,6 +8,9 @@ hook_test_init
 header "post-edit-guard.sh — quality warning"
 # =========================================================
 
+result=$(printf 'not-json' | bash hooks/post-edit-guard.sh)
+assert_contains "$result" "malformed PostToolUse(Edit)" "Malformed PostToolUse(Edit) input is visible"
+
 # Rust file added unwrap should warn
 result=$(echo '{"tool_input":{"file_path":"src/main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "RS-03" "Detect Rust unwrap"

@@ -399,6 +399,50 @@ fn run_post_write_check(input: &str, log_file: &std::path::Path) -> std::process
 }
 
 #[test]
+fn post_edit_fast_check_reports_malformed_json() {
+    let root = unique_temp_dir("post-edit-malformed");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let out = run_runtime_with_stdin(
+        &[
+            "post-edit-fast-check",
+            "400",
+            "test-session",
+            "codex",
+            log_file.to_string_lossy().as_ref(),
+        ],
+        "not-json",
+    );
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("FAST_OUTPUT"), "{stdout}");
+    assert!(stdout.contains("PostToolUse"), "{stdout}");
+    assert!(stdout.contains("malformed PostToolUse(Edit)"), "{stdout}");
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("Malformed hook input"), "{log_text}");
+    assert!(log_text.contains("\"decision\":\"warn\""), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_write_check_reports_malformed_json() {
+    let root = unique_temp_dir("post-write-malformed");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let out = run_post_write_check("not-json", &log_file);
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("PostToolUse"), "{stdout}");
+    assert!(stdout.contains("malformed PostToolUse(Write)"), "{stdout}");
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("Malformed hook input"), "{log_text}");
+    assert!(log_text.contains("\"decision\":\"warn\""), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn post_write_check_reports_duplicate_definition() {
     let root = unique_temp_dir("post-write-dup");
     fs::create_dir_all(root.join(".git")).unwrap();

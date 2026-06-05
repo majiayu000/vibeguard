@@ -8,6 +8,9 @@ hook_test_init
 header "post-write-guard.sh — duplicate detection"
 # =========================================================
 
+result=$(printf 'not-json' | bash hooks/post-write-guard.sh)
+assert_contains "$result" "malformed PostToolUse(Write)" "Malformed PostToolUse(Write) input is visible"
+
 # Non-source files (.md) should be allowed
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"

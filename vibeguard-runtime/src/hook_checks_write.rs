@@ -37,6 +37,18 @@ pub fn post_write_check(args: &[String]) -> Result {
     let log_file = &args[5];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
+        let context = "VIBEGUARD ERROR: malformed PostToolUse(Write) hook input. The write result could not be inspected, so this warning is reported visibly instead of silently passing.";
+        if let Err(exc) = write_log_event(
+            log_file,
+            "post-write-guard",
+            "Write",
+            "warn",
+            "Malformed hook input",
+            "",
+        ) {
+            eprintln!("post-write malformed input log failed: {exc}");
+        }
+        println!("{}", post_write_context_output(context)?);
         return Ok(());
     };
 
@@ -288,10 +300,14 @@ fn u16_warning(
 }
 
 fn post_write_warning_output(warnings: &str) -> Result<String> {
+    post_write_context_output(&format!("VIBEGUARD duplicate detection:{warnings}"))
+}
+
+fn post_write_context_output(context: &str) -> Result<String> {
     Ok(serde_json::to_string(&json!({
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": format!("VIBEGUARD duplicate detection:{warnings}"),
+            "additionalContext": context,
         }
     }))?)
 }
