@@ -19,6 +19,7 @@ mod json_field;
 mod log_append;
 mod log_query;
 mod log_scope;
+mod observe;
 mod pkg_rewrite;
 mod runtime_config;
 mod runtime_policy;
@@ -101,6 +102,11 @@ static COMMANDS: &[Command] = &[
         name: "hook-status",
         usage: "[--mode minimal|focused|full] [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
         handler: hook_status::run,
+    },
+    Command {
+        name: "observe",
+        usage: "<summary|health|session> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH]  — query canonical VibeGuard observability summaries",
+        handler: observe::run,
     },
     Command {
         name: "codex-event-name",
