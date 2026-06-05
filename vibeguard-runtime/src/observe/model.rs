@@ -194,7 +194,7 @@ fn parse_hours_window(value: &str) -> Result<TimeWindow> {
 }
 
 fn usage() -> &'static str {
-    "Usage: vibeguard-runtime observe <summary|health|session> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N] [--slow-ms MS] [--top N]"
+    "Usage: vibeguard-runtime observe <summary|health|session|export prometheus> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N] [--slow-ms MS] [--top N]"
 }
 
 #[cfg(test)]

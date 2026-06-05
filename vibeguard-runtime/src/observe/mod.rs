@@ -2,6 +2,7 @@
 
 mod aggregate;
 mod model;
+mod prometheus;
 mod read;
 mod render;
 
@@ -16,6 +17,10 @@ const DEFAULT_SLOW_MS: u64 = 2_000;
 const DEFAULT_TOP: usize = 10;
 
 pub fn run(args: &[String]) -> Result {
+    if args.first().is_some_and(|command| command == "export") {
+        return prometheus::run(args);
+    }
+
     let options = model::parse_observe_args(args)?;
     let mut log_events = read::read_log_events(&options)?;
     let cutoff_secs = options.window.cutoff_secs(now_unix_secs());
