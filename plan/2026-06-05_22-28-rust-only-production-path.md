@@ -299,7 +299,7 @@
         and phased execution plan.
     - Execute tests:
       - `git status --short --branch` -> pass; showed `main...origin/main`
-        and pre-existing untracked `docs/specs/observability-harness.md`.
+        and a pre-existing unrelated untracked docs spec file.
       - `bash workflows/plan-flow/scripts/redundancy_scan.sh vibeguard-runtime/src` -> pass; no duplicate exported type names found.
       - `rg -n "python3|codex-normalize-apply-patch|policy.py|settings_json.py|codex_hooks_json.py|codex_config_toml.py|vibeguard_manifest.py|claude_md.py|project_config_validate.py" hooks scripts/setup scripts/lib vibeguard-runtime/src -g '!target'` -> pass; identified production Python surfaces for this plan.
     - GitHub issue tracking:

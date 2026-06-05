@@ -6,7 +6,7 @@
 - Commit: `900fd570807407133c0e2cc02bd756f84c7cd0a8`
 - Runtime version file: `vibeguard-runtime/VERSION` = `1.1.2`
 - Installed snapshot: `~/.vibeguard/installed/version` = `a15d69a`
-- Dirty state at capture: pre-existing untracked `docs/specs/observability-harness.md`
+- Dirty state at capture: pre-existing unrelated untracked docs spec file
 - Latest release tag observed: `v1.1.2`
 - Release assets observed:
   - `SHA256SUMS`
