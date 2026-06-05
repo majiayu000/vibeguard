@@ -37,6 +37,7 @@ pub fn post_write_check(args: &[String]) -> Result {
     let log_file = &args[5];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
+        println!("MALFORMED");
         return Ok(());
     };
 

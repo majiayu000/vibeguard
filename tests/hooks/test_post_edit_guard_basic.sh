@@ -8,6 +8,20 @@ hook_test_init
 header "post-edit-guard.sh — quality warning"
 # =========================================================
 
+# Malformed PostToolUse input must be visible, not a silent SKIP
+malformed_log_dir="$(mktemp -d)"
+result=$(printf '%s' 'not-json' | VIBEGUARD_LOG_DIR="$malformed_log_dir" bash hooks/post-edit-guard.sh)
+assert_contains "$result" "hookSpecificOutput" "Malformed PostToolUse(Edit) emits hook context"
+assert_contains "$result" "malformed PostToolUse(Edit)" "Malformed PostToolUse(Edit) explains validation failure"
+malformed_log_file="$(find "$malformed_log_dir" -name events.jsonl -print -quit)"
+assert_contains "$(cat "$malformed_log_file" 2>/dev/null || true)" "Malformed hook input" "Malformed PostToolUse(Edit) writes hook log"
+rm -rf "$malformed_log_dir"
+
+# Valid non-file PostToolUse events remain silent
+result=$(echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"echo ok"}}' | bash hooks/post-edit-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Non-file PostToolUse(Edit) event is silent"
+assert_not_contains "$result" "hookSpecificOutput" "Non-file PostToolUse(Edit) event emits no hook context"
+
 # Rust file added unwrap should warn
 result=$(echo '{"tool_input":{"file_path":"src/main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "RS-03" "Detect Rust unwrap"

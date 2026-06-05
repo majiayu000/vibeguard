@@ -26,6 +26,20 @@ if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
     2>/dev/null || true)
   _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
   case "$_VG_FAST_STATUS" in
+    MALFORMED)
+      if ! vg_log "post-edit-guard" "Edit" "warn" "Malformed hook input" ""; then
+        printf 'VIBEGUARD ERROR: failed to log malformed post-edit hook input\n' >&2
+      fi
+      cat <<'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "VIBEGUARD ERROR: malformed PostToolUse(Edit) hook input. The edit result could not be validated, so VibeGuard is reporting visibly instead of treating it as a safe skip."
+  }
+}
+EOF
+      exit 0
+      ;;
     SKIP)
       exit 0
       ;;

@@ -8,6 +8,20 @@ hook_test_init
 header "post-write-guard.sh — duplicate detection"
 # =========================================================
 
+# Malformed PostToolUse input must be visible, not an empty success
+malformed_log_dir="$(mktemp -d)"
+result=$(printf '%s' 'not-json' | VIBEGUARD_LOG_DIR="$malformed_log_dir" bash hooks/post-write-guard.sh)
+assert_contains "$result" "hookSpecificOutput" "Malformed PostToolUse(Write) emits hook context"
+assert_contains "$result" "malformed PostToolUse(Write)" "Malformed PostToolUse(Write) explains validation failure"
+malformed_log_file="$(find "$malformed_log_dir" -name events.jsonl -print -quit)"
+assert_contains "$(cat "$malformed_log_file" 2>/dev/null || true)" "Malformed hook input" "Malformed PostToolUse(Write) writes hook log"
+rm -rf "$malformed_log_dir"
+
+# Valid non-file PostToolUse events remain silent
+result=$(echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"echo ok"}}' | bash hooks/post-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "Non-file PostToolUse(Write) event is silent"
+assert_not_contains "$result" "hookSpecificOutput" "Non-file PostToolUse(Write) event emits no hook context"
+
 # Non-source files (.md) should be allowed
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_readme.md","content":"# test"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Non-source files (.md) are allowed"

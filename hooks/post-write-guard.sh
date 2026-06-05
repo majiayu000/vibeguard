@@ -29,14 +29,32 @@ _vg_cleanup_runtime_err() {
 }
 trap _vg_cleanup_runtime_err EXIT
 
-if printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" post-write-check \
+if _VG_RUNTIME_OUTPUT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" post-write-check \
   "$_VG_U16_BASE_LIMIT" \
   "$_VG_U16_WARN_LIMIT" \
   "$_VG_SCAN_MAX_FILES" \
   "$_VG_SCAN_MAX_DEFS" \
   "$_VG_SCAN_MATCH_LIMIT" \
   "$VIBEGUARD_LOG_FILE" \
-  2>"$_VG_RUNTIME_ERR"; then
+  2>"$_VG_RUNTIME_ERR"); then
+  _VG_RUNTIME_STATUS="${_VG_RUNTIME_OUTPUT%%$'\n'*}"
+  if [[ "$_VG_RUNTIME_STATUS" == "MALFORMED" ]]; then
+    if ! vg_log "post-write-guard" "Write" "warn" "Malformed hook input" ""; then
+      printf 'VIBEGUARD ERROR: failed to log malformed post-write hook input\n' >&2
+    fi
+    cat <<'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "VIBEGUARD ERROR: malformed PostToolUse(Write) hook input. The write result could not be validated, so VibeGuard is reporting visibly instead of treating it as a safe skip."
+  }
+}
+EOF
+    exit 0
+  fi
+  if [[ -n "$_VG_RUNTIME_OUTPUT" ]]; then
+    printf '%s\n' "$_VG_RUNTIME_OUTPUT"
+  fi
   exit 0
 fi
 
