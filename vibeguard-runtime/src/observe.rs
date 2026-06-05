@@ -229,12 +229,21 @@ impl Aggregates {
                 .or_default() += 1;
         }
 
-        if let Some(duration_ms) = event.get(field::DURATION_MS).and_then(Value::as_f64) {
-            if duration_ms >= 0.0 {
-                *self.duration_sum.entry(hook.clone()).or_default() += duration_ms / 1000.0;
-                *self.duration_count.entry(hook).or_default() += 1;
-            }
+        if let Some(duration_ms) = duration_ms_value(event) {
+            *self.duration_sum.entry(hook.clone()).or_default() += duration_ms / 1000.0;
+            *self.duration_count.entry(hook).or_default() += 1;
         }
+    }
+}
+
+fn duration_ms_value(event: &Value) -> Option<f64> {
+    match event.get(field::DURATION_MS)? {
+        Value::Number(value) => value.as_f64().filter(|duration_ms| *duration_ms >= 0.0),
+        Value::String(value) => value
+            .parse::<u64>()
+            .ok()
+            .map(|duration_ms| duration_ms as f64),
+        _ => None,
     }
 }
 
@@ -513,6 +522,13 @@ mod tests {
         render_prometheus(io::Cursor::new(input), Some(0)).unwrap()
     }
 
+    fn render_since(input: &str, cutoff_secs: u64) -> String {
+        match render_prometheus(io::Cursor::new(input), Some(cutoff_secs)) {
+            Ok(output) => output,
+            Err(err) => panic!("failed to render prometheus metrics: {err}"),
+        }
+    }
+
     #[test]
     fn prometheus_export_uses_safe_derived_labels() {
         let input = concat!(
@@ -566,5 +582,39 @@ mod tests {
         assert!(out.contains("file_ext=\"none\""));
         assert!(!out.contains("deploy-prod"));
         assert!(!out.contains("abc123"));
+    }
+
+    #[test]
+    fn selected_period_accepts_fractional_and_offset_timestamps() {
+        let input = concat!(
+            "{\"ts\":\"1970-01-01T00:01:00.123Z\",",
+            "\"hook\":\"fractional\",\"tool\":\"Bash\",\"decision\":\"pass\"}\n",
+            "{\"ts\":\"1970-01-01T01:01:00+01:00\",",
+            "\"hook\":\"offset\",\"tool\":\"Bash\",\"decision\":\"pass\"}\n",
+            "{\"ts\":\"1970-01-01T00:00:59.999Z\",",
+            "\"hook\":\"old\",\"tool\":\"Bash\",\"decision\":\"pass\"}\n"
+        );
+        let out = render_since(input, 60);
+
+        assert!(out.contains("vibeguard_events_total 2"));
+        assert!(out.contains("hook=\"fractional\""));
+        assert!(out.contains("hook=\"offset\""));
+        assert!(!out.contains("hook=\"old\""));
+    }
+
+    #[test]
+    fn duration_summary_counts_integer_string_duration_ms() {
+        let input = concat!(
+            "{\"ts\":\"2026-05-31T00:00:00Z\",",
+            "\"hook\":\"pre-bash-guard\",\"tool\":\"Bash\",\"decision\":\"pass\",",
+            "\"duration_ms\":250}\n",
+            "{\"ts\":\"2026-05-31T00:00:01Z\",",
+            "\"hook\":\"pre-bash-guard\",\"tool\":\"Bash\",\"decision\":\"pass\",",
+            "\"duration_ms\":\"750\"}\n"
+        );
+        let out = render(input);
+
+        assert!(out.contains("vibeguard_hook_duration_seconds_sum{hook=\"pre-bash-guard\"} 1.000"));
+        assert!(out.contains("vibeguard_hook_duration_seconds_count{hook=\"pre-bash-guard\"} 2"));
     }
 }
