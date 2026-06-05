@@ -8,6 +8,7 @@
 # bash metrics-exporter.sh # Output to stdout
 # bash metrics-exporter.sh --push <gateway> # Push to Pushgateway
 # bash metrics-exporter.sh --file <path> # Write textfile
+# bash metrics-exporter.sh --project <path-or-hash> # Export one project's metrics
 
 set -euo pipefail
 
@@ -19,6 +20,7 @@ DAYS=7
 SINCE=""
 SCOPE="global"
 INPUT_FILE=""
+PROJECT=""
 
 resolve_runtime() {
   if [[ -n "${VIBEGUARD_RUNTIME:-}" ]]; then
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --since) SINCE="${2:?--since requires a value}"; shift 2 ;;
     --scope) SCOPE="${2:?--scope requires a value}"; shift 2 ;;
     --input-file) INPUT_FILE="${2:?--input-file requires a value}"; shift 2 ;;
+    --project) PROJECT="${2:?--project requires a value}"; shift 2 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -74,6 +77,10 @@ CMD=(
 
 if [[ -n "${INPUT_FILE}" ]]; then
   CMD+=(--input-file "${INPUT_FILE}")
+fi
+
+if [[ -n "${PROJECT}" ]]; then
+  CMD+=(--project "${PROJECT}")
 fi
 
 if [[ -n "${OUTPUT_FILE}" && -z "${PUSH_URL}" ]]; then

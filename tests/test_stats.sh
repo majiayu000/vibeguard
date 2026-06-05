@@ -211,6 +211,33 @@ file_msg="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-log" VIBEGUARD_RUNTIME="${RUNTIME
 assert_contains "${file_msg}" "Indicator written: ${prom_file}" "Exporter --file still writes textfile output"
 assert_contains "$(cat "${prom_file}")" "vibeguard_guard_violation_total" "Textfile output contains metrics"
 
+project_root="${TMP_DIR}/prom-project"
+project_log_dir="${TMP_DIR}/prom-project-log/projects/abcdef12"
+mkdir -p "${project_root}" "${project_log_dir}"
+printf '%s\n' "${project_root}" > "${project_log_dir}/.project-root"
+python3 - "${project_log_dir}/events.jsonl" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+event = {
+    "ts": "2026-05-31T00:00:00Z",
+    "hook": "pre-bash-guard",
+    "tool": "Bash",
+    "decision": "block",
+    "reason": "force push denied",
+    "detail": "git push --force",
+}
+with open(path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(event) + "\n")
+PY
+
+project_prom_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-project-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all --project "${project_root}" 2>&1)"
+assert_contains "${project_prom_out}" "vibeguard_events_total 1" "Exporter --project reads mapped project log"
+assert_contains "${project_prom_out}" 'vibeguard_tool_total{tool="Bash"} 1' "Exporter --project forwards project to runtime"
+assert_contains "${project_prom_out}" 'reason_code="dangerous_command"' "Project exporter output preserves derived labels"
+assert_not_contains "${project_prom_out}" "git push --force" "Project exporter output avoids raw command detail"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"
