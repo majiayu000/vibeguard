@@ -63,6 +63,14 @@ assert_contains "${behavior_out}" "Behavior gate: pass" "default behavior gate p
 assert_contains "${behavior_out}" "claude=1/1" "behavior report includes Claude platform slice"
 assert_contains "${behavior_out}" "codex=1/1" "behavior report includes Codex platform slice"
 assert_contains "${behavior_out}" "Result saved:" "behavior eval writes immutable run artifact"
+assert_cmd "behavior eval writes summary index" test -s "${TMP_DIR}/runs/index.jsonl"
+assert_contains "$(cat "${TMP_DIR}/runs/index.jsonl")" '"kind": "behavior"' "behavior index records summary kind"
+
+summary_out="$(cd "${REPO_DIR}" && python3 eval/summarize_runs.py --runs-dir "${TMP_DIR}/runs" --last 1)"
+assert_contains "${summary_out}" "deterministic" "summary reader labels behavior scores deterministic"
+assert_contains "${summary_out}" "verdict=pass" "summary reader displays behavior verdict"
+assert_contains "${summary_out}" "pass=100.0%" "summary reader displays behavior pass rate"
+assert_contains "${summary_out}" "failures=0" "summary reader displays behavior failure count"
 
 header "missing coverage is insufficient evidence"
 missing_requirements="${TMP_DIR}/requirements.json"

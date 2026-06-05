@@ -16,6 +16,12 @@ PY
 PASS=0
 FAIL=0
 TOTAL=0
+TMP_DIR="$(mktemp -d)"
+
+cleanup() {
+  rm -rf "${TMP_DIR}"
+}
+trap cleanup EXIT
 
 green() { printf '\033[32m  PASS: %s\033[0m\n' "$1"; }
 red()   { printf '\033[31m  FAIL: %s\033[0m\n' "$1"; }
@@ -53,7 +59,8 @@ assert_cmd "eval support modules syntax is correct" python3 -m py_compile \
   "${REPO_DIR}/eval/dataset.py" \
   "${REPO_DIR}/eval/scoring.py" \
   "${REPO_DIR}/eval/artifacts.py" \
-  "${REPO_DIR}/eval/samples.py"
+  "${REPO_DIR}/eval/samples.py" \
+  "${REPO_DIR}/eval/summarize_runs.py"
 assert_cmd "eval.samples package import works from repo root" bash -c "cd '${REPO_DIR}' && python3 - <<'PY'
 import eval.samples
 assert eval.samples.SAMPLES
@@ -76,6 +83,28 @@ assert_contains "${behavior_normalized_out}" "Behavior dataset source: ${REPO_DI
 assert_contains "${behavior_normalized_out}" "Behavior sample digest:" "behavior dry-run reports sample digest"
 assert_contains "${behavior_normalized_out}" "Required coverage source: ${REPO_DIR_RESOLVED}/eval/behavior/requirements.json" "behavior dry-run reports required coverage source"
 assert_contains "${behavior_normalized_out}" "Threshold source: ${REPO_DIR_RESOLVED}/eval/behavior/thresholds.json" "behavior dry-run reports threshold source"
+
+header "eval summary index"
+assert_cmd "eval run summary schema loads" python3 -c '
+import json
+import sys
+schema = json.load(open(sys.argv[1], encoding="utf-8"))
+assert schema["properties"]["kind"]["enum"] == ["behavior", "model"]
+assert "pass_rate" in schema["properties"]
+assert "detection_rate" in schema["properties"]
+' "${REPO_DIR}/schemas/eval-run-summary.schema.json"
+
+mkdir -p "${TMP_DIR}/runs"
+cat > "${TMP_DIR}/runs/index.jsonl" <<'JSONL'
+{"schema_version":1,"kind":"behavior","score_type":"deterministic","timestamp":"2026-01-01T00:00:00Z","run_id":"behavior-run","artifact_path":"/tmp/behavior/results.json","commit":"abc123","dataset_source":"/repo/eval/behavior/datasets/v1.jsonl","dataset_digest":"behaviordigest","sample_count":2,"scorer_version":"behavior-e2e-v1","verdict":"fail","failure_count":1,"pass_rate":100.0,"coverage_rate":100.0,"slice_failures":[]}
+{"schema_version":1,"kind":"model","score_type":"model_backed","timestamp":"2026-01-01T00:01:00Z","run_id":"model-run","artifact_path":"/tmp/model/results.json","commit":"abc123","dataset_source":"/repo/eval/datasets/v1.jsonl","dataset_digest":"modeldigest","sample_set_digest":"sampledigest","sample_count":40,"scorer_version":"structured-json-v1","model":"test-model","rule_digest":"ruledigest","skipped_count":0,"detection_rate":95.0,"false_positive_rate":2.5,"ece":8.0,"true_positive_total":38,"true_positive_detected":36,"false_positive_total":2,"false_positive_count":0}
+JSONL
+summary_out="$(cd "${REPO_DIR}" && python3 eval/summarize_runs.py --runs-dir "${TMP_DIR}/runs" --last 2)"
+assert_contains "${summary_out}" "behavior deterministic" "summary reader keeps deterministic behavior scores separate"
+assert_contains "${summary_out}" "verdict=fail" "summary reader shows behavior verdict"
+assert_contains "${summary_out}" "failures=1" "summary reader shows behavior failure count"
+assert_contains "${summary_out}" "model model-backed" "summary reader keeps model-backed scores separate"
+assert_contains "${summary_out}" "rules=ruledigest" "summary reader shows rule digest for model evals"
 
 header "dataset contract"
 assert_cmd "default dataset loads with schema validation" python3 -c '
