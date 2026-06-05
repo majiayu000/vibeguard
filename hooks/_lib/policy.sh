@@ -18,14 +18,18 @@ vg_policy_runtime_path() {
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
   for candidate in \
     "${VIBEGUARD_POLICY_RUNTIME:-}" \
+    "${VIBEGUARD_RUNTIME:-}" \
     "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
     "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
     "${wrapper_dir}/vibeguard-runtime" \
-    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
-    "${VIBEGUARD_RUNTIME:-}"; do
+    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
-      printf '%s\n' "${candidate}"
-      return 0
+      if VIBEGUARD_PROJECT_CONFIG="${TMPDIR:-/tmp}/vibeguard-missing-policy-probe.json" \
+        VIBEGUARD_USER_CONFIG_FILE="" \
+        "${candidate}" runtime-policy-check __vibeguard_policy_probe__ >/dev/null 2>&1; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
     fi
   done
   return 1

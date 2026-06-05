@@ -120,6 +120,22 @@ resolver_out="$(
 )"
 assert_contains "${resolver_out}" "${explicit_runtime}" "runtime policy resolver honors explicit VIBEGUARD_POLICY_RUNTIME before checkout binaries"
 
+resolver_home="${WORK_DIR}/home-resolver"
+mkdir -p "${resolver_home}/.vibeguard/installed/bin"
+stale_installed_runtime="${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+printf '#!/usr/bin/env bash\necho stale-installed-runtime >&2\nexit 2\n' > "${stale_installed_runtime}"
+chmod +x "${stale_installed_runtime}"
+resolver_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" \
+  HOME="${resolver_home}" \
+  VIBEGUARD_RUNTIME="${explicit_runtime}" \
+  bash -c '
+    source hooks/_lib/policy.sh
+    vg_policy_runtime_path
+  '
+)"
+assert_contains "${resolver_out}" "${explicit_runtime}" "runtime policy resolver honors VIBEGUARD_RUNTIME before installed binaries"
+
 header "runtime policy — disabled hooks"
 disabled_home="${WORK_DIR}/home-disabled"
 disabled_project="${WORK_DIR}/project-disabled"
