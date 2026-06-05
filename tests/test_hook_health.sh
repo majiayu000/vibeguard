@@ -28,6 +28,18 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local output="$1" forbidden="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$forbidden" <<< "$output"; then
+    red "$desc (must not contain: $forbidden)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_exit_nonzero() {
   local code="$1" desc="$2"
   TOTAL=$((TOTAL + 1))
@@ -49,6 +61,59 @@ trap cleanup EXIT
 header "No log file"
 no_log_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/missing" bash "${SCRIPT}" 2>&1 || true)"
 assert_contains "${no_log_out}" "No log data" "Prompt when logs are missing"
+
+header "Project and explicit log scope"
+SCOPE_ROOT="${TMP_DIR}/scope"
+SCOPE_PROJECT_DIR="${SCOPE_ROOT}/projects/abcdef12"
+mkdir -p "${SCOPE_PROJECT_DIR}"
+printf '%s' "${REPO_DIR}" > "${SCOPE_PROJECT_DIR}/.project-root"
+python3 - "${SCOPE_PROJECT_DIR}/events.jsonl" "${SCOPE_ROOT}/events.jsonl" "${TMP_DIR}/explicit-events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+project_path, global_path, explicit_path = sys.argv[1:4]
+now = datetime.now(timezone.utc)
+
+def event(session, detail):
+    return {
+        "ts": (now - timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        "session": session,
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": detail,
+        "detail": detail,
+    }
+
+for path, payload in [
+    (project_path, event("project-scope", "project-only")),
+    (global_path, event("global-scope", "global-only")),
+    (explicit_path, event("explicit-scope", "explicit-only")),
+]:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
+PY
+
+project_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" 24 2>&1)"
+assert_contains "${project_scope_out}" "project-only" "Default scope reads current project log"
+assert_not_contains "${project_scope_out}" "global-only" "Default project scope does not read global log"
+
+global_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" --scope global 24 2>&1)"
+assert_contains "${global_scope_out}" "global-only" "--scope global reads global log"
+assert_not_contains "${global_scope_out}" "project-only" "--scope global does not read project log"
+
+explicit_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" --scope project --log-file "${TMP_DIR}/explicit-events.jsonl" 24 2>&1)"
+assert_contains "${explicit_scope_out}" "explicit-only" "--log-file wins over scope resolution"
+assert_not_contains "${explicit_scope_out}" "project-only" "--log-file output does not include project data"
+
+MISSING_SCOPE_ROOT="${TMP_DIR}/missing-scope"
+mkdir -p "${MISSING_SCOPE_ROOT}"
+cp "${SCOPE_ROOT}/events.jsonl" "${MISSING_SCOPE_ROOT}/events.jsonl"
+missing_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${MISSING_SCOPE_ROOT}" bash "${SCRIPT}" 24 2>&1 || true)"
+assert_contains "${missing_scope_out}" "No log data" "Missing project log reports no data"
+assert_contains "${missing_scope_out}" "/projects/" "Missing project log reports the project log path"
+assert_not_contains "${missing_scope_out}" "global-only" "Missing project log does not fall back to global data"
 
 header "Health snapshot of the last 24 hours"
 mkdir -p "${TMP_DIR}/log"
@@ -117,7 +182,7 @@ with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 PY
 
-health_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" 24 2>&1)"
+health_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 24 2>&1)"
 assert_contains "${health_out}" "VibeGuard Hook Health (last 24 hours)" "Title is correct"
 assert_contains "${health_out}" "Total triggers: 4" "Filter out events within 24 hours"
 assert_contains "${health_out}" "Pass: 1" "Pass statistics are correct"
@@ -174,7 +239,7 @@ with open(path, "wb") as f:
 PY
 
 cp "${TMP_DIR}/log/events-malformed.jsonl" "${TMP_DIR}/log/events.jsonl"
-malformed_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" 24 2>&1)"
+malformed_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 24 2>&1)"
 assert_contains "${malformed_out}" "Total triggers: 3" "Recoverable malformed UTF-8 line is counted and broken JSON line is skipped"
 assert_contains "${malformed_out}" "Risk (non-pass): 2" "Malformed UTF-8 line still contributes to decision counts"
 assert_contains "${malformed_out}" "pre-bash-guard: 1" "Recovered line participates in non-pass hook aggregation"

@@ -10,6 +10,7 @@ use std::io::{self, BufRead, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 use crate::event_schema::{UNKNOWN, decision, field, status, tool};
+use crate::log_scope::{LogScope, LogScopeOptions, parse_scope, resolve_log_file};
 use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 #[path = "hook_status_render.rs"]
@@ -38,6 +39,9 @@ struct Options {
     limit: usize,
     slow_ms: u64,
     log_file: Option<PathBuf>,
+    scope: LogScope,
+    scope_explicit: bool,
+    project: Option<String>,
     diag_file: Option<PathBuf>,
     session: Option<String>,
     event: Option<String>,
@@ -51,6 +55,9 @@ impl Default for Options {
             limit: DEFAULT_LIMIT,
             slow_ms: DEFAULT_SLOW_MS,
             log_file: None,
+            scope: LogScope::Project,
+            scope_explicit: false,
+            project: None,
             diag_file: None,
             session: None,
             event: None,
@@ -148,6 +155,8 @@ pub fn run(args: &[String]) -> Result {
 
     if options.json {
         println!("{}", render_json(&entries, options.mode)?);
+    } else if entries.is_empty() {
+        println!("No hook status events found in {log_path}.");
     } else {
         print!("{}", render_human(&entries, options.mode));
     }
@@ -187,6 +196,19 @@ fn parse_args(args: &[String]) -> Result<Options> {
                 let value = args.get(index).ok_or("--log-file requires a path")?;
                 options.log_file = Some(PathBuf::from(value));
             }
+            "--scope" => {
+                index += 1;
+                let value = args.get(index).ok_or("--scope requires project|global")?;
+                options.scope = parse_scope(value)?;
+                options.scope_explicit = true;
+            }
+            "--project" => {
+                index += 1;
+                let value = args.get(index).ok_or("--project requires a path or hash")?;
+                options.project = Some(value.to_string());
+                options.scope = LogScope::Project;
+                options.scope_explicit = true;
+            }
             "--diag-file" => {
                 index += 1;
                 let value = args.get(index).ok_or("--diag-file requires a path")?;
@@ -203,7 +225,7 @@ fn parse_args(args: &[String]) -> Result<Options> {
                 options.event = Some(value.to_string());
             }
             "--help" | "-h" => {
-                return Err("Usage: vibeguard-runtime hook-status [--mode minimal|focused|full] [--json] [--limit N] [--slow-ms MS] [--log-file PATH] [--diag-file PATH] [--session ID] [--event EVENT]".into());
+                return Err("Usage: vibeguard-runtime hook-status [--mode minimal|focused|full] [--json] [--limit N] [--slow-ms MS] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--diag-file PATH] [--session ID] [--event EVENT]".into());
             }
             other => return Err(format!("unknown hook-status argument: {other}").into()),
         }
@@ -231,13 +253,20 @@ fn read_main_events(options: &Options) -> Result<(Vec<Value>, String)> {
         return Ok((stdin_events, "stdin".to_string()));
     }
 
-    if let Some(path) = default_event_log_path() {
-        if path.exists() {
-            return Ok((read_jsonl_file(&path)?, display_path(&path)));
-        }
+    let resolved = resolve_log_file(&LogScopeOptions {
+        scope: options.scope,
+        project: options.project.clone(),
+        log_file: None,
+        allow_env_log_file: !options.scope_explicit && options.project.is_none(),
+    })?;
+    if resolved.path.exists() {
+        return Ok((
+            read_jsonl_file(&resolved.path)?,
+            display_path(&resolved.path),
+        ));
     }
 
-    Ok((Vec::new(), "stdin".to_string()))
+    Ok((Vec::new(), display_path(&resolved.path)))
 }
 
 struct DiagSource {
@@ -306,15 +335,6 @@ fn read_jsonl_text(text: &str) -> Vec<Value> {
     text.lines()
         .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
         .collect()
-}
-
-fn default_event_log_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("VIBEGUARD_LOG_FILE") {
-        return Some(PathBuf::from(path));
-    }
-    env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".vibeguard/events.jsonl"))
 }
 
 fn display_path(path: &Path) -> String {

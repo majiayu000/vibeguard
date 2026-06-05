@@ -6,6 +6,7 @@ mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;
 mod event_schema;
+mod git_root;
 mod hook_checks;
 mod hook_checks_bash;
 mod hook_checks_common;
@@ -17,6 +18,7 @@ mod hook_status;
 mod json_field;
 mod log_append;
 mod log_query;
+mod log_scope;
 mod pkg_rewrite;
 mod runtime_config;
 mod runtime_policy;
@@ -97,7 +99,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "hook-status",
-        usage: "[--mode minimal|focused|full] [--json] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
+        usage: "[--mode minimal|focused|full] [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
         handler: hook_status::run,
     },
     Command {
