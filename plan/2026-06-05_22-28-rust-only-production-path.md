@@ -1,7 +1,7 @@
 # Rust-only production path execution plan
 
 - Planned version: v1
-- Applicable repository: `/Users/lifcc/Desktop/code/AI/tools/vibeguard`
+- Applicable repository: `majiayu000/vibeguard`
 - Execution mode: Change each step -> Test now -> Update plan -> Next step
 - Routing readiness: `plan_first`
 - Primary spec: `docs/specs/rust-only-production-path.md`

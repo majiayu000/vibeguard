@@ -36,7 +36,8 @@ It does not require every repository script to be rewritten in Rust.
 
 ## 2. Verified Facts
 
-Verified from the baseline `main` checkout captured on 2026-06-05:
+Baseline captured from the `main` checkout on 2026-06-05 before this plan was
+opened:
 
 - The repo is on `900fd570807407133c0e2cc02bd756f84c7cd0a8`; the latest
   release tag is `v1.1.2`.

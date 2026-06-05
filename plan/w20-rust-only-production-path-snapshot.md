@@ -1,7 +1,7 @@
 # W-20 Runtime Pinning Snapshot: Rust-only production path
 
 - Captured at: 2026-06-05 22:28:03 CST
-- Repository: `/Users/lifcc/Desktop/code/AI/tools/vibeguard`
+- Repository: `majiayu000/vibeguard`
 - Branch: `main`
 - Commit: `900fd570807407133c0e2cc02bd756f84c7cd0a8`
 - Runtime version file: `vibeguard-runtime/VERSION` = `1.1.2`
