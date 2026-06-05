@@ -2,7 +2,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::git_root::git_root_for;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -111,21 +112,6 @@ fn env_value(name: &str, env_overrides: &HashMap<String, String>) -> Option<Stri
         .filter(|value| !value.is_empty())
         .cloned()
         .or_else(|| std::env::var(name).ok().filter(|value| !value.is_empty()))
-}
-
-fn git_root_for(cwd: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .arg("rev-parse")
-        .arg("--show-toplevel")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
 struct ProjectConfig {

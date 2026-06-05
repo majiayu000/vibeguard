@@ -28,11 +28,76 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local output="$1" forbidden="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF "$forbidden" <<< "$output"; then
+    red "$desc (must not contain: $forbidden)"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
+
+header "Project and explicit log scope"
+SCOPE_ROOT="${TMP_DIR}/scope"
+SCOPE_PROJECT_DIR="${SCOPE_ROOT}/projects/abcdef12"
+mkdir -p "${SCOPE_PROJECT_DIR}"
+printf '%s' "${REPO_DIR}" > "${SCOPE_PROJECT_DIR}/.project-root"
+python3 - "${SCOPE_PROJECT_DIR}/events.jsonl" "${SCOPE_ROOT}/events.jsonl" "${TMP_DIR}/explicit-events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+project_path, global_path, explicit_path = sys.argv[1:4]
+now = datetime.now(timezone.utc)
+
+def event(session, detail):
+    return {
+        "ts": (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        "session": session,
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": detail,
+        "detail": detail,
+    }
+
+for path, payload in [
+    (project_path, event("project-scope", "project-only")),
+    (global_path, event("global-scope", "global-only")),
+    (explicit_path, event("explicit-scope", "explicit-only")),
+]:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
+PY
+
+project_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" 7 2>&1)"
+assert_contains "${project_scope_out}" "project-only" "Default scope reads current project log"
+assert_not_contains "${project_scope_out}" "global-only" "Default project scope does not read global log"
+
+global_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" --scope global 7 2>&1)"
+assert_contains "${global_scope_out}" "global-only" "--scope global reads global log"
+assert_not_contains "${global_scope_out}" "project-only" "--scope global does not read project log"
+
+explicit_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${SCOPE_ROOT}" bash "${SCRIPT}" --scope project --log-file "${TMP_DIR}/explicit-events.jsonl" 7 2>&1)"
+assert_contains "${explicit_scope_out}" "explicit-only" "--log-file wins over scope resolution"
+assert_not_contains "${explicit_scope_out}" "project-only" "--log-file output does not include project data"
+
+MISSING_SCOPE_ROOT="${TMP_DIR}/missing-scope"
+mkdir -p "${MISSING_SCOPE_ROOT}"
+cp "${SCOPE_ROOT}/events.jsonl" "${MISSING_SCOPE_ROOT}/events.jsonl"
+missing_scope_out="$(cd "${REPO_DIR}" && VIBEGUARD_LOG_DIR="${MISSING_SCOPE_ROOT}" bash "${SCRIPT}" 7 2>&1 || true)"
+assert_contains "${missing_scope_out}" "No log data" "Missing project log reports no data"
+assert_contains "${missing_scope_out}" "/projects/" "Missing project log reports the project log path"
+assert_not_contains "${missing_scope_out}" "global-only" "Missing project log does not fall back to global data"
 
 header "Malformed UTF-8 and broken JSON lines are tolerated"
 mkdir -p "${TMP_DIR}/log"
@@ -78,7 +143,7 @@ with open(path, "wb") as f:
     f.write(b'{"ts":"broken-json"\n')
 PY
 
-stats_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" 7 2>&1)"
+stats_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 7 2>&1)"
 assert_contains "${stats_out}" "VibeGuard Statistics (last 7 days)" "Title is correct"
 assert_contains "${stats_out}" "Total triggers: 3 times" "Recoverable malformed UTF-8 line is included"
 assert_contains "${stats_out}" "Interception (block): 1 times" "Block count includes recovered malformed line"
