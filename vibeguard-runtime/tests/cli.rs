@@ -64,6 +64,7 @@ fn help_lists_all_commands() {
         "pkg-rewrite",
         "pre-bash-check",
         "session-metrics",
+        "observe",
         "codex-event-name",
         "codex-status-detail",
         "codex-status-matcher",
@@ -86,6 +87,121 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+#[test]
+fn observe_export_prometheus_omits_raw_sensitive_labels() {
+    let root = unique_temp_dir("observe-prometheus");
+    fs::create_dir_all(&root).unwrap();
+    let input = root.join("events.jsonl");
+    let output_file = root.join("metrics.prom");
+    fs::write(
+        &input,
+        concat!(
+            "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
+            "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+            "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
+            "\"detail\":\"Edit /Users/alice/project/src/private_token.rs\",",
+            "\"duration_ms\":250}\n"
+        ),
+    )
+    .unwrap();
+
+    let out = bin()
+        .args([
+            "observe",
+            "export",
+            "prometheus",
+            "--since",
+            "all",
+            "--input-file",
+        ])
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("vibeguard_event_total"), "{stdout}");
+    assert!(stdout.contains("rule_id=\"U-16\""), "{stdout}");
+    assert!(
+        stdout.contains("reason_code=\"rule_violation\""),
+        "{stdout}"
+    );
+    assert!(stdout.contains("file_ext=\"rs\""), "{stdout}");
+    for raw in [
+        "secret-session",
+        "customer@example.com",
+        "cargo test -- --ignored",
+        "/Users/alice",
+        "private_token",
+    ] {
+        assert!(!stdout.contains(raw), "raw value leaked: {raw}\n{stdout}");
+    }
+
+    let file_out = bin()
+        .args([
+            "observe",
+            "export",
+            "prometheus",
+            "--since",
+            "all",
+            "--input-file",
+        ])
+        .arg(&input)
+        .args(["--file"])
+        .arg(&output_file)
+        .output()
+        .unwrap();
+    assert_eq!(file_out.status.code(), Some(0));
+    assert!(file_out.stdout.is_empty());
+    let file_metrics = fs::read_to_string(&output_file).unwrap();
+    assert!(file_metrics.contains("vibeguard_guard_violation_total"));
+    assert!(!file_metrics.contains("customer@example.com"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn observe_export_prometheus_project_scope_reads_project_log_dir() {
+    let root = unique_temp_dir("observe-project-scope");
+    let project_root = root.join("repo");
+    let log_root = root.join("logs");
+    let project_log_dir = log_root.join("projects").join("abcdef12");
+    fs::create_dir_all(&project_root).unwrap();
+    fs::create_dir_all(&project_log_dir).unwrap();
+    fs::write(
+        project_log_dir.join(".project-root"),
+        project_root.to_string_lossy().as_ref(),
+    )
+    .unwrap();
+    fs::write(
+        project_log_dir.join("events.jsonl"),
+        "{\"hook\":\"pre-bash-guard\",\"tool\":\"Bash\",\"decision\":\"block\",\"reason\":\"force push denied\",\"detail\":\"git push --force\"}\n",
+    )
+    .unwrap();
+
+    let out = bin()
+        .args([
+            "observe",
+            "export",
+            "prometheus",
+            "--scope",
+            "project",
+            "--project",
+        ])
+        .arg(&project_root)
+        .args(["--since", "all"])
+        .env("VIBEGUARD_LOG_DIR", &log_root)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("vibeguard_events_total 1"), "{stdout}");
+    assert!(
+        stdout.contains("reason_code=\"dangerous_command\""),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("git push --force"), "{stdout}");
+    let _ = fs::remove_dir_all(root);
 }
 
 fn run_runtime_with_stdin(args: &[&str], input: &str) -> std::process::Output {
