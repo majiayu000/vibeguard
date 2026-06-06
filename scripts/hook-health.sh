@@ -68,7 +68,7 @@ if ! [[ "${HOURS}" =~ ^[0-9]+$ ]] || [[ "${HOURS}" -le 0 ]]; then
 fi
 
 RUNTIME="$(vg_resolve_runtime "${REPO_DIR}")"
-CMD=("${RUNTIME}" observe health --legacy --hours "${HOURS}")
+CMD=("${RUNTIME}" observe health --legacy --limit all --hours "${HOURS}")
 
 if [[ "${SCOPE_EXPLICIT}" -eq 1 ]]; then
   CMD+=(--scope "${SCOPE}")

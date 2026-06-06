@@ -170,6 +170,44 @@ assert_contains "${stats_out}" "Warning: 1 times" "Warn count is correct"
 assert_contains "${stats_out}" "pre-bash-guard: 2 times" "Hook aggregation remains correct"
 assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggregation remains correct"
 
+header "Legacy wrapper reads beyond observe default limit"
+mkdir -p "${TMP_DIR}/large-log"
+python3 - "${TMP_DIR}/large-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+now = datetime.now(timezone.utc) - timedelta(hours=1)
+
+with open(path, "w", encoding="utf-8") as f:
+    first = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "session": "first",
+        "hook": "first-hook",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "first event",
+        "detail": "first event",
+    }
+    f.write(json.dumps(first) + "\n")
+    for index in range(5000):
+        event = {
+            "ts": (now + timedelta(seconds=index + 1)).isoformat().replace("+00:00", "Z"),
+            "session": f"bulk-{index}",
+            "hook": "bulk-hook",
+            "tool": "Bash",
+            "decision": "pass",
+            "reason": "",
+            "detail": "bulk event",
+        }
+        f.write(json.dumps(event) + "\n")
+PY
+
+large_stats_out="$(bash "${SCRIPT}" --log-file "${TMP_DIR}/large-log/events.jsonl" 7 2>&1)"
+assert_contains "${large_stats_out}" "Total triggers: 5001 times" "Stats wrapper preserves events beyond observe default limit"
+assert_contains "${large_stats_out}" "first-hook: 1 times" "Stats wrapper includes earliest event beyond default limit"
+
 header "Prometheus exporter uses low-cardinality labels"
 EXPORTER="${REPO_DIR}/scripts/metrics/metrics-exporter.sh"
 

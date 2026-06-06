@@ -261,6 +261,44 @@ assert_contains "${malformed_out}" "Total triggers: 3" "Recoverable malformed UT
 assert_contains "${malformed_out}" "Risk (non-pass): 2" "Malformed UTF-8 line still contributes to decision counts"
 assert_contains "${malformed_out}" "pre-bash-guard: 1" "Recovered line participates in non-pass hook aggregation"
 
+header "Legacy wrapper reads beyond observe default limit"
+mkdir -p "${TMP_DIR}/large-health-log"
+python3 - "${TMP_DIR}/large-health-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+now = datetime.now(timezone.utc) - timedelta(hours=1)
+
+with open(path, "w", encoding="utf-8") as f:
+    first = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "session": "first",
+        "hook": "first-health-hook",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "first event",
+        "detail": "first event",
+    }
+    f.write(json.dumps(first) + "\n")
+    for index in range(5000):
+        event = {
+            "ts": (now + timedelta(seconds=index + 1)).isoformat().replace("+00:00", "Z"),
+            "session": f"bulk-{index}",
+            "hook": "bulk-health-hook",
+            "tool": "Bash",
+            "decision": "pass",
+            "reason": "",
+            "detail": "bulk event",
+        }
+        f.write(json.dumps(event) + "\n")
+PY
+
+large_health_out="$(bash "${SCRIPT}" --log-file "${TMP_DIR}/large-health-log/events.jsonl" 24 2>&1)"
+assert_contains "${large_health_out}" "Total triggers: 5001" "Health wrapper preserves events beyond observe default limit"
+assert_contains "${large_health_out}" "first-health-hook: 1" "Health wrapper includes earliest risk event beyond default limit"
+
 header "illegal parameter"
 set +e
 bad_arg_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" abc 2>&1)"
