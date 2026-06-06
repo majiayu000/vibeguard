@@ -40,7 +40,7 @@ if [[ -z "${SINCE}" ]]; then
   SINCE="${DAYS}d"
 fi
 
-RUNTIME="$(vg_resolve_runtime "${REPO_DIR}")"
+RUNTIME="$(vg_resolve_runtime "${REPO_DIR}" observe_export_prometheus)"
 CMD=(
   "${RUNTIME}"
   observe

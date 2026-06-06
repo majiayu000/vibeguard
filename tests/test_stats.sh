@@ -53,6 +53,19 @@ assert_cmd() {
   fi
 }
 
+assert_cmd_fails() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -64,6 +77,64 @@ RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 header "build"
 assert_cmd "vibeguard-runtime builds for observe wrappers" \
   cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+
+header "Runtime support probe"
+source "${REPO_DIR}/scripts/lib/runtime.sh"
+old_observe_runtime="${TMP_DIR}/old-observe-runtime"
+cat > "${old_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$1" == "observe" ]]; then
+  printf 'unknown argument: --legacy\n' >&2
+  exit 2
+fi
+exit 2
+SH
+chmod +x "${old_observe_runtime}"
+
+legacy_observe_runtime="${TMP_DIR}/legacy-observe-runtime"
+cat > "${legacy_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$*" == "observe summary --legacy --days all --limit all --log-file /dev/null" ]]; then
+  exit 0
+fi
+exit 2
+SH
+chmod +x "${legacy_observe_runtime}"
+
+export_observe_runtime="${TMP_DIR}/export-observe-runtime"
+cat > "${export_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$*" == "observe export prometheus --since all --input-file /dev/null" ]]; then
+  exit 0
+fi
+if [[ "$1" == "observe" ]]; then
+  printf 'unknown argument: --legacy\n' >&2
+  exit 2
+fi
+exit 2
+SH
+chmod +x "${export_observe_runtime}"
+
+assert_cmd_fails "Probe rejects runtimes without legacy observe options" \
+  vg_runtime_supports_observe "${old_observe_runtime}"
+assert_cmd "Probe accepts runtimes with legacy observe options" \
+  vg_runtime_supports_observe "${legacy_observe_runtime}"
+assert_cmd_fails "Legacy probe rejects export-only runtimes" \
+  vg_runtime_supports_observe "${export_observe_runtime}"
+assert_cmd "Export probe accepts export-only runtimes" \
+  vg_runtime_supports_observe_export_prometheus "${export_observe_runtime}"
 
 header "Project and explicit log scope"
 SCOPE_ROOT="${TMP_DIR}/scope"
