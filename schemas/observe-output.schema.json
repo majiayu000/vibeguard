@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/schemas/observe-output.schema.json",
+  "title": "VibeGuard Observe Output",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "source",
+    "time_range",
+    "event_count",
+    "decision_counts",
+    "hook_counts",
+    "client_distribution",
+    "attention",
+    "top_rule_ids",
+    "top_reason_codes",
+    "duration_stats"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "command": { "enum": ["summary", "health", "session"] },
+    "source": {
+      "type": "object",
+      "required": ["log_path", "scope", "period", "limit"],
+      "additionalProperties": false,
+      "properties": {
+        "log_path": { "type": "string" },
+        "scope": { "enum": ["project", "global"] },
+        "period": { "type": "string" },
+        "limit": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "time_range": {
+      "type": "object",
+      "required": ["first_ts", "last_ts"],
+      "additionalProperties": false,
+      "properties": {
+        "first_ts": { "type": "string" },
+        "last_ts": { "type": "string" }
+      }
+    },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "decision_counts": { "$ref": "#/$defs/count_map" },
+    "hook_counts": { "$ref": "#/$defs/count_map" },
+    "client_distribution": { "$ref": "#/$defs/count_map" },
+    "attention": {
+      "type": "object",
+      "required": ["count", "rate", "percent"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "rate": { "type": "number", "minimum": 0 },
+        "percent": { "type": "number", "minimum": 0 }
+      }
+    },
+    "top_rule_ids": { "$ref": "#/$defs/top_counts" },
+    "top_reason_codes": { "$ref": "#/$defs/top_counts" },
+    "duration_stats": {
+      "type": "object",
+      "required": ["count", "avg_ms", "min_ms", "p95_ms", "max_ms", "slow_count", "slow_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "avg_ms": { "type": "integer", "minimum": 0 },
+        "min_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "p95_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "max_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "slow_count": { "type": "integer", "minimum": 0 },
+        "slow_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "attention_states": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "session": { "type": "string" },
+    "recent_events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "$defs": {
+    "count_map": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "top_counts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["value", "count"],
+        "additionalProperties": false,
+        "properties": {
+          "value": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "ts",
+        "session",
+        "hook",
+        "event",
+        "tool",
+        "decision",
+        "status",
+        "reason",
+        "detail",
+        "duration_ms",
+        "client",
+        "diagnostic",
+        "model_context"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ts": { "type": "string" },
+        "session": { "type": "string" },
+        "hook": { "type": "string" },
+        "event": { "type": "string" },
+        "tool": { "type": "string" },
+        "decision": { "type": "string" },
+        "status": {
+          "enum": [
+            "pass",
+            "skipped",
+            "warn",
+            "block",
+            "gate",
+            "escalate",
+            "correction",
+            "complete",
+            "slow",
+            "timeout",
+            "running",
+            "adapter_error",
+            "hook_error",
+            "unknown"
+          ]
+        },
+        "reason": { "type": "string" },
+        "detail": { "type": "string" },
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "client": { "type": "string" },
+        "diagnostic": { "enum": ["none", "slow", "timeout", "hook_error", "adapter_error"] },
+        "model_context": { "type": "boolean" }
+      }
+    }
+  }
+}
