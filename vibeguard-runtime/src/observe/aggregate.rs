@@ -79,7 +79,7 @@ pub(super) fn observe_event_json(event: &Value, slow_ms: u64) -> Value {
         field::STATUS: observe_normalized_status(event, slow_ms),
         field::REASON: observe_string_field(event, field::REASON),
         field::DETAIL: observe_string_field(event, field::DETAIL),
-        field::DURATION_MS: observe_numeric_field(event, field::DURATION_MS),
+        field::DURATION_MS: observe_effective_duration_ms(event),
         "client": observe_client_name(event),
         "diagnostic": observe_diagnostic_kind(event, slow_ms),
         field::MODEL_CONTEXT: observe_is_attention_state(event, slow_ms),
@@ -325,6 +325,7 @@ mod tests {
 
         assert_eq!(aggregate.durations_ms, vec![2500]);
         assert_eq!(aggregate.attention_count, 1);
+        assert_eq!(rendered[field::DURATION_MS], 2500);
         assert_eq!(rendered[field::STATUS], status::SLOW);
         assert_eq!(rendered["diagnostic"], "slow");
         assert_eq!(rendered[field::MODEL_CONTEXT], false);
