@@ -86,7 +86,7 @@ broken_runtime_wrapper_out="$(
   printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"rm -rf /"}}' \
     | HOME="${TMP_HOME_BROKEN_RUNTIME}" VIBEGUARD_RUNTIME="${BROKEN_RUNTIME}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
 )"
-assert_contains "${broken_runtime_wrapper_out}" '"permissionDecision": "deny"' "run-hook-codex still denies when adapter runtime exits nonzero"
+assert_contains "${broken_runtime_wrapper_out}" '"permissionDecision":"deny"' "run-hook-codex still denies when adapter runtime exits nonzero"
 assert_contains "${broken_runtime_wrapper_out}" 'wrapped hook output could not be adapted' "run-hook-codex explains broken adapter runtime fallback"
 
 TMP_HOME_NO_PYTHON_PATCH="${TMP_DIR}/home-no-python-patch"

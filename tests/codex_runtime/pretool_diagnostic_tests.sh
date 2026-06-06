@@ -77,8 +77,8 @@ else
   red "run-hook-codex keeps empty pass responses silent"
   FAIL=$((FAIL + 1))
 fi
-assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "running"' "run-hook-codex writes running status for pass hooks"
-assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status": "pass"' "run-hook-codex writes pass status without stdout noise"
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status":"running"' "run-hook-codex writes running status for pass hooks"
+assert_contains "$(cat "${PASSING_DIAG_FILE}")" '"status":"pass"' "run-hook-codex writes pass status without stdout noise"
 
 header "run-hook-codex denies wrapped hook failures instead of passing silently"
 TMP_HOME_FAILING="${TMP_DIR}/home-failing"

@@ -62,7 +62,7 @@ NODE
 assert_contains "${large_payload_probe}" '"code":0' "large Codex payload exits cleanly"
 assert_contains "${large_payload_probe}" '"stdinError":""' "large Codex payload is accepted over stdin"
 assert_not_contains "${large_payload_probe}" "Argument list too long" "large Codex payload avoids execve env overflow"
-assert_contains "$(cat "${LARGE_PAYLOAD_DIAG}")" '"status": "pass"' "large Codex payload records pass status"
+assert_contains "$(cat "${LARGE_PAYLOAD_DIAG}")" '"status":"pass"' "large Codex payload records pass status"
 
 header "run-hook-codex handles large hook output without env overflow"
 TMP_HOME_LARGE_OUTPUT="${TMP_DIR}/home-large-output"
@@ -129,7 +129,7 @@ assert_contains "${large_output_probe}" '"code":0' "large Codex hook output exit
 assert_contains "${large_output_probe}" '"stdoutHasBlock":true' "large Codex hook output is adapted"
 assert_contains "${large_output_probe}" '"stdoutHasSentinel":true' "large Codex hook output preserves the reason"
 assert_not_contains "${large_output_probe}" "Argument list too long" "large Codex hook output avoids execve env overflow"
-assert_contains "$(cat "${LARGE_OUTPUT_DIAG}")" '"status": "block"' "large Codex hook output records block status"
+assert_contains "$(cat "${LARGE_OUTPUT_DIAG}")" '"status":"block"' "large Codex hook output records block status"
 
 header "run-hook-codex adapts posttool block output"
 TMP_HOME_POSTTOOL="${TMP_DIR}/home-posttool"
@@ -152,5 +152,5 @@ posttool_out="$(
 assert_contains "${posttool_out}" '"decision": "block"' "run-hook-codex preserves posttool block decisions"
 assert_contains "${posttool_out}" '"additionalContext": "build failed"' "run-hook-codex maps posttool reason to additionalContext"
 assert_codex_posttool_output_contract "${posttool_out}" "posttool block matches Codex PostToolUse output contract"
-assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status": "running"' "run-hook-codex writes running status before posttool output"
-assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status": "block"' "run-hook-codex writes final status for posttool output"
+assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status":"running"' "run-hook-codex writes running status before posttool output"
+assert_contains "$(cat "${POSTTOOL_DIAG_FILE}")" '"status":"block"' "run-hook-codex writes final status for posttool output"
