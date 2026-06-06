@@ -69,6 +69,12 @@ codex_pretool_deny() { :; }
 codex_adapt_pretool() { :; }
 codex_adapt_posttool() { :; }
 EOF
+cat > "${good_codex_wrapper}/hooks/_lib/codex_runner.sh" <<'EOF'
+codex_run_hook() { :; }
+EOF
+cat > "${good_codex_wrapper}/hooks/_lib/codex_diag.sh" <<'EOF'
+codex_diag() { :; }
+EOF
 assert_cmd "thin Codex wrapper passes" bash "${SELF_DIR}/check-codex-wrapper-thin.sh" "${good_codex_wrapper}"
 
 bad_codex_wrapper="${TMP_DIR}/bad-codex-wrapper"
@@ -91,6 +97,12 @@ codex_event_name() { :; }
 codex_pretool_deny() { :; }
 codex_adapt_pretool() { :; }
 codex_adapt_posttool() { :; }
+EOF
+cat > "${bad_codex_wrapper}/hooks/_lib/codex_runner.sh" <<'EOF'
+codex_run_hook() { :; }
+EOF
+cat > "${bad_codex_wrapper}/hooks/_lib/codex_diag.sh" <<'EOF'
+codex_diag() { :; }
 EOF
 assert_fails "inline Python in run-hook-codex fails thinness check" bash "${SELF_DIR}/check-codex-wrapper-thin.sh" "${bad_codex_wrapper}"
 
