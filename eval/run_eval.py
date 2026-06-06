@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from artifacts import DEFAULT_RUNS_DIR, build_run_dir, current_commit, write_run_artifacts
+from artifacts import DEFAULT_RUNS_DIR, append_run_summary, build_run_dir, current_commit, write_run_artifacts
 from dataset import (
     DEFAULT_DATASET_PATH,
     DatasetError,
@@ -304,6 +304,7 @@ def run_eval(args):
         samples=samples,
         results=results,
     )
+    append_run_summary(args.artifact_root, build_model_summary(metadata, results, output_path))
     print(f"\nResult saved: {output_path}")
 
     max_api_failures = read_max_api_failures()
@@ -318,6 +319,48 @@ def run_eval(args):
 
 def count_skipped(results: list[dict]) -> int:
     return sum(1 for r in results if r.get("skipped"))
+
+
+def model_summary_metrics(results: list[dict]) -> dict:
+    valid_results = [result for result in results if not result.get("skipped")]
+    tp_results = [result for result in valid_results if "detected" in result]
+    fp_results = [result for result in valid_results if "detected_fp" in result]
+    detected_count = sum(1 for result in tp_results if result["detected"])
+    false_positive_count = sum(1 for result in fp_results if result["detected_fp"])
+    ece = compute_ece(calibration_points(results))
+    return {
+        "detection_rate": round(detected_count / len(tp_results) * 100, 1) if tp_results else None,
+        "false_positive_rate": (
+            round(false_positive_count / len(fp_results) * 100, 1) if fp_results else None
+        ),
+        "skipped_count": count_skipped(results),
+        "ece": round(ece * 100, 1) if ece is not None else None,
+        "true_positive_total": len(tp_results),
+        "true_positive_detected": detected_count,
+        "false_positive_total": len(fp_results),
+        "false_positive_count": false_positive_count,
+    }
+
+
+def build_model_summary(metadata: dict, results: list[dict], artifact_path: Path | str) -> dict:
+    result_path = Path(artifact_path)
+    return {
+        "schema_version": 1,
+        "kind": "model",
+        "score_type": "model_backed",
+        "timestamp": metadata.get("timestamp", ""),
+        "run_id": result_path.parent.name,
+        "artifact_path": str(result_path),
+        "commit": metadata.get("commit", "unknown"),
+        "dataset_source": metadata.get("dataset_source", ""),
+        "dataset_digest": metadata.get("dataset_digest", ""),
+        "sample_set_digest": metadata.get("sample_set_digest", ""),
+        "sample_count": metadata.get("sample_count", 0),
+        "scorer_version": metadata.get("scorer_version", ""),
+        "model": metadata.get("model", ""),
+        "rule_digest": metadata.get("rule_digest", ""),
+        **model_summary_metrics(results),
+    }
 
 
 def read_max_api_failures() -> int:

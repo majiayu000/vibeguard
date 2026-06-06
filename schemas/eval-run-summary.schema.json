@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/eval-run-summary.schema.json",
+  "title": "Eval run summary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "score_type",
+    "timestamp",
+    "run_id",
+    "artifact_path",
+    "commit",
+    "dataset_source",
+    "dataset_digest",
+    "sample_count",
+    "scorer_version"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "enum": ["behavior", "model"] },
+    "score_type": { "enum": ["deterministic", "model_backed"] },
+    "timestamp": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "artifact_path": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "minLength": 1 },
+    "dataset_source": { "type": "string", "minLength": 1 },
+    "dataset_digest": { "type": "string", "minLength": 1 },
+    "sample_set_digest": { "type": "string" },
+    "sample_count": { "type": "integer", "minimum": 0 },
+    "scorer_version": { "type": "string" },
+    "verdict": { "type": "string" },
+    "failure_count": { "type": "integer", "minimum": 0 },
+    "pass_rate": { "type": "number", "minimum": 0, "maximum": 100 },
+    "coverage_rate": { "type": "number", "minimum": 0, "maximum": 100 },
+    "slice_failures": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "model": { "type": "string", "minLength": 1 },
+    "rule_digest": { "type": "string", "minLength": 1 },
+    "skipped_count": { "type": "integer", "minimum": 0 },
+    "detection_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "false_positive_rate": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "ece": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "true_positive_total": { "type": "integer", "minimum": 0 },
+    "true_positive_detected": { "type": "integer", "minimum": 0 },
+    "false_positive_total": { "type": "integer", "minimum": 0 },
+    "false_positive_count": { "type": "integer", "minimum": 0 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "kind": { "const": "behavior" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["pass_rate", "coverage_rate", "slice_failures"],
+        "properties": {
+          "score_type": { "const": "deterministic" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "kind": { "const": "model" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": [
+          "model",
+          "rule_digest",
+          "skipped_count",
+          "detection_rate",
+          "false_positive_rate",
+          "ece"
+        ],
+        "properties": {
+          "score_type": { "const": "model_backed" }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -9,6 +9,15 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_RUNS_DIR = Path(__file__).resolve().parent / "runs"
+DEFAULT_INDEX_NAME = "index.jsonl"
+
+
+class RunSummaryError(ValueError):
+    """Raised when an eval run summary index is malformed."""
+
+
+def utc_timestamp() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def current_commit(short: bool = True) -> str:
@@ -82,6 +91,40 @@ def write_run_artifacts(
         encoding="utf-8",
     )
     return results_path
+
+
+def append_run_summary(
+    artifact_root: Path | str = DEFAULT_RUNS_DIR,
+    summary: dict[str, Any] | None = None,
+) -> Path:
+    if summary is None:
+        raise RunSummaryError("summary record is required")
+    index_path = Path(artifact_root).resolve() / DEFAULT_INDEX_NAME
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with index_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(summary, ensure_ascii=False, sort_keys=True) + "\n")
+    return index_path
+
+
+def load_run_summaries(index_path: Path | str) -> list[dict[str, Any]]:
+    path = Path(index_path)
+    if not path.exists():
+        return []
+
+    records: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RunSummaryError(f"{path}:{line_number}: invalid JSON: {exc.msg}") from exc
+            if not isinstance(record, dict):
+                raise RunSummaryError(f"{path}:{line_number}: summary record must be a JSON object")
+            records.append(record)
+    return records
 
 
 def _clean_sample(sample: dict[str, Any]) -> dict[str, Any]:

@@ -19,6 +19,7 @@ mod json_field;
 mod log_append;
 mod log_query;
 mod log_scope;
+mod observe;
 mod pkg_rewrite;
 mod runtime_config;
 mod runtime_policy;
@@ -96,6 +97,11 @@ static COMMANDS: &[Command] = &[
         name: "session-metrics",
         usage: "<session> <dir>  — emit session metrics and correction signals",
         handler: session_metrics::run,
+    },
+    Command {
+        name: "observe",
+        usage: "export prometheus [--scope project|global] [--project PATH_OR_HASH] [--since 7d|24h|3600s|all] [--file OUTPUT]  — export low-cardinality observability metrics",
+        handler: observe::run,
     },
     Command {
         name: "hook-status",

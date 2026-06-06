@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import artifacts  # noqa: E402
 import run_eval  # noqa: E402
 
 
@@ -314,6 +315,81 @@ class EvalErrorAccountingTest(unittest.TestCase):
         self.assertIn("Overall ECE:", report)
         self.assertIn("critical", report)
         self.assertIn("clean", report)
+
+    def test_model_summary_metrics_exclude_skipped_samples(self) -> None:
+        results = [
+            {"rule": "SEC-01", "severity": "critical", "detected": True, "confidence": "high"},
+            {"rule": "SEC-02", "severity": "high", "detected": False, "confidence": "medium"},
+            {"rule": "FP-CHECK", "detected_fp": False, "confidence": "low"},
+            {"rule": "FP-CHECK", "detected_fp": True, "confidence": "medium"},
+            {"rule": "SEC-03", "severity": "critical", "skipped": True, "confidence": "high"},
+        ]
+
+        metrics = run_eval.model_summary_metrics(results)
+
+        self.assertEqual(metrics["detection_rate"], 50.0)
+        self.assertEqual(metrics["false_positive_rate"], 50.0)
+        self.assertEqual(metrics["skipped_count"], 1)
+        self.assertEqual(metrics["true_positive_total"], 2)
+        self.assertEqual(metrics["false_positive_total"], 2)
+        self.assertIsNotNone(metrics["ece"])
+
+    def test_model_summary_contains_required_observability_fields(self) -> None:
+        metadata = {
+            "timestamp": "2026-01-01T00:00:00Z",
+            "commit": "abc123",
+            "dataset_source": "/repo/eval/datasets/v1.jsonl",
+            "dataset_digest": "dataset123",
+            "sample_set_digest": "samples123",
+            "sample_count": 2,
+            "scorer_version": "structured-json-v1",
+            "model": "test-model",
+            "rule_digest": "rules123",
+        }
+        results = [
+            {"rule": "SEC-01", "severity": "critical", "detected": True, "confidence": "high"},
+            {"rule": "FP-CHECK", "detected_fp": False, "confidence": "low"},
+        ]
+
+        summary = run_eval.build_model_summary(
+            metadata,
+            results,
+            Path("/tmp/eval/runs/20260101T000000Z-abc123/results.json"),
+        )
+
+        self.assertEqual(summary["kind"], "model")
+        self.assertEqual(summary["score_type"], "model_backed")
+        self.assertEqual(summary["model"], "test-model")
+        self.assertEqual(summary["rule_digest"], "rules123")
+        self.assertEqual(summary["dataset_digest"], "dataset123")
+        self.assertEqual(summary["detection_rate"], 100.0)
+        self.assertEqual(summary["false_positive_rate"], 0.0)
+        self.assertEqual(summary["skipped_count"], 0)
+
+    def test_run_summary_index_round_trips_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = {
+                "schema_version": 1,
+                "kind": "behavior",
+                "score_type": "deterministic",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "run_id": "run",
+                "artifact_path": "/tmp/run/results.json",
+                "commit": "abc123",
+                "dataset_source": "/repo/eval/behavior/datasets/v1.jsonl",
+                "dataset_digest": "digest123",
+                "sample_count": 2,
+                "scorer_version": "behavior-e2e-v1",
+                "pass_rate": 100.0,
+                "coverage_rate": 100.0,
+                "slice_failures": [],
+            }
+
+            index_path = artifacts.append_run_summary(tmp, summary)
+            records = artifacts.load_run_summaries(index_path)
+
+            self.assertEqual(index_path.name, artifacts.DEFAULT_INDEX_NAME)
+            self.assertEqual(records, [summary])
 
 
 if __name__ == "__main__":

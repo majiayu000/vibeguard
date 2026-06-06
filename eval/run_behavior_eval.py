@@ -14,7 +14,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from artifacts import DEFAULT_RUNS_DIR, build_run_dir, current_commit, write_run_artifacts
+from artifacts import (
+    DEFAULT_RUNS_DIR,
+    append_run_summary,
+    build_run_dir,
+    current_commit,
+    utc_timestamp,
+    write_run_artifacts,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_PATH = REPO_ROOT / "eval" / "behavior" / "datasets" / "v1.jsonl"
@@ -303,6 +310,30 @@ def build_report(
     }
 
 
+def build_behavior_summary(report: dict[str, Any], artifact_path: Path | str) -> dict[str, Any]:
+    metadata = report["metadata"]
+    result_path = Path(artifact_path)
+    coverage = report.get("coverage", {})
+    return {
+        "schema_version": 1,
+        "kind": "behavior",
+        "score_type": "deterministic",
+        "timestamp": utc_timestamp(),
+        "run_id": result_path.parent.name,
+        "artifact_path": str(result_path),
+        "commit": metadata.get("commit", "unknown"),
+        "dataset_source": metadata.get("dataset_source", ""),
+        "dataset_digest": metadata.get("sample_digest", ""),
+        "sample_count": report.get("total", metadata.get("sample_count", 0)),
+        "scorer_version": metadata.get("scorer_version", ""),
+        "verdict": report.get("verdict", "unknown"),
+        "pass_rate": report.get("pass_rate", 0.0),
+        "coverage_rate": coverage.get("coverage_rate", 0.0),
+        "slice_failures": report.get("slice_failures", []),
+        "failure_count": len(report.get("failures", [])),
+    }
+
+
 def coverage_report(samples: list[dict[str, Any]], requirements: list[dict[str, Any]]) -> dict[str, Any]:
     covered = []
     missing = []
@@ -345,11 +376,14 @@ def slice_report(results: list[dict[str, Any]]) -> dict[str, dict[str, dict[str,
 
 
 def run_model_gate(args: argparse.Namespace) -> dict[str, Any]:
+    artifact_root = str(Path(args.artifact_root).resolve())
     command = [
         sys.executable,
         str(REPO_ROOT / "eval" / "run_eval.py"),
         "--model",
         args.model,
+        "--artifact-root",
+        artifact_root,
     ]
     if args.model_rules:
         command.extend(["--rules", args.model_rules])
@@ -466,6 +500,11 @@ def run_behavior_eval(args: argparse.Namespace) -> int:
             results=results,
         )
         report["metadata"]["artifact_path"] = str(artifact_path)
+        index_path = append_run_summary(
+            args.artifact_root,
+            build_behavior_summary(report, artifact_path),
+        )
+        report["metadata"]["index_path"] = str(index_path)
 
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))

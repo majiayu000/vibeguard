@@ -41,6 +41,7 @@ fn help_lists_all_commands() {
         "pkg-rewrite",
         "pre-bash-check",
         "session-metrics",
+        "observe",
         "codex-event-name",
         "codex-status-detail",
         "codex-status-matcher",

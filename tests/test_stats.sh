@@ -40,6 +40,19 @@ assert_not_contains() {
   fi
 }
 
+assert_cmd() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -150,6 +163,89 @@ assert_contains "${stats_out}" "Interception (block): 1 times" "Block count incl
 assert_contains "${stats_out}" "Warning: 1 times" "Warn count is correct"
 assert_contains "${stats_out}" "pre-bash-guard: 2 times" "Hook aggregation remains correct"
 assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggregation remains correct"
+
+header "Prometheus exporter uses low-cardinality labels"
+RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+EXPORTER="${REPO_DIR}/scripts/metrics/metrics-exporter.sh"
+assert_cmd "vibeguard-runtime builds for exporter wrapper" \
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml"
+
+mkdir -p "${TMP_DIR}/prom-log"
+python3 - "${TMP_DIR}/prom-log/events.jsonl" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+events = [
+    {
+        "ts": "2026-05-31T00:00:00Z",
+        "session": "secret-session",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "warn",
+        "reason": "U-16 block for customer@example.com command cargo test -- --ignored",
+        "detail": "Edit /var/tmp/vibeguard/project/src/private_token.rs",
+        "duration_ms": 250,
+    }
+]
+with open(path, "w", encoding="utf-8") as f:
+    for event in events:
+        f.write(json.dumps(event) + "\n")
+PY
+
+prom_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all 2>&1)"
+assert_contains "${prom_out}" "vibeguard_event_total" "Prometheus event counter is emitted"
+assert_contains "${prom_out}" 'vibeguard_tool_total{tool="Edit"} 1' "Legacy tool counter is preserved"
+assert_contains "${prom_out}" 'rule_id="U-16"' "Rule id is derived safely"
+assert_contains "${prom_out}" 'reason_code="rule_violation"' "Reason code is derived safely"
+assert_contains "${prom_out}" 'file_ext="rs"' "File extension is derived safely"
+assert_contains "${prom_out}" "vibeguard_hook_duration_seconds_sum" "Duration summary is emitted"
+assert_not_contains "${prom_out}" "secret-session" "Session id is not exported as a label"
+assert_not_contains "${prom_out}" "customer@example.com" "Raw reason content is absent"
+assert_not_contains "${prom_out}" "cargo test -- --ignored" "Raw command-like reason content is absent"
+assert_not_contains "${prom_out}" "/var/tmp/vibeguard" "Full path detail is absent"
+assert_not_contains "${prom_out}" "private_token" "Raw filename detail is absent"
+
+prom_file="${TMP_DIR}/metrics.prom"
+file_msg="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all --file "${prom_file}" 2>&1)"
+assert_contains "${file_msg}" "Indicator written: ${prom_file}" "Exporter --file still writes textfile output"
+assert_contains "$(cat "${prom_file}")" "vibeguard_guard_violation_total" "Textfile output contains metrics"
+
+project_root="${TMP_DIR}/prom-project"
+project_log_dir="${TMP_DIR}/prom-project-log/projects/abcdef12"
+mkdir -p "${project_root}" "${project_log_dir}"
+printf '%s\n' "${project_root}" > "${project_log_dir}/.project-root"
+python3 - "${project_log_dir}/events.jsonl" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+event = {
+    "ts": "2026-05-31T00:00:00Z",
+    "hook": "pre-bash-guard",
+    "tool": "Bash",
+    "decision": "block",
+    "reason": "force push denied",
+    "detail": "git push --force",
+}
+with open(path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(event) + "\n")
+PY
+
+project_prom_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-project-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all --project "${project_root}" 2>&1)"
+assert_contains "${project_prom_out}" "vibeguard_events_total 1" "Exporter --project reads mapped project log"
+assert_contains "${project_prom_out}" 'vibeguard_tool_total{tool="Bash"} 1' "Exporter --project forwards project to runtime"
+assert_contains "${project_prom_out}" 'reason_code="dangerous_command"' "Project exporter output preserves derived labels"
+assert_not_contains "${project_prom_out}" "git push --force" "Project exporter output avoids raw command detail"
+
+missing_prom_file="${TMP_DIR}/missing.prom"
+set +e
+missing_export_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-missing-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all --file "${missing_prom_file}" 2>&1)"
+missing_export_status=$?
+set -e
+assert_cmd "Exporter missing log exits nonzero" test "${missing_export_status}" -ne 0
+assert_contains "${missing_export_out}" "Log file does not exist" "Exporter missing log reports the missing log"
+assert_cmd "Exporter missing log does not create textfile output" test ! -e "${missing_prom_file}"
 
 echo
 echo "=============================="

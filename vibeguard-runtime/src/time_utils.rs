@@ -18,15 +18,13 @@ pub(crate) fn now_unix_millis() -> u64 {
         .unwrap_or(u64::MAX)
 }
 
-/// Parse ISO 8601 UTC timestamp (YYYY-MM-DDTHH:MM:SSZ or +00:00) to Unix seconds.
+/// Parse ISO 8601 timestamp to Unix seconds.
 /// Returns None if the string cannot be parsed.
 pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {
-    let s = ts.trim_end_matches('Z');
-    let s = s.strip_suffix("+00:00").unwrap_or(s);
+    let s = ts.trim();
     let (date_part, time_part) = s.split_once('T')?;
     let dp: Vec<&str> = date_part.split('-').collect();
-    let tp: Vec<&str> = time_part.split(':').collect();
-    if dp.len() < 3 || tp.len() < 3 {
+    if dp.len() != 3 {
         return None;
     }
     let year: i64 = dp[0].parse().ok()?;
@@ -35,9 +33,26 @@ pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {
     if month < 1 || month > 12 {
         return None;
     }
+    let (time_part, offset_secs) = split_iso_time_and_offset(time_part)?;
+    let tp: Vec<&str> = time_part.split(':').collect();
+    if tp.len() != 3 {
+        return None;
+    }
     let hour: i64 = tp[0].parse().ok()?;
     let min: i64 = tp[1].parse().ok()?;
-    let sec: i64 = tp[2].trim_end_matches('Z').parse().ok()?;
+    let sec_part = match tp[2].split_once('.') {
+        Some((whole, fraction)) => {
+            if whole.is_empty()
+                || fraction.is_empty()
+                || !fraction.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            whole
+        }
+        None => tp[2],
+    };
+    let sec: i64 = sec_part.parse().ok()?;
     if hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59 {
         return None;
     }
@@ -53,23 +68,43 @@ pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {
         return None;
     }
 
-    let mut days: i64 = 0;
-    for y in 1970..year {
-        days += if is_leap(y) { 366 } else { 365 };
-    }
-    for m in 1..month {
-        days += month_days[(m - 1) as usize];
-        if m == 2 && is_leap(year) {
-            days += 1;
-        }
-    }
-    days += day - 1;
-
-    let total = days * 86400 + hour * 3600 + min * 60 + sec;
+    let total =
+        days_from_civil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec - offset_secs;
     if total < 0 {
         return None;
     }
     Some(total as u64)
+}
+
+fn split_iso_time_and_offset(time_part: &str) -> Option<(&str, i64)> {
+    if let Some(stripped) = time_part.strip_suffix('Z') {
+        return Some((stripped, 0));
+    }
+    if time_part.len() >= 6 {
+        let offset_start = time_part.len() - 6;
+        let sign = time_part.as_bytes()[offset_start];
+        if matches!(sign, b'+' | b'-') && time_part.as_bytes()[offset_start + 3] == b':' {
+            let hours: i64 = time_part[offset_start + 1..offset_start + 3].parse().ok()?;
+            let mins: i64 = time_part[offset_start + 4..offset_start + 6].parse().ok()?;
+            if hours > 23 || mins > 59 {
+                return None;
+            }
+            let offset = hours * 3600 + mins * 60;
+            let signed_offset = if sign == b'+' { offset } else { -offset };
+            return Some((&time_part[..offset_start], signed_offset));
+        }
+    }
+    Some((time_part, 0))
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = year - if month <= 2 { 1 } else { 0 };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let m = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * m + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
 }
 
 pub(crate) fn format_unix_secs_utc(secs: u64) -> String {
