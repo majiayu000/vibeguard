@@ -12,6 +12,7 @@ if [[ -f "vibeguard-runtime/Cargo.toml" ]]; then
     exit 2
   fi
   cargo build --release --manifest-path vibeguard-runtime/Cargo.toml --quiet
+  export VIBEGUARD_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/release/vibeguard-runtime"
 fi
 
 shards=(

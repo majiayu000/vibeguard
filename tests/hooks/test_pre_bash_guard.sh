@@ -52,6 +52,7 @@ EOF
   HOME="${tmp_dir}/home" \
     VIBEGUARD_FAKE_PRE_BASH="$fake_case" \
     VIBEGUARD_LOG_DIR="${tmp_dir}/log" \
+    VIBEGUARD_RUNTIME="${tmp_dir}/hooks/vibeguard-runtime" \
     bash "${tmp_dir}/hooks/pre-bash-guard.sh" \
     <<< '{"tool_input":{"command":"npm run build"}}' 2>&1
   rm -rf "$tmp_dir"

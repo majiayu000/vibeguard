@@ -12,7 +12,7 @@ mkdir -p "$runtime_missing_dir/home"
 cp -R hooks "$runtime_missing_dir/hooks"
 set +e
 runtime_missing_stdout=$(printf '%s' '{"tool_input":{"file_path":"/project/conftest.py","content":"# bypass"}}' \
-  | HOME="$runtime_missing_dir/home" bash "$runtime_missing_dir/hooks/pre-write-guard.sh" 2>"$runtime_missing_dir/stderr")
+  | env -u VIBEGUARD_RUNTIME HOME="$runtime_missing_dir/home" bash "$runtime_missing_dir/hooks/pre-write-guard.sh" 2>"$runtime_missing_dir/stderr")
 runtime_missing_rc=$?
 set -e
 runtime_missing_stderr="$(cat "$runtime_missing_dir/stderr")"

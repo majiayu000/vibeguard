@@ -20,12 +20,15 @@ fallback_hook_dir=$(mktemp -d)
 fake_git_dir=$(mktemp -d)
 cp hooks/pre-edit-guard.sh hooks/log.sh "$fallback_hook_dir/"
 cp -R hooks/_lib "$fallback_hook_dir/_lib"
-cat > "$fallback_hook_dir/vibeguard-runtime" <<'SH'
-#!/usr/bin/env bash
-printf 'FALLBACK\n'
-SH
-chmod +x "$fallback_hook_dir/vibeguard-runtime"
 real_git=$(command -v git)
+pre_edit_runtime="${VIBEGUARD_RUNTIME:-${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime}"
+if [[ ! -x "$pre_edit_runtime" ]]; then
+  pre_edit_runtime="${REPO_DIR}/vibeguard-runtime/target/release/vibeguard-runtime"
+fi
+if [[ ! -x "$pre_edit_runtime" ]]; then
+  echo "test_pre_edit_guard.sh requires vibeguard-runtime; run cargo build --manifest-path vibeguard-runtime/Cargo.toml" >&2
+  exit 2
+fi
 cat > "$fake_git_dir/git" <<'SH'
 #!/usr/bin/env bash
 if [[ "$*" == "rev-parse --show-toplevel" ]]; then
@@ -41,7 +44,8 @@ SH
 chmod +x "$fake_git_dir/git"
 result=$(REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" \
   echo '{"tool_input":{"file_path":"missing-pre-edit-guard.sh","old_string":"test"}}' \
-  | REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" bash "$fallback_hook_dir/pre-edit-guard.sh")
+  | VIBEGUARD_RUNTIME="$pre_edit_runtime" \
+    REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" bash "$fallback_hook_dir/pre-edit-guard.sh")
 assert_contains "$result" '"decision": "block"' "Missing-file fallback still emits block JSON when candidate lookup fails"
 assert_contains "$result" "Could not search tracked files" "Missing-file fallback reports git ls-files lookup failure"
 assert_exit_zero "fallback lookup failure block output remains valid JSON" python3 -c 'import json, sys; json.loads(sys.argv[1])' "$result"
