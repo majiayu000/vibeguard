@@ -77,6 +77,9 @@ fn read_jsonl_file_limited(path: &Path, limit: usize) -> Result<Vec<Value>> {
                 let Ok(value) = serde_json::from_str::<Value>(line) else {
                     continue;
                 };
+                if !value.is_object() {
+                    continue;
+                }
                 if values.len() == limit {
                     values.pop_front();
                 }
@@ -95,4 +98,48 @@ fn observe_display_path(path: &Path) -> String {
         }
     }
     path.to_string_lossy().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn read_jsonl_file_limited_skips_non_object_records() {
+        let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(error) => panic!("system time should be after unix epoch: {error}"),
+        };
+        let path = std::env::temp_dir().join(format!("vibeguard-observe-read-{}.jsonl", nanos));
+        if let Err(error) = fs::write(
+            &path,
+            concat!(
+                "{\"hook\":\"pre-bash-guard\"}\n",
+                "null\n",
+                "[]\n",
+                "\"quoted fragment\"\n",
+                "{\"hook\":\"post-edit-guard\"}\n"
+            ),
+        ) {
+            panic!("test log should be writable: {error}");
+        }
+
+        let events = match read_jsonl_file_limited(&path, usize::MAX) {
+            Ok(events) => events,
+            Err(error) => panic!("test log should read: {error}"),
+        };
+        fs::remove_file(&path).ok();
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].get(field::HOOK).and_then(Value::as_str),
+            Some("pre-bash-guard")
+        );
+        assert_eq!(
+            events[1].get(field::HOOK).and_then(Value::as_str),
+            Some("post-edit-guard")
+        );
+    }
 }

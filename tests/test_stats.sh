@@ -253,6 +253,9 @@ with open(path, "wb") as f:
         f.write(json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\n")
     f.write(recoverable_bad_utf8)
     f.write(b'{"ts":"broken-json"\n')
+    f.write(b'null\n')
+    f.write(b'[]\n')
+    f.write(b'"quoted fragment"\n')
 PY
 
 stats_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 7 2>&1)"
@@ -262,6 +265,8 @@ assert_contains "${stats_out}" "Interception (block): 1 times" "Block count incl
 assert_contains "${stats_out}" "Warning: 1 times" "Warn count is correct"
 assert_contains "${stats_out}" "pre-bash-guard: 2 times" "Hook aggregation remains correct"
 assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggregation remains correct"
+stats_all_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global all 2>&1)"
+assert_contains "${stats_all_out}" "Total triggers: 3 times" "Non-object JSONL records are skipped for all-history stats"
 
 header "Legacy stats analyses are preserved"
 mkdir -p "${TMP_DIR}/legacy-sections-log"
