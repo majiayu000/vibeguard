@@ -42,6 +42,9 @@ VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
+VIBEGUARD_HOME="${HOME}/.vibeguard"
+_INSTALL_TMP=""
+_INSTALL_FINAL_TMP=""
 RUNTIME_VERSION_OVERRIDE=""
 RUNTIME_VERSION_OVERRIDE_SET=0
 if [[ -n "${VIBEGUARD_SETUP_RUNTIME_VERSION+x}" ]]; then
@@ -169,7 +172,7 @@ download_prebuilt_runtime() {
   local download_dir downloaded reason expected actual
   local -a errors=()
 
-  download_dir="$(mktemp -d "${VIBEGUARD_HOME}/runtime_download_XXXXXX")"
+  download_dir="$(mktemp -d "$(dirname "${dest}")/runtime_download_XXXXXX")"
   downloaded=0
   echo "  Downloading ${asset} from ${release_repo}@${tag}..."
 
@@ -311,6 +314,63 @@ prepare_runtime_binary() {
   prepare_runtime_from_source "${fallback_reason}"
 }
 
+validate_project_config_for_install() {
+  local runtime_path="${1:-}" project_config_file project_config_out
+  project_config_file="$(vg_project_config_file)"
+  if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${runtime_path}" ]]; then
+    project_config_out="$(VIBEGUARD_PROJECT_CONFIG_RUNTIME="${runtime_path}" vg_validate_project_config "${project_config_file}" 2>&1)" || {
+      red "ERROR: invalid project config: ${project_config_file}"
+      while IFS= read -r line; do
+        red "  ${line}"
+      done <<< "${project_config_out}"
+      return 1
+    }
+  else
+    project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)" || {
+      red "ERROR: invalid project config: ${project_config_file}"
+      while IFS= read -r line; do
+        red "  ${line}"
+      done <<< "${project_config_out}"
+      return 1
+    }
+  fi
+
+  green "Project config valid: ${project_config_file}"
+  echo
+}
+
+cleanup_install_temps() {
+  if [[ -n "${_INSTALL_TMP:-}" ]]; then
+    rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
+  fi
+  if [[ -n "${_INSTALL_FINAL_TMP:-}" ]]; then
+    rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
+  fi
+}
+
+stage_install_snapshot() {
+  if [[ -n "${_INSTALL_TMP}" ]]; then
+    return 0
+  fi
+
+  _INSTALL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-installed_tmp_XXXXXX")"
+  trap cleanup_install_temps EXIT
+  cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
+  cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
+  mkdir -p "${_INSTALL_TMP}/schemas" "${_INSTALL_TMP}/scripts/lib"
+  cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
+  cp "${REPO_DIR}/scripts/lib/project_config_validate.py" "${_INSTALL_TMP}/scripts/lib/"
+  printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+
+  # Runtime must be prepared before project config validation, but the staged
+  # snapshot lives in TMPDIR until validation has passed.
+  prepare_runtime_binary
+}
+
 echo "=============================="
 echo "VibeGuard Setup"
 echo "Repository: ${REPO_DIR}"
@@ -338,16 +398,8 @@ echo
 
 project_config_file="$(vg_project_config_file)"
 if [[ -n "${project_config_file}" && -f "${project_config_file}" ]]; then
-  if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
-    green "Project config valid: ${project_config_file}"
-  else
-    red "ERROR: invalid project config: ${project_config_file}"
-    while IFS= read -r line; do
-      red "  ${line}"
-    done <<< "${project_config_out}"
-    exit 1
-  fi
-  echo
+  stage_install_snapshot
+  validate_project_config_for_install "${_INSTALL_TMP}/bin/vibeguard-runtime"
 fi
 
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
@@ -367,7 +419,6 @@ fi
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
-VIBEGUARD_HOME="${HOME}/.vibeguard"
 mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
@@ -396,25 +447,16 @@ fi
 # Atomic install: copy to temp dir, then rename into place. If interrupted mid-copy,
 # the previous installed/ remains intact instead of being left empty.
 INSTALLED_DIR="${VIBEGUARD_HOME}/installed"
-_INSTALL_TMP=$(mktemp -d "${VIBEGUARD_HOME}/installed_tmp_XXXXXX")
-trap 'rm -rf "$_INSTALL_TMP"' EXIT
-cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
-cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
-mkdir -p "${_INSTALL_TMP}/schemas" "${_INSTALL_TMP}/scripts/lib"
-cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
-cp "${REPO_DIR}/scripts/lib/project_config_validate.py" "${_INSTALL_TMP}/scripts/lib/"
-printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
-
-# Prepare vibeguard-runtime before swapping the installed snapshot. Runtime
-# installation is fail-closed: a downloaded binary must verify, and source
-# fallback still requires a successful Rust build.
-prepare_runtime_binary
+stage_install_snapshot
+_INSTALL_FINAL_TMP="$(mktemp -d "${VIBEGUARD_HOME}/installed_tmp_XXXXXX")"
+cp -R "${_INSTALL_TMP}/." "${_INSTALL_FINAL_TMP}/"
 
 # Swap: move old installed aside, rename new into place, restore on failure
 if [[ -d "${INSTALLED_DIR}" ]]; then
   mv "${INSTALLED_DIR}" "${INSTALLED_DIR}.old.$$"
 fi
-if mv "${_INSTALL_TMP}" "${INSTALLED_DIR}"; then
+if mv "${_INSTALL_FINAL_TMP}" "${INSTALLED_DIR}"; then
+  _INSTALL_FINAL_TMP=""
   rm -rf "${INSTALLED_DIR}.old.$$" 2>/dev/null || true
 else
   # Restore old snapshot if swap failed
@@ -424,6 +466,8 @@ else
   red "  Failed to install snapshot (old version restored)"
   exit 1
 fi
+rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
+_INSTALL_TMP=""
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
 

@@ -2,8 +2,71 @@
 # Lightweight .vibeguard.json reader for shell scripts.
 
 _VG_PROJECT_CONFIG_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_VG_PROJECT_CONFIG_VALIDATOR="${_VG_PROJECT_CONFIG_LIB_DIR}/project_config_validate.py"
-_VG_PROJECT_CONFIG_SCHEMA="${_VG_PROJECT_CONFIG_LIB_DIR}/../../schemas/vibeguard-project.schema.json"
+_VG_PROJECT_CONFIG_ROOT="$(cd "${_VG_PROJECT_CONFIG_LIB_DIR}/../.." && pwd)"
+
+_vg_project_config_runtime_path() {
+  local candidate resolved
+  for candidate in \
+    "${VIBEGUARD_PROJECT_CONFIG_RUNTIME:-}" \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${_VG_PROJECT_CONFIG_ROOT}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${_VG_PROJECT_CONFIG_ROOT}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${_VG_PROJECT_CONFIG_ROOT}/bin/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"; do
+    if resolved="$(_vg_project_config_resolve_runtime_candidate "${candidate}")"; then
+      if _vg_project_config_runtime_supports "${resolved}"; then
+        printf '%s\n' "${resolved}"
+        return 0
+      fi
+    fi
+  done
+
+  if resolved="$(_vg_project_config_resolve_runtime_candidate "vibeguard-runtime")"; then
+    if _vg_project_config_runtime_supports "${resolved}"; then
+      printf '%s\n' "${resolved}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+_vg_project_config_resolve_runtime_candidate() {
+  local candidate="${1:-}" resolved
+  if [[ -z "${candidate}" ]]; then
+    return 1
+  fi
+
+  if [[ -f "${candidate}" && -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+
+  if [[ "${candidate}" != */* ]] && resolved="$(command -v "${candidate}" 2>/dev/null)"; then
+    if [[ -n "${resolved}" && -x "${resolved}" ]]; then
+      printf '%s\n' "${resolved}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+_vg_project_config_runtime_supports() {
+  local candidate="$1" probe_file value_probe
+  probe_file="${TMPDIR:-/tmp}/vibeguard-project-config-probe.$$.json"
+  printf '{"gc":{"log_threshold_mb":19}}\n' > "${probe_file}" || return 1
+  "${candidate}" project-config-validate "${probe_file}" >/dev/null 2>&1 || {
+    rm -f "${probe_file}" 2>/dev/null || true
+    return 1
+  }
+  value_probe="$("${candidate}" project-config-value "${probe_file}" gc.log_threshold_mb 17 2>/dev/null)" || {
+    rm -f "${probe_file}" 2>/dev/null || true
+    return 1
+  }
+  rm -f "${probe_file}" 2>/dev/null || true
+  [[ "${value_probe}" == "19" ]]
+}
 
 vg_project_config_file() {
   if [[ -n "${VIBEGUARD_PROJECT_CONFIG:-}" ]]; then
@@ -24,7 +87,7 @@ vg_project_config_file() {
 }
 
 vg_validate_project_config() {
-  local config_file="${1:-}"
+  local config_file="${1:-}" runtime_path
   if [[ -z "$config_file" ]]; then
     config_file="$(vg_project_config_file)"
   fi
@@ -33,58 +96,31 @@ vg_validate_project_config() {
     return 0
   fi
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf 'VibeGuard project config invalid: python3 is required to validate %s\n' "$config_file" >&2
-    return 1
-  fi
-  if [[ ! -f "$_VG_PROJECT_CONFIG_VALIDATOR" ]]; then
-    printf 'VibeGuard project config invalid: validator missing at %s\n' "$_VG_PROJECT_CONFIG_VALIDATOR" >&2
-    return 1
-  fi
-  if [[ ! -f "$_VG_PROJECT_CONFIG_SCHEMA" ]]; then
-    printf 'VibeGuard project config invalid: schema missing at %s\n' "$_VG_PROJECT_CONFIG_SCHEMA" >&2
+  if ! runtime_path="$(_vg_project_config_runtime_path)"; then
+    printf 'VibeGuard project config invalid: vibeguard-runtime with project-config-validate is required to validate %s\n' "$config_file" >&2
     return 1
   fi
 
-  python3 "$_VG_PROJECT_CONFIG_VALIDATOR" --quiet "$config_file" "$_VG_PROJECT_CONFIG_SCHEMA"
+  "${runtime_path}" project-config-validate "$config_file"
 }
 
 vg_config_value() {
   local key_path="$1"
   local default_value="${2:-}"
-  local config_file
+  local config_file runtime_path
   config_file="$(vg_project_config_file)"
 
-  if [[ -z "$config_file" || ! -f "$config_file" ]] || ! command -v python3 >/dev/null 2>&1; then
+  if [[ -z "$config_file" || ! -f "$config_file" ]]; then
     printf '%s\n' "$default_value"
     return 0
   fi
 
-  if ! vg_validate_project_config "$config_file"; then
+  if ! runtime_path="$(_vg_project_config_runtime_path)"; then
+    printf 'VibeGuard project config read failed: vibeguard-runtime with project-config-value is required to read %s\n' "$config_file" >&2
     return 2
   fi
 
-  python3 - "$config_file" "$key_path" "$default_value" <<'PY'
-import json
-import sys
-
-path, key_path, default = sys.argv[1:4]
-try:
-    with open(path, encoding="utf-8") as f:
-        value = json.load(f)
-    for part in key_path.split("."):
-        if not isinstance(value, dict) or part not in value:
-            print(default)
-            sys.exit(0)
-        value = value[part]
-    if isinstance(value, bool) or value is None:
-        print(default)
-    else:
-        print(value)
-except Exception as exc:
-    print(f"VibeGuard project config read failed: {path}: {exc}", file=sys.stderr)
-    sys.exit(2)
-PY
+  "${runtime_path}" project-config-value "$config_file" "$key_path" "$default_value"
 }
 
 vg_config_positive_int() {

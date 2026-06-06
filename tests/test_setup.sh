@@ -466,7 +466,50 @@ for target in \
   asset="${TEST_RELEASE_DIR}/vibeguard-runtime-${target}"
   cat > "${asset}" <<SH
 #!/usr/bin/env bash
-exit 0
+set -euo pipefail
+case "\${1:-}" in
+  project-config-validate)
+    if [[ \$# -ne 2 ]]; then
+      printf 'Usage: vibeguard-runtime project-config-validate <config-file>\\n' >&2
+      exit 2
+    fi
+    exec python3 "${PROJECT_CONFIG_HELPER}" --quiet "\${2}" "${REPO_DIR}/schemas/vibeguard-project.schema.json"
+    ;;
+  project-config-value)
+    if [[ \$# -ne 4 ]]; then
+      printf 'Usage: vibeguard-runtime project-config-value <config-file> <json-path> <default>\\n' >&2
+      exit 2
+    fi
+    config_file="\${2}"
+    key_path="\${3}"
+    default_value="\${4}"
+    python3 "${PROJECT_CONFIG_HELPER}" --quiet "\${config_file}" "${REPO_DIR}/schemas/vibeguard-project.schema.json"
+    python3 - "\${config_file}" "\${key_path}" "\${default_value}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config_file, key_path, default_value = sys.argv[1:4]
+try:
+    value = json.loads(Path(config_file).read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"VibeGuard project config read failed: {config_file}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+for part in key_path.split("."):
+    if not isinstance(value, dict) or part not in value:
+        print(default_value)
+        raise SystemExit(0)
+    value = value[part]
+if isinstance(value, bool) or value is None or isinstance(value, (dict, list)):
+    print(default_value)
+else:
+    print(value)
+PY
+    ;;
+  *)
+    exit 0
+    ;;
+esac
 SH
   chmod +x "${asset}"
   asset_hash="$(shasum -a 256 "${asset}" | cut -d' ' -f1)"

@@ -116,9 +116,35 @@ invalid_project_check_out="$(VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" ba
 assert_contains "${invalid_project_check_out}" "[FAIL] Project config invalid" "--check reports invalid .vibeguard.json"
 assert_contains "${invalid_project_check_out}" ".profile: unsupported value" "--check reports invalid project profile"
 assert_contains "${invalid_project_check_out}" ".gc.log_threshold_mb: expected integer >= 1" "--check reports invalid project gc threshold"
-invalid_project_install_out="$(VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" bash "${REPO_DIR}/setup.sh" --dry-run 2>&1 || true)"
-assert_contains "${invalid_project_install_out}" "ERROR: invalid project config" "setup install refuses invalid .vibeguard.json"
+invalid_project_dry_run_home="${TMP_HOME}/invalid-project-dry-run-home"
+mkdir -p "${invalid_project_dry_run_home}"
+set +e
+invalid_project_dry_run_out="$(HOME="${invalid_project_dry_run_home}" VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --dry-run 2>&1)"
+invalid_project_dry_run_rc=$?
+set -e
+assert_cmd "setup dry-run refuses invalid .vibeguard.json" test "${invalid_project_dry_run_rc}" -ne 0
+assert_contains "${invalid_project_dry_run_out}" "vibeguard-runtime downloaded and verified" "setup dry-run prepares runtime before project config validation"
+assert_contains "${invalid_project_dry_run_out}" "ERROR: invalid project config" "setup dry-run reports invalid .vibeguard.json"
+assert_contains "${invalid_project_dry_run_out}" ".profile: unsupported value" "setup dry-run reports invalid project profile"
+assert_not_contains "${invalid_project_dry_run_out}" "Dry run complete" "setup dry-run with invalid project config does not report complete"
+assert_cmd "invalid setup dry-run does not write repo-path" test ! -e "${invalid_project_dry_run_home}/.vibeguard/repo-path"
+assert_cmd "invalid setup dry-run does not write runtime config" test ! -e "${invalid_project_dry_run_home}/.vibeguard/config.json"
+invalid_project_install_home="${TMP_HOME}/invalid-project-install-home"
+mkdir -p "${invalid_project_install_home}"
+set +e
+invalid_project_install_out="$(HOME="${invalid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${bad_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+invalid_project_install_rc=$?
+set -e
+assert_cmd "setup install refuses invalid .vibeguard.json" test "${invalid_project_install_rc}" -ne 0
+assert_contains "${invalid_project_install_out}" "vibeguard-runtime downloaded and verified" "setup install prepares runtime before project config validation"
+assert_contains "${invalid_project_install_out}" "ERROR: invalid project config" "setup install reports invalid .vibeguard.json"
 assert_contains "${invalid_project_install_out}" ".profile: unsupported value" "setup install reports invalid project profile"
+assert_not_contains "${invalid_project_install_out}" "Setup complete! All components installed." "setup install with invalid project config does not report complete"
+assert_cmd "invalid setup install does not write repo-path" test ! -e "${invalid_project_install_home}/.vibeguard/repo-path"
+assert_cmd "invalid setup install does not write run-hook wrapper" test ! -e "${invalid_project_install_home}/.vibeguard/run-hook.sh"
+assert_cmd "invalid setup install does not write Codex run-hook wrapper" test ! -e "${invalid_project_install_home}/.vibeguard/run-hook-codex.sh"
+assert_cmd "invalid setup install does not seed runtime config" test ! -e "${invalid_project_install_home}/.vibeguard/config.json"
+assert_cmd "invalid setup install does not install snapshot" test ! -e "${invalid_project_install_home}/.vibeguard/installed"
 
 runtime_key_project_config="${TMP_HOME}/runtime-key-vibeguard.json"
 cat > "${runtime_key_project_config}" <<'JSON'
@@ -147,6 +173,22 @@ assert_cmd "--dry-run does not modify ~/.codex/hooks.json" test "${dry_run_codex
 assert_cmd "--dry-run does not modify ~/.codex/config.toml" test "${dry_run_codex_config_sha_before}" = "${dry_run_codex_config_sha_after}"
 assert_cmd "--dry-run does not create ~/.claude/CLAUDE.md" test ! -e "${HOME}/.claude/CLAUDE.md"
 assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.codex/AGENTS.md"
+
+valid_project_config="${TMP_HOME}/valid-vibeguard.json"
+cat > "${valid_project_config}" <<'JSON'
+{
+  "profile": "core",
+  "gc": {
+    "log_threshold_mb": 7
+  }
+}
+JSON
+valid_project_install_home="${TMP_HOME}/valid-project-install-home"
+mkdir -p "${valid_project_install_home}"
+valid_project_install_out="$(HOME="${valid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${valid_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes)"
+assert_contains "${valid_project_install_out}" "vibeguard-runtime downloaded and verified" "setup install prepares runtime for valid project config"
+assert_contains "${valid_project_install_out}" "Project config valid: ${valid_project_config}" "setup install validates project config with prepared runtime"
+assert_contains "${valid_project_install_out}" "Setup complete! All components installed." "clean setup install with project config succeeds"
 
 confirm_fail_out="$(bash "${REPO_DIR}/setup.sh" 2>&1 || true)"
 assert_contains "${confirm_fail_out}" "requires explicit confirmation" "non-interactive setup requires --yes for high-context writes"

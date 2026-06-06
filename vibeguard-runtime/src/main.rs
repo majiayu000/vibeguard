@@ -21,6 +21,7 @@ mod log_query;
 mod log_scope;
 mod observe;
 mod pkg_rewrite;
+mod project_config;
 mod runtime_config;
 mod runtime_policy;
 mod session_metrics;
@@ -187,6 +188,16 @@ static COMMANDS: &[Command] = &[
         name: "runtime-config-get-str",
         usage: "<env-name> <json-path> <default>  — read a string from runtime config",
         handler: runtime_config::runtime_config_get_str,
+    },
+    Command {
+        name: "project-config-validate",
+        usage: "<config-file>  — validate a project .vibeguard.json file",
+        handler: project_config::project_config_validate,
+    },
+    Command {
+        name: "project-config-value",
+        usage: "<config-file> <json-path> <default>  — read a value from project config",
+        handler: project_config::project_config_value,
     },
     Command {
         name: "pre-write-check",
