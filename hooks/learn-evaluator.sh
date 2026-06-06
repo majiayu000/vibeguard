@@ -53,16 +53,13 @@ if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then
   SIGNALS=$(echo "$LEARN_SUGGESTION" | tail -n +2)
   SIGNAL_COUNT=$(echo "$SIGNALS" | wc -l | tr -d ' ')
 
-  # Stop hook only supports top-level fields, hookSpecificOutput is not supported
-  VG_SIGNALS="$SIGNALS" VG_COUNT="$SIGNAL_COUNT" python3 -c '
-import json, os
-signals = os.environ.get("VG_SIGNALS", "")
-count = os.environ.get("VG_COUNT", "0")
-signal_list = "; ".join(s for s in signals.strip().split("\n") if s)
-msg = f"[VibeGuard correction detection] {count} signals: {signal_list}. It is recommended to run /vibeguard:learn"
-result = {"stopReason": msg}
-print(json.dumps(result, ensure_ascii=False))
-'
+  # Stop hook only supports top-level fields, hookSpecificOutput is not supported.
+  SIGNAL_LIST=$(printf '%s\n' "$SIGNALS" \
+    | sed '/^[[:space:]]*$/d' \
+    | awk 'BEGIN { first = 1 } { if (!first) printf "; "; printf "%s", $0; first = 0 }')
+  printf '[VibeGuard correction detection] %s signals: %s. It is recommended to run /vibeguard:learn' \
+    "$SIGNAL_COUNT" "$SIGNAL_LIST" \
+    | "$_VIBEGUARD_RUNTIME" stop-reason
 fi
 
 # Clean up the churn flag file of this session. Keep the scan bounded and

@@ -72,9 +72,6 @@ fi
 RUNNER_PATH="${WRAPPER_DIR}/_lib/codex_runner.sh"
 [[ -f "${RUNNER_PATH}" || ! -f "${INSTALLED_DIR}/_lib/codex_runner.sh" ]] || RUNNER_PATH="${INSTALLED_DIR}/_lib/codex_runner.sh"
 
-NORMALIZER_PATH="${WRAPPER_DIR}/_lib/codex_apply_patch_adapter.py"
-[[ -f "${NORMALIZER_PATH}" || ! -f "${INSTALLED_DIR}/_lib/codex_apply_patch_adapter.py" ]] || NORMALIZER_PATH="${INSTALLED_DIR}/_lib/codex_apply_patch_adapter.py"
-
 if [[ ! -d "$INSTALLED_DIR" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
@@ -89,9 +86,6 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   if [[ ! -f "${RUNNER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]]; then
     RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
-  fi
-  if [[ ! -f "${NORMALIZER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py" ]]; then
-    NORMALIZER_PATH="${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py"
   fi
 fi
 
@@ -131,5 +125,5 @@ if [[ ! -f "${RUNNER_PATH}" ]]; then
 fi
 
 source "${RUNNER_PATH}"
-codex_run_hook "${HOOK_NAME}" "${HOOK_PATH}" "${NORMALIZER_PATH}" "${INPUT}" "$@"
+codex_run_hook "${HOOK_NAME}" "${HOOK_PATH}" "${INPUT}" "$@"
 exit 0

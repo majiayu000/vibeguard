@@ -13,6 +13,7 @@ checks=(
   "check-u29-no-silent-degrade.sh"
   "check-pkg-correction-argv-only.sh"
   "check-codex-wrapper-thin.sh"
+  "check-hook-production-python-free.sh"
   "check-hook-output-rewriting.sh"
   "check-u22-coverage.sh"
 )

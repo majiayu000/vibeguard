@@ -19,16 +19,30 @@ vg_run_with_timeout() {
     return $?
   fi
 
-  python3 - "${seconds}" "$@" <<'PY'
-import subprocess
-import sys
+  local flag pid watchdog status
+  flag="$(mktemp "${TMPDIR:-/tmp}/vibeguard-timeout.XXXXXX")"
+  "$@" &
+  pid=$!
+  (
+    sleep "${seconds}" 2>/dev/null || sleep 1
+    if kill -0 "${pid}" 2>/dev/null; then
+      printf 'timeout\n' >"${flag}" 2>/dev/null || true
+      kill -TERM "${pid}" 2>/dev/null || true
+      sleep 0.2 2>/dev/null || true
+      kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  ) &
+  watchdog=$!
 
-timeout_seconds = float(sys.argv[1])
-command = sys.argv[2:]
-try:
-    completed = subprocess.run(command, timeout=timeout_seconds)
-except subprocess.TimeoutExpired:
-    raise SystemExit(124)
-raise SystemExit(completed.returncode)
-PY
+  wait "${pid}" 2>/dev/null
+  status=$?
+  kill "${watchdog}" 2>/dev/null || true
+  wait "${watchdog}" 2>/dev/null || true
+
+  if [[ -s "${flag}" ]]; then
+    rm -f "${flag}" 2>/dev/null || true
+    return 124
+  fi
+  rm -f "${flag}" 2>/dev/null || true
+  return "${status}"
 }

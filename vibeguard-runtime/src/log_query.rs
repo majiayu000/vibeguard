@@ -129,6 +129,46 @@ fn consecutive_same_file_edits(events: &[Value], session: &str, file_path: &str)
     count
 }
 
+fn edit_delta_from_detail(detail: &str) -> Option<i64> {
+    detail.split("||").skip(1).find_map(|part| {
+        part.trim()
+            .strip_prefix("delta=")
+            .and_then(|value| value.parse::<i64>().ok())
+    })
+}
+
+fn same_file_edit_delta_trail(events: &[Value], session: &str, file_path: &str) -> Vec<i64> {
+    let edits = events
+        .iter()
+        .filter(|e| {
+            e.get(field::SESSION).and_then(Value::as_str) == Some(session)
+                && e.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT)
+                && e.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
+        })
+        .map(|event| {
+            let detail = event
+                .get(field::DETAIL)
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            (
+                first_detail_path(event).to_string(),
+                edit_delta_from_detail(detail),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut trail = Vec::new();
+    for (path, delta) in edits.iter().rev() {
+        if path == file_path {
+            if let Some(value) = delta {
+                trail.push(*value);
+            }
+        } else {
+            break;
+        }
+    }
+    trail
+}
+
 fn recent_overlap(
     events: &[Value],
     session: &str,
@@ -258,6 +298,26 @@ pub fn warn_count(args: &[String]) -> Result {
     Ok(())
 }
 
+/// Count events by exact hook and reason in the current session.
+/// Usage: tail -500 log | vibeguard-runtime reason-count <session> <hook> <reason>
+pub fn reason_count(args: &[String]) -> Result {
+    if args.len() < 3 {
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime reason-count <session> <hook> <reason>".into(),
+        );
+    }
+    let events = read_events(&args[0]);
+    let count = events
+        .iter()
+        .filter(|event| {
+            event.get(field::HOOK).and_then(Value::as_str) == Some(args[1].as_str())
+                && event.get(field::REASON).and_then(Value::as_str) == Some(args[2].as_str())
+        })
+        .count();
+    println!("{count}");
+    Ok(())
+}
+
 /// Combined post-edit history query. Replaces multiple tail+Python/helper calls.
 /// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent]
 pub fn post_edit_history(args: &[String]) -> Result {
@@ -290,6 +350,29 @@ pub fn post_edit_history(args: &[String]) -> Result {
     {
         println!("W14\t{session_id}\t{agent_name}\t{hook_name}\t{tool_name}");
     }
+    Ok(())
+}
+
+/// Emit W-15 same-file trail metadata for shell compatibility.
+/// Output line 1: consecutive same-file edits. Output line 2: newest two deltas.
+pub fn post_edit_w15(args: &[String]) -> Result {
+    if args.len() < 2 {
+        return Err(
+            "Usage: tail -N log | vibeguard-runtime post-edit-w15 <session> <file_path>".into(),
+        );
+    }
+    let events = read_all_events();
+    let trail = same_file_edit_delta_trail(&events, &args[0], &args[1]);
+    println!("{}", trail.len());
+    println!(
+        "{}",
+        trail
+            .iter()
+            .take(2)
+            .map(|delta| delta.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
     Ok(())
 }
 
@@ -364,6 +447,35 @@ mod tests {
         ];
 
         assert_eq!(consecutive_same_file_edits(&events, "s", "src/a.rs"), 2);
+    }
+
+    #[test]
+    fn same_file_edit_delta_trail_reads_newest_deltas() {
+        let events = vec![
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs||delta=30"}),
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/b.rs||delta=20"}),
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs||delta=10"}),
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs||delta=-5"}),
+        ];
+
+        assert_eq!(
+            same_file_edit_delta_trail(&events, "s", "src/a.rs"),
+            vec![-5, 10]
+        );
+    }
+
+    #[test]
+    fn same_file_edit_delta_trail_skips_same_file_events_without_delta() {
+        let events = vec![
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs||delta=200"}),
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs||delta=100"}),
+            json!({"session": "s", "tool": "Edit", "hook": "post-edit-guard", "detail": "src/a.rs"}),
+        ];
+
+        assert_eq!(
+            same_file_edit_delta_trail(&events, "s", "src/a.rs"),
+            vec![100, 200]
+        );
     }
 
     #[test]

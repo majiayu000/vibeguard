@@ -20,19 +20,15 @@ codex_event_name() {
   if declare -F codex_runtime_stdin >/dev/null 2>&1 && codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
     return 0
   fi
-  printf '%s' "${input}" | python3 -c '
-import json
-import sys
-
-try:
-    print(json.loads(sys.stdin.read()).get("hook_event_name", ""))
-except Exception:
-    print("")
-'
+  if declare -F codex_raw_event_name >/dev/null 2>&1; then
+    codex_raw_event_name "${input}"
+    return 0
+  fi
+  printf '\n'
 }
 
 codex_pretool_deny() {
-  local reason="$1"
+  local reason="$1" escaped_reason
   local runtime_status=0
   _codex_runtime_adapter "codex-pretool-deny" "${reason}" || runtime_status=$?
   if [[ "${runtime_status}" -eq 0 ]]; then
@@ -41,26 +37,17 @@ codex_pretool_deny() {
   if [[ "${runtime_status}" -eq 3 ]]; then
     return "${runtime_status}"
   fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD hook failed: Codex deny adapter unavailable."}}\n'
-    return 0
+  if declare -F _codex_json_escape >/dev/null 2>&1; then
+    escaped_reason="$(_codex_json_escape "${reason}")"
+  else
+    escaped_reason="VIBEGUARD hook failed: Codex deny adapter unavailable."
   fi
-  CODEX_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": os.environ.get("CODEX_REASON", ""),
-    }
-}, ensure_ascii=False))
-PY
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "${escaped_reason}"
+  return 0
 }
 
 codex_permission_deny() {
-  local reason="$1"
+  local reason="$1" escaped_reason
   local runtime_status=0
   _codex_runtime_adapter "codex-permission-deny" "${reason}" || runtime_status=$?
   if [[ "${runtime_status}" -eq 0 ]]; then
@@ -69,24 +56,13 @@ codex_permission_deny() {
   if [[ "${runtime_status}" -eq 3 ]]; then
     return "${runtime_status}"
   fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"VIBEGUARD hook failed: Codex deny adapter unavailable."}}}\n'
-    return 0
+  if declare -F _codex_json_escape >/dev/null 2>&1; then
+    escaped_reason="$(_codex_json_escape "${reason}")"
+  else
+    escaped_reason="VIBEGUARD hook failed: Codex deny adapter unavailable."
   fi
-  CODEX_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PermissionRequest",
-        "decision": {
-            "behavior": "deny",
-            "message": os.environ.get("CODEX_REASON", ""),
-        },
-    }
-}, ensure_ascii=False))
-PY
+  printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "${escaped_reason}"
+  return 0
 }
 
 codex_adapt_pretool() {
@@ -99,70 +75,7 @@ codex_adapt_pretool() {
   if [[ "${runtime_status}" -ne 127 ]]; then
     return "${runtime_status}"
   fi
-  printf '%s' "${hook_output}" | python3 -c '
-import json
-import sys
-
-try:
-    data = json.loads(sys.stdin.read())
-except Exception:
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": "VIBEGUARD hook failed: wrapped hook produced invalid JSON.",
-        }
-    }, ensure_ascii=False))
-    sys.exit(3)
-
-decision = data.get("decision", "pass")
-reason = data.get("reason", "")
-updated = data.get("updatedInput")
-hook_specific = data.get("hookSpecificOutput")
-native_output = isinstance(hook_specific, dict) or "systemMessage" in data
-
-def native_pretool_output() -> dict:
-    output = {}
-    if "systemMessage" in data:
-        output["systemMessage"] = data["systemMessage"]
-    if isinstance(hook_specific, dict):
-        output["hookSpecificOutput"] = dict(hook_specific)
-    return output
-
-if native_output and decision == "pass" and updated is None:
-    passthrough = native_pretool_output()
-    if passthrough:
-        print(json.dumps(passthrough, ensure_ascii=False))
-    sys.exit(0)
-
-if decision == "block":
-    hook_specific = data.get("hookSpecificOutput")
-    if isinstance(hook_specific, dict):
-        hook_specific = dict(hook_specific)
-    else:
-        hook_specific = {}
-    hook_specific["hookEventName"] = "PreToolUse"
-    hook_specific["permissionDecision"] = "deny"
-    hook_specific["permissionDecisionReason"] = reason
-    print(json.dumps({
-        "hookSpecificOutput": hook_specific,
-    }, ensure_ascii=False))
-elif decision == "warn":
-    output = native_pretool_output() if native_output else {}
-    if reason:
-        output["systemMessage"] = reason
-    if output:
-        print(json.dumps(output, ensure_ascii=False))
-elif decision == "allow" and isinstance(updated, dict):
-    command = updated.get("command")
-    if isinstance(command, str) and command:
-        print(json.dumps({
-            "systemMessage": (
-                "VIBEGUARD note: Codex CLI hooks cannot auto-apply command rewrites. "
-                "Suggested command: " + command
-            )
-        }, ensure_ascii=False))
-'
+  return 127
 }
 
 codex_adapt_posttool() {
@@ -175,54 +88,7 @@ codex_adapt_posttool() {
   if [[ "${runtime_status}" -ne 127 ]]; then
     return "${runtime_status}"
   fi
-  printf '%s' "${hook_output}" | python3 -c '
-import json
-import sys
-
-try:
-    data = json.loads(sys.stdin.read())
-except Exception:
-    sys.exit(3)
-
-decision = data.get("decision", "pass")
-reason = data.get("reason", "")
-native_output = isinstance(data.get("hookSpecificOutput"), dict) or "systemMessage" in data
-
-def native_posttool_output() -> dict:
-    output = {}
-    if "systemMessage" in data:
-        output["systemMessage"] = data["systemMessage"]
-    hook_specific = data.get("hookSpecificOutput")
-    if isinstance(hook_specific, dict):
-        output["hookSpecificOutput"] = dict(hook_specific)
-    return output
-
-if native_output and decision == "pass":
-    passthrough = native_posttool_output()
-    if passthrough:
-        print(json.dumps(passthrough, ensure_ascii=False))
-    sys.exit(0)
-
-if decision in ("block", "escalate"):
-    hook_specific = data.get("hookSpecificOutput")
-    if isinstance(hook_specific, dict):
-        hook_specific = dict(hook_specific)
-    else:
-        hook_specific = {}
-    hook_specific["hookEventName"] = "PostToolUse"
-    hook_specific.setdefault("additionalContext", reason)
-    print(json.dumps({
-        "decision": "block",
-        "reason": reason,
-        "hookSpecificOutput": hook_specific,
-    }, ensure_ascii=False))
-elif decision == "warn":
-    output = native_posttool_output() if native_output else {}
-    if reason:
-        output["systemMessage"] = reason
-    if output:
-        print(json.dumps(output, ensure_ascii=False))
-'
+  return 127
 }
 
 codex_adapt_permission_request() {
@@ -235,60 +101,5 @@ codex_adapt_permission_request() {
   if [[ "${runtime_status}" -ne 127 ]]; then
     return "${runtime_status}"
   fi
-  printf '%s' "${hook_output}" | python3 -c '
-import json
-import sys
-
-try:
-    data = json.loads(sys.stdin.read())
-except Exception:
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": {
-                "behavior": "deny",
-                "message": "VIBEGUARD hook failed: wrapped hook produced invalid JSON.",
-            },
-        }
-    }, ensure_ascii=False))
-    sys.exit(3)
-
-decision = data.get("decision", "pass")
-reason = data.get("reason", "")
-updated = data.get("updatedInput")
-native_output = isinstance(data.get("hookSpecificOutput"), dict) or "systemMessage" in data
-
-if native_output and decision == "pass" and updated is None:
-    output = {}
-    if "systemMessage" in data:
-        output["systemMessage"] = data["systemMessage"]
-    hook_specific = data.get("hookSpecificOutput")
-    if isinstance(hook_specific, dict):
-        output["hookSpecificOutput"] = dict(hook_specific)
-    if output:
-        print(json.dumps(output, ensure_ascii=False))
-    sys.exit(0)
-
-if decision == "block":
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": {
-                "behavior": "deny",
-                "message": reason,
-            },
-        }
-    }, ensure_ascii=False))
-elif decision == "warn":
-    print(json.dumps({"systemMessage": reason}, ensure_ascii=False))
-elif decision == "allow" and isinstance(updated, dict):
-    command = updated.get("command")
-    if isinstance(command, str) and command:
-        print(json.dumps({
-            "systemMessage": (
-                "VIBEGUARD note: Codex CLI PermissionRequest hooks cannot auto-apply command rewrites. "
-                "Suggested command: " + command
-            )
-        }, ensure_ascii=False))
-'
+  return 127
 }

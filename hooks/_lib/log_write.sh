@@ -142,7 +142,7 @@ vg_log() {
   fi
   chmod 700 "$VIBEGUARD_LOG_DIR" 2>/dev/null || true
 
-  # Pure bash JSON serialization (eliminates python3 subprocess)
+  # Pure bash JSON serialization.
   local ts
   ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 

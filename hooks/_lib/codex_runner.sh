@@ -19,36 +19,13 @@ _codex_input_looks_apply_patch() {
     || "${input}" == *"*** Begin Patch"* ]]
 }
 
-_codex_normalize_apply_patch_python() {
-  local hook_name="$1" normalizer_path="$2" input="$3" normalized_file="$4"
-  [[ -f "${normalizer_path}" ]] || return 127
-  printf '%s' "${input}" | python3 "${normalizer_path}" "${hook_name}" >"${normalized_file}"
-}
-
 _codex_normalizer_fail_closed() {
   local event_name="$1"
-  local reason="VIBEGUARD hook failed: Codex apply_patch normalizer failed."
-  case "${event_name}" in
-    PreToolUse)
-      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "${reason}"
-      ;;
-    PermissionRequest)
-      printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "${reason}"
-      ;;
-    PostToolUse)
-      printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "${reason}" "${reason}"
-      ;;
-    Stop)
-      printf '{"stopReason":"%s"}\n' "${reason}"
-      ;;
-    *)
-      printf '{"systemMessage":"%s"}\n' "${reason}"
-      ;;
-  esac
+  codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: Codex apply_patch normalizer failed."
 }
 
 _codex_write_normalized_inputs() {
-  local hook_name="$1" normalizer_path="$2" input="$3" normalized_file="$4"
+  local hook_name="$1" input="$2" normalized_file="$3"
   local status=0 stderr_file stderr_text
 
   if stderr_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-normalizer.XXXXXX")"; then
@@ -61,10 +38,7 @@ _codex_write_normalized_inputs() {
     stderr_text="$(cat "${stderr_file}" 2>/dev/null || true)"
     rm -f "${stderr_file}" 2>/dev/null || true
 
-    if [[ "${status}" -ne 127 && "${stderr_text}" != *"Unknown command: codex-normalize-apply-patch"* ]]; then
-      if _codex_normalize_apply_patch_python "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
-        return 0
-      fi
+    if [[ "${status}" -ne 0 ]]; then
       codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${stderr_text:-runtime exit ${status}}"
       if _codex_input_looks_apply_patch "${input}"; then
         return 1
@@ -74,11 +48,7 @@ _codex_write_normalized_inputs() {
     fi
   fi
 
-  if _codex_normalize_apply_patch_python "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
-    return 0
-  fi
-
-  codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${normalizer_path}"
+  codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "runtime unavailable"
   if _codex_input_looks_apply_patch "${input}"; then
     return 1
   fi
@@ -86,14 +56,12 @@ _codex_write_normalized_inputs() {
 }
 
 codex_run_hook() {
-  local hook_name="$1" hook_path="$2" normalizer_path="$3" input="$4"
-  shift 4
-
-  export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+  local hook_name="$1" hook_path="$2" input="$3"
+  shift 3
 
   local normalized_file
   normalized_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-inputs.XXXXXX")"
-  if ! _codex_write_normalized_inputs "${hook_name}" "${normalizer_path}" "${input}" "${normalized_file}"; then
+  if ! _codex_write_normalized_inputs "${hook_name}" "${input}" "${normalized_file}"; then
     rm -f "${normalized_file}" 2>/dev/null || true
     _codex_normalizer_fail_closed "${EVENT_NAME}"
     return 0

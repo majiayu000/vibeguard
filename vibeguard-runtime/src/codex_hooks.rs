@@ -90,7 +90,7 @@ fn codex_status_from_output(data: &Value) -> (String, String) {
     (status.to_string(), truncate_chars(&reason, 300))
 }
 
-fn print_json(value: &Value) -> Result {
+pub(crate) fn print_json(value: &Value) -> Result {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
@@ -185,7 +185,7 @@ fn print_object_if_not_empty(object: Map<String, Value>) -> Result {
     Ok(())
 }
 
-fn deny_pretool_payload(reason: &str) -> Value {
+pub(crate) fn deny_pretool_payload(reason: &str) -> Value {
     json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -195,7 +195,7 @@ fn deny_pretool_payload(reason: &str) -> Value {
     })
 }
 
-fn deny_permission_payload(reason: &str) -> Value {
+pub(crate) fn deny_permission_payload(reason: &str) -> Value {
     json!({
         "hookSpecificOutput": {
             "hookEventName": "PermissionRequest",

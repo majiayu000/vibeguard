@@ -5,6 +5,8 @@ set -euo pipefail
 REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 WRAPPER="${REPO_DIR}/hooks/run-hook-codex.sh"
 ADAPTER="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+RUNNER="${REPO_DIR}/hooks/_lib/codex_runner.sh"
+DIAG="${REPO_DIR}/hooks/_lib/codex_diag.sh"
 
 errors=()
 
@@ -18,6 +20,12 @@ fi
 
 if [[ ! -f "${ADAPTER}" ]]; then
   add_error "missing hooks/_lib/codex_adapter.sh"
+fi
+if [[ ! -f "${RUNNER}" ]]; then
+  add_error "missing hooks/_lib/codex_runner.sh"
+fi
+if [[ ! -f "${DIAG}" ]]; then
+  add_error "missing hooks/_lib/codex_diag.sh"
 fi
 
 if [[ -f "${WRAPPER}" ]]; then
@@ -52,6 +60,18 @@ if [[ -f "${ADAPTER}" ]]; then
     fi
   done
 fi
+
+for helper in "${ADAPTER}" "${RUNNER}" "${DIAG}"; do
+  if [[ -f "${helper}" ]] && grep -nE "(^|[^A-Za-z0-9_])python3([^A-Za-z0-9_]|$)|(^|[^A-Za-z0-9_])python[[:space:]]+-|<<'?(PY|PYCODE)'?" "${helper}" >/dev/null; then
+    add_error "${helper#${REPO_DIR}/} contains Python fallback logic"
+  fi
+done
+
+for helper in "${WRAPPER}" "${RUNNER}"; do
+  if [[ -f "${helper}" ]] && grep -q 'codex_apply_patch_adapter.py' "${helper}"; then
+    add_error "${helper#${REPO_DIR}/} still references codex_apply_patch_adapter.py"
+  fi
+done
 
 if [[ "${#errors[@]}" -gt 0 ]]; then
   printf 'FAIL: Codex wrapper thinness check found %d issue(s):\n' "${#errors[@]}" >&2

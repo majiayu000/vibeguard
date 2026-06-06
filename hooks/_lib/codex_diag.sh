@@ -27,94 +27,61 @@ codex_runtime_stdin() {
   printf '%s' "${input}" | "${runtime_path}" "${command_name}"
 }
 
+_codex_json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/ }"
+  value="${value//$'\r'/ }"
+  value="${value//$'\t'/ }"
+  printf '%s' "${value}"
+}
+
 codex_raw_event_name() {
   local input="$1"
   if codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
     return 0
   fi
-  printf '%s' "${input}" | python3 -c '
-import json
-import sys
-
-try:
-    print(json.loads(sys.stdin.read()).get("hook_event_name", ""))
-except Exception:
-    print("")
-'
+  if [[ "${input}" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    printf '\n'
+  fi
 }
 
 codex_pretool_deny_raw() {
-  local reason="$1"
-  CODEX_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": os.environ.get("CODEX_REASON", ""),
-    }
-}, ensure_ascii=False))
-PY
+  local reason="$1" escaped_reason
+  if codex_runtime_stdin "codex-pretool-deny" "${reason}" 2>/dev/null; then
+    return 0
+  fi
+  escaped_reason="$(_codex_json_escape "${reason}")"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "${escaped_reason}"
 }
 
 codex_permission_deny_raw() {
-  local reason="$1"
-  CODEX_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PermissionRequest",
-        "decision": {
-            "behavior": "deny",
-            "message": os.environ.get("CODEX_REASON", ""),
-        },
-    }
-}, ensure_ascii=False))
-PY
+  local reason="$1" escaped_reason
+  if codex_runtime_stdin "codex-permission-deny" "${reason}" 2>/dev/null; then
+    return 0
+  fi
+  escaped_reason="$(_codex_json_escape "${reason}")"
+  printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "${escaped_reason}"
 }
 
 codex_visible_failure_raw() {
   local event_name="$1" reason="$2"
-  CODEX_EVENT_NAME="${event_name}" CODEX_REASON="${reason}" python3 - <<'PY'
-import json
-import os
-
-event = os.environ.get("CODEX_EVENT_NAME", "")
-reason = os.environ.get("CODEX_REASON", "")
-if event == "PreToolUse":
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }
-    }
-elif event == "PermissionRequest":
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": {"behavior": "deny", "message": reason},
-        }
-    }
-elif event == "PostToolUse":
-    payload = {
-        "decision": "block",
-        "reason": reason,
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": reason,
-        },
-    }
-elif event == "Stop":
-    payload = {"stopReason": reason}
-else:
-    payload = {"systemMessage": reason}
-print(json.dumps(payload, ensure_ascii=False))
-PY
+  local runtime_path
+  if runtime_path="$(codex_runtime_path 2>/dev/null)" && printf '%s' "${reason}" | "${runtime_path}" codex-visible-failure "${event_name}" 2>/dev/null; then
+    return 0
+  fi
+  local escaped_reason
+  escaped_reason="$(_codex_json_escape "${reason}")"
+  case "${event_name}" in
+    PreToolUse) codex_pretool_deny_raw "${reason}" ;;
+    PermissionRequest) codex_permission_deny_raw "${reason}" ;;
+    Stop) printf '{"stopReason":"%s"}\n' "${escaped_reason}" ;;
+    PostToolUse) printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "${escaped_reason}" "${escaped_reason}" ;;
+    *) printf '{"systemMessage":"%s"}\n' "${escaped_reason}" ;;
+  esac
 }
 
 codex_set_caller_identity() {
@@ -137,39 +104,10 @@ codex_set_caller_identity() {
 
 codex_diag() {
   local hook_name="$1" event_name="$2" reason="$3" detail="${4:-}"
-  local detail_excerpt="${detail:0:300}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
-  mkdir -p "$(dirname "${diag_file}")" 2>/dev/null || return 0
-  VIBEGUARD_DIAG_FILE="${diag_file}" \
-  VIBEGUARD_DIAG_HOOK="${hook_name}" \
-  VIBEGUARD_DIAG_EVENT="${event_name}" \
-  VIBEGUARD_DIAG_REASON="${reason}" \
-  VIBEGUARD_DIAG_DETAIL="${detail_excerpt}" \
-  VIBEGUARD_DIAG_CWD="${PWD}" \
-    python3 - <<'PY' 2>/dev/null || true
-import datetime
-import json
-import os
-from pathlib import Path
-
-path = Path(os.environ["VIBEGUARD_DIAG_FILE"])
-ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-entry = {
-    "ts": ts,
-    "cli": "codex",
-    "hook": os.environ.get("VIBEGUARD_DIAG_HOOK", ""),
-    "event": os.environ.get("VIBEGUARD_DIAG_EVENT", ""),
-    "reason": os.environ.get("VIBEGUARD_DIAG_REASON", ""),
-    "detail": os.environ.get("VIBEGUARD_DIAG_DETAIL", "")[:300],
-    "cwd": os.environ.get("VIBEGUARD_DIAG_CWD", ""),
-}
-with path.open("a", encoding="utf-8") as f:
-    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-try:
-    path.chmod(0o600)
-except OSError:
-    pass
-PY
+  local runtime_path
+  runtime_path="$(codex_runtime_path 2>/dev/null)" || return 0
+  "${runtime_path}" codex-diag "${diag_file}" "${hook_name}" "${event_name}" "${reason}" "${detail}" "${PWD}" 2>/dev/null || true
 }
 
 codex_hook_timeout_ms() {
@@ -186,28 +124,7 @@ codex_hook_status_detail() {
   if codex_runtime_stdin "codex-status-detail" "${input}" 2>/dev/null; then
     return 0
   fi
-  printf '%s' "${input}" | python3 -c '
-import json
-import sys
-
-try:
-    payload = json.loads(sys.stdin.read())
-except Exception:
-    print("")
-    raise SystemExit
-
-tool_input = payload.get("tool_input")
-if not isinstance(tool_input, dict):
-    print("")
-    raise SystemExit
-
-for key in ("file_path", "command"):
-    value = tool_input.get(key)
-    if isinstance(value, str) and value:
-        print(value[:300])
-        raise SystemExit
-print("")
-'
+  printf '\n'
 }
 
 codex_hook_status_matcher() {
@@ -215,109 +132,23 @@ codex_hook_status_matcher() {
   if codex_runtime_stdin "codex-status-matcher" "${input}" 2>/dev/null; then
     return 0
   fi
-  printf '%s' "${input}" | python3 -c '
-import json
-import sys
-
-try:
-    payload = json.loads(sys.stdin.read())
-except Exception:
-    print("")
-    raise SystemExit
-
-tool_name = payload.get("tool_name")
-print(tool_name if isinstance(tool_name, str) else "")
-'
+  printf '\n'
 }
 
 codex_hook_status() {
   local hook_name="$1" event_name="$2" matcher="$3" status="$4" reason="${5:-}" detail="${6:-}"
   local timeout_ms="${7:-}"
-  local detail_excerpt="${detail:0:300}"
   local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
-  mkdir -p "$(dirname "${diag_file}")" 2>/dev/null || return 0
-  VIBEGUARD_DIAG_FILE="${diag_file}" \
-  VIBEGUARD_DIAG_HOOK="${hook_name}" \
-  VIBEGUARD_DIAG_EVENT="${event_name}" \
-  VIBEGUARD_DIAG_MATCHER="${matcher}" \
-  VIBEGUARD_DIAG_STATUS="${status}" \
-  VIBEGUARD_DIAG_REASON="${reason}" \
-  VIBEGUARD_DIAG_DETAIL="${detail_excerpt}" \
-  VIBEGUARD_DIAG_TIMEOUT_MS="${timeout_ms}" \
-    python3 - <<'PY' 2>/dev/null || true
-import datetime
-import json
-import os
-from pathlib import Path
-
-def clean_hook(name: str) -> str:
-    if name.startswith("vibeguard-"):
-        name = name[len("vibeguard-"):]
-    if name.endswith(".sh"):
-        name = name[:-3]
-    return name
-
-path = Path(os.environ["VIBEGUARD_DIAG_FILE"])
-entry = {
-    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "cli": "codex",
-    "hook": clean_hook(os.environ.get("VIBEGUARD_DIAG_HOOK", "")),
-    "event": os.environ.get("VIBEGUARD_DIAG_EVENT", ""),
-    "matcher": os.environ.get("VIBEGUARD_DIAG_MATCHER", ""),
-    "status": os.environ.get("VIBEGUARD_DIAG_STATUS", ""),
-    "reason": os.environ.get("VIBEGUARD_DIAG_REASON", ""),
-    "detail": os.environ.get("VIBEGUARD_DIAG_DETAIL", "")[:300],
-}
-timeout_ms = os.environ.get("VIBEGUARD_DIAG_TIMEOUT_MS", "")
-if timeout_ms.isdigit():
-    entry["timeout_ms"] = int(timeout_ms)
-with path.open("a", encoding="utf-8") as f:
-    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-try:
-    path.chmod(0o600)
-except OSError:
-    pass
-PY
+  local runtime_path
+  runtime_path="$(codex_runtime_path 2>/dev/null)" || return 0
+  "${runtime_path}" codex-hook-status "${diag_file}" "${hook_name}" "${event_name}" "${matcher}" "${status}" "${reason}" "${detail}" "${timeout_ms}" 2>/dev/null || true
 }
 
 codex_hook_status_from_output() {
   local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
   local parsed hook_status hook_reason
   if ! parsed=$(codex_runtime_stdin "codex-status-from-output" "${hook_output}" 2>/dev/null); then
-    parsed=$(printf '%s' "${hook_output}" | python3 -c '
-import json
-import sys
-
-try:
-    data = json.loads(sys.stdin.read())
-except Exception:
-    print("hook_error\tinvalid-json")
-    raise SystemExit
-
-decision = data.get("decision", "pass")
-reason = data.get("reason", "")
-hook_specific = data.get("hookSpecificOutput")
-if not isinstance(reason, str):
-    reason = ""
-if not isinstance(decision, str):
-    decision = "pass"
-
-status = "pass"
-if decision in {"warn", "block", "gate", "escalate", "correction"}:
-    status = decision
-elif decision == "skip":
-    status = "skipped"
-elif isinstance(hook_specific, dict):
-    if hook_specific.get("permissionDecision") == "deny":
-        status = "block"
-    nested_decision = hook_specific.get("decision")
-    if isinstance(nested_decision, dict) and nested_decision.get("behavior") == "deny":
-        status = "block"
-
-reason = reason.replace("\t", " ").replace("\n", " ")[:300]
-print(f"{status}\t{reason}")
-' 2>/dev/null || true
-    )
+    parsed=$'hook_error\truntime-unavailable'
   fi
   hook_status="${parsed%%$'\t'*}"
   hook_reason="${parsed#*$'\t'}"

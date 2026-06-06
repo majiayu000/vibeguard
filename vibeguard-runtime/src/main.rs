@@ -1,3 +1,4 @@
+mod active_constraints;
 mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
@@ -5,6 +6,7 @@ mod codex_app_server_file_changes;
 mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;
+mod codex_hooks_diag;
 mod event_schema;
 mod git_root;
 mod hook_checks;
@@ -14,6 +16,7 @@ mod hook_checks_history;
 mod hook_checks_scan;
 mod hook_checks_write;
 mod hook_checks_write_scan;
+mod hook_output;
 mod hook_status;
 mod json_field;
 mod log_append;
@@ -60,9 +63,19 @@ static COMMANDS: &[Command] = &[
         handler: log_query::warn_count,
     },
     Command {
+        name: "reason-count",
+        usage: "<session> <hook> <reason>  — count exact hook/reason events",
+        handler: log_query::reason_count,
+    },
+    Command {
         name: "post-edit-history",
         usage: "<session> <file> [agent]  — summarize post-edit history signals",
         handler: log_query::post_edit_history,
+    },
+    Command {
+        name: "post-edit-w15",
+        usage: "<session> <file>  — emit W-15 same-file edit trail metadata",
+        handler: log_query::post_edit_w15,
     },
     Command {
         name: "build-fails",
@@ -105,9 +118,24 @@ static COMMANDS: &[Command] = &[
         handler: observe::run,
     },
     Command {
+        name: "active-constraints",
+        usage: "--root DIR --home DIR [--task-path PATH] [--skill NAME] [--json|--hook-fields]  — count effective active constraints",
+        handler: active_constraints::run,
+    },
+    Command {
         name: "hook-status",
         usage: "[--mode minimal|focused|full] [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--diag-file PATH]  — summarize hook pass/skip/warn/timeout status without adding model context",
         handler: hook_status::run,
+    },
+    Command {
+        name: "hook-context",
+        usage: "<event-name>  — emit hookSpecificOutput.additionalContext from stdin",
+        handler: hook_output::context,
+    },
+    Command {
+        name: "stop-reason",
+        usage: "  — emit Stop hook stopReason from stdin",
+        handler: hook_output::stop_reason,
     },
     Command {
         name: "codex-event-name",
@@ -138,6 +166,21 @@ static COMMANDS: &[Command] = &[
         name: "codex-permission-deny",
         usage: "  — emit a Codex PermissionRequest deny payload from stdin reason",
         handler: codex_hooks::deny_permission,
+    },
+    Command {
+        name: "codex-visible-failure",
+        usage: "<event-name>  — emit a Codex visible failure payload from stdin reason",
+        handler: codex_hooks_diag::visible_failure,
+    },
+    Command {
+        name: "codex-diag",
+        usage: "<diag-file> <hook-name> <event-name> <reason> <detail> <cwd>  — append a Codex wrapper diagnostic JSONL event",
+        handler: codex_hooks_diag::diag,
+    },
+    Command {
+        name: "codex-hook-status",
+        usage: "<diag-file> <hook-name> <event-name> <matcher> <status> <reason> <detail> <timeout-ms>  — append a Codex hook status JSONL event",
+        handler: codex_hooks_diag::hook_status,
     },
     Command {
         name: "codex-adapt-pretool",
@@ -208,6 +251,11 @@ static COMMANDS: &[Command] = &[
         name: "pre-edit-check",
         usage: "<base-limit> [warn-limit] <log-file>  — classify and handle PreToolUse(Edit) input for hooks",
         handler: hook_checks::pre_edit_check,
+    },
+    Command {
+        name: "u16-limit",
+        usage: "<file-path> <base-limit>  — resolve U-16 project exemption limit",
+        handler: hook_checks::u16_limit,
     },
     Command {
         name: "post-edit-fast-check",

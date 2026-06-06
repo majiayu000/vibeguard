@@ -161,16 +161,8 @@ else
   vg_log "post-build-check" "PostToolUse" "$DECISION" "Build errors ${ERROR_COUNT}" "$FILE_PATH"
 fi
 
-VG_WARNINGS="$WARNINGS" VG_DECISION="$DECISION" python3 -c '
-import json, os
-warnings = os.environ.get("VG_WARNINGS", "")
-decision = os.environ.get("VG_DECISION", "warn")
-prefix = "VIBEGUARD build upgrade warning" if decision == "escalate" else "VIBEGUARD build check"
-result = {
-    "hookSpecificOutput": {
-        "hookEventName": "PostToolUse",
-        "additionalContext": prefix + "：" + warnings
-    }
-}
-print(json.dumps(result, ensure_ascii=False))
-'
+if [[ "$DECISION" == "escalate" ]]; then
+  printf 'VIBEGUARD build upgrade warning：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
+else
+  printf 'VIBEGUARD build check：%s' "$WARNINGS" | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
+fi

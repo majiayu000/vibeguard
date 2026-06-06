@@ -264,6 +264,15 @@ pub fn pre_edit_check(args: &[String]) -> Result {
     Ok(())
 }
 
+pub fn u16_limit(args: &[String]) -> Result {
+    if args.len() != 2 {
+        return Err("Usage: vibeguard-runtime u16-limit <file-path> <base-limit>".into());
+    }
+    let base_limit = args[1].parse::<usize>().unwrap_or(800);
+    println!("{}", project_u16_limit(&args[0], base_limit));
+    Ok(())
+}
+
 fn write_pre_edit_block(
     log_file: &str,
     log_reason: &str,

@@ -181,30 +181,9 @@ vg_post_edit_detect_u16_size() {
     [[ -d "$dir/.git" ]] && break
   done
   if [[ "$dir" != "/" && -f "$dir/CLAUDE.md" ]]; then
-    exempt=$(VG_CLAUDE_MD="$dir/CLAUDE.md" VG_FILE_PATH="$FILE_PATH" python3 -c '
-import os, re
-from pathlib import PurePath
-claude_md = os.environ["VG_CLAUDE_MD"]
-file_path = os.environ["VG_FILE_PATH"]
-limit = 0
-try:
-    with open(claude_md) as f:
-        for line in f:
-            if "U-16 exempt" not in line:
-                continue
-            for pair in re.finditer(r"`([^`]+)`\s*→\s*(\d+)", line):
-                pattern, lim = pair.group(1), int(pair.group(2))
-                try:
-                    if PurePath(file_path).match(pattern):
-                        limit = max(limit, lim)
-                except (ValueError, TypeError):
-                    continue
-except FileNotFoundError:
-    pass
-print(limit)
-' 2>/dev/null | tr -d '[:space:]' || echo "0")
-    exempt="${exempt:-0}"
-    if [[ "$exempt" -gt 0 ]]; then
+    exempt=$("$_VIBEGUARD_RUNTIME" u16-limit "$FILE_PATH" "$base_limit" 2>/dev/null | tr -d '[:space:]' || echo "$base_limit")
+    exempt="${exempt:-$base_limit}"
+    if [[ "$exempt" =~ ^[0-9]+$ && "$exempt" -gt 0 ]]; then
       limit="$exempt"
     fi
   fi

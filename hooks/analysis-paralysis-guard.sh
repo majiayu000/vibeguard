@@ -74,17 +74,8 @@ if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
       exit 0
     fi
 
-    VG_WARNINGS="$WARNING" python3 -c '
-import json, os
-warnings = os.environ.get("VG_WARNINGS", "")
-result = {
-    "hookSpecificOutput": {
-        "hookEventName": "PostToolUse",
-        "additionalContext": "VIBEGUARD analysis paralysis warning:" + warnings
-    }
-}
-print(json.dumps(result, ensure_ascii=False))
-'
+    printf '%s' "VIBEGUARD analysis paralysis warning:${WARNING}" \
+      | "$_VIBEGUARD_RUNTIME" hook-context PostToolUse
   elif [[ "$CB_STATUS" -eq 1 ]]; then
     : # Circuit OPEN: vg_cb_check already logged the auto-pass.
   else

@@ -97,32 +97,11 @@ if [[ "$CHECK_STATUS" == "U16_WARN" || "$CHECK_STATUS" == "U16_WARN_SOURCE_NEW" 
     _U16_SOURCE_NEW_LIMIT="$_U16_LIM"
     CHECK_STATUS="SOURCE_NEW"
   else
-    VG_U16_FILE="${FILE_PATH##*/}" \
-    VG_U16_LINES="$_U16_LINES" \
-    VG_U16_WARN="$_U16_WARN" \
-    VG_U16_LIMIT="$_U16_LIM" \
-    python3 - <<'PY'
-import json
-import os
-
-file_name = os.environ.get("VG_U16_FILE", "file")
-line_count = os.environ.get("VG_U16_LINES", "0")
-warn_limit = os.environ.get("VG_U16_WARN", "400")
-hard_limit = os.environ.get("VG_U16_LIMIT", "800")
-context = (
-    f"VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing {file_name} "
-    f"with {line_count} lines exceeds the {warn_limit}-line typical range but stays "
-    f"under the {hard_limit}-line hard limit\n"
-    "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
-    "ACTION: NONE — advisory only, continue without acknowledgement"
-)
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "additionalContext": context,
-    }
-}, ensure_ascii=False))
-PY
+    cat <<EOF | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing ${FILE_PATH##*/} with ${_U16_LINES} lines exceeds the ${_U16_WARN}-line typical range but stays under the ${_U16_LIM}-line hard limit
+SCOPE: keep the current change localized; plan a split if this file keeps growing
+ACTION: NONE — advisory only, continue without acknowledgement
+EOF
     exit 0
   fi
 fi
@@ -160,21 +139,8 @@ else
   PRIOR_SOURCE_NEW_COUNT=0
   if [[ "$ESCALATE_THRESHOLD" -gt 0 && -f "$VIBEGUARD_LOG_FILE" ]]; then
     PRIOR_SOURCE_NEW_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" \
-      | VG_SID="$VIBEGUARD_SESSION_ID" python3 -c '
-import sys, os, json
-sid = os.environ.get("VG_SID", "")
-n = 0
-for line in sys.stdin:
-    try:
-        e = json.loads(line)
-    except Exception:
-        continue
-    if (e.get("session") == sid
-            and e.get("hook") == "pre-write-guard"
-            and e.get("reason") == "New source file attempt"):
-        n += 1
-print(n)
-' 2>/dev/null || echo 0)
+      | "$_VIBEGUARD_RUNTIME" reason-count "$VIBEGUARD_SESSION_ID" "pre-write-guard" "New source file attempt" \
+      2>/dev/null || echo 0)
     PRIOR_SOURCE_NEW_COUNT="${PRIOR_SOURCE_NEW_COUNT:-0}"
   fi
 
@@ -205,39 +171,23 @@ EOF
       vg_json_output_kv decision block reason "VIBEGUARD interception: pre-write circuit breaker state could not be persisted; fail-closed instead of silently continuing."
       exit 0
     fi
-    VG_U16_FILE="${FILE_PATH##*/}" \
-    VG_U16_LINES="$_U16_SOURCE_NEW_LINES" \
-    VG_U16_WARN="$_U16_SOURCE_NEW_WARN" \
-    VG_U16_LIMIT="$_U16_SOURCE_NEW_LIMIT" \
-    python3 - <<'PY'
-import json
-import os
-
-contexts = []
-line_count = os.environ.get("VG_U16_LINES", "")
-if line_count:
-    file_name = os.environ.get("VG_U16_FILE", "file")
-    warn_limit = os.environ.get("VG_U16_WARN", "400")
-    hard_limit = os.environ.get("VG_U16_LIMIT", "800")
-    contexts.append(
-        f"VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing {file_name} "
-        f"with {line_count} lines exceeds the {warn_limit}-line typical range but stays "
-        f"under the {hard_limit}-line hard limit\n"
-        "SCOPE: keep the current change localized; plan a split if this file keeps growing\n"
-        "ACTION: NONE — advisory only, continue without acknowledgement"
-    )
-contexts.append(
-    "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\n"
-    "SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\n"
-    "ACTION: NONE — advisory only, continue without acknowledgement"
-)
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "additionalContext": "\n---\n".join(contexts),
-    }
-}, ensure_ascii=False))
-PY
+    if [[ -n "$_U16_SOURCE_NEW_LINES" ]]; then
+      cat <<EOF | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing ${FILE_PATH##*/} with ${_U16_SOURCE_NEW_LINES} lines exceeds the ${_U16_SOURCE_NEW_WARN}-line typical range but stays under the ${_U16_SOURCE_NEW_LIMIT}-line hard limit
+SCOPE: keep the current change localized; plan a split if this file keeps growing
+ACTION: NONE — advisory only, continue without acknowledgement
+---
+VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates
+SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files
+ACTION: NONE — advisory only, continue without acknowledgement
+EOF
+    else
+      cat <<'EOF' | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates
+SCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files
+ACTION: NONE — advisory only, continue without acknowledgement
+EOF
+    fi
   elif [[ "$CB_STATUS" -eq 1 ]]; then
     : # Circuit OPEN: silent pass (vg_cb_check already logged the auto-pass).
   else

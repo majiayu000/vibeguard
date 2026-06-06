@@ -16,21 +16,6 @@ vg_is_ci && exit 0
 
 INPUT=$(cat 2>/dev/null || true)
 
-REPO_DIR="$(cd "${HOOK_DIR}/.." && pwd)"
-COUNTER="${REPO_DIR}/scripts/constraints/count_active_constraints.py"
-if [[ ! -f "${COUNTER}" ]]; then
-  REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
-  if [[ -f "${REPO_PATH_FILE}" ]]; then
-    REPO_DIR=$(<"${REPO_PATH_FILE}")
-    COUNTER="${REPO_DIR}/scripts/constraints/count_active_constraints.py"
-  fi
-fi
-
-if [[ ! -f "${COUNTER}" ]]; then
-  vg_log "count-active-constraints" "SessionStart" "warn" "counter script missing" "${COUNTER}"
-  exit 0
-fi
-
 PROJECT_ROOT="${VIBEGUARD_PROJECT_ROOT:-}"
 if [[ -z "${PROJECT_ROOT}" ]]; then
   PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -39,7 +24,7 @@ fi
 HOOK_EVENT=$(printf '%s' "${INPUT}" | vg_json_field "hook_event_name" 2>/dev/null || true)
 HOOK_EVENT="${HOOK_EVENT:-SessionStart}"
 
-COUNTER_ARGS=(--root "${PROJECT_ROOT}" --home "${HOME}" --json)
+COUNTER_ARGS=(--root "${PROJECT_ROOT}" --home "${HOME}" --hook-fields)
 
 if [[ -n "${VIBEGUARD_TASK_PATHS:-}" ]]; then
   IFS=',' read -r -a _vg_task_paths <<< "${VIBEGUARD_TASK_PATHS}"
@@ -55,32 +40,13 @@ if [[ -n "${VIBEGUARD_ACTIVE_SKILLS:-}" ]]; then
   done
 fi
 
-REPORT_JSON=$(python3 "${COUNTER}" "${COUNTER_ARGS[@]}" 2>/dev/null || true)
-if [[ -z "${REPORT_JSON}" ]]; then
+REPORT_FIELDS=$("$_VIBEGUARD_RUNTIME" active-constraints "${COUNTER_ARGS[@]}" 2>/dev/null || true)
+if [[ -z "${REPORT_FIELDS}" ]]; then
   vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "constraint counter failed" "${PROJECT_ROOT}"
   exit 0
 fi
 
-read -r STATUS TOTAL WARN_THRESHOLD BLOCK_THRESHOLD SUMMARY < <(
-  python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-status = data.get("status", "ok")
-total = data.get("total", 0)
-warn = data.get("warn_threshold", 15)
-block = data.get("block_threshold", 30)
-sources = sorted(data.get("sources", []), key=lambda item: item.get("count", 0), reverse=True)[:3]
-summary = "; ".join(
-    "{count} {kind} {path}".format(
-        count=item.get("count", 0),
-        kind=item.get("kind", "?"),
-        path=item.get("path", ""),
-    )
-    for item in sources
-)
-print(status, total, warn, block, summary)
-' <<< "${REPORT_JSON}"
-)
+read -r STATUS TOTAL WARN_THRESHOLD BLOCK_THRESHOLD SUMMARY <<< "${REPORT_FIELDS}"
 
 if [[ "${STATUS}" == "ok" ]]; then
   vg_log "count-active-constraints" "${HOOK_EVENT}" "pass" "constraints=${TOTAL}" "${SUMMARY}"
@@ -99,14 +65,4 @@ else
   vg_log "count-active-constraints" "${HOOK_EVENT}" "warn" "constraints=${TOTAL}" "${SUMMARY}"
 fi
 
-VG_HOOK_EVENT="${HOOK_EVENT}" VG_MESSAGE="${MESSAGE}" python3 -c '
-import json, os
-event = os.environ.get("VG_HOOK_EVENT", "SessionStart")
-message = os.environ.get("VG_MESSAGE", "")
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": event,
-        "additionalContext": message,
-    }
-}, ensure_ascii=False))
-'
+printf '%s' "${MESSAGE}" | "$_VIBEGUARD_RUNTIME" hook-context "${HOOK_EVENT}"

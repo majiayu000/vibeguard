@@ -6,8 +6,6 @@ _VG_START_MS=""
 vg_start_timer() {
   if command -v perl &>/dev/null; then
     _VG_START_MS=$(perl -MTime::HiRes=time -e 'printf "%.0f", time*1000')
-  elif command -v python3 &>/dev/null; then
-    _VG_START_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
   else
     _VG_START_MS=$(date +%s)000
   fi

@@ -22,16 +22,6 @@ print substr($s, 0, $limit);
     return 0
   fi
 
-  if command -v python3 &>/dev/null; then
-    printf '%s' "$text" | python3 -c '
-import sys
-limit = int(sys.argv[1])
-data = sys.stdin.buffer.read().decode("utf-8", errors="replace")
-sys.stdout.write(data[:limit])
-' "$limit"
-    return 0
-  fi
-
   printf '%s' "$text" | head -c "$limit"
 }
 
@@ -59,25 +49,6 @@ s/(\bAuthorization\s*:\s*Bearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/(\bBearer\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/(\s--?(?:api[_-]?key|password|passwd|secret|token)\s+)[^\s"'\''`&;]+/${1}***REDACTED***/ig;
 s/\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)("[^"]*"|'\''[^'\'']*'\''|[^\s"'\''`&;]+)/${1}***REDACTED***/ig;
-'
-    return 0
-  fi
-
-  if command -v python3 &>/dev/null; then
-    printf '%s' "$text" | python3 -c '
-import re
-import sys
-
-data = sys.stdin.read()
-patterns = [
-    (r"(\bAuthorization\s*:\s*Bearer\s+)[^\s\"'"'"'`&;]+", r"\1***REDACTED***"),
-    (r"(\bBearer\s+)[^\s\"'"'"'`&;]+", r"\1***REDACTED***"),
-    (r"(\s--?(?:api[_-]?key|password|passwd|secret|token)\s+)[^\s\"'"'"'`&;]+", r"\1***REDACTED***"),
-    (r"\b([A-Za-z0-9_:-]*(?:api[_-]?key|password|passwd|secret|token)[A-Za-z0-9_:-]*\s*[:=]\s*)(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^\s\"'"'"'`&;]+)", r"\1***REDACTED***"),
-]
-for pattern, repl in patterns:
-    data = re.sub(pattern, repl, data, flags=re.IGNORECASE)
-sys.stdout.write(data)
 '
     return 0
   fi
