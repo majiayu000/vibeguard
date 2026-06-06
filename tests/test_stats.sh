@@ -53,11 +53,110 @@ assert_cmd() {
   fi
 }
 
+assert_cmd_fails() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  else
+    green "$desc"
+    PASS=$((PASS + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
+
+RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+
+header "build"
+assert_cmd "vibeguard-runtime builds for observe wrappers" \
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+
+header "Runtime support probe"
+source "${REPO_DIR}/scripts/lib/runtime.sh"
+old_observe_runtime="${TMP_DIR}/old-observe-runtime"
+cat > "${old_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$1" == "observe" ]]; then
+  printf 'unknown argument: --legacy\n' >&2
+  exit 2
+fi
+exit 2
+SH
+chmod +x "${old_observe_runtime}"
+
+legacy_observe_runtime="${TMP_DIR}/legacy-observe-runtime"
+cat > "${legacy_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$*" == "observe summary --legacy --days all --limit all --log-file /dev/null" ]]; then
+  exit 0
+fi
+exit 2
+SH
+chmod +x "${legacy_observe_runtime}"
+
+export_observe_runtime="${TMP_DIR}/export-observe-runtime"
+cat > "${export_observe_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "$#" -eq 0 ]]; then
+  printf 'observe\n'
+  exit 0
+fi
+if [[ "$*" == "observe export prometheus --since all --input-file /dev/null" ]]; then
+  exit 0
+fi
+if [[ "$1" == "observe" ]]; then
+  printf 'unknown argument: --legacy\n' >&2
+  exit 2
+fi
+exit 2
+SH
+chmod +x "${export_observe_runtime}"
+
+assert_cmd_fails "Probe rejects runtimes without legacy observe options" \
+  vg_runtime_supports_observe "${old_observe_runtime}"
+assert_cmd "Probe accepts runtimes with legacy observe options" \
+  vg_runtime_supports_observe "${legacy_observe_runtime}"
+assert_cmd_fails "Legacy probe rejects export-only runtimes" \
+  vg_runtime_supports_observe "${export_observe_runtime}"
+assert_cmd "Export probe accepts export-only runtimes" \
+  vg_runtime_supports_observe_export_prometheus "${export_observe_runtime}"
+
+resolver_repo="${TMP_DIR}/resolver-repo"
+resolver_home="${TMP_DIR}/resolver-home"
+mkdir -p \
+  "${resolver_repo}/vibeguard-runtime/target/debug" \
+  "${resolver_home}/.vibeguard/installed/bin"
+cp "${export_observe_runtime}" "${resolver_repo}/vibeguard-runtime/target/debug/vibeguard-runtime"
+cp "${legacy_observe_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+selected_legacy_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_legacy
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
+)"
+assert_contains "${selected_legacy_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver skips export-only repo runtime for legacy stats"
+selected_export_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_export_prometheus
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
+)"
+assert_contains "${selected_export_runtime}" "${resolver_repo}/vibeguard-runtime/target/debug/vibeguard-runtime" "Resolver accepts repo runtime for exporter without legacy stats support"
 
 header "Project and explicit log scope"
 SCOPE_ROOT="${TMP_DIR}/scope"
@@ -154,6 +253,9 @@ with open(path, "wb") as f:
         f.write(json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\n")
     f.write(recoverable_bad_utf8)
     f.write(b'{"ts":"broken-json"\n')
+    f.write(b'null\n')
+    f.write(b'[]\n')
+    f.write(b'"quoted fragment"\n')
 PY
 
 stats_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 7 2>&1)"
@@ -163,12 +265,121 @@ assert_contains "${stats_out}" "Interception (block): 1 times" "Block count incl
 assert_contains "${stats_out}" "Warning: 1 times" "Warn count is correct"
 assert_contains "${stats_out}" "pre-bash-guard: 2 times" "Hook aggregation remains correct"
 assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggregation remains correct"
+stats_all_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global all 2>&1)"
+assert_contains "${stats_all_out}" "Total triggers: 3 times" "Non-object JSONL records are skipped for all-history stats"
+
+header "Legacy stats analyses are preserved"
+mkdir -p "${TMP_DIR}/legacy-sections-log"
+python3 - "${TMP_DIR}/legacy-sections-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+base = datetime.now(timezone.utc) - timedelta(days=1)
+
+events = [
+    {
+        "ts": base.replace(hour=10, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-a",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "non-standard markdown",
+        "detail": "notes.md",
+        "cli": "codex",
+    },
+    {
+        "ts": base.replace(hour=11, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-a",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "pass",
+        "reason": "",
+        "detail": "src/main.rs",
+        "cli": "codex",
+    },
+    {
+        "ts": base.replace(hour=20, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-b",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "block",
+        "reason": "U-16 block",
+        "detail": "src/lib.rs",
+        "cli": "claude",
+    },
+    {
+        "ts": base.replace(hour=21, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-b",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "warn",
+        "reason": "needs review",
+        "detail": "README.md",
+        "cli": "claude",
+    },
+]
+
+with open(path, "w", encoding="utf-8") as f:
+    for event in events:
+        f.write(json.dumps(event) + "\n")
+PY
+
+legacy_sections_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/legacy-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
+assert_contains "${legacy_sections_out}" "== Warn compliance rate analysis ==" "Warn compliance section is preserved"
+assert_contains "${legacy_sections_out}" "pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]" "Warn compliance computes pass ratio"
+assert_contains "${legacy_sections_out}" "Distributed by file type:" "File type section is preserved"
+assert_contains "${legacy_sections_out}" ".rs: 2 times" "File type distribution counts details"
+assert_contains "${legacy_sections_out}" "Distributed by time period:" "Time period section is preserved"
+assert_contains "${legacy_sections_out}" "working time (09-18): 2 times (50%)" "Working-hour distribution is computed"
+assert_contains "${legacy_sections_out}" "== Performance analysis ==" "Performance section is preserved"
+assert_contains "${legacy_sections_out}" "Total number of sessions: 2" "Session count is preserved"
+assert_contains "${legacy_sections_out}" "Average triggers per session: 2.0 times" "Average trigger count is preserved"
+assert_contains "${legacy_sections_out}" "Deterministic node estimated savings: ~2K tokens" "Token savings estimate is preserved"
+assert_contains "${legacy_sections_out}" "Conversations with the most questions Top 3:" "Problem sessions section is preserved"
+assert_contains "${legacy_sections_out}" "session-b: 2 issues / 2 triggers" "Problem sessions are ranked"
+
+header "Legacy wrapper reads beyond observe default limit"
+mkdir -p "${TMP_DIR}/large-log"
+python3 - "${TMP_DIR}/large-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+now = datetime.now(timezone.utc) - timedelta(hours=1)
+
+with open(path, "w", encoding="utf-8") as f:
+    first = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "session": "first",
+        "hook": "first-hook",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "first event",
+        "detail": "first event",
+    }
+    f.write(json.dumps(first) + "\n")
+    for index in range(5000):
+        event = {
+            "ts": (now + timedelta(seconds=index + 1)).isoformat().replace("+00:00", "Z"),
+            "session": f"bulk-{index}",
+            "hook": "bulk-hook",
+            "tool": "Bash",
+            "decision": "pass",
+            "reason": "",
+            "detail": "bulk event",
+        }
+        f.write(json.dumps(event) + "\n")
+PY
+
+large_stats_out="$(bash "${SCRIPT}" --log-file "${TMP_DIR}/large-log/events.jsonl" 7 2>&1)"
+assert_contains "${large_stats_out}" "Total triggers: 5001 times" "Stats wrapper preserves events beyond observe default limit"
+assert_contains "${large_stats_out}" "first-hook: 1 times" "Stats wrapper includes earliest event beyond default limit"
 
 header "Prometheus exporter uses low-cardinality labels"
-RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 EXPORTER="${REPO_DIR}/scripts/metrics/metrics-exporter.sh"
-assert_cmd "vibeguard-runtime builds for exporter wrapper" \
-  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 
 mkdir -p "${TMP_DIR}/prom-log"
 python3 - "${TMP_DIR}/prom-log/events.jsonl" <<'PY'

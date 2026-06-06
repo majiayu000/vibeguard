@@ -40,6 +40,7 @@ impl TimeWindow {
 pub(super) struct ObserveOptions {
     pub(super) command: ObserveCommand,
     pub(super) json: bool,
+    pub(super) legacy: bool,
     pub(super) log_file: Option<PathBuf>,
     pub(super) scope: LogScope,
     pub(super) scope_explicit: bool,
@@ -61,6 +62,7 @@ impl ObserveOptions {
         Self {
             command,
             json: false,
+            legacy: false,
             log_file: None,
             scope: LogScope::Project,
             scope_explicit: false,
@@ -113,6 +115,7 @@ fn parse_common_args(args: &[String], options: &mut ObserveOptions) -> Result {
     while index < args.len() {
         match args[index].as_str() {
             "--json" => options.json = true,
+            "--legacy" => options.legacy = true,
             "--log-file" => {
                 index += 1;
                 options.log_file = Some(PathBuf::from(value_arg(args, index, "--log-file")?));
@@ -130,8 +133,7 @@ fn parse_common_args(args: &[String], options: &mut ObserveOptions) -> Result {
             }
             "--limit" => {
                 index += 1;
-                options.limit =
-                    parse_positive_usize(value_arg(args, index, "--limit")?, "--limit")?;
+                options.limit = parse_limit(value_arg(args, index, "--limit")?)?;
             }
             "--slow-ms" => {
                 index += 1;
@@ -161,6 +163,13 @@ fn value_arg<'a>(args: &'a [String], index: usize, name: &str) -> Result<&'a str
     args.get(index)
         .map(String::as_str)
         .ok_or_else(|| format!("{name} requires a value").into())
+}
+
+fn parse_limit(value: &str) -> Result<usize> {
+    if value == "all" {
+        return Ok(usize::MAX);
+    }
+    parse_positive_usize(value, "--limit")
 }
 
 fn parse_positive_usize(value: &str, name: &str) -> Result<usize> {
@@ -194,7 +203,7 @@ fn parse_hours_window(value: &str) -> Result<TimeWindow> {
 }
 
 fn usage() -> &'static str {
-    "Usage: vibeguard-runtime observe <summary|health|session|export prometheus> [--json] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N] [--slow-ms MS] [--top N]"
+    "Usage: vibeguard-runtime observe <summary|health|session|export prometheus> [--json] [--legacy] [--scope project|global] [--project PATH_OR_HASH] [--log-file PATH] [--days N|all] [--hours N|all] [--limit N|all] [--slow-ms MS] [--top N]"
 }
 
 #[cfg(test)]
@@ -242,5 +251,15 @@ mod tests {
         };
 
         assert!(error.to_string().contains("--limit must be greater than 0"));
+    }
+
+    #[test]
+    fn all_limit_uses_maximum_read_window() {
+        let options = match parse_observe_args(&args(&["summary", "--limit", "all"])) {
+            Ok(options) => options,
+            Err(error) => panic!("all limit should parse: {error}"),
+        };
+
+        assert_eq!(options.limit, usize::MAX);
     }
 }

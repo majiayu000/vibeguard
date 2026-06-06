@@ -122,7 +122,7 @@ fn observe_increment(map: &mut BTreeMap<String, u64>, key: String) {
     *map.entry(key).or_default() += 1;
 }
 
-fn observe_non_empty_or(value: String, fallback: &str) -> String {
+pub(super) fn observe_non_empty_or(value: String, fallback: &str) -> String {
     if value.is_empty() {
         fallback.to_string()
     } else {
@@ -130,7 +130,7 @@ fn observe_non_empty_or(value: String, fallback: &str) -> String {
     }
 }
 
-fn observe_normalized_decision(event: &Value) -> String {
+pub(super) fn observe_normalized_decision(event: &Value) -> String {
     let decision_value = observe_string_field(event, field::DECISION).to_ascii_lowercase();
     if !decision_value.is_empty() {
         return decision_value;
@@ -194,7 +194,7 @@ fn observe_event_name(event: &Value) -> String {
     UNKNOWN.to_string()
 }
 
-fn observe_client_name(event: &Value) -> String {
+pub(super) fn observe_client_name(event: &Value) -> String {
     for key in [field::CLIENT, field::CLI, field::AGENT] {
         let value = observe_string_field(event, key);
         if !value.is_empty() {

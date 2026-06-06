@@ -14,6 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${REPO_DIR}/scripts/lib/runtime.sh"
 PUSH_URL=""
 OUTPUT_FILE=""
 DAYS=7
@@ -21,32 +22,6 @@ SINCE=""
 SCOPE="global"
 INPUT_FILE=""
 PROJECT=""
-
-resolve_runtime() {
-  if [[ -n "${VIBEGUARD_RUNTIME:-}" ]]; then
-    printf '%s\n' "${VIBEGUARD_RUNTIME}"
-    return 0
-  fi
-
-  local candidate
-  for candidate in \
-    "${REPO_DIR}/vibeguard-runtime/target/release/vibeguard-runtime" \
-    "${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" \
-    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"; do
-    if [[ -x "${candidate}" ]]; then
-      printf '%s\n' "${candidate}"
-      return 0
-    fi
-  done
-
-  if command -v vibeguard-runtime >/dev/null 2>&1; then
-    command -v vibeguard-runtime
-    return 0
-  fi
-
-  printf '%s\n' "vibeguard-runtime not found. Run cargo build --manifest-path vibeguard-runtime/Cargo.toml or setup.sh." >&2
-  return 2
-}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,7 +40,7 @@ if [[ -z "${SINCE}" ]]; then
   SINCE="${DAYS}d"
 fi
 
-RUNTIME="$(resolve_runtime)"
+RUNTIME="$(vg_resolve_runtime "${REPO_DIR}" observe_export_prometheus)"
 CMD=(
   "${RUNTIME}"
   observe

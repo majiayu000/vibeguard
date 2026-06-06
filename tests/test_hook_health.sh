@@ -40,6 +40,21 @@ assert_not_contains() {
   fi
 }
 
+assert_line_before() {
+  local output="$1" first="$2" second="$3" desc="$4"
+  local first_line second_line
+  TOTAL=$((TOTAL + 1))
+  first_line="$(grep -nF -- "$first" <<< "$output" | head -n 1 | cut -d: -f1 || true)"
+  second_line="$(grep -nF -- "$second" <<< "$output" | head -n 1 | cut -d: -f1 || true)"
+  if [[ -n "${first_line}" && -n "${second_line}" && "${first_line}" -lt "${second_line}" ]]; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 assert_exit_nonzero() {
   local code="$1" desc="$2"
   TOTAL=$((TOTAL + 1))
@@ -52,11 +67,28 @@ assert_exit_nonzero() {
   fi
 }
 
+assert_cmd() {
+  local desc="$1"
+  shift
+  TOTAL=$((TOTAL + 1))
+  if "$@" >/dev/null 2>&1; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
+
+header "build"
+assert_cmd "vibeguard-runtime builds for health wrapper" \
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
 
 header "No log file"
 no_log_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/missing" bash "${SCRIPT}" 2>&1 || true)"
@@ -117,13 +149,17 @@ assert_not_contains "${missing_scope_out}" "global-only" "Missing project log do
 
 header "Health snapshot of the last 24 hours"
 mkdir -p "${TMP_DIR}/log"
-python3 - "${TMP_DIR}/log/events.jsonl" <<'PY'
+python3 - "${TMP_DIR}/log/events.jsonl" "${TMP_DIR}/log/expected-range.txt" <<'PY'
 import json
 import sys
 from datetime import datetime, timedelta, timezone
 
-path = sys.argv[1]
+path, expected_range_path = sys.argv[1:3]
 now = datetime.now(timezone.utc)
+oldest_in_window = (now - timedelta(hours=3)).isoformat().replace("+00:00", "Z")
+latest_in_window = (now - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+recent_utc = now - timedelta(minutes=40)
+older_offset = (recent_utc - timedelta(minutes=15)).astimezone(timezone(timedelta(hours=1)))
 
 events = [
     {
@@ -149,7 +185,7 @@ events = [
         "client": "codex",
     },
     {
-        "ts": (now - timedelta(hours=3)).isoformat().replace("+00:00", "Z"),
+        "ts": oldest_in_window,
         "session": "s3",
         "hook": "pre-bash-guard",
         "tool": "Bash",
@@ -158,13 +194,31 @@ events = [
         "detail": "echo hi > notes.md",
     },
     {
-        "ts": (now - timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+        "ts": latest_in_window,
         "session": "s4",
         "hook": "post-edit-guard",
         "tool": "Edit",
         "decision": "correction",
         "reason": "replace any with concrete type",
         "detail": "src/lib.rs",
+    },
+    {
+        "ts": recent_utc.isoformat().replace("+00:00", "Z"),
+        "session": "offset-newer",
+        "hook": "offset-newer-hook",
+        "tool": "Edit",
+        "decision": "warn",
+        "reason": "newer instant",
+        "detail": "newer.rs",
+    },
+    {
+        "ts": older_offset.isoformat(),
+        "session": "offset-older",
+        "hook": "offset-older-hook",
+        "tool": "Edit",
+        "decision": "block",
+        "reason": "older offset instant",
+        "detail": "older.rs",
     },
     {
         "ts": (now - timedelta(hours=30)).isoformat().replace("+00:00", "Z"),
@@ -180,20 +234,30 @@ events = [
 with open(path, "w", encoding="utf-8") as f:
     for event in events:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
+with open(expected_range_path, "w", encoding="utf-8") as f:
+    f.write(oldest_in_window + "\n")
+    f.write(latest_in_window + "\n")
+    f.write(older_offset.isoformat() + "\n")
 PY
 
 health_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global 24 2>&1)"
+expected_first_ts="$(sed -n '1p' "${TMP_DIR}/log/expected-range.txt")"
+expected_last_ts="$(sed -n '2p' "${TMP_DIR}/log/expected-range.txt")"
+lexically_late_offset_ts="$(sed -n '3p' "${TMP_DIR}/log/expected-range.txt")"
 assert_contains "${health_out}" "VibeGuard Hook Health (last 24 hours)" "Title is correct"
-assert_contains "${health_out}" "Total triggers: 4" "Filter out events within 24 hours"
+assert_contains "${health_out}" "Time range: ${expected_first_ts} ~ ${expected_last_ts}" "Time range is ordered by parsed timestamp"
+assert_not_contains "${health_out}" "Time range: ${expected_first_ts} ~ ${lexically_late_offset_ts}" "Time range does not use lexicographic offset order"
+assert_contains "${health_out}" "Total triggers: 6" "Filter out events within 24 hours"
 assert_contains "${health_out}" "Pass: 1" "Pass statistics are correct"
-assert_contains "${health_out}" "Risk (non-pass): 3" "Risk statistics are correct"
-assert_contains "${health_out}" "Risk rate: 75.0%" "Risk rate calculation is correct"
+assert_contains "${health_out}" "Risk (non-pass): 5" "Risk statistics are correct"
+assert_contains "${health_out}" "Risk rate: 83.3%" "Risk rate calculation is correct"
 assert_contains "${health_out}" "Client distribution:" "Output client distribution"
 assert_contains "${health_out}" "claude: 1" "Client distribution includes Claude"
 assert_contains "${health_out}" "codex: 1" "Client distribution includes Codex"
 assert_contains "${health_out}" "Risk Hook Top 5:" "Output risk hook ranking"
 assert_contains "${health_out}" "Top 10 recent risk events:" "Output the latest risk events"
 assert_contains "${health_out}" "stop-guard | gate | cli=codex | client=codex" "Risk event contains caller split"
+assert_line_before "${health_out}" "session=offset-newer" "session=offset-older" "Recent risk events are ordered by parsed timestamp"
 
 header "Malformed UTF-8 and broken JSON lines are tolerated"
 python3 - "${TMP_DIR}/log/events-malformed.jsonl" <<'PY'
@@ -243,6 +307,44 @@ malformed_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope glo
 assert_contains "${malformed_out}" "Total triggers: 3" "Recoverable malformed UTF-8 line is counted and broken JSON line is skipped"
 assert_contains "${malformed_out}" "Risk (non-pass): 2" "Malformed UTF-8 line still contributes to decision counts"
 assert_contains "${malformed_out}" "pre-bash-guard: 1" "Recovered line participates in non-pass hook aggregation"
+
+header "Legacy wrapper reads beyond observe default limit"
+mkdir -p "${TMP_DIR}/large-health-log"
+python3 - "${TMP_DIR}/large-health-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+now = datetime.now(timezone.utc) - timedelta(hours=1)
+
+with open(path, "w", encoding="utf-8") as f:
+    first = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "session": "first",
+        "hook": "first-health-hook",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "first event",
+        "detail": "first event",
+    }
+    f.write(json.dumps(first) + "\n")
+    for index in range(5000):
+        event = {
+            "ts": (now + timedelta(seconds=index + 1)).isoformat().replace("+00:00", "Z"),
+            "session": f"bulk-{index}",
+            "hook": "bulk-health-hook",
+            "tool": "Bash",
+            "decision": "pass",
+            "reason": "",
+            "detail": "bulk event",
+        }
+        f.write(json.dumps(event) + "\n")
+PY
+
+large_health_out="$(bash "${SCRIPT}" --log-file "${TMP_DIR}/large-health-log/events.jsonl" 24 2>&1)"
+assert_contains "${large_health_out}" "Total triggers: 5001" "Health wrapper preserves events beyond observe default limit"
+assert_contains "${large_health_out}" "first-health-hook: 1" "Health wrapper includes earliest risk event beyond default limit"
 
 header "illegal parameter"
 set +e
