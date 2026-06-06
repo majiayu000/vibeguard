@@ -136,6 +136,28 @@ assert_cmd_fails "Legacy probe rejects export-only runtimes" \
 assert_cmd "Export probe accepts export-only runtimes" \
   vg_runtime_supports_observe_export_prometheus "${export_observe_runtime}"
 
+resolver_repo="${TMP_DIR}/resolver-repo"
+resolver_home="${TMP_DIR}/resolver-home"
+mkdir -p \
+  "${resolver_repo}/vibeguard-runtime/target/debug" \
+  "${resolver_home}/.vibeguard/installed/bin"
+cp "${export_observe_runtime}" "${resolver_repo}/vibeguard-runtime/target/debug/vibeguard-runtime"
+cp "${legacy_observe_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+selected_legacy_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_legacy
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
+)"
+assert_contains "${selected_legacy_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver skips export-only repo runtime for legacy stats"
+selected_export_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_export_prometheus
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
+)"
+assert_contains "${selected_export_runtime}" "${resolver_repo}/vibeguard-runtime/target/debug/vibeguard-runtime" "Resolver accepts repo runtime for exporter without legacy stats support"
+
 header "Project and explicit log scope"
 SCOPE_ROOT="${TMP_DIR}/scope"
 SCOPE_PROJECT_DIR="${SCOPE_ROOT}/projects/abcdef12"
