@@ -170,6 +170,78 @@ assert_contains "${stats_out}" "Warning: 1 times" "Warn count is correct"
 assert_contains "${stats_out}" "pre-bash-guard: 2 times" "Hook aggregation remains correct"
 assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggregation remains correct"
 
+header "Legacy stats analyses are preserved"
+mkdir -p "${TMP_DIR}/legacy-sections-log"
+python3 - "${TMP_DIR}/legacy-sections-log/events.jsonl" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+base = datetime.now(timezone.utc) - timedelta(days=1)
+
+events = [
+    {
+        "ts": base.replace(hour=10, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-a",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "warn",
+        "reason": "non-standard markdown",
+        "detail": "notes.md",
+        "cli": "codex",
+    },
+    {
+        "ts": base.replace(hour=11, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-a",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "pass",
+        "reason": "",
+        "detail": "src/main.rs",
+        "cli": "codex",
+    },
+    {
+        "ts": base.replace(hour=20, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-b",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "block",
+        "reason": "U-16 block",
+        "detail": "src/lib.rs",
+        "cli": "claude",
+    },
+    {
+        "ts": base.replace(hour=21, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z"),
+        "session": "session-b",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "warn",
+        "reason": "needs review",
+        "detail": "README.md",
+        "cli": "claude",
+    },
+]
+
+with open(path, "w", encoding="utf-8") as f:
+    for event in events:
+        f.write(json.dumps(event) + "\n")
+PY
+
+legacy_sections_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/legacy-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
+assert_contains "${legacy_sections_out}" "== Warn compliance rate analysis ==" "Warn compliance section is preserved"
+assert_contains "${legacy_sections_out}" "pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]" "Warn compliance computes pass ratio"
+assert_contains "${legacy_sections_out}" "Distributed by file type:" "File type section is preserved"
+assert_contains "${legacy_sections_out}" ".rs: 2 times" "File type distribution counts details"
+assert_contains "${legacy_sections_out}" "Distributed by time period:" "Time period section is preserved"
+assert_contains "${legacy_sections_out}" "working time (09-18): 2 times (50%)" "Working-hour distribution is computed"
+assert_contains "${legacy_sections_out}" "== Performance analysis ==" "Performance section is preserved"
+assert_contains "${legacy_sections_out}" "Total number of sessions: 2" "Session count is preserved"
+assert_contains "${legacy_sections_out}" "Average triggers per session: 2.0 times" "Average trigger count is preserved"
+assert_contains "${legacy_sections_out}" "Deterministic node estimated savings: ~2K tokens" "Token savings estimate is preserved"
+assert_contains "${legacy_sections_out}" "Conversations with the most questions Top 3:" "Problem sessions section is preserved"
+assert_contains "${legacy_sections_out}" "session-b: 2 issues / 2 triggers" "Problem sessions are ranked"
+
 header "Legacy wrapper reads beyond observe default limit"
 mkdir -p "${TMP_DIR}/large-log"
 python3 - "${TMP_DIR}/large-log/events.jsonl" <<'PY'

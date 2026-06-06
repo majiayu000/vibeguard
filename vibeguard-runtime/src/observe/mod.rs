@@ -1,6 +1,7 @@
 //! Canonical observability queries over VibeGuard JSONL event logs.
 
 mod aggregate;
+mod legacy_stats;
 mod model;
 mod prometheus;
 mod read;
