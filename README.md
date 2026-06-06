@@ -265,6 +265,8 @@ Doctors are read-only diagnosis wrappers over the existing defense system. They 
 
 Hook latency is also a product contract. See [Hook Latency Contract](docs/reference/hook-latency-contract.md) for per-hook P95 budgets, hotspot attribution, and the static gates that block expensive hook patterns.
 
+The local observability contract is documented in [Observability Harness Contract](docs/reference/observability-harness.md), including project/global scope, metric labels, and the external-stack roadmap.
+
 ## Tested and Evaluated
 
 VibeGuard guards its own behavior — the test suite and eval harness ship in the repo, not as an afterthought.

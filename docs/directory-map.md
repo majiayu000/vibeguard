@@ -42,7 +42,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | Path | Role |
 |------|------|
 | `README.md`, `docs/README_CN.md` | Public product entrypoints. |
-| `docs/rule-reference.md` | Public generated summary of the rule/guard surface. |
+| `docs/rule-reference.md`, `docs/reference/observability-harness.md` | Public generated rule/guard summary and local observability contract. |
 | `docs/how/`, `docs/reference/`, `docs/known-issues/` | Public or maintainer-facing explanations that describe current behavior. |
 | `docs/specs/` | Maintainer-facing specs for active implementation work with linked issues or PRs. |
 | `docs/assets/` | Demo media and scripts used by public docs. |
