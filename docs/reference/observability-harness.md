@@ -131,6 +131,10 @@ Allowed default labels:
 - `source`
 - `schema_version`
 - `project_id` as a short opaque hash
+- `rule_id` as a bounded rule identifier or `none`
+- `reason_code` as a bounded derived reason category
+- `severity` as a bounded derived level
+- `file_ext` as a bounded derived extension or `none`
 
 Forbidden default labels:
 
