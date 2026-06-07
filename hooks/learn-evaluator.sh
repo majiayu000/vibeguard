@@ -30,6 +30,33 @@ vg_learn_stop_hook_active_fast() {
   [[ "$active" == "true" ]]
 }
 
+vg_learn_recent_events() {
+  local log_file="$1" tail_bytes="$2"
+  [[ -f "$log_file" ]] || return 0
+  if [[ "$tail_bytes" =~ ^[0-9]+$ && "$tail_bytes" -gt 0 ]]; then
+    tail -c "$tail_bytes" "$log_file" 2>/dev/null || cat "$log_file" 2>/dev/null || true
+  else
+    cat "$log_file" 2>/dev/null || true
+  fi
+}
+
+vg_learn_log_truncation_once() {
+  local log_file="$1" tail_bytes="$2"
+  [[ -f "$log_file" ]] || return 0
+  [[ "$tail_bytes" =~ ^[0-9]+$ && "$tail_bytes" -gt 0 ]] || return 0
+
+  local size_bytes session_key flag_file
+  size_bytes="$(wc -c < "$log_file" 2>/dev/null | tr -d ' ' || echo 0)"
+  [[ "$size_bytes" =~ ^[0-9]+$ && "$size_bytes" -gt "$tail_bytes" ]] || return 0
+  session_key="$(printf '%s' "${VIBEGUARD_SESSION_ID:-unknown}" | tr -c 'A-Za-z0-9_.-' '_')"
+  flag_file="${VIBEGUARD_LOG_DIR}/.learn_metrics_truncated_${session_key}"
+  [[ -f "$flag_file" ]] && return 0
+  : > "$flag_file" 2>/dev/null || true
+  vg_log "learn-evaluator" "Stop" "warn" \
+    "metrics input truncated to ${tail_bytes} bytes before 30-minute filter; increase VIBEGUARD_LEARN_METRICS_TAIL_BYTES for very busy sessions" \
+    "$log_file"
+}
+
 # CI guard: skip in automated environments
 vg_learn_is_ci && exit 0
 
@@ -42,11 +69,13 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   exit 0
 fi
 
-# Collect session metrics for the last 30 minutes of the current project + correct signal detection
-# Pass the full log file — the 30-minute cutoff is enforced inside vibeguard-runtime,
-# so tail-limiting here would under-count events on busy sessions (>1000 events/30 min).
-LEARN_SUGGESTION=$("$_VIBEGUARD_RUNTIME" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" \
-  < "$VIBEGUARD_LOG_FILE" 2>/dev/null || true)
+# Collect session metrics for the last 30 minutes of the current project. Bound
+# the input before the runtime filter so old logs cannot make every Stop hook
+# linearly slower as events.jsonl grows.
+LEARN_TAIL_BYTES="$(vg_config_get_int VIBEGUARD_LEARN_METRICS_TAIL_BYTES learn.metrics_tail_bytes 5242880)"
+vg_learn_log_truncation_once "$VIBEGUARD_LOG_FILE" "$LEARN_TAIL_BYTES"
+LEARN_SUGGESTION=$(vg_learn_recent_events "$VIBEGUARD_LOG_FILE" "$LEARN_TAIL_BYTES" \
+  | "$_VIBEGUARD_RUNTIME" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null || true)
 
 # If a correction signal is detected, output suggestions (not blocking)
 if [[ "$LEARN_SUGGESTION" == LEARN_SUGGESTED* ]]; then

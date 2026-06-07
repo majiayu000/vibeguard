@@ -20,6 +20,27 @@ force_settings_out="$(bash "${REPO_DIR}/setup.sh" --yes --force-overwrite 2>&1)"
 assert_contains "${force_settings_out}" "Mode: force-overwrite" "--force-overwrite mode is visible"
 assert_cmd "--force-overwrite restores canonical hook command" bash -c "! grep -q 'flock /tmp/vibeguard.lock' '${HOME}/.claude/settings.json'"
 
+python3 - <<'PY' "${HOME}/.claude/settings.json"
+import json
+import sys
+from pathlib import Path
+
+settings = Path(sys.argv[1])
+data = json.loads(settings.read_text(encoding="utf-8"))
+for entry in data["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        entry["hooks"].append({"type": "command", "command": "bash /tmp/third-party-pre-bash.sh"})
+        break
+else:
+    raise SystemExit(1)
+settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+mixed_clean_out="$(bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
+assert_contains "${mixed_clean_out}" "VibeGuard cleaned." "setup --clean succeeds with mixed Claude hook entry"
+assert_cmd "setup --clean preserves third-party Claude hook in mixed entry" grep -q "/tmp/third-party-pre-bash.sh" "${HOME}/.claude/settings.json"
+assert_cmd "setup --clean removes VibeGuard hook from mixed entry" bash -c "! grep -q 'pre-bash-guard.sh' '${HOME}/.claude/settings.json'"
+bash "${REPO_DIR}/setup.sh" --yes >/dev/null
+
 _CUSTOM_RULE="${HOME}/.claude/rules/vibeguard/common/security.md"
 rm -f "${_CUSTOM_RULE}"
 printf 'local custom security rule\n' > "${_CUSTOM_RULE}"
@@ -31,15 +52,16 @@ assert_contains "${rule_force_out}" "FORCE: replacing local rule copy" "--force-
 assert_cmd "--force-overwrite restores rule symlink" test -L "${_CUSTOM_RULE}"
 
 header "codex config helper failure propagates"
-_ORIG_CODEX_CONFIG_HELPER="${REPO_DIR}/scripts/lib/codex_config_toml.py"
-_BACKUP_CODEX_CONFIG_HELPER="${TMP_HOME}/codex_config_toml.py.backup"
-cp "${_ORIG_CODEX_CONFIG_HELPER}" "${_BACKUP_CODEX_CONFIG_HELPER}"
-cat > "${_ORIG_CODEX_CONFIG_HELPER}" <<'PY'
-#!/usr/bin/env python3
-raise SystemExit(42)
-PY
-fail_install_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1 || true)"
-cp "${_BACKUP_CODEX_CONFIG_HELPER}" "${_ORIG_CODEX_CONFIG_HELPER}"
+_FAILING_CODEX_CONFIG_RUNTIME="${TMP_HOME}/failing-codex-config-runtime"
+cat > "${_FAILING_CODEX_CONFIG_RUNTIME}" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "setup-codex-config-enable-hooks" ]]; then
+  exit 42
+fi
+exec "${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" "\$@"
+EOF
+chmod +x "${_FAILING_CODEX_CONFIG_RUNTIME}"
+fail_install_out="$(VIBEGUARD_SETUP_RUNTIME="${_FAILING_CODEX_CONFIG_RUNTIME}" bash "${REPO_DIR}/setup.sh" --yes 2>&1 || true)"
 assert_contains "${fail_install_out}" "Failed to enable hooks feature in config.toml" "setup reports hooks helper failure"
 assert_cmd "setup exits before reporting success when hooks helper fails" bash -c "! grep -q 'Setup complete! All components installed.' <<< '${fail_install_out}'"
 
@@ -218,7 +240,7 @@ assert_cmd "check-vibeguard rejects stale entry missing type field" bash -c "! p
 # After upsert the entry must be repaired and check must pass.
 python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}" >/dev/null
 assert_cmd "upsert repairs stale entry; check-vibeguard then passes" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${_STALE_HOOKS}" --wrapper "${_STALE_WRAPPER}"
-# Write a Stop entry with correct command but a spurious timeout (Stop spec has none).
+# Write a Stop entry with correct command but the wrong timeout.
 python3 -c "
 import json
 data = {
@@ -231,7 +253,7 @@ data = {
 with open('${_STALE_HOOKS}', 'w') as f:
     json.dump(data, f, indent=2)
 "
-assert_cmd "check-vibeguard rejects Stop entry with spurious timeout" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
+assert_cmd "check-vibeguard rejects Stop entry with wrong timeout" bash -c "! python3 '${CODEX_HOOKS_HELPER}' check-vibeguard --hooks-file '${_STALE_HOOKS}' --wrapper '${_STALE_WRAPPER}'"
 # Write a Stop entry with correct command+type but a spurious matcher (Stop spec has none).
 python3 -c "
 import json

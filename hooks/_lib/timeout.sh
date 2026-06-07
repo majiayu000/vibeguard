@@ -24,7 +24,11 @@ vg_run_with_timeout() {
   "$@" &
   pid=$!
   (
-    sleep "${seconds}" 2>/dev/null || sleep 1
+    local sleep_pid
+    sleep "${seconds}" 2>/dev/null &
+    sleep_pid=$!
+    trap 'kill "${sleep_pid}" 2>/dev/null || true; exit 0' TERM INT
+    wait "${sleep_pid}" 2>/dev/null || true
     if kill -0 "${pid}" 2>/dev/null; then
       printf 'timeout\n' >"${flag}" 2>/dev/null || true
       kill -TERM "${pid}" 2>/dev/null || true

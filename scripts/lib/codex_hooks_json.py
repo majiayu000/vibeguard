@@ -241,14 +241,8 @@ def timeout_findings(path: Path, home: Path) -> list[dict[str, str]]:
     data = load_hooks(path)
     findings: list[dict[str, str]] = []
     for event, matcher_text, hook in _iter_hook_records(data):
-        # VibeGuard's managed Stop entries intentionally have no timeout because
-        # Codex's Stop output surface is non-blocking and historically rejected
-        # spurious Stop timeouts in check-vibeguard. External Stop hooks are
-        # still reported so their owner can make an explicit timeout decision.
         matcher = None if matcher_text == "<none>" else matcher_text
         identity = _identity_for_hook(event, matcher, hook)
-        if event == "Stop" and identity.is_managed:
-            continue
         command = hook.get("command")
         if not isinstance(command, str) or not command:
             continue
@@ -373,7 +367,7 @@ def _has_entry(
             if hook.get("type") != "command":
                 continue
             # timeout must be present-and-matching when the spec demands it,
-            # and absent when the spec has none (Stop entries).
+            # and absent when the spec has none.
             if expected_timeout is not None:
                 if hook.get("timeout") != expected_timeout:
                     continue

@@ -8,6 +8,7 @@
     <array>
         <string>/bin/bash</string>
         <string>__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh</string>
+        <string>--scheduled</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -18,11 +19,13 @@
         <key>Minute</key>
         <integer>0</integer>
     </dict>
+    <key>StartInterval</key>
+    <integer>21600</integer>
     <key>StandardOutPath</key>
     <string>__HOME__/.vibeguard/gc-launchd.log</string>
     <key>StandardErrorPath</key>
     <string>__HOME__/.vibeguard/gc-launchd.log</string>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 </dict>
 </plist>

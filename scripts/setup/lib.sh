@@ -19,61 +19,255 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
+setup_runtime_path() {
+  local candidate
+  for candidate in \
+    "${VIBEGUARD_SETUP_RUNTIME:-}" \
+    "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${REPO_DIR}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "vibeguard-runtime"; do
+    [[ -n "${candidate}" ]] || continue
+    if [[ "${VIBEGUARD_SETUP_SKIP_REPO_RUNTIME:-0}" == "1" && "${candidate}" == "${REPO_DIR}/vibeguard-runtime/target/"* ]]; then
+      continue
+    fi
+    if [[ "${candidate}" == */* ]]; then
+      if [[ -x "${candidate}" ]] && setup_runtime_supports "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    elif command -v "${candidate}" >/dev/null 2>&1; then
+      candidate="$(command -v "${candidate}")"
+      if setup_runtime_supports "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+setup_runtime_supports() {
+  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
+
+  local command probe_out
+  for command in \
+    setup-manifest-skill-links \
+    setup-md-remove \
+    setup-settings-check-stale \
+    setup-codex-config-check-hooks \
+    setup-codex-hooks-check-stale; do
+    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
+    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+setup_runtime() {
+  local runtime
+  runtime="$(setup_runtime_path)" || {
+    red "  ERROR: vibeguard-runtime not found; run setup with --build-from-source or install a release binary." >&2
+    return 127
+  }
+  "${runtime}" "$@"
+}
+
+setup_runtime_release_target() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "${os}:${arch}" in
+    Darwin:arm64|Darwin:aarch64)
+      printf 'aarch64-apple-darwin' ;;
+    Darwin:x86_64|Darwin:amd64)
+      printf 'x86_64-apple-darwin' ;;
+    Linux:x86_64|Linux:amd64)
+      printf 'x86_64-unknown-linux-musl' ;;
+    Linux:aarch64|Linux:arm64)
+      printf 'aarch64-unknown-linux-musl' ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+setup_runtime_release_tag() {
+  local version version_file
+  version="${VIBEGUARD_SETUP_RUNTIME_VERSION:-}"
+  if [[ -z "${version}" ]]; then
+    version_file="${REPO_DIR}/vibeguard-runtime/VERSION"
+    [[ -f "${version_file}" ]] || return 1
+    version="$(tr -d '[:space:]' < "${version_file}")"
+  fi
+  [[ -n "${version}" ]] || return 1
+  case "${version}" in
+    v*) printf '%s' "${version}" ;;
+    *) printf 'v%s' "${version}" ;;
+  esac
+}
+
+setup_runtime_sha256_file() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${path}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${path}" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+setup_download_prebuilt_runtime_quiet() {
+  local target="$1" tag="$2" dest="$3"
+  local asset="vibeguard-runtime-${target}"
+  local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
+  local download_dir downloaded expected actual
+
+  download_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-download_XXXXXX")"
+  downloaded=0
+
+  if command -v gh >/dev/null 2>&1; then
+    if gh release download "${tag}" \
+      --repo "${release_repo}" \
+      --pattern "${asset}" \
+      --pattern "SHA256SUMS" \
+      --dir "${download_dir}" >/dev/null 2>&1; then
+      downloaded=1
+    fi
+  fi
+
+  if [[ "${downloaded}" != "1" ]] && command -v curl >/dev/null 2>&1; then
+    local base_url="https://github.com/${release_repo}/releases/download/${tag}"
+    if curl -fsSL -o "${download_dir}/${asset}" "${base_url}/${asset}" >/dev/null 2>&1 \
+      && curl -fsSL -o "${download_dir}/SHA256SUMS" "${base_url}/SHA256SUMS" >/dev/null 2>&1; then
+      downloaded=1
+    fi
+  fi
+
+  if [[ "${downloaded}" != "1" || ! -f "${download_dir}/${asset}" || ! -f "${download_dir}/SHA256SUMS" ]]; then
+    rm -rf "${download_dir}"
+    return 1
+  fi
+
+  expected="$(awk -v file="${asset}" '($2 == file || $2 == "*" file) { print $1; exit }' "${download_dir}/SHA256SUMS")"
+  if [[ -z "${expected}" ]]; then
+    rm -rf "${download_dir}"
+    return 1
+  fi
+  if ! actual="$(setup_runtime_sha256_file "${download_dir}/${asset}")" || [[ "${actual}" != "${expected}" ]]; then
+    rm -rf "${download_dir}"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "${dest}")"
+  cp "${download_dir}/${asset}" "${dest}"
+  chmod +x "${dest}"
+  rm -rf "${download_dir}"
+}
+
+setup_runtime_bootstrap_cleanup() {
+  if [[ -n "${VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP:-}" ]]; then
+    rm -rf "${VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP}" 2>/dev/null || true
+  fi
+}
+
+ensure_setup_runtime_available() {
+  local target tag tmp dest
+  if setup_runtime_path >/dev/null 2>&1; then
+    return 0
+  fi
+  target="$(setup_runtime_release_target)" || return 1
+  tag="$(setup_runtime_release_tag)" || return 1
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-bootstrap_XXXXXX")"
+  dest="${tmp}/vibeguard-runtime"
+  if ! setup_download_prebuilt_runtime_quiet "${target}" "${tag}" "${dest}"; then
+    rm -rf "${tmp}"
+    return 1
+  fi
+  export VIBEGUARD_SETUP_RUNTIME="${dest}"
+  export VIBEGUARD_SETUP_RUNTIME_BOOTSTRAP_TMP="${tmp}"
+  trap setup_runtime_bootstrap_cleanup EXIT
+  setup_runtime_path >/dev/null 2>&1
+}
+
 settings_check() {
   local settings_file="$1" target="$2"
   [[ -f "${settings_file}" ]] || return 1
-  python3 "${SETTINGS_HELPER}" check --settings-file "${settings_file}" --target "${target}" >/dev/null 2>&1
+  setup_runtime setup-settings-check "${REPO_DIR}" "${settings_file}" "${target}" >/dev/null 2>&1
 }
 
 settings_stale_hooks_report() {
   local settings_file="$1"
   [[ -f "${settings_file}" ]] || return 0
-  python3 "${SETTINGS_HELPER}" check-stale-hooks --settings-file "${settings_file}"
+  setup_runtime setup-settings-check-stale "${settings_file}"
 }
 
 settings_upsert() {
   local settings_file="$1" profile="$2"
-  local args=(upsert-vibeguard --settings-file "${settings_file}" --repo-dir "${REPO_DIR}" --profile "${profile}")
+  local args=(setup-settings-upsert "${REPO_DIR}" "${settings_file}" "${profile}")
   if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
     args+=(--force-overwrite)
   fi
-  python3 "${SETTINGS_HELPER}" "${args[@]}"
+  setup_runtime "${args[@]}"
 }
 
 settings_upsert_diff() {
   local settings_file="$1" profile="$2"
-  local args=(upsert-vibeguard --dry-run --settings-file "${settings_file}" --repo-dir "${REPO_DIR}" --profile "${profile}")
+  local args=(setup-settings-upsert "${REPO_DIR}" "${settings_file}" "${profile}" --dry-run)
   if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
     args+=(--force-overwrite)
   fi
-  python3 "${SETTINGS_HELPER}" "${args[@]}"
+  setup_runtime "${args[@]}"
 }
 
 settings_remove() {
   local settings_file="$1"
-  python3 "${SETTINGS_HELPER}" remove-vibeguard --settings-file "${settings_file}"
+  setup_runtime setup-settings-remove "${REPO_DIR}" "${settings_file}"
 }
 
 manifest_skill_links() {
   local target="$1"
-  python3 "${MANIFEST_HELPER}" skill-links --target "${target}"
+  if [[ "${MANIFEST_HELPER}" != "${REPO_DIR}/scripts/lib/vibeguard_manifest.py" ]]; then
+    python3 "${MANIFEST_HELPER}" skill-links --target "${target}"
+    return
+  fi
+  setup_runtime setup-manifest-skill-links "${REPO_DIR}" "${target}"
 }
 
 manifest_rule_links() {
   local languages="${1:-}"
+  if [[ "${MANIFEST_HELPER}" != "${REPO_DIR}/scripts/lib/vibeguard_manifest.py" ]]; then
+    if [[ -n "${languages}" ]]; then
+      python3 "${MANIFEST_HELPER}" rule-links --languages "${languages}"
+    else
+      python3 "${MANIFEST_HELPER}" rule-links
+    fi
+    return
+  fi
   if [[ -n "${languages}" ]]; then
-    python3 "${MANIFEST_HELPER}" rule-links --languages "${languages}"
+    setup_runtime setup-manifest-rule-links "${REPO_DIR}" "${languages}"
   else
-    python3 "${MANIFEST_HELPER}" rule-links
+    setup_runtime setup-manifest-rule-links "${REPO_DIR}"
   fi
 }
 
 manifest_rule_labels() {
   local languages="${1:-}"
+  if [[ "${MANIFEST_HELPER}" != "${REPO_DIR}/scripts/lib/vibeguard_manifest.py" ]]; then
+    if [[ -n "${languages}" ]]; then
+      python3 "${MANIFEST_HELPER}" rule-labels --languages "${languages}"
+    else
+      python3 "${MANIFEST_HELPER}" rule-labels
+    fi
+    return
+  fi
   if [[ -n "${languages}" ]]; then
-    python3 "${MANIFEST_HELPER}" rule-labels --languages "${languages}"
+    setup_runtime setup-manifest-rule-labels "${REPO_DIR}" "${languages}"
   else
-    python3 "${MANIFEST_HELPER}" rule-labels
+    setup_runtime setup-manifest-rule-labels "${REPO_DIR}"
   fi
 }
 
@@ -250,7 +444,7 @@ inject_vibeguard_rules() {
 
   rule_count=$(claude_rule_count_for_banner)
   mkdir -p "$(dirname "${target_file}")"
-  if ! rules_diff=$(python3 "${CLAUDE_MD_HELPER}" diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if ! rules_diff=$(setup_runtime setup-md-diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     red "  Failed to compute ${display_label} diff"
     return 1
   fi
@@ -269,7 +463,7 @@ inject_vibeguard_rules() {
     echo
     return 0
   fi
-  if result=$(python3 "${CLAUDE_MD_HELPER}" inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
+  if result=$(setup_runtime setup-md-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>&1); then
     if [[ -f "${target_file}" ]]; then
       state_record_file "${target_file}" "${state_source}" "copy"
     fi

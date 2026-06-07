@@ -14,6 +14,10 @@ vg_policy_user_config_file() {
 
 vg_policy_runtime_path() {
   local helper_dir wrapper_dir candidate
+  if [[ -n "${VG_POLICY_RUNTIME_PATH_CACHE:-}" && -x "${VG_POLICY_RUNTIME_PATH_CACHE}" ]]; then
+    printf '%s\n' "${VG_POLICY_RUNTIME_PATH_CACHE}"
+    return 0
+  fi
   helper_dir="${_VG_POLICY_LIB_DIR}"
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
   for candidate in \
@@ -25,6 +29,7 @@ vg_policy_runtime_path() {
     "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       if vg_policy_runtime_supports "${candidate}"; then
+        VG_POLICY_RUNTIME_PATH_CACHE="${candidate}"
         printf '%s\n' "${candidate}"
         return 0
       fi

@@ -296,6 +296,46 @@ set -e
 assert_cmd "source-to-download switch remains healthy under --check --strict" test "${switch_check_rc}" -eq 0
 assert_not_contains "${switch_check_out}" "[BROKEN]" "source-to-download switch does not report BROKEN"
 
+no_python_home="${TMP_HOME}/no-python-install-home"
+no_python_bin="${TMP_HOME}/no-python-bin"
+mkdir -p "${no_python_home}" "${no_python_bin}"
+cat > "${no_python_bin}/python3" <<'SH'
+#!/usr/bin/env bash
+printf 'python3 unexpectedly executed: %s\n' "$*" >&2
+exit 127
+SH
+chmod +x "${no_python_bin}/python3"
+ln -sf "${no_python_bin}/python3" "${no_python_bin}/python"
+no_python_path="${no_python_bin}:${PATH}"
+no_python_install_out="$(HOME="${no_python_home}" PATH="${no_python_path}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"
+assert_contains "${no_python_install_out}" "Setup complete! All components installed." "no-Python setup install succeeds"
+assert_contains "${no_python_install_out}" "vibeguard-runtime downloaded and verified" "no-Python setup uses verified prebuilt runtime"
+assert_not_contains "${no_python_install_out}" "python3 unexpectedly executed" "no-Python setup install does not execute python3"
+
+fresh_no_python_home="${TMP_HOME}/fresh-no-python-home"
+mkdir -p "${fresh_no_python_home}"
+set +e
+fresh_no_python_check_out="$(HOME="${fresh_no_python_home}" PATH="${no_python_path}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)"
+fresh_no_python_check_rc=$?
+set -e
+assert_cmd "fresh no-Python setup --check --strict exits broken but runs" test "${fresh_no_python_check_rc}" -eq 2
+assert_contains "${fresh_no_python_check_out}" "VibeGuard Installation Status" "fresh no-Python setup --check emits status"
+assert_not_contains "${fresh_no_python_check_out}" "python3 unexpectedly executed" "fresh no-Python setup --check does not execute python3"
+fresh_no_python_clean_out="$(HOME="${fresh_no_python_home}" PATH="${no_python_path}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1 bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
+assert_contains "${fresh_no_python_clean_out}" "VibeGuard cleaned." "fresh no-Python setup --clean succeeds without installed runtime"
+assert_not_contains "${fresh_no_python_clean_out}" "python3 unexpectedly executed" "fresh no-Python setup --clean does not execute python3"
+
+set +e
+no_python_check_out="$(HOME="${no_python_home}" PATH="${no_python_path}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)"
+no_python_check_rc=$?
+set -e
+assert_cmd "no-Python setup --check --strict exits 0" test "${no_python_check_rc}" -eq 0
+assert_not_contains "${no_python_check_out}" "python3 unexpectedly executed" "no-Python setup --check does not execute python3"
+no_python_clean_out="$(HOME="${no_python_home}" PATH="${no_python_path}" bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
+assert_contains "${no_python_clean_out}" "VibeGuard cleaned." "no-Python setup --clean succeeds"
+assert_not_contains "${no_python_clean_out}" "python3 unexpectedly executed" "no-Python setup --clean does not execute python3"
+assert_cmd "no-Python setup --clean removes install state" test ! -e "${no_python_home}/.vibeguard/install-state.json"
+
 install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
 assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "default setup uses verified prebuilt runtime without cargo"
@@ -307,7 +347,9 @@ assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME
 assert_cmd "vg shortcut commands are installed after setup" test -L "${HOME}/.claude/commands/vg"
 assert_cmd "vibeguard-runtime binary installed after setup" test -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
-assert_cmd "runtime policy project validator installed after setup" test -f "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
+printf '{"profile":"core"}\n' > "${TMP_HOME}/valid-project-config.json"
+assert_cmd "runtime policy project validator moved into runtime" "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" project-config-validate "${TMP_HOME}/valid-project-config.json"
+assert_cmd "runtime policy Python project validator not installed after setup" test ! -e "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
 assert_contains "${install_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "setup install reports current installed snapshot"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"

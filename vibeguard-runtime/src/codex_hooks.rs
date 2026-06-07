@@ -43,6 +43,10 @@ fn codex_status_detail(data: &Value) -> String {
     String::new()
 }
 
+fn shell_status_field(value: &str) -> String {
+    value.replace(['\t', '\n', '\r'], " ")
+}
+
 fn codex_status_from_output(data: &Value) -> (String, String) {
     let Some(object) = data.as_object() else {
         return ("hook_error".to_string(), "invalid-json".to_string());
@@ -406,6 +410,24 @@ pub fn status_matcher(args: &[String]) -> Result {
     Ok(())
 }
 
+pub fn status_info(args: &[String]) -> Result {
+    ensure_no_args(args, "Usage: vibeguard-runtime codex-status-info")?;
+    let data = read_json_tolerant()?;
+    let event_name = data.as_ref().map(codex_event_name).unwrap_or("");
+    let matcher = data.as_ref().map(codex_status_matcher).unwrap_or("");
+    let detail = data
+        .as_ref()
+        .map(codex_status_detail)
+        .unwrap_or_else(String::new);
+    println!(
+        "{}\t{}\t{}",
+        shell_status_field(event_name),
+        shell_status_field(matcher),
+        shell_status_field(&detail)
+    );
+    Ok(())
+}
+
 pub fn status_from_output(args: &[String]) -> Result {
     ensure_no_args(args, "Usage: vibeguard-runtime codex-status-from-output")?;
     let input = read_stdin()?;
@@ -620,6 +642,14 @@ mod tests {
     fn status_matcher_reads_tool_name() {
         assert_eq!(codex_status_matcher(&json!({"tool_name": "Bash"})), "Bash");
         assert_eq!(codex_status_matcher(&json!({"tool_name": null})), "");
+    }
+
+    #[test]
+    fn shell_status_field_removes_line_breaks_and_tabs() {
+        assert_eq!(
+            shell_status_field("one\ttwo\nthree\rfour"),
+            "one two three four"
+        );
     }
 
     #[test]
