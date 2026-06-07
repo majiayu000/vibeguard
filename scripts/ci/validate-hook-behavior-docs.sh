@@ -67,6 +67,12 @@ require_present "README.md" '`pre-bash-guard` does not regex-match `git push --f
   "README.md must make the pre-bash/pre-push boundary explicit"
 require_present "README.md" '| `PreToolUse(Bash)` | `pre-bash-guard.sh` | Destructive local cleanup interception + package manager correction |' \
   "README.md Codex hook table must not imply force-push lives in pre-bash"
+require_absent "README.md" 'Requires Python 3. On supported macOS/Linux targets' \
+  "README.md must not claim Python 3 is required for the default production install path"
+require_present "README.md" 'the production install/check/clean path is' \
+  "README.md must state the Python-free production install/check/clean boundary"
+require_present "README.md" 'Python still supports evals, docs generation, developer tools, and optional' \
+  "README.md must keep eval/docs/dev/optional Python tooling documented separately"
 
 require_absent "docs/README_CN.md" '| AI 想结束但还没有验证改动 | `stop-guard` | **闸门**' \
   "docs/README_CN.md must not describe stop-guard as a blocking gate"
@@ -90,6 +96,16 @@ require_present "docs/README_CN.md" 'git `pre-push` hook 负责非快进推送/�
   "docs/README_CN.md setup prose must make the pre-bash/pre-push boundary explicit"
 require_present "docs/README_CN.md" '| `PreToolUse(Bash)` | `pre-bash-guard.sh` | 危险本地清理拦截 + 包管理器纠偏 |' \
   "docs/README_CN.md Codex hook table must not imply force-push lives in pre-bash"
+require_absent "docs/README_CN.md" '安装需要 Python 3。在支持的 macOS/Linux 目标上' \
+  "docs/README_CN.md must not claim Python 3 is required for the default production install path"
+require_present "docs/README_CN.md" '生产安装/check/clean 路径不需要 Python' \
+  "docs/README_CN.md must state the Python-free production install/check/clean boundary"
+require_present "docs/README_CN.md" 'Python 仍用于 eval、文档生成、开发者工具和可选的语言专项 guard packs' \
+  "docs/README_CN.md must keep eval/docs/dev/optional Python tooling documented separately"
+require_absent "docs/linux-setup.md" '- Python 3.' \
+  "Linux setup docs must not list Python 3 as a default production install requirement"
+require_present "docs/linux-setup.md" 'Python 3 is not required for default production install/check/clean on' \
+  "Linux setup docs must state the Python-free production install/check/clean boundary"
 require_absent "SECURITY.md" 'pre-bash-guard.sh`, which blocks force-pushes (`git push --force`), destructive resets (`git reset --hard`), and dangerous `rm -rf` operations.' \
   "SECURITY.md must not assign force-push/reset-hard protection to pre-bash"
 require_present "SECURITY.md" 'pre-bash-guard.sh`, which blocks dangerous local cleanup such as risky `rm -rf` targets, `git clean -f`, and batch `git checkout/restore .` operations.' \

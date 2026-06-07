@@ -27,9 +27,11 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
-Requires Python 3. On supported macOS/Linux targets, setup downloads a
-prebuilt `vibeguard-runtime` release binary and verifies it with `SHA256SUMS`,
-so Rust/Cargo is not required by default.
+On supported macOS/Linux targets, the production install/check/clean path is
+Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
+verifies it with `SHA256SUMS`, so Rust/Cargo is not required by default.
+Python still supports evals, docs generation, developer tools, and optional
+language-specific guard packs.
 
 Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
 

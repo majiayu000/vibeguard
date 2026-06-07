@@ -4,8 +4,10 @@ VibeGuard supports Linux via **systemd user units** as the scheduled task mechan
 
 ## Requirements
 
-- Python 3.
 - `gh` or `curl` for the default prebuilt `vibeguard-runtime` download.
+- Python 3 is not required for default production install/check/clean on
+  supported release targets. It remains used by evals, docs generation,
+  developer tools, and optional Python-backed guard tools.
 - Rust/Cargo only for unsupported targets, offline installs, or `--build-from-source`.
 - Linux with systemd, `systemctl` in `$PATH`, and a `systemd --user` session only if
   you opt in to the scheduled GC timer.

@@ -31,8 +31,9 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh
 ```
 
-安装需要 Python 3。在支持的 macOS/Linux 目标上，`setup.sh` 默认下载并校验
-预编译的 `vibeguard-runtime` release binary，因此默认不需要 Rust/Cargo。
+在支持的 macOS/Linux 目标上，生产安装/check/clean 路径不需要 Python：
+`setup.sh` 默认下载并校验预编译的 `vibeguard-runtime` release binary，
+因此默认不需要 Rust/Cargo。Python 仍用于 eval、文档生成、开发者工具和可选的语言专项 guard packs。
 
 安装后重新打开 Claude Code 或 Codex 会话。用下面的命令检查安装状态：
 
