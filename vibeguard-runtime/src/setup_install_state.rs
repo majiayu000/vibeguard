@@ -285,3 +285,69 @@ fn setup_absolute_path(path: &Path) -> PathBuf {
             .join(path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn unique_temp_dir(name: &str) -> SetupResult<PathBuf> {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        path.push(format!(
+            "vibeguard-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
+    #[test]
+    fn record_file_stores_checksum_for_regular_files() -> SetupResult<()> {
+        let dir = unique_temp_dir("install-state-record")?;
+        let state_file = dir.join("install-state.json");
+        let tracked = dir.join("tracked.txt");
+        fs::write(&tracked, "hello")?;
+
+        record_file(&[
+            state_file.display().to_string(),
+            tracked.display().to_string(),
+            "generated/tracked.txt".to_string(),
+            "copy".to_string(),
+        ])?;
+
+        let state = read_state(&state_file)?;
+        let entry = state
+            .get("files")
+            .and_then(Value::as_object)
+            .and_then(|files| files.get(&tracked.display().to_string()));
+        assert_eq!(
+            entry
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str),
+            Some("copy")
+        );
+        assert_eq!(
+            entry
+                .and_then(|value| value.get("checksum"))
+                .and_then(Value::as_str),
+            Some("sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_state_version_is_rejected() {
+        let state = json!({"version": 2, "files": {}});
+        assert!(ensure_state_version(&state).is_err());
+    }
+
+    #[test]
+    fn installed_timestamp_is_epoch_seconds() {
+        let timestamp = now_timestamp();
+        assert!(timestamp.len() >= 10);
+        assert!(timestamp.chars().all(|ch| ch.is_ascii_digit()));
+    }
+}

@@ -554,3 +554,90 @@ fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
         .or_else(|| token.strip_prefix("${HOME}/").map(|tail| home.join(tail)))
         .or_else(|| token.starts_with('/').then(|| PathBuf::from(token)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_managed_keeps_third_party_hooks_in_mixed_entry() {
+        let repo_dir = Path::new("/tmp/vibeguard-test-repo");
+        let mut data = json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "bash /tmp/run-hook-codex.sh pre-bash-guard.sh"
+                            },
+                            {
+                                "type": "command",
+                                "command": "bash /tmp/third-party.sh"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        codex_prune_managed(&mut data, repo_dir);
+
+        let hooks = data
+            .pointer("/hooks/PreToolUse/0/hooks")
+            .and_then(Value::as_array);
+        assert_eq!(hooks.map(Vec::len), Some(1));
+        assert_eq!(
+            hooks.and_then(|items| items.first())
+                .and_then(|hook| hook.get("command"))
+                .and_then(Value::as_str),
+            Some("bash /tmp/third-party.sh")
+        );
+    }
+
+    #[test]
+    fn built_entries_preserve_matcher_and_timeout() {
+        let spec = CodexSpec {
+            event: "Stop".to_string(),
+            matcher: None,
+            script: "vibeguard-stop-guard.sh".to_string(),
+            timeout: Some(15),
+        };
+
+        let entry = codex_build_entry("/tmp/run-hook-codex.sh", &spec);
+        assert_eq!(entry.get("matcher"), None);
+        let hook = entry
+            .get("hooks")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first());
+        assert_eq!(
+            hook.and_then(|value| value.get("command"))
+                .and_then(Value::as_str),
+            Some("bash /tmp/run-hook-codex.sh vibeguard-stop-guard.sh")
+        );
+        assert_eq!(
+            hook.and_then(|value| value.get("timeout"))
+                .and_then(Value::as_i64),
+            Some(15)
+        );
+    }
+
+    #[test]
+    fn managed_entry_check_requires_expected_timeout() {
+        let repo_dir = Path::new("/tmp/vibeguard-test-repo");
+        let command = "bash /tmp/run-hook-codex.sh stop-guard.sh";
+        let entries = vec![json!({
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": command,
+                    "timeout": 99
+                }
+            ]
+        })];
+
+        assert!(!codex_has_entry(&entries, repo_dir, command, None, Some(15)));
+        assert!(codex_has_entry(&entries, repo_dir, command, None, Some(99)));
+    }
+}

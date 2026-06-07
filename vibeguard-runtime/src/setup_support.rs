@@ -300,3 +300,61 @@ mod sha256 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_temp_dir(name: &str) -> SetupResult<PathBuf> {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        path.push(format!(
+            "vibeguard-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
+    #[test]
+    fn shell_split_preserves_quoted_arguments() {
+        assert_eq!(
+            shell_split("bash '/tmp/run hook.sh' \"arg two\" plain\\ value"),
+            vec!["bash", "/tmp/run hook.sh", "arg two", "plain value"]
+        );
+    }
+
+    #[test]
+    fn shell_quote_wraps_unsafe_values() {
+        assert_eq!(shell_quote("/tmp/safe-path"), "/tmp/safe-path");
+        assert_eq!(shell_quote("/tmp/path with space"), "'/tmp/path with space'");
+        assert_eq!(shell_quote("it's"), "'it'\"'\"'s'");
+    }
+
+    #[test]
+    fn sha256_file_matches_known_digest() -> SetupResult<()> {
+        let dir = unique_temp_dir("setup-support-sha")?;
+        let path = dir.join("input.txt");
+        fs::write(&path, "abc")?;
+        assert_eq!(
+            sha256_file(&path)?,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let _ = fs::remove_dir_all(dir);
+        Ok(())
+    }
+
+    #[test]
+    fn read_json_object_enforces_object_root() -> SetupResult<()> {
+        let dir = unique_temp_dir("setup-support-json")?;
+        let missing = dir.join("missing.json");
+        assert!(read_json_object(&missing, true)?.is_empty());
+
+        let array_path = dir.join("array.json");
+        fs::write(&array_path, "[]")?;
+        assert!(read_json_object(&array_path, false).is_err());
+
+        let _ = fs::remove_dir_all(dir);
+        Ok(())
+    }
+}
