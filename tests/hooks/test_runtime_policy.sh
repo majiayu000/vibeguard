@@ -139,6 +139,38 @@ resolver_out="$(
 )"
 assert_contains "${resolver_out}" "${explicit_runtime}" "runtime policy resolver honors explicit VIBEGUARD_POLICY_RUNTIME before checkout binaries"
 
+optimized_runtime="${WORK_DIR}/optimized-runtime"
+optimized_probe_log="${WORK_DIR}/optimized-runtime.log"
+cat > "${optimized_runtime}" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  runtime-policy-supports)
+    printf 'supports\n' >>"${OPTIMIZED_PROBE_LOG:?}"
+    exit 0
+    ;;
+  runtime-policy-check|runtime-policy-downgrade-output|runtime-policy-codex-error|runtime-policy-diag)
+    printf 'unexpected:%s\n' "${1:-}" >>"${OPTIMIZED_PROBE_LOG:?}"
+    exit 70
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "${optimized_runtime}"
+resolver_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" \
+  VIBEGUARD_POLICY_RUNTIME="${optimized_runtime}" \
+  OPTIMIZED_PROBE_LOG="${optimized_probe_log}" \
+  bash -c '
+    source hooks/_lib/policy.sh
+    vg_policy_runtime_path
+  '
+)"
+assert_contains "${resolver_out}" "${optimized_runtime}" "runtime policy resolver accepts batched support probe"
+assert_contains "$(cat "${optimized_probe_log}")" "supports" "runtime policy resolver calls batched support probe"
+assert_not_contains "$(cat "${optimized_probe_log}")" "unexpected:" "runtime policy resolver skips legacy semantic probes when batched probe passes"
+
 resolver_home="${WORK_DIR}/home-resolver"
 mkdir -p "${resolver_home}/.vibeguard/installed/bin"
 stale_installed_runtime="${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"

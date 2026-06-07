@@ -153,6 +153,14 @@ codex_hook_status_matcher() {
   printf '\n'
 }
 
+codex_hook_start_info() {
+  local input="$1" hook_name="$2" timeout_ms="${3:-}"
+  local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
+  local runtime_path
+  runtime_path="$(codex_runtime_path 2>/dev/null)" || return 127
+  printf '%s' "${input}" | "${runtime_path}" codex-hook-start "${diag_file}" "${hook_name}" "${timeout_ms}"
+}
+
 codex_hook_status() {
   local hook_name="$1" event_name="$2" matcher="$3" status="$4" reason="${5:-}" detail="${6:-}"
   local timeout_ms="${7:-}"
@@ -182,4 +190,13 @@ codex_hook_status_from_output() {
     return 0
   fi
   codex_hook_status "${hook_name}" "${event_name}" "${matcher}" "hook_error" "runtime-unavailable" "${detail}" "${timeout_ms}"
+}
+
+codex_finalize_output() {
+  local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
+  local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
+  local runtime_path
+  runtime_path="$(codex_runtime_path 2>/dev/null)" || return 127
+  printf '%s' "${hook_output}" | "${runtime_path}" codex-finalize-output \
+    "${diag_file}" "${hook_name}" "${event_name}" "${matcher}" "${detail}" "${timeout_ms}"
 }

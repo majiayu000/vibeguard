@@ -40,6 +40,9 @@ vg_policy_runtime_path() {
 
 vg_policy_runtime_supports() {
   local candidate="$1" probe_diag downgrade_probe codex_probe
+  if "${candidate}" runtime-policy-supports >/dev/null 2>&1; then
+    return 0
+  fi
   probe_diag="${TMPDIR:-/tmp}/vibeguard-policy-probe.$$.jsonl"
   VIBEGUARD_PROJECT_CONFIG="${TMPDIR:-/tmp}/vibeguard-missing-policy-probe.json" \
     VIBEGUARD_USER_CONFIG_FILE="" \

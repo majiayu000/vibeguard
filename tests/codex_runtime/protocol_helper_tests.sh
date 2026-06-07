@@ -35,8 +35,10 @@ protocol_helper_out="$(
     printf "status_info=%s\n" "$(codex_hook_status_info "${payload}")"
     printf "matcher=%s\n" "$(codex_hook_status_matcher "${payload}")"
     printf "detail=%s\n" "$(codex_hook_status_detail "${payload}")"
+    printf "start_info=%s\n" "$(codex_hook_start_info "${payload}" "vibeguard-pre-bash-guard.sh" "15000")"
     codex_hook_status() { printf "status=%s reason=%s\n" "$4" "$5"; }
     codex_hook_status_from_output "vibeguard-pre-bash-guard.sh" "PreToolUse" "Bash" "{\"hookSpecificOutput\":{\"decision\":{\"behavior\":\"deny\",\"message\":\"stop\"}}}"
+    printf "finalize_start\n"; codex_finalize_output "vibeguard-pre-bash-guard.sh" "PreToolUse" "Bash" "{\"decision\":\"block\",\"reason\":\"finalized without python\"}" "cargo test" "15000"; printf "finalize_end\n"
     printf "status_json=%s\n" "$(cat "${VIBEGUARD_CODEX_DIAG_FILE}")"
     printf "pretool_deny_start\n"; codex_pretool_deny "blocked without python"; printf "pretool_deny_end\n"
     printf "permission_deny_start\n"; codex_permission_deny "permission blocked without python"; printf "permission_deny_end\n"
@@ -50,7 +52,9 @@ assert_contains "${protocol_helper_out}" "adapter_event=PreToolUse" "codex_event
 assert_contains "${protocol_helper_out}" $'status_info=PreToolUse\tBash\tcargo test' "codex_hook_status_info works without python3"
 assert_contains "${protocol_helper_out}" "matcher=Bash" "codex_hook_status_matcher works without python3"
 assert_contains "${protocol_helper_out}" "detail=cargo test" "codex_hook_status_detail works without python3"
+assert_contains "${protocol_helper_out}" $'start_info=PreToolUse\tBash\tcargo test' "codex_hook_start_info works without python3"
 assert_contains "${protocol_helper_out}" '"status":"block"' "codex_hook_status_from_output works without python3"
+assert_contains "${protocol_helper_out}" "finalized without python" "codex_finalize_output adapts output without python3"
 assert_contains "${protocol_helper_out}" "blocked without python" "codex_pretool_deny works without python3"
 assert_contains "${protocol_helper_out}" "permission blocked without python" "codex_permission_deny works without python3"
 assert_contains "${protocol_helper_out}" "adapted without python" "codex_adapt_pretool works without python3"
@@ -77,7 +81,7 @@ cat > "${OLD_STATUS_RUNTIME}" <<'SH'
 cmd="$1"
 shift
 case "$cmd" in
-  codex-status-info|codex-hook-status-from-output)
+  codex-status-info|codex-hook-start|codex-hook-status-from-output|codex-finalize-output)
     printf 'Unknown command: %s\n' "$cmd" >&2
     exit 2
     ;;
@@ -96,6 +100,10 @@ case "$cmd" in
   codex-status-from-output)
     cat >/dev/null
     printf 'block\told-runtime-block\n'
+    ;;
+  codex-adapt-pretool)
+    cat >/dev/null
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"old-runtime-adapted"}}\n'
     ;;
   codex-hook-status)
     diag_file="$1"
@@ -128,6 +136,72 @@ old_status_out="$(
 assert_contains "${old_status_out}" $'old_status_info=PreToolUse\tBash\tcargo test' "codex_hook_status_info falls back to old runtime helpers"
 assert_contains "${old_status_out}" '"status":"block"' "codex_hook_status_from_output falls back to old runtime helpers"
 assert_not_contains "${old_status_out}" "runtime-unavailable" "old runtime status fallback does not create false hook_error"
+
+TMP_FAKE_REPO_OLD_RUNTIME="${TMP_DIR}/fake-repo-old-runtime"
+mkdir -p "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks"
+cat > "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"block","reason":"old runner fallback"}\n'
+HOOK
+chmod +x "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh"
+old_runner_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${OLD_STATUS_RUNTIME}" VIBEGUARD_CODEX_DIAG_FILE="${TMP_DIR}/old-runner-diag.jsonl" bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    EVENT_NAME=PreToolUse
+    codex_run_hook "vibeguard-pre-bash-guard.sh" "$4" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test\"}}"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh"
+)"
+assert_contains "${old_runner_out}" '"permissionDecision":"deny"' "codex_run_hook falls back when old runtime lacks batched helpers"
+assert_contains "${old_runner_out}" "old-runtime-adapted" "old runtime fallback still adapts PreToolUse output"
+
+COUNTING_RUNTIME="${TMP_DIR}/counting-vibeguard-runtime"
+COUNTING_RUNTIME_LOG="${TMP_DIR}/counting-runtime.log"
+: > "${COUNTING_RUNTIME_LOG}"
+cat > "${COUNTING_RUNTIME}" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${1:-}" >> "${VIBEGUARD_RUNTIME_COUNT_LOG:?}"
+exec "${VIBEGUARD_REAL_RUNTIME:?}" "$@"
+SH
+chmod +x "${COUNTING_RUNTIME}"
+TMP_FAKE_REPO_COUNTING="${TMP_DIR}/fake-repo-counting-runtime"
+mkdir -p "${TMP_FAKE_REPO_COUNTING}/hooks"
+cat > "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"decision":"block","reason":"counted block"}\n'
+HOOK
+chmod +x "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh"
+COUNTING_REAL_RUNTIME="${VIBEGUARD_RUNTIME}"
+counting_runner_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" \
+  VIBEGUARD_RUNTIME="${COUNTING_RUNTIME}" \
+  VIBEGUARD_REAL_RUNTIME="${COUNTING_REAL_RUNTIME}" \
+  VIBEGUARD_RUNTIME_COUNT_LOG="${COUNTING_RUNTIME_LOG}" \
+  VIBEGUARD_CODEX_DIAG_FILE="${TMP_DIR}/counting-runner-diag.jsonl" \
+  bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    EVENT_NAME=PreToolUse
+    codex_run_hook "vibeguard-pre-bash-guard.sh" "$4" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test\"}}"
+    printf "runtime_count=%s\n" "$(wc -l < "${VIBEGUARD_RUNTIME_COUNT_LOG}" | tr -d " ")"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh"
+)"
+assert_contains "${counting_runner_out}" "counted block" "counting runtime path still blocks PreToolUse"
+assert_contains "${counting_runner_out}" "runtime_count=2" "codex_run_hook uses two runtime spawns for normal non-empty PreToolUse output"
 
 BROKEN_RUNTIME="${TMP_DIR}/broken-vibeguard-runtime"
 cat > "${BROKEN_RUNTIME}" <<'SH'

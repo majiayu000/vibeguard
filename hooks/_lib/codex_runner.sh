@@ -67,16 +67,26 @@ codex_run_hook() {
 
   local first_adapted_output=""
   local normalized_input hook_output hook_exit hook_err_file hook_err event_name
-  local pretool_status pretool_output permission_status permission_output
-  local posttool_status posttool_output
+  local adapted_status adapted_output finalized_output
   while IFS= read -r normalized_input || [[ -n "${normalized_input:-}" ]]; do
     [[ -n "${normalized_input}" ]] || continue
 
     hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-hook.XXXXXX")"
-    event_name=$(codex_event_name "${normalized_input}")
-    local hook_matcher hook_detail hook_timeout_ms hook_status_info
+    local hook_matcher hook_detail hook_timeout_ms hook_status_info hook_status_started
     local hook_timeout_seconds
-    if declare -F codex_hook_status_info >/dev/null 2>&1; then
+    hook_timeout_ms="$(codex_hook_timeout_ms "${hook_name}" 2>/dev/null || true)"
+    hook_status_started=0
+    if declare -F codex_hook_start_info >/dev/null 2>&1 \
+      && hook_status_info="$(codex_hook_start_info "${normalized_input}" "${hook_name}" "${hook_timeout_ms}" 2>/dev/null)"; then
+      event_name="${hook_status_info%%$'\t'*}"
+      hook_status_info="${hook_status_info#*$'\t'}"
+      hook_matcher="${hook_status_info%%$'\t'*}"
+      hook_detail="${hook_status_info#*$'\t'}"
+      if [[ "${hook_matcher}" == "${hook_status_info}" ]]; then
+        hook_detail=""
+      fi
+      hook_status_started=1
+    elif declare -F codex_hook_status_info >/dev/null 2>&1; then
       hook_status_info="$(codex_hook_status_info "${normalized_input}" 2>/dev/null || true)"
       event_name="${hook_status_info%%$'\t'*}"
       hook_status_info="${hook_status_info#*$'\t'}"
@@ -91,8 +101,9 @@ codex_run_hook() {
       hook_detail="$(codex_hook_status_detail "${normalized_input}" 2>/dev/null || true)"
     fi
     [[ -n "${event_name}" ]] || event_name=$(codex_event_name "${normalized_input}")
-    hook_timeout_ms="$(codex_hook_timeout_ms "${hook_name}" 2>/dev/null || true)"
-    codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "running" "" "${hook_detail}" "${hook_timeout_ms}"
+    if [[ "${hook_status_started}" -eq 0 ]]; then
+      codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "running" "" "${hook_detail}" "${hook_timeout_ms}"
+    fi
 
     hook_output=""
     hook_exit=0
@@ -131,67 +142,85 @@ codex_run_hook() {
     if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
       hook_output="$(vg_policy_downgrade_output "${hook_output}")"
     fi
-    codex_hook_status_from_output "${hook_name}" "${event_name}" "${hook_matcher}" "${hook_output}" "${hook_detail}" "${hook_timeout_ms}"
+    adapted_status=0
+    adapted_output=""
+    finalized_output=0
+    if declare -F codex_finalize_output >/dev/null 2>&1; then
+      adapted_output=$(codex_finalize_output "${hook_name}" "${event_name}" "${hook_matcher}" "${hook_output}" "${hook_detail}" "${hook_timeout_ms}" 2>/dev/null) || adapted_status=$?
+      if [[ ${adapted_status} -eq 0 || ${adapted_status} -eq 3 ]]; then
+        finalized_output=1
+      else
+        adapted_status=0
+        adapted_output=""
+      fi
+    fi
+
+    if [[ "${finalized_output}" -eq 0 ]]; then
+      codex_hook_status_from_output "${hook_name}" "${event_name}" "${hook_matcher}" "${hook_output}" "${hook_detail}" "${hook_timeout_ms}"
+      if [[ "${event_name}" == "PreToolUse" ]]; then
+        adapted_output=$(codex_adapt_pretool "${hook_output}") || adapted_status=$?
+      elif [[ "${event_name}" == "PermissionRequest" ]]; then
+        adapted_output=$(codex_adapt_permission_request "${hook_output}") || adapted_status=$?
+      elif [[ "${event_name}" == "PostToolUse" ]]; then
+        adapted_output=$(codex_adapt_posttool "${hook_output}" 2>/dev/null) || adapted_status=$?
+      else
+        adapted_output="${hook_output}"
+      fi
+    fi
 
     if [[ "${event_name}" == "PreToolUse" ]]; then
-      pretool_status=0
-      pretool_output=$(codex_adapt_pretool "${hook_output}") || pretool_status=$?
-      if [[ ${pretool_status} -ne 0 ]]; then
+      if [[ ${adapted_status} -ne 0 ]]; then
         rm -f "${normalized_file}" 2>/dev/null || true
-        if [[ -n "${pretool_output}" ]]; then
-          printf '%s\n' "${pretool_output}"
+        if [[ -n "${adapted_output}" ]]; then
+          printf '%s\n' "${adapted_output}"
         else
           codex_pretool_deny "VIBEGUARD hook failed: wrapped hook output could not be adapted."
         fi
         return 0
       fi
-      if [[ -n "${pretool_output}" ]]; then
-        if [[ "${pretool_output}" == *'"permissionDecision": "deny"'* || "${pretool_output}" == *'"permissionDecision":"deny"'* ]]; then
+      if [[ -n "${adapted_output}" ]]; then
+        if [[ "${adapted_output}" == *'"permissionDecision": "deny"'* || "${adapted_output}" == *'"permissionDecision":"deny"'* ]]; then
           rm -f "${normalized_file}" 2>/dev/null || true
-          printf '%s\n' "${pretool_output}"
+          printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${pretool_output}"
+        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
       fi
     elif [[ "${event_name}" == "PermissionRequest" ]]; then
-      permission_status=0
-      permission_output=$(codex_adapt_permission_request "${hook_output}") || permission_status=$?
-      if [[ ${permission_status} -ne 0 ]]; then
+      if [[ ${adapted_status} -ne 0 ]]; then
         rm -f "${normalized_file}" 2>/dev/null || true
-        if [[ -n "${permission_output}" ]]; then
-          printf '%s\n' "${permission_output}"
+        if [[ -n "${adapted_output}" ]]; then
+          printf '%s\n' "${adapted_output}"
         else
           codex_permission_deny "VIBEGUARD hook failed: wrapped hook output could not be adapted."
         fi
         return 0
       fi
-      if [[ -n "${permission_output}" ]]; then
-        if [[ "${permission_output}" == *'"behavior": "deny"'* || "${permission_output}" == *'"behavior":"deny"'* ]]; then
+      if [[ -n "${adapted_output}" ]]; then
+        if [[ "${adapted_output}" == *'"behavior": "deny"'* || "${adapted_output}" == *'"behavior":"deny"'* ]]; then
           rm -f "${normalized_file}" 2>/dev/null || true
-          printf '%s\n' "${permission_output}"
+          printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${permission_output}"
+        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
       fi
     elif [[ "${event_name}" == "PostToolUse" ]]; then
-      posttool_status=0
-      posttool_output=$(codex_adapt_posttool "${hook_output}" 2>/dev/null) || posttool_status=$?
-      if [[ ${posttool_status} -ne 0 ]]; then
+      if [[ ${adapted_status} -ne 0 ]]; then
         codex_diag "${hook_name}" "${event_name}" "posttool-adapter-failed" "${hook_output}"
         rm -f "${normalized_file}" 2>/dev/null || true
         codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped PostToolUse output could not be adapted."
         return 0
       fi
-      if [[ -n "${posttool_output}" ]]; then
-        if [[ "${posttool_output}" == *'"decision": "block"'* || "${posttool_output}" == *'"decision":"block"'* ]]; then
+      if [[ -n "${adapted_output}" ]]; then
+        if [[ "${adapted_output}" == *'"decision": "block"'* || "${adapted_output}" == *'"decision":"block"'* ]]; then
           rm -f "${normalized_file}" 2>/dev/null || true
-          printf '%s\n' "${posttool_output}"
+          printf '%s\n' "${adapted_output}"
           return 0
         fi
-        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${posttool_output}"
+        [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
       fi
     else
-      [[ -n "${first_adapted_output}" ]] || first_adapted_output="${hook_output}"
+      [[ -n "${first_adapted_output}" ]] || first_adapted_output="${adapted_output}"
     fi
   done <"${normalized_file}"
 

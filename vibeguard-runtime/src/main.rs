@@ -6,6 +6,7 @@ mod codex_app_server_file_changes;
 mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;
+mod codex_hooks_adapter;
 mod codex_hooks_diag;
 mod event_schema;
 mod git_root;
@@ -194,24 +195,34 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks_diag::hook_status,
     },
     Command {
+        name: "codex-hook-start",
+        usage: "<diag-file> <hook-name> <timeout-ms>  — parse Codex hook input, append running status, and emit event/matcher/detail",
+        handler: codex_hooks_diag::hook_start,
+    },
+    Command {
         name: "codex-hook-status-from-output",
         usage: "<diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>  — classify wrapped hook output and append Codex status JSONL",
         handler: codex_hooks_diag::hook_status_from_output,
     },
     Command {
+        name: "codex-finalize-output",
+        usage: "<diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>  — append final status and adapt wrapped hook output",
+        handler: codex_hooks_diag::finalize_output,
+    },
+    Command {
         name: "codex-adapt-pretool",
         usage: "  — adapt wrapped hook output to Codex PreToolUse JSON",
-        handler: codex_hooks::adapt_pretool,
+        handler: codex_hooks_adapter::adapt_pretool,
     },
     Command {
         name: "codex-adapt-posttool",
         usage: "  — adapt wrapped hook output to Codex PostToolUse JSON",
-        handler: codex_hooks::adapt_posttool,
+        handler: codex_hooks_adapter::adapt_posttool,
     },
     Command {
         name: "codex-adapt-permission-request",
         usage: "  — adapt wrapped hook output to Codex PermissionRequest JSON",
-        handler: codex_hooks::adapt_permission_request,
+        handler: codex_hooks_adapter::adapt_permission_request,
     },
     Command {
         name: "codex-normalize-apply-patch",
@@ -222,6 +233,11 @@ static COMMANDS: &[Command] = &[
         name: "runtime-policy-check",
         usage: "<hook-name>  — evaluate runtime hook policy and config",
         handler: runtime_policy::runtime_policy_check,
+    },
+    Command {
+        name: "runtime-policy-supports",
+        usage: "  — verify this runtime supports policy helper commands",
+        handler: runtime_policy::runtime_policy_supports,
     },
     Command {
         name: "runtime-policy-downgrade-output",

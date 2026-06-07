@@ -1,6 +1,8 @@
 //! Codex wrapper diagnostics and visible-failure payload helpers.
 
+use crate::codex_hooks::status_info_from_raw;
 use crate::codex_hooks::{deny_permission_payload, deny_pretool_payload, print_json};
+use crate::codex_hooks_adapter::adapt_output_for_event;
 use crate::hook_checks_common::{append_jsonl, read_stdin, truncate_chars};
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::{Value, json};
@@ -42,6 +44,49 @@ fn append_codex_jsonl(path: &str, value: Value) -> Result {
     Ok(())
 }
 
+fn hook_status_entry(
+    hook_name: &str,
+    event_name: &str,
+    matcher: &str,
+    status: &str,
+    reason: &str,
+    detail: &str,
+    timeout_ms: &str,
+) -> Value {
+    let mut entry = json!({
+        "ts": codex_ts(),
+        "cli": "codex",
+        "hook": clean_hook_name(hook_name),
+        "event": event_name,
+        "matcher": matcher,
+        "status": status,
+        "reason": reason,
+        "detail": truncate_chars(detail, 300),
+    });
+    if let Ok(timeout_ms) = timeout_ms.parse::<u64>() {
+        entry["timeout_ms"] = json!(timeout_ms);
+    }
+    entry
+}
+
+fn append_hook_status(
+    diag_file: &str,
+    hook_name: &str,
+    event_name: &str,
+    matcher: &str,
+    status: &str,
+    reason: &str,
+    detail: &str,
+    timeout_ms: &str,
+) -> Result {
+    append_codex_jsonl(
+        diag_file,
+        hook_status_entry(
+            hook_name, event_name, matcher, status, reason, detail, timeout_ms,
+        ),
+    )
+}
+
 pub fn visible_failure(args: &[String]) -> Result {
     if args.len() != 1 {
         return Err("Usage: vibeguard-runtime codex-visible-failure <event-name>".into());
@@ -78,20 +123,9 @@ pub fn hook_status(args: &[String]) -> Result {
                 .into(),
         );
     }
-    let mut entry = json!({
-        "ts": codex_ts(),
-        "cli": "codex",
-        "hook": clean_hook_name(&args[1]),
-        "event": args[2],
-        "matcher": args[3],
-        "status": args[4],
-        "reason": args[5],
-        "detail": truncate_chars(&args[6], 300),
-    });
-    if let Ok(timeout_ms) = args[7].parse::<u64>() {
-        entry["timeout_ms"] = json!(timeout_ms);
-    }
-    append_codex_jsonl(&args[0], entry)
+    append_hook_status(
+        &args[0], &args[1], &args[2], &args[3], &args[4], &args[5], &args[6], &args[7],
+    )
 }
 
 fn status_from_hook_output(data: &Value) -> (String, String) {
@@ -152,20 +186,54 @@ pub fn hook_status_from_output(args: &[String]) -> Result {
         Ok(data) => status_from_hook_output(&data),
         Err(_) => ("hook_error".to_string(), "invalid-json".to_string()),
     };
-    let mut entry = json!({
-        "ts": codex_ts(),
-        "cli": "codex",
-        "hook": clean_hook_name(&args[1]),
-        "event": args[2],
-        "matcher": args[3],
-        "status": status,
-        "reason": reason,
-        "detail": truncate_chars(&args[4], 300),
-    });
-    if let Ok(timeout_ms) = args[5].parse::<u64>() {
-        entry["timeout_ms"] = json!(timeout_ms);
+    append_hook_status(
+        &args[0], &args[1], &args[2], &args[3], &status, &reason, &args[4], &args[5],
+    )
+}
+
+pub fn hook_start(args: &[String]) -> Result {
+    if args.len() != 3 {
+        return Err(
+            "Usage: vibeguard-runtime codex-hook-start <diag-file> <hook-name> <timeout-ms>".into(),
+        );
     }
-    append_codex_jsonl(&args[0], entry)
+    let input = read_stdin()?;
+    let status_info = status_info_from_raw(&input);
+    append_hook_status(
+        &args[0],
+        &args[1],
+        &status_info.event_name,
+        &status_info.matcher,
+        "running",
+        "",
+        &status_info.detail,
+        &args[2],
+    )?;
+    println!("{}", status_info.shell_line());
+    Ok(())
+}
+
+pub fn finalize_output(args: &[String]) -> Result {
+    if args.len() != 6 {
+        return Err(
+            "Usage: vibeguard-runtime codex-finalize-output <diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>"
+                .into(),
+        );
+    }
+    let input = read_stdin()?;
+    let (status, reason) = match serde_json::from_str::<Value>(&input) {
+        Ok(data) => status_from_hook_output(&data),
+        Err(_) => ("hook_error".to_string(), "invalid-json".to_string()),
+    };
+    append_hook_status(
+        &args[0], &args[1], &args[2], &args[3], &status, &reason, &args[4], &args[5],
+    )?;
+    let (adapter_status, adapted_output) = adapt_output_for_event(&args[2], &input);
+    adapted_output.print()?;
+    if adapter_status != 0 {
+        std::process::exit(adapter_status);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
