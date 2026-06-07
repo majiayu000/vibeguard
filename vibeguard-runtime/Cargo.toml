@@ -1,6 +1,6 @@
 [package]
 name = "vibeguard-runtime"
-version = "1.1.2"
+version = "1.1.3"
 edition = "2024"
 description = "VibeGuard runtime — fast JSON/JSONL ops, hook metrics, and Codex app-server guards"
 

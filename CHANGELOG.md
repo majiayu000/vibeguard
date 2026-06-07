@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-06-08
+
 ### Added
 - Default setup now downloads the pinned `vibeguard-runtime` release binary on supported macOS and Linux targets, verifies it against `SHA256SUMS`, and keeps source builds available through `--build-from-source` or unsupported/offline fallback paths.
 - `setup.sh --runtime-version` can install a specific runtime release tag for verification and rollback workflows.
@@ -261,7 +263,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto-optimize` workflow integrated into VibeGuard
 - `setup.sh` and install scripts for one-command installation
 
-[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/majiayu000/vibeguard/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/majiayu000/vibeguard/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/majiayu000/vibeguard/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/majiayu000/vibeguard/compare/v1.0.0...v1.1.0
