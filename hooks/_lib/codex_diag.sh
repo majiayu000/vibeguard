@@ -3,6 +3,10 @@
 
 codex_runtime_path() {
   local helper_dir wrapper_dir candidate
+  if [[ -n "${CODEX_RUNTIME_PATH_CACHE:-}" && -x "${CODEX_RUNTIME_PATH_CACHE}" ]]; then
+    printf '%s\n' "${CODEX_RUNTIME_PATH_CACHE}"
+    return 0
+  fi
   helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
   for candidate in \
@@ -12,6 +16,7 @@ codex_runtime_path() {
     "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
     "${wrapper_dir}/vibeguard-runtime"; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
+      CODEX_RUNTIME_PATH_CACHE="${candidate}"
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -113,10 +118,23 @@ codex_diag() {
 codex_hook_timeout_ms() {
   local hook_name="$1"
   case "${hook_name}" in
-    *post-build-check*) printf '%s\n' "30000" ;;
-    *pre-*|*post-edit*|*post-write*) printf '%s\n' "10000" ;;
+    *post-build-check*) printf '%s\n' "35000" ;;
+    *stop-guard*|*learn-evaluator*) printf '%s\n' "15000" ;;
+    *pre-*|*post-edit*|*post-write*) printf '%s\n' "15000" ;;
     *) printf '%s\n' "" ;;
   esac
+}
+
+codex_hook_status_info() {
+  local input="$1" parsed
+  if parsed=$(codex_runtime_stdin "codex-status-info" "${input}" 2>/dev/null); then
+    printf '%s\n' "${parsed}"
+    return 0
+  fi
+  printf '%s\t%s\t%s\n' \
+    "$(codex_raw_event_name "${input}")" \
+    "$(codex_hook_status_matcher "${input}" 2>/dev/null || true)" \
+    "$(codex_hook_status_detail "${input}" 2>/dev/null || true)"
 }
 
 codex_hook_status_detail() {
@@ -146,15 +164,22 @@ codex_hook_status() {
 
 codex_hook_status_from_output() {
   local hook_name="$1" event_name="$2" matcher="$3" hook_output="$4" detail="${5:-}" timeout_ms="${6:-}"
-  local parsed hook_status hook_reason
-  if ! parsed=$(codex_runtime_stdin "codex-status-from-output" "${hook_output}" 2>/dev/null); then
-    parsed=$'hook_error\truntime-unavailable'
+  local diag_file="${VIBEGUARD_CODEX_DIAG_FILE:-${HOME}/.vibeguard/codex-wrapper.jsonl}"
+  local runtime_path parsed hook_status hook_reason
+  if runtime_path="$(codex_runtime_path 2>/dev/null)" \
+    && printf '%s' "${hook_output}" | "${runtime_path}" codex-hook-status-from-output \
+      "${diag_file}" "${hook_name}" "${event_name}" "${matcher}" "${detail}" "${timeout_ms}" 2>/dev/null; then
+    return 0
   fi
-  hook_status="${parsed%%$'\t'*}"
-  hook_reason="${parsed#*$'\t'}"
-  if [[ "${hook_status}" == "${parsed}" ]]; then
-    hook_reason=""
+  if parsed=$(codex_runtime_stdin "codex-status-from-output" "${hook_output}" 2>/dev/null); then
+    hook_status="${parsed%%$'\t'*}"
+    hook_reason="${parsed#*$'\t'}"
+    if [[ "${hook_status}" == "${parsed}" ]]; then
+      hook_reason=""
+    fi
+    [[ -n "${hook_status}" ]] || hook_status="hook_error"
+    codex_hook_status "${hook_name}" "${event_name}" "${matcher}" "${hook_status}" "${hook_reason}" "${detail}" "${timeout_ms}"
+    return 0
   fi
-  [[ -n "${hook_status}" ]] || hook_status="hook_error"
-  codex_hook_status "${hook_name}" "${event_name}" "${matcher}" "${hook_status}" "${hook_reason}" "${detail}" "${timeout_ms}"
+  codex_hook_status "${hook_name}" "${event_name}" "${matcher}" "hook_error" "runtime-unavailable" "${detail}" "${timeout_ms}"
 }

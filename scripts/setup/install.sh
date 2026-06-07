@@ -361,9 +361,8 @@ stage_install_snapshot() {
   trap cleanup_install_temps EXIT
   cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
   cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
-  mkdir -p "${_INSTALL_TMP}/schemas" "${_INSTALL_TMP}/scripts/lib"
+  mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
-  cp "${REPO_DIR}/scripts/lib/project_config_validate.py" "${_INSTALL_TMP}/scripts/lib/"
   printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
 
   # Runtime must be prepared before project config validation, but the staged
@@ -403,6 +402,7 @@ if [[ -n "${project_config_file}" && -f "${project_config_file}" ]]; then
 fi
 
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
+  stage_install_snapshot
   configure_claude_home_runtime
   inject_claude_home_rules
   inject_codex_home_rules
@@ -412,10 +412,6 @@ fi
 
 # 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
-if ! command -v python3 &>/dev/null; then
-  red "  ERROR: python3 not found. VibeGuard hooks require Python 3."
-  exit 1
-fi
 mkdir -p "${CLAUDE_DIR}"
 green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)

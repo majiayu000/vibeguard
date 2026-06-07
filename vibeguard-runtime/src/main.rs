@@ -28,6 +28,12 @@ mod project_config;
 mod runtime_config;
 mod runtime_policy;
 mod session_metrics;
+mod setup_codex_config;
+mod setup_codex_hooks;
+mod setup_install_state;
+mod setup_manifest;
+mod setup_markdown;
+mod setup_support;
 mod time_utils;
 
 use std::env;
@@ -148,6 +154,11 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks::status_detail,
     },
     Command {
+        name: "codex-status-info",
+        usage: "  — extract Codex event, matcher, and status detail from stdin",
+        handler: codex_hooks::status_info,
+    },
+    Command {
         name: "codex-status-matcher",
         usage: "  — extract Codex hook status matcher from stdin",
         handler: codex_hooks::status_matcher,
@@ -181,6 +192,11 @@ static COMMANDS: &[Command] = &[
         name: "codex-hook-status",
         usage: "<diag-file> <hook-name> <event-name> <matcher> <status> <reason> <detail> <timeout-ms>  — append a Codex hook status JSONL event",
         handler: codex_hooks_diag::hook_status,
+    },
+    Command {
+        name: "codex-hook-status-from-output",
+        usage: "<diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>  — classify wrapped hook output and append Codex status JSONL",
+        handler: codex_hooks_diag::hook_status_from_output,
     },
     Command {
         name: "codex-adapt-pretool",
@@ -276,6 +292,126 @@ static COMMANDS: &[Command] = &[
         name: "codex-app-server-wrapper",
         usage: "[--repo-dir DIR] [--strategy vibeguard|noop] [--codex-command CMD]  — run the Rust Codex app-server guard proxy",
         handler: codex_app_server::run,
+    },
+    Command {
+        name: "setup-manifest-skill-links",
+        usage: "<repo-dir> <target>  — list manifest skill links",
+        handler: setup_manifest::skill_links,
+    },
+    Command {
+        name: "setup-manifest-rule-links",
+        usage: "<repo-dir> [languages]  — list manifest rule links",
+        handler: setup_manifest::rule_links,
+    },
+    Command {
+        name: "setup-manifest-rule-labels",
+        usage: "<repo-dir> [languages]  — list manifest rule labels",
+        handler: setup_manifest::rule_labels,
+    },
+    Command {
+        name: "setup-md-diff-inject",
+        usage: "<target-file> <rules-file> <repo-dir> <rule-count>  — render managed Markdown diff",
+        handler: setup_markdown::diff_inject,
+    },
+    Command {
+        name: "setup-md-inject",
+        usage: "<target-file> <rules-file> <repo-dir> <rule-count>  — inject managed Markdown block",
+        handler: setup_markdown::inject,
+    },
+    Command {
+        name: "setup-md-remove",
+        usage: "<target-file>  — remove managed Markdown block",
+        handler: setup_markdown::remove,
+    },
+    Command {
+        name: "setup-settings-check",
+        usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks>  — check Claude settings",
+        handler: setup_markdown::settings_check,
+    },
+    Command {
+        name: "setup-settings-upsert",
+        usage: "<repo-dir> <settings-file> <profile> [--dry-run] [--force-overwrite]  — upsert Claude settings",
+        handler: setup_markdown::settings_upsert,
+    },
+    Command {
+        name: "setup-settings-remove",
+        usage: "<repo-dir> <settings-file>  — remove VibeGuard Claude settings",
+        handler: setup_markdown::settings_remove,
+    },
+    Command {
+        name: "setup-settings-check-stale",
+        usage: "<settings-file>  — detect stale Claude hook commands",
+        handler: setup_markdown::settings_check_stale,
+    },
+    Command {
+        name: "setup-state-init",
+        usage: "<state-file> <profile> <languages>  — initialize install state",
+        handler: setup_install_state::init,
+    },
+    Command {
+        name: "setup-state-record-file",
+        usage: "<state-file> <dest> <source> <type>  — record install-state file",
+        handler: setup_install_state::record_file,
+    },
+    Command {
+        name: "setup-state-check-drift",
+        usage: "<state-file>  — check install-state drift",
+        handler: setup_install_state::check_drift,
+    },
+    Command {
+        name: "setup-state-list",
+        usage: "<state-file>  — list install-state files",
+        handler: setup_install_state::list,
+    },
+    Command {
+        name: "setup-state-list-symlinks-under",
+        usage: "<state-file> <dest-dir>  — list tracked symlinks under a directory",
+        handler: setup_install_state::list_tracked_symlinks_under,
+    },
+    Command {
+        name: "setup-codex-config-enable-hooks",
+        usage: "<config-file>  — enable Codex hooks feature",
+        handler: setup_codex_config::enable_hooks,
+    },
+    Command {
+        name: "setup-codex-config-check-hooks",
+        usage: "<config-file>  — check Codex hooks feature",
+        handler: setup_codex_config::check_hooks,
+    },
+    Command {
+        name: "setup-codex-config-remove-legacy-mcp",
+        usage: "<config-file>  — remove legacy VibeGuard Codex MCP config",
+        handler: setup_codex_config::remove_legacy_mcp,
+    },
+    Command {
+        name: "setup-codex-hooks-upsert",
+        usage: "<repo-dir> <hooks-file> <wrapper>  — upsert Codex hooks",
+        handler: setup_codex_hooks::codex_hooks_upsert,
+    },
+    Command {
+        name: "setup-codex-hooks-remove",
+        usage: "<repo-dir> <hooks-file>  — remove VibeGuard Codex hooks",
+        handler: setup_codex_hooks::codex_hooks_remove,
+    },
+    Command {
+        name: "setup-codex-hooks-check",
+        usage: "<repo-dir> <hooks-file> <wrapper>  — check Codex hooks",
+        handler: setup_codex_hooks::codex_hooks_check,
+    },
+    Command {
+        name: "setup-codex-hooks-count",
+        usage: "<hooks-file>  — count Codex hook entries",
+        handler: setup_codex_hooks::codex_hooks_count,
+    },
+    Command {
+        name: "setup-codex-hooks-check-stale",
+        usage: "<hooks-file>  — detect stale Codex hook commands",
+        handler: setup_codex_hooks::codex_hooks_check_stale,
+    },
+    Command {
+        name: "setup-codex-hooks-check-timeouts",
+        usage: "<repo-dir> <hooks-file>  — detect Codex hooks without timeout",
+        handler: setup_codex_hooks::codex_hooks_check_timeouts,
     },
 ];
 

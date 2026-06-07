@@ -94,6 +94,80 @@ pub fn hook_status(args: &[String]) -> Result {
     append_codex_jsonl(&args[0], entry)
 }
 
+fn status_from_hook_output(data: &Value) -> (String, String) {
+    let Some(object) = data.as_object() else {
+        return ("hook_error".to_string(), "invalid-json".to_string());
+    };
+
+    let decision = object
+        .get("decision")
+        .and_then(Value::as_str)
+        .unwrap_or("pass");
+    let reason = object
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .replace(['\t', '\n'], " ");
+
+    let mut status = "pass";
+    if matches!(
+        decision,
+        "warn" | "block" | "gate" | "escalate" | "correction"
+    ) {
+        status = decision;
+    } else if decision == "skip" {
+        status = "skipped";
+    } else if let Some(hook_specific) = object.get("hookSpecificOutput").and_then(Value::as_object)
+    {
+        if hook_specific
+            .get("permissionDecision")
+            .and_then(Value::as_str)
+            == Some("deny")
+        {
+            status = "block";
+        }
+        if hook_specific
+            .get("decision")
+            .and_then(Value::as_object)
+            .and_then(|decision| decision.get("behavior"))
+            .and_then(Value::as_str)
+            == Some("deny")
+        {
+            status = "block";
+        }
+    }
+
+    (status.to_string(), truncate_chars(&reason, 300))
+}
+
+pub fn hook_status_from_output(args: &[String]) -> Result {
+    if args.len() != 6 {
+        return Err(
+            "Usage: vibeguard-runtime codex-hook-status-from-output <diag-file> <hook-name> <event-name> <matcher> <detail> <timeout-ms>"
+                .into(),
+        );
+    }
+    let input = read_stdin()?;
+    let (status, reason) = match serde_json::from_str::<Value>(&input) {
+        Ok(data) => status_from_hook_output(&data),
+        Err(_) => ("hook_error".to_string(), "invalid-json".to_string()),
+    };
+    let mut entry = json!({
+        "ts": codex_ts(),
+        "cli": "codex",
+        "hook": clean_hook_name(&args[1]),
+        "event": args[2],
+        "matcher": args[3],
+        "status": status,
+        "reason": reason,
+        "detail": truncate_chars(&args[4], 300),
+    });
+    if let Ok(timeout_ms) = args[5].parse::<u64>() {
+        entry["timeout_ms"] = json!(timeout_ms);
+    }
+    append_codex_jsonl(&args[0], entry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +204,29 @@ mod tests {
             "pre-bash-guard"
         );
         assert_eq!(clean_hook_name("custom-hook"), "custom-hook");
+    }
+
+    #[test]
+    fn status_from_hook_output_maps_nested_denies() {
+        assert_eq!(
+            status_from_hook_output(&json!({"decision": "warn", "reason": "a\tb\nc"})),
+            ("warn".to_string(), "a b c".to_string())
+        );
+        assert_eq!(
+            status_from_hook_output(&json!({"decision": "skip"})),
+            ("skipped".to_string(), String::new())
+        );
+        assert_eq!(
+            status_from_hook_output(&json!({
+                "hookSpecificOutput": {"permissionDecision": "deny"}
+            })),
+            ("block".to_string(), String::new())
+        );
+        assert_eq!(
+            status_from_hook_output(&json!({
+                "hookSpecificOutput": {"decision": {"behavior": "deny"}}
+            })),
+            ("block".to_string(), String::new())
+        );
     }
 }

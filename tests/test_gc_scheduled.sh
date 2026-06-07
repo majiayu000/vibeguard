@@ -92,6 +92,77 @@ assert_contains "$metrics_after" "$today" "current session metric remains"
 assert_not_contains "$metrics_after" "2020-01-01" "expired session metric is removed"
 assert_contains "$reflection" "VibeGuard Weekly Reflection Report" "reflection report is generated"
 
+header "gc-scheduled.sh catch-up mode"
+
+skip_log_before="$(wc -l < "${log_dir}/gc-cron.log" | tr -d ' ')"
+VIBEGUARD_LOG_DIR="$log_dir" VIBEGUARD_PROJECT_CONFIG="$cfg" bash scripts/gc/gc-scheduled.sh --scheduled
+skip_log_after="$(wc -l < "${log_dir}/gc-cron.log" | tr -d ' ')"
+assert_cmd "scheduled mode skips when last success is fresh and logs are below threshold" test "$skip_log_before" = "$skip_log_after"
+
+python3 - "${log_dir}/events.jsonl" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+with path.open("w", encoding="utf-8") as f:
+    for index in range(20000):
+        f.write(json.dumps({
+            "ts": "2024-01-01T00:00:00Z",
+            "session": "oversized",
+            "hook": "pre-bash-guard",
+            "tool": "Bash",
+            "decision": "pass",
+            "detail": "x" * 80,
+            "index": index,
+        }) + "\n")
+    f.write(json.dumps({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "current",
+        "hook": "pre-bash-guard",
+        "tool": "Bash",
+        "decision": "pass",
+        "detail": "current",
+    }) + "\n")
+PY
+
+VIBEGUARD_LOG_DIR="$log_dir" VIBEGUARD_PROJECT_CONFIG="$cfg" VIBEGUARD_GC_LOG_THRESHOLD_MB=1 \
+  VIBEGUARD_GC_ARCHIVE_RETAIN_MONTHS=1200 \
+  bash scripts/gc/gc-scheduled.sh --scheduled
+
+assert_cmd "scheduled mode catches up when global log exceeds threshold" test -f "${log_dir}/archive/events-2024-01.jsonl.gz"
+assert_contains "$(cat "${log_dir}/events.jsonl")" "current" "catch-up retains current log events"
+assert_contains "$(cat "${log_dir}/gc-cron.log")" "--- Log archive ---" "catch-up records archive section"
+
+printf '%s\n' "123" > "${log_dir}/gc-last-success"
+python3 - "${log_dir}/events.jsonl" "$(date -u '+%Y-%m-01T00:00:00Z')" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+ts = sys.argv[2]
+with path.open("w", encoding="utf-8") as f:
+    for index in range(20000):
+        f.write(json.dumps({
+            "ts": ts,
+            "session": "current-oversized",
+            "hook": "pre-bash-guard",
+            "tool": "Bash",
+            "decision": "pass",
+            "detail": "y" * 80,
+            "index": index,
+        }) + "\n")
+PY
+
+VIBEGUARD_LOG_DIR="$log_dir" VIBEGUARD_PROJECT_CONFIG="$cfg" VIBEGUARD_GC_LOG_THRESHOLD_MB=1 \
+  bash scripts/gc/gc-scheduled.sh --scheduled
+
+assert_cmd "failed scheduled GC records an attempt" test -f "${log_dir}/gc-last-attempt"
+assert_contains "$(cat "${log_dir}/gc-last-success")" "123" "failed scheduled GC does not update last-success"
+assert_contains "$(cat "${log_dir}/gc-cron.log")" "GC completed with errors" "failed scheduled GC is visible in cron log"
+
 printf '\n==============================\n'
 printf 'Total: %s  Pass: \033[32m%s\033[0m  Fail: \033[31m%s\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 printf '==============================\n'

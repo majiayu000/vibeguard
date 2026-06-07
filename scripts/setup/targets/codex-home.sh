@@ -17,17 +17,19 @@ install_codex_home_assets() {
   mkdir -p "${HOME}/.vibeguard/_lib"
   cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${HOME}/.vibeguard/_lib/codex_diag.sh"
   cp "${REPO_DIR}/hooks/_lib/codex_runner.sh" "${HOME}/.vibeguard/_lib/codex_runner.sh"
+  cp "${REPO_DIR}/hooks/_lib/timeout.sh" "${HOME}/.vibeguard/_lib/timeout.sh"
   chmod +x "${HOME}/.vibeguard/run-hook-codex.sh"
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_runner.sh" "hooks/_lib/codex_runner.sh" "copy"
+  state_record_file "${HOME}/.vibeguard/_lib/timeout.sh" "hooks/_lib/timeout.sh" "copy"
   green "  ~/.vibeguard/run-hook-codex.sh ready"
 
   # Merge VibeGuard hooks into ~/.codex/hooks.json (do not overwrite existing hooks)
   local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
   local hooks_file="${CODEX_DIR}/hooks.json"
   local hooks_result
-  hooks_result=$(python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${hooks_file}" --wrapper "${wrapper}" 2>/dev/null || echo "ERROR")
+  hooks_result=$(setup_runtime setup-codex-hooks-upsert "${REPO_DIR}" "${hooks_file}" "${wrapper}" 2>/dev/null || echo "ERROR")
   if [[ "${hooks_result}" == "CHANGED" || "${hooks_result}" == "SKIP" ]]; then
     state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
     green "  ~/.codex/hooks.json merged (VibeGuard hooks upserted)"
@@ -73,7 +75,7 @@ install_codex_skill_copy() {
 _enable_codex_hooks_feature() {
   local config="${CODEX_DIR}/config.toml"
   local result
-  if ! result=$(python3 "${CODEX_CONFIG_HELPER}" enable-hooks --config-file "${config}" 2>/dev/null); then
+  if ! result=$(setup_runtime setup-codex-config-enable-hooks "${config}" 2>/dev/null); then
     red "  Failed to enable hooks feature in config.toml"
     return 1
   fi
@@ -93,7 +95,7 @@ _enable_codex_hooks_feature() {
 
 _remove_legacy_codex_mcp_config() {
   local config="${CODEX_DIR}/config.toml"
-  python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${config}"
+  setup_runtime setup-codex-config-remove-legacy-mcp "${config}"
 }
 
 _has_legacy_codex_mcp_config() {
@@ -156,23 +158,17 @@ check_codex_home_installation() {
   if [[ -f "${CODEX_DIR}/hooks.json" ]]; then
     local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
     local hook_count
-    hook_count=$(python3 -c "
-import json
-with open('${CODEX_DIR}/hooks.json') as f:
-    data = json.load(f)
-total = sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list))
-print(total)
-" 2>/dev/null || echo "?")
+    hook_count=$(setup_runtime setup-codex-hooks-count "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "?")
     green "[OK] Codex hooks.json present (${hook_count} total entries)"
 
-    if python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${CODEX_DIR}/hooks.json" --wrapper "${wrapper}" >/dev/null 2>&1; then
+    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${CODEX_DIR}/hooks.json" "${wrapper}" >/dev/null 2>&1; then
       green "[OK] VibeGuard hooks merged in ~/.codex/hooks.json"
     else
       yellow "[MISSING] VibeGuard hooks not fully configured in ~/.codex/hooks.json"
     fi
 
     local stale_hooks_report
-    if stale_hooks_report="$(python3 "${CODEX_HOOKS_HELPER}" check-stale-hooks --hooks-file "${CODEX_DIR}/hooks.json" 2>&1)"; then
+    if stale_hooks_report="$(setup_runtime setup-codex-hooks-check-stale "${CODEX_DIR}/hooks.json" 2>&1)"; then
       :
     else
       while IFS= read -r line; do
@@ -181,7 +177,7 @@ print(total)
     fi
 
     local timeout_hooks_report
-    if timeout_hooks_report="$(python3 "${CODEX_HOOKS_HELPER}" check-timeouts --hooks-file "${CODEX_DIR}/hooks.json" 2>&1)"; then
+    if timeout_hooks_report="$(setup_runtime setup-codex-hooks-check-timeouts "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>&1)"; then
       :
     else
       while IFS= read -r line; do
@@ -209,7 +205,7 @@ print(total)
   local config="${CODEX_DIR}/config.toml"
   local codex_hooks_status="MISSING"
   if [[ -f "${config}" ]]; then
-    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
+    codex_hooks_status="$(setup_runtime setup-codex-config-check-hooks "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled in config.toml"
@@ -236,7 +232,7 @@ codex_semantic_drift_message() {
   if [[ "${path}" == "${config}" ]]; then
     local codex_hooks_status="MISSING"
     if [[ -f "${config}" ]]; then
-      codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
+      codex_hooks_status="$(setup_runtime setup-codex-config-check-hooks "${config}" 2>/dev/null || true)"
     fi
     if [[ "${codex_hooks_status}" == "OK" ]] && ! _has_legacy_codex_mcp_config; then
       printf '%s\n' "${path} (checksum drift; Codex config semantics OK)"
@@ -246,7 +242,7 @@ codex_semantic_drift_message() {
 
   if [[ "${path}" == "${hooks_file}" ]]; then
     local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
-    if [[ -f "${hooks_file}" ]] && python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${hooks_file}" --wrapper "${wrapper}" >/dev/null 2>&1; then
+    if [[ -f "${hooks_file}" ]] && setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" >/dev/null 2>&1; then
       printf '%s\n' "${path} (checksum drift; VibeGuard hook semantics OK)"
       return 0
     fi
@@ -326,7 +322,7 @@ print_codex_status() {
   local wrapper="${HOME}/.vibeguard/run-hook-codex.sh"
   if [[ -f "${hooks_file}" ]]; then
     green "[OK] Codex hooks.json present"
-    if python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${hooks_file}" --wrapper "${wrapper}" >/dev/null 2>&1; then
+    if setup_runtime setup-codex-hooks-check "${REPO_DIR}" "${hooks_file}" "${wrapper}" >/dev/null 2>&1; then
       green "[OK] VibeGuard-managed Codex hooks semantic check passed"
     else
       yellow "[WARN] VibeGuard-managed Codex hooks semantic check failed (repair: bash setup.sh --yes)"
@@ -346,7 +342,7 @@ print_codex_status() {
   local config="${CODEX_DIR}/config.toml"
   local codex_hooks_status="MISSING"
   if [[ -f "${config}" ]]; then
-    codex_hooks_status="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${config}" 2>/dev/null || true)"
+    codex_hooks_status="$(setup_runtime setup-codex-config-check-hooks "${config}" 2>/dev/null || true)"
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled"
@@ -466,7 +462,7 @@ check_codex_agents_hygiene() {
 clean_codex_home_installation() {
   if [[ -f "${CODEX_DIR}/AGENTS.md" ]]; then
     local agents_md_result
-    agents_md_result=$(python3 "${CLAUDE_MD_HELPER}" remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null || echo "ERROR")
+    agents_md_result=$(setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null || echo "ERROR")
     case "${agents_md_result}" in
       REMOVED|REMOVED_LEGACY) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.codex/AGENTS.md" ;;
@@ -484,7 +480,7 @@ clean_codex_home_installation() {
 
   # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
   local hooks_cleanup_result
-  hooks_cleanup_result=$(python3 "${CODEX_HOOKS_HELPER}" remove-vibeguard --hooks-file "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "ERROR")
+  hooks_cleanup_result=$(setup_runtime setup-codex-hooks-remove "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "ERROR")
   case "${hooks_cleanup_result}" in
     CHANGED)
       yellow "Removed VibeGuard hook entries from ~/.codex/hooks.json"
@@ -500,6 +496,7 @@ clean_codex_home_installation() {
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_diag.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_runner.sh"
+  rm -f "${HOME}/.vibeguard/_lib/timeout.sh"
   rmdir "${HOME}/.vibeguard/_lib" 2>/dev/null || true
   yellow "Removed Codex hook wrapper"
 

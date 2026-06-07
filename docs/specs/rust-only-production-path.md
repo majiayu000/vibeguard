@@ -1,9 +1,9 @@
 # Spec: Rust-only production install and hook path
 
-- Status: Draft
+- Status: Implemented
 - Date: 2026-06-05
 - Owner: @majiayu000
-- Readiness: plan_first
+- Readiness: execute_direct
 - Severity: P1
 - Related: `docs/specs/install-friction-reduction.md`, `scripts/setup/install.sh`, `scripts/setup/lib.sh`, `scripts/lib/install-state.sh`, `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, `hooks/_lib/policy.sh`, `hooks/_lib/codex_runner.sh`, `vibeguard-runtime/`
 
@@ -16,6 +16,23 @@
 - P2 setup/check/clean runtime migration: https://github.com/majiayu000/vibeguard/issues/384
 - P2 no-Python CI/docs gate: https://github.com/majiayu000/vibeguard/issues/385
 - Related app-server policy gate: https://github.com/majiayu000/vibeguard/issues/372
+
+## Implementation Status
+
+The production boundary in this spec is now enforced by tests:
+
+- `tests/test_setup.sh` builds the debug runtime before creating fake release
+  assets, so setup-flow release tests exercise real Rust setup commands.
+- `tests/setup/install_flow_tests.sh` shadows `python3` and `python` with
+  failing stubs and proves `setup.sh --yes --profile core`,
+  `setup.sh --check --strict`, and `setup.sh --clean` complete without Python.
+- `scripts/ci/self-application/check-hook-production-python-free.sh` remains
+  the hook-path CI sentinel and is run by `scripts/ci/self-application/run-all.sh`
+  in GitHub Actions.
+
+This is a Python-free production path, not a Python-free repository. Eval,
+documentation generation, developer validators, tests, and optional
+language-specific guard tools may still use Python.
 
 ## 1. Problem
 
@@ -103,8 +120,8 @@ For this spec, "production path" means code that runs during:
 - installed Codex hook execution
 - `vibeguard-runtime codex-app-server-wrapper`
 
-Python is allowed outside that path only for development, eval, CI, documentation,
-or optional language-specific guard tools.
+Python is allowed outside that path only for tests, development, eval, CI,
+documentation generation, or optional language-specific guard tools.
 
 ### 5.2 Runtime Modules and Commands
 
@@ -144,14 +161,13 @@ test before the Python call site is removed.
 
 ### 5.3 Dependency Policy
 
-The current runtime intentionally has a small dependency surface:
-`serde_json`, `regex`, and `libc`. Rust-only setup needs structured parsing for
-TOML and checksums:
+The runtime intentionally keeps a small dependency surface. The setup migration
+added `toml_edit` for structured `~/.codex/config.toml` mutation and kept
+checksums local to the runtime instead of shelling out through Python. Future
+setup dependencies must stay specific and justified:
 
-- Allow `toml_edit` or an equivalent maintained TOML editing crate for
-  `~/.codex/config.toml`.
-- Allow `sha2` for install-state checksums if shelling out to `shasum` would
-  keep setup logic outside the runtime.
+- A checksum crate may be added only if the local implementation becomes a
+  maintenance risk.
 - Do not add a general JSON Schema engine unless the project schema cannot be
   represented as a small VibeGuard-specific validator.
 
@@ -199,37 +215,40 @@ targets.
 
 - AC1: In a test home with `python3` intentionally absent from `PATH`,
   `bash setup.sh --yes --profile core` installs successfully on a supported
-  release target using the verified prebuilt runtime.
+  release target using the verified prebuilt runtime. Enforced by
+  `tests/setup/install_flow_tests.sh`.
 - AC2: In that same environment, `bash setup.sh --check --strict` exits 0.
+  Enforced by `tests/setup/install_flow_tests.sh`.
 - AC3: In that same environment, `bash setup.sh --clean` removes VibeGuard-owned
-  artifacts without Python.
+  artifacts without Python. Enforced by `tests/setup/install_flow_tests.sh`.
 - AC4: Configured Claude Code and Codex hook paths in `minimal`, `core`, `full`,
   and `strict` profiles do not execute `python3` for first-party runtime logic.
+  Enforced by `scripts/ci/self-application/check-hook-production-python-free.sh`.
 - AC5: No configured hook has a Python fallback for a runtime-replaced module.
-- AC6: Existing Codex wrapper and app-server behavior tests still pass.
+  Enforced by `scripts/ci/self-application/check-hook-production-python-free.sh`.
+- AC6: Existing Codex wrapper and app-server behavior tests still pass. Enforced
+  by `tests/test_codex_runtime.sh`.
 - AC7: Invalid project policy config remains fail-visible in shell-wrapper and
-  app-server paths.
+  app-server paths. Enforced by setup and runtime config regression tests.
 - AC8: Docs distinguish "Python-free production path" from "Python-free whole
-  repository".
+  repository". Enforced by this section.
 
 ## 7. Verification
 
 Required implementation checks:
 
 ```bash
+cargo check --manifest-path vibeguard-runtime/Cargo.toml
 cargo test --manifest-path vibeguard-runtime/Cargo.toml
 bash tests/test_setup.sh
 bash tests/test_setup_check.sh
 bash tests/test_codex_runtime.sh
 bash tests/test_hooks.sh
-bash scripts/ci/validate-manifest-contract.sh
+bash tests/test_manifest_contract.sh
 bash scripts/ci/validate-doc-paths.sh
 bash scripts/ci/validate-doc-command-paths.sh
+bash scripts/ci/self-application/check-hook-production-python-free.sh
 ```
-
-Add a dedicated no-Python test, likely in `tests/test_setup.sh` or a focused new
-test script, that shadows `python3` out of `PATH` while preserving the tools that
-the bootstrap legitimately needs.
 
 ## 8. Risks and Open Questions
 

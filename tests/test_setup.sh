@@ -457,6 +457,7 @@ export PATH="${TMP_HOME}/bin:${PATH}"
 
 TEST_RELEASE_DIR="${TMP_HOME}/release-assets"
 mkdir -p "${TEST_RELEASE_DIR}"
+cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
 : > "${TEST_RELEASE_DIR}/SHA256SUMS"
 for target in \
   aarch64-apple-darwin \
@@ -464,9 +465,13 @@ for target in \
   x86_64-unknown-linux-musl \
   aarch64-unknown-linux-musl; do
   asset="${TEST_RELEASE_DIR}/vibeguard-runtime-${target}"
-  cat > "${asset}" <<SH
+cat > "${asset}" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
+REAL_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+if [[ -x "\${REAL_RUNTIME}" ]]; then
+  exec "\${REAL_RUNTIME}" "\$@"
+fi
 case "\${1:-}" in
   project-config-validate)
     if [[ \$# -ne 2 ]]; then

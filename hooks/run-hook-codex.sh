@@ -72,6 +72,9 @@ fi
 RUNNER_PATH="${WRAPPER_DIR}/_lib/codex_runner.sh"
 [[ -f "${RUNNER_PATH}" || ! -f "${INSTALLED_DIR}/_lib/codex_runner.sh" ]] || RUNNER_PATH="${INSTALLED_DIR}/_lib/codex_runner.sh"
 
+TIMEOUT_PATH="${WRAPPER_DIR}/_lib/timeout.sh"
+[[ -f "${TIMEOUT_PATH}" || ! -f "${INSTALLED_DIR}/_lib/timeout.sh" ]] || TIMEOUT_PATH="${INSTALLED_DIR}/_lib/timeout.sh"
+
 if [[ ! -d "$INSTALLED_DIR" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
@@ -86,6 +89,9 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   if [[ ! -f "${RUNNER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]]; then
     RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
+  fi
+  if [[ ! -f "${TIMEOUT_PATH}" && -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]]; then
+    TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
   fi
 fi
 
@@ -117,6 +123,11 @@ source "${ADAPTER_PATH}"
 # Adapter delegates: codex_event_name codex_pretool_deny codex_adapt_pretool codex_adapt_posttool.
 if ! declare -F codex_permission_deny >/dev/null 2>&1; then codex_permission_deny() { codex_permission_deny_raw "$1"; }; fi
 if ! declare -F codex_adapt_permission_request >/dev/null 2>&1; then codex_adapt_permission_request() { codex_permission_deny "VIBEGUARD install incomplete: missing PermissionRequest adapter."; }; fi
+
+if [[ -f "${TIMEOUT_PATH}" ]]; then
+  # shellcheck source=hooks/_lib/timeout.sh
+  source "${TIMEOUT_PATH}"
+fi
 
 if [[ ! -f "${RUNNER_PATH}" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-runner" "${RUNNER_PATH}"

@@ -26,67 +26,57 @@ STATE_VERSION=1
 STATE_FILE="${HOME}/.vibeguard/install-state.json"
 INSTALL_STATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+state_runtime_path() {
+  local repo_root candidate
+  repo_root="$(cd "${INSTALL_STATE_LIB_DIR}/../.." && pwd)"
+  for candidate in \
+    "${VIBEGUARD_SETUP_RUNTIME:-}" \
+    "${_INSTALL_TMP:-}/bin/vibeguard-runtime" \
+    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
+    "${repo_root}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${repo_root}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "vibeguard-runtime"; do
+    [[ -n "${candidate}" ]] || continue
+    if [[ "${candidate}" == */* ]]; then
+      if [[ -x "${candidate}" ]] && state_runtime_supports "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    elif command -v "${candidate}" >/dev/null 2>&1; then
+      candidate="$(command -v "${candidate}")"
+      if state_runtime_supports "${candidate}"; then
+        printf '%s\n' "${candidate}"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+state_runtime_supports() {
+  local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
+  "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1
+}
+
+state_runtime() {
+  local runtime
+  runtime="$(state_runtime_path)" || {
+    printf 'ERROR: vibeguard-runtime not found for install-state operation\n' >&2
+    return 127
+  }
+  "${runtime}" "$@"
+}
+
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}"
-  local repo_dir
-  repo_dir="$(cat "${HOME}/.vibeguard/repo-path" 2>/dev/null || true)"
-
-  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" "$profile" "$languages" "$repo_dir" <<'PY'
-import datetime
-import sys
-from pathlib import Path
-
-lib_dir, state_file, state_version, profile, languages, repo_dir = sys.argv[1:7]
-sys.path.insert(0, lib_dir)
-from file_ops import write_json_atomic
-
-state = {
-    'version': int(state_version),
-    'installed_at': datetime.datetime.now().astimezone().isoformat(),
-    'profile': profile,
-    'languages': languages.split(',') if languages else [],
-    'repo_dir': repo_dir,
-    'files': {}
-}
-write_json_atomic(Path(state_file), state)
-PY
+  state_runtime setup-state-init "$STATE_FILE" "$profile" "$languages"
 }
 
 # Record a file installation
 state_record_file() {
   local dest="$1" source="$2" install_type="${3:-copy}"
-
-  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" "$dest" "$source" "$install_type" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-lib_dir, state_file, state_version, dest, source, install_type = sys.argv[1:7]
-sys.path.insert(0, lib_dir)
-from file_ops import sha256_file, write_json_atomic
-
-expected_version = int(state_version)
-state_path = Path(state_file)
-dest_path = Path(dest)
-
-try:
-    with state_path.open(encoding='utf-8') as f:
-        state = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    state = {'version': expected_version, 'files': {}}
-
-version = state.get('version', expected_version)
-if version != expected_version:
-    raise SystemExit(f'unsupported install-state version: {version} (expected {expected_version})')
-
-entry = {'source': source, 'type': install_type}
-if install_type != 'symlink' and dest_path.is_file():
-    entry['checksum'] = 'sha256:' + sha256_file(dest_path)
-state.setdefault('files', {})[dest] = entry
-
-write_json_atomic(state_path, state)
-PY
+  state_runtime setup-state-record-file "$STATE_FILE" "$dest" "$source" "$install_type"
 }
 
 # Record all files (regular or symlink) under a directory as installed artifacts.
@@ -111,55 +101,7 @@ state_check_drift() {
     return 0
   fi
 
-  python3 - "$INSTALL_STATE_LIB_DIR" "$STATE_FILE" "$STATE_VERSION" 2>/dev/null <<'PY'
-import json, os
-import sys
-from pathlib import Path
-
-lib_dir, state_file, state_version = sys.argv[1], sys.argv[2], int(sys.argv[3])
-sys.path.insert(0, lib_dir)
-from file_ops import sha256_file
-
-with open(state_file, encoding='utf-8') as f:
-    state = json.load(f)
-
-version = state.get('version', 1)
-if version != state_version:
-    print(f'UNSUPPORTED_STATE_VERSION: {version} (expected {state_version})')
-    raise SystemExit(0)
-
-files = state.get('files', {})
-drift_count = 0
-missing_count = 0
-
-for dest, info in files.items():
-    expanded = os.path.expanduser(dest)
-    if info['type'] == 'symlink':
-        if not os.path.islink(expanded):
-            if not os.path.exists(expanded):
-                print(f'MISSING: {dest}')
-                missing_count += 1
-            else:
-                print(f'DRIFT: {dest} (was symlink, now regular file)')
-                drift_count += 1
-    elif info['type'] == 'copy':
-        if not os.path.exists(expanded):
-            print(f'MISSING: {dest}')
-            missing_count += 1
-        elif 'checksum' in info:
-            actual = 'sha256:' + sha256_file(Path(expanded))
-            if actual != info['checksum']:
-                print(f'DRIFT: {dest} (checksum mismatch)')
-                drift_count += 1
-
-total = len(files)
-print(f'---')
-print(f'Total tracked: {total}, Missing: {missing_count}, Drifted: {drift_count}')
-if drift_count + missing_count == 0:
-    print('STATUS: CLEAN')
-else:
-    print(f'STATUS: DRIFT ({drift_count} drifted, {missing_count} missing)')
-PY
+  state_runtime setup-state-check-drift "$STATE_FILE" 2>/dev/null
 }
 
 # List all tracked files
@@ -169,64 +111,14 @@ state_list() {
     return 1
   fi
 
-  python3 - "$STATE_FILE" "$STATE_VERSION" <<'PY'
-import json
-import sys
-
-state_file, expected_version = sys.argv[1], int(sys.argv[2])
-
-with open(state_file, encoding='utf-8') as f:
-    state = json.load(f)
-version = state.get('version', 1)
-if version != expected_version:
-    raise SystemExit(f'Unsupported install-state version: {version} (expected {expected_version})')
-print(f'Profile: {state.get("profile", "unknown")}')
-print(f'Installed: {state.get("installed_at", "unknown")}')
-langs = state.get('languages', [])
-if langs:
-    print(f'Languages: {", ".join(langs)}')
-print(f'Tracked files: {len(state.get("files", {}))}')
-print()
-for dest, info in sorted(state.get('files', {}).items()):
-    t = info.get('type', '?')
-    print(f'  [{t:7s}] {dest}')
-PY
+  state_runtime setup-state-list "$STATE_FILE"
 }
 
 state_list_tracked_symlinks_under() {
   local dest_dir="$1"
   [[ -f "$STATE_FILE" ]] || return 0
 
-  python3 - "$STATE_FILE" "$dest_dir" "$STATE_VERSION" <<'PY'
-import json
-import os
-import sys
-
-state_file, dest_dir, expected_version = sys.argv[1], sys.argv[2], int(sys.argv[3])
-dest_dir = os.path.abspath(os.path.expanduser(dest_dir))
-
-try:
-    with open(state_file, encoding="utf-8") as f:
-        state = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    raise SystemExit(0)
-
-version = state.get("version", expected_version)
-if version != expected_version:
-    print(
-        f"WARN: unsupported install-state version: {version} (expected {expected_version}); "
-        "skipping tracked symlink cleanup",
-        file=sys.stderr,
-    )
-    raise SystemExit(0)
-
-for dest, info in sorted(state.get("files", {}).items()):
-    if info.get("type") != "symlink":
-        continue
-    expanded = os.path.abspath(os.path.expanduser(dest))
-    if expanded == dest_dir or expanded.startswith(dest_dir + os.sep):
-        print(expanded)
-PY
+  state_runtime setup-state-list-symlinks-under "$STATE_FILE" "$dest_dir"
 }
 
 # Remove state file (used by clean.sh)

@@ -9,6 +9,8 @@ source "${SCRIPT_DIR}/targets/codex-home.sh"
 
 echo "Cleaning VibeGuard installation..."
 
+ensure_setup_runtime_available >/dev/null 2>&1 || true
+
 clean_claude_home_installation
 clean_codex_home_installation
 

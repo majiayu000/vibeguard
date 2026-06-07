@@ -25,17 +25,19 @@ SH
 chmod +x "${NO_PYTHON_BIN}/python3"
 
 protocol_helper_out="$(
-  WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" bash -c '
+  WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" VIBEGUARD_CODEX_DIAG_FILE="${TMP_DIR}/protocol-codex-wrapper.jsonl" bash -c '
     set -euo pipefail
     source "$1"
     source "$2"
     payload="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test\"}}"
     printf "raw_event=%s\n" "$(codex_raw_event_name "${payload}")"
     printf "adapter_event=%s\n" "$(codex_event_name "${payload}")"
+    printf "status_info=%s\n" "$(codex_hook_status_info "${payload}")"
     printf "matcher=%s\n" "$(codex_hook_status_matcher "${payload}")"
     printf "detail=%s\n" "$(codex_hook_status_detail "${payload}")"
     codex_hook_status() { printf "status=%s reason=%s\n" "$4" "$5"; }
     codex_hook_status_from_output "vibeguard-pre-bash-guard.sh" "PreToolUse" "Bash" "{\"hookSpecificOutput\":{\"decision\":{\"behavior\":\"deny\",\"message\":\"stop\"}}}"
+    printf "status_json=%s\n" "$(cat "${VIBEGUARD_CODEX_DIAG_FILE}")"
     printf "pretool_deny_start\n"; codex_pretool_deny "blocked without python"; printf "pretool_deny_end\n"
     printf "permission_deny_start\n"; codex_permission_deny "permission blocked without python"; printf "permission_deny_end\n"
     printf "pretool_adapt_start\n"; codex_adapt_pretool "{\"decision\":\"block\",\"reason\":\"adapted without python\"}"; printf "pretool_adapt_end\n"
@@ -45,14 +47,87 @@ protocol_helper_out="$(
 )"
 assert_contains "${protocol_helper_out}" "raw_event=PreToolUse" "codex_raw_event_name works without python3"
 assert_contains "${protocol_helper_out}" "adapter_event=PreToolUse" "codex_event_name works without python3"
+assert_contains "${protocol_helper_out}" $'status_info=PreToolUse\tBash\tcargo test' "codex_hook_status_info works without python3"
 assert_contains "${protocol_helper_out}" "matcher=Bash" "codex_hook_status_matcher works without python3"
 assert_contains "${protocol_helper_out}" "detail=cargo test" "codex_hook_status_detail works without python3"
-assert_contains "${protocol_helper_out}" "status=block reason=" "codex_hook_status_from_output works without python3"
+assert_contains "${protocol_helper_out}" '"status":"block"' "codex_hook_status_from_output works without python3"
 assert_contains "${protocol_helper_out}" "blocked without python" "codex_pretool_deny works without python3"
 assert_contains "${protocol_helper_out}" "permission blocked without python" "codex_permission_deny works without python3"
 assert_contains "${protocol_helper_out}" "adapted without python" "codex_adapt_pretool works without python3"
 assert_contains "${protocol_helper_out}" "posttool without python" "codex_adapt_posttool works without python3"
 assert_contains "${protocol_helper_out}" "permission adapted without python" "codex_adapt_permission_request works without python3"
+
+timeout_defaults_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" bash -c '
+    set -euo pipefail
+    source "$1"
+    printf "pre_bash=%s\n" "$(codex_hook_timeout_ms vibeguard-pre-bash-guard.sh)"
+    printf "post_build=%s\n" "$(codex_hook_timeout_ms vibeguard-post-build-check.sh)"
+    printf "stop=%s\n" "$(codex_hook_timeout_ms vibeguard-stop-guard.sh)"
+  ' -- "${REPO_DIR}/hooks/_lib/codex_diag.sh"
+)"
+assert_contains "${timeout_defaults_out}" "pre_bash=15000" "Codex pre hooks use manifest timeout"
+assert_contains "${timeout_defaults_out}" "post_build=35000" "Codex post-build hook uses manifest timeout"
+assert_contains "${timeout_defaults_out}" "stop=15000" "Codex stop hook uses manifest timeout"
+
+OLD_STATUS_RUNTIME="${TMP_DIR}/old-status-runtime"
+OLD_STATUS_DIAG="${TMP_DIR}/old-status-diag.jsonl"
+cat > "${OLD_STATUS_RUNTIME}" <<'SH'
+#!/usr/bin/env bash
+cmd="$1"
+shift
+case "$cmd" in
+  codex-status-info|codex-hook-status-from-output)
+    printf 'Unknown command: %s\n' "$cmd" >&2
+    exit 2
+    ;;
+  codex-event-name)
+    cat >/dev/null
+    printf 'PreToolUse\n'
+    ;;
+  codex-status-matcher)
+    cat >/dev/null
+    printf 'Bash\n'
+    ;;
+  codex-status-detail)
+    cat >/dev/null
+    printf 'cargo test\n'
+    ;;
+  codex-status-from-output)
+    cat >/dev/null
+    printf 'block\told-runtime-block\n'
+    ;;
+  codex-hook-status)
+    diag_file="$1"
+    hook_name="$2"
+    event_name="$3"
+    matcher="$4"
+    status="$5"
+    reason="$6"
+    detail="$7"
+    timeout_ms="$8"
+    printf '{"hook":"%s","event":"%s","matcher":"%s","status":"%s","reason":"%s","detail":"%s","timeout_ms":%s}\n' \
+      "$hook_name" "$event_name" "$matcher" "$status" "$reason" "$detail" "$timeout_ms" >> "$diag_file"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "${OLD_STATUS_RUNTIME}"
+old_status_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${OLD_STATUS_RUNTIME}" VIBEGUARD_CODEX_DIAG_FILE="${OLD_STATUS_DIAG}" bash -c '
+    set -euo pipefail
+    source "$1"
+    payload="{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cargo test\"}}"
+    printf "old_status_info=%s\n" "$(codex_hook_status_info "${payload}")"
+    codex_hook_status_from_output "vibeguard-pre-bash-guard.sh" "PreToolUse" "Bash" "{\"decision\":\"block\",\"reason\":\"fallback\"}" "cargo test" "10000"
+    printf "old_status_diag=%s\n" "$(cat "${VIBEGUARD_CODEX_DIAG_FILE}")"
+  ' -- "${REPO_DIR}/hooks/_lib/codex_diag.sh"
+)"
+assert_contains "${old_status_out}" $'old_status_info=PreToolUse\tBash\tcargo test' "codex_hook_status_info falls back to old runtime helpers"
+assert_contains "${old_status_out}" '"status":"block"' "codex_hook_status_from_output falls back to old runtime helpers"
+assert_not_contains "${old_status_out}" "runtime-unavailable" "old runtime status fallback does not create false hook_error"
 
 BROKEN_RUNTIME="${TMP_DIR}/broken-vibeguard-runtime"
 cat > "${BROKEN_RUNTIME}" <<'SH'
@@ -123,6 +198,38 @@ no_python_patch_out="$(
 )"
 assert_contains "${no_python_patch_out}" '"permissionDecision": "deny"' "codex_run_hook apply_patch normalizer works without python3"
 assert_contains "${no_python_patch_out}" 'apply_patch normalized without python' "codex_run_hook apply_patch path reaches normalized Write hook without python3"
+
+TMP_FAKE_REPO_TIMEOUT="${TMP_DIR}/fake-repo-timeout"
+mkdir -p "${TMP_FAKE_REPO_TIMEOUT}/hooks"
+cat > "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+sleep 5
+printf '{"decision":"pass"}\n'
+HOOK
+chmod +x "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh"
+timeout_out="$(
+  WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${VIBEGUARD_RUNTIME}" bash -c '
+    set -euo pipefail
+    source "$1"
+    source "$2"
+    source "$3"
+    source "$4"
+    EVENT_NAME=PreToolUse
+    codex_diag() { printf "diag=%s:%s\n" "$3" "$4"; }
+    codex_hook_status() { printf "status=%s reason=%s timeout=%s\n" "$4" "$5" "$7"; }
+    codex_hook_timeout_ms() { printf "100\n"; }
+    codex_run_hook "vibeguard-pre-bash-guard.sh" "$5" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sleep 5\"}}"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
+    "${REPO_DIR}/hooks/_lib/timeout.sh" \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh"
+)"
+assert_contains "${timeout_out}" "status=timeout" "codex_run_hook enforces wrapped hook timeout"
+assert_contains "${timeout_out}" "wrapped-hook-timeout" "codex_run_hook records timeout diagnostic"
+assert_contains "${timeout_out}" "VIBEGUARD hook timed out" "codex_run_hook emits visible timeout failure"
 
 old_normalizer_runtime="${TMP_DIR}/old-normalizer-runtime"
 cat > "${old_normalizer_runtime}" <<'SH'

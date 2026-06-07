@@ -52,7 +52,7 @@
         "enabled": true,
         "support": "native",
         "script": "vibeguard-pre-bash-guard.sh",
-        "timeout": 10,
+        "timeout": 15,
         "entries": [
           {"event": "PreToolUse", "matcher": "Bash"},
           {"event": "PermissionRequest", "matcher": "Bash"}
@@ -78,7 +78,7 @@
         "enabled": true,
         "support": "native",
         "script": "vibeguard-pre-edit-guard.sh",
-        "timeout": 10,
+        "timeout": 15,
         "entries": [
           {"event": "PreToolUse", "matcher": "Edit"},
           {"event": "PermissionRequest", "matcher": "Edit"}
@@ -104,7 +104,7 @@
         "enabled": true,
         "support": "native",
         "script": "vibeguard-pre-write-guard.sh",
-        "timeout": 10,
+        "timeout": 15,
         "entries": [
           {"event": "PreToolUse", "matcher": "Write"},
           {"event": "PermissionRequest", "matcher": "Write"}
@@ -132,7 +132,7 @@
         "event": "PostToolUse",
         "matcher": "Edit",
         "script": "vibeguard-post-edit-guard.sh",
-        "timeout": 10
+        "timeout": 15
       }
     },
     {
@@ -156,7 +156,7 @@
         "event": "PostToolUse",
         "matcher": "Write",
         "script": "vibeguard-post-write-guard.sh",
-        "timeout": 10
+        "timeout": 15
       }
     },
     {
@@ -212,7 +212,7 @@
         "enabled": true,
         "support": "native",
         "script": "vibeguard-post-build-check.sh",
-        "timeout": 30,
+        "timeout": 35,
         "entries": [
           {"event": "PostToolUse", "matcher": "Bash"},
           {"event": "PostToolUse", "matcher": "Edit|Write"}
@@ -249,7 +249,8 @@
         "support": "native",
         "event": "Stop",
         "matcher": null,
-        "script": "vibeguard-stop-guard.sh"
+        "script": "vibeguard-stop-guard.sh",
+        "timeout": 15
       }
     },
     {
@@ -272,7 +273,8 @@
         "support": "native",
         "event": "Stop",
         "matcher": null,
-        "script": "vibeguard-learn-evaluator.sh"
+        "script": "vibeguard-learn-evaluator.sh",
+        "timeout": 15
       }
     },
     {

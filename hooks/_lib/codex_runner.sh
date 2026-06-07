@@ -28,6 +28,11 @@ _codex_write_normalized_inputs() {
   local hook_name="$1" input="$2" normalized_file="$3"
   local status=0 stderr_file stderr_text
 
+  if ! _codex_input_looks_apply_patch "${input}"; then
+    printf '%s\n' "${input}" >"${normalized_file}"
+    return 0
+  fi
+
   if stderr_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-normalizer.XXXXXX")"; then
     if _codex_normalize_apply_patch_runtime "${hook_name}" "${input}" >"${normalized_file}" 2>"${stderr_file}"; then
       rm -f "${stderr_file}" 2>/dev/null || true
@@ -40,19 +45,12 @@ _codex_write_normalized_inputs() {
 
     if [[ "${status}" -ne 0 ]]; then
       codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "${stderr_text:-runtime exit ${status}}"
-      if _codex_input_looks_apply_patch "${input}"; then
-        return 1
-      fi
-      printf '%s\n' "${input}" >"${normalized_file}"
-      return 0
+      return 1
     fi
   fi
 
   codex_diag "${hook_name}" "${EVENT_NAME}" "normalizer-failed" "runtime unavailable"
-  if _codex_input_looks_apply_patch "${input}"; then
-    return 1
-  fi
-  printf '%s\n' "${input}" >"${normalized_file}"
+  return 1
 }
 
 codex_run_hook() {
@@ -76,17 +74,48 @@ codex_run_hook() {
 
     hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-hook.XXXXXX")"
     event_name=$(codex_event_name "${normalized_input}")
-    local hook_matcher hook_detail hook_timeout_ms
-    hook_matcher="$(codex_hook_status_matcher "${normalized_input}" 2>/dev/null || true)"
-    hook_detail="$(codex_hook_status_detail "${normalized_input}" 2>/dev/null || true)"
+    local hook_matcher hook_detail hook_timeout_ms hook_status_info
+    local hook_timeout_seconds
+    if declare -F codex_hook_status_info >/dev/null 2>&1; then
+      hook_status_info="$(codex_hook_status_info "${normalized_input}" 2>/dev/null || true)"
+      event_name="${hook_status_info%%$'\t'*}"
+      hook_status_info="${hook_status_info#*$'\t'}"
+      hook_matcher="${hook_status_info%%$'\t'*}"
+      hook_detail="${hook_status_info#*$'\t'}"
+      if [[ "${hook_matcher}" == "${hook_status_info}" ]]; then
+        hook_detail=""
+      fi
+    else
+      event_name=$(codex_event_name "${normalized_input}")
+      hook_matcher="$(codex_hook_status_matcher "${normalized_input}" 2>/dev/null || true)"
+      hook_detail="$(codex_hook_status_detail "${normalized_input}" 2>/dev/null || true)"
+    fi
+    [[ -n "${event_name}" ]] || event_name=$(codex_event_name "${normalized_input}")
     hook_timeout_ms="$(codex_hook_timeout_ms "${hook_name}" 2>/dev/null || true)"
     codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "running" "" "${hook_detail}" "${hook_timeout_ms}"
 
     hook_output=""
     hook_exit=0
-    hook_output=$(printf '%s' "${normalized_input}" | bash "${hook_path}" "$@" 2>"${hook_err_file}") || hook_exit=$?
+    hook_timeout_seconds=""
+    if [[ "${hook_timeout_ms}" =~ ^[0-9]+$ && "${hook_timeout_ms}" -gt 0 ]]; then
+      hook_timeout_seconds=$(( (hook_timeout_ms + 999) / 1000 ))
+    fi
+    if [[ -n "${hook_timeout_seconds}" ]] && declare -F vg_run_with_timeout >/dev/null 2>&1; then
+      hook_output=$(printf '%s' "${normalized_input}" | vg_run_with_timeout "${hook_timeout_seconds}" bash "${hook_path}" "$@" 2>"${hook_err_file}") || hook_exit=$?
+    else
+      hook_output=$(printf '%s' "${normalized_input}" | bash "${hook_path}" "$@" 2>"${hook_err_file}") || hook_exit=$?
+    fi
     hook_err="$(cat "${hook_err_file}" 2>/dev/null || true)"
     rm -f "${hook_err_file}" 2>/dev/null || true
+
+    if [[ ${hook_exit} -eq 124 ]]; then
+      local timeout_reason="wrapped hook timeout after ${hook_timeout_seconds:-?}s"
+      codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "timeout" "${timeout_reason}" "${hook_detail}" "${hook_timeout_ms}"
+      codex_diag "${hook_name}" "${event_name}" "wrapped-hook-timeout" "${timeout_reason}"
+      rm -f "${normalized_file}" 2>/dev/null || true
+      codex_visible_failure_raw "${event_name}" "VIBEGUARD hook timed out after ${hook_timeout_seconds:-?}s."
+      return 0
+    fi
 
     if [[ ${hook_exit} -ne 0 ]]; then
       codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${hook_err:-${hook_output}}"
