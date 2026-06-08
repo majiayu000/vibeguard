@@ -520,7 +520,7 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
     let log_file = &args[2];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("SKIP");
+        println!("FALLBACK");
         return Ok(());
     };
 
@@ -544,8 +544,7 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
         {
             println!("FAST_LOGGED");
         } else {
-            println!("FAST_PASS");
-            println!("{file_path}");
+            println!("FALLBACK");
         }
         return Ok(());
     }
@@ -568,8 +567,7 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
         {
             println!("FAST_LOGGED");
         } else {
-            println!("FAST_PASS");
-            println!("{file_path}");
+            println!("FALLBACK");
         }
         return Ok(());
     };
@@ -588,8 +586,7 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
             {
                 println!("FAST_LOGGED");
             } else {
-                println!("FAST_PASS");
-                println!("{file_path}");
+                println!("FALLBACK");
             }
         }
         SameNameScan::Duplicate | SameNameScan::TooLarge => println!("FALLBACK"),
