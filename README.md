@@ -46,7 +46,7 @@ The current mainline is install-verified on macOS and CI-verified on Ubuntu, mac
 - Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
 - Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
 
-Latest benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report. Lower is better; the latest mainline run stayed below the regression threshold and improved the hot-path P95 samples versus the previous main commit.
+Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report and checked against per-hook budgets. The previous-commit ratio is useful for spotting changes, but single-run noise can move it; merge decisions should use the budget gate plus recent-main trend, not one baseline sample alone.
 
 ## What you actually get
 
