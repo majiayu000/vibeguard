@@ -92,6 +92,64 @@ assert_contains "$metrics_after" "$today" "current session metric remains"
 assert_not_contains "$metrics_after" "2020-01-01" "expired session metric is removed"
 assert_contains "$reflection" "VibeGuard Weekly Reflection Report" "reflection report is generated"
 
+header "learn_digest.py tolerates malformed UTF-8"
+
+learn_log_dir="${TMP_ROOT}/learn-logs"
+learn_project_dir="${learn_log_dir}/projects/badutf8"
+learn_root="${TMP_ROOT}/learn-project"
+stale_project_dir="${learn_log_dir}/projects/stale-code-scan"
+stale_root="${TMP_ROOT}/stale-code-project"
+mkdir -p "$learn_project_dir" "$learn_root" "$stale_project_dir" "${stale_root}/src"
+printf '%s\n' "$learn_root" > "${learn_project_dir}/.project-root"
+printf '%s\n' "$stale_root" > "${stale_project_dir}/.project-root"
+printf '{"scripts":{}}\n' > "${stale_root}/package.json"
+cat > "${stale_root}/src/stale.ts" <<'EOF'
+export function stale(value: any): any {
+  const one: any = value;
+  const two: any = one;
+  const three: any = two;
+  const four: any = three;
+  const five: any = four;
+  return five;
+}
+EOF
+printf '%s\n' '{"ts":"2020-01-01T00:00:00Z","session":"stale","decision":"warn","reason":"old-only"}' > "${stale_project_dir}/events.jsonl"
+python3 - "${learn_project_dir}/events.jsonl" "$today" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+today = sys.argv[2]
+with path.open("wb") as f:
+    f.write(
+        b'{"ts":"'
+        + today.encode("utf-8")
+        + b'","session":"bad-utf8","decision":"warn","reason":"recoverable-utf8-\xff"}\n'
+    )
+    for index in range(10):
+        f.write(
+            (
+                json.dumps(
+                    {
+                        "ts": today,
+                        "session": f"learn-{index}",
+                        "decision": "warn",
+                        "reason": "repeat-gc-warning",
+                    }
+                )
+                + "\n"
+            ).encode("utf-8")
+        )
+PY
+learn_out="$(_GC_LOG_DIR="$learn_log_dir" _GC_VIBEGUARD_DIR="$REPO_DIR" _GC_LEARNING_WINDOW_DAYS=7 python3 scripts/gc/learn_digest.py 2>&1)"
+learn_digest="$(cat "${learn_log_dir}/learn-digest.jsonl" 2>/dev/null || true)"
+
+assert_not_contains "$learn_out" "UnicodeDecodeError" "learning digest tolerates malformed UTF-8 event bytes"
+assert_cmd "learning digest writes output after malformed UTF-8" test -f "${learn_log_dir}/learn-digest.jsonl"
+assert_contains "$learn_digest" "repeat-gc-warning" "learning digest keeps valid rows after malformed UTF-8"
+assert_not_contains "$learn_digest" "$stale_root" "learning digest skips code scan for stale project activity"
+
 header "gc-scheduled.sh catch-up mode"
 
 skip_log_before="$(wc -l < "${log_dir}/gc-cron.log" | tr -d ' ')"

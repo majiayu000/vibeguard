@@ -294,10 +294,7 @@ mod tests {
     fn unique_temp_dir(name: &str) -> SetupResult<PathBuf> {
         let mut path = std::env::temp_dir();
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-        path.push(format!(
-            "vibeguard-{name}-{}-{nanos}",
-            std::process::id()
-        ));
+        path.push(format!("vibeguard-{name}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&path)?;
         Ok(path)
     }

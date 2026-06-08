@@ -26,6 +26,17 @@ cutoff_7d = (now - timedelta(days=learning_window_days)).strftime("%Y-%m-%dT")
 signals_found = 0
 
 
+def iter_text_lines_lossy(path):
+    """Yield UTF-8 text lines without letting malformed bytes abort GC learning."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        yield from handle
+
+
+def read_text_lossy(path):
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        return handle.read()
+
+
 def detect_guards(project_root):
     """Return [(guard_script, rule_id_prefix)] list."""
     guards = []
@@ -84,6 +95,7 @@ for proj in os.listdir(projects_dir):
 
     signals = []
     session_set = set()
+    has_recent_activity = False
 
     if os.path.exists(events_file):
         warn_reasons = Counter()
@@ -91,29 +103,29 @@ for proj in os.listdir(projects_dir):
         edit_files = Counter()
         slow_count = 0
 
-        with open(events_file, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    evt = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ts = evt.get("ts", "")
-                if ts[:10] < cutoff_7d[:10]:
-                    continue
-                session_set.add(evt.get("session", ""))
-                decision = evt.get("decision", "")
-                reason = evt.get("reason", "")
-                if decision == "warn" and reason:
-                    warn_reasons[reason] += 1
-                elif decision == "block" and reason:
-                    block_reasons[reason] += 1
-                if evt.get("tool") == "Edit" and evt.get("detail"):
-                    edit_files[evt["detail"].split()[-1]] += 1
-                if evt.get("duration_ms", 0) > 5000:
-                    slow_count += 1
+        for line in iter_text_lines_lossy(events_file):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = evt.get("ts", "")
+            if ts[:10] < cutoff_7d[:10]:
+                continue
+            has_recent_activity = True
+            session_set.add(evt.get("session", ""))
+            decision = evt.get("decision", "")
+            reason = evt.get("reason", "")
+            if decision == "warn" and reason:
+                warn_reasons[reason] += 1
+            elif decision == "block" and reason:
+                block_reasons[reason] += 1
+            if evt.get("tool") == "Edit" and evt.get("detail"):
+                edit_files[evt["detail"].split()[-1]] += 1
+            if evt.get("duration_ms", 0) > 5000:
+                slow_count += 1
 
         for reason, count in warn_reasons.most_common(5):
             if count >= 10:
@@ -162,23 +174,23 @@ for proj in os.listdir(projects_dir):
         if os.path.exists(metrics_file):
             mid = (now - timedelta(days=3.5)).strftime("%Y-%m-%dT")
             early_warns, late_warns = 0, 0
-            with open(metrics_file, encoding="utf-8") as mf:
-                for ml in mf:
-                    ml = ml.strip()
-                    if not ml:
-                        continue
-                    try:
-                        m = json.loads(ml)
-                    except json.JSONDecodeError:
-                        continue
-                    mts = m.get("ts", "")
-                    if mts[:10] < cutoff_7d[:10]:
-                        continue
-                    w = m.get("decisions", {}).get("warn", 0)
-                    if mts < mid:
-                        early_warns += w
-                    else:
-                        late_warns += w
+            for ml in iter_text_lines_lossy(metrics_file):
+                ml = ml.strip()
+                if not ml:
+                    continue
+                try:
+                    m = json.loads(ml)
+                except json.JSONDecodeError:
+                    continue
+                mts = m.get("ts", "")
+                if mts[:10] < cutoff_7d[:10]:
+                    continue
+                has_recent_activity = True
+                w = m.get("decisions", {}).get("warn", 0)
+                if mts < mid:
+                    early_warns += w
+                else:
+                    late_warns += w
             if early_warns > 0 and late_warns > early_warns * 1.5:
                 signals.append(
                     {
@@ -190,8 +202,8 @@ for proj in os.listdir(projects_dir):
                     }
                 )
 
-    if os.path.exists(project_root_file):
-        project_root = open(project_root_file, encoding="utf-8").read().strip()
+    if has_recent_activity and os.path.exists(project_root_file):
+        project_root = read_text_lossy(project_root_file).strip()
         if os.path.isdir(project_root):
             guards = detect_guards(project_root)
             for guard_script, prefix in guards:
@@ -217,7 +229,7 @@ for proj in os.listdir(projects_dir):
             "recommendation": f"consider /vibeguard:learn for project {proj}",
         }
         if os.path.exists(project_root_file):
-            entry["project_root"] = open(project_root_file, encoding="utf-8").read().strip()
+            entry["project_root"] = read_text_lossy(project_root_file).strip()
         with open(digest_file, "a", encoding="utf-8") as df:
             df.write(json.dumps(entry, ensure_ascii=False) + "\n")
         print(f" project {proj}: {len(signals)} learning signals")

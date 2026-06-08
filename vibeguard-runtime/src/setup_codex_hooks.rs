@@ -589,7 +589,8 @@ mod tests {
             .and_then(Value::as_array);
         assert_eq!(hooks.map(Vec::len), Some(1));
         assert_eq!(
-            hooks.and_then(|items| items.first())
+            hooks
+                .and_then(|items| items.first())
                 .and_then(|hook| hook.get("command"))
                 .and_then(Value::as_str),
             Some("bash /tmp/third-party.sh")
@@ -637,7 +638,13 @@ mod tests {
             ]
         })];
 
-        assert!(!codex_has_entry(&entries, repo_dir, command, None, Some(15)));
+        assert!(!codex_has_entry(
+            &entries,
+            repo_dir,
+            command,
+            None,
+            Some(15)
+        ));
         assert!(codex_has_entry(&entries, repo_dir, command, None, Some(99)));
     }
 }

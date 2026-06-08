@@ -308,10 +308,7 @@ mod tests {
     fn unique_temp_dir(name: &str) -> SetupResult<PathBuf> {
         let mut path = std::env::temp_dir();
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-        path.push(format!(
-            "vibeguard-{name}-{}-{nanos}",
-            std::process::id()
-        ));
+        path.push(format!("vibeguard-{name}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&path)?;
         Ok(path)
     }
@@ -327,7 +324,10 @@ mod tests {
     #[test]
     fn shell_quote_wraps_unsafe_values() {
         assert_eq!(shell_quote("/tmp/safe-path"), "/tmp/safe-path");
-        assert_eq!(shell_quote("/tmp/path with space"), "'/tmp/path with space'");
+        assert_eq!(
+            shell_quote("/tmp/path with space"),
+            "'/tmp/path with space'"
+        );
         assert_eq!(shell_quote("it's"), "'it'\"'\"'s'");
     }
 

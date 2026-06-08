@@ -7,6 +7,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+const MAX_APP_SERVER_THREADS: usize = 100;
+
 pub type WriteServer<'a> = dyn FnMut(Value) + 'a;
 
 pub fn capabilities() -> Value {
@@ -30,21 +32,54 @@ pub struct ThreadState {
     pub turn_id: Option<String>,
     pub pending_file_changes: HashMap<String, Vec<FilePatch>>,
     pub research_streak: usize,
+    pub last_seen: u64,
 }
 
 #[derive(Debug, Default)]
 pub struct SessionState {
     pub threads: HashMap<String, ThreadState>,
+    next_seen: u64,
 }
 
 impl SessionState {
     pub fn ensure_thread(&mut self, thread_id: &str) -> &mut ThreadState {
-        self.threads
+        self.next_seen = self.next_seen.saturating_add(1);
+        let last_seen = self.next_seen;
+        if !self.threads.contains_key(thread_id) && self.threads.len() >= MAX_APP_SERVER_THREADS {
+            self.prune_thread_for_insert(thread_id);
+        }
+
+        let thread = self
+            .threads
             .entry(thread_id.to_string())
             .or_insert_with(|| ThreadState {
                 session_id: Some(session_id_for_thread(thread_id)),
                 ..ThreadState::default()
+            });
+        thread.last_seen = last_seen;
+        thread
+    }
+
+    fn prune_thread_for_insert(&mut self, incoming_thread_id: &str) {
+        let victim = self
+            .threads
+            .iter()
+            .filter(|(id, thread)| {
+                id.as_str() != incoming_thread_id && thread.pending_file_changes.is_empty()
             })
+            .min_by_key(|(_, thread)| thread.last_seen)
+            .map(|(id, _)| id.clone())
+            .or_else(|| {
+                self.threads
+                    .iter()
+                    .filter(|(id, _)| id.as_str() != incoming_thread_id)
+                    .min_by_key(|(_, thread)| thread.last_seen)
+                    .map(|(id, _)| id.clone())
+            });
+
+        if let Some(victim) = victim {
+            self.threads.remove(&victim);
+        }
     }
 }
 
@@ -669,6 +704,41 @@ mod tests {
         let payloads = extract_payloads(output);
 
         assert_eq!(payloads, vec![json!({"decision": "pass"})]);
+    }
+
+    #[test]
+    fn ensure_thread_bounds_long_lived_app_server_state() {
+        let mut state = SessionState::default();
+        for index in 0..(MAX_APP_SERVER_THREADS + 25) {
+            state.ensure_thread(&format!("thread-{index}"));
+        }
+
+        assert_eq!(state.threads.len(), MAX_APP_SERVER_THREADS);
+        assert!(!state.threads.contains_key("thread-0"));
+        assert!(
+            state
+                .threads
+                .contains_key(&format!("thread-{}", MAX_APP_SERVER_THREADS + 24))
+        );
+    }
+
+    #[test]
+    fn ensure_thread_prunes_idle_threads_before_pending_file_changes() {
+        let mut state = SessionState::default();
+        for index in 0..MAX_APP_SERVER_THREADS {
+            state.ensure_thread(&format!("thread-{index}"));
+        }
+        state
+            .ensure_thread("thread-0")
+            .pending_file_changes
+            .insert("turn:item".into(), Vec::new());
+
+        state.ensure_thread("thread-new");
+
+        assert!(state.threads.contains_key("thread-0"));
+        assert!(!state.threads.contains_key("thread-1"));
+        assert!(state.threads.contains_key("thread-new"));
+        assert_eq!(state.threads.len(), MAX_APP_SERVER_THREADS);
     }
 
     #[test]

@@ -18,6 +18,22 @@ _VG_SCAN_MAX_FILES="${VG_SCAN_MAX_FILES:-5000}"
 _VG_SCAN_MAX_DEFS="${VG_SCAN_MAX_DEFS:-20}"
 _VG_SCAN_MATCH_LIMIT="${VG_SCAN_MATCH_LIMIT:-5}"
 
+_VG_FAST_RESULT=$(printf '%s' "$INPUT" \
+  | "$_VIBEGUARD_RUNTIME" post-write-fast-check "$_VG_U16_BASE_LIMIT" "$_VG_SCAN_MAX_FILES" "$VIBEGUARD_LOG_FILE" \
+  2>/dev/null || true)
+_VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
+case "$_VG_FAST_STATUS" in
+  SKIP|FAST_LOGGED)
+    exit 0
+    ;;
+  FAST_PASS)
+    FILE_PATH="${_VG_FAST_RESULT#*$'\n'}"
+    [[ "$FILE_PATH" == "$_VG_FAST_RESULT" ]] && FILE_PATH=""
+    vg_log "post-write-guard" "Write" "pass" "" "$FILE_PATH"
+    exit 0
+    ;;
+esac
+
 _VG_RUNTIME_ERR="$(mktemp)"
 _vg_cleanup_runtime_err() {
   local status=$?

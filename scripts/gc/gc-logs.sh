@@ -119,7 +119,7 @@ def atomic_replace_log(lines):
 
 lock_fd = acquire_lock()
 try:
-    with open(log_file, encoding='utf-8') as f:
+    with open(log_file, encoding='utf-8', errors='replace') as f:
         for line in f:
             total += 1
             line = line.strip()

@@ -149,6 +149,32 @@ assert_not_contains "$project_remaining" "old-line" "project old-month line is r
 assert_contains "$project_archived" "old-line" "project old-month line is archived"
 assert_cmd "project events.jsonl remains mode 600" test "$(file_mode "${project_log_dir}/events.jsonl")" = "600"
 
+header "gc-logs.sh tolerates malformed UTF-8"
+
+malformed_dir="${TMP_ROOT}/malformed"
+mkdir -p "$malformed_dir"
+python3 - "${malformed_dir}/events.jsonl" "$(current_ts)" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+current_ts = sys.argv[2]
+path.write_bytes(
+    b'{"ts":"2024-01-01T00:00:00Z","detail":"old-\xff-line"}\n'
+    + b'{"ts":"'
+    + current_ts.encode("utf-8")
+    + b'","detail":"current-line"}\n'
+)
+PY
+malformed_out="$(run_gc "$malformed_dir" --retain 60)"
+malformed_remaining="$(cat "${malformed_dir}/events.jsonl")"
+malformed_archived="$(gzip -dc "${malformed_dir}/archive/events-2024-01.jsonl.gz")"
+
+assert_not_contains "$malformed_out" "UnicodeDecodeError" "malformed UTF-8 does not abort log archive"
+assert_contains "$malformed_out" "archive 1 items, retain 1 items" "malformed UTF-8 archive reports moved and retained counts"
+assert_contains "$malformed_remaining" "current-line" "current line remains after malformed UTF-8 archive"
+assert_contains "$malformed_archived" "old-" "malformed UTF-8 old line is archived with replacement"
+
 printf '\n==============================\n'
 printf 'Total: %s  Pass: \033[32m%s\033[0m  Fail: \033[31m%s\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
 printf '==============================\n'
