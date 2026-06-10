@@ -436,5 +436,9 @@ impl GateStrategy for VibeGuardGateStrategy {
 mod profile_tests;
 
 #[cfg(test)]
+#[path = "codex_app_server_missing_hook_tests.rs"]
+mod missing_hook_tests;
+
+#[cfg(test)]
 #[path = "codex_app_server_strategies_tests.rs"]
 mod tests;

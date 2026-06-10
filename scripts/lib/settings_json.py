@@ -277,8 +277,8 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
     """Generate the hook command using the run-hook.sh wrapper."""
-    home = Path.home()
-    return f"bash {home}/.vibeguard/run-hook.sh {script_name}"
+    wrapper = Path.home() / ".vibeguard" / "run-hook.sh"
+    return f"bash {shlex.quote(str(wrapper))} {shlex.quote(script_name)}"
 
 
 def _is_canonical_hook_command(command: str, script_name: str) -> bool:

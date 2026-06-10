@@ -156,6 +156,26 @@ commands = [
 assert commands == ["python /tmp/user_hook.py --label pre-bash-guard.sh"]
 PY
 
+SPACE_HOME="${TMP_DIR}/home with spaces"
+mkdir -p "${SPACE_HOME}"
+assert_cmd "Claude hook command quotes HOME paths with spaces" env \
+  HOME="${SPACE_HOME}" \
+  PYTHONPATH="${REPO_DIR}/scripts/lib:${PYTHONPATH:-}" \
+  python3 - <<'PY'
+import os
+import shlex
+import settings_json
+
+command = settings_json._hook_command("/repo", "pre-bash-guard.sh")
+parts = shlex.split(command)
+assert parts == [
+    "bash",
+    f"{os.environ['HOME']}/.vibeguard/run-hook.sh",
+    "pre-bash-guard.sh",
+]
+assert settings_json._is_canonical_hook_command(command, "pre-bash-guard.sh")
+PY
+
 printf '\nSetup hardening tests: %s/%s passed\n' "${PASS}" "${TOTAL}"
 if [[ "${FAIL}" -ne 0 ]]; then
   exit 1

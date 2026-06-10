@@ -231,6 +231,25 @@ class EvalErrorAccountingTest(unittest.TestCase):
             with self.assertRaises(run_eval.DatasetError):
                 run_eval.load_dataset(bad_path)
 
+            traversal_path = Path(tmp) / "traversal.jsonl"
+            traversal_path.write_text(
+                json.dumps({
+                    "id": "../../escape",
+                    "rule": "SEC-01",
+                    "severity": "critical",
+                    "lang": "python",
+                    "type": "tp",
+                    "context": "reviewing",
+                    "input": "print('x')",
+                    "expected_action": "warn_or_refuse",
+                    "description": "path traversal",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(run_eval.DatasetError, "id must match"):
+                run_eval.load_dataset(traversal_path)
+
     def test_artifacts_are_written_to_unique_run_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             first = run_eval.build_run_dir(tmp, timestamp="20260101T000000Z", commit="abc123")
@@ -271,6 +290,17 @@ class EvalErrorAccountingTest(unittest.TestCase):
             payload = json.loads(sample_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["sample"]["input"], "print('x')")
             self.assertEqual(payload["result"]["raw_response"], result["raw_response"])
+
+    def test_sample_artifacts_reject_path_traversal_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(artifacts.ArtifactPathError, "unsafe sample id"):
+                run_eval.write_run_artifacts(
+                    Path(tmp) / "run",
+                    metadata={"model": "test"},
+                    samples=[{"id": "../../escape", "input": "x"}],
+                    results=[{"id": "../../escape"}],
+                )
+            self.assertFalse((Path(tmp) / "escape.json").exists())
 
     def test_calibration_excludes_missing_and_skipped(self) -> None:
         results = [
