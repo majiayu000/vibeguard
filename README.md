@@ -361,6 +361,18 @@ which implies it) to make CI fail when the install is broken.
 
 VibeGuard deploys hooks and skills to both Claude Code and Codex CLI.
 
+Codex App can also discover VibeGuard as a local plugin from this repository:
+
+```bash
+codex plugin marketplace add /path/to/vibeguard
+codex plugin add vibeguard@vibeguard-local
+```
+
+The plugin is an explicit operator entrypoint. Installing the plugin does not
+silently rewrite `~/.codex`; use the plugin setup skill, or run
+`bash plugins/vibeguard/scripts/vibeguard-plugin.sh install --yes` from this
+checkout, to install VibeGuard-managed Codex hooks and rules.
+
 Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`):
 
 | Event | Hook | Function |

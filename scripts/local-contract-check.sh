@@ -84,6 +84,10 @@ if [[ -f "$REPO_DIR/tests/test_prompt_contract.sh" ]]; then
   run_check "test_prompt_contract" "$REPO_DIR/tests/test_prompt_contract.sh" "true"
 fi
 
+if [[ -f "$REPO_DIR/tests/test_codex_plugin_manifest.sh" ]]; then
+  run_check "test_codex_plugin_manifest" "$REPO_DIR/tests/test_codex_plugin_manifest.sh" "true"
+fi
+
 if [[ -f "$REPO_DIR/tests/test_eval_contract.sh" ]]; then
   run_check "test_eval_contract"     "$REPO_DIR/tests/test_eval_contract.sh"     "true"
 fi

@@ -1,0 +1,40 @@
+{
+  "name": "vibeguard",
+  "version": "0.1.0",
+  "description": "Codex App entrypoint for VibeGuard rules, hooks, setup checks, and workflow guidance.",
+  "author": {
+    "name": "VibeGuard maintainers",
+    "url": "https://github.com/majiayu000/vibeguard"
+  },
+  "homepage": "https://github.com/majiayu000/vibeguard",
+  "repository": "https://github.com/majiayu000/vibeguard",
+  "license": "MIT",
+  "keywords": [
+    "vibeguard",
+    "codex",
+    "hooks",
+    "guardrails",
+    "anti-hallucination"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "VibeGuard",
+    "shortDescription": "Install and inspect VibeGuard from Codex",
+    "longDescription": "VibeGuard helps Codex use the existing anti-hallucination rules, setup checks, native hook installer, and development workflows without silently modifying global configuration during plugin discovery.",
+    "developerName": "VibeGuard maintainers",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/majiayu000/vibeguard",
+    "defaultPrompt": [
+      "Check my VibeGuard Codex setup",
+      "Install VibeGuard hooks for Codex",
+      "Run a VibeGuard preflight for this repo"
+    ],
+    "brandColor": "#1D76DB",
+    "screenshots": []
+  }
+}
