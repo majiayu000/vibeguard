@@ -368,10 +368,20 @@ codex plugin marketplace add /path/to/vibeguard
 codex plugin add vibeguard@vibeguard-local
 ```
 
-The plugin is an explicit operator entrypoint. Installing the plugin does not
-silently rewrite `~/.codex`; use the plugin setup skill, or run
-`bash plugins/vibeguard/scripts/vibeguard-plugin.sh install --yes` from this
-checkout, to install VibeGuard-managed Codex hooks and rules.
+The plugin is an observability-first operator entrypoint. Installing the plugin
+does not silently rewrite `~/.codex`; use the plugin observe/setup skills, or
+run one of these commands from this checkout:
+
+```bash
+bash plugins/vibeguard/scripts/vibeguard-plugin.sh dashboard
+bash plugins/vibeguard/scripts/vibeguard-plugin.sh health 24
+bash plugins/vibeguard/scripts/vibeguard-plugin.sh stats all
+bash plugins/vibeguard/scripts/vibeguard-plugin.sh install --yes
+```
+
+The dashboard is generated as a local HTML artifact from the existing VibeGuard
+diagnostic commands. It is not remote telemetry and does not replace behavior
+eval gates.
 
 Hooks live in `~/.codex/hooks.json` (requires `[features].hooks = true` in `config.toml`):
 

@@ -25,7 +25,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `context-profiles/` | Claude context profiles installed into `~/.claude/context-profiles/`. |
 | `templates/` | Project and language templates copied or referenced by setup and docs. |
 | `claude-md/` | Text injected into user-level Claude memory during setup. |
-| `.agents/plugins/`, `plugins/vibeguard/` | Repo-local Codex App marketplace entry and plugin wrapper. The plugin exposes explicit setup/status skills; `setup.sh` remains the hook installer. |
+| `.agents/plugins/`, `plugins/vibeguard/` | Repo-local Codex App marketplace entry and plugin wrapper. The plugin exposes observability dashboard, setup/status, doctor, and metrics commands; `setup.sh` remains the hook installer. |
 
 ## Verification And Release
 

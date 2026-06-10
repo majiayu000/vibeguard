@@ -1,7 +1,7 @@
 {
   "name": "vibeguard",
   "version": "0.1.0",
-  "description": "Codex App entrypoint for VibeGuard rules, hooks, setup checks, and workflow guidance.",
+  "description": "Codex App plugin for VibeGuard observability, hook health, setup checks, and local dashboards.",
   "author": {
     "name": "VibeGuard maintainers",
     "url": "https://github.com/majiayu000/vibeguard"
@@ -14,13 +14,15 @@
     "codex",
     "hooks",
     "guardrails",
-    "anti-hallucination"
+    "anti-hallucination",
+    "observability",
+    "dashboard"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "VibeGuard",
-    "shortDescription": "Install and inspect VibeGuard from Codex",
-    "longDescription": "VibeGuard helps Codex use the existing anti-hallucination rules, setup checks, native hook installer, and development workflows without silently modifying global configuration during plugin discovery.",
+    "shortDescription": "Inspect VibeGuard hook health and setup state",
+    "longDescription": "VibeGuard gives Codex an observability-first entrypoint for local hook health, trigger stats, setup diagnosis, metrics export, and explicit hook installation. It generates local dashboard artifacts from existing VibeGuard evidence without silently modifying global configuration during plugin discovery.",
     "developerName": "VibeGuard maintainers",
     "category": "Developer Tools",
     "capabilities": [
@@ -30,11 +32,13 @@
     ],
     "websiteURL": "https://github.com/majiayu000/vibeguard",
     "defaultPrompt": [
-      "Check my VibeGuard Codex setup",
-      "Install VibeGuard hooks for Codex",
-      "Run a VibeGuard preflight for this repo"
+      "Show my VibeGuard dashboard",
+      "Check VibeGuard hook health",
+      "Diagnose my Codex hook setup"
     ],
-    "brandColor": "#1D76DB",
+    "brandColor": "#16A34A",
+    "composerIcon": "./assets/logo-mark.svg",
+    "logo": "./assets/logo-vibeguard.svg",
     "screenshots": []
   }
 }

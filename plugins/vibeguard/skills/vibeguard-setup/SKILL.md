@@ -25,6 +25,7 @@ show the intended command before running it.
 
 - [ ] Resolve the source checkout with `plugins/vibeguard/scripts/vibeguard-plugin.sh repo-dir`.
 - [ ] Run `plugins/vibeguard/scripts/vibeguard-plugin.sh check --strict` before claiming health.
+- [ ] Use `plugins/vibeguard/scripts/vibeguard-plugin.sh codex-status` for Codex-specific setup state.
 - [ ] Use `VIBEGUARD_REPO_DIR=/path/to/vibeguard` if the plugin is loaded outside the checkout.
 
 ## Commands
@@ -35,6 +36,7 @@ From a VibeGuard checkout:
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh repo-dir
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh check --strict
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh codex-status
+bash plugins/vibeguard/scripts/vibeguard-plugin.sh doctor
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh install --yes
 bash plugins/vibeguard/scripts/vibeguard-plugin.sh clean
 ```

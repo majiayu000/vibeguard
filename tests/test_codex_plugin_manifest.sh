@@ -36,6 +36,18 @@ assert_cmd "marketplace manifest exists" test -f "${MARKETPLACE_JSON}"
 assert_cmd "plugin bridge script has valid syntax" bash -n "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
 assert_cmd "plugin bridge resolves repo checkout" \
   bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" repo-dir
+assert_cmd "plugin dashboard generator writes local HTML" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --log-file /dev/null >/dev/null
+  test -f "${tmp_dir}/dashboard.html"
+  grep -q "VibeGuard Observability" "${tmp_dir}/dashboard.html"
+  ! LC_ALL=C grep -q "$(printf "\033")" "${tmp_dir}/dashboard.html"
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
+assert_cmd "plugin health bridge runs against empty log" \
+  bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" health --log-file /dev/null 24
+assert_cmd "plugin stats bridge runs against empty log" \
+  bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" stats --log-file /dev/null all
 
 header "plugin manifest contract"
 assert_cmd "plugin manifest validates local contract" python3 - "${PLUGIN_JSON}" "${PLUGIN_DIR}" <<'PY'
@@ -79,6 +91,13 @@ if not isinstance(interface, dict):
 for field in ("displayName", "shortDescription", "longDescription", "developerName", "category"):
     if not interface.get(field):
         fail(f"interface.{field} is required")
+for asset_field in ("composerIcon", "logo"):
+    if asset_field in interface:
+        rel = interface[asset_field]
+        if not rel.startswith("./"):
+            fail(f"interface.{asset_field} must be relative")
+        if not (plugin_dir / rel.removeprefix("./")).is_file():
+            fail(f"interface.{asset_field} points at a missing file")
 prompts = interface.get("defaultPrompt")
 if not isinstance(prompts, list) or len(prompts) > 3:
     fail("interface.defaultPrompt must be a list of at most three prompts")
