@@ -34,6 +34,9 @@ fn help_lists_all_commands() {
     for name in &[
         "json-field",
         "json-two-fields",
+        "config-get",
+        "bash-preprocess",
+        "allow-command-json",
         "churn-count",
         "warn-count",
         "post-edit-history",
@@ -52,6 +55,162 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+#[test]
+fn bash_preprocess_emits_nul_separated_derived_commands() {
+    let command = "git commit -m \"docs; git checkout .\"\ncat <<'EOF'\nrm -rf /\nEOF\n";
+    let mut child = bin()
+        .arg("bash-preprocess")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(command.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let fields: Vec<&[u8]> = out.stdout.split(|byte| *byte == 0).collect();
+    assert_eq!(fields.len(), 5, "expected 4 NUL-terminated fields");
+    assert_eq!(
+        String::from_utf8_lossy(fields[0]),
+        "git commit -m \"docs; git checkout .\"\ncat <<'EOF'\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(fields[1]),
+        "git commit -m \"\"\ncat <<''\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(fields[2]),
+        "git commit -m docs; git checkout .\ncat <<EOF\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(fields[3]),
+        "git commit -m \"\"\ncat <<''\n"
+    );
+}
+
+#[test]
+fn allow_command_json_emits_nested_updated_input() {
+    let mut child = bin()
+        .arg("allow-command-json")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"pnpm add \"a b\"")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["decision"], "allow");
+    assert_eq!(value["updatedInput"]["command"], "pnpm add \"a b\"");
+}
+
+#[test]
+fn config_get_extracts_typed_values() {
+    let config_path = std::env::temp_dir().join(format!(
+        "vibeguard-runtime-config-{}-{}.json",
+        std::process::id(),
+        "typed"
+    ));
+    std::fs::write(
+        &config_path,
+        r#"{"u16":{"limit":1234},"write_mode":"block"}"#,
+    )
+    .unwrap();
+
+    let int_out = bin()
+        .args([
+            "config-get",
+            "int",
+            config_path.to_str().unwrap(),
+            "u16.limit",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        int_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&int_out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&int_out.stdout), "1234\n");
+
+    let string_out = bin()
+        .args([
+            "config-get",
+            "string",
+            config_path.to_str().unwrap(),
+            "write_mode",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        string_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&string_out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&string_out.stdout), "block\n");
+
+    let _ = std::fs::remove_file(config_path);
+}
+
+#[test]
+fn config_get_rejects_missing_or_wrong_type() {
+    let config_path = std::env::temp_dir().join(format!(
+        "vibeguard-runtime-config-{}-{}.json",
+        std::process::id(),
+        "wrong-type"
+    ));
+    std::fs::write(&config_path, r#"{"u16":{"limit":"1234"}}"#).unwrap();
+
+    let out = bin()
+        .args([
+            "config-get",
+            "int",
+            config_path.to_str().unwrap(),
+            "u16.limit",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+
+    let missing = bin()
+        .args([
+            "config-get",
+            "string",
+            config_path.to_str().unwrap(),
+            "write_mode",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+
+    let _ = std::fs::remove_file(config_path);
 }
 
 #[test]

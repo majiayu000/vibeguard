@@ -19,6 +19,15 @@ _vg_config_file() {
   printf '%s' "${_VG_CONFIG_FILE:-${VIBEGUARD_CONFIG_FILE:-${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/config.json}}"
 }
 
+_vg_config_runtime_get() {
+  local kind="$1" config_file="$2" json_path="$3"
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "${_VIBEGUARD_RUNTIME:-}" ]]; then
+    "$_VIBEGUARD_RUNTIME" config-get "$kind" "$config_file" "$json_path" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
 vg_config_get_int() {
   local env_name="$1" json_path="$2" default_val="$3"
   local val config_file
@@ -31,6 +40,12 @@ vg_config_get_int() {
 
   config_file="$(_vg_config_file)"
   if [[ -f "$config_file" ]]; then
+    val=$(_vg_config_runtime_get int "$config_file" "$json_path") || val=""
+    if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
+      printf '%s' "$val"
+      return 0
+    fi
+
     val=$(python3 - "$config_file" "$json_path" <<'PY'
 import json
 import sys
@@ -74,6 +89,12 @@ vg_config_get_str() {
 
   config_file="$(_vg_config_file)"
   if [[ -f "$config_file" ]]; then
+    val=$(_vg_config_runtime_get string "$config_file" "$json_path") || val=""
+    if [[ -n "$val" ]]; then
+      printf '%s' "$val"
+      return 0
+    fi
+
     val=$(python3 - "$config_file" "$json_path" <<'PY'
 import json
 import sys

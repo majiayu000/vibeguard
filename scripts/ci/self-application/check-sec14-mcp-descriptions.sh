@@ -7,6 +7,7 @@ REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 
 python3 - <<'PY' "${REPO_DIR}"
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,19 +26,37 @@ forbidden = [
 ]
 
 targets: list[Path] = []
-for base in (repo / "mcp-server" / "src", repo / "mcp-server" / "dist"):
-    if not base.exists():
-        continue
-    for path in sorted(base.rglob("*")):
-        if not path.is_file():
+tracked_mcp_files: set[Path] | None = None
+try:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "ls-files", "--", "mcp-server/src", "mcp-server/dist"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    tracked_mcp_files = {repo / line for line in result.stdout.splitlines() if line}
+except Exception:
+    tracked_mcp_files = None
+
+if tracked_mcp_files is None:
+    for base in (repo / "mcp-server" / "src", repo / "mcp-server" / "dist"):
+        if not base.exists():
             continue
-        if "node_modules" in path.parts:
-            continue
-        if path.suffix not in {".js", ".mjs", ".cjs", ".ts", ".d.ts"}:
-            continue
-        if path.name.endswith(".map"):
-            continue
-        targets.append(path)
+        for path in sorted(base.rglob("*")):
+            if path.is_file():
+                targets.append(path)
+else:
+    targets.extend(sorted(tracked_mcp_files))
+
+targets = [
+    path
+    for path in targets
+    if path.is_file()
+    and "node_modules" not in path.parts
+    and path.suffix in {".js", ".mjs", ".cjs", ".ts", ".d.ts"}
+    and not path.name.endswith(".map")
+]
 
 def line_no(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1

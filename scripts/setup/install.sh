@@ -146,6 +146,7 @@ cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
 cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
 mkdir -p "${VIBEGUARD_HOME}/_lib"
 cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${VIBEGUARD_HOME}/_lib/codex_diag.sh"
+cp "${REPO_DIR}/hooks/_lib/runtime_env.sh" "${VIBEGUARD_HOME}/_lib/runtime_env.sh"
 chmod +x "${VIBEGUARD_HOME}/run-hook.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
 green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
 
@@ -225,6 +226,7 @@ state_init "$PROFILE" "$LANGUAGES"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
+state_record_file "${VIBEGUARD_HOME}/_lib/runtime_env.sh" "hooks/_lib/runtime_env.sh" "copy"
 green "  Install state tracker initialized"
 echo
 

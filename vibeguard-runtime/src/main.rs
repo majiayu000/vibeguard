@@ -1,7 +1,9 @@
+mod bash;
 mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
 mod codex_app_server_strategies;
+mod config;
 mod event_schema;
 mod hook_checks;
 mod hook_checks_common;
@@ -34,6 +36,21 @@ static COMMANDS: &[Command] = &[
         name: "json-two-fields",
         usage: "<field1> <field2>  — extract two fields from stdin JSON",
         handler: json_field::run_two_fields,
+    },
+    Command {
+        name: "config-get",
+        usage: "<int|string> <config-file> <field_path>  — extract a typed config value",
+        handler: config::run_get,
+    },
+    Command {
+        name: "bash-preprocess",
+        usage: "  — preprocess Bash command text for pre-bash-guard",
+        handler: bash::run_preprocess,
+    },
+    Command {
+        name: "allow-command-json",
+        usage: "  — emit allow + updatedInput JSON for a command read from stdin",
+        handler: bash::run_allow_command_json,
     },
     Command {
         name: "churn-count",

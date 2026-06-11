@@ -11,10 +11,10 @@ HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
+RUNTIME_ENV_PATH="${WRAPPER_DIR}/_lib/runtime_env.sh"
+[[ -f "${RUNTIME_ENV_PATH}" ]] || RUNTIME_ENV_PATH="${INSTALLED_DIR}/_lib/runtime_env.sh"
 DIAG_PATH="${WRAPPER_DIR}/_lib/codex_diag.sh"
-if [[ ! -f "${DIAG_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_diag.sh" ]]; then
-  DIAG_PATH="${INSTALLED_DIR}/_lib/codex_diag.sh"
-fi
+[[ -f "${DIAG_PATH}" ]] || DIAG_PATH="${INSTALLED_DIR}/_lib/codex_diag.sh"
 if [[ ! -f "${DIAG_PATH}" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ -f "${REPO_PATH_FILE}" ]]; then
@@ -47,9 +47,7 @@ if [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" ]]; then
   ADAPTER_PATH="${VIBEGUARD_CODEX_ADAPTER_PATH}"
 else
   ADAPTER_PATH="${WRAPPER_DIR}/_lib/codex_adapter.sh"
-  if [[ ! -f "${ADAPTER_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_adapter.sh" ]]; then
-    ADAPTER_PATH="${INSTALLED_DIR}/_lib/codex_adapter.sh"
-  fi
+  [[ -f "${ADAPTER_PATH}" ]] || ADAPTER_PATH="${INSTALLED_DIR}/_lib/codex_adapter.sh"
 fi
 
 if [[ ! -d "$INSTALLED_DIR" ]]; then
@@ -63,9 +61,8 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
-  if [[ -z "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" && ! -f "${ADAPTER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]]; then
-    ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
-  fi
+  [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" || -f "${ADAPTER_PATH}" ]] || ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+  [[ -f "${RUNTIME_ENV_PATH}" ]] || RUNTIME_ENV_PATH="${REPO_DIR}/hooks/_lib/runtime_env.sh"
 fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
@@ -83,10 +80,13 @@ if [[ ! -f "${ADAPTER_PATH}" ]]; then
   fi
   exit 0
 fi
-
 source "${ADAPTER_PATH}"
 
-export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+if [[ -f "${RUNTIME_ENV_PATH}" ]]; then
+  # shellcheck source=hooks/_lib/runtime_env.sh
+  source "${RUNTIME_ENV_PATH}"
+  _vg_prepare_hook_runtime_env
+else export PYTHONUTF8=1 PYTHONIOENCODING=utf-8; fi
 
 HOOK_OUTPUT=""
 HOOK_EXIT=0

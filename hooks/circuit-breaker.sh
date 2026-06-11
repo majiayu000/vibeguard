@@ -317,7 +317,13 @@ vg_is_ci() {
 # Passes JSON via stdin (pipe) instead of an environment variable to avoid
 # hitting execve env-size limits when the input contains a long last_assistant_message.
 vg_stop_hook_active() {
-  local input="$1"
+  local input="$1" active=""
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "${_VIBEGUARD_RUNTIME:-}" ]]; then
+    active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
+    [[ "$active" == "true" ]]
+    return $?
+  fi
+
   printf '%s' "$input" | python3 -c "
 import json, sys
 try:

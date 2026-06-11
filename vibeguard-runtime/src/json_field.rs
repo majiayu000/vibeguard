@@ -23,7 +23,7 @@ fn read_stdin() -> io::Result<String> {
     Ok(buf)
 }
 
-fn get_nested<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
+pub(crate) fn get_nested<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut val = data;
     for key in path.split('.') {
         val = match val.get(key) {

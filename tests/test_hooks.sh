@@ -28,6 +28,7 @@ shards=(
   "tests/hooks/test_precommit_timeout_go.sh"
   "tests/hooks/test_precommit_ts_quality.sh"
   "tests/hooks/test_precommit_nested_roots.sh"
+  "tests/hooks/test_wrapper_runtime_env.sh"
   "tests/hooks/test_log_session.sh"
   "tests/hooks/test_post_edit_suppression.sh"
   "tests/hooks/test_log_timer.sh"

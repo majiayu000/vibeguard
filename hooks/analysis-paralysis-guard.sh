@@ -20,6 +20,7 @@ VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "$0")/_lib" && pwd)}"
 
 # CI guard: analysis-paralysis warnings are not actionable in CI
 vg_is_ci && exit 0
+[[ "${VIBEGUARD_SUPPRESS_PARALYSIS:-0}" == "1" ]] && exit 0
 
 THRESHOLD="$(vg_config_get_int VG_PARALYSIS_THRESHOLD paralysis.threshold 7)"
 

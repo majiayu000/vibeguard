@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ensure package-manager correction strings are passed as argv, never inlined.
+# Ensure package-manager correction strings are passed as data, never inlined.
 set -euo pipefail
 
 REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
@@ -134,21 +134,26 @@ if not path.exists():
 else:
     text = path.read_text(encoding="utf-8")
 
-    if "PKG-CORRECTION-ARGV-CONTRACT" not in text:
-        errors.append("missing PKG-CORRECTION-ARGV-CONTRACT comment")
-
-    if "corrected = sys.argv[1]" not in text:
-        errors.append("package correction JSON emitter must read sys.argv[1]")
-
     python_sources = list(iter_python_c_sources(text))
     argv_ref_pattern = re.compile(
         r'\s+"(?:\$_PKG_CORRECTION|\$\{_PKG_CORRECTION\})"'
     )
-    if not any(
+    trusted_python_emitter = any(
         "sys.argv[1]" in src and argv_ref_pattern.match(text[quote_end:])
         for src, _start, quote_end in python_sources
-    ):
-        errors.append("_PKG_CORRECTION is not passed as a python3 argv argument")
+    )
+    trusted_runtime_emitter = bool(
+        re.search(
+            r"printf\s+'%s'\s+\"\$_PKG_CORRECTION\"\s*\|\s*\"\$_VIBEGUARD_RUNTIME\"\s+allow-command-json",
+            text,
+        )
+    )
+
+    if "PKG-CORRECTION-ARGV-CONTRACT" not in text and "PKG-CORRECTION-JSON-CONTRACT" not in text:
+        errors.append("missing package correction data-passing contract comment")
+
+    if not trusted_python_emitter and not trusted_runtime_emitter:
+        errors.append("_PKG_CORRECTION is not passed through a trusted data channel")
 
     for src, start, _quote_end in python_sources:
         if pkg_correction_ref.search(src):
@@ -188,10 +193,10 @@ else:
             errors.append(f"line {line_no}: _PKG_CORRECTION flows through shell evaluation")
 
 if errors:
-    print("FAIL: package correction argv-only contract failed")
+    print("FAIL: package correction data-channel contract failed")
     for error in errors:
         print(error)
     raise SystemExit(1)
 
-print("OK: package correction is passed through argv-only contract")
+print("OK: package correction is passed through a trusted data channel")
 PY

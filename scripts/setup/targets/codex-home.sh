@@ -22,9 +22,11 @@ install_codex_home_assets() {
   cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
   mkdir -p "${HOME}/.vibeguard/_lib"
   cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${HOME}/.vibeguard/_lib/codex_diag.sh"
+  cp "${REPO_DIR}/hooks/_lib/runtime_env.sh" "${HOME}/.vibeguard/_lib/runtime_env.sh"
   chmod +x "${HOME}/.vibeguard/run-hook-codex.sh"
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
+  state_record_file "${HOME}/.vibeguard/_lib/runtime_env.sh" "hooks/_lib/runtime_env.sh" "copy"
   green "  ~/.vibeguard/run-hook-codex.sh ready"
 
   # Merge VibeGuard hooks into ~/.codex/hooks.json (do not overwrite existing hooks)
@@ -453,6 +455,7 @@ clean_codex_home_installation() {
 
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_diag.sh"
+  rm -f "${HOME}/.vibeguard/_lib/runtime_env.sh"
   rmdir "${HOME}/.vibeguard/_lib" 2>/dev/null || true
   yellow "Removed Codex hook wrapper"
 

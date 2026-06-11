@@ -30,7 +30,7 @@ PY
 run_pre_write() {
   local cfg="$1"
   shift
-  env VIBEGUARD_LOG_DIR="$(make_log_dir)" VIBEGUARD_CONFIG_FILE="$cfg" "$@" \
+  env -u VIBEGUARD_WRITE_MODE VIBEGUARD_LOG_DIR="$(make_log_dir)" VIBEGUARD_CONFIG_FILE="$cfg" "$@" \
     bash hooks/pre-write-guard.sh < "$prewrite_input"
 }
 
@@ -122,6 +122,13 @@ result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_U
   VG_PARALYSIS_THRESHOLD=5 bash hooks/analysis-paralysis-guard.sh)
 assert_not_contains "$result" "ANALYSIS PARALYSIS" "VG_PARALYSIS_THRESHOLD overrides JSON"
 
+paralysis_suppress_log="$(make_log_dir)"
+seed_research_events "$paralysis_suppress_log" "cfg-paralysis-suppress" 2
+result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+  VIBEGUARD_LOG_DIR="$paralysis_suppress_log" VIBEGUARD_SESSION_ID="cfg-paralysis-suppress" VIBEGUARD_CONFIG_FILE="$cfg" \
+  VIBEGUARD_SUPPRESS_PARALYSIS=1 bash hooks/analysis-paralysis-guard.sh)
+assert_not_contains "$result" "ANALYSIS PARALYSIS" "VIBEGUARD_SUPPRESS_PARALYSIS=1 disables read-only-agent warning"
+
 header "runtime config — U-16"
 big_write_input="$WORK_DIR/big-write.json"
 python3 - "$WORK_DIR/big.py" > "$big_write_input" <<'PY'
@@ -164,5 +171,37 @@ VG_TEST_MODE=warn
 got=$(vg_config_get_str VG_TEST_MODE write_mode block)
 [[ "$got" == "warn" ]] && green "vg_config_get_str env beats JSON" || { red "vg_config_get_str env (got: $got)"; FAIL=$((FAIL + 1)); }
 TOTAL=$((TOTAL + 1)); [[ "$got" == "warn" ]] && PASS=$((PASS + 1))
+
+runtime_int=$(VIBEGUARD_CONFIG_FILE="$unit_cfg" VIBEGUARD_LOG_DIR="$(make_log_dir)" bash -c '
+  set -euo pipefail
+  source hooks/log.sh
+  python3() { return 97; }
+  vg_config_get_int VG_TEST_X u16.limit 800
+')
+[[ "$runtime_int" == "1234" ]] && green "vg_config_get_int uses runtime before python fallback" || { red "vg_config_get_int runtime path (got: $runtime_int)"; FAIL=$((FAIL + 1)); }
+TOTAL=$((TOTAL + 1)); [[ "$runtime_int" == "1234" ]] && PASS=$((PASS + 1))
+
+runtime_str=$(VIBEGUARD_CONFIG_FILE="$unit_cfg" VIBEGUARD_LOG_DIR="$(make_log_dir)" bash -c '
+  set -euo pipefail
+  source hooks/log.sh
+  python3() { return 97; }
+  vg_config_get_str VG_TEST_MODE write_mode warn
+')
+[[ "$runtime_str" == "block" ]] && green "vg_config_get_str uses runtime before python fallback" || { red "vg_config_get_str runtime path (got: $runtime_str)"; FAIL=$((FAIL + 1)); }
+TOTAL=$((TOTAL + 1)); [[ "$runtime_str" == "block" ]] && PASS=$((PASS + 1))
+
+stop_active=$(VIBEGUARD_LOG_DIR="$(make_log_dir)" bash -c '
+  set -euo pipefail
+  source hooks/log.sh
+  source hooks/circuit-breaker.sh
+  python3() { return 97; }
+  if vg_stop_hook_active "{\"stop_hook_active\": true}"; then
+    printf active
+  else
+    printf inactive
+  fi
+')
+[[ "$stop_active" == "active" ]] && green "vg_stop_hook_active uses runtime before python fallback" || { red "vg_stop_hook_active runtime path (got: $stop_active)"; FAIL=$((FAIL + 1)); }
+TOTAL=$((TOTAL + 1)); [[ "$stop_active" == "active" ]] && PASS=$((PASS + 1))
 
 hook_test_finish

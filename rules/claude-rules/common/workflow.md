@@ -72,6 +72,9 @@ If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write
 - Reading 10 files in a row without producing either a change or a conclusion
 - Jumping between files in search of "perfect understanding" without ever starting the work
 
+**Downgrade path** (U-32 compliance):
+- `VIBEGUARD_SUPPRESS_PARALYSIS=1` skips the detector entirely. Use it only for explicitly read-only agent roles such as architecture review, code review, or research agents that are expected to produce a conclusion instead of edits.
+
 ## W-04: Test first (guideline)
 For new features, prefer writing the failing test first, then writing the minimum implementation needed to pass it.
 

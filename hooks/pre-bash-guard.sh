@@ -31,81 +31,20 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
-# Remove heredoc bodies to avoid false positives caused by multi-line text.
-# Cover variants: <<EOF, <<'EOF', <<"EOF", <<-EOF, <<-'EOF', << 'EOF' etc.
-# This is intentionally line-oriented rather than a DOTALL regex so adversarial
-# unterminated heredocs cannot force broad backtracking across the full command.
-if [[ "$COMMAND" == *"<<"* ]]; then
-  COMMAND_NO_HEREDOC=$(printf '%s' "$COMMAND" | python3 -c '
-import re, sys
-
-terminator = None
-strip_tabs = False
-out = []
-
-for line in sys.stdin.read().splitlines(keepends=True):
-    if terminator is not None:
-        candidate = line.rstrip("\r\n")
-        if strip_tabs:
-            candidate = candidate.lstrip("\t")
-        if candidate == terminator:
-            terminator = None
-            strip_tabs = False
-        continue
-
-    out.append(line)
-    match = re.search(r"<<(?P<dash>-?)\s*([\"'"'"']?)(?P<tag>[A-Za-z0-9_]+)\2", line)
-    if match:
-        terminator = match.group("tag")
-        strip_tabs = bool(match.group("dash"))
-
-sys.stdout.write("".join(out))
-' 2>/dev/null || printf '%s' "$COMMAND")
-else
-  COMMAND_NO_HEREDOC="$COMMAND"
-fi
-
-# Strip quotation marks (commit message, echo string, etc.) to avoid text content triggering false alarms
-# Keep the command structure and replace the quoted content with an empty string
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_STRIPPED=$(echo "$COMMAND_NO_HEREDOC" | python3 -c "
-import re, sys
-cmd = sys.stdin.read()
-# Remove double quotes and single quotes
-cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
-cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
-print(cmd)
-" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
-else
-  COMMAND_STRIPPED="$COMMAND_NO_HEREDOC"
-fi
-
-# Use path scanning: remove quotation marks but retain the content to prevent rm -rf \"/Users/...\" from being bypassed
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_PATH_SCAN=$(printf '%s' "$COMMAND_NO_HEREDOC" | tr -d "\"'")
-else
-  COMMAND_PATH_SCAN="$COMMAND_NO_HEREDOC"
-fi
-
-# Variant of COMMAND_STRIPPED that converts "." / '.' (standalone quoted dot) into a bare dot
-# before stripping other quoted content. This lets the same no-anchor regex detect both
-# `git checkout .` and `git checkout "."` (including wrappers like `GIT_TRACE=1 git checkout "."`
-# or `echo y | git checkout "."`) without exposing separators that were inside larger quoted
-# strings (which would cause false positives when stripping all quotes via COMMAND_PATH_SCAN).
-if [[ "$COMMAND_NO_HEREDOC" == *\"* || "$COMMAND_NO_HEREDOC" == *"'"* ]]; then
-  COMMAND_STRIPPED_WITH_DOT=$(printf '%s' "$COMMAND_NO_HEREDOC" | python3 -c "
-import re, sys
-cmd = sys.stdin.read()
-# Replace standalone quoted dot (\".\"/'.') with bare dot before stripping other quoted content
-cmd = re.sub(r'\"\.\"', '.', cmd)
-cmd = re.sub(r\"'\\.'\", '.', cmd)
-# Strip remaining quoted content so separators inside strings stay invisible
-cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
-cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
-print(cmd)
-" 2>/dev/null || echo "$COMMAND_NO_HEREDOC")
-else
-  COMMAND_STRIPPED_WITH_DOT="$COMMAND_NO_HEREDOC"
+# Prepare all derived command strings in one runtime call:
+# - COMMAND_NO_HEREDOC removes heredoc bodies to avoid false positives.
+# - COMMAND_STRIPPED hides quoted content before command-structure regexes.
+# - COMMAND_PATH_SCAN removes quotes but keeps path content for rm -rf checks.
+# - COMMAND_STRIPPED_WITH_DOT preserves quoted standalone dots for checkout/restore detection.
+if ! {
+  IFS= read -r -d '' COMMAND_NO_HEREDOC \
+    && IFS= read -r -d '' COMMAND_STRIPPED \
+    && IFS= read -r -d '' COMMAND_PATH_SCAN \
+    && IFS= read -r -d '' COMMAND_STRIPPED_WITH_DOT
+} < <(printf '%s' "$COMMAND" | "$_VIBEGUARD_RUNTIME" bash-preprocess 2>/dev/null); then
+  vg_log "pre-bash-guard" "Bash" "block" "Bash command preprocessing failed; fail-closed." "$COMMAND"
+  vg_json_output_kv decision block reason "VIBEGUARD interception: Bash command preprocessing failed; fail-closed."
+  exit 0
 fi
 
 block() {
@@ -123,18 +62,21 @@ block() {
 # so a no-anchor regex safely detects all wrapper forms (env vars, pipes, `command`, `env`,
 # and shell redirections such as heredoc openers) without false-positives from separators
 # inside commit messages or string arguments.
-if echo "$COMMAND_STRIPPED_WITH_DOT" | grep -qE 'git\s+(checkout|restore)\s+\.\s*(;|&&|\|\||[<>]|$)'; then
+_VG_RE_GIT_DISCARD='git[[:space:]]+(checkout|restore)[[:space:]]+\.[[:space:]]*(;|&&|\|\||[<>]|$)'
+if [[ "$COMMAND_STRIPPED_WITH_DOT" =~ $_VG_RE_GIT_DISCARD ]]; then
   block "Disable git checkout/restore. (discard all changes in batches). Alternatives: git checkout -- <specific file> specifies the files to be discarded; git stash temporarily stores all changes (recoverable); git diff first checks the changes before deciding."
 fi
 
 # git clean -f (delete untracked files)
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+clean\s+.*-f'; then
+_VG_RE_GIT_CLEAN='git[[:space:]]+clean[[:space:]]+.*-f'
+if [[ "$COMMAND_STRIPPED" =~ $_VG_RE_GIT_CLEAN ]]; then
   block "Disable git clean -f (untracked files are permanently deleted and cannot be recovered). Alternatives: git clean -n (dry run preview) to see what will be deleted first; git stash --include-untracked to temporarily store untracked files; manually rm to specify files."
 fi
 
 # rm -rf dangerous path detection (covers rm -rf, rm -fr, rm -Rf, rm --recursive --force and other variants)
 # First identify the rm -rf command in the command structure of "remove quotation marks", and then perform dangerous path matching in the text that retains the path content.
-if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?(\\?rm)[[:space:]]+((-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR]))|(--(recursive|force)[[:space:]]+--(recursive|force)))([[:space:]]|$)'; then
+_VG_RE_RM_RF='(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?(\\?rm)[[:space:]]+((-[a-zA-Z]*([rR][a-zA-Z]*f|f[a-zA-Z]*[rR]))|(--(recursive|force)[[:space:]]+--(recursive|force)))([[:space:]]|$)'
+if [[ "$COMMAND_STRIPPED" =~ $_VG_RE_RM_RF ]]; then
   DANGEROUS=false
   # Dangerous paths: root directory, home directory (including /Users/xxx, /home/xxx), system directory
   for pattern in \
@@ -144,7 +86,7 @@ if echo "$COMMAND_STRIPPED" | grep -qE '(^|[;&|][[:space:]]*)(sudo[[:space:]]+)?
     '[[:space:]]/Users(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/home(/[^/[:space:];|&]*)?([[:space:];|&]|$)' \
     '[[:space:]]/(etc|var|usr|bin|sbin|opt|System|Library)([[:space:];|&/]|$)'; do
-    if echo "$COMMAND_PATH_SCAN" | grep -qE "$pattern"; then
+    if [[ "$COMMAND_PATH_SCAN" =~ $pattern ]]; then
       DANGEROUS=true
       break
     fi
@@ -156,9 +98,10 @@ fi
 
 
 # --- git commit interception: Claude Code has no PreCommit event, and is filled in through Bash hook ---
-if echo "$COMMAND_STRIPPED" | grep -qE 'git\s+commit\b'; then
+_VG_RE_GIT_COMMIT='git[[:space:]]+commit($|[^A-Za-z0-9_])'
+if [[ "$COMMAND_STRIPPED" =~ $_VG_RE_GIT_COMMIT ]]; then
   # Explicit skip
-  if ! echo "$COMMAND" | grep -qE 'VIBEGUARD_SKIP_PRECOMMIT=1'; then
+  if [[ ! "$COMMAND" =~ VIBEGUARD_SKIP_PRECOMMIT=1 ]]; then
     HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
     PRECOMMIT_SCRIPT="${HOOK_DIR}/pre-commit-guard.sh"
     if [[ -f "$PRECOMMIT_SCRIPT" ]]; then
@@ -185,11 +128,13 @@ fi
 # Allowed .md files: README, CLAUDE, CONTRIBUTING, CHANGELOG, LICENSE, SKILL
 # Fix doc-file-blocker: exclude temp file paths and paths containing numbers
 # (e.g. /tmp/doc123.md, mktemp output) which are not persistent documentation.
-if echo "$COMMAND_STRIPPED" | grep -qE "(cat|echo|printf|tee)\s.*>.*\.md\b" 2>/dev/null; then
+_VG_RE_DOC_WRITE='(cat|echo|printf|tee)[[:space:]].*>.*\.md($|[^A-Za-z0-9_])'
+if [[ "$COMMAND_STRIPPED" =~ $_VG_RE_DOC_WRITE ]]; then
   # Skip if writing to a temp/system directory (not a project doc)
-  if echo "$COMMAND_STRIPPED" | grep -qE ">.*(/tmp/|/var/|/proc/|\$TMPDIR|\$TEMP|mktemp)" 2>/dev/null; then
+  _VG_RE_TEMP_DOC='>.*(/tmp/|/var/|/proc/|\$TMPDIR|\$TEMP|mktemp)'
+  if [[ "$COMMAND_STRIPPED" =~ $_VG_RE_TEMP_DOC ]]; then
     true  # temp path — pass through
-  elif ! echo "$COMMAND_STRIPPED" | grep -qiE "(README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.md" 2>/dev/null; then
+  elif [[ ! "$COMMAND_STRIPPED" =~ (README|CLAUDE|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\.[mM][dD] ]]; then
     # Output a warning instead of blocking (probably reasonable document creation)
     vg_log "pre-bash-guard" "Bash" "warn" "Non-standard .md file" "$COMMAND"
     vg_json_output_kv decision warn reason "VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary."
@@ -218,13 +163,9 @@ if [[ -n "$_PKG_CORRECTION" ]]; then
     exit 0
   fi
   vg_log "pre-bash-guard" "Bash" "correction" "package manager auto-rewrite" "${COMMAND:0:120} → $_PKG_CORRECTION"
-  # PKG-CORRECTION-ARGV-CONTRACT: pass the generated command as sys.argv[1].
-  # Never interpolate _PKG_CORRECTION into inline Python source or shell eval.
-  python3 -c "
-import json, sys
-corrected = sys.argv[1]
-print(json.dumps({'decision': 'allow', 'updatedInput': {'command': corrected}}))
-" "$_PKG_CORRECTION"
+  # PKG-CORRECTION-JSON-CONTRACT: pass the generated command to the runtime via stdin.
+  # Never interpolate _PKG_CORRECTION into code or shell eval.
+  printf '%s' "$_PKG_CORRECTION" | "$_VIBEGUARD_RUNTIME" allow-command-json
   exit 0
 fi
 

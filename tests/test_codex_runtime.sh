@@ -472,11 +472,15 @@ cat > "${TMP_DIR}/child-read-loop.sh" <<'CHILD'
 IFS= read -r _thread_start
 printf '{"id":"req-read-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/read-loop","command":"rg TODO"}}\n'
 printf '{"id":"req-read-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread/read-loop","command":"sed -n '\''1,40p'\'' README.md"}}\n'
-IFS= read -r warning
-printf '%s\n' "$warning"
+while IFS= read -r -t 2 line; do
+  printf '%s\n' "$line"
+  case "$line" in
+    *analysis\ paralysis\ warning*) break ;;
+  esac
+done
 CHILD
 chmod +x "${TMP_DIR}/child-read-loop.sh"
-analysis_json="$(VG_PARALYSIS_THRESHOLD=2 run_wrapper "${APP_REPO_READ_LOOP}" "${TMP_DIR}/child-read-loop.sh" $'{"method":"thread/start","params":{"threadId":"thread/read-loop","cwd":"'"${APP_REPO_READ_LOOP}"'"}}')"
+analysis_json="$(export VG_PARALYSIS_THRESHOLD=2; run_wrapper "${APP_REPO_READ_LOOP}" "${TMP_DIR}/child-read-loop.sh" $'{"method":"thread/start","params":{"threadId":"thread/read-loop","cwd":"'"${APP_REPO_READ_LOOP}"'"}}')"
 assert_contains "${analysis_json}" '"method":"warning"' "Rust wrapper emits analysis-paralysis warning notification"
 assert_contains "${analysis_json}" 'analysis paralysis warning' "Analysis warning explains read-only streak"
 

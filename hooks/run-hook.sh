@@ -9,11 +9,16 @@
 
 set -euo pipefail
 
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK_NAME="${1:?Usage: run-hook.sh <hook-name>}"
 shift
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+RUNTIME_ENV_PATH="${WRAPPER_DIR}/_lib/runtime_env.sh"
+if [[ ! -f "$RUNTIME_ENV_PATH" && -f "${INSTALLED_DIR}/_lib/runtime_env.sh" ]]; then
+  RUNTIME_ENV_PATH="${INSTALLED_DIR}/_lib/runtime_env.sh"
+fi
 
 if [[ ! -d "$INSTALLED_DIR" ]]; then
   # Fallback: legacy direct-repo mode
@@ -24,6 +29,9 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+  if [[ ! -f "$RUNTIME_ENV_PATH" && -f "${REPO_DIR}/hooks/_lib/runtime_env.sh" ]]; then
+    RUNTIME_ENV_PATH="${REPO_DIR}/hooks/_lib/runtime_env.sh"
+  fi
 fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
@@ -31,8 +39,15 @@ if [[ ! -f "$HOOK_PATH" ]]; then
   exit 1
 fi
 
-# Ensure Python writes UTF-8 regardless of the terminal's default encoding (fixes Windows CP-1252)
-export PYTHONUTF8=1
-export PYTHONIOENCODING=utf-8
+export VIBEGUARD_CLI="${VIBEGUARD_CLI:-claude}"
+if [[ -f "$RUNTIME_ENV_PATH" ]]; then
+  # shellcheck source=hooks/_lib/runtime_env.sh
+  source "$RUNTIME_ENV_PATH"
+  _vg_prepare_hook_runtime_env
+else
+  # Ensure Python writes UTF-8 regardless of the terminal's default encoding (fixes Windows CP-1252)
+  export PYTHONUTF8=1
+  export PYTHONIOENCODING=utf-8
+fi
 
 exec bash "$HOOK_PATH" "$@"

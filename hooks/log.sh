@@ -65,6 +65,7 @@ _VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _VIBEGUARD_RUNTIME=""
 for _candidate in \
   "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime" \
+  "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
   "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
   "${_VG_HOOK_DIR}/vibeguard-runtime"; do
   if [[ -f "$_candidate" ]] && [[ -x "$_candidate" ]]; then
