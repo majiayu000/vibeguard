@@ -522,12 +522,13 @@ vg_stop_hook_active() {
   fi
 
   if [[ -n "$runtime_path" ]]; then
-    active=$(printf '%s' "$input" | "$runtime_path" json-field stop_hook_active 2>/dev/null || true)
-    [[ "$active" == "true" ]]
-    return
+    if active=$(printf '%s' "$input" | "$runtime_path" json-bool-field stop_hook_active 2>/dev/null); then
+      [[ "$active" == "true" ]]
+      return
+    fi
   fi
 
-  # Standalone fallback for unit tests that source this file without log.sh.
+  # Standalone and stale-runtime fallback for unit tests that source this file without log.sh.
   # Require the boolean literal true; truthy strings must not count as active.
   [[ "$input" =~ \"stop_hook_active\"[[:space:]]*:[[:space:]]*true([^A-Za-z0-9_]|$) ]]
 }

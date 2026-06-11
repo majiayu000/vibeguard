@@ -128,6 +128,53 @@ fn strict_null_field_exits_1_with_error() {
 }
 
 #[test]
+fn bool_field_preserves_literal_boolean_type() {
+    let mut child = bin()
+        .args(["json-bool-field", "stop_hook_active"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"stop_hook_active\": \"true\"}")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "false\n");
+
+    let mut child = bin()
+        .args(["json-bool-field", "stop_hook_active"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"stop_hook_active\": true}")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "true\n");
+}
+
+#[test]
 fn invalid_json_exits_1() {
     let mut child = bin()
         .args(["json-field", "tool"])

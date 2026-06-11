@@ -55,6 +55,11 @@ static COMMANDS: &[Command] = &[
         handler: json_field::run_field,
     },
     Command {
+        name: "json-bool-field",
+        usage: "<field_path>  — extract one boolean field from stdin JSON",
+        handler: json_field::run_bool_field,
+    },
+    Command {
         name: "json-two-fields",
         usage: "<field1> <field2>  — extract two fields from stdin JSON",
         handler: json_field::run_two_fields,
