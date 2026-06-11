@@ -53,16 +53,32 @@ measure_spawn_baseline_ms() {
     return 0
   fi
 
-  local samples=()
-  local start end elapsed
-  for _run in 1 2 3 4 5; do
-    start=$(_now_ms)
-    /usr/bin/true
-    end=$(_now_ms)
-    elapsed=$((end - start))
-    samples+=("$elapsed")
-  done
-  printf '%s\n' "${samples[@]}" | sort -n | sed -n '5p'
+  if command -v perl &>/dev/null; then
+    perl -MTime::HiRes=time -e '
+      my @samples;
+      for (1..5) {
+        my $start = time;
+        system("/usr/bin/true");
+        push @samples, (time - $start) * 1000;
+      }
+      @samples = sort { $a <=> $b } @samples;
+      printf "%.0f\n", $samples[-1];
+    '
+  elif command -v python3 &>/dev/null; then
+    python3 - <<'PY'
+import subprocess
+import time
+
+samples = []
+for _ in range(5):
+    start = time.perf_counter()
+    subprocess.run(["/usr/bin/true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    samples.append((time.perf_counter() - start) * 1000)
+print(f"{sorted(samples)[-1]:.0f}")
+PY
+  else
+    printf '0\n'
+  fi
 }
 
 SPAWN_BASELINE_MS="$(measure_spawn_baseline_ms)"
