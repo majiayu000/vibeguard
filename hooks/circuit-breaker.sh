@@ -513,15 +513,21 @@ vg_is_ci() {
 # Passes JSON via stdin (pipe) instead of an environment variable to avoid
 # hitting execve env-size limits when the input contains a long last_assistant_message.
 vg_stop_hook_active() {
-  local input="$1"
-  printf '%s' "$input" | python3 -c "
-import json, sys
-try:
-    data = json.loads(sys.stdin.read())
-    val = data.get('stop_hook_active', False)
-    # Require the boolean literal true, not a truthy string like 'false'
-    sys.exit(0 if val is True else 1)
-except Exception:
-    sys.exit(1)
-"
+  local input="$1" active="" runtime_path=""
+
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "${_VIBEGUARD_RUNTIME}" ]]; then
+    runtime_path="${_VIBEGUARD_RUNTIME}"
+  elif declare -F _vg_config_runtime_path >/dev/null 2>&1; then
+    runtime_path="$(_vg_config_runtime_path 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$runtime_path" ]]; then
+    active=$(printf '%s' "$input" | "$runtime_path" json-field stop_hook_active 2>/dev/null || true)
+    [[ "$active" == "true" ]]
+    return
+  fi
+
+  # Standalone fallback for unit tests that source this file without log.sh.
+  # Require the boolean literal true; truthy strings must not count as active.
+  [[ "$input" =~ \"stop_hook_active\"[[:space:]]*:[[:space:]]*true([^A-Za-z0-9_]|$) ]]
 }
