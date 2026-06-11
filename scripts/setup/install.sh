@@ -476,6 +476,7 @@ fi
 
 # Initialize install state tracking
 state_init "$PROFILE" "$LANGUAGES"
+state_record_tree "${INSTALLED_DIR}" "installed"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
