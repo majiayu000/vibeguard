@@ -5,20 +5,20 @@ set -euo pipefail
 # One-click deployment of anti-hallucination specifications to ~/.claude/ and ~/.codex/
 #
 # How to use:
-# bash install.sh # Install (default core)
-# bash install.sh --profile full # Install full (including Stop signal/Build Check)
-# bash install.sh --profile minimal # Minimal installation (pre-hooks only)
-# bash install.sh --profile strict # Strict mode (full hooks + Claude Code U-32 SessionStart constraint budget)
-# bash install.sh --languages rust,python # Only install rules and guards for the specified language
-# bash install.sh --profile full --languages rust # Use in combination
-# bash install.sh --dry-run # Show high-context diffs without writing
-# bash install.sh --yes # Apply high-context diffs non-interactively
-# bash install.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
-# bash install.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
-# bash install.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
-# bash install.sh --force-overwrite # Replace user-customized managed files/commands
-# bash install.sh --check # Check status only
-# bash install.sh --clean # Clean installation
+# bash setup.sh # Install (default core)
+# bash setup.sh --profile full # Install full (including Stop signal/Build Check)
+# bash setup.sh --profile minimal # Minimal installation (pre-hooks only)
+# bash setup.sh --profile strict # Strict mode (full hooks + Claude Code U-32 SessionStart constraint budget)
+# bash setup.sh --languages rust,python # Only install rules and guards for the specified language
+# bash setup.sh --profile full --languages rust # Use in combination
+# bash setup.sh --dry-run # Show high-context diffs without writing
+# bash setup.sh --yes # Apply high-context diffs non-interactively
+# bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
+# bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
+# bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
+# bash setup.sh --force-overwrite # Replace user-customized managed files/commands
+# bash setup.sh --check # Check status only
+# bash setup.sh --clean # Clean installation
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
@@ -80,7 +80,7 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash install.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
@@ -546,7 +546,7 @@ echo "Step 9.7: Install git hooks"
 PRE_COMMIT_WRAPPER="${VIBEGUARD_HOME}/pre-commit"
 cat > "${PRE_COMMIT_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
-# VibeGuard Pre-Commit Hook Wrapper — auto-installed by install.sh
+# VibeGuard Pre-Commit Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
 VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
 if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh" ]]; then
@@ -561,7 +561,7 @@ green "  ~/.vibeguard/pre-commit wrapper ready"
 PRE_PUSH_WRAPPER="${VIBEGUARD_HOME}/pre-push"
 cat > "${PRE_PUSH_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
-# VibeGuard Pre-Push Hook Wrapper — auto-installed by install.sh
+# VibeGuard Pre-Push Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
 VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
 if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/git/pre-push" ]]; then
@@ -615,7 +615,7 @@ green "Setup complete! All components installed."
 echo
 echo "Next steps:"
 echo "  1. Open a new Claude Code session to verify rules are active"
-echo "  2. Switch profile: bash install.sh --profile minimal|core|full|strict"
+echo "  2. Switch profile: bash setup.sh --profile minimal|core|full|strict"
 echo "  3. Run: /vibeguard:preflight <project_dir>"
 echo "  4. Run: /vibeguard:check <project_dir>"
 echo
