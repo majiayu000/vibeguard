@@ -85,6 +85,7 @@ assert_cmd "repository skills, workflows, and template pass format validation" \
   bash "${REPO_DIR}/scripts/ci/validate-skill-format.sh"
 repo_format_out="$(python3 "${VALIDATOR}" --repo-dir "${REPO_DIR}")"
 assert_contains "${repo_format_out}" "templates/skill-template.md" "repository format coverage includes skill template"
+assert_contains "${repo_format_out}" ".claude/skills/benchmark-regression-triage/SKILL.md" "repository format coverage includes repo-local Claude skill"
 assert_cmd "skill template passes direct format validation" \
   python3 "${VALIDATOR}" "${REPO_DIR}/templates/skill-template.md"
 
