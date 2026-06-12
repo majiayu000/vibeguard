@@ -464,6 +464,17 @@ vibeguard_managed_rule_banner_count() {
   ' "${file}"
 }
 
+vibeguard_managed_rules_block_matches_source() {
+  local target_file="$1" rule_count="$2"
+  local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"
+  local diff_output
+  [[ -f "${target_file}" ]] || return 2
+  if ! diff_output=$(setup_runtime setup-md-diff-inject "${target_file}" "${rules_file}" "${REPO_DIR}" "${rule_count}" 2>/dev/null); then
+    return 2
+  fi
+  [[ "${diff_output}" == "SKIP" ]]
+}
+
 inject_vibeguard_rules() {
   local target_file="$1" display_label="$2" state_source="$3"
   local rules_file="${REPO_DIR}/claude-md/vibeguard-rules.md"

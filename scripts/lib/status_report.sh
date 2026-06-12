@@ -2,7 +2,7 @@
 # VibeGuard status reporter — shared library for `setup.sh --check`.
 #
 # Purpose
-#   Turn the existing free-form `[OK]/[INFO]/[WARN]/[FAIL]/[BROKEN]/[MISSING]`
+#   Turn the existing free-form `[OK]/[INFO]/[WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]`
 #   lines into a structured, summarized, exit-code-aware health report
 #   without rewriting every call site (lib.sh, targets/*.sh, etc.).
 #
@@ -20,9 +20,9 @@
 #   status_exit_code                      — echo 0|1|2
 #
 # Exit-code policy
-#   0 — no [WARN]/[FAIL]/[BROKEN]/[MISSING]
+#   0 — no [WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING]
 #   1 — only [WARN] (degraded but functional)
-#   2 — at least one [FAIL]/[BROKEN]/required [MISSING] (broken — needs repair)
+#   2 — at least one [DRIFT]/[FAIL]/[BROKEN]/required [MISSING] (broken — needs repair)
 #
 # Per the VibeGuard "no silent degradation" rule (U-29), [INFO] is treated
 # as neutral and never affects exit code or verdict.
@@ -36,6 +36,7 @@ _VG_STATUS_BUFFER=""
 _VG_STATUS_OK=0
 _VG_STATUS_INFO=0
 _VG_STATUS_WARN=0
+_VG_STATUS_DRIFT=0
 _VG_STATUS_FAIL=0
 _VG_STATUS_BROKEN=0
 _VG_STATUS_MISSING=0
@@ -49,13 +50,14 @@ status_init() {
   _VG_STATUS_OK=0
   _VG_STATUS_INFO=0
   _VG_STATUS_WARN=0
+  _VG_STATUS_DRIFT=0
   _VG_STATUS_FAIL=0
   _VG_STATUS_BROKEN=0
   _VG_STATUS_MISSING=0
 }
 
 # status_classify_line <line>
-#   Echo the level (OK|INFO|WARN|FAIL|BROKEN|MISSING) or empty string.
+#   Echo the level (OK|INFO|WARN|DRIFT|FAIL|BROKEN|MISSING) or empty string.
 #   Strips ANSI color codes before matching. Pure function — no globals.
 status_plain_line() {
   local line="$1"
@@ -78,6 +80,7 @@ status_classify_line() {
     "[OK]"*)      printf 'OK' ;;
     "[INFO]"*)    printf 'INFO' ;;
     "[WARN]"*)    printf 'WARN' ;;
+    "[DRIFT]"*)   printf 'DRIFT' ;;
     "[FAIL]"*)    printf 'FAIL' ;;
     "[BROKEN]"*)  printf 'BROKEN' ;;
     "[MISSING]"*) printf 'MISSING' ;;
@@ -92,13 +95,7 @@ status_optional_missing_line() {
   case "$plain" in
     *"ast-grep not installed"*|\
     *"agents not in ~/.claude/agents/"*|\
-    *"context profiles not in ~/.claude/context-profiles/"*|\
-    *" skill not in ~/.codex/skills/"*|\
-    *"VibeGuard hooks not fully configured in ~/.codex/hooks.json"*|\
-    *"Codex hooks.json not installed"*|\
-    *"Codex hook wrapper not installed"*|\
-    *"Codex hook wrapper: "*|\
-    *"hooks feature not enabled"*)
+    *"context profiles not in ~/.claude/context-profiles/"*)
       return 0
       ;;
     *)
@@ -126,6 +123,7 @@ status_record_buffer() {
   _VG_STATUS_OK=0
   _VG_STATUS_INFO=0
   _VG_STATUS_WARN=0
+  _VG_STATUS_DRIFT=0
   _VG_STATUS_FAIL=0
   _VG_STATUS_BROKEN=0
   _VG_STATUS_MISSING=0
@@ -137,6 +135,7 @@ status_record_buffer() {
       OK)      _VG_STATUS_OK=$((_VG_STATUS_OK + 1)) ;;
       INFO)    _VG_STATUS_INFO=$((_VG_STATUS_INFO + 1)) ;;
       WARN)    _VG_STATUS_WARN=$((_VG_STATUS_WARN + 1)) ;;
+      DRIFT)   _VG_STATUS_DRIFT=$((_VG_STATUS_DRIFT + 1)) ;;
       FAIL)    _VG_STATUS_FAIL=$((_VG_STATUS_FAIL + 1)) ;;
       BROKEN)  _VG_STATUS_BROKEN=$((_VG_STATUS_BROKEN + 1)) ;;
       MISSING) _VG_STATUS_MISSING=$((_VG_STATUS_MISSING + 1)) ;;
@@ -145,7 +144,7 @@ status_record_buffer() {
 }
 
 # status_filter_problems
-#   Emit only [WARN]/[FAIL]/[BROKEN]/[MISSING] rows from the buffer, in
+#   Emit only [WARN]/[DRIFT]/[FAIL]/[BROKEN]/[MISSING] rows from the buffer, in
 #   their original captured form (color preserved).
 status_filter_problems() {
   [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]] || return 0
@@ -153,7 +152,7 @@ status_filter_problems() {
   while IFS= read -r line; do
     level="$(status_classify_line "$line")"
     case "$level" in
-      WARN|FAIL|BROKEN|MISSING) printf '%s\n' "$line" ;;
+      WARN|DRIFT|FAIL|BROKEN|MISSING) printf '%s\n' "$line" ;;
     esac
   done < "${_VG_STATUS_BUFFER}"
 }
@@ -164,7 +163,7 @@ status_filter_problems() {
 status_print_summary() {
   local quiet=0
   [[ "${1:-}" == "--quiet" ]] && quiet=1
-  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
   local total_warnings=${_VG_STATUS_WARN}
 
   if [[ "${quiet}" -eq 1 ]] && (( total_problems + total_warnings > 0 )); then
@@ -178,6 +177,7 @@ status_print_summary() {
   printf '  OK      : %d\n' "${_VG_STATUS_OK}"
   printf '  INFO    : %d\n' "${_VG_STATUS_INFO}"
   printf '  WARN    : %d\n' "${_VG_STATUS_WARN}"
+  printf '  DRIFT   : %d\n' "${_VG_STATUS_DRIFT}"
   printf '  FAIL    : %d\n' "${_VG_STATUS_FAIL}"
   printf '  BROKEN  : %d\n' "${_VG_STATUS_BROKEN}"
   printf '  MISSING : %d\n' "${_VG_STATUS_MISSING}"
@@ -196,7 +196,7 @@ status_print_summary() {
 #   Emit a stable JSON document with counts, verdict, and the full event
 #   list. Designed for CI consumers and the /vibeguard:check skill.
 status_emit_json() {
-  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
   local verdict
   if (( total_problems > 0 )); then
     verdict="broken"
@@ -209,8 +209,8 @@ status_emit_json() {
   if ! command -v python3 >/dev/null 2>&1; then
     # Conservative fallback. We escape backslash, double-quote, and control
     # characters so the result is valid JSON without python3.
-    printf '{"schema_version":1,"verdict":"%s","counts":{"ok":%d,"info":%d,"warn":%d,"fail":%d,"broken":%d,"missing":%d},"events":[' \
-      "$verdict" "$_VG_STATUS_OK" "$_VG_STATUS_INFO" "$_VG_STATUS_WARN" "$_VG_STATUS_FAIL" "$_VG_STATUS_BROKEN" "$_VG_STATUS_MISSING"
+    printf '{"schema_version":1,"verdict":"%s","counts":{"ok":%d,"info":%d,"warn":%d,"drift":%d,"fail":%d,"broken":%d,"missing":%d},"events":[' \
+      "$verdict" "$_VG_STATUS_OK" "$_VG_STATUS_INFO" "$_VG_STATUS_WARN" "$_VG_STATUS_DRIFT" "$_VG_STATUS_FAIL" "$_VG_STATUS_BROKEN" "$_VG_STATUS_MISSING"
     local first=1 line level message esc
     if [[ -n "${_VG_STATUS_BUFFER}" && -f "${_VG_STATUS_BUFFER}" ]]; then
       while IFS= read -r line; do
@@ -233,14 +233,14 @@ status_emit_json() {
   fi
 
   VG_VERDICT="$verdict" \
-  VG_OK="$_VG_STATUS_OK" VG_INFO="$_VG_STATUS_INFO" VG_WARN="$_VG_STATUS_WARN" \
+  VG_OK="$_VG_STATUS_OK" VG_INFO="$_VG_STATUS_INFO" VG_WARN="$_VG_STATUS_WARN" VG_DRIFT="$_VG_STATUS_DRIFT" \
   VG_FAIL="$_VG_STATUS_FAIL" VG_BROKEN="$_VG_STATUS_BROKEN" VG_MISSING="$_VG_STATUS_MISSING" \
   VG_BUFFER="${_VG_STATUS_BUFFER:-}" \
   python3 - <<'PY'
 import json, os, re, sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-LEVELS = ("OK", "INFO", "WARN", "FAIL", "BROKEN", "MISSING")
+LEVELS = ("OK", "INFO", "WARN", "DRIFT", "FAIL", "BROKEN", "MISSING")
 
 def classify(line: str):
     plain = ANSI.sub("", line)
@@ -267,6 +267,7 @@ doc = {
         "ok": int(os.environ["VG_OK"]),
         "info": int(os.environ["VG_INFO"]),
         "warn": int(os.environ["VG_WARN"]),
+        "drift": int(os.environ["VG_DRIFT"]),
         "fail": int(os.environ["VG_FAIL"]),
         "broken": int(os.environ["VG_BROKEN"]),
         "missing": int(os.environ["VG_MISSING"]),
@@ -280,7 +281,7 @@ PY
 
 # status_exit_code — echo 0|1|2 per the policy at top of file.
 status_exit_code() {
-  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
+  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + _VG_STATUS_MISSING))
   if (( total_problems > 0 )); then
     printf '2\n'
   elif (( _VG_STATUS_WARN > 0 )); then
@@ -296,7 +297,7 @@ status_exit_code() {
 status_install_exit_code() {
   local required_missing
   required_missing="$(status_required_missing_count)"
-  local total_problems=$((_VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
+  local total_problems=$((_VG_STATUS_DRIFT + _VG_STATUS_FAIL + _VG_STATUS_BROKEN + required_missing))
   if (( total_problems > 0 )); then
     printf '2\n'
   else

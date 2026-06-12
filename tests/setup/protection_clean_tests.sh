@@ -156,6 +156,31 @@ external_rule_count_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 cp "${_VALID_CLAUDE_MD}" "${HOME}/.claude/CLAUDE.md"
 assert_contains "${external_rule_count_check_out}" "[OK] Rule count in sync:" "--check ignores unmanaged Claude rule count text"
 assert_not_contains "${external_rule_count_check_out}" "CLAUDE.md declares 5 rules" "--check does not read rule count outside the VibeGuard Claude block"
+python3 - <<'PY' "${HOME}/.claude/CLAUDE.md" "${HOME}/.codex/AGENTS.md"
+from pathlib import Path
+import sys
+
+for arg in sys.argv[1:]:
+    path = Path(arg)
+    text = path.read_text(encoding="utf-8")
+    updated = text.replace(
+        "Compact Chat Contract: progress updates, concise answers, plain formatting.",
+        "Compact Chat Contract: progress updates, concise answers, ornate formatting.",
+        1,
+    )
+    if updated == text:
+        raise SystemExit(1)
+    path.write_text(updated, encoding="utf-8")
+PY
+semantic_block_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+semantic_block_strict_rc=0
+semantic_block_strict_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || semantic_block_strict_rc=$?
+cp "${_VALID_CLAUDE_MD}" "${HOME}/.claude/CLAUDE.md"
+cp "${_VALID_CODEX_AGENTS}" "${HOME}/.codex/AGENTS.md"
+assert_contains "${semantic_block_check_out}" "[DRIFT] CLAUDE.md managed VibeGuard block differs from current rules" "--check reports semantic drift in CLAUDE.md managed block"
+assert_contains "${semantic_block_check_out}" "[DRIFT] ~/.codex/AGENTS.md managed VibeGuard block differs from current rules" "--check reports semantic drift in Codex AGENTS managed block"
+assert_contains "${semantic_block_strict_out}" "[DRIFT] CLAUDE.md managed VibeGuard block differs from current rules" "--check --strict reports managed block drift"
+assert_cmd "--check --strict exits broken for managed block drift" test "${semantic_block_strict_rc}" -eq 2
 
 header "setup --check stays read-only"
 python3 - <<'PY' "${HOME}/.claude/CLAUDE.md"

@@ -451,6 +451,18 @@ check_claude_home_installation() {
         yellow "[DRIFT] CLAUDE.md missing VibeGuard rule count banner, actual: ${actual_rule_count}"
         yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.claude/CLAUDE.md"
       fi
+      local block_check_rc=0
+      if vibeguard_managed_rules_block_matches_source "${claude_md}" "${actual_rule_count}"; then
+        green "[OK] CLAUDE.md managed VibeGuard block matches current rules"
+      else
+        block_check_rc=$?
+        if [[ "${block_check_rc}" -eq 1 ]]; then
+          yellow "[DRIFT] CLAUDE.md managed VibeGuard block differs from current rules"
+          yellow "[INFO] Re-run 'bash setup.sh' to repair the managed block in ~/.claude/CLAUDE.md"
+        else
+          yellow "[WARN] CLAUDE.md managed block semantic check unavailable (repair: bash setup.sh --yes)"
+        fi
+      fi
     fi
   else
     red "[MISSING] Native rules not in ~/.claude/rules/vibeguard/"

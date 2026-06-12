@@ -438,6 +438,18 @@ check_codex_agents_hygiene() {
       yellow "[DRIFT] ~/.codex/AGENTS.md missing VibeGuard rule count banner, actual: ${actual_rule_count}"
       yellow "[INFO] Re-run 'bash setup.sh' to repair the rule count banner in ~/.codex/AGENTS.md"
     fi
+    local block_check_rc=0
+    if vibeguard_managed_rules_block_matches_source "${agents_md}" "${actual_rule_count}"; then
+      green "[OK] ~/.codex/AGENTS.md managed VibeGuard block matches current rules"
+    else
+      block_check_rc=$?
+      if [[ "${block_check_rc}" -eq 1 ]]; then
+        yellow "[DRIFT] ~/.codex/AGENTS.md managed VibeGuard block differs from current rules"
+        yellow "[INFO] Re-run 'bash setup.sh' to repair the managed block in ~/.codex/AGENTS.md"
+      else
+        yellow "[WARN] ~/.codex/AGENTS.md managed block semantic check unavailable (repair: bash setup.sh --yes)"
+      fi
+    fi
   else
     yellow "[INFO] Rule count in ~/.codex/AGENTS.md not checked because ~/.claude/rules/vibeguard/ is missing"
   fi
