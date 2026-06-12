@@ -122,3 +122,34 @@ fn is_env_assignment(token: &str) -> bool {
 fn is_shell(token: &str) -> bool {
     matches!(basename(token), "bash" | "sh" | "zsh")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn managed_scripts() -> BTreeSet<String> {
+        BTreeSet::from(["pre-bash-guard.sh".to_string()])
+    }
+
+    #[test]
+    fn env_prefix_counts_as_wrapper_invocation() {
+        let command = "env VIBEGUARD_FOO=1 /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
+
+        assert!(command_invokes_script(command, "pre-bash-guard.sh"));
+        assert_eq!(
+            managed_script_from_command(command, &managed_scripts()),
+            Some("pre-bash-guard.sh")
+        );
+    }
+
+    #[test]
+    fn env_wrapped_tool_argument_does_not_count_as_wrapper_invocation() {
+        let command = "env node /custom/audit.js /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
+
+        assert!(!command_invokes_script(command, "pre-bash-guard.sh"));
+        assert_eq!(
+            managed_script_from_command(command, &managed_scripts()),
+            None
+        );
+    }
+}
