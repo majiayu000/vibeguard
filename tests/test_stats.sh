@@ -181,6 +181,19 @@ selected_installed_export_runtime="$(
   ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
 )"
 assert_contains "${selected_installed_export_runtime}" "${resolver_full_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver prefers installed runtime when capability matches"
+assert_cmd_fails "Resolver rejects explicit runtime without requested exporter capability" \
+  env VIBEGUARD_RUNTIME="${legacy_observe_runtime}" HOME="${resolver_full_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_export_prometheus >/dev/null
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
+explicit_bad_runtime_out="$(
+  env VIBEGUARD_RUNTIME="${legacy_observe_runtime}" HOME="${resolver_full_home}" bash -c '
+    source "$1"
+    vg_resolve_runtime "$2" observe_export_prometheus
+  ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}" 2>&1 || true
+)"
+assert_contains "${explicit_bad_runtime_out}" "VIBEGUARD_RUNTIME does not support required capability: observe_export_prometheus" "Explicit runtime capability failure is visible"
+assert_not_contains "${explicit_bad_runtime_out}" "${resolver_full_home}/.vibeguard/installed/bin/vibeguard-runtime" "Explicit runtime capability failure does not fall back to installed runtime"
 
 header "Project and explicit log scope"
 SCOPE_ROOT="${TMP_DIR}/scope"

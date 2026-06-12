@@ -4,9 +4,21 @@ vg_resolve_runtime() {
   local repo_dir="${1:?vg_resolve_runtime requires repo dir}"
   local capability="${2:-observe_legacy}"
 
-  local candidates=(
-    "${VIBEGUARD_RUNTIME:-}"
-  )
+  local explicit_runtime="${VIBEGUARD_RUNTIME:-}"
+  local candidates=()
+  if [[ -n "${explicit_runtime}" ]]; then
+    if ! resolved="$(vg_resolve_runtime_candidate "${explicit_runtime}")"; then
+      printf 'VIBEGUARD_RUNTIME is not executable or not found: %s\n' "${explicit_runtime}" >&2
+      return 2
+    fi
+    if ! vg_runtime_supports "${resolved}" "${capability}"; then
+      printf 'VIBEGUARD_RUNTIME does not support required capability: %s\n' "${capability}" >&2
+      return 2
+    fi
+    printf '%s\n' "${resolved}"
+    return 0
+  fi
+
   if [[ -n "${HOME:-}" ]]; then
     candidates+=("${HOME}/.vibeguard/installed/bin/vibeguard-runtime")
   fi
@@ -16,7 +28,7 @@ vg_resolve_runtime() {
     "vibeguard-runtime"
   )
 
-  local candidate resolved
+  local candidate
   for candidate in "${candidates[@]}"; do
     if resolved="$(vg_resolve_runtime_candidate "${candidate}")"; then
       if vg_runtime_supports "${resolved}" "${capability}"; then
