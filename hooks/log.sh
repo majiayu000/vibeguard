@@ -63,17 +63,33 @@ vg_is_source_file() {
 # Resolve the canonical vibeguard-runtime binary path (Rust, ~4ms).
 _VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _VIBEGUARD_RUNTIME=""
-for _candidate in \
-  "${VIBEGUARD_RUNTIME:-}" \
-  "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
-  "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime" \
-  "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
-  "${_VG_HOOK_DIR}/vibeguard-runtime"; do
+
+_vg_log_installed_hook_context() {
+  local installed_hooks="${HOME:-}/.vibeguard/installed/hooks"
+  [[ -n "${HOME:-}" && ( "${_VG_HOOK_DIR}" == "${installed_hooks}" || "${_VG_HOOK_DIR}" == "${installed_hooks}/"* ) ]]
+}
+
+_vg_log_runtime_candidates() {
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if _vg_log_installed_hook_context; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+  fi
+}
+
+while IFS= read -r _candidate; do
   if [[ -f "$_candidate" ]] && [[ -x "$_candidate" ]]; then
     _VIBEGUARD_RUNTIME="$_candidate"
     break
   fi
-done
+done < <(_vg_log_runtime_candidates)
 if [[ -z "$_VIBEGUARD_RUNTIME" ]]; then
   printf '%s\n' "VIBEGUARD ERROR: vibeguard-runtime not found. Run setup.sh or cargo build --release --manifest-path vibeguard-runtime/Cargo.toml." >&2
   exit 2

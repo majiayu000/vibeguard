@@ -98,6 +98,40 @@ ln -s "$REPO_DIR/vibeguard-runtime/target/debug/vibeguard-runtime" "${runtime_pa
 runtime_command_out="$(PATH="${runtime_path_bin}:$PATH" VIBEGUARD_RUNTIME="vibeguard-runtime" VIBEGUARD_PROJECT_CONFIG="$cfg" bash -c 'source scripts/lib/project_config.sh; vg_config_positive_int VIBEGUARD_GC_LOG_THRESHOLD_MB gc.log_threshold_mb 10')"
 assert_contains "$runtime_command_out" "7" "helper resolves VIBEGUARD_RUNTIME command name from PATH"
 
+project_resolver_root="${TMP_ROOT}/project-resolver-root"
+project_resolver_home="${TMP_ROOT}/project-resolver-home"
+mkdir -p \
+  "${project_resolver_root}/scripts/lib" \
+  "${project_resolver_root}/vibeguard-runtime/target/release" \
+  "${project_resolver_home}/.vibeguard/installed/bin"
+cp "$REPO_DIR/scripts/lib/project_config.sh" "${project_resolver_root}/scripts/lib/project_config.sh"
+cat > "${project_resolver_root}/vibeguard-runtime/target/release/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  project-config-validate) exit 0 ;;
+  project-config-value) printf '19\n' ;;
+  *) exit 2 ;;
+esac
+SH
+chmod +x "${project_resolver_root}/vibeguard-runtime/target/release/vibeguard-runtime"
+cat > "${project_resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  project-config-validate) exit 0 ;;
+  project-config-value) printf '19\n' ;;
+  *) exit 2 ;;
+esac
+SH
+chmod +x "${project_resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+project_resolver_out="$(
+  cd "${project_resolver_root}" && \
+    env -u VIBEGUARD_PROJECT_CONFIG_RUNTIME -u VIBEGUARD_RUNTIME HOME="${project_resolver_home}" bash -c '
+      source scripts/lib/project_config.sh
+      _vg_project_config_runtime_path
+    '
+)"
+assert_contains "$project_resolver_out" "${project_resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "project config resolver prefers installed runtime when capability matches"
+
 path_only_root="${TMP_ROOT}/path-only-root"
 path_only_home="${TMP_ROOT}/path-only-home"
 mkdir -p "${path_only_root}/scripts/lib" "$path_only_home"

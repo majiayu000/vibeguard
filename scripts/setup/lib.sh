@@ -56,9 +56,13 @@ setup_runtime_supports() {
   for command in \
     setup-manifest-skill-links \
     setup-md-remove \
+    setup-settings-check \
     setup-settings-check-stale \
     setup-codex-config-check-hooks \
-    setup-codex-hooks-check-stale; do
+    setup-codex-hooks-upsert \
+    setup-codex-hooks-check \
+    setup-codex-hooks-check-stale \
+    setup-codex-hooks-check-timeouts; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
       return 1

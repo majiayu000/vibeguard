@@ -8,6 +8,9 @@ hook_test_init
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR" "$VIBEGUARD_LOG_DIR"' EXIT
+RUNTIME_BIN="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
+export VIBEGUARD_RUNTIME="${RUNTIME_BIN}"
 
 make_log_dir() {
   mktemp -d "$WORK_DIR/logs.XXXXXX"
@@ -33,6 +36,30 @@ run_pre_write() {
   env -u VIBEGUARD_WRITE_MODE VIBEGUARD_LOG_DIR="$(make_log_dir)" VIBEGUARD_CONFIG_FILE="$cfg" "$@" \
     bash hooks/pre-write-guard.sh < "$prewrite_input"
 }
+
+header "runtime config — installed hook runtime resolver"
+resolver_home="$WORK_DIR/home-resolver"
+resolver_hooks="${resolver_home}/.vibeguard/installed/hooks"
+mkdir -p "${resolver_hooks}" "${resolver_home}/.vibeguard/installed/bin"
+cp hooks/log.sh "${resolver_hooks}/log.sh"
+cp -R hooks/_lib "${resolver_hooks}/_lib"
+cat > "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+cat > "${resolver_hooks}/vibeguard-runtime" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "${resolver_hooks}/vibeguard-runtime"
+selected_hook_runtime="$(
+  env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" VIBEGUARD_LOG_DIR="${resolver_home}/.vibeguard" bash -c '
+    source "$1"
+    printf "%s" "$_VIBEGUARD_RUNTIME"
+  ' bash "${resolver_hooks}/log.sh"
+)"
+assert_contains "$selected_hook_runtime" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "installed hook log resolver prefers installed runtime"
 
 header "runtime config — pre-write write_mode"
 cfg="$WORK_DIR/config.json"

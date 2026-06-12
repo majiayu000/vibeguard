@@ -90,6 +90,33 @@ header "build"
 assert_cmd "vibeguard-runtime builds for health wrapper" \
   cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
 
+header "Runtime support probe"
+health_only_runtime="${TMP_DIR}/health-only-runtime"
+cat > "${health_only_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "observe" && "${2:-}" == "health" ]]; then
+  printf 'fake health\n'
+  exit 0
+fi
+exit 2
+SH
+chmod +x "${health_only_runtime}"
+assert_cmd "Health wrapper accepts runtime with observe health support" \
+  env VIBEGUARD_RUNTIME="${health_only_runtime}" bash "${SCRIPT}" --log-file /dev/null 24
+
+summary_only_runtime="${TMP_DIR}/summary-only-runtime"
+cat > "${summary_only_runtime}" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "observe" && "${2:-}" == "summary" ]]; then
+  printf 'fake stats\n'
+  exit 0
+fi
+exit 2
+SH
+chmod +x "${summary_only_runtime}"
+health_probe_out="$(VIBEGUARD_RUNTIME="${summary_only_runtime}" bash "${SCRIPT}" --log-file /dev/null 24 2>&1 || true)"
+assert_contains "${health_probe_out}" "VIBEGUARD_RUNTIME does not support required capability: observe_health_legacy" "Health wrapper rejects runtime without observe health support"
+
 header "No log file"
 no_log_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/missing" bash "${SCRIPT}" 2>&1 || true)"
 assert_contains "${no_log_out}" "No log data" "Prompt when logs are missing"

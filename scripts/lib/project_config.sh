@@ -9,10 +9,10 @@ _vg_project_config_runtime_path() {
   for candidate in \
     "${VIBEGUARD_PROJECT_CONFIG_RUNTIME:-}" \
     "${VIBEGUARD_RUNTIME:-}" \
+    "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime" \
     "${_VG_PROJECT_CONFIG_ROOT}/vibeguard-runtime/target/release/vibeguard-runtime" \
     "${_VG_PROJECT_CONFIG_ROOT}/vibeguard-runtime/target/debug/vibeguard-runtime" \
-    "${_VG_PROJECT_CONFIG_ROOT}/bin/vibeguard-runtime" \
-    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"; do
+    "${_VG_PROJECT_CONFIG_ROOT}/bin/vibeguard-runtime"; do
     if resolved="$(_vg_project_config_resolve_runtime_candidate "${candidate}")"; then
       if _vg_project_config_runtime_supports "${resolved}"; then
         printf '%s\n' "${resolved}"

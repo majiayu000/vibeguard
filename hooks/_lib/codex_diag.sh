@@ -9,19 +9,40 @@ codex_runtime_path() {
   fi
   helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
-  for candidate in \
-    "${VIBEGUARD_RUNTIME:-}" \
-    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
-    "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
-    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
-    "${wrapper_dir}/vibeguard-runtime"; do
+  while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       CODEX_RUNTIME_PATH_CACHE="${candidate}"
       printf '%s\n' "${candidate}"
       return 0
     fi
-  done
+  done < <(codex_runtime_candidates "${wrapper_dir}" "${helper_dir}")
   return 1
+}
+
+codex_installed_context() {
+  local wrapper_dir="$1" helper_dir="$2" home_prefix="${HOME:-}/.vibeguard"
+  [[ -n "${HOME:-}" && ( \
+    "${wrapper_dir}" == "${home_prefix}" || \
+    "${wrapper_dir}" == "${home_prefix}/installed/hooks" || \
+    "${helper_dir}" == "${home_prefix}/_lib" || \
+    "${helper_dir}" == "${home_prefix}/installed/hooks/_lib" \
+  ) ]]
+}
+
+codex_runtime_candidates() {
+  local wrapper_dir="$1" helper_dir="$2"
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if codex_installed_context "${wrapper_dir}" "${helper_dir}"; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+  fi
 }
 
 codex_runtime_stdin() {

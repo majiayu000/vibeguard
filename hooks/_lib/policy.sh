@@ -20,13 +20,7 @@ vg_policy_runtime_path() {
   fi
   helper_dir="${_VG_POLICY_LIB_DIR}"
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
-  for candidate in \
-    "${VIBEGUARD_POLICY_RUNTIME:-}" \
-    "${VIBEGUARD_RUNTIME:-}" \
-    "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
-    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
-    "${wrapper_dir}/vibeguard-runtime" \
-    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"; do
+  while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       if vg_policy_runtime_supports "${candidate}"; then
         VG_POLICY_RUNTIME_PATH_CACHE="${candidate}"
@@ -34,8 +28,34 @@ vg_policy_runtime_path() {
         return 0
       fi
     fi
-  done
+  done < <(vg_policy_runtime_candidates "${wrapper_dir}" "${helper_dir}")
   return 1
+}
+
+vg_policy_installed_context() {
+  local wrapper_dir="$1" helper_dir="$2" home_prefix="${HOME:-}/.vibeguard"
+  [[ -n "${HOME:-}" && ( \
+    "${wrapper_dir}" == "${home_prefix}" || \
+    "${wrapper_dir}" == "${home_prefix}/installed/hooks" || \
+    "${helper_dir}" == "${home_prefix}/installed/hooks/_lib" \
+  ) ]]
+}
+
+vg_policy_runtime_candidates() {
+  local wrapper_dir="$1" helper_dir="$2"
+  printf '%s\n' "${VIBEGUARD_POLICY_RUNTIME:-}"
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if vg_policy_installed_context "${wrapper_dir}" "${helper_dir}"; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+  fi
 }
 
 vg_policy_runtime_supports() {

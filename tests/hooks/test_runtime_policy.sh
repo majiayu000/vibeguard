@@ -187,6 +187,19 @@ resolver_out="$(
 )"
 assert_contains "${resolver_out}" "${explicit_runtime}" "runtime policy resolver honors VIBEGUARD_RUNTIME before installed binaries"
 
+installed_wrapper_home="${WORK_DIR}/home-installed-wrapper"
+mkdir -p "${installed_wrapper_home}/.vibeguard/installed/bin"
+cp "${explicit_runtime}" "${installed_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime"
+resolver_out="$(
+  WRAPPER_DIR="${installed_wrapper_home}/.vibeguard" \
+  HOME="${installed_wrapper_home}" \
+  env -u VIBEGUARD_POLICY_RUNTIME -u VIBEGUARD_RUNTIME bash -c '
+    source hooks/_lib/policy.sh
+    vg_policy_runtime_path
+  '
+)"
+assert_contains "${resolver_out}" "${installed_wrapper_home}/.vibeguard/installed/bin/vibeguard-runtime" "runtime policy resolver prefers installed runtime for installed wrapper"
+
 partial_runtime="${WORK_DIR}/partial-runtime"
 cat > "${partial_runtime}" <<'SH'
 #!/usr/bin/env bash

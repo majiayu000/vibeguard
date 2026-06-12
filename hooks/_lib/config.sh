@@ -24,21 +24,37 @@ _vg_config_file() {
 _vg_config_runtime_path() {
   local wrapper_dir candidate
   wrapper_dir="$(cd "${_VG_CONFIG_LIB_DIR}/.." && pwd)"
-  for candidate in \
-    "${_VIBEGUARD_RUNTIME:-}" \
-    "${VIBEGUARD_RUNTIME:-}" \
-    "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime" \
-    "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime" \
-    "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" \
-    "${wrapper_dir}/vibeguard-runtime"; do
+  while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       if _vg_config_runtime_supports "${candidate}"; then
         printf '%s\n' "${candidate}"
         return 0
       fi
     fi
-  done
+  done < <(_vg_config_runtime_candidates "${wrapper_dir}")
   return 1
+}
+
+_vg_config_installed_context() {
+  local wrapper_dir="$1" installed_hooks="${HOME:-}/.vibeguard/installed/hooks"
+  [[ -n "${HOME:-}" && ( "${wrapper_dir}" == "${installed_hooks}" || "${wrapper_dir}" == "${installed_hooks}/"* ) ]]
+}
+
+_vg_config_runtime_candidates() {
+  local wrapper_dir="$1"
+  printf '%s\n' "${_VIBEGUARD_RUNTIME:-}"
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if _vg_config_installed_context "${wrapper_dir}"; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${wrapper_dir}/vibeguard-runtime"
+  fi
 }
 
 _vg_config_runtime_supports() {
