@@ -1,0 +1,20 @@
+{
+  "name": "vibeguard-local",
+  "interface": {
+    "displayName": "VibeGuard Local"
+  },
+  "plugins": [
+    {
+      "name": "vibeguard",
+      "source": {
+        "source": "local",
+        "path": "./plugins/vibeguard"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

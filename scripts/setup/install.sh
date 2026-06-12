@@ -585,7 +585,12 @@ install_repo_git_hook() {
     red "  ERROR: ${hook_path} already exists and is not a symlink; refusing to overwrite"
     return 1
   fi
-  ln -sfn "${target}" "${hook_path}"
+  rm -f "${hook_path}"
+  ln -s "${target}" "${hook_path}"
+  if [[ "$(readlink "${hook_path}" 2>/dev/null || true)" != "${target}" ]]; then
+    red "  ERROR: failed to install ${hook_name} hook at ${hook_path}"
+    return 1
+  fi
   green "  ${hook_name} hook installed to vibeguard repo"
 }
 
