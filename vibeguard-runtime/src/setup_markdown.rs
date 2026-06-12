@@ -4,8 +4,10 @@ use crate::setup_support::{
 };
 use regex::Regex;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+mod hook_identity;
 
 const START: &str = "<!-- vibeguard-start -->";
 const END: &str = "<!-- vibeguard-end -->";
@@ -150,7 +152,7 @@ const CLAUDE_LEGACY_SCRIPTS: &[&str] = &[
 
 pub fn settings_check(args: &[String]) -> SetupResult<()> {
     if args.len() != 3 {
-        return Err("Usage: vibeguard-runtime setup-settings-check <repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks>".into());
+        return Err("Usage: vibeguard-runtime setup-settings-check <repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>".into());
     }
     let repo_dir = Path::new(&args[0]);
     let data = Value::Object(read_json_object(Path::new(&args[1]), false)?);
@@ -158,6 +160,13 @@ pub fn settings_check(args: &[String]) -> SetupResult<()> {
         "pre-hooks" => settings_has_pre_hooks(repo_dir, &data)?,
         "post-hooks" => settings_has_post_hooks(repo_dir, &data)?,
         "full-hooks" => settings_has_full_hooks(repo_dir, &data)?,
+        target if target.starts_with("profile-hooks:") => {
+            let profile = &target["profile-hooks:".len()..];
+            if !matches!(profile, "minimal" | "core" | "full" | "strict") {
+                return Err(format!("unsupported profile target: {profile}").into());
+            }
+            settings_has_profile_hooks(repo_dir, &data, profile)?
+        }
         _ => false,
     };
     if ok {
@@ -165,6 +174,10 @@ pub fn settings_check(args: &[String]) -> SetupResult<()> {
     } else {
         std::process::exit(1);
     }
+}
+
+pub fn settings_check_supports_profile_hooks(_args: &[String]) -> SetupResult<()> {
+    Ok(())
 }
 
 pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
@@ -192,15 +205,9 @@ pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
     for spec in &desired {
         changed |= settings_upsert_hook(&mut data, spec, force);
     }
-    let desired_pairs: BTreeSet<(String, String)> = desired
-        .iter()
-        .map(|spec| (spec.event.clone(), spec.script.clone()))
-        .collect();
-    for spec in claude_specs(repo_dir, None)? {
-        if !desired_pairs.contains(&(spec.event.clone(), spec.script.clone())) {
-            changed |= settings_remove_hook(&mut data, &spec.event, &spec.script);
-        }
-    }
+    let desired_identities: BTreeSet<(String, String, String)> =
+        desired.iter().map(settings_spec_identity).collect();
+    changed |= settings_remove_unprofiled_hooks(repo_dir, &mut data, &desired_identities)?;
     if dry_run {
         if changed {
             let after = serde_json::to_string_pretty(&data)? + "\n";
@@ -356,6 +363,20 @@ fn settings_has_full_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
             .all(|spec| settings_has_spec(data, spec)))
 }
 
+fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> SetupResult<bool> {
+    let desired = claude_specs(repo_dir, Some(profile))?;
+    if !desired.iter().all(|spec| settings_has_spec(data, spec)) {
+        return Ok(false);
+    }
+    let desired_identities: BTreeSet<(String, String, String)> =
+        desired.iter().map(settings_spec_identity).collect();
+    let managed_counts = settings_managed_hook_identity_counts(repo_dir, data)?;
+    Ok(managed_counts
+        .keys()
+        .all(|identity| desired_identities.contains(identity))
+        && managed_counts.values().all(|count| *count == 1))
+}
+
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
     let Some(entries) = data
         .get("hooks")
@@ -475,6 +496,51 @@ fn settings_remove_hook(data: &mut Value, event: &str, script: &str) -> bool {
     changed | (before != entries.len())
 }
 
+fn settings_remove_unprofiled_hooks(
+    repo_dir: &Path,
+    data: &mut Value,
+    desired: &BTreeSet<(String, String, String)>,
+) -> SetupResult<bool> {
+    let managed_scripts = claude_managed_scripts(repo_dir)?;
+    let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    let mut seen_profile_identities = BTreeSet::new();
+    for (event, entries) in hooks.iter_mut() {
+        let Some(entries) = entries.as_array_mut() else {
+            continue;
+        };
+        for entry in entries.iter_mut() {
+            let matcher = entry
+                .get("matcher")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            let before = hook_entries.len();
+            hook_entries.retain(|hook| {
+                settings_hook_managed_script(hook, &managed_scripts).is_none_or(|script| {
+                    let identity = (event.clone(), matcher.clone(), script.to_string());
+                    desired.contains(&identity) && seen_profile_identities.insert(identity)
+                })
+            });
+            changed |= before != hook_entries.len();
+        }
+        let before = entries.len();
+        entries.retain(|entry| {
+            entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_none_or(|hooks| !hooks.is_empty())
+        });
+        changed |= before != entries.len();
+    }
+    Ok(changed)
+}
+
 fn settings_remove_legacy_mcp(data: &mut Value) -> bool {
     let Some(object) = data.as_object_mut() else {
         return false;
@@ -532,6 +598,44 @@ fn claude_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
         .collect())
 }
 
+fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {
+    (
+        spec.event.clone(),
+        spec.matcher.clone(),
+        spec.script.clone(),
+    )
+}
+
+fn settings_managed_hook_identity_counts(
+    repo_dir: &Path,
+    data: &Value,
+) -> SetupResult<BTreeMap<(String, String, String), usize>> {
+    let managed_scripts = claude_managed_scripts(repo_dir)?;
+    let mut counts = BTreeMap::new();
+    let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
+        return Ok(counts);
+    };
+    for (event, entries) in hooks {
+        let Some(entries) = entries.as_array() else {
+            continue;
+        };
+        for entry in entries {
+            let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
+            let Some(hook_entries) = entry.get("hooks").and_then(Value::as_array) else {
+                continue;
+            };
+            for hook in hook_entries {
+                if let Some(script) = settings_hook_managed_script(hook, &managed_scripts) {
+                    *counts
+                        .entry((event.clone(), matcher.to_string(), script.to_string()))
+                        .or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    Ok(counts)
+}
+
 fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
     entry
         .get("hooks")
@@ -546,11 +650,16 @@ fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
 fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
     hook.get("command")
         .and_then(Value::as_str)
-        .is_some_and(|command| {
-            shell_split(command)
-                .iter()
-                .any(|part| basename(part) == script)
-        })
+        .is_some_and(|command| hook_identity::command_invokes_script(command, script))
+}
+
+fn settings_hook_managed_script<'a>(
+    hook: &Value,
+    managed_scripts: &'a BTreeSet<String>,
+) -> Option<&'a str> {
+    hook.get("command")
+        .and_then(Value::as_str)
+        .and_then(|command| hook_identity::managed_script_from_command(command, managed_scripts))
 }
 
 fn settings_is_canonical(command: &str, script: &str) -> bool {
@@ -669,31 +778,4 @@ fn settings_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn replaces_marker_block() {
-        let original = "a\n\n<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\nb\n";
-        let next = replace_managed_block(
-            original,
-            "<!-- vibeguard-start -->\nnew\n<!-- vibeguard-end -->",
-        );
-        assert!(next.contains("new"));
-        assert!(!next.contains("old"));
-        assert!(next.starts_with("a\n\n"));
-        assert!(next.ends_with("b\n"));
-    }
-
-    #[test]
-    fn canonical_settings_command_accepts_legacy_unquoted_home_spaces() {
-        let command = "bash /tmp/home with spaces/.vibeguard/run-hook.sh pre-bash-guard.sh";
-        assert!(settings_is_canonical(command, "pre-bash-guard.sh"));
-    }
-
-    #[test]
-    fn canonical_settings_command_rejects_custom_bash_options() {
-        let command = "bash -x /tmp/workspace/.vibeguard/run-hook.sh pre-bash-guard.sh";
-        assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
-    }
-}
+mod tests;

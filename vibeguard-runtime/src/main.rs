@@ -351,8 +351,13 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-settings-check",
-        usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks>  — check Claude settings",
+        usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>  — check Claude settings",
         handler: setup_markdown::settings_check,
+    },
+    Command {
+        name: "setup-settings-check-supports-profile-hooks",
+        usage: "— capability probe for profile-hooks setup-settings-check target",
+        handler: setup_markdown::settings_check_supports_profile_hooks,
     },
     Command {
         name: "setup-settings-upsert",

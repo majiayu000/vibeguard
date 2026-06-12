@@ -474,6 +474,17 @@ check_claude_home_installation() {
     yellow "[INFO] Full profile hooks not configured (current install may be core profile)"
   fi
 
+  local profile_hook_status
+  profile_hook_status=0
+  settings_check "${SETTINGS_FILE}" "profile-hooks:${PROFILE}" || profile_hook_status=$?
+  if [[ "${profile_hook_status}" -eq 0 ]]; then
+    green "[OK] Claude hooks match ${PROFILE} profile"
+  elif [[ "${profile_hook_status}" -eq 2 ]]; then
+    yellow "[WARN] Claude ${PROFILE} profile hook coverage could not be verified; rebuild or reinstall vibeguard-runtime"
+  else
+    yellow "[MISSING] Claude hooks missing for ${PROFILE} profile"
+  fi
+
   local stale_hooks_report
   if stale_hooks_report="$(settings_stale_hooks_report "${SETTINGS_FILE}" 2>&1)"; then
     :

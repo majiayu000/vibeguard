@@ -41,6 +41,62 @@ def _shell_invokes_wrapper(parts: list[str], index: int) -> bool:
     return shell in {"bash", "sh", "zsh"} and not wrapper.startswith("-")
 
 
+def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
+    if index == 0:
+        return True
+    if _basename(parts[index - 1]) in {"bash", "sh", "zsh"}:
+        return True
+    if (
+        index >= 2
+        and parts[index - 1].startswith("-")
+        and not _shell_option_uses_command_string(parts[index - 1])
+    ):
+        return _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
+    if _env_invokes_token(parts, index):
+        return True
+    return False
+
+
+def _shell_option_uses_command_string(token: str) -> bool:
+    if token == "--":
+        return False
+    if token == "--command":
+        return True
+    if token.startswith("--"):
+        return False
+    return "c" in token.lstrip("-")
+
+
+def _env_invokes_token(parts: list[str], index: int) -> bool:
+    if not parts or _basename(parts[0]) != "env":
+        return False
+    cursor = 1
+    while cursor < index:
+        token = parts[cursor]
+        if token == "--":
+            cursor += 1
+            break
+        if token.startswith("-"):
+            if _env_option_takes_value(token) and cursor + 1 < index:
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if _is_env_assignment(token):
+            cursor += 1
+            continue
+        return False
+    return cursor == index
+
+
+def _env_option_takes_value(token: str) -> bool:
+    return token in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+
+
+def _is_env_assignment(token: str) -> bool:
+    return "=" in token and not token.startswith("=")
+
+
 def _looks_like_direct_script(parts: list[str], index: int) -> bool:
     token = parts[index]
     if "/" in token or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/")):
@@ -78,6 +134,8 @@ def hook_command_identity(
     for index, token in enumerate(parts):
         token_base = _basename(token)
         if token_base not in wrapper_set:
+            continue
+        if not _wrapper_is_invoked(parts, index):
             continue
         wrapper = token_base
         if index + 1 >= len(parts):

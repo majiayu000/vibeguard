@@ -196,7 +196,30 @@ ensure_setup_runtime_available() {
 settings_check() {
   local settings_file="$1" target="$2"
   [[ -f "${settings_file}" ]] || return 1
+  if [[ "${target}" == profile-hooks:* ]] && command -v python3 >/dev/null 2>&1; then
+    python3 "${SETTINGS_HELPER}" check --settings-file "${settings_file}" --target "${target}" >/dev/null 2>&1
+    local python_status=$?
+    case "${python_status}" in
+      126|127) ;;
+      *) return "${python_status}" ;;
+    esac
+  fi
+  if [[ "${target}" == profile-hooks:* ]]; then
+    local runtime probe_out
+    runtime="$(setup_runtime_path)" || return 2
+    probe_out="$("${runtime}" setup-settings-check-supports-profile-hooks 2>&1 || true)"
+    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
+      return 2
+    fi
+    "${runtime}" setup-settings-check "${REPO_DIR}" "${settings_file}" "${target}" >/dev/null 2>&1
+    return $?
+  fi
   setup_runtime setup-settings-check "${REPO_DIR}" "${settings_file}" "${target}" >/dev/null 2>&1
+  local status=$?
+  if [[ "${status}" -eq 127 ]]; then
+    return 2
+  fi
+  return "${status}"
 }
 
 settings_stale_hooks_report() {

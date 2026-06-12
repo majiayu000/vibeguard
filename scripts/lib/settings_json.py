@@ -18,6 +18,7 @@ from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
 
 MANIFEST = load_manifest()
 MANAGED_SCRIPT_NAMES = all_managed_script_names(MANIFEST)
+CLAUDE_PROFILE_SCRIPT_NAMES = frozenset(spec["script"] for spec in claude_specs(MANIFEST, None))
 LEGACY_SCRIPT_NAMES: frozenset[str] = frozenset(
     {"post-guard-check.sh", "session-tagger.sh", "cognitive-reminder.sh"}
 )
@@ -255,6 +256,27 @@ def _has_all_specs(data: dict[str, Any], specs: list[dict[str, Any]]) -> bool:
     return all(_has_hook_spec(data, spec) for spec in specs)
 
 
+def _spec_identity(spec: dict[str, Any]) -> tuple[str, str, str]:
+    return (str(spec["event"]), str(spec.get("matcher") or ""), str(spec["script"]))
+
+
+def _managed_hook_identity_counts(data: dict[str, Any]) -> dict[tuple[str, str, str], int]:
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        return {}
+
+    counts: dict[tuple[str, str, str], int] = {}
+    for event, entries in hooks.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            for identity in _entry_identities(str(event), entry):
+                if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
+                    hook_identity = (identity.event, identity.matcher or "", identity.script)
+                    counts[hook_identity] = counts.get(hook_identity, 0) + 1
+    return counts
+
+
 def has_pre_hooks(data: dict[str, Any]) -> bool:
     specs = [spec for spec in claude_specs(MANIFEST, "minimal") if spec["event"] == "PreToolUse"]
     return _has_all_specs(data, specs)
@@ -273,6 +295,17 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
         if spec["script"] not in core_scripts
     ]
     return has_post_hooks(data) and _has_all_specs(data, specs)
+
+
+def has_profile_hooks(data: dict[str, Any], profile: str) -> bool:
+    desired_specs = claude_specs(MANIFEST, profile)
+    if not _has_all_specs(data, desired_specs):
+        return False
+    desired_identities = {_spec_identity(spec) for spec in desired_specs}
+    managed_counts = _managed_hook_identity_counts(data)
+    return set(managed_counts).issubset(desired_identities) and all(
+        count == 1 for count in managed_counts.values()
+    )
 
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
@@ -369,6 +402,63 @@ def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict
         state["changed"] = True
 
 
+def remove_unprofiled_managed_hooks(
+    hooks: dict[str, Any],
+    desired_identities: set[tuple[str, str, str]],
+    state: dict[str, Any],
+) -> None:
+    seen_profile_identities: set[tuple[str, str, str]] = set()
+    for event, entries in list(hooks.items()):
+        if not isinstance(entries, list):
+            continue
+
+        next_entries: list[Any] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                next_entries.append(entry)
+                continue
+
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                next_entries.append(entry)
+                continue
+
+            matcher_value = entry.get("matcher")
+            matcher = matcher_value if isinstance(matcher_value, str) and matcher_value else None
+            kept_hooks: list[Any] = []
+            removed_any = False
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    kept_hooks.append(hook)
+                    continue
+                identity = _hook_identity(str(event), matcher, hook)
+                if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
+                    hook_identity = (identity.event, identity.matcher or "", identity.script)
+                    if (
+                        hook_identity not in desired_identities
+                        or hook_identity in seen_profile_identities
+                    ):
+                        removed_any = True
+                        continue
+                    seen_profile_identities.add(hook_identity)
+                kept_hooks.append(hook)
+
+            if removed_any:
+                state["changed"] = True
+                if kept_hooks:
+                    next_entry = dict(entry)
+                    next_entry["hooks"] = kept_hooks
+                    next_entries.append(next_entry)
+            else:
+                next_entries.append(entry)
+
+        if len(next_entries) != len(entries) or next_entries != entries:
+            if next_entries:
+                hooks[event] = next_entries
+            else:
+                hooks.pop(event, None)
+
+
 def upsert_hook(
     hooks: dict[str, Any],
     repo_dir: str,
@@ -443,6 +533,13 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 0 if has_post_hooks(data) else 1
     if args.target == "full-hooks":
         return 0 if has_full_hooks(data) else 1
+    if args.target.startswith("profile-hooks:"):
+        profile = args.target.removeprefix("profile-hooks:")
+        if profile not in {"minimal", "core", "full", "strict"}:
+            print(f"unsupported profile target: {profile}", file=sys.stderr)
+            return 2
+        return 0 if has_profile_hooks(data, profile) else 1
+    print(f"unsupported target: {args.target}", file=sys.stderr)
     return 1
 
 
@@ -491,11 +588,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         )
 
     # Remove hooks that do not belong to the current profile (handles profile downgrade).
-    desired_pairs = {(spec["event"], spec["script"]) for spec in desired_specs}
-    for spec in claude_specs(MANIFEST):
-        pair = (spec["event"], spec["script"])
-        if pair not in desired_pairs:
-            remove_hook(hooks, spec["event"], spec["script"], state)
+    remove_unprofiled_managed_hooks(hooks, {_spec_identity(spec) for spec in desired_specs}, state)
 
     if args.dry_run:
         if state["changed"]:
@@ -571,7 +664,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="Check installed state")
     check.add_argument("--settings-file", required=True)
-    check.add_argument("--target", choices=["pre-hooks", "post-hooks", "full-hooks"], required=True)
+    check.add_argument(
+        "--target",
+        required=True,
+        help="pre-hooks, post-hooks, full-hooks, or profile-hooks:<minimal|core|full|strict>",
+    )
     check.set_defaults(func=cmd_check)
 
     stale = sub.add_parser("check-stale-hooks", help="Detect stale hook commands")
