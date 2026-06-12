@@ -83,6 +83,31 @@ assert_cmd "core profile check catches missing analysis-paralysis hook" assert_p
 core_missing_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_contains "${core_missing_out}" "[MISSING] Claude hooks missing for core profile" "setup --check reports missing core profile hook"
 assert_cmd "core profile repair restores analysis-paralysis hook" assert_profile_hook_restored_after_repair core profile-hooks:core
+old_profile_runtime="${TMP_HOME}/old-profile-runtime"
+cat > "${old_profile_runtime}" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  setup-settings-check-supports-profile-hooks)
+    printf '%s\n' 'Unknown command: setup-settings-check-supports-profile-hooks' >&2
+    exit 2
+    ;;
+  setup-state-list-symlinks-under|setup-manifest-skill-links|setup-md-remove|setup-settings-check-stale|setup-codex-config-check-hooks|setup-codex-hooks-check-stale)
+    exit 0
+    ;;
+  setup-settings-check)
+    case "${4:-}" in
+      profile-hooks:*) exit 1 ;;
+      *) exit 0 ;;
+    esac
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+chmod +x "${old_profile_runtime}"
+old_runtime_check_out="$(VIBEGUARD_SETUP_RUNTIME="${old_profile_runtime}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
+assert_not_contains "${old_runtime_check_out}" "[MISSING] Claude hooks missing for core profile" "setup --check skips stale runtime profile-hook false missing"
 
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"

@@ -174,6 +174,10 @@ pub fn settings_check(args: &[String]) -> SetupResult<()> {
     }
 }
 
+pub fn settings_check_supports_profile_hooks(_args: &[String]) -> SetupResult<()> {
+    Ok(())
+}
+
 pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
     if args.len() < 3 {
         return Err("Usage: vibeguard-runtime setup-settings-upsert <repo-dir> <settings-file> <profile> [--dry-run] [--force-overwrite]".into());

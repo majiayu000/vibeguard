@@ -350,6 +350,11 @@ static COMMANDS: &[Command] = &[
         handler: setup_markdown::settings_check,
     },
     Command {
+        name: "setup-settings-check-supports-profile-hooks",
+        usage: "— capability probe for profile-hooks setup-settings-check target",
+        handler: setup_markdown::settings_check_supports_profile_hooks,
+    },
+    Command {
         name: "setup-settings-upsert",
         usage: "<repo-dir> <settings-file> <profile> [--dry-run] [--force-overwrite]  — upsert Claude settings",
         handler: setup_markdown::settings_upsert,
