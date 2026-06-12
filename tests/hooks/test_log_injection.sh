@@ -213,6 +213,68 @@ assert_contains "$(cat "$runtime_errexit_stderr")" "runtime JSONL append failed"
 assert_not_contains "$(cat "$runtime_lock_test_file")" '{"errexit_locked":true}' "Runtime append set -e failure does not write unlocked"
 rm -rf "$runtime_lock_test_dir"
 
+header "log.sh — runtime mirror append"
+
+mirror_runtime_test_dir="$(mktemp -d)"
+mirror_runtime_bin="${mirror_runtime_test_dir}/vibeguard-runtime"
+mirror_runtime_count="${mirror_runtime_test_dir}/runtime-calls"
+cat > "$mirror_runtime_bin" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+  append-jsonl-mirror)
+    printf 'mirror\n' >> "${VIBEGUARD_MIRROR_COUNT:?}"
+    primary_file="${1:?append-jsonl-mirror requires a primary path}"
+    mirror_file="${2:?append-jsonl-mirror requires a mirror path}"
+    line="$(cat)"
+    mkdir -p "$(dirname "$primary_file")" "$(dirname "$mirror_file")"
+    printf '%s\n' "$line" >> "$primary_file"
+    printf '%s\n' "$line" >> "$mirror_file"
+    ;;
+  append-jsonl)
+    printf 'single\n' >> "${VIBEGUARD_MIRROR_COUNT:?}"
+    file="${1:?append-jsonl requires a path}"
+    line="$(cat)"
+    mkdir -p "$(dirname "$file")"
+    printf '%s\n' "$line" >> "$file"
+    ;;
+  *)
+    printf 'Unknown command: %s\n' "$command" >&2
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$mirror_runtime_bin"
+
+mirror_result=$(
+  export HOME="${mirror_runtime_test_dir}/home"
+  export VIBEGUARD_LOG_DIR="${mirror_runtime_test_dir}/logs"
+  export VIBEGUARD_PROJECT_LOG_DIR="${mirror_runtime_test_dir}/project"
+  export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+  export VIBEGUARD_SESSION_ID="runtime-mirror-test"
+  export VIBEGUARD_RUNTIME="$mirror_runtime_bin"
+  export VIBEGUARD_MIRROR_COUNT="$mirror_runtime_count"
+  source hooks/log.sh
+  vg_log "test" "Tool" "pass" "mirror" "runtime"
+  printf 'calls=%s mirror=%s single=%s primary=%s global=%s' \
+    "$(wc -l < "$VIBEGUARD_MIRROR_COUNT" | tr -d ' ')" \
+    "$(grep -c '^mirror$' "$VIBEGUARD_MIRROR_COUNT" || true)" \
+    "$(grep -c '^single$' "$VIBEGUARD_MIRROR_COUNT" || true)" \
+    "$(wc -l < "$VIBEGUARD_LOG_FILE" | tr -d ' ')" \
+    "$(wc -l < "$VIBEGUARD_LOG_DIR/events.jsonl" | tr -d ' ')"
+)
+
+assert_contains "$mirror_result" "calls=1" "Project/global vg_log uses one runtime process for mirror append"
+assert_contains "$mirror_result" "mirror=1" "Runtime mirror append command is used"
+assert_contains "$mirror_result" "single=0" "Runtime single append is not used for mirrored vg_log"
+assert_contains "$mirror_result" "primary=1" "Runtime mirror append writes the primary log"
+assert_contains "$mirror_result" "global=1" "Runtime mirror append writes the global log"
+rm -rf "$mirror_runtime_test_dir"
+
 header "log.sh — stale runtime fallback"
 
 stale_runtime_test_dir="$(mktemp -d)"
@@ -239,6 +301,41 @@ assert_contains "$stale_runtime_result" "rc=0" "Stale runtime without append-jso
 assert_contains "$(cat "$stale_runtime_file")" '{"stale_runtime":true}' "Stale runtime fallback still writes the log line"
 assert_not_contains "$(cat "$stale_runtime_stderr")" "runtime JSONL append failed" "Stale runtime fallback does not report runtime append failure"
 rm -rf "$stale_runtime_test_dir"
+
+header "log.sh — stale runtime mirror fallback"
+
+stale_mirror_runtime_test_dir="$(mktemp -d)"
+stale_mirror_runtime_stderr="${stale_mirror_runtime_test_dir}/stderr"
+stale_mirror_runtime_bin="${stale_mirror_runtime_test_dir}/vibeguard-runtime"
+cat > "$stale_mirror_runtime_bin" <<'SH'
+#!/usr/bin/env bash
+printf 'Unknown command: %s\n' "$1" >&2
+exit 2
+SH
+chmod +x "$stale_mirror_runtime_bin"
+
+set +e
+stale_mirror_result=$(
+  export HOME="${stale_mirror_runtime_test_dir}/home"
+  export VIBEGUARD_LOG_DIR="${stale_mirror_runtime_test_dir}/logs"
+  export VIBEGUARD_PROJECT_LOG_DIR="${stale_mirror_runtime_test_dir}/project"
+  export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+  export VIBEGUARD_SESSION_ID="stale-runtime-mirror-test"
+  export VIBEGUARD_RUNTIME="$stale_mirror_runtime_bin"
+  source hooks/log.sh
+  vg_log "test" "Tool" "pass" "stale mirror" "fallback" 2>"$stale_mirror_runtime_stderr"
+  printf 'rc=%s primary=%s global=%s' \
+    "$?" \
+    "$(wc -l < "$VIBEGUARD_LOG_FILE" | tr -d ' ')" \
+    "$(wc -l < "$VIBEGUARD_LOG_DIR/events.jsonl" | tr -d ' ')"
+)
+set -e
+
+assert_contains "$stale_mirror_result" "rc=0" "Stale runtime without append-jsonl-mirror falls back for mirrored vg_log"
+assert_contains "$stale_mirror_result" "primary=1" "Stale runtime mirror fallback writes the primary log"
+assert_contains "$stale_mirror_result" "global=1" "Stale runtime mirror fallback writes the global log"
+assert_not_contains "$(cat "$stale_mirror_runtime_stderr")" "runtime mirrored JSONL append failed" "Stale runtime mirror fallback does not report runtime mirror failure"
+rm -rf "$stale_mirror_runtime_test_dir"
 
 # =========================================================
 

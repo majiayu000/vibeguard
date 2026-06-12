@@ -322,6 +322,89 @@ fn append_jsonl_command_appends_one_line() {
 }
 
 #[test]
+fn append_jsonl_mirror_command_appends_to_primary_and_mirror() {
+    let dir = unique_temp_dir("append-jsonl-mirror");
+    fs::create_dir_all(&dir).unwrap();
+    let primary_file = dir.join("project-events.jsonl");
+    let mirror_file = dir.join("events.jsonl");
+    let mut child = bin()
+        .args([
+            "append-jsonl-mirror",
+            primary_file.to_str().unwrap(),
+            mirror_file.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"mirrored\":true}\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&primary_file).unwrap(),
+        "{\"mirrored\":true}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&mirror_file).unwrap(),
+        "{\"mirrored\":true}\n"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn append_jsonl_mirror_command_reports_mirror_failure_after_primary_write() {
+    let dir = unique_temp_dir("append-jsonl-mirror-failure");
+    fs::create_dir_all(&dir).unwrap();
+    let primary_file = dir.join("project-events.jsonl");
+    let mirror_file = dir.join("events.jsonl");
+    fs::create_dir(format!("{}.lock.d", mirror_file.display())).unwrap();
+
+    let mut child = bin()
+        .args([
+            "append-jsonl-mirror",
+            primary_file.to_str().unwrap(),
+            mirror_file.to_str().unwrap(),
+        ])
+        .env("VIBEGUARD_LOG_LOCK_ATTEMPTS", "1")
+        .env("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"mirrored\":true}\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("mirror JSONL append failed"),
+        "expected mirror failure in stderr: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&primary_file).unwrap(),
+        "{\"mirrored\":true}\n"
+    );
+    assert!(!mirror_file.exists());
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn append_jsonl_command_rejects_multiline_input() {
     let dir = unique_temp_dir("append-jsonl-multiline");
     fs::create_dir_all(&dir).unwrap();
