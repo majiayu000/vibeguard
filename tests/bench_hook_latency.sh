@@ -9,7 +9,8 @@
 #   bash tests/bench_hook_latency.sh --json       # JSON output for CI
 #   bash tests/bench_hook_latency.sh --fail-on-regression  # exit 1 if a fixture exceeds its budget
 #
-# Requires: perl (for hi-res timing) or python3
+# Requires: perl (for hi-res timing) or python3. Codex wrapper fixtures also
+# require a built vibeguard-runtime binary.
 
 set -euo pipefail
 
@@ -155,6 +156,10 @@ for runtime_candidate in \
     break
   fi
 done
+if [[ ! -x "$CODEX_BENCH_RUNTIME" ]]; then
+  printf '%s\n' "ERROR: Codex wrapper benchmark requires vibeguard-runtime. Run: cargo build --manifest-path vibeguard-runtime/Cargo.toml" >&2
+  exit 1
+fi
 
 # --- Benchmark runner ---
 RESULTS=()

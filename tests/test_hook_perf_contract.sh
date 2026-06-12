@@ -96,6 +96,7 @@ write_hook() {
 header "syntax"
 assert_cmd "performance validator syntax" bash -n "${VALIDATOR}"
 assert_cmd "latency benchmark syntax" bash -n "${BENCH}"
+assert_file_contains "${BENCH}" "Codex wrapper benchmark requires vibeguard-runtime" "latency benchmark fails fast without runtime for Codex wrapper fixtures"
 
 header "static performance gates"
 GOOD_HOOKS="${TMP_DIR}/good-hooks"

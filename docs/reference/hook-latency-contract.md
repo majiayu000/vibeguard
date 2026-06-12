@@ -25,6 +25,7 @@ These are cross-OS CI budgets, not ideal-machine optimization targets. Static pe
 Run the gate locally:
 
 ```bash
+cargo build --manifest-path vibeguard-runtime/Cargo.toml --quiet
 bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression
 ```
 
