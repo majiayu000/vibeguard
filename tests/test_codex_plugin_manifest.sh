@@ -39,11 +39,38 @@ assert_cmd "plugin bridge resolves repo checkout" \
 assert_cmd "plugin dashboard generator writes local HTML" bash -c '
   tmp_dir="$(mktemp -d)"
   trap "rm -rf \"${tmp_dir}\"" EXIT
-  bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --log-file /dev/null >/dev/null
+  VIBEGUARD_REPO_DIR="$2" bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --log-file /dev/null >/dev/null
   test -f "${tmp_dir}/dashboard.html"
   grep -q "VibeGuard Observability" "${tmp_dir}/dashboard.html"
   ! LC_ALL=C grep -q "$(printf "\033")" "${tmp_dir}/dashboard.html"
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" "${REPO_DIR}"
+assert_cmd "plugin dashboard generator renders command failures" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  fake_repo="${tmp_dir}/fake-repo"
+  mkdir -p "${fake_repo}/hooks" "${fake_repo}/skills" "${fake_repo}/scripts" "${fake_repo}/vibeguard-runtime"
+  touch "${fake_repo}/vibeguard-runtime/Cargo.toml"
+  cat > "${fake_repo}/setup.sh" <<SH
+#!/usr/bin/env bash
+printf "%s\n" "fake setup unavailable" >&2
+exit 127
+SH
+  cat > "${fake_repo}/scripts/stats.sh" <<SH
+#!/usr/bin/env bash
+printf "%s\n" "fake stats unavailable" >&2
+exit 127
+SH
+  cat > "${fake_repo}/scripts/hook-health.sh" <<SH
+#!/usr/bin/env bash
+printf "%s\n" "fake health unavailable" >&2
+exit 127
+SH
+  chmod +x "${fake_repo}/setup.sh" "${fake_repo}/scripts/stats.sh" "${fake_repo}/scripts/hook-health.sh"
+  VIBEGUARD_REPO_DIR="${fake_repo}" bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --log-file /dev/null >/dev/null
+  grep -q "COMMAND FAILED" "${tmp_dir}/dashboard.html"
 ' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
+assert_cmd "vibeguard-runtime builds for plugin stats bridge" \
+  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
 assert_cmd "plugin health bridge runs against empty log" \
   bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" health --log-file /dev/null 24
 assert_cmd "plugin stats bridge runs against empty log" \

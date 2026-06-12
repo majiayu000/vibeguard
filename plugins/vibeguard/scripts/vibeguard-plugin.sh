@@ -53,6 +53,19 @@ capture_command() {
   printf '%s\n' "${output}"
 }
 
+capture_dashboard_command() {
+  local output status
+  status=0
+  output="$("$@" 2>&1)" || status=$?
+  if [[ "${status}" -ne 0 ]]; then
+    printf 'COMMAND FAILED (%s):' "${status}"
+    printf ' %q' "$@"
+    printf '\n%s\n' "${output}"
+    return 0
+  fi
+  printf '%s\n' "${output}"
+}
+
 canonical_dir() {
   local candidate="$1"
   if [[ -d "${candidate}" ]]; then
@@ -258,9 +271,9 @@ USAGE
   fi
 
   local status_out stats_out health_out
-  status_out="$(capture_command bash "${repo_dir}/setup.sh" --codex-status)"
-  stats_out="$(capture_command bash "${repo_dir}/scripts/stats.sh" "${stats_args[@]}")"
-  health_out="$(capture_command bash "${repo_dir}/scripts/hook-health.sh" "${health_args[@]}")"
+  status_out="$(capture_dashboard_command bash "${repo_dir}/setup.sh" --codex-status)"
+  stats_out="$(capture_dashboard_command bash "${repo_dir}/scripts/stats.sh" "${stats_args[@]}")"
+  health_out="$(capture_dashboard_command bash "${repo_dir}/scripts/hook-health.sh" "${health_args[@]}")"
   generated_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
   local status_html stats_html health_html repo_html generated_html
