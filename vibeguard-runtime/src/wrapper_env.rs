@@ -29,14 +29,24 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         .as_ref()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|| "global".to_string());
-    let project_hash = env_nonempty("VIBEGUARD_PROJECT_HASH")
-        .unwrap_or_else(|| sha256_text_short(&project_root_text));
-    let project_log_dir = env_nonempty("VIBEGUARD_PROJECT_LOG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| log_root.join("projects").join(&project_hash));
-    let log_file = env_nonempty("VIBEGUARD_LOG_FILE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| project_log_dir.join("events.jsonl"));
+    let computed_project_hash = sha256_text_short(&project_root_text);
+    let explicit_project_log_dir = env_nonempty("VIBEGUARD_PROJECT_LOG_DIR").map(PathBuf::from);
+    let explicit_log_file = env_nonempty("VIBEGUARD_LOG_FILE").map(PathBuf::from);
+    let (project_hash, project_log_dir, log_file) =
+        match (explicit_project_log_dir, explicit_log_file) {
+            (Some(project_log_dir), Some(log_file)) => {
+                let project_hash = env_nonempty("VIBEGUARD_PROJECT_HASH")
+                    .or_else(|| hash_slug_from_log_dir(&project_log_dir))
+                    .unwrap_or_else(|| computed_project_hash.clone());
+                (project_hash, project_log_dir, log_file)
+            }
+            _ => {
+                let project_hash = computed_project_hash;
+                let project_log_dir = log_root.join("projects").join(&project_hash);
+                let log_file = project_log_dir.join("events.jsonl");
+                (project_hash, project_log_dir, log_file)
+            }
+        };
 
     fs::create_dir_all(&project_log_dir)?;
     if project_root.is_some() {
@@ -69,6 +79,15 @@ fn log_root() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|home| home.join(".vibeguard")))
         .unwrap_or_else(|| PathBuf::from(".vibeguard"))
+}
+
+fn hash_slug_from_log_dir(path: &Path) -> Option<String> {
+    let slug = path.file_name()?.to_string_lossy();
+    is_hash_slug(&slug).then(|| slug.to_string())
+}
+
+fn is_hash_slug(value: &str) -> bool {
+    (8..=64).contains(&value.len()) && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn current_project_root() -> Option<PathBuf> {
@@ -318,6 +337,22 @@ mod tests {
         assert_eq!(parse_pid("42"), Some(42));
         assert_eq!(parse_pid("1"), None);
         assert_eq!(parse_pid("nope"), None);
+    }
+
+    #[test]
+    fn log_dir_hash_slug_requires_hex_length() {
+        assert_eq!(
+            hash_slug_from_log_dir(Path::new("/tmp/projects/abcdef12")).as_deref(),
+            Some("abcdef12")
+        );
+        assert_eq!(
+            hash_slug_from_log_dir(Path::new("/tmp/projects/short")),
+            None
+        );
+        assert_eq!(
+            hash_slug_from_log_dir(Path::new("/tmp/projects/not-hex1")),
+            None
+        );
     }
 
     #[cfg(target_os = "linux")]
