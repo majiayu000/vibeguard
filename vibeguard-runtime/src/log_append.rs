@@ -26,25 +26,32 @@ pub fn run_mirror(args: &[String]) -> Result {
     let primary = Path::new(&args[0]);
     let mirror = Path::new(&args[1]);
 
-    append_jsonl(primary, &line).map_err(|err| {
+    let primary_result = append_jsonl(primary, &line).map_err(|err| {
         format!(
             "primary JSONL append failed for {}: {}",
             primary.display(),
             err
         )
-    })?;
+    });
 
-    if mirror != primary {
+    let mirror_result = if mirror != primary {
         append_jsonl(mirror, &line).map_err(|err| {
             format!(
                 "mirror JSONL append failed for {}: {}",
                 mirror.display(),
                 err
             )
-        })?;
-    }
+        })
+    } else {
+        Ok(())
+    };
 
-    Ok(())
+    match (primary_result, mirror_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(primary_err), Ok(())) => Err(primary_err.into()),
+        (Ok(()), Err(mirror_err)) => Err(mirror_err.into()),
+        (Err(primary_err), Err(mirror_err)) => Err(format!("{primary_err}; {mirror_err}").into()),
+    }
 }
 
 fn read_valid_jsonl_line(command_name: &str) -> Result<String> {

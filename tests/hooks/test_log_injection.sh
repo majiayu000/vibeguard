@@ -275,6 +275,31 @@ assert_contains "$mirror_result" "primary=1" "Runtime mirror append writes the p
 assert_contains "$mirror_result" "global=1" "Runtime mirror append writes the global log"
 rm -rf "$mirror_runtime_test_dir"
 
+header "log.sh — shell mirror preserves global on primary failure"
+
+shell_mirror_lock_dir="$(mktemp -d)"
+shell_mirror_primary="${shell_mirror_lock_dir}/project/events.jsonl"
+shell_mirror_global="${shell_mirror_lock_dir}/events.jsonl"
+shell_mirror_stderr="${shell_mirror_lock_dir}/stderr"
+mkdir -p "$(dirname "$shell_mirror_primary")"
+mkdir "${shell_mirror_primary}.lock.d"
+
+set +e
+shell_mirror_result=$(
+  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
+  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
+  source hooks/_lib/log_write.sh
+  vg_append_log_line_mirror "$shell_mirror_primary" "$shell_mirror_global" '{"shell_mirror":true}' 2>"$shell_mirror_stderr"
+  printf 'rc=%s' "$?"
+)
+set -e
+
+assert_contains "$shell_mirror_result" "rc=1" "Shell mirror primary lock failure returns nonzero"
+assert_contains "$(cat "$shell_mirror_stderr")" "primary event log write failed" "Shell mirror primary failure is visible"
+assert_contains "$(cat "$shell_mirror_global")" '{"shell_mirror":true}' "Shell mirror still writes global log after primary failure"
+assert_not_contains "$(cat "$shell_mirror_primary" 2>/dev/null || true)" '{"shell_mirror":true}' "Shell mirror primary lock failure does not write unlocked"
+rm -rf "$shell_mirror_lock_dir"
+
 header "log.sh — stale runtime fallback"
 
 stale_runtime_test_dir="$(mktemp -d)"

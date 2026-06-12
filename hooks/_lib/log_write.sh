@@ -102,14 +102,24 @@ _vg_append_log_line_mirror_shell() {
   local primary_file="$1"
   local mirror_file="$2"
   local line="$3"
+  local primary_status=0
+  local mirror_status=0
 
-  if ! _vg_append_log_line_shell "$primary_file" "$line"; then
+  if _vg_append_log_line_shell "$primary_file" "$line"; then
+    primary_status=0
+  else
+    primary_status=$?
     printf 'VIBEGUARD ERROR: primary event log write failed: %s\n' "$primary_file" >&2
-    return 1
   fi
 
-  if ! _vg_append_log_line_shell "$mirror_file" "$line"; then
+  if _vg_append_log_line_shell "$mirror_file" "$line"; then
+    mirror_status=0
+  else
+    mirror_status=$?
     printf 'VIBEGUARD ERROR: global event log write failed: %s\n' "$mirror_file" >&2
+  fi
+
+  if [[ "$primary_status" -ne 0 || "$mirror_status" -ne 0 ]]; then
     return 1
   fi
 }
