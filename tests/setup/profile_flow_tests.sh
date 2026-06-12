@@ -130,6 +130,9 @@ assert_cmd "full profile hooks match manifest" python3 "${SETTINGS_HELPER}" chec
 assert_cmd "full profile enable stop-guard" grep -q "stop-guard.sh" "${HOME}/.claude/settings.json"
 assert_cmd "full profile enable learn-evaluator" grep -q "learn-evaluator.sh" "${HOME}/.claude/settings.json"
 assert_cmd "full profile enable post-build-check" grep -q "post-build-check.sh" "${HOME}/.claude/settings.json"
+assert_cmd "core profile check rejects leftover full hooks" bash -c "! python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core >/dev/null 2>&1"
+full_as_core_out="$(bash "${REPO_DIR}/setup.sh" --check --strict --profile core 2>&1 || true)"
+assert_contains "${full_as_core_out}" "[MISSING] Claude hooks missing for core profile" "setup --check reports core profile mismatch when full hooks remain"
 assert_cmd "full profile check catches missing analysis-paralysis hook" assert_profile_hook_missing_after_remove analysis-paralysis-guard.sh profile-hooks:full
 full_missing_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_contains "${full_missing_out}" "[MISSING] Claude hooks missing for full profile" "setup --check reports missing full profile hook"

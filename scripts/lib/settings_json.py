@@ -255,6 +255,10 @@ def _has_all_specs(data: dict[str, Any], specs: list[dict[str, Any]]) -> bool:
     return all(_has_hook_spec(data, spec) for spec in specs)
 
 
+def _spec_pair(spec: dict[str, Any]) -> tuple[str, str]:
+    return (str(spec["event"]), str(spec["script"]))
+
+
 def has_pre_hooks(data: dict[str, Any]) -> bool:
     specs = [spec for spec in claude_specs(MANIFEST, "minimal") if spec["event"] == "PreToolUse"]
     return _has_all_specs(data, specs)
@@ -276,7 +280,14 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
 
 
 def has_profile_hooks(data: dict[str, Any], profile: str) -> bool:
-    return _has_all_specs(data, claude_specs(MANIFEST, profile))
+    desired_specs = claude_specs(MANIFEST, profile)
+    if not _has_all_specs(data, desired_specs):
+        return False
+    desired_pairs = {_spec_pair(spec) for spec in desired_specs}
+    return not any(
+        _spec_pair(spec) not in desired_pairs and _has_hook_spec(data, spec)
+        for spec in claude_specs(MANIFEST)
+    )
 
 
 def _hook_command(repo_dir: str, script_name: str) -> str:

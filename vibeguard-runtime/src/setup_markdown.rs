@@ -368,9 +368,18 @@ fn settings_has_full_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
 }
 
 fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> SetupResult<bool> {
-    Ok(claude_specs(repo_dir, Some(profile))?
+    let desired = claude_specs(repo_dir, Some(profile))?;
+    if !desired.iter().all(|spec| settings_has_spec(data, spec)) {
+        return Ok(false);
+    }
+    let desired_pairs: BTreeSet<(String, String)> = desired
         .iter()
-        .all(|spec| settings_has_spec(data, spec)))
+        .map(|spec| (spec.event.clone(), spec.script.clone()))
+        .collect();
+    Ok(!claude_specs(repo_dir, None)?.iter().any(|spec| {
+        !desired_pairs.contains(&(spec.event.clone(), spec.script.clone()))
+            && settings_has_spec(data, spec)
+    }))
 }
 
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
@@ -673,5 +682,59 @@ mod tests {
         assert!(!next.contains("old"));
         assert!(next.starts_with("a\n\n"));
         assert!(next.ends_with("b\n"));
+    }
+
+    #[test]
+    fn profile_settings_reject_out_of_profile_managed_hooks() -> SetupResult<()> {
+        let repo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .ok_or("vibeguard-runtime must be inside the repository")?;
+        let core_specs = claude_specs(repo_dir, Some("core"))?;
+        let extra_spec = claude_specs(repo_dir, None)?
+            .into_iter()
+            .find(|spec| {
+                !core_specs
+                    .iter()
+                    .any(|desired| desired.event == spec.event && desired.script == spec.script)
+            })
+            .ok_or("expected an out-of-profile managed hook spec")?;
+
+        let core_data = settings_data_with_specs(&core_specs);
+        assert!(settings_has_profile_hooks(repo_dir, &core_data, "core")?);
+
+        let mut stale_specs = core_specs;
+        stale_specs.push(extra_spec);
+        let stale_data = settings_data_with_specs(&stale_specs);
+        assert!(!settings_has_profile_hooks(repo_dir, &stale_data, "core")?);
+        Ok(())
+    }
+
+    fn settings_data_with_specs(specs: &[ClaudeSpec]) -> Value {
+        let mut data = serde_json::json!({"hooks": {}});
+        let hooks = data
+            .get_mut("hooks")
+            .and_then(Value::as_object_mut)
+            .expect("hooks object");
+        for spec in specs {
+            let entries = hooks
+                .entry(spec.event.clone())
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut()
+                .expect("event entries");
+            let mut entry = serde_json::json!({
+                "hooks": [{
+                    "type": "command",
+                    "command": format!("bash /tmp/.vibeguard/run-hook.sh {}", spec.script),
+                }]
+            });
+            if !spec.matcher.is_empty() {
+                entry
+                    .as_object_mut()
+                    .expect("entry object")
+                    .insert("matcher".to_string(), Value::String(spec.matcher.clone()));
+            }
+            entries.push(entry);
+        }
+        data
     }
 }
