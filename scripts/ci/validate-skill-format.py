@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         help=(
             "Specific SKILL.md files to validate. Defaults to skills/*/SKILL.md, "
-            "workflows/*/SKILL.md, and templates/skill-template.md."
+            "workflows/*/SKILL.md, .claude/skills/*/SKILL.md, and templates/skill-template.md."
         ),
     )
     parser.add_argument(

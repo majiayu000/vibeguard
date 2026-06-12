@@ -317,6 +317,16 @@ assert_fail "stop_hook_active: returns 1 when value is string \"true\"" \
     source '${CB_SCRIPT}'
     vg_stop_hook_active '{\"stop_hook_active\": \"true\"}'
   "
+assert_fail "stop_hook_active: ignores nested true when top-level is false" \
+  bash -c "
+    source '${CB_SCRIPT}'
+    vg_stop_hook_active '{\"other\":{\"stop_hook_active\":true},\"stop_hook_active\":false}'
+  "
+assert_ok "stop_hook_active: sees top-level true after nested object" \
+  bash -c "
+    source '${CB_SCRIPT}'
+    vg_stop_hook_active '{\"other\":{\"stop_hook_active\":false},\"stop_hook_active\":true}'
+  "
 teardown
 
 # ── 10. State directory is created automatically ─────────────────────────────
