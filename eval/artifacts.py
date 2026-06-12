@@ -8,12 +8,21 @@ import time
 from pathlib import Path
 from typing import Any
 
+try:
+    from .sample_ids import SAFE_SAMPLE_ID_PATTERN, is_safe_sample_id
+except ImportError:
+    from sample_ids import SAFE_SAMPLE_ID_PATTERN, is_safe_sample_id
+
 DEFAULT_RUNS_DIR = Path(__file__).resolve().parent / "runs"
 DEFAULT_INDEX_NAME = "index.jsonl"
 
 
 class RunSummaryError(ValueError):
     """Raised when an eval run summary index is malformed."""
+
+
+class ArtifactPathError(ValueError):
+    """Raised when an eval artifact path would leave its run directory."""
 
 
 def utc_timestamp() -> str:
@@ -71,7 +80,8 @@ def write_run_artifacts(
             "sample": _clean_sample(sample),
             "result": result_by_id.get(sample_id),
         }
-        (sample_dir / f"{sample_id}.json").write_text(
+        sample_path = _sample_artifact_path(sample_dir, sample_id)
+        sample_path.write_text(
             json.dumps(sample_payload, indent=2, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )
@@ -91,6 +101,19 @@ def write_run_artifacts(
         encoding="utf-8",
     )
     return results_path
+
+
+def _sample_artifact_path(sample_dir: Path, sample_id: Any) -> Path:
+    if not isinstance(sample_id, str) or not is_safe_sample_id(sample_id):
+        raise ArtifactPathError(f"unsafe sample id {sample_id!r}; expected {SAFE_SAMPLE_ID_PATTERN!r}")
+
+    sample_root = sample_dir.resolve()
+    candidate = (sample_root / f"{sample_id}.json").resolve()
+    try:
+        candidate.relative_to(sample_root)
+    except ValueError as exc:
+        raise ArtifactPathError(f"sample artifact path escaped samples dir: {candidate}") from exc
+    return candidate
 
 
 def append_run_summary(

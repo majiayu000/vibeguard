@@ -7,6 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+try:
+    from .sample_ids import SAFE_SAMPLE_ID_PATTERN, is_safe_sample_id
+except ImportError:
+    from sample_ids import SAFE_SAMPLE_ID_PATTERN, is_safe_sample_id
+
 DEFAULT_DATASET_VERSION = "v1"
 DEFAULT_DATASET_PATH = Path(__file__).resolve().parent / "datasets" / f"{DEFAULT_DATASET_VERSION}.jsonl"
 
@@ -91,6 +96,11 @@ def validate_sample(record: dict[str, Any], path: Path, line_number: int) -> dic
         if not isinstance(sample[field], str) or not sample[field].strip():
             raise DatasetError(f"{path}:{line_number}: {field} must be a non-empty string")
         sample[field] = sample[field].strip()
+
+    if not is_safe_sample_id(sample["id"]):
+        raise DatasetError(
+            f"{path}:{line_number}: id must match {SAFE_SAMPLE_ID_PATTERN!r}"
+        )
 
     if sample["type"] not in VALID_SAMPLE_TYPES:
         raise DatasetError(f"{path}:{line_number}: type must be one of {sorted(VALID_SAMPLE_TYPES)}")
