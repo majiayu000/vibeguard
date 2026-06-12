@@ -1,5 +1,5 @@
 use crate::setup_support::{
-    SetupResult, basename, display_home_path, home_dir, read_json_object, shell_split,
+    SetupResult, basename, display_home_path, home_dir, read_json_object, shell_quote, shell_split,
     simple_unified_diff, write_json_atomic, write_text_atomic,
 };
 use regex::Regex;
@@ -401,10 +401,14 @@ fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
 }
 
 fn settings_upsert_hook(data: &mut Value, spec: &ClaudeSpec, force: bool) -> bool {
+    let wrapper = home_dir()
+        .unwrap_or_default()
+        .join(".vibeguard")
+        .join("run-hook.sh");
     let desired = format!(
-        "bash {}/.vibeguard/run-hook.sh {}",
-        home_dir().unwrap_or_default().display(),
-        spec.script
+        "bash {} {}",
+        shell_quote(&wrapper.display().to_string()),
+        shell_quote(&spec.script)
     );
     let hooks = data["hooks"].as_object_mut().expect("hooks object");
     let entries = hooks.entry(spec.event.clone()).or_insert_with(|| json!([]));
@@ -577,12 +581,35 @@ fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
 
 fn settings_is_canonical(command: &str, script: &str) -> bool {
     let parts = shell_split(command);
-    parts.len() == 3
-        && parts.first().is_some_and(|part| basename(part) == "bash")
-        && parts
-            .get(1)
-            .is_some_and(|part| part.ends_with("/.vibeguard/run-hook.sh"))
-        && parts.get(2).is_some_and(|part| part == script)
+    if parts.len() == 3 {
+        return parts.first().is_some_and(|part| basename(part) == "bash")
+            && parts
+                .get(1)
+                .is_some_and(|part| part.ends_with("/.vibeguard/run-hook.sh"))
+            && parts.get(2).is_some_and(|part| part == script);
+    }
+    if parts.len() <= 3
+        || !parts.first().is_some_and(|part| basename(part) == "bash")
+        || !parts.last().is_some_and(|part| part == script)
+    {
+        return false;
+    }
+    let wrapper_parts = &parts[1..parts.len() - 1];
+    wrapper_parts
+        .first()
+        .is_some_and(|part| settings_legacy_wrapper_part_starts_path(part))
+        && wrapper_parts
+            .iter()
+            .skip(1)
+            .all(|part| !part.starts_with('-') && !settings_legacy_wrapper_part_starts_path(part))
+        && wrapper_parts.join(" ").ends_with("/.vibeguard/run-hook.sh")
+}
+
+fn settings_legacy_wrapper_part_starts_path(part: &str) -> bool {
+    part.starts_with('/')
+        || part.starts_with("~/")
+        || part.starts_with("$HOME/")
+        || part.starts_with("${HOME}/")
 }
 
 fn settings_stale_findings(data: &Value, config: &Path) -> Vec<String> {
@@ -736,5 +763,17 @@ mod tests {
             entries.push(entry);
         }
         data
+    }
+
+    #[test]
+    fn canonical_settings_command_accepts_legacy_unquoted_home_spaces() {
+        let command = "bash /tmp/home with spaces/.vibeguard/run-hook.sh pre-bash-guard.sh";
+        assert!(settings_is_canonical(command, "pre-bash-guard.sh"));
+    }
+
+    #[test]
+    fn canonical_settings_command_rejects_custom_bash_options() {
+        let command = "bash -x /tmp/workspace/.vibeguard/run-hook.sh pre-bash-guard.sh";
+        assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
     }
 }

@@ -59,6 +59,7 @@ assert_cmd "eval support modules syntax is correct" python3 -m py_compile \
   "${REPO_DIR}/eval/dataset.py" \
   "${REPO_DIR}/eval/scoring.py" \
   "${REPO_DIR}/eval/artifacts.py" \
+  "${REPO_DIR}/eval/sample_ids.py" \
   "${REPO_DIR}/eval/samples.py" \
   "${REPO_DIR}/eval/summarize_runs.py"
 assert_cmd "eval.samples package import works from repo root" bash -c "cd '${REPO_DIR}' && python3 - <<'PY'

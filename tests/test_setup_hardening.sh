@@ -63,6 +63,8 @@ assert '"ok": true' in json_path.read_text(encoding="utf-8")
 assert sha256_file(text_path) == "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"
 PY
 
+assert_cmd "vibeguard-runtime builds for install-state tests" cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+
 INSTALL_STATE_HOME="${TMP_DIR}/install-state-home"
 INSTALL_STATE_DEST="${INSTALL_STATE_HOME}/tracked.txt"
 INSTALL_STATE_REPORT="${TMP_DIR}/install-state-report.txt"
@@ -154,6 +156,30 @@ commands = [
     for hook in entry.get("hooks", [])
 ]
 assert commands == ["python /tmp/user_hook.py --label pre-bash-guard.sh"]
+PY
+
+SPACE_HOME="${TMP_DIR}/home with spaces"
+mkdir -p "${SPACE_HOME}"
+assert_cmd "Claude hook command quotes HOME paths with spaces" env \
+  HOME="${SPACE_HOME}" \
+  PYTHONPATH="${REPO_DIR}/scripts/lib:${PYTHONPATH:-}" \
+  python3 - <<'PY'
+import os
+import shlex
+import settings_json
+
+command = settings_json._hook_command("/repo", "pre-bash-guard.sh")
+parts = shlex.split(command)
+assert parts == [
+    "bash",
+    f"{os.environ['HOME']}/.vibeguard/run-hook.sh",
+    "pre-bash-guard.sh",
+]
+assert settings_json._is_canonical_hook_command(command, "pre-bash-guard.sh")
+legacy_command = f"bash {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
+assert settings_json._is_canonical_hook_command(legacy_command, "pre-bash-guard.sh")
+custom_bash_command = f"bash -x {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
+assert not settings_json._is_canonical_hook_command(custom_bash_command, "pre-bash-guard.sh")
 PY
 
 printf '\nSetup hardening tests: %s/%s passed\n' "${PASS}" "${TOTAL}"
