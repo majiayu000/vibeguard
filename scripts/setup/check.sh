@@ -93,14 +93,16 @@ check_installed_profile() {
   esac
 }
 
-if [[ -z "${PROFILE}" ]]; then
-  PROFILE="$(check_installed_profile 2>/dev/null || true)"
+validate_setup_profile() {
+  case "$1" in
+    minimal|core|full|strict) ;;
+    *) red "ERROR: unsupported profile: $1 (expected minimal|core|full|strict)"; exit 64 ;;
+  esac
+}
+
+if [[ -n "${PROFILE}" ]]; then
+  validate_setup_profile "${PROFILE}"
 fi
-PROFILE="${PROFILE:-core}"
-case "${PROFILE}" in
-  minimal|core|full|strict) ;;
-  *) red "ERROR: unsupported profile: ${PROFILE} (expected minimal|core|full|strict)"; exit 64 ;;
-esac
 
 # --json implies --strict so machine consumers always get a real exit code.
 if [[ "${JSON}" -eq 1 ]]; then
@@ -126,6 +128,12 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
     yellow "[WARN] vibeguard-runtime unavailable for setup helper checks; run: bash setup.sh --yes"
   fi
 fi
+
+if [[ -z "${PROFILE}" ]]; then
+  PROFILE="$(check_installed_profile 2>/dev/null || true)"
+fi
+PROFILE="${PROFILE:-core}"
+validate_setup_profile "${PROFILE}"
 
 _check_repo_git_hook() {
   local hook_name="$1"

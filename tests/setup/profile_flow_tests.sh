@@ -83,6 +83,15 @@ assert_cmd "core profile check catches missing analysis-paralysis hook" assert_p
 core_missing_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_contains "${core_missing_out}" "[MISSING] Claude hooks missing for core profile" "setup --check reports missing core profile hook"
 assert_cmd "core profile repair restores analysis-paralysis hook" assert_profile_hook_restored_after_repair core profile-hooks:core
+assert_cmd "setup --check reads default profile after runtime bootstrap" python3 - "${REPO_DIR}/scripts/setup/check.sh" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+bootstrap = text.index("ensure_setup_runtime_available")
+profile_lookup = text.index('PROFILE="$(check_installed_profile')
+raise SystemExit(0 if bootstrap < profile_lookup else 1)
+PY
 old_profile_runtime="${TMP_HOME}/old-profile-runtime"
 cat > "${old_profile_runtime}" <<'SH'
 #!/usr/bin/env bash
