@@ -103,6 +103,27 @@ PY
 assert_cmd "core profile check allows unmanaged wrapper argument" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 assert_cmd "core profile repair preserves unmanaged wrapper argument" bash -c "bash '${REPO_DIR}/setup.sh' --yes --profile core >/dev/null && grep -q 'node /custom/audit.js' '${HOME}/.claude/settings.json' && python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core"
 python3 - "${HOME}/.claude/settings.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+data = json.loads(settings_path.read_text(encoding="utf-8"))
+for entry in data["hooks"]["PreToolUse"]:
+    if entry.get("matcher") != "Bash":
+        continue
+    for hook in entry.get("hooks", []):
+        command = hook.get("command") if isinstance(hook, dict) else ""
+        if "pre-bash-guard.sh" in command:
+            hook["command"] = f"env VIBEGUARD_FOO=1 {Path.home() / '.vibeguard' / 'run-hook.sh'} pre-bash-guard.sh"
+            settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+assert_cmd "core profile check allows env wrapper command" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
+assert_cmd "core profile repair preserves env wrapper command" bash -c "bash '${REPO_DIR}/setup.sh' --yes --profile core >/dev/null && grep -q 'env VIBEGUARD_FOO=1' '${HOME}/.claude/settings.json' && python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core"
+assert_cmd "core profile repair does not duplicate env wrapper command" python3 -c 'import json, sys; data=json.load(open(sys.argv[1], encoding="utf-8")); commands=[hook.get("command", "") for entry in data["hooks"]["PreToolUse"] for hook in entry.get("hooks", [])]; raise SystemExit(0 if sum("pre-bash-guard.sh" in command for command in commands) == 1 else 1)' "${HOME}/.claude/settings.json"
+python3 - "${HOME}/.claude/settings.json" <<'PY'
 import copy
 import json
 import shlex

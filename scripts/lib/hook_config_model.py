@@ -48,7 +48,39 @@ def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
         return True
     if index >= 2 and parts[index - 1].startswith("-"):
         return _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
+    if _env_invokes_token(parts, index):
+        return True
     return False
+
+
+def _env_invokes_token(parts: list[str], index: int) -> bool:
+    if not parts or _basename(parts[0]) != "env":
+        return False
+    cursor = 1
+    while cursor < index:
+        token = parts[cursor]
+        if token == "--":
+            cursor += 1
+            break
+        if token.startswith("-"):
+            if _env_option_takes_value(token) and cursor + 1 < index:
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if _is_env_assignment(token):
+            cursor += 1
+            continue
+        return False
+    return cursor == index
+
+
+def _env_option_takes_value(token: str) -> bool:
+    return token in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+
+
+def _is_env_assignment(token: str) -> bool:
+    return "=" in token and not token.startswith("=")
 
 
 def _looks_like_direct_script(parts: list[str], index: int) -> bool:

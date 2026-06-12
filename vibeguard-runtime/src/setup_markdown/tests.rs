@@ -133,6 +133,34 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn profile_repair_preserves_env_invoked_wrapper_customization() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let core_specs = claude_specs(repo_dir, Some("core"))?;
+        let pre_bash_spec = core_specs
+            .iter()
+            .find(|spec| spec.script == "pre-bash-guard.sh")
+            .ok_or("expected pre-bash hook in core profile")?;
+        let mut data = settings_data_with_specs(&core_specs);
+        let command = "env VIBEGUARD_FOO=1 /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
+        let pre_tool_entries = data["hooks"]["PreToolUse"]
+            .as_array_mut()
+            .expect("PreToolUse entries");
+        for entry in pre_tool_entries {
+            if entry.get("matcher").and_then(Value::as_str) != Some("Bash") {
+                continue;
+            }
+            entry["hooks"][0]["command"] = Value::String(command.to_string());
+        }
+
+        assert!(settings_has_profile_hooks(repo_dir, &data, "core")?);
+        assert!(!settings_upsert_hook(&mut data, pre_bash_spec, false));
+        let rendered = serde_json::to_string(&data)?;
+        assert!(rendered.contains(command));
+        assert_eq!(rendered.matches("pre-bash-guard.sh").count(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn profile_repair_removes_same_script_wrong_matcher() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;

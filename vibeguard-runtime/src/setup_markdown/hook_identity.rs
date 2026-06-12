@@ -71,7 +71,52 @@ fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
     if is_shell(&parts[index - 1]) {
         return true;
     }
-    index >= 2 && parts[index - 1].starts_with('-') && is_shell(&parts[index - 2])
+    if index >= 2 && parts[index - 1].starts_with('-') && is_shell(&parts[index - 2]) {
+        return true;
+    }
+    if env_invokes_token(parts, index) {
+        return true;
+    }
+    false
+}
+
+fn env_invokes_token(parts: &[String], index: usize) -> bool {
+    if parts.first().map(|token| basename(token)) != Some("env") {
+        return false;
+    }
+    let mut cursor = 1;
+    while cursor < index {
+        let token = &parts[cursor];
+        if token == "--" {
+            cursor += 1;
+            break;
+        }
+        if token.starts_with('-') {
+            if env_option_takes_value(token) && cursor + 1 < index {
+                cursor += 2;
+            } else {
+                cursor += 1;
+            }
+            continue;
+        }
+        if is_env_assignment(token) {
+            cursor += 1;
+            continue;
+        }
+        return false;
+    }
+    cursor == index
+}
+
+fn env_option_takes_value(token: &str) -> bool {
+    matches!(
+        token,
+        "-u" | "--unset" | "-C" | "--chdir" | "-S" | "--split-string"
+    )
+}
+
+fn is_env_assignment(token: &str) -> bool {
+    token.contains('=') && !token.starts_with('=')
 }
 
 fn is_shell(token: &str) -> bool {
