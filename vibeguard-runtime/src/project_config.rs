@@ -9,19 +9,7 @@ use std::process;
 const PROFILE_VALUES: &[&str] = &["minimal", "core", "full", "strict"];
 const ENFORCEMENT_VALUES: &[&str] = &["block", "warn", "off"];
 const LANGUAGE_VALUES: &[&str] = &["rust", "python", "go", "typescript", "javascript"];
-const DISABLED_HOOK_VALUES: &[&str] = &[
-    "analysis-paralysis-guard",
-    "count-active-constraints",
-    "learn-evaluator",
-    "post-build-check",
-    "post-edit-guard",
-    "post-write-guard",
-    "pre-bash-guard",
-    "pre-commit-guard",
-    "pre-edit-guard",
-    "pre-write-guard",
-    "stop-guard",
-];
+const HOOKS_MANIFEST_JSON: &str = include_str!("../../hooks/manifest.json");
 const DISABLED_GUARD_VALUES: &[&str] = &[
     "check_any_abuse",
     "check_circular_deps",
@@ -206,16 +194,18 @@ fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), Strin
     };
 
     let mut errors = Vec::new();
+    let disabled_hook_values = match disabled_hook_values() {
+        Ok(values) => values,
+        Err(error) => {
+            errors.push(format!("disabled_hooks manifest error: {error}"));
+            Vec::new()
+        }
+    };
     validate_known_properties(object, &mut errors);
     validate_optional_enum(object, "profile", PROFILE_VALUES, &mut errors);
     validate_optional_enum(object, "enforcement", ENFORCEMENT_VALUES, &mut errors);
     validate_string_array(object, "languages", Some(LANGUAGE_VALUES), &mut errors);
-    validate_string_array(
-        object,
-        "disabled_hooks",
-        Some(DISABLED_HOOK_VALUES),
-        &mut errors,
-    );
+    validate_string_array_values(object, "disabled_hooks", &disabled_hook_values, &mut errors);
     validate_string_array(
         object,
         "disabled_guards",
@@ -270,6 +260,40 @@ fn validate_optional_enum(
     }
 }
 
+fn disabled_hook_values() -> Result<Vec<String>, String> {
+    let manifest = serde_json::from_str::<Value>(HOOKS_MANIFEST_JSON)
+        .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
+    let hooks = manifest
+        .get("hooks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "hooks/manifest.json missing hooks array".to_string())?;
+
+    let mut names = Vec::new();
+    for hook in hooks {
+        let exposed = hook
+            .get("config_exposure")
+            .and_then(Value::as_object)
+            .and_then(|config| config.get("disabled_hook"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !exposed {
+            continue;
+        }
+        let name = hook
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "disabled hook entry missing string name".to_string())?;
+        names.push(name.to_string());
+    }
+
+    names.sort();
+    names.dedup();
+    if names.is_empty() {
+        return Err("hooks/manifest.json exposes no disabled hooks".to_string());
+    }
+    Ok(names)
+}
+
 fn validate_string_array(
     object: &serde_json::Map<String, Value>,
     field: &str,
@@ -297,6 +321,31 @@ fn validate_string_array(
                     errors.push(format!(".{field}.{index}: unsupported value {text}"));
                 }
             }
+        }
+    }
+}
+
+fn validate_string_array_values(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    allowed: &[String],
+    errors: &mut Vec<String>,
+) {
+    let Some(value) = object.get(field) else {
+        return;
+    };
+    let Some(items) = value.as_array() else {
+        errors.push(format!(".{field}: expected array"));
+        return;
+    };
+
+    for item in items {
+        let Some(text) = item.as_str() else {
+            errors.push(format!("field {field} must contain only strings"));
+            continue;
+        };
+        if !allowed.iter().any(|allowed| allowed == text) {
+            errors.push(format!("disabled_hooks contains unsupported hook {text}"));
         }
     }
 }
@@ -420,6 +469,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    const PROJECT_SCHEMA_JSON: &str = include_str!("../../schemas/vibeguard-project.schema.json");
+
     #[test]
     fn validation_reports_runtime_config_key_hints() {
         let path = Path::new("/tmp/.vibeguard.json");
@@ -449,5 +500,44 @@ mod tests {
         assert!(err.contains(".gc.log_threshold_mb: expected integer >= 1"));
         assert!(err.contains(".gc.unexpected_gc_key: unknown property"));
         assert!(err.contains(".unknown_top_level: unknown property"));
+    }
+
+    #[test]
+    fn disabled_hooks_are_derived_from_manifest_and_schema() {
+        let manifest_values = disabled_hook_values().expect("manifest disabled hooks should parse");
+        assert!(manifest_values.contains(&"pre-bash-guard".to_string()));
+        assert!(manifest_values.contains(&"analysis-paralysis-guard".to_string()));
+        assert!(!manifest_values.contains(&"log".to_string()));
+
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut schema_values = schema["properties"]["disabled_hooks"]["items"]["enum"]
+            .as_array()
+            .expect("schema disabled_hooks enum should be an array")
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .expect("schema disabled_hooks enum entries should be strings")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        schema_values.sort();
+
+        assert_eq!(manifest_values, schema_values);
+    }
+
+    #[test]
+    fn validation_uses_manifest_disabled_hook_values() {
+        let path = Path::new("/tmp/.vibeguard.json");
+        let value = json!({"disabled_hooks":["pre-bash-guard"]});
+
+        validate_project_config_value(path, &value)
+            .expect("manifest-exposed disabled hook should be accepted");
+
+        let err =
+            validate_project_config_value(path, &json!({"disabled_hooks":["run-hook-codex"]}))
+                .expect_err("manifest-unexposed wrapper should be rejected");
+
+        assert!(err.contains("disabled_hooks contains unsupported hook run-hook-codex"));
     }
 }

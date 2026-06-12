@@ -21,6 +21,9 @@ GLOBAL_SLA_MS=""
 DEFAULT_BUDGET_MS=300
 RUNS=5
 INCLUDE_SLOW_FIXTURE=false
+SPAWN_BASELINE_MAX_MS="${VIBEGUARD_BENCH_SPAWN_MAX_MS:-10}"
+SPAWN_BASELINE_MS=""
+ENVIRONMENT_DISTORTED=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,6 +46,46 @@ _now_ms() {
     echo "$(date +%s)000"
   fi
 }
+
+measure_spawn_baseline_ms() {
+  if [[ -n "${VIBEGUARD_BENCH_SPAWN_BASELINE_MS:-}" ]]; then
+    printf '%s\n' "${VIBEGUARD_BENCH_SPAWN_BASELINE_MS}"
+    return 0
+  fi
+
+  if command -v perl &>/dev/null; then
+    perl -MTime::HiRes=time -e '
+      my @samples;
+      for (1..5) {
+        my $start = time;
+        system("/usr/bin/true");
+        push @samples, (time - $start) * 1000;
+      }
+      @samples = sort { $a <=> $b } @samples;
+      printf "%.0f\n", $samples[-1];
+    '
+  elif command -v python3 &>/dev/null; then
+    python3 - <<'PY'
+import subprocess
+import time
+
+samples = []
+for _ in range(5):
+    start = time.perf_counter()
+    subprocess.run(["/usr/bin/true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    samples.append((time.perf_counter() - start) * 1000)
+print(f"{sorted(samples)[-1]:.0f}")
+PY
+  else
+    printf '0\n'
+  fi
+}
+
+SPAWN_BASELINE_MS="$(measure_spawn_baseline_ms)"
+if [[ "$SPAWN_BASELINE_MS" =~ ^[0-9]+$ && "$SPAWN_BASELINE_MAX_MS" =~ ^[0-9]+$ \
+    && "$SPAWN_BASELINE_MS" -gt "$SPAWN_BASELINE_MAX_MS" ]]; then
+  ENVIRONMENT_DISTORTED=true
+fi
 
 # --- Generate mock data ---
 TMPDIR_BENCH=$(mktemp -d)
@@ -118,10 +161,17 @@ bench_hook() {
     # Keep benchmark runs isolated from the caller's ambient project log and
     # avoid measuring parent-process session discovery instead of hook work.
     local bench_log_file="${events_file:-$TMPDIR_BENCH/events-bench.jsonl}"
-    local env_prefix="VIBEGUARD_LOG_DIR=$TMPDIR_BENCH VIBEGUARD_LOG_FILE=$bench_log_file VIBEGUARD_SESSION_ID=bench VIBEGUARD_CLI=bench VIBEGUARD_PROJECT_HASH=bench000 VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
+    local -a hook_env=(
+      "VIBEGUARD_LOG_DIR=$TMPDIR_BENCH"
+      "VIBEGUARD_LOG_FILE=$bench_log_file"
+      "VIBEGUARD_SESSION_ID=bench"
+      "VIBEGUARD_CLI=bench"
+      "VIBEGUARD_PROJECT_HASH=bench000"
+      "VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
+    )
 
     local start=$(_now_ms)
-    env $env_prefix bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
+    env "${hook_env[@]}" bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
     local end=$(_now_ms)
     local elapsed=$((end - start))
     latencies+=("$elapsed")
@@ -145,8 +195,12 @@ bench_hook() {
 
   local status="PASS"
   if [[ "$p95" -gt "$budget_ms" ]]; then
-    status="FAIL"
-    FAILURES=$((FAILURES + 1))
+    if [[ "$ENVIRONMENT_DISTORTED" == "true" ]]; then
+      status="ENV-DISTORTED"
+    else
+      status="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
   fi
 
   printf "  %-35s P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
@@ -160,6 +214,10 @@ if [[ -n "$GLOBAL_SLA_MS" ]]; then
   echo "Budget mode: global <${GLOBAL_SLA_MS}ms (P95)  Runs: ${RUNS}  Tail: P99/max reported"
 else
   echo "Budget mode: per-hook P95 budgets  Runs: ${RUNS}  Tail: P99/max reported"
+fi
+echo "Spawn baseline: /usr/bin/true P95=${SPAWN_BASELINE_MS}ms  threshold=${SPAWN_BASELINE_MAX_MS}ms"
+if [[ "$ENVIRONMENT_DISTORTED" == "true" ]]; then
+  echo "Environment distorted: spawn baseline exceeds threshold; latency SLA failures will be reported but not counted."
 fi
 echo "======================================"
 echo ""
@@ -205,6 +263,8 @@ fi
 echo "======================================"
 if [[ $FAILURES -gt 0 ]]; then
   printf "\033[31mFAILED: %d hook fixture(s) exceeded latency budget\033[0m\n" "$FAILURES"
+elif [[ "$ENVIRONMENT_DISTORTED" == "true" ]]; then
+  printf "\033[33mENVIRONMENT DISTORTED: spawn baseline too high; SLA verdict suppressed\033[0m\n"
 else
   printf "\033[32mPASSED: All hooks within latency budget\033[0m\n"
 fi
@@ -212,11 +272,13 @@ fi
 # --- JSON output (internal format) ---
 if [[ -n "$RESULTS_FILE" ]]; then
   mkdir -p "$(dirname "$RESULTS_FILE")"
-  printf '{"date":"%s","budget_mode":"%s","global_sla_ms":"%s","runs":%d,"results":[%s]}\n' \
+  printf '{"date":"%s","budget_mode":"%s","global_sla_ms":"%s","runs":%d,"spawn_baseline_ms":%d,"environment_distorted":%s,"results":[%s]}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$([[ -n "$GLOBAL_SLA_MS" ]] && printf global || printf per-hook)" \
     "${GLOBAL_SLA_MS}" \
     "$RUNS" \
+    "$SPAWN_BASELINE_MS" \
+    "$ENVIRONMENT_DISTORTED" \
     "$(IFS=,; echo "${RESULTS[*]}")" \
     > "$RESULTS_FILE"
   echo "Results: $RESULTS_FILE"
