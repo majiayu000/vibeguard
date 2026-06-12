@@ -277,8 +277,8 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
     """Generate the hook command using the run-hook.sh wrapper."""
-    home = Path.home()
-    return f"bash {home}/.vibeguard/run-hook.sh {script_name}"
+    wrapper = Path.home() / ".vibeguard" / "run-hook.sh"
+    return f"bash {shlex.quote(str(wrapper))} {shlex.quote(script_name)}"
 
 
 def _is_canonical_hook_command(command: str, script_name: str) -> bool:
@@ -286,11 +286,20 @@ def _is_canonical_hook_command(command: str, script_name: str) -> bool:
         parts = shlex.split(command)
     except ValueError:
         return False
+    if len(parts) == 3:
+        return (
+            parts[0] == "bash"
+            and parts[1].endswith("/.vibeguard/run-hook.sh")
+            and parts[2] == script_name
+        )
+    if len(parts) <= 3 or parts[0] != "bash" or parts[-1] != script_name:
+        return False
+    wrapper_parts = parts[1:-1]
+    path_prefixes = ("/", "~/", "$HOME/", "${HOME}/")
     return (
-        len(parts) == 3
-        and parts[0] == "bash"
-        and parts[1].endswith("/.vibeguard/run-hook.sh")
-        and parts[2] == script_name
+        wrapper_parts[0].startswith(path_prefixes)
+        and not any(part.startswith(("-", *path_prefixes)) for part in wrapper_parts[1:])
+        and " ".join(wrapper_parts).endswith("/.vibeguard/run-hook.sh")
     )
 
 
