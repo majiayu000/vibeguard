@@ -63,6 +63,8 @@ assert '"ok": true' in json_path.read_text(encoding="utf-8")
 assert sha256_file(text_path) == "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"
 PY
 
+assert_cmd "vibeguard-runtime builds for install-state tests" cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+
 INSTALL_STATE_HOME="${TMP_DIR}/install-state-home"
 INSTALL_STATE_DEST="${INSTALL_STATE_HOME}/tracked.txt"
 INSTALL_STATE_REPORT="${TMP_DIR}/install-state-report.txt"
