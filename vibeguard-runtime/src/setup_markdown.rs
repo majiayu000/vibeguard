@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn canonical_settings_command_rejects_custom_bash_options() {
-        let command = "bash -x /tmp/home/.vibeguard/run-hook.sh pre-bash-guard.sh";
+        let command = "bash -x /tmp/workspace/.vibeguard/run-hook.sh pre-bash-guard.sh";
         assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
     }
 }
