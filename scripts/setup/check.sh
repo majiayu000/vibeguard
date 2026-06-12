@@ -8,6 +8,7 @@
 #   bash setup.sh --check --json         # machine-readable JSON, no TTY output
 #   bash setup.sh --check --no-summary   # legacy behavior (no rollup, exit 0)
 #   bash setup.sh --check --install      # install final verification, fail on broken required state
+#   bash setup.sh --check --profile full # verify profile-specific hook coverage
 #
 # Exit code
 #   Default mode  : 0 always (backward compatible with pre-summary callers).
@@ -38,6 +39,7 @@ JSON=0
 STRICT=0
 WITH_SUMMARY=1
 INSTALL=0
+PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
@@ -45,9 +47,14 @@ while [[ $# -gt 0 ]]; do
     --strict)       STRICT=1; shift ;;
     --install)      INSTALL=1; shift ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
+    --profile)
+      [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 64; }
+      PROFILE="$2"; shift 2 ;;
+    --profile=*)
+      PROFILE="${1#*=}"; shift ;;
     --help|-h)
       cat <<'USAGE'
-Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary]
+Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary] [--profile minimal|core|full|strict]
 
   --quiet        Suppress healthy [OK] rows; only print problems + summary.
   --strict       Reflect health in the exit code: 0 healthy, 1 degraded,
@@ -59,6 +66,8 @@ Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary]
                  to stdout. Disables human-readable output. Implies --strict.
   --no-summary   Legacy mode: no rollup table, always exit 0.
                  Equivalent to the pre-summary behavior.
+  --profile      Override the install-state profile used for Claude hook
+                 coverage checks. Defaults to the installed profile, then core.
 
 Exit codes (--strict / --json / --install only):
   0  healthy
@@ -73,6 +82,25 @@ USAGE
       ;;
   esac
 done
+
+check_installed_profile() {
+  local state_out detected
+  state_out="$(state_list 2>/dev/null)" || return 1
+  detected="$(awk -F': ' '/^Profile:/ {print $2; exit}' <<< "${state_out}")"
+  case "${detected}" in
+    minimal|core|full|strict) printf '%s\n' "${detected}" ;;
+    *) return 1 ;;
+  esac
+}
+
+if [[ -z "${PROFILE}" ]]; then
+  PROFILE="$(check_installed_profile 2>/dev/null || true)"
+fi
+PROFILE="${PROFILE:-core}"
+case "${PROFILE}" in
+  minimal|core|full|strict) ;;
+  *) red "ERROR: unsupported profile: ${PROFILE} (expected minimal|core|full|strict)"; exit 64 ;;
+esac
 
 # --json implies --strict so machine consumers always get a real exit code.
 if [[ "${JSON}" -eq 1 ]]; then

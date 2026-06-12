@@ -150,7 +150,7 @@ const CLAUDE_LEGACY_SCRIPTS: &[&str] = &[
 
 pub fn settings_check(args: &[String]) -> SetupResult<()> {
     if args.len() != 3 {
-        return Err("Usage: vibeguard-runtime setup-settings-check <repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks>".into());
+        return Err("Usage: vibeguard-runtime setup-settings-check <repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>".into());
     }
     let repo_dir = Path::new(&args[0]);
     let data = Value::Object(read_json_object(Path::new(&args[1]), false)?);
@@ -158,6 +158,13 @@ pub fn settings_check(args: &[String]) -> SetupResult<()> {
         "pre-hooks" => settings_has_pre_hooks(repo_dir, &data)?,
         "post-hooks" => settings_has_post_hooks(repo_dir, &data)?,
         "full-hooks" => settings_has_full_hooks(repo_dir, &data)?,
+        target if target.starts_with("profile-hooks:") => {
+            let profile = &target["profile-hooks:".len()..];
+            if !matches!(profile, "minimal" | "core" | "full" | "strict") {
+                return Err(format!("unsupported profile target: {profile}").into());
+            }
+            settings_has_profile_hooks(repo_dir, &data, profile)?
+        }
         _ => false,
     };
     if ok {
@@ -354,6 +361,12 @@ fn settings_has_full_hooks(repo_dir: &Path, data: &Value) -> SetupResult<bool> {
             .iter()
             .filter(|spec| !core_scripts.contains(&spec.script))
             .all(|spec| settings_has_spec(data, spec)))
+}
+
+fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> SetupResult<bool> {
+    Ok(claude_specs(repo_dir, Some(profile))?
+        .iter()
+        .all(|spec| settings_has_spec(data, spec)))
 }
 
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {

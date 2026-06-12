@@ -346,7 +346,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-settings-check",
-        usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks>  — check Claude settings",
+        usage: "<repo-dir> <settings-file> <pre-hooks|post-hooks|full-hooks|profile-hooks:<profile>>  — check Claude settings",
         handler: setup_markdown::settings_check,
     },
     Command {

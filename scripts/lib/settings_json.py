@@ -275,6 +275,10 @@ def has_full_hooks(data: dict[str, Any]) -> bool:
     return has_post_hooks(data) and _has_all_specs(data, specs)
 
 
+def has_profile_hooks(data: dict[str, Any], profile: str) -> bool:
+    return _has_all_specs(data, claude_specs(MANIFEST, profile))
+
+
 def _hook_command(repo_dir: str, script_name: str) -> str:
     """Generate the hook command using the run-hook.sh wrapper."""
     home = Path.home()
@@ -434,6 +438,13 @@ def cmd_check(args: argparse.Namespace) -> int:
         return 0 if has_post_hooks(data) else 1
     if args.target == "full-hooks":
         return 0 if has_full_hooks(data) else 1
+    if args.target.startswith("profile-hooks:"):
+        profile = args.target.removeprefix("profile-hooks:")
+        if profile not in {"minimal", "core", "full", "strict"}:
+            print(f"unsupported profile target: {profile}", file=sys.stderr)
+            return 2
+        return 0 if has_profile_hooks(data, profile) else 1
+    print(f"unsupported target: {args.target}", file=sys.stderr)
     return 1
 
 
@@ -562,7 +573,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("check", help="Check installed state")
     check.add_argument("--settings-file", required=True)
-    check.add_argument("--target", choices=["pre-hooks", "post-hooks", "full-hooks"], required=True)
+    check.add_argument(
+        "--target",
+        required=True,
+        help="pre-hooks, post-hooks, full-hooks, or profile-hooks:<minimal|core|full|strict>",
+    )
     check.set_defaults(func=cmd_check)
 
     stale = sub.add_parser("check-stale-hooks", help="Detect stale hook commands")

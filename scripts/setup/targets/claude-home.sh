@@ -474,6 +474,12 @@ check_claude_home_installation() {
     yellow "[INFO] Full profile hooks not configured (current install may be core profile)"
   fi
 
+  if settings_check "${SETTINGS_FILE}" "profile-hooks:${PROFILE}"; then
+    green "[OK] Claude hooks match ${PROFILE} profile"
+  else
+    yellow "[MISSING] Claude hooks missing for ${PROFILE} profile"
+  fi
+
   local stale_hooks_report
   if stale_hooks_report="$(settings_stale_hooks_report "${SETTINGS_FILE}" 2>&1)"; then
     :

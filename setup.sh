@@ -34,9 +34,13 @@ Install options:
   --profile minimal|core|full|strict
   --languages lang1,lang2
 
+Check options:
+  --profile minimal|core|full|strict
+
 Examples:
   bash setup.sh --yes
   bash setup.sh --check --strict
+  bash setup.sh --check --profile strict
   bash setup.sh --profile strict --languages rust,python
 USAGE
 }
