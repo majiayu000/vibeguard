@@ -8,7 +8,7 @@ use crate::hook_checks_common::{
 };
 use crate::hook_checks_scan::find_project_dir;
 use crate::hook_checks_write_scan::{
-    duplicate_definition_scan, scan_project_files, scan_same_name_matches,
+    duplicate_definition_scan, scan_project_files, scan_project_files_with_same_name,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -112,10 +112,16 @@ fn evaluate_post_write(
     let ext = extension(file_path);
     let mut warnings = Vec::new();
     let mut scan_incomplete = false;
-    let scan_files = scan_project_files(&project_dir, config.max_scan_files);
-
-    if ext != "go" {
-        let same_name = scan_same_name_matches(&project_dir, file_path, config.max_matches);
+    let scan_files = if ext == "go" {
+        scan_project_files(&project_dir, config.max_scan_files)
+    } else {
+        let scan = scan_project_files_with_same_name(
+            &project_dir,
+            file_path,
+            config.max_scan_files,
+            config.max_matches,
+        );
+        let same_name = scan.same_name;
         scan_incomplete |= same_name.incomplete;
         if !same_name.matches.is_empty() {
             warnings.push(format!(
@@ -123,7 +129,8 @@ fn evaluate_post_write(
                 same_name.matches.join(", ")
             ));
         }
-    }
+        scan.project
+    };
 
     scan_incomplete |= scan_files.incomplete;
     if scan_files.degraded {

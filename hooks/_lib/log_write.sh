@@ -27,6 +27,38 @@ vg_append_log_line() {
   _vg_append_log_line_shell "$file" "$line"
 }
 
+vg_append_log_line_mirror() {
+  local primary_file="$1"
+  local mirror_file="$2"
+  local line="$3"
+  local status=0
+  local runtime_stderr=""
+
+  if [[ "$primary_file" == "$mirror_file" ]]; then
+    vg_append_log_line "$primary_file" "$line"
+    return $?
+  fi
+
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "$_VIBEGUARD_RUNTIME" ]]; then
+    if runtime_stderr=$("$_VIBEGUARD_RUNTIME" append-jsonl-mirror "$primary_file" "$mirror_file" <<<"$line" 2>&1); then
+      return 0
+    else
+      status=$?
+    fi
+
+    if [[ "$runtime_stderr" == *"Unknown command: append-jsonl-mirror"* ]]; then
+      _vg_append_log_line_mirror_shell "$primary_file" "$mirror_file" "$line"
+      return $?
+    fi
+
+    [[ -z "$runtime_stderr" ]] || printf '%s\n' "$runtime_stderr" >&2
+    printf 'VIBEGUARD ERROR: runtime mirrored JSONL append failed for %s -> %s\n' "$primary_file" "$mirror_file" >&2
+    return "$status"
+  fi
+
+  _vg_append_log_line_mirror_shell "$primary_file" "$mirror_file" "$line"
+}
+
 _vg_append_log_line_shell() {
   local file="$1"
   local line="$2"
@@ -64,6 +96,32 @@ _vg_append_log_line_shell() {
   rmdir "$lock_dir" 2>/dev/null || true
 
   return "$status"
+}
+
+_vg_append_log_line_mirror_shell() {
+  local primary_file="$1"
+  local mirror_file="$2"
+  local line="$3"
+  local primary_status=0
+  local mirror_status=0
+
+  if _vg_append_log_line_shell "$primary_file" "$line"; then
+    primary_status=0
+  else
+    primary_status=$?
+    printf 'VIBEGUARD ERROR: primary event log write failed: %s\n' "$primary_file" >&2
+  fi
+
+  if _vg_append_log_line_shell "$mirror_file" "$line"; then
+    mirror_status=0
+  else
+    mirror_status=$?
+    printf 'VIBEGUARD ERROR: global event log write failed: %s\n' "$mirror_file" >&2
+  fi
+
+  if [[ "$primary_status" -ne 0 || "$mirror_status" -ne 0 ]]; then
+    return 1
+  fi
 }
 
 vg_private_log_file() {
@@ -169,19 +227,19 @@ vg_log() {
   json="$(vg_log_append_string_field "$json" "caller_evidence" "${VIBEGUARD_CALLER_EVIDENCE:-}")"
   json="${json}}"
 
-  vg_private_log_file "$VIBEGUARD_LOG_FILE"
-  if ! vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"; then
-    printf 'VIBEGUARD ERROR: primary event log write failed: %s\n' "$VIBEGUARD_LOG_FILE" >&2
-  fi
-  vg_private_log_file "$VIBEGUARD_LOG_FILE"
-
-  # Synchronously write to the global log (for stats.sh aggregation analysis)
+  # Synchronously mirror project logs into the global log for stats aggregation.
   local global_log="${VIBEGUARD_LOG_DIR}/events.jsonl"
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
+  vg_private_log_file "$global_log"
   if [[ "$VIBEGUARD_LOG_FILE" != "$global_log" ]]; then
-    vg_private_log_file "$global_log"
-    if ! vg_append_log_line "$global_log" "$json"; then
-      printf 'VIBEGUARD ERROR: global event log write failed: %s\n' "$global_log" >&2
+    if ! vg_append_log_line_mirror "$VIBEGUARD_LOG_FILE" "$global_log" "$json"; then
+      printf 'VIBEGUARD ERROR: mirrored event log write failed: %s -> %s\n' "$VIBEGUARD_LOG_FILE" "$global_log" >&2
     fi
-    vg_private_log_file "$global_log"
+  else
+    if ! vg_append_log_line "$VIBEGUARD_LOG_FILE" "$json"; then
+      printf 'VIBEGUARD ERROR: primary event log write failed: %s\n' "$VIBEGUARD_LOG_FILE" >&2
+    fi
   fi
+  vg_private_log_file "$VIBEGUARD_LOG_FILE"
+  vg_private_log_file "$global_log"
 }
