@@ -203,15 +203,9 @@ pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
     for spec in &desired {
         changed |= settings_upsert_hook(&mut data, spec, force);
     }
-    let desired_pairs: BTreeSet<(String, String)> = desired
-        .iter()
-        .map(|spec| (spec.event.clone(), spec.script.clone()))
-        .collect();
-    for spec in claude_specs(repo_dir, None)? {
-        if !desired_pairs.contains(&(spec.event.clone(), spec.script.clone())) {
-            changed |= settings_remove_hook(&mut data, &spec.event, &spec.script);
-        }
-    }
+    let desired_identities: BTreeSet<(String, String, String)> =
+        desired.iter().map(settings_spec_identity).collect();
+    changed |= settings_remove_unprofiled_hooks(repo_dir, &mut data, &desired_identities)?;
     if dry_run {
         if changed {
             let after = serde_json::to_string_pretty(&data)? + "\n";
@@ -372,14 +366,9 @@ fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> S
     if !desired.iter().all(|spec| settings_has_spec(data, spec)) {
         return Ok(false);
     }
-    let desired_pairs: BTreeSet<(String, String)> = desired
-        .iter()
-        .map(|spec| (spec.event.clone(), spec.script.clone()))
-        .collect();
-    Ok(!claude_specs(repo_dir, None)?.iter().any(|spec| {
-        !desired_pairs.contains(&(spec.event.clone(), spec.script.clone()))
-            && settings_has_spec(data, spec)
-    }))
+    let desired_identities: BTreeSet<(String, String, String)> =
+        desired.iter().map(settings_spec_identity).collect();
+    Ok(settings_managed_hook_identities(repo_dir, data)?.is_subset(&desired_identities))
 }
 
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
@@ -501,6 +490,49 @@ fn settings_remove_hook(data: &mut Value, event: &str, script: &str) -> bool {
     changed | (before != entries.len())
 }
 
+fn settings_remove_unprofiled_hooks(
+    repo_dir: &Path,
+    data: &mut Value,
+    desired: &BTreeSet<(String, String, String)>,
+) -> SetupResult<bool> {
+    let managed_scripts = claude_managed_scripts(repo_dir)?;
+    let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    for (event, entries) in hooks.iter_mut() {
+        let Some(entries) = entries.as_array_mut() else {
+            continue;
+        };
+        for entry in entries.iter_mut() {
+            let matcher = entry
+                .get("matcher")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let Some(hook_entries) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            let before = hook_entries.len();
+            hook_entries.retain(|hook| {
+                settings_hook_managed_script(hook, &managed_scripts).is_none_or(|script| {
+                    desired.contains(&(event.clone(), matcher.clone(), script.to_string()))
+                })
+            });
+            changed |= before != hook_entries.len();
+        }
+        let before = entries.len();
+        entries.retain(|entry| {
+            entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_none_or(|hooks| !hooks.is_empty())
+        });
+        changed |= before != entries.len();
+    }
+    Ok(changed)
+}
+
 fn settings_remove_legacy_mcp(data: &mut Value) -> bool {
     let Some(object) = data.as_object_mut() else {
         return false;
@@ -558,6 +590,42 @@ fn claude_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
         .collect())
 }
 
+fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {
+    (
+        spec.event.clone(),
+        spec.matcher.clone(),
+        spec.script.clone(),
+    )
+}
+
+fn settings_managed_hook_identities(
+    repo_dir: &Path,
+    data: &Value,
+) -> SetupResult<BTreeSet<(String, String, String)>> {
+    let managed_scripts = claude_managed_scripts(repo_dir)?;
+    let mut identities = BTreeSet::new();
+    let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
+        return Ok(identities);
+    };
+    for (event, entries) in hooks {
+        let Some(entries) = entries.as_array() else {
+            continue;
+        };
+        for entry in entries {
+            let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("");
+            let Some(hook_entries) = entry.get("hooks").and_then(Value::as_array) else {
+                continue;
+            };
+            for hook in hook_entries {
+                if let Some(script) = settings_hook_managed_script(hook, &managed_scripts) {
+                    identities.insert((event.clone(), matcher.to_string(), script.to_string()));
+                }
+            }
+        }
+    }
+    Ok(identities)
+}
+
 fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
     entry
         .get("hooks")
@@ -576,6 +644,19 @@ fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
             shell_split(command)
                 .iter()
                 .any(|part| basename(part) == script)
+        })
+}
+
+fn settings_hook_managed_script<'a>(
+    hook: &Value,
+    managed_scripts: &'a BTreeSet<String>,
+) -> Option<&'a str> {
+    hook.get("command")
+        .and_then(Value::as_str)
+        .and_then(|command| {
+            shell_split(command)
+                .into_iter()
+                .find_map(|part| managed_scripts.get(basename(&part)).map(String::as_str))
         })
 }
 
@@ -695,85 +776,4 @@ fn settings_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn replaces_marker_block() {
-        let original = "a\n\n<!-- vibeguard-start -->\nold\n<!-- vibeguard-end -->\n\nb\n";
-        let next = replace_managed_block(
-            original,
-            "<!-- vibeguard-start -->\nnew\n<!-- vibeguard-end -->",
-        );
-        assert!(next.contains("new"));
-        assert!(!next.contains("old"));
-        assert!(next.starts_with("a\n\n"));
-        assert!(next.ends_with("b\n"));
-    }
-
-    #[test]
-    fn profile_settings_reject_out_of_profile_managed_hooks() -> SetupResult<()> {
-        let repo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .ok_or("vibeguard-runtime must be inside the repository")?;
-        let core_specs = claude_specs(repo_dir, Some("core"))?;
-        let extra_spec = claude_specs(repo_dir, None)?
-            .into_iter()
-            .find(|spec| {
-                !core_specs
-                    .iter()
-                    .any(|desired| desired.event == spec.event && desired.script == spec.script)
-            })
-            .ok_or("expected an out-of-profile managed hook spec")?;
-
-        let core_data = settings_data_with_specs(&core_specs);
-        assert!(settings_has_profile_hooks(repo_dir, &core_data, "core")?);
-
-        let mut stale_specs = core_specs;
-        stale_specs.push(extra_spec);
-        let stale_data = settings_data_with_specs(&stale_specs);
-        assert!(!settings_has_profile_hooks(repo_dir, &stale_data, "core")?);
-        Ok(())
-    }
-
-    fn settings_data_with_specs(specs: &[ClaudeSpec]) -> Value {
-        let mut data = serde_json::json!({"hooks": {}});
-        let hooks = data
-            .get_mut("hooks")
-            .and_then(Value::as_object_mut)
-            .expect("hooks object");
-        for spec in specs {
-            let entries = hooks
-                .entry(spec.event.clone())
-                .or_insert_with(|| serde_json::json!([]))
-                .as_array_mut()
-                .expect("event entries");
-            let mut entry = serde_json::json!({
-                "hooks": [{
-                    "type": "command",
-                    "command": format!("bash /tmp/.vibeguard/run-hook.sh {}", spec.script),
-                }]
-            });
-            if !spec.matcher.is_empty() {
-                entry
-                    .as_object_mut()
-                    .expect("entry object")
-                    .insert("matcher".to_string(), Value::String(spec.matcher.clone()));
-            }
-            entries.push(entry);
-        }
-        data
-    }
-
-    #[test]
-    fn canonical_settings_command_accepts_legacy_unquoted_home_spaces() {
-        let command = "bash /tmp/home with spaces/.vibeguard/run-hook.sh pre-bash-guard.sh";
-        assert!(settings_is_canonical(command, "pre-bash-guard.sh"));
-    }
-
-    #[test]
-    fn canonical_settings_command_rejects_custom_bash_options() {
-        let command = "bash -x /tmp/workspace/.vibeguard/run-hook.sh pre-bash-guard.sh";
-        assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
-    }
-}
+mod tests;

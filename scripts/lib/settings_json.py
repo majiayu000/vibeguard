@@ -255,8 +255,24 @@ def _has_all_specs(data: dict[str, Any], specs: list[dict[str, Any]]) -> bool:
     return all(_has_hook_spec(data, spec) for spec in specs)
 
 
-def _spec_pair(spec: dict[str, Any]) -> tuple[str, str]:
-    return (str(spec["event"]), str(spec["script"]))
+def _spec_identity(spec: dict[str, Any]) -> tuple[str, str, str]:
+    return (str(spec["event"]), str(spec.get("matcher") or ""), str(spec["script"]))
+
+
+def _managed_hook_identities(data: dict[str, Any]) -> set[tuple[str, str, str]]:
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        return set()
+
+    identities: set[tuple[str, str, str]] = set()
+    for event, entries in hooks.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            for identity in _entry_identities(str(event), entry):
+                if identity.is_managed and identity.script:
+                    identities.add((identity.event, identity.matcher or "", identity.script))
+    return identities
 
 
 def has_pre_hooks(data: dict[str, Any]) -> bool:
@@ -283,11 +299,8 @@ def has_profile_hooks(data: dict[str, Any], profile: str) -> bool:
     desired_specs = claude_specs(MANIFEST, profile)
     if not _has_all_specs(data, desired_specs):
         return False
-    desired_pairs = {_spec_pair(spec) for spec in desired_specs}
-    return not any(
-        _spec_pair(spec) not in desired_pairs and _has_hook_spec(data, spec)
-        for spec in claude_specs(MANIFEST)
-    )
+    desired_identities = {_spec_identity(spec) for spec in desired_specs}
+    return _managed_hook_identities(data).issubset(desired_identities)
 
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
@@ -382,6 +395,58 @@ def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict
         else:
             hooks.pop(event, None)
         state["changed"] = True
+
+
+def remove_unprofiled_managed_hooks(
+    hooks: dict[str, Any],
+    desired_identities: set[tuple[str, str, str]],
+    state: dict[str, Any],
+) -> None:
+    for event, entries in list(hooks.items()):
+        if not isinstance(entries, list):
+            continue
+
+        next_entries: list[Any] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                next_entries.append(entry)
+                continue
+
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                next_entries.append(entry)
+                continue
+
+            matcher_value = entry.get("matcher")
+            matcher = matcher_value if isinstance(matcher_value, str) and matcher_value else None
+            kept_hooks: list[Any] = []
+            removed_any = False
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    kept_hooks.append(hook)
+                    continue
+                identity = _hook_identity(str(event), matcher, hook)
+                if identity.is_managed and identity.script:
+                    hook_identity = (identity.event, identity.matcher or "", identity.script)
+                    if hook_identity not in desired_identities:
+                        removed_any = True
+                        continue
+                kept_hooks.append(hook)
+
+            if removed_any:
+                state["changed"] = True
+                if kept_hooks:
+                    next_entry = dict(entry)
+                    next_entry["hooks"] = kept_hooks
+                    next_entries.append(next_entry)
+            else:
+                next_entries.append(entry)
+
+        if len(next_entries) != len(entries) or next_entries != entries:
+            if next_entries:
+                hooks[event] = next_entries
+            else:
+                hooks.pop(event, None)
 
 
 def upsert_hook(
@@ -513,11 +578,7 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
         )
 
     # Remove hooks that do not belong to the current profile (handles profile downgrade).
-    desired_pairs = {(spec["event"], spec["script"]) for spec in desired_specs}
-    for spec in claude_specs(MANIFEST):
-        pair = (spec["event"], spec["script"])
-        if pair not in desired_pairs:
-            remove_hook(hooks, spec["event"], spec["script"], state)
+    remove_unprofiled_managed_hooks(hooks, {_spec_identity(spec) for spec in desired_specs}, state)
 
     if args.dry_run:
         if state["changed"]:
