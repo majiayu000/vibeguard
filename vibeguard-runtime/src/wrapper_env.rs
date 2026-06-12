@@ -323,8 +323,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_stat_start_time_reads_field_22_after_comm() {
-        let stat =
-            "10 (bash with spaces) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 12345 678";
+        let stat = "10 (bash with spaces) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 12345 678";
         assert_eq!(linux_stat_start_time(stat).as_deref(), Some("12345"));
     }
 
