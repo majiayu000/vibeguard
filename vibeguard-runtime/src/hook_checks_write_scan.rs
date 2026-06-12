@@ -2,6 +2,7 @@ use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::hook_checks_common::is_test_path;
 use crate::hook_checks_scan::absolute_path;
 
 const SKIP_DIRS: &[&str] = &[
@@ -280,6 +281,7 @@ fn scan_same_name_dir(
             *count += 1;
             if path.file_name().and_then(|s| s.to_str()) == Some(basename)
                 && absolute_path(path.to_string_lossy().as_ref()) != target
+                && !is_test_path(path.to_string_lossy().as_ref())
             {
                 matches.push(path.to_string_lossy().into_owned());
             }
@@ -320,6 +322,7 @@ impl SameNameCollector {
         };
         if path.file_name().and_then(|s| s.to_str()) == Some(basename)
             && absolute_path(path.to_string_lossy().as_ref()) != self.target
+            && !is_test_path(path.to_string_lossy().as_ref())
         {
             self.matches.push(path.to_string_lossy().into_owned());
         }
