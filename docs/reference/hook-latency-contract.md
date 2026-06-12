@@ -19,14 +19,23 @@ These are cross-OS CI budgets, not ideal-machine optimization targets. Static pe
 | `post-write-guard (5000)` | 500ms |
 | `stop-guard (5000)` | 400ms |
 | `learn-evaluator (5000)` | 400ms |
+| `codex-wrapper pre-bash-guard` | 900ms |
+| `codex-wrapper post-edit-guard (100)` | 900ms |
 
 Run the gate locally:
 
 ```bash
+cargo build --manifest-path vibeguard-runtime/Cargo.toml --quiet
 bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression
 ```
 
 Use `--sla=<ms>` only when deliberately testing a temporary global threshold. The default contract is per-hook.
+
+## Direct vs Wrapper Coverage
+
+Most fixtures invoke hook scripts directly so regressions in hook logic, JSON parsing, logging, and bounded event-log reads are isolated to the hook under test.
+
+Codex wrapper hooks invoke a temporary installed-wrapper copy with the same helper files installed by `scripts/setup/targets/codex-home.sh` and a repo-path file pointing at the repository. These fixtures include Codex event parsing, installed wrapper/helper lookup, runtime policy lookup, status diagnostics, output adaptation, and wrapper finalization before the underlying hook returns. They are intentionally budgeted separately from direct hooks because they measure the installed Codex path, not just the hook body.
 
 ## Hotspot Attribution
 

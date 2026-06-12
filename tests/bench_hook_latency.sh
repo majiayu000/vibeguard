@@ -9,7 +9,8 @@
 #   bash tests/bench_hook_latency.sh --json       # JSON output for CI
 #   bash tests/bench_hook_latency.sh --fail-on-regression  # exit 1 if a fixture exceeds its budget
 #
-# Requires: perl (for hi-res timing) or python3
+# Requires: perl (for hi-res timing) or python3. Codex wrapper fixtures also
+# require a built vibeguard-runtime binary.
 
 set -euo pipefail
 
@@ -120,10 +121,45 @@ cat > "$TMPDIR_BENCH/bash-input.json" <<'EOF'
 {"tool_input":{"command":"cargo check"}}
 EOF
 
+# Mock Codex wrapper inputs. These fixtures keep the hook payload shape close to
+# real Codex hook events while preserving the direct-hook fields under tool_input.
+cat > "$TMPDIR_BENCH/codex-pre-bash-input.json" <<'EOF'
+{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo check"}}
+EOF
+
+cat > "$TMPDIR_BENCH/codex-post-edit-input.json" <<'EOF'
+{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"src/main.rs","old_string":"fn main()","new_string":"fn main() {\n    println!(\"hello\");\n}"},"tool_response":{"output":"ok"}}
+EOF
+
 # Mock Stop input JSON
 cat > "$TMPDIR_BENCH/stop-input.json" <<'EOF'
 {"stop_hook_active":false}
 EOF
+
+CODEX_BENCH_HOME="$TMPDIR_BENCH/codex-home"
+CODEX_BENCH_WRAPPER="$CODEX_BENCH_HOME/.vibeguard/run-hook-codex.sh"
+CODEX_BENCH_RUNTIME="$CODEX_BENCH_HOME/.vibeguard/installed/bin/vibeguard-runtime"
+mkdir -p "$CODEX_BENCH_HOME/.vibeguard/_lib" "$CODEX_BENCH_HOME/.vibeguard/installed/bin"
+printf '%s' "$REPO_DIR" > "$CODEX_BENCH_HOME/.vibeguard/repo-path"
+cp "$HOOKS_DIR/run-hook-codex.sh" "$CODEX_BENCH_WRAPPER"
+cp "$HOOKS_DIR/_lib/codex_diag.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/codex_diag.sh"
+cp "$HOOKS_DIR/_lib/codex_runner.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/codex_runner.sh"
+cp "$HOOKS_DIR/_lib/timeout.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/timeout.sh"
+chmod +x "$CODEX_BENCH_WRAPPER"
+for runtime_candidate in \
+  "${VIBEGUARD_RUNTIME:-}" \
+  "$REPO_DIR/vibeguard-runtime/target/debug/vibeguard-runtime" \
+  "$REPO_DIR/vibeguard-runtime/target/release/vibeguard-runtime"; do
+  if [[ -n "$runtime_candidate" && -x "$runtime_candidate" ]]; then
+    cp "$runtime_candidate" "$CODEX_BENCH_RUNTIME"
+    chmod +x "$CODEX_BENCH_RUNTIME"
+    break
+  fi
+done
+if [[ ! -x "$CODEX_BENCH_RUNTIME" ]]; then
+  printf '%s\n' "ERROR: Codex wrapper benchmark requires vibeguard-runtime. Run: cargo build --manifest-path vibeguard-runtime/Cargo.toml" >&2
+  exit 1
+fi
 
 # --- Benchmark runner ---
 RESULTS=()
@@ -143,6 +179,7 @@ budget_for() {
     post-write-guard\ \(100\)) printf '%s\n' 400 ;;
     post-edit-guard\ \(5000\)|post-write-guard\ \(5000\)) printf '%s\n' 500 ;;
     stop-guard\ \(5000\)|learn-evaluator\ \(5000\)) printf '%s\n' 400 ;;
+    codex-wrapper\ pre-bash-guard|codex-wrapper\ post-edit-guard\ \(100\)) printf '%s\n' 900 ;;
     synthetic-slow-hook) printf '%s\n' 1 ;;
     *) printf '%s\n' "$DEFAULT_BUDGET_MS" ;;
   esac
@@ -208,6 +245,67 @@ bench_hook() {
   RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
 }
 
+bench_codex_wrapper() {
+  local name="$1"
+  local hook_name="$2"
+  local input_file="$3"
+  local events_file="${4:-}"
+  local budget_ms="${5:-$(budget_for "$name")}"
+  local hotspot="${6:-~/.vibeguard/run-hook-codex.sh ${hook_name}}"
+  local latencies=()
+
+  for _run in $(seq 1 "$RUNS"); do
+    local bench_log_file="${events_file:-$TMPDIR_BENCH/events-bench.jsonl}"
+    local -a hook_env=(
+      "HOME=$CODEX_BENCH_HOME"
+      "VIBEGUARD_LOG_DIR=$TMPDIR_BENCH"
+      "VIBEGUARD_LOG_FILE=$bench_log_file"
+      "VIBEGUARD_SESSION_ID=bench"
+      "VIBEGUARD_PROJECT_HASH=bench000"
+      "VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
+      "VIBEGUARD_CODEX_DIAG_FILE=$TMPDIR_BENCH/codex-wrapper.jsonl"
+      "VIBEGUARD_POLICY_DIAG_FILE=$TMPDIR_BENCH/policy.jsonl"
+      "VIBEGUARD_RUNTIME="
+      "VIBEGUARD_POLICY_RUNTIME="
+    )
+
+    local start=$(_now_ms)
+    env "${hook_env[@]}" bash "$CODEX_BENCH_WRAPPER" "$hook_name" < "$input_file" > /dev/null 2>&1 || true
+    local end=$(_now_ms)
+    local elapsed=$((end - start))
+    latencies+=("$elapsed")
+  done
+
+  local sorted
+  sorted=$(printf '%s\n' "${latencies[@]}" | sort -n)
+  local count=${#latencies[@]}
+  local p50_idx=$(( (count * 50 / 100) ))
+  local p95_idx=$(( (count * 95 / 100) ))
+  local p99_idx=$(( (count * 99 / 100) ))
+  [[ $p50_idx -ge $count ]] && p50_idx=$((count - 1))
+  [[ $p95_idx -ge $count ]] && p95_idx=$((count - 1))
+  [[ $p99_idx -ge $count ]] && p99_idx=$((count - 1))
+
+  local p50=$(echo "$sorted" | sed -n "$((p50_idx + 1))p")
+  local p95=$(echo "$sorted" | sed -n "$((p95_idx + 1))p")
+  local p99=$(echo "$sorted" | sed -n "$((p99_idx + 1))p")
+  local max_lat=$(echo "$sorted" | tail -1)
+
+  local status="PASS"
+  if [[ "$p95" -gt "$budget_ms" ]]; then
+    if [[ "$ENVIRONMENT_DISTORTED" == "true" ]]; then
+      status="ENV-DISTORTED"
+    else
+      status="FAIL"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+
+  printf "  %-35s P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
+
+  RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
+}
+
 echo "======================================"
 echo "VibeGuard Hook Latency Benchmark"
 if [[ -n "$GLOBAL_SLA_MS" ]]; then
@@ -233,6 +331,11 @@ echo ""
 echo "[PostToolUse hooks — 100-line log]"
 bench_hook "post-edit-guard (100)" "$HOOKS_DIR/post-edit-guard.sh" "$TMPDIR_BENCH/edit-input.json" "$TMPDIR_BENCH/events-100.jsonl"
 bench_hook "post-write-guard (100)" "$HOOKS_DIR/post-write-guard.sh" "$TMPDIR_BENCH/write-input.json" "$TMPDIR_BENCH/events-100.jsonl"
+echo ""
+
+echo "[Codex wrapper hooks]"
+bench_codex_wrapper "codex-wrapper pre-bash-guard" "vibeguard-pre-bash-guard.sh" "$TMPDIR_BENCH/codex-pre-bash-input.json"
+bench_codex_wrapper "codex-wrapper post-edit-guard (100)" "vibeguard-post-edit-guard.sh" "$TMPDIR_BENCH/codex-post-edit-input.json" "$TMPDIR_BENCH/events-100.jsonl"
 echo ""
 
 # --- Post-hooks with large log (stress test, should still be <200ms) ---

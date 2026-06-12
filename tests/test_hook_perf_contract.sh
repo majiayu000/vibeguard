@@ -96,6 +96,7 @@ write_hook() {
 header "syntax"
 assert_cmd "performance validator syntax" bash -n "${VALIDATOR}"
 assert_cmd "latency benchmark syntax" bash -n "${BENCH}"
+assert_file_contains "${BENCH}" "Codex wrapper benchmark requires vibeguard-runtime" "latency benchmark fails fast without runtime for Codex wrapper fixtures"
 
 header "static performance gates"
 GOOD_HOOKS="${TMP_DIR}/good-hooks"
@@ -127,9 +128,13 @@ header "dynamic latency gate"
 assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
 assert_file_contains "${TMP_DIR}/slow.out" "exceeded latency budget" "slow hook output explains budget failure"
 assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "slow hook output includes hotspot attribution"
+assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "latency gate includes Codex PreToolUse wrapper fixture"
+assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P50)" "benchmark action output includes P50 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P95)" "benchmark action output includes P95 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P99)" "benchmark action output includes P99 samples"
+assert_file_contains "${REPO_DIR}/bench-output.json" "codex-wrapper pre-bash-guard (P95)" "benchmark action output includes Codex wrapper samples"
+assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "Codex wrapper hooks" "latency contract documents wrapper coverage"
 assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
 
 echo ""
