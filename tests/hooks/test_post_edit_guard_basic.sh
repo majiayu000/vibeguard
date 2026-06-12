@@ -23,6 +23,13 @@ assert_not_contains "$result" "RS-03" "Not false positive unwrap_or_default"
 result=$(echo '{"tool_input":{"file_path":"tests/test_main.rs","new_string":"let val = data.unwrap();"}}' | bash hooks/post-edit-guard.sh)
 assert_not_contains "$result" "RS-03" "Test file unwrap does not warn"
 
+# Rust guard test-only filenames should match pre-commit guard classification
+result=$(echo '{"tool_input":{"file_path":"src/tests.rs","new_string":"let val = data.expect(\"fixture\");"}}' | bash hooks/post-edit-guard.sh)
+assert_not_contains "$result" "RS-03" "tests.rs expect does not warn"
+
+result=$(echo '{"tool_input":{"file_path":"src/test_helpers.rs","new_string":"let db = \"fixture.db\";"}}' | bash hooks/post-edit-guard.sh)
+assert_not_contains "$result" "U-11" "test_helpers.rs hardcoded db path does not warn"
+
 # The new console.log in the TS file should warn (use absolute paths to avoid misjudgment of CLI projects)
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_test_app.ts","new_string":"console.log(data);"}}' | bash hooks/post-edit-guard.sh)
 assert_contains "$result" "DEBUG" "Detect TS console.log"

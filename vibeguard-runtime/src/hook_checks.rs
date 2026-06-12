@@ -273,6 +273,21 @@ pub fn u16_limit(args: &[String]) -> Result {
     Ok(())
 }
 
+pub fn test_path_filter(args: &[String]) -> Result {
+    if args.len() != 1 || !matches!(args[0].as_str(), "--test" | "--prod") {
+        return Err("Usage: vibeguard-runtime test-path-filter <--test|--prod>".into());
+    }
+    let want_test = args[0] == "--test";
+    let input = read_stdin()?;
+    for raw_path in input.lines() {
+        let path = raw_path.trim_end_matches('\r');
+        if !path.is_empty() && is_test_path(path) == want_test {
+            println!("{path}");
+        }
+    }
+    Ok(())
+}
+
 fn write_pre_edit_block(
     log_file: &str,
     log_reason: &str,

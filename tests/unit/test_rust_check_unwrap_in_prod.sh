@@ -95,6 +95,35 @@ fn test_math() {
 EOF
 assert_ok "unwrap() in _test.rs file is ignored" bash "$GUARD" --strict "$proj5"
 
+# --- PASS: guard-only test file names also ignored by post-edit hook classifier ---
+proj5b="${tmpdir}/pass_rust_guard_test_names"
+mkdir -p "${proj5b}/src" "${proj5b}/examples" "${proj5b}/benches"
+cat > "${proj5b}/src/tests.rs" <<'EOF'
+fn fixture() {
+    let x: Option<i32> = Some(42);
+    let _ = x.expect("fixture");
+}
+EOF
+cat > "${proj5b}/src/test_helpers.rs" <<'EOF'
+fn helper() {
+    let x: Option<i32> = Some(42);
+    let _ = x.unwrap();
+}
+EOF
+cat > "${proj5b}/examples/demo.rs" <<'EOF'
+fn main() {
+    let x: Option<i32> = Some(42);
+    println!("{}", x.unwrap());
+}
+EOF
+cat > "${proj5b}/benches/bench.rs" <<'EOF'
+fn bench() {
+    let x: Option<i32> = Some(42);
+    let _ = x.expect("bench");
+}
+EOF
+assert_ok "tests.rs/test_helpers/examples/benches are ignored" bash "$GUARD" --strict "$proj5b"
+
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"
 mkdir -p "${proj6}/src"

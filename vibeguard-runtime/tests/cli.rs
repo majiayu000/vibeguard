@@ -73,6 +73,7 @@ fn help_lists_all_commands() {
         "pre-write-check",
         "pre-edit-check",
         "u16-limit",
+        "test-path-filter",
         "post-edit-fast-check",
         "post-write-fast-check",
         "post-write-check",

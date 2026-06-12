@@ -15,6 +15,7 @@ checks=(
   "check-codex-wrapper-thin.sh"
   "check-hook-production-python-free.sh"
   "check-hook-output-rewriting.sh"
+  "check-rust-test-path-classifier.sh"
   "check-u22-coverage.sh"
 )
 

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Stateless content detectors for post-edit-guard.sh.
 
+vg_post_edit_is_test_path() {
+  local result
+  if result=$(printf '%s\n' "$1" | "$_VIBEGUARD_RUNTIME" test-path-filter --test 2>/dev/null); then
+    [[ "${result}" == "$1" ]]
+    return $?
+  fi
+  return 1
+}
+
 vg_post_edit_detect_rust() {
   [[ "$FILE_PATH" == *.rs ]] || return 0
-  case "$FILE_PATH" in
-    */tests/*|*_test.rs|*/test_*) return 0 ;;
-  esac
+  vg_post_edit_is_test_path "$FILE_PATH" && return 0
 
   local filtered unsafe_count safe_count real_count silent_count
   if [[ "$NEW_STRING" == *".unwrap("* || "$NEW_STRING" == *".expect("* ]]; then
@@ -101,9 +108,7 @@ DO NOT: Modify logging configuration or other files"
 vg_post_edit_detect_hardcoded_db_path() {
   [[ "$NEW_STRING" == *".db\""* || "$NEW_STRING" == *".sqlite\""* ]] || return 0
   printf '%s\n' "$NEW_STRING" | vg_filter_suppressed "U-11" | grep -qE '"[^"]*\.(db|sqlite)"' 2>/dev/null || return 0
-  case "$FILE_PATH" in
-    */tests/*|*_test.*|*.test.*|*.spec.*) return 0 ;;
-  esac
+  vg_post_edit_is_test_path "$FILE_PATH" && return 0
 
   vg_post_edit_append_warning "[U-11] [review] [this-line] OBSERVATION: hardcoded database path (.db/.sqlite) detected
 FIX: Extract to a shared default_db_path() function in core layer; use env var APP_DB_PATH for override
@@ -161,9 +166,7 @@ vg_post_edit_detect_u16_size() {
     *.rs|*.ts|*.tsx|*.js|*.jsx|*.py|*.go) ;;
     *) return 0 ;;
   esac
-  case "$FILE_PATH" in
-    */tests/*|*_test.*|*.test.*|*.spec.*|*_test.rs|*/test_*) return 0 ;;
-  esac
+  vg_post_edit_is_test_path "$FILE_PATH" && return 0
   [[ -f "$FILE_PATH" ]] || return 0
 
   local total limit dir exempt base_limit

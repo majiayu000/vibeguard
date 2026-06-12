@@ -74,18 +74,28 @@ pub(crate) fn is_pre_edit_u16_source(path: &str) -> bool {
 }
 
 pub(crate) fn is_test_path(path: &str) -> bool {
-    path.contains("/tests/")
-        || path.contains("/test/")
-        || path.contains("/__tests__/")
-        || path.contains("/spec/")
-        || path.contains("/fixtures/")
-        || path.contains("/mocks/")
-        || path.contains("/testdata/")
-        || path.contains("_test.")
-        || path.contains(".test.")
-        || path.contains(".spec.")
-        || path.contains("_test.rs")
-        || path.contains("/test_")
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    let basename = normalized.rsplit('/').next().unwrap_or("");
+    has_path_segment(&normalized, "tests")
+        || has_path_segment(&normalized, "test")
+        || has_path_segment(&normalized, "__tests__")
+        || has_path_segment(&normalized, "spec")
+        || has_path_segment(&normalized, "fixtures")
+        || has_path_segment(&normalized, "mocks")
+        || has_path_segment(&normalized, "testdata")
+        || has_path_segment(&normalized, "examples")
+        || has_path_segment(&normalized, "benches")
+        || basename == "tests.rs"
+        || basename == "test_helpers.rs"
+        || basename.starts_with("test_")
+        || basename.contains("_test.")
+        || basename.contains(".test.")
+        || basename.contains(".spec.")
+        || basename.ends_with("_test.rs")
+}
+
+fn has_path_segment(path: &str, segment: &str) -> bool {
+    path.split('/').any(|part| part == segment)
 }
 
 pub(crate) fn is_allowed_new_file(path: &str) -> bool {
@@ -577,6 +587,24 @@ mod tests {
         assert!(is_allowed_new_file("README.md"));
         assert!(is_allowed_new_file("/repo/tests/helper.py"));
         assert!(!is_allowed_new_file("src/new_service.py"));
+    }
+
+    #[test]
+    fn test_path_matches_rust_guard_exclusions() {
+        for path in [
+            "tests/integration.rs",
+            "src/tests.rs",
+            "src/test_helpers.rs",
+            "examples/demo.rs",
+            "benches/throughput.rs",
+            "test_root.rs",
+            "src/math_test.rs",
+            "src/lib.test.rs",
+        ] {
+            assert!(is_test_path(path), "{path} should be classified as test");
+        }
+        assert!(!is_test_path("src/contest.rs"));
+        assert!(!is_test_path("src/prod_helpers.rs"));
     }
 
     #[test]

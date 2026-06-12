@@ -9,8 +9,36 @@ set -euo pipefail
 # Paths to always exclude from scanning (worktrees, build artifacts, IDE caches).
 VIBEGUARD_EXCLUDE_PATHS='(.harness/worktrees/|/target/|/.git/|/node_modules/)'
 
-# Test file patterns — files that are exclusively test code.
-VIBEGUARD_TEST_FILE_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
+# Fallback only. The authoritative test-path classifier is
+# `vibeguard-runtime test-path-filter`; keep this for old/unbuilt runtime paths.
+VIBEGUARD_TEST_FILE_PATTERN='((^|/)tests/|(^|/)test/|(^|/)__tests__/|(^|/)spec/|(^|/)fixtures/|(^|/)mocks/|(^|/)testdata/|(^|/)examples/|(^|/)benches/|(^|/)test_|_test\.rs$|tests\.rs$|test_helpers\.rs$)'
+
+vibeguard_rust_runtime_path() {
+  local script_dir repo_dir candidate
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  repo_dir="$(cd "${script_dir}/../.." && pwd)"
+  for candidate in \
+    "${VIBEGUARD_RUNTIME:-}" \
+    "${repo_dir}/vibeguard-runtime/target/release/vibeguard-runtime" \
+    "${repo_dir}/vibeguard-runtime/target/debug/vibeguard-runtime" \
+    "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"; do
+    [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]] || continue
+    printf '%s\n' "${candidate}"
+    return 0
+  done
+  return 1
+}
+
+filter_rs_prod_paths() {
+  local tmp runtime_path
+  tmp=$(create_tmpfile)
+  cat > "${tmp}"
+  if runtime_path="$(vibeguard_rust_runtime_path 2>/dev/null)" \
+    && "${runtime_path}" test-path-filter --prod < "${tmp}" 2>/dev/null; then
+    return 0
+  fi
+  grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" "${tmp}" || true
+}
 
 # List .rs source files
 # Priority: VIBEGUARD_STAGED_FILES (pre-commit mode, only scan staged) > git ls-files > find
@@ -32,7 +60,7 @@ list_rs_files() {
 
 # List non-test .rs files (exclude test files based on list_rs_files)
 list_rs_prod_files() {
-  list_rs_files "$1" | { grep -vE "${VIBEGUARD_TEST_FILE_PATTERN}" || true; }
+  list_rs_files "$1" | filter_rs_prod_paths
 }
 
 # Parse --strict flag and target_dir

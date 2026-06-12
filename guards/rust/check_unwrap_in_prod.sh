@@ -21,9 +21,6 @@ source "$(dirname "$0")/common.sh"
 parse_guard_args "$@"
 TMPFILE=$(create_tmpfile)
 
-# Path exclusion pattern (test file)
-TEST_PATH_PATTERN='(/tests/|/test_|_test\.rs$|tests\.rs$|test_helpers\.rs$|/examples/|/benches/)'
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RULES_DIR="${SCRIPT_DIR}/../ast-grep-rules"
 
@@ -32,8 +29,7 @@ if [[ -n "${VIBEGUARD_STAGED_FILES:-}" ]] && [[ -f "${VIBEGUARD_STAGED_FILES}" ]
   if ! grep -q '\.rs$' "${VIBEGUARD_STAGED_FILES}" 2>/dev/null; then
     STAGED_RS=""
   else
-    STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" \
-      | { grep -vE "${TEST_PATH_PATTERN}" || true; })
+    STAGED_RS=$(grep '\.rs$' "${VIBEGUARD_STAGED_FILES}" | filter_rs_prod_paths)
   fi
 
   if [[ -n "${STAGED_RS}" ]]; then
@@ -141,8 +137,7 @@ elif command -v ast-grep >/dev/null 2>&1; then
   if ! command -v python3 >/dev/null 2>&1; then
     echo "[RS-03] WARN: python3 is not available, use grep fallback" >&2
     # fall through to grep fallback below
-    list_rs_files "${TARGET_DIR}" \
-      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+    list_rs_prod_files "${TARGET_DIR}" \
       | while IFS= read -r f; do
           if [[ -f "${f}" ]]; then
             awk '
@@ -249,8 +244,7 @@ for m in matches:
     msg = m.get('message', '')
     print('[RS-03] ' + fname + ':' + str(l) + ' ' + msg)
 PYEOF
-    list_rs_files "${TARGET_DIR}" \
-      | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+    list_rs_prod_files "${TARGET_DIR}" \
       | while IFS= read -r f; do
           [[ -f "${f}" ]] || continue
           _ASG_FILE_OUT=$(create_tmpfile)
@@ -321,8 +315,7 @@ PYEOF
 
 # --- Fallback: Use grep when ast-grep is not available ---
 else
-  list_rs_files "${TARGET_DIR}" \
-    | { grep -vE "${TEST_PATH_PATTERN}" || true; } \
+  list_rs_prod_files "${TARGET_DIR}" \
     | while IFS= read -r f; do
         if [[ -f "${f}" ]]; then
           # Fix RS-03: handle multiple #[cfg(test)] blocks by using awk to track

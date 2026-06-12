@@ -99,6 +99,25 @@ command="${1:-}"
 shift || true
 
 case "$command" in
+  test-path-filter)
+    mode="${1:-}"
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      normalized="${path//\\//}"
+      normalized="$(printf '%s' "$normalized" | tr '[:upper:]' '[:lower:]')"
+      base="${normalized##*/}"
+      is_test=0
+      case "$normalized" in
+        tests/*|test/*|__tests__/*|spec/*|fixtures/*|mocks/*|testdata/*|examples/*|benches/*|test_*|*/tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*|*/testdata/*|*/examples/*|*/benches/*|*/test_*) is_test=1 ;;
+      esac
+      case "$base" in
+        tests.rs|test_helpers.rs|test_*|*_test.*|*.test.*|*.spec.*|*_test.rs) is_test=1 ;;
+      esac
+      if [[ "$mode" == "--test" && "$is_test" -eq 1 ]] || [[ "$mode" == "--prod" && "$is_test" -eq 0 ]]; then
+        printf '%s\n' "$path"
+      fi
+    done
+    ;;
   codex-event-name)
     input="$(cat)"
     if [[ "$input" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then

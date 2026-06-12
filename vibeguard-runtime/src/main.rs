@@ -306,6 +306,11 @@ static COMMANDS: &[Command] = &[
         handler: hook_checks::u16_limit,
     },
     Command {
+        name: "test-path-filter",
+        usage: "<--test|--prod>  — filter newline-separated paths by canonical test-path classification",
+        handler: hook_checks::test_path_filter,
+    },
+    Command {
         name: "post-edit-fast-check",
         usage: "<base-limit> <session> <agent> <log-file>  — fast-pass clean PostToolUse(Edit) inputs",
         handler: hook_checks::post_edit_fast_check,
