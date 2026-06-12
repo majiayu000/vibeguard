@@ -45,7 +45,7 @@ bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 bash ~/vibeguard/scripts/hook-health.sh 24
 ```
 
-Expected result: `setup.sh --check --strict` exits 0 with `HEALTHY`, the Codex doctor reports configured rules and hooks, and hook health shows the latest local hook events or a no-data message that points to the log path.
+Expected result on a fully provisioned machine: `setup.sh --check --strict` exits 0 with `HEALTHY`, the Codex doctor reports configured rules and hooks, and hook health shows the latest local hook events or a no-data message that points to the log path. If optional language guard tools such as `ast-grep` are not installed, the strict check reports an explicit `MISSING` row and non-zero exit instead of silently treating that dependency gap as healthy.
 
 To protect another repository after VibeGuard is installed:
 
