@@ -74,7 +74,7 @@ vg_wrapper_env_export() {
     return 0
   fi
   runtime_path="$(vg_wrapper_env_runtime_path)" || return 0
-  output="$("${runtime_path}" wrapper-env "${cli}" 2>/dev/null)" || return 0
+  output="$(VIBEGUARD_WRAPPER_PARENT_PID="${PPID:-}" "${runtime_path}" wrapper-env "${cli}" 2>/dev/null)" || return 0
   while IFS= read -r line; do
     vg_wrapper_env_export_line "${line}"
   done <<< "${output}"
