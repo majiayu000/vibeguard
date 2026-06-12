@@ -27,6 +27,7 @@ export VIBEGUARD_LOG_DIR
 if [[ -z "${VIBEGUARD_PROJECT_LOG_DIR:-}" || -z "${VIBEGUARD_LOG_FILE:-}" ]]; then
   _vg_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
   _vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8) || _vg_project_hash="fallback0"
+  VIBEGUARD_PROJECT_HASH="$_vg_project_hash"
   VIBEGUARD_PROJECT_LOG_DIR="${VIBEGUARD_LOG_DIR}/projects/${_vg_project_hash}"
   mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
   VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
@@ -36,9 +37,16 @@ if [[ -z "${VIBEGUARD_PROJECT_LOG_DIR:-}" || -z "${VIBEGUARD_LOG_FILE:-}" ]]; th
     printf '%s' "$_vg_repo_root" > "$VIBEGUARD_PROJECT_LOG_DIR/.project-root" 2>/dev/null || true
   fi
 else
-  _vg_project_hash="${VIBEGUARD_PROJECT_HASH:-override0}"
+  if [[ -n "${VIBEGUARD_PROJECT_HASH:-}" ]]; then
+    _vg_project_hash="$VIBEGUARD_PROJECT_HASH"
+  else
+    _vg_project_hash="${VIBEGUARD_PROJECT_LOG_DIR##*/}"
+    [[ "$_vg_project_hash" =~ ^[0-9A-Fa-f]{8,64}$ ]] || _vg_project_hash="override0"
+  fi
+  VIBEGUARD_PROJECT_HASH="$_vg_project_hash"
   mkdir -p "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null
 fi
+export VIBEGUARD_PROJECT_HASH
 export VIBEGUARD_PROJECT_LOG_DIR
 export VIBEGUARD_LOG_FILE
 

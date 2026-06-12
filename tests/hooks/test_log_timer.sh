@@ -61,8 +61,9 @@ _claude_log=$(mktemp -d)
 mkdir -p "$_claude_home/.vibeguard"
 printf '%s' "$PWD" > "$_claude_home/.vibeguard/repo-path"
 hook_test_install_runtime_stub "$_claude_home"
+_claude_runtime="$_claude_home/.vibeguard/installed/bin/vibeguard-runtime"
 printf '%s\n' '{"tool_input":{"command":"echo hello"}}' \
-  | HOME="$_claude_home" VIBEGUARD_LOG_DIR="$_claude_log" VIBEGUARD_CLI="claude" bash hooks/run-hook.sh pre-bash-guard.sh >/dev/null 2>&1 || true
+  | HOME="$_claude_home" VIBEGUARD_LOG_DIR="$_claude_log" VIBEGUARD_CLI="claude" VIBEGUARD_RUNTIME="$_claude_runtime" bash hooks/run-hook.sh pre-bash-guard.sh >/dev/null 2>&1 || true
 _claude_result=$(cat "$_claude_log/events.jsonl" 2>/dev/null || true)
 assert_contains "$_claude_result" '"client": "claude"' "Claude wrapper: client is inferred from caller CLI"
 assert_contains "$_claude_result" '"client_variant": "claude-code-hooks"' "Claude wrapper: client_variant is recorded"
@@ -76,8 +77,9 @@ _codex_log=$(mktemp -d)
 mkdir -p "$_codex_home/.vibeguard"
 printf '%s' "$PWD" > "$_codex_home/.vibeguard/repo-path"
 hook_test_install_runtime_stub "$_codex_home"
+_codex_runtime="$_codex_home/.vibeguard/installed/bin/vibeguard-runtime"
 printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
-  | HOME="$_codex_home" VIBEGUARD_LOG_DIR="$_codex_log" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
+  | HOME="$_codex_home" VIBEGUARD_LOG_DIR="$_codex_log" VIBEGUARD_RUNTIME="$_codex_runtime" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
 _codex_result=$(cat "$_codex_log/events.jsonl" 2>/dev/null || true)
 assert_contains "$_codex_result" '"cli": "codex"' "Codex wrapper: legacy cli remains compatible"
 assert_contains "$_codex_result" '"client": "codex"' "Codex wrapper: client is recorded from hook payload"
@@ -93,12 +95,48 @@ _stale_codex_log=$(mktemp -d)
 mkdir -p "$_stale_codex_home/.vibeguard"
 printf '%s' "$PWD" > "$_stale_codex_home/.vibeguard/repo-path"
 hook_test_install_runtime_stub "$_stale_codex_home"
+_stale_codex_runtime="$_stale_codex_home/.vibeguard/installed/bin/vibeguard-runtime"
 printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
-  | HOME="$_stale_codex_home" VIBEGUARD_LOG_DIR="$_stale_codex_log" VIBEGUARD_CLI="claude" VIBEGUARD_CLIENT="claude" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
+  | HOME="$_stale_codex_home" VIBEGUARD_LOG_DIR="$_stale_codex_log" VIBEGUARD_RUNTIME="$_stale_codex_runtime" VIBEGUARD_CLI="claude" VIBEGUARD_CLIENT="claude" bash hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh >/dev/null 2>&1 || true
 _stale_codex_result=$(cat "$_stale_codex_log/events.jsonl" 2>/dev/null || true)
 assert_contains "$_stale_codex_result" '"cli": "codex"' "Codex wrapper: hook payload overrides stale ambient cli"
 assert_contains "$_stale_codex_result" '"client": "codex"' "Codex wrapper: hook payload overrides stale ambient client"
 rm -rf "$_stale_codex_home" "$_stale_codex_log"
+
+header "hook wrappers — precomputed log/session environment"
+
+_precompute_home=$(mktemp -d)
+_precompute_log=$(mktemp -d)
+mkdir -p "$_precompute_home/.vibeguard"
+printf '%s' "$PWD" > "$_precompute_home/.vibeguard/repo-path"
+hook_test_install_runtime_stub "$_precompute_home"
+_precompute_runtime="$_precompute_home/.vibeguard/installed/bin/vibeguard-runtime"
+_claude_trace=$(
+  printf '%s\n' '{"tool_input":{"command":"echo hello"}}' \
+    | HOME="$_precompute_home" VIBEGUARD_LOG_DIR="$_precompute_log" VIBEGUARD_RUNTIME="$_precompute_runtime" bash -x hooks/run-hook.sh pre-bash-guard.sh 2>&1 >/dev/null || true
+)
+assert_not_contains "$_claude_trace" "git rev-parse" "Claude wrapper precompute: hook trace avoids git rev-parse"
+assert_not_contains "$_claude_trace" "shasum" "Claude wrapper precompute: hook trace avoids shasum"
+assert_not_contains "$_claude_trace" "ps -" "Claude wrapper precompute: hook trace avoids ps process walks"
+assert_contains "$(cat "$_precompute_log/events.jsonl" 2>/dev/null || true)" '"session": "stub-session"' "Claude wrapper precompute: exported session reaches log event"
+assert_contains "$(cat "$_precompute_log/projects/abcdef12/.project-root" 2>/dev/null || true)" "$PWD" "Claude wrapper precompute: project hash mapping is written"
+rm -rf "$_precompute_home" "$_precompute_log"
+
+_codex_precompute_home=$(mktemp -d)
+_codex_precompute_log=$(mktemp -d)
+mkdir -p "$_codex_precompute_home/.vibeguard"
+printf '%s' "$PWD" > "$_codex_precompute_home/.vibeguard/repo-path"
+hook_test_install_runtime_stub "$_codex_precompute_home"
+_codex_precompute_runtime="$_codex_precompute_home/.vibeguard/installed/bin/vibeguard-runtime"
+_codex_trace=$(
+  printf '%s\n' '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo hello"}}' \
+    | HOME="$_codex_precompute_home" VIBEGUARD_LOG_DIR="$_codex_precompute_log" VIBEGUARD_RUNTIME="$_codex_precompute_runtime" bash -x hooks/run-hook-codex.sh vibeguard-pre-bash-guard.sh 2>&1 >/dev/null || true
+)
+assert_not_contains "$_codex_trace" "git rev-parse" "Codex wrapper precompute: hook trace avoids git rev-parse"
+assert_not_contains "$_codex_trace" "shasum" "Codex wrapper precompute: hook trace avoids shasum"
+assert_not_contains "$_codex_trace" "ps -" "Codex wrapper precompute: hook trace avoids ps process walks"
+assert_contains "$(cat "$_codex_precompute_log/events.jsonl" 2>/dev/null || true)" '"session": "stub-session"' "Codex wrapper precompute: exported session reaches log event"
+rm -rf "$_codex_precompute_home" "$_codex_precompute_log"
 
 # Extract duration_ms value and verify it's a positive integer >= 1
 _dur=$(echo "$_timer_result" | python3 -c "import sys,json; e=json.loads(sys.stdin.read()); print(e.get('duration_ms','missing'))" 2>/dev/null || echo "missing")

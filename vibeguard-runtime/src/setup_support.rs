@@ -55,6 +55,16 @@ pub fn sha256_file(path: &Path) -> SetupResult<String> {
     Ok(hasher.digest().to_string())
 }
 
+pub fn sha256_text(value: &str) -> String {
+    let mut hasher = sha256::Sha256::new();
+    hasher.update(value.as_bytes());
+    hasher.digest().to_string()
+}
+
+pub fn sha256_text_short(value: &str) -> String {
+    sha256_text(value)[..8].to_string()
+}
+
 pub fn display_home_path(path: &Path) -> String {
     if let Some(home) = home_dir() {
         if let Ok(rel) = path.strip_prefix(&home) {
@@ -342,6 +352,15 @@ mod tests {
         );
         let _ = fs::remove_dir_all(dir);
         Ok(())
+    }
+
+    #[test]
+    fn sha256_text_matches_known_digest() {
+        assert_eq!(
+            sha256_text("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(sha256_text_short("abc"), "ba7816bf");
     }
 
     #[test]

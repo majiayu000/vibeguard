@@ -99,6 +99,37 @@ command="${1:-}"
 shift || true
 
 case "$command" in
+  codex-event-name)
+    input="$(cat)"
+    if [[ "$input" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+    fi
+    ;;
+  wrapper-env)
+    cli="${1:-${VIBEGUARD_CLI:-unknown}}"
+    log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+    project_hash="${VIBEGUARD_PROJECT_HASH:-${VIBEGUARD_TEST_PROJECT_HASH:-abcdef12}}"
+    project_dir="${VIBEGUARD_PROJECT_LOG_DIR:-${log_dir}/projects/${project_hash}}"
+    log_file="${VIBEGUARD_LOG_FILE:-${project_dir}/events.jsonl}"
+    session_id="${VIBEGUARD_SESSION_ID:-stub-session}"
+    mkdir -p "$project_dir"
+    printf '%s' "$PWD" > "${project_dir}/.project-root"
+    printf 'VIBEGUARD_CLI=%s\n' "$cli"
+    printf 'VIBEGUARD_PROJECT_HASH=%s\n' "$project_hash"
+    printf 'VIBEGUARD_PROJECT_LOG_DIR=%s\n' "$project_dir"
+    printf 'VIBEGUARD_LOG_FILE=%s\n' "$log_file"
+    printf 'VIBEGUARD_SESSION_ID=%s\n' "$session_id"
+    ;;
+  append-jsonl-mirror)
+    primary_file="${1:?append-jsonl-mirror requires a primary file path}"
+    mirror_file="${2:?append-jsonl-mirror requires a mirror file path}"
+    line="$(cat)"
+    mkdir -p "$(dirname "$primary_file")" "$(dirname "$mirror_file")"
+    printf '%s\n' "$line" >> "$primary_file"
+    if [[ "$primary_file" != "$mirror_file" ]]; then
+      printf '%s\n' "$line" >> "$mirror_file"
+    fi
+    ;;
   append-jsonl)
     file="${1:?append-jsonl requires a file path}"
     line="$(cat)"

@@ -349,6 +349,22 @@ else
 fi
 teardown
 
+setup
+ENV_HASH_TEST=$(bash -c "
+  export VIBEGUARD_LOG_DIR='${CB_TMPDIR}'
+  export VIBEGUARD_SESSION_ID='testsession01'
+  export VIBEGUARD_PROJECT_HASH='cccccccc'
+  source '${CB_SCRIPT}'
+  _vg_cb_state_file 'env-hash-hook'
+" 2>&1 || true)
+TOTAL=$((TOTAL+1))
+if echo "$ENV_HASH_TEST" | grep -q "/cccccccc/env-hash-hook.cb"; then
+  green "State file uses VIBEGUARD_PROJECT_HASH when log.sh was not sourced"; PASS=$((PASS+1))
+else
+  red "State file hash env: expected cccccccc slug, got: $ENV_HASH_TEST"; FAIL=$((FAIL+1))
+fi
+teardown
+
 # ── 11. Cross-project isolation: OPEN in one project does not affect another ──
 printf '\n--- Cross-project isolation ---\n'
 

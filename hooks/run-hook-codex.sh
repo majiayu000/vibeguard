@@ -16,9 +16,7 @@ if [[ ! -f "${DIAG_PATH}" ]]; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ -f "${REPO_PATH_FILE}" ]]; then
     REPO_DIR=$(<"${REPO_PATH_FILE}")
-    if [[ -f "${REPO_DIR}/hooks/_lib/codex_diag.sh" ]]; then
-      DIAG_PATH="${REPO_DIR}/hooks/_lib/codex_diag.sh"
-    fi
+    [[ -f "${REPO_DIR}/hooks/_lib/codex_diag.sh" ]] && DIAG_PATH="${REPO_DIR}/hooks/_lib/codex_diag.sh"
   fi
 fi
 
@@ -84,16 +82,15 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
-  if [[ -z "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" && ! -f "${ADAPTER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]]; then
-    ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
-  fi
-  if [[ ! -f "${RUNNER_PATH}" && -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]]; then
-    RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
-  fi
-  if [[ ! -f "${TIMEOUT_PATH}" && -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]]; then
-    TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
-  fi
+  [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" || -f "${ADAPTER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]] || ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+  [[ -f "${RUNNER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]] || RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
+  [[ -f "${TIMEOUT_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]] || TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
 fi
+
+WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
+[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+[[ ! -f "${WRAPPER_ENV_PATH}" ]] || { source "${WRAPPER_ENV_PATH}"; vg_wrapper_env_export "codex"; }
 
 POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
 [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"

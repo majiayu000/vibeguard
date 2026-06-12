@@ -67,6 +67,7 @@ fn help_lists_all_commands() {
         "runtime-policy-diag",
         "runtime-config-get-int",
         "runtime-config-get-str",
+        "wrapper-env",
         "project-config-validate",
         "project-config-value",
         "pre-write-check",

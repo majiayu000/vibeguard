@@ -53,6 +53,15 @@ if [[ ! -f "$HOOK_PATH" ]]; then
   exit 1
 fi
 
+WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
+[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+if [[ -f "${WRAPPER_ENV_PATH}" ]]; then
+  # shellcheck source=hooks/_lib/wrapper_env.sh
+  source "${WRAPPER_ENV_PATH}"
+  vg_wrapper_env_export "claude"
+fi
+
 POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
 [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
 [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"

@@ -36,6 +36,7 @@ mod setup_manifest;
 mod setup_markdown;
 mod setup_support;
 mod time_utils;
+mod wrapper_env;
 
 use std::env;
 use std::process;
@@ -273,6 +274,11 @@ static COMMANDS: &[Command] = &[
         name: "runtime-config-get-str",
         usage: "<env-name> <json-path> <default>  — read a string from runtime config",
         handler: runtime_config::runtime_config_get_str,
+    },
+    Command {
+        name: "wrapper-env",
+        usage: "[cli]  — precompute hook wrapper log and session environment",
+        handler: wrapper_env::run,
     },
     Command {
         name: "project-config-validate",

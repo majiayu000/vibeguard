@@ -74,6 +74,8 @@ _vg_cb_state_file() {
   local slug
   if [[ -n "${_vg_project_hash:-}" ]]; then
     slug="$_vg_project_hash"
+  elif [[ -n "${VIBEGUARD_PROJECT_HASH:-}" ]]; then
+    slug="$VIBEGUARD_PROJECT_HASH"
   else
     local root
     root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
