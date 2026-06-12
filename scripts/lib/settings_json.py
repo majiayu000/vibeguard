@@ -18,6 +18,7 @@ from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
 
 MANIFEST = load_manifest()
 MANAGED_SCRIPT_NAMES = all_managed_script_names(MANIFEST)
+CLAUDE_PROFILE_SCRIPT_NAMES = frozenset(spec["script"] for spec in claude_specs(MANIFEST, None))
 LEGACY_SCRIPT_NAMES: frozenset[str] = frozenset(
     {"post-guard-check.sh", "session-tagger.sh", "cognitive-reminder.sh"}
 )
@@ -270,7 +271,7 @@ def _managed_hook_identities(data: dict[str, Any]) -> set[tuple[str, str, str]]:
             continue
         for entry in entries:
             for identity in _entry_identities(str(event), entry):
-                if identity.is_managed and identity.script:
+                if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
                     identities.add((identity.event, identity.matcher or "", identity.script))
     return identities
 
@@ -426,7 +427,7 @@ def remove_unprofiled_managed_hooks(
                     kept_hooks.append(hook)
                     continue
                 identity = _hook_identity(str(event), matcher, hook)
-                if identity.is_managed and identity.script:
+                if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
                     hook_identity = (identity.event, identity.matcher or "", identity.script)
                     if hook_identity not in desired_identities:
                         removed_any = True

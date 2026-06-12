@@ -87,6 +87,28 @@ from pathlib import Path
 settings_path = Path(sys.argv[1])
 data = json.loads(settings_path.read_text(encoding="utf-8"))
 hooks = data.setdefault("hooks", {})
+hooks.setdefault("SessionStart", []).append(
+    {
+        "hooks": [
+            {
+                "type": "command",
+                "command": f"bash {Path.home() / '.vibeguard' / 'run-hook.sh'} skills-loader.sh",
+            }
+        ]
+    }
+)
+settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+assert_cmd "core profile check allows manual skills-loader hook" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
+assert_cmd "core profile repair preserves manual skills-loader hook" bash -c "bash '${REPO_DIR}/setup.sh' --yes --profile core >/dev/null && grep -q 'skills-loader.sh' '${HOME}/.claude/settings.json' && python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core"
+python3 - "${HOME}/.claude/settings.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+data = json.loads(settings_path.read_text(encoding="utf-8"))
+hooks = data.setdefault("hooks", {})
 entries = hooks.setdefault("PostToolUse", [])
 entries.append(
     {
