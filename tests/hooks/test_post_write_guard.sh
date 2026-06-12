@@ -41,6 +41,50 @@ assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
+# The shell wrapper should not run a fast command and then a full command for
+# the same Write event; scan reuse lives inside the single runtime command.
+tmp_repo_runtime_once="$(mktemp -d)"
+tmp_runtime_log="${tmp_repo_runtime_once}/commands.log"
+tmp_runtime_bin="${tmp_repo_runtime_once}/vibeguard-runtime"
+cat >"$tmp_runtime_bin" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command="${1:-}"
+shift || true
+printf '%s\n' "$command" >> "${VIBEGUARD_RUNTIME_COMMAND_LOG:?}"
+
+case "$command" in
+  runtime-config-get-int|runtime-config-get-str)
+    printf '%s\n' "${3:-}"
+    ;;
+  post-write-check)
+    cat >/dev/null
+    ;;
+  post-write-fast-check)
+    printf 'unexpected fast check\n' >&2
+    exit 9
+    ;;
+  *)
+    printf 'Unknown command: %s\n' "$command" >&2
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$tmp_runtime_bin"
+json_payload='{"tool_input":{"file_path":"/tmp/vg_runtime_once/src/new.py","content":"def newThing():\n    return 1"}}'
+result=$(printf '%s\n' "$json_payload" \
+  | VIBEGUARD_RUNTIME="$tmp_runtime_bin" \
+    VIBEGUARD_RUNTIME_COMMAND_LOG="$tmp_runtime_log" \
+    HOME="${tmp_repo_runtime_once}/home" \
+    VIBEGUARD_LOG_DIR="${tmp_repo_runtime_once}/logs" \
+    bash hooks/post-write-guard.sh)
+runtime_commands="$(cat "$tmp_runtime_log")"
+assert_not_contains "$result" "VIBEGUARD" "Single-command runtime fixture remains silent"
+assert_occurrences "$runtime_commands" "post-write-fast-check" "0" "Post-write guard no longer calls fast check before full check"
+assert_occurrences "$runtime_commands" "post-write-check" "1" "Post-write guard calls the full runtime command once per Write event"
+rm -rf "$tmp_repo_runtime_once"
+
 # Git worktrees expose .git as a file, and hook inputs can be relative paths.
 tmp_repo_worktree="$(mktemp -d)"
 mkdir -p "$tmp_repo_worktree/src"
