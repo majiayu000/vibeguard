@@ -34,7 +34,7 @@ Use `--sla=<ms>` only when deliberately testing a temporary global threshold. Th
 
 Most fixtures invoke hook scripts directly so regressions in hook logic, JSON parsing, logging, and bounded event-log reads are isolated to the hook under test.
 
-Codex wrapper hooks invoke `hooks/run-hook-codex.sh` with a temporary `HOME/.vibeguard/repo-path` pointing at the repository. These fixtures include Codex event parsing, runtime policy lookup, status diagnostics, output adaptation, and wrapper finalization before the underlying hook returns. They are intentionally budgeted separately from direct hooks because they measure the installed Codex path, not just the hook body.
+Codex wrapper hooks invoke a temporary installed-wrapper copy with the same helper files installed by `scripts/setup/targets/codex-home.sh` and a repo-path file pointing at the repository. These fixtures include Codex event parsing, installed wrapper/helper lookup, runtime policy lookup, status diagnostics, output adaptation, and wrapper finalization before the underlying hook returns. They are intentionally budgeted separately from direct hooks because they measure the installed Codex path, not just the hook body.
 
 ## Hotspot Attribution
 

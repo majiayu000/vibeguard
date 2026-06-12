@@ -136,8 +136,25 @@ cat > "$TMPDIR_BENCH/stop-input.json" <<'EOF'
 EOF
 
 CODEX_BENCH_HOME="$TMPDIR_BENCH/codex-home"
-mkdir -p "$CODEX_BENCH_HOME/.vibeguard"
+CODEX_BENCH_WRAPPER="$CODEX_BENCH_HOME/.vibeguard/run-hook-codex.sh"
+CODEX_BENCH_RUNTIME="$CODEX_BENCH_HOME/.vibeguard/installed/bin/vibeguard-runtime"
+mkdir -p "$CODEX_BENCH_HOME/.vibeguard/_lib" "$CODEX_BENCH_HOME/.vibeguard/installed/bin"
 printf '%s' "$REPO_DIR" > "$CODEX_BENCH_HOME/.vibeguard/repo-path"
+cp "$HOOKS_DIR/run-hook-codex.sh" "$CODEX_BENCH_WRAPPER"
+cp "$HOOKS_DIR/_lib/codex_diag.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/codex_diag.sh"
+cp "$HOOKS_DIR/_lib/codex_runner.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/codex_runner.sh"
+cp "$HOOKS_DIR/_lib/timeout.sh" "$CODEX_BENCH_HOME/.vibeguard/_lib/timeout.sh"
+chmod +x "$CODEX_BENCH_WRAPPER"
+for runtime_candidate in \
+  "${VIBEGUARD_RUNTIME:-}" \
+  "$REPO_DIR/vibeguard-runtime/target/debug/vibeguard-runtime" \
+  "$REPO_DIR/vibeguard-runtime/target/release/vibeguard-runtime"; do
+  if [[ -n "$runtime_candidate" && -x "$runtime_candidate" ]]; then
+    cp "$runtime_candidate" "$CODEX_BENCH_RUNTIME"
+    chmod +x "$CODEX_BENCH_RUNTIME"
+    break
+  fi
+done
 
 # --- Benchmark runner ---
 RESULTS=()
@@ -229,7 +246,7 @@ bench_codex_wrapper() {
   local input_file="$3"
   local events_file="${4:-}"
   local budget_ms="${5:-$(budget_for "$name")}"
-  local hotspot="${6:-run-hook-codex.sh ${hook_name}}"
+  local hotspot="${6:-~/.vibeguard/run-hook-codex.sh ${hook_name}}"
   local latencies=()
 
   for _run in $(seq 1 "$RUNS"); do
@@ -243,10 +260,12 @@ bench_codex_wrapper() {
       "VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
       "VIBEGUARD_CODEX_DIAG_FILE=$TMPDIR_BENCH/codex-wrapper.jsonl"
       "VIBEGUARD_POLICY_DIAG_FILE=$TMPDIR_BENCH/policy.jsonl"
+      "VIBEGUARD_RUNTIME="
+      "VIBEGUARD_POLICY_RUNTIME="
     )
 
     local start=$(_now_ms)
-    env "${hook_env[@]}" bash "$HOOKS_DIR/run-hook-codex.sh" "$hook_name" < "$input_file" > /dev/null 2>&1 || true
+    env "${hook_env[@]}" bash "$CODEX_BENCH_WRAPPER" "$hook_name" < "$input_file" > /dev/null 2>&1 || true
     local end=$(_now_ms)
     local elapsed=$((end - start))
     latencies+=("$elapsed")
