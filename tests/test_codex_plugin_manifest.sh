@@ -50,6 +50,13 @@ assert_cmd "plugin dashboard generator writes local HTML" bash -c '
   grep -q "VibeGuard Observability" "${tmp_dir}/dashboard.html"
   ! LC_ALL=C grep -q "$(printf "\033")" "${tmp_dir}/dashboard.html"
 ' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" "${REPO_DIR}"
+assert_cmd "plugin dashboard rejects global scope with project filter" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  VIBEGUARD_REPO_DIR="$2" bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --project "${tmp_dir}" --scope global 2>"${tmp_dir}/stderr" && exit 1
+  grep -q -- "--project cannot be used with --scope global" "${tmp_dir}/stderr"
+  test ! -f "${tmp_dir}/dashboard.html"
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" "${REPO_DIR}"
 assert_cmd "plugin dashboard generator renders command failures" bash -c '
   tmp_dir="$(mktemp -d)"
   trap "rm -rf \"${tmp_dir}\"" EXIT

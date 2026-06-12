@@ -251,6 +251,10 @@ USAGE
     printf 'ERROR: --scope must be project or global\n' >&2
     return 2
   fi
+  if [[ -n "${project}" && "${scope}" == "global" ]]; then
+    printf 'ERROR: --project cannot be used with --scope global\n' >&2
+    return 2
+  fi
 
   local repo_dir dashboard_dir generated_at
   repo_dir="$(resolve_repo_dir)"
