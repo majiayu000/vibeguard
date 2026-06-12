@@ -7,6 +7,7 @@ REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 
 python3 - <<'PY' "${REPO_DIR}"
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,20 +25,53 @@ forbidden = [
     re.compile(r"\bact\s+as\s+(?:a\s+|an\s+|the\s+)?(?:system|developer|root|admin|administrator)\b", re.I),
 ]
 
-targets: list[Path] = []
-for base in (repo / "mcp-server" / "src", repo / "mcp-server" / "dist"):
-    if not base.exists():
-        continue
-    for path in sorted(base.rglob("*")):
+def is_mcp_source(path: Path) -> bool:
+    if "node_modules" in path.parts:
+        return False
+    if path.suffix not in {".js", ".mjs", ".cjs", ".ts", ".d.ts"}:
+        return False
+    return not path.name.endswith(".map")
+
+
+def filesystem_mcp_targets() -> list[Path]:
+    targets: list[Path] = []
+    for base in (repo / "mcp-server" / "src", repo / "mcp-server" / "dist"):
+        if not base.exists():
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.is_file() and is_mcp_source(path):
+                targets.append(path)
+    return targets
+
+
+def tracked_mcp_targets() -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", "mcp-server/src", "mcp-server/dist"],
+        cwd=repo,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+    )
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        raise SystemExit(f"ERROR: git ls-files failed for MCP audit targets: {message}")
+
+    targets: list[Path] = []
+    for raw in result.stdout.split(b"\0"):
+        if not raw:
+            continue
+        rel = Path(raw.decode("utf-8", errors="surrogateescape"))
+        path = repo / rel
+        if not is_mcp_source(path):
+            continue
         if not path.is_file():
-            continue
-        if "node_modules" in path.parts:
-            continue
-        if path.suffix not in {".js", ".mjs", ".cjs", ".ts", ".d.ts"}:
-            continue
-        if path.name.endswith(".map"):
-            continue
+            raise SystemExit(f"ERROR: tracked MCP audit target is missing: {rel}")
         targets.append(path)
+    return targets
+
+
+targets = tracked_mcp_targets() if (repo / ".git").exists() else filesystem_mcp_targets()
 
 def line_no(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
