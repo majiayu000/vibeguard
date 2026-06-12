@@ -67,7 +67,7 @@ if ! [[ "${HOURS}" =~ ^[0-9]+$ ]] || [[ "${HOURS}" -le 0 ]]; then
   exit 1
 fi
 
-RUNTIME="$(vg_resolve_runtime "${REPO_DIR}")"
+RUNTIME="$(vg_resolve_runtime "${REPO_DIR}" observe_health_legacy)"
 CMD=("${RUNTIME}" observe health --legacy --limit all --hours "${HOURS}")
 
 if [[ "${SCOPE_EXPLICIT}" -eq 1 ]]; then

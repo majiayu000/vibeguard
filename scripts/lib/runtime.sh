@@ -69,6 +69,9 @@ vg_runtime_supports() {
     observe_legacy)
       vg_runtime_supports_observe "${candidate}"
       ;;
+    observe_health_legacy)
+      vg_runtime_supports_observe_health "${candidate}"
+      ;;
     observe_export_prometheus)
       vg_runtime_supports_observe_export_prometheus "${candidate}"
       ;;
@@ -81,6 +84,11 @@ vg_runtime_supports() {
 vg_runtime_supports_observe() {
   local candidate="$1"
   "${candidate}" observe summary --legacy --days all --limit all --log-file /dev/null >/dev/null 2>&1
+}
+
+vg_runtime_supports_observe_health() {
+  local candidate="$1"
+  "${candidate}" observe health --legacy --limit all --hours 24 --log-file /dev/null >/dev/null 2>&1
 }
 
 vg_runtime_supports_observe_export_prometheus() {
