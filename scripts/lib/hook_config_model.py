@@ -41,6 +41,16 @@ def _shell_invokes_wrapper(parts: list[str], index: int) -> bool:
     return shell in {"bash", "sh", "zsh"} and not wrapper.startswith("-")
 
 
+def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
+    if index == 0:
+        return True
+    if _basename(parts[index - 1]) in {"bash", "sh", "zsh"}:
+        return True
+    if index >= 2 and parts[index - 1].startswith("-"):
+        return _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
+    return False
+
+
 def _looks_like_direct_script(parts: list[str], index: int) -> bool:
     token = parts[index]
     if "/" in token or token.startswith(("./", "../", "~/", "$HOME/", "${HOME}/")):
@@ -78,6 +88,8 @@ def hook_command_identity(
     for index, token in enumerate(parts):
         token_base = _basename(token)
         if token_base not in wrapper_set:
+            continue
+        if not _wrapper_is_invoked(parts, index):
             continue
         wrapper = token_base
         if index + 1 >= len(parts):

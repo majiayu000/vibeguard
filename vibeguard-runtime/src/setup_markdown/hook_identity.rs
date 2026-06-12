@@ -12,7 +12,7 @@ pub(super) fn managed_script_from_command<'a>(
 ) -> Option<&'a str> {
     let parts = shell_split(command);
     for (index, token) in parts.iter().enumerate() {
-        if basename(token) != "run-hook.sh" {
+        if basename(token) != "run-hook.sh" || !wrapper_is_invoked(&parts, index) {
             continue;
         }
         let Some(next) = parts.get(index + 1) else {
@@ -37,6 +37,7 @@ pub(super) fn managed_script_from_command<'a>(
 fn parts_invokes_script(parts: &[String], script: &str) -> bool {
     for (index, token) in parts.iter().enumerate() {
         if basename(token) == "run-hook.sh"
+            && wrapper_is_invoked(parts, index)
             && parts
                 .get(index + 1)
                 .is_some_and(|next| basename(next) == script)
@@ -61,6 +62,16 @@ fn looks_like_direct_script(parts: &[String], index: usize) -> bool {
 
 fn shell_invokes_wrapper(parts: &[String], index: usize) -> bool {
     index >= 2 && is_shell(&parts[index - 2]) && !parts[index - 1].starts_with('-')
+}
+
+fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+    if is_shell(&parts[index - 1]) {
+        return true;
+    }
+    index >= 2 && parts[index - 1].starts_with('-') && is_shell(&parts[index - 2])
 }
 
 fn is_shell(token: &str) -> bool {
