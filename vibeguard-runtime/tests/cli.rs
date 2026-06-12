@@ -30,6 +30,7 @@ fn help_lists_all_commands() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     for name in &[
         "json-field",
+        "json-bool-field",
         "json-two-fields",
         "churn-count",
         "warn-count",
