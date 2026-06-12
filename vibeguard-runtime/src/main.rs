@@ -105,6 +105,11 @@ static COMMANDS: &[Command] = &[
         handler: log_append::run,
     },
     Command {
+        name: "append-jsonl-mirror",
+        usage: "<primary-log-file> <mirror-log-file>  — append one stdin JSONL line to two JSONL files with runtime locking",
+        handler: log_append::run_mirror,
+    },
+    Command {
         name: "circuit-breaker",
         usage: "<check|record-block|record-pass> <hook> <state-file> <lock-file> <threshold> <cooldown> <lock-timeout>  — update hook circuit breaker state with runtime locking",
         handler: circuit_breaker::run,
