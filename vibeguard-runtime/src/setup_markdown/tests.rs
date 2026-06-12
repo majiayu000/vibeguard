@@ -45,6 +45,41 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn profile_settings_reject_duplicate_managed_hooks() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let core_specs = claude_specs(repo_dir, Some("core"))?;
+        let pre_bash_spec = core_specs
+            .iter()
+            .find(|spec| spec.script == "pre-bash-guard.sh")
+            .ok_or("expected pre-bash hook in core profile")?;
+
+        let core_data = settings_data_with_specs(&core_specs);
+        assert!(settings_has_profile_hooks(repo_dir, &core_data, "core")?);
+
+        let mut duplicate_specs = core_specs.clone();
+        duplicate_specs.push(pre_bash_spec.clone());
+        let mut duplicate_data = settings_data_with_specs(&duplicate_specs);
+        assert!(!settings_has_profile_hooks(
+            repo_dir,
+            &duplicate_data,
+            "core"
+        )?);
+
+        let desired = core_specs.iter().map(settings_spec_identity).collect();
+        assert!(settings_remove_unprofiled_hooks(
+            repo_dir,
+            &mut duplicate_data,
+            &desired
+        )?);
+        assert!(settings_has_profile_hooks(
+            repo_dir,
+            &duplicate_data,
+            "core"
+        )?);
+        Ok(())
+    }
+
+    #[test]
     fn profile_repair_removes_same_script_wrong_matcher() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;

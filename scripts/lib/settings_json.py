@@ -260,20 +260,21 @@ def _spec_identity(spec: dict[str, Any]) -> tuple[str, str, str]:
     return (str(spec["event"]), str(spec.get("matcher") or ""), str(spec["script"]))
 
 
-def _managed_hook_identities(data: dict[str, Any]) -> set[tuple[str, str, str]]:
+def _managed_hook_identity_counts(data: dict[str, Any]) -> dict[tuple[str, str, str], int]:
     hooks = data.get("hooks", {})
     if not isinstance(hooks, dict):
-        return set()
+        return {}
 
-    identities: set[tuple[str, str, str]] = set()
+    counts: dict[tuple[str, str, str], int] = {}
     for event, entries in hooks.items():
         if not isinstance(entries, list):
             continue
         for entry in entries:
             for identity in _entry_identities(str(event), entry):
                 if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
-                    identities.add((identity.event, identity.matcher or "", identity.script))
-    return identities
+                    hook_identity = (identity.event, identity.matcher or "", identity.script)
+                    counts[hook_identity] = counts.get(hook_identity, 0) + 1
+    return counts
 
 
 def has_pre_hooks(data: dict[str, Any]) -> bool:
@@ -301,7 +302,10 @@ def has_profile_hooks(data: dict[str, Any], profile: str) -> bool:
     if not _has_all_specs(data, desired_specs):
         return False
     desired_identities = {_spec_identity(spec) for spec in desired_specs}
-    return _managed_hook_identities(data).issubset(desired_identities)
+    managed_counts = _managed_hook_identity_counts(data)
+    return set(managed_counts).issubset(desired_identities) and all(
+        count == 1 for count in managed_counts.values()
+    )
 
 
 def _hook_command(repo_dir: str, script_name: str) -> str:
@@ -403,6 +407,7 @@ def remove_unprofiled_managed_hooks(
     desired_identities: set[tuple[str, str, str]],
     state: dict[str, Any],
 ) -> None:
+    seen_profile_identities: set[tuple[str, str, str]] = set()
     for event, entries in list(hooks.items()):
         if not isinstance(entries, list):
             continue
@@ -429,9 +434,13 @@ def remove_unprofiled_managed_hooks(
                 identity = _hook_identity(str(event), matcher, hook)
                 if identity.is_managed and identity.script in CLAUDE_PROFILE_SCRIPT_NAMES:
                     hook_identity = (identity.event, identity.matcher or "", identity.script)
-                    if hook_identity not in desired_identities:
+                    if (
+                        hook_identity not in desired_identities
+                        or hook_identity in seen_profile_identities
+                    ):
                         removed_any = True
                         continue
+                    seen_profile_identities.add(hook_identity)
                 kept_hooks.append(hook)
 
             if removed_any:

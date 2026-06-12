@@ -80,6 +80,30 @@ assert_cmd "default install includes Python native rules" test -L "${HOME}/.clau
 assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 python3 - "${HOME}/.claude/settings.json" <<'PY'
+import copy
+import json
+import shlex
+import sys
+from pathlib import Path
+
+settings_path = Path(sys.argv[1])
+data = json.loads(settings_path.read_text(encoding="utf-8"))
+entries = data["hooks"]["PreToolUse"]
+for entry in entries:
+    if entry.get("matcher") != "Bash":
+        continue
+    for hook in entry.get("hooks", []):
+        command = hook.get("command") if isinstance(hook, dict) else ""
+        parts = shlex.split(command) if isinstance(command, str) else []
+        if any(Path(part).name == "pre-bash-guard.sh" for part in parts):
+            entries.append(copy.deepcopy(entry))
+            settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+assert_cmd "core profile check rejects duplicate managed hook" bash -c "! python3 '${SETTINGS_HELPER}' check --settings-file '${HOME}/.claude/settings.json' --target profile-hooks:core >/dev/null 2>&1"
+assert_cmd "core profile repair removes duplicate managed hook" assert_profile_hook_restored_after_repair core profile-hooks:core
+python3 - "${HOME}/.claude/settings.json" <<'PY'
 import json
 import sys
 from pathlib import Path

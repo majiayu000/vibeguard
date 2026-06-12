@@ -4,7 +4,7 @@ use crate::setup_support::{
 };
 use regex::Regex;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const START: &str = "<!-- vibeguard-start -->";
@@ -368,7 +368,11 @@ fn settings_has_profile_hooks(repo_dir: &Path, data: &Value, profile: &str) -> S
     }
     let desired_identities: BTreeSet<(String, String, String)> =
         desired.iter().map(settings_spec_identity).collect();
-    Ok(settings_managed_hook_identities(repo_dir, data)?.is_subset(&desired_identities))
+    let managed_counts = settings_managed_hook_identity_counts(repo_dir, data)?;
+    Ok(managed_counts
+        .keys()
+        .all(|identity| desired_identities.contains(identity))
+        && managed_counts.values().all(|count| *count == 1))
 }
 
 fn settings_has_spec(data: &Value, spec: &ClaudeSpec) -> bool {
@@ -500,6 +504,7 @@ fn settings_remove_unprofiled_hooks(
         return Ok(false);
     };
     let mut changed = false;
+    let mut seen_profile_identities = BTreeSet::new();
     for (event, entries) in hooks.iter_mut() {
         let Some(entries) = entries.as_array_mut() else {
             continue;
@@ -516,7 +521,8 @@ fn settings_remove_unprofiled_hooks(
             let before = hook_entries.len();
             hook_entries.retain(|hook| {
                 settings_hook_managed_script(hook, &managed_scripts).is_none_or(|script| {
-                    desired.contains(&(event.clone(), matcher.clone(), script.to_string()))
+                    let identity = (event.clone(), matcher.clone(), script.to_string());
+                    desired.contains(&identity) && seen_profile_identities.insert(identity)
                 })
             });
             changed |= before != hook_entries.len();
@@ -598,14 +604,14 @@ fn settings_spec_identity(spec: &ClaudeSpec) -> (String, String, String) {
     )
 }
 
-fn settings_managed_hook_identities(
+fn settings_managed_hook_identity_counts(
     repo_dir: &Path,
     data: &Value,
-) -> SetupResult<BTreeSet<(String, String, String)>> {
+) -> SetupResult<BTreeMap<(String, String, String), usize>> {
     let managed_scripts = claude_managed_scripts(repo_dir)?;
-    let mut identities = BTreeSet::new();
+    let mut counts = BTreeMap::new();
     let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
-        return Ok(identities);
+        return Ok(counts);
     };
     for (event, entries) in hooks {
         let Some(entries) = entries.as_array() else {
@@ -618,12 +624,14 @@ fn settings_managed_hook_identities(
             };
             for hook in hook_entries {
                 if let Some(script) = settings_hook_managed_script(hook, &managed_scripts) {
-                    identities.insert((event.clone(), matcher.to_string(), script.to_string()));
+                    *counts
+                        .entry((event.clone(), matcher.to_string(), script.to_string()))
+                        .or_insert(0) += 1;
                 }
             }
         }
     }
-    Ok(identities)
+    Ok(counts)
 }
 
 fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
