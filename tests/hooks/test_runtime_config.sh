@@ -115,6 +115,13 @@ result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_U
   bash hooks/analysis-paralysis-guard.sh)
 assert_contains "$result" "ANALYSIS PARALYSIS" "JSON paralysis.threshold=2 triggers warning"
 
+paralysis_suppressed_log="$(make_log_dir)"
+seed_research_events "$paralysis_suppressed_log" "cfg-paralysis-suppressed" 2
+result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+  VIBEGUARD_LOG_DIR="$paralysis_suppressed_log" VIBEGUARD_SESSION_ID="cfg-paralysis-suppressed" VIBEGUARD_CONFIG_FILE="$cfg" \
+  VIBEGUARD_SUPPRESS_PARALYSIS=1 bash hooks/analysis-paralysis-guard.sh)
+assert_not_contains "$result" "ANALYSIS PARALYSIS" "VIBEGUARD_SUPPRESS_PARALYSIS disables read-only agent warning"
+
 paralysis_env_log="$(make_log_dir)"
 seed_research_events "$paralysis_env_log" "cfg-paralysis-env" 2
 result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \

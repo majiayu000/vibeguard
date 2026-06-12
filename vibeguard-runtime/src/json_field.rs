@@ -66,6 +66,21 @@ pub fn run_field(args: &[String]) -> Result {
     Ok(())
 }
 
+/// vibeguard-runtime json-bool-field <field_path>
+/// Reads JSON from stdin, prints only literal JSON booleans as true/false.
+pub fn run_bool_field(args: &[String]) -> Result {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime json-bool-field <field_path>".into());
+    }
+    let input = read_stdin()?;
+    let data: Value = serde_json::from_str(&input)?;
+    match get_nested(&data, &args[0]) {
+        Some(Value::Bool(value)) => println!("{value}"),
+        _ => println!("false"),
+    }
+    Ok(())
+}
+
 /// vibeguard-runtime json-two-fields <field1> <field2>
 /// Reads JSON from stdin, prints field1 on first line, field2 on remaining lines.
 pub fn run_two_fields(args: &[String]) -> Result {
@@ -120,6 +135,20 @@ mod tests {
         assert_eq!(value_to_string(&json!(true)), "true");
         assert_eq!(value_to_string(&json!(["a", "b"])), "[\"a\",\"b\"]");
         assert_eq!(value_to_string(&json!({"n": 1})), "{\"n\":1}");
+    }
+
+    #[test]
+    fn bool_field_preserves_json_boolean_type() {
+        let args = vec!["stop_hook_active".to_string()];
+
+        let data = json!({"stop_hook_active": true});
+        assert_eq!(
+            get_nested(&data, &args[0]).and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let data = json!({"stop_hook_active": "true"});
+        assert_eq!(get_nested(&data, &args[0]).and_then(Value::as_bool), None);
     }
 
     #[test]

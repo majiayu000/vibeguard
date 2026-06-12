@@ -7,7 +7,12 @@ import re
 from pathlib import Path
 
 
-FORMAT_PATH_PATTERNS = ("skills/*/SKILL.md", "workflows/*/SKILL.md", "templates/skill-template.md")
+FORMAT_PATH_PATTERNS = (
+    "skills/*/SKILL.md",
+    "workflows/*/SKILL.md",
+    ".claude/skills/*/SKILL.md",
+    "templates/skill-template.md",
+)
 FORMAT_REQUIRED_SECTIONS = ("## When to Activate", "## Red Flags", "## Checklist")
 FORMAT_LIST_SECTIONS = ("## Red Flags", "## Checklist")
 MIN_RED_FLAGS = 3

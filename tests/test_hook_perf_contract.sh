@@ -67,6 +67,23 @@ assert_fail_contains() {
   fi
 }
 
+assert_success_contains() {
+  local desc="$1"
+  local expected="$2"
+  local output_file="$3"
+  shift 3
+  TOTAL=$((TOTAL + 1))
+  "$@" >"${output_file}" 2>&1
+  local exit_code=$?
+  if [[ "$exit_code" -eq 0 ]] && grep -qF -- "$expected" "${output_file}"; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (exit=${exit_code}, expected output: $expected)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 write_hook() {
   local dir="$1"
   local name="$2"
@@ -107,12 +124,13 @@ assert_fail_contains "subprocess in loop fails static validator" "PERF-04" "${TM
 assert_file_contains "${TMP_DIR}/bad-loop.out" "bad-loop-hook.sh" "loop subprocess output names the hook"
 
 header "dynamic latency gate"
-assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
+assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
 assert_file_contains "${TMP_DIR}/slow.out" "exceeded latency budget" "slow hook output explains budget failure"
 assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "slow hook output includes hotspot attribution"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P50)" "benchmark action output includes P50 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P95)" "benchmark action output includes P95 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P99)" "benchmark action output includes P99 samples"
+assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
 
 echo ""
 echo "======================================"

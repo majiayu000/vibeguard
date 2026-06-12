@@ -20,6 +20,10 @@ if [[ ! -t 0 ]]; then
   fi
 fi
 
+if [[ "${VIBEGUARD_SUPPRESS_PARALYSIS:-0}" == "1" ]]; then
+  exit 0
+fi
+
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/circuit-breaker.sh"
 vg_start_timer

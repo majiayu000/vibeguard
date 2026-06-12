@@ -505,6 +505,69 @@ vg_is_ci() {
 
 # ── stop_hook_active guard ────────────────────────────────────────────────────
 
+_vg_stop_hook_active_literal_top_level() {
+  local input="$1" len i c rest
+  local depth=0 in_string=false escape=false current="" key="" after_key=false
+
+  len=${#input}
+  i=0
+  while [[ "$i" -lt "$len" ]]; do
+    c="${input:i:1}"
+
+    if [[ "$in_string" == "true" ]]; then
+      if [[ "$escape" == "true" ]]; then
+        escape=false
+      elif [[ "$c" == "\\" ]]; then
+        escape=true
+      elif [[ "$c" == '"' ]]; then
+        in_string=false
+        if [[ "$depth" -eq 1 ]]; then
+          key="$current"
+          after_key=true
+        fi
+      elif [[ "$depth" -eq 1 ]]; then
+        current="${current}${c}"
+      fi
+      i=$((i + 1))
+      continue
+    fi
+
+    case "$c" in
+      '"')
+        in_string=true
+        escape=false
+        current=""
+        ;;
+      "{"|"[")
+        depth=$((depth + 1))
+        after_key=false
+        ;;
+      "}"|"]")
+        depth=$((depth - 1))
+        after_key=false
+        ;;
+      ":")
+        if [[ "$depth" -eq 1 && "$after_key" == "true" && "$key" == "stop_hook_active" ]]; then
+          rest="${input:i+1}"
+          [[ "$rest" =~ ^[[:space:]]*true([[:space:],}]|$) ]]
+          return
+        fi
+        after_key=false
+        ;;
+      ",")
+        if [[ "$depth" -eq 1 ]]; then
+          key=""
+          after_key=false
+        fi
+        ;;
+    esac
+
+    i=$((i + 1))
+  done
+
+  return 1
+}
+
 # vg_stop_hook_active <json_string>
 # Returns 0 (true) if the Stop hook input JSON has stop_hook_active == true,
 # indicating this invocation was triggered by another Stop hook and should not block.
@@ -513,15 +576,26 @@ vg_is_ci() {
 # Passes JSON via stdin (pipe) instead of an environment variable to avoid
 # hitting execve env-size limits when the input contains a long last_assistant_message.
 vg_stop_hook_active() {
-  local input="$1"
-  printf '%s' "$input" | python3 -c "
-import json, sys
-try:
-    data = json.loads(sys.stdin.read())
-    val = data.get('stop_hook_active', False)
-    # Require the boolean literal true, not a truthy string like 'false'
-    sys.exit(0 if val is True else 1)
-except Exception:
-    sys.exit(1)
-"
+  local input="$1" active="" runtime_path=""
+
+  if [[ -n "${_VIBEGUARD_RUNTIME:-}" && -x "${_VIBEGUARD_RUNTIME}" ]]; then
+    runtime_path="${_VIBEGUARD_RUNTIME}"
+  elif declare -F _vg_config_runtime_path >/dev/null 2>&1; then
+    runtime_path="$(_vg_config_runtime_path 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$runtime_path" ]]; then
+    if active=$(printf '%s' "$input" | "$runtime_path" json-bool-field stop_hook_active 2>/dev/null); then
+      [[ "$active" == "true" ]]
+      return
+    fi
+    if active=$(printf '%s' "$input" | "$runtime_path" json-field stop_hook_active 2>/dev/null); then
+      [[ "$active" == "true" ]] && _vg_stop_hook_active_literal_top_level "$input"
+      return
+    fi
+  fi
+
+  # Standalone and stale-runtime fallback for unit tests that source this file without log.sh.
+  # Require the boolean literal true; truthy strings must not count as active.
+  _vg_stop_hook_active_literal_top_level "$input"
 }
