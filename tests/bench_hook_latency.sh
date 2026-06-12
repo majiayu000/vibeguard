@@ -121,6 +121,29 @@ cat > "$TMPDIR_BENCH/bash-input.json" <<'EOF'
 {"tool_input":{"command":"cargo check"}}
 EOF
 
+POST_BUILD_BENCH_PROJECT="$TMPDIR_BENCH/post-build-rust"
+POST_BUILD_FAKE_BIN="$TMPDIR_BENCH/fake-bin"
+mkdir -p "$POST_BUILD_BENCH_PROJECT/src" "$POST_BUILD_FAKE_BIN"
+cat > "$POST_BUILD_BENCH_PROJECT/Cargo.toml" <<'EOF'
+[package]
+name = "post-build-bench"
+version = "0.0.0"
+edition = "2021"
+EOF
+cat > "$POST_BUILD_BENCH_PROJECT/src/lib.rs" <<'EOF'
+pub fn value() -> i32 { 1 }
+EOF
+cat > "$POST_BUILD_FAKE_BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${VIBEGUARD_POST_BUILD_FAKE_COMMAND_LOG:?}"
+exit 0
+EOF
+chmod +x "$POST_BUILD_FAKE_BIN/cargo"
+cat > "$TMPDIR_BENCH/post-build-input.json" <<EOF
+{"tool_input":{"file_path":"$POST_BUILD_BENCH_PROJECT/src/lib.rs"}}
+EOF
+
 # Mock Codex wrapper inputs. These fixtures keep the hook payload shape close to
 # real Codex hook events while preserving the direct-hook fields under tool_input.
 cat > "$TMPDIR_BENCH/codex-pre-bash-input.json" <<'EOF'
@@ -180,6 +203,7 @@ budget_for() {
     post-edit-guard\ \(5000\)|post-write-guard\ \(5000\)) printf '%s\n' 500 ;;
     stop-guard\ \(5000\)|learn-evaluator\ \(5000\)) printf '%s\n' 400 ;;
     codex-wrapper\ pre-bash-guard|codex-wrapper\ post-edit-guard\ \(100\)) printf '%s\n' 900 ;;
+    post-build-check\ \(fake\ cargo\)) printf '%s\n' 900 ;;
     synthetic-slow-hook) printf '%s\n' 1 ;;
     *) printf '%s\n' "$DEFAULT_BUDGET_MS" ;;
   esac
@@ -193,6 +217,12 @@ bench_hook() {
   local budget_ms="${5:-$(budget_for "$name")}"
   local hotspot="${6:-${name}}"
   local latencies=()
+  local -a extra_env=()
+
+  if [[ $# -gt 6 ]]; then
+    shift 6
+    extra_env=("$@")
+  fi
 
   for _run in $(seq 1 "$RUNS"); do
     # Keep benchmark runs isolated from the caller's ambient project log and
@@ -208,7 +238,7 @@ bench_hook() {
     )
 
     local start=$(_now_ms)
-    env "${hook_env[@]}" bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
+    env "${hook_env[@]}" "${extra_env[@]}" bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
     local end=$(_now_ms)
     local elapsed=$((end - start))
     latencies+=("$elapsed")
@@ -331,6 +361,10 @@ echo ""
 echo "[PostToolUse hooks — 100-line log]"
 bench_hook "post-edit-guard (100)" "$HOOKS_DIR/post-edit-guard.sh" "$TMPDIR_BENCH/edit-input.json" "$TMPDIR_BENCH/events-100.jsonl"
 bench_hook "post-write-guard (100)" "$HOOKS_DIR/post-write-guard.sh" "$TMPDIR_BENCH/write-input.json" "$TMPDIR_BENCH/events-100.jsonl"
+echo ""
+
+echo "[Post-build hooks — fake command]"
+bench_hook "post-build-check (fake cargo)" "$HOOKS_DIR/post-build-check.sh" "$TMPDIR_BENCH/post-build-input.json" "$TMPDIR_BENCH/events-100.jsonl" "$(budget_for "post-build-check (fake cargo)")" "fake cargo check" "PATH=$POST_BUILD_FAKE_BIN:$PATH" "VIBEGUARD_POST_BUILD_CACHE_TTL=0" "VIBEGUARD_POST_BUILD_FAKE_COMMAND_LOG=$TMPDIR_BENCH/post-build-fake-command.log"
 echo ""
 
 echo "[Codex wrapper hooks]"

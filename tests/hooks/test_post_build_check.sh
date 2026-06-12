@@ -69,6 +69,60 @@ assert_contains "$result" "timeout after 1s" "Post-build check reports timeout v
 assert_contains "$(grep -R "post-build-check timeout after 1s" "$VIBEGUARD_LOG_DIR" 2>/dev/null || true)" "post-build-check timeout after 1s" "Post-build timeout records telemetry"
 rm -rf "$tmp_js_timeout"
 
+# Build commands that fail without stderr/stdout should still be visible.
+tmp_js_empty_fail="$(mktemp -d)"
+mkdir -p "$tmp_js_empty_fail/bin"
+cat >"$tmp_js_empty_fail/bin/node" <<'EOF'
+#!/usr/bin/env bash
+exit 7
+EOF
+chmod +x "$tmp_js_empty_fail/bin/node"
+cat >"$tmp_js_empty_fail/fail.js" <<'EOF'
+const value = 1;
+EOF
+result=$(PATH="$tmp_js_empty_fail/bin:$PATH" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_empty_fail/fail.js\"}}' | bash hooks/post-build-check.sh")
+assert_contains "$result" "failed with exit status 7" "Post-build command failure without output is visible"
+rm -rf "$tmp_js_empty_fail"
+
+# Repeated checks for the same unchanged project should reuse a short-lived cache,
+# but changing the checked file must invalidate the cache and surface failures.
+tmp_js_cache="$(mktemp -d)"
+mkdir -p "$tmp_js_cache/bin"
+cat >"$tmp_js_cache/bin/node" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${POST_BUILD_NODE_LOG:?}"
+target=""
+for arg in "$@"; do
+  target="$arg"
+done
+if grep -q "BROKEN" "$target"; then
+  printf '%s\n' "SyntaxError: broken fixture" >&2
+  exit 1
+fi
+exit 0
+EOF
+chmod +x "$tmp_js_cache/bin/node"
+cat >"$tmp_js_cache/cached.js" <<'EOF'
+const value = 1;
+EOF
+cache_node_log="$tmp_js_cache/node.log"
+cache_env=(PATH="$tmp_js_cache/bin:$PATH" POST_BUILD_NODE_LOG="$cache_node_log" VIBEGUARD_POST_BUILD_CACHE_TTL=60)
+result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+assert_not_contains "$result" "VIBEGUARD" "Initial post-build cache fixture passes"
+result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+assert_not_contains "$result" "VIBEGUARD" "Unchanged post-build cache fixture reuses pass"
+assert_occurrences "$(cat "$cache_node_log")" "--check" 1 "Unchanged post-build check reuses cached pass result"
+cat >"$tmp_js_cache/cached.js" <<'EOF'
+const value = BROKEN;
+EOF
+result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+assert_contains "$result" "VIBEGUARD" "Changed post-build cache fixture reruns and surfaces failure"
+result=$(env "${cache_env[@]}" bash -c "echo '{\"tool_input\":{\"file_path\":\"$tmp_js_cache/cached.js\"}}' | bash hooks/post-build-check.sh")
+assert_contains "$result" "VIBEGUARD" "Cached failing post-build result remains visible"
+assert_occurrences "$(cat "$cache_node_log")" "--check" 2 "Changed worktree invalidates post-build cache once"
+rm -rf "$tmp_js_cache"
+
 # =========================================================
 
 hook_test_finish

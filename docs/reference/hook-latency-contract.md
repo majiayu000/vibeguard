@@ -21,6 +21,7 @@ These are cross-OS CI budgets, not ideal-machine optimization targets. Static pe
 | `learn-evaluator (5000)` | 400ms |
 | `codex-wrapper pre-bash-guard` | 900ms |
 | `codex-wrapper post-edit-guard (100)` | 900ms |
+| `post-build-check (fake cargo)` | 900ms |
 
 Run the gate locally:
 
@@ -36,6 +37,8 @@ Use `--sla=<ms>` only when deliberately testing a temporary global threshold. Th
 Most fixtures invoke hook scripts directly so regressions in hook logic, JSON parsing, logging, and bounded event-log reads are isolated to the hook under test.
 
 Codex wrapper hooks invoke a temporary installed-wrapper copy with the same helper files installed by `scripts/setup/targets/codex-home.sh` and a repo-path file pointing at the repository. These fixtures include Codex event parsing, installed wrapper/helper lookup, runtime policy lookup, status diagnostics, output adaptation, and wrapper finalization before the underlying hook returns. They are intentionally budgeted separately from direct hooks because they measure the installed Codex path, not just the hook body.
+
+Post-build fixtures use fake build commands and disable the post-build cache so CI measures hook overhead, timeout wrapping, project detection, and command dispatch without running a real full build.
 
 ## Hotspot Attribution
 
