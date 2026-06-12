@@ -24,7 +24,7 @@ Works with **Claude Code** and **Codex CLI**.
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-bash ~/vibeguard/setup.sh
+bash ~/vibeguard/setup.sh --yes
 ```
 
 On supported macOS/Linux targets, the production install/check/clean path is
@@ -33,7 +33,25 @@ verifies it with `SHA256SUMS`, so Rust/Cargo is not required by default.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
-Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check` to verify.
+Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check --strict` to verify.
+
+### First 5 minutes
+
+Use this path to prove the install is active before changing another project:
+
+```bash
+bash ~/vibeguard/setup.sh --check --strict
+bash ~/vibeguard/scripts/doctors/codex-doctor.sh
+bash ~/vibeguard/scripts/hook-health.sh 24
+```
+
+Expected result on a fully provisioned machine: `setup.sh --check --strict` exits 0 with `HEALTHY`, the Codex doctor reports configured rules and hooks, and hook health shows the latest local hook events or a no-data message that points to the log path. If optional language guard tools such as `ast-grep` are not installed, the strict check reports an explicit `MISSING` row and non-zero exit instead of silently treating that dependency gap as healthy.
+
+To protect another repository after VibeGuard is installed:
+
+```bash
+bash ~/vibeguard/scripts/project-init.sh /path/to/project
+```
 
 ## Current status
 
