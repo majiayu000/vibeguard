@@ -286,11 +286,17 @@ def _is_canonical_hook_command(command: str, script_name: str) -> bool:
         parts = shlex.split(command)
     except ValueError:
         return False
+    if len(parts) == 3:
+        return (
+            parts[0] == "bash"
+            and parts[1].endswith("/.vibeguard/run-hook.sh")
+            and parts[2] == script_name
+        )
     return (
-        len(parts) == 3
+        len(parts) > 3
         and parts[0] == "bash"
-        and parts[1].endswith("/.vibeguard/run-hook.sh")
-        and parts[2] == script_name
+        and " ".join(parts[1:-1]).endswith("/.vibeguard/run-hook.sh")
+        and parts[-1] == script_name
     )
 
 

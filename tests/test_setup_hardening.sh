@@ -176,6 +176,8 @@ assert parts == [
     "pre-bash-guard.sh",
 ]
 assert settings_json._is_canonical_hook_command(command, "pre-bash-guard.sh")
+legacy_command = f"bash {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
+assert settings_json._is_canonical_hook_command(legacy_command, "pre-bash-guard.sh")
 PY
 
 printf '\nSetup hardening tests: %s/%s passed\n' "${PASS}" "${TOTAL}"
