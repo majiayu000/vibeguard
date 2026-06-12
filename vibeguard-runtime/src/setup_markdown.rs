@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod hook_identity;
+
 const START: &str = "<!-- vibeguard-start -->";
 const END: &str = "<!-- vibeguard-end -->";
 const RULE_COUNT_PLACEHOLDER: &str = "__VIBEGUARD_RULE_COUNT__";
@@ -648,11 +650,7 @@ fn settings_entry_has_script(entry: &Value, script: &str) -> bool {
 fn settings_hook_is_script(hook: &Value, script: &str) -> bool {
     hook.get("command")
         .and_then(Value::as_str)
-        .is_some_and(|command| {
-            shell_split(command)
-                .iter()
-                .any(|part| basename(part) == script)
-        })
+        .is_some_and(|command| hook_identity::command_invokes_script(command, script))
 }
 
 fn settings_hook_managed_script<'a>(
@@ -661,11 +659,7 @@ fn settings_hook_managed_script<'a>(
 ) -> Option<&'a str> {
     hook.get("command")
         .and_then(Value::as_str)
-        .and_then(|command| {
-            shell_split(command)
-                .into_iter()
-                .find_map(|part| managed_scripts.get(basename(&part)).map(String::as_str))
-        })
+        .and_then(|command| hook_identity::managed_script_from_command(command, managed_scripts))
 }
 
 fn settings_is_canonical(command: &str, script: &str) -> bool {

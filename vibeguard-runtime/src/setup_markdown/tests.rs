@@ -80,6 +80,33 @@ mod setup_markdown_tests {
     }
 
     #[test]
+    fn profile_repair_preserves_unmanaged_hook_script_argument() -> SetupResult<()> {
+        let repo_dir = repo_dir()?;
+        let core_specs = claude_specs(repo_dir, Some("core"))?;
+        let mut data = settings_data_with_specs(&core_specs);
+        data["hooks"]["PostToolUse"]
+            .as_array_mut()
+            .expect("PostToolUse entries")
+            .push(serde_json::json!({
+                "matcher": "Edit",
+                "hooks": [{
+                    "type": "command",
+                    "command": "node /custom/audit.js post-build-check.sh",
+                }]
+            }));
+
+        assert!(settings_has_profile_hooks(repo_dir, &data, "core")?);
+        let desired = core_specs.iter().map(settings_spec_identity).collect();
+        assert!(!settings_remove_unprofiled_hooks(
+            repo_dir, &mut data, &desired
+        )?);
+        assert!(
+            serde_json::to_string(&data)?.contains("node /custom/audit.js post-build-check.sh")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn profile_repair_removes_same_script_wrong_matcher() -> SetupResult<()> {
         let repo_dir = repo_dir()?;
         let core_specs = claude_specs(repo_dir, Some("core"))?;
