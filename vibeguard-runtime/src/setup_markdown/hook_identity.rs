@@ -71,7 +71,11 @@ fn wrapper_is_invoked(parts: &[String], index: usize) -> bool {
     if is_shell(&parts[index - 1]) {
         return true;
     }
-    if index >= 2 && parts[index - 1].starts_with('-') && is_shell(&parts[index - 2]) {
+    if index >= 2
+        && parts[index - 1].starts_with('-')
+        && !shell_option_uses_command_string(&parts[index - 1])
+        && is_shell(&parts[index - 2])
+    {
         return true;
     }
     if env_invokes_token(parts, index) {
@@ -106,6 +110,19 @@ fn env_invokes_token(parts: &[String], index: usize) -> bool {
         return false;
     }
     cursor == index
+}
+
+fn shell_option_uses_command_string(token: &str) -> bool {
+    if token == "--" {
+        return false;
+    }
+    if token == "--command" {
+        return true;
+    }
+    if token.starts_with("--") {
+        return false;
+    }
+    token.trim_start_matches('-').contains('c')
 }
 
 fn env_option_takes_value(token: &str) -> bool {
@@ -150,6 +167,28 @@ mod tests {
         assert_eq!(
             managed_script_from_command(command, &managed_scripts()),
             None
+        );
+    }
+
+    #[test]
+    fn shell_c_command_string_does_not_count_as_wrapper_invocation() {
+        let command = "bash -c /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
+
+        assert!(!command_invokes_script(command, "pre-bash-guard.sh"));
+        assert_eq!(
+            managed_script_from_command(command, &managed_scripts()),
+            None
+        );
+    }
+
+    #[test]
+    fn shell_non_command_option_counts_as_wrapper_invocation() {
+        let command = "bash -e /tmp/.vibeguard/run-hook.sh pre-bash-guard.sh";
+
+        assert!(command_invokes_script(command, "pre-bash-guard.sh"));
+        assert_eq!(
+            managed_script_from_command(command, &managed_scripts()),
+            Some("pre-bash-guard.sh")
         );
     }
 }

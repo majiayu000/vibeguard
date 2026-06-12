@@ -79,6 +79,27 @@ assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules
 assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
+BASH_C_PROFILE_SETTINGS="${TMP_HOME}/bash-c-profile-settings.json"
+python3 - "${HOME}/.claude/settings.json" "${BASH_C_PROFILE_SETTINGS}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source_path = Path(sys.argv[1])
+target_path = Path(sys.argv[2])
+data = json.loads(source_path.read_text(encoding="utf-8"))
+for entry in data["hooks"]["PreToolUse"]:
+    if entry.get("matcher") != "Bash":
+        continue
+    for hook in entry.get("hooks", []):
+        command = hook.get("command") if isinstance(hook, dict) else ""
+        if "pre-bash-guard.sh" in command:
+            hook["command"] = f"bash -c {Path.home() / '.vibeguard' / 'run-hook.sh'} pre-bash-guard.sh"
+            target_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+assert_cmd "core profile check rejects bash -c wrapper without hook args" bash -c "! python3 '${SETTINGS_HELPER}' check --settings-file '${BASH_C_PROFILE_SETTINGS}' --target profile-hooks:core >/dev/null 2>&1"
 python3 - "${HOME}/.claude/settings.json" <<'PY'
 import json
 import sys

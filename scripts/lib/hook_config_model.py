@@ -46,11 +46,25 @@ def _wrapper_is_invoked(parts: list[str], index: int) -> bool:
         return True
     if _basename(parts[index - 1]) in {"bash", "sh", "zsh"}:
         return True
-    if index >= 2 and parts[index - 1].startswith("-"):
+    if (
+        index >= 2
+        and parts[index - 1].startswith("-")
+        and not _shell_option_uses_command_string(parts[index - 1])
+    ):
         return _basename(parts[index - 2]) in {"bash", "sh", "zsh"}
     if _env_invokes_token(parts, index):
         return True
     return False
+
+
+def _shell_option_uses_command_string(token: str) -> bool:
+    if token == "--":
+        return False
+    if token == "--command":
+        return True
+    if token.startswith("--"):
+        return False
+    return "c" in token.lstrip("-")
 
 
 def _env_invokes_token(parts: list[str], index: int) -> bool:
