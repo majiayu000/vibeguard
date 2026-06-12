@@ -202,7 +202,7 @@ if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
 elif [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
   echo "Non-git repository, skip"
 elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
-  echo " ~/.vibeguard/pre-commit does not exist, please run install.sh first"
+  echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"
 fi
 echo
 
