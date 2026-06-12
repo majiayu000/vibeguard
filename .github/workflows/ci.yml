@@ -198,6 +198,10 @@ jobs:
         shell: bash
         run: bash tests/test_prompt_contract.sh
 
+      - name: Codex plugin manifest regression tests
+        shell: bash
+        run: bash tests/test_codex_plugin_manifest.sh
+
       - name: Behavior eval regression gate
         if: runner.os != 'Windows'
         shell: bash

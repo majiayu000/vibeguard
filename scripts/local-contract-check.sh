@@ -61,7 +61,9 @@ echo "=== Local Contract Gate ==="
 echo ""
 
 run_check "validate-guards"          "$REPO_DIR/scripts/ci/validate-guards.sh"          "true"
-run_check "validate-hooks"           "$REPO_DIR/scripts/ci/validate-hooks.sh"           "true"
+LOCAL_CONTRACT_HOME="$(mktemp -d)"
+trap 'rm -rf "${LOCAL_CONTRACT_HOME}"' EXIT
+HOME="${LOCAL_CONTRACT_HOME}" run_check "validate-hooks" "$REPO_DIR/scripts/ci/validate-hooks.sh" "true"
 run_check "validate-rules"           "$REPO_DIR/scripts/ci/validate-rules.sh"           "true"
 run_check "validate-doc-paths"       "$REPO_DIR/scripts/ci/validate-doc-paths.sh"       "false"
 run_check "validate-doc-command-paths" "$REPO_DIR/scripts/ci/validate-doc-command-paths.sh" "false"
@@ -82,6 +84,10 @@ fi
 
 if [[ -f "$REPO_DIR/tests/test_prompt_contract.sh" ]]; then
   run_check "test_prompt_contract" "$REPO_DIR/tests/test_prompt_contract.sh" "true"
+fi
+
+if [[ -f "$REPO_DIR/tests/test_codex_plugin_manifest.sh" ]]; then
+  run_check "test_codex_plugin_manifest" "$REPO_DIR/tests/test_codex_plugin_manifest.sh" "true"
 fi
 
 if [[ -f "$REPO_DIR/tests/test_eval_contract.sh" ]]; then
