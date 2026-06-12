@@ -22,16 +22,39 @@ _vg_config_file() {
 }
 
 _vg_config_runtime_path() {
-  local wrapper_dir candidate
+  local wrapper_dir candidate cache_key
   wrapper_dir="$(cd "${_VG_CONFIG_LIB_DIR}/.." && pwd)"
+  cache_key="${wrapper_dir}|${_VIBEGUARD_RUNTIME:-}|${VIBEGUARD_RUNTIME:-}|${HOME:-}"
+  if [[ "${_VG_CONFIG_RUNTIME_PATH_CACHE_KEY:-}" == "${cache_key}" ]]; then
+    case "${_VG_CONFIG_RUNTIME_PATH_CACHE_STATE:-}" in
+      hit)
+        _VG_CONFIG_RUNTIME_PATH_RESULT="${_VG_CONFIG_RUNTIME_PATH_CACHE}"
+        printf '%s\n' "${_VG_CONFIG_RUNTIME_PATH_CACHE}"
+        return 0
+        ;;
+      miss)
+        _VG_CONFIG_RUNTIME_PATH_RESULT=""
+        return 1
+        ;;
+    esac
+  fi
+
   while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       if _vg_config_runtime_supports "${candidate}"; then
+        _VG_CONFIG_RUNTIME_PATH_CACHE_KEY="${cache_key}"
+        _VG_CONFIG_RUNTIME_PATH_CACHE_STATE="hit"
+        _VG_CONFIG_RUNTIME_PATH_CACHE="${candidate}"
+        _VG_CONFIG_RUNTIME_PATH_RESULT="${candidate}"
         printf '%s\n' "${candidate}"
         return 0
       fi
     fi
   done < <(_vg_config_runtime_candidates "${wrapper_dir}")
+  _VG_CONFIG_RUNTIME_PATH_CACHE_KEY="${cache_key}"
+  _VG_CONFIG_RUNTIME_PATH_CACHE_STATE="miss"
+  _VG_CONFIG_RUNTIME_PATH_CACHE=""
+  _VG_CONFIG_RUNTIME_PATH_RESULT=""
   return 1
 }
 
@@ -75,24 +98,25 @@ _vg_config_runtime_supports() {
   return 0
 }
 
-vg_config_get_int() {
-  local env_name="$1" json_path="$2" default_val="$3"
-  local val runtime_path config_file
+vg_config_get_int_result() {
+  local result_var="$1" env_name="$2" json_path="$3" default_val="$4"
+  local config_val runtime_path config_file
 
-  val="${!env_name:-}"
-  if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
-    printf '%s' "$val"
+  config_val="${!env_name:-}"
+  if [[ -n "$config_val" && "$config_val" =~ ^[0-9]+$ ]]; then
+    printf -v "$result_var" '%s' "$config_val"
     return 0
   fi
 
   config_file="$(_vg_config_file)"
-  if runtime_path="$(_vg_config_runtime_path)"; then
-    val="$(
+  if _vg_config_runtime_path >/dev/null; then
+    runtime_path="${_VG_CONFIG_RUNTIME_PATH_RESULT}"
+    config_val="$(
       _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         "${runtime_path}" runtime-config-get-int "$env_name" "$json_path" "$default_val" 2>/dev/null || true
     )"
-    if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
-      printf '%s' "$val"
+    if [[ -n "$config_val" && "$config_val" =~ ^[0-9]+$ ]]; then
+      printf -v "$result_var" '%s' "$config_val"
       return 0
     fi
   elif [[ -f "$config_file" ]]; then
@@ -100,27 +124,34 @@ vg_config_get_int() {
     return 2
   fi
 
-  printf '%s' "$default_val"
+  printf -v "$result_var" '%s' "$default_val"
 }
 
-vg_config_get_str() {
-  local env_name="$1" json_path="$2" default_val="$3"
-  local val runtime_path config_file
+vg_config_get_int() {
+  local val=""
+  vg_config_get_int_result val "$@" || return $?
+  printf '%s' "$val"
+}
 
-  val="${!env_name:-}"
-  if [[ -n "$val" ]]; then
-    printf '%s' "$val"
+vg_config_get_str_result() {
+  local result_var="$1" env_name="$2" json_path="$3" default_val="$4"
+  local config_val runtime_path config_file
+
+  config_val="${!env_name:-}"
+  if [[ -n "$config_val" ]]; then
+    printf -v "$result_var" '%s' "$config_val"
     return 0
   fi
 
   config_file="$(_vg_config_file)"
-  if runtime_path="$(_vg_config_runtime_path)"; then
-    val="$(
+  if _vg_config_runtime_path >/dev/null; then
+    runtime_path="${_VG_CONFIG_RUNTIME_PATH_RESULT}"
+    config_val="$(
       _VG_CONFIG_FILE="${config_file}" VIBEGUARD_CONFIG_FILE="${config_file}" \
         "${runtime_path}" runtime-config-get-str "$env_name" "$json_path" "$default_val" 2>/dev/null || true
     )"
-    if [[ -n "$val" ]]; then
-      printf '%s' "$val"
+    if [[ -n "$config_val" ]]; then
+      printf -v "$result_var" '%s' "$config_val"
       return 0
     fi
   elif [[ -f "$config_file" ]]; then
@@ -128,17 +159,29 @@ vg_config_get_str() {
     return 2
   fi
 
-  printf '%s' "$default_val"
+  printf -v "$result_var" '%s' "$default_val"
+}
+
+vg_config_get_str() {
+  local val=""
+  vg_config_get_str_result val "$@" || return $?
+  printf '%s' "$val"
+}
+
+vg_u16_warn_limit_result() {
+  local result_var="$1" hard_limit="$2"
+  local config_warn_limit
+
+  vg_config_get_int_result config_warn_limit VG_U16_WARN_LIMIT u16.warn_limit 400 || return $?
+  if [[ "$config_warn_limit" -ge "$hard_limit" ]]; then
+    printf -v "$result_var" '%s' "$hard_limit"
+  else
+    printf -v "$result_var" '%s' "$config_warn_limit"
+  fi
 }
 
 vg_u16_warn_limit() {
-  local hard_limit="$1"
-  local warn_limit
-
-  warn_limit=$(vg_config_get_int VG_U16_WARN_LIMIT u16.warn_limit 400)
-  if [[ "$warn_limit" -ge "$hard_limit" ]]; then
-    printf '%s' "$hard_limit"
-  else
-    printf '%s' "$warn_limit"
-  fi
+  local val=""
+  vg_u16_warn_limit_result val "$1" || return $?
+  printf '%s' "$val"
 }

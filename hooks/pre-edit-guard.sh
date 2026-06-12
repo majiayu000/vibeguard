@@ -12,8 +12,8 @@ source "$(dirname "$0")/log.sh"
 INPUT=$(cat)
 
 # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
-_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
-_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_U16_BASE_LIMIT")
+vg_config_get_int_result _U16_BASE_LIMIT VG_U16_LIMIT u16.limit 800
+vg_u16_warn_limit_result _U16_WARN_LIMIT "$_U16_BASE_LIMIT"
 if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
   _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
     | "$_VIBEGUARD_RUNTIME" pre-edit-check "$_U16_BASE_LIMIT" "$_U16_WARN_LIMIT" "$VIBEGUARD_LOG_FILE" \

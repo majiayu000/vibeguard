@@ -289,6 +289,48 @@ got=$(vg_config_get_str VG_TEST_MODE write_mode block)
 [[ "$got" == "warn" ]] && green "vg_config_get_str env beats JSON" || { red "vg_config_get_str env (got: $got)"; FAIL=$((FAIL + 1)); }
 TOTAL=$((TOTAL + 1)); [[ "$got" == "warn" ]] && PASS=$((PASS + 1))
 
+cache_runtime="$WORK_DIR/cache-runtime"
+cache_log="$WORK_DIR/cache-runtime.log"
+cat > "$cache_runtime" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${VIBEGUARD_RUNTIME_COMMAND_LOG:?}"
+case "${1:-}" in
+  runtime-config-get-int)
+    case "${2:-}" in
+      __VIBEGUARD_CONFIG_PROBE_INT__) printf '19\n' ;;
+      VG_TEST_X) printf '1234\n' ;;
+      *) printf '%s\n' "${4:-}" ;;
+    esac
+    ;;
+  runtime-config-get-str)
+    case "${2:-}" in
+      __VIBEGUARD_CONFIG_PROBE_STR__) printf 'probe-hit\n' ;;
+      VG_TEST_MODE) printf 'block\n' ;;
+      *) printf '%s\n' "${4:-}" ;;
+    esac
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$cache_runtime"
+cache_out="$(
+  VIBEGUARD_RUNTIME="$cache_runtime" VIBEGUARD_CONFIG_FILE="$unit_cfg" VIBEGUARD_RUNTIME_COMMAND_LOG="$cache_log" bash -c '
+    source hooks/_lib/config.sh
+    vg_config_get_int_result first VG_TEST_X u16.limit 800
+    vg_config_get_str_result second VG_TEST_MODE write_mode warn
+    vg_config_get_int_result third VG_TEST_X u16.limit 800
+    printf "%s/%s/%s" "$first" "$second" "$third"
+  '
+)"
+assert_contains "$cache_out" "1234/block/1234" "runtime config cache preserves config values"
+cache_commands="$(cat "$cache_log")"
+assert_occurrences "$cache_commands" "runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ probe.int 17" "1" "runtime config resolver probes int support once per process"
+assert_occurrences "$cache_commands" "runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ probe.str probe-default" "1" "runtime config resolver probes str support once per process"
+assert_occurrences "$cache_commands" "runtime-config-get-int VG_TEST_X u16.limit 800" "2" "runtime config cache still performs requested int reads"
+assert_occurrences "$cache_commands" "runtime-config-get-str VG_TEST_MODE write_mode warn" "1" "runtime config cache still performs requested str reads"
+
 partial_runtime="$WORK_DIR/partial-runtime"
 cat > "$partial_runtime" <<'SH'
 #!/usr/bin/env bash

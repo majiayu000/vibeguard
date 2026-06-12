@@ -36,7 +36,14 @@ fi
 # Prevents arithmetic errors under set -euo pipefail when env vars are misconfigured.
 _vg_cb_to_int() { local v="$1" d="$2"; [[ "$v" =~ ^[0-9]+$ ]] && printf '%s' "$v" || printf '%s' "$d"; }
 
-if declare -F vg_config_get_int >/dev/null 2>&1; then
+if declare -F vg_config_get_int_result >/dev/null 2>&1; then
+  vg_config_get_int_result _vg_cb_cooldown VG_CB_COOLDOWN circuit_breaker.cooldown_seconds 300
+  vg_config_get_int_result _vg_cb_threshold VG_CB_THRESHOLD circuit_breaker.threshold 3
+  vg_config_get_int_result _vg_cb_lock_timeout VG_CB_LOCK_TIMEOUT_SECONDS circuit_breaker.lock_timeout_seconds 5
+  CB_COOLDOWN=$(_vg_cb_to_int "$_vg_cb_cooldown" 300)
+  CB_THRESHOLD=$(_vg_cb_to_int "$_vg_cb_threshold" 3)
+  CB_LOCK_TIMEOUT_SECONDS=$(_vg_cb_to_int "$_vg_cb_lock_timeout" 5)
+elif declare -F vg_config_get_int >/dev/null 2>&1; then
   CB_COOLDOWN=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_COOLDOWN circuit_breaker.cooldown_seconds 300)" 300)
   CB_THRESHOLD=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_THRESHOLD circuit_breaker.threshold 3)" 3)
   CB_LOCK_TIMEOUT_SECONDS=$(_vg_cb_to_int "$(vg_config_get_int VG_CB_LOCK_TIMEOUT_SECONDS circuit_breaker.lock_timeout_seconds 5)" 5)

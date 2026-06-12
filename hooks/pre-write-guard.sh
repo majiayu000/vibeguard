@@ -25,8 +25,8 @@ _pass_and_exit() {
 
 INPUT=$(cat)
 
-_U16_BASE_LIMIT=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
-_U16_WARN_LIMIT=$(vg_u16_warn_limit "$_U16_BASE_LIMIT")
+vg_config_get_int_result _U16_BASE_LIMIT VG_U16_LIMIT u16.limit 800
+vg_u16_warn_limit_result _U16_WARN_LIMIT "$_U16_BASE_LIMIT"
 if ! CHECK_RESULT=$(printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" pre-write-check "$_U16_BASE_LIMIT" "$_U16_WARN_LIMIT" 2>/dev/null); then
   vg_log "pre-write-guard" "Write" "block" "vibeguard-runtime pre-write-check failed; fail-closed" ""
   vg_json_output_kv decision block reason "VIBEGUARD interception: runtime pre-write-check failed; fail-closed."
@@ -117,7 +117,7 @@ fi
 # session the circuit OPENs and subsequent writes pass silently. This prevents
 # 6-file batch writes from injecting 6 redundant advisories. Block mode does not
 # use the circuit breaker so hard rejections are never silenced.
-MODE="$(vg_config_get_str VIBEGUARD_WRITE_MODE write_mode warn)"
+vg_config_get_str_result MODE VIBEGUARD_WRITE_MODE write_mode warn
 case "$MODE" in
   block|warn) ;;
   *) MODE="warn" ;;
@@ -135,7 +135,7 @@ else
   # Escalation: count prior new-source attempts in this session. After N hits
   # the agent has demonstrably ignored the warning, so the next attempt is
   # blocked. Threshold is configurable; set to 0 to disable escalation.
-  ESCALATE_THRESHOLD=$(vg_config_get_int VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD write_escalate_threshold 5)
+  vg_config_get_int_result ESCALATE_THRESHOLD VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD write_escalate_threshold 5
   PRIOR_SOURCE_NEW_COUNT=0
   if [[ "$ESCALATE_THRESHOLD" -gt 0 && -f "$VIBEGUARD_LOG_FILE" ]]; then
     PRIOR_SOURCE_NEW_COUNT=$(tail -500 "$VIBEGUARD_LOG_FILE" \

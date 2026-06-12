@@ -168,9 +168,9 @@ vg_post_edit_detect_u16_size() {
 
   local total limit dir exempt base_limit
   # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
-  base_limit=$(vg_config_get_int VG_U16_LIMIT u16.limit 800)
+  vg_config_get_int_result base_limit VG_U16_LIMIT u16.limit 800
   local warn_limit
-  warn_limit=$(vg_u16_warn_limit "$base_limit")
+  vg_u16_warn_limit_result warn_limit "$base_limit"
   total=$(wc -l < "$FILE_PATH" | tr -d ' ')
   [[ "$total" -gt "$warn_limit" ]] || return 0
 

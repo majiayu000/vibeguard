@@ -72,7 +72,7 @@ fi
 # Collect session metrics for the last 30 minutes of the current project. Bound
 # the input before the runtime filter so old logs cannot make every Stop hook
 # linearly slower as events.jsonl grows.
-LEARN_TAIL_BYTES="$(vg_config_get_int VIBEGUARD_LEARN_METRICS_TAIL_BYTES learn.metrics_tail_bytes 5242880)"
+vg_config_get_int_result LEARN_TAIL_BYTES VIBEGUARD_LEARN_METRICS_TAIL_BYTES learn.metrics_tail_bytes 5242880
 vg_learn_log_truncation_once "$VIBEGUARD_LOG_FILE" "$LEARN_TAIL_BYTES"
 LEARN_SUGGESTION=$(vg_learn_recent_events "$VIBEGUARD_LOG_FILE" "$LEARN_TAIL_BYTES" \
   | "$_VIBEGUARD_RUNTIME" session-metrics "$VIBEGUARD_SESSION_ID" "$VIBEGUARD_PROJECT_LOG_DIR" 2>/dev/null || true)
