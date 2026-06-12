@@ -562,12 +562,28 @@ fn settings_is_canonical(command: &str, script: &str) -> bool {
                 .is_some_and(|part| part.ends_with("/.vibeguard/run-hook.sh"))
             && parts.get(2).is_some_and(|part| part == script);
     }
-    parts.len() > 3
-        && parts.first().is_some_and(|part| basename(part) == "bash")
-        && parts[1..parts.len() - 1]
-            .join(" ")
-            .ends_with("/.vibeguard/run-hook.sh")
-        && parts.last().is_some_and(|part| part == script)
+    if parts.len() <= 3
+        || !parts.first().is_some_and(|part| basename(part) == "bash")
+        || !parts.last().is_some_and(|part| part == script)
+    {
+        return false;
+    }
+    let wrapper_parts = &parts[1..parts.len() - 1];
+    wrapper_parts
+        .first()
+        .is_some_and(|part| settings_legacy_wrapper_part_starts_path(part))
+        && wrapper_parts
+            .iter()
+            .skip(1)
+            .all(|part| !part.starts_with('-') && !settings_legacy_wrapper_part_starts_path(part))
+        && wrapper_parts.join(" ").ends_with("/.vibeguard/run-hook.sh")
+}
+
+fn settings_legacy_wrapper_part_starts_path(part: &str) -> bool {
+    part.starts_with('/')
+        || part.starts_with("~/")
+        || part.starts_with("$HOME/")
+        || part.starts_with("${HOME}/")
 }
 
 fn settings_stale_findings(data: &Value, config: &Path) -> Vec<String> {
@@ -673,5 +689,11 @@ mod tests {
     fn canonical_settings_command_accepts_legacy_unquoted_home_spaces() {
         let command = "bash /tmp/home with spaces/.vibeguard/run-hook.sh pre-bash-guard.sh";
         assert!(settings_is_canonical(command, "pre-bash-guard.sh"));
+    }
+
+    #[test]
+    fn canonical_settings_command_rejects_custom_bash_options() {
+        let command = "bash -x /tmp/home/.vibeguard/run-hook.sh pre-bash-guard.sh";
+        assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
     }
 }

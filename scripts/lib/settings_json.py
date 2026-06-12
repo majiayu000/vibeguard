@@ -292,11 +292,14 @@ def _is_canonical_hook_command(command: str, script_name: str) -> bool:
             and parts[1].endswith("/.vibeguard/run-hook.sh")
             and parts[2] == script_name
         )
+    if len(parts) <= 3 or parts[0] != "bash" or parts[-1] != script_name:
+        return False
+    wrapper_parts = parts[1:-1]
+    path_prefixes = ("/", "~/", "$HOME/", "${HOME}/")
     return (
-        len(parts) > 3
-        and parts[0] == "bash"
-        and " ".join(parts[1:-1]).endswith("/.vibeguard/run-hook.sh")
-        and parts[-1] == script_name
+        wrapper_parts[0].startswith(path_prefixes)
+        and not any(part.startswith(("-", *path_prefixes)) for part in wrapper_parts[1:])
+        and " ".join(wrapper_parts).endswith("/.vibeguard/run-hook.sh")
     )
 
 
