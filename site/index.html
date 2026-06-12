@@ -28,21 +28,21 @@
     <div class="eyebrow">starlight · vibeguard v1.1</div>
     <h1>Stop the slop.<br><span class="accent">Before</span> the commit.</h1>
     <p class="lede">
-      Native rules + real-time hooks + static guards to catch what AI coding agents get wrong — before it reaches your codebase. Duplicate files, invented APIs, dangerous shell commands, unverified "I'm done" claims. Blocked at the source.
+      Native rules + real-time hooks + static guards to catch what AI coding agents get wrong — before it reaches your codebase. Duplicate files, invented APIs, dangerous shell commands, unverified "I'm done" claims. Blocked, warned, or surfaced with a fix.
     </p>
     <div class="cta-row">
       <div class="cmd-block" id="hero-cmd">
         <span class="prompt">$</span>
-        <span>bash ~/vibeguard/setup.sh</span>
-        <button class="btn" data-copy="bash ~/vibeguard/setup.sh">copy</button>
+        <span>git clone ... && bash ~/vibeguard/setup.sh --yes</span>
+        <button class="btn" data-copy="git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard && bash ~/vibeguard/setup.sh --yes">copy</button>
       </div>
       <a class="btn ghost" href="#how">how it works →</a>
     </div>
 
     <div class="stat-strip" aria-label="Product stats">
-      <div class="stat"><div class="num">109<span class="ital">+</span></div><div class="lbl">native rules</div></div>
+      <div class="stat"><div class="num">126</div><div class="lbl">native rules</div></div>
       <div class="stat"><div class="num">7</div><div class="lbl">constraint layers</div></div>
-      <div class="stat"><div class="num">6</div><div class="lbl">hooks active</div></div>
+      <div class="stat"><div class="num">12</div><div class="lbl">Codex hook entries</div></div>
       <div class="stat"><div class="num">2</div><div class="lbl">agents supported</div></div>
     </div>
   </div>
@@ -108,8 +108,8 @@
         <tr><th>layer</th><th>what it does</th></tr>
       </thead>
       <tbody>
-        <tr><td class="key">Native rules</td><td>109+ constraints auto-loaded into CLAUDE.md / AGENTS.md. Bias the model away from bad decisions before it acts.</td></tr>
-        <tr><td class="key">Runtime hooks</td><td>PreToolUse / PostToolUse intercept writes, bash, edits. Block dangerous or low-quality actions in real time.</td></tr>
+        <tr><td class="key">Native rules</td><td>126 constraints auto-loaded into CLAUDE.md / AGENTS.md. Bias the model away from bad decisions before it acts.</td></tr>
+        <tr><td class="key">Runtime hooks</td><td>PreToolUse / PostToolUse intercept writes, bash, edits. Block, warn, or surface fix instructions in real time.</td></tr>
         <tr><td class="key">Static guards</td><td>Project scans for duplicate files, slop patterns, structural issues. Run via <code>/vibeguard:check</code>.</td></tr>
         <tr><td class="key">Slash commands</td><td><code>/vibeguard:preflight</code>, <code>:review</code>, <code>:check</code>, <code>:learn</code> — workflows for each phase of the loop.</td></tr>
         <tr><td class="key">Learning loop</td><td>Repeated mistakes surface as candidate rules. Reviewed, then compiled into the native rule set.</td></tr>
@@ -166,8 +166,8 @@
   <div class="install-inner">
     <div class="eyebrow" style="color:var(--ansi-cyan)">get started</div>
     <h2>Install in <span class="accent">30 seconds</span>.</h2>
-    <pre class="install-pre" id="install-cmd"><button class="btn copy-btn" data-copy="git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard && bash ~/vibeguard/setup.sh">copy</button><span class="cy">$</span> git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-<span class="cy">$</span> bash ~/vibeguard/setup.sh</pre>
+    <pre class="install-pre" id="install-cmd"><button class="btn copy-btn" data-copy="git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard && bash ~/vibeguard/setup.sh --yes">copy</button><span class="cy">$</span> git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
+<span class="cy">$</span> bash ~/vibeguard/setup.sh --yes</pre>
     <p class="install-foot">Works with Claude Code and Codex CLI · MIT licensed · no telemetry</p>
   </div>
 </section>
