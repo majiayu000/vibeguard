@@ -36,6 +36,12 @@ assert_cmd "marketplace manifest exists" test -f "${MARKETPLACE_JSON}"
 assert_cmd "plugin bridge script has valid syntax" bash -n "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
 assert_cmd "plugin bridge resolves repo checkout" \
   bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" repo-dir
+assert_cmd "plugin bridge rejects invalid pinned repo checkout" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  VIBEGUARD_REPO_DIR="${tmp_dir}/missing" bash "$1" repo-dir 2>"${tmp_dir}/stderr" && exit 1
+  grep -q "VIBEGUARD_REPO_DIR is not a VibeGuard repository checkout" "${tmp_dir}/stderr"
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
 assert_cmd "plugin dashboard generator writes local HTML" bash -c '
   tmp_dir="$(mktemp -d)"
   trap "rm -rf \"${tmp_dir}\"" EXIT
@@ -69,12 +75,42 @@ SH
   VIBEGUARD_REPO_DIR="${fake_repo}" bash "$1" dashboard --no-open --output "${tmp_dir}/dashboard.html" --log-file /dev/null >/dev/null
   grep -q "COMMAND FAILED" "${tmp_dir}/dashboard.html"
 ' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
-assert_cmd "vibeguard-runtime builds for plugin stats bridge" \
-  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
-assert_cmd "plugin health bridge runs against empty log" \
-  bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" health --log-file /dev/null 24
-assert_cmd "plugin stats bridge runs against empty log" \
-  bash "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh" stats --log-file /dev/null all
+assert_cmd "plugin health bridge runs against fake runtime" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  runtime="${tmp_dir}/vibeguard-runtime"
+  cat > "${runtime}" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "observe" && "\${2:-}" == "health" ]]; then
+  printf "%s\n" "fake health"
+  exit 0
+fi
+printf "unexpected runtime command:" >&2
+printf " %q" "\$@" >&2
+printf "\n" >&2
+exit 2
+SH
+  chmod +x "${runtime}"
+  VIBEGUARD_RUNTIME="${runtime}" bash "$1" health --log-file /dev/null 24
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
+assert_cmd "plugin stats bridge runs against fake runtime" bash -c '
+  tmp_dir="$(mktemp -d)"
+  trap "rm -rf \"${tmp_dir}\"" EXIT
+  runtime="${tmp_dir}/vibeguard-runtime"
+  cat > "${runtime}" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "observe" && "\${2:-}" == "summary" ]]; then
+  printf "%s\n" "fake stats"
+  exit 0
+fi
+printf "unexpected runtime command:" >&2
+printf " %q" "\$@" >&2
+printf "\n" >&2
+exit 2
+SH
+  chmod +x "${runtime}"
+  VIBEGUARD_RUNTIME="${runtime}" bash "$1" stats --log-file /dev/null all
+' _ "${PLUGIN_DIR}/scripts/vibeguard-plugin.sh"
 
 header "plugin manifest contract"
 assert_cmd "plugin manifest validates local contract" python3 - "${PLUGIN_JSON}" "${PLUGIN_DIR}" <<'PY'

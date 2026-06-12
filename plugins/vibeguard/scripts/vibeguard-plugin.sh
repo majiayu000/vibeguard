@@ -88,7 +88,12 @@ resolve_repo_dir() {
   local -a candidates=()
 
   if [[ -n "${VIBEGUARD_REPO_DIR:-}" ]]; then
-    candidates+=("${VIBEGUARD_REPO_DIR}")
+    if resolved="$(canonical_dir "${VIBEGUARD_REPO_DIR}")" && is_vibeguard_repo "${resolved}"; then
+      printf '%s\n' "${resolved}"
+      return 0
+    fi
+    printf 'ERROR: VIBEGUARD_REPO_DIR is not a VibeGuard repository checkout: %s\n' "${VIBEGUARD_REPO_DIR}" >&2
+    return 1
   fi
 
   candidates+=("${PLUGIN_DIR}/../..")
