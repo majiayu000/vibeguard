@@ -37,9 +37,37 @@ fn scan_skips_test_dirs_and_respects_budget() -> TestResult {
             .matches
             .is_empty()
     );
+    let combined =
+        scan_project_files_with_same_name(&root, target.to_string_lossy().as_ref(), 10, 5);
+    assert_eq!(combined.project.count, 1);
+    assert!(combined.same_name.matches.is_empty());
 
     let degraded = scan_project_files(&root, 0);
     assert!(degraded.degraded);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn combined_scan_preserves_same_name_matches_after_budget_degrades() -> TestResult {
+    let root = temp_write_scan_project("same_name_budget")?;
+    fs::create_dir_all(root.join("src").join("existing"))?;
+    fs::create_dir_all(root.join("src").join("new"))?;
+    fs::write(root.join("src").join("existing").join("service.py"), "")?;
+    let target = root.join("src").join("new").join("service.py");
+
+    let combined =
+        scan_project_files_with_same_name(&root, target.to_string_lossy().as_ref(), 0, 5);
+
+    assert!(combined.project.degraded);
+    assert!(
+        combined
+            .same_name
+            .matches
+            .iter()
+            .any(|path| path.ends_with("existing/service.py")),
+        "{combined:?}"
+    );
     fs::remove_dir_all(root)?;
     Ok(())
 }

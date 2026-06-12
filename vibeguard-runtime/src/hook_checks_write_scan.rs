@@ -43,6 +43,12 @@ pub(crate) struct DefinitionScan {
     pub(crate) incomplete: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ProjectScanWithSameName {
+    pub(crate) project: ProjectScan,
+    pub(crate) same_name: SameNameScan,
+}
+
 pub(crate) fn scan_project_files(project_dir: &Path, max_files: usize) -> ProjectScan {
     let mut files = Vec::new();
     let mut count = 0usize;
@@ -53,6 +59,7 @@ pub(crate) fn scan_project_files(project_dir: &Path, max_files: usize) -> Projec
         Some(&mut files),
         &mut count,
         &mut incomplete,
+        None,
     );
     ProjectScan {
         files,
@@ -62,6 +69,7 @@ pub(crate) fn scan_project_files(project_dir: &Path, max_files: usize) -> Projec
     }
 }
 
+#[cfg(test)]
 pub(crate) fn scan_same_name_matches(
     project_dir: &Path,
     file_path: &str,
@@ -89,6 +97,38 @@ pub(crate) fn scan_same_name_matches(
     SameNameScan {
         matches,
         incomplete,
+    }
+}
+
+pub(crate) fn scan_project_files_with_same_name(
+    project_dir: &Path,
+    file_path: &str,
+    max_files: usize,
+    max_matches: usize,
+) -> ProjectScanWithSameName {
+    let mut files = Vec::new();
+    let mut count = 0usize;
+    let mut incomplete = false;
+    let mut same_name = SameNameCollector::new(file_path, max_matches);
+    let degraded = scan_dir(
+        project_dir,
+        max_files,
+        Some(&mut files),
+        &mut count,
+        &mut incomplete,
+        Some(&mut same_name),
+    );
+    ProjectScanWithSameName {
+        project: ProjectScan {
+            files,
+            count,
+            degraded,
+            incomplete,
+        },
+        same_name: SameNameScan {
+            matches: same_name.matches,
+            incomplete,
+        },
     }
 }
 
@@ -133,11 +173,13 @@ fn scan_dir(
     mut files: Option<&mut Vec<PathBuf>>,
     count: &mut usize,
     incomplete: &mut bool,
+    mut same_name: Option<&mut SameNameCollector>,
 ) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         *incomplete = true;
         return false;
     };
+    let mut degraded = false;
     for entry_result in entries {
         let Ok(entry) = entry_result else {
             *incomplete = true;
@@ -153,22 +195,45 @@ fn scan_dir(
                 continue;
             }
             let child_files = files.as_deref_mut();
-            if scan_dir(&path, max_files, child_files, count, incomplete) {
-                return true;
+            if scan_dir(
+                &path,
+                max_files,
+                child_files,
+                count,
+                incomplete,
+                same_name.as_deref_mut(),
+            ) {
+                degraded = true;
+                if same_name
+                    .as_ref()
+                    .is_none_or(|collector| collector.is_saturated())
+                {
+                    return true;
+                }
             }
         } else if file_type.is_file() {
             *count += 1;
-            if *count > max_files {
-                return true;
+            if let Some(collector) = same_name.as_deref_mut() {
+                collector.visit(&path);
             }
-            if let Some(files) = files.as_deref_mut() {
+            if *count > max_files {
+                degraded = true;
+            } else if let Some(files) = files.as_deref_mut() {
                 files.push(path);
+            }
+            if degraded
+                && same_name
+                    .as_ref()
+                    .is_none_or(|collector| collector.is_saturated())
+            {
+                return true;
             }
         }
     }
-    false
+    degraded
 }
 
+#[cfg(test)]
 fn scan_same_name_dir(
     dir: &Path,
     basename: &str,
@@ -218,6 +283,45 @@ fn scan_same_name_dir(
             {
                 matches.push(path.to_string_lossy().into_owned());
             }
+        }
+    }
+}
+
+struct SameNameCollector {
+    basename: Option<String>,
+    target: PathBuf,
+    max_matches: usize,
+    matches: Vec<String>,
+}
+
+impl SameNameCollector {
+    fn new(file_path: &str, max_matches: usize) -> Self {
+        Self {
+            basename: Path::new(file_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(ToOwned::to_owned),
+            target: absolute_path(file_path),
+            max_matches,
+            matches: Vec::new(),
+        }
+    }
+
+    fn is_saturated(&self) -> bool {
+        self.matches.len() >= self.max_matches
+    }
+
+    fn visit(&mut self, path: &Path) {
+        if self.is_saturated() {
+            return;
+        }
+        let Some(basename) = self.basename.as_deref() else {
+            return;
+        };
+        if path.file_name().and_then(|s| s.to_str()) == Some(basename)
+            && absolute_path(path.to_string_lossy().as_ref()) != self.target
+        {
+            self.matches.push(path.to_string_lossy().into_owned());
         }
     }
 }
