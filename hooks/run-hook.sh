@@ -72,7 +72,7 @@ fi
 # shellcheck source=hooks/_lib/policy.sh
 source "${POLICY_PATH}"
 policy_status=0
-vg_policy_check_hook "${HOOK_NAME}" || policy_status=$?
+vg_policy_check_hook "${HOOK_NAME}" "${_VG_HOOK_STDIN_FILE:-}" || policy_status=$?
 export VIBEGUARD_POLICY_ENFORCEMENT="${VG_POLICY_ENFORCEMENT:-block}"
 if [[ ${policy_status} -eq 10 ]]; then
   vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"

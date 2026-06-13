@@ -49,6 +49,21 @@ if ! declare -F codex_hook_status_from_output >/dev/null 2>&1; then
 fi
 
 INPUT=$(cat)
+_VG_CODEX_INPUT_FILE=""
+_vg_cleanup_codex_input() {
+  if [[ -n "${_VG_CODEX_INPUT_FILE}" ]]; then
+    rm -f "${_VG_CODEX_INPUT_FILE}" 2>/dev/null || true
+  fi
+}
+trap _vg_cleanup_codex_input EXIT
+if _VG_CODEX_INPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-input.XXXXXX")"; then
+  if ! printf '%s' "${INPUT}" >"${_VG_CODEX_INPUT_FILE}"; then
+    rm -f "${_VG_CODEX_INPUT_FILE}" 2>/dev/null || true
+    _VG_CODEX_INPUT_FILE=""
+  fi
+else
+  _VG_CODEX_INPUT_FILE=""
+fi
 EVENT_NAME=$(codex_raw_event_name "$INPUT")
 codex_set_caller_identity "${EVENT_NAME}"
 
@@ -102,7 +117,7 @@ if [[ ! -f "${POLICY_PATH}" ]]; then
 fi
 # shellcheck source=hooks/_lib/policy.sh
 source "${POLICY_PATH}"
-vg_policy_codex_gate "${HOOK_NAME}" "${EVENT_NAME}" || exit 0
+vg_policy_codex_gate "${HOOK_NAME}" "${EVENT_NAME}" "${_VG_CODEX_INPUT_FILE}" || exit 0
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-hook" "${HOOK_PATH}"
