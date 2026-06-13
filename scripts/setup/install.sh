@@ -47,6 +47,12 @@ _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
 RUNTIME_VERSION_OVERRIDE=""
 RUNTIME_VERSION_OVERRIDE_SET=0
+RUNTIME_PROVENANCE_STATUS=""
+RUNTIME_PROVENANCE_REASON=""
+RUNTIME_PROVENANCE_RELEASE_REPO=""
+RUNTIME_PROVENANCE_TAG=""
+RUNTIME_PROVENANCE_TARGET=""
+RUNTIME_PROVENANCE_SHA256=""
 if [[ -n "${VIBEGUARD_SETUP_RUNTIME_VERSION+x}" ]]; then
   RUNTIME_VERSION_OVERRIDE="${VIBEGUARD_SETUP_RUNTIME_VERSION}"
   RUNTIME_VERSION_OVERRIDE_SET=1
@@ -173,6 +179,7 @@ download_prebuilt_runtime() {
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
   local download_dir downloaded reason expected actual
+  local provenance_rc provenance_status provenance_note
   local -a errors=()
 
   download_dir="$(mktemp -d "$(dirname "${dest}")/runtime_download_XXXXXX")"
@@ -240,12 +247,37 @@ download_prebuilt_runtime() {
     rm -rf "${download_dir}"
     return 10
   fi
+  provenance_rc=0
+  setup_runtime_verify_release_provenance "${download_dir}/${asset}" "${release_repo}" "${tag}" || provenance_rc=$?
+  case "${provenance_rc}" in
+    0)
+      provenance_status="verified-provenance"
+      provenance_note="provenance=verified-provenance"
+      ;;
+    2)
+      provenance_status="checksum-only"
+      provenance_note="provenance=checksum-only (${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable})"
+      yellow "  Runtime provenance is checksum-only: ${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable}."
+      ;;
+    *)
+      red "  ERROR: vibeguard-runtime provenance verification failed for ${asset}."
+      red "  ${SETUP_RUNTIME_PROVENANCE_REASON:-unknown provenance verification failure}"
+      rm -rf "${download_dir}"
+      return 10
+      ;;
+  esac
 
   mkdir -p "$(dirname "${dest}")"
   cp "${download_dir}/${asset}" "${dest}"
   chmod +x "${dest}"
+  RUNTIME_PROVENANCE_STATUS="${provenance_status}"
+  RUNTIME_PROVENANCE_REASON="${SETUP_RUNTIME_PROVENANCE_REASON:-}"
+  RUNTIME_PROVENANCE_RELEASE_REPO="${release_repo}"
+  RUNTIME_PROVENANCE_TAG="${tag}"
+  RUNTIME_PROVENANCE_TARGET="${target}"
+  RUNTIME_PROVENANCE_SHA256="${actual}"
   rm -rf "${download_dir}"
-  green "  vibeguard-runtime downloaded and verified (${tag}, ${target})"
+  green "  vibeguard-runtime downloaded and verified (${tag}, ${target}; ${provenance_note})"
 }
 
 runtime_version_mismatch_reason() {
@@ -308,11 +340,30 @@ prepare_runtime_from_source() {
     chmod +x "${_INSTALL_TMP}/bin/vibeguard-runtime"
     verify_prepared_runtime_version "${_INSTALL_TMP}/bin/vibeguard-runtime" || exit 2
     rm -rf "${runtime_target_dir}"
+    RUNTIME_PROVENANCE_STATUS="source-build"
+    RUNTIME_PROVENANCE_REASON="${fallback_reason:-build-from-source requested}"
+    RUNTIME_PROVENANCE_RELEASE_REPO=""
+    RUNTIME_PROVENANCE_TAG=""
+    RUNTIME_PROVENANCE_TARGET=""
+    RUNTIME_PROVENANCE_SHA256=""
     green "  vibeguard-runtime binary prepared from source"
   else
     red "  ERROR: vibeguard-runtime build failed. Fix the Rust build before installing VibeGuard."
     exit 2
   fi
+}
+
+write_runtime_provenance_state() {
+  local dest="$1"
+  mkdir -p "$(dirname "${dest}")"
+  {
+    printf 'status=%s\n' "${RUNTIME_PROVENANCE_STATUS:-unknown}"
+    [[ -z "${RUNTIME_PROVENANCE_REASON}" ]] || printf 'reason=%s\n' "${RUNTIME_PROVENANCE_REASON}"
+    [[ -z "${RUNTIME_PROVENANCE_RELEASE_REPO}" ]] || printf 'release_repo=%s\n' "${RUNTIME_PROVENANCE_RELEASE_REPO}"
+    [[ -z "${RUNTIME_PROVENANCE_TAG}" ]] || printf 'tag=%s\n' "${RUNTIME_PROVENANCE_TAG}"
+    [[ -z "${RUNTIME_PROVENANCE_TARGET}" ]] || printf 'target=%s\n' "${RUNTIME_PROVENANCE_TARGET}"
+    [[ -z "${RUNTIME_PROVENANCE_SHA256}" ]] || printf 'sha256=%s\n' "${RUNTIME_PROVENANCE_SHA256}"
+  } > "${dest}"
 }
 
 prepare_runtime_binary() {
@@ -408,6 +459,7 @@ stage_install_snapshot() {
   # Runtime must be prepared before project config validation, but the staged
   # snapshot lives in TMPDIR until validation has passed.
   prepare_runtime_binary
+  write_runtime_provenance_state "${_INSTALL_TMP}/runtime-provenance"
 }
 
 echo "=============================="
@@ -507,6 +559,24 @@ rm -rf "${_INSTALL_TMP}" 2>/dev/null || true
 _INSTALL_TMP=""
 trap - EXIT
 green "  ~/.vibeguard/installed/ hooks+guards snapshot ($(cat "${INSTALLED_DIR}/version"))"
+if [[ -f "${INSTALLED_DIR}/runtime-provenance" ]]; then
+  runtime_provenance_status="$(awk -F= '$1 == "status" { print $2; exit }' "${INSTALLED_DIR}/runtime-provenance")"
+  runtime_provenance_reason="$(awk -F= '$1 == "reason" { print $2; exit }' "${INSTALLED_DIR}/runtime-provenance")"
+  case "${runtime_provenance_status}" in
+    verified-provenance)
+      green "  runtime provenance status: verified-provenance"
+      ;;
+    checksum-only)
+      yellow "  runtime provenance status: checksum-only (${runtime_provenance_reason:-verifier unavailable})"
+      ;;
+    source-build)
+      yellow "  runtime provenance status: source-build (${runtime_provenance_reason:-local build})"
+      ;;
+    *)
+      yellow "  runtime provenance status: ${runtime_provenance_status:-unknown}"
+      ;;
+  esac
+fi
 
 if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" ]]; then
   echo "Step 1.5: Clean retired skill links"

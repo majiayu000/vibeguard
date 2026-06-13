@@ -7,6 +7,9 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="${REPO_DIR}/.github/workflows/release.yml"
 VERSION_FILE="${REPO_DIR}/vibeguard-runtime/VERSION"
 CARGO_TOML="${REPO_DIR}/vibeguard-runtime/Cargo.toml"
+RUST_TOOLCHAIN="${REPO_DIR}/rust-toolchain.toml"
+INSTALL_SH="${REPO_DIR}/scripts/setup/install.sh"
+SETUP_LIB="${REPO_DIR}/scripts/setup/lib.sh"
 
 PASS=0
 FAIL=0
@@ -53,6 +56,18 @@ assert_not_contains() {
   fi
 }
 
+assert_regex() {
+  local text="$1" regex="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -Eq -- "$regex" <<< "$text"; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected regex: $regex)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 ensure_runtime_tag_available() {
   local tag="$1"
   if git -C "${REPO_DIR}" rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
@@ -65,6 +80,9 @@ ensure_runtime_tag_available() {
 }
 
 workflow_text="$(<"${WORKFLOW}")"
+toolchain_text="$(<"${RUST_TOOLCHAIN}")"
+install_text="$(<"${INSTALL_SH}")"
+setup_lib_text="$(<"${SETUP_LIB}")"
 runtime_version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
 cargo_version="$(
   python3 - "${CARGO_TOML}" <<'PY'
@@ -90,9 +108,27 @@ assert_contains "$workflow_text" "refusing to mutate release assets" "existing r
 assert_contains "$workflow_text" "git merge-base --is-ancestor" "tag must be reachable from main"
 assert_contains "$workflow_text" "RUNTIME_VERSION_FILE" "workflow reads runtime VERSION file"
 assert_contains "$workflow_text" "release tag \${TAG_NAME} does not match" "tag/version mismatch fails loudly"
-assert_contains "$workflow_text" 'RUST_VERSION: "stable"' "release workflow uses latest stable Rust"
+assert_contains "$workflow_text" 'RUST_VERSION: "1.95.0"' "release workflow pins Rust release toolchain"
+assert_contains "$toolchain_text" 'channel = "1.95.0"' "repo rust-toolchain pins the same release toolchain"
+assert_not_contains "$workflow_text" 'RUST_VERSION: "stable"' "release workflow does not use moving stable Rust"
+assert_regex "$workflow_text" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]*# v6\.0\.2' "checkout action is pinned to a full commit SHA"
+assert_regex "$workflow_text" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]*# v7\.0\.1' "upload-artifact action is pinned to a full commit SHA"
+assert_regex "$workflow_text" 'uses: actions/download-artifact@[0-9a-f]{40}[[:space:]]*# v8\.0\.1' "download-artifact action is pinned to a full commit SHA"
+assert_regex "$workflow_text" 'uses: actions/attest-build-provenance@[0-9a-f]{40}[[:space:]]*# v4\.1\.0' "attestation action is pinned to a full commit SHA"
+assert_contains "$workflow_text" "attestations: write" "build job can publish artifact attestations"
+assert_contains "$workflow_text" "id-token: write" "build job can request OIDC token for attestations"
+assert_contains "$workflow_text" "Attest runtime artifact" "release workflow attests runtime artifacts"
+assert_contains "$workflow_text" "subject-path: dist/\${{ matrix.target }}/vibeguard-runtime-\${{ matrix.target }}" "release workflow attests each matrix runtime artifact"
 assert_contains "$workflow_text" "sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS" "checksums use deterministic sorted layout"
+assert_contains "$workflow_text" "Attest checksum manifest" "release workflow attests checksum manifest"
+assert_contains "$workflow_text" "subject-path: dist/SHA256SUMS" "release workflow attests SHA256SUMS"
 assert_contains "$workflow_text" 'GH_REPO: ${{ github.repository }}' "publish job pins gh target repository"
+assert_contains "$setup_lib_text" "gh attestation verify" "setup verifies runtime release attestations when verifier is available"
+assert_contains "$setup_lib_text" "--signer-workflow" "setup pins provenance signer workflow"
+assert_contains "$setup_lib_text" '--source-ref "refs/tags/${tag}"' "setup pins provenance to the release tag"
+assert_contains "$install_text" "provenance=verified-provenance" "install output reports verified provenance"
+assert_contains "$install_text" "provenance=checksum-only" "install output reports checksum-only fallback explicitly"
+assert_contains "$install_text" "runtime-provenance" "install snapshot records runtime provenance status"
 
 for target in \
   aarch64-apple-darwin \

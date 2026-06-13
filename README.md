@@ -29,7 +29,10 @@ bash ~/vibeguard/setup.sh --yes
 
 On supported macOS/Linux targets, the production install/check/clean path is
 Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
-verifies it with `SHA256SUMS`, so Rust/Cargo is not required by default.
+verifies it with `SHA256SUMS`. When authenticated `gh` attestation verification
+is available, setup reports `verified-provenance`; otherwise it reports
+`checksum-only` instead of treating the release as provenance-verified. Rust/Cargo
+is not required by default.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
@@ -334,8 +337,10 @@ installs and for users who explicitly request them.
 
 `setup.sh` uses `gh release download` when `gh` is available, otherwise `curl`.
 If a supported-target download fails, it falls back to `cargo build` when Cargo
-is available. Checksum mismatch or a missing checksum entry is fatal and does
-not fall back to source.
+is available. Checksum mismatch, a missing checksum entry, or a failed available
+attestation verification is fatal and does not fall back to source. When the
+attestation verifier is unavailable, setup prints `checksum-only` after SHA-256
+verification.
 
 ### Profiles and languages
 

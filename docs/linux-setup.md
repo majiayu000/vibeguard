@@ -5,6 +5,8 @@ VibeGuard supports Linux via **systemd user units** as the scheduled task mechan
 ## Requirements
 
 - `gh` or `curl` for the default prebuilt `vibeguard-runtime` download.
+  Authenticated `gh` also enables artifact attestation verification; without it,
+  setup reports `checksum-only` after SHA-256 verification.
 - Python 3 is not required for default production install/check/clean on
   supported release targets. It remains used by evals, docs generation,
   developer tools, and optional Python-backed guard tools.
@@ -21,7 +23,8 @@ bash setup.sh --yes
 ```
 
 On `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, the default
-runtime path downloads a release binary and verifies it against `SHA256SUMS`, so
+runtime path downloads a release binary, verifies it against `SHA256SUMS`, and
+prints either `verified-provenance` or `checksum-only` for release provenance.
 Rust/Cargo is not required. To force a local build:
 
 ```bash
