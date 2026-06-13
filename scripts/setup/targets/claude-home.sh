@@ -4,6 +4,31 @@ _force_overwrite_enabled() {
   [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}" == "1" ]]
 }
 
+_claude_execution_mode() {
+  local mode="${VIBEGUARD_EXECUTION_MODE:-}"
+  if [[ -z "${mode}" && "${VIBEGUARD_SETUP_DEV_LINKED:-0}" == "1" ]]; then
+    mode="dev-linked-repo"
+  fi
+  if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
+    mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
+  fi
+  case "${mode}" in
+    dev-linked|dev-linked-repo|repo|repo-linked)
+      printf '%s\n' "dev-linked-repo" ;;
+    *)
+      printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+_claude_source_path() {
+  local source_path="$1"
+  if [[ "$(_claude_execution_mode)" == "dev-linked-repo" ]]; then
+    printf '%s\n' "${REPO_DIR}/${source_path}"
+  else
+    printf '%s\n' "${HOME}/.vibeguard/installed/${source_path}"
+  fi
+}
+
 _protect_rule_file_overwrite() {
   local src="$1" dest="$2" label="$3"
   [[ -e "${dest}" && ! -L "${dest}" ]] || return 0
@@ -50,6 +75,11 @@ _remove_rule_subtree_if_safe() {
 
 _install_claude_skill_link() {
   local src="$1" dst="$2" source_path="$3" skill="$4"
+  src="$(_claude_source_path "${source_path}")"
+  if [[ ! -d "${src}" ]]; then
+    red "  ERROR: ${skill} skill source missing: ${src}"
+    return 1
+  fi
   safe_symlink "${src}" "${dst}"
   state_record_file "${dst}" "${source_path}" "symlink"
   green "  ${skill} -> ~/.claude/skills/${skill}"
@@ -107,7 +137,7 @@ _check_claude_rule_symlink_targets() {
     link="${rules_dest}/${dest_rel}"
     [[ -L "${link}" ]] || continue
     checked_count=$((checked_count + 1))
-    expected_target="${REPO_DIR}/${source_path}"
+    expected_target="$(_claude_source_path "${source_path}")"
     actual_target="$(readlink "${link}" 2>/dev/null || true)"
     if [[ -z "${actual_target}" ]]; then
       red "[BROKEN] Native rule symlink target cannot be read: ${link}"
@@ -135,7 +165,7 @@ _check_claude_rule_symlink_targets() {
       if [[ -z "${actual_target}" ]]; then
         red "[BROKEN] Native rule symlink target cannot be read: ${file}"
         broken_count=$((broken_count + 1))
-      elif [[ "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* ]]; then
+      elif [[ "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* || "${actual_target}" == "${HOME}/.vibeguard/installed/rules/claude-rules/"* ]]; then
         red "[BROKEN] Native rule symlink not declared by manifest: ${file} -> ${actual_target}"
         broken_count=$((broken_count + 1))
       fi
@@ -143,7 +173,7 @@ _check_claude_rule_symlink_targets() {
   done <<< "${all_labels}"
 
   if [[ "${checked_count}" -gt 0 && "${broken_count}" -eq 0 ]]; then
-    green "[OK] Native rule symlink targets match current repo"
+    green "[OK] Native rule symlink targets match execution source"
   fi
 }
 
@@ -175,7 +205,7 @@ _cleanup_unlisted_rule_files() {
     fi
     if [[ -L "${file}" ]]; then
       actual_target="$(readlink "${file}" 2>/dev/null || true)"
-      if [[ -z "${actual_target}" || "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* || ! -e "${file}" ]]; then
+      if [[ -z "${actual_target}" || "${actual_target}" == "${REPO_DIR}/rules/claude-rules/"* || "${actual_target}" == "${HOME}/.vibeguard/installed/rules/claude-rules/"* || ! -e "${file}" ]]; then
         yellow "  Removed stale manifest rule symlink: ${file}"
         rm -f "${file}"
       else
@@ -196,7 +226,8 @@ _cleanup_unlisted_rule_files() {
 
 _install_manifest_rule_file() {
   local source_path="$1" dest_rel="$2" label="$3" rules_dest="$4"
-  local src="${REPO_DIR}/${source_path}"
+  local src
+  src="$(_claude_source_path "${source_path}")"
   local dest="${rules_dest}/${dest_rel}"
 
   mkdir -p "$(dirname "${dest}")"
@@ -206,15 +237,18 @@ _install_manifest_rule_file() {
 }
 
 _clean_command_symlink_if_managed() {
-  local link="$1" expected_target="$2" label="$3"
+  local link="$1" label="$2"
+  shift 2
   if [[ -L "${link}" ]]; then
-    local actual_target
+    local actual_target expected_target
     actual_target="$(readlink "${link}")"
-    if [[ "${actual_target}" == "${expected_target}" ]]; then
-      rm -f "${link}" 2>/dev/null || true
-    else
-      yellow "Preserved unmanaged ${label} symlink: ${link} -> ${actual_target}"
-    fi
+    for expected_target in "$@"; do
+      if [[ "${actual_target}" == "${expected_target}" ]]; then
+        rm -f "${link}" 2>/dev/null || true
+        return 0
+      fi
+    done
+    yellow "Preserved unmanaged ${label} symlink: ${link} -> ${actual_target}"
   elif [[ -e "${link}" ]]; then
     yellow "Preserved unmanaged ${label} path: ${link}"
   fi
@@ -244,10 +278,10 @@ install_claude_home_assets() {
 
   echo "Step 5: Install custom commands"
   mkdir -p "${CLAUDE_DIR}/commands"
-  safe_symlink "${REPO_DIR}/.claude/commands/vibeguard" "${CLAUDE_DIR}/commands/vibeguard"
+  safe_symlink "$(_claude_source_path ".claude/commands/vibeguard")" "${CLAUDE_DIR}/commands/vibeguard"
   state_record_file "${CLAUDE_DIR}/commands/vibeguard" ".claude/commands/vibeguard" "symlink"
   green "  vibeguard commands -> ~/.claude/commands/vibeguard"
-  safe_symlink "${REPO_DIR}/.claude/commands/vg" "${CLAUDE_DIR}/commands/vg"
+  safe_symlink "$(_claude_source_path ".claude/commands/vg")" "${CLAUDE_DIR}/commands/vg"
   state_record_file "${CLAUDE_DIR}/commands/vg" ".claude/commands/vg" "symlink"
   green "  vg shortcut commands -> ~/.claude/commands/vg"
   echo
@@ -266,7 +300,7 @@ install_claude_home_assets() {
       continue
     fi
     if [[ -d "${rules_dest}/${label}" ]]; then
-      _remove_rule_subtree_if_safe "${REPO_DIR}/rules/claude-rules/${label}" "${rules_dest}/${label}" "${label}" || return 1
+      _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
       yellow "  ${label}/ removed (not in --languages filter)"
     fi
   done <<< "${all_labels}"
@@ -370,16 +404,16 @@ check_claude_home_installation() {
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CLAUDE_DIR}/skills/${skill}"
-    _check_claude_skill_symlink "${link}" "${REPO_DIR}/${source_path}" "${skill}"
+    _check_claude_skill_symlink "${link}" "$(_claude_source_path "${source_path}")" "${skill}"
   done <<< "${skill_links}"
 
   _check_command_symlink \
     "${CLAUDE_DIR}/commands/vibeguard" \
-    "${REPO_DIR}/.claude/commands/vibeguard" \
+    "$(_claude_source_path ".claude/commands/vibeguard")" \
     "vibeguard commands"
   _check_command_symlink \
     "${CLAUDE_DIR}/commands/vg" \
-    "${REPO_DIR}/.claude/commands/vg" \
+    "$(_claude_source_path ".claude/commands/vg")" \
     "vg shortcut commands"
 
   local expected_agent_count=0 missing_agent_count=0 unmanaged_agent_count=0
@@ -520,12 +554,16 @@ clean_claude_home_installation() {
 
   _clean_command_symlink_if_managed \
     "${CLAUDE_DIR}/commands/vibeguard" \
+    "vibeguard commands" \
+    "$(_claude_source_path ".claude/commands/vibeguard")" \
     "${REPO_DIR}/.claude/commands/vibeguard" \
-    "vibeguard commands"
+    "${HOME}/.vibeguard/installed/.claude/commands/vibeguard"
   _clean_command_symlink_if_managed \
     "${CLAUDE_DIR}/commands/vg" \
+    "vg shortcut commands" \
+    "$(_claude_source_path ".claude/commands/vg")" \
     "${REPO_DIR}/.claude/commands/vg" \
-    "vg shortcut commands"
+    "${HOME}/.vibeguard/installed/.claude/commands/vg"
   local skill_links source_path skill
   skill_links="$(manifest_skill_links_for_cleanup "~/.claude/skills/")"
   while IFS=$'\t' read -r source_path skill; do

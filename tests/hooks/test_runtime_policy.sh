@@ -15,6 +15,7 @@ make_home() {
   local home_dir="$1"
   mkdir -p "${home_dir}/.vibeguard"
   printf '%s' "${REPO_DIR}" > "${home_dir}/.vibeguard/repo-path"
+  printf '%s\n' "dev-linked-repo" > "${home_dir}/.vibeguard/execution-mode"
   hook_test_install_runtime_stub "${home_dir}"
 }
 

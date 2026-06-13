@@ -338,9 +338,11 @@ assert_cmd "no-Python setup --clean removes install state" test ! -e "${no_pytho
 
 install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "Mode: installed snapshot (execution uses ~/.vibeguard/installed)" "default setup reports installed snapshot mode"
 assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "default setup uses verified prebuilt runtime without cargo"
 assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
 assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
+assert_cmd "default setup writes installed snapshot execution mode" grep -q '^installed-snapshot$' "${HOME}/.vibeguard/execution-mode"
 assert_contains "${install_out}" "Removed retired VibeGuard skill link" "setup install removes tracked retired skill links"
 assert_cmd "setup install removes tracked retired Claude skill" test ! -L "${HOME}/.claude/skills/old-retired"
 assert_cmd "setup install removes tracked retired Codex skill" test ! -L "${HOME}/.codex/skills/old-flow"
@@ -361,10 +363,70 @@ assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" 
 assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
 assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
+assert_cmd "Claude vibeguard skill targets installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/skills/vibeguard')\" == '${HOME}/.vibeguard/installed/skills/vibeguard' ]]"
+assert_cmd "Claude command target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/commands/vg')\" == '${HOME}/.vibeguard/installed/.claude/commands/vg' ]]"
+assert_cmd "native rule target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/rules/vibeguard/common/security.md')\" == '${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md' ]]"
+fake_live_repo="${TMP_HOME}/fake-live-repo"
+mkdir -p "${fake_live_repo}/hooks/git" "${fake_live_repo}/hooks"
+cat > "${fake_live_repo}/hooks/git/pre-push" <<'SH'
+#!/usr/bin/env bash
+printf 'fake live repo pre-push executed\n' >&2
+exit 47
+SH
+cat > "${fake_live_repo}/hooks/pre-commit-guard.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'fake live repo pre-commit executed\n' >&2
+exit 48
+SH
+chmod +x "${fake_live_repo}/hooks/git/pre-push" "${fake_live_repo}/hooks/pre-commit-guard.sh"
+printf '%s' "${fake_live_repo}" > "${HOME}/.vibeguard/repo-path"
+set +e
+stable_pre_push_out="$(bash "${HOME}/.vibeguard/pre-push" </dev/null 2>&1)"
+stable_pre_push_rc=$?
+stable_pre_commit_out="$(cd "${TMP_HOME}" && bash "${HOME}/.vibeguard/pre-commit" 2>&1)"
+stable_pre_commit_rc=$?
+set -e
+assert_cmd "stable pre-push ignores live repo-path" test "${stable_pre_push_rc}" -eq 0
+assert_not_contains "${stable_pre_push_out}" "fake live repo pre-push executed" "stable pre-push does not execute live repo script"
+assert_cmd "stable pre-commit ignores live repo-path" test "${stable_pre_commit_rc}" -eq 0
+assert_not_contains "${stable_pre_commit_out}" "fake live repo pre-commit executed" "stable pre-commit does not execute live repo script"
+printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
 default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
 assert_contains "${default_scheduler_check_out}" "[OK] vibeguard-runtime version matches repo VERSION" "--check reports runtime version health"
+assert_contains "${default_scheduler_check_out}" "[OK] Execution mode: installed snapshot" "--check reports installed snapshot execution mode"
+assert_contains "${default_scheduler_check_out}" "Hook wrapper execution source: installed snapshot" "--check reports hook wrapper execution source"
+assert_contains "${default_scheduler_check_out}" "Git pre-push execution source: installed snapshot" "--check reports git pre-push execution source"
+assert_contains "${default_scheduler_check_out}" "Native rules execution source: installed snapshot" "--check reports native rules execution source"
+assert_contains "${default_scheduler_check_out}" "Claude commands execution source: installed snapshot" "--check reports Claude commands execution source"
+assert_contains "${default_scheduler_check_out}" "Runtime execution source: installed snapshot" "--check reports runtime execution source"
 assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--check does not warn when scheduled GC is absent"
+
+dev_linked_home="${TMP_HOME}/dev-linked-home"
+mkdir -p "${dev_linked_home}"
+dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked)"
+assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live repository paths)" "--dev-linked mode is visible during setup"
+assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
+assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/vibeguard')\" == '${REPO_DIR}/skills/vibeguard' ]]"
+assert_cmd "--dev-linked native rule targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/rules/vibeguard/common/security.md')\" == '${REPO_DIR}/rules/claude-rules/common/security.md' ]]"
+dev_linked_check_out="$(HOME="${dev_linked_home}" bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${dev_linked_check_out}" "[INFO] Execution mode: dev-linked repo (explicit opt-in)" "--check visibly marks dev-linked mode"
+assert_contains "${dev_linked_check_out}" "Hook wrapper execution source: dev-linked repo" "--check reports dev-linked hook source"
+dev_fake_repo="${TMP_HOME}/dev-linked-fake-repo"
+mkdir -p "${dev_fake_repo}/hooks/git" "${dev_fake_repo}/hooks"
+cat > "${dev_fake_repo}/hooks/git/pre-push" <<'SH'
+#!/usr/bin/env bash
+printf 'dev linked fake pre-push executed\n' >&2
+exit 47
+SH
+chmod +x "${dev_fake_repo}/hooks/git/pre-push"
+printf '%s' "${dev_fake_repo}" > "${dev_linked_home}/.vibeguard/repo-path"
+set +e
+dev_linked_pre_push_out="$(HOME="${dev_linked_home}" bash "${dev_linked_home}/.vibeguard/pre-push" </dev/null 2>&1)"
+dev_linked_pre_push_rc=$?
+set -e
+assert_cmd "--dev-linked pre-push executes live repo source" test "${dev_linked_pre_push_rc}" -eq 47
+assert_contains "${dev_linked_pre_push_out}" "dev linked fake pre-push executed" "--dev-linked pre-push proves live repo execution is opt-in"
 scheduler_fail_home="${TMP_HOME}/scheduler-enable-fail-home"
 mkdir -p "${scheduler_fail_home}"
 set +e
@@ -448,7 +510,7 @@ ln -s "${wrong_claude_skill_target}" "${HOME}/.claude/skills/vibeguard"
 drift_claude_skill_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
 assert_contains "${drift_claude_skill_check_out}" "[BROKEN] vibeguard skill symlink target drift:" "--check reports Claude skill symlink target drift"
 rm -f "${HOME}/.claude/skills/vibeguard"
-ln -s "${REPO_DIR}/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
+ln -s "${HOME}/.vibeguard/installed/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
 wrong_rule_target="${TMP_HOME}/wrong-security-rule.md"
 printf '## U-17: Wrong source\n' > "${wrong_rule_target}"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
@@ -456,8 +518,8 @@ ln -s "${wrong_rule_target}" "${HOME}/.claude/rules/vibeguard/common/security.md
 drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
 assert_contains "${drift_claude_rule_check_out}" "[BROKEN] Native rule symlink target drift:" "--check reports native rule symlink target drift"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
-ln -s "${REPO_DIR}/rules/claude-rules/common/security.md" "${HOME}/.claude/rules/vibeguard/common/security.md"
-ln -s "${REPO_DIR}/rules/claude-rules/common/workflow.md" "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
+ln -s "${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md" "${HOME}/.claude/rules/vibeguard/common/security.md"
+ln -s "${HOME}/.vibeguard/installed/rules/claude-rules/common/workflow.md" "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
 stale_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
 assert_contains "${stale_claude_rule_check_out}" "[BROKEN] Native rule symlink not declared by manifest:" "--check reports repo-owned native rule symlinks not declared by manifest"
 rm -f "${HOME}/.claude/rules/vibeguard/common/stale-not-in-manifest.md"
@@ -474,14 +536,15 @@ assert_contains "${drift_vg_commands_check_out}" "[BROKEN] vg shortcut commands 
 rm -f "${HOME}/.claude/commands/vg"
 missing_vg_commands_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
 assert_contains "${missing_vg_commands_check_out}" "[MISSING] vg shortcut commands not in ~/.claude/commands/" "--check reports missing vg shortcut commands"
-ln -s "${REPO_DIR}/.claude/commands/vg" "${HOME}/.claude/commands/vg"
+ln -s "${HOME}/.vibeguard/installed/.claude/commands/vg" "${HOME}/.claude/commands/vg"
 assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-commit hook installed" "--check reports repo pre-commit hook healthy"
 assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-push hook installed" "--check reports repo pre-push hook healthy"
 fake_wrapper_repo="${TMP_HOME}/fake-wrapper-repo"
 mkdir -p "${fake_wrapper_repo}/hooks/git"
 printf '%s' "${fake_wrapper_repo}" > "${HOME}/.vibeguard/repo-path"
-missing_wrapper_source_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
-assert_contains "${missing_wrapper_source_check_out}" "[BROKEN] VibeGuard repo pre-push hook wrapper source missing" "--check reports missing pre-push wrapper source"
+stable_fake_repo_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${stable_fake_repo_check_out}" "[OK] Execution mode: installed snapshot" "--check stable mode ignores fake repo-path for execution"
+assert_not_contains "${stable_fake_repo_check_out}" "hook execution source missing: ${fake_wrapper_repo}" "--check stable mode does not use repo-path as git hook source"
 printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
 ln -sfn "${TMP_HOME}/unexpected-pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
 drift_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"

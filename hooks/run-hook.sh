@@ -2,7 +2,8 @@
 # VibeGuard Hook Wrapper — A hook distributor compatible with all platforms
 #
 # All hooks in settings.json are called indirectly through this wrapper.
-# Avoid hardcoding absolute paths. Repo relocation only requires updating ~/.vibeguard/repo-path.
+# Stable installs execute the installed snapshot. Live-repo execution is only
+# allowed when setup explicitly wrote dev-linked mode.
 #
 # Usage: bash ~/.vibeguard/run-hook.sh <hook-script-name> [args...]
 # Example: bash ~/.vibeguard/run-hook.sh stop-guard.sh
@@ -35,17 +36,37 @@ if [[ ! -t 0 ]]; then
 fi
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
-HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+EXECUTION_MODE_FILE="${HOME}/.vibeguard/execution-mode"
 
-if [[ ! -d "$INSTALLED_DIR" ]]; then
-  # Fallback: legacy direct-repo mode
-  REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+vibeguard_execution_mode() {
+  local mode="${VIBEGUARD_EXECUTION_MODE:-}"
+  if [[ -z "${mode}" && -f "${EXECUTION_MODE_FILE}" ]]; then
+    mode="$(tr -d '[:space:]' < "${EXECUTION_MODE_FILE}")"
+  fi
+  case "${mode}" in
+    dev-linked|dev-linked-repo|repo|repo-linked)
+      printf '%s\n' "dev-linked-repo" ;;
+    *)
+      printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+EXECUTION_MODE="$(vibeguard_execution_mode)"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
     echo "ERROR: ${REPO_PATH_FILE} not found. Re-run: bash <vibeguard-repo>/scripts/setup/install.sh" >&2
     exit 1
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+else
+  HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+  if [[ ! -d "$INSTALLED_DIR" ]]; then
+    echo "ERROR: installed VibeGuard hook snapshot not found: ${INSTALLED_DIR}" >&2
+    echo "Re-run: bash <vibeguard-repo>/scripts/setup/install.sh --yes" >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$HOOK_PATH" ]]; then
@@ -53,18 +74,26 @@ if [[ ! -f "$HOOK_PATH" ]]; then
   exit 1
 fi
 
-WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
-[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
-[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
+  WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+  [[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+else
+  WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
+  [[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+fi
 if [[ -f "${WRAPPER_ENV_PATH}" ]]; then
   # shellcheck source=hooks/_lib/wrapper_env.sh
   source "${WRAPPER_ENV_PATH}"
   vg_wrapper_env_export "claude"
 fi
 
-POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
-[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
-[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
+  POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
+  [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
+else
+  POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
+  [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
+fi
 if [[ ! -f "${POLICY_PATH}" ]]; then
   echo "ERROR: VibeGuard policy helper not found for ${HOOK_NAME}" >&2
   exit 1
