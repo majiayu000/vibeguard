@@ -3,6 +3,10 @@
 #
 # Modes
 #   bash setup.sh --check                # full report (default, exit always 0)
+#   bash setup.sh doctor                 # same human report as --check
+#   bash setup.sh verify-install         # CI/post-install check, fail on broken required state
+#   bash setup.sh verify-project         # strict machine check, fail on degraded/broken
+#   bash setup.sh verify-dev-repo        # strict machine check for this repo
 #   bash setup.sh --check --strict       # exit 1/2 on warnings/problems
 #   bash setup.sh --check --quiet        # only show problem rows + summary
 #   bash setup.sh --check --json         # machine-readable JSON, no TTY output
@@ -56,6 +60,15 @@ while [[ $# -gt 0 ]]; do
       cat <<'USAGE'
 Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary] [--profile minimal|core|full|strict]
 
+Top-level commands:
+  setup.sh doctor             Human-friendly report; exits 0 unless the checker cannot run.
+                              Compatibility alias: setup.sh --check.
+  setup.sh verify-install     CI/post-install verification; exits 2 on broken
+                              required install state, allows optional WARN/INFO.
+  setup.sh verify-project     Strict machine verification; exits 1 on degraded
+                              state and 2 on broken state.
+  setup.sh verify-dev-repo    Strict machine verification for the VibeGuard repo.
+
   --quiet        Suppress healthy [OK] rows; only print problems + summary.
   --strict       Reflect health in the exit code: 0 healthy, 1 degraded,
                  2 broken (FAIL/BROKEN/MISSING). Without --strict the exit
@@ -73,6 +86,11 @@ Exit codes (--strict / --json / --install only):
   0  healthy
   1  degraded (warnings only; --strict/--json)
   2  broken (FAIL/BROKEN/MISSING present)
+
+Migration:
+  setup.sh --check --strict   -> setup.sh verify-project
+  setup.sh --check --json     -> setup.sh verify-project --json
+  setup.sh --check --install  -> setup.sh verify-install
 USAGE
       exit 0
       ;;

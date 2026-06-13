@@ -17,6 +17,7 @@ SETUP_SCRIPT="${REPO_DIR}/setup.sh"
 AWK_PORTABILITY_FIXTURE=""
 STALE_HOOK_HOME=""
 TIMEOUT_HOOK_HOME=""
+BROKEN_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -27,6 +28,9 @@ cleanup() {
   fi
   if [[ -n "${TIMEOUT_HOOK_HOME}" ]]; then
     rm -rf "${TIMEOUT_HOOK_HOME}"
+  fi
+  if [[ -n "${BROKEN_HOME}" ]]; then
+    rm -rf "${BROKEN_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -101,6 +105,7 @@ assert_cmd() {
 
 # --- Syntax checks ---
 header "syntax"
+assert_cmd "setup.sh syntax" bash -n "${SETUP_SCRIPT}"
 assert_cmd "scripts/lib/status_report.sh syntax" bash -n "${STATUS_LIB}"
 assert_cmd "scripts/setup/check.sh syntax" bash -n "${CHECK_SCRIPT}"
 
@@ -267,6 +272,15 @@ assert_json_path "$ansi_json" 'd["events"][1]["message"]' "[BROKEN] colorized br
 # --- Argument parsing on check.sh ---
 header "check.sh argument parsing"
 
+# Top-level help should advertise the human/machine command split.
+top_help_out="$(bash "${SETUP_SCRIPT}" --help 2>&1)"
+top_help_rc=$?
+assert_eq "$top_help_rc" "0" "setup --help: exit 0"
+assert_contains "$top_help_out" "doctor" "setup --help: documents doctor"
+assert_contains "$top_help_out" "verify-install" "setup --help: documents verify-install"
+assert_contains "$top_help_out" "verify-project --json" "setup --help: documents JSON verify route"
+assert_contains "$top_help_out" "setup.sh --check --install  -> bash setup.sh verify-install" "setup --help: documents install migration"
+
 # Help should exit 0 and print usage.
 help_out="$(bash "${SETUP_SCRIPT}" --check --help 2>&1)"
 help_rc=$?
@@ -274,6 +288,9 @@ assert_eq "$help_rc" "0" "check --help: exit 0"
 assert_contains "$help_out" "Usage: setup.sh --check" "check --help: prints usage"
 assert_contains "$help_out" "Exit codes"             "check --help: documents exit codes"
 assert_contains "$help_out" "--install"              "check --help: documents install verification mode"
+assert_contains "$help_out" "setup.sh doctor"        "check --help: documents doctor command"
+assert_contains "$help_out" "setup.sh verify-install" "check --help: documents verify-install command"
+assert_contains "$help_out" "setup.sh --check --json     -> setup.sh verify-project --json" "check --help: documents json migration"
 
 # Unknown flag should exit 64 (sysexits.h EX_USAGE).
 err_out="$(bash "${SETUP_SCRIPT}" --check --bogus 2>&1)"
@@ -306,6 +323,10 @@ assert_contains "$default_out" "Verdict :"      "default: verdict line present"
 assert_contains "$default_out" "[OK] All awk blocks use POSIX-compatible regex" "default: Python heredoc regexes do not trip awk portability"
 assert_not_contains "$default_out" "check_dependency_changes.sh:147" "default: dependency Python regex not reported as awk"
 assert_not_contains "$default_out" "check_test_weakening.sh:118" "default: test weakening Python regex not reported as awk"
+
+doctor_out="$(bash "${SETUP_SCRIPT}" doctor 2>&1 || true)"
+assert_contains "$doctor_out" "VibeGuard Installation Status" "doctor: legacy header preserved"
+assert_contains "$doctor_out" "Summary" "doctor: summary block present"
 
 AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
 cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'
@@ -390,10 +411,20 @@ assert_contains "$stale_check_out" "stale Codex hook command" "stale hook check:
 assert_contains "$stale_check_out" "config=~/.codex/hooks.json event=Stop matcher=<none>" "stale hook check: names Codex config/event/matcher"
 assert_contains "$stale_check_out" "repair=bash setup.sh --yes" "stale hook check: names repair action"
 
+stale_verify_project_out="$(HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-project 2>&1)"
+stale_verify_project_rc=$?
+assert_eq "$stale_verify_project_rc" "2" "verify-project: broken required state exits 2"
+assert_contains "$stale_verify_project_out" "stale Codex hook command" "verify-project: reports broken required hook state"
+
 stale_install_check_out="$(HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --install 2>&1)"
 stale_install_check_rc=$?
 assert_eq "$stale_install_check_rc" "2" "install check: broken required state exits 2"
 assert_contains "$stale_install_check_out" "stale Codex hook command" "install check: reports broken required hook state"
+
+stale_verify_install_out="$(HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-install 2>&1)"
+stale_verify_install_rc=$?
+assert_eq "$stale_verify_install_rc" "2" "verify-install: broken required state exits 2"
+assert_contains "$stale_verify_install_out" "stale Codex hook command" "verify-install: reports broken required hook state"
 
 HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" upsert-vibeguard \
   --settings-file "${STALE_HOOK_HOME}/.claude/settings.json" \
@@ -459,6 +490,11 @@ bash "${SETUP_SCRIPT}" --check >/dev/null 2>&1
 default_rc=$?
 assert_eq "$default_rc" "0" "default mode: exit 0 regardless of health (compat)"
 
+BROKEN_HOME="$(mktemp -d)"
+HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" doctor >/dev/null 2>&1
+doctor_rc=$?
+assert_eq "$doctor_rc" "0" "doctor command: exit 0 on broken health (compat)"
+
 # --no-summary must also keep exiting 0.
 bash "${SETUP_SCRIPT}" --check --no-summary >/dev/null 2>&1
 no_sum_rc=$?
@@ -492,6 +528,25 @@ if [[ "$json_rc" == "0" || "$json_rc" == "1" || "$json_rc" == "2" ]]; then
 else
   red "json mode: unexpected exit code ${json_rc}"; FAIL=$((FAIL + 1))
 fi
+
+HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-install >/dev/null 2>&1
+verify_install_rc=$?
+assert_eq "$verify_install_rc" "2" "verify-install command: broken required state exits 2"
+
+verify_project_json_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-project --json 2>&1)"
+verify_project_json_rc=$?
+assert_eq "$verify_project_json_rc" "2" "verify-project --json: broken state exits 2"
+TOTAL=$((TOTAL + 1))
+if printf '%s' "$verify_project_json_out" | python3 -c 'import json,sys;json.loads(sys.stdin.read())' 2>/dev/null; then
+  green "verify-project --json: output parses"; PASS=$((PASS + 1))
+else
+  red "verify-project --json: output failed to parse"; FAIL=$((FAIL + 1))
+fi
+assert_json_path "$verify_project_json_out" 'd["verdict"]' "broken" "verify-project --json: verdict broken"
+
+HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-dev-repo >/dev/null 2>&1
+verify_dev_repo_rc=$?
+assert_eq "$verify_dev_repo_rc" "2" "verify-dev-repo command: broken state exits 2"
 
 # --- Summary ---
 printf '\n'

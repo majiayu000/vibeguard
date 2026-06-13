@@ -36,20 +36,21 @@ is not required by default.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
-Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh --check --strict` to verify.
+Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
 
 ### First 5 minutes
 
 Use this path to prove the install is active before changing another project:
 
 ```bash
-bash ~/vibeguard/setup.sh --check --strict
+bash ~/vibeguard/setup.sh doctor
+bash ~/vibeguard/setup.sh verify-install
 bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 bash ~/vibeguard/setup.sh demo safe-bash
 bash ~/vibeguard/scripts/hook-health.sh 24
 ```
 
-Expected result on a fully provisioned machine: `setup.sh --check --strict` exits 0 with `HEALTHY`, the Codex doctor reports configured rules and hooks, `setup.sh demo safe-bash` shows a side-effect-free block transcript, and hook health shows the latest local hook events or a no-data message that points to the log path. If optional language guard tools such as `ast-grep` are not installed, the strict check reports an explicit `MISSING` row and non-zero exit instead of silently treating that dependency gap as healthy.
+Expected result on a fully provisioned machine: `setup.sh doctor` prints a friendly `HEALTHY` report and remains exit-code compatible for interactive use, `setup.sh verify-install` exits 0, the Codex doctor reports configured rules and hooks, `setup.sh demo safe-bash` shows a side-effect-free block transcript, and hook health shows the latest local hook events or a no-data message that points to the log path. If required install state is broken, `verify-install` returns non-zero instead of silently treating that dependency gap as healthy.
 
 To protect another repository after VibeGuard is installed:
 
@@ -62,7 +63,8 @@ bash ~/vibeguard/scripts/project-init.sh /path/to/project
 The current mainline is install-verified on macOS and CI-verified on Ubuntu, macOS, and Windows.
 
 - Latest release train: `v1.1.x`
-- Local health gate: `bash setup.sh --check --strict`
+- Interactive health report: `bash setup.sh doctor` (compatibility alias: `bash setup.sh --check`)
+- CI/post-install health gate: `bash setup.sh verify-install`
 - Expected verdict after a healthy install: `HEALTHY`
 - Claude Code: native rules, skills, commands, hooks, and git hooks are installed by `setup.sh`; scheduled GC is opt-in with `--with-scheduler`
 - Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
@@ -360,17 +362,24 @@ bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
 bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
 
 # Verify / Uninstall
-bash ~/vibeguard/setup.sh --check                     # Verify installation
-bash ~/vibeguard/setup.sh --check --quiet             # Show only problems + rollup
-bash ~/vibeguard/setup.sh --check --json              # Machine-readable JSON for CI
-bash ~/vibeguard/setup.sh --check --strict            # Exit 1/2 on warn/broken
+bash ~/vibeguard/setup.sh doctor                      # Human-friendly report, exits 0 for compatibility
+bash ~/vibeguard/setup.sh --check                     # Compatibility alias for doctor
+bash ~/vibeguard/setup.sh verify-install              # CI/post-install check, exits 2 on broken required state
+bash ~/vibeguard/setup.sh verify-project              # Strict project check, exits 1/2 on degraded/broken
+bash ~/vibeguard/setup.sh verify-dev-repo             # Strict VibeGuard repo check
+bash ~/vibeguard/setup.sh verify-project --json       # Machine-readable JSON for CI
 bash ~/vibeguard/setup.sh --clean                     # Uninstall
 ```
 
-`--check` reports a structured rollup (OK / INFO / WARN / FAIL / BROKEN / MISSING)
-plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or `BROKEN`. The default mode
-always exits 0 for backwards compatibility — add `--strict` (or use `--json`,
-which implies it) to make CI fail when the install is broken.
+`doctor` / `--check` reports a structured rollup (OK / INFO / WARN / FAIL /
+BROKEN / MISSING) plus a final `Verdict` line of `HEALTHY`, `DEGRADED`, or
+`BROKEN`. It always exits 0 for backwards compatibility unless the checker
+itself cannot run. CI should use `verify-install` for post-install health gates
+or `verify-project --json` when it needs machine-readable strict project output.
+
+Migration: `--check --strict` remains supported and maps to `verify-project`;
+`--check --json` remains supported and maps to `verify-project --json`;
+`--check --install` remains supported and maps to `verify-install`.
 
 | Profile | Hooks Installed | Use Case |
 |---------|----------------|----------|

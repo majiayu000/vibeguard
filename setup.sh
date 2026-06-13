@@ -17,7 +17,11 @@ Usage: bash setup.sh [command] [options]
 
 Commands:
   install              Install VibeGuard (default when no command is given)
-  --check             Verify installation health
+  doctor               Show a human-friendly installation health report
+  verify-install       Machine check for CI/post-install verification
+  verify-project       Machine check for project health
+  verify-dev-repo      Machine check for VibeGuard development repo health
+  --check              Compatibility alias for doctor
   --clean             Uninstall managed VibeGuard assets
   --codex-status      Show read-only Codex-specific status
   packs               Manage guard packs
@@ -35,13 +39,25 @@ Install options:
   --languages lang1,lang2
 
 Check options:
+  --json
+  --quiet
+  --strict
+  --install
+  --no-summary
   --profile minimal|core|full|strict
 
 Examples:
   bash setup.sh --yes
-  bash setup.sh --check --strict
+  bash setup.sh doctor
+  bash setup.sh verify-install
+  bash setup.sh verify-project --json
   bash setup.sh --check --profile strict
   bash setup.sh --profile strict --languages rust,python
+
+Migration:
+  bash setup.sh --check --strict   -> bash setup.sh verify-project
+  bash setup.sh --check --json     -> bash setup.sh verify-project --json
+  bash setup.sh --check --install  -> bash setup.sh verify-install
 USAGE
 }
 
@@ -60,6 +76,22 @@ run_setup() {
 case "${1:-}" in
   --help|-h|help)
     print_usage
+    ;;
+  doctor)
+    shift || true
+    run_setup "check.sh" "$@"
+    ;;
+  verify-install)
+    shift || true
+    run_setup "check.sh" --install "$@"
+    ;;
+  verify-project)
+    shift || true
+    run_setup "check.sh" --strict "$@"
+    ;;
+  verify-dev-repo)
+    shift || true
+    run_setup "check.sh" --strict "$@"
     ;;
   --check)
     shift || true
