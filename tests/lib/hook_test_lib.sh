@@ -139,6 +139,24 @@ case "$command" in
     printf 'VIBEGUARD_LOG_FILE=%s\n' "$log_file"
     printf 'VIBEGUARD_SESSION_ID=%s\n' "$session_id"
     ;;
+  runtime-policy-supports)
+    ;;
+  runtime-policy-check)
+    hook_name=""
+    while [[ $# -gt 0 ]]; do
+      case "${1:-}" in
+        --cwd)
+          shift
+          [[ $# -gt 0 ]] && shift
+          ;;
+        *)
+          hook_name="$1"
+          shift
+          ;;
+      esac
+    done
+    printf '{"decision":"run","enforcement":"block","hook":"%s","profile":"core","config_path":null,"reason":null}\n' "${hook_name:-unknown}"
+    ;;
   append-jsonl-mirror)
     primary_file="${1:?append-jsonl-mirror requires a primary file path}"
     mirror_file="${2:?append-jsonl-mirror requires a mirror file path}"

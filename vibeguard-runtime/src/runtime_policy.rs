@@ -1,5 +1,6 @@
 use crate::HandlerResult;
 use crate::codex_app_server_policy::{HookPolicyDecision, evaluate_hook_policy};
+use crate::project_config::{load_project_config, project_config_path};
 use crate::runtime_config::validate_runtime_config_file;
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::{Value, json};
@@ -22,31 +23,39 @@ pub fn runtime_policy_supports(args: &[String]) -> HandlerResult {
 }
 
 pub fn runtime_policy_check(args: &[String]) -> HandlerResult {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime runtime-policy-check <hook-name>".into());
-    }
+    let parsed = parse_runtime_policy_check_args(args)?;
 
     let user_config = std::env::var("VIBEGUARD_USER_CONFIG_FILE").unwrap_or_default();
     if let Err(err) = validate_runtime_config_file(&user_config) {
+        let payload = runtime_policy_error_payload(
+            &parsed.hook_name,
+            parsed.cwd.as_deref(),
+            None,
+            &err.message,
+        );
         eprintln!("{}", err.message);
-        process::exit(err.exit_code);
+        exit_with_policy_payload(payload, err.exit_code);
     }
 
-    let decision = evaluate_hook_policy(&args[0], None, &HashMap::new());
+    let env_overrides = HashMap::new();
+    let config_path = project_config_path(parsed.cwd.as_deref(), &env_overrides);
+    let decision = evaluate_hook_policy(&parsed.hook_name, parsed.cwd.as_deref(), &env_overrides);
+    let payload = runtime_policy_payload(
+        &parsed.hook_name,
+        parsed.cwd.as_deref(),
+        config_path.as_deref(),
+        &decision,
+    );
     match decision {
-        HookPolicyDecision::Run { reason, .. } => {
-            if let Some(reason) = reason {
-                println!("{reason}");
-            }
-            process::exit(ALLOW);
+        HookPolicyDecision::Run { .. } => {
+            exit_with_policy_payload(payload, ALLOW);
         }
-        HookPolicyDecision::Skip(reason) => {
-            println!("{reason}");
-            process::exit(SKIP);
+        HookPolicyDecision::Skip(_) => {
+            exit_with_policy_payload(payload, SKIP);
         }
         HookPolicyDecision::Error(reason) => {
             eprintln!("{reason}");
-            process::exit(policy_error_exit_code(&reason));
+            exit_with_policy_payload(payload, policy_error_exit_code(&reason));
         }
     }
 }
@@ -189,6 +198,118 @@ fn policy_error_exit_code(reason: &str) -> i32 {
     } else {
         POLICY_ERROR
     }
+}
+
+struct RuntimePolicyCheckArgs {
+    hook_name: String,
+    cwd: Option<String>,
+}
+
+fn parse_runtime_policy_check_args(args: &[String]) -> Result<RuntimePolicyCheckArgs, String> {
+    let mut cwd: Option<String> = None;
+    let mut hook_name: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--cwd" | "--project-root" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    return Err(runtime_policy_check_usage());
+                };
+                if value.is_empty() || cwd.replace(value.clone()).is_some() {
+                    return Err(runtime_policy_check_usage());
+                }
+            }
+            "--" => {
+                i += 1;
+                if i >= args.len() || hook_name.is_some() || i + 1 != args.len() {
+                    return Err(runtime_policy_check_usage());
+                }
+                hook_name = Some(args[i].clone());
+            }
+            arg if arg.starts_with("--") => return Err(runtime_policy_check_usage()),
+            value => {
+                if hook_name.replace(value.to_string()).is_some() {
+                    return Err(runtime_policy_check_usage());
+                }
+            }
+        }
+        i += 1;
+    }
+
+    let Some(hook_name) = hook_name else {
+        return Err(runtime_policy_check_usage());
+    };
+    Ok(RuntimePolicyCheckArgs { hook_name, cwd })
+}
+
+fn runtime_policy_check_usage() -> String {
+    "Usage: vibeguard-runtime runtime-policy-check [--cwd <path>] <hook-name>".into()
+}
+
+fn runtime_policy_payload(
+    hook_name: &str,
+    cwd: Option<&str>,
+    config_path: Option<&Path>,
+    decision: &HookPolicyDecision,
+) -> Value {
+    let (enforcement, profile) = config_path
+        .and_then(|path| load_project_config(path).ok())
+        .map(|config| {
+            (
+                config.enforcement.unwrap_or_else(|| "block".to_string()),
+                config.profile.unwrap_or_else(|| "core".to_string()),
+            )
+        })
+        .map(|(enforcement, profile)| (json!(enforcement), json!(profile)))
+        .unwrap_or_else(|| {
+            if config_path.is_some() {
+                (Value::Null, Value::Null)
+            } else {
+                (json!("block"), json!("core"))
+            }
+        });
+
+    let (decision_text, reason) = match decision {
+        HookPolicyDecision::Run { reason, .. } => ("run", reason.clone()),
+        HookPolicyDecision::Skip(reason) => ("skip", Some(reason.clone())),
+        HookPolicyDecision::Error(reason) => ("error", Some(reason.clone())),
+    };
+
+    json!({
+        "decision": decision_text,
+        "enforcement": enforcement,
+        "hook": hook_name,
+        "profile": profile,
+        "config_path": config_path.map(|path| path.to_string_lossy().to_string()),
+        "cwd": cwd,
+        "reason": reason,
+    })
+}
+
+fn runtime_policy_error_payload(
+    hook_name: &str,
+    cwd: Option<&str>,
+    config_path: Option<&Path>,
+    reason: &str,
+) -> Value {
+    json!({
+        "decision": "error",
+        "enforcement": Value::Null,
+        "hook": hook_name,
+        "profile": Value::Null,
+        "config_path": config_path.map(|path| path.to_string_lossy().to_string()),
+        "cwd": cwd,
+        "reason": reason,
+    })
+}
+
+fn exit_with_policy_payload(payload: Value, exit_code: i32) -> ! {
+    match serde_json::to_string(&payload) {
+        Ok(text) => println!("{text}"),
+        Err(err) => eprintln!("VibeGuard policy error: could not serialize policy JSON: {err}"),
+    }
+    process::exit(exit_code);
 }
 
 fn read_stdin() -> io::Result<String> {

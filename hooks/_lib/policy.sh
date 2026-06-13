@@ -81,9 +81,56 @@ vg_policy_runtime_supports() {
   return 0
 }
 
+vg_policy_json_field() {
+  local runtime_path="$1" json_input="$2" field="$3" mode="${4:-}"
+  if [[ "${mode}" == "strict" ]]; then
+    printf '%s' "${json_input}" | "${runtime_path}" json-field --strict "${field}" 2>/dev/null
+  else
+    printf '%s' "${json_input}" | "${runtime_path}" json-field "${field}" 2>/dev/null
+  fi
+}
+
+vg_policy_payload_cwd() {
+  local payload_ref="$1" runtime_path="$2" field value
+  [[ -n "${payload_ref}" ]] || return 1
+  for field in cwd params.cwd workspace.cwd workspace.current_dir; do
+    if [[ -f "${payload_ref}" ]]; then
+      value="$("${runtime_path}" json-field "${field}" < "${payload_ref}" 2>/dev/null || true)"
+    else
+      value="$(printf '%s' "${payload_ref}" | "${runtime_path}" json-field "${field}" 2>/dev/null || true)"
+    fi
+    if [[ -n "${value}" && "${value}" != "null" && "${value}" != \{* && "${value}" != \[* ]]; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+vg_policy_git_root() {
+  git rev-parse --show-toplevel 2>/dev/null || true
+}
+
+vg_policy_resolve_cwd() {
+  local payload_ref="${1:-}" runtime_path="${2:-}" candidate
+  for candidate in "${VIBEGUARD_POLICY_CWD:-}" "${VIBEGUARD_PROJECT_ROOT:-}" "${VIBEGUARD_PROJECT_CWD:-}"; do
+    if [[ -n "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  if [[ -n "${runtime_path}" ]] && candidate="$(vg_policy_payload_cwd "${payload_ref}" "${runtime_path}")" && [[ -n "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+  pwd -P 2>/dev/null || pwd
+}
+
 vg_policy_check_hook() {
   local hook_name="$1"
-  local output status runtime_path
+  local payload_ref="${2:-}"
+  local output stderr_output status runtime_path policy_cwd decision enforcement reason
+  local stdout_file stderr_file
 
   VG_POLICY_REASON=""
   VG_POLICY_KIND=""
@@ -97,17 +144,50 @@ vg_policy_check_hook() {
     return 20
   fi
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
+  policy_cwd="$(vg_policy_resolve_cwd "${payload_ref}" "${runtime_path}")"
 
+  stdout_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-policy-stdout.XXXXXX")" || {
+    VG_POLICY_REASON="VibeGuard policy error: failed to allocate runtime policy stdout capture."
+    VG_POLICY_KIND="policy_error"
+    return 20
+  }
+  stderr_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-policy-stderr.XXXXXX")" || {
+    rm -f "${stdout_file}" 2>/dev/null || true
+    VG_POLICY_REASON="VibeGuard policy error: failed to allocate runtime policy stderr capture."
+    VG_POLICY_KIND="policy_error"
+    return 20
+  }
+
+  local -a check_args
+  check_args=(runtime-policy-check)
+  if [[ -n "${policy_cwd}" ]]; then
+    check_args+=(--cwd "${policy_cwd}")
+  fi
+  check_args+=("${hook_name}")
   status=0
-  output="$(
-    VIBEGUARD_USER_CONFIG_FILE="$(vg_policy_user_config_file)" \
-      "${runtime_path}" runtime-policy-check "${hook_name}" 2>&1
-  )" || status=$?
+  VIBEGUARD_USER_CONFIG_FILE="$(vg_policy_user_config_file)" \
+    "${runtime_path}" "${check_args[@]}" >"${stdout_file}" 2>"${stderr_file}" || status=$?
+  output="$(cat "${stdout_file}")"
+  stderr_output="$(cat "${stderr_file}")"
+  rm -f "${stdout_file}" "${stderr_file}" 2>/dev/null || true
+
+  if ! decision="$(vg_policy_json_field "${runtime_path}" "${output}" "decision" "strict")"; then
+    VG_POLICY_REASON="${stderr_output:-${output:-VibeGuard policy error: runtime-policy-check did not return policy JSON.}}"
+    VG_POLICY_KIND="policy_error"
+    return 20
+  fi
+  enforcement="$(vg_policy_json_field "${runtime_path}" "${output}" "enforcement" || true)"
+  reason="$(vg_policy_json_field "${runtime_path}" "${output}" "reason" || true)"
 
   case "${status}" in
     0)
-      if [[ "${output}" == *"enforcement=warn"* ]]; then
-        VG_POLICY_REASON="${output}"
+      if [[ "${decision}" != "run" ]]; then
+        VG_POLICY_REASON="${reason:-VibeGuard policy error: runtime-policy-check returned decision=${decision} with allow exit.}"
+        VG_POLICY_KIND="policy_error"
+        return 20
+      fi
+      if [[ "${enforcement}" == "warn" ]]; then
+        VG_POLICY_REASON="${reason}"
         VG_POLICY_KIND="policy_warn"
         VG_POLICY_ENFORCEMENT="warn"
         export VIBEGUARD_POLICY_ENFORCEMENT="warn"
@@ -115,17 +195,22 @@ vg_policy_check_hook() {
       return 0
       ;;
     10)
-      VG_POLICY_REASON="${output}"
+      if [[ "${decision}" != "skip" ]]; then
+        VG_POLICY_REASON="${reason:-VibeGuard policy error: runtime-policy-check returned decision=${decision} with skip exit.}"
+        VG_POLICY_KIND="policy_error"
+        return 20
+      fi
+      VG_POLICY_REASON="${reason:-${stderr_output:-${output}}}"
       VG_POLICY_KIND="policy_skip"
       return 10
       ;;
     30)
-      VG_POLICY_REASON="${output}"
+      VG_POLICY_REASON="${reason:-${stderr_output:-${output}}}"
       VG_POLICY_KIND="config_parse_error"
       return 30
       ;;
     *)
-      VG_POLICY_REASON="${output:-VibeGuard policy error: unknown runtime policy failure.}"
+      VG_POLICY_REASON="${reason:-${stderr_output:-${output:-VibeGuard policy error: unknown runtime policy failure.}}}"
       VG_POLICY_KIND="policy_error"
       return 20
       ;;
@@ -207,8 +292,8 @@ vg_policy_codex_error_fallback() {
 }
 
 vg_policy_codex_gate() {
-  local hook_name="$1" event_name="$2" policy_status=0
-  vg_policy_check_hook "${hook_name}" || policy_status=$?
+  local hook_name="$1" event_name="$2" payload_file="${3:-}" policy_status=0
+  vg_policy_check_hook "${hook_name}" "${payload_file}" || policy_status=$?
   [[ ${policy_status} -eq 0 ]] && return 0
 
   vg_policy_diag "${hook_name}" "${event_name}" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"

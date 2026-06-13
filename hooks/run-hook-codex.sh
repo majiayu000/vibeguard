@@ -102,7 +102,7 @@ if [[ ! -f "${POLICY_PATH}" ]]; then
 fi
 # shellcheck source=hooks/_lib/policy.sh
 source "${POLICY_PATH}"
-vg_policy_codex_gate "${HOOK_NAME}" "${EVENT_NAME}" || exit 0
+vg_policy_codex_gate "${HOOK_NAME}" "${EVENT_NAME}" "${INPUT}" || exit 0
 
 if [[ ! -f "$HOOK_PATH" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-hook" "${HOOK_PATH}"
