@@ -91,10 +91,14 @@ vg_policy_json_field() {
 }
 
 vg_policy_payload_cwd() {
-  local payload_file="$1" runtime_path="$2" field value
-  [[ -n "${payload_file}" && -f "${payload_file}" ]] || return 1
+  local payload_ref="$1" runtime_path="$2" field value
+  [[ -n "${payload_ref}" ]] || return 1
   for field in cwd params.cwd workspace.cwd workspace.current_dir; do
-    value="$("${runtime_path}" json-field "${field}" < "${payload_file}" 2>/dev/null || true)"
+    if [[ -f "${payload_ref}" ]]; then
+      value="$("${runtime_path}" json-field "${field}" < "${payload_ref}" 2>/dev/null || true)"
+    else
+      value="$(printf '%s' "${payload_ref}" | "${runtime_path}" json-field "${field}" 2>/dev/null || true)"
+    fi
     if [[ -n "${value}" && "${value}" != "null" && "${value}" != \{* && "${value}" != \[* ]]; then
       printf '%s\n' "${value}"
       return 0
@@ -108,14 +112,14 @@ vg_policy_git_root() {
 }
 
 vg_policy_resolve_cwd() {
-  local payload_file="${1:-}" runtime_path="${2:-}" candidate
+  local payload_ref="${1:-}" runtime_path="${2:-}" candidate
   for candidate in "${VIBEGUARD_POLICY_CWD:-}" "${VIBEGUARD_PROJECT_ROOT:-}" "${VIBEGUARD_PROJECT_CWD:-}"; do
     if [[ -n "${candidate}" ]]; then
       printf '%s\n' "${candidate}"
       return 0
     fi
   done
-  if [[ -n "${runtime_path}" ]] && candidate="$(vg_policy_payload_cwd "${payload_file}" "${runtime_path}")" && [[ -n "${candidate}" ]]; then
+  if [[ -n "${runtime_path}" ]] && candidate="$(vg_policy_payload_cwd "${payload_ref}" "${runtime_path}")" && [[ -n "${candidate}" ]]; then
     printf '%s\n' "${candidate}"
     return 0
   fi
@@ -129,7 +133,7 @@ vg_policy_resolve_cwd() {
 
 vg_policy_check_hook() {
   local hook_name="$1"
-  local payload_file="${2:-}"
+  local payload_ref="${2:-}"
   local output stderr_output status runtime_path policy_cwd decision enforcement reason
   local stdout_file stderr_file
 
@@ -145,7 +149,7 @@ vg_policy_check_hook() {
     return 20
   fi
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
-  policy_cwd="$(vg_policy_resolve_cwd "${payload_file}" "${runtime_path}")"
+  policy_cwd="$(vg_policy_resolve_cwd "${payload_ref}" "${runtime_path}")"
 
   stdout_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-policy-stdout.XXXXXX")" || {
     VG_POLICY_REASON="VibeGuard policy error: failed to allocate runtime policy stdout capture."
