@@ -135,6 +135,100 @@ fi
 PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
 
+_execution_mode() {
+  local mode="${VIBEGUARD_EXECUTION_MODE:-}"
+  if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
+    mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
+  fi
+  case "${mode}" in
+    dev-linked|dev-linked-repo|repo|repo-linked)
+      printf '%s\n' "dev-linked-repo" ;;
+    *)
+      printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+_execution_repo_dir() {
+  local repo_path_file="${HOME}/.vibeguard/repo-path"
+  if [[ -f "${repo_path_file}" ]]; then
+    cat "${repo_path_file}"
+    return 0
+  fi
+  return 1
+}
+
+_execution_source_path() {
+  local rel_path="$1"
+  local repo_dir
+  if [[ "$(_execution_mode)" == "dev-linked-repo" ]]; then
+    repo_dir="$(_execution_repo_dir 2>/dev/null || true)"
+    if [[ -z "${repo_dir}" ]]; then
+      printf '%s\n' "${HOME}/.vibeguard/missing-repo-path/${rel_path}"
+    else
+      printf '%s\n' "${repo_dir}/${rel_path}"
+    fi
+  else
+    printf '%s\n' "${HOME}/.vibeguard/installed/${rel_path}"
+  fi
+}
+
+_execution_source_label() {
+  if [[ "$(_execution_mode)" == "dev-linked-repo" ]]; then
+    printf '%s\n' "dev-linked repo"
+  else
+    printf '%s\n' "installed snapshot"
+  fi
+}
+
+_check_execution_source_dir() {
+  local surface="$1" rel_path="$2"
+  local path
+  path="$(_execution_source_path "${rel_path}")"
+  if [[ -d "${path}" ]]; then
+    green "[OK] ${surface} execution source: $(_execution_source_label) (${path})"
+  else
+    red "[BROKEN] ${surface} execution source missing: $(_execution_source_label) (${path})"
+  fi
+}
+
+_check_execution_source_file() {
+  local surface="$1" rel_path="$2"
+  local path
+  path="$(_execution_source_path "${rel_path}")"
+  if [[ -f "${path}" ]]; then
+    green "[OK] ${surface} execution source: $(_execution_source_label) (${path})"
+  else
+    red "[BROKEN] ${surface} execution source missing: $(_execution_source_label) (${path})"
+  fi
+}
+
+_check_execution_sources() {
+  echo
+  echo "Execution Sources"
+  echo "------------------------------"
+  if [[ "$(_execution_mode)" == "dev-linked-repo" ]]; then
+    yellow "[INFO] Execution mode: dev-linked repo (explicit opt-in)"
+  else
+    green "[OK] Execution mode: installed snapshot"
+  fi
+  _check_execution_source_dir "Hook wrapper" "hooks"
+  _check_execution_source_file "Git pre-commit" "hooks/pre-commit-guard.sh"
+  _check_execution_source_file "Git pre-push" "hooks/git/pre-push"
+  _check_execution_source_dir "Native rules" "rules/claude-rules"
+  _check_execution_source_dir "Claude commands" ".claude/commands"
+  _check_execution_source_dir "Skills" "skills"
+  if [[ -d "$(_execution_source_path "workflows")" ]]; then
+    green "[OK] Workflow skills execution source: $(_execution_source_label) ($(_execution_source_path "workflows"))"
+  else
+    red "[BROKEN] Workflow skills execution source missing: $(_execution_source_label) ($(_execution_source_path "workflows"))"
+  fi
+  if [[ -x "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" ]]; then
+    green "[OK] Runtime execution source: installed snapshot (${HOME}/.vibeguard/installed/bin/vibeguard-runtime)"
+  else
+    red "[BROKEN] Runtime execution source missing: installed snapshot (${HOME}/.vibeguard/installed/bin/vibeguard-runtime)"
+  fi
+}
+
 _check_repo_git_hook() {
   local hook_name="$1"
   local expected_target="$2"
@@ -167,21 +261,23 @@ _check_repo_git_hook() {
     red "[BROKEN] VibeGuard repo ${hook_name} hook target not executable: ${actual_target}"
     return 0
   fi
-  if [[ "${hook_name}" == "pre-push" && "${expected_target}" == "${HOME}/.vibeguard/pre-push" ]]; then
-    local wrapper_repo_path="${HOME}/.vibeguard/repo-path"
-    local wrapper_repo=""
-    local wrapper_source=""
-    if [[ -f "${wrapper_repo_path}" ]]; then
-      wrapper_repo="$(<"${wrapper_repo_path}")"
-    fi
-    wrapper_source="${wrapper_repo}/hooks/git/pre-push"
-    if [[ -z "${wrapper_repo}" || ! -f "${wrapper_source}" ]]; then
-      red "[BROKEN] VibeGuard repo pre-push hook wrapper source missing: ${wrapper_source}"
-      return 0
-    fi
-    if [[ ! -r "${wrapper_source}" ]]; then
-      red "[BROKEN] VibeGuard repo pre-push hook wrapper source not readable: ${wrapper_source}"
-      return 0
+  if [[ "${expected_target}" == "${HOME}/.vibeguard/pre-commit" || "${expected_target}" == "${HOME}/.vibeguard/pre-push" ]]; then
+    local source_rel source_path
+    case "${hook_name}" in
+      pre-commit) source_rel="hooks/pre-commit-guard.sh" ;;
+      pre-push) source_rel="hooks/git/pre-push" ;;
+      *) source_rel="" ;;
+    esac
+    if [[ -n "${source_rel}" ]]; then
+      source_path="$(_execution_source_path "${source_rel}")"
+      if [[ ! -f "${source_path}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook execution source missing: ${source_path}"
+        return 0
+      fi
+      if [[ ! -r "${source_path}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook execution source not readable: ${source_path}"
+        return 0
+      fi
     fi
   fi
 
@@ -250,12 +346,18 @@ run_legacy_checks() {
 
   # Check hook wrapper
   VIBEGUARD_HOME="${HOME}/.vibeguard"
-  if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
-    _repo=$(<"${VIBEGUARD_HOME}/repo-path")
-    if [[ -d "$_repo/hooks" ]]; then
-      green "[OK] Hook wrapper ready (repo: ${_repo})"
+  if [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
+    if [[ "$(_execution_mode)" == "dev-linked-repo" ]]; then
+      _repo="$(_execution_repo_dir 2>/dev/null || true)"
+      if [[ -n "${_repo}" && -d "$_repo/hooks" ]]; then
+        green "[OK] Hook wrapper ready (source: dev-linked repo: ${_repo})"
+      else
+        red "[BROKEN] Hook wrapper dev-linked repo source missing: ${_repo:-${VIBEGUARD_HOME}/repo-path}"
+      fi
+    elif [[ -d "${VIBEGUARD_HOME}/installed/hooks" ]]; then
+      green "[OK] Hook wrapper ready (source: installed snapshot: ${VIBEGUARD_HOME}/installed/hooks)"
     else
-      red "[BROKEN] repo-path points to missing directory: ${_repo}"
+      red "[BROKEN] Hook wrapper installed snapshot missing: ${VIBEGUARD_HOME}/installed/hooks"
     fi
   else
     yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
@@ -267,6 +369,7 @@ run_legacy_checks() {
   else
     red "[MISSING] vibeguard-runtime runtime binary (~/.vibeguard/installed/bin/vibeguard-runtime)"
   fi
+  _check_execution_sources
 
   check_claude_home_installation
 

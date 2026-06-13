@@ -8,16 +8,34 @@ HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
-DIAG_PATH="${WRAPPER_DIR}/_lib/codex_diag.sh"
-if [[ ! -f "${DIAG_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_diag.sh" ]]; then
-  DIAG_PATH="${INSTALLED_DIR}/_lib/codex_diag.sh"
-fi
-if [[ ! -f "${DIAG_PATH}" ]]; then
-  REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+EXECUTION_MODE_FILE="${HOME}/.vibeguard/execution-mode"
+
+vibeguard_execution_mode() {
+  local mode="${VIBEGUARD_EXECUTION_MODE:-}"
+  if [[ -z "${mode}" && -f "${EXECUTION_MODE_FILE}" ]]; then
+    mode="$(tr -d '[:space:]' < "${EXECUTION_MODE_FILE}")"
+  fi
+  case "${mode}" in
+    dev-linked|dev-linked-repo|repo|repo-linked)
+      printf '%s\n' "dev-linked-repo" ;;
+    *)
+      printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+EXECUTION_MODE="$(vibeguard_execution_mode)"
+DIAG_PATH=""
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
   if [[ -f "${REPO_PATH_FILE}" ]]; then
     REPO_DIR=$(<"${REPO_PATH_FILE}")
     [[ -f "${REPO_DIR}/hooks/_lib/codex_diag.sh" ]] && DIAG_PATH="${REPO_DIR}/hooks/_lib/codex_diag.sh"
   fi
+elif [[ -f "${INSTALLED_DIR}/_lib/codex_diag.sh" ]]; then
+  DIAG_PATH="${INSTALLED_DIR}/_lib/codex_diag.sh"
+fi
+if [[ ! -f "${DIAG_PATH}" ]]; then
+  DIAG_PATH="${WRAPPER_DIR}/_lib/codex_diag.sh"
 fi
 
 if [[ -f "${DIAG_PATH}" ]]; then
@@ -57,24 +75,30 @@ if [[ "${HOOK_NAME}" != vibeguard-* ]]; then
   exit 0
 fi
 
-HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
 if [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" ]]; then
   ADAPTER_PATH="${VIBEGUARD_CODEX_ADAPTER_PATH}"
+elif [[ "${EXECUTION_MODE}" == "installed-snapshot" && -f "${INSTALLED_DIR}/_lib/codex_adapter.sh" ]]; then
+  ADAPTER_PATH="${INSTALLED_DIR}/_lib/codex_adapter.sh"
 else
   ADAPTER_PATH="${WRAPPER_DIR}/_lib/codex_adapter.sh"
-  if [[ ! -f "${ADAPTER_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_adapter.sh" ]]; then
+  if [[ ! -f "${ADAPTER_PATH}" && "${EXECUTION_MODE}" == "installed-snapshot" && -f "${INSTALLED_DIR}/_lib/codex_adapter.sh" ]]; then
     ADAPTER_PATH="${INSTALLED_DIR}/_lib/codex_adapter.sh"
   fi
 fi
 
-RUNNER_PATH="${WRAPPER_DIR}/_lib/codex_runner.sh"
-[[ -f "${RUNNER_PATH}" || ! -f "${INSTALLED_DIR}/_lib/codex_runner.sh" ]] || RUNNER_PATH="${INSTALLED_DIR}/_lib/codex_runner.sh"
+if [[ "${EXECUTION_MODE}" == "installed-snapshot" && -f "${INSTALLED_DIR}/_lib/codex_runner.sh" ]]; then
+  RUNNER_PATH="${INSTALLED_DIR}/_lib/codex_runner.sh"
+else
+  RUNNER_PATH="${WRAPPER_DIR}/_lib/codex_runner.sh"
+fi
 
-TIMEOUT_PATH="${WRAPPER_DIR}/_lib/timeout.sh"
-[[ -f "${TIMEOUT_PATH}" || ! -f "${INSTALLED_DIR}/_lib/timeout.sh" ]] || TIMEOUT_PATH="${INSTALLED_DIR}/_lib/timeout.sh"
+if [[ "${EXECUTION_MODE}" == "installed-snapshot" && -f "${INSTALLED_DIR}/_lib/timeout.sh" ]]; then
+  TIMEOUT_PATH="${INSTALLED_DIR}/_lib/timeout.sh"
+else
+  TIMEOUT_PATH="${WRAPPER_DIR}/_lib/timeout.sh"
+fi
 
-if [[ ! -d "$INSTALLED_DIR" ]]; then
-  REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
     codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-repo-path" "${REPO_PATH_FILE}"
     codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing repo-path."
@@ -82,19 +106,34 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
-  [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" || -f "${ADAPTER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]] || ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
-  [[ -f "${RUNNER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]] || RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
-  [[ -f "${TIMEOUT_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]] || TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
+  [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" || ! -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]] || ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
+  [[ ! -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]] || RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
+  [[ ! -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]] || TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
+else
+  HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+  if [[ ! -d "$INSTALLED_DIR" ]]; then
+    codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-installed-snapshot" "${INSTALLED_DIR}"
+    codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing installed hook snapshot."
+    exit 0
+  fi
 fi
 
-WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
-[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
-[[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
+  WRAPPER_ENV_PATH="$(dirname "${HOOK_PATH}")/_lib/wrapper_env.sh"
+  [[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+else
+  WRAPPER_ENV_PATH="${INSTALLED_DIR}/_lib/wrapper_env.sh"
+  [[ -f "${WRAPPER_ENV_PATH}" ]] || WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
+fi
 [[ ! -f "${WRAPPER_ENV_PATH}" ]] || { source "${WRAPPER_ENV_PATH}"; vg_wrapper_env_export "codex"; }
 
-POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
-[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
-[[ -f "${POLICY_PATH}" ]] || POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
+if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
+  POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
+  [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
+else
+  POLICY_PATH="${INSTALLED_DIR}/_lib/policy.sh"
+  [[ -f "${POLICY_PATH}" ]] || POLICY_PATH="${WRAPPER_DIR}/_lib/policy.sh"
+fi
 if [[ ! -f "${POLICY_PATH}" ]]; then
   codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "policy_error" "missing policy helper"
   codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing policy helper."

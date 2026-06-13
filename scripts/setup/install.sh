@@ -17,6 +17,7 @@ set -euo pipefail
 # bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
 # bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
+# bash setup.sh --dev-linked # Opt in to live-repo execution for local development
 # bash setup.sh --check # Check status only
 # bash setup.sh --clean # Clean installation
 
@@ -42,6 +43,7 @@ VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
+DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
@@ -74,6 +76,8 @@ while [[ $# -gt 0 ]]; do
       WITH_SCHEDULER=1; shift ;;
     --force-overwrite)
       VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
+    --dev-linked)
+      DEV_LINKED=1; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 1; }
       PROFILE="$2"; shift 2 ;;
@@ -86,11 +90,12 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
 export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+export VIBEGUARD_SETUP_DEV_LINKED="${DEV_LINKED}"
 
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE}" ]]; then
   red "ERROR: --runtime-version requires a non-empty value (e.g. v1.2.3)"
@@ -452,6 +457,11 @@ stage_install_snapshot() {
   trap cleanup_install_temps EXIT
   cp -r "${REPO_DIR}/hooks" "${_INSTALL_TMP}/"
   cp -r "${REPO_DIR}/guards" "${_INSTALL_TMP}/"
+  cp -r "${REPO_DIR}/rules" "${_INSTALL_TMP}/"
+  cp -r "${REPO_DIR}/skills" "${_INSTALL_TMP}/"
+  cp -r "${REPO_DIR}/workflows" "${_INSTALL_TMP}/"
+  mkdir -p "${_INSTALL_TMP}/.claude"
+  cp -r "${REPO_DIR}/.claude/commands" "${_INSTALL_TMP}/.claude/"
   mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
   printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
@@ -484,6 +494,11 @@ fi
 if [[ "${WITH_SCHEDULER}" == "1" ]]; then
   echo "Mode: with-scheduler (install launchd/systemd scheduled GC)"
 fi
+if [[ "${DEV_LINKED}" == "1" ]]; then
+  echo "Mode: dev-linked repo (execution uses live repository paths)"
+else
+  echo "Mode: installed snapshot (execution uses ~/.vibeguard/installed)"
+fi
 echo "=============================="
 echo
 
@@ -509,13 +524,18 @@ green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
 mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
+if [[ "${DEV_LINKED}" == "1" ]]; then
+  printf '%s\n' "dev-linked-repo" > "${VIBEGUARD_HOME}/execution-mode"
+else
+  printf '%s\n' "installed-snapshot" > "${VIBEGUARD_HOME}/execution-mode"
+fi
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
 cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
 mkdir -p "${VIBEGUARD_HOME}/_lib"
 cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${VIBEGUARD_HOME}/_lib/codex_diag.sh"
 cp "${REPO_DIR}/hooks/_lib/wrapper_env.sh" "${VIBEGUARD_HOME}/_lib/wrapper_env.sh"
 chmod +x "${VIBEGUARD_HOME}/run-hook.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
-green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
+green "  ~/.vibeguard/repo-path + execution-mode + run-hook.sh + run-hook-codex.sh ready"
 
 # Create user-rules directory for custom rules
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
@@ -589,6 +609,7 @@ fi
 state_init "$PROFILE" "$LANGUAGES"
 state_record_tree "${INSTALLED_DIR}" "installed"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
+state_record_file "${VIBEGUARD_HOME}/execution-mode" "generated/execution-mode" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/wrapper_env.sh" "hooks/_lib/wrapper_env.sh" "copy"
@@ -661,11 +682,21 @@ cat > "${PRE_COMMIT_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
 # VibeGuard Pre-Commit Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
-VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+mode="$(tr -d '[:space:]' < "$HOME/.vibeguard/execution-mode" 2>/dev/null || true)"
+case "$mode" in
+  dev-linked|dev-linked-repo|repo|repo-linked)
+    VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+    ;;
+  *)
+    VIBEGUARD_DIR="$HOME/.vibeguard/installed"
+    ;;
+esac
 if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh" ]]; then
   export VIBEGUARD_DIR
   exec bash "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh"
 fi
+echo "vibeguard: pre-commit hook source not found for execution mode '${mode:-installed-snapshot}'; re-run bash setup.sh --yes" >&2
+exit 1
 WRAPPER
 chmod +x "${PRE_COMMIT_WRAPPER}"
 state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
@@ -676,12 +707,20 @@ cat > "${PRE_PUSH_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
 # VibeGuard Pre-Push Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
-VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+mode="$(tr -d '[:space:]' < "$HOME/.vibeguard/execution-mode" 2>/dev/null || true)"
+case "$mode" in
+  dev-linked|dev-linked-repo|repo|repo-linked)
+    VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+    ;;
+  *)
+    VIBEGUARD_DIR="$HOME/.vibeguard/installed"
+    ;;
+esac
 if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/git/pre-push" ]]; then
   export VIBEGUARD_DIR
   exec bash "$VIBEGUARD_DIR/hooks/git/pre-push" "$@"
 fi
-echo "vibeguard: pre-push hook source not found; re-run bash setup.sh --yes" >&2
+echo "vibeguard: pre-push hook source not found for execution mode '${mode:-installed-snapshot}'; re-run bash setup.sh --yes" >&2
 exit 1
 WRAPPER
 chmod +x "${PRE_PUSH_WRAPPER}"

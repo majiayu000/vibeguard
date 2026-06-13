@@ -1,7 +1,37 @@
 #!/usr/bin/env bash
 
+_codex_execution_mode() {
+  local mode="${VIBEGUARD_EXECUTION_MODE:-}"
+  if [[ -z "${mode}" && "${VIBEGUARD_SETUP_DEV_LINKED:-0}" == "1" ]]; then
+    mode="dev-linked-repo"
+  fi
+  if [[ -z "${mode}" && -f "${HOME}/.vibeguard/execution-mode" ]]; then
+    mode="$(tr -d '[:space:]' < "${HOME}/.vibeguard/execution-mode")"
+  fi
+  case "${mode}" in
+    dev-linked|dev-linked-repo|repo|repo-linked)
+      printf '%s\n' "dev-linked-repo" ;;
+    *)
+      printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+_codex_source_path() {
+  local source_path="$1"
+  if [[ "$(_codex_execution_mode)" == "dev-linked-repo" ]]; then
+    printf '%s\n' "${REPO_DIR}/${source_path}"
+  else
+    printf '%s\n' "${HOME}/.vibeguard/installed/${source_path}"
+  fi
+}
+
 _install_codex_manifest_skill() {
   local src="$1" dst="$2" source_path="$3" skill="$4"
+  src="$(_codex_source_path "${source_path}")"
+  if [[ ! -d "${src}" ]]; then
+    red "  ERROR: ${skill} skill source missing: ${src}"
+    return 1
+  fi
   install_codex_skill_copy "${src}" "${dst}" "${source_path}"
   green "  ${skill} copied to ~/.codex/skills/${skill}"
 }
@@ -142,7 +172,7 @@ check_codex_home_installation() {
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CODEX_DIR}/skills/${skill}"
     if [[ -d "${link}" && ! -L "${link}" ]]; then
-      if diff -qr "${REPO_DIR}/${source_path}" "${link}" >/dev/null 2>&1; then
+      if diff -qr "$(_codex_source_path "${source_path}")" "${link}" >/dev/null 2>&1; then
         green "[OK] ${skill} skill copied to ~/.codex/skills/"
       else
         yellow "[WARN] ${skill} skill copy differs from ${source_path}"
