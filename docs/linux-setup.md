@@ -91,13 +91,21 @@ journalctl --user -u vibeguard-gc.service
 ## Status check
 
 ```bash
-# Via VibeGuard check script
-bash setup.sh --check
+# Human-friendly VibeGuard doctor report
+bash setup.sh doctor
+
+# CI/post-install verification; exits non-zero on broken required state
+bash setup.sh verify-install
 
 # Via systemctl directly
 systemctl --user status vibeguard-gc.timer
 systemctl --user list-timers vibeguard-gc.timer
 ```
+
+`bash setup.sh --check` remains a compatibility alias for `doctor`. Existing
+machine callers can migrate from `--check --strict` to `verify-project`, from
+`--check --json` to `verify-project --json`, and from `--check --install` to
+`verify-install`.
 
 ## Troubleshooting
 
