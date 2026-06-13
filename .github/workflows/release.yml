@@ -13,7 +13,7 @@ defaults:
     shell: bash
 
 env:
-  RUST_VERSION: "stable"
+  RUST_VERSION: "1.95.0"
   CROSS_VERSION: "0.2.5"
   RUNTIME_MANIFEST: vibeguard-runtime/Cargo.toml
   RUNTIME_VERSION_FILE: vibeguard-runtime/VERSION
@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -64,6 +64,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: validate-runtime-version
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     strategy:
       fail-fast: false
@@ -88,7 +92,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -138,11 +142,16 @@ jobs:
           test "${output}" = "Bash"
 
       - name: Upload runtime artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vibeguard-runtime-${{ matrix.target }}
           path: dist/${{ matrix.target }}/vibeguard-runtime-${{ matrix.target }}
           if-no-files-found: error
+
+      - name: Attest runtime artifact
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/${{ matrix.target }}/vibeguard-runtime-${{ matrix.target }}
 
   publish-release:
     name: Publish release assets
@@ -154,7 +163,7 @@ jobs:
 
     steps:
       - name: Download runtime artifacts
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           merge-multiple: true

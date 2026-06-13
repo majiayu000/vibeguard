@@ -2,7 +2,8 @@
 # VibeGuard Hook Wrapper — A hook distributor compatible with all platforms
 #
 # All hooks in settings.json are called indirectly through this wrapper.
-# Avoid hardcoding absolute paths. Repo relocation only requires updating ~/.vibeguard/repo-path.
+# Stable installs execute the installed snapshot. Dev-linked mode can opt into
+# executing the live repo recorded in ~/.vibeguard/repo-path.
 #
 # Usage: bash ~/.vibeguard/run-hook.sh <hook-script-name> [args...]
 # Example: bash ~/.vibeguard/run-hook.sh stop-guard.sh
@@ -35,22 +36,29 @@ if [[ ! -t 0 ]]; then
 fi
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
-HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+INSTALL_MODE_FILE="${HOME}/.vibeguard/install-mode"
 
-if [[ ! -d "$INSTALLED_DIR" ]]; then
-  # Fallback: legacy direct-repo mode
+vg_dev_linked_enabled() {
+  [[ "${VIBEGUARD_DEV_LINKED:-0}" == "1" ]] && return 0
+  [[ -f "${INSTALL_MODE_FILE}" && "$(<"${INSTALL_MODE_FILE}")" == "dev-linked" ]]
+}
+
+vg_source_checkout_wrapper() {
+  [[ ! -f "${INSTALL_MODE_FILE}" && -f "${WRAPPER_DIR}/${HOOK_NAME}" && -f "${WRAPPER_DIR}/_lib/policy.sh" ]]
+}
+
+if vg_dev_linked_enabled; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
-    echo "ERROR: ${REPO_PATH_FILE} not found. Re-run: bash <vibeguard-repo>/scripts/setup/install.sh" >&2
+    echo "ERROR: dev-linked mode requires ${REPO_PATH_FILE}. Re-run stable setup or reinstall with --dev-linked." >&2
     exit 1
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
   HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
-fi
-
-if [[ ! -f "$HOOK_PATH" ]]; then
-  echo "ERROR: hook not found: ${HOOK_PATH}" >&2
-  exit 1
+elif vg_source_checkout_wrapper; then
+  HOOK_PATH="${WRAPPER_DIR}/${HOOK_NAME}"
+else
+  HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
 fi
 
 WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"
@@ -80,6 +88,11 @@ if [[ ${policy_status} -eq 10 ]]; then
 elif [[ ${policy_status} -ne 0 ]]; then
   vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
   printf '%s\n' "${VG_POLICY_REASON}" >&2
+  exit 1
+fi
+
+if [[ ! -f "$HOOK_PATH" ]]; then
+  echo "ERROR: hook not found: ${HOOK_PATH}" >&2
   exit 1
 fi
 

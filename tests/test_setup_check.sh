@@ -274,6 +274,13 @@ assert_eq "$help_rc" "0" "check --help: exit 0"
 assert_contains "$help_out" "Usage: setup.sh --check" "check --help: prints usage"
 assert_contains "$help_out" "Exit codes"             "check --help: documents exit codes"
 assert_contains "$help_out" "--install"              "check --help: documents install verification mode"
+assert_contains "$help_out" "--verify-project"       "check --help: documents project verification mode"
+
+top_help_out="$(bash "${SETUP_SCRIPT}" --help 2>&1)"
+assert_contains "$top_help_out" "doctor" "setup --help: documents doctor command"
+assert_contains "$top_help_out" "verify-install" "setup --help: documents verify-install command"
+assert_contains "$top_help_out" "verify-project" "setup --help: documents verify-project command"
+assert_contains "$top_help_out" "verify-dev-repo" "setup --help: documents verify-dev-repo command"
 
 # Unknown flag should exit 64 (sysexits.h EX_USAGE).
 err_out="$(bash "${SETUP_SCRIPT}" --check --bogus 2>&1)"
@@ -301,11 +308,34 @@ header "check.sh end-to-end"
 # we only assert the structural pieces we promised the user.
 default_out="$(bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
 assert_contains "$default_out" "VibeGuard Installation Status" "default: legacy header preserved"
+assert_contains "$default_out" "setup.sh --check is compatibility mode" "default: --check reports compatibility mode"
 assert_contains "$default_out" "Summary"        "default: summary block present"
 assert_contains "$default_out" "Verdict :"      "default: verdict line present"
 assert_contains "$default_out" "[OK] All awk blocks use POSIX-compatible regex" "default: Python heredoc regexes do not trip awk portability"
 assert_not_contains "$default_out" "check_dependency_changes.sh:147" "default: dependency Python regex not reported as awk"
 assert_not_contains "$default_out" "check_test_weakening.sh:118" "default: test weakening Python regex not reported as awk"
+
+doctor_home="$(mktemp -d)"
+doctor_out="$(HOME="${doctor_home}" bash "${SETUP_SCRIPT}" doctor 2>&1 || true)"
+assert_contains "$doctor_out" "VibeGuard Installation Status" "doctor: routes to human status report"
+assert_not_contains "$doctor_out" "compatibility mode" "doctor: does not report --check compatibility mode"
+rm -rf "${doctor_home}"
+
+verify_project_home="$(mktemp -d)"
+verify_project_out="$(HOME="${verify_project_home}" bash "${SETUP_SCRIPT}" verify-project 2>&1 || true)"
+assert_contains "$verify_project_out" "VibeGuard Project Verification" "verify-project: routes to project verifier"
+assert_contains "$verify_project_out" "No project config found" "verify-project: reports missing optional project config"
+rm -rf "${verify_project_home}"
+
+bad_verify_home="$(mktemp -d)"
+bad_verify_config="${bad_verify_home}/bad-vibeguard.json"
+printf '{"profile":"strictest"}\n' > "${bad_verify_config}"
+set +e
+bad_verify_out="$(HOME="${bad_verify_home}" VIBEGUARD_PROJECT_CONFIG="${bad_verify_config}" bash "${SETUP_SCRIPT}" verify-project 2>&1)"
+bad_verify_rc=$?
+assert_cmd "verify-project exits nonzero for invalid config" test "${bad_verify_rc}" -ne 0
+assert_contains "$bad_verify_out" "Project config invalid" "verify-project: reports invalid project config"
+rm -rf "${bad_verify_home}"
 
 AWK_PORTABILITY_FIXTURE="${REPO_DIR}/guards/universal/vg-test-non-posix-awk.sh"
 cat > "${AWK_PORTABILITY_FIXTURE}" <<'SH'

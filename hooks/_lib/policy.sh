@@ -59,14 +59,18 @@ vg_policy_runtime_candidates() {
 }
 
 vg_policy_runtime_supports() {
-  local candidate="$1" probe_diag downgrade_probe codex_probe
-  if "${candidate}" runtime-policy-supports >/dev/null 2>&1; then
+  local candidate="$1" support_probe policy_probe probe_diag downgrade_probe codex_probe
+  support_probe="$("${candidate}" runtime-policy-supports 2>/dev/null)" || support_probe=""
+  if [[ "${support_probe}" == *"runtime-policy-json-v1"* ]]; then
     return 0
   fi
   probe_diag="${TMPDIR:-/tmp}/vibeguard-policy-probe.$$.jsonl"
-  VIBEGUARD_PROJECT_CONFIG="${TMPDIR:-/tmp}/vibeguard-missing-policy-probe.json" \
+  policy_probe="$(
+    VIBEGUARD_PROJECT_CONFIG="${TMPDIR:-/tmp}/vibeguard-missing-policy-probe.json" \
     VIBEGUARD_USER_CONFIG_FILE="" \
-    "${candidate}" runtime-policy-check __vibeguard_policy_probe__ >/dev/null 2>&1 || return 1
+      "${candidate}" runtime-policy-check --cwd "${TMPDIR:-/tmp}" __vibeguard_policy_probe__ 2>/dev/null
+  )" || return 1
+  [[ "${policy_probe}" == *'"decision"'* && "${policy_probe}" == *'"run"'* ]] || return 1
   downgrade_probe="$(printf '{"decision":"block","reason":"probe"}' \
     | "${candidate}" runtime-policy-downgrade-output 2>/dev/null)" || return 1
   [[ "${downgrade_probe}" == *'"decision"'* && "${downgrade_probe}" == *'"warn"'* ]] || return 1
@@ -81,9 +85,28 @@ vg_policy_runtime_supports() {
   return 0
 }
 
+vg_policy_current_cwd() {
+  pwd -P 2>/dev/null || pwd
+}
+
+vg_policy_json_field() {
+  local runtime_path="$1" output="$2" field_path="$3"
+  printf '%s' "${output}" | "${runtime_path}" json-field "${field_path}" 2>/dev/null || true
+}
+
+vg_policy_reason_from_output() {
+  local runtime_path="$1" output="$2" reason
+  reason="$(vg_policy_json_field "${runtime_path}" "${output}" reason)"
+  if [[ -n "${reason}" ]]; then
+    printf '%s' "${reason}"
+  else
+    printf '%s' "${output}"
+  fi
+}
+
 vg_policy_check_hook() {
   local hook_name="$1"
-  local output status runtime_path
+  local output status runtime_path project_cwd enforcement
 
   VG_POLICY_REASON=""
   VG_POLICY_KIND=""
@@ -99,15 +122,17 @@ vg_policy_check_hook() {
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
 
   status=0
+  project_cwd="$(vg_policy_current_cwd)"
   output="$(
     VIBEGUARD_USER_CONFIG_FILE="$(vg_policy_user_config_file)" \
-      "${runtime_path}" runtime-policy-check "${hook_name}" 2>&1
+      "${runtime_path}" runtime-policy-check --cwd "${project_cwd}" "${hook_name}" 2>&1
   )" || status=$?
 
   case "${status}" in
     0)
-      if [[ "${output}" == *"enforcement=warn"* ]]; then
-        VG_POLICY_REASON="${output}"
+      enforcement="$(vg_policy_json_field "${runtime_path}" "${output}" enforcement)"
+      if [[ "${enforcement}" == "warn" || "${output}" == *"enforcement=warn"* ]]; then
+        VG_POLICY_REASON="$(vg_policy_reason_from_output "${runtime_path}" "${output}")"
         VG_POLICY_KIND="policy_warn"
         VG_POLICY_ENFORCEMENT="warn"
         export VIBEGUARD_POLICY_ENFORCEMENT="warn"
@@ -115,17 +140,18 @@ vg_policy_check_hook() {
       return 0
       ;;
     10)
-      VG_POLICY_REASON="${output}"
+      VG_POLICY_REASON="$(vg_policy_reason_from_output "${runtime_path}" "${output}")"
       VG_POLICY_KIND="policy_skip"
       return 10
       ;;
     30)
-      VG_POLICY_REASON="${output}"
+      VG_POLICY_REASON="$(vg_policy_reason_from_output "${runtime_path}" "${output}")"
       VG_POLICY_KIND="config_parse_error"
       return 30
       ;;
     *)
-      VG_POLICY_REASON="${output:-VibeGuard policy error: unknown runtime policy failure.}"
+      VG_POLICY_REASON="$(vg_policy_reason_from_output "${runtime_path}" "${output}")"
+      VG_POLICY_REASON="${VG_POLICY_REASON:-VibeGuard policy error: unknown runtime policy failure.}"
       VG_POLICY_KIND="policy_error"
       return 20
       ;;

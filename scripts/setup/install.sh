@@ -15,6 +15,7 @@ set -euo pipefail
 # bash setup.sh --yes # Apply high-context diffs non-interactively
 # bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
 # bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
+# bash setup.sh --dev-linked # Run hooks from the live repo checkout instead of the stable installed snapshot
 # bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
 # bash setup.sh --check # Check status only
@@ -42,6 +43,7 @@ VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
+DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
 _INSTALL_FINAL_TMP=""
@@ -64,6 +66,8 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_VERSION_OVERRIDE="$2"; RUNTIME_VERSION_OVERRIDE_SET=1; shift 2 ;;
     --runtime-version=*)
       RUNTIME_VERSION_OVERRIDE="${1#*=}"; RUNTIME_VERSION_OVERRIDE_SET=1; shift ;;
+    --dev-linked)
+      DEV_LINKED=1; shift ;;
     --with-scheduler)
       WITH_SCHEDULER=1; shift ;;
     --force-overwrite)
@@ -173,6 +177,7 @@ download_prebuilt_runtime() {
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
   local download_dir downloaded reason expected actual
+  local provenance_rc provenance_note
   local -a errors=()
 
   download_dir="$(mktemp -d "$(dirname "${dest}")/runtime_download_XXXXXX")"
@@ -240,12 +245,29 @@ download_prebuilt_runtime() {
     rm -rf "${download_dir}"
     return 10
   fi
+  provenance_rc=0
+  setup_runtime_verify_release_provenance "${download_dir}/${asset}" "${release_repo}" "${tag}" || provenance_rc=$?
+  case "${provenance_rc}" in
+    0)
+      provenance_note="provenance=verified-provenance"
+      ;;
+    2)
+      provenance_note="provenance=checksum-only (${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable})"
+      yellow "  Runtime provenance is checksum-only: ${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable}."
+      ;;
+    *)
+      red "  ERROR: vibeguard-runtime provenance verification failed for ${asset}."
+      red "  ${SETUP_RUNTIME_PROVENANCE_REASON:-unknown provenance verification failure}"
+      rm -rf "${download_dir}"
+      return 10
+      ;;
+  esac
 
   mkdir -p "$(dirname "${dest}")"
   cp "${download_dir}/${asset}" "${dest}"
   chmod +x "${dest}"
   rm -rf "${download_dir}"
-  green "  vibeguard-runtime downloaded and verified (${tag}, ${target})"
+  green "  vibeguard-runtime downloaded and verified (${tag}, ${target}; ${provenance_note})"
 }
 
 runtime_version_mismatch_reason() {
@@ -426,6 +448,11 @@ fi
 if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then
   echo "Mode: build-from-source (vibeguard-runtime will be built with cargo)"
 fi
+if [[ "${DEV_LINKED}" == "1" ]]; then
+  echo "Mode: dev-linked (hooks execute from the live repo checkout)"
+else
+  echo "Mode: stable (hooks execute from ~/.vibeguard/installed/)"
+fi
 if [[ -n "${RUNTIME_VERSION_OVERRIDE}" ]]; then
   echo "Runtime version override: ${RUNTIME_VERSION_OVERRIDE}"
 fi
@@ -457,13 +484,18 @@ green "  ~/.claude/ ready"
 #Write repo path + install hook wrapper (compatible with all platforms, no symlink dependencies)
 mkdir -p "${VIBEGUARD_HOME}"
 printf '%s' "${REPO_DIR}" > "${VIBEGUARD_HOME}/repo-path"
+if [[ "${DEV_LINKED}" == "1" ]]; then
+  printf 'dev-linked\n' > "${VIBEGUARD_HOME}/install-mode"
+else
+  printf 'stable\n' > "${VIBEGUARD_HOME}/install-mode"
+fi
 cp "${REPO_DIR}/hooks/run-hook.sh" "${VIBEGUARD_HOME}/run-hook.sh"
 cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
 mkdir -p "${VIBEGUARD_HOME}/_lib"
 cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${VIBEGUARD_HOME}/_lib/codex_diag.sh"
 cp "${REPO_DIR}/hooks/_lib/wrapper_env.sh" "${VIBEGUARD_HOME}/_lib/wrapper_env.sh"
 chmod +x "${VIBEGUARD_HOME}/run-hook.sh" "${VIBEGUARD_HOME}/run-hook-codex.sh"
-green "  ~/.vibeguard/repo-path + run-hook.sh + run-hook-codex.sh ready"
+green "  ~/.vibeguard/repo-path + install-mode + run-hook.sh + run-hook-codex.sh ready"
 
 # Create user-rules directory for custom rules
 mkdir -p "${VIBEGUARD_HOME}/user-rules"
@@ -519,6 +551,7 @@ fi
 state_init "$PROFILE" "$LANGUAGES"
 state_record_tree "${INSTALLED_DIR}" "installed"
 state_record_file "${VIBEGUARD_HOME}/repo-path" "generated/repo-path" "copy"
+state_record_file "${VIBEGUARD_HOME}/install-mode" "generated/install-mode" "copy"
 state_record_file "${VIBEGUARD_HOME}/run-hook.sh" "hooks/run-hook.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
 state_record_file "${VIBEGUARD_HOME}/_lib/wrapper_env.sh" "hooks/_lib/wrapper_env.sh" "copy"
@@ -591,11 +624,26 @@ cat > "${PRE_COMMIT_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
 # VibeGuard Pre-Commit Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
-VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
-if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh" ]]; then
-  export VIBEGUARD_DIR
-  exec bash "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh"
+MODE_FILE="$HOME/.vibeguard/install-mode"
+dev_linked_enabled() {
+  [[ "${VIBEGUARD_DEV_LINKED:-0}" == "1" ]] && return 0
+  [[ -f "$MODE_FILE" && "$(<"$MODE_FILE")" == "dev-linked" ]]
+}
+if dev_linked_enabled; then
+  VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+  if [[ -n "$VIBEGUARD_DIR" && -f "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh" ]]; then
+    export VIBEGUARD_DIR
+    exec bash "$VIBEGUARD_DIR/hooks/pre-commit-guard.sh"
+  fi
+else
+  INSTALLED_HOOK="$HOME/.vibeguard/installed/hooks/pre-commit-guard.sh"
+  if [[ -f "$INSTALLED_HOOK" ]]; then
+    export VIBEGUARD_DIR="$HOME/.vibeguard/installed"
+    exec bash "$INSTALLED_HOOK"
+  fi
 fi
+echo "vibeguard: pre-commit hook source not found; re-run bash setup.sh --yes" >&2
+exit 1
 WRAPPER
 chmod +x "${PRE_COMMIT_WRAPPER}"
 state_record_file "${PRE_COMMIT_WRAPPER}" "generated/pre-commit-wrapper" "copy"
@@ -606,10 +654,22 @@ cat > "${PRE_PUSH_WRAPPER}" <<'WRAPPER'
 #!/usr/bin/env bash
 # VibeGuard Pre-Push Hook Wrapper — auto-installed by setup.sh
 set -euo pipefail
-VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
-if [[ -n "$VIBEGUARD_DIR" ]] && [[ -f "$VIBEGUARD_DIR/hooks/git/pre-push" ]]; then
-  export VIBEGUARD_DIR
-  exec bash "$VIBEGUARD_DIR/hooks/git/pre-push" "$@"
+MODE_FILE="$HOME/.vibeguard/install-mode"
+dev_linked_enabled() {
+  [[ "${VIBEGUARD_DEV_LINKED:-0}" == "1" ]] && return 0
+  [[ -f "$MODE_FILE" && "$(<"$MODE_FILE")" == "dev-linked" ]]
+}
+if dev_linked_enabled; then
+  VIBEGUARD_DIR="$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)" || true
+  if [[ -n "$VIBEGUARD_DIR" && -f "$VIBEGUARD_DIR/hooks/git/pre-push" ]]; then
+    export VIBEGUARD_DIR
+    exec bash "$VIBEGUARD_DIR/hooks/git/pre-push" "$@"
+  fi
+else
+  INSTALLED_HOOK="$HOME/.vibeguard/installed/hooks/git/pre-push"
+  if [[ -f "$INSTALLED_HOOK" ]]; then
+    exec bash "$INSTALLED_HOOK" "$@"
+  fi
 fi
 echo "vibeguard: pre-push hook source not found; re-run bash setup.sh --yes" >&2
 exit 1

@@ -8,6 +8,9 @@
 #   bash setup.sh --check --json         # machine-readable JSON, no TTY output
 #   bash setup.sh --check --no-summary   # legacy behavior (no rollup, exit 0)
 #   bash setup.sh --check --install      # install final verification, fail on broken required state
+#   bash setup.sh doctor                 # human report, exit 0 unless the command fails
+#   bash setup.sh verify-project         # project config verification, non-zero on failure
+#   bash setup.sh verify-dev-repo        # repo development hook verification, non-zero on failure
 #   bash setup.sh --check --profile full # verify profile-specific hook coverage
 #
 # Exit code
@@ -40,12 +43,16 @@ STRICT=0
 WITH_SUMMARY=1
 INSTALL=0
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
+CHECK_MODE="${VIBEGUARD_CHECK_MODE:-full}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
     --json)         JSON=1; shift ;;
     --strict)       STRICT=1; shift ;;
     --install)      INSTALL=1; shift ;;
+    --doctor)       CHECK_MODE="doctor"; shift ;;
+    --verify-project) CHECK_MODE="verify-project"; STRICT=1; shift ;;
+    --verify-dev-repo) CHECK_MODE="verify-dev-repo"; STRICT=1; shift ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 64; }
@@ -54,8 +61,15 @@ while [[ $# -gt 0 ]]; do
       PROFILE="${1#*=}"; shift ;;
     --help|-h)
       cat <<'USAGE'
-Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary] [--profile minimal|core|full|strict]
+Usage: setup.sh --check [--quiet | --json | --strict | --install | --doctor | --verify-project | --verify-dev-repo | --no-summary] [--profile minimal|core|full|strict]
 
+  --doctor       Human report mode; exits 0 unless the command itself fails.
+  --verify-project
+                 Verify project .vibeguard.json readiness; exits non-zero on
+                 broken required state.
+  --verify-dev-repo
+                 Verify repository development hooks; exits non-zero on broken
+                 required state.
   --quiet        Suppress healthy [OK] rows; only print problems + summary.
   --strict       Reflect health in the exit code: 0 healthy, 1 degraded,
                  2 broken (FAIL/BROKEN/MISSING). Without --strict the exit
@@ -135,6 +149,18 @@ fi
 PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
 
+check_install_mode() {
+  local mode_file="${HOME}/.vibeguard/install-mode"
+  local mode="stable"
+  if [[ -f "${mode_file}" ]]; then
+    mode="$(tr -d '[:space:]' < "${mode_file}")"
+  fi
+  case "${mode}" in
+    stable|dev-linked) printf '%s\n' "${mode}" ;;
+    *) printf 'stable\n' ;;
+  esac
+}
+
 _check_repo_git_hook() {
   local hook_name="$1"
   local expected_target="$2"
@@ -167,21 +193,42 @@ _check_repo_git_hook() {
     red "[BROKEN] VibeGuard repo ${hook_name} hook target not executable: ${actual_target}"
     return 0
   fi
-  if [[ "${hook_name}" == "pre-push" && "${expected_target}" == "${HOME}/.vibeguard/pre-push" ]]; then
-    local wrapper_repo_path="${HOME}/.vibeguard/repo-path"
-    local wrapper_repo=""
-    local wrapper_source=""
-    if [[ -f "${wrapper_repo_path}" ]]; then
-      wrapper_repo="$(<"${wrapper_repo_path}")"
-    fi
-    wrapper_source="${wrapper_repo}/hooks/git/pre-push"
-    if [[ -z "${wrapper_repo}" || ! -f "${wrapper_source}" ]]; then
-      red "[BROKEN] VibeGuard repo pre-push hook wrapper source missing: ${wrapper_source}"
-      return 0
-    fi
-    if [[ ! -r "${wrapper_source}" ]]; then
-      red "[BROKEN] VibeGuard repo pre-push hook wrapper source not readable: ${wrapper_source}"
-      return 0
+  if [[ "${expected_target}" == "${HOME}/.vibeguard/${hook_name}" ]]; then
+    local mode wrapper_repo_path wrapper_repo wrapper_source
+    mode="$(check_install_mode)"
+    if [[ "${mode}" == "dev-linked" ]]; then
+      wrapper_repo_path="${HOME}/.vibeguard/repo-path"
+      wrapper_repo=""
+      if [[ -f "${wrapper_repo_path}" ]]; then
+        wrapper_repo="$(<"${wrapper_repo_path}")"
+      fi
+      if [[ "${hook_name}" == "pre-push" ]]; then
+        wrapper_source="${wrapper_repo}/hooks/git/pre-push"
+      else
+        wrapper_source="${wrapper_repo}/hooks/pre-commit-guard.sh"
+      fi
+      if [[ -z "${wrapper_repo}" || ! -f "${wrapper_source}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook dev-linked source missing: ${wrapper_source}"
+        return 0
+      fi
+      if [[ ! -r "${wrapper_source}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook dev-linked source not readable: ${wrapper_source}"
+        return 0
+      fi
+    else
+      if [[ "${hook_name}" == "pre-push" ]]; then
+        wrapper_source="${HOME}/.vibeguard/installed/hooks/git/pre-push"
+      else
+        wrapper_source="${HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh"
+      fi
+      if [[ ! -f "${wrapper_source}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook stable source missing: ${wrapper_source}"
+        return 0
+      fi
+      if [[ ! -r "${wrapper_source}" ]]; then
+        red "[BROKEN] VibeGuard repo ${hook_name} hook stable source not readable: ${wrapper_source}"
+        return 0
+      fi
     fi
   fi
 
@@ -247,15 +294,28 @@ _check_installed_runtime_version() {
 run_legacy_checks() {
   echo "VibeGuard Installation Status"
   echo "=============================="
+  if [[ "${VIBEGUARD_CHECK_COMPAT:-0}" == "1" ]]; then
+    yellow "[INFO] setup.sh --check is compatibility mode; use 'setup.sh doctor' for human reports or 'setup.sh verify-install' for machine install verification"
+  fi
 
   # Check hook wrapper
   VIBEGUARD_HOME="${HOME}/.vibeguard"
-  if [[ -f "${VIBEGUARD_HOME}/repo-path" ]] && [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
-    _repo=$(<"${VIBEGUARD_HOME}/repo-path")
-    if [[ -d "$_repo/hooks" ]]; then
-      green "[OK] Hook wrapper ready (repo: ${_repo})"
+  _mode="$(check_install_mode)"
+  if [[ -f "${VIBEGUARD_HOME}/run-hook.sh" ]]; then
+    if [[ "${_mode}" == "dev-linked" ]]; then
+      _repo=""
+      [[ ! -f "${VIBEGUARD_HOME}/repo-path" ]] || _repo="$(<"${VIBEGUARD_HOME}/repo-path")"
+      if [[ -n "${_repo}" && -d "$_repo/hooks" ]]; then
+        green "[OK] Hook wrapper ready (execution source: dev-linked repo ${_repo})"
+      else
+        red "[BROKEN] dev-linked repo-path points to missing hooks directory: ${_repo}"
+      fi
     else
-      red "[BROKEN] repo-path points to missing directory: ${_repo}"
+      if [[ -d "${VIBEGUARD_HOME}/installed/hooks" ]]; then
+        green "[OK] Hook wrapper ready (execution source: installed snapshot ${VIBEGUARD_HOME}/installed/hooks)"
+      else
+        red "[BROKEN] stable hook wrapper missing installed snapshot: ${VIBEGUARD_HOME}/installed/hooks"
+      fi
     fi
   else
     yellow "[MISSING] Hook wrapper not installed (~/.vibeguard/run-hook.sh)"
@@ -410,6 +470,52 @@ run_legacy_checks() {
   rm -f "$_awk_violations" 2>/dev/null || true
 }
 
+run_project_checks() {
+  echo "VibeGuard Project Verification"
+  echo "=============================="
+  project_config_file="$(vg_project_config_file)"
+  if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then
+    yellow "[INFO] No project config found (.vibeguard.json optional)"
+    return 0
+  fi
+  if project_config_out="$(vg_validate_project_config "${project_config_file}" 2>&1)"; then
+    green "[OK] Project config valid (${project_config_file})"
+  else
+    red "[FAIL] Project config invalid (${project_config_file})"
+    while IFS= read -r line; do
+      red "  ${line}"
+    done <<< "${project_config_out}"
+  fi
+}
+
+run_dev_repo_checks() {
+  echo "VibeGuard Dev Repo Verification"
+  echo "=============================="
+  if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
+    _check_repo_git_hook "pre-commit" "${HOME}/.vibeguard/pre-commit"
+    _check_repo_git_hook "pre-push" "${HOME}/.vibeguard/pre-push"
+  else
+    red "[FAIL] Repository git hooks not checked because this is not a git repository"
+  fi
+}
+
+run_selected_checks() {
+  case "${CHECK_MODE}" in
+    doctor|full)
+      run_legacy_checks
+      ;;
+    verify-project)
+      run_project_checks
+      ;;
+    verify-dev-repo)
+      run_dev_repo_checks
+      ;;
+    *)
+      red "[FAIL] Unknown check mode: ${CHECK_MODE}"
+      ;;
+  esac
+}
+
 # --- Capture and dispatch ---
 # We capture stdout once, mirror it (or suppress it for --json/--quiet),
 # then post-process for the summary, JSON, and exit code.
@@ -419,13 +525,13 @@ status_init "${capture_buf}"
 
 if [[ "${JSON}" -eq 1 ]]; then
   # JSON mode: probe output goes only to the buffer; nothing leaks to stdout.
-  run_legacy_checks > "${capture_buf}" 2>&1
+  run_selected_checks > "${capture_buf}" 2>&1
 elif [[ "${QUIET}" -eq 1 ]]; then
   # Quiet mode: capture everything, then re-emit only problems + summary.
-  run_legacy_checks > "${capture_buf}" 2>&1
+  run_selected_checks > "${capture_buf}" 2>&1
 else
   # Default mode: stream to user AND capture for the summary.
-  run_legacy_checks 2>&1 | tee "${capture_buf}"
+  run_selected_checks 2>&1 | tee "${capture_buf}"
 fi
 
 status_record_buffer

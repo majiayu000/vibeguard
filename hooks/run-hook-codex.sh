@@ -8,11 +8,22 @@ HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
 shift
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
+INSTALL_MODE_FILE="${HOME}/.vibeguard/install-mode"
+
+vg_dev_linked_enabled() {
+  [[ "${VIBEGUARD_DEV_LINKED:-0}" == "1" ]] && return 0
+  [[ -f "${INSTALL_MODE_FILE}" && "$(<"${INSTALL_MODE_FILE}")" == "dev-linked" ]]
+}
+
+vg_source_checkout_wrapper() {
+  [[ ! -f "${INSTALL_MODE_FILE}" && -f "${WRAPPER_DIR}/${HOOK_NAME}" && -d "${WRAPPER_DIR}/_lib" ]]
+}
+
 DIAG_PATH="${WRAPPER_DIR}/_lib/codex_diag.sh"
 if [[ ! -f "${DIAG_PATH}" && -f "${INSTALLED_DIR}/_lib/codex_diag.sh" ]]; then
   DIAG_PATH="${INSTALLED_DIR}/_lib/codex_diag.sh"
 fi
-if [[ ! -f "${DIAG_PATH}" ]]; then
+if [[ ! -f "${DIAG_PATH}" ]] && vg_dev_linked_enabled; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ -f "${REPO_PATH_FILE}" ]]; then
     REPO_DIR=$(<"${REPO_PATH_FILE}")
@@ -73,11 +84,11 @@ RUNNER_PATH="${WRAPPER_DIR}/_lib/codex_runner.sh"
 TIMEOUT_PATH="${WRAPPER_DIR}/_lib/timeout.sh"
 [[ -f "${TIMEOUT_PATH}" || ! -f "${INSTALLED_DIR}/_lib/timeout.sh" ]] || TIMEOUT_PATH="${INSTALLED_DIR}/_lib/timeout.sh"
 
-if [[ ! -d "$INSTALLED_DIR" ]]; then
+if vg_dev_linked_enabled; then
   REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
     codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-repo-path" "${REPO_PATH_FILE}"
-    codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing repo-path."
+    codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD dev-linked mode requires repo-path. Re-run stable setup or reinstall with --dev-linked."
     exit 0
   fi
   REPO_DIR=$(<"$REPO_PATH_FILE")
@@ -85,6 +96,8 @@ if [[ ! -d "$INSTALLED_DIR" ]]; then
   [[ -n "${VIBEGUARD_CODEX_ADAPTER_PATH:-}" || -f "${ADAPTER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_adapter.sh" ]] || ADAPTER_PATH="${REPO_DIR}/hooks/_lib/codex_adapter.sh"
   [[ -f "${RUNNER_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/codex_runner.sh" ]] || RUNNER_PATH="${REPO_DIR}/hooks/_lib/codex_runner.sh"
   [[ -f "${TIMEOUT_PATH}" || ! -f "${REPO_DIR}/hooks/_lib/timeout.sh" ]] || TIMEOUT_PATH="${REPO_DIR}/hooks/_lib/timeout.sh"
+elif vg_source_checkout_wrapper; then
+  HOOK_PATH="${WRAPPER_DIR}/${HOOK_NAME}"
 fi
 
 WRAPPER_ENV_PATH="${WRAPPER_DIR}/_lib/wrapper_env.sh"

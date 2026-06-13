@@ -53,6 +53,14 @@ fn run_runtime_policy(repo: &Path, hook_name: &str) -> std::process::Output {
         .expect("runtime policy command should run")
 }
 
+fn policy_stdout(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stdout).expect("policy stdout should be JSON")
+}
+
+fn policy_stderr(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stderr).expect("policy stderr should be JSON")
+}
+
 #[test]
 fn runtime_policy_check_allows_when_no_project_config_exists() {
     let repo = unique_temp_dir("allow_no_config");
@@ -61,7 +69,12 @@ fn runtime_policy_check_allows_when_no_project_config_exists() {
     let output = run_runtime_policy(&repo, "pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    let value = policy_stdout(&output);
+    assert_eq!(value["decision"], "run");
+    assert_eq!(value["enforcement"], "block");
+    assert_eq!(value["profile"], "core");
+    assert_eq!(value["hook"], "pre-bash-guard");
+    assert!(value["config_path"].is_null());
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
     let _ = fs::remove_dir_all(repo);
 }
@@ -74,8 +87,14 @@ fn runtime_policy_check_skips_disabled_hook() {
     let output = run_runtime_policy(&repo, "vibeguard-pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(10));
+    let value = policy_stdout(&output);
+    assert_eq!(value["decision"], "skip");
+    assert_eq!(value["hook"], "pre-bash-guard");
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("disabled_hooks contains pre-bash-guard")
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("disabled_hooks contains pre-bash-guard")
     );
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
     let _ = fs::remove_dir_all(repo);
@@ -89,7 +108,72 @@ fn runtime_policy_check_reports_warn_enforcement() {
     let output = run_runtime_policy(&repo, "pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("enforcement=warn"));
+    let value = policy_stdout(&output);
+    assert_eq!(value["decision"], "run");
+    assert_eq!(value["enforcement"], "warn");
+    assert_eq!(value["warn_mode"], true);
+    assert!(
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("enforcement=warn")
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_check_uses_explicit_cwd_argument() {
+    let repo = unique_temp_dir("explicit_cwd_repo");
+    let other = unique_temp_dir("explicit_cwd_other");
+    write_policy(&repo, r#"{"disabled_hooks":["pre-bash-guard"]}"#);
+    fs::create_dir_all(&other).expect("other temp dir should be created");
+
+    let output = bin()
+        .arg("runtime-policy-check")
+        .arg("--cwd")
+        .arg(&repo)
+        .arg("pre-bash-guard.sh")
+        .current_dir(&other)
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VIBEGUARD_USER_CONFIG_FILE")
+        .output()
+        .expect("runtime policy command should run");
+
+    assert_eq!(output.status.code(), Some(10));
+    let value = policy_stdout(&output);
+    assert_eq!(value["decision"], "skip");
+    assert!(
+        value["config_path"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with(".vibeguard.json")
+    );
+    let _ = fs::remove_dir_all(repo);
+    let _ = fs::remove_dir_all(other);
+}
+
+#[test]
+fn runtime_policy_check_keeps_text_format_for_humans() {
+    let repo = unique_temp_dir("text_format");
+    write_policy(&repo, r#"{"enforcement":"warn"}"#);
+
+    let output = bin()
+        .arg("runtime-policy-check")
+        .arg("--format")
+        .arg("text")
+        .arg("pre-bash-guard.sh")
+        .current_dir(&repo)
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VIBEGUARD_USER_CONFIG_FILE")
+        .output()
+        .expect("runtime policy command should run");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "VibeGuard policy warn: enforcement=warn\n"
+    );
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
     let _ = fs::remove_dir_all(repo);
 }
@@ -111,7 +195,14 @@ fn runtime_policy_check_validates_user_runtime_config_before_policy() {
         .expect("runtime policy command should run");
 
     assert_eq!(output.status.code(), Some(30));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime config invalid JSON"));
+    let value = policy_stderr(&output);
+    assert_eq!(value["decision"], "error");
+    assert!(
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("runtime config invalid JSON")
+    );
     let _ = fs::remove_dir_all(repo);
 }
 
@@ -123,8 +214,12 @@ fn runtime_policy_check_reports_project_schema_errors_as_policy_errors() {
     let output = run_runtime_policy(&repo, "pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(20));
+    let value = policy_stderr(&output);
+    assert_eq!(value["decision"], "error");
     assert!(
-        String::from_utf8_lossy(&output.stderr)
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
             .contains("disabled_hooks contains unsupported hook")
     );
     let _ = fs::remove_dir_all(repo);
@@ -138,7 +233,13 @@ fn runtime_policy_check_reports_project_json_parse_errors_as_config_parse_errors
     let output = run_runtime_policy(&repo, "pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(30));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("project config invalid JSON"));
+    let value = policy_stderr(&output);
+    assert!(
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("project config invalid JSON")
+    );
     let _ = fs::remove_dir_all(repo);
 }
 
@@ -152,7 +253,13 @@ fn runtime_policy_check_reports_project_utf8_errors_as_config_parse_errors() {
     let output = run_runtime_policy(&repo, "pre-bash-guard.sh");
 
     assert_eq!(output.status.code(), Some(30));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("project config invalid UTF-8"));
+    let value = policy_stderr(&output);
+    assert!(
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("project config invalid UTF-8")
+    );
     let _ = fs::remove_dir_all(repo);
 }
 
@@ -164,8 +271,12 @@ fn runtime_policy_check_uses_shared_profile_filtering_for_strict_only_hooks() {
     let output = run_runtime_policy(&repo, "count_active_constraints.sh");
 
     assert_eq!(output.status.code(), Some(10));
+    let value = policy_stdout(&output);
+    assert_eq!(value["decision"], "skip");
     assert!(
-        String::from_utf8_lossy(&output.stdout)
+        value["reason"]
+            .as_str()
+            .unwrap_or("")
             .contains("profile=core excludes count-active-constraints")
     );
     let _ = fs::remove_dir_all(repo);

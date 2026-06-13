@@ -1,6 +1,9 @@
 use crate::project_config::{load_project_config, project_config_path};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+
+const HOOKS_MANIFEST_JSON: &str = include_str!("../../hooks/manifest.json");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -12,27 +15,141 @@ pub enum HookPolicyDecision {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookPolicyReport {
+    pub decision: String,
+    pub enforcement: String,
+    pub hook: String,
+    pub profile: String,
+    pub config_path: Option<String>,
+    pub reason: Option<String>,
+    pub warn_mode: bool,
+}
+
+impl HookPolicyReport {
+    fn run(
+        hook: String,
+        enforcement: String,
+        profile: String,
+        config_path: Option<String>,
+        reason: Option<String>,
+        warn_mode: bool,
+    ) -> Self {
+        Self {
+            decision: "run".to_string(),
+            enforcement,
+            hook,
+            profile,
+            config_path,
+            reason,
+            warn_mode,
+        }
+    }
+
+    fn skip(
+        hook: String,
+        enforcement: String,
+        profile: String,
+        config_path: Option<String>,
+        reason: String,
+    ) -> Self {
+        Self {
+            decision: "skip".to_string(),
+            enforcement,
+            hook,
+            profile,
+            config_path,
+            reason: Some(reason),
+            warn_mode: false,
+        }
+    }
+
+    fn error(
+        hook: String,
+        enforcement: String,
+        profile: String,
+        config_path: Option<String>,
+        reason: String,
+    ) -> Self {
+        Self {
+            decision: "error".to_string(),
+            enforcement,
+            hook,
+            profile,
+            config_path,
+            reason: Some(reason),
+            warn_mode: false,
+        }
+    }
+
+    pub fn to_decision(&self) -> HookPolicyDecision {
+        match self.decision.as_str() {
+            "run" => HookPolicyDecision::Run {
+                warn_mode: self.warn_mode,
+                reason: self.reason.clone(),
+            },
+            "skip" => HookPolicyDecision::Skip(
+                self.reason
+                    .clone()
+                    .unwrap_or_else(|| "VibeGuard policy skip".to_string()),
+            ),
+            _ => HookPolicyDecision::Error(
+                self.reason
+                    .clone()
+                    .unwrap_or_else(|| "VibeGuard policy error".to_string()),
+            ),
+        }
+    }
+}
+
 pub fn evaluate_hook_policy(
     hook_name: &str,
     cwd: Option<&str>,
     env_overrides: &HashMap<String, String>,
 ) -> HookPolicyDecision {
+    evaluate_hook_policy_report(hook_name, cwd, env_overrides).to_decision()
+}
+
+pub fn evaluate_hook_policy_report(
+    hook_name: &str,
+    cwd: Option<&str>,
+    env_overrides: &HashMap<String, String>,
+) -> HookPolicyReport {
+    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let Some(path) = project_config_path(cwd, env_overrides) else {
-        return HookPolicyDecision::Run {
-            warn_mode: false,
-            reason: None,
-        };
+        return HookPolicyReport::run(
+            canonical_hook,
+            "block".to_string(),
+            "core".to_string(),
+            None,
+            None,
+            false,
+        );
     };
+    let config_path = Some(path.display().to_string());
 
     let config = match load_project_config(&path) {
         Ok(config) => config,
-        Err(reason) => return HookPolicyDecision::Error(reason),
+        Err(reason) => {
+            return HookPolicyReport::error(
+                canonical_hook,
+                "block".to_string(),
+                "core".to_string(),
+                config_path,
+                reason,
+            );
+        }
     };
 
-    let canonical_hook = app_server_canonical_hook_name(hook_name);
     let enforcement = config.enforcement.as_deref().unwrap_or("block");
     if enforcement == "off" {
-        return HookPolicyDecision::Skip("VibeGuard policy skip: enforcement=off".into());
+        return HookPolicyReport::skip(
+            canonical_hook,
+            enforcement.to_string(),
+            config.profile.as_deref().unwrap_or("core").to_string(),
+            config_path,
+            "VibeGuard policy skip: enforcement=off".into(),
+        );
     }
 
     if config
@@ -40,29 +157,57 @@ pub fn evaluate_hook_policy(
         .iter()
         .any(|hook| hook == &canonical_hook)
     {
-        return HookPolicyDecision::Skip(format!(
-            "VibeGuard policy skip: disabled_hooks contains {canonical_hook}"
-        ));
+        return HookPolicyReport::skip(
+            canonical_hook.clone(),
+            enforcement.to_string(),
+            config.profile.as_deref().unwrap_or("core").to_string(),
+            config_path,
+            format!("VibeGuard policy skip: disabled_hooks contains {canonical_hook}"),
+        );
     }
 
     let profile = config.profile.as_deref().unwrap_or("core");
-    if !profile_allows_hook(profile, &canonical_hook) {
-        return HookPolicyDecision::Skip(format!(
-            "VibeGuard policy skip: profile={profile} excludes {canonical_hook}"
-        ));
+    let profile_allowed = match manifest_profile_allows_hook(profile, &canonical_hook) {
+        Ok(allowed) => allowed,
+        Err(reason) => {
+            return HookPolicyReport::error(
+                canonical_hook,
+                enforcement.to_string(),
+                profile.to_string(),
+                config_path,
+                reason,
+            );
+        }
+    };
+    if !profile_allowed {
+        return HookPolicyReport::skip(
+            canonical_hook.clone(),
+            enforcement.to_string(),
+            profile.to_string(),
+            config_path,
+            format!("VibeGuard policy skip: profile={profile} excludes {canonical_hook}"),
+        );
     }
 
     if enforcement == "warn" {
-        return HookPolicyDecision::Run {
-            warn_mode: true,
-            reason: Some("VibeGuard policy warn: enforcement=warn".into()),
-        };
+        return HookPolicyReport::run(
+            canonical_hook,
+            enforcement.to_string(),
+            profile.to_string(),
+            config_path,
+            Some("VibeGuard policy warn: enforcement=warn".into()),
+            true,
+        );
     }
 
-    HookPolicyDecision::Run {
-        warn_mode: false,
-        reason: None,
-    }
+    HookPolicyReport::run(
+        canonical_hook,
+        enforcement.to_string(),
+        profile.to_string(),
+        config_path,
+        None,
+        false,
+    )
 }
 
 pub fn required_hook_missing_message(hook_name: &str, hook_path: &Path) -> Option<String> {
@@ -90,15 +235,55 @@ fn app_server_canonical_hook_name(hook_name: &str) -> String {
         .replace('_', "-")
 }
 
-fn profile_allows_hook(profile: &str, hook_name: &str) -> bool {
-    match hook_name {
-        "analysis-paralysis-guard" => matches!(profile, "core" | "full" | "strict"),
-        "count-active-constraints" => profile == "strict",
-        "post-build-check" | "stop-guard" | "learn-evaluator" => {
-            matches!(profile, "full" | "strict")
-        }
-        _ => true,
+fn manifest_profile_allows_hook(profile: &str, hook_name: &str) -> Result<bool, String> {
+    let Some((_, profiles)) = manifest_hook_profiles()?
+        .into_iter()
+        .find(|(name, _)| name == hook_name)
+    else {
+        return Ok(true);
+    };
+    Ok(profiles.iter().any(|candidate| candidate == profile))
+}
+
+fn manifest_hook_profiles() -> Result<Vec<(String, Vec<String>)>, String> {
+    let manifest = serde_json::from_str::<Value>(HOOKS_MANIFEST_JSON)
+        .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
+    let hooks = manifest
+        .get("hooks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "hooks/manifest.json missing hooks array".to_string())?;
+
+    let mut entries = Vec::new();
+    for hook in hooks {
+        let name = hook
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "hooks/manifest.json hook entry missing string name".to_string())?;
+        let Some(profiles_value) = hook
+            .get("claude")
+            .and_then(Value::as_object)
+            .and_then(|claude| claude.get("profiles"))
+        else {
+            continue;
+        };
+        let profiles = profiles_value
+            .as_array()
+            .ok_or_else(|| {
+                format!("hooks/manifest.json hook {name} claude.profiles must be a list")
+            })?
+            .iter()
+            .map(|profile| {
+                profile.as_str().map(str::to_string).ok_or_else(|| {
+                    format!("hooks/manifest.json hook {name} claude.profiles contains non-string")
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.push((name.to_string(), profiles));
     }
+    if entries.is_empty() {
+        return Err("hooks/manifest.json contains no hook profile entries".to_string());
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -242,6 +427,24 @@ mod tests {
         );
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
+        }
+    }
+
+    #[test]
+    fn runtime_profile_filter_matches_manifest_for_all_profiled_hooks() {
+        for (hook_name, profiles) in
+            manifest_hook_profiles().expect("manifest profiles should parse")
+        {
+            for profile in ["minimal", "core", "full", "strict"] {
+                let expected = profiles.iter().any(|candidate| candidate == profile);
+                let actual = manifest_profile_allows_hook(profile, &hook_name)
+                    .expect("profile lookup should succeed");
+
+                assert_eq!(
+                    actual, expected,
+                    "profile={profile} hook={hook_name} should follow hooks/manifest.json"
+                );
+            }
         }
     }
 

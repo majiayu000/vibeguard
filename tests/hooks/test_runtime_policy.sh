@@ -114,6 +114,7 @@ cat > "${explicit_runtime}" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   runtime-policy-check)
+    printf '{"decision":"run","enforcement":"block","hook":"probe","profile":"core","config_path":null,"reason":null,"warn_mode":false}\n'
     exit 0
     ;;
   runtime-policy-downgrade-output)
@@ -146,6 +147,7 @@ cat > "${optimized_runtime}" <<'SH'
 case "${1:-}" in
   runtime-policy-supports)
     printf 'supports\n' >>"${OPTIMIZED_PROBE_LOG:?}"
+    printf 'runtime-policy-json-v1\n'
     exit 0
     ;;
   runtime-policy-check|runtime-policy-downgrade-output|runtime-policy-codex-error|runtime-policy-diag)

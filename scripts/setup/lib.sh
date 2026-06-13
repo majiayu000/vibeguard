@@ -150,11 +150,38 @@ setup_runtime_sha256_file() {
   fi
 }
 
+setup_runtime_verify_release_provenance() {
+  local asset_path="$1" release_repo="$2" tag="$3"
+  SETUP_RUNTIME_PROVENANCE_STATUS="checksum-only"
+  SETUP_RUNTIME_PROVENANCE_REASON=""
+
+  if ! command -v gh >/dev/null 2>&1; then
+    SETUP_RUNTIME_PROVENANCE_REASON="gh not found"
+    return 2
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    SETUP_RUNTIME_PROVENANCE_REASON="gh auth unavailable"
+    return 2
+  fi
+
+  if gh attestation verify "${asset_path}" \
+    --repo "${release_repo}" \
+    --signer-workflow "github.com/${release_repo}/.github/workflows/release.yml" \
+    --source-ref "refs/tags/${tag}" \
+    --deny-self-hosted-runners >/dev/null 2>&1; then
+    SETUP_RUNTIME_PROVENANCE_STATUS="verified-provenance"
+    return 0
+  fi
+
+  SETUP_RUNTIME_PROVENANCE_REASON="gh attestation verify failed"
+  return 1
+}
+
 setup_download_prebuilt_runtime_quiet() {
   local target="$1" tag="$2" dest="$3"
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
-  local download_dir downloaded expected actual
+  local download_dir downloaded expected actual provenance_rc
 
   download_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-download_XXXXXX")"
   downloaded=0
@@ -188,6 +215,12 @@ setup_download_prebuilt_runtime_quiet() {
     return 1
   fi
   if ! actual="$(setup_runtime_sha256_file "${download_dir}/${asset}")" || [[ "${actual}" != "${expected}" ]]; then
+    rm -rf "${download_dir}"
+    return 1
+  fi
+  provenance_rc=0
+  setup_runtime_verify_release_provenance "${download_dir}/${asset}" "${release_repo}" "${tag}" || provenance_rc=$?
+  if [[ "${provenance_rc}" -eq 1 ]]; then
     rm -rf "${download_dir}"
     return 1
   fi

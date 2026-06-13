@@ -1,5 +1,5 @@
 use crate::HandlerResult;
-use crate::codex_app_server_policy::{HookPolicyDecision, evaluate_hook_policy};
+use crate::codex_app_server_policy::{HookPolicyReport, evaluate_hook_policy_report};
 use crate::runtime_config::validate_runtime_config_file;
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::{Value, json};
@@ -18,37 +18,133 @@ pub fn runtime_policy_supports(args: &[String]) -> HandlerResult {
     if !args.is_empty() {
         return Err("Usage: vibeguard-runtime runtime-policy-supports".into());
     }
+    println!("runtime-policy-json-v1");
     Ok(())
 }
 
 pub fn runtime_policy_check(args: &[String]) -> HandlerResult {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime runtime-policy-check <hook-name>".into());
-    }
+    let args = parse_runtime_policy_check_args(args)?;
 
     let user_config = std::env::var("VIBEGUARD_USER_CONFIG_FILE").unwrap_or_default();
     if let Err(err) = validate_runtime_config_file(&user_config) {
-        eprintln!("{}", err.message);
+        let report = HookPolicyReport {
+            decision: "error".to_string(),
+            enforcement: "block".to_string(),
+            hook: args.hook_name.clone(),
+            profile: "core".to_string(),
+            config_path: None,
+            reason: Some(err.message),
+            warn_mode: false,
+        };
+        print_policy_report(&report, true, args.output_format)?;
         process::exit(err.exit_code);
     }
 
-    let decision = evaluate_hook_policy(&args[0], None, &HashMap::new());
+    let decision =
+        evaluate_hook_policy_report(&args.hook_name, args.cwd.as_deref(), &HashMap::new());
     match decision {
-        HookPolicyDecision::Run { reason, .. } => {
-            if let Some(reason) = reason {
-                println!("{reason}");
-            }
+        report if report.decision == "run" => {
+            print_policy_report(&report, false, args.output_format)?;
             process::exit(ALLOW);
         }
-        HookPolicyDecision::Skip(reason) => {
-            println!("{reason}");
+        report if report.decision == "skip" => {
+            print_policy_report(&report, false, args.output_format)?;
             process::exit(SKIP);
         }
-        HookPolicyDecision::Error(reason) => {
-            eprintln!("{reason}");
-            process::exit(policy_error_exit_code(&reason));
+        report => {
+            let reason = report.reason.as_deref().unwrap_or("");
+            print_policy_report(&report, true, args.output_format)?;
+            process::exit(policy_error_exit_code(reason));
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PolicyOutputFormat {
+    Json,
+    Text,
+}
+
+struct RuntimePolicyCheckArgs {
+    hook_name: String,
+    cwd: Option<String>,
+    output_format: PolicyOutputFormat,
+}
+
+fn parse_runtime_policy_check_args(args: &[String]) -> Result<RuntimePolicyCheckArgs, String> {
+    let mut cwd = None;
+    let mut output_format = PolicyOutputFormat::Json;
+    let mut hook_name = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--cwd" | "--project-root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(runtime_policy_check_usage());
+                };
+                cwd = Some(value.clone());
+                index += 2;
+            }
+            "--format" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(runtime_policy_check_usage());
+                };
+                output_format = match value.as_str() {
+                    "json" => PolicyOutputFormat::Json,
+                    "text" => PolicyOutputFormat::Text,
+                    _ => return Err(runtime_policy_check_usage()),
+                };
+                index += 2;
+            }
+            value if value.starts_with('-') => return Err(runtime_policy_check_usage()),
+            value => {
+                if hook_name.replace(value.to_string()).is_some() {
+                    return Err(runtime_policy_check_usage());
+                }
+                index += 1;
+            }
+        }
+    }
+
+    let Some(hook_name) = hook_name else {
+        return Err(runtime_policy_check_usage());
+    };
+
+    Ok(RuntimePolicyCheckArgs {
+        hook_name,
+        cwd,
+        output_format,
+    })
+}
+
+fn runtime_policy_check_usage() -> String {
+    "Usage: vibeguard-runtime runtime-policy-check [--cwd <path>|--project-root <path>] [--format json|text] <hook-name>".into()
+}
+
+fn print_policy_report(
+    report: &HookPolicyReport,
+    stderr: bool,
+    output_format: PolicyOutputFormat,
+) -> HandlerResult {
+    let text = match output_format {
+        PolicyOutputFormat::Json => serde_json::to_string(&json!({
+            "decision": report.decision,
+            "enforcement": report.enforcement,
+            "hook": report.hook,
+            "profile": report.profile,
+            "config_path": report.config_path,
+            "reason": report.reason,
+            "warn_mode": report.warn_mode,
+        }))?,
+        PolicyOutputFormat::Text => report.reason.clone().unwrap_or_default(),
+    };
+    if stderr {
+        eprintln!("{text}");
+    } else {
+        println!("{text}");
+    }
+    Ok(())
 }
 
 pub fn runtime_policy_downgrade_output(args: &[String]) -> HandlerResult {

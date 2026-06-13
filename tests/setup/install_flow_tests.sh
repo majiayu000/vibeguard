@@ -338,6 +338,7 @@ assert_cmd "no-Python setup --clean removes install state" test ! -e "${no_pytho
 
 install_out="$(VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${install_out}" "Setup complete! All components installed." "Default route to installation process"
+assert_contains "${install_out}" "Mode: stable" "default setup reports stable execution mode"
 assert_contains "${install_out}" "vibeguard-runtime downloaded and verified" "default setup uses verified prebuilt runtime without cargo"
 assert_contains "${install_out}" "Scheduled GC not installed by default" "default setup reports scheduled GC opt-in"
 assert_cmd "default setup does not install scheduled GC" assert_scheduled_gc_absent
@@ -359,10 +360,12 @@ assert_contains "${install_out}" "[OK] vibeguard-runtime version matches repo VE
 assert_contains "${install_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "setup install reports current installed snapshot"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
+assert_cmd "default install records stable mode" bash -c 'test "$(cat "$HOME/.vibeguard/install-mode")" = stable'
 assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 default_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${default_scheduler_check_out}" "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)" "--check reports absent scheduled GC as INFO"
+assert_contains "${default_scheduler_check_out}" "execution source: installed snapshot" "--check reports stable installed snapshot execution source"
 assert_contains "${default_scheduler_check_out}" "[OK] vibeguard-runtime version matches repo VERSION" "--check reports runtime version health"
 assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--check does not warn when scheduled GC is absent"
 scheduler_fail_home="${TMP_HOME}/scheduler-enable-fail-home"
@@ -480,9 +483,11 @@ assert_contains "${installed_git_hook_check_out}" "[OK] VibeGuard repo pre-push 
 fake_wrapper_repo="${TMP_HOME}/fake-wrapper-repo"
 mkdir -p "${fake_wrapper_repo}/hooks/git"
 printf '%s' "${fake_wrapper_repo}" > "${HOME}/.vibeguard/repo-path"
+printf 'dev-linked\n' > "${HOME}/.vibeguard/install-mode"
 missing_wrapper_source_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
-assert_contains "${missing_wrapper_source_check_out}" "[BROKEN] VibeGuard repo pre-push hook wrapper source missing" "--check reports missing pre-push wrapper source"
+assert_contains "${missing_wrapper_source_check_out}" "[BROKEN] VibeGuard repo pre-push hook dev-linked source missing" "--check reports missing dev-linked pre-push wrapper source"
 printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
+printf 'stable\n' > "${HOME}/.vibeguard/install-mode"
 ln -sfn "${TMP_HOME}/unexpected-pre-commit" "${REPO_GIT_HOOK_DIR}/pre-commit"
 drift_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${drift_git_hook_check_out}" "[BROKEN] VibeGuard repo pre-commit hook target drift" "--check reports repo pre-commit hook target drift"
