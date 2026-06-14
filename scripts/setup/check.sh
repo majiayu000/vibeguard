@@ -45,6 +45,7 @@ STRICT=0
 WITH_SUMMARY=1
 INSTALL=0
 PROJECT=0
+DEV_REPO=0
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --strict)       STRICT=1; shift ;;
     --install)      INSTALL=1; shift ;;
     --project)      PROJECT=1; shift ;;
+    --dev-repo)     DEV_REPO=1; shift ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 64; }
@@ -464,6 +466,8 @@ run_legacy_checks() {
   echo "------------------------------"
   if [[ "${INSTALL}" -eq 1 && "${PROJECT}" -ne 1 ]]; then
     yellow "[INFO] Project config not checked in install verification mode (use verify-project for project health)"
+  elif [[ "${DEV_REPO}" -eq 1 && "${PROJECT}" -ne 1 ]]; then
+    yellow "[INFO] Project config not checked in dev-repo verification mode (use verify-project for project health)"
   else
     project_config_file="$(vg_project_config_file)"
     if [[ -z "${project_config_file}" || ! -f "${project_config_file}" ]]; then

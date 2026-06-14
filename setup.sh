@@ -140,7 +140,7 @@ case "${1:-}" in
   verify-dev-repo)
     shift || true
     reject_no_summary_for_machine_check "verify-dev-repo" "$@"
-    run_setup "check.sh" --strict "$@"
+    run_setup "check.sh" --strict --dev-repo "$@"
     ;;
   --check)
     shift || true

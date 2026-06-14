@@ -440,6 +440,14 @@ install_invalid_project_out="$(cd "${INVALID_PROJECT_DIR}" && HOME="${STALE_HOOK
 assert_contains "$install_invalid_project_out" "Project config not checked in install verification mode" "verify-install: skips project config validation"
 assert_not_contains "$install_invalid_project_out" "Project config invalid" "verify-install: project config does not affect install health"
 
+dev_repo_invalid_project_out="$(cd "${INVALID_PROJECT_DIR}" && HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-dev-repo 2>&1)"
+assert_contains "$dev_repo_invalid_project_out" "Project config not checked in dev-repo verification mode" "verify-dev-repo: skips caller project config validation"
+assert_not_contains "$dev_repo_invalid_project_out" "Project config invalid" "verify-dev-repo: caller project config does not affect dev repo health"
+
+dev_repo_env_invalid_project_out="$(HOME="${STALE_HOOK_HOME}" VIBEGUARD_PROJECT_CONFIG="${INVALID_PROJECT_DIR}/.vibeguard.json" bash "${SETUP_SCRIPT}" verify-dev-repo 2>&1)"
+assert_contains "$dev_repo_env_invalid_project_out" "Project config not checked in dev-repo verification mode" "verify-dev-repo: skips env project config validation"
+assert_not_contains "$dev_repo_env_invalid_project_out" "Project config invalid" "verify-dev-repo: env project config does not affect dev repo health"
+
 project_invalid_config_out="$(cd "${INVALID_PROJECT_DIR}" && HOME="${STALE_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-project 2>&1)"
 assert_contains "$project_invalid_config_out" "Project config invalid" "verify-project: still validates project config"
 rm -rf "${INVALID_PROJECT_DIR}"
