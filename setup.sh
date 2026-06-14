@@ -87,7 +87,7 @@ case "${1:-}" in
     ;;
   verify-project)
     shift || true
-    run_setup "check.sh" --strict "$@"
+    run_setup "check.sh" --strict --project "$@"
     ;;
   verify-dev-repo)
     shift || true

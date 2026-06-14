@@ -18,6 +18,8 @@ AWK_PORTABILITY_FIXTURE=""
 STALE_HOOK_HOME=""
 TIMEOUT_HOOK_HOME=""
 BROKEN_HOME=""
+PROJECT_HOOK_HOME=""
+PROJECT_HOOK_REPO=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -31,6 +33,12 @@ cleanup() {
   fi
   if [[ -n "${BROKEN_HOME}" ]]; then
     rm -rf "${BROKEN_HOME}"
+  fi
+  if [[ -n "${PROJECT_HOOK_HOME}" ]]; then
+    rm -rf "${PROJECT_HOOK_HOME}"
+  fi
+  if [[ -n "${PROJECT_HOOK_REPO}" ]]; then
+    rm -rf "${PROJECT_HOOK_REPO}"
   fi
 }
 trap cleanup EXIT
@@ -437,6 +445,32 @@ assert_cmd "stale hook repair: Claude installed hook path removed" bash -c "! gr
 assert_cmd "stale hook repair: Codex installed hook path removed" bash -c "! grep -q '.vibeguard/installed/hooks/session-tagger.sh' '${STALE_HOOK_HOME}/.codex/hooks.json'"
 assert_cmd "stale hook repair: Claude stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" check-stale-hooks --settings-file "${STALE_HOOK_HOME}/.claude/settings.json"
 assert_cmd "stale hook repair: Codex stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json"
+
+# --- Project git hook detection ---
+header "verify-project project git hooks"
+PROJECT_HOOK_HOME="$(mktemp -d)"
+PROJECT_HOOK_REPO="$(mktemp -d)"
+git -C "${PROJECT_HOOK_REPO}" init -q
+mkdir -p "${PROJECT_HOOK_HOME}/.vibeguard/installed/hooks/git"
+printf '#!/usr/bin/env bash\n' > "${PROJECT_HOOK_HOME}/.vibeguard/pre-commit"
+printf '#!/usr/bin/env bash\n' > "${PROJECT_HOOK_HOME}/.vibeguard/pre-push"
+chmod +x "${PROJECT_HOOK_HOME}/.vibeguard/pre-commit" "${PROJECT_HOOK_HOME}/.vibeguard/pre-push"
+printf '#!/usr/bin/env bash\n' > "${PROJECT_HOOK_HOME}/.vibeguard/installed/hooks/pre-commit-guard.sh"
+printf '#!/usr/bin/env bash\n' > "${PROJECT_HOOK_HOME}/.vibeguard/installed/hooks/git/pre-push"
+
+project_missing_out="$(cd "${PROJECT_HOOK_REPO}" && HOME="${PROJECT_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-project 2>&1)"
+project_missing_rc=$?
+assert_eq "$project_missing_rc" "2" "verify-project: missing project hooks exits 2"
+assert_contains "$project_missing_out" "Project Git Hooks" "verify-project: includes project git hook section"
+assert_contains "$project_missing_out" "[MISSING] Project pre-commit hook" "verify-project: reports missing project pre-commit hook"
+assert_contains "$project_missing_out" "[MISSING] Project pre-push hook" "verify-project: reports missing project pre-push hook"
+
+project_hook_dir="$(git -C "${PROJECT_HOOK_REPO}" rev-parse --path-format=absolute --git-path hooks)"
+ln -sf "${PROJECT_HOOK_HOME}/.vibeguard/pre-commit" "${project_hook_dir}/pre-commit"
+ln -sf "${PROJECT_HOOK_HOME}/.vibeguard/pre-push" "${project_hook_dir}/pre-push"
+project_installed_out="$(cd "${PROJECT_HOOK_REPO}" && HOME="${PROJECT_HOOK_HOME}" bash "${SETUP_SCRIPT}" verify-project 2>&1 || true)"
+assert_contains "$project_installed_out" "[OK] Project pre-commit hook installed" "verify-project: accepts installed project pre-commit hook"
+assert_contains "$project_installed_out" "[OK] Project pre-push hook installed" "verify-project: accepts installed project pre-push hook"
 
 # --- Codex hook timeout diagnostics ---
 header "codex hook timeout diagnostics"

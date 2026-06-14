@@ -12,6 +12,7 @@
 #   bash setup.sh --check --json         # machine-readable JSON, no TTY output
 #   bash setup.sh --check --no-summary   # legacy behavior (no rollup, exit 0)
 #   bash setup.sh --check --install      # install final verification, fail on broken required state
+#   bash setup.sh --check --project      # include current Git project's hooks
 #   bash setup.sh --check --profile full # verify profile-specific hook coverage
 #
 # Exit code
@@ -43,6 +44,7 @@ JSON=0
 STRICT=0
 WITH_SUMMARY=1
 INSTALL=0
+PROJECT=0
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --json)         JSON=1; shift ;;
     --strict)       STRICT=1; shift ;;
     --install)      INSTALL=1; shift ;;
+    --project)      PROJECT=1; shift ;;
     --no-summary)   WITH_SUMMARY=0; shift ;;
     --profile)
       [[ $# -lt 2 ]] && { red "ERROR: --profile requires a value (minimal|core|full|strict)"; exit 64; }
@@ -58,7 +61,7 @@ while [[ $# -gt 0 ]]; do
       PROFILE="${1#*=}"; shift ;;
     --help|-h)
       cat <<'USAGE'
-Usage: setup.sh --check [--quiet | --json | --strict | --install | --no-summary] [--profile minimal|core|full|strict]
+Usage: setup.sh --check [--quiet | --json | --strict | --install | --project | --no-summary] [--profile minimal|core|full|strict]
 
 Top-level commands:
   setup.sh doctor             Human-friendly report; exits 0 unless the checker cannot run.
@@ -75,6 +78,8 @@ Top-level commands:
                  code is always 0 for backwards compatibility.
   --install      Final install verification mode: exit 2 on broken required
                  state, but allow WARN/INFO rows for optional integrations.
+  --project      Include current Git project's pre-commit/pre-push hook checks.
+                 Used by setup.sh verify-project.
   --json         Emit a single-line JSON document (counts + events + verdict)
                  to stdout. Disables human-readable output. Implies --strict.
   --no-summary   Legacy mode: no rollup table, always exit 0.
@@ -247,36 +252,38 @@ _check_execution_sources() {
   fi
 }
 
-_check_repo_git_hook() {
-  local hook_name="$1"
-  local expected_target="$2"
-  local hook_path="${_vg_hook_dir}/${hook_name}"
+_check_git_hook() {
+  local scope="$1"
+  local hook_dir="$2"
+  local hook_name="$3"
+  local expected_target="$4"
+  local hook_path="${hook_dir}/${hook_name}"
 
   if [[ ! -e "${hook_path}" && ! -L "${hook_path}" ]]; then
-    red "[MISSING] VibeGuard repo ${hook_name} hook (${hook_path})"
+    red "[MISSING] ${scope} ${hook_name} hook (${hook_path})"
     return 0
   fi
   if [[ ! -L "${hook_path}" ]]; then
-    red "[BROKEN] VibeGuard repo ${hook_name} hook is not a symlink: ${hook_path}"
+    red "[BROKEN] ${scope} ${hook_name} hook is not a symlink: ${hook_path}"
     return 0
   fi
 
   local actual_target
   actual_target="$(readlink "${hook_path}" 2>/dev/null || true)"
   if [[ -z "${actual_target}" ]]; then
-    red "[BROKEN] VibeGuard repo ${hook_name} hook target cannot be read: ${hook_path}"
+    red "[BROKEN] ${scope} ${hook_name} hook target cannot be read: ${hook_path}"
     return 0
   fi
   if [[ "${actual_target}" != "${expected_target}" ]]; then
-    red "[BROKEN] VibeGuard repo ${hook_name} hook target drift: ${actual_target} (expected: ${expected_target})"
+    red "[BROKEN] ${scope} ${hook_name} hook target drift: ${actual_target} (expected: ${expected_target})"
     return 0
   fi
   if [[ ! -e "${hook_path}" ]]; then
-    red "[BROKEN] VibeGuard repo ${hook_name} hook target missing: ${actual_target}"
+    red "[BROKEN] ${scope} ${hook_name} hook target missing: ${actual_target}"
     return 0
   fi
   if [[ ! -x "${hook_path}" ]]; then
-    red "[BROKEN] VibeGuard repo ${hook_name} hook target not executable: ${actual_target}"
+    red "[BROKEN] ${scope} ${hook_name} hook target not executable: ${actual_target}"
     return 0
   fi
   if [[ "${expected_target}" == "${HOME}/.vibeguard/pre-commit" || "${expected_target}" == "${HOME}/.vibeguard/pre-push" ]]; then
@@ -289,17 +296,42 @@ _check_repo_git_hook() {
     if [[ -n "${source_rel}" ]]; then
       source_path="$(_execution_source_path "${source_rel}")"
       if [[ ! -f "${source_path}" ]]; then
-        red "[BROKEN] VibeGuard repo ${hook_name} hook execution source missing: ${source_path}"
+        red "[BROKEN] ${scope} ${hook_name} hook execution source missing: ${source_path}"
         return 0
       fi
       if [[ ! -r "${source_path}" ]]; then
-        red "[BROKEN] VibeGuard repo ${hook_name} hook execution source not readable: ${source_path}"
+        red "[BROKEN] ${scope} ${hook_name} hook execution source not readable: ${source_path}"
         return 0
       fi
     fi
   fi
 
-  green "[OK] VibeGuard repo ${hook_name} hook installed"
+  green "[OK] ${scope} ${hook_name} hook installed"
+}
+
+_check_repo_git_hook() {
+  local hook_name="$1"
+  local expected_target="$2"
+  _check_git_hook "VibeGuard repo" "${_vg_hook_dir}" "${hook_name}" "${expected_target}"
+}
+
+_check_project_git_hooks() {
+  echo
+  echo "Project Git Hooks"
+  echo "------------------------------"
+
+  local project_root project_hook_dir
+  if ! project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || [[ -z "${project_root}" ]]; then
+    yellow "[INFO] Project git hooks not checked (not a git repository)"
+    return 0
+  fi
+  if ! project_hook_dir="$(git -C "${project_root}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" || [[ -z "${project_hook_dir}" ]]; then
+    yellow "[INFO] Project git hooks not checked (git hook path unavailable)"
+    return 0
+  fi
+
+  _check_git_hook "Project" "${project_hook_dir}" "pre-commit" "${HOME}/.vibeguard/pre-commit"
+  _check_git_hook "Project" "${project_hook_dir}" "pre-push" "${HOME}/.vibeguard/pre-push"
 }
 
 _check_installed_snapshot_version() {
@@ -421,6 +453,9 @@ run_legacy_checks() {
     _check_repo_git_hook "pre-push" "${HOME}/.vibeguard/pre-push"
   else
     yellow "[INFO] Repository git hooks not checked (not a git repository)"
+  fi
+  if [[ "${PROJECT}" -eq 1 ]]; then
+    _check_project_git_hooks
   fi
 
   # Check project-level runtime config
