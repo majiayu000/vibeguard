@@ -43,7 +43,7 @@ Check options:
   --quiet
   --strict
   --install
-  --no-summary
+  --no-summary       Legacy doctor/--check only; verify-* commands reject it
   --profile minimal|core|full|strict
 
 Examples:
@@ -73,6 +73,18 @@ run_setup() {
   VIBEGUARD_REPO_DIR="${REPO_DIR}" bash "${SETUP_DIR}/${script}" "$@"
 }
 
+reject_no_summary_for_machine_check() {
+  local command_name="$1"
+  shift || true
+  local arg
+  for arg in "$@"; do
+    if [[ "${arg}" == "--no-summary" ]]; then
+      echo "ERROR: ${command_name} does not support --no-summary; machine checks must preserve exit codes." >&2
+      exit 64
+    fi
+  done
+}
+
 case "${1:-}" in
   --help|-h|help)
     print_usage
@@ -83,14 +95,17 @@ case "${1:-}" in
     ;;
   verify-install)
     shift || true
+    reject_no_summary_for_machine_check "verify-install" "$@"
     run_setup "check.sh" --install "$@"
     ;;
   verify-project)
     shift || true
+    reject_no_summary_for_machine_check "verify-project" "$@"
     run_setup "check.sh" --strict --project "$@"
     ;;
   verify-dev-repo)
     shift || true
+    reject_no_summary_for_machine_check "verify-dev-repo" "$@"
     run_setup "check.sh" --strict "$@"
     ;;
   --check)

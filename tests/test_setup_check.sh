@@ -534,6 +534,21 @@ bash "${SETUP_SCRIPT}" --check --no-summary >/dev/null 2>&1
 no_sum_rc=$?
 assert_eq "$no_sum_rc" "0" "no-summary mode: exit 0 (compat)"
 
+verify_install_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-install --no-summary 2>&1)"
+verify_install_no_summary_rc=$?
+assert_eq "$verify_install_no_summary_rc" "64" "verify-install --no-summary: rejected"
+assert_contains "$verify_install_no_summary_out" "verify-install does not support --no-summary" "verify-install --no-summary: explains rejection"
+
+verify_project_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-project --no-summary 2>&1)"
+verify_project_no_summary_rc=$?
+assert_eq "$verify_project_no_summary_rc" "64" "verify-project --no-summary: rejected"
+assert_contains "$verify_project_no_summary_out" "verify-project does not support --no-summary" "verify-project --no-summary: explains rejection"
+
+verify_dev_repo_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" verify-dev-repo --no-summary 2>&1)"
+verify_dev_repo_no_summary_rc=$?
+assert_eq "$verify_dev_repo_no_summary_rc" "64" "verify-dev-repo --no-summary: rejected"
+assert_contains "$verify_dev_repo_no_summary_out" "verify-dev-repo does not support --no-summary" "verify-dev-repo --no-summary: explains rejection"
+
 # --strict, --install, and --json should reflect the verdict in the exit code.
 # We can only assert that the result is one of {0, 1, 2}.
 bash "${SETUP_SCRIPT}" --check --strict >/dev/null 2>&1
