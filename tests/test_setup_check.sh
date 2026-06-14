@@ -579,6 +579,21 @@ verify_dev_repo_no_summary_rc=$?
 assert_eq "$verify_dev_repo_no_summary_rc" "64" "verify-dev-repo --no-summary: rejected"
 assert_contains "$verify_dev_repo_no_summary_out" "verify-dev-repo does not support --no-summary" "verify-dev-repo --no-summary: explains rejection"
 
+legacy_install_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check --install --no-summary 2>&1)"
+legacy_install_no_summary_rc=$?
+assert_eq "$legacy_install_no_summary_rc" "64" "--check --install --no-summary: rejected"
+assert_contains "$legacy_install_no_summary_out" "--check --install does not support --no-summary" "--check --install --no-summary: explains rejection"
+
+legacy_strict_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check --strict --no-summary 2>&1)"
+legacy_strict_no_summary_rc=$?
+assert_eq "$legacy_strict_no_summary_rc" "64" "--check --strict --no-summary: rejected"
+assert_contains "$legacy_strict_no_summary_out" "--check --strict does not support --no-summary" "--check --strict --no-summary: explains rejection"
+
+legacy_json_no_summary_out="$(HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" --check --json --no-summary 2>&1)"
+legacy_json_no_summary_rc=$?
+assert_eq "$legacy_json_no_summary_rc" "64" "--check --json --no-summary: rejected"
+assert_contains "$legacy_json_no_summary_out" "--check --json does not support --no-summary" "--check --json --no-summary: explains rejection"
+
 # --strict, --install, and --json should reflect the verdict in the exit code.
 # We can only assert that the result is one of {0, 1, 2}.
 bash "${SETUP_SCRIPT}" --check --strict >/dev/null 2>&1

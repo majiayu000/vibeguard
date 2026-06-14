@@ -99,10 +99,16 @@ has_arg() {
 
 run_check_alias() {
   if has_arg "--install" "$@"; then
+    reject_no_summary_for_machine_check "--check --install" "$@"
     run_setup "check.sh" "$@"
     return
   fi
   if has_arg "--strict" "$@" || has_arg "--json" "$@"; then
+    if has_arg "--json" "$@"; then
+      reject_no_summary_for_machine_check "--check --json" "$@"
+    else
+      reject_no_summary_for_machine_check "--check --strict" "$@"
+    fi
     if has_arg "--project" "$@"; then
       run_setup "check.sh" "$@"
     else
