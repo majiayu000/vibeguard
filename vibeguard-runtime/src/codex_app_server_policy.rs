@@ -1,6 +1,9 @@
 use crate::project_config::{load_project_config, project_config_path};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+
+const HOOKS_MANIFEST_JSON: &str = include_str!("../../hooks/manifest.json");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookPolicyDecision {
@@ -46,7 +49,11 @@ pub fn evaluate_hook_policy(
     }
 
     let profile = config.profile.as_deref().unwrap_or("core");
-    if !profile_allows_hook(profile, &canonical_hook) {
+    let profile_allowed = match manifest_profile_allows_hook(profile, &canonical_hook) {
+        Ok(allowed) => allowed,
+        Err(reason) => return HookPolicyDecision::Error(reason),
+    };
+    if !profile_allowed {
         return HookPolicyDecision::Skip(format!(
             "VibeGuard policy skip: profile={profile} excludes {canonical_hook}"
         ));
@@ -90,15 +97,74 @@ fn app_server_canonical_hook_name(hook_name: &str) -> String {
         .replace('_', "-")
 }
 
-fn profile_allows_hook(profile: &str, hook_name: &str) -> bool {
-    match hook_name {
-        "analysis-paralysis-guard" => matches!(profile, "core" | "full" | "strict"),
-        "count-active-constraints" => profile == "strict",
-        "post-build-check" | "stop-guard" | "learn-evaluator" => {
-            matches!(profile, "full" | "strict")
-        }
-        _ => true,
+fn manifest_profile_allows_hook(profile: &str, hook_name: &str) -> Result<bool, String> {
+    let Some((_, profiles)) = manifest_hook_profiles()?
+        .into_iter()
+        .find(|(name, _)| name == hook_name)
+    else {
+        return Ok(true);
+    };
+
+    Ok(profiles.iter().any(|candidate| candidate == profile))
+}
+
+#[cfg(test)]
+fn manifest_profiles() -> Result<Vec<String>, String> {
+    let manifest = serde_json::from_str::<Value>(HOOKS_MANIFEST_JSON)
+        .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
+    manifest
+        .get("profiles")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "hooks/manifest.json missing profiles array".to_string())?
+        .iter()
+        .map(|profile| {
+            profile
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| "hooks/manifest.json profiles contains non-string".to_string())
+        })
+        .collect()
+}
+
+fn manifest_hook_profiles() -> Result<Vec<(String, Vec<String>)>, String> {
+    let manifest = serde_json::from_str::<Value>(HOOKS_MANIFEST_JSON)
+        .map_err(|err| format!("hooks/manifest.json invalid JSON: {err}"))?;
+    let hooks = manifest
+        .get("hooks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "hooks/manifest.json missing hooks array".to_string())?;
+
+    let mut entries = Vec::new();
+    for hook in hooks {
+        let name = hook
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "hooks/manifest.json hook entry missing string name".to_string())?;
+        let Some(profiles_value) = hook
+            .get("claude")
+            .and_then(Value::as_object)
+            .and_then(|claude| claude.get("profiles"))
+        else {
+            continue;
+        };
+        let profiles = profiles_value
+            .as_array()
+            .ok_or_else(|| {
+                format!("hooks/manifest.json hook {name} claude.profiles must be a list")
+            })?
+            .iter()
+            .map(|profile| {
+                profile.as_str().map(str::to_string).ok_or_else(|| {
+                    format!("hooks/manifest.json hook {name} claude.profiles contains non-string")
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.push((name.to_string(), profiles));
     }
+    if entries.is_empty() {
+        return Err("hooks/manifest.json contains no hook profile entries".to_string());
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -242,6 +308,62 @@ mod tests {
         );
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
+        }
+    }
+
+    #[test]
+    fn runtime_profile_filter_matches_manifest_for_all_profiled_hooks() {
+        let profiles = match manifest_profiles() {
+            Ok(profiles) => profiles,
+            Err(err) => panic!("manifest profiles should parse: {err}"),
+        };
+        assert_eq!(profiles, ["minimal", "core", "full", "strict"]);
+
+        let hook_profiles = match manifest_hook_profiles() {
+            Ok(hook_profiles) => hook_profiles,
+            Err(err) => panic!("manifest hook profiles should parse: {err}"),
+        };
+        for (hook_name, allowed_profiles) in hook_profiles {
+            for profile in &profiles {
+                let repo = temp_policy_dir(&format!("{hook_name}_{profile}"));
+                if let Err(err) = fs::write(
+                    repo.join(".vibeguard.json"),
+                    format!(r#"{{"profile":"{profile}"}}"#),
+                ) {
+                    panic!("project config should be written: {err}");
+                }
+
+                let decision = evaluate_hook_policy(
+                    &format!("{hook_name}.sh"),
+                    repo.to_str(),
+                    &HashMap::new(),
+                );
+                let expected_allowed = allowed_profiles
+                    .iter()
+                    .any(|candidate| candidate == profile);
+
+                if expected_allowed {
+                    assert!(
+                        matches!(
+                            decision,
+                            HookPolicyDecision::Run {
+                                warn_mode: false,
+                                ..
+                            }
+                        ),
+                        "profile={profile} hook={hook_name} should run from hooks/manifest.json"
+                    );
+                } else {
+                    assert!(
+                        matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains(&format!("profile={profile} excludes {hook_name}"))),
+                        "profile={profile} hook={hook_name} should skip from hooks/manifest.json"
+                    );
+                }
+
+                if let Err(err) = fs::remove_dir_all(&repo) {
+                    panic!("temp policy dir should be removed: {err}");
+                }
+            }
         }
     }
 
