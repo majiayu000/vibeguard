@@ -85,6 +85,34 @@ reject_no_summary_for_machine_check() {
   done
 }
 
+has_arg() {
+  local needle="$1"
+  shift || true
+  local arg
+  for arg in "$@"; do
+    if [[ "${arg}" == "${needle}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_check_alias() {
+  if has_arg "--install" "$@"; then
+    run_setup "check.sh" "$@"
+    return
+  fi
+  if has_arg "--strict" "$@" || has_arg "--json" "$@"; then
+    if has_arg "--project" "$@"; then
+      run_setup "check.sh" "$@"
+    else
+      run_setup "check.sh" --project "$@"
+    fi
+    return
+  fi
+  run_setup "check.sh" "$@"
+}
+
 case "${1:-}" in
   --help|-h|help)
     print_usage
@@ -110,7 +138,7 @@ case "${1:-}" in
     ;;
   --check)
     shift || true
-    run_setup "check.sh" "$@"
+    run_check_alias "$@"
     ;;
   --clean)
     shift || true

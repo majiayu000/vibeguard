@@ -465,6 +465,19 @@ assert_contains "$project_missing_out" "Project Git Hooks" "verify-project: incl
 assert_contains "$project_missing_out" "[MISSING] Project pre-commit hook" "verify-project: reports missing project pre-commit hook"
 assert_contains "$project_missing_out" "[MISSING] Project pre-push hook" "verify-project: reports missing project pre-push hook"
 
+project_legacy_strict_out="$(cd "${PROJECT_HOOK_REPO}" && HOME="${PROJECT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --strict 2>&1)"
+project_legacy_strict_rc=$?
+assert_eq "$project_legacy_strict_rc" "2" "--check --strict: missing project hooks exits 2"
+assert_contains "$project_legacy_strict_out" "Project Git Hooks" "--check --strict: includes project git hook section"
+assert_contains "$project_legacy_strict_out" "[MISSING] Project pre-commit hook" "--check --strict: reports missing project pre-commit hook"
+assert_contains "$project_legacy_strict_out" "[MISSING] Project pre-push hook" "--check --strict: reports missing project pre-push hook"
+
+project_legacy_json_out="$(cd "${PROJECT_HOOK_REPO}" && HOME="${PROJECT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --json 2>&1)"
+project_legacy_json_rc=$?
+assert_eq "$project_legacy_json_rc" "2" "--check --json: missing project hooks exits 2"
+assert_contains "$project_legacy_json_out" "Project pre-commit hook" "--check --json: reports missing project pre-commit hook"
+assert_contains "$project_legacy_json_out" "Project pre-push hook" "--check --json: reports missing project pre-push hook"
+
 project_hook_dir="$(git -C "${PROJECT_HOOK_REPO}" rev-parse --path-format=absolute --git-path hooks)"
 ln -sf "${PROJECT_HOOK_HOME}/.vibeguard/pre-commit" "${project_hook_dir}/pre-commit"
 ln -sf "${PROJECT_HOOK_HOME}/.vibeguard/pre-push" "${project_hook_dir}/pre-push"
