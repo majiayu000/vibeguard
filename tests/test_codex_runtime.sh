@@ -208,6 +208,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+export VIBEGUARD_EXECUTION_MODE=dev-linked-repo
+
 
 for codex_runtime_test in \
   "${REPO_DIR}/tests/codex_runtime/protocol_helper_tests.sh" \

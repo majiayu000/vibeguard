@@ -195,6 +195,7 @@ def build_env(sample: dict[str, Any], repo_root: Path, tmp_path: Path) -> dict[s
         repo_marker = home / ".vibeguard"
         repo_marker.mkdir(parents=True)
         (repo_marker / "repo-path").write_text(str(repo_root), encoding="utf-8")
+        (repo_marker / "execution-mode").write_text("dev-linked-repo\n", encoding="utf-8")
         env["HOME"] = str(home)
     return env
 

@@ -122,6 +122,23 @@ class BehaviorEvalTest(unittest.TestCase):
         self.assertEqual(summary["coverage_rate"], 75.0)
         self.assertEqual(summary["slice_failures"], [{"dimension": "rule", "value": "L1"}])
 
+    def test_codex_wrapper_env_uses_dev_linked_execution_mode(self) -> None:
+        sample = {"id": "codex-sample", "runner": "codex_wrapper"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            repo_root = tmp_path / "repo"
+            repo_root.mkdir()
+
+            env = run_behavior_eval.build_env(sample, repo_root, tmp_path)
+            vibeguard_home = Path(env["HOME"]) / ".vibeguard"
+
+            self.assertEqual((vibeguard_home / "repo-path").read_text(encoding="utf-8"), str(repo_root))
+            self.assertEqual(
+                (vibeguard_home / "execution-mode").read_text(encoding="utf-8"),
+                "dev-linked-repo\n",
+            )
+
     def test_model_gate_resolves_behavior_artifact_root_before_child_cwd(self) -> None:
         args = argparse.Namespace(
             model="haiku",

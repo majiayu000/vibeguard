@@ -179,7 +179,7 @@ echo
 # --- Automatically install git hooks ---
 echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
-PRE_PUSH_HOOK_SRC="${VIBEGUARD_DIR}/hooks/git/pre-push"
+PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
 GIT_HOOKS_DIR="${PROJECT_ROOT}/.git/hooks"
 if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
@@ -189,15 +189,15 @@ if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
     ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
     echo "pre-commit hook installed"
   fi
-  if [[ -f "$PRE_PUSH_HOOK_SRC" ]]; then
+  if [[ -f "$PRE_PUSH_WRAPPER" ]]; then
     if [[ -f "$GIT_HOOKS_DIR/pre-push" ]]; then
-      echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_HOOK_SRC $GIT_HOOKS_DIR/pre-push)"
+      echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_WRAPPER $GIT_HOOKS_DIR/pre-push)"
     else
-      ln -sf "$PRE_PUSH_HOOK_SRC" "$GIT_HOOKS_DIR/pre-push"
+      ln -sf "$PRE_PUSH_WRAPPER" "$GIT_HOOKS_DIR/pre-push"
       echo "pre-push hook installed"
     fi
   else
-    echo "Missing pre-push hook source file: $PRE_PUSH_HOOK_SRC"
+    echo " ~/.vibeguard/pre-push does not exist, please run setup.sh first"
   fi
 elif [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
   echo "Non-git repository, skip"
