@@ -35,20 +35,21 @@ vg_wrapper_env_runtime_candidates() {
 }
 
 vg_wrapper_env_runtime_path() {
-  local wrapper_dir helper_dir candidate
+  local wrapper_dir helper_dir candidate candidates
   if [[ -n "${VG_WRAPPER_ENV_RUNTIME_PATH_CACHE:-}" && -x "${VG_WRAPPER_ENV_RUNTIME_PATH_CACHE}" ]]; then
     printf '%s\n' "${VG_WRAPPER_ENV_RUNTIME_PATH_CACHE}"
     return 0
   fi
   helper_dir="${_VG_WRAPPER_ENV_LIB_DIR}"
   wrapper_dir="${WRAPPER_DIR:-$(cd "${helper_dir}/.." && pwd)}"
+  candidates="$(vg_wrapper_env_runtime_candidates "${wrapper_dir}" "${helper_dir}")"
   while IFS= read -r candidate; do
     if [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]]; then
       VG_WRAPPER_ENV_RUNTIME_PATH_CACHE="${candidate}"
       printf '%s\n' "${candidate}"
       return 0
     fi
-  done < <(vg_wrapper_env_runtime_candidates "${wrapper_dir}" "${helper_dir}")
+  done <<< "${candidates}"
   return 1
 }
 
