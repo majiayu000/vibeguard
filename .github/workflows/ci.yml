@@ -76,6 +76,7 @@ jobs:
         run: |
           cargo check --manifest-path vibeguard-runtime/Cargo.toml
           cargo test --manifest-path vibeguard-runtime/Cargo.toml
+          cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run
 
       # --- Shell-based validation ---
       # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
