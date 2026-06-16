@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781598654048,
+  "lastUpdate": 1781598744549,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -29138,6 +29138,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P99)",
             "value": 25,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7609665c49758e6c5654f4ce9ef93ddb14d52054",
+          "message": "perf: tag hook latency benchmark surface (#488)",
+          "timestamp": "2026-06-16T15:55:24+08:00",
+          "tree_id": "8890eeea7e3e109620fd9cac5364a4d396923144",
+          "url": "https://github.com/majiayu000/vibeguard/commit/7609665c49758e6c5654f4ce9ef93ddb14d52054"
+        },
+        "date": 1781598743990,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hook_e2e_ms pre-edit-guard (P50)",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-edit-guard (P95)",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-edit-guard (P99)",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-write-guard (P50)",
+            "value": 131,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-write-guard (P95)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-write-guard (P99)",
+            "value": 152,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-bash-guard (P50)",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-bash-guard (P95)",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms pre-bash-guard (P99)",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (100) (P50)",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (100) (P95)",
+            "value": 129,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (100) (P99)",
+            "value": 129,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (100) (P50)",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (100) (P95)",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (100) (P99)",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-build-check (fake cargo) (P50)",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-build-check (fake cargo) (P95)",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-build-check (fake cargo) (P99)",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper pre-bash-guard (P50)",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper pre-bash-guard (P95)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper pre-bash-guard (P99)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper post-edit-guard (100) (P50)",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper post-edit-guard (100) (P95)",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms codex-wrapper post-edit-guard (100) (P99)",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (5000) (P50)",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (5000) (P95)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-edit-guard (5000) (P99)",
+            "value": 136,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (5000) (P50)",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (5000) (P95)",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms post-write-guard (5000) (P99)",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms stop-guard (5000) (P50)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms stop-guard (5000) (P95)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms stop-guard (5000) (P99)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms learn-evaluator (5000) (P50)",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms learn-evaluator (5000) (P95)",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "hook_e2e_ms learn-evaluator (5000) (P99)",
+            "value": 24,
             "unit": "ms"
           }
         ]
