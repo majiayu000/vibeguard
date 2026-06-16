@@ -1,2 +1,2 @@
-{"schema_version":1,"ts":"2026-05-31T00:00:03Z","session":"s-invalid","hook":"pre-bash-guard","tool":"Bash","decision":"allow","reason":"","detail":"git status"}
+{"schema_version":1,"ts":"2026-05-31T00:00:03Z","session":"s-invalid","hook":"pre-bash-guard","tool":"Bash","decision":"allow","status":"pass","reason":"","detail":"git status"}
 {"schema_version":1,"ts":"2026-05-31T00:00:04Z","session":"s-invalid","hook":"post-build-check","tool":"PostToolUse","decision":"pass","status":"healthy","reason":"","detail":""}

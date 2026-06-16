@@ -1,0 +1,2 @@
+{"ts":"2026-05-30T23:59:01Z","session":"s-missing","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","reason":"missing schema version","detail":"src/lib.rs"}
+{"schema_version":1,"ts":"2026-05-30T23:59:02Z","session":"s-missing","hook":"authorized-discard","tool":"Git","decision":"complete","reason":"missing status","detail":"tracked_restore=1"}

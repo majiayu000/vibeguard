@@ -314,6 +314,7 @@ pub(crate) fn write_log_event(
         "hook": hook_name,
         "tool": tool_name,
         "decision": decision,
+        "status": decision,
         "reason": reason,
         "detail": detail,
     });

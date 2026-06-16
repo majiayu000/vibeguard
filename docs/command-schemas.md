@@ -133,7 +133,10 @@ Runtime observability rows are validated one JSONL row at a time:
 - `schemas/event-log.schema.json` describes `events.jsonl` hook events.
 - `schemas/session-metrics.schema.json` describes `session-metrics.jsonl` rows emitted by `vibeguard-runtime session-metrics`.
 
-Schema v1 keeps normalized event-log fields optional. Legacy hook rows that only contain `ts`, `session`, `hook`, `tool`, `decision`, `reason`, and `detail` remain valid, while current rows may also include `event`, `matcher`, `status`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
+Schema v1 requires current event-log rows to include `schema_version`, `ts`,
+`session`, `hook`, `tool`, `decision`, and `status`. Rows may also include
+`event`, `matcher`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`,
+`source`, and caller identity fields.
 
 ## preflight output Schema
 

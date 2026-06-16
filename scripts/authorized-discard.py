@@ -190,6 +190,7 @@ def append_log(repo: Path, plan: dict[str, list[str]]) -> None:
         "hook": "authorized-discard",
         "tool": "Git",
         "decision": "complete",
+        "status": "complete",
         "reason": "authorized destructive cleanup",
         "detail": " ".join(f"{key}={value}" for key, value in sorted(counts.items())),
     }
