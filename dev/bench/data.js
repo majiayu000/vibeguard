@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781597858999,
+  "lastUpdate": 1781598654048,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -28934,6 +28934,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "learn-evaluator (5000) (P99)",
             "value": 24,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "00ea59eb7d2506fdbae7ec884f8620356170411a",
+          "message": "[codex] Remove legacy install and config migrations (#484)\n\n* Remove legacy install config migrations\n\n* Record Codex config install state",
+          "timestamp": "2026-06-16T15:55:15+08:00",
+          "tree_id": "2407ff14af0adbbaa7e69261e8cd07ca6bea2a03",
+          "url": "https://github.com/majiayu000/vibeguard/commit/00ea59eb7d2506fdbae7ec884f8620356170411a"
+        },
+        "date": 1781598652745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pre-edit-guard (P50)",
+            "value": 36,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P95)",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-edit-guard (P99)",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P50)",
+            "value": 141,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P95)",
+            "value": 162,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-write-guard (P99)",
+            "value": 162,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P50)",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P95)",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "pre-bash-guard (P99)",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P50)",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P95)",
+            "value": 135,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (100) (P99)",
+            "value": 135,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P50)",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P95)",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (100) (P99)",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "post-build-check (fake cargo) (P50)",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "post-build-check (fake cargo) (P95)",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "post-build-check (fake cargo) (P99)",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper pre-bash-guard (P50)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper pre-bash-guard (P95)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper pre-bash-guard (P99)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper post-edit-guard (100) (P50)",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper post-edit-guard (100) (P95)",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "codex-wrapper post-edit-guard (100) (P99)",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P50)",
+            "value": 36,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P95)",
+            "value": 144,
+            "unit": "ms"
+          },
+          {
+            "name": "post-edit-guard (5000) (P99)",
+            "value": 144,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P50)",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P95)",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "post-write-guard (5000) (P99)",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P50)",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P95)",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "stop-guard (5000) (P99)",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P50)",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P95)",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "learn-evaluator (5000) (P99)",
+            "value": 25,
             "unit": "ms"
           }
         ]
