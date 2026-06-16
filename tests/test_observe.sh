@@ -147,8 +147,8 @@ PY
 
 header "human output"
 human_out="$("${RUNTIME}" observe summary --days all --log-file "${EVENT_LOG}" --slow-ms 2000 2>&1)"
-assert_contains "${human_out}" "VibeGuard observe summary" "human: summary has concise title"
-assert_contains "${human_out}" "Top hooks:" "human: summary includes top hooks"
+assert_contains "${human_out}" "VibeGuard Statistics (all history)" "human: summary has stats title"
+assert_contains "${human_out}" "Distributed by Hook:" "human: summary includes hook distribution"
 
 header "missing explicit log"
 missing_log="${TMP_DIR}/missing-events.jsonl"
