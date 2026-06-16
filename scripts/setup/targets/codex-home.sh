@@ -123,6 +123,7 @@ _enable_codex_hooks_feature() {
       return 1
       ;;
   esac
+  state_record_file "${config}" "generated/codex-config.toml" "copy"
 }
 
 codex_native_capability_summary() {
