@@ -169,7 +169,7 @@ vg_post_edit_detect_u16_size() {
   vg_post_edit_is_test_path "$FILE_PATH" && return 0
   [[ -f "$FILE_PATH" ]] || return 0
 
-  local total limit dir exempt base_limit
+  local total limit dir parent exempt base_limit
   # Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
   vg_config_get_int_result base_limit VG_U16_LIMIT u16.limit 800
   local warn_limit
@@ -178,12 +178,14 @@ vg_post_edit_detect_u16_size() {
   [[ "$total" -gt "$warn_limit" ]] || return 0
 
   limit="$base_limit"
-  dir="$FILE_PATH"
-  while [[ "$dir" != "/" ]]; do
-    dir=$(dirname "$dir")
+  dir="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P)" || dir="$(dirname "$FILE_PATH")"
+  while [[ "$dir" != "/" && "$dir" != "." ]]; do
     [[ -d "$dir/.git" ]] && break
+    parent=$(dirname "$dir")
+    [[ "$parent" == "$dir" ]] && { dir="/"; break; }
+    dir="$parent"
   done
-  if [[ "$dir" != "/" && -f "$dir/CLAUDE.md" ]]; then
+  if [[ "$dir" != "/" && "$dir" != "." && -f "$dir/CLAUDE.md" ]]; then
     exempt=$("$_VIBEGUARD_RUNTIME" u16-limit "$FILE_PATH" "$base_limit" 2>/dev/null | tr -d '[:space:]' || echo "$base_limit")
     exempt="${exempt:-$base_limit}"
     if [[ "$exempt" =~ ^[0-9]+$ && "$exempt" -gt 0 ]]; then
