@@ -1,11 +1,11 @@
 //! Canonical observability queries over VibeGuard JSONL event logs.
 
 mod aggregate;
-mod legacy_stats;
 mod model;
 mod prometheus;
 mod read;
 mod render;
+mod stats_summary;
 
 use crate::event_schema::field;
 use crate::time_utils::now_unix_secs;

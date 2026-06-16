@@ -12,9 +12,9 @@ use super::aggregate::{
     observe_is_diagnostic_event, observe_non_empty_or, observe_normalized_decision,
     observe_string_field,
 };
-use super::legacy_stats;
 use super::model::{ObserveCommand, ObserveOptions, TimeWindow};
 use super::read::LogEvents;
+use super::stats_summary;
 
 pub(super) fn render_summary(
     options: &ObserveOptions,
@@ -27,27 +27,7 @@ pub(super) fn render_summary(
             serde_json::to_string_pretty(&observe_summary_json(options, log_events, aggregate))?
         ));
     }
-    if options.legacy {
-        return legacy_stats::render_legacy_summary(options, log_events, aggregate);
-    }
-    if aggregate.event_count == 0 {
-        return Ok(format!(
-            "No observe events found in {} for {}.\n",
-            log_events.log_path,
-            options.window.label()
-        ));
-    }
-    Ok(format!(
-        "VibeGuard observe summary ({})\nTime range: {} ~ {}\nEvents: {} | Attention: {} ({:.1}%)\nTop hooks: {}\nTop reasons: {}\n",
-        options.window.label(),
-        observe_blank_as_unknown(&aggregate.first_ts),
-        observe_blank_as_unknown(&aggregate.last_ts),
-        aggregate.event_count,
-        aggregate.attention_count,
-        observe_percentage(aggregate.attention_count, aggregate.event_count),
-        observe_top_human(&aggregate.hook_counts, 5),
-        observe_top_human(&aggregate.reason_codes, 5)
-    ))
+    stats_summary::render_stats_summary(options, log_events, aggregate)
 }
 
 pub(super) fn render_health(
@@ -74,28 +54,10 @@ pub(super) fn render_health(
         output["diagnostics"] = Value::Array(diagnostics);
         return Ok(format!("{}\n", serde_json::to_string_pretty(&output)?));
     }
-    if options.legacy {
-        return render_legacy_health(options, log_events, aggregate);
-    }
-    if aggregate.event_count == 0 {
-        return Ok(format!(
-            "No observe health events found in {} for {}.\n",
-            log_events.log_path,
-            options.window.label()
-        ));
-    }
-    Ok(format!(
-        "VibeGuard observe health ({})\nEvents: {} | Attention: {} ({:.1}%)\nAttention states: {}\nDiagnostics: {}\n",
-        options.window.label(),
-        aggregate.event_count,
-        aggregate.attention_count,
-        observe_percentage(aggregate.attention_count, aggregate.event_count),
-        attention_states.len(),
-        diagnostics.len()
-    ))
+    render_health_human(options, log_events, aggregate)
 }
 
-fn render_legacy_health(
+fn render_health_human(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
@@ -114,15 +76,15 @@ fn render_legacy_health(
         });
     }
 
-    let pass_count = legacy_decision_count(aggregate, decision::PASS);
+    let pass_count = observe_decision_count(aggregate, decision::PASS);
     let risk_count = aggregate.event_count as u64 - pass_count;
-    let by_cli = legacy_count_by(&log_events.events, |event| {
+    let by_cli = observe_count_by(&log_events.events, |event| {
         observe_non_empty_or(observe_string_field(event, field::CLI), UNKNOWN)
     });
-    let by_client = legacy_count_by(&log_events.events, |event| {
+    let by_client = observe_count_by(&log_events.events, |event| {
         observe_non_empty_or(observe_client_name(event), UNKNOWN)
     });
-    let (first_ts, last_ts) = legacy_parsed_time_range(&log_events.events)
+    let (first_ts, last_ts) = observe_parsed_time_range(&log_events.events)
         .unwrap_or_else(|| (aggregate.first_ts.clone(), aggregate.last_ts.clone()));
     let mut non_pass_events = log_events
         .events
@@ -131,7 +93,7 @@ fn render_legacy_health(
         .collect::<Vec<_>>();
     non_pass_events
         .sort_by_key(|event| parse_iso_ts(&observe_string_field(event, field::TS)).unwrap_or(0));
-    let risk_hook_counts = legacy_count_by_refs(&non_pass_events, |event| {
+    let risk_hook_counts = observe_count_by_refs(&non_pass_events, |event| {
         observe_non_empty_or(observe_string_field(event, field::HOOK), UNKNOWN)
     });
 
@@ -160,7 +122,7 @@ fn render_legacy_health(
     ] {
         output.push_str(&format!(
             "  {status}: {}\n",
-            legacy_decision_count(aggregate, status)
+            observe_decision_count(aggregate, status)
         ));
     }
 
@@ -193,13 +155,19 @@ fn render_legacy_health(
                 client,
                 observe_non_empty_or(observe_string_field(event, field::SESSION), "?")
             ));
-            let reason = legacy_clean_detail(&observe_string_field(event, field::REASON));
-            let detail = legacy_clean_detail(&observe_string_field(event, field::DETAIL));
+            let reason = observe_clean_detail(&observe_string_field(event, field::REASON));
+            let detail = observe_clean_detail(&observe_string_field(event, field::DETAIL));
             if !reason.is_empty() {
-                output.push_str(&format!("     reason: {}\n", legacy_truncate(&reason, 100)));
+                output.push_str(&format!(
+                    "     reason: {}\n",
+                    observe_truncate(&reason, 100)
+                ));
             }
             if !detail.is_empty() {
-                output.push_str(&format!("     detail: {}\n", legacy_truncate(&detail, 100)));
+                output.push_str(&format!(
+                    "     detail: {}\n",
+                    observe_truncate(&detail, 100)
+                ));
             }
         }
     }
@@ -208,11 +176,11 @@ fn render_legacy_health(
     Ok(output)
 }
 
-pub(super) fn legacy_decision_count(aggregate: &ObserveAggregate, status: &str) -> u64 {
+pub(super) fn observe_decision_count(aggregate: &ObserveAggregate, status: &str) -> u64 {
     aggregate.decision_counts.get(status).copied().unwrap_or(0)
 }
 
-pub(super) fn legacy_count_by<F>(events: &[Value], mut mapper: F) -> BTreeMap<String, u64>
+pub(super) fn observe_count_by<F>(events: &[Value], mut mapper: F) -> BTreeMap<String, u64>
 where
     F: FnMut(&Value) -> String,
 {
@@ -223,7 +191,7 @@ where
     counts
 }
 
-fn legacy_count_by_refs<F>(events: &[&Value], mut mapper: F) -> BTreeMap<String, u64>
+fn observe_count_by_refs<F>(events: &[&Value], mut mapper: F) -> BTreeMap<String, u64>
 where
     F: FnMut(&Value) -> String,
 {
@@ -234,7 +202,7 @@ where
     counts
 }
 
-fn legacy_parsed_time_range(events: &[Value]) -> Option<(String, String)> {
+fn observe_parsed_time_range(events: &[Value]) -> Option<(String, String)> {
     let mut timestamps = events
         .iter()
         .filter_map(|event| {
@@ -252,11 +220,11 @@ pub(super) fn observe_increment(map: &mut BTreeMap<String, u64>, key: String) {
     *map.entry(key).or_default() += 1;
 }
 
-fn legacy_clean_detail(value: &str) -> String {
+fn observe_clean_detail(value: &str) -> String {
     value.replace('\n', " ").trim().to_string()
 }
 
-pub(super) fn legacy_truncate(value: &str, max_chars: usize) -> String {
+pub(super) fn observe_truncate(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let prefix = chars.by_ref().take(max_chars).collect::<String>();
     if chars.next().is_some() && max_chars >= 3 {

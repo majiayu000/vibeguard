@@ -10,11 +10,11 @@ use super::aggregate::{
 use super::model::{ObserveOptions, TimeWindow};
 use super::read::LogEvents;
 use super::render::{
-    legacy_count_by, legacy_decision_count, legacy_truncate, observe_blank_as_unknown,
-    observe_increment, observe_sorted_counts,
+    observe_blank_as_unknown, observe_count_by, observe_decision_count, observe_increment,
+    observe_sorted_counts, observe_truncate,
 };
 
-pub(super) fn render_legacy_summary(
+pub(super) fn render_stats_summary(
     options: &ObserveOptions,
     log_events: &LogEvents,
     aggregate: &ObserveAggregate,
@@ -33,16 +33,16 @@ pub(super) fn render_legacy_summary(
         });
     }
 
-    let hook_counts = legacy_count_by(&log_events.events, |event| {
+    let hook_counts = observe_count_by(&log_events.events, |event| {
         observe_non_empty_or(observe_string_field(event, field::HOOK), UNKNOWN)
     });
-    let cli_counts = legacy_count_by(&log_events.events, |event| {
+    let cli_counts = observe_count_by(&log_events.events, |event| {
         observe_non_empty_or(observe_string_field(event, field::CLI), UNKNOWN)
     });
-    let block_reasons = legacy_count_by_matching(&log_events.events, decision::BLOCK, |event| {
+    let block_reasons = stats_count_by_matching(&log_events.events, decision::BLOCK, |event| {
         observe_non_empty_or(observe_string_field(event, field::REASON), "Unknown")
     });
-    let warn_reasons = legacy_count_by_matching(&log_events.events, decision::WARN, |event| {
+    let warn_reasons = stats_count_by_matching(&log_events.events, decision::WARN, |event| {
         observe_non_empty_or(observe_string_field(event, field::REASON), "Unknown")
     });
 
@@ -63,15 +63,15 @@ pub(super) fn render_legacy_summary(
     ));
     output.push_str(&format!(
         "  Interception (block): {} times\n",
-        legacy_decision_count(aggregate, decision::BLOCK)
+        observe_decision_count(aggregate, decision::BLOCK)
     ));
     output.push_str(&format!(
         "  Warning: {} times\n",
-        legacy_decision_count(aggregate, decision::WARN)
+        observe_decision_count(aggregate, decision::WARN)
     ));
     output.push_str(&format!(
         "  Pass (pass): {} times\n\n",
-        legacy_decision_count(aggregate, decision::PASS)
+        observe_decision_count(aggregate, decision::PASS)
     ));
 
     output.push_str("Distributed by Hook:\n");
@@ -87,14 +87,14 @@ pub(super) fn render_legacy_summary(
     if !block_reasons.is_empty() {
         output.push_str("\nInterception reasons Top 5:\n");
         for (reason, count) in observe_sorted_counts(&block_reasons).into_iter().take(5) {
-            output.push_str(&format!("  {count}x  {}\n", legacy_truncate(&reason, 60)));
+            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 60)));
         }
     }
 
     if !warn_reasons.is_empty() {
         output.push_str("\nWarning reasons Top 5:\n");
         for (reason, count) in observe_sorted_counts(&warn_reasons).into_iter().take(5) {
-            output.push_str(&format!("  {count}x  {}\n", legacy_truncate(&reason, 60)));
+            output.push_str(&format!("  {count}x  {}\n", observe_truncate(&reason, 60)));
         }
     }
 
@@ -109,7 +109,7 @@ pub(super) fn render_legacy_summary(
 }
 
 fn append_daily_counts(output: &mut String, events: &[Value]) {
-    let day_counts = legacy_count_by_day(events);
+    let day_counts = stats_count_by_day(events);
     if day_counts.len() <= 1 {
         return;
     }
@@ -182,7 +182,7 @@ fn append_warn_compliance(output: &mut String, events: &[Value]) {
 fn append_file_type_distribution(output: &mut String, events: &[Value]) {
     let mut ext_counts = BTreeMap::new();
     for event in events {
-        if let Some(ext) = legacy_file_extension(&observe_string_field(event, field::DETAIL)) {
+        if let Some(ext) = stats_file_extension(&observe_string_field(event, field::DETAIL)) {
             observe_increment(&mut ext_counts, ext);
         }
     }
@@ -250,8 +250,8 @@ fn append_performance_analysis(output: &mut String, events: &[Value]) {
     let mut warn_rate_sum = 0.0_f64;
     for events in sessions.values() {
         let total = events.len() as f64;
-        block_rate_sum += legacy_decision_ref_count(events, decision::BLOCK) as f64 / total * 100.0;
-        warn_rate_sum += legacy_decision_ref_count(events, decision::WARN) as f64 / total * 100.0;
+        block_rate_sum += stats_decision_ref_count(events, decision::BLOCK) as f64 / total * 100.0;
+        warn_rate_sum += stats_decision_ref_count(events, decision::WARN) as f64 / total * 100.0;
     }
     output.push_str(&format!(
         "Average block rate per session: {:.1}%\n",
@@ -273,7 +273,7 @@ fn append_performance_analysis(output: &mut String, events: &[Value]) {
         .count() as u64;
     output.push_str(&format!(
         "Deterministic node estimated savings: ~{} tokens\n",
-        legacy_token_savings_label(deterministic_checks * 500)
+        stats_token_savings_label(deterministic_checks * 500)
     ));
 
     append_problem_sessions(output, &sessions);
@@ -286,8 +286,8 @@ fn append_problem_sessions(output: &mut String, sessions: &BTreeMap<String, Vec<
             (
                 session,
                 events,
-                legacy_decision_ref_count(events, decision::BLOCK)
-                    + legacy_decision_ref_count(events, decision::WARN),
+                stats_decision_ref_count(events, decision::BLOCK)
+                    + stats_decision_ref_count(events, decision::WARN),
             )
         })
         .collect::<Vec<_>>();
@@ -307,11 +307,11 @@ fn append_problem_sessions(output: &mut String, sessions: &BTreeMap<String, Vec<
         }
         let ts_start = events
             .first()
-            .map(|event| legacy_ts_prefix(event))
+            .map(|event| stats_ts_prefix(event))
             .unwrap_or_else(|| "?".to_string());
         let ts_end = events
             .last()
-            .map(|event| legacy_ts_prefix(event))
+            .map(|event| stats_ts_prefix(event))
             .unwrap_or_else(|| "?".to_string());
         output.push_str(&format!(
             " {session}: {issues} issues / {} triggers ({ts_start} ~ {ts_end})\n",
@@ -320,7 +320,7 @@ fn append_problem_sessions(output: &mut String, sessions: &BTreeMap<String, Vec<
     }
 }
 
-fn legacy_count_by_matching<F>(
+fn stats_count_by_matching<F>(
     events: &[Value],
     decision_value: &str,
     mut mapper: F,
@@ -337,7 +337,7 @@ where
     counts
 }
 
-fn legacy_count_by_day(events: &[Value]) -> BTreeMap<String, u64> {
+fn stats_count_by_day(events: &[Value]) -> BTreeMap<String, u64> {
     let mut counts = BTreeMap::new();
     for event in events {
         let ts = observe_string_field(event, field::TS);
@@ -348,14 +348,14 @@ fn legacy_count_by_day(events: &[Value]) -> BTreeMap<String, u64> {
     counts
 }
 
-fn legacy_decision_ref_count(events: &[&Value], decision_value: &str) -> u64 {
+fn stats_decision_ref_count(events: &[&Value], decision_value: &str) -> u64 {
     events
         .iter()
         .filter(|event| observe_normalized_decision(event) == decision_value)
         .count() as u64
 }
 
-fn legacy_file_extension(detail: &str) -> Option<String> {
+fn stats_file_extension(detail: &str) -> Option<String> {
     for part in detail.split_whitespace() {
         let Some((_, ext)) = part.rsplit_once('.') else {
             continue;
@@ -368,7 +368,7 @@ fn legacy_file_extension(detail: &str) -> Option<String> {
     None
 }
 
-fn legacy_token_savings_label(tokens: u64) -> String {
+fn stats_token_savings_label(tokens: u64) -> String {
     if tokens >= 1_000_000 {
         format!("{:.1}M", tokens as f64 / 1_000_000.0)
     } else if tokens >= 1_000 {
@@ -378,7 +378,7 @@ fn legacy_token_savings_label(tokens: u64) -> String {
     }
 }
 
-fn legacy_ts_prefix(event: &Value) -> String {
+fn stats_ts_prefix(event: &Value) -> String {
     let ts = observe_string_field(event, field::TS);
     if ts.is_empty() {
         "?".to_string()
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_summary_includes_restored_analysis_sections() {
+    fn stats_summary_includes_analysis_sections() {
         let events = vec![
             json!({
                 "ts": "2026-06-05T10:00:00Z",
@@ -443,9 +443,9 @@ mod tests {
                 "cli": "claude"
             }),
         ];
-        let options = match parse_observe_args(&args(&["summary", "--legacy", "--days", "all"])) {
+        let options = match parse_observe_args(&args(&["summary", "--days", "all"])) {
             Ok(options) => options,
-            Err(error) => panic!("legacy summary options should parse: {error}"),
+            Err(error) => panic!("stats summary options should parse: {error}"),
         };
         let log_events = LogEvents {
             events,
@@ -454,9 +454,9 @@ mod tests {
         };
         let aggregate = aggregate_events(&log_events.events, 2_000);
 
-        let output = match render_legacy_summary(&options, &log_events, &aggregate) {
+        let output = match render_stats_summary(&options, &log_events, &aggregate) {
             Ok(output) => output,
-            Err(error) => panic!("legacy summary should render: {error}"),
+            Err(error) => panic!("stats summary should render: {error}"),
         };
 
         assert!(output.contains("== Warn compliance rate analysis =="));
