@@ -59,5 +59,8 @@ silently attributed to Claude or Codex.
 
 - All hooks must introduce shared functions in `source log.sh`
 - Use `vg_log` to record events instead of writing to files directly
-- Pass data to python3 through environment variables to avoid injection risks
+- Configured hook production paths must stay Python-free. Use `vibeguard-runtime`
+  for structured parsing, policy, and adapter logic; Python helpers are allowed
+  only for tests, CI, eval, install-support tooling, or deprecated compatibility
+  artifacts that are not called by configured hooks.
 - When adding a hook, synchronously check whether it can be deployed to Codex (see matcher support)
