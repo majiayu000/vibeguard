@@ -37,6 +37,29 @@ enum BashDecision {
     },
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BashDecisionKind {
+    Empty,
+    Pass,
+    Block,
+    Warn,
+    Correction,
+}
+
+impl BashDecision {
+    #[allow(dead_code)]
+    fn kind(&self) -> BashDecisionKind {
+        match self {
+            BashDecision::Empty => BashDecisionKind::Empty,
+            BashDecision::Pass { .. } => BashDecisionKind::Pass,
+            BashDecision::Block { .. } => BashDecisionKind::Block,
+            BashDecision::Warn { .. } => BashDecisionKind::Warn,
+            BashDecision::Correction { .. } => BashDecisionKind::Correction,
+        }
+    }
+}
+
 pub fn pre_bash_check(args: &[String]) -> Result {
     if args.len() != 1 {
         return Err("Usage: vibeguard-runtime pre-bash-check <vibeguard-root>".into());
@@ -211,6 +234,11 @@ fn classify_command(command: &str, vibeguard_root: &str) -> BashDecision {
         precommit: should_run_precommit(&command_stripped, command),
         command: command.to_string(),
     }
+}
+
+#[allow(dead_code)]
+pub(crate) fn classify_command_kind(command: &str, vibeguard_root: &str) -> BashDecisionKind {
+    classify_command(command, vibeguard_root).kind()
 }
 
 fn block_decision(reason: &str, command: &str) -> BashDecision {

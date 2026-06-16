@@ -69,8 +69,22 @@ not mixed with hook end-to-end SLAs:
 | `hook_e2e_ms` | ms | Hook end-to-end latency, including wrapper/process startup, stdin/stdout handling, config lookup, event-log reads, logging/status output, runtime dispatch, and hook logic | Pure in-process classifier-only claims |
 | `core_us` | us | Pure Rust/core classifier microbenchmarks running in process | Hook wrappers, shell process startup, stdin/stdout adaptation, config discovery, event-log I/O, and logging overhead |
 
-`tests/bench_hook_latency.sh` owns the `hook_e2e_ms` SLA gate. A Criterion or
-Rust microbench harness for `core_us` is intentionally separate work.
+`tests/bench_hook_latency.sh` owns the `hook_e2e_ms` SLA gate. Rust
+microbenchmarks for `core_us` live in `vibeguard-runtime/benches/core_us.rs`
+and must stay separate from hook SLA output.
+
+Run the core-only microbench locally:
+
+```bash
+cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us
+```
+
+Use a compile-only smoke check when CI needs coverage without depending on
+runner timing:
+
+```bash
+cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run
+```
 
 **Judgment Criteria**:
 - `exit 2` = Block → counts as TP (for illegal input) or FP (for legal input)
@@ -436,5 +450,4 @@ The `standard` mode (daily) uses the `haiku` model, with a full volume of about 
 ---
 
 *This document is a design plan, and the implementation details will be adjusted as needed during the execution of each phase. *
-
 
