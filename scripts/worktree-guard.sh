@@ -48,11 +48,6 @@ normalize_worktree_base() {
 # Default base sits next to the repo (<repo>.wt/) to keep the repo tree clean.
 # Override with VIBEGUARD_WORKTREE_BASE for external SSDs, alternate hosts, etc.
 WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
-LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
-
-same_path() {
-  [[ "${1%/}" == "${2%/}" ]]
-}
 
 resolve_worktree_path() {
   local name="$1"
@@ -60,12 +55,6 @@ resolve_worktree_path() {
 
   if [[ -d "$path" ]]; then
     printf '%s\n' "$path"
-    return 0
-  fi
-
-  local legacy_path="${LEGACY_WORKTREE_BASE}/${name}"
-  if ! same_path "$legacy_path" "$path" && [[ -d "$legacy_path" ]]; then
-    printf '%s\n' "$legacy_path"
     return 0
   fi
 
@@ -98,35 +87,16 @@ case "$ACTION" in
     ;;
 
   list)
-    LIST_BASES=()
-
-    for base in "$WORKTREE_BASE" "$LEGACY_WORKTREE_BASE"; do
-      duplicate=0
-      # ${arr[@]+...} idiom so empty arrays don't trip `set -u` on bash 3.2.
-      for existing in ${LIST_BASES[@]+"${LIST_BASES[@]}"}; do
-        if same_path "$base" "$existing"; then
-          duplicate=1
-          break
-        fi
-      done
-
-      if [[ "$duplicate" -eq 0 && -d "$base" ]]; then
-        LIST_BASES+=("$(cd "$base" && pwd -P)")
-      fi
-    done
-
     found=0
-    if [[ "${#LIST_BASES[@]}" -gt 0 ]]; then
+    if [[ -d "$WORKTREE_BASE" ]]; then
+      LIST_BASE="$(cd "$WORKTREE_BASE" && pwd -P)"
       while IFS= read -r line; do
         [[ "$line" == worktree\ * ]] || continue
         path="${line#worktree }"
-        for base in "${LIST_BASES[@]}"; do
-          if [[ "$path" == "$base" || "$path" == "$base"/* ]]; then
-            echo "$path"
-            found=1
-            break
-          fi
-        done
+        if [[ "$path" == "$LIST_BASE" || "$path" == "$LIST_BASE"/* ]]; then
+          echo "$path"
+          found=1
+        fi
       done < <(git worktree list --porcelain)
     fi
 
