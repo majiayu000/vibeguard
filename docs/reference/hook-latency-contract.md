@@ -4,6 +4,17 @@ VibeGuard hooks run in the critical path of Claude Code and Codex sessions. A co
 
 ## Budgets
 
+The benchmark surface is `hook_e2e_ms`: end-to-end hook latency in milliseconds.
+It includes shell wrapper/process startup, stdin/stdout handling, config lookup,
+event-log access, status/logging work, runtime dispatch, and the hook logic
+itself. These numbers are SLA budgets for the installed hook path, not claims
+about pure core classifier speed.
+
+Future pure Rust/core classifier microbenchmarks must use the separate
+`core_us` surface. `core_us` is reserved for in-process core logic measured in
+microseconds and must not include hook wrappers, shell process startup,
+stdin/stdout adaptation, config discovery, or logging overhead.
+
 The latency gate measures P50, P95, P99, and max for each benchmark fixture. CI fails when `--fail-on-regression` is enabled and any fixture exceeds its P95 budget.
 
 These are cross-OS CI budgets, not ideal-machine optimization targets. Static performance gates still block dangerous patterns before they can hide behind a broad absolute budget.
@@ -42,7 +53,12 @@ Post-build fixtures use fake build commands and disable the post-build cache so 
 
 ## Hotspot Attribution
 
-Benchmark output includes a `hotspot=` field and `bench-output.json` publishes P95/P99 samples for GitHub benchmark reporting. When a regression fails, the failing row must identify both the hook and fixture size, such as `post-write-guard (5000)`.
+Benchmark output includes `surface=hook_e2e_ms` and a `hotspot=` field.
+`bench-output.json` prefixes benchmark-action sample names with
+`hook_e2e_ms`, and JSON output carries the same surface marker at the top level
+and per result. When a regression fails, the failing row must identify both the
+surface and fixture size, such as `hook_e2e_ms post-write-guard (5000)` or
+`surface=hook_e2e_ms ... post-write-guard (5000)`.
 
 Synthetic slow fixtures are part of the regression suite:
 

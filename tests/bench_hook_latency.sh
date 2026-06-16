@@ -16,6 +16,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS_DIR="${REPO_DIR}/hooks"
+BENCH_SURFACE="hook_e2e_ms"
 RESULTS_FILE=""
 FAIL_ON_REGRESSION=false
 GLOBAL_SLA_MS=""
@@ -236,9 +237,13 @@ bench_hook() {
       "VIBEGUARD_PROJECT_HASH=bench000"
       "VIBEGUARD_PROJECT_LOG_DIR=$TMPDIR_BENCH"
     )
+    local -a run_env=("${hook_env[@]}")
+    if [[ ${#extra_env[@]} -gt 0 ]]; then
+      run_env+=("${extra_env[@]}")
+    fi
 
     local start=$(_now_ms)
-    env "${hook_env[@]}" "${extra_env[@]}" bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
+    env "${run_env[@]}" bash "$hook_script" < "$input_file" > /dev/null 2>&1 || true
     local end=$(_now_ms)
     local elapsed=$((end - start))
     latencies+=("$elapsed")
@@ -270,9 +275,9 @@ bench_hook() {
     fi
   fi
 
-  printf "  %-35s P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
+  printf "  %-35s surface=%s  P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$BENCH_SURFACE" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
 
-  RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
+  RESULTS+=("{\"name\":\"$name\",\"surface\":\"$BENCH_SURFACE\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
 }
 
 bench_codex_wrapper() {
@@ -331,13 +336,14 @@ bench_codex_wrapper() {
     fi
   fi
 
-  printf "  %-35s P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
+  printf "  %-35s surface=%s  P50=%4dms  P95=%4dms  P99=%4dms  max=%4dms  budget=%4dms  hotspot=%s  [%s]\n" "$name" "$BENCH_SURFACE" "$p50" "$p95" "$p99" "$max_lat" "$budget_ms" "$hotspot" "$status"
 
-  RESULTS+=("{\"name\":\"$name\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
+  RESULTS+=("{\"name\":\"$name\",\"surface\":\"$BENCH_SURFACE\",\"p50\":$p50,\"p95\":$p95,\"p99\":$p99,\"max\":$max_lat,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS}")
 }
 
 echo "======================================"
 echo "VibeGuard Hook Latency Benchmark"
+echo "Surface: ${BENCH_SURFACE} (end-to-end hook process latency)"
 if [[ -n "$GLOBAL_SLA_MS" ]]; then
   echo "Budget mode: global <${GLOBAL_SLA_MS}ms (P95)  Runs: ${RUNS}  Tail: P99/max reported"
 else
@@ -409,8 +415,9 @@ fi
 # --- JSON output (internal format) ---
 if [[ -n "$RESULTS_FILE" ]]; then
   mkdir -p "$(dirname "$RESULTS_FILE")"
-  printf '{"date":"%s","budget_mode":"%s","global_sla_ms":"%s","runs":%d,"spawn_baseline_ms":%d,"environment_distorted":%s,"results":[%s]}\n' \
+  printf '{"date":"%s","surface":"%s","budget_mode":"%s","global_sla_ms":"%s","runs":%d,"spawn_baseline_ms":%d,"environment_distorted":%s,"results":[%s]}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$BENCH_SURFACE" \
     "$([[ -n "$GLOBAL_SLA_MS" ]] && printf global || printf per-hook)" \
     "${GLOBAL_SLA_MS}" \
     "$RUNS" \
@@ -433,11 +440,11 @@ _first=true
     _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
     _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
     if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
-    printf '  {"name": "%s (P50)", "unit": "ms", "value": %s}' "$_name" "$_p50"
+    printf '  {"name": "%s %s (P50)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p50"
     echo ","
-    printf '  {"name": "%s (P95)", "unit": "ms", "value": %s}' "$_name" "$_p95"
+    printf '  {"name": "%s %s (P95)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p95"
     echo ","
-    printf '  {"name": "%s (P99)", "unit": "ms", "value": %s}' "$_name" "$_p99"
+    printf '  {"name": "%s %s (P99)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p99"
   done
   echo ""
   echo "]"

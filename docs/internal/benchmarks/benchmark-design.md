@@ -59,6 +59,19 @@
 | F1 | 2×P×R / (P+R) | Comprehensive index |
 | Latency | ms/case | Hook execution time |
 
+### 3.1.1 Latency surfaces
+
+Benchmark results must name the measured surface so microsecond core claims are
+not mixed with hook end-to-end SLAs:
+
+| Surface | Unit | Measures | Excludes |
+|---------|------|----------|----------|
+| `hook_e2e_ms` | ms | Hook end-to-end latency, including wrapper/process startup, stdin/stdout handling, config lookup, event-log reads, logging/status output, runtime dispatch, and hook logic | Pure in-process classifier-only claims |
+| `core_us` | us | Pure Rust/core classifier microbenchmarks running in process | Hook wrappers, shell process startup, stdin/stdout adaptation, config discovery, event-log I/O, and logging overhead |
+
+`tests/bench_hook_latency.sh` owns the `hook_e2e_ms` SLA gate. A Criterion or
+Rust microbench harness for `core_us` is intentionally separate work.
+
 **Judgment Criteria**:
 - `exit 2` = Block → counts as TP (for illegal input) or FP (for legal input)
 - `stderr` with expected keywords = Warn → count as TP (for violating input)
@@ -423,6 +436,5 @@ The `standard` mode (daily) uses the `haiku` model, with a full volume of about 
 ---
 
 *This document is a design plan, and the implementation details will be adjusted as needed during the execution of each phase. *
-
 
 

@@ -13,8 +13,20 @@ PASS=0
 FAIL=0
 TOTAL=0
 TMP_DIR="$(mktemp -d)"
+BENCH_JSON_FILE="${REPO_DIR}/data/bench-latency-$(date +%Y%m%d).json"
+BENCH_JSON_EXISTED=false
+BENCH_JSON_BACKUP="${TMP_DIR}/bench-latency-existing.json"
+if [[ -e "${BENCH_JSON_FILE}" ]]; then
+  BENCH_JSON_EXISTED=true
+  cp "${BENCH_JSON_FILE}" "${BENCH_JSON_BACKUP}"
+fi
 
 cleanup() {
+  if [[ "${BENCH_JSON_EXISTED}" == "true" ]]; then
+    cp "${BENCH_JSON_BACKUP}" "${BENCH_JSON_FILE}" 2>/dev/null || true
+  else
+    rm -f "${BENCH_JSON_FILE}"
+  fi
   rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
@@ -126,17 +138,25 @@ assert_file_contains "${TMP_DIR}/bad-loop.out" "bad-loop-hook.sh" "loop subproce
 
 header "dynamic latency gate"
 assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
+assert_file_contains "${TMP_DIR}/slow.out" "Surface: hook_e2e_ms" "latency gate declares hook e2e surface"
+assert_file_contains "${TMP_DIR}/slow.out" "surface=hook_e2e_ms" "latency rows include hook e2e surface marker"
 assert_file_contains "${TMP_DIR}/slow.out" "exceeded latency budget" "slow hook output explains budget failure"
 assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "slow hook output includes hotspot attribution"
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "latency gate includes Codex PreToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "post-build-check (fake cargo)" "latency gate includes post-build fake command fixture"
+assert_success_contains "JSON latency output is written" "Results: ${BENCH_JSON_FILE}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --json --sla=100000
+assert_file_contains "${BENCH_JSON_FILE}" '"surface":"hook_e2e_ms"' "JSON latency output declares hook e2e surface"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P50)" "benchmark action output includes P50 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P95)" "benchmark action output includes P95 samples"
 assert_file_contains "${REPO_DIR}/bench-output.json" "(P99)" "benchmark action output includes P99 samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" "codex-wrapper pre-bash-guard (P95)" "benchmark action output includes Codex wrapper samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" "post-build-check (fake cargo) (P95)" "benchmark action output includes post-build samples"
+assert_file_contains "${REPO_DIR}/bench-output.json" "hook_e2e_ms codex-wrapper pre-bash-guard (P95)" "benchmark action output includes surfaced Codex wrapper samples"
+assert_file_contains "${REPO_DIR}/bench-output.json" "hook_e2e_ms post-build-check (fake cargo) (P95)" "benchmark action output includes surfaced post-build samples"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "Codex wrapper hooks" "latency contract documents wrapper coverage"
+assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "core_us" "latency contract documents core microbench surface"
+assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "hook_e2e_ms" "latency contract documents hook e2e surface"
+assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "core_us" "benchmark design documents core microbench surface"
+assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "hook_e2e_ms" "benchmark design documents hook e2e surface"
 assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
 
 echo ""
