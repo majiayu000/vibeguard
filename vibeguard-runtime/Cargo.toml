@@ -10,6 +10,13 @@ regex = "1"
 libc = "0.2"
 toml_edit = "0.22"
 
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "core_us"
+harness = false
+
 [profile.release]
 opt-level = "z"
 lto = true
