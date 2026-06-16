@@ -2,7 +2,7 @@
 
 vg_resolve_runtime() {
   local repo_dir="${1:?vg_resolve_runtime requires repo dir}"
-  local capability="${2:-observe_legacy}"
+  local capability="${2:-observe_summary}"
 
   local explicit_runtime="${VIBEGUARD_RUNTIME:-}"
   local candidates=()
@@ -66,10 +66,10 @@ vg_runtime_supports() {
   local candidate="$1"
   local capability="$2"
   case "${capability}" in
-    observe_legacy)
+    observe_summary)
       vg_runtime_supports_observe "${candidate}"
       ;;
-    observe_health_legacy)
+    observe_health)
       vg_runtime_supports_observe_health "${candidate}"
       ;;
     observe_export_prometheus)
@@ -83,12 +83,12 @@ vg_runtime_supports() {
 
 vg_runtime_supports_observe() {
   local candidate="$1"
-  "${candidate}" observe summary --legacy --days all --limit all --log-file /dev/null >/dev/null 2>&1
+  "${candidate}" observe summary --days all --limit all --log-file /dev/null >/dev/null 2>&1
 }
 
 vg_runtime_supports_observe_health() {
   local candidate="$1"
-  "${candidate}" observe health --legacy --limit all --hours 24 --log-file /dev/null >/dev/null 2>&1
+  "${candidate}" observe health --hours all --limit all --log-file /dev/null >/dev/null 2>&1
 }
 
 vg_runtime_supports_observe_export_prometheus() {

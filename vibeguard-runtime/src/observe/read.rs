@@ -32,7 +32,7 @@ pub(super) fn read_log_events(options: &ObserveOptions) -> Result<LogEvents> {
     };
     let log_path = observe_display_path(&resolved);
     if !resolved.exists() {
-        if options.log_file.is_some() && !options.legacy {
+        if options.log_file.is_some() {
             return Err(format!("Log file does not exist: {}", resolved.display()).into());
         }
         return Ok(LogEvents {

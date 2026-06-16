@@ -69,7 +69,7 @@ if [[ "${DAYS}" != "all" ]] && { ! [[ "${DAYS}" =~ ^[0-9]+$ ]] || [[ "${DAYS}" -
 fi
 
 RUNTIME="$(vg_resolve_runtime "${REPO_DIR}")"
-CMD=("${RUNTIME}" observe summary --legacy --limit all --days "${DAYS}")
+CMD=("${RUNTIME}" observe summary --limit all --days "${DAYS}")
 
 if [[ "${SCOPE_EXPLICIT}" -eq 1 ]]; then
   CMD+=(--scope "${SCOPE}")

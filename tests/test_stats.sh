@@ -80,34 +80,34 @@ assert_cmd "vibeguard-runtime builds for observe wrappers" \
 
 header "Runtime support probe"
 source "${REPO_DIR}/scripts/lib/runtime.sh"
-old_observe_runtime="${TMP_DIR}/old-observe-runtime"
-cat > "${old_observe_runtime}" <<'SH'
+unsupported_observe_runtime="${TMP_DIR}/unsupported-observe-runtime"
+cat > "${unsupported_observe_runtime}" <<'SH'
 #!/usr/bin/env bash
 if [[ "$#" -eq 0 ]]; then
   printf 'observe\n'
   exit 0
 fi
 if [[ "$1" == "observe" ]]; then
-  printf 'unknown argument: --legacy\n' >&2
+  printf 'unknown argument: observe summary\n' >&2
   exit 2
 fi
 exit 2
 SH
-chmod +x "${old_observe_runtime}"
+chmod +x "${unsupported_observe_runtime}"
 
-legacy_observe_runtime="${TMP_DIR}/legacy-observe-runtime"
-cat > "${legacy_observe_runtime}" <<'SH'
+summary_observe_runtime="${TMP_DIR}/summary-observe-runtime"
+cat > "${summary_observe_runtime}" <<'SH'
 #!/usr/bin/env bash
 if [[ "$#" -eq 0 ]]; then
   printf 'observe\n'
   exit 0
 fi
-if [[ "$*" == "observe summary --legacy --days all --limit all --log-file /dev/null" ]]; then
+if [[ "$*" == "observe summary --days all --limit all --log-file /dev/null" ]]; then
   exit 0
 fi
 exit 2
 SH
-chmod +x "${legacy_observe_runtime}"
+chmod +x "${summary_observe_runtime}"
 
 export_observe_runtime="${TMP_DIR}/export-observe-runtime"
 cat > "${export_observe_runtime}" <<'SH'
@@ -120,7 +120,7 @@ if [[ "$*" == "observe export prometheus --since all --input-file /dev/null" ]];
   exit 0
 fi
 if [[ "$1" == "observe" ]]; then
-  printf 'unknown argument: --legacy\n' >&2
+  printf 'unknown argument: observe summary\n' >&2
   exit 2
 fi
 exit 2
@@ -130,7 +130,7 @@ chmod +x "${export_observe_runtime}"
 full_observe_runtime="${TMP_DIR}/full-observe-runtime"
 cat > "${full_observe_runtime}" <<'SH'
 #!/usr/bin/env bash
-if [[ "$*" == "observe summary --legacy --days all --limit all --log-file /dev/null" ]]; then
+if [[ "$*" == "observe summary --days all --limit all --log-file /dev/null" ]]; then
   exit 0
 fi
 if [[ "$*" == "observe export prometheus --since all --input-file /dev/null" ]]; then
@@ -140,11 +140,11 @@ exit 2
 SH
 chmod +x "${full_observe_runtime}"
 
-assert_cmd_fails "Probe rejects runtimes without legacy observe options" \
-  vg_runtime_supports_observe "${old_observe_runtime}"
-assert_cmd "Probe accepts runtimes with legacy observe options" \
-  vg_runtime_supports_observe "${legacy_observe_runtime}"
-assert_cmd_fails "Legacy probe rejects export-only runtimes" \
+assert_cmd_fails "Probe rejects runtimes without observe summary support" \
+  vg_runtime_supports_observe "${unsupported_observe_runtime}"
+assert_cmd "Probe accepts runtimes with observe summary support" \
+  vg_runtime_supports_observe "${summary_observe_runtime}"
+assert_cmd_fails "Summary probe rejects export-only runtimes" \
   vg_runtime_supports_observe "${export_observe_runtime}"
 assert_cmd "Export probe accepts export-only runtimes" \
   vg_runtime_supports_observe_export_prometheus "${export_observe_runtime}"
@@ -155,14 +155,14 @@ mkdir -p \
   "${resolver_repo}/vibeguard-runtime/target/debug" \
   "${resolver_home}/.vibeguard/installed/bin"
 cp "${export_observe_runtime}" "${resolver_repo}/vibeguard-runtime/target/debug/vibeguard-runtime"
-cp "${legacy_observe_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
-selected_legacy_runtime="$(
+cp "${summary_observe_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime"
+selected_summary_runtime="$(
   env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
     source "$1"
-    vg_resolve_runtime "$2" observe_legacy
+    vg_resolve_runtime "$2" observe_summary
   ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
 )"
-assert_contains "${selected_legacy_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver skips export-only repo runtime for legacy stats"
+assert_contains "${selected_summary_runtime}" "${resolver_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver skips export-only repo runtime for stats"
 selected_export_runtime="$(
   env -u VIBEGUARD_RUNTIME HOME="${resolver_home}" bash -c '
     source "$1"
@@ -182,12 +182,12 @@ selected_installed_export_runtime="$(
 )"
 assert_contains "${selected_installed_export_runtime}" "${resolver_full_home}/.vibeguard/installed/bin/vibeguard-runtime" "Resolver prefers installed runtime when capability matches"
 assert_cmd_fails "Resolver rejects explicit runtime without requested exporter capability" \
-  env VIBEGUARD_RUNTIME="${legacy_observe_runtime}" HOME="${resolver_full_home}" bash -c '
+  env VIBEGUARD_RUNTIME="${summary_observe_runtime}" HOME="${resolver_full_home}" bash -c '
     source "$1"
     vg_resolve_runtime "$2" observe_export_prometheus >/dev/null
   ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}"
 explicit_bad_runtime_out="$(
-  env VIBEGUARD_RUNTIME="${legacy_observe_runtime}" HOME="${resolver_full_home}" bash -c '
+  env VIBEGUARD_RUNTIME="${summary_observe_runtime}" HOME="${resolver_full_home}" bash -c '
     source "$1"
     vg_resolve_runtime "$2" observe_export_prometheus
   ' bash "${REPO_DIR}/scripts/lib/runtime.sh" "${resolver_repo}" 2>&1 || true
@@ -305,9 +305,9 @@ assert_contains "${stats_out}" "post-edit-guard: 1 times" "Secondary hook aggreg
 stats_all_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/log" bash "${SCRIPT}" --scope global all 2>&1)"
 assert_contains "${stats_all_out}" "Total triggers: 3 times" "Non-object JSONL records are skipped for all-history stats"
 
-header "Legacy stats analyses are preserved"
-mkdir -p "${TMP_DIR}/legacy-sections-log"
-python3 - "${TMP_DIR}/legacy-sections-log/events.jsonl" <<'PY'
+header "Stats analyses are preserved"
+mkdir -p "${TMP_DIR}/stats-sections-log"
+python3 - "${TMP_DIR}/stats-sections-log/events.jsonl" <<'PY'
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -363,21 +363,21 @@ with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 PY
 
-legacy_sections_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/legacy-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
-assert_contains "${legacy_sections_out}" "== Warn compliance rate analysis ==" "Warn compliance section is preserved"
-assert_contains "${legacy_sections_out}" "pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]" "Warn compliance computes pass ratio"
-assert_contains "${legacy_sections_out}" "Distributed by file type:" "File type section is preserved"
-assert_contains "${legacy_sections_out}" ".rs: 2 times" "File type distribution counts details"
-assert_contains "${legacy_sections_out}" "Distributed by time period:" "Time period section is preserved"
-assert_contains "${legacy_sections_out}" "working time (09-18): 2 times (50%)" "Working-hour distribution is computed"
-assert_contains "${legacy_sections_out}" "== Performance analysis ==" "Performance section is preserved"
-assert_contains "${legacy_sections_out}" "Total number of sessions: 2" "Session count is preserved"
-assert_contains "${legacy_sections_out}" "Average triggers per session: 2.0 times" "Average trigger count is preserved"
-assert_contains "${legacy_sections_out}" "Deterministic node estimated savings: ~2K tokens" "Token savings estimate is preserved"
-assert_contains "${legacy_sections_out}" "Conversations with the most questions Top 3:" "Problem sessions section is preserved"
-assert_contains "${legacy_sections_out}" "session-b: 2 issues / 2 triggers" "Problem sessions are ranked"
+stats_sections_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/stats-sections-log" bash "${SCRIPT}" --scope global 7 2>&1)"
+assert_contains "${stats_sections_out}" "== Warn compliance rate analysis ==" "Warn compliance section is preserved"
+assert_contains "${stats_sections_out}" "pre-bash-guard: warn=1 pass=1 compliance rate=50% [LOW]" "Warn compliance computes pass ratio"
+assert_contains "${stats_sections_out}" "Distributed by file type:" "File type section is preserved"
+assert_contains "${stats_sections_out}" ".rs: 2 times" "File type distribution counts details"
+assert_contains "${stats_sections_out}" "Distributed by time period:" "Time period section is preserved"
+assert_contains "${stats_sections_out}" "working time (09-18): 2 times (50%)" "Working-hour distribution is computed"
+assert_contains "${stats_sections_out}" "== Performance analysis ==" "Performance section is preserved"
+assert_contains "${stats_sections_out}" "Total number of sessions: 2" "Session count is preserved"
+assert_contains "${stats_sections_out}" "Average triggers per session: 2.0 times" "Average trigger count is preserved"
+assert_contains "${stats_sections_out}" "Deterministic node estimated savings: ~2K tokens" "Token savings estimate is preserved"
+assert_contains "${stats_sections_out}" "Conversations with the most questions Top 3:" "Problem sessions section is preserved"
+assert_contains "${stats_sections_out}" "session-b: 2 issues / 2 triggers" "Problem sessions are ranked"
 
-header "Legacy wrapper reads beyond observe default limit"
+header "Stats wrapper reads beyond observe default limit"
 mkdir -p "${TMP_DIR}/large-log"
 python3 - "${TMP_DIR}/large-log/events.jsonl" <<'PY'
 import json
@@ -443,7 +443,7 @@ PY
 
 prom_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/prom-log" VIBEGUARD_RUNTIME="${RUNTIME}" bash "${EXPORTER}" --since all 2>&1)"
 assert_contains "${prom_out}" "vibeguard_event_total" "Prometheus event counter is emitted"
-assert_contains "${prom_out}" 'vibeguard_tool_total{tool="Edit"} 1' "Legacy tool counter is preserved"
+assert_contains "${prom_out}" 'vibeguard_tool_total{tool="Edit"} 1' "Tool counter is preserved"
 assert_contains "${prom_out}" 'rule_id="U-16"' "Rule id is derived safely"
 assert_contains "${prom_out}" 'reason_code="rule_violation"' "Reason code is derived safely"
 assert_contains "${prom_out}" 'file_ext="rs"' "File extension is derived safely"

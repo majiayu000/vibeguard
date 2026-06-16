@@ -115,7 +115,7 @@ exit 2
 SH
 chmod +x "${summary_only_runtime}"
 health_probe_out="$(VIBEGUARD_RUNTIME="${summary_only_runtime}" bash "${SCRIPT}" --log-file /dev/null 24 2>&1 || true)"
-assert_contains "${health_probe_out}" "VIBEGUARD_RUNTIME does not support required capability: observe_health_legacy" "Health wrapper rejects runtime without observe health support"
+assert_contains "${health_probe_out}" "VIBEGUARD_RUNTIME does not support required capability: observe_health" "Health wrapper rejects runtime without observe health support"
 
 header "No log file"
 no_log_out="$(VIBEGUARD_LOG_DIR="${TMP_DIR}/missing" bash "${SCRIPT}" 2>&1 || true)"
@@ -335,7 +335,7 @@ assert_contains "${malformed_out}" "Total triggers: 3" "Recoverable malformed UT
 assert_contains "${malformed_out}" "Risk (non-pass): 2" "Malformed UTF-8 line still contributes to decision counts"
 assert_contains "${malformed_out}" "pre-bash-guard: 1" "Recovered line participates in non-pass hook aggregation"
 
-header "Legacy wrapper reads beyond observe default limit"
+header "Health wrapper reads beyond observe default limit"
 mkdir -p "${TMP_DIR}/large-health-log"
 python3 - "${TMP_DIR}/large-health-log/events.jsonl" <<'PY'
 import json
