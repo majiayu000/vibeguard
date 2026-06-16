@@ -44,10 +44,6 @@ VG_DAYS="$DAYS" VG_LOG_FILE="$LOG_FILE" VG_GUARDS_DIR="$GUARDS_DIR" \
 import json, sys, os, glob
 from datetime import datetime, timezone, timedelta
 from collections import Counter
-from pathlib import Path
-
-sys.path.insert(0, str(Path(os.environ["VG_REPO_DIR"]) / "hooks" / "_lib"))
-from event_log import load_events_from_file
 
 days = os.environ.get("VG_DAYS", "30")
 log_file = os.environ.get("VG_LOG_FILE", "")
@@ -55,6 +51,37 @@ guards_dir = os.environ.get("VG_GUARDS_DIR", "")
 rules_dir = os.environ.get("VG_RULES_DIR", "")
 native_rules_dir = os.environ.get("VG_NATIVE_RULES_DIR", "")
 json_output = os.environ.get("VG_JSON", "false") == "true"
+
+def parse_ts(ts):
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except ValueError:
+        return None
+
+def load_events_from_file(path, since=None):
+    events = []
+    with open(path, "rb") as f:
+        for raw_line in f:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if since is not None:
+                event_ts = parse_ts(event.get("ts"))
+                if event_ts is None or event_ts < since:
+                    continue
+            events.append(event)
+    return events
 
 if days == "all":
     events = load_events_from_file(log_file)
