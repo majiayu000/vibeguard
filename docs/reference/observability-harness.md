@@ -44,15 +44,17 @@ validated by `schemas/event-log.schema.json`.
 
 Required event fields are:
 
+- `schema_version`
 - `ts`
 - `session`
 - `hook`
 - `tool`
 - `decision`
+- `status`
 
-Current rows may also include `event`, `matcher`, `status`, `reason`, `detail`,
-`duration_ms`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`,
-and caller identity fields such as `cli`, `client`, and `wrapper`.
+Current rows may also include `event`, `matcher`, `reason`, `detail`, `duration_ms`,
+`elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller
+identity fields such as `cli`, `client`, and `wrapper`.
 
 Use this log for:
 

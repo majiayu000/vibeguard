@@ -106,8 +106,8 @@ PY
 header "event log schema"
 assert_cmd "current events.jsonl rows validate" \
   run_schema_check "schemas/event-log.schema.json" "${FIXTURES_DIR}/events-current.jsonl"
-assert_cmd "legacy rows without normalized fields validate" \
-  run_schema_check "schemas/event-log.schema.json" "${FIXTURES_DIR}/events-legacy.jsonl"
+assert_fails "missing current event-log fields fail validation" \
+  run_schema_check "schemas/event-log.schema.json" "${FIXTURES_DIR}/events-missing-required.jsonl"
 assert_fails "invalid decision/status values fail validation" \
   run_schema_check "schemas/event-log.schema.json" "${FIXTURES_DIR}/events-invalid-enums.jsonl"
 assert_cmd "malformed JSONL rows are skipped only in reader-compatible mode" \

@@ -1,2 +1,0 @@
-{"ts":"2026-05-30T23:59:01Z","session":"s-legacy","hook":"post-edit-guard","tool":"Edit","decision":"warn","reason":"unwrap detected","detail":"src/lib.rs"}
-{"ts":"2026-05-30T23:59:02Z","session":"s-legacy","hook":"authorized-discard","tool":"Git","decision":"complete","reason":"authorized destructive cleanup","detail":"tracked_restore=1"}

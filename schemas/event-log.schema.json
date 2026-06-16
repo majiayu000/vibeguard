@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vibeguard.dev/schemas/event-log.schema.json",
   "title": "VibeGuard Event Log Row",
-  "description": "Schema v1 for one events.jsonl row. Normalized reader fields are optional so legacy hook rows remain valid.",
+  "description": "Schema v1 for one current events.jsonl row.",
   "type": "object",
-  "required": ["ts", "session", "hook", "tool", "decision"],
+  "required": ["schema_version", "ts", "session", "hook", "tool", "decision", "status"],
   "additionalProperties": true,
   "properties": {
     "schema_version": { "const": 1 },
