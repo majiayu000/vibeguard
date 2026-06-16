@@ -47,8 +47,8 @@ the release workflow.
 
 Representative surfaces captured before migration:
 
-- `hooks/_lib/policy.py`: 229 lines
-- `hooks/_lib/codex_apply_patch_adapter.py`: 170 lines
+- Legacy Python policy helper: 229 lines
+- Legacy Python apply-patch adapter helper: 170 lines
 - `scripts/lib/settings_json.py`: 594 lines
 - `scripts/lib/codex_hooks_json.py`: 524 lines
 - `scripts/lib/codex_config_toml.py`: 205 lines

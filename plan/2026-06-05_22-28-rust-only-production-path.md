@@ -39,8 +39,8 @@
 - App-server guard proxy: `vibeguard-runtime/src/codex_app_server*.rs`
 - Shell hook wrappers: `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`,
   `hooks/_lib/*.sh`
-- Runtime policy shell/Python layer: `hooks/_lib/policy.sh`,
-  `hooks/_lib/policy.py`
+- Runtime policy shell layer: `hooks/_lib/policy.sh`; legacy Python policy
+  helper has been retired.
 - Setup shell layer: `setup.sh`, `scripts/setup/*.sh`,
   `scripts/setup/targets/*.sh`
 - Setup Python helpers: `scripts/lib/settings_json.py`,
@@ -54,8 +54,8 @@
 
 | id | category | files and symbols | evidence | impact | risk | convergence direction |
 |----|----------|-------------------|----------|--------|------|-----------------------|
-| F1 | runtime policy split | `hooks/_lib/policy.sh`, `hooks/_lib/policy.py`, app-server policy specs | Shell wrappers enforce policy through Python; app-server needs Rust-side policy parity. | high | high | Create one Rust `runtime_policy` module and have shell/app-server paths call it. |
-| F2 | apply_patch normalizer fallback | `hooks/_lib/codex_runner.sh`, `hooks/_lib/codex_apply_patch_adapter.py`, `vibeguard-runtime/src/codex_hooks.rs` | Runner already calls `codex-normalize-apply-patch`, then falls back to Python. | medium | medium | Delete fallback after runtime parity tests cover Add/Update/Delete/Move patch payloads. |
+| F1 | runtime policy split | `hooks/_lib/policy.sh`, legacy Python policy helper, app-server policy specs | Shell wrappers enforce policy through Python; app-server needs Rust-side policy parity. | high | high | Create one Rust `runtime_policy` module and have shell/app-server paths call it. |
+| F2 | apply_patch normalizer fallback | `hooks/_lib/codex_runner.sh`, legacy Python apply-patch adapter helper, `vibeguard-runtime/src/codex_hooks.rs` | Runner already calls `codex-normalize-apply-patch`, then falls back to Python. | medium | medium | Delete fallback after runtime parity tests cover Add/Update/Delete/Move patch payloads. |
 | F3 | pre-edit duplicate path | `hooks/pre-edit-guard.sh`, `vibeguard-runtime/src/hook_checks.rs` | Shell hook calls Rust fast path, then keeps inline Python full implementation. | high | high | Extend Rust `pre-edit-check` until it owns the full behavior, then remove inline Python. |
 | F4 | setup config helpers in Python | `scripts/setup/lib.sh`, `scripts/setup/targets/*.sh`, `scripts/lib/*.py` | Setup writes JSON/TOML/Markdown high-context files via Python helpers. | high | high | Add Rust setup/check/clean commands with structured JSON/TOML/Markdown handling. |
 | F5 | install state in Python | `scripts/lib/install-state.sh`, `scripts/lib/file_ops.py` | Install-state init/record/check/list use inline Python and checksums. | medium | medium | Move install-state operations into Rust before setup can be no-Python. |
@@ -89,7 +89,7 @@
 
 - status: `in_progress`
 - Issue: https://github.com/majiayu000/vibeguard/issues/381
-- Target: replace `hooks/_lib/policy.py` and project/user config Python reads
+- Target: replace the legacy Python policy helper and project/user config Python reads
   with Rust runtime commands.
 - Expected changes to files:
   - `vibeguard-runtime/src/main.rs`
@@ -114,7 +114,7 @@
 - Completion judgment:
   - Shell and app-server policy behavior share Rust logic.
   - Invalid policy config remains visible.
-  - No `hooks/_lib/policy.py` production caller remains.
+  - No legacy Python policy helper production caller remains.
 
 ### Step P2 Codex Normalizer and Adapter Fallback Removal
 
@@ -131,7 +131,7 @@
   - `vibeguard-runtime/tests/cli.rs`
   - `tests/test_codex_runtime.sh`
 - Detailed changes:
-  - Remove `hooks/_lib/codex_apply_patch_adapter.py` from production fallback
+  - Remove the legacy Python apply-patch adapter helper from production fallback
     after equivalent Rust coverage exists.
   - Move remaining Codex visible-failure and status payload builders to runtime
     commands.
