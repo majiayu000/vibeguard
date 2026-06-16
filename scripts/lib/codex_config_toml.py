@@ -24,7 +24,6 @@ def _table_name(line: str) -> str | None:
 
 
 CODEX_HOOKS_FEATURE = "hooks"
-LEGACY_CODEX_HOOKS_FEATURE = "codex_hooks"
 
 
 def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
@@ -37,7 +36,6 @@ def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
     insert_idx: int | None = None
     in_features = False
     hooks_idx: int | None = None
-    legacy_indices: list[int] = []
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
@@ -58,52 +56,17 @@ def _ensure_hooks_enabled(text: str) -> tuple[str, bool]:
                 if stripped != f"{CODEX_HOOKS_FEATURE} = true":
                     lines[idx] = f"{CODEX_HOOKS_FEATURE} = true"
                     changed = True
-            elif key == LEGACY_CODEX_HOOKS_FEATURE:
-                legacy_indices.append(idx)
 
     if features_idx is not None:
         assert insert_idx is not None
         if hooks_idx is None:
-            if legacy_indices:
-                hooks_idx = legacy_indices.pop(0)
-                lines[hooks_idx] = "hooks = true"
-                changed = True
-            else:
-                lines.insert(insert_idx, "hooks = true")
-                changed = True
-        for idx in reversed(legacy_indices):
-            del lines[idx]
+            lines.insert(insert_idx, "hooks = true")
             changed = True
         return "\n".join(lines).rstrip() + "\n", changed
 
     content = "\n".join(lines).rstrip()
     suffix = "\n\n" if content else ""
     return content + suffix + f"[features]\n{CODEX_HOOKS_FEATURE} = true\n", True
-
-
-def _remove_legacy_vibeguard_mcp(text: str) -> tuple[str, bool]:
-    lines = text.splitlines()
-    if not lines:
-        return "", False
-
-    kept: list[str] = []
-    in_legacy = False
-    changed = False
-    legacy_table = "mcp_servers.vibeguard"
-    for line in lines:
-        table_name = _table_name(line)
-        if table_name is not None:
-            if table_name == legacy_table or table_name.startswith(f"{legacy_table}."):
-                in_legacy = True
-                changed = True
-                continue
-            in_legacy = False
-        if in_legacy:
-            changed = True
-            continue
-        kept.append(line)
-    new_text = "\n".join(kept).strip()
-    return ((new_text + "\n") if new_text else ""), changed
 
 
 def _check_hooks_enabled(text: str) -> tuple[str, int]:
@@ -113,8 +76,6 @@ def _check_hooks_enabled(text: str) -> tuple[str, int]:
         return "INVALID", 1
 
     features = data.get("features")
-    if isinstance(features, dict) and LEGACY_CODEX_HOOKS_FEATURE in features:
-        return "LEGACY", 1
     if isinstance(features, dict) and features.get(CODEX_HOOKS_FEATURE) is True:
         return "OK", 0
     return "MISSING", 1
@@ -129,24 +90,6 @@ def cmd_enable_hooks(args: argparse.Namespace) -> int:
         print("CHANGED")
     else:
         print("SKIP")
-    return 0
-
-
-def cmd_remove_legacy_vibeguard_mcp(args: argparse.Namespace) -> int:
-    path = Path(args.config_file)
-    if not path.exists():
-        print("SKIP")
-        return 0
-    old = path.read_text(encoding="utf-8")
-    new, changed = _remove_legacy_vibeguard_mcp(old)
-    if not changed:
-        print("SKIP")
-        return 0
-    if new:
-        write_text_atomic(path, new)
-    else:
-        path.unlink(missing_ok=True)
-    print("CHANGED")
     return 0
 
 
@@ -177,26 +120,16 @@ def build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check-hooks", help="Validate [features].hooks = true")
     check.add_argument("--config-file", required=True)
 
-    legacy_enable = sub.add_parser("enable-codex-hooks", help=argparse.SUPPRESS)
-    legacy_enable.add_argument("--config-file", required=True)
-
-    legacy_check = sub.add_parser("check-codex-hooks", help=argparse.SUPPRESS)
-    legacy_check.add_argument("--config-file", required=True)
-
-    remove = sub.add_parser("remove-legacy-vibeguard-mcp", help="Remove [mcp_servers.vibeguard] block")
-    remove.add_argument("--config-file", required=True)
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if args.command in {"enable-hooks", "enable-codex-hooks"}:
+    if args.command == "enable-hooks":
         return cmd_enable_hooks(args)
-    if args.command in {"check-hooks", "check-codex-hooks"}:
+    if args.command == "check-hooks":
         return cmd_check_hooks(args)
-    if args.command == "remove-legacy-vibeguard-mcp":
-        return cmd_remove_legacy_vibeguard_mcp(args)
     parser.error("unknown command")
     return 2
 

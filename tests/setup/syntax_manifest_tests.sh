@@ -199,11 +199,6 @@ touch "${broken_clean_home}/.claude/rules/vibeguard/common/security.md"
 touch "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
 python3 "${SETTINGS_HELPER}" upsert-vibeguard --settings-file "${broken_clean_home}/.claude/settings.json" --repo-dir "${REPO_DIR}" --profile full >/dev/null
 python3 "${CODEX_HOOKS_HELPER}" upsert-vibeguard --hooks-file "${broken_clean_home}/.codex/hooks.json" --wrapper "${broken_clean_home}/.vibeguard/run-hook-codex.sh" >/dev/null
-cat > "${broken_clean_home}/.codex/config.toml" <<'TOML'
-[mcp_servers.vibeguard]
-command = "node"
-args = ["/legacy/mcp-server/dist/index.js"]
-TOML
 broken_clean_out="$(
   HOME="${broken_clean_home}" bash -c "
     set -euo pipefail
@@ -224,7 +219,6 @@ assert_cmd "clean removes Claude rules after manifest failure" test ! -e "${brok
 assert_cmd "clean removes Claude hooks after manifest failure" bash -c "! grep -q 'pre-bash-guard.sh' '${broken_clean_home}/.claude/settings.json'"
 assert_cmd "clean continues after Codex manifest failure" bash -c "! grep -q 'vibeguard-pre-bash-guard.sh' '${broken_clean_home}/.codex/hooks.json'"
 assert_cmd "clean removes Codex wrapper after manifest failure" test ! -e "${broken_clean_home}/.vibeguard/run-hook-codex.sh"
-assert_cmd "clean removes legacy Codex MCP after manifest failure" bash -c "! grep -q '^\[mcp_servers\.vibeguard\]' '${broken_clean_home}/.codex/config.toml'"
 
 header "clean preserves unmanaged Claude command paths"
 unmanaged_commands_home="${TMP_HOME}/unmanaged-commands-home"

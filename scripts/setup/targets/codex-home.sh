@@ -125,16 +125,6 @@ _enable_codex_hooks_feature() {
   esac
 }
 
-_remove_legacy_codex_mcp_config() {
-  local config="${CODEX_DIR}/config.toml"
-  setup_runtime setup-codex-config-remove-legacy-mcp "${config}"
-}
-
-_has_legacy_codex_mcp_config() {
-  local config="${CODEX_DIR}/config.toml"
-  [[ -f "${config}" ]] && grep -q '^\[mcp_servers\.vibeguard\]' "${config}" 2>/dev/null
-}
-
 codex_native_capability_summary() {
   printf '%s\n' "Codex native support: PreToolUse(Bash/apply_patch), PermissionRequest(Bash/apply_patch), PostToolUse(Bash/apply_patch), Stop"
 }
@@ -143,24 +133,6 @@ inject_codex_home_rules() {
   echo "Step 10.1: Update VibeGuard rules in ~/.codex/AGENTS.md"
   local agents_md="${CODEX_DIR}/AGENTS.md"
   inject_vibeguard_rules "${agents_md}" "~/.codex/AGENTS.md" "generated/AGENTS.md"
-}
-
-configure_codex_home_runtime() {
-  echo "Step 9.2: Remove legacy Codex MCP config"
-  local cleanup_result
-  if ! cleanup_result="$(_remove_legacy_codex_mcp_config 2>/dev/null)"; then
-    red "  Failed to remove legacy Codex MCP config from ~/.codex/config.toml"
-    return 1
-  fi
-  if [[ -f "${CODEX_DIR}/config.toml" ]]; then
-    state_record_file "${CODEX_DIR}/config.toml" "generated/codex-config.toml" "copy"
-  fi
-  if [[ "${cleanup_result}" == "CHANGED" ]]; then
-    green "  Removed legacy VibeGuard MCP block from ~/.codex/config.toml"
-  else
-    green "  No legacy Codex MCP config found"
-  fi
-  echo
 }
 
 check_codex_home_installation() {
@@ -241,18 +213,10 @@ check_codex_home_installation() {
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled in config.toml"
-  elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
-    yellow "[LEGACY] deprecated codex_hooks feature still present in ~/.codex/config.toml (repair: bash setup.sh --yes)"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
     yellow "[MISSING] hooks feature not enabled in ~/.codex/config.toml"
-  fi
-
-  if _has_legacy_codex_mcp_config; then
-    yellow "[LEGACY] Legacy VibeGuard MCP block still present in ~/.codex/config.toml"
-  else
-    green "[OK] No legacy VibeGuard MCP block in ~/.codex/config.toml"
   fi
 }
 
@@ -266,7 +230,7 @@ codex_semantic_drift_message() {
     if [[ -f "${config}" ]]; then
       codex_hooks_status="$(setup_runtime setup-codex-config-check-hooks "${config}" 2>/dev/null || true)"
     fi
-    if [[ "${codex_hooks_status}" == "OK" ]] && ! _has_legacy_codex_mcp_config; then
+    if [[ "${codex_hooks_status}" == "OK" ]]; then
       printf '%s\n' "${path} (checksum drift; Codex config semantics OK)"
       return 0
     fi
@@ -378,18 +342,10 @@ print_codex_status() {
   fi
   if [[ "${codex_hooks_status}" == "OK" ]]; then
     green "[OK] hooks feature enabled"
-  elif [[ "${codex_hooks_status}" == "LEGACY" ]]; then
-    yellow "[LEGACY] deprecated codex_hooks feature still present"
   elif [[ "${codex_hooks_status}" == "INVALID" ]]; then
     red "[BROKEN] ~/.codex/config.toml is malformed TOML"
   else
     yellow "[MISSING] hooks feature not enabled"
-  fi
-
-  if _has_legacy_codex_mcp_config; then
-    yellow "[LEGACY] Legacy VibeGuard MCP block still present"
-  else
-    green "[OK] No legacy VibeGuard MCP block"
   fi
 
   local latest_event
@@ -508,7 +464,7 @@ clean_codex_home_installation() {
     local agents_md_result
     agents_md_result=$(setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null || echo "ERROR")
     case "${agents_md_result}" in
-      REMOVED|REMOVED_LEGACY) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;
+      REMOVED) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.codex/AGENTS.md" ;;
       *) red "Failed to clean ~/.codex/AGENTS.md" ;;
     esac
@@ -546,13 +502,4 @@ clean_codex_home_installation() {
   yellow "Removed Codex hook wrapper"
 
   # Keep the Codex hooks feature flag untouched to avoid affecting other toolchains.
-
-  local cleanup_result
-  if ! cleanup_result="$(_remove_legacy_codex_mcp_config 2>/dev/null)"; then
-    red "Failed to remove legacy Codex MCP config from ~/.codex/config.toml"
-    return 1
-  fi
-  if [[ "${cleanup_result}" == "CHANGED" ]]; then
-    yellow "Removed legacy VibeGuard MCP block from ~/.codex/config.toml"
-  fi
 }

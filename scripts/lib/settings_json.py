@@ -19,9 +19,6 @@ from hooks_manifest import all_managed_script_names, claude_specs, load_manifest
 MANIFEST = load_manifest()
 MANAGED_SCRIPT_NAMES = all_managed_script_names(MANIFEST)
 CLAUDE_PROFILE_SCRIPT_NAMES = frozenset(spec["script"] for spec in claude_specs(MANIFEST, None))
-LEGACY_SCRIPT_NAMES: frozenset[str] = frozenset(
-    {"post-guard-check.sh", "session-tagger.sh", "cognitive-reminder.sh"}
-)
 WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook.sh"})
 
 
@@ -60,9 +57,7 @@ def _entry_identities(event: str, entry: Any) -> list[Any]:
         event=event,
         entry=entry,
         managed_scripts=MANAGED_SCRIPT_NAMES,
-        legacy_scripts=LEGACY_SCRIPT_NAMES,
         wrapper_names=WRAPPER_NAMES,
-        standalone_legacy_scripts=LEGACY_SCRIPT_NAMES,
     )
 
 
@@ -79,9 +74,7 @@ def _hook_identity(event: str, matcher: str | None, hook: dict[str, Any]) -> Any
         command=command,
         timeout=timeout,
         managed_scripts=MANAGED_SCRIPT_NAMES,
-        legacy_scripts=LEGACY_SCRIPT_NAMES,
         wrapper_names=WRAPPER_NAMES,
-        standalone_legacy_scripts=LEGACY_SCRIPT_NAMES,
     )
 
 
@@ -325,15 +318,7 @@ def _is_canonical_hook_command(command: str, script_name: str) -> bool:
             and parts[1].endswith("/.vibeguard/run-hook.sh")
             and parts[2] == script_name
         )
-    if len(parts) <= 3 or parts[0] != "bash" or parts[-1] != script_name:
-        return False
-    wrapper_parts = parts[1:-1]
-    path_prefixes = ("/", "~/", "$HOME/", "${HOME}/")
-    return (
-        wrapper_parts[0].startswith(path_prefixes)
-        and not any(part.startswith(("-", *path_prefixes)) for part in wrapper_parts[1:])
-        and " ".join(wrapper_parts).endswith("/.vibeguard/run-hook.sh")
-    )
+    return False
 
 
 def _record_customized_command(state: dict[str, Any], script_name: str, command: str) -> None:
@@ -345,47 +330,6 @@ def _record_customized_command(state: dict[str, Any], script_name: str, command:
         "use --force-overwrite to replace it",
         file=sys.stderr,
     )
-
-
-def _remove_legacy_mcp_server(data: dict[str, Any]) -> bool:
-    mcp_servers = data.get("mcpServers")
-    if not isinstance(mcp_servers, dict) or "vibeguard" not in mcp_servers:
-        return False
-
-    del mcp_servers["vibeguard"]
-    if not mcp_servers:
-        data.pop("mcpServers", None)
-    return True
-
-
-def _remove_legacy_hook_entries(data: dict[str, Any]) -> bool:
-    hooks = data.get("hooks")
-    if not isinstance(hooks, dict):
-        return False
-
-    changed = False
-    for event in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
-        entries = hooks.get(event)
-        if not isinstance(entries, list):
-            continue
-
-        filtered = [
-            entry for entry in entries
-            if not _entry_has_script(str(event), entry, LEGACY_SCRIPT_NAMES)
-        ]
-        if len(filtered) == len(entries):
-            continue
-
-        changed = True
-        if filtered:
-            hooks[event] = filtered
-        else:
-            hooks.pop(event, None)
-
-    if not hooks:
-        data.pop("hooks", None)
-
-    return changed
 
 
 def remove_hook(hooks: dict[str, Any], event: str, script_name: str, state: dict[str, bool]) -> None:
@@ -562,10 +506,6 @@ def cmd_upsert_vibeguard(args: argparse.Namespace) -> int:
     data = load_settings(settings_path)
     state: dict[str, Any] = {"changed": False}
 
-    if _remove_legacy_mcp_server(data):
-        state["changed"] = True
-    if _remove_legacy_hook_entries(data):
-        state["changed"] = True
     if _remove_stale_installed_hook_entries(data, Path.home()):
         state["changed"] = True
 
@@ -616,16 +556,11 @@ def cmd_remove_vibeguard(args: argparse.Namespace) -> int:
     data = load_settings(settings_path)
     changed = False
 
-    if _remove_legacy_mcp_server(data):
-        changed = True
-    if _remove_legacy_hook_entries(data):
-        changed = True
-
     hooks = data.get("hooks")
     if isinstance(hooks, dict):
         event_scripts: dict[str, frozenset[str]] = {
             "PreToolUse": frozenset(MANAGED_SCRIPT_NAMES),
-            "PostToolUse": frozenset(MANAGED_SCRIPT_NAMES | {"post-guard-check.sh"}),
+            "PostToolUse": frozenset(MANAGED_SCRIPT_NAMES),
             "Stop": frozenset(MANAGED_SCRIPT_NAMES),
             "SessionStart": frozenset(MANAGED_SCRIPT_NAMES),
             "PreCompact": frozenset(MANAGED_SCRIPT_NAMES),
@@ -683,7 +618,7 @@ def build_parser() -> argparse.ArgumentParser:
     upsert.add_argument("--force-overwrite", action="store_true", help="Replace customized managed hook commands")
     upsert.set_defaults(func=cmd_upsert_vibeguard)
 
-    remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hooks config and legacy MCP entries")
+    remove = sub.add_parser("remove-vibeguard", help="Remove VibeGuard hooks config")
     remove.add_argument("--settings-file", required=True)
     remove.set_defaults(func=cmd_remove_vibeguard)
 

@@ -219,9 +219,9 @@ mod setup_markdown_tests {
     }
 
     #[test]
-    fn canonical_settings_command_accepts_legacy_unquoted_home_spaces() {
+    fn canonical_settings_command_rejects_unquoted_home_spaces() {
         let command = "bash /tmp/home with spaces/.vibeguard/run-hook.sh pre-bash-guard.sh";
-        assert!(settings_is_canonical(command, "pre-bash-guard.sh"));
+        assert!(!settings_is_canonical(command, "pre-bash-guard.sh"));
     }
 
     #[test]

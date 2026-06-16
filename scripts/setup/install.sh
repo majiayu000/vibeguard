@@ -632,9 +632,6 @@ echo
 
 configure_claude_home_runtime
 
-# 9.2. Remove legacy Codex MCP config from previous installs
-configure_codex_home_runtime
-
 # 9.5. Scheduled GC is opt-in. Default setup must not create launchd/systemd jobs.
 echo "Step 9.5: Scheduled GC"
 if [[ "${WITH_SCHEDULER}" != "1" ]]; then

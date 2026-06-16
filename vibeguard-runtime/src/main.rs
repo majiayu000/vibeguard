@@ -426,11 +426,6 @@ static COMMANDS: &[Command] = &[
         handler: setup_codex_config::check_hooks,
     },
     Command {
-        name: "setup-codex-config-remove-legacy-mcp",
-        usage: "<config-file>  — remove legacy VibeGuard Codex MCP config",
-        handler: setup_codex_config::remove_legacy_mcp,
-    },
-    Command {
         name: "setup-codex-hooks-upsert",
         usage: "<repo-dir> <hooks-file> <wrapper>  — upsert Codex hooks",
         handler: setup_codex_hooks::codex_hooks_upsert,

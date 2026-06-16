@@ -14,16 +14,6 @@ struct CodexSpec {
     timeout: Option<i64>,
 }
 
-const CODEX_LEGACY_MARKERS: &[&str] = &[
-    "pre-bash-guard.sh",
-    "post-build-check.sh",
-    "stop-guard.sh",
-    "learn-evaluator.sh",
-    "post-guard-check.sh",
-    "session-tagger.sh",
-    "cognitive-reminder.sh",
-];
-
 pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     if args.len() != 3 {
         return Err(
@@ -431,7 +421,7 @@ fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
             }
         }
         let base = basename(token);
-        if scripts.contains(base) || CODEX_LEGACY_MARKERS.contains(&base) {
+        if scripts.contains(base) {
             return true;
         }
     }
@@ -439,10 +429,7 @@ fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
 }
 
 fn codex_managed_scripts(repo_dir: &Path) -> BTreeSet<String> {
-    let mut scripts = CODEX_LEGACY_MARKERS
-        .iter()
-        .map(|item| (*item).to_string())
-        .collect::<BTreeSet<_>>();
+    let mut scripts = BTreeSet::new();
     if let Ok(specs) = codex_specs(repo_dir) {
         scripts.extend(specs.into_iter().map(|spec| spec.script));
     }
@@ -559,9 +546,13 @@ fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn repo_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
+
     #[test]
-    fn prune_managed_keeps_third_party_hooks_in_mixed_entry() {
-        let repo_dir = Path::new("/tmp/vibeguard-test-repo");
+    fn prune_current_managed_keeps_third_party_hooks_in_mixed_entry() {
+        let repo_dir = repo_dir();
         let mut data = json!({
             "hooks": {
                 "PreToolUse": [
@@ -570,7 +561,7 @@ mod tests {
                         "hooks": [
                             {
                                 "type": "command",
-                                "command": "bash /tmp/run-hook-codex.sh pre-bash-guard.sh"
+                                "command": "bash /tmp/run-hook-codex.sh vibeguard-pre-bash-guard.sh"
                             },
                             {
                                 "type": "command",
@@ -582,7 +573,7 @@ mod tests {
             }
         });
 
-        codex_prune_managed(&mut data, repo_dir);
+        codex_prune_managed(&mut data, &repo_dir);
 
         let hooks = data
             .pointer("/hooks/PreToolUse/0/hooks")
@@ -626,8 +617,8 @@ mod tests {
 
     #[test]
     fn managed_entry_check_requires_expected_timeout() {
-        let repo_dir = Path::new("/tmp/vibeguard-test-repo");
-        let command = "bash /tmp/run-hook-codex.sh stop-guard.sh";
+        let repo_dir = repo_dir();
+        let command = "bash /tmp/run-hook-codex.sh vibeguard-stop-guard.sh";
         let entries = vec![json!({
             "hooks": [
                 {
@@ -640,11 +631,17 @@ mod tests {
 
         assert!(!codex_has_entry(
             &entries,
-            repo_dir,
+            &repo_dir,
             command,
             None,
             Some(15)
         ));
-        assert!(codex_has_entry(&entries, repo_dir, command, None, Some(99)));
+        assert!(codex_has_entry(
+            &entries,
+            &repo_dir,
+            command,
+            None,
+            Some(99)
+        ));
     }
 }

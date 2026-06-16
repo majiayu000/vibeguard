@@ -45,10 +45,6 @@ pub fn check_hooks(args: &[String]) -> SetupResult<()> {
             println!("OK");
             Ok(())
         }
-        ConfigStatus::Legacy => {
-            println!("LEGACY");
-            std::process::exit(1);
-        }
         ConfigStatus::Missing => {
             println!("MISSING");
             std::process::exit(1);
@@ -60,36 +56,9 @@ pub fn check_hooks(args: &[String]) -> SetupResult<()> {
     }
 }
 
-pub fn remove_legacy_mcp(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err(
-            "Usage: vibeguard-runtime setup-codex-config-remove-legacy-mcp <config-file>".into(),
-        );
-    }
-    let path = Path::new(&args[0]);
-    if !path.exists() {
-        println!("SKIP");
-        return Ok(());
-    }
-    let old = std::fs::read_to_string(path)?;
-    let (new, changed) = remove_legacy_vibeguard_mcp(&old)?;
-    if !changed {
-        println!("SKIP");
-        return Ok(());
-    }
-    if new.is_empty() {
-        std::fs::remove_file(path)?;
-    } else {
-        write_text_atomic(path, &new)?;
-    }
-    println!("CHANGED");
-    Ok(())
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum ConfigStatus {
     Ok,
-    Legacy,
     Missing,
     Invalid,
 }
@@ -101,26 +70,7 @@ fn ensure_hooks_enabled(text: &str) -> SetupResult<(String, bool)> {
     let features = doc["features"]
         .as_table_mut()
         .ok_or("config.toml [features] must be a table")?;
-    features.remove("codex_hooks");
     features["hooks"] = value(true);
-    let after = normalized_doc_string(&doc);
-    Ok((after.clone(), after != before))
-}
-
-fn remove_legacy_vibeguard_mcp(text: &str) -> SetupResult<(String, bool)> {
-    let mut doc = parse_document(text)?;
-    let before = normalized_doc_string(&doc);
-    let mut remove_mcp_servers = false;
-    if let Some(mcp_servers) = doc.get_mut("mcp_servers") {
-        let table = mcp_servers
-            .as_table_mut()
-            .ok_or("config.toml [mcp_servers] must be a table")?;
-        table.remove("vibeguard");
-        remove_mcp_servers = table.is_empty();
-    }
-    if remove_mcp_servers {
-        doc.as_table_mut().remove("mcp_servers");
-    }
     let after = normalized_doc_string(&doc);
     Ok((after.clone(), after != before))
 }
@@ -132,9 +82,6 @@ fn check_hooks_status(text: &str) -> ConfigStatus {
     let Some(features) = doc.get("features").and_then(Item::as_table) else {
         return ConfigStatus::Missing;
     };
-    if features.get("codex_hooks").is_some() {
-        return ConfigStatus::Legacy;
-    }
     let hooks_true = features
         .get("hooks")
         .and_then(Item::as_value)
@@ -175,10 +122,9 @@ mod tests {
 
     #[test]
     fn enables_hooks_in_existing_features() -> SetupResult<()> {
-        let (text, changed) = ensure_hooks_enabled("[features]\ncodex_hooks = true\nx = 1\n")?;
+        let (text, changed) = ensure_hooks_enabled("[features]\nx = 1\n")?;
         assert!(changed);
         assert!(text.contains("hooks = true"));
-        assert!(!text.contains("codex_hooks"));
         Ok(())
     }
 
@@ -205,16 +151,6 @@ mod tests {
         assert!(changed);
         assert!(updated.contains("title = \"a # b\""));
         assert_eq!(check_hooks_status(&updated), ConfigStatus::Ok);
-        Ok(())
-    }
-
-    #[test]
-    fn removes_legacy_mcp_structurally() -> SetupResult<()> {
-        let text = "[mcp_servers.vibeguard]\ncommand = \"node\"\n\n[mcp_servers.other]\ncommand = \"keep\"\n";
-        let (updated, changed) = remove_legacy_vibeguard_mcp(text)?;
-        assert!(changed);
-        assert!(!updated.contains("vibeguard"));
-        assert!(updated.contains("[mcp_servers.other]"));
         Ok(())
     }
 }

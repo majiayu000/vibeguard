@@ -58,10 +58,6 @@ def render_injected(
             content += "\n" + after
         action = "UPDATED"
     else:
-        legacy_marker = "\n# VibeGuard"
-        legacy_idx = content.find(legacy_marker)
-        if legacy_idx >= 0:
-            content = content[:legacy_idx].rstrip()
         content = content.rstrip() + "\n\n" + rules.strip() + "\n"
         action = "APPENDED"
 
@@ -108,13 +104,6 @@ def remove(claude_md_path: str) -> str:
         content = content.rstrip() + "\n"
         claude_md.write_text(content)
         return "REMOVED"
-
-    legacy_marker = "\n# VibeGuard"
-    idx = content.find(legacy_marker)
-    if idx >= 0:
-        content = content[:idx].rstrip() + "\n"
-        claude_md.write_text(content)
-        return "REMOVED_LEGACY"
 
     return "NOT_FOUND"
 

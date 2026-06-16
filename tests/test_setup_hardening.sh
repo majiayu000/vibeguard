@@ -176,8 +176,8 @@ assert parts == [
     "pre-bash-guard.sh",
 ]
 assert settings_json._is_canonical_hook_command(command, "pre-bash-guard.sh")
-legacy_command = f"bash {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
-assert settings_json._is_canonical_hook_command(legacy_command, "pre-bash-guard.sh")
+unquoted_command = f"bash {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
+assert not settings_json._is_canonical_hook_command(unquoted_command, "pre-bash-guard.sh")
 custom_bash_command = f"bash -x {os.environ['HOME']}/.vibeguard/run-hook.sh pre-bash-guard.sh"
 assert not settings_json._is_canonical_hook_command(custom_bash_command, "pre-bash-guard.sh")
 PY

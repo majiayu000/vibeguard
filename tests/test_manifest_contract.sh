@@ -354,17 +354,17 @@ assert_cmd "enable-hooks writes hooks = true" grep -Eq '^hooks[[:space:]]*=[[:sp
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
-codex_hooks_beta = false
+hooks_beta = false
 foo = true
 TOML
 enable_prefixed_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${enable_prefixed_out}" "CHANGED" "enable-hooks adds canonical key when only prefixed keys exist"
-assert_cmd "enable-hooks preserves prefixed feature keys" grep -Eq '^codex_hooks_beta[[:space:]]*=[[:space:]]*false$' "${CONFIG_FILE}"
+assert_cmd "enable-hooks preserves prefixed feature keys" grep -Eq '^hooks_beta[[:space:]]*=[[:space:]]*false$' "${CONFIG_FILE}"
 assert_cmd "enable-hooks adds exact hooks key" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features] # user comment
-codex_hooks_beta = false
+hooks_beta = false
 TOML
 enable_commented_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${enable_commented_out}" "CHANGED" "enable-hooks recognizes commented features table"
@@ -374,56 +374,9 @@ assert_cmd "enable-hooks adds exact key under commented features table" grep -Eq
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]
 hooks = true
-codex_hooks = true
-foo = true
-TOML
-enable_legacy_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-hooks --config-file "${CONFIG_FILE}")"
-assert_contains "${enable_legacy_out}" "CHANGED" "enable-hooks removes deprecated codex_hooks when canonical hooks exists"
-assert_cmd "enable-hooks keeps hooks enabled during legacy cleanup" grep -Eq '^hooks[[:space:]]*=[[:space:]]*true$' "${CONFIG_FILE}"
-assert_cmd "enable-hooks removes exact deprecated codex_hooks key" bash -c "! grep -Eq '^codex_hooks[[:space:]]*=' '${CONFIG_FILE}'"
-
-alias_out="$(python3 "${CODEX_CONFIG_HELPER}" enable-codex-hooks --config-file "${CONFIG_FILE}")"
-assert_contains "${alias_out}" "SKIP" "enable-codex-hooks remains a compatibility alias"
-
-cat > "${CONFIG_FILE}" <<'TOML'
-[features]
-foo = true
-
-[mcp_servers.vibeguard] # legacy comment
-command = "node"
-args = ["/legacy/mcp-server/dist/index.js"]
-
-[mcp_servers.vibeguard.env]
-VIBEGUARD_MODE = "legacy"
-
-[mcp_servers.vibeguard.env.deep]
-NESTED = "true"
-
-[other]
-value = 1
-TOML
-remove_out="$(python3 "${CODEX_CONFIG_HELPER}" remove-legacy-vibeguard-mcp --config-file "${CONFIG_FILE}")"
-assert_contains "${remove_out}" "CHANGED" "remove-legacy-vibeguard-mcp reports change"
-assert_cmd "legacy vibeguard mcp tables removed recursively" bash -c "! grep -qE '^\[mcp_servers\\.vibeguard([.]|\\])' '${CONFIG_FILE}'"
-assert_cmd "non-legacy tables remain after recursive cleanup" grep -Eq '^\[other\]$' "${CONFIG_FILE}"
-
-cat > "${CONFIG_FILE}" <<'TOML'
-[features]
-hooks = true
 TOML
 check_ok_out="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${CONFIG_FILE}")"
 assert_contains "${check_ok_out}" "OK" "check-hooks accepts valid TOML with feature enabled"
-
-cat > "${CONFIG_FILE}" <<'TOML'
-[features]
-hooks = true
-codex_hooks = true
-TOML
-check_legacy_out="$(python3 "${CODEX_CONFIG_HELPER}" check-hooks --config-file "${CONFIG_FILE}" || true)"
-assert_contains "${check_legacy_out}" "LEGACY" "check-hooks rejects deprecated codex_hooks even when hooks is enabled"
-
-check_legacy_alias_out="$(python3 "${CODEX_CONFIG_HELPER}" check-codex-hooks --config-file "${CONFIG_FILE}" || true)"
-assert_contains "${check_legacy_alias_out}" "LEGACY" "check-codex-hooks remains a compatibility alias"
 
 cat > "${CONFIG_FILE}" <<'TOML'
 [features]

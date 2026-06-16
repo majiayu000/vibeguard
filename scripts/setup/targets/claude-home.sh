@@ -546,7 +546,7 @@ clean_claude_home_installation() {
     local result
     result=$(setup_runtime setup-md-remove "${CLAUDE_DIR}/CLAUDE.md" 2>/dev/null || echo "ERROR")
     case "${result}" in
-      REMOVED|REMOVED_LEGACY) yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md" ;;
+      REMOVED) yellow "Removed VibeGuard rules from ~/.claude/CLAUDE.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.claude/CLAUDE.md" ;;
       *) red "Failed to clean CLAUDE.md" ;;
     esac
@@ -595,7 +595,7 @@ clean_claude_home_installation() {
     local clean_result
     if clean_result=$(settings_remove "${SETTINGS_FILE}" 2>/dev/null); then
       if [[ "${clean_result}" == "CHANGED" ]]; then
-        yellow "Removed VibeGuard hooks and legacy MCP entries from settings.json"
+        yellow "Removed VibeGuard hooks from settings.json"
       fi
     fi
   fi

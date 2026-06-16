@@ -11,7 +11,7 @@ from typing import Any
 
 from file_ops import write_json_atomic
 from hook_config_model import hook_command_identity
-from hooks_manifest import all_managed_script_names, codex_specs, load_manifest
+from hooks_manifest import codex_specs, load_manifest
 
 
 class HookSpec(dict):
@@ -21,26 +21,11 @@ class HookSpec(dict):
 MANIFEST = load_manifest()
 MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST)]
 
-LEGACY_MARKERS = {
-    "pre-bash-guard.sh",
-    "post-build-check.sh",
-    "stop-guard.sh",
-    "learn-evaluator.sh",
-    "post-guard-check.sh",
-    "session-tagger.sh",
-    "cognitive-reminder.sh",
-}
-
-MANAGED_MARKERS = LEGACY_MARKERS | all_managed_script_names(MANIFEST)
-
 # Namespaced vibeguard-* script names from MANAGED_SPECS.  These are
 # unambiguous enough to identify VibeGuard entries without inspecting the
 # wrapper path, so removal works even when a non-standard wrapper is used.
 _MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
 _WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook-codex.sh"})
-_STANDALONE_LEGACY_SCRIPTS: frozenset[str] = frozenset(
-    {"session-tagger.sh", "cognitive-reminder.sh", "post-guard-check.sh"}
-)
 
 
 def _display_path(path: Path, home: Path) -> str:
@@ -119,9 +104,7 @@ def _identity_for_hook(event: str, matcher: str | None, hook: dict[str, Any]) ->
         command=command,
         timeout=timeout,
         managed_scripts=_MANAGED_SCRIPT_NAMES,
-        legacy_scripts=MANAGED_MARKERS,
         wrapper_names=_WRAPPER_NAMES,
-        standalone_legacy_scripts=_STANDALONE_LEGACY_SCRIPTS,
     )
 
 

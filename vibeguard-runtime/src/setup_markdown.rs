@@ -2,7 +2,6 @@ use crate::setup_support::{
     SetupResult, basename, display_home_path, home_dir, read_json_object, shell_quote, shell_split,
     simple_unified_diff, write_json_atomic, write_text_atomic,
 };
-use regex::Regex;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -69,13 +68,7 @@ pub fn remove(args: &[String]) -> SetupResult<()> {
         return Ok(());
     }
 
-    if let Some(index) = original.find("\n# VibeGuard") {
-        let content = original[..index].trim_end().to_string() + "\n";
-        write_text_atomic(path, &content)?;
-        println!("REMOVED_LEGACY");
-    } else {
-        println!("NOT_FOUND");
-    }
+    println!("NOT_FOUND");
     Ok(())
 }
 
@@ -97,12 +90,7 @@ fn render_injected(
         let content = replace_managed_block(&original, &rules);
         return Ok(("UPDATED".to_string(), original, content));
     }
-    let legacy_re = Regex::new(r"\n# VibeGuard").expect("legacy regex compiles");
-    let base = legacy_re
-        .find(&original)
-        .map(|found| &original[..found.start()])
-        .unwrap_or(&original)
-        .trim_end();
+    let base = original.trim_end();
     let content = if base.is_empty() {
         format!("{}\n", rules.trim())
     } else {
@@ -143,12 +131,6 @@ struct ClaudeSpec {
     matcher: String,
     script: String,
 }
-
-const CLAUDE_LEGACY_SCRIPTS: &[&str] = &[
-    "post-guard-check.sh",
-    "session-tagger.sh",
-    "cognitive-reminder.sh",
-];
 
 pub fn settings_check(args: &[String]) -> SetupResult<()> {
     if args.len() != 3 {
@@ -192,8 +174,6 @@ pub fn settings_upsert(args: &[String]) -> SetupResult<()> {
     let before_text = std::fs::read_to_string(settings_path).unwrap_or_default();
     let mut data = Value::Object(read_json_object(settings_path, true)?);
     let mut changed = false;
-    changed |= settings_remove_legacy_mcp(&mut data);
-    changed |= settings_remove_legacy_hooks(&mut data, repo_dir)?;
     changed |= settings_remove_stale_installed(&mut data);
     if data.get("hooks").and_then(Value::as_object).is_none() {
         data.as_object_mut()
@@ -244,8 +224,6 @@ pub fn settings_remove(args: &[String]) -> SetupResult<()> {
     let repo_dir = Path::new(&args[0]);
     let mut data = Value::Object(read_json_object(settings_path, false)?);
     let before = serde_json::to_string(&data)?;
-    settings_remove_legacy_mcp(&mut data);
-    settings_remove_legacy_hooks(&mut data, repo_dir)?;
     for script in claude_managed_scripts(repo_dir)? {
         for event in [
             "PreToolUse",
@@ -541,30 +519,6 @@ fn settings_remove_unprofiled_hooks(
     Ok(changed)
 }
 
-fn settings_remove_legacy_mcp(data: &mut Value) -> bool {
-    let Some(object) = data.as_object_mut() else {
-        return false;
-    };
-    let Some(mcp) = object.get_mut("mcpServers").and_then(Value::as_object_mut) else {
-        return false;
-    };
-    let changed = mcp.remove("vibeguard").is_some();
-    if mcp.is_empty() {
-        object.remove("mcpServers");
-    }
-    changed
-}
-
-fn settings_remove_legacy_hooks(data: &mut Value, _repo_dir: &Path) -> SetupResult<bool> {
-    let mut changed = false;
-    for script in CLAUDE_LEGACY_SCRIPTS {
-        for event in ["PreToolUse", "PostToolUse", "Stop", "SessionStart"] {
-            changed |= settings_remove_hook(data, event, script);
-        }
-    }
-    Ok(changed)
-}
-
 fn settings_remove_stale_installed(data: &mut Value) -> bool {
     let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
         return false;
@@ -671,28 +625,7 @@ fn settings_is_canonical(command: &str, script: &str) -> bool {
                 .is_some_and(|part| part.ends_with("/.vibeguard/run-hook.sh"))
             && parts.get(2).is_some_and(|part| part == script);
     }
-    if parts.len() <= 3
-        || !parts.first().is_some_and(|part| basename(part) == "bash")
-        || !parts.last().is_some_and(|part| part == script)
-    {
-        return false;
-    }
-    let wrapper_parts = &parts[1..parts.len() - 1];
-    wrapper_parts
-        .first()
-        .is_some_and(|part| settings_legacy_wrapper_part_starts_path(part))
-        && wrapper_parts
-            .iter()
-            .skip(1)
-            .all(|part| !part.starts_with('-') && !settings_legacy_wrapper_part_starts_path(part))
-        && wrapper_parts.join(" ").ends_with("/.vibeguard/run-hook.sh")
-}
-
-fn settings_legacy_wrapper_part_starts_path(part: &str) -> bool {
-    part.starts_with('/')
-        || part.starts_with("~/")
-        || part.starts_with("$HOME/")
-        || part.starts_with("${HOME}/")
+    false
 }
 
 fn settings_stale_findings(data: &Value, config: &Path) -> Vec<String> {

@@ -114,15 +114,10 @@ def hook_command_identity(
     command: str,
     timeout: int | None,
     managed_scripts: Iterable[str],
-    legacy_scripts: Iterable[str] = (),
     wrapper_names: Iterable[str] = (),
-    standalone_legacy_scripts: Iterable[str] = (),
 ) -> HookIdentity:
     managed_set = frozenset(managed_scripts)
-    legacy_set = frozenset(legacy_scripts)
-    all_known_scripts = managed_set | legacy_set
     wrapper_set = frozenset(wrapper_names)
-    standalone_legacy_set = frozenset(standalone_legacy_scripts)
 
     script: str | None = None
     wrapper: str | None = None
@@ -141,7 +136,7 @@ def hook_command_identity(
         if index + 1 >= len(parts):
             continue
         next_script = _basename(parts[index + 1])
-        if next_script in all_known_scripts:
+        if next_script in managed_set:
             script = next_script
             break
 
@@ -153,11 +148,8 @@ def hook_command_identity(
             ):
                 script = token_base
                 break
-            if token_base in standalone_legacy_set and _looks_like_direct_script(parts, index):
-                script = token_base
-                break
 
-    managed_id = _script_id(script) if script in all_known_scripts else None
+    managed_id = _script_id(script) if script in managed_set else None
     return HookIdentity(
         platform=platform,
         event=event,
@@ -176,9 +168,7 @@ def normalize_hook_entry(
     event: str,
     entry: Any,
     managed_scripts: Iterable[str],
-    legacy_scripts: Iterable[str] = (),
     wrapper_names: Iterable[str] = (),
-    standalone_legacy_scripts: Iterable[str] = (),
 ) -> list[HookIdentity]:
     if not isinstance(entry, dict):
         return []
@@ -205,9 +195,7 @@ def normalize_hook_entry(
                 command=command,
                 timeout=timeout,
                 managed_scripts=managed_scripts,
-                legacy_scripts=legacy_scripts,
                 wrapper_names=wrapper_names,
-                standalone_legacy_scripts=standalone_legacy_scripts,
             )
         )
     return identities
