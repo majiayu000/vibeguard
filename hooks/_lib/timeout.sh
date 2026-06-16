@@ -31,18 +31,28 @@ vg_run_with_timeout() {
     return $?
   fi
 
-  local flag stdin_file pid watchdog command_status
+  local flag stdin_file pid watchdog command_status stdin_is_tty
   flag="$(mktemp "${TMPDIR:-/tmp}/vibeguard-timeout.XXXXXX")"
   stdin_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-timeout-stdin.XXXXXX")"
-  if [[ -t 0 ]]; then
-    : > "${stdin_file}"
-  elif ! cat > "${stdin_file}"; then
+
+  stdin_is_tty=0
+  [[ -t 0 ]] && stdin_is_tty=1
+  if ! exec 9<&0; then
     rm -f "${flag}" "${stdin_file}" 2>/dev/null || true
     return 1
   fi
 
-  "$@" < "${stdin_file}" &
+  (
+    if [[ "${stdin_is_tty}" -eq 1 ]]; then
+      : > "${stdin_file}"
+    elif ! cat <&9 > "${stdin_file}"; then
+      exit 1
+    fi
+    exec 9<&-
+    exec "$@" < "${stdin_file}"
+  ) &
   pid=$!
+  exec 9<&-
   (
     local sleep_pid
     sleep "${seconds}" 2>/dev/null &

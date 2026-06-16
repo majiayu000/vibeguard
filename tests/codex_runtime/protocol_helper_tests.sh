@@ -333,7 +333,7 @@ fi
 
 NO_TIMEOUT_BIN="${TMP_DIR}/no-timeout-bin"
 mkdir -p "${NO_TIMEOUT_BIN}"
-for _tool in bash cat mktemp pgrep sleep; do
+for _tool in bash cat mktemp pgrep sleep yes; do
   _tool_path="$(command -v "${_tool}")"
   ln -s "${_tool_path}" "${NO_TIMEOUT_BIN}/${_tool}"
 done
@@ -347,6 +347,28 @@ timeout_stdin_out="$(
   ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
 )"
 assert_contains "${timeout_stdin_out}" "line=abc" "timeout fallback preserves pipeline stdin"
+
+timeout_unclosed_stdin_started="$(date +%s)"
+timeout_unclosed_stdin_out="$(
+  bash -c '
+    set -euo pipefail
+    PATH="$1"
+    source "$2"
+    run_status=0
+    yes | vg_run_with_timeout 1 cat >/dev/null || run_status=$?
+    printf "status=%s\n" "$run_status"
+  ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
+)"
+timeout_unclosed_stdin_elapsed=$(( $(date +%s) - timeout_unclosed_stdin_started ))
+assert_contains "${timeout_unclosed_stdin_out}" "status=124" "timeout fallback bounds unclosed pipeline stdin"
+TOTAL=$((TOTAL + 1))
+if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3 ]]; then
+  green "timeout fallback returns promptly for unclosed pipeline stdin"
+  PASS=$((PASS + 1))
+else
+  red "timeout fallback returns promptly for unclosed pipeline stdin"
+  FAIL=$((FAIL + 1))
+fi
 
 timeout_child_pid_file="${TMP_DIR}/timeout-child.pid"
 timeout_tree_out="$(
