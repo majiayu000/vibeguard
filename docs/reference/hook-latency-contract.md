@@ -53,11 +53,11 @@ Post-build fixtures use fake build commands and disable the post-build cache so 
 
 ## Hotspot Attribution
 
-Benchmark output includes `surface=hook_e2e_ms` and a `hotspot=` field.
-`bench-output.json` prefixes benchmark-action sample names with
-`hook_e2e_ms`, and JSON output carries the same surface marker at the top level
-and per result. When a regression fails, the failing row must identify both the
-surface and fixture size, such as `hook_e2e_ms post-write-guard (5000)` or
+Benchmark output includes `surface=hook_e2e_ms` and a `hotspot=` field. JSON
+output carries the same surface marker at the top level and per result.
+`bench-output.json` uses compact `e2e ... P95` names so GitHub benchmark
+comments stay readable. When a regression fails, the console row must identify
+both the surface and fixture size, such as
 `surface=hook_e2e_ms ... post-write-guard (5000)`.
 
 Synthetic slow fixtures are part of the regression suite:

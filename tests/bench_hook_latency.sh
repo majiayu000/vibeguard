@@ -430,21 +430,40 @@ fi
 
 # --- benchmark-action compatible output (customSmallerIsBetter) ---
 # Always write to bench-output.json for CI consumption
+bench_action_name() {
+  case "$1" in
+    "pre-edit-guard") printf "pre-edit" ;;
+    "pre-write-guard") printf "pre-write" ;;
+    "pre-bash-guard") printf "pre-bash" ;;
+    "post-edit-guard (100)") printf "post-edit 100" ;;
+    "post-write-guard (100)") printf "post-write 100" ;;
+    "post-build-check (fake cargo)") printf "post-build fake" ;;
+    "codex-wrapper pre-bash-guard") printf "codex pre-bash" ;;
+    "codex-wrapper post-edit-guard (100)") printf "codex post-edit 100" ;;
+    "post-edit-guard (5000)") printf "post-edit 5000" ;;
+    "post-write-guard (5000)") printf "post-write 5000" ;;
+    "stop-guard (5000)") printf "stop 5000" ;;
+    "learn-evaluator (5000)") printf "learn 5000" ;;
+    *) printf "%s" "$1" ;;
+  esac
+}
+
 BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
 _first=true
 {
   echo "["
   for r in "${RESULTS[@]}"; do
     _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
+    _display_name=$(bench_action_name "$_name")
     _p50=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p50'])" 2>/dev/null || echo "0")
     _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
     _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
     if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
-    printf '  {"name": "%s %s (P50)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p50"
+    printf '  {"name": "e2e %s P50", "unit": "ms", "value": %s}' "$_display_name" "$_p50"
     echo ","
-    printf '  {"name": "%s %s (P95)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p95"
+    printf '  {"name": "e2e %s P95", "unit": "ms", "value": %s}' "$_display_name" "$_p95"
     echo ","
-    printf '  {"name": "%s %s (P99)", "unit": "ms", "value": %s}' "$BENCH_SURFACE" "$_name" "$_p99"
+    printf '  {"name": "e2e %s P99", "unit": "ms", "value": %s}' "$_display_name" "$_p99"
   done
   echo ""
   echo "]"
