@@ -7,7 +7,7 @@
 - Readiness: plan_first
 - Severity: P1
 - Suggested labels: `bug`, `P1`, `guard`, `review`
-- Related: `vibeguard-runtime/src/codex_app_server_core.rs`, `vibeguard-runtime/src/codex_app_server_strategies.rs`, `vibeguard-runtime/src/codex_app_server_file_changes.rs`, `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, `hooks/_lib/policy.py`
+- Related: `vibeguard-runtime/src/codex_app_server_core.rs`, `vibeguard-runtime/src/codex_app_server_strategies.rs`, `vibeguard-runtime/src/codex_app_server_file_changes.rs`, `hooks/run-hook.sh`, `hooks/run-hook-codex.sh`, legacy Python policy helper
 
 ## Problem
 
@@ -170,7 +170,7 @@ handoff:
   verification_owner: implementation owner
   stop_conditions:
     - Missing-hook behavior cannot be made visible without changing the public Codex app-server protocol.
-    - Rust policy behavior would intentionally diverge from hooks/_lib/policy.py.
+    - Rust policy behavior would intentionally diverge from the legacy Python policy helper.
   lane_map:
     runtime_policy: implementation owner
     app_server_tests: implementation owner
