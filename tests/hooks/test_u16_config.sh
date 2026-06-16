@@ -211,6 +211,30 @@ result=$(run_post_edit_medium)
 assert_contains "$result" "[U-16]" "default 400/800: 450-line post-edit emits U-16 advisory"
 assert_contains "$result" "400-line typical range" "post-edit advisory cites typical threshold"
 
+non_git_dir="$WORK_DIR/non_git_relative"
+mkdir -p "$non_git_dir"
+large_relative_target="$non_git_dir/large.py"
+i=0
+while [[ "$i" -lt 850 ]]; do
+  printf 'x = %s\n' "$i"
+  i=$((i + 1))
+done > "$large_relative_target"
+
+relative_result="$(
+  cd "$non_git_dir"
+  WARNINGS=""
+  FILE_PATH="large.py"
+  NEW_STRING="x = 849
+x = 850"
+  source "$REPO_DIR/hooks/log.sh"
+  source "$REPO_DIR/hooks/_lib/post_edit_common.sh"
+  source "$REPO_DIR/hooks/_lib/post_edit_quality.sh"
+  vg_post_edit_detect_u16_size
+  printf '%s\n' "$WARNINGS"
+)"
+assert_contains "$relative_result" "[U-16]" "post-edit U-16 handles non-git relative file paths"
+assert_contains "$relative_result" "850 lines" "post-edit U-16 reports non-git relative file size"
+
 export VG_U16_WARN_LIMIT=600
 result=$(run_post_edit_medium)
 assert_not_contains "$result" "[U-16]" "VG_U16_WARN_LIMIT=600: 450-line post-edit is silent"

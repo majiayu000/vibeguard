@@ -331,6 +331,72 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+NO_TIMEOUT_BIN="${TMP_DIR}/no-timeout-bin"
+mkdir -p "${NO_TIMEOUT_BIN}"
+for _tool in bash cat mktemp pgrep sleep yes; do
+  _tool_path="$(command -v "${_tool}")"
+  ln -s "${_tool_path}" "${NO_TIMEOUT_BIN}/${_tool}"
+done
+
+timeout_stdin_out="$(
+  bash -c '
+    set -euo pipefail
+    PATH="$1"
+    source "$2"
+    printf "abc\n" | vg_run_with_timeout 2 bash -c '"'"'IFS= read -r line || true; printf "line=%s\n" "$line"'"'"'
+  ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
+)"
+assert_contains "${timeout_stdin_out}" "line=abc" "timeout fallback preserves pipeline stdin"
+
+timeout_unclosed_stdin_started="$(date +%s)"
+timeout_unclosed_stdin_out="$(
+  bash -c '
+    set -euo pipefail
+    PATH="$1"
+    source "$2"
+    run_status=0
+    yes | vg_run_with_timeout 1 cat >/dev/null || run_status=$?
+    printf "status=%s\n" "$run_status"
+  ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
+)"
+timeout_unclosed_stdin_elapsed=$(( $(date +%s) - timeout_unclosed_stdin_started ))
+assert_contains "${timeout_unclosed_stdin_out}" "status=124" "timeout fallback bounds unclosed pipeline stdin"
+TOTAL=$((TOTAL + 1))
+if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3 ]]; then
+  green "timeout fallback returns promptly for unclosed pipeline stdin"
+  PASS=$((PASS + 1))
+else
+  red "timeout fallback returns promptly for unclosed pipeline stdin"
+  FAIL=$((FAIL + 1))
+fi
+
+timeout_child_pid_file="${TMP_DIR}/timeout-child.pid"
+timeout_tree_out="$(
+  bash -c '
+    set -euo pipefail
+    PATH="$1"
+    source "$2"
+    pid_file="$3"
+    run_status=0
+    vg_run_with_timeout 1 bash -c '"'"'/bin/sleep 60 & echo $! > "$1"; wait'"'"' _ "$pid_file" || run_status=$?
+    printf "status=%s\n" "$run_status"
+  ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh" "${timeout_child_pid_file}"
+)"
+assert_contains "${timeout_tree_out}" "status=124" "timeout fallback returns 124 after killing slow command"
+timeout_child_pid="$(cat "${timeout_child_pid_file}" 2>/dev/null || true)"
+sleep 0.5
+TOTAL=$((TOTAL + 1))
+if [[ -n "${timeout_child_pid}" ]] && ps -p "${timeout_child_pid}" >/dev/null 2>&1; then
+  kill "${timeout_child_pid}" 2>/dev/null || true
+  sleep 0.1
+  kill -KILL "${timeout_child_pid}" 2>/dev/null || true
+  red "timeout fallback kills descendant processes"
+  FAIL=$((FAIL + 1))
+else
+  green "timeout fallback kills descendant processes"
+  PASS=$((PASS + 1))
+fi
+
 old_normalizer_runtime="${TMP_DIR}/old-normalizer-runtime"
 cat > "${old_normalizer_runtime}" <<'SH'
 #!/usr/bin/env bash
