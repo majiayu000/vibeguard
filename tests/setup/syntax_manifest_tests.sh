@@ -44,7 +44,6 @@ assert_cmd "setup shell rule counter counts canonical non-numeric rule ids" bash
 "
 assert_cmd "scripts/lib/codex_hooks_json.py syntax is correct" python3 -m py_compile "${CODEX_HOOKS_HELPER}"
 assert_cmd "scripts/lib/codex_config_toml.py syntax is correct" python3 -m py_compile "${CODEX_CONFIG_HELPER}"
-assert_cmd "hooks/_lib/codex_apply_patch_adapter.py syntax is correct" python3 -m py_compile "${REPO_DIR}/hooks/_lib/codex_apply_patch_adapter.py"
 assert_cmd "vibeguard-pre-edit namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-pre-edit-guard.sh"
 assert_cmd "vibeguard-pre-write namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-pre-write-guard.sh"
 assert_cmd "vibeguard-post-edit namespaced wrapper syntax is correct" bash -n "${REPO_DIR}/hooks/vibeguard-post-edit-guard.sh"

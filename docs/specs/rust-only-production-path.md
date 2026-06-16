@@ -66,12 +66,11 @@ opened:
   injection.
 - `scripts/lib/install-state.sh` stores and checks install state through inline
   Python.
-- `hooks/_lib/policy.sh` shells out to `hooks/_lib/policy.py` for runtime policy
-  and uses inline Python for output downgrade, diagnostics, and visible failure
-  payloads.
-- `hooks/_lib/codex_runner.sh` already prefers
-  `vibeguard-runtime codex-normalize-apply-patch`, but keeps
-  `hooks/_lib/codex_apply_patch_adapter.py` as fallback.
+- `hooks/_lib/policy.sh` requires `vibeguard-runtime` for runtime policy,
+  output downgrade, diagnostics, and visible failure payloads.
+- `hooks/_lib/codex_runner.sh` requires
+  `vibeguard-runtime codex-normalize-apply-patch`; there is no Python
+  normalizer fallback.
 - `hooks/pre-edit-guard.sh` already attempts `vibeguard-runtime pre-edit-check`
   first, but still contains an inline Python implementation for the full path.
 - Baseline source inventory excluding `target`: 41 Rust files, 48 Python files,
@@ -130,8 +129,8 @@ responsibilities:
 
 - `runtime_config`: read user runtime config, project policy config, and
   schema-specific project policy validation.
-- `runtime_policy`: mirror `hooks/_lib/policy.py` decisions, including disabled
-  hooks, enforcement mode, invalid-config handling, downgrade output, policy
+- `runtime_policy`: own runtime policy decisions, including disabled hooks,
+  enforcement mode, invalid-config handling, downgrade output, policy
   diagnostics, and visible error output.
 - `install_state`: initialize, record, list, and drift-check
   `~/.vibeguard/install-state.json`.
