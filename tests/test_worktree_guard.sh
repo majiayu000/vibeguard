@@ -48,7 +48,6 @@ header "worktree-guard.sh list"
 
 fixture_repo="${TMP_ROOT}/repo"
 worktree_base="${TMP_ROOT}/repo.wt"
-legacy_worktree_base="${fixture_repo}/.vibeguard/worktrees"
 git init -q "$fixture_repo"
 git -C "$fixture_repo" config user.email "test@example.com"
 git -C "$fixture_repo" config user.name "Test User"
@@ -61,9 +60,7 @@ git -C "$fixture_repo" commit -qm "init"
   VIBEGUARD_WORKTREE_BASE="$worktree_base" bash "$REPO_DIR/scripts/worktree-guard.sh" create sample >/dev/null
 )
 
-mkdir -p "$legacy_worktree_base"
-git -C "$fixture_repo" worktree add -b vg/legacy "${legacy_worktree_base}/legacy" HEAD >/dev/null 2>&1
-legacy_status_path="$(cd "${legacy_worktree_base}/legacy" && pwd -P)"
+mkdir -p "${fixture_repo}/.vibeguard/worktrees/ignored"
 
 list_output="$(
   cd "$fixture_repo"
@@ -71,15 +68,16 @@ list_output="$(
 )"
 
 assert_contains "$list_output" "${worktree_base}/sample" "list shows worktree under configured base"
-assert_contains "$list_output" "${legacy_worktree_base}/legacy" "list shows legacy worktree fallback"
+assert_not_contains "$list_output" ".vibeguard/worktrees/ignored" "list ignores old in-repo worktree base"
 assert_not_contains "$list_output" "No active VibeGuard worktree" "list does not report empty when configured-base worktree exists"
 
-status_output="$(
+missing_status_output="$(
   cd "$fixture_repo"
-  VIBEGUARD_WORKTREE_BASE="$worktree_base" bash "$REPO_DIR/scripts/worktree-guard.sh" status legacy
+  VIBEGUARD_WORKTREE_BASE="$worktree_base" bash "$REPO_DIR/scripts/worktree-guard.sh" status ignored 2>&1 || true
 )"
 
-assert_contains "$status_output" "Path: ${legacy_status_path}" "status resolves legacy worktree fallback"
+assert_contains "$missing_status_output" "Error: worktree does not exist:" "status errors for old in-repo worktree base"
+assert_contains "$missing_status_output" "repo.wt/ignored" "status resolves missing worktree against configured base"
 
 header "worktree-guard.sh relative base"
 

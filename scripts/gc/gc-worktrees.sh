@@ -2,8 +2,8 @@
 # VibeGuard GC — Worktree Cleanup
 #
 # Scan the active worktree base (VIBEGUARD_WORKTREE_BASE, default <repo>.wt/)
-# plus the legacy in-repo path (.vibeguard/worktrees/) and delete worktrees
-# that have been inactive for more than the specified number of days.
+# and delete worktrees that have been inactive for more than the specified
+# number of days.
 # Worktrees with unmerged changes will only be warned but not deleted.
 #
 # Usage:
@@ -60,20 +60,10 @@ normalize_worktree_base() {
   printf '%s\n' "$base"
 }
 
-same_path() {
-  [[ "${1%/}" == "${2%/}" ]]
-}
-
 WORKTREE_BASE="$(normalize_worktree_base "${VIBEGUARD_WORKTREE_BASE:-${REPO_ROOT}.wt}")"
-LEGACY_WORKTREE_BASE="$(normalize_worktree_base "${REPO_ROOT}/.vibeguard/worktrees")"
 
 WORKTREE_DIRS=()
 [[ -d "$WORKTREE_BASE" ]] && WORKTREE_DIRS+=("$WORKTREE_BASE")
-# Back-compat: pre-feature/wt-base-config worktrees lived in-repo. Scan them too
-# so they still get cleaned, even when the new base is set elsewhere.
-if ! same_path "$LEGACY_WORKTREE_BASE" "$WORKTREE_BASE" && [[ -d "$LEGACY_WORKTREE_BASE" ]]; then
-  WORKTREE_DIRS+=("$LEGACY_WORKTREE_BASE")
-fi
 
 if [[ ${#WORKTREE_DIRS[@]} -eq 0 ]]; then
   green "No worktree directory, skip"
@@ -101,13 +91,10 @@ mtime_or_now() {
 }
 
 for base in "${WORKTREE_DIRS[@]}"; do
-  base_tag=""
-  [[ "$base" == "$LEGACY_WORKTREE_BASE" ]] && base_tag=" [legacy]"
-
   for wt_dir in "${base}"/*/; do
     [[ -d "$wt_dir" ]] || continue
     NAME=$(basename "$wt_dir")
-    LABEL="${NAME}${base_tag}"
+    LABEL="${NAME}"
 
     # Get the latest modification time (get the latest file in the .git file or directory)
     if [[ -f "${wt_dir}.git" ]]; then

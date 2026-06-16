@@ -189,16 +189,16 @@ assert_contains "$invalid_gc_logs_out" "VibeGuard project config invalid" "gc-lo
 header "gc-worktrees.sh reads project config"
 
 repo="${TMP_ROOT}/repo"
-mkdir -p "${repo}/.vibeguard/worktrees/old"
+mkdir -p "$repo"
 git -C "$repo" init -q
+mkdir -p "${repo}.wt/old" "${repo}/.vibeguard/worktrees/ignored"
 cp "$cfg" "${repo}/.vibeguard.json"
-perl -e 'utime(time - 10 * 86400, time - 10 * 86400, $ARGV[0])' "${repo}/.vibeguard/worktrees/old"
+perl -e 'utime(time - 10 * 86400, time - 10 * 86400, $ARGV[0])' "${repo}.wt/old"
+perl -e 'utime(time - 10 * 86400, time - 10 * 86400, $ARGV[0])' "${repo}/.vibeguard/worktrees/ignored"
 worktree_out="$(cd "$repo" && bash "$REPO_DIR/scripts/gc/gc-worktrees.sh" --dry-run)"
-assert_contains "$worktree_out" "old [legacy]: 10 days" "gc-worktrees inspects old legacy worktree"
+assert_contains "$worktree_out" "old: 10 days" "gc-worktrees inspects configured default worktree base"
 assert_contains "$worktree_out" "reserved" "configured 42-day retention prevents deletion"
-
-legacy_override_out="$(cd "$repo" && VIBEGUARD_WORKTREE_BASE=".vibeguard/worktrees/" bash "$REPO_DIR/scripts/gc/gc-worktrees.sh" --dry-run)"
-assert_occurrences "$legacy_override_out" "old [legacy]: 10 days" 1 "gc-worktrees deduplicates legacy base with trailing slash"
+assert_occurrences "$worktree_out" "ignored" 0 "gc-worktrees ignores old in-repo worktree base"
 
 relative_repo="${TMP_ROOT}/relative-repo"
 relative_base_abs="${TMP_ROOT}/relative-repo.wt"
@@ -211,7 +211,7 @@ relative_gc_out="$(
 assert_contains "$relative_gc_out" "current: 0 days" "gc-worktrees resolves relative base against repo root"
 
 linux_stat_repo="${TMP_ROOT}/linux-stat-repo"
-mkdir -p "${linux_stat_repo}/.vibeguard/worktrees/current" "${TMP_ROOT}/bin"
+mkdir -p "$linux_stat_repo" "${linux_stat_repo}.wt/current" "${TMP_ROOT}/bin"
 git -C "$linux_stat_repo" init -q
 cat > "${TMP_ROOT}/bin/stat" <<'SH'
 #!/usr/bin/env bash
@@ -227,7 +227,7 @@ exec /usr/bin/stat "$@"
 SH
 chmod +x "${TMP_ROOT}/bin/stat"
 linux_stat_out="$(cd "$linux_stat_repo" && PATH="${TMP_ROOT}/bin:$PATH" VIBEGUARD_GC_WORKTREE_MAX_DAYS=42 bash "$REPO_DIR/scripts/gc/gc-worktrees.sh" --dry-run)"
-assert_contains "$linux_stat_out" "current [legacy]: 0 days" "gc-worktrees ignores GNU stat -f filesystem output"
+assert_contains "$linux_stat_out" "current: 0 days" "gc-worktrees ignores GNU stat -f filesystem output"
 
 header "schema exposes gc contract"
 
