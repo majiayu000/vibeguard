@@ -2,27 +2,69 @@
 # Event-log-backed history detectors for post-edit-guard.sh.
 
 VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+VG_TIMEOUT_LIB="${VG_EVENT_LOG_LIB}/timeout.sh"
+if [[ -f "${VG_TIMEOUT_LIB}" ]]; then
+  # shellcheck source=hooks/_lib/timeout.sh
+  source "${VG_TIMEOUT_LIB}"
+fi
+
+vg_post_edit_history_timeout_seconds() {
+  local seconds="${VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT:-2}"
+  if [[ ! "${seconds}" =~ ^[1-9][0-9]*$ ]]; then
+    seconds=2
+  fi
+  printf '%s\n' "${seconds}"
+}
+
+vg_post_edit_history_with_timeout() {
+  local seconds
+  seconds="$(vg_post_edit_history_timeout_seconds)"
+  if declare -F vg_run_with_timeout >/dev/null 2>&1; then
+    vg_run_with_timeout "${seconds}" "$@"
+  else
+    "$@"
+  fi
+}
+
+vg_post_edit_history_query() {
+  local tail_lines="$1" runtime_command="$2"
+  shift 2
+
+  vg_post_edit_history_with_timeout bash -c '
+    set -o pipefail
+    tail "-$1" "$2" 2>/dev/null | "$3" "$4" "${@:5}"
+  ' vg-post-edit-history-query \
+    "${tail_lines}" \
+    "${VIBEGUARD_LOG_FILE}" \
+    "${_VIBEGUARD_RUNTIME}" \
+    "${runtime_command}" \
+    "$@"
+}
+
+vg_post_edit_history_numeric_query() {
+  local output
+  output="$(vg_post_edit_history_query "$@" 2>/dev/null | tr -d '[:space:]')" || output=""
+  if [[ "${output}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "${output}"
+  else
+    printf '0\n'
+  fi
+}
 
 vg_post_edit_count_build_failures() {
   local project_root
   # PERF-OK: build-failure history is repo-scoped; outside git uses an empty root.
-  project_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-  tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$project_root" \
-    2>/dev/null | tr -d '[:space:]' || echo "0"
+  project_root=$(vg_post_edit_history_with_timeout git rev-parse --show-toplevel 2>/dev/null || echo "")
+  vg_post_edit_history_numeric_query 200 build-fails "$VIBEGUARD_SESSION_ID" "$project_root"
 }
 
 vg_post_edit_detect_churn() {
   local churn_count build_fail_count
-  churn_count=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VIBEGUARD_RUNTIME" churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
-    2>/dev/null | tr -d '[:space:]' || echo "0")
-  churn_count="${churn_count:-0}"
+  churn_count="$(vg_post_edit_history_numeric_query 500 churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH")"
   build_fail_count="0"
 
   if [[ "$churn_count" -ge 20 ]]; then
     build_fail_count="$(vg_post_edit_count_build_failures)"
-    build_fail_count="${build_fail_count:-0}"
   fi
 
   if [[ "$churn_count" -ge 20 && "$build_fail_count" -ge 5 ]]; then
@@ -50,8 +92,7 @@ DO NOT: Take any action — this is informational only"
 
 vg_post_edit_detect_w14_overlap() {
   local recent_conflict other_session other_agent other_hook other_tool
-  recent_conflict=$(tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VIBEGUARD_RUNTIME" post-edit-history "$VIBEGUARD_SESSION_ID" "$FILE_PATH" "${VIBEGUARD_AGENT_TYPE:-}" \
+  recent_conflict=$(vg_post_edit_history_query 500 post-edit-history "$VIBEGUARD_SESSION_ID" "$FILE_PATH" "${VIBEGUARD_AGENT_TYPE:-}" \
     2>/dev/null | awk -F '\t' '$1 == "W14" { print $2 "|" $3 "|" $4 "|" $5 }' | tail -1 | tr -d '\r' || true)
 
   [[ -n "$recent_conflict" ]] || return 0
@@ -108,8 +149,7 @@ vg_post_edit_detect_w15_loop() {
   local current_delta past_consecutive past_deltas raw
   current_delta="${VG_W15_CURRENT_DELTA:-0}"
 
-  raw=$(tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VIBEGUARD_RUNTIME" post-edit-w15 "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
+  raw=$(vg_post_edit_history_query 200 post-edit-w15 "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
     2>/dev/null || printf "0\n\n")
 
   past_consecutive=$(printf '%s\n' "$raw" | sed -n '1p' | tr -d '[:space:]')
@@ -147,7 +187,5 @@ ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing
 }
 
 vg_post_edit_warn_count_for_file() {
-  tail -500 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
-    | "$_VIBEGUARD_RUNTIME" warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
-    2>/dev/null | tr -d '[:space:]' || echo "0"
+  vg_post_edit_history_numeric_query 500 warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
 }

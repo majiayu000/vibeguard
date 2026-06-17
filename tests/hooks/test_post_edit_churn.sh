@@ -69,4 +69,40 @@ append_event "post-edit-guard" "Edit" "warn" "[RS-03] unwrap introduced" "$FILE_
 warn_count="$(vg_post_edit_warn_count_for_file)"
 assert_exit_zero "non-churn warning still counts toward warn escalation" test "$warn_count" = "1"
 
+assert_exit_zero "post-edit history default timeout stays below aggregate hook budget" test "$(vg_post_edit_history_timeout_seconds)" = "2"
+VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT=bad
+assert_exit_zero "invalid post-edit history timeout falls back below aggregate hook budget" test "$(vg_post_edit_history_timeout_seconds)" = "2"
+unset VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT
+
+slow_runtime="$WORK_DIR/slow-runtime.sh"
+cat > "$slow_runtime" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  churn-count|warn-count|build-fails|post-edit-history|post-edit-w15)
+    cat >/dev/null || true
+    sleep 5
+    printf '99\n'
+    ;;
+  *)
+    cat >/dev/null || true
+    ;;
+esac
+STUB
+chmod +x "$slow_runtime"
+
+old_runtime="$_VIBEGUARD_RUNTIME"
+_VIBEGUARD_RUNTIME="$slow_runtime"
+export VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT=1
+seed_edits 20
+WARNINGS=""
+timeout_started="$(date +%s)"
+vg_post_edit_detect_churn
+timeout_elapsed=$(( $(date +%s) - timeout_started ))
+assert_exit_zero "post-edit history runtime timeout returns promptly" test "$timeout_elapsed" -lt 3
+assert_not_contains "$WARNINGS" "[CHURN" "timed-out churn query degrades to zero warnings"
+_VIBEGUARD_RUNTIME="$old_runtime"
+unset VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT
+
 hook_test_finish
