@@ -180,6 +180,7 @@ assert_file_contains "${TMP_DIR}/bad-find.out" "bad-find-hook.sh" "unbounded fin
 
 BAD_EXEC_FIND_HOOKS="${TMP_DIR}/bad-exec-find-hooks"
 write_hook "${BAD_EXEC_FIND_HOOKS}/git" "pre-push" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
+chmod 700 "${BAD_EXEC_FIND_HOOKS}/git/pre-push"
 assert_fail_contains "unbounded find in executable hook fails static validator" "PERF-02" "${TMP_DIR}/bad-exec-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_EXEC_FIND_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-exec-find.out" "pre-push" "executable find output names the hook"
 

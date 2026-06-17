@@ -152,7 +152,7 @@ line_has_odd_quote() {
 }
 
 hook_script_files() {
-  find "$HOOKS_DIR" -type f \( -name '*.sh' -o -perm -111 \) | sort
+  find "$HOOKS_DIR" -type f \( -name '*.sh' -o -perm -100 -o -perm -010 -o -perm -001 \) | sort
 }
 
 hook_perf_scan_files() {
