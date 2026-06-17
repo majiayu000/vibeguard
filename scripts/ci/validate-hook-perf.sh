@@ -37,6 +37,11 @@ line_is_comment() {
   [[ "${line}" =~ ^[[:space:]]*# ]]
 }
 
+line_is_output_literal() {
+  local line="$1"
+  [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]]
+}
+
 find_command_has_maxdepth() {
   local file="$1"
   local line_no="$2"
@@ -51,6 +56,28 @@ find_command_has_maxdepth() {
   done
 
   [[ "${command}" == *"-maxdepth"* ]]
+}
+
+git_command_is_safe() {
+  local line="$1"
+
+  # timeout-wrapped git calls have a bounded wall-clock budget.
+  if printf '%s\n' "$line" | grep -Eq '(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*git[[:space:]]'; then
+    return 0
+  fi
+
+  # Existing hooks rely on suppressed git failures when running outside a worktree
+  # or against partially initialized repos.
+  if [[ "$line" == *"2>/dev/null"* || "$line" == *"&>/dev/null"* || "$line" == *">/dev/null 2>&1"* ]]; then
+    return 0
+  fi
+
+  # Explicit fallback keeps hook execution moving when git cannot answer.
+  if [[ "$line" == *"|| true"* || "$line" == *"|| echo"* || "$line" == *"|| pwd"* ]]; then
+    return 0
+  fi
+
+  return 1
 }
 
 echo "======================================"
@@ -110,17 +137,27 @@ echo ""
 
 # --- Rule 3: Git commands that could hang (no timeout context) ---
 echo "[PERF-03] Git commands without timeout safety"
-# We check for git diff/log/status in main hook scripts (not log.sh which has a simple rev-parse)
-for file in "$HOOKS_DIR"/stop-guard.sh "$HOOKS_DIR"/pre-commit-guard.sh; do
-  [[ ! -f "$file" ]] && continue
-  basename="${file##*/}"
-  # Count git commands that aren't wrapped in timeout or have 2>/dev/null fallback
-  GIT_CALLS=$(grep -cn 'git ' "$file" 2>/dev/null || echo 0)
-  GIT_SAFE=$(grep -c 'git.*2>/dev/null' "$file" 2>/dev/null || echo 0)
-  if [[ "$GIT_CALLS" -gt 0 ]]; then
-    green "${basename}: ${GIT_CALLS} git calls, ${GIT_SAFE} with error suppression"
+while IFS= read -r file; do
+  UNSAFE_GIT=false
+  while IFS=: read -r line_no line; do
+    [[ -z "${line_no}" ]] && continue
+    if line_is_comment "$line" || line_is_output_literal "$line"; then
+      continue
+    fi
+    if perf_ok_nearby "$file" "$line_no"; then
+      green "${file##*/}:${line_no}: documented git call"
+    elif git_command_is_safe "$line"; then
+      green "${file##*/}:${line_no}: bounded or error-suppressed git call"
+    else
+      red "${file##*/}:${line_no}: unsafe git call — ${line:0:80}"
+      VIOLATIONS=$((VIOLATIONS + 1))
+      UNSAFE_GIT=true
+    fi
+  done < <(grep -nE '(^|[^[:alnum:]_./-])git[[:space:]]+' "$file" 2>/dev/null || true)
+  if [[ "$UNSAFE_GIT" == "false" ]]; then
+    green "${file##*/}: no unsafe git calls"
   fi
-done
+done < <(find "$HOOKS_DIR" -maxdepth 1 -name '*.sh' | sort)
 echo ""
 
 # --- Rule 4: Python subprocess in for/while loop ---

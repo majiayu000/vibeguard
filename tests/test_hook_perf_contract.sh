@@ -14,11 +14,21 @@ FAIL=0
 TOTAL=0
 TMP_DIR="$(mktemp -d)"
 BENCH_JSON_FILE="${REPO_DIR}/data/bench-latency-$(date +%Y%m%d).json"
+BENCH_JSON_TEMP="${TMP_DIR}/bench-latency.json"
+BENCH_ACTION_TEMP="${TMP_DIR}/bench-output.json"
+ROOT_BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
 BENCH_JSON_EXISTED=false
 BENCH_JSON_BACKUP="${TMP_DIR}/bench-latency-existing.json"
 if [[ -e "${BENCH_JSON_FILE}" ]]; then
   BENCH_JSON_EXISTED=true
   cp "${BENCH_JSON_FILE}" "${BENCH_JSON_BACKUP}"
+fi
+ROOT_BENCH_ACTION_EXISTED=false
+ROOT_BENCH_ACTION_BACKUP="${TMP_DIR}/bench-output-existing.json"
+if [[ -e "${ROOT_BENCH_ACTION_FILE}" ]]; then
+  ROOT_BENCH_ACTION_EXISTED=true
+  cp "${ROOT_BENCH_ACTION_FILE}" "${ROOT_BENCH_ACTION_BACKUP}"
+  rm -f "${ROOT_BENCH_ACTION_FILE}"
 fi
 
 cleanup() {
@@ -26,6 +36,11 @@ cleanup() {
     cp "${BENCH_JSON_BACKUP}" "${BENCH_JSON_FILE}" 2>/dev/null || true
   else
     rm -f "${BENCH_JSON_FILE}"
+  fi
+  if [[ "${ROOT_BENCH_ACTION_EXISTED}" == "true" ]]; then
+    cp "${ROOT_BENCH_ACTION_BACKUP}" "${ROOT_BENCH_ACTION_FILE}" 2>/dev/null || true
+  else
+    rm -f "${ROOT_BENCH_ACTION_FILE}"
   fi
   rm -rf "${TMP_DIR}"
 }
@@ -126,10 +141,29 @@ write_hook "${DOCUMENTED_HOOKS}" "documented-hook.sh" '# PERF-OK: fixture intent
 find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_cmd "PERF-OK documents an intentional scan" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_HOOKS}" bash "${VALIDATOR}"
 
+SAFE_GIT_HOOKS="${TMP_DIR}/safe-git-hooks"
+write_hook "${SAFE_GIT_HOOKS}" "safe-git-hook.sh" '# This comment mentions git status and must not count.
+git status --short >/dev/null 2>&1 || true'
+assert_cmd "error-suppressed git call passes static validator" env VIBEGUARD_HOOKS_DIR="${SAFE_GIT_HOOKS}" bash "${VALIDATOR}"
+
+TIMEOUT_GIT_HOOKS="${TMP_DIR}/timeout-git-hooks"
+write_hook "${TIMEOUT_GIT_HOOKS}" "timeout-git-hook.sh" 'gtimeout 2 git status --short >/dev/null'
+assert_cmd "gtimeout-wrapped git call passes static validator" env VIBEGUARD_HOOKS_DIR="${TIMEOUT_GIT_HOOKS}" bash "${VALIDATOR}"
+
+DOCUMENTED_GIT_HOOKS="${TMP_DIR}/documented-git-hooks"
+write_hook "${DOCUMENTED_GIT_HOOKS}" "documented-git-hook.sh" '# PERF-OK: fixture intentionally exercises unbounded git for the gate.
+git status --short >/dev/null'
+assert_cmd "PERF-OK documents an intentional git call" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_GIT_HOOKS}" bash "${VALIDATOR}"
+
 BAD_FIND_HOOKS="${TMP_DIR}/bad-find-hooks"
 write_hook "${BAD_FIND_HOOKS}" "bad-find-hook.sh" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_fail_contains "unbounded find fails static validator" "PERF-02" "${TMP_DIR}/bad-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_FIND_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-find.out" "bad-find-hook.sh" "unbounded find output names the hook"
+
+BAD_GIT_HOOKS="${TMP_DIR}/bad-git-hooks"
+write_hook "${BAD_GIT_HOOKS}" "bad-git-hook.sh" 'git status --short >/dev/null'
+assert_fail_contains "unsafe git call fails static validator" "PERF-03" "${TMP_DIR}/bad-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-git.out" "bad-git-hook.sh" "unsafe git output names the hook"
 
 BAD_LOOP_HOOKS="${TMP_DIR}/bad-loop-hooks"
 write_hook "${BAD_LOOP_HOOKS}" "bad-loop-hook.sh" 'while read -r path; do python3 -c "print(1)" "$path"; done < /dev/null'
@@ -137,7 +171,7 @@ assert_fail_contains "subprocess in loop fails static validator" "PERF-04" "${TM
 assert_file_contains "${TMP_DIR}/bad-loop.out" "bad-loop-hook.sh" "loop subprocess output names the hook"
 
 header "dynamic latency gate"
-assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
+assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
 assert_file_contains "${TMP_DIR}/slow.out" "Surface: hook_e2e_ms" "latency gate declares hook e2e surface"
 assert_file_contains "${TMP_DIR}/slow.out" "surface=hook_e2e_ms" "latency rows include hook e2e surface marker"
 assert_file_contains "${TMP_DIR}/slow.out" "exceeded latency budget" "slow hook output explains budget failure"
@@ -145,19 +179,20 @@ assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "sl
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "latency gate includes Codex PreToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "post-build-check (fake cargo)" "latency gate includes post-build fake command fixture"
-assert_success_contains "JSON latency output is written" "Results: ${BENCH_JSON_FILE}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --json --sla=100000
-assert_file_contains "${BENCH_JSON_FILE}" '"surface":"hook_e2e_ms"' "JSON latency output declares hook e2e surface"
-assert_file_contains "${REPO_DIR}/bench-output.json" " P50" "benchmark action output includes P50 samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" " P95" "benchmark action output includes P95 samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" " P99" "benchmark action output includes P99 samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" "e2e codex pre-bash P95" "benchmark action output includes compact Codex wrapper samples"
-assert_file_contains "${REPO_DIR}/bench-output.json" "e2e post-build fake P95" "benchmark action output includes compact post-build samples"
+assert_success_contains "JSON latency output is written to override path" "Results: ${BENCH_JSON_TEMP}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --json-output="${BENCH_JSON_TEMP}" --bench-action-output="${BENCH_ACTION_TEMP}" --sla=100000
+assert_file_contains "${BENCH_JSON_TEMP}" '"surface":"hook_e2e_ms"' "JSON latency output declares hook e2e surface"
+assert_file_contains "${BENCH_ACTION_TEMP}" " P50" "benchmark action output includes P50 samples"
+assert_file_contains "${BENCH_ACTION_TEMP}" " P95" "benchmark action output includes P95 samples"
+assert_file_contains "${BENCH_ACTION_TEMP}" " P99" "benchmark action output includes P99 samples"
+assert_file_contains "${BENCH_ACTION_TEMP}" "e2e codex pre-bash P95" "benchmark action output includes compact Codex wrapper samples"
+assert_file_contains "${BENCH_ACTION_TEMP}" "e2e post-build fake P95" "benchmark action output includes compact post-build samples"
+assert_cmd "contract test does not require repo-root bench-output.json" test ! -e "${ROOT_BENCH_ACTION_FILE}"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "Codex wrapper hooks" "latency contract documents wrapper coverage"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "core_us" "latency contract documents core microbench surface"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "hook_e2e_ms" "latency contract documents hook e2e surface"
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "core_us" "benchmark design documents core microbench surface"
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "hook_e2e_ms" "benchmark design documents hook e2e surface"
-assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression
+assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
 
 echo ""
 echo "======================================"

@@ -281,10 +281,14 @@ jobs:
 
       - name: Hook precision tests
         shell: bash
-        run: bash tests/run_precision.sh --all --csv
+        run: |
+          set -o pipefail
+          bash tests/run_precision.sh --all --csv | tee precision-results.csv
 
       - name: Validate precision thresholds
         shell: bash
+        env:
+          VG_PRECISION_CSV_FILE: precision-results.csv
         run: bash scripts/ci/validate-precision-thresholds.sh
 
       - name: Precision tracker regression tests
