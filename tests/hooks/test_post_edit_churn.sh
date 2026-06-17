@@ -69,6 +69,11 @@ append_event "post-edit-guard" "Edit" "warn" "[RS-03] unwrap introduced" "$FILE_
 warn_count="$(vg_post_edit_warn_count_for_file)"
 assert_exit_zero "non-churn warning still counts toward warn escalation" test "$warn_count" = "1"
 
+assert_exit_zero "post-edit history default timeout stays below aggregate hook budget" test "$(vg_post_edit_history_timeout_seconds)" = "2"
+VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT=bad
+assert_exit_zero "invalid post-edit history timeout falls back below aggregate hook budget" test "$(vg_post_edit_history_timeout_seconds)" = "2"
+unset VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT
+
 slow_runtime="$WORK_DIR/slow-runtime.sh"
 cat > "$slow_runtime" <<'STUB'
 #!/usr/bin/env bash

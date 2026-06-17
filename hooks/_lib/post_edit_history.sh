@@ -9,9 +9,9 @@ if [[ -f "${VG_TIMEOUT_LIB}" ]]; then
 fi
 
 vg_post_edit_history_timeout_seconds() {
-  local seconds="${VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT:-5}"
+  local seconds="${VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT:-2}"
   if [[ ! "${seconds}" =~ ^[1-9][0-9]*$ ]]; then
-    seconds=5
+    seconds=2
   fi
   printf '%s\n' "${seconds}"
 }
