@@ -129,6 +129,7 @@ vg_policy_payload_cwd() {
 }
 
 vg_policy_git_root() {
+  # PERF-OK: policy checks need the current repo root; failures fall back upstream.
   git rev-parse --show-toplevel 2>/dev/null || true
 }
 

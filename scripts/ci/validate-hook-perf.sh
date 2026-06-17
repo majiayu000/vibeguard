@@ -42,6 +42,14 @@ line_is_output_literal() {
   [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]]
 }
 
+line_has_odd_quote() {
+  local line="$1"
+  local quote="$2"
+  local without="${line//${quote}/}"
+  local count=$(( ${#line} - ${#without} ))
+  [[ $((count % 2)) -eq 1 ]]
+}
+
 find_command_has_maxdepth() {
   local file="$1"
   local line_no="$2"
@@ -128,25 +136,44 @@ echo ""
 echo "[PERF-03] Git commands without timeout safety"
 while IFS= read -r file; do
   UNSAFE_GIT=false
-  while IFS=: read -r line_no line; do
-    [[ -z "${line_no}" ]] && continue
+  IN_QUOTED_BLOCK=false
+  QUOTE_CHAR=""
+  LINE_NUM=0
+  while IFS= read -r line; do
+    LINE_NUM=$((LINE_NUM + 1))
+    if [[ "${IN_QUOTED_BLOCK}" == "true" ]]; then
+      if line_has_odd_quote "$line" "$QUOTE_CHAR"; then
+        IN_QUOTED_BLOCK=false
+        QUOTE_CHAR=""
+      fi
+      continue
+    fi
     if line_is_comment "$line" || line_is_output_literal "$line"; then
       continue
     fi
-    if perf_ok_nearby "$file" "$line_no"; then
-      green "${file##*/}:${line_no}: documented git call"
-    elif git_command_is_safe "$line"; then
-      green "${file##*/}:${line_no}: bounded git call"
-    else
-      red "${file##*/}:${line_no}: unsafe git call — ${line:0:80}"
-      VIOLATIONS=$((VIOLATIONS + 1))
-      UNSAFE_GIT=true
+    if printf '%s\n' "$line" | grep -qE '(^|[^[:alnum:]_./-])git[[:space:]]+'; then
+      if perf_ok_nearby "$file" "$LINE_NUM"; then
+        green "${file##*/}:${LINE_NUM}: documented git call"
+      elif git_command_is_safe "$line"; then
+        green "${file##*/}:${LINE_NUM}: bounded git call"
+      else
+        red "${file##*/}:${LINE_NUM}: unsafe git call — ${line:0:80}"
+        VIOLATIONS=$((VIOLATIONS + 1))
+        UNSAFE_GIT=true
+      fi
     fi
-  done < <(grep -nE '(^|[^[:alnum:]_./-])git[[:space:]]+' "$file" 2>/dev/null || true)
+    if line_has_odd_quote "$line" "'"; then
+      IN_QUOTED_BLOCK=true
+      QUOTE_CHAR="'"
+    elif line_has_odd_quote "$line" '"'; then
+      IN_QUOTED_BLOCK=true
+      QUOTE_CHAR='"'
+    fi
+  done < "$file"
   if [[ "$UNSAFE_GIT" == "false" ]]; then
     green "${file##*/}: no unsafe git calls"
   fi
-done < <(find "$HOOKS_DIR" -maxdepth 1 -name '*.sh' | sort)
+done < <(find "$HOOKS_DIR" -name '*.sh' | sort)
 echo ""
 
 # --- Rule 4: Python subprocess in for/while loop ---

@@ -152,6 +152,12 @@ write_hook "${DOCUMENTED_GIT_HOOKS}" "documented-git-hook.sh" '# PERF-OK: fixtur
 git status --short >/dev/null'
 assert_cmd "PERF-OK documents an intentional git call" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_GIT_HOOKS}" bash "${VALIDATOR}"
 
+STRING_GIT_HOOKS="${TMP_DIR}/string-git-hooks"
+write_hook "${STRING_GIT_HOOKS}" "string-git-hook.sh" 'vg_warn "Copy-paste:
+  git status --short
+"'
+assert_cmd "git in multiline warning string does not count" env VIBEGUARD_HOOKS_DIR="${STRING_GIT_HOOKS}" bash "${VALIDATOR}"
+
 BAD_FIND_HOOKS="${TMP_DIR}/bad-find-hooks"
 write_hook "${BAD_FIND_HOOKS}" "bad-find-hook.sh" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_fail_contains "unbounded find fails static validator" "PERF-02" "${TMP_DIR}/bad-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_FIND_HOOKS}" bash "${VALIDATOR}"
@@ -167,6 +173,11 @@ write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This co
 git status --short >/dev/null 2>&1 || true'
 assert_fail_contains "error-suppressed git still requires timeout or PERF-OK" "PERF-03" "${TMP_DIR}/bad-suppressed-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_SUPPRESSED_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-suppressed-git.out" "bad-suppressed-git-hook.sh" "suppressed git output names the hook"
+
+BAD_LIB_GIT_HOOKS="${TMP_DIR}/bad-lib-git-hooks"
+write_hook "${BAD_LIB_GIT_HOOKS}/_lib" "bad-lib.sh" 'git status --short >/dev/null 2>&1 || true'
+assert_fail_contains "unsafe helper git call fails static validator" "PERF-03" "${TMP_DIR}/bad-lib-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_LIB_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-lib-git.out" "bad-lib.sh" "helper git output names the file"
 
 BAD_LOOP_HOOKS="${TMP_DIR}/bad-loop-hooks"
 write_hook "${BAD_LOOP_HOOKS}" "bad-loop-hook.sh" 'while read -r path; do python3 -c "print(1)" "$path"; done < /dev/null'
