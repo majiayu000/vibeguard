@@ -64,16 +64,25 @@ L1_CSV="$(load_layer1_csv)"
 L1_RESULT=$(echo "$L1_CSV" | python3 -c "
 import sys, json
 
-lines = [l.strip() for l in sys.stdin if l.strip() and not l.startswith('hook,')]
+lines = [
+    (lineno, line.strip())
+    for lineno, line in enumerate(sys.stdin, start=1)
+    if line.strip() and not line.startswith('hook,')
+]
 tp = fp = fn = tn = 0
 by_hook = {}
 
-for line in lines:
+for lineno, line in lines:
     parts = line.split(',')
     if len(parts) < 8:
-        continue
+        print(f'FAIL: malformed precision CSV line {lineno}: {line}', file=sys.stderr)
+        raise SystemExit(1)
     hook, case, case_type, rule, expect, detected, passed, latency = parts
-    detected = int(detected)
+    try:
+        detected = int(detected)
+    except ValueError:
+        print(f'FAIL: invalid detected value {detected!r} on precision CSV line {lineno}', file=sys.stderr)
+        raise SystemExit(1)
 
     by_hook.setdefault(hook, {'tp': 0, 'fp': 0, 'fn': 0, 'tn': 0})
 
@@ -87,6 +96,10 @@ for line in lines:
             fp += 1; by_hook[hook]['fp'] += 1
         else:
             tn += 1; by_hook[hook]['tn'] += 1
+
+if not by_hook:
+    print('FAIL: zero precision rows parsed from CSV output', file=sys.stderr)
+    raise SystemExit(1)
 
 precision = tp / (tp + fp) if (tp + fp) > 0 else 0
 recall = tp / (tp + fn) if (tp + fn) > 0 else 0
