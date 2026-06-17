@@ -78,6 +78,7 @@ _vg_cb_state_file() {
     slug="$VIBEGUARD_PROJECT_HASH"
   else
     local root
+    # PERF-OK: circuit state is repo-scoped; this falls back to global outside git.
     root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
     slug=$(printf '%s' "$root" | shasum -a 256 2>/dev/null | cut -c1-8) || slug="fallback0"
   fi

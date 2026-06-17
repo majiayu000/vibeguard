@@ -51,6 +51,7 @@ fi
 command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 
 # --- Collect staged source code files (single git diff, filter by extension) ---
+# PERF-OK: pre-commit must inspect the cached index once; errors are non-blocking outside git.
 _ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
 STAGED_FILES=""
 while IFS= read -r file; do
@@ -78,6 +79,7 @@ _cleanup_staged() {
   rm -f "$_STAGED_TMPFILE" "$_DIFF_ADDED_TMPFILE" 2>/dev/null
 }
 trap '_cleanup_staged' EXIT
+# PERF-OK: pre-commit needs the repo root for absolute staged paths; falls back to pwd.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 while IFS= read -r f; do
   [[ -n "$f" ]] && echo "${REPO_ROOT}/${f}"
@@ -89,7 +91,7 @@ export VIBEGUARD_STAGED_FILES="$_STAGED_TMPFILE"
 # VIBEGUARD_DIFF_ADDED_LINES — points to a temporary file containing all staged new lines (+ prefix removed)
 # The guard script can choose to read this file instead of scanning the entire file, so that only the new lines of code are checked.
 export VIBEGUARD_DIFF_ONLY=1
-# Single git diff call for all staged files (avoids O(n) git invocations)
+# PERF-OK: single cached diff for all staged files avoids O(n) git invocations.
 git diff --cached -U0 2>/dev/null \
   | grep '^+' \
   | grep -v '^+++' \
@@ -100,6 +102,7 @@ export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 # --- Language and project-root detection (driven by the staged tree, not the working tree) ---
 index_has_path() {
   local path="$1"
+  # PERF-OK: indexed marker lookup is scoped to one path and runs only for staged files.
   git cat-file -e ":${path}" 2>/dev/null
 }
 

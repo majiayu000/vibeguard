@@ -18,6 +18,7 @@ INPUT=$(cat 2>/dev/null || true)
 
 PROJECT_ROOT="${VIBEGUARD_PROJECT_ROOT:-}"
 if [[ -z "${PROJECT_ROOT}" ]]; then
+  # PERF-OK: SessionStart constraint counts are repo-scoped; fallback supports non-git dirs.
   PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 fi
 

@@ -5,6 +5,7 @@ VG_EVENT_LOG_LIB="${VG_EVENT_LOG_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && p
 
 vg_post_edit_count_build_failures() {
   local project_root
+  # PERF-OK: build-failure history is repo-scoped; outside git uses an empty root.
   project_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   tail -200 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
     | "$_VIBEGUARD_RUNTIME" build-fails "$VIBEGUARD_SESSION_ID" "$project_root" \

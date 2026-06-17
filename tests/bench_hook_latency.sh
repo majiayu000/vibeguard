@@ -8,6 +8,8 @@
 #   bash tests/bench_hook_latency.sh              # normal run
 #   bash tests/bench_hook_latency.sh --json       # JSON output for CI
 #   bash tests/bench_hook_latency.sh --fail-on-regression  # exit 1 if a fixture exceeds its budget
+#   bash tests/bench_hook_latency.sh --bench-action-output=/tmp/bench-output.json
+#   bash tests/bench_hook_latency.sh --no-bench-action-output
 #
 # Requires: perl (for hi-res timing) or python3. Codex wrapper fixtures also
 # require a built vibeguard-runtime binary.
@@ -18,6 +20,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS_DIR="${REPO_DIR}/hooks"
 BENCH_SURFACE="hook_e2e_ms"
 RESULTS_FILE=""
+BENCH_ACTION_FILE="${VIBEGUARD_BENCH_ACTION_OUTPUT:-${REPO_DIR}/bench-output.json}"
 FAIL_ON_REGRESSION=false
 GLOBAL_SLA_MS=""
 DEFAULT_BUDGET_MS=300
@@ -30,6 +33,9 @@ ENVIRONMENT_DISTORTED=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --json) RESULTS_FILE="${REPO_DIR}/data/bench-latency-$(date +%Y%m%d).json"; shift ;;
+    --json-output=*) RESULTS_FILE="${1#--json-output=}"; shift ;;
+    --bench-action-output=*) BENCH_ACTION_FILE="${1#--bench-action-output=}"; shift ;;
+    --no-bench-action-output) BENCH_ACTION_FILE=""; shift ;;
     --fail-on-regression) FAIL_ON_REGRESSION=true; shift ;;
     --sla=*) GLOBAL_SLA_MS="${1#--sla=}"; shift ;;
     --runs=*) RUNS="${1#--runs=}"; shift ;;
@@ -429,7 +435,8 @@ if [[ -n "$RESULTS_FILE" ]]; then
 fi
 
 # --- benchmark-action compatible output (customSmallerIsBetter) ---
-# Always write to bench-output.json for CI consumption
+# Defaults to bench-output.json for CI consumption. Tests and audits can override
+# or disable this to avoid writing repo-root artifacts.
 bench_action_name() {
   case "$1" in
     "pre-edit-guard") printf "pre-edit" ;;
@@ -448,27 +455,31 @@ bench_action_name() {
   esac
 }
 
-BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
-_first=true
-{
-  echo "["
-  for r in "${RESULTS[@]}"; do
-    _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
-    _display_name=$(bench_action_name "$_name")
-    _p50=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p50'])" 2>/dev/null || echo "0")
-    _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
-    _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
-    if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
-    printf '  {"name": "e2e %s P50", "unit": "ms", "value": %s}' "$_display_name" "$_p50"
-    echo ","
-    printf '  {"name": "e2e %s P95", "unit": "ms", "value": %s}' "$_display_name" "$_p95"
-    echo ","
-    printf '  {"name": "e2e %s P99", "unit": "ms", "value": %s}' "$_display_name" "$_p99"
-  done
-  echo ""
-  echo "]"
-} > "$BENCH_ACTION_FILE"
-echo "Benchmark Action output: $BENCH_ACTION_FILE"
+if [[ -n "$BENCH_ACTION_FILE" ]]; then
+  mkdir -p "$(dirname "$BENCH_ACTION_FILE")"
+  _first=true
+  {
+    echo "["
+    for r in "${RESULTS[@]}"; do
+      _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
+      _display_name=$(bench_action_name "$_name")
+      _p50=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p50'])" 2>/dev/null || echo "0")
+      _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
+      _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
+      if [[ "$_first" == "true" ]]; then _first=false; else echo ","; fi
+      printf '  {"name": "e2e %s P50", "unit": "ms", "value": %s}' "$_display_name" "$_p50"
+      echo ","
+      printf '  {"name": "e2e %s P95", "unit": "ms", "value": %s}' "$_display_name" "$_p95"
+      echo ","
+      printf '  {"name": "e2e %s P99", "unit": "ms", "value": %s}' "$_display_name" "$_p99"
+    done
+    echo ""
+    echo "]"
+  } > "$BENCH_ACTION_FILE"
+  echo "Benchmark Action output: $BENCH_ACTION_FILE"
+else
+  echo "Benchmark Action output: disabled"
+fi
 
 echo "======================================"
 

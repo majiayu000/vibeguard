@@ -5,10 +5,20 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 MIN_PRECISION="${MIN_PRECISION:-75}"
 MIN_RECALL="${MIN_RECALL:-75}"
 MIN_F1="${MIN_F1:-75}"
+CSV_FILE="${VG_PRECISION_CSV_FILE:-}"
 
-cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
-
-CSV_OUTPUT="$(bash "${REPO_DIR}/tests/run_precision.sh" --all --csv)"
+if [[ -n "${CSV_FILE}" ]]; then
+  if [[ ! -f "${CSV_FILE}" ]]; then
+    echo "FAIL: VG_PRECISION_CSV_FILE does not exist: ${CSV_FILE}" >&2
+    exit 1
+  fi
+  CSV_OUTPUT="$(cat "${CSV_FILE}")"
+elif [[ -n "${VG_PRECISION_CSV:-}" ]]; then
+  CSV_OUTPUT="${VG_PRECISION_CSV}"
+else
+  cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
+  CSV_OUTPUT="$(bash "${REPO_DIR}/tests/run_precision.sh" --all --csv)"
+fi
 
 VG_PRECISION_CSV="${CSV_OUTPUT}" python3 - "$MIN_PRECISION" "$MIN_RECALL" "$MIN_F1" <<'PY'
 from __future__ import annotations

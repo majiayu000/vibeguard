@@ -60,13 +60,19 @@ post_build_worktree_state() {
   local project_root="$1" file_path="$2"
   local state_root="${project_root:-$(dirname "$file_path")}"
 
+  # PERF-OK: post-build snapshots only run after build commands and fail open outside git.
   if [[ -n "$state_root" && -d "$state_root" ]] && git -C "$state_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     {
       printf 'git\n'
+      # PERF-OK: bounded one-shot HEAD read for build-state fingerprinting.
       git -C "$state_root" rev-parse HEAD 2>/dev/null || true
+      # PERF-OK: bounded path-scoped status for build-state fingerprinting.
       git -C "$state_root" status --porcelain=v1 --untracked-files=all -- . 2>/dev/null || true
+      # PERF-OK: path-scoped diff hash input for build-state fingerprinting.
       git -C "$state_root" diff --no-ext-diff --binary -- . 2>/dev/null || true
+      # PERF-OK: path-scoped cached diff hash input for build-state fingerprinting.
       git -C "$state_root" diff --cached --no-ext-diff --binary -- . 2>/dev/null || true
+      # PERF-OK: path-scoped untracked-file hash input for build-state fingerprinting.
       (cd "$state_root" && git ls-files --others --exclude-standard -z -- . 2>/dev/null | xargs -0 shasum -a 256 2>/dev/null || true)
     } | post_build_hash_stream
     return 0

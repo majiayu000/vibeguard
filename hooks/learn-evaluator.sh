@@ -64,7 +64,7 @@ vg_learn_is_ci && exit 0
 INPUT=$(cat 2>/dev/null || true)
 vg_learn_stop_hook_active_fast "$INPUT" && exit 0
 
-# Not in git repository → skip
+# PERF-OK: Stop hook skips metrics outside git; this is a single cheap probe.
 if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   exit 0
 fi

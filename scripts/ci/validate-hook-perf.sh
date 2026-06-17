@@ -37,6 +37,130 @@ line_is_comment() {
   [[ "${line}" =~ ^[[:space:]]*# ]]
 }
 
+line_is_output_literal() {
+  local line="$1"
+  [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]] || return 1
+  [[ "${line}" == *'$('* || "${line}" == *'`'* ]] && return 1
+  [[ "${line}" == *'<('* || "${line}" == *'>('* ]] && return 1
+  line_has_unquoted_command_separator "$line" && return 1
+  return 0
+}
+
+line_has_unquoted_command_separator() {
+  local line="$1"
+  local quote=""
+  local char next prev
+  local i
+
+  for ((i = 0; i < ${#line}; i++)); do
+    char="${line:i:1}"
+
+    if [[ -n "$quote" ]]; then
+      if [[ "$quote" == '"' && "$char" == "\\" ]]; then
+        i=$((i + 1))
+        continue
+      fi
+      if [[ "$char" == "$quote" ]]; then
+        quote=""
+      fi
+      continue
+    fi
+
+    case "$char" in
+      "'"|'"')
+        quote="$char" ;;
+      ';'|'|')
+        return 0 ;;
+      '&')
+        next="${line:i+1:1}"
+        prev=""
+        if [[ "$i" -gt 0 ]]; then
+          prev="${line:i-1:1}"
+        fi
+        if [[ "$next" == "&" || "$prev" =~ [[:space:]] || "$next" =~ [[:space:]] ]]; then
+          return 0
+        fi ;;
+    esac
+  done
+
+  return 1
+}
+
+line_command_segments() {
+  local line="$1"
+  local quote=""
+  local segment=""
+  local char next prev
+  local i
+
+  for ((i = 0; i < ${#line}; i++)); do
+    char="${line:i:1}"
+
+    if [[ -n "$quote" ]]; then
+      segment+="$char"
+      if [[ "$quote" == '"' && "$char" == "\\" ]]; then
+        i=$((i + 1))
+        segment+="${line:i:1}"
+        continue
+      fi
+      if [[ "$char" == "$quote" ]]; then
+        quote=""
+      fi
+      continue
+    fi
+
+    case "$char" in
+      "'"|'"')
+        quote="$char"
+        segment+="$char" ;;
+      ';'|'|')
+        printf '%s\n' "$segment"
+        segment=""
+        next="${line:i+1:1}"
+        if [[ "$char" == "|" && "$next" == "|" ]]; then
+          i=$((i + 1))
+        fi ;;
+      '&')
+        next="${line:i+1:1}"
+        prev=""
+        if [[ "$i" -gt 0 ]]; then
+          prev="${line:i-1:1}"
+        fi
+        if [[ "$next" == "&" || "$prev" =~ [[:space:]] || "$next" =~ [[:space:]] ]]; then
+          printf '%s\n' "$segment"
+          segment=""
+          if [[ "$next" == "&" ]]; then
+            i=$((i + 1))
+          fi
+        else
+          segment+="$char"
+        fi ;;
+      *)
+        segment+="$char" ;;
+    esac
+  done
+
+  printf '%s\n' "$segment"
+}
+
+line_has_odd_quote() {
+  local line="$1"
+  local quote="$2"
+  local without="${line//${quote}/}"
+  local count=$(( ${#line} - ${#without} ))
+  [[ $((count % 2)) -eq 1 ]]
+}
+
+hook_script_files() {
+  find "$HOOKS_DIR" -type f \( -name '*.sh' -o -perm -111 \) | sort
+}
+
+line_has_git_command() {
+  local line="$1"
+  local git_re='(^|[[:space:];|&({])(/?[[:alnum:]_.-]+/)*git[[:space:]]'
+  [[ "$line" =~ $git_re ]]
+}
+
 find_command_has_maxdepth() {
   local file="$1"
   local line_no="$2"
@@ -51,6 +175,38 @@ find_command_has_maxdepth() {
   done
 
   [[ "${command}" == *"-maxdepth"* ]]
+}
+
+git_command_is_safe() {
+  local line="$1"
+  local timeout_git_re='(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*[[:space:]](/?[[:alnum:]_.-]+/)*git[[:space:]]'
+  local remaining
+
+  # timeout-wrapped git calls have a bounded wall-clock budget.
+  if [[ "$line" =~ $timeout_git_re ]]; then
+    remaining="${line#*"${BASH_REMATCH[0]}"}"
+    ! line_has_git_command "$remaining"
+    return
+  fi
+
+  return 1
+}
+
+line_has_unsafe_git_command() {
+  local line="$1"
+  local segment
+
+  while IFS= read -r segment; do
+    [[ -n "${segment//[[:space:]]/}" ]] || continue
+    if line_is_output_literal "$segment"; then
+      continue
+    fi
+    if line_has_git_command "$segment" && ! git_command_is_safe "$segment"; then
+      return 0
+    fi
+  done < <(line_command_segments "$line")
+
+  return 1
 }
 
 echo "======================================"
@@ -110,17 +266,46 @@ echo ""
 
 # --- Rule 3: Git commands that could hang (no timeout context) ---
 echo "[PERF-03] Git commands without timeout safety"
-# We check for git diff/log/status in main hook scripts (not log.sh which has a simple rev-parse)
-for file in "$HOOKS_DIR"/stop-guard.sh "$HOOKS_DIR"/pre-commit-guard.sh; do
-  [[ ! -f "$file" ]] && continue
-  basename="${file##*/}"
-  # Count git commands that aren't wrapped in timeout or have 2>/dev/null fallback
-  GIT_CALLS=$(grep -cn 'git ' "$file" 2>/dev/null || echo 0)
-  GIT_SAFE=$(grep -c 'git.*2>/dev/null' "$file" 2>/dev/null || echo 0)
-  if [[ "$GIT_CALLS" -gt 0 ]]; then
-    green "${basename}: ${GIT_CALLS} git calls, ${GIT_SAFE} with error suppression"
+while IFS= read -r file; do
+  UNSAFE_GIT=false
+  IN_QUOTED_BLOCK=false
+  QUOTE_CHAR=""
+  LINE_NUM=0
+  while IFS= read -r line; do
+    LINE_NUM=$((LINE_NUM + 1))
+    if [[ "${IN_QUOTED_BLOCK}" == "true" ]]; then
+      if line_has_odd_quote "$line" "$QUOTE_CHAR"; then
+        IN_QUOTED_BLOCK=false
+        QUOTE_CHAR=""
+      fi
+      continue
+    fi
+    if line_is_comment "$line" || line_is_output_literal "$line"; then
+      continue
+    fi
+    if line_has_git_command "$line"; then
+      if perf_ok_nearby "$file" "$LINE_NUM"; then
+        green "${file##*/}:${LINE_NUM}: documented git call"
+      elif ! line_has_unsafe_git_command "$line"; then
+        green "${file##*/}:${LINE_NUM}: bounded git call"
+      else
+        red "${file##*/}:${LINE_NUM}: unsafe git call — ${line:0:80}"
+        VIOLATIONS=$((VIOLATIONS + 1))
+        UNSAFE_GIT=true
+      fi
+    fi
+    if line_has_odd_quote "$line" "'"; then
+      IN_QUOTED_BLOCK=true
+      QUOTE_CHAR="'"
+    elif line_has_odd_quote "$line" '"'; then
+      IN_QUOTED_BLOCK=true
+      QUOTE_CHAR='"'
+    fi
+  done < "$file"
+  if [[ "$UNSAFE_GIT" == "false" ]]; then
+    green "${file##*/}: no unsafe git calls"
   fi
-done
+done < <(hook_script_files)
 echo ""
 
 # --- Rule 4: Python subprocess in for/while loop ---
