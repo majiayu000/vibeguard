@@ -39,7 +39,9 @@ line_is_comment() {
 
 line_is_output_literal() {
   local line="$1"
-  [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]]
+  [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]] || return 1
+  [[ "${line}" == *'$('* || "${line}" == *'`'* ]] && return 1
+  return 0
 }
 
 line_has_odd_quote() {
@@ -48,6 +50,16 @@ line_has_odd_quote() {
   local without="${line//${quote}/}"
   local count=$(( ${#line} - ${#without} ))
   [[ $((count % 2)) -eq 1 ]]
+}
+
+hook_script_files() {
+  find "$HOOKS_DIR" -type f \( -name '*.sh' -o -perm -111 \) | sort
+}
+
+line_has_git_command() {
+  local line="$1"
+  local git_re='(^|[[:space:];|&({])(/?[[:alnum:]_.-]+/)*git[[:space:]]'
+  [[ "$line" =~ $git_re ]]
 }
 
 find_command_has_maxdepth() {
@@ -68,9 +80,10 @@ find_command_has_maxdepth() {
 
 git_command_is_safe() {
   local line="$1"
+  local timeout_git_re='(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*[[:space:]](/?[[:alnum:]_.-]+/)*git[[:space:]]'
 
   # timeout-wrapped git calls have a bounded wall-clock budget.
-  if printf '%s\n' "$line" | grep -Eq '(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*git[[:space:]]'; then
+  if [[ "$line" =~ $timeout_git_re ]]; then
     return 0
   fi
 
@@ -151,7 +164,7 @@ while IFS= read -r file; do
     if line_is_comment "$line" || line_is_output_literal "$line"; then
       continue
     fi
-    if printf '%s\n' "$line" | grep -qE '(^|[^[:alnum:]_./-])git[[:space:]]+'; then
+    if line_has_git_command "$line"; then
       if perf_ok_nearby "$file" "$LINE_NUM"; then
         green "${file##*/}:${LINE_NUM}: documented git call"
       elif git_command_is_safe "$line"; then
@@ -173,7 +186,7 @@ while IFS= read -r file; do
   if [[ "$UNSAFE_GIT" == "false" ]]; then
     green "${file##*/}: no unsafe git calls"
   fi
-done < <(find "$HOOKS_DIR" -name '*.sh' | sort)
+done < <(hook_script_files)
 echo ""
 
 # --- Rule 4: Python subprocess in for/while loop ---

@@ -158,6 +158,10 @@ write_hook "${STRING_GIT_HOOKS}" "string-git-hook.sh" 'vg_warn "Copy-paste:
 "'
 assert_cmd "git in multiline warning string does not count" env VIBEGUARD_HOOKS_DIR="${STRING_GIT_HOOKS}" bash "${VALIDATOR}"
 
+OUTPUT_LITERAL_GIT_HOOKS="${TMP_DIR}/output-literal-git-hooks"
+write_hook "${OUTPUT_LITERAL_GIT_HOOKS}" "output-literal-git-hook.sh" 'printf "%s\n" "Copy-paste: git status --short"'
+assert_cmd "git in output literal does not count" env VIBEGUARD_HOOKS_DIR="${OUTPUT_LITERAL_GIT_HOOKS}" bash "${VALIDATOR}"
+
 BAD_FIND_HOOKS="${TMP_DIR}/bad-find-hooks"
 write_hook "${BAD_FIND_HOOKS}" "bad-find-hook.sh" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_fail_contains "unbounded find fails static validator" "PERF-02" "${TMP_DIR}/bad-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_FIND_HOOKS}" bash "${VALIDATOR}"
@@ -167,6 +171,16 @@ BAD_GIT_HOOKS="${TMP_DIR}/bad-git-hooks"
 write_hook "${BAD_GIT_HOOKS}" "bad-git-hook.sh" 'git status --short >/dev/null'
 assert_fail_contains "unsafe git call fails static validator" "PERF-03" "${TMP_DIR}/bad-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-git.out" "bad-git-hook.sh" "unsafe git output names the hook"
+
+BAD_ABSOLUTE_GIT_HOOKS="${TMP_DIR}/bad-absolute-git-hooks"
+write_hook "${BAD_ABSOLUTE_GIT_HOOKS}" "bad-absolute-git-hook.sh" '/usr/bin/git status --short >/dev/null'
+assert_fail_contains "unsafe absolute git call fails static validator" "PERF-03" "${TMP_DIR}/bad-absolute-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_ABSOLUTE_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-absolute-git.out" "bad-absolute-git-hook.sh" "absolute git output names the hook"
+
+BAD_OUTPUT_SUB_GIT_HOOKS="${TMP_DIR}/bad-output-sub-git-hooks"
+write_hook "${BAD_OUTPUT_SUB_GIT_HOOKS}" "bad-output-sub-git-hook.sh" 'printf "%s\n" "$(git status --short >/dev/null)"'
+assert_fail_contains "git in output command substitution fails static validator" "PERF-03" "${TMP_DIR}/bad-output-sub-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_OUTPUT_SUB_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-output-sub-git.out" "bad-output-sub-git-hook.sh" "output substitution git names the hook"
 
 BAD_SUPPRESSED_GIT_HOOKS="${TMP_DIR}/bad-suppressed-git-hooks"
 write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This comment mentions git status and must not count.
@@ -178,6 +192,11 @@ BAD_LIB_GIT_HOOKS="${TMP_DIR}/bad-lib-git-hooks"
 write_hook "${BAD_LIB_GIT_HOOKS}/_lib" "bad-lib.sh" 'git status --short >/dev/null 2>&1 || true'
 assert_fail_contains "unsafe helper git call fails static validator" "PERF-03" "${TMP_DIR}/bad-lib-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_LIB_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-lib-git.out" "bad-lib.sh" "helper git output names the file"
+
+BAD_EXEC_GIT_HOOKS="${TMP_DIR}/bad-exec-git-hooks"
+write_hook "${BAD_EXEC_GIT_HOOKS}/git" "pre-push" 'git status --short >/dev/null 2>&1 || true'
+assert_fail_contains "unsafe executable hook git call fails static validator" "PERF-03" "${TMP_DIR}/bad-exec-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_EXEC_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-exec-git.out" "pre-push" "executable hook git output names the file"
 
 BAD_LOOP_HOOKS="${TMP_DIR}/bad-loop-hooks"
 write_hook "${BAD_LOOP_HOOKS}" "bad-loop-hook.sh" 'while read -r path; do python3 -c "print(1)" "$path"; done < /dev/null'
