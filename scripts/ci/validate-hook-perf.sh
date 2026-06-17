@@ -41,7 +41,48 @@ line_is_output_literal() {
   local line="$1"
   [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]] || return 1
   [[ "${line}" == *'$('* || "${line}" == *'`'* ]] && return 1
+  line_has_unquoted_command_separator "$line" && return 1
   return 0
+}
+
+line_has_unquoted_command_separator() {
+  local line="$1"
+  local quote=""
+  local char next prev
+  local i
+
+  for ((i = 0; i < ${#line}; i++)); do
+    char="${line:i:1}"
+
+    if [[ -n "$quote" ]]; then
+      if [[ "$quote" == '"' && "$char" == "\\" ]]; then
+        i=$((i + 1))
+        continue
+      fi
+      if [[ "$char" == "$quote" ]]; then
+        quote=""
+      fi
+      continue
+    fi
+
+    case "$char" in
+      "'"|'"')
+        quote="$char" ;;
+      ';'|'|')
+        return 0 ;;
+      '&')
+        next="${line:i+1:1}"
+        prev=""
+        if [[ "$i" -gt 0 ]]; then
+          prev="${line:i-1:1}"
+        fi
+        if [[ "$next" == "&" || "$prev" =~ [[:space:]] || "$next" =~ [[:space:]] ]]; then
+          return 0
+        fi ;;
+    esac
+  done
+
+  return 1
 }
 
 line_has_odd_quote() {

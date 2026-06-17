@@ -182,6 +182,16 @@ write_hook "${BAD_OUTPUT_SUB_GIT_HOOKS}" "bad-output-sub-git-hook.sh" 'printf "%
 assert_fail_contains "git in output command substitution fails static validator" "PERF-03" "${TMP_DIR}/bad-output-sub-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_OUTPUT_SUB_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-output-sub-git.out" "bad-output-sub-git-hook.sh" "output substitution git names the hook"
 
+BAD_OUTPUT_CHAIN_GIT_HOOKS="${TMP_DIR}/bad-output-chain-git-hooks"
+write_hook "${BAD_OUTPUT_CHAIN_GIT_HOOKS}" "bad-output-chain-git-hook.sh" 'printf "%s\n" ok; git status --short >/dev/null'
+assert_fail_contains "git chained after output command fails static validator" "PERF-03" "${TMP_DIR}/bad-output-chain-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_OUTPUT_CHAIN_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-output-chain-git.out" "bad-output-chain-git-hook.sh" "output chain git names the hook"
+
+BAD_OUTPUT_PIPE_GIT_HOOKS="${TMP_DIR}/bad-output-pipe-git-hooks"
+write_hook "${BAD_OUTPUT_PIPE_GIT_HOOKS}" "bad-output-pipe-git-hook.sh" 'echo ok | git status --short >/dev/null'
+assert_fail_contains "git piped after output command fails static validator" "PERF-03" "${TMP_DIR}/bad-output-pipe-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_OUTPUT_PIPE_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-output-pipe-git.out" "bad-output-pipe-git-hook.sh" "output pipe git names the hook"
+
 BAD_SUPPRESSED_GIT_HOOKS="${TMP_DIR}/bad-suppressed-git-hooks"
 write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This comment mentions git status and must not count.
 git status --short >/dev/null 2>&1 || true'
