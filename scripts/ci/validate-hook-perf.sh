@@ -155,10 +155,28 @@ hook_script_files() {
   find "$HOOKS_DIR" -type f \( -name '*.sh' -o -perm -111 \) | sort
 }
 
+hook_perf_scan_files() {
+  local file base
+  while IFS= read -r file; do
+    base="${file##*/}"
+    case "$base" in
+      log.sh|circuit-breaker.sh)
+        continue ;;
+    esac
+    printf '%s\n' "$file"
+  done < <(hook_script_files)
+}
+
 line_has_git_command() {
   local line="$1"
   local git_re='(^|[[:space:];|&({])(/?[[:alnum:]_.-]+/)*git[[:space:]]'
   [[ "$line" =~ $git_re ]]
+}
+
+line_has_git_in_substitution() {
+  local line="$1"
+  local git_sub_re='(\$\(|<\(|>\()[^)]*(/?[[:alnum:]_.-]+/)*git[[:space:]]|`[^`]*(/?[[:alnum:]_.-]+/)*git[[:space:]]'
+  [[ "$line" =~ $git_sub_re ]]
 }
 
 find_command_has_maxdepth() {
@@ -180,11 +198,16 @@ find_command_has_maxdepth() {
 git_command_is_safe() {
   local line="$1"
   local timeout_git_re='(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*[[:space:]](/?[[:alnum:]_.-]+/)*git[[:space:]]'
-  local remaining
+  local remaining timeout_match
 
   # timeout-wrapped git calls have a bounded wall-clock budget.
   if [[ "$line" =~ $timeout_git_re ]]; then
-    remaining="${line#*"${BASH_REMATCH[0]}"}"
+    timeout_match="${BASH_REMATCH[0]}"
+    # Command substitutions inside timeout arguments run before timeout starts.
+    if line_has_git_in_substitution "$line"; then
+      return 1
+    fi
+    remaining="${line#*"${timeout_match}"}"
     ! line_has_git_command "$remaining"
     return
   fi
@@ -225,17 +248,18 @@ while IFS= read -r file; do
     if ! line_is_comment "$line" && ! perf_ok_nearby "$file" "$line_no"; then
       OPEN_VIOLATION=true
     fi
-  done < <(grep -n 'with open(log_file)' "$file" 2>/dev/null || true)
+  done < <(
+    grep -nE 'with[[:space:]]+open\([[:space:]]*log_file|open\([[:space:]]*os\.environ' "$file" 2>/dev/null \
+      | grep -E 'log_file|LOG_FILE|with[[:space:]]+open\([[:space:]]*log_file' \
+      || true
+  )
   if [[ "$OPEN_VIOLATION" == "true" ]]; then
     red "${file##*/}: Python opens log_file directly — use 'tail -N \$LOG | python3' instead"
-    VIOLATIONS=$((VIOLATIONS + 1))
-  elif grep -n "open(os.environ" "$file" 2>/dev/null | grep -q 'LOG_FILE\|log_file'; then
-    red "${file##*/}: Python opens log file via env var — use 'tail -N | python3' instead"
     VIOLATIONS=$((VIOLATIONS + 1))
   else
     green "${file##*/}: no unbounded JSONL read"
   fi
-done < <(find "$HOOKS_DIR" -name '*.sh' -not -name 'log.sh' -not -name 'circuit-breaker.sh' -not -path '*/_lib/*' | sort)
+done < <(hook_perf_scan_files)
 echo ""
 
 # --- Rule 2: find without -maxdepth ---
@@ -261,7 +285,7 @@ while IFS= read -r file; do
       fi
     done <<< "$UNBOUNDED_FINDS"
   fi
-done < <(find "$HOOKS_DIR" -name '*.sh' | sort)
+done < <(hook_script_files)
 echo ""
 
 # --- Rule 3: Git commands that could hang (no timeout context) ---
@@ -339,7 +363,7 @@ while IFS= read -r file; do
   if [[ "$LOOP_SUBPROCESS" == "false" ]]; then
     green "${file##*/}: no subprocess-in-loop"
   fi
-done < <(find "$HOOKS_DIR" -name '*.sh' -not -name 'log.sh' -not -name 'circuit-breaker.sh' | sort)
+done < <(hook_perf_scan_files)
 echo ""
 
 # --- Summary ---

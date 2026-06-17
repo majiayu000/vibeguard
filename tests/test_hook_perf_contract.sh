@@ -9,6 +9,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VALIDATOR="${REPO_DIR}/scripts/ci/validate-hook-perf.sh"
 BENCH="${REPO_DIR}/tests/bench_hook_latency.sh"
 BENCHMARK="${REPO_DIR}/scripts/benchmark.sh"
+THRESHOLD_VALIDATOR="${REPO_DIR}/scripts/ci/validate-precision-thresholds.sh"
 
 PASS=0
 FAIL=0
@@ -125,6 +126,7 @@ header "syntax"
 assert_cmd "performance validator syntax" bash -n "${VALIDATOR}"
 assert_cmd "latency benchmark syntax" bash -n "${BENCH}"
 assert_cmd "benchmark syntax" bash -n "${BENCHMARK}"
+assert_cmd "precision threshold validator syntax" bash -n "${THRESHOLD_VALIDATOR}"
 assert_file_contains "${BENCH}" "Codex wrapper benchmark requires vibeguard-runtime" "latency benchmark fails fast without runtime for Codex wrapper fixtures"
 
 header "static performance gates"
@@ -142,6 +144,15 @@ DOCUMENTED_HOOKS="${TMP_DIR}/documented-hooks"
 write_hook "${DOCUMENTED_HOOKS}" "documented-hook.sh" '# PERF-OK: fixture intentionally scans its temp project root.
 find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_cmd "PERF-OK documents an intentional scan" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_HOOKS}" bash "${VALIDATOR}"
+
+DOCUMENTED_JSONL_OPEN_HOOKS="${TMP_DIR}/documented-jsonl-open-hooks"
+write_hook "${DOCUMENTED_JSONL_OPEN_HOOKS}" "documented-jsonl-open-hook.sh" 'python3 - <<PY
+import os
+# PERF-OK: fixture intentionally reads the full log.
+with open(os.environ["VIBEGUARD_LOG_FILE"], encoding="utf-8") as handle:
+    print(handle.readline())
+PY'
+assert_cmd "PERF-OK documents an intentional full JSONL read" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_JSONL_OPEN_HOOKS}" bash "${VALIDATOR}"
 
 TIMEOUT_GIT_HOOKS="${TMP_DIR}/timeout-git-hooks"
 write_hook "${TIMEOUT_GIT_HOOKS}" "timeout-git-hook.sh" 'gtimeout 2 git status --short >/dev/null'
@@ -166,6 +177,29 @@ BAD_FIND_HOOKS="${TMP_DIR}/bad-find-hooks"
 write_hook "${BAD_FIND_HOOKS}" "bad-find-hook.sh" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_fail_contains "unbounded find fails static validator" "PERF-02" "${TMP_DIR}/bad-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_FIND_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-find.out" "bad-find-hook.sh" "unbounded find output names the hook"
+
+BAD_EXEC_FIND_HOOKS="${TMP_DIR}/bad-exec-find-hooks"
+write_hook "${BAD_EXEC_FIND_HOOKS}/git" "pre-push" 'find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
+assert_fail_contains "unbounded find in executable hook fails static validator" "PERF-02" "${TMP_DIR}/bad-exec-find.out" env VIBEGUARD_HOOKS_DIR="${BAD_EXEC_FIND_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-exec-find.out" "pre-push" "executable find output names the hook"
+
+BAD_JSONL_OPEN_HOOKS="${TMP_DIR}/bad-jsonl-open-hooks"
+write_hook "${BAD_JSONL_OPEN_HOOKS}" "bad-jsonl-open-hook.sh" 'python3 - <<PY
+log_file = "${VIBEGUARD_LOG_FILE:-events.jsonl}"
+with open(log_file, encoding="utf-8") as handle:
+    print(handle.readline())
+PY'
+assert_fail_contains "direct log_file open fails static validator" "PERF-01" "${TMP_DIR}/bad-jsonl-open.out" env VIBEGUARD_HOOKS_DIR="${BAD_JSONL_OPEN_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-jsonl-open.out" "bad-jsonl-open-hook.sh" "direct log_file open output names the hook"
+
+BAD_LIB_JSONL_OPEN_HOOKS="${TMP_DIR}/bad-lib-jsonl-open-hooks"
+write_hook "${BAD_LIB_JSONL_OPEN_HOOKS}/_lib" "bad-lib.sh" 'python3 - <<PY
+import os
+with open(os.environ["VIBEGUARD_LOG_FILE"], encoding="utf-8") as handle:
+    print(handle.readline())
+PY'
+assert_fail_contains "helper log env open fails static validator" "PERF-01" "${TMP_DIR}/bad-lib-jsonl-open.out" env VIBEGUARD_HOOKS_DIR="${BAD_LIB_JSONL_OPEN_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-lib-jsonl-open.out" "bad-lib.sh" "helper log env open output names the file"
 
 BAD_GIT_HOOKS="${TMP_DIR}/bad-git-hooks"
 write_hook "${BAD_GIT_HOOKS}" "bad-git-hook.sh" 'git status --short >/dev/null'
@@ -207,6 +241,11 @@ write_hook "${BAD_TIMEOUT_SUB_GIT_HOOKS}" "bad-timeout-sub-git-hook.sh" 'timeout
 assert_fail_contains "git substitution inside bounded git fails static validator" "PERF-03" "${TMP_DIR}/bad-timeout-sub-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_TIMEOUT_SUB_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-timeout-sub-git.out" "bad-timeout-sub-git-hook.sh" "timeout substitution git names the hook"
 
+BAD_TIMEOUT_PREFIX_SUB_GIT_HOOKS="${TMP_DIR}/bad-timeout-prefix-sub-git-hooks"
+write_hook "${BAD_TIMEOUT_PREFIX_SUB_GIT_HOOKS}" "bad-timeout-prefix-sub-git-hook.sh" 'timeout "$(git config hooks.timeout)" git status --short >/dev/null'
+assert_fail_contains "git substitution in timeout argument fails static validator" "PERF-03" "${TMP_DIR}/bad-timeout-prefix-sub-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_TIMEOUT_PREFIX_SUB_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-timeout-prefix-sub-git.out" "bad-timeout-prefix-sub-git-hook.sh" "timeout argument substitution git names the hook"
+
 BAD_SUPPRESSED_GIT_HOOKS="${TMP_DIR}/bad-suppressed-git-hooks"
 write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This comment mentions git status and must not count.
 git status --short >/dev/null 2>&1 || true'
@@ -228,6 +267,11 @@ write_hook "${BAD_LOOP_HOOKS}" "bad-loop-hook.sh" 'while read -r path; do python
 assert_fail_contains "subprocess in loop fails static validator" "PERF-04" "${TMP_DIR}/bad-loop.out" env VIBEGUARD_HOOKS_DIR="${BAD_LOOP_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-loop.out" "bad-loop-hook.sh" "loop subprocess output names the hook"
 
+BAD_EXEC_LOOP_HOOKS="${TMP_DIR}/bad-exec-loop-hooks"
+write_hook "${BAD_EXEC_LOOP_HOOKS}/git" "pre-commit" 'while read -r path; do python3 -c "print(1)" "$path"; done < /dev/null'
+assert_fail_contains "subprocess loop in executable hook fails static validator" "PERF-04" "${TMP_DIR}/bad-exec-loop.out" env VIBEGUARD_HOOKS_DIR="${BAD_EXEC_LOOP_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-exec-loop.out" "pre-commit" "executable loop output names the hook"
+
 header "dynamic latency gate"
 assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
 assert_file_contains "${TMP_DIR}/slow.out" "Surface: hook_e2e_ms" "latency gate declares hook e2e surface"
@@ -244,12 +288,23 @@ assert_file_contains "${BENCH_ACTION_TEMP}" " P95" "benchmark action output incl
 assert_file_contains "${BENCH_ACTION_TEMP}" " P99" "benchmark action output includes P99 samples"
 assert_file_contains "${BENCH_ACTION_TEMP}" "e2e codex pre-bash P95" "benchmark action output includes compact Codex wrapper samples"
 assert_file_contains "${BENCH_ACTION_TEMP}" "e2e post-build fake P95" "benchmark action output includes compact post-build samples"
+assert_cmd "benchmark action output parses as JSON" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert isinstance(data, list) and data
+for row in data:
+    assert set(["name", "unit", "value"]) <= set(row)
+    assert row["unit"] == "ms"
+    assert isinstance(row["value"], (int, float))
+' "${BENCH_ACTION_TEMP}"
 assert_cmd "contract test does not require repo-root bench-output.json" test ! -e "${ROOT_BENCH_ACTION_FILE}"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "Codex wrapper hooks" "latency contract documents wrapper coverage"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "core_us" "latency contract documents core microbench surface"
 assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "hook_e2e_ms" "latency contract documents hook e2e surface"
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "core_us" "benchmark design documents core microbench surface"
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "hook_e2e_ms" "benchmark design documents hook e2e surface"
+assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'benchmark_group("core_us")' "core_us benchmark group stays registered"
+assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'bash_destructive_restore' "core_us benchmark keeps bash classifier sample"
+assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'write_clean_rust_fast_path' "core_us benchmark keeps write classifier sample"
 assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
 
 header "benchmark score gate"
@@ -261,6 +316,29 @@ pre-bash-guard,fp-case,fp,rule,allow,0,1,5
 CSV
 assert_success_contains "fast benchmark reuses precision CSV fixture" "Cases: 2" "${TMP_DIR}/benchmark.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-results" VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
 assert_fail_contains "fast benchmark fails on missing precision CSV" "VG_PRECISION_CSV_FILE does not exist" "${TMP_DIR}/benchmark-missing.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-missing-results" VG_PRECISION_CSV_FILE="${TMP_DIR}/missing-precision.csv" bash "${BENCHMARK}" --mode=fast
+assert_success_contains "precision threshold validator accepts CSV fixture" "F1:" "${TMP_DIR}/threshold.out" env VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${THRESHOLD_VALIDATOR}"
+
+EMPTY_BENCHMARK_CSV="${TMP_DIR}/precision-empty.csv"
+cat > "${EMPTY_BENCHMARK_CSV}" <<'CSV'
+hook,case,type,rule,expect,detected,passed,latency
+CSV
+assert_fail_contains "fast benchmark fails on empty precision CSV" "zero precision rows parsed" "${TMP_DIR}/benchmark-empty.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-empty-results" VG_PRECISION_CSV_FILE="${EMPTY_BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+assert_fail_contains "precision threshold validator fails on empty CSV" "zero precision rows parsed" "${TMP_DIR}/threshold-empty.out" env VG_PRECISION_CSV_FILE="${EMPTY_BENCHMARK_CSV}" bash "${THRESHOLD_VALIDATOR}"
+
+MALFORMED_BENCHMARK_CSV="${TMP_DIR}/precision-malformed.csv"
+cat > "${MALFORMED_BENCHMARK_CSV}" <<'CSV'
+hook,case,type,rule,expect,detected,passed,latency
+pre-bash-guard,tp-case,tp
+CSV
+assert_fail_contains "fast benchmark fails on malformed precision CSV" "malformed precision CSV line" "${TMP_DIR}/benchmark-malformed.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-malformed-results" VG_PRECISION_CSV_FILE="${MALFORMED_BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+
+BAD_DETECTED_BENCHMARK_CSV="${TMP_DIR}/precision-bad-detected.csv"
+cat > "${BAD_DETECTED_BENCHMARK_CSV}" <<'CSV'
+hook,case,type,rule,expect,detected,passed,latency
+pre-bash-guard,tp-case,tp,rule,block,maybe,1,5
+CSV
+assert_fail_contains "fast benchmark fails on invalid detected value" "invalid detected value" "${TMP_DIR}/benchmark-bad-detected.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-bad-detected-results" VG_PRECISION_CSV_FILE="${BAD_DETECTED_BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+assert_fail_contains "precision threshold validator fails on invalid detected value" "invalid detected value" "${TMP_DIR}/threshold-bad-detected.out" env VG_PRECISION_CSV_FILE="${BAD_DETECTED_BENCHMARK_CSV}" bash "${THRESHOLD_VALIDATOR}"
 
 echo ""
 echo "======================================"
