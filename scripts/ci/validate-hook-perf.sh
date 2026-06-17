@@ -41,6 +41,7 @@ line_is_output_literal() {
   local line="$1"
   [[ "${line}" =~ ^[[:space:]]*(echo|printf)[[:space:]] ]] || return 1
   [[ "${line}" == *'$('* || "${line}" == *'`'* ]] && return 1
+  [[ "${line}" == *'<('* || "${line}" == *'>('* ]] && return 1
   line_has_unquoted_command_separator "$line" && return 1
   return 0
 }
@@ -85,6 +86,63 @@ line_has_unquoted_command_separator() {
   return 1
 }
 
+line_command_segments() {
+  local line="$1"
+  local quote=""
+  local segment=""
+  local char next prev
+  local i
+
+  for ((i = 0; i < ${#line}; i++)); do
+    char="${line:i:1}"
+
+    if [[ -n "$quote" ]]; then
+      segment+="$char"
+      if [[ "$quote" == '"' && "$char" == "\\" ]]; then
+        i=$((i + 1))
+        segment+="${line:i:1}"
+        continue
+      fi
+      if [[ "$char" == "$quote" ]]; then
+        quote=""
+      fi
+      continue
+    fi
+
+    case "$char" in
+      "'"|'"')
+        quote="$char"
+        segment+="$char" ;;
+      ';'|'|')
+        printf '%s\n' "$segment"
+        segment=""
+        next="${line:i+1:1}"
+        if [[ "$char" == "|" && "$next" == "|" ]]; then
+          i=$((i + 1))
+        fi ;;
+      '&')
+        next="${line:i+1:1}"
+        prev=""
+        if [[ "$i" -gt 0 ]]; then
+          prev="${line:i-1:1}"
+        fi
+        if [[ "$next" == "&" || "$prev" =~ [[:space:]] || "$next" =~ [[:space:]] ]]; then
+          printf '%s\n' "$segment"
+          segment=""
+          if [[ "$next" == "&" ]]; then
+            i=$((i + 1))
+          fi
+        else
+          segment+="$char"
+        fi ;;
+      *)
+        segment+="$char" ;;
+    esac
+  done
+
+  printf '%s\n' "$segment"
+}
+
 line_has_odd_quote() {
   local line="$1"
   local quote="$2"
@@ -127,6 +185,23 @@ git_command_is_safe() {
   if [[ "$line" =~ $timeout_git_re ]]; then
     return 0
   fi
+
+  return 1
+}
+
+line_has_unsafe_git_command() {
+  local line="$1"
+  local segment
+
+  while IFS= read -r segment; do
+    [[ -n "${segment//[[:space:]]/}" ]] || continue
+    if line_is_output_literal "$segment"; then
+      continue
+    fi
+    if line_has_git_command "$segment" && ! git_command_is_safe "$segment"; then
+      return 0
+    fi
+  done < <(line_command_segments "$line")
 
   return 1
 }
@@ -208,7 +283,7 @@ while IFS= read -r file; do
     if line_has_git_command "$line"; then
       if perf_ok_nearby "$file" "$LINE_NUM"; then
         green "${file##*/}:${LINE_NUM}: documented git call"
-      elif git_command_is_safe "$line"; then
+      elif ! line_has_unsafe_git_command "$line"; then
         green "${file##*/}:${LINE_NUM}: bounded git call"
       else
         red "${file##*/}:${LINE_NUM}: unsafe git call — ${line:0:80}"
