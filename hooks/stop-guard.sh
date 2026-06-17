@@ -37,7 +37,7 @@ INPUT=$(cat 2>/dev/null || true)
 # Checking it breaks the feedback → Stop hook → feedback → Stop hook infinite loop.
 vg_stop_hook_active_fast "$INPUT" && exit 0
 
-# Not in git repository → skip
+# PERF-OK: Stop hook skips source-change counting outside git; single cheap probe.
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 0
 fi
@@ -48,7 +48,10 @@ while IFS= read -r file; do
   if [[ -n "$file" ]] && vg_is_source_file "$file"; then
     changed_source_files="${changed_source_files}${file}"$'\n'
   fi
-done < <(git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null)
+done < <(
+  # PERF-OK: Stop hook only needs changed file names to count source edits.
+  git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null
+)
 
 # Remove duplicates
 if [[ -n "$changed_source_files" ]]; then

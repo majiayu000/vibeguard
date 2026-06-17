@@ -8,6 +8,7 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VALIDATOR="${REPO_DIR}/scripts/ci/validate-hook-perf.sh"
 BENCH="${REPO_DIR}/tests/bench_hook_latency.sh"
+BENCHMARK="${REPO_DIR}/scripts/benchmark.sh"
 
 PASS=0
 FAIL=0
@@ -123,6 +124,7 @@ write_hook() {
 header "syntax"
 assert_cmd "performance validator syntax" bash -n "${VALIDATOR}"
 assert_cmd "latency benchmark syntax" bash -n "${BENCH}"
+assert_cmd "benchmark syntax" bash -n "${BENCHMARK}"
 assert_file_contains "${BENCH}" "Codex wrapper benchmark requires vibeguard-runtime" "latency benchmark fails fast without runtime for Codex wrapper fixtures"
 
 header "static performance gates"
@@ -140,11 +142,6 @@ DOCUMENTED_HOOKS="${TMP_DIR}/documented-hooks"
 write_hook "${DOCUMENTED_HOOKS}" "documented-hook.sh" '# PERF-OK: fixture intentionally scans its temp project root.
 find "$PROJECT_DIR" -type f >/dev/null 2>&1 || true'
 assert_cmd "PERF-OK documents an intentional scan" env VIBEGUARD_HOOKS_DIR="${DOCUMENTED_HOOKS}" bash "${VALIDATOR}"
-
-SAFE_GIT_HOOKS="${TMP_DIR}/safe-git-hooks"
-write_hook "${SAFE_GIT_HOOKS}" "safe-git-hook.sh" '# This comment mentions git status and must not count.
-git status --short >/dev/null 2>&1 || true'
-assert_cmd "error-suppressed git call passes static validator" env VIBEGUARD_HOOKS_DIR="${SAFE_GIT_HOOKS}" bash "${VALIDATOR}"
 
 TIMEOUT_GIT_HOOKS="${TMP_DIR}/timeout-git-hooks"
 write_hook "${TIMEOUT_GIT_HOOKS}" "timeout-git-hook.sh" 'gtimeout 2 git status --short >/dev/null'
@@ -164,6 +161,12 @@ BAD_GIT_HOOKS="${TMP_DIR}/bad-git-hooks"
 write_hook "${BAD_GIT_HOOKS}" "bad-git-hook.sh" 'git status --short >/dev/null'
 assert_fail_contains "unsafe git call fails static validator" "PERF-03" "${TMP_DIR}/bad-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-git.out" "bad-git-hook.sh" "unsafe git output names the hook"
+
+BAD_SUPPRESSED_GIT_HOOKS="${TMP_DIR}/bad-suppressed-git-hooks"
+write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This comment mentions git status and must not count.
+git status --short >/dev/null 2>&1 || true'
+assert_fail_contains "error-suppressed git still requires timeout or PERF-OK" "PERF-03" "${TMP_DIR}/bad-suppressed-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_SUPPRESSED_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-suppressed-git.out" "bad-suppressed-git-hook.sh" "suppressed git output names the hook"
 
 BAD_LOOP_HOOKS="${TMP_DIR}/bad-loop-hooks"
 write_hook "${BAD_LOOP_HOOKS}" "bad-loop-hook.sh" 'while read -r path; do python3 -c "print(1)" "$path"; done < /dev/null'
@@ -193,6 +196,16 @@ assert_file_contains "${REPO_DIR}/docs/reference/hook-latency-contract.md" "hook
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "core_us" "benchmark design documents core microbench surface"
 assert_file_contains "${REPO_DIR}/docs/internal/benchmarks/benchmark-design.md" "hook_e2e_ms" "benchmark design documents hook e2e surface"
 assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
+
+header "benchmark score gate"
+BENCHMARK_CSV="${TMP_DIR}/precision-fixture.csv"
+cat > "${BENCHMARK_CSV}" <<'CSV'
+hook,case,type,rule,expect,detected,passed,latency
+pre-bash-guard,tp-case,tp,rule,block,1,1,5
+pre-bash-guard,fp-case,fp,rule,allow,0,1,5
+CSV
+assert_success_contains "fast benchmark reuses precision CSV fixture" "Cases: 2" "${TMP_DIR}/benchmark.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-results" VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+assert_fail_contains "fast benchmark fails on missing precision CSV" "VG_PRECISION_CSV_FILE does not exist" "${TMP_DIR}/benchmark-missing.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-missing-results" VG_PRECISION_CSV_FILE="${TMP_DIR}/missing-precision.csv" bash "${BENCHMARK}" --mode=fast
 
 echo ""
 echo "======================================"

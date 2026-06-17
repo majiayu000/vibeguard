@@ -66,17 +66,6 @@ git_command_is_safe() {
     return 0
   fi
 
-  # Existing hooks rely on suppressed git failures when running outside a worktree
-  # or against partially initialized repos.
-  if [[ "$line" == *"2>/dev/null"* || "$line" == *"&>/dev/null"* || "$line" == *">/dev/null 2>&1"* ]]; then
-    return 0
-  fi
-
-  # Explicit fallback keeps hook execution moving when git cannot answer.
-  if [[ "$line" == *"|| true"* || "$line" == *"|| echo"* || "$line" == *"|| pwd"* ]]; then
-    return 0
-  fi
-
   return 1
 }
 
@@ -147,7 +136,7 @@ while IFS= read -r file; do
     if perf_ok_nearby "$file" "$line_no"; then
       green "${file##*/}:${line_no}: documented git call"
     elif git_command_is_safe "$line"; then
-      green "${file##*/}:${line_no}: bounded or error-suppressed git call"
+      green "${file##*/}:${line_no}: bounded git call"
     else
       red "${file##*/}:${line_no}: unsafe git call — ${line:0:80}"
       VIOLATIONS=$((VIOLATIONS + 1))

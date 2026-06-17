@@ -25,6 +25,7 @@ export VIBEGUARD_LOG_DIR
 # Benchmarks and app-server wrappers use these env overrides to avoid reading a
 # large ambient project log on every hook invocation.
 if [[ -z "${VIBEGUARD_PROJECT_LOG_DIR:-}" || -z "${VIBEGUARD_LOG_FILE:-}" ]]; then
+  # PERF-OK: hook logs are project-scoped; env overrides skip this discovery path.
   _vg_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "global")
   _vg_project_hash=$(printf '%s' "$_vg_repo_root" | shasum -a 256 2>/dev/null | cut -c1-8) || _vg_project_hash="fallback0"
   VIBEGUARD_PROJECT_HASH="$_vg_project_hash"

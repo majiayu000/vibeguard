@@ -33,6 +33,20 @@ done
 
 mkdir -p "$RESULTS_DIR"
 
+load_layer1_csv() {
+  if [[ -n "${VG_PRECISION_CSV_FILE:-}" ]]; then
+    if [[ ! -f "${VG_PRECISION_CSV_FILE}" ]]; then
+      echo "FAIL: VG_PRECISION_CSV_FILE does not exist: ${VG_PRECISION_CSV_FILE}" >&2
+      exit 1
+    fi
+    cat "${VG_PRECISION_CSV_FILE}"
+  elif [[ -n "${VG_PRECISION_CSV:-}" ]]; then
+    printf '%s\n' "${VG_PRECISION_CSV}"
+  else
+    bash "$REPO_DIR/tests/run_precision.sh" --all --csv 2>/dev/null
+  fi
+}
+
 echo "====== VibeGuard Benchmark ======"
 echo "Date: $DATE"
 echo "Run: $RUN_ID"
@@ -44,7 +58,7 @@ echo ""
 # ============================================================
 
 echo "[Layer 1: Hook precision]"
-L1_CSV=$(bash "$REPO_DIR/tests/run_precision.sh" --all --csv 2>/dev/null)
+L1_CSV="$(load_layer1_csv)"
 
 # Parse CSV calculation indicators
 L1_RESULT=$(echo "$L1_CSV" | python3 -c "

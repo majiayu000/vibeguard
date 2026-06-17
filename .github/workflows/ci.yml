@@ -317,6 +317,8 @@ jobs:
 
       - name: VibeGuard Benchmark (fast)
         shell: bash
+        env:
+          VG_PRECISION_CSV_FILE: precision-results.csv
         run: bash scripts/benchmark.sh --mode=fast
 
   windows-smoke:
