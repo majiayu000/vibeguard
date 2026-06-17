@@ -180,10 +180,13 @@ find_command_has_maxdepth() {
 git_command_is_safe() {
   local line="$1"
   local timeout_git_re='(^|[[:space:];|&({])(gtimeout|timeout)[[:space:]][^;&|]*[[:space:]](/?[[:alnum:]_.-]+/)*git[[:space:]]'
+  local remaining
 
   # timeout-wrapped git calls have a bounded wall-clock budget.
   if [[ "$line" =~ $timeout_git_re ]]; then
-    return 0
+    remaining="${line#*"${BASH_REMATCH[0]}"}"
+    ! line_has_git_command "$remaining"
+    return
   fi
 
   return 1

@@ -202,6 +202,11 @@ write_hook "${BAD_TIMEOUT_CHAIN_GIT_HOOKS}" "bad-timeout-chain-git-hook.sh" 'tim
 assert_fail_contains "unsafe git after bounded git fails static validator" "PERF-03" "${TMP_DIR}/bad-timeout-chain-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_TIMEOUT_CHAIN_GIT_HOOKS}" bash "${VALIDATOR}"
 assert_file_contains "${TMP_DIR}/bad-timeout-chain-git.out" "bad-timeout-chain-git-hook.sh" "timeout chain git names the hook"
 
+BAD_TIMEOUT_SUB_GIT_HOOKS="${TMP_DIR}/bad-timeout-sub-git-hooks"
+write_hook "${BAD_TIMEOUT_SUB_GIT_HOOKS}" "bad-timeout-sub-git-hook.sh" 'timeout 2 git status --short "$(git status --short)" >/dev/null'
+assert_fail_contains "git substitution inside bounded git fails static validator" "PERF-03" "${TMP_DIR}/bad-timeout-sub-git.out" env VIBEGUARD_HOOKS_DIR="${BAD_TIMEOUT_SUB_GIT_HOOKS}" bash "${VALIDATOR}"
+assert_file_contains "${TMP_DIR}/bad-timeout-sub-git.out" "bad-timeout-sub-git-hook.sh" "timeout substitution git names the hook"
+
 BAD_SUPPRESSED_GIT_HOOKS="${TMP_DIR}/bad-suppressed-git-hooks"
 write_hook "${BAD_SUPPRESSED_GIT_HOOKS}" "bad-suppressed-git-hook.sh" '# This comment mentions git status and must not count.
 git status --short >/dev/null 2>&1 || true'
