@@ -383,6 +383,19 @@ assert_contains "${scheduler_install_out}" "Scheduled GC installed via" "--with-
 assert_cmd "--with-scheduler creates scheduled GC entry" assert_scheduled_gc_present
 scheduler_active_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${scheduler_active_check_out}" "[OK] Scheduled GC active" "--check reports opt-in scheduled GC active"
+if [[ "$(uname)" == "Darwin" ]]; then
+  stale_scheduler_dir="${TMP_HOME}/stale-vibeguard"
+  mkdir -p "${stale_scheduler_dir}"
+  sed -e "s|__VIBEGUARD_DIR__|${stale_scheduler_dir}|g" -e "s|__HOME__|${HOME}|g" \
+    "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" \
+    > "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  touch "${HOME}/.launchctl-vibeguard-loaded"
+  stale_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+  assert_contains "${stale_scheduler_check_out}" "[BROKEN] Scheduled GC launchd target drift:" "--check reports loaded scheduled GC target drift"
+  assert_contains "${stale_scheduler_check_out}" "${stale_scheduler_dir}/scripts/gc/gc-scheduled.sh" "--check reports stale scheduled GC target path"
+  assert_not_contains "${stale_scheduler_check_out}" "[OK] Scheduled GC active via launchd" "--check does not treat stale scheduled GC as healthy"
+  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+fi
 expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
 managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"

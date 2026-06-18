@@ -118,6 +118,58 @@ check_installed_profile() {
   esac
 }
 
+launchd_gc_script_path() {
+  local plist="$1"
+  [[ -f "${plist}" ]] || return 1
+  awk '
+    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+    in_args && /<\/array>/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^.*<string>/, "", line)
+      sub(/<\/string>.*$/, "", line)
+      print line
+      exit
+    }
+  ' "${plist}"
+}
+
+check_launchd_scheduled_gc() {
+  local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+  local actual=""
+  local loaded=0
+
+  launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null && loaded=1
+  if [[ -f "${plist}" ]]; then
+    actual="$(launchd_gc_script_path "${plist}" 2>/dev/null || true)"
+  fi
+
+  if [[ "${loaded}" -eq 1 ]]; then
+    if [[ ! -f "${plist}" ]]; then
+      red "[BROKEN] Scheduled GC active via launchd but plist is missing: ${plist}"
+    elif [[ -z "${actual}" ]]; then
+      red "[BROKEN] Scheduled GC launchd plist does not declare gc-scheduled.sh: ${plist}"
+    elif [[ "${actual}" != "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC launchd target drift: ${actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler)"
+    elif [[ ! -x "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC launchd target missing or not executable: ${expected}"
+    else
+      green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
+    fi
+  elif [[ -f "${plist}" ]]; then
+    if [[ -n "${actual}" && "${actual}" != "${expected}" ]]; then
+      yellow "[WARN] Scheduled GC plist target drift: ${actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
+    elif [[ -n "${actual}" && ! -x "${actual}" ]]; then
+      yellow "[WARN] Scheduled GC plist target missing or not executable: ${actual}"
+    else
+      yellow "[WARN] Scheduled GC plist exists but not loaded"
+    fi
+  else
+    yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
+  fi
+}
+
 validate_setup_profile() {
   case "$1" in
     minimal|core|full|strict) ;;
@@ -427,13 +479,7 @@ run_legacy_checks() {
 
   # Check scheduled GC
   if [[ "$(uname)" == "Darwin" ]]; then
-    if launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null; then
-      green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
-    elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
-      yellow "[WARN] Scheduled GC plist exists but not loaded"
-    else
-      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
-    fi
+    check_launchd_scheduled_gc
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
     if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
       green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
