@@ -134,34 +134,59 @@ launchd_gc_script_path() {
   ' "${plist}"
 }
 
+launchd_gc_script_path_from_print() {
+  awk '
+    /^[[:space:]]*arguments = \{/ { in_args = 1; next }
+    in_args && /^[[:space:]]*\}/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      exit
+    }
+  '
+}
+
 check_launchd_scheduled_gc() {
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
-  local actual=""
+  local plist_actual=""
+  local active_actual=""
+  local active_print=""
   local loaded=0
 
-  launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null && loaded=1
+  if active_print="$(launchctl print "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null)"; then
+    loaded=1
+    active_actual="$(launchd_gc_script_path_from_print <<< "${active_print}" 2>/dev/null || true)"
+  fi
   if [[ -f "${plist}" ]]; then
-    actual="$(launchd_gc_script_path "${plist}" 2>/dev/null || true)"
+    plist_actual="$(launchd_gc_script_path "${plist}" 2>/dev/null || true)"
   fi
 
   if [[ "${loaded}" -eq 1 ]]; then
-    if [[ ! -f "${plist}" ]]; then
-      red "[BROKEN] Scheduled GC active via launchd but plist is missing: ${plist}"
-    elif [[ -z "${actual}" ]]; then
-      red "[BROKEN] Scheduled GC launchd plist does not declare gc-scheduled.sh: ${plist}"
-    elif [[ "${actual}" != "${expected}" ]]; then
-      red "[BROKEN] Scheduled GC launchd target drift: ${actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler)"
+    if [[ -z "${active_actual}" ]]; then
+      red "[BROKEN] Scheduled GC active via launchd but loaded job does not declare gc-scheduled.sh"
+    elif [[ "${active_actual}" != "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC launchd target drift: ${active_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler)"
     elif [[ ! -x "${expected}" ]]; then
       red "[BROKEN] Scheduled GC launchd target missing or not executable: ${expected}"
     else
       green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
     fi
+
+    if [[ ! -f "${plist}" ]]; then
+      yellow "[WARN] Scheduled GC plist missing while launchd job is loaded: ${plist}"
+    elif [[ -z "${plist_actual}" ]]; then
+      yellow "[WARN] Scheduled GC plist does not declare gc-scheduled.sh: ${plist}"
+    elif [[ "${plist_actual}" != "${expected}" ]]; then
+      yellow "[WARN] Scheduled GC plist target drift: ${plist_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
+    fi
   elif [[ -f "${plist}" ]]; then
-    if [[ -n "${actual}" && "${actual}" != "${expected}" ]]; then
-      yellow "[WARN] Scheduled GC plist target drift: ${actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
-    elif [[ -n "${actual}" && ! -x "${actual}" ]]; then
-      yellow "[WARN] Scheduled GC plist target missing or not executable: ${actual}"
+    if [[ -n "${plist_actual}" && "${plist_actual}" != "${expected}" ]]; then
+      yellow "[WARN] Scheduled GC plist target drift: ${plist_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
+    elif [[ -n "${plist_actual}" && ! -x "${plist_actual}" ]]; then
+      yellow "[WARN] Scheduled GC plist target missing or not executable: ${plist_actual}"
     else
       yellow "[WARN] Scheduled GC plist exists but not loaded"
     fi

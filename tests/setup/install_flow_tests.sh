@@ -389,12 +389,18 @@ if [[ "$(uname)" == "Darwin" ]]; then
   sed -e "s|__VIBEGUARD_DIR__|${stale_scheduler_dir}|g" -e "s|__HOME__|${HOME}|g" \
     "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" \
     > "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
-  touch "${HOME}/.launchctl-vibeguard-loaded"
+  stale_plist_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+  assert_contains "${stale_plist_check_out}" "[OK] Scheduled GC active via launchd" "--check keeps active scheduled GC healthy when only persisted plist drifts"
+  assert_contains "${stale_plist_check_out}" "[WARN] Scheduled GC plist target drift:" "--check reports persisted scheduled GC target drift"
+  assert_not_contains "${stale_plist_check_out}" "[BROKEN] Scheduled GC launchd target drift:" "--check does not treat plist-only scheduled GC drift as active target drift"
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   stale_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
   assert_contains "${stale_scheduler_check_out}" "[BROKEN] Scheduled GC launchd target drift:" "--check reports loaded scheduled GC target drift"
   assert_contains "${stale_scheduler_check_out}" "${stale_scheduler_dir}/scripts/gc/gc-scheduled.sh" "--check reports stale scheduled GC target path"
   assert_not_contains "${stale_scheduler_check_out}" "[OK] Scheduled GC active via launchd" "--check does not treat stale scheduled GC as healthy"
-  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target" "${HOME}/.launchctl-vibeguard-plist" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
 fi
 expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
