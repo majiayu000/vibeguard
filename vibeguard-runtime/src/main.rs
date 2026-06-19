@@ -3,6 +3,7 @@ mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
+mod codex_app_server_hooks;
 mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;
@@ -26,6 +27,7 @@ mod log_scope;
 mod observe;
 mod pkg_rewrite;
 mod project_config;
+mod project_config_scoped_suppression;
 mod runtime_config;
 mod runtime_policy;
 mod session_metrics;
@@ -257,7 +259,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "runtime-policy-downgrade-output",
-        usage: "  — downgrade stdin hook JSON to warn-mode advisory output",
+        usage: "[--warn-mode] [--cwd <path>] [--payload <path-or-json>] [<hook-name>]  — downgrade stdin hook JSON for warn-mode or scoped suppressions",
         handler: runtime_policy::runtime_policy_downgrade_output,
     },
     Command {

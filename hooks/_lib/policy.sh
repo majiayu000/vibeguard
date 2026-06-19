@@ -151,14 +151,19 @@ vg_policy_resolve_cwd() {
 vg_policy_check_hook() {
   local hook_name="$1"
   local payload_ref="${2:-}"
-  local output stderr_output status runtime_path policy_cwd decision enforcement reason
+  local output stderr_output status runtime_path policy_cwd decision enforcement reason output_filter
   local stdout_file stderr_file
 
   VG_POLICY_REASON=""
   VG_POLICY_KIND=""
   VG_POLICY_ENFORCEMENT="block"
+  VG_POLICY_OUTPUT_FILTER=0
   VG_POLICY_RUNTIME_PATH=""
+  VG_POLICY_CWD=""
+  VG_POLICY_PAYLOAD_REF="${payload_ref}"
+  VG_POLICY_HOOK_NAME="${hook_name}"
   export VIBEGUARD_POLICY_ENFORCEMENT="block"
+  export VG_POLICY_OUTPUT_FILTER=0
 
   if ! runtime_path="$(vg_policy_runtime_path)"; then
     VG_POLICY_REASON="VibeGuard policy error: vibeguard-runtime is required for runtime policy checks."
@@ -167,6 +172,7 @@ vg_policy_check_hook() {
   fi
   VG_POLICY_RUNTIME_PATH="${runtime_path}"
   policy_cwd="$(vg_policy_resolve_cwd "${payload_ref}" "${runtime_path}")"
+  VG_POLICY_CWD="${policy_cwd}"
 
   stdout_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-policy-stdout.XXXXXX")" || {
     VG_POLICY_REASON="VibeGuard policy error: failed to allocate runtime policy stdout capture."
@@ -199,6 +205,7 @@ vg_policy_check_hook() {
     return 20
   fi
   enforcement="$(vg_policy_json_field "${runtime_path}" "${output}" "enforcement" || true)"
+  output_filter="$(vg_policy_json_field "${runtime_path}" "${output}" "output_filter" || true)"
   reason="$(vg_policy_json_field "${runtime_path}" "${output}" "reason" || true)"
 
   case "${status}" in
@@ -213,6 +220,10 @@ vg_policy_check_hook() {
         VG_POLICY_KIND="policy_warn"
         VG_POLICY_ENFORCEMENT="warn"
         export VIBEGUARD_POLICY_ENFORCEMENT="warn"
+      fi
+      if [[ "${output_filter}" == "true" ]]; then
+        VG_POLICY_OUTPUT_FILTER=1
+        export VG_POLICY_OUTPUT_FILTER=1
       fi
       return 0
       ;;
@@ -240,8 +251,12 @@ vg_policy_check_hook() {
 }
 
 vg_policy_downgrade_output() {
-  local output="$1" runtime_path
-  if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" != "warn" || -z "${output}" ]]; then
+  local output="$1" hook_name="${2:-${VG_POLICY_HOOK_NAME:-}}" payload_ref="${3:-${VG_POLICY_PAYLOAD_REF:-}}" runtime_path
+  if [[ -z "${output}" ]]; then
+    printf '%s\n' "${output}"
+    return 0
+  fi
+  if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" != "warn" && "${VG_POLICY_OUTPUT_FILTER:-0}" != "1" ]]; then
     printf '%s\n' "${output}"
     return 0
   fi
@@ -253,7 +268,22 @@ vg_policy_downgrade_output() {
     return 0
   fi
 
-  printf '%s' "${output}" | "${runtime_path}" runtime-policy-downgrade-output || {
+  local -a downgrade_args
+  downgrade_args=(runtime-policy-downgrade-output)
+  if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]]; then
+    downgrade_args+=(--warn-mode)
+  fi
+  if [[ -n "${VG_POLICY_CWD:-}" ]]; then
+    downgrade_args+=(--cwd "${VG_POLICY_CWD}")
+  fi
+  if [[ -n "${payload_ref}" ]]; then
+    downgrade_args+=(--payload "${payload_ref}")
+  fi
+  if [[ -n "${hook_name}" ]]; then
+    downgrade_args+=("${hook_name}")
+  fi
+
+  printf '%s' "${output}" | "${runtime_path}" "${downgrade_args[@]}" || {
     printf 'VibeGuard policy error: runtime-policy-downgrade-output failed.\n' >&2
     printf '%s\n' "${output}"
   }

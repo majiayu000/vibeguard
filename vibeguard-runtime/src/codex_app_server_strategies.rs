@@ -440,5 +440,9 @@ mod profile_tests;
 mod missing_hook_tests;
 
 #[cfg(test)]
+#[path = "codex_app_server_scoped_suppression_tests.rs"]
+mod scoped_suppression_tests;
+
+#[cfg(test)]
 #[path = "codex_app_server_strategies_tests.rs"]
 mod tests;

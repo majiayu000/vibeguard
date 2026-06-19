@@ -10,6 +10,12 @@ pub mod field {
     pub const TS: &str = "ts";
     pub const SESSION: &str = "session";
     pub const EVENT: &str = "event";
+    #[allow(dead_code)]
+    pub const EVENT_ID: &str = "event_id";
+    #[allow(dead_code)]
+    pub const CODE: &str = "code";
+    #[allow(dead_code)]
+    pub const RULE_ID: &str = "rule_id";
     pub const HOOK: &str = "hook";
     pub const TOOL: &str = "tool";
     pub const MATCHER: &str = "matcher";
@@ -17,6 +23,8 @@ pub mod field {
     pub const STATUS: &str = "status";
     pub const REASON: &str = "reason";
     pub const DETAIL: &str = "detail";
+    #[allow(dead_code)]
+    pub const PATH: &str = "path";
     pub const DURATION_MS: &str = "duration_ms";
     pub const ELAPSED_MS: &str = "elapsed_ms";
     pub const TIMEOUT_MS: &str = "timeout_ms";
