@@ -72,6 +72,21 @@ assert_regex() {
   fi
 }
 
+assert_before() {
+  local text="$1" first="$2" second="$3" desc="$4"
+  local first_line second_line
+  TOTAL=$((TOTAL + 1))
+  first_line="$(grep -nF -- "$first" <<< "$text" | head -n 1 | cut -d: -f1 || true)"
+  second_line="$(grep -nF -- "$second" <<< "$text" | head -n 1 | cut -d: -f1 || true)"
+  if [[ -n "${first_line}" && -n "${second_line}" && "${first_line}" -lt "${second_line}" ]]; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected '$first' before '$second')"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 ensure_runtime_tag_available() {
   local tag="$1"
   if git -C "${REPO_DIR}" rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
@@ -122,6 +137,7 @@ assert_not_contains "$workflow_text" 'RUST_VERSION: "stable"' "release workflow 
 assert_contains "$ci_text" 'CARGO_DENY_VERSION: "0.19.9"' "CI pins cargo-deny version"
 assert_contains "$ci_text" "cargo install cargo-deny --version" "CI installs cargo-deny explicitly"
 assert_contains "$ci_text" "cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources" "CI enforces Rust dependency policy"
+assert_before "$ci_text" "Validate Rust dependency policy" "Rust runtime checks" "CI validates dependency policy before runtime Cargo builds"
 assert_contains "$deny_text" 'unknown-registry = "deny"' "deny.toml denies unknown registries"
 assert_contains "$deny_text" 'unknown-git = "deny"' "deny.toml denies unknown git sources"
 assert_contains "$deny_text" 'multiple-versions = "deny"' "deny.toml denies duplicate dependency versions"

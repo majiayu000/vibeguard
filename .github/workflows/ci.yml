@@ -51,6 +51,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install cargo-deny
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
+
+      - name: Validate Rust dependency policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources
+
       - name: Install bash 4+ (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -80,16 +90,6 @@ jobs:
           cargo check --manifest-path vibeguard-runtime/Cargo.toml
           cargo test --manifest-path vibeguard-runtime/Cargo.toml
           cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run
-
-      - name: Install cargo-deny
-        if: runner.os == 'Linux'
-        shell: bash
-        run: cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
-
-      - name: Validate Rust dependency policy
-        if: runner.os == 'Linux'
-        shell: bash
-        run: cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources
 
       # --- Shell-based validation ---
       # Skipped on Windows: these scripts check Unix file-permission bits ([ -x ])
