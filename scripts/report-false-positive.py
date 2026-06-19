@@ -93,6 +93,19 @@ def rule_id_value(args_value: str | None, event: dict[str, Any] | None) -> str:
     return "unknown"
 
 
+def path_value(args_value: str | None, event: dict[str, Any] | None) -> str:
+    direct = value_from(args_value, event, "path")
+    if direct != "unknown":
+        return direct
+    if event:
+        detail = event.get("detail")
+        if isinstance(detail, str) and detail:
+            path = detail.split("||", 1)[0].strip()
+            if path:
+                return redact(path)
+    return "unknown"
+
+
 def build_payload(args: argparse.Namespace) -> dict[str, str]:
     event = load_event(Path(args.event_log), args.event_id) if args.event_log else None
     if args.event_log and event is None:
@@ -108,7 +121,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, str]:
         "code": value_from(args.code, event, "code", "event_id"),
         "hook": value_from(args.hook, event, "hook"),
         "rule_id": rule_id_value(args.rule, event),
-        "path": value_from(args.path, event, "path", "detail"),
+        "path": path_value(args.path, event),
         "decision": value_from(args.decision, event, "decision"),
         "status": value_from(args.status, event, "status"),
         "remediation_context": context,

@@ -23,7 +23,7 @@
     },
     "rule_id": {
       "type": "string",
-      "pattern": "^(SEC|RS|GO|TS|PY|U|W|TASTE)-[A-Za-z0-9-]+$"
+      "pattern": "^(L[1-7]|(SEC|RS|GO|TS|PY|U|W|TASTE)-[A-Za-z0-9-]+)$"
     },
     "hook": { "type": "string", "minLength": 1 },
     "tool": { "type": "string" },

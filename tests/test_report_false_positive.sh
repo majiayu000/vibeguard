@@ -45,6 +45,7 @@ cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-POLICY-RS03-DOC-EXAMPLE","code":"VG-POLICY-RS03-DOC-EXAMPLE","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/example.rs","reason":"documentation sample includes unwrap token=ghp_secretvalue"}
 {"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", password: \"correct horse battery staple\", OPENAI_API_KEY=sk-openai123, AWS_SECRET_ACCESS_KEY=\"aws secret value\", GITHUB_TOKEN=ghp_prefixedsecret, and client_secret: \"client secret value\""}
 {"schema_version":1,"ts":"2026-06-19T00:00:02Z","session":"s1","event_id":"evt-layer-token","hook":"pre-write-guard","tool":"Write","decision":"warn","status":"warn","path":"src/new.rs","reason":"VIBEGUARD [L1] [advisory] new source file detected"}
+{"schema_version":1,"ts":"2026-06-19T00:00:03Z","session":"s1","event_id":"evt-detail-path","code":"VG-POLICY-DETAIL-PATH","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"src/lib.rs||delta=12","reason":"VIBEGUARD [RS-03] unwrap"}
 JSONL
 
 markdown_out="$(python3 "$SCRIPT" VG-POLICY-RS03-DOC-EXAMPLE --event-log "$EVENT_LOG")"
@@ -73,6 +74,10 @@ assert_not_contains "$quoted_secret_out" "client secret value" "markdown does no
 
 layer_rule_out="$(python3 "$SCRIPT" L1 --event-log "$EVENT_LOG")"
 assert_contains "$layer_rule_out" "rule_id: \`L1\`" "markdown extracts rule id from reason token"
+
+detail_path_out="$(python3 "$SCRIPT" evt-detail-path --event-log "$EVENT_LOG")"
+assert_contains "$detail_path_out" "path: \`src/lib.rs\`" "markdown extracts path from structured detail"
+assert_not_contains "$detail_path_out" "src/lib.rs||delta=12" "markdown does not report structured detail as path"
 
 json_out="$(python3 "$SCRIPT" RS-03 --hook post-edit-guard --rule RS-03 --path docs/example.rs --code VG-POLICY-RS03-DOC-EXAMPLE --decision warn --status warn --remediation-context "API_KEY=sk-secret123 in copied output" --format json)"
 assert_contains "$json_out" '"rule_id": "RS-03"' "json includes rule id"
