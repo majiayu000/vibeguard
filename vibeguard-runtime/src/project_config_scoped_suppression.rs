@@ -112,12 +112,13 @@ fn scoped_suppression_matches_output_at(
             })
         })
     });
-    let path_matches = direct_path
-        .as_deref()
-        .is_some_and(|path| path_matches(&suppression.path, path, project_root))
-        || context
+    let path_matches = if let Some(path) = direct_path.as_deref() {
+        path_matches(&suppression.path, path, project_root)
+    } else {
+        context
             .iter()
-            .any(|text| text_contains_matching_path(text, &suppression.path, project_root));
+            .any(|text| text_contains_matching_path(text, &suppression.path, project_root))
+    };
     if !path_matches {
         return false;
     };
@@ -125,9 +126,12 @@ fn scoped_suppression_matches_output_at(
         let observed_code = output_string_field(output, &["code", "event_id"]).or_else(|| {
             payload.and_then(|payload| output_string_field(payload, &["code", "event_id"]))
         });
+        if let Some(observed_code) = observed_code.as_deref() {
+            return observed_code == code;
+        }
         let context_has_code = context.iter().any(|text| text_contains_token(text, code));
-        if observed_code.is_some() || context_has_code {
-            return observed_code.as_deref() == Some(code) || context_has_code;
+        if context_has_code {
+            return true;
         }
     }
     true
@@ -609,6 +613,47 @@ mod tests {
 
         assert!(!scoped_suppression_matches_output_at(
             &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            None,
+            None,
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn structured_path_overrides_context_path_mentions() {
+        let output = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "VIBEGUARD quality warning: [RS-03] docs/examples/basic.rs"
+            }
+        });
+        let payload = json!({"tool_input": {"file_path": "/repo/src/main.rs"}});
+
+        assert!(!scoped_suppression_matches_output_at(
+            &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            Some(&payload),
+            Some("/repo"),
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn structured_code_overrides_context_code_mentions() {
+        let output = json!({
+            "rule_id": "RS-03",
+            "path": "docs/examples/basic.rs",
+            "code": "VG-POLICY-OTHER",
+            "reason": "Related to VG-POLICY-RS03-DOC-EXAMPLE",
+        });
+        let mut scoped = suppression();
+        scoped.code = Some("VG-POLICY-RS03-DOC-EXAMPLE".to_string());
+
+        assert!(!scoped_suppression_matches_output_at(
+            &scoped,
             "post-edit-guard.sh",
             &output,
             None,
