@@ -41,7 +41,7 @@ coverage is required.
 ## Runtime and Provenance
 
 ```bash
-~/.vibeguard/installed/bin/vibeguard-runtime --version
+~/.vibeguard/installed/bin/vibeguard-runtime version
 bash ~/vibeguard/setup.sh verify-install
 ```
 
