@@ -27,6 +27,29 @@ vg_append_log_line() {
   _vg_append_log_line_shell "$file" "$line"
 }
 
+_vg_log_lock_mtime() {
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || true
+}
+
+_vg_remove_stale_log_lock() {
+  local lock_dir="$1"
+  local stale_seconds="${VIBEGUARD_LOG_LOCK_STALE_SECONDS:-600}"
+  local now mtime age
+
+  [[ -d "$lock_dir" ]] || return 1
+  [[ "$stale_seconds" =~ ^[0-9]+$ ]] || stale_seconds=600
+  if [[ "$stale_seconds" -eq 0 ]]; then
+    rmdir "$lock_dir" 2>/dev/null
+    return $?
+  fi
+  mtime="$(_vg_log_lock_mtime "$lock_dir")"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || return 1
+  now="$(date +%s)"
+  age=$((now - mtime))
+  [[ "$age" -ge "$stale_seconds" ]] || return 1
+  rmdir "$lock_dir" 2>/dev/null
+}
+
 vg_append_log_line_mirror() {
   local primary_file="$1"
   local mirror_file="$2"
@@ -76,6 +99,9 @@ _vg_append_log_line_shell() {
     if mkdir "$lock_dir" 2>/dev/null; then
       acquired="true"
       break
+    fi
+    if _vg_remove_stale_log_lock "$lock_dir"; then
+      continue
     fi
     attempts=$((attempts + 1))
     sleep "$sleep_seconds" 2>/dev/null || true

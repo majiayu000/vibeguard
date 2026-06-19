@@ -42,15 +42,19 @@ fi
 
 _VG_RUNTIME_MSG="$(head -c 300 "$_VG_RUNTIME_ERR" 2>/dev/null || true)"
 [[ -n "$_VG_RUNTIME_MSG" ]] || _VG_RUNTIME_MSG="unknown runtime error"
-if ! vg_log "post-write-guard" "Write" "warn" "runtime post-write-check failed; fail-closed: $_VG_RUNTIME_MSG" ""; then
+_VG_FAILURE_KIND="runtime"
+_VG_RECOVERY="bash scripts/hook-health.sh 24"
+if [[ -n "${VIBEGUARD_LOG_FILE:-}" && -d "${VIBEGUARD_LOG_FILE}.lock.d" ]]; then
+  _VG_FAILURE_KIND="lock"
+  _VG_RECOVERY="if no VibeGuard hook is active, run: rmdir \"${VIBEGUARD_LOG_FILE}.lock.d\""
+fi
+_VG_INTERNAL_CONTEXT="VIBEGUARD internal error [VG-INTERNAL-POST-WRITE-RUNTIME]: hook=post-write-guard tool=Write failure_kind=${_VG_FAILURE_KIND} mode=warn project=${VIBEGUARD_PROJECT_HASH:-unknown} session=${VIBEGUARD_SESSION_ID:-unknown} log_path=${VIBEGUARD_LOG_FILE:-unknown} recovery=${_VG_RECOVERY} detail=post-write runtime check failed: ${_VG_RUNTIME_MSG}"
+if ! vg_log "post-write-guard" "Write" "warn" "vibeguard_internal_error failure_kind=${_VG_FAILURE_KIND} code=VG-INTERNAL-POST-WRITE-RUNTIME: $_VG_RUNTIME_MSG" ""; then
   printf 'VIBEGUARD ERROR: failed to log post-write runtime failure\n' >&2
 fi
 
-cat <<'EOF'
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "VIBEGUARD ERROR: post-write runtime check failed; reporting visibly instead of silently passing."
-  }
-}
-EOF
+_VG_INTERNAL_CONTEXT="${_VG_INTERNAL_CONTEXT//\\/\\\\}"
+_VG_INTERNAL_CONTEXT="${_VG_INTERNAL_CONTEXT//\"/\\\"}"
+_VG_INTERNAL_CONTEXT="${_VG_INTERNAL_CONTEXT//$'\n'/\\n}"
+_VG_INTERNAL_CONTEXT="${_VG_INTERNAL_CONTEXT//$'\t'/\\t}"
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$_VG_INTERNAL_CONTEXT"

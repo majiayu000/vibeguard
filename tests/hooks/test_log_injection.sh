@@ -163,6 +163,24 @@ assert_contains "$(cat "$lock_test_stderr")" "failed to acquire log lock" "Log a
 assert_not_contains "$(cat "$lock_test_file")" '{"locked":true}' "Log append lock contention does not write unlocked"
 rm -rf "$lock_test_dir"
 
+stale_shell_lock_dir="$(mktemp -d)"
+stale_shell_lock_file="${stale_shell_lock_dir}/events.jsonl"
+mkdir "${stale_shell_lock_file}.lock.d"
+set +e
+stale_shell_lock_result=$(
+  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
+  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
+  export VIBEGUARD_LOG_LOCK_STALE_SECONDS=0
+  source hooks/_lib/log_write.sh
+  vg_append_log_line "$stale_shell_lock_file" '{"stale_shell_lock":true}'
+  printf 'rc=%s' "$?"
+)
+set -e
+assert_contains "$stale_shell_lock_result" "rc=0" "Shell log append removes stale lock and succeeds"
+assert_contains "$(cat "$stale_shell_lock_file")" '{"stale_shell_lock":true}' "Shell stale-lock recovery writes the log line"
+assert_exit_zero "Shell stale-lock recovery removes lock directory" test ! -e "${stale_shell_lock_file}.lock.d"
+rm -rf "$stale_shell_lock_dir"
+
 header "log.sh — runtime append lock contention"
 
 runtime_lock_test_dir="$(mktemp -d)"

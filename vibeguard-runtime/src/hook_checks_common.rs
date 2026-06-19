@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::time_utils::{format_unix_secs_utc, now_unix_millis, now_unix_secs};
 
@@ -355,7 +355,12 @@ pub(crate) fn write_log_event(
     if let Ok(log_dir) = env::var("VIBEGUARD_LOG_DIR") {
         let global = Path::new(&log_dir).join("events.jsonl");
         if global != Path::new(log_file) {
-            append_jsonl(&global, &line)?;
+            if let Err(err) = append_jsonl(&global, &line) {
+                eprintln!(
+                    "VIBEGUARD ERROR: global JSONL mirror append failed for {}: {err}",
+                    global.display()
+                );
+            }
         }
     }
     Ok(())
@@ -409,6 +414,13 @@ impl JsonlAppendLock {
                     return Ok(Self { lock_dir });
                 }
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                    if remove_stale_jsonl_lock(&lock_dir)? {
+                        match fs::create_dir(&lock_dir) {
+                            Ok(()) => return Ok(Self { lock_dir }),
+                            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+                            Err(err) => return Err(err),
+                        }
+                    }
                     if attempt + 1 < max_attempts && !sleep_duration.is_zero() {
                         std::thread::sleep(sleep_duration);
                     }
@@ -420,10 +432,43 @@ impl JsonlAppendLock {
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
             format!(
-                "timed out waiting for JSONL append lock after {max_attempts} attempts: {}",
+                "timed out waiting for JSONL append lock after {max_attempts} attempts: {}; recovery: if no VibeGuard process is active, remove this stale lock directory",
                 lock_dir.display()
             ),
         ))
+    }
+}
+
+fn remove_stale_jsonl_lock(lock_dir: &Path) -> io::Result<bool> {
+    let stale_after = jsonl_lock_stale_duration();
+    let Ok(metadata) = fs::metadata(lock_dir) else {
+        return Ok(false);
+    };
+    if !metadata.is_dir() {
+        return Ok(false);
+    }
+    if stale_after.is_zero() {
+        return remove_jsonl_lock_dir(lock_dir);
+    }
+    let Ok(modified) = metadata.modified() else {
+        return Ok(false);
+    };
+    let Ok(age) = SystemTime::now().duration_since(modified) else {
+        return Ok(false);
+    };
+    if age < stale_after {
+        return Ok(false);
+    }
+
+    remove_jsonl_lock_dir(lock_dir)
+}
+
+fn remove_jsonl_lock_dir(lock_dir: &Path) -> io::Result<bool> {
+    match fs::remove_dir(lock_dir) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(false),
+        Err(err) => Err(err),
     }
 }
 
@@ -442,6 +487,15 @@ fn jsonl_lock_sleep_duration() -> Duration {
         .filter(|value| value.is_finite() && *value >= 0.0)
         .map(Duration::from_secs_f64)
         .unwrap_or_else(|| Duration::from_millis(10))
+}
+
+fn jsonl_lock_stale_duration() -> Duration {
+    env::var("VIBEGUARD_LOG_LOCK_STALE_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or_else(|| Duration::from_secs(10 * 60))
 }
 
 impl Drop for JsonlAppendLock {

@@ -107,6 +107,43 @@ global_log_text="$(cat "$tmp_home/.vibeguard/events.jsonl" 2>/dev/null || true)"
 assert_contains "$global_log_text" '"hook":"pre-edit-guard"' "Default log-dir Rust fast path writes global log"
 rm -rf "$tmp_home" "$tmp_file"
 
+tmp_lock_dir=$(mktemp -d)
+tmp_lock_file=$(mktemp)
+locked_log="$tmp_lock_dir/events.jsonl"
+printf 'safe\n' > "$tmp_lock_file"
+mkdir "${locked_log}.lock.d"
+result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$tmp_lock_file" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_lock_dir" \
+    VIBEGUARD_LOG_FILE="$locked_log" \
+    VIBEGUARD_PROJECT_HASH="locktest1" \
+    VIBEGUARD_SESSION_ID="pre-edit-lock-test" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/pre-edit-guard.sh 2>/dev/null)
+assert_not_contains "$result" '"decision": "block"' "Log append failure after safe pre-edit validation does not block"
+assert_contains "$result" "VG-INTERNAL-LOG-APPEND" "Log append failure reports internal error code"
+assert_contains "$result" "failure_kind=lock" "Log append failure reports lock failure kind"
+assert_contains "$result" "pre-edit-lock-test" "Log append failure reports session id"
+assert_contains "$result" "$locked_log" "Log append failure reports log path"
+assert_contains "$result" "rmdir" "Log append failure reports stale-lock recovery command"
+rm -rf "$tmp_lock_dir" "$tmp_lock_file"
+
+tmp_policy_lock_dir=$(mktemp -d)
+policy_locked_log="$tmp_policy_lock_dir/events.jsonl"
+mkdir "${policy_locked_log}.lock.d"
+result=$(printf '{"tool_input":{"file_path":"%s","old_string":"test"}}' "$tmp_policy_lock_dir/missing.rs" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_policy_lock_dir" \
+    VIBEGUARD_LOG_FILE="$policy_locked_log" \
+    VIBEGUARD_PROJECT_HASH="policy01" \
+    VIBEGUARD_SESSION_ID="pre-edit-policy-lock-test" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/pre-edit-guard.sh 2>/dev/null)
+assert_contains "$result" '"decision": "block"' "Policy block still blocks when event log append fails"
+assert_contains "$result" "File does not exist" "Policy block keeps real reason when event log append fails"
+assert_not_contains "$result" "runtime pre-edit-check failed" "Policy block is not replaced by generic runtime failure"
+rm -rf "$tmp_policy_lock_dir"
+
 # W-12: Test infrastructure files should be intercepted (conftest.py)
 result=$(echo '{"tool_input":{"file_path":"/any/path/conftest.py","old_string":""}}' | bash hooks/pre-edit-guard.sh)
 assert_contains "$result" '"decision": "block"' "W-12: Block editing conftest.py"

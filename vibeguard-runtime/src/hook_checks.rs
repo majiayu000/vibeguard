@@ -294,14 +294,16 @@ fn write_pre_edit_block(
     file_path: &str,
     output_reason: &str,
 ) -> io::Result<()> {
-    write_log_event(
+    if let Err(err) = write_log_event(
         log_file,
         "pre-edit-guard",
         "Edit",
         "block",
         log_reason,
         file_path,
-    )?;
+    ) {
+        eprintln!("VIBEGUARD ERROR: pre-edit block log append failed: {err}");
+    }
     println!("FAST_OUTPUT");
     println!("{}", decision_block_json(output_reason));
     Ok(())
