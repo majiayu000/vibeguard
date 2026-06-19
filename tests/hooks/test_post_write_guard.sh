@@ -192,6 +192,25 @@ result=$(echo "$json_payload" \
 assert_contains "$result" "post-write runtime check failed" "Runtime failure remains visible when fallback logging fails"
 rm -rf "$tmp_repo_runtime_fail" "$tmp_log_dir"
 
+tmp_repo_global_lock="$(mktemp -d)"
+git -C "$tmp_repo_global_lock" init -q
+tmp_global_lock_dir="$(mktemp -d)"
+tmp_project_log_dir="$tmp_global_lock_dir/project"
+mkdir -p "$tmp_project_log_dir"
+mkdir "$tmp_global_lock_dir/events.jsonl.lock.d"
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"# x"}}' "$tmp_repo_global_lock/README.md")
+result=$(echo "$json_payload" \
+  | VIBEGUARD_LOG_DIR="$tmp_global_lock_dir" \
+    VIBEGUARD_PROJECT_LOG_DIR="$tmp_project_log_dir" \
+    VIBEGUARD_LOG_FILE="$tmp_project_log_dir/events.jsonl" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/post-write-guard.sh 2>/dev/null)
+assert_contains "$result" "failure_kind=lock" "Post-write global mirror lock reports lock failure kind"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl" "Post-write global mirror lock reports global log path"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl.lock.d" "Post-write global mirror lock reports global recovery path"
+rm -rf "$tmp_repo_global_lock" "$tmp_global_lock_dir"
+
 # =========================================================
 
 hook_test_finish
