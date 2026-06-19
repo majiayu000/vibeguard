@@ -47,12 +47,17 @@ the team has accepted the hook surface. Without a repository config, native
 Codex hooks still exist at the installed hook surface and no repository-scoped
 profile narrowing is applied.
 
-Use language selection when a repository should only receive relevant rules and
-guards:
+Use language selection only when a developer wants to filter the local Claude
+native rule install for their machine:
 
 ```bash
 bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 ```
+
+This is a global local-install setting, not a repository policy. It updates the
+rules linked under `~/.claude/rules/vibeguard` and does not narrow the installed
+guard script tree. Prefer `.vibeguard.json` for repository-scoped profile and
+enforcement policy.
 
 ## CI and Verification
 
