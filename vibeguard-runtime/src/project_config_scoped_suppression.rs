@@ -81,13 +81,21 @@ fn scoped_suppression_matches_output_at(
     }
 
     let context = output_context_strings(output);
+    let context_rule_ids = context_rule_ids(&context);
+    if context_rule_ids
+        .iter()
+        .any(|rule_id| rule_id != &suppression.rule_id)
+    {
+        return false;
+    }
+
     if output_string_field(output, &["rule_id", "rule"])
         .or_else(|| payload.and_then(|payload| output_string_field(payload, &["rule_id", "rule"])))
         .as_deref()
         != Some(suppression.rule_id.as_str())
-        && !context
+        && !context_rule_ids
             .iter()
-            .any(|text| text_contains_token(text, &suppression.rule_id))
+            .any(|rule_id| rule_id == &suppression.rule_id)
     {
         return false;
     }
@@ -360,6 +368,15 @@ fn text_contains_token(text: &str, token: &str) -> bool {
         .any(|part| part == token)
 }
 
+fn context_rule_ids(context: &[String]) -> Vec<String> {
+    context
+        .iter()
+        .flat_map(|text| text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-')))
+        .filter(|part| valid_suppression_rule_id(part))
+        .map(str::to_string)
+        .collect()
+}
+
 fn text_contains_matching_path(text: &str, pattern: &str, project_root: Option<&str>) -> bool {
     text.split_whitespace()
         .map(|part| {
@@ -549,6 +566,26 @@ mod tests {
             }
         });
         let payload = json!({"tool_input": {"file_path": "/repo/src/main.rs"}});
+
+        assert!(!scoped_suppression_matches_output_at(
+            &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            Some(&payload),
+            Some("/repo"),
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn rejects_aggregate_context_with_other_rule_ids() {
+        let output = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "VIBEGUARD quality warning: [RS-03] unwrap and [W-15] repeated edit"
+            }
+        });
+        let payload = json!({"tool_input": {"file_path": "/repo/docs/examples/basic.rs"}});
 
         assert!(!scoped_suppression_matches_output_at(
             &suppression(),
