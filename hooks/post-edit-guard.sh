@@ -118,7 +118,7 @@ fi
 # --- Escalation detection ---
 # The same file is warned more than 3 times in the current log → upgrade to escalate
 DECISION="warn"
-WARN_COUNT_FOR_FILE=$(vg_post_edit_warn_count_for_file)
+WARN_COUNT_FOR_FILE=$(vg_post_edit_warn_count_for_file --fresh)
 WARN_COUNT_FOR_FILE="${WARN_COUNT_FOR_FILE:-0}"
 
 if [[ "$WARN_COUNT_FOR_FILE" -ge 3 ]]; then

@@ -51,16 +51,62 @@ vg_post_edit_history_numeric_query() {
   fi
 }
 
-vg_post_edit_count_build_failures() {
-  local project_root
+_VG_POST_EDIT_HISTORY_SUMMARY_LOADED=0
+_VG_POST_EDIT_HISTORY_SUMMARY=""
+
+vg_post_edit_history_reset() {
+  _VG_POST_EDIT_HISTORY_SUMMARY_LOADED=0
+  _VG_POST_EDIT_HISTORY_SUMMARY=""
+}
+
+vg_post_edit_history_project_root() {
   # PERF-OK: build-failure history is repo-scoped; outside git uses an empty root.
-  project_root=$(vg_post_edit_history_with_timeout git rev-parse --show-toplevel 2>/dev/null || echo "")
-  vg_post_edit_history_numeric_query 200 build-fails "$VIBEGUARD_SESSION_ID" "$project_root"
+  vg_post_edit_history_with_timeout git rev-parse --show-toplevel 2>/dev/null || echo ""
+}
+
+vg_post_edit_history_summary() {
+  if [[ "${_VG_POST_EDIT_HISTORY_SUMMARY_LOADED:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local project_root
+  project_root="$(vg_post_edit_history_project_root)"
+  _VG_POST_EDIT_HISTORY_SUMMARY="$(
+    vg_post_edit_history_query 500 post-edit-history \
+      "$VIBEGUARD_SESSION_ID" \
+      "$FILE_PATH" \
+      "${VIBEGUARD_AGENT_TYPE:-}" \
+      "$project_root" \
+      2>/dev/null || true
+  )"
+  _VG_POST_EDIT_HISTORY_SUMMARY_LOADED=1
+}
+
+vg_post_edit_history_field() {
+  local key="$1"
+  vg_post_edit_history_summary
+  awk -v key="$key" 'index($0, key "\t") == 1 { print substr($0, length(key) + 2); exit }' \
+    <<< "${_VG_POST_EDIT_HISTORY_SUMMARY}"
+}
+
+vg_post_edit_history_numeric_field() {
+  local value
+  value="$(vg_post_edit_history_field "$1" | tr -d '[:space:]')"
+  if [[ "${value}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "${value}"
+  else
+    printf '0\n'
+  fi
+}
+
+vg_post_edit_count_build_failures() {
+  vg_post_edit_history_numeric_field "BUILD_FAILS"
 }
 
 vg_post_edit_detect_churn() {
   local churn_count build_fail_count
-  churn_count="$(vg_post_edit_history_numeric_query 500 churn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH")"
+  vg_post_edit_history_summary
+  churn_count="$(vg_post_edit_history_numeric_field "CHURN")"
   build_fail_count="0"
 
   if [[ "$churn_count" -ge 20 ]]; then
@@ -92,8 +138,8 @@ DO NOT: Take any action — this is informational only"
 
 vg_post_edit_detect_w14_overlap() {
   local recent_conflict other_session other_agent other_hook other_tool
-  recent_conflict=$(vg_post_edit_history_query 500 post-edit-history "$VIBEGUARD_SESSION_ID" "$FILE_PATH" "${VIBEGUARD_AGENT_TYPE:-}" \
-    2>/dev/null | awk -F '\t' '$1 == "W14" { print $2 "|" $3 "|" $4 "|" $5 }' | tail -1 | tr -d '\r' || true)
+  vg_post_edit_history_summary
+  recent_conflict="$(vg_post_edit_history_field "W14" | tr '\t' '|' | tail -1 | tr -d '\r' || true)"
 
   [[ -n "$recent_conflict" ]] || return 0
   IFS='|' read -r other_session other_agent other_hook other_tool <<< "$recent_conflict"
@@ -146,14 +192,12 @@ vg_post_edit_detect_w15_loop() {
     esac
   fi
 
-  local current_delta past_consecutive past_deltas raw
+  local current_delta past_consecutive past_deltas
   current_delta="${VG_W15_CURRENT_DELTA:-0}"
 
-  raw=$(vg_post_edit_history_query 200 post-edit-w15 "$VIBEGUARD_SESSION_ID" "$FILE_PATH" \
-    2>/dev/null || printf "0\n\n")
-
-  past_consecutive=$(printf '%s\n' "$raw" | sed -n '1p' | tr -d '[:space:]')
-  past_deltas=$(printf '%s\n' "$raw" | sed -n '2p')
+  vg_post_edit_history_summary
+  past_consecutive="$(vg_post_edit_history_numeric_field "W15")"
+  past_deltas="$(vg_post_edit_history_field "W15_DELTAS")"
   past_consecutive="${past_consecutive:-0}"
 
   [[ "$past_consecutive" -ge 2 ]] || return 0
@@ -187,5 +231,10 @@ ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing
 }
 
 vg_post_edit_warn_count_for_file() {
-  vg_post_edit_history_numeric_query 500 warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+  if [[ "${1:-}" == "--fresh" ]]; then
+    vg_post_edit_history_numeric_query 500 warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    return 0
+  fi
+  vg_post_edit_history_summary
+  vg_post_edit_history_numeric_field "WARN_COUNT"
 }
