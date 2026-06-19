@@ -6,7 +6,7 @@
 
 ![VibeGuard project card](docs/assets/readme-card.png)
 
-[Chinese Docs](docs/README_CN.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
+[Chinese Docs](docs/README_CN.md) · [Quickstart](docs/how/quickstart.md) · [Team Rollout](docs/how/team-rollout.md) · [Troubleshooting](docs/how/troubleshooting.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 VibeGuard adds **native rules + real-time hooks + static guards** to catch what AI coding agents get wrong — **before it reaches your codebase**:
 
@@ -20,11 +20,20 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 
 Works with **Claude Code** and **Codex CLI**.
 
-## Install in 30 seconds
+## Start Here
+
+| Path | Use it when | Start with |
+|------|-------------|------------|
+| **Quickstart** | You want one local install, one health check, and one real intercepted demo | [docs/how/quickstart.md](docs/how/quickstart.md) |
+| **Team rollout** | You need profiles, CI policy, rollout expectations, or project bootstrap guidance | [docs/how/team-rollout.md](docs/how/team-rollout.md) |
+| **Troubleshooting** | Setup/check/status output is stale, degraded, broken, or confusing | [docs/how/troubleshooting.md](docs/how/troubleshooting.md) |
+
+Fastest local proof:
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh --yes
+bash ~/vibeguard/setup.sh verify-install
 ```
 
 On supported macOS/Linux targets, the production install/check/clean path is
@@ -36,11 +45,11 @@ is not required by default.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
-Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
+Open a new Claude Code or Codex session after install. Use `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
 
 ### First 5 minutes
 
-Use this path to prove the install is active before changing another project:
+The complete first-run flow lives in [Quickstart](docs/how/quickstart.md). These commands prove the install is active before changing another project:
 
 ```bash
 bash ~/vibeguard/setup.sh doctor
@@ -66,9 +75,9 @@ The current mainline is install-verified on macOS and CI-verified on Ubuntu, mac
 - Interactive health report: `bash setup.sh doctor` (compatibility alias: `bash setup.sh --check`)
 - CI/post-install health gate: `bash setup.sh verify-install`
 - Expected verdict after a healthy install: `HEALTHY`
-- Claude Code: native rules, skills, commands, hooks, and git hooks are installed by `setup.sh`; scheduled GC is opt-in with `--with-scheduler`
-- Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
-- Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
+- Claude Code and Codex install details: [Quickstart](docs/how/quickstart.md)
+- Profiles, CI rollout, and scheduler expectations: [Team Rollout](docs/how/team-rollout.md)
+- Stale install/runtime/hook diagnosis: [Troubleshooting](docs/how/troubleshooting.md)
 
 Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report and checked against per-hook budgets. The previous-commit ratio is useful for spotting changes, but single-run noise can move it; merge decisions should use the budget gate plus recent-main trend, not one baseline sample alone.
 
@@ -519,6 +528,9 @@ Key lessons:
 | Doc | Purpose |
 |-----|---------|
 | [docs/README_CN.md](docs/README_CN.md) | Chinese overview and setup guide |
+| [docs/how/quickstart.md](docs/how/quickstart.md) | Minimal install, verification, project bootstrap, and intercepted demo path |
+| [docs/how/team-rollout.md](docs/how/team-rollout.md) | Profiles, CI policy, scheduler rollout, and team verification expectations |
+| [docs/how/troubleshooting.md](docs/how/troubleshooting.md) | Install, runtime, Codex hook, and hook-status diagnosis |
 | [docs/rule-reference.md](docs/rule-reference.md) | Rule layers, guard coverage, and language-specific checks |
 | [docs/CLAUDE.md.example](docs/CLAUDE.md.example) | Project-level CLAUDE template without installing hooks |
 | [docs/linux-setup.md](docs/linux-setup.md) | Linux-specific setup notes |
