@@ -44,6 +44,7 @@ EVENT_LOG="${TMP_DIR}/events.jsonl"
 cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-POLICY-RS03-DOC-EXAMPLE","code":"VG-POLICY-RS03-DOC-EXAMPLE","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/example.rs","reason":"documentation sample includes unwrap token=ghp_secretvalue"}
 {"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", and password: \"correct horse battery staple\""}
+{"schema_version":1,"ts":"2026-06-19T00:00:02Z","session":"s1","event_id":"evt-layer-token","hook":"pre-write-guard","tool":"Write","decision":"warn","status":"warn","path":"src/new.rs","reason":"VIBEGUARD [L1] [advisory] new source file detected"}
 JSONL
 
 markdown_out="$(python3 "$SCRIPT" VG-POLICY-RS03-DOC-EXAMPLE --event-log "$EVENT_LOG")"
@@ -61,6 +62,9 @@ assert_contains "$quoted_secret_out" "api_key=<redacted>" "markdown redacts quot
 assert_not_contains "$quoted_secret_out" "hunter2" "markdown does not leak quoted JSON password"
 assert_not_contains "$quoted_secret_out" "abc123" "markdown does not leak quoted YAML-style api key"
 assert_not_contains "$quoted_secret_out" "correct horse battery staple" "markdown does not leak multi-word quoted password"
+
+layer_rule_out="$(python3 "$SCRIPT" L1 --event-log "$EVENT_LOG")"
+assert_contains "$layer_rule_out" "rule_id: \`L1\`" "markdown extracts rule id from reason token"
 
 json_out="$(python3 "$SCRIPT" RS-03 --hook post-edit-guard --rule RS-03 --path docs/example.rs --code VG-POLICY-RS03-DOC-EXAMPLE --decision warn --status warn --remediation-context "API_KEY=sk-secret123 in copied output" --format json)"
 assert_contains "$json_out" '"rule_id": "RS-03"' "json includes rule id"

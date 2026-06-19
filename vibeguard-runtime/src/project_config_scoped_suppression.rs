@@ -103,13 +103,13 @@ fn scoped_suppression_matches_output_at(
         return false;
     };
     if let Some(code) = suppression.code.as_deref() {
-        return output_string_field(output, &["code", "event_id"])
-            .or_else(|| {
-                payload.and_then(|payload| output_string_field(payload, &["code", "event_id"]))
-            })
-            .as_deref()
-            == Some(code)
-            || context.iter().any(|text| text_contains_token(text, code));
+        let observed_code = output_string_field(output, &["code", "event_id"]).or_else(|| {
+            payload.and_then(|payload| output_string_field(payload, &["code", "event_id"]))
+        });
+        let context_has_code = context.iter().any(|text| text_contains_token(text, code));
+        if observed_code.is_some() || context_has_code {
+            return observed_code.as_deref() == Some(code) || context_has_code;
+        }
     }
     true
 }
@@ -366,51 +366,56 @@ fn text_contains_matching_path(text: &str, pattern: &str) -> bool {
 }
 
 fn path_matches(pattern: &str, path: &str) -> bool {
+    let normalized_pattern = pattern.replace('\\', "/");
     let normalized_path = path.replace('\\', "/");
-    if pattern == normalized_path || wildcard_match(pattern, &normalized_path) {
+    if normalized_pattern == normalized_path
+        || wildcard_match(&normalized_pattern, &normalized_path)
+    {
         return true;
     }
     normalized_path
         .match_indices('/')
         .map(|(index, _)| &normalized_path[index + 1..])
-        .any(|suffix| pattern == suffix || wildcard_match(pattern, suffix))
+        .any(|suffix| normalized_pattern == suffix || wildcard_match(&normalized_pattern, suffix))
 }
 
 fn wildcard_match(pattern: &str, text: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let text = text.as_bytes();
-    let mut pattern_index = 0;
-    let mut text_index = 0;
-    let mut star_index: Option<usize> = None;
-    let mut star_text_index = 0;
+    wildcard_match_at(pattern.as_bytes(), text.as_bytes(), 0, 0)
+}
 
-    while text_index < text.len() {
-        if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-            star_index = Some(pattern_index);
-            pattern_index += 1;
-            star_text_index = text_index;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == text[text_index] {
-            pattern_index += 1;
-            text_index += 1;
-        } else if let Some(star) = star_index {
-            pattern_index = star + 1;
-            star_text_index += 1;
-            text_index = star_text_index;
-        } else {
+fn wildcard_match_at(pattern: &[u8], text: &[u8], pattern_index: usize, text_index: usize) -> bool {
+    if pattern_index == pattern.len() {
+        return text_index == text.len();
+    }
+    if pattern[pattern_index] != b'*' {
+        return text_index < text.len()
+            && pattern[pattern_index] == text[text_index]
+            && wildcard_match_at(pattern, text, pattern_index + 1, text_index + 1);
+    }
+
+    let crosses_segments = pattern_index + 1 < pattern.len() && pattern[pattern_index + 1] == b'*';
+    let next_pattern_index = if crosses_segments {
+        pattern_index + 2
+    } else {
+        pattern_index + 1
+    };
+    let mut candidate = text_index;
+    loop {
+        if wildcard_match_at(pattern, text, next_pattern_index, candidate) {
+            return true;
+        }
+        if candidate == text.len() || (!crosses_segments && text[candidate] == b'/') {
             return false;
         }
+        candidate += 1;
     }
-
-    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-        pattern_index += 1;
-    }
-    pattern_index == pattern.len()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ScopedSuppression, scoped_suppression_matches_output_at, valid_suppression_rule_id,
+        ScopedSuppression, path_matches, scoped_suppression_matches_output_at,
+        valid_suppression_rule_id,
     };
     use serde_json::json;
 
@@ -521,6 +526,19 @@ mod tests {
             None,
             "2026-06-19",
         ));
+
+        let output_without_code = json!({
+            "rule_id": "RS-03",
+            "path": "docs/examples/basic.rs"
+        });
+        scoped.code = Some("VG-POLICY-RS03-DOC-EXAMPLE".to_string());
+        assert!(scoped_suppression_matches_output_at(
+            &scoped,
+            "post-edit-guard.sh",
+            &output_without_code,
+            None,
+            "2026-06-19",
+        ));
     }
 
     #[test]
@@ -548,5 +566,12 @@ mod tests {
             None,
             "2026-06-19",
         ));
+    }
+
+    #[test]
+    fn single_star_path_patterns_do_not_cross_segments() {
+        assert!(path_matches("docs/*.rs", "docs/basic.rs"));
+        assert!(!path_matches("docs/*.rs", "docs/examples/basic.rs"));
+        assert!(path_matches("docs/**/*.rs", "docs/examples/basic.rs"));
     }
 }

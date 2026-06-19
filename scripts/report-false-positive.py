@@ -18,6 +18,9 @@ SECRET_PATTERNS = [
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}\b"),
 ]
+RULE_ID_PATTERN = re.compile(
+    r"\[(L[1-7]|SEC-\d+|RS-\d+|GO-\d+|TS-\d+|PY-\d+|U-\d+|W-\d+|TASTE-[A-Za-z0-9-]+)\]"
+)
 
 
 def redact(text: str) -> str:
@@ -72,6 +75,20 @@ def value_from(args_value: str | None, event: dict[str, Any] | None, *fields: st
     return "unknown"
 
 
+def rule_id_value(args_value: str | None, event: dict[str, Any] | None) -> str:
+    direct = value_from(args_value, event, "rule_id")
+    if direct != "unknown":
+        return direct
+    if event:
+        for field in ("reason", "detail"):
+            value = event.get(field)
+            if isinstance(value, str):
+                match = RULE_ID_PATTERN.search(value)
+                if match:
+                    return match.group(1)
+    return "unknown"
+
+
 def build_payload(args: argparse.Namespace) -> dict[str, str]:
     event = load_event(Path(args.event_log), args.event_id) if args.event_log else None
     if args.event_log and event is None:
@@ -86,7 +103,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, str]:
         "event_id": args.event_id,
         "code": value_from(args.code, event, "code", "event_id"),
         "hook": value_from(args.hook, event, "hook"),
-        "rule_id": value_from(args.rule, event, "rule_id"),
+        "rule_id": rule_id_value(args.rule, event),
         "path": value_from(args.path, event, "path", "detail"),
         "decision": value_from(args.decision, event, "decision"),
         "status": value_from(args.status, event, "status"),
