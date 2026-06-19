@@ -11,6 +11,11 @@ use crate::time_utils::{now_unix_secs, parse_iso_ts};
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 const PARALYSIS_WINDOW_SECS: u64 = 30 * 60;
 
+struct PositionedEvent {
+    line_index: usize,
+    value: Value,
+}
+
 fn read_events(session: &str) -> Vec<Value> {
     read_all_events()
         .into_iter()
@@ -19,15 +24,24 @@ fn read_events(session: &str) -> Vec<Value> {
 }
 
 fn read_all_events() -> Vec<Value> {
+    read_positioned_events()
+        .0
+        .into_iter()
+        .map(|event| event.value)
+        .collect()
+}
+
+fn read_positioned_events() -> (Vec<PositionedEvent>, usize) {
     let stdin = io::stdin();
     let mut reader = io::BufReader::new(stdin.lock());
     let mut events = Vec::new();
     let mut buf = Vec::new();
+    let mut line_count = 0usize;
     loop {
         buf.clear();
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => break,
-            Ok(_) => {}
+            Ok(_) => line_count += 1,
             Err(_) => break,
         }
         // Use lossy decoding so malformed UTF-8 bytes become U+FFFD rather than
@@ -38,10 +52,13 @@ fn read_all_events() -> Vec<Value> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Value>(line) {
-            events.push(v);
+            events.push(PositionedEvent {
+                line_index: line_count - 1,
+                value: v,
+            });
         }
     }
-    events
+    (events, line_count)
 }
 
 fn event_within_time_window(e: &Value, cutoff_secs: u64) -> bool {
@@ -227,10 +244,13 @@ fn recent_overlap(
     last
 }
 
-pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
+fn count_build_fail_events_from_newest<'a>(
+    events: impl IntoIterator<Item = &'a Value>,
+    project: &str,
+) -> u32 {
     let project_prefix = format!("{}/", project.trim_end_matches('/'));
     let mut count = 0u32;
-    for e in events.iter().rev() {
+    for e in events {
         if e.get(field::HOOK).and_then(Value::as_str) != Some(hook::POST_BUILD_CHECK) {
             continue;
         }
@@ -245,6 +265,31 @@ pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
         }
     }
     count
+}
+
+pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
+    count_build_fail_events_from_newest(events.iter().rev(), project)
+}
+
+fn count_build_fail_events_in_recent_lines(
+    events: &[PositionedEvent],
+    total_lines: usize,
+    tail_lines: usize,
+    session: &str,
+    project: &str,
+) -> u32 {
+    let first_line = total_lines.saturating_sub(tail_lines);
+    count_build_fail_events_from_newest(
+        events
+            .iter()
+            .rev()
+            .take_while(|event| event.line_index >= first_line)
+            .filter(|event| {
+                event.value.get(field::SESSION).and_then(Value::as_str) == Some(session)
+            })
+            .map(|event| &event.value),
+        project,
+    )
 }
 
 fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
@@ -330,7 +375,11 @@ pub fn post_edit_history(args: &[String]) -> Result {
     let file_path = &args[1];
     let agent = args.get(2).map(String::as_str).unwrap_or("");
     let project = args.get(3).map(String::as_str).unwrap_or("");
-    let events = read_all_events();
+    let (positioned_events, total_lines) = read_positioned_events();
+    let events = positioned_events
+        .iter()
+        .map(|event| event.value.clone())
+        .collect::<Vec<_>>();
     let session_events = events
         .iter()
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
@@ -358,7 +407,13 @@ pub fn post_edit_history(args: &[String]) -> Result {
     );
     println!(
         "BUILD_FAILS\t{}",
-        count_build_fail_events(&session_events, project)
+        count_build_fail_events_in_recent_lines(
+            &positioned_events,
+            total_lines,
+            200,
+            session,
+            project
+        )
     );
     if let Some((session_id, agent_name, hook_name, tool_name)) =
         recent_overlap(&events, session, agent, file_path, now_unix_secs())
@@ -529,6 +584,30 @@ mod tests {
             vec![10, 20]
         );
         assert_eq!(count_build_fail_events(&session_events, "/repo"), 2);
+    }
+
+    #[test]
+    fn combined_history_build_fails_uses_recent_200_raw_lines() {
+        let mut events = Vec::new();
+        for index in 0..5 {
+            events.push(PositionedEvent {
+                line_index: index,
+                value: json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/old.rs"}),
+            });
+        }
+        events.push(PositionedEvent {
+            line_index: 450,
+            value: json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/recent.rs"}),
+        });
+        events.push(PositionedEvent {
+            line_index: 451,
+            value: json!({"session": "other", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/other.rs"}),
+        });
+
+        assert_eq!(
+            count_build_fail_events_in_recent_lines(&events, 500, 200, "s", "/repo"),
+            1
+        );
     }
 
     #[test]

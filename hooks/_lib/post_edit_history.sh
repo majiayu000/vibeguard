@@ -231,6 +231,10 @@ ESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing
 }
 
 vg_post_edit_warn_count_for_file() {
+  if [[ "${1:-}" == "--fresh" ]]; then
+    vg_post_edit_history_numeric_query 500 warn-count "$VIBEGUARD_SESSION_ID" "$FILE_PATH"
+    return 0
+  fi
   vg_post_edit_history_summary
   vg_post_edit_history_numeric_field "WARN_COUNT"
 }

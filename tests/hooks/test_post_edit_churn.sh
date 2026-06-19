@@ -92,6 +92,9 @@ case "${1:-}" in
     printf 'WARN_COUNT\t1\n'
     printf 'BUILD_FAILS\t5\n'
     ;;
+  warn-count)
+    printf '3\n'
+    ;;
   *)
     printf '0\n'
     ;;
@@ -107,17 +110,20 @@ EDIT_DETAIL="$FILE_PATH||delta=50"
 vg_post_edit_history_reset
 WARNINGS=""
 vg_post_edit_detect_churn
-warn_count="$(vg_post_edit_warn_count_for_file)"
+cached_warn_count="$(vg_post_edit_warn_count_for_file)"
+fresh_warn_count="$(vg_post_edit_warn_count_for_file --fresh)"
 vg_post_edit_detect_w15_loop
 assert_contains "$WARNINGS" "[CHURN CRITICAL]" "combined post-edit history keeps churn critical semantics"
 assert_contains "$WARNINGS" "[W-15]" "combined post-edit history keeps W-15 semantics"
-assert_exit_zero "combined post-edit history keeps warn-count semantics" test "$warn_count" = "1"
+assert_exit_zero "combined post-edit history keeps cached warn-count semantics" test "$cached_warn_count" = "1"
+assert_exit_zero "final escalation path refreshes warn-count semantics" test "$fresh_warn_count" = "3"
 assert_exit_zero "post-edit history summary uses one history query across detectors" \
   test "$(grep -c '^post-edit-history$' "$summary_calls" | tr -d '[:space:]')" = "1"
+assert_exit_zero "fresh warn-count uses one bounded refresh query" \
+  test "$(grep -c '^warn-count$' "$summary_calls" | tr -d '[:space:]')" = "1"
 assert_contains "$(cat "$summary_calls")" "post-edit-history" "combined summary calls post-edit-history"
 assert_not_contains "$(cat "$summary_calls")" "churn-count" "combined summary avoids legacy churn-count call"
 assert_not_contains "$(cat "$summary_calls")" "build-fails" "combined summary avoids legacy build-fails call"
-assert_not_contains "$(cat "$summary_calls")" "warn-count" "combined summary avoids legacy warn-count call"
 _VIBEGUARD_RUNTIME="$old_runtime"
 unset VG_STUB_RUNTIME_CALLS
 unset VG_W15_CURRENT_DELTA
