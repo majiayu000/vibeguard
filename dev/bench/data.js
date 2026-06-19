@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781889378650,
+  "lastUpdate": 1781892127846,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -31586,6 +31586,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 25,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "94d4481bfda1a56e0681da56adf6aacb009812c0",
+          "message": "docs: clarify agent context and spec plan status (#513)\n\n* Clarify agent routing before spec work\n\nExpand the root router and add status indexes for specs and plan artifacts so agents stop treating implemented or historical documents as raw backlog.\n\nConstraint: Keep this PR docs-only and avoid moving runtime, setup, hook, rule, plugin, or workflow paths\n\nRejected: Move plan files into docs/internal | plan/ is a workflow output contract and docs/directory-map.md says not to move it until the workflow specs change\n\nConfidence: high\n\nScope-risk: narrow\n\nReversibility: clean\n\nDirective: Update docs/specs/README.md or plan/README.md whenever a spec or plan changes lifecycle state\n\nTested: python3 /Users/lifcc/.codex/skills/repo-agent-context-audit/scripts/scan_repo_context.py .; bash scripts/ci/validate-doc-paths.sh; bash scripts/ci/validate-doc-command-paths.sh; bash scripts/ci/validate-workflow-contracts.sh; bash tests/test_workflow_contracts.sh; bash scripts/ci/validate-no-personal-paths.sh; cargo check --manifest-path vibeguard-runtime/Cargo.toml\n\nNot-tested: bash tests/test_setup.sh, because this change does not touch setup or installed hook state\n\nRelated: #512\n\n* docs: mark rust-only plan completed\n\n* docs: mark implemented specs historical\n\n* docs: require full plan handoff fields",
+          "timestamp": "2026-06-20T01:43:46+08:00",
+          "tree_id": "03f3a7c52bf8fa2ba49b88e0d221b83b327f8f33",
+          "url": "https://github.com/majiayu000/vibeguard/commit/94d4481bfda1a56e0681da56adf6aacb009812c0"
+        },
+        "date": 1781892126538,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 110,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 110,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 53,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 54,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 106,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 106,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 111,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 111,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 16,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 16,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 16,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 16,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 17,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 17,
             "unit": "ms"
           }
         ]
