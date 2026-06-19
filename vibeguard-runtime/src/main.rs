@@ -26,6 +26,7 @@ mod log_scope;
 mod observe;
 mod pkg_rewrite;
 mod project_config;
+mod project_config_scoped_suppression;
 mod runtime_config;
 mod runtime_policy;
 mod session_metrics;

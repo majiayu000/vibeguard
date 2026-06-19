@@ -295,6 +295,10 @@ jobs:
         shell: bash
         run: bash tests/test_precision_tracker.sh
 
+      - name: False-positive report regression tests
+        shell: bash
+        run: bash tests/test_report_false_positive.sh
+
       - name: Hook performance static analysis
         shell: bash
         run: bash scripts/ci/validate-hook-perf.sh

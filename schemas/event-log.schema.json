@@ -11,6 +11,20 @@
     "ts": { "type": "string", "minLength": 1 },
     "session": { "type": "string" },
     "event": { "type": "string" },
+    "event_id": {
+      "type": "string",
+      "pattern": "^VG-[A-Z0-9-]+$",
+      "description": "Stable event identifier suitable for support reports and issue search."
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^VG-[A-Z0-9-]+$",
+      "description": "Stable hook/rule code surfaced in block or warn output."
+    },
+    "rule_id": {
+      "type": "string",
+      "pattern": "^(SEC|RS|GO|TS|PY|U|W|TASTE)-[A-Za-z0-9-]+$"
+    },
     "hook": { "type": "string", "minLength": 1 },
     "tool": { "type": "string" },
     "matcher": { "type": "string" },
@@ -37,6 +51,7 @@
     },
     "reason": { "type": "string" },
     "detail": { "type": "string" },
+    "path": { "type": "string" },
     "duration_ms": { "$ref": "#/$defs/non_negative_integerish" },
     "elapsed_ms": { "$ref": "#/$defs/non_negative_integerish" },
     "timeout_ms": { "$ref": "#/$defs/non_negative_integerish" },

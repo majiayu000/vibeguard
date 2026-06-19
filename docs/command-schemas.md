@@ -135,8 +135,10 @@ Runtime observability rows are validated one JSONL row at a time:
 
 Schema v1 requires current event-log rows to include `schema_version`, `ts`,
 `session`, `hook`, `tool`, `decision`, and `status`. Rows may also include
-`event`, `matcher`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`,
-`source`, and caller identity fields.
+`event`, `event_id`, `code`, `rule_id`, `path`, `matcher`, `elapsed_ms`,
+`timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
+`event_id` and `code` use stable `VG-*` values for false-positive reporting and
+support search; `rule_id` carries canonical ids such as `RS-03` or `U-16`.
 
 ## preflight output Schema
 

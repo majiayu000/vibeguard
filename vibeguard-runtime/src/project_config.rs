@@ -1,5 +1,8 @@
 use crate::HandlerResult;
 use crate::git_root::git_root_for;
+use crate::project_config_scoped_suppression::{
+    ScopedSuppression, scoped_suppressions_from_object, validate_scoped_suppressions,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -54,6 +57,7 @@ pub struct ProjectConfig {
     pub enforcement: Option<String>,
     pub profile: Option<String>,
     pub disabled_hooks: Vec<String>,
+    pub scoped_suppressions: Vec<ScopedSuppression>,
 }
 
 pub fn project_config_path(
@@ -108,6 +112,7 @@ pub fn load_project_config(path: &Path) -> Result<ProjectConfig, String> {
                     .collect()
             })
             .unwrap_or_default(),
+        scoped_suppressions: scoped_suppressions_from_object(object),
     })
 }
 
@@ -212,6 +217,7 @@ fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), Strin
     validate_optional_enum(object, "enforcement", ENFORCEMENT_VALUES, &mut errors);
     validate_string_array(object, "languages", Some(LANGUAGE_VALUES), &mut errors);
     validate_string_array_values(object, "disabled_hooks", &disabled_hook_values, &mut errors);
+    validate_scoped_suppressions(object, &disabled_hook_values, &mut errors);
     validate_string_array(
         object,
         "disabled_guards",
@@ -238,6 +244,7 @@ fn validate_known_properties(object: &serde_json::Map<String, Value>, errors: &m
                 | "disabled_hooks"
                 | "disabled_rules"
                 | "disabled_guards"
+                | "scoped_suppressions"
                 | "gc"
         ) {
             errors.push(unknown_property_error(&[key.as_str()]));

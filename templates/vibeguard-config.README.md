@@ -3,7 +3,7 @@
 User-level runtime tuning for hook thresholds. This is separate from the
 repository policy file `.vibeguard.json`, which accepts project policy keys such
 as `profile`, `enforcement`, `disabled_hooks`, `disabled_rules`,
-`disabled_guards`, and `gc`.
+`disabled_guards`, `scoped_suppressions`, and `gc`.
 
 Hooks resolve each runtime value in priority order:
 
