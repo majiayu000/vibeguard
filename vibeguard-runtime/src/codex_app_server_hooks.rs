@@ -170,59 +170,122 @@ impl HookRunner {
             updated_command,
             failed: false,
         };
-        if let Some(suppression) =
-            matching_scoped_suppression(hook_name, cwd, env_overrides, &result, payload)
-        {
-            apply_scoped_suppression(&mut result, &suppression);
-        } else if warn_mode {
+        let scoped_suppression_applied =
+            apply_scoped_suppressions(hook_name, cwd, env_overrides, &mut result, payload);
+        if !scoped_suppression_applied && warn_mode {
             downgrade_to_warn(&mut result);
         }
         result
     }
 }
 
-fn matching_scoped_suppression(
+fn apply_scoped_suppressions(
     hook_name: &str,
     cwd: Option<&str>,
     env_overrides: &HashMap<String, String>,
-    result: &HookResult,
+    result: &mut HookResult,
     payload: &Value,
-) -> Option<ScopedSuppression> {
-    let config_path = project_config_path(cwd, env_overrides)?;
+) -> bool {
+    let Some(config_path) = project_config_path(cwd, env_overrides) else {
+        return false;
+    };
     let project_root = project_config_root(&config_path);
-    let config = load_project_config(&config_path).ok()?;
-    config.scoped_suppressions.into_iter().find(|suppression| {
-        result.payloads.iter().any(|output| {
+    let Ok(config) = load_project_config(&config_path) else {
+        return false;
+    };
+    apply_matching_scoped_suppressions(
+        hook_name,
+        result,
+        payload,
+        project_root.as_deref(),
+        &config.scoped_suppressions,
+    )
+}
+
+fn apply_matching_scoped_suppressions(
+    hook_name: &str,
+    result: &mut HookResult,
+    payload: &Value,
+    project_root: Option<&str>,
+    suppressions: &[ScopedSuppression],
+) -> bool {
+    let mut changed = false;
+    for output in &mut result.payloads {
+        if let Some(suppression) = suppressions.iter().find(|suppression| {
             scoped_suppression_matches_output(
                 suppression,
                 hook_name,
                 output,
                 Some(payload),
-                project_root.as_deref(),
+                project_root,
             )
-        })
-    })
+        }) {
+            apply_scoped_suppression_value(output, suppression);
+            changed = true;
+        }
+    }
+    if changed {
+        recompute_result_from_payloads(result);
+    }
+    changed
 }
 
-fn apply_scoped_suppression(result: &mut HookResult, suppression: &ScopedSuppression) {
-    let prefix = format!("VIBEGUARD scoped suppression: {}", suppression.reason);
-    for payload in &mut result.payloads {
-        apply_scoped_suppression_value(payload, suppression);
-    }
+fn recompute_result_from_payloads(result: &mut HookResult) {
     result.output = serialize_hook_payloads(&result.payloads);
-    result.updated_command = None;
-    if suppression.action == "suppress" {
-        result.decision = "pass".into();
-        result.reason = None;
+    result.decision = aggregate_decision(&result.payloads);
+    result.updated_command = if result.decision == "allow" {
+        result.payloads.iter().find_map(extract_updated_command)
     } else {
-        result.decision = "warn".into();
-        result.reason = Some(
-            match result.reason.as_deref().filter(|reason| !reason.is_empty()) {
-                Some(reason) => format!("{prefix}: {reason}"),
-                None => prefix,
-            },
-        );
+        None
+    };
+    result.reason = aggregate_reason(&result.payloads, &result.decision);
+}
+
+fn aggregate_decision(payloads: &[Value]) -> String {
+    let decisions = payloads
+        .iter()
+        .filter_map(|payload| string_field(payload, "decision"))
+        .collect::<Vec<_>>();
+    for decision in ["hook_error", "block", "gate", "escalate"] {
+        if decisions.iter().any(|value| value == decision) {
+            return decision.to_string();
+        }
     }
+    for decision in ["warn", "allow", "skip"] {
+        if decisions.iter().any(|value| value == decision) {
+            return decision.to_string();
+        }
+    }
+    decisions
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "pass".into())
+}
+
+fn aggregate_reason(payloads: &[Value], aggregate_decision: &str) -> Option<String> {
+    if aggregate_decision == "pass" {
+        return None;
+    }
+    let matches_aggregate = |decision: &str| match aggregate_decision {
+        "hook_error" | "block" | "gate" | "escalate" => {
+            matches!(decision, "hook_error" | "block" | "gate" | "escalate")
+        }
+        "warn" => decision == "warn",
+        other => decision == other,
+    };
+    payloads
+        .iter()
+        .filter(|payload| {
+            string_field(payload, "decision")
+                .as_deref()
+                .is_some_and(matches_aggregate)
+        })
+        .find_map(|payload| string_field(payload, "reason"))
+        .or_else(|| {
+            payloads
+                .iter()
+                .find_map(|payload| string_field(payload, "reason"))
+        })
 }
 
 fn serialize_hook_payloads(payloads: &[Value]) -> String {
@@ -306,5 +369,59 @@ mod tests {
         let payloads = extract_payloads(output);
         assert_eq!(payloads.len(), 1);
         assert_eq!(payloads[0]["decision"], "block");
+    }
+
+    #[test]
+    fn scoped_suppression_rewrites_only_matching_payloads() {
+        let suppression = ScopedSuppression {
+            hook: "post-edit-guard".to_string(),
+            rule_id: "RS-03".to_string(),
+            path: "docs/examples/**".to_string(),
+            code: None,
+            action: "suppress".to_string(),
+            reason: "Known docs example false positive".to_string(),
+            expires_at: None,
+        };
+        let hook_payload = serde_json::json!({
+            "tool_input": {"file_path": "/repo/docs/examples/basic.rs"}
+        });
+        let mut result = HookResult {
+            decision: "block".to_string(),
+            output: String::new(),
+            payloads: vec![
+                serde_json::json!({
+                    "decision": "block",
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": "VIBEGUARD quality warning: [RS-03] unwrap should be hidden"
+                    }
+                }),
+                serde_json::json!({
+                    "decision": "block",
+                    "rule_id": "RS-10",
+                    "path": "docs/examples/basic.rs",
+                    "reason": "RS-10 still blocks"
+                }),
+            ],
+            reason: Some("original block".to_string()),
+            updated_command: None,
+            failed: false,
+        };
+
+        assert!(apply_matching_scoped_suppressions(
+            "post-edit-guard.sh",
+            &mut result,
+            &hook_payload,
+            Some("/repo"),
+            &[suppression],
+        ));
+
+        assert_eq!(result.payloads[0]["decision"], "pass");
+        assert!(result.payloads[0].get("hookSpecificOutput").is_none());
+        assert_eq!(result.payloads[1]["decision"], "block");
+        assert_eq!(result.decision, "block");
+        assert_eq!(result.reason.as_deref(), Some("RS-10 still blocks"));
+        assert!(result.output.contains("RS-10 still blocks"));
+        assert!(!result.output.contains("unwrap should be hidden"));
     }
 }
