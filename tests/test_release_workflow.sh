@@ -143,6 +143,7 @@ assert_contains "$deny_text" 'unknown-git = "deny"' "deny.toml denies unknown gi
 assert_contains "$deny_text" 'multiple-versions = "deny"' "deny.toml denies duplicate dependency versions"
 assert_contains "$deny_text" '"MIT"' "deny.toml allows MIT license"
 assert_contains "$deny_text" '"Apache-2.0"' "deny.toml allows Apache-2.0 license"
+assert_contains "$deny_text" '"Unicode-3.0"' "deny.toml allows unicode-ident license"
 assert_regex "$workflow_text" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]*# v6\.0\.2' "checkout action is pinned to a full commit SHA"
 assert_regex "$workflow_text" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]*# v7\.0\.1' "upload-artifact action is pinned to a full commit SHA"
 assert_regex "$workflow_text" 'uses: actions/download-artifact@[0-9a-f]{40}[[:space:]]*# v8\.0\.1' "download-artifact action is pinned to a full commit SHA"
