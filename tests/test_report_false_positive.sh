@@ -43,7 +43,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 EVENT_LOG="${TMP_DIR}/events.jsonl"
 cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-POLICY-RS03-DOC-EXAMPLE","code":"VG-POLICY-RS03-DOC-EXAMPLE","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/example.rs","reason":"documentation sample includes unwrap token=ghp_secretvalue"}
-{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", and password: \"correct horse battery staple\""}
+{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", password: \"correct horse battery staple\", OPENAI_API_KEY=sk-openai123, AWS_SECRET_ACCESS_KEY=\"aws secret value\", GITHUB_TOKEN=ghp_prefixedsecret, and client_secret: \"client secret value\""}
 {"schema_version":1,"ts":"2026-06-19T00:00:02Z","session":"s1","event_id":"evt-layer-token","hook":"pre-write-guard","tool":"Write","decision":"warn","status":"warn","path":"src/new.rs","reason":"VIBEGUARD [L1] [advisory] new source file detected"}
 JSONL
 
@@ -59,9 +59,17 @@ quoted_secret_out="$(python3 "$SCRIPT" evt-quoted-secret --event-log "$EVENT_LOG
 assert_contains "$quoted_secret_out" "code: \`VG-POLICY-QUOTED-SECRET\`" "markdown reads code from code field before event_id"
 assert_contains "$quoted_secret_out" "password=<redacted>" "markdown redacts quoted JSON password"
 assert_contains "$quoted_secret_out" "api_key=<redacted>" "markdown redacts quoted YAML-style api key"
+assert_contains "$quoted_secret_out" "OPENAI_API_KEY=<redacted>" "markdown redacts prefixed openai api key"
+assert_contains "$quoted_secret_out" "AWS_SECRET_ACCESS_KEY=<redacted>" "markdown redacts prefixed aws secret key"
+assert_contains "$quoted_secret_out" "GITHUB_TOKEN=<redacted>" "markdown redacts prefixed github token"
+assert_contains "$quoted_secret_out" "client_secret=<redacted>" "markdown redacts client secret"
 assert_not_contains "$quoted_secret_out" "hunter2" "markdown does not leak quoted JSON password"
 assert_not_contains "$quoted_secret_out" "abc123" "markdown does not leak quoted YAML-style api key"
 assert_not_contains "$quoted_secret_out" "correct horse battery staple" "markdown does not leak multi-word quoted password"
+assert_not_contains "$quoted_secret_out" "sk-openai123" "markdown does not leak prefixed openai api key"
+assert_not_contains "$quoted_secret_out" "aws secret value" "markdown does not leak prefixed aws secret key"
+assert_not_contains "$quoted_secret_out" "ghp_prefixedsecret" "markdown does not leak prefixed github token"
+assert_not_contains "$quoted_secret_out" "client secret value" "markdown does not leak client secret"
 
 layer_rule_out="$(python3 "$SCRIPT" L1 --event-log "$EVENT_LOG")"
 assert_contains "$layer_rule_out" "rule_id: \`L1\`" "markdown extracts rule id from reason token"

@@ -11,9 +11,13 @@ from pathlib import Path
 from typing import Any
 
 
+SECRET_KEY_PATTERN = (
+    r"(?:[A-Za-z0-9]+[_-])*(?:token|secret|password|api[_-]?key)"
+    r"(?:[_-][A-Za-z0-9]+)*"
+)
 SECRET_PATTERNS = [
-    re.compile(r"(?i)\b(token|secret|password|api[_-]?key)[\"']?\s*[:=]\s*([\"']).*?\2"),
-    re.compile(r"(?i)\b(token|secret|password|api[_-]?key)[\"']?\s*[:=]\s*[\"']?[^\"'\s,;}]+[\"']?"),
+    re.compile(rf"(?i)\b({SECRET_KEY_PATTERN})[\"']?\s*[:=]\s*([\"']).*?\2"),
+    re.compile(rf"(?i)\b({SECRET_KEY_PATTERN})[\"']?\s*[:=]\s*[\"']?[^\"'\s,;}}]+[\"']?"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{8,}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}\b"),
