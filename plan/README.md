@@ -6,8 +6,8 @@
 
 | Class | Meaning | Files |
 |---|---|---|
-| Active execution plan | Current multi-step work where remaining steps may still be actionable after checking linked issues and main branch | `2026-06-05_22-28-rust-only-production-path.md` |
-| Completed record | Historical execution evidence; use for context, not new scope | `2026-05-01_18-56-41-vibeguard-audit-remediation.md`, `spec-codebase-audit-remediation.md` |
+| Active execution plan | Current multi-step work where remaining steps may still be actionable after checking linked issues and main branch | None currently |
+| Completed record | Historical execution evidence or implemented plan record; use for context, not new scope | `2026-05-01_18-56-41-vibeguard-audit-remediation.md`, `2026-06-05_22-28-rust-only-production-path.md`, `spec-codebase-audit-remediation.md` |
 | Historical convergence plan | Older architecture plan; verify current code and newer specs before acting | `2026-04-19_00-15-39-main-architecture-convergence.md` |
 | Draft spec | Candidate work that needs issue and code-state verification before implementation | `spec-app-server-runtime-policy-gate.md`, `spec-posttool-malformed-input-fail-visible.md`, `spec-runtime-config-contract-clarity.md`, `spec-test-file-size-decomposition.md`, `spec-96-prompt-contract-schema.md`, `full-english-localization-spec.md` |
 | Snapshot or signal report | Evidence artifact for another plan or issue; do not implement directly without an owning spec | `w20-rust-only-production-path-snapshot.md`, `signal-report-legacy-vibeguard-mcp-cleanup.md` |
