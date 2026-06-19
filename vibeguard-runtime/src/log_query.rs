@@ -292,6 +292,19 @@ fn count_build_fail_events_in_recent_lines(
     )
 }
 
+fn events_in_recent_lines(
+    events: &[PositionedEvent],
+    total_lines: usize,
+    tail_lines: usize,
+) -> Vec<Value> {
+    let first_line = total_lines.saturating_sub(tail_lines);
+    events
+        .iter()
+        .filter(|event| event.line_index >= first_line)
+        .map(|event| event.value.clone())
+        .collect()
+}
+
 fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
     let cutoff_secs = now_secs.saturating_sub(PARALYSIS_WINDOW_SECS);
     let mut consecutive = 0u32;
@@ -385,12 +398,13 @@ pub fn post_edit_history(args: &[String]) -> Result {
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
         .cloned()
         .collect::<Vec<_>>();
-    let w15_trail = same_file_edit_delta_trail(&events, session, file_path);
+    let w15_events = events_in_recent_lines(&positioned_events, total_lines, 200);
+    let w15_trail = same_file_edit_delta_trail(&w15_events, session, file_path);
 
     println!("CHURN\t{}", count_churn_events(&session_events, file_path));
     println!(
         "W15\t{}",
-        consecutive_same_file_edits(&events, session, file_path)
+        consecutive_same_file_edits(&w15_events, session, file_path)
     );
     println!(
         "W15_DELTAS\t{}",
@@ -607,6 +621,43 @@ mod tests {
         assert_eq!(
             count_build_fail_events_in_recent_lines(&events, 500, 200, "s", "/repo"),
             1
+        );
+    }
+
+    #[test]
+    fn combined_history_w15_uses_recent_200_raw_lines() {
+        let events = vec![
+            PositionedEvent {
+                line_index: 10,
+                value: json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "detail": "src/a.rs||delta=200"}),
+            },
+            PositionedEvent {
+                line_index: 20,
+                value: json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "detail": "src/a.rs||delta=100"}),
+            },
+            PositionedEvent {
+                line_index: 450,
+                value: json!({"session": "s", "hook": "pre-bash-guard", "tool": "Bash", "detail": "cargo test"}),
+            },
+        ];
+        let all_events = events
+            .iter()
+            .map(|event| event.value.clone())
+            .collect::<Vec<_>>();
+        let recent_events = events_in_recent_lines(&events, 500, 200);
+
+        assert_eq!(consecutive_same_file_edits(&all_events, "s", "src/a.rs"), 2);
+        assert_eq!(
+            same_file_edit_delta_trail(&all_events, "s", "src/a.rs"),
+            vec![100, 200]
+        );
+        assert_eq!(
+            consecutive_same_file_edits(&recent_events, "s", "src/a.rs"),
+            0
+        );
+        assert_eq!(
+            same_file_edit_delta_trail(&recent_events, "s", "src/a.rs"),
+            Vec::<i64>::new()
         );
     }
 
