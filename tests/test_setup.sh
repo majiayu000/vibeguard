@@ -310,18 +310,62 @@ chmod +x "${TMP_HOME}/bin/cargo"
 cat > "${TMP_HOME}/bin/launchctl" <<'SH'
 #!/usr/bin/env bash
 state="${HOME}/.launchctl-vibeguard-loaded"
+target_state="${HOME}/.launchctl-vibeguard-target"
+plist_state="${HOME}/.launchctl-vibeguard-plist"
+plist_gc_script_path() {
+  local plist="$1"
+  [[ -f "$plist" ]] || return 1
+  awk '
+    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+    in_args && /<\/array>/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^.*<string>/, "", line)
+      sub(/<\/string>.*$/, "", line)
+      print line
+      exit
+    }
+  ' "$plist"
+}
 case "${1:-}" in
   bootstrap)
+    plist="${3:-}"
+    if [[ -f "$plist" ]]; then
+      plist_gc_script_path "$plist" > "$target_state" || : > "$target_state"
+      printf '%s\n' "$plist" > "$plist_state"
+    else
+      : > "$target_state"
+      : > "$plist_state"
+    fi
     touch "$state"
     exit 0
     ;;
   bootout)
-    rm -f "$state"
+    rm -f "$state" "$target_state" "$plist_state"
     exit 0
     ;;
   print)
-    [[ -f "$state" ]] && exit 0
-    exit 113
+    [[ -f "$state" ]] || exit 113
+    target="$(cat "$target_state" 2>/dev/null || true)"
+    plist="$(cat "$plist_state" 2>/dev/null || true)"
+    [[ -n "$plist" ]] || plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+    cat <<EOF
+gui/$(id -u)/com.vibeguard.gc = {
+	path = $plist
+	type = LaunchAgent
+	state = not running
+
+	program = /bin/bash
+	arguments = {
+		/bin/bash
+EOF
+    [[ -n "$target" ]] && printf '\t\t%s\n' "$target"
+    cat <<EOF
+		--scheduled
+	}
+}
+EOF
+    exit 0
     ;;
   list)
     [[ -f "$state" ]] && printf '0\t0\tcom.vibeguard.gc\n'
