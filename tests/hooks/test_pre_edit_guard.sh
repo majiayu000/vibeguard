@@ -183,6 +183,7 @@ result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$global_loc
 assert_not_contains "$result" '"decision": "block"' "Global mirror append failure after safe pre-edit validation does not block"
 assert_contains "$result" "VG-INTERNAL-LOG-APPEND" "Global mirror append failure reports internal error code"
 assert_contains "$result" "$tmp_global_lock_dir/events.jsonl" "Global mirror append failure reports global log path"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl.lock.d" "Global mirror append failure reports global lock recovery path"
 rm -rf "$tmp_global_lock_dir" "$global_lock_file"
 
 tmp_policy_lock_dir=$(mktemp -d)

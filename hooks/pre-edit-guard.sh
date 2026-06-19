@@ -11,10 +11,20 @@ source "$(dirname "$0")/log.sh"
 
 INPUT=$(cat)
 
-vg_pre_edit_failure_kind() {
+vg_pre_edit_error_log_path() {
   if [[ -n "${VIBEGUARD_LOG_FILE:-}" && -d "${VIBEGUARD_LOG_FILE}.lock.d" ]]; then
-    printf 'lock'
+    printf '%s' "$VIBEGUARD_LOG_FILE"
   elif [[ -n "${VIBEGUARD_LOG_DIR:-}" && -d "${VIBEGUARD_LOG_DIR}/events.jsonl.lock.d" ]]; then
+    printf '%s/events.jsonl' "$VIBEGUARD_LOG_DIR"
+  else
+    printf '%s' "${VIBEGUARD_LOG_FILE:-unknown}"
+  fi
+}
+
+vg_pre_edit_failure_kind() {
+  local log_path
+  log_path="$(vg_pre_edit_error_log_path)"
+  if [[ "$log_path" != "unknown" && -d "${log_path}.lock.d" ]]; then
     printf 'lock'
   else
     printf 'runtime'
@@ -26,7 +36,8 @@ vg_pre_edit_internal_message() {
   local failure_kind="$2"
   local mode="$3"
   local runtime_detail="$4"
-  local log_path="${VIBEGUARD_LOG_FILE:-unknown}"
+  local log_path
+  log_path="$(vg_pre_edit_error_log_path)"
   local lock_path="${log_path}.lock.d"
   local session="${VIBEGUARD_SESSION_ID:-unknown}"
   local project="${VIBEGUARD_PROJECT_HASH:-unknown}"
