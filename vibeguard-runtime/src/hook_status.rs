@@ -4,9 +4,10 @@
 //! hook output contract, so successful hooks stay out of the model context.
 
 use serde_json::{Value, json};
+use std::collections::VecDeque;
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, IsTerminal, Read};
+use std::io::{self, BufRead, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use crate::event_schema::{UNKNOWN, decision, field, status, tool};
@@ -24,6 +25,9 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 const HOOK_STATUS_SCHEMA_VERSION: u64 = 1;
 const DEFAULT_LIMIT: usize = 20;
 const DEFAULT_SLOW_MS: u64 = 2_000;
+const MIN_READ_WINDOW_LINES: usize = 200;
+const READ_WINDOW_MULTIPLIER: usize = 20;
+const TAIL_READ_CHUNK_BYTES: u64 = 8 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
@@ -244,8 +248,12 @@ fn parse_mode(value: &str) -> Result<Mode> {
 }
 
 fn read_main_events(options: &Options) -> Result<(Vec<Value>, String)> {
+    let read_limit = read_window_lines_for_options(options);
     if let Some(path) = &options.log_file {
-        return Ok((read_jsonl_file(path)?, display_path(path)));
+        return Ok((
+            read_jsonl_file_limited(path, read_limit)?,
+            display_path(path),
+        ));
     }
 
     let stdin_events = read_jsonl_from_stdin()?;
@@ -261,7 +269,7 @@ fn read_main_events(options: &Options) -> Result<(Vec<Value>, String)> {
     })?;
     if resolved.path.exists() {
         return Ok((
-            read_jsonl_file(&resolved.path)?,
+            read_jsonl_file_limited(&resolved.path, read_limit)?,
             display_path(&resolved.path),
         ));
     }
@@ -291,13 +299,28 @@ fn read_diag_events(options: &Options) -> Result<Vec<DiagSource>> {
     }
 
     let log_path = display_path(&path);
-    Ok(read_jsonl_file(&path)?
-        .into_iter()
-        .map(|event| DiagSource {
-            event,
-            log_path: log_path.clone(),
-        })
-        .collect())
+    Ok(
+        read_jsonl_file_limited(&path, read_window_lines_for_options(options))?
+            .into_iter()
+            .map(|event| DiagSource {
+                event,
+                log_path: log_path.clone(),
+            })
+            .collect(),
+    )
+}
+
+fn read_window_lines(limit: usize) -> usize {
+    limit
+        .saturating_mul(READ_WINDOW_MULTIPLIER)
+        .max(MIN_READ_WINDOW_LINES)
+}
+
+fn read_window_lines_for_options(options: &Options) -> usize {
+    if options.session.is_some() || options.event.is_some() {
+        return usize::MAX;
+    }
+    read_window_lines(options.limit)
 }
 
 fn read_jsonl_file(path: &Path) -> Result<Vec<Value>> {
@@ -305,6 +328,52 @@ fn read_jsonl_file(path: &Path) -> Result<Vec<Value>> {
     let mut text = String::new();
     file.read_to_string(&mut text)?;
     Ok(read_jsonl_text(&text))
+}
+
+fn read_jsonl_file_limited(path: &Path, line_limit: usize) -> Result<Vec<Value>> {
+    if line_limit == usize::MAX {
+        return read_jsonl_file(path);
+    }
+    let text = read_tail_lines(path, line_limit)?;
+    Ok(read_jsonl_text(&text))
+}
+
+fn read_tail_lines(path: &Path, line_limit: usize) -> Result<String> {
+    if line_limit == 0 {
+        return Ok(String::new());
+    }
+
+    let mut file = File::open(path)?;
+    let mut offset = file.seek(SeekFrom::End(0))?;
+    if offset == 0 {
+        return Ok(String::new());
+    }
+
+    let mut chunks: VecDeque<Vec<u8>> = VecDeque::new();
+    let mut newline_count = 0usize;
+    while offset > 0 && newline_count <= line_limit {
+        let read_len = offset.min(TAIL_READ_CHUNK_BYTES);
+        offset -= read_len;
+        file.seek(SeekFrom::Start(offset))?;
+        let mut chunk = vec![0; read_len as usize];
+        file.read_exact(&mut chunk)?;
+        newline_count += chunk.iter().filter(|byte| **byte == b'\n').count();
+        chunks.push_front(chunk);
+    }
+
+    let byte_len = chunks.iter().map(Vec::len).sum();
+    let mut bytes = Vec::with_capacity(byte_len);
+    for chunk in chunks {
+        bytes.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    if offset == 0 {
+        return Ok(text.into_owned());
+    }
+
+    let mut lines = text.lines().rev().take(line_limit).collect::<Vec<_>>();
+    lines.reverse();
+    Ok(lines.join("\n"))
 }
 
 fn read_jsonl_from_stdin() -> Result<Vec<Value>> {
