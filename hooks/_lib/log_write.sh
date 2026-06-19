@@ -28,7 +28,7 @@ vg_append_log_line() {
 }
 
 _vg_log_lock_mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || true
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || true
 }
 
 _vg_remove_stale_log_lock() {

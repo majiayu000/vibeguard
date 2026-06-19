@@ -181,6 +181,36 @@ assert_contains "$(cat "$stale_shell_lock_file")" '{"stale_shell_lock":true}' "S
 assert_exit_zero "Shell stale-lock recovery removes lock directory" test ! -e "${stale_shell_lock_file}.lock.d"
 rm -rf "$stale_shell_lock_dir"
 
+gnu_stat_lock_dir="$(mktemp -d)"
+gnu_stat_bin="${gnu_stat_lock_dir}/bin"
+gnu_stat_lock_file="${gnu_stat_lock_dir}/events.jsonl"
+mkdir -p "$gnu_stat_bin" "${gnu_stat_lock_file}.lock.d"
+cat > "${gnu_stat_bin}/stat" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" == "-c" && "$2" == "%Y" ]]; then
+  printf '1\n'
+  exit 0
+fi
+printf 'unexpected stat args: %s\n' "$*" >&2
+exit 1
+SH
+chmod +x "${gnu_stat_bin}/stat"
+set +e
+gnu_stat_lock_result=$(
+  export PATH="${gnu_stat_bin}:$PATH"
+  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
+  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
+  export VIBEGUARD_LOG_LOCK_STALE_SECONDS=2
+  source hooks/_lib/log_write.sh
+  vg_append_log_line "$gnu_stat_lock_file" '{"gnu_stat_lock":true}'
+  printf 'rc=%s' "$?"
+)
+set -e
+assert_contains "$gnu_stat_lock_result" "rc=0" "Shell stale-lock recovery accepts GNU stat mtime"
+assert_contains "$(cat "$gnu_stat_lock_file")" '{"gnu_stat_lock":true}' "GNU stat stale-lock recovery writes the log line"
+assert_exit_zero "GNU stat stale-lock recovery removes lock directory" test ! -e "${gnu_stat_lock_file}.lock.d"
+rm -rf "$gnu_stat_lock_dir"
+
 header "log.sh — runtime append lock contention"
 
 runtime_lock_test_dir="$(mktemp -d)"
