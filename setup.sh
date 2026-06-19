@@ -33,6 +33,7 @@ Install options:
   --dry-run
   --build-from-source
   --runtime-version vX.Y.Z
+  --require-provenance
   --with-scheduler
   --force-overwrite
   --profile minimal|core|full|strict

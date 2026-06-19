@@ -5,11 +5,15 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="${REPO_DIR}/.github/workflows/release.yml"
+CI_WORKFLOW="${REPO_DIR}/.github/workflows/ci.yml"
 VERSION_FILE="${REPO_DIR}/vibeguard-runtime/VERSION"
 CARGO_TOML="${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 RUST_TOOLCHAIN="${REPO_DIR}/rust-toolchain.toml"
 INSTALL_SH="${REPO_DIR}/scripts/setup/install.sh"
 SETUP_LIB="${REPO_DIR}/scripts/setup/lib.sh"
+DENY_TOML="${REPO_DIR}/deny.toml"
+LINUX_SETUP="${REPO_DIR}/docs/linux-setup.md"
+INSTALL_SPEC="${REPO_DIR}/docs/specs/install-friction-reduction.md"
 
 PASS=0
 FAIL=0
@@ -80,9 +84,13 @@ ensure_runtime_tag_available() {
 }
 
 workflow_text="$(<"${WORKFLOW}")"
+ci_text="$(<"${CI_WORKFLOW}")"
 toolchain_text="$(<"${RUST_TOOLCHAIN}")"
 install_text="$(<"${INSTALL_SH}")"
 setup_lib_text="$(<"${SETUP_LIB}")"
+deny_text="$(<"${DENY_TOML}")"
+linux_setup_text="$(<"${LINUX_SETUP}")"
+install_spec_text="$(<"${INSTALL_SPEC}")"
 runtime_version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
 cargo_version="$(
   python3 - "${CARGO_TOML}" <<'PY'
@@ -111,6 +119,14 @@ assert_contains "$workflow_text" "release tag \${TAG_NAME} does not match" "tag/
 assert_contains "$workflow_text" 'RUST_VERSION: "1.95.0"' "release workflow pins Rust release toolchain"
 assert_contains "$toolchain_text" 'channel = "1.95.0"' "repo rust-toolchain pins the same release toolchain"
 assert_not_contains "$workflow_text" 'RUST_VERSION: "stable"' "release workflow does not use moving stable Rust"
+assert_contains "$ci_text" 'CARGO_DENY_VERSION: "0.19.9"' "CI pins cargo-deny version"
+assert_contains "$ci_text" "cargo install cargo-deny --version" "CI installs cargo-deny explicitly"
+assert_contains "$ci_text" "cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources" "CI enforces Rust dependency policy"
+assert_contains "$deny_text" 'unknown-registry = "deny"' "deny.toml denies unknown registries"
+assert_contains "$deny_text" 'unknown-git = "deny"' "deny.toml denies unknown git sources"
+assert_contains "$deny_text" 'multiple-versions = "deny"' "deny.toml denies duplicate dependency versions"
+assert_contains "$deny_text" '"MIT"' "deny.toml allows MIT license"
+assert_contains "$deny_text" '"Apache-2.0"' "deny.toml allows Apache-2.0 license"
 assert_regex "$workflow_text" 'uses: actions/checkout@[0-9a-f]{40}[[:space:]]*# v6\.0\.2' "checkout action is pinned to a full commit SHA"
 assert_regex "$workflow_text" 'uses: actions/upload-artifact@[0-9a-f]{40}[[:space:]]*# v7\.0\.1' "upload-artifact action is pinned to a full commit SHA"
 assert_regex "$workflow_text" 'uses: actions/download-artifact@[0-9a-f]{40}[[:space:]]*# v8\.0\.1' "download-artifact action is pinned to a full commit SHA"
@@ -122,13 +138,23 @@ assert_contains "$workflow_text" "subject-path: dist/\${{ matrix.target }}/vibeg
 assert_contains "$workflow_text" "sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS" "checksums use deterministic sorted layout"
 assert_contains "$workflow_text" "Attest checksum manifest" "release workflow attests checksum manifest"
 assert_contains "$workflow_text" "subject-path: dist/SHA256SUMS" "release workflow attests SHA256SUMS"
+assert_contains "$workflow_text" "Generate dependency metadata" "release workflow generates dependency metadata"
+assert_contains "$workflow_text" "cargo metadata --locked --manifest-path" "dependency metadata comes from locked Cargo graph"
+assert_contains "$workflow_text" "vibeguard-runtime-dependency-metadata.json" "release publishes dependency metadata asset"
 assert_contains "$workflow_text" 'GH_REPO: ${{ github.repository }}' "publish job pins gh target repository"
 assert_contains "$setup_lib_text" "gh attestation verify" "setup verifies runtime release attestations when verifier is available"
 assert_contains "$setup_lib_text" "--signer-workflow" "setup pins provenance signer workflow"
 assert_contains "$setup_lib_text" '--source-ref "refs/tags/${tag}"' "setup pins provenance to the release tag"
 assert_contains "$install_text" "provenance=verified-provenance" "install output reports verified provenance"
 assert_contains "$install_text" "provenance=checksum-only" "install output reports checksum-only fallback explicitly"
+assert_contains "$install_text" "--require-provenance" "install supports provenance-required mode"
+assert_contains "$install_text" "provenance verification is required but unavailable" "install fails closed when strict provenance cannot verify"
+assert_contains "$install_text" "cannot be combined with --build-from-source" "strict provenance rejects source-build mode"
 assert_contains "$install_text" "runtime-provenance" "install snapshot records runtime provenance status"
+assert_contains "$linux_setup_text" "--require-provenance" "Linux setup docs document strict provenance mode"
+assert_contains "$linux_setup_text" "checksum-only" "Linux setup docs distinguish checksum-only mode"
+assert_contains "$install_spec_text" "--require-provenance" "install spec documents strict provenance mode"
+assert_contains "$install_spec_text" "release attestation verification passes" "install spec captures strict provenance acceptance criteria"
 
 for target in \
   aarch64-apple-darwin \

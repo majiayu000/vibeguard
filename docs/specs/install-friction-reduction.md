@@ -73,8 +73,11 @@ Replace the unconditional `cargo build` block (`install.sh:184-212`) with:
 3. If target is supported and not `--build-from-source`:
    - Download `vibeguard-runtime-<target>` and `SHA256SUMS` from the release
      (`gh release download` if `gh` present, else `curl -fsSL`).
-   - **Verify SHA-256** against `SHA256SUMS`; on mismatch → abort (do not silently
-     fall back to an unverified binary).
+  - **Verify SHA-256** against `SHA256SUMS`; on mismatch → abort (do not silently
+    fall back to an unverified binary).
+  - When `--require-provenance` is set, also require GitHub artifact attestation
+    verification. If the verifier, authentication, or attestation is unavailable,
+    abort instead of accepting the default `checksum-only` mode.
    - On verify success: `install -m 0755` into `~/.vibeguard/installed/bin/vibeguard-runtime`.
 4. If download fails (offline / 404 / unsupported target) **or** `--build-from-source`:
    - Fall back to the current `cargo build --release` path unchanged.
@@ -82,7 +85,9 @@ Replace the unconditional `cargo build` block (`install.sh:184-212`) with:
      the unsupported target and the `--build-from-source` requirement.
 
 Flags: `--build-from-source` (force compile), `--runtime-version <tag>` (override, for
-testing). The atomic snapshot swap (`install.sh:213-228`) is unchanged.
+testing), and `--require-provenance` (fail closed unless release attestation verifies).
+`--require-provenance` rejects `--build-from-source`, because source builds do not have
+release-asset provenance. The atomic snapshot swap (`install.sh:213-228`) is unchanged.
 
 ### 3.3 Scheduled GC → opt-in
 
@@ -113,7 +118,9 @@ true `curl | sh` one-liner. Tracked as a follow-up; large and out of scope here.
 - Binary integrity: SHA-256 verification against the release `SHA256SUMS` is mandatory;
   a mismatch aborts (never silently uses an unverified binary). Aligns with the project's
   own supply-chain stance (SEC-12 / SEC-13).
-- Provenance (stretch): add build provenance / cosign attestation in a later iteration.
+- Provenance: release assets carry GitHub artifact attestations when the release workflow
+  runs. Default setup reports `checksum-only` if local verification is unavailable after
+  SHA-256 verification. Strict installs use `--require-provenance` to fail closed instead.
 - The download path must not pipe remote content into a shell; only fetch the binary +
   checksum file and verify before executing.
 
@@ -134,6 +141,8 @@ true `curl | sh` one-liner. Tracked as a follow-up; large and out of scope here.
 - AC8: A release tag whose `vibeguard-runtime/VERSION` does not match the tag fails
   before any release asset is published.
 - AC9: The binary download path succeeds when `gh` is absent but `curl` is present.
+- AC10: `bash setup.sh --require-provenance` fails closed when attestation verification
+  is unavailable, and succeeds only when release attestation verification passes.
 
 ## 6. Work breakdown (→ issues)
 

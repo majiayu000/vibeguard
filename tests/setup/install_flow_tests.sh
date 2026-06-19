@@ -170,6 +170,26 @@ assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification 
 assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
 assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
 
+require_provenance_fail_home="${TMP_HOME}/require-provenance-fail-home"
+mkdir -p "${require_provenance_fail_home}"
+set +e
+require_provenance_fail_out="$(HOME="${require_provenance_fail_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance 2>&1)"
+require_provenance_fail_rc=$?
+set -e
+assert_cmd "--require-provenance exits nonzero when attestation verifier is unavailable" test "${require_provenance_fail_rc}" -ne 0
+assert_contains "${require_provenance_fail_out}" "Mode: require-provenance" "--require-provenance reports strict mode"
+assert_contains "${require_provenance_fail_out}" "provenance verification is required but unavailable" "--require-provenance fails closed on checksum-only provenance"
+assert_contains "${require_provenance_fail_out}" "gh attestation verify unavailable" "--require-provenance reports missing attestation verifier"
+assert_not_contains "${require_provenance_fail_out}" "Setup complete! All components installed." "--require-provenance unavailable verifier does not report setup complete"
+
+require_provenance_ok_home="${TMP_HOME}/require-provenance-ok-home"
+mkdir -p "${require_provenance_ok_home}"
+require_provenance_ok_out="$(HOME="${require_provenance_ok_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 VIBEGUARD_TEST_GH_AUTH_OK=1 VIBEGUARD_TEST_ATTESTATION_OK=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance)"
+assert_contains "${require_provenance_ok_out}" "Mode: require-provenance" "--require-provenance success reports strict mode"
+assert_contains "${require_provenance_ok_out}" "provenance=verified-provenance" "--require-provenance requires verified provenance"
+assert_contains "${require_provenance_ok_out}" "runtime provenance status: verified-provenance" "--require-provenance records verified provenance status"
+assert_contains "${require_provenance_ok_out}" "Setup complete! All components installed." "--require-provenance install succeeds with verified attestation"
+
 empty_version_home="${TMP_HOME}/empty-version-home"
 mkdir -p "${empty_version_home}"
 set +e
