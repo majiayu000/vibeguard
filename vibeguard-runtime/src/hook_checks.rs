@@ -223,6 +223,14 @@ pub fn pre_edit_check(args: &[String]) -> Result {
             }
             let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
             if advisory_limit < limit && estimated > advisory_limit {
+                let context = u16_advisory_context(
+                    &file_path,
+                    estimated,
+                    advisory_limit,
+                    limit,
+                    "this edit would leave",
+                    false,
+                );
                 if write_log_event(
                     log_file,
                     "pre-edit-guard",
@@ -233,33 +241,23 @@ pub fn pre_edit_check(args: &[String]) -> Result {
                 )
                 .is_err()
                 {
-                    println!("FALLBACK");
+                    println!("FALLBACK_OUTPUT");
+                    println!("{context}");
                     return Ok(());
                 }
                 println!("FAST_OUTPUT");
-                println!(
-                    "{}",
-                    hook_context_json(
-                        "PreToolUse",
-                        &u16_advisory_context(
-                            &file_path,
-                            estimated,
-                            advisory_limit,
-                            limit,
-                            "this edit would leave",
-                            false,
-                        )
-                    )
-                );
+                println!("{}", hook_context_json("PreToolUse", &context));
                 return Ok(());
             }
         }
     }
 
-    if write_log_event(log_file, "pre-edit-guard", "Edit", "pass", "", &file_path).is_ok() {
-        println!("FAST_LOGGED");
-    } else {
-        println!("FALLBACK");
+    match write_log_event(log_file, "pre-edit-guard", "Edit", "pass", "", &file_path) {
+        Ok(()) => println!("FAST_LOGGED"),
+        Err(err) => {
+            println!("FALLBACK");
+            println!("{err}");
+        }
     }
     Ok(())
 }

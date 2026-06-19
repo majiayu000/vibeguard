@@ -128,6 +128,63 @@ assert_contains "$result" "$locked_log" "Log append failure reports log path"
 assert_contains "$result" "rmdir" "Log append failure reports stale-lock recovery command"
 rm -rf "$tmp_lock_dir" "$tmp_lock_file"
 
+tmp_advisory_lock_dir=$(mktemp -d)
+advisory_locked_log="$tmp_advisory_lock_dir/events.jsonl"
+advisory_file="$tmp_advisory_lock_dir/advisory_probe.ts"
+python3 - <<'PY' "$advisory_file"
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text("".join(f"// line {i:03d}\n" for i in range(1, 701)), encoding="utf-8")
+PY
+mkdir "${advisory_locked_log}.lock.d"
+result=$(python3 - <<'PY' "$advisory_file" \
+  | VIBEGUARD_PROJECT_LOG_DIR="$tmp_advisory_lock_dir" \
+    VIBEGUARD_LOG_FILE="$advisory_locked_log" \
+    VIBEGUARD_PROJECT_HASH="advisory01" \
+    VIBEGUARD_SESSION_ID="pre-edit-advisory-lock-test" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/pre-edit-guard.sh 2>/dev/null
+import json
+import sys
+
+print(json.dumps({
+    "tool_input": {
+        "file_path": sys.argv[1],
+        "old_string": "",
+        "new_string": "// line 701",
+        "vibeguard_line_delta": 1,
+    }
+}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "U-16 advisory log append failure does not block"
+assert_contains "$result" "U-16" "U-16 advisory survives log append failure"
+assert_contains "$result" "VG-INTERNAL-LOG-APPEND" "U-16 advisory log append failure reports internal error code"
+assert_contains "$result" "failure_kind=lock" "U-16 advisory log append failure reports lock failure kind"
+rm -rf "$tmp_advisory_lock_dir"
+
+tmp_global_lock_dir=$(mktemp -d)
+tmp_global_project_dir="$tmp_global_lock_dir/project"
+global_lock_file=$(mktemp)
+mkdir -p "$tmp_global_project_dir"
+printf 'safe\n' > "$global_lock_file"
+mkdir "$tmp_global_lock_dir/events.jsonl.lock.d"
+result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$global_lock_file" \
+  | VIBEGUARD_LOG_DIR="$tmp_global_lock_dir" \
+    VIBEGUARD_PROJECT_LOG_DIR="$tmp_global_project_dir" \
+    VIBEGUARD_LOG_FILE="$tmp_global_project_dir/events.jsonl" \
+    VIBEGUARD_PROJECT_HASH="globallock1" \
+    VIBEGUARD_SESSION_ID="pre-edit-global-lock-test" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/pre-edit-guard.sh 2>/dev/null)
+assert_not_contains "$result" '"decision": "block"' "Global mirror append failure after safe pre-edit validation does not block"
+assert_contains "$result" "VG-INTERNAL-LOG-APPEND" "Global mirror append failure reports internal error code"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl" "Global mirror append failure reports global log path"
+rm -rf "$tmp_global_lock_dir" "$global_lock_file"
+
 tmp_policy_lock_dir=$(mktemp -d)
 policy_locked_log="$tmp_policy_lock_dir/events.jsonl"
 mkdir "${policy_locked_log}.lock.d"

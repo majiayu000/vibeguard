@@ -355,12 +355,11 @@ pub(crate) fn write_log_event(
     if let Ok(log_dir) = env::var("VIBEGUARD_LOG_DIR") {
         let global = Path::new(&log_dir).join("events.jsonl");
         if global != Path::new(log_file) {
-            if let Err(err) = append_jsonl(&global, &line) {
-                eprintln!(
-                    "VIBEGUARD ERROR: global JSONL mirror append failed for {}: {err}",
-                    global.display()
-                );
-            }
+            append_jsonl(&global, &line).map_err(|err| {
+                let path = global.display();
+                let msg = format!("global JSONL mirror append failed for {path}: {err}");
+                io::Error::new(err.kind(), msg)
+            })?;
         }
     }
     Ok(())

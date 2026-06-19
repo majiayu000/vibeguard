@@ -14,6 +14,8 @@ INPUT=$(cat)
 vg_pre_edit_failure_kind() {
   if [[ -n "${VIBEGUARD_LOG_FILE:-}" && -d "${VIBEGUARD_LOG_FILE}.lock.d" ]]; then
     printf 'lock'
+  elif [[ -n "${VIBEGUARD_LOG_DIR:-}" && -d "${VIBEGUARD_LOG_DIR}/events.jsonl.lock.d" ]]; then
+    printf 'lock'
   else
     printf 'runtime'
   fi
@@ -42,10 +44,15 @@ vg_pre_edit_visible_internal_warning() {
   local code="$1"
   local failure_kind="$2"
   local runtime_detail="$3"
+  local context="${4:-}"
   local msg
   msg="$(vg_pre_edit_internal_message "$code" "$failure_kind" "allow" "$runtime_detail")"
   vg_log "pre-edit-guard" "Edit" "warn" "vibeguard_internal_error failure_kind=${failure_kind} code=${code}" "" >/dev/null 2>&1 || true
-  printf '%s\n' "$msg" | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+  if [[ -n "$context" ]]; then
+    printf '%s\n\n%s\n' "$context" "$msg" | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+  else
+    printf '%s\n' "$msg" | "$_VIBEGUARD_RUNTIME" hook-context PreToolUse
+  fi
 }
 
 vg_pre_edit_visible_internal_block() {
@@ -92,7 +99,16 @@ if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
         exit 0
         ;;
       FALLBACK)
-        vg_pre_edit_visible_internal_warning "VG-INTERNAL-LOG-APPEND" "$(vg_pre_edit_failure_kind)" "pre-edit validation passed but event log append failed"
+        _VG_FAST_PAYLOAD="${_VG_FAST_RESULT#*$'\n'}"
+        [[ "$_VG_FAST_PAYLOAD" == "$_VG_FAST_RESULT" ]] && _VG_FAST_PAYLOAD=""
+        _VG_FAST_DETAIL_MESSAGE="${_VG_FAST_PAYLOAD:-pre-edit validation passed but event log append failed}"
+        vg_pre_edit_visible_internal_warning "VG-INTERNAL-LOG-APPEND" "$(vg_pre_edit_failure_kind)" "$_VG_FAST_DETAIL_MESSAGE"
+        exit 0
+        ;;
+      FALLBACK_OUTPUT)
+        _VG_FAST_PAYLOAD="${_VG_FAST_RESULT#*$'\n'}"
+        [[ "$_VG_FAST_PAYLOAD" == "$_VG_FAST_RESULT" ]] && _VG_FAST_PAYLOAD=""
+        vg_pre_edit_visible_internal_warning "VG-INTERNAL-LOG-APPEND" "$(vg_pre_edit_failure_kind)" "pre-edit advisory emitted but event log append failed" "$_VG_FAST_PAYLOAD"
         exit 0
         ;;
     esac
