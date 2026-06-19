@@ -17,7 +17,7 @@ SECRET_KEY_PATTERN = (
     r"|[A-Za-z][A-Za-z0-9]*(?:Token|Secret|Password|ApiKey|APIKey|PrivateKey|AccessKey|Key)[A-Za-z0-9]*"
 )
 SECRET_PATTERNS = [
-    re.compile(rf"\b({SECRET_KEY_PATTERN})[\"']?\s*[:=]\s*([\"']).*?\2"),
+    re.compile(rf"\b({SECRET_KEY_PATTERN})[\"']?\s*[:=]\s*([\"'])(?:\\.|(?!\2).)*\2"),
     re.compile(rf"\b({SECRET_KEY_PATTERN})[\"']?\s*[:=]\s*[\"']?[^\"'\s,;}}]+[\"']?"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{8,}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),

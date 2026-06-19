@@ -43,7 +43,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 EVENT_LOG="${TMP_DIR}/events.jsonl"
 cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-POLICY-RS03-DOC-EXAMPLE","code":"VG-POLICY-RS03-DOC-EXAMPLE","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/example.rs","reason":"documentation sample includes unwrap token=ghp_secretvalue"}
-{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", password: \"correct horse battery staple\", OPENAI_API_KEY=sk-openai123, AWS_SECRET_ACCESS_KEY=\"aws secret value\", GITHUB_TOKEN=ghp_prefixedsecret, client_secret: \"client secret value\", accessToken=\"oauth token value\", clientSecret=\"client js secret\", and privateKey=\"private key value\""}
+{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"}, api_key: \"abc123\", password: \"correct horse battery staple\", OPENAI_API_KEY=sk-openai123, AWS_SECRET_ACCESS_KEY=\"aws secret value\", GITHUB_TOKEN=ghp_prefixedsecret, client_secret: \"client secret value\", accessToken=\"oauth token value\", clientSecret=\"client js secret\", privateKey=\"private key value\", and password=\"abc\\\"def secret\""}
 {"schema_version":1,"ts":"2026-06-19T00:00:02Z","session":"s1","event_id":"evt-layer-token","hook":"pre-write-guard","tool":"Write","decision":"warn","status":"warn","path":"src/new.rs","reason":"VIBEGUARD [L1] [advisory] new source file detected"}
 {"schema_version":1,"ts":"2026-06-19T00:00:03Z","session":"s1","event_id":"evt-detail-path","code":"VG-POLICY-DETAIL-PATH","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"src/lib.rs||delta=12","reason":"VIBEGUARD [RS-03] unwrap"}
 {"schema_version":1,"ts":"2026-06-19T00:00:04Z","session":"s1","event_id":"evt-legacy-detail","code":"VG-POLICY-LEGACY-DETAIL","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"Edit src/foo.ts","reason":"VIBEGUARD [RS-03] unwrap"}
@@ -78,6 +78,7 @@ assert_not_contains "$quoted_secret_out" "client secret value" "markdown does no
 assert_not_contains "$quoted_secret_out" "oauth token value" "markdown does not leak camelCase access token"
 assert_not_contains "$quoted_secret_out" "client js secret" "markdown does not leak camelCase client secret"
 assert_not_contains "$quoted_secret_out" "private key value" "markdown does not leak camelCase private key"
+assert_not_contains "$quoted_secret_out" "def secret" "markdown does not leak escaped-quote secret suffix"
 
 layer_rule_out="$(python3 "$SCRIPT" L1 --event-log "$EVENT_LOG")"
 assert_contains "$layer_rule_out" "rule_id: \`L1\`" "markdown extracts rule id from reason token"

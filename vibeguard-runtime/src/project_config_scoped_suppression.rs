@@ -89,13 +89,15 @@ fn scoped_suppression_matches_output_at(
         return false;
     }
 
-    if output_string_field(output, &["rule_id", "rule"])
-        .or_else(|| payload.and_then(|payload| output_string_field(payload, &["rule_id", "rule"])))
-        .as_deref()
-        != Some(suppression.rule_id.as_str())
-        && !context_rule_ids
-            .iter()
-            .any(|rule_id| rule_id == &suppression.rule_id)
+    let structured_rule_id = output_string_field(output, &["rule_id", "rule"])
+        .or_else(|| payload.and_then(|payload| output_string_field(payload, &["rule_id", "rule"])));
+    if let Some(rule_id) = structured_rule_id.as_deref() {
+        if rule_id != suppression.rule_id {
+            return false;
+        }
+    } else if !context_rule_ids
+        .iter()
+        .any(|rule_id| rule_id == &suppression.rule_id)
     {
         return false;
     }
@@ -593,6 +595,24 @@ mod tests {
             &output,
             Some(&payload),
             Some("/repo"),
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn structured_rule_id_overrides_context_rule_mentions() {
+        let output = json!({
+            "rule_id": "RS-10",
+            "path": "docs/examples/basic.rs",
+            "reason": "Mentions [RS-03] as related background",
+        });
+
+        assert!(!scoped_suppression_matches_output_at(
+            &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            None,
+            None,
             "2026-06-19",
         ));
     }
