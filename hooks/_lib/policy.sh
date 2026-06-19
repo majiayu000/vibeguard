@@ -160,6 +160,7 @@ vg_policy_check_hook() {
   VG_POLICY_OUTPUT_FILTER=0
   VG_POLICY_RUNTIME_PATH=""
   VG_POLICY_CWD=""
+  VG_POLICY_PAYLOAD_REF="${payload_ref}"
   VG_POLICY_HOOK_NAME="${hook_name}"
   export VIBEGUARD_POLICY_ENFORCEMENT="block"
   export VG_POLICY_OUTPUT_FILTER=0
@@ -274,6 +275,9 @@ vg_policy_downgrade_output() {
   fi
   if [[ -n "${VG_POLICY_CWD:-}" ]]; then
     downgrade_args+=(--cwd "${VG_POLICY_CWD}")
+  fi
+  if [[ -n "${VG_POLICY_PAYLOAD_REF:-}" ]]; then
+    downgrade_args+=(--payload "${VG_POLICY_PAYLOAD_REF}")
   fi
   if [[ -n "${hook_name}" ]]; then
     downgrade_args+=("${hook_name}")

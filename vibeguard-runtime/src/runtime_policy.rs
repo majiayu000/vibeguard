@@ -65,6 +65,7 @@ pub fn runtime_policy_check(args: &[String]) -> HandlerResult {
 
 pub fn runtime_policy_downgrade_output(args: &[String]) -> HandlerResult {
     let parsed = parse_runtime_policy_downgrade_args(args)?;
+    let payload = runtime_policy_payload_arg(parsed.payload.as_deref())?;
 
     let raw = read_stdin()?;
     let Ok(mut value) = serde_json::from_str::<Value>(&raw) else {
@@ -82,6 +83,7 @@ pub fn runtime_policy_downgrade_output(args: &[String]) -> HandlerResult {
         parsed.cwd.as_deref(),
         parsed.hook_name.as_deref(),
         &output_snapshot,
+        payload.as_ref(),
     ) {
         apply_scoped_suppression_output(object, &suppression);
     } else if parsed.warn_mode {
@@ -117,11 +119,26 @@ fn apply_scoped_suppression_output(
     if suppression.action == "suppress" {
         object.insert("decision".to_string(), json!("pass"));
         object.insert("reason".to_string(), json!(prefix));
+        clear_native_advisory_output(object);
         remove_codex_denials(object, "VIBEGUARD scoped suppression", false);
     } else {
         object.insert("decision".to_string(), json!("warn"));
         prefix_reason(object, &prefix);
         remove_codex_denials(object, &prefix, true);
+    }
+}
+
+fn clear_native_advisory_output(object: &mut serde_json::Map<String, Value>) {
+    object.remove("systemMessage");
+    if let Some(hook_specific) = object
+        .get_mut("hookSpecificOutput")
+        .and_then(Value::as_object_mut)
+    {
+        hook_specific.remove("additionalContext");
+        hook_specific.remove("permissionDecisionReason");
+        if hook_specific.keys().all(|key| key == "hookEventName") {
+            object.remove("hookSpecificOutput");
+        }
     }
 }
 
@@ -201,14 +218,14 @@ fn matching_scoped_suppression(
     cwd: Option<&str>,
     hook_name: Option<&str>,
     output: &Value,
+    payload: Option<&Value>,
 ) -> Option<ScopedSuppression> {
     let hook_name = hook_name?;
     let config_path = project_config_path(cwd, &HashMap::new())?;
     let config = load_project_config(&config_path).ok()?;
-    config
-        .scoped_suppressions
-        .into_iter()
-        .find(|suppression| scoped_suppression_matches_output(suppression, hook_name, output))
+    config.scoped_suppressions.into_iter().find(|suppression| {
+        scoped_suppression_matches_output(suppression, hook_name, output, payload)
+    })
 }
 
 pub fn runtime_policy_codex_error(args: &[String]) -> HandlerResult {
@@ -270,6 +287,7 @@ struct RuntimePolicyDowngradeArgs {
     warn_mode: bool,
     hook_name: Option<String>,
     cwd: Option<String>,
+    payload: Option<String>,
 }
 
 fn parse_runtime_policy_check_args(args: &[String]) -> Result<RuntimePolicyCheckArgs, String> {
@@ -319,6 +337,7 @@ fn parse_runtime_policy_downgrade_args(
 ) -> Result<RuntimePolicyDowngradeArgs, String> {
     let mut warn_mode = args.is_empty();
     let mut cwd: Option<String> = None;
+    let mut payload: Option<String> = None;
     let mut hook_name: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
@@ -330,6 +349,15 @@ fn parse_runtime_policy_downgrade_args(
                     return Err(runtime_policy_downgrade_usage());
                 };
                 if value.is_empty() || cwd.replace(value.clone()).is_some() {
+                    return Err(runtime_policy_downgrade_usage());
+                }
+            }
+            "--payload" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    return Err(runtime_policy_downgrade_usage());
+                };
+                if value.is_empty() || payload.replace(value.clone()).is_some() {
                     return Err(runtime_policy_downgrade_usage());
                 }
             }
@@ -347,11 +375,32 @@ fn parse_runtime_policy_downgrade_args(
         warn_mode,
         hook_name,
         cwd,
+        payload,
     })
 }
 
 fn runtime_policy_downgrade_usage() -> String {
-    "Usage: vibeguard-runtime runtime-policy-downgrade-output [--warn-mode] [--cwd <path>] [<hook-name>]".into()
+    "Usage: vibeguard-runtime runtime-policy-downgrade-output [--warn-mode] [--cwd <path>] [--payload <path-or-json>] [<hook-name>]".into()
+}
+
+fn runtime_policy_payload_arg(
+    payload: Option<&str>,
+) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+    let Some(payload) = payload else {
+        return Ok(None);
+    };
+    let raw = if Path::new(payload).exists() {
+        fs::read_to_string(payload)?
+    } else {
+        payload.to_string()
+    };
+    let value = serde_json::from_str::<Value>(&raw).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("runtime-policy-downgrade-output payload invalid JSON: {err}"),
+        )
+    })?;
+    Ok(Some(value))
 }
 
 fn runtime_policy_payload(

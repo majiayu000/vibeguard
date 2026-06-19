@@ -1,3 +1,4 @@
+use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use serde_json::Value;
 
 pub(crate) const SUPPRESSION_ACTION_VALUES: &[&str] = &["downgrade_to_warn", "suppress"];
@@ -46,23 +47,69 @@ pub(crate) fn scoped_suppression_matches_output(
     suppression: &ScopedSuppression,
     hook_name: &str,
     output: &Value,
+    payload: Option<&Value>,
+) -> bool {
+    let today = format_unix_secs_utc(now_unix_secs());
+    scoped_suppression_matches_output_at(suppression, hook_name, output, payload, &today[..10])
+}
+
+fn scoped_suppression_matches_output_at(
+    suppression: &ScopedSuppression,
+    hook_name: &str,
+    output: &Value,
+    payload: Option<&Value>,
+    today: &str,
 ) -> bool {
     if suppression.hook != canonical_hook_name(hook_name) {
         return false;
     }
-    if output_string_field(output, &["rule_id", "rule"]).as_deref()
-        != Some(suppression.rule_id.as_str())
+    if suppression
+        .expires_at
+        .as_deref()
+        .is_some_and(|expires_at| expires_at < today)
     {
         return false;
     }
-    let Some(path) = output_string_field(output, &["path", "file_path", "file"]) else {
-        return false;
-    };
-    if !path_matches(&suppression.path, &path) {
+
+    let context = output_context_strings(output);
+    if output_string_field(output, &["rule_id", "rule"])
+        .or_else(|| payload.and_then(|payload| output_string_field(payload, &["rule_id", "rule"])))
+        .as_deref()
+        != Some(suppression.rule_id.as_str())
+        && !context
+            .iter()
+            .any(|text| text_contains_token(text, &suppression.rule_id))
+    {
         return false;
     }
+
+    let direct_path = output_string_field(output, &["path", "file_path", "file"]).or_else(|| {
+        payload.and_then(|payload| {
+            output_string_field(payload, &["path", "file_path", "file"]).or_else(|| {
+                nested_string_field(payload, &["tool_input", "file_path"])
+                    .or_else(|| nested_string_field(payload, &["tool_input", "path"]))
+                    .or_else(|| nested_string_field(payload, &["params", "file_path"]))
+                    .or_else(|| nested_string_field(payload, &["params", "path"]))
+            })
+        })
+    });
+    let path_matches = direct_path
+        .as_deref()
+        .is_some_and(|path| path_matches(&suppression.path, path))
+        || context
+            .iter()
+            .any(|text| text_contains_matching_path(text, &suppression.path));
+    if !path_matches {
+        return false;
+    };
     if let Some(code) = suppression.code.as_deref() {
-        return output_string_field(output, &["code", "event_id"]).as_deref() == Some(code);
+        return output_string_field(output, &["code", "event_id"])
+            .or_else(|| {
+                payload.and_then(|payload| output_string_field(payload, &["code", "event_id"]))
+            })
+            .as_deref()
+            == Some(code)
+            || context.iter().any(|text| text_contains_token(text, code));
     }
     true
 }
@@ -259,8 +306,71 @@ fn output_string_field(output: &Value, fields: &[&str]) -> Option<String> {
     })
 }
 
+fn nested_string_field(output: &Value, path: &[&str]) -> Option<String> {
+    let mut current = output;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn output_context_strings(output: &Value) -> Vec<String> {
+    let mut values = Vec::new();
+    for field in ["reason", "message", "systemMessage", "stopReason"] {
+        if let Some(text) = output.get(field).and_then(Value::as_str) {
+            values.push(text.to_string());
+        }
+    }
+    if let Some(hook_specific) = output.get("hookSpecificOutput").and_then(Value::as_object) {
+        for field in [
+            "additionalContext",
+            "permissionDecisionReason",
+            "systemMessage",
+        ] {
+            if let Some(text) = hook_specific.get(field).and_then(Value::as_str) {
+                values.push(text.to_string());
+            }
+        }
+        if let Some(decision) = hook_specific.get("decision").and_then(Value::as_object)
+            && let Some(message) = decision.get("message").and_then(Value::as_str)
+        {
+            values.push(message.to_string());
+        }
+    }
+    values
+}
+
+fn text_contains_token(text: &str, token: &str) -> bool {
+    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+        .any(|part| part == token)
+}
+
+fn text_contains_matching_path(text: &str, pattern: &str) -> bool {
+    text.split_whitespace()
+        .map(|part| {
+            part.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    '"' | '\'' | '`' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '{' | '}'
+                )
+            })
+        })
+        .filter(|part| part.contains('/') || part.contains('.'))
+        .any(|part| path_matches(pattern, part))
+}
+
 fn path_matches(pattern: &str, path: &str) -> bool {
-    pattern == path || wildcard_match(pattern, path)
+    let normalized_path = path.replace('\\', "/");
+    if pattern == normalized_path || wildcard_match(pattern, &normalized_path) {
+        return true;
+    }
+    normalized_path
+        .match_indices('/')
+        .map(|(index, _)| &normalized_path[index + 1..])
+        .any(|suffix| pattern == suffix || wildcard_match(pattern, suffix))
 }
 
 fn wildcard_match(pattern: &str, text: &str) -> bool {
@@ -292,4 +402,137 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
         pattern_index += 1;
     }
     pattern_index == pattern.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScopedSuppression, scoped_suppression_matches_output_at};
+    use serde_json::json;
+
+    fn suppression() -> ScopedSuppression {
+        ScopedSuppression {
+            hook: "post-edit-guard".to_string(),
+            rule_id: "RS-03".to_string(),
+            path: "docs/examples/**".to_string(),
+            code: None,
+            action: "suppress".to_string(),
+            reason: "Known documentation example false positive".to_string(),
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn matches_top_level_output_fields() {
+        let output = json!({
+            "rule_id": "RS-03",
+            "path": "docs/examples/basic.rs",
+            "decision": "block"
+        });
+
+        assert!(scoped_suppression_matches_output_at(
+            &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            None,
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn matches_real_posttool_context_with_payload_path() {
+        let output = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "VIBEGUARD quality warning: [RS-03] [review] [this-edit] OBSERVATION: 1 new unwrap()/expect() call(s) added"
+            }
+        });
+        let payload = json!({
+            "hook_event_name": "PostToolUse",
+            "tool_input": {
+                "file_path": "/repo/docs/examples/basic.rs"
+            }
+        });
+
+        assert!(scoped_suppression_matches_output_at(
+            &suppression(),
+            "vibeguard-post-edit-guard.sh",
+            &output,
+            Some(&payload),
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn rejects_nonmatching_payload_path() {
+        let output = json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "VIBEGUARD quality warning: [RS-03] unwrap"
+            }
+        });
+        let payload = json!({"tool_input": {"file_path": "/repo/src/main.rs"}});
+
+        assert!(!scoped_suppression_matches_output_at(
+            &suppression(),
+            "post-edit-guard.sh",
+            &output,
+            Some(&payload),
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn requires_matching_optional_code() {
+        let output = json!({
+            "rule_id": "RS-03",
+            "path": "docs/examples/basic.rs",
+            "code": "VG-POLICY-RS03-DOC-EXAMPLE"
+        });
+        let mut scoped = suppression();
+        scoped.code = Some("VG-POLICY-RS03-DOC-EXAMPLE".to_string());
+
+        assert!(scoped_suppression_matches_output_at(
+            &scoped,
+            "post-edit-guard.sh",
+            &output,
+            None,
+            "2026-06-19",
+        ));
+
+        scoped.code = Some("VG-POLICY-OTHER".to_string());
+        assert!(!scoped_suppression_matches_output_at(
+            &scoped,
+            "post-edit-guard.sh",
+            &output,
+            None,
+            "2026-06-19",
+        ));
+    }
+
+    #[test]
+    fn ignores_expired_suppressions() {
+        let output = json!({
+            "rule_id": "RS-03",
+            "path": "docs/examples/basic.rs",
+        });
+        let mut scoped = suppression();
+        scoped.expires_at = Some("2026-01-01".to_string());
+
+        assert!(!scoped_suppression_matches_output_at(
+            &scoped,
+            "post-edit-guard.sh",
+            &output,
+            None,
+            "2026-06-19",
+        ));
+
+        scoped.expires_at = Some("2026-06-19".to_string());
+        assert!(scoped_suppression_matches_output_at(
+            &scoped,
+            "post-edit-guard.sh",
+            &output,
+            None,
+            "2026-06-19",
+        ));
+    }
 }

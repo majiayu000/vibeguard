@@ -387,6 +387,44 @@ fn runtime_policy_downgrade_output_suppresses_matching_scoped_suppression() {
 }
 
 #[test]
+fn runtime_policy_downgrade_output_suppresses_real_posttool_payload_shape() {
+    let repo = unique_temp_dir("scoped_suppress_posttool");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}"#,
+    );
+    let payload = repo.join("payload.json");
+    fs::write(
+        &payload,
+        r#"{"hook_event_name":"PostToolUse","tool_input":{"file_path":"/repo/docs/examples/basic.rs"}}"#,
+    )
+    .expect("payload should be written");
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--cwd",
+            repo.to_str().expect("repo path should be utf8"),
+            "--payload",
+            payload.to_str().expect("payload path should be utf8"),
+            "post-edit-guard.sh",
+        ],
+        r#"{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"VIBEGUARD quality warning: [RS-03] [review] [this-edit] OBSERVATION: 1 new unwrap()/expect() call(s) added"}}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(value["decision"], "pass");
+    assert_eq!(
+        value["reason"],
+        "VIBEGUARD scoped suppression: Known documentation example false positive"
+    );
+    assert!(value.get("hookSpecificOutput").is_none());
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
 fn runtime_policy_downgrade_output_downgrades_matching_scoped_suppression() {
     let repo = unique_temp_dir("scoped_downgrade");
     write_policy(
