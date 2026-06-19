@@ -7,7 +7,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | Spec | Status | Use it for |
 |---|---|---|
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
-| `install-friction-reduction.md` | Draft reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
+| `install-friction-reduction.md` | Implemented reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
 | `rust-only-production-path.md` | Implemented reference | Python-free production path, Rust runtime boundaries, and remaining validation expectations |
 
 ## Reading Rules
