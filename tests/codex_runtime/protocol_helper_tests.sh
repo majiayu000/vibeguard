@@ -1,4 +1,11 @@
 header "build Rust vibeguard-runtime"
+now_millis() {
+  python3 - <<'PY'
+import time
+print(time.monotonic_ns() // 1_000_000)
+PY
+}
+
 if command -v cargo >/dev/null 2>&1; then
   cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
   VIBEGUARD_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
@@ -305,7 +312,7 @@ assert_contains "${timeout_out}" "status=timeout" "codex_run_hook enforces wrapp
 assert_contains "${timeout_out}" "wrapped-hook-timeout" "codex_run_hook records timeout diagnostic"
 assert_contains "${timeout_out}" "VIBEGUARD hook timed out" "codex_run_hook emits visible timeout failure"
 
-timeout_fast_started="$(date +%s)"
+timeout_fast_started="$(now_millis)"
 timeout_fast_out="$(
   bash -c '
     set -euo pipefail
@@ -313,9 +320,9 @@ timeout_fast_out="$(
     vg_run_with_timeout 3 bash -c "exit 0"
   ' -- "${REPO_DIR}/hooks/_lib/timeout.sh"
 )"
-timeout_fast_elapsed=$(( $(date +%s) - timeout_fast_started ))
+timeout_fast_elapsed=$(( $(now_millis) - timeout_fast_started ))
 TOTAL=$((TOTAL + 1))
-if [[ "${timeout_fast_elapsed}" -lt 3 ]]; then
+if [[ "${timeout_fast_elapsed}" -lt 3000 ]]; then
   green "timeout fallback returns before the deadline for fast commands"
   PASS=$((PASS + 1))
 else
@@ -348,7 +355,7 @@ timeout_stdin_out="$(
 )"
 assert_contains "${timeout_stdin_out}" "line=abc" "timeout fallback preserves pipeline stdin"
 
-timeout_unclosed_stdin_started="$(date +%s)"
+timeout_unclosed_stdin_started="$(now_millis)"
 timeout_unclosed_stdin_out="$(
   bash -c '
     set -euo pipefail
@@ -359,10 +366,10 @@ timeout_unclosed_stdin_out="$(
     printf "status=%s\n" "$run_status"
   ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
 )"
-timeout_unclosed_stdin_elapsed=$(( $(date +%s) - timeout_unclosed_stdin_started ))
+timeout_unclosed_stdin_elapsed=$(( $(now_millis) - timeout_unclosed_stdin_started ))
 assert_contains "${timeout_unclosed_stdin_out}" "status=124" "timeout fallback bounds unclosed pipeline stdin"
 TOTAL=$((TOTAL + 1))
-if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3 ]]; then
+if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3000 ]]; then
   green "timeout fallback returns promptly for unclosed pipeline stdin"
   PASS=$((PASS + 1))
 else
