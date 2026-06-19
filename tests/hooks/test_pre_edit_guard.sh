@@ -141,6 +141,11 @@ result=$(printf '{"tool_input":{"file_path":"%s","old_string":"test"}}' "$tmp_po
     bash hooks/pre-edit-guard.sh 2>/dev/null)
 assert_contains "$result" '"decision": "block"' "Policy block still blocks when event log append fails"
 assert_contains "$result" "File does not exist" "Policy block keeps real reason when event log append fails"
+assert_contains "$result" "VG-INTERNAL-LOG-APPEND" "Policy block reports internal log failure code"
+assert_contains "$result" "failure_kind=lock" "Policy block reports lock failure kind"
+assert_contains "$result" "pre-edit-policy-lock-test" "Policy block reports session id"
+assert_contains "$result" "$policy_locked_log" "Policy block reports log path"
+assert_contains "$result" "rmdir" "Policy block reports stale-lock recovery command"
 assert_not_contains "$result" "runtime pre-edit-check failed" "Policy block is not replaced by generic runtime failure"
 rm -rf "$tmp_policy_lock_dir"
 

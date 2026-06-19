@@ -294,6 +294,7 @@ fn write_pre_edit_block(
     file_path: &str,
     output_reason: &str,
 ) -> io::Result<()> {
+    let mut visible_reason = output_reason.to_string();
     if let Err(err) = write_log_event(
         log_file,
         "pre-edit-guard",
@@ -303,10 +304,32 @@ fn write_pre_edit_block(
         file_path,
     ) {
         eprintln!("VIBEGUARD ERROR: pre-edit block log append failed: {err}");
+        visible_reason.push_str("\n\n");
+        visible_reason.push_str(&pre_edit_log_failure_message(log_file, &err.to_string()));
     }
     println!("FAST_OUTPUT");
-    println!("{}", decision_block_json(output_reason));
+    println!("{}", decision_block_json(&visible_reason));
     Ok(())
+}
+
+fn pre_edit_log_failure_message(log_file: &str, detail: &str) -> String {
+    let lock_path = format!("{log_file}.lock.d");
+    let failure_kind = if Path::new(&lock_path).is_dir() {
+        "lock"
+    } else {
+        "runtime"
+    };
+    let recovery = if failure_kind == "lock" {
+        format!("if no VibeGuard hook is active, run: rmdir \"{lock_path}\"")
+    } else {
+        "bash scripts/hook-health.sh 24".to_string()
+    };
+    let project = std::env::var("VIBEGUARD_PROJECT_HASH").unwrap_or_else(|_| "unknown".to_string());
+    let session = std::env::var("VIBEGUARD_SESSION_ID").unwrap_or_else(|_| "unknown".to_string());
+
+    format!(
+        "VIBEGUARD internal error [VG-INTERNAL-LOG-APPEND]: hook=pre-edit-guard tool=Edit failure_kind={failure_kind} mode=block project={project} session={session} log_path={log_file} recovery={recovery} detail=pre-edit block log append failed: {detail}"
+    )
 }
 
 fn missing_file_reason(file_path: &str) -> String {
