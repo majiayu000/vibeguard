@@ -7,7 +7,8 @@ not just a local experiment.
 
 1. Install locally and complete the [Quickstart](quickstart.md).
 2. Bootstrap one low-risk repository with `scripts/project-init.sh`.
-3. Run VibeGuard in `minimal` or `core` profile until warnings are understood.
+3. Set a repository `.vibeguard.json` profile and run VibeGuard in `minimal`
+   or `core` until warnings are understood.
 4. Add `verify-install` and repository contract checks to CI.
 5. Move selected repositories to `full` or `strict` only after the team accepts
    the hook behavior and false-positive handling path.
@@ -30,6 +31,21 @@ bash ~/vibeguard/setup.sh --profile strict
 | `core` | Default local development profile |
 | `full` | Adds stop/build/learning feedback for teams ready to review more signals |
 | `strict` | Maximum enforcement, including stricter Claude Code constraint budget checks |
+
+The setup commands configure the local install profile. For per-repository
+runtime policy, add `.vibeguard.json` to the target repository:
+
+```json
+{
+  "profile": "core",
+  "enforcement": "block"
+}
+```
+
+Use `minimal` for early pilots and move to `core`, `full`, or `strict` after
+the team has accepted the hook surface. Without a repository config, native
+Codex hooks still exist at the installed hook surface and no repository-scoped
+profile narrowing is applied.
 
 Use language selection when a repository should only receive relevant rules and
 guards:

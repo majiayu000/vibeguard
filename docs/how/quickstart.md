@@ -49,6 +49,12 @@ guidance file before relying on agent-visible instructions. Open a new Claude
 Code or Codex session after saving that guidance so the agent loads the updated
 instructions and hooks.
 
+`project-init.sh` only bootstraps repositories where it detects a known
+language marker such as `Cargo.toml`, `tsconfig.json`, `package.json`,
+`go.mod`, `pyproject.toml`, or `requirements.txt`. Shell-only, docs-only, and
+other unrecognized repositories print `No known language detected, skipping.`
+and do not get git hooks from this command.
+
 ## 4. Run One Intercepted Demo
 
 Start with the side-effect-free demo:
