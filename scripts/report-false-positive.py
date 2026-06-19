@@ -26,6 +26,7 @@ SECRET_PATTERNS = [
 RULE_ID_PATTERN = re.compile(
     r"\[(L[1-7]|SEC-\d+|RS-\d+|GO-\d+|TS-\d+|PY-\d+|U-\d+|W-\d+|TASTE-[A-Za-z0-9-]+)\]"
 )
+IDENTIFIER_TOKEN_CHARS = "A-Za-z0-9_-"
 
 
 def redact(text: str) -> str:
@@ -66,7 +67,16 @@ def event_matches(row: dict[str, Any], event_id: str) -> bool:
     return any(
         row.get(field) == event_id
         for field in ("event_id", "code", "rule_id")
-    ) or event_id in str(row.get("reason", "")) or event_id in str(row.get("detail", ""))
+    ) or text_contains_identifier(
+        str(row.get("reason", "")), event_id
+    ) or text_contains_identifier(str(row.get("detail", "")), event_id)
+
+
+def text_contains_identifier(text: str, identifier: str) -> bool:
+    if not identifier:
+        return False
+    pattern = rf"(?<![{IDENTIFIER_TOKEN_CHARS}]){re.escape(identifier)}(?![{IDENTIFIER_TOKEN_CHARS}])"
+    return re.search(pattern, text) is not None
 
 
 def value_from(args_value: str | None, event: dict[str, Any] | None, *fields: str) -> str:

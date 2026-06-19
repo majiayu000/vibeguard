@@ -49,6 +49,12 @@ cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:04Z","session":"s1","event_id":"evt-legacy-detail","code":"VG-POLICY-LEGACY-DETAIL","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","detail":"Edit src/foo.ts","reason":"VIBEGUARD [RS-03] unwrap"}
 JSONL
 
+PREFIX_EVENT_LOG="${TMP_DIR}/events-prefix.jsonl"
+cat > "$PREFIX_EVENT_LOG" <<'JSONL'
+{"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"evt-rs03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/match.rs","reason":"VIBEGUARD [RS-03] unwrap"}
+{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-rs030","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/wrong.rs","reason":"VIBEGUARD [RS-030] unwrap"}
+JSONL
+
 markdown_out="$(python3 "$SCRIPT" VG-POLICY-RS03-DOC-EXAMPLE --event-log "$EVENT_LOG")"
 assert_contains "$markdown_out" "event_id: \`VG-POLICY-RS03-DOC-EXAMPLE\`" "markdown includes event id"
 assert_contains "$markdown_out" "hook: \`post-edit-guard\`" "markdown includes hook"
@@ -90,6 +96,10 @@ assert_not_contains "$detail_path_out" "src/lib.rs||delta=12" "markdown does not
 legacy_detail_out="$(python3 "$SCRIPT" evt-legacy-detail --event-log "$EVENT_LOG")"
 assert_contains "$legacy_detail_out" "path: \`unknown\`" "markdown does not treat legacy free-form detail as path"
 assert_not_contains "$legacy_detail_out" "path: \`Edit src/foo.ts\`" "markdown does not report free-form detail as path"
+
+prefix_rule_out="$(python3 "$SCRIPT" RS-03 --event-log "$PREFIX_EVENT_LOG")"
+assert_contains "$prefix_rule_out" "path: \`docs/match.rs\`" "rule lookup matches whole token"
+assert_not_contains "$prefix_rule_out" "docs/wrong.rs" "rule lookup does not match longer token prefix"
 
 json_out="$(python3 "$SCRIPT" RS-03 --hook post-edit-guard --rule RS-03 --path docs/example.rs --code VG-POLICY-RS03-DOC-EXAMPLE --decision warn --status warn --remediation-context "API_KEY=sk-secret123 in copied output" --format json)"
 assert_contains "$json_out" '"rule_id": "RS-03"' "json includes rule id"
