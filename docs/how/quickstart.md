@@ -42,9 +42,12 @@ cd /path/to/project
 bash ~/vibeguard/scripts/project-init.sh "$PWD"
 ```
 
-This installs project guidance and the shared pre-commit wrapper for that
-repository. Open a new Claude Code or Codex session after bootstrapping so the
-agent loads the updated instructions and hooks.
+This prints a `Suggested project CLAUDE.md snippet` and installs the shared
+pre-commit/pre-push wrappers when they are available. Save the suggested
+snippet into the repository's `CLAUDE.md`, `AGENTS.md`, or equivalent project
+guidance file before relying on agent-visible instructions. Open a new Claude
+Code or Codex session after saving that guidance so the agent loads the updated
+instructions and hooks.
 
 ## 4. Run One Intercepted Demo
 

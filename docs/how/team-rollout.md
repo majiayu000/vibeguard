@@ -68,9 +68,12 @@ For manifest or routing changes, use the focused contract checks listed in
 bash ~/vibeguard/scripts/project-init.sh /path/to/project
 ```
 
-`project-init.sh` installs project guidance and attaches the shared pre-commit
-wrapper. Keep repository-specific facts in that repository's `AGENTS.md` or
-`CLAUDE.md`; do not put local machine facts in shared VibeGuard docs.
+`project-init.sh` prints project guidance and attaches the shared
+pre-commit/pre-push wrappers when they are available. When it prints a
+`Suggested project CLAUDE.md snippet`, save that snippet into the repository's
+`CLAUDE.md`, `AGENTS.md`, or equivalent project guidance file as a manual
+rollout step. Keep repository-specific facts in that repository's guidance
+file; do not put local machine facts in shared VibeGuard docs.
 
 ## Codex and Claude Boundaries
 
