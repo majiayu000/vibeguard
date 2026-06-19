@@ -1,5 +1,9 @@
 #[cfg(test)]
 use super::*;
+#[cfg(test)]
+use std::fs;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn normalizes_skip_without_model_context() {
@@ -108,5 +112,104 @@ fn running_summary_shows_elapsed_and_timeout() {
     assert_eq!(
         minimal_line(&entries),
         "PostToolUse checks  1/2 running - 12s / 30s"
+    );
+}
+
+#[test]
+fn limited_jsonl_reader_reads_only_recent_tail_window() {
+    let unique = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos(),
+        Err(error) => panic!("system time should be after epoch: {error}"),
+    };
+    let path = env::temp_dir().join(format!("vibeguard-hook-status-tail-{unique}.jsonl"));
+    let mut text = String::new();
+    for index in 0..1_000 {
+        text.push_str(&format!(
+            "{{\"ts\":\"2026-05-31T00:00:00Z\",\"hook\":\"old-hook\",\"detail\":\"old-{index}\"}}\n"
+        ));
+    }
+    for index in 0..3 {
+        text.push_str(&format!(
+            "{{\"ts\":\"2026-05-31T00:00:0{index}Z\",\"hook\":\"recent-hook\",\"detail\":\"recent-{index}\"}}\n"
+        ));
+    }
+    if let Err(error) = fs::write(&path, text) {
+        panic!("test log should be writable: {error}");
+    }
+
+    let events = match read_jsonl_file_limited(&path, 3) {
+        Ok(events) => events,
+        Err(error) => panic!("tail window should read: {error}"),
+    };
+    if let Err(error) = fs::remove_file(&path) {
+        panic!("test log should be removed: {error}");
+    }
+
+    assert_eq!(events.len(), 3);
+    assert!(
+        events
+            .iter()
+            .all(|event| { event.get(field::HOOK).and_then(Value::as_str) == Some("recent-hook") })
+    );
+    assert_eq!(
+        events[0].get(field::DETAIL).and_then(Value::as_str),
+        Some("recent-0")
+    );
+}
+
+#[test]
+fn filtered_main_events_read_full_history_before_output_limit() {
+    let unique = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos(),
+        Err(error) => panic!("system time should be after epoch: {error}"),
+    };
+    let path = env::temp_dir().join(format!(
+        "vibeguard-hook-status-filtered-tail-{unique}.jsonl"
+    ));
+    let mut text = String::from(
+        "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"s1\",\"hook\":\"old-hook\",\"detail\":\"old-target\"}\n",
+    );
+    for index in 0..300 {
+        text.push_str(&format!(
+            "{{\"ts\":\"2026-05-31T00:00:01Z\",\"session\":\"s2\",\"hook\":\"recent-hook\",\"detail\":\"recent-{index}\"}}\n"
+        ));
+    }
+    if let Err(error) = fs::write(&path, text) {
+        panic!("test log should be writable: {error}");
+    }
+
+    let mut options = Options {
+        log_file: Some(path.clone()),
+        limit: 5,
+        session: Some("s1".to_string()),
+        ..Options::default()
+    };
+    let (events, log_path) = match read_main_events(&options) {
+        Ok(result) => result,
+        Err(error) => panic!("filtered status read should use full history: {error}"),
+    };
+    let matched = events
+        .into_iter()
+        .map(|event| normalize_hook_event(&event, &log_path, options.slow_ms))
+        .filter(|entry| entry_matches_filters(entry, &options))
+        .collect::<Vec<_>>();
+
+    options.session = None;
+    let (tail_events, _) = match read_main_events(&options) {
+        Ok(result) => result,
+        Err(error) => panic!("unfiltered status read should use tail history: {error}"),
+    };
+    if let Err(error) = fs::remove_file(&path) {
+        panic!("test log should be removed: {error}");
+    }
+
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].session, "s1");
+    assert_eq!(matched[0].detail, "old-target");
+    assert_eq!(tail_events.len(), read_window_lines(5));
+    assert!(
+        tail_events
+            .iter()
+            .all(|event| { event.get(field::SESSION).and_then(Value::as_str) == Some("s2") })
     );
 }
