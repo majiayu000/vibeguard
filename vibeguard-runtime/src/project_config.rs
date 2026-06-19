@@ -19,7 +19,9 @@ const DISABLED_GUARD_VALUES: &[&str] = &[
     "check_dead_shims",
     "check_declaration_execution_gap",
     "check_defer_in_loop",
+    "check_dependency_changes",
     "check_dependency_layers",
+    "check_doc_overload",
     "check_duplicate_constants",
     "check_duplicate_types",
     "check_duplicates",
@@ -27,10 +29,13 @@ const DISABLED_GUARD_VALUES: &[&str] = &[
     "check_goroutine_leak",
     "check_naming_convention",
     "check_nested_locks",
+    "check_runtime_drift",
+    "check_sec13_mcp_config_risks",
     "check_semantic_effect",
     "check_single_source_of_truth",
     "check_taste_invariants",
     "check_test_integrity",
+    "check_test_weakening",
     "check_unwrap_in_prod",
     "check_workspace_consistency",
 ];
@@ -41,6 +46,7 @@ const GC_KEYS: &[&str] = &[
     "session_metrics_retain_days",
     "learning_window_days",
     "gc_log_max_kb",
+    "catchup_interval_hours",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -470,6 +476,80 @@ mod tests {
     use serde_json::json;
 
     const PROJECT_SCHEMA_JSON: &str = include_str!("../../schemas/vibeguard-project.schema.json");
+
+    fn sorted_values(values: &[&str]) -> Vec<String> {
+        let mut values = values
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_string_enum(field: &str) -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"][field]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("schema {field} enum should be an array"))
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .unwrap_or_else(|| panic!("schema {field} enum entries should be strings"))
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_array_enum(field: &str) -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"][field]["items"]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("schema {field} items enum should be an array"))
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .unwrap_or_else(|| panic!("schema {field} enum entries should be strings"))
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_gc_keys() -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"]["gc"]["properties"]
+            .as_object()
+            .expect("schema gc properties should be an object")
+            .keys()
+            .map(|key| key.to_string())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    #[test]
+    fn project_config_allowlists_match_schema() {
+        assert_eq!(schema_string_enum("profile"), sorted_values(PROFILE_VALUES));
+        assert_eq!(
+            schema_string_enum("enforcement"),
+            sorted_values(ENFORCEMENT_VALUES)
+        );
+        assert_eq!(
+            schema_array_enum("languages"),
+            sorted_values(LANGUAGE_VALUES)
+        );
+        assert_eq!(
+            schema_array_enum("disabled_guards"),
+            sorted_values(DISABLED_GUARD_VALUES)
+        );
+        assert_eq!(schema_gc_keys(), sorted_values(GC_KEYS));
+    }
 
     #[test]
     fn validation_reports_runtime_config_key_hints() {

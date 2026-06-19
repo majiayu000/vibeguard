@@ -61,7 +61,7 @@
       "paths": ["rules/claude-rules/typescript/quality.md"],
       "target": "~/.claude/rules/vibeguard/typescript/",
       "defaultInstall": true,
-      "languages": ["typescript"],
+      "languages": ["typescript", "javascript"],
       "cost": "light",
       "stability": "stable"
     },
@@ -251,7 +251,7 @@
       "description": "TypeScript guard scripts (any abuse, console residual, duplication)",
       "paths": ["guards/typescript/"],
       "defaultInstall": true,
-      "languages": ["typescript"],
+      "languages": ["typescript", "javascript"],
       "cost": "light",
       "stability": "stable"
     },
