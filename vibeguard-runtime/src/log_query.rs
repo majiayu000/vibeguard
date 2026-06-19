@@ -318,23 +318,25 @@ pub fn reason_count(args: &[String]) -> Result {
     Ok(())
 }
 
-/// Combined post-edit history query. Replaces multiple tail+Python/helper calls.
-/// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent]
+/// Combined post-edit history query. Replaces multiple tail+runtime helper calls.
+/// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent] [project_root]
 pub fn post_edit_history(args: &[String]) -> Result {
     if args.len() < 2 {
         return Err(
-            "Usage: tail -N log | vibeguard-runtime post-edit-history <session> <file_path> [agent]".into(),
+            "Usage: tail -N log | vibeguard-runtime post-edit-history <session> <file_path> [agent] [project_root]".into(),
         );
     }
     let session = &args[0];
     let file_path = &args[1];
     let agent = args.get(2).map(String::as_str).unwrap_or("");
+    let project = args.get(3).map(String::as_str).unwrap_or("");
     let events = read_all_events();
     let session_events = events
         .iter()
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
         .cloned()
         .collect::<Vec<_>>();
+    let w15_trail = same_file_edit_delta_trail(&events, session, file_path);
 
     println!("CHURN\t{}", count_churn_events(&session_events, file_path));
     println!(
@@ -342,8 +344,21 @@ pub fn post_edit_history(args: &[String]) -> Result {
         consecutive_same_file_edits(&events, session, file_path)
     );
     println!(
+        "W15_DELTAS\t{}",
+        w15_trail
+            .iter()
+            .take(2)
+            .map(|delta| delta.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    println!(
         "WARN_COUNT\t{}",
         count_warn_events(&session_events, file_path)
+    );
+    println!(
+        "BUILD_FAILS\t{}",
+        count_build_fail_events(&session_events, project)
     );
     if let Some((session_id, agent_name, hook_name, tool_name)) =
         recent_overlap(&events, session, agent, file_path, now_unix_secs())
@@ -490,6 +505,30 @@ mod tests {
 
         assert_eq!(count_build_fail_events(&events, "/repo"), 2);
         assert_eq!(count_build_fail_events(&events, "/other"), 1);
+    }
+
+    #[test]
+    fn combined_history_can_compute_build_fails_from_shared_events() {
+        let events = vec![
+            json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "decision": "pass", "detail": "src/a.rs||delta=20"}),
+            json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "decision": "warn", "reason": "[RS-03] unwrap", "detail": "src/a.rs||delta=10"}),
+            json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/a.rs"}),
+            json!({"session": "s", "hook": "post-build-check", "decision": "escalate", "detail": "/repo/src/b.rs"}),
+            json!({"session": "other", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/c.rs"}),
+        ];
+        let session_events = events
+            .iter()
+            .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some("s"))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(count_churn_events(&session_events, "src/a.rs"), 2);
+        assert_eq!(count_warn_events(&session_events, "src/a.rs"), 1);
+        assert_eq!(
+            same_file_edit_delta_trail(&events, "s", "src/a.rs"),
+            vec![10, 20]
+        );
+        assert_eq!(count_build_fail_events(&session_events, "/repo"), 2);
     }
 
     #[test]

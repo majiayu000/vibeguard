@@ -21,6 +21,7 @@ touch "$FILE_PATH"
 
 append_event() {
   local hook="$1" tool="$2" decision="$3" reason="$4" detail="$5"
+  vg_post_edit_history_reset
   printf '{"ts":"%s","session":"%s","hook":"%s","tool":"%s","decision":"%s","reason":"%s","detail":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$VIBEGUARD_SESSION_ID" "$hook" "$tool" "$decision" "$reason" "$detail" >> "$VIBEGUARD_LOG_FILE"
@@ -74,6 +75,54 @@ VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT=bad
 assert_exit_zero "invalid post-edit history timeout falls back below aggregate hook budget" test "$(vg_post_edit_history_timeout_seconds)" = "2"
 unset VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT
 
+summary_runtime="$WORK_DIR/summary-runtime.sh"
+summary_calls="$WORK_DIR/summary-runtime-calls.log"
+cat > "$summary_runtime" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "${1:-}" >> "$VG_STUB_RUNTIME_CALLS"
+cat >/dev/null || true
+
+case "${1:-}" in
+  post-edit-history)
+    printf 'CHURN\t20\n'
+    printf 'W15\t2\n'
+    printf 'W15_DELTAS\t100,200\n'
+    printf 'WARN_COUNT\t1\n'
+    printf 'BUILD_FAILS\t5\n'
+    ;;
+  *)
+    printf '0\n'
+    ;;
+esac
+STUB
+chmod +x "$summary_runtime"
+
+old_runtime="$_VIBEGUARD_RUNTIME"
+_VIBEGUARD_RUNTIME="$summary_runtime"
+export VG_STUB_RUNTIME_CALLS="$summary_calls"
+VG_W15_CURRENT_DELTA=50
+EDIT_DETAIL="$FILE_PATH||delta=50"
+vg_post_edit_history_reset
+WARNINGS=""
+vg_post_edit_detect_churn
+warn_count="$(vg_post_edit_warn_count_for_file)"
+vg_post_edit_detect_w15_loop
+assert_contains "$WARNINGS" "[CHURN CRITICAL]" "combined post-edit history keeps churn critical semantics"
+assert_contains "$WARNINGS" "[W-15]" "combined post-edit history keeps W-15 semantics"
+assert_exit_zero "combined post-edit history keeps warn-count semantics" test "$warn_count" = "1"
+assert_exit_zero "post-edit history summary uses one history query across detectors" \
+  test "$(grep -c '^post-edit-history$' "$summary_calls" | tr -d '[:space:]')" = "1"
+assert_contains "$(cat "$summary_calls")" "post-edit-history" "combined summary calls post-edit-history"
+assert_not_contains "$(cat "$summary_calls")" "churn-count" "combined summary avoids legacy churn-count call"
+assert_not_contains "$(cat "$summary_calls")" "build-fails" "combined summary avoids legacy build-fails call"
+assert_not_contains "$(cat "$summary_calls")" "warn-count" "combined summary avoids legacy warn-count call"
+_VIBEGUARD_RUNTIME="$old_runtime"
+unset VG_STUB_RUNTIME_CALLS
+unset VG_W15_CURRENT_DELTA
+unset EDIT_DETAIL
+
 slow_runtime="$WORK_DIR/slow-runtime.sh"
 cat > "$slow_runtime" <<'STUB'
 #!/usr/bin/env bash
@@ -92,7 +141,6 @@ esac
 STUB
 chmod +x "$slow_runtime"
 
-old_runtime="$_VIBEGUARD_RUNTIME"
 _VIBEGUARD_RUNTIME="$slow_runtime"
 export VIBEGUARD_POST_EDIT_HISTORY_TIMEOUT=1
 seed_edits 20
