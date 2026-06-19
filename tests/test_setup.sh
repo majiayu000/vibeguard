@@ -432,6 +432,18 @@ cat > "${TMP_HOME}/bin/gh" <<'SH'
 if [[ "${VIBEGUARD_TEST_DOWNLOAD_FAIL:-0}" == "1" || "${VIBEGUARD_TEST_GH_FAIL:-0}" == "1" ]]; then
   exit 1
 fi
+if [[ "${1:-}" == "attestation" && "${2:-}" == "verify" ]]; then
+  if [[ "${3:-}" == "--help" ]]; then
+    [[ "${VIBEGUARD_TEST_ATTESTATION_AVAILABLE:-0}" == "1" ]]
+    exit $?
+  fi
+  [[ "${VIBEGUARD_TEST_ATTESTATION_OK:-0}" == "1" ]]
+  exit $?
+fi
+if [[ "${1:-}" == "auth" && "${2:-}" == "status" ]]; then
+  [[ "${VIBEGUARD_TEST_GH_AUTH_OK:-0}" == "1" ]]
+  exit $?
+fi
 if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   shift 2
   tag="${1:-}"
@@ -513,6 +525,10 @@ cat > "${asset}" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
 REAL_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+if [[ "\${1:-}" == "version" && -n "\${VIBEGUARD_TEST_RUNTIME_VERSION:-}" ]]; then
+  printf '%s\n' "\${VIBEGUARD_TEST_RUNTIME_VERSION#v}"
+  exit 0
+fi
 if [[ "\${1:-}" == "version" && -n "\${VIBEGUARD_SETUP_RUNTIME_VERSION:-}" ]]; then
   printf '%s\n' "\${VIBEGUARD_SETUP_RUNTIME_VERSION#v}"
   exit 0
