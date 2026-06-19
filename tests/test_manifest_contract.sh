@@ -139,6 +139,24 @@ assert_contains "${rust_rule_links_out}" $'rules/claude-rules/rust/quality.md\tr
 assert_not_contains "${rust_rule_links_out}" "rules/claude-rules/python/quality.md" "manifest rule-links omit unselected Python rules"
 go_rule_links_out="$(python3 "${MANIFEST_HELPER}" rule-links --languages golang)"
 assert_contains "${go_rule_links_out}" $'rules/claude-rules/golang/quality.md\tgolang/quality.md\tgolang' "manifest rule-links normalize golang language filters"
+javascript_rule_links_out="$(python3 "${MANIFEST_HELPER}" rule-links --languages javascript)"
+assert_contains "${javascript_rule_links_out}" $'rules/claude-rules/typescript/quality.md\ttypescript/quality.md\ttypescript' "manifest rule-links map JavaScript to TypeScript rules"
+assert_not_contains "${javascript_rule_links_out}" "rules/claude-rules/rust/quality.md" "manifest JavaScript rule-links omit unselected Rust rules"
+assert_not_contains "${javascript_rule_links_out}" "rules/claude-rules/python/quality.md" "manifest JavaScript rule-links omit unselected Python rules"
+assert_not_contains "${javascript_rule_links_out}" "rules/claude-rules/golang/quality.md" "manifest JavaScript rule-links omit unselected Go rules"
+javascript_guard_languages_out="$(python3 - "${REPO_DIR}/schemas/install-modules.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for module in manifest["modules"]:
+    if module.get("id") == "guards-typescript":
+        print("\n".join(module["languages"]))
+        break
+PY
+)"
+assert_contains "${javascript_guard_languages_out}" "javascript" "guards-typescript applies to JavaScript projects"
 rust_rule_labels_out="$(python3 "${MANIFEST_HELPER}" rule-labels --languages rust)"
 assert_contains "${rust_rule_labels_out}" "common" "manifest rule-labels include common"
 assert_contains "${rust_rule_labels_out}" "rust" "manifest rule-labels include selected Rust label"
