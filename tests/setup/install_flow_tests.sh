@@ -190,6 +190,18 @@ assert_contains "${require_provenance_ok_out}" "provenance=verified-provenance" 
 assert_contains "${require_provenance_ok_out}" "runtime provenance status: verified-provenance" "--require-provenance records verified provenance status"
 assert_contains "${require_provenance_ok_out}" "Setup complete! All components installed." "--require-provenance install succeeds with verified attestation"
 
+require_provenance_mismatch_home="${TMP_HOME}/require-provenance-mismatch-home"
+mkdir -p "${require_provenance_mismatch_home}"
+set +e
+require_provenance_mismatch_out="$(HOME="${require_provenance_mismatch_home}" VIBEGUARD_TEST_RUNTIME_VERSION=0.0.0 VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 VIBEGUARD_TEST_GH_AUTH_OK=1 VIBEGUARD_TEST_ATTESTATION_OK=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance 2>&1)"
+require_provenance_mismatch_rc=$?
+set -e
+assert_cmd "--require-provenance exits nonzero when verified runtime version mismatches" test "${require_provenance_mismatch_rc}" -ne 0
+assert_contains "${require_provenance_mismatch_out}" "prepared vibeguard-runtime is incompatible" "--require-provenance mismatch reports incompatible runtime"
+assert_contains "${require_provenance_mismatch_out}" "--require-provenance requires a downloaded runtime that matches the repo runtime VERSION" "--require-provenance mismatch fails before source fallback"
+assert_not_contains "${require_provenance_mismatch_out}" "Falling back to source build" "--require-provenance mismatch does not fall back to source"
+assert_not_contains "${require_provenance_mismatch_out}" "Setup complete! All components installed." "--require-provenance mismatch does not report setup complete"
+
 empty_version_home="${TMP_HOME}/empty-version-home"
 mkdir -p "${empty_version_home}"
 set +e

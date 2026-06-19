@@ -426,6 +426,10 @@ prepare_runtime_binary() {
     if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
       exit 2
     fi
+    if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+      red "  ERROR: --require-provenance requires a downloaded runtime that matches the repo runtime VERSION."
+      exit 2
+    fi
     rm -f "${_INSTALL_TMP}/bin/vibeguard-runtime"
     prepare_runtime_from_source "downloaded runtime does not match repo runtime VERSION"
     return
