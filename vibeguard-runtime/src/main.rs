@@ -3,6 +3,7 @@ mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
+mod codex_app_server_hooks;
 mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;

@@ -432,6 +432,63 @@ fn runtime_policy_downgrade_output_suppresses_real_posttool_payload_shape() {
 }
 
 #[test]
+fn runtime_policy_downgrade_output_uses_config_root_for_absolute_paths() {
+    let repo = unique_temp_dir("scoped_suppress_nested_cwd");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}"#,
+    );
+    let nested = repo.join("subdir");
+    fs::create_dir_all(&nested).expect("nested cwd should be created");
+    let git_init = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .arg("init")
+        .output()
+        .expect("git init should run");
+    assert!(
+        git_init.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&git_init.stderr)
+    );
+    let payload = repo.join("payload.json");
+    let file_path = repo.join("docs/examples/basic.rs");
+    fs::write(
+        &payload,
+        serde_json::json!({
+            "hook_event_name": "PostToolUse",
+            "tool_input": {
+                "file_path": file_path.to_string_lossy(),
+            }
+        })
+        .to_string(),
+    )
+    .expect("payload should be written");
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--cwd",
+            nested.to_str().expect("nested path should be utf8"),
+            "--payload",
+            payload.to_str().expect("payload path should be utf8"),
+            "post-edit-guard.sh",
+        ],
+        r#"{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"VIBEGUARD quality warning: [RS-03] unwrap"}}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(value["decision"], "pass");
+    assert_eq!(
+        value["reason"],
+        "VIBEGUARD scoped suppression: Known documentation example false positive"
+    );
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
 fn runtime_policy_downgrade_output_downgrades_matching_scoped_suppression() {
     let repo = unique_temp_dir("scoped_downgrade");
     write_policy(

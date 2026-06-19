@@ -1,6 +1,6 @@
 use crate::HandlerResult;
 use crate::codex_app_server_policy::{HookPolicyDecision, evaluate_hook_policy};
-use crate::project_config::{load_project_config, project_config_path};
+use crate::project_config::{load_project_config, project_config_path, project_config_root};
 use crate::project_config_scoped_suppression::{
     ScopedSuppression, scoped_suppression_matches_output,
 };
@@ -109,6 +109,13 @@ fn downgrade_object_to_warn(object: &mut serde_json::Map<String, Value>) {
     }
 
     remove_codex_denials(object, "VIBEGUARD warn-mode advisory", true);
+}
+
+pub(crate) fn apply_scoped_suppression_value(value: &mut Value, suppression: &ScopedSuppression) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    apply_scoped_suppression_output(object, suppression);
 }
 
 fn apply_scoped_suppression_output(
@@ -222,9 +229,16 @@ fn matching_scoped_suppression(
 ) -> Option<ScopedSuppression> {
     let hook_name = hook_name?;
     let config_path = project_config_path(cwd, &HashMap::new())?;
+    let project_root = project_config_root(&config_path);
     let config = load_project_config(&config_path).ok()?;
     config.scoped_suppressions.into_iter().find(|suppression| {
-        scoped_suppression_matches_output(suppression, hook_name, output, payload, cwd)
+        scoped_suppression_matches_output(
+            suppression,
+            hook_name,
+            output,
+            payload,
+            project_root.as_deref(),
+        )
     })
 }
 

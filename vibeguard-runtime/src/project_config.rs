@@ -85,6 +85,12 @@ pub fn project_config_path(
     candidate.is_file().then_some(candidate)
 }
 
+pub fn project_config_root(path: &Path) -> Option<String> {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| parent.to_string_lossy().into_owned())
+}
+
 pub fn load_project_config(path: &Path) -> Result<ProjectConfig, String> {
     let value = read_project_config_json(path)?;
     validate_project_config_value(path, &value)?;

@@ -410,10 +410,21 @@ fn normalize_candidate_path(path: &str, project_root: Option<&str>) -> String {
     if normalized == root {
         return String::new();
     }
+    let mut roots = vec![root.clone()];
+    if let Some(alias) = root.strip_prefix("/private/") {
+        roots.push(format!("/{alias}"));
+    } else if root.starts_with('/') {
+        roots.push(format!("/private{root}"));
+    }
+    for root in roots {
+        if normalized == root {
+            return String::new();
+        }
+        if let Some(relative) = normalized.strip_prefix(&format!("{root}/")) {
+            return relative.to_string();
+        }
+    }
     normalized
-        .strip_prefix(&format!("{root}/"))
-        .unwrap_or(&normalized)
-        .to_string()
 }
 
 fn is_absolute_path(path: &str) -> bool {
@@ -645,6 +656,11 @@ mod tests {
             "docs/examples/**",
             "/other/docs/examples/basic.rs",
             Some("/repo"),
+        ));
+        assert!(path_matches(
+            "docs/examples/**",
+            "/var/folders/repo/docs/examples/basic.rs",
+            Some("/private/var/folders/repo"),
         ));
     }
 }
