@@ -556,6 +556,40 @@ fn append_jsonl_command_lock_timeout_does_not_write_unlocked() {
 }
 
 #[test]
+fn append_jsonl_command_removes_stale_lock_dir() {
+    let dir = unique_temp_dir("append-jsonl-stale-lock");
+    fs::create_dir_all(&dir).unwrap();
+    let log_file = dir.join("events.jsonl");
+    let lock_dir = format!("{}.lock.d", log_file.display());
+    fs::create_dir(&lock_dir).unwrap();
+    let mut child = bin()
+        .args(["append-jsonl", log_file.to_str().unwrap()])
+        .env("VIBEGUARD_LOG_LOCK_ATTEMPTS", "1")
+        .env("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS", "0")
+        .env("VIBEGUARD_LOG_LOCK_STALE_SECONDS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"stale_lock\":true}")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("\"stale_lock\":true"), "{log_text}");
+    assert!(
+        !std::path::Path::new(&lock_dir).exists(),
+        "stale lock dir should be removed"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn append_jsonl_command_zero_lock_attempts_acts_as_one_attempt() {
     let dir = unique_temp_dir("append-jsonl-zero-lock-attempts");
     fs::create_dir_all(&dir).unwrap();

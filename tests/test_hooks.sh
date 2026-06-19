@@ -17,6 +17,7 @@ fi
 
 shards=(
   "tests/hooks/test_log_injection.sh"
+  "tests/hooks/test_log_locking.sh"
   "tests/hooks/test_pre_bash_guard.sh"
   "tests/hooks/test_pre_push_guard.sh"
   "tests/hooks/test_pre_edit_guard.sh"
