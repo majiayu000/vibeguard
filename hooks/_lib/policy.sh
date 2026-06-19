@@ -251,7 +251,7 @@ vg_policy_check_hook() {
 }
 
 vg_policy_downgrade_output() {
-  local output="$1" hook_name="${2:-${VG_POLICY_HOOK_NAME:-}}" runtime_path
+  local output="$1" hook_name="${2:-${VG_POLICY_HOOK_NAME:-}}" payload_ref="${3:-${VG_POLICY_PAYLOAD_REF:-}}" runtime_path
   if [[ -z "${output}" ]]; then
     printf '%s\n' "${output}"
     return 0
@@ -276,8 +276,8 @@ vg_policy_downgrade_output() {
   if [[ -n "${VG_POLICY_CWD:-}" ]]; then
     downgrade_args+=(--cwd "${VG_POLICY_CWD}")
   fi
-  if [[ -n "${VG_POLICY_PAYLOAD_REF:-}" ]]; then
-    downgrade_args+=(--payload "${VG_POLICY_PAYLOAD_REF}")
+  if [[ -n "${payload_ref}" ]]; then
+    downgrade_args+=(--payload "${payload_ref}")
   fi
   if [[ -n "${hook_name}" ]]; then
     downgrade_args+=("${hook_name}")

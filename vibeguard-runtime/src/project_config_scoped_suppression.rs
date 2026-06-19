@@ -242,6 +242,9 @@ fn validate_required_string(
 }
 
 fn valid_suppression_rule_id(rule: &str) -> bool {
+    if matches!(rule.as_bytes(), [b'L', b'1'..=b'7']) {
+        return true;
+    }
     let Some((prefix, suffix)) = rule.split_once('-') else {
         return false;
     };
@@ -406,7 +409,9 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScopedSuppression, scoped_suppression_matches_output_at};
+    use super::{
+        ScopedSuppression, scoped_suppression_matches_output_at, valid_suppression_rule_id,
+    };
     use serde_json::json;
 
     fn suppression() -> ScopedSuppression {
@@ -436,6 +441,15 @@ mod tests {
             None,
             "2026-06-19",
         ));
+    }
+
+    #[test]
+    fn valid_rule_id_accepts_layer_tokens() {
+        assert!(valid_suppression_rule_id("L1"));
+        assert!(valid_suppression_rule_id("L7"));
+        assert!(!valid_suppression_rule_id("L0"));
+        assert!(!valid_suppression_rule_id("L8"));
+        assert!(!valid_suppression_rule_id("L1-extra"));
     }
 
     #[test]

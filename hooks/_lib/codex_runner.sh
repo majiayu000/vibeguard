@@ -66,10 +66,21 @@ codex_run_hook() {
   fi
 
   local first_adapted_output=""
-  local normalized_input hook_output hook_exit hook_err_file hook_err event_name
+  local normalized_input normalized_payload_file hook_output hook_exit hook_err_file hook_err event_name
   local adapted_status adapted_output finalized_output
   while IFS= read -r normalized_input || [[ -n "${normalized_input:-}" ]]; do
     [[ -n "${normalized_input}" ]] || continue
+
+    normalized_payload_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-payload.XXXXXX")" || {
+      rm -f "${normalized_file}" 2>/dev/null || true
+      codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD hook failed: could not allocate normalized payload file."
+      return 0
+    }
+    if ! printf '%s' "${normalized_input}" >"${normalized_payload_file}"; then
+      rm -f "${normalized_file}" "${normalized_payload_file}" 2>/dev/null || true
+      codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD hook failed: could not write normalized payload file."
+      return 0
+    fi
 
     hook_err_file="$(mktemp "${TMPDIR:-/tmp}/vibeguard-codex-hook.XXXXXX")"
     local hook_matcher hook_detail hook_timeout_ms hook_status_info hook_status_started
@@ -123,25 +134,27 @@ codex_run_hook() {
       local timeout_reason="wrapped hook timeout after ${hook_timeout_seconds:-?}s"
       codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "timeout" "${timeout_reason}" "${hook_detail}" "${hook_timeout_ms}"
       codex_diag "${hook_name}" "${event_name}" "wrapped-hook-timeout" "${timeout_reason}"
-      rm -f "${normalized_file}" 2>/dev/null || true
+      rm -f "${normalized_file}" "${normalized_payload_file}" 2>/dev/null || true
       codex_visible_failure_raw "${event_name}" "VIBEGUARD hook timed out after ${hook_timeout_seconds:-?}s."
       return 0
     fi
 
     if [[ ${hook_exit} -ne 0 ]]; then
       codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${hook_err:-${hook_output}}"
-      rm -f "${normalized_file}" 2>/dev/null || true
+      rm -f "${normalized_file}" "${normalized_payload_file}" 2>/dev/null || true
       codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped hook exited nonzero."
       return 0
     fi
 
     if [[ -z "${hook_output}" ]]; then
       codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "pass" "" "${hook_detail}" "${hook_timeout_ms}"
+      rm -f "${normalized_payload_file}" 2>/dev/null || true
       continue
     fi
     if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" || "${VG_POLICY_OUTPUT_FILTER:-0}" == "1" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
-      hook_output="$(vg_policy_downgrade_output "${hook_output}" "${hook_name}")"
+      hook_output="$(vg_policy_downgrade_output "${hook_output}" "${hook_name}" "${normalized_payload_file}")"
     fi
+    rm -f "${normalized_payload_file}" 2>/dev/null || true
     adapted_status=0
     adapted_output=""
     finalized_output=0

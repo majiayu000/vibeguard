@@ -193,6 +193,47 @@ patch_update_out="$(
 assert_contains "${patch_update_out}" '"permissionDecision": "deny"' "apply_patch Update File can be blocked through the Edit alias"
 assert_contains "${patch_update_out}" 'normalized:Edit:src/existing.rs:delta=1' "apply_patch Update File carries line delta to Edit hook"
 
+printf '%s\n' '{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}' > "${TMP_FAKE_REPO_PATCH}/.vibeguard.json"
+cat > "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-post-edit-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+python3 - <<'PY'
+import json
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": "VIBEGUARD quality warning: [RS-03] unwrap in docs example",
+    }
+}))
+PY
+HOOK
+chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-post-edit-guard.sh"
+
+scoped_patch_input="$(python3 - <<'PY'
+import json
+patch = """*** Begin Patch
+*** Update File: docs/examples/basic.rs
+@@
+ fn main() {}
++let _ = value.unwrap();
+*** End Patch"""
+print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_input":{"command":patch}}))
+PY
+)"
+scoped_patch_out="$(
+  printf '%s' "${scoped_patch_input}" \
+    | HOME="${TMP_HOME_PATCH}" VIBEGUARD_POLICY_CWD="${TMP_FAKE_REPO_PATCH}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-post-edit-guard.sh
+)"
+TOTAL=$((TOTAL + 1))
+if [[ -z "${scoped_patch_out}" ]]; then
+  green "apply_patch scoped suppression hides normalized-payload advisory"
+  PASS=$((PASS + 1))
+else
+  red "apply_patch scoped suppression hides normalized-payload advisory"
+  FAIL=$((FAIL + 1))
+fi
+assert_not_contains "${scoped_patch_out}" 'additionalContext' "apply_patch scoped suppression clears native advisory context"
+
 run_wrapper() {
   local app_repo="$1"
   local child_script="$2"
