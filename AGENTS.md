@@ -37,7 +37,7 @@ Follow `workflows/references/routing-contract.md` for non-trivial work.
 | Ambiguous behavior, missing done-when, or conflicting specs | `clarify_first` |
 | Generated surface or high-context file rewrite | `plan_first` |
 
-Handoffs must carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` when those fields are relevant.
+`plan_first` handoffs must always carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`; use `None` or a minimal value when a field does not otherwise apply.
 
 ## Repository Map
 
