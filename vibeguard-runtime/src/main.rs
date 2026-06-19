@@ -258,7 +258,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "runtime-policy-downgrade-output",
-        usage: "  — downgrade stdin hook JSON to warn-mode advisory output",
+        usage: "[--warn-mode] [--cwd <path>] [<hook-name>]  — downgrade stdin hook JSON for warn-mode or scoped suppressions",
         handler: runtime_policy::runtime_policy_downgrade_output,
     },
     Command {

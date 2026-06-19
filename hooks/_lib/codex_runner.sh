@@ -139,8 +139,8 @@ codex_run_hook() {
       codex_hook_status "${hook_name}" "${event_name}" "${hook_matcher}" "pass" "" "${hook_detail}" "${hook_timeout_ms}"
       continue
     fi
-    if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
-      hook_output="$(vg_policy_downgrade_output "${hook_output}")"
+    if [[ "${VIBEGUARD_POLICY_ENFORCEMENT:-}" == "warn" || "${VG_POLICY_OUTPUT_FILTER:-0}" == "1" ]] && declare -F vg_policy_downgrade_output >/dev/null 2>&1; then
+      hook_output="$(vg_policy_downgrade_output "${hook_output}" "${hook_name}")"
     fi
     adapted_status=0
     adapted_output=""

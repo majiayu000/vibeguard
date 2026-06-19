@@ -116,7 +116,7 @@ fi
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 
-if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
+if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" || "${VG_POLICY_OUTPUT_FILTER:-0}" == "1" ]]; then
   hook_output=""
   hook_status=0
   # Separate stderr from stdout: only stdout feeds the JSON downgrade path.
@@ -132,7 +132,7 @@ if [[ "${VIBEGUARD_POLICY_ENFORCEMENT}" == "warn" ]]; then
   fi
   rm -f "${hook_err_file}" 2>/dev/null || true
   if [[ -n "${hook_output}" ]]; then
-    vg_policy_downgrade_output "${hook_output}"
+    vg_policy_downgrade_output "${hook_output}" "${HOOK_NAME}"
   fi
   exit "${hook_status}"
 fi

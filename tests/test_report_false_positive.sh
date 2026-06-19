@@ -43,6 +43,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 EVENT_LOG="${TMP_DIR}/events.jsonl"
 cat > "$EVENT_LOG" <<'JSONL'
 {"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-POLICY-RS03-DOC-EXAMPLE","code":"VG-POLICY-RS03-DOC-EXAMPLE","rule_id":"RS-03","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"docs/example.rs","reason":"documentation sample includes unwrap token=ghp_secretvalue"}
+{"schema_version":1,"ts":"2026-06-19T00:00:01Z","session":"s1","event_id":"evt-quoted-secret","code":"VG-POLICY-QUOTED-SECRET","rule_id":"SEC-02","hook":"pre-bash-guard","tool":"Bash","decision":"block","status":"block","path":"scripts/deploy.sh","reason":"payload includes {\"password\":\"hunter2\"} and api_key: \"abc123\""}
 JSONL
 
 markdown_out="$(python3 "$SCRIPT" VG-POLICY-RS03-DOC-EXAMPLE --event-log "$EVENT_LOG")"
@@ -53,11 +54,33 @@ assert_contains "$markdown_out" "path: \`docs/example.rs\`" "markdown includes p
 assert_contains "$markdown_out" "token=<redacted>" "markdown redacts token assignment"
 assert_not_contains "$markdown_out" "ghp_secretvalue" "markdown does not leak token value"
 
+quoted_secret_out="$(python3 "$SCRIPT" evt-quoted-secret --event-log "$EVENT_LOG")"
+assert_contains "$quoted_secret_out" "code: \`VG-POLICY-QUOTED-SECRET\`" "markdown reads code from code field before event_id"
+assert_contains "$quoted_secret_out" "password=<redacted>" "markdown redacts quoted JSON password"
+assert_contains "$quoted_secret_out" "api_key=<redacted>" "markdown redacts quoted YAML-style api key"
+assert_not_contains "$quoted_secret_out" "hunter2" "markdown does not leak quoted JSON password"
+assert_not_contains "$quoted_secret_out" "abc123" "markdown does not leak quoted YAML-style api key"
+
 json_out="$(python3 "$SCRIPT" RS-03 --hook post-edit-guard --rule RS-03 --path docs/example.rs --code VG-POLICY-RS03-DOC-EXAMPLE --decision warn --status warn --remediation-context "API_KEY=sk-secret123 in copied output" --format json)"
 assert_contains "$json_out" '"rule_id": "RS-03"' "json includes rule id"
 assert_contains "$json_out" '"path": "docs/example.rs"' "json includes path"
 assert_contains "$json_out" 'API_KEY=<redacted>' "json redacts api key"
 assert_not_contains "$json_out" "sk-secret123" "json does not leak secret value"
+
+set +e
+missing_event_out="$(python3 "$SCRIPT" VG-MISSING-EVENT --event-log "$EVENT_LOG" 2>&1)"
+missing_event_status=$?
+set -e
+if [[ "${missing_event_status}" -ne 0 ]]; then
+  green "missing event exits nonzero"
+  PASS=$((PASS + 1))
+else
+  red "missing event exits nonzero"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+assert_contains "$missing_event_out" "event id not found in event log: VG-MISSING-EVENT" "missing event reports absent id"
+assert_not_contains "$missing_event_out" '"hook": "unknown"' "missing event does not emit unknown report"
 
 printf '\n'
 if [[ "$FAIL" -eq 0 ]]; then

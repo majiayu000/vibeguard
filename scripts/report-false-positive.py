@@ -12,7 +12,7 @@ from typing import Any
 
 
 SECRET_PATTERNS = [
-    re.compile(r"(?i)\b(token|secret|password|api[_-]?key)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"(?i)\b(token|secret|password|api[_-]?key)[\"']?\s*[:=]\s*[\"']?[^\"'\s,;}]+[\"']?"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{8,}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}\b"),
@@ -73,6 +73,8 @@ def value_from(args_value: str | None, event: dict[str, Any] | None, *fields: st
 
 def build_payload(args: argparse.Namespace) -> dict[str, str]:
     event = load_event(Path(args.event_log), args.event_id) if args.event_log else None
+    if args.event_log and event is None:
+        raise SystemExit(f"event id not found in event log: {args.event_id}")
     context = value_from(
         args.remediation_context,
         event,
@@ -81,7 +83,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, str]:
     )
     return {
         "event_id": args.event_id,
-        "code": value_from(args.code, event, "event_id", "code"),
+        "code": value_from(args.code, event, "code", "event_id"),
         "hook": value_from(args.hook, event, "hook"),
         "rule_id": value_from(args.rule, event, "rule_id"),
         "path": value_from(args.path, event, "path", "detail"),

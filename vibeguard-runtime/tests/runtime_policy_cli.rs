@@ -154,6 +154,28 @@ fn runtime_policy_check_reports_warn_enforcement() {
 }
 
 #[test]
+fn runtime_policy_check_reports_scoped_output_filter() {
+    let repo = unique_temp_dir("scoped_output_filter");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","code":"VG-POLICY-RS03-DOC-EXAMPLE","action":"suppress","reason":"Known documentation example false positive"}]}"#,
+    );
+
+    let matching_output = run_runtime_policy(&repo, "post-edit-guard.sh");
+    let nonmatching_output = run_runtime_policy(&repo, "pre-bash-guard.sh");
+
+    assert_eq!(matching_output.status.code(), Some(0));
+    assert_eq!(nonmatching_output.status.code(), Some(0));
+    let matching = policy_json(&matching_output);
+    let nonmatching = policy_json(&nonmatching_output);
+    assert_eq!(matching["decision"], "run");
+    assert_eq!(matching["output_filter"], true);
+    assert_eq!(nonmatching["decision"], "run");
+    assert_eq!(nonmatching["output_filter"], false);
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
 fn runtime_policy_check_validates_user_runtime_config_before_policy() {
     let repo = unique_temp_dir("bad_user_config");
     write_policy(&repo, r#"{}"#);
@@ -332,6 +354,91 @@ fn runtime_policy_downgrade_output_preserves_non_json_text() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "not json\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn runtime_policy_downgrade_output_suppresses_matching_scoped_suppression() {
+    let repo = unique_temp_dir("scoped_suppress");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","code":"VG-POLICY-RS03-DOC-EXAMPLE","action":"suppress","reason":"Known documentation example false positive"}]}"#,
+    );
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--cwd",
+            repo.to_str().expect("repo path should be utf8"),
+            "post-edit-guard.sh",
+        ],
+        r#"{"decision":"block","rule_id":"RS-03","path":"docs/examples/basic.rs","code":"VG-POLICY-RS03-DOC-EXAMPLE","reason":"unwrap blocked"}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(value["decision"], "pass");
+    assert_eq!(
+        value["reason"],
+        "VIBEGUARD scoped suppression: Known documentation example false positive"
+    );
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_downgrade_output_downgrades_matching_scoped_suppression() {
+    let repo = unique_temp_dir("scoped_downgrade");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"downgrade_to_warn","reason":"Known documentation example false positive"}]}"#,
+    );
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--cwd",
+            repo.to_str().expect("repo path should be utf8"),
+            "post-edit-guard.sh",
+        ],
+        r#"{"decision":"block","rule_id":"RS-03","path":"docs/examples/basic.rs","reason":"unwrap blocked"}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("downgraded output should be JSON");
+    assert_eq!(value["decision"], "warn");
+    assert_eq!(
+        value["reason"],
+        "VIBEGUARD scoped suppression: Known documentation example false positive: unwrap blocked"
+    );
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_downgrade_output_keeps_nonmatching_scoped_suppression_blocking() {
+    let repo = unique_temp_dir("scoped_nonmatching");
+    write_policy(
+        &repo,
+        r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}"#,
+    );
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--cwd",
+            repo.to_str().expect("repo path should be utf8"),
+            "post-edit-guard.sh",
+        ],
+        r#"{"decision":"block","rule_id":"RS-03","path":"src/main.rs","reason":"unwrap blocked"}"#,
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("output should remain JSON");
+    assert_eq!(value["decision"], "block");
+    assert_eq!(value["reason"], "unwrap blocked");
+    let _ = fs::remove_dir_all(repo);
 }
 
 #[test]

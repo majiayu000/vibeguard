@@ -42,6 +42,31 @@ pub(crate) fn scoped_suppressions_from_object(
         .unwrap_or_default()
 }
 
+pub(crate) fn scoped_suppression_matches_output(
+    suppression: &ScopedSuppression,
+    hook_name: &str,
+    output: &Value,
+) -> bool {
+    if suppression.hook != canonical_hook_name(hook_name) {
+        return false;
+    }
+    if output_string_field(output, &["rule_id", "rule"]).as_deref()
+        != Some(suppression.rule_id.as_str())
+    {
+        return false;
+    }
+    let Some(path) = output_string_field(output, &["path", "file_path", "file"]) else {
+        return false;
+    };
+    if !path_matches(&suppression.path, &path) {
+        return false;
+    }
+    if let Some(code) = suppression.code.as_deref() {
+        return output_string_field(output, &["code", "event_id"]).as_deref() == Some(code);
+    }
+    true
+}
+
 pub(crate) fn validate_scoped_suppressions(
     object: &serde_json::Map<String, Value>,
     disabled_hook_values: &[String],
@@ -210,4 +235,61 @@ fn valid_yyyy_mm_dd(text: &str) -> bool {
             .iter()
             .enumerate()
             .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+}
+
+fn canonical_hook_name(hook_name: &str) -> String {
+    let file = std::path::Path::new(hook_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(hook_name);
+    file.strip_suffix(".sh")
+        .unwrap_or(file)
+        .strip_prefix("vibeguard-")
+        .unwrap_or_else(|| file.strip_suffix(".sh").unwrap_or(file))
+        .replace('_', "-")
+}
+
+fn output_string_field(output: &Value, fields: &[&str]) -> Option<String> {
+    fields.iter().find_map(|field| {
+        output
+            .get(*field)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn path_matches(pattern: &str, path: &str) -> bool {
+    pattern == path || wildcard_match(pattern, path)
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let text = text.as_bytes();
+    let mut pattern_index = 0;
+    let mut text_index = 0;
+    let mut star_index: Option<usize> = None;
+    let mut star_text_index = 0;
+
+    while text_index < text.len() {
+        if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            star_text_index = text_index;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == text[text_index] {
+            pattern_index += 1;
+            text_index += 1;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            star_text_index += 1;
+            text_index = star_text_index;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
 }
