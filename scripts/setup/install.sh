@@ -15,6 +15,7 @@ set -euo pipefail
 # bash setup.sh --yes # Apply high-context diffs non-interactively
 # bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
 # bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
+# bash setup.sh --require-provenance # Require GitHub artifact attestation verification for release binaries
 # bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
 # bash setup.sh --dev-linked # Opt in to live-repo execution for local development
@@ -43,6 +44,7 @@ VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
+REQUIRE_PROVENANCE="${VIBEGUARD_SETUP_REQUIRE_PROVENANCE:-0}"
 DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
@@ -72,6 +74,8 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_VERSION_OVERRIDE="$2"; RUNTIME_VERSION_OVERRIDE_SET=1; shift 2 ;;
     --runtime-version=*)
       RUNTIME_VERSION_OVERRIDE="${1#*=}"; RUNTIME_VERSION_OVERRIDE_SET=1; shift ;;
+    --require-provenance)
+      REQUIRE_PROVENANCE=1; shift ;;
     --with-scheduler)
       WITH_SCHEDULER=1; shift ;;
     --force-overwrite)
@@ -90,11 +94,12 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
       exit 1 ;;
   esac
 done
 export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+export VIBEGUARD_SETUP_REQUIRE_PROVENANCE="${REQUIRE_PROVENANCE}"
 export VIBEGUARD_SETUP_DEV_LINKED="${DEV_LINKED}"
 
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE}" ]]; then
@@ -103,6 +108,14 @@ if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE
 fi
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
   export VIBEGUARD_SETUP_RUNTIME_VERSION="${RUNTIME_VERSION_OVERRIDE}"
+fi
+case "${REQUIRE_PROVENANCE}" in
+  0|1) ;;
+  *) red "ERROR: VIBEGUARD_SETUP_REQUIRE_PROVENANCE must be 0 or 1"; exit 1 ;;
+esac
+if [[ "${REQUIRE_PROVENANCE}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
+  red "ERROR: --require-provenance cannot be combined with --build-from-source; release provenance is only available for downloaded release binaries."
+  exit 1
 fi
 
 case "${PROFILE}" in
@@ -260,6 +273,12 @@ download_prebuilt_runtime() {
       provenance_note="provenance=verified-provenance"
       ;;
     2)
+      if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+        red "  ERROR: vibeguard-runtime provenance verification is required but unavailable for ${asset}."
+        red "  ${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable}"
+        rm -rf "${download_dir}"
+        return 10
+      fi
       provenance_status="checksum-only"
       provenance_note="provenance=checksum-only (${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable})"
       yellow "  Runtime provenance is checksum-only: ${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable}."
@@ -381,10 +400,18 @@ prepare_runtime_binary() {
   fi
 
   if ! target="$(runtime_release_target)"; then
+    if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+      red "  ERROR: --require-provenance requires a supported release target; unsupported platform $(uname -s)/$(uname -m)."
+      exit 2
+    fi
     prepare_runtime_from_source "unsupported platform $(uname -s)/$(uname -m)"
     return
   fi
   if ! tag="$(runtime_release_tag)"; then
+    if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+      red "  ERROR: --require-provenance requires a resolvable runtime release tag."
+      exit 2
+    fi
     prepare_runtime_from_source "runtime VERSION could not be resolved"
     return
   fi
@@ -399,6 +426,10 @@ prepare_runtime_binary() {
     if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
       exit 2
     fi
+    if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+      red "  ERROR: --require-provenance requires a downloaded runtime that matches the repo runtime VERSION."
+      exit 2
+    fi
     rm -f "${_INSTALL_TMP}/bin/vibeguard-runtime"
     prepare_runtime_from_source "downloaded runtime does not match repo runtime VERSION"
     return
@@ -407,6 +438,10 @@ prepare_runtime_binary() {
     exit 2
   fi
   fallback_reason="${RUNTIME_PREBUILT_REASON:-download failed}"
+  if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+    red "  ERROR: --require-provenance requires a downloaded runtime with verified provenance (${fallback_reason})."
+    exit 2
+  fi
   prepare_runtime_from_source "${fallback_reason}"
 }
 
@@ -487,6 +522,9 @@ if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
 fi
 if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then
   echo "Mode: build-from-source (vibeguard-runtime will be built with cargo)"
+fi
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  echo "Mode: require-provenance (release attestation must verify)"
 fi
 if [[ -n "${RUNTIME_VERSION_OVERRIDE}" ]]; then
   echo "Runtime version override: ${RUNTIME_VERSION_OVERRIDE}"

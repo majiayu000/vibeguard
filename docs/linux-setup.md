@@ -6,7 +6,8 @@ VibeGuard supports Linux via **systemd user units** as the scheduled task mechan
 
 - `gh` or `curl` for the default prebuilt `vibeguard-runtime` download.
   Authenticated `gh` also enables artifact attestation verification; without it,
-  setup reports `checksum-only` after SHA-256 verification.
+  setup reports `checksum-only` after SHA-256 verification. Use
+  `--require-provenance` when checksum-only installs should fail closed.
 - Python 3 is not required for default production install/check/clean on
   supported release targets. It remains used by evals, docs generation,
   developer tools, and optional Python-backed guard tools.
@@ -30,6 +31,18 @@ Rust/Cargo is not required. To force a local build:
 ```bash
 bash setup.sh --yes --build-from-source
 ```
+
+For stricter supply-chain environments, require GitHub artifact attestation
+verification in addition to the checksum:
+
+```bash
+bash setup.sh --yes --require-provenance
+```
+
+This mode fails instead of falling back to `checksum-only` when `gh`,
+`gh attestation verify`, or GitHub authentication is unavailable. It also rejects
+`--build-from-source`, because release provenance only exists for published
+release assets.
 
 Scheduled GC is opt-in. To install and enable the systemd timer:
 

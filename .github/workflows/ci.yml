@@ -13,6 +13,9 @@ defaults:
   run:
     shell: bash
 
+env:
+  CARGO_DENY_VERSION: "0.19.9"
+
 jobs:
   validate-and-test:
     name: CI (${{ matrix.os }})
@@ -47,6 +50,16 @@ jobs:
         uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.11"
+
+      - name: Install cargo-deny
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
+
+      - name: Validate Rust dependency policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources
 
       - name: Install bash 4+ (macOS)
         if: runner.os == 'macOS'
