@@ -48,9 +48,17 @@ pub(crate) fn scoped_suppression_matches_output(
     hook_name: &str,
     output: &Value,
     payload: Option<&Value>,
+    project_root: Option<&str>,
 ) -> bool {
     let today = format_unix_secs_utc(now_unix_secs());
-    scoped_suppression_matches_output_at(suppression, hook_name, output, payload, &today[..10])
+    scoped_suppression_matches_output_at(
+        suppression,
+        hook_name,
+        output,
+        payload,
+        project_root,
+        &today[..10],
+    )
 }
 
 fn scoped_suppression_matches_output_at(
@@ -58,6 +66,7 @@ fn scoped_suppression_matches_output_at(
     hook_name: &str,
     output: &Value,
     payload: Option<&Value>,
+    project_root: Option<&str>,
     today: &str,
 ) -> bool {
     if suppression.hook != canonical_hook_name(hook_name) {
@@ -95,10 +104,10 @@ fn scoped_suppression_matches_output_at(
     });
     let path_matches = direct_path
         .as_deref()
-        .is_some_and(|path| path_matches(&suppression.path, path))
+        .is_some_and(|path| path_matches(&suppression.path, path, project_root))
         || context
             .iter()
-            .any(|text| text_contains_matching_path(text, &suppression.path));
+            .any(|text| text_contains_matching_path(text, &suppression.path, project_root));
     if !path_matches {
         return false;
     };
@@ -351,7 +360,7 @@ fn text_contains_token(text: &str, token: &str) -> bool {
         .any(|part| part == token)
 }
 
-fn text_contains_matching_path(text: &str, pattern: &str) -> bool {
+fn text_contains_matching_path(text: &str, pattern: &str, project_root: Option<&str>) -> bool {
     text.split_whitespace()
         .map(|part| {
             part.trim_matches(|ch: char| {
@@ -362,21 +371,58 @@ fn text_contains_matching_path(text: &str, pattern: &str) -> bool {
             })
         })
         .filter(|part| part.contains('/') || part.contains('.'))
-        .any(|part| path_matches(pattern, part))
+        .any(|part| path_matches(pattern, part, project_root))
 }
 
-fn path_matches(pattern: &str, path: &str) -> bool {
-    let normalized_pattern = pattern.replace('\\', "/");
-    let normalized_path = path.replace('\\', "/");
+fn path_matches(pattern: &str, path: &str, project_root: Option<&str>) -> bool {
+    let normalized_pattern = normalize_relative_path(pattern);
+    let normalized_path = normalize_candidate_path(path, project_root);
     if normalized_pattern == normalized_path
         || wildcard_match(&normalized_pattern, &normalized_path)
     {
         return true;
     }
-    normalized_path
-        .match_indices('/')
-        .map(|(index, _)| &normalized_path[index + 1..])
-        .any(|suffix| normalized_pattern == suffix || wildcard_match(&normalized_pattern, suffix))
+    false
+}
+
+fn normalize_relative_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    normalized
+        .strip_prefix("./")
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
+fn normalize_candidate_path(path: &str, project_root: Option<&str>) -> String {
+    let normalized = normalize_relative_path(path);
+    if !is_absolute_path(&normalized) {
+        return normalized;
+    }
+    let Some(root) = project_root else {
+        return normalized;
+    };
+    let root = normalize_relative_path(root)
+        .trim_end_matches('/')
+        .to_string();
+    if root.is_empty() {
+        return normalized;
+    }
+    if normalized == root {
+        return String::new();
+    }
+    normalized
+        .strip_prefix(&format!("{root}/"))
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
+fn is_absolute_path(path: &str) -> bool {
+    path.starts_with('/')
+        || path.starts_with("//")
+        || path
+            .as_bytes()
+            .get(1..3)
+            .is_some_and(|bytes| bytes[0] == b':' && bytes[1] == b'/')
 }
 
 fn wildcard_match(pattern: &str, text: &str) -> bool {
@@ -444,6 +490,7 @@ mod tests {
             "post-edit-guard.sh",
             &output,
             None,
+            None,
             "2026-06-19",
         ));
     }
@@ -477,6 +524,7 @@ mod tests {
             "vibeguard-post-edit-guard.sh",
             &output,
             Some(&payload),
+            Some("/repo"),
             "2026-06-19",
         ));
     }
@@ -496,6 +544,7 @@ mod tests {
             "post-edit-guard.sh",
             &output,
             Some(&payload),
+            Some("/repo"),
             "2026-06-19",
         ));
     }
@@ -515,6 +564,7 @@ mod tests {
             "post-edit-guard.sh",
             &output,
             None,
+            None,
             "2026-06-19",
         ));
 
@@ -523,6 +573,7 @@ mod tests {
             &scoped,
             "post-edit-guard.sh",
             &output,
+            None,
             None,
             "2026-06-19",
         ));
@@ -536,6 +587,7 @@ mod tests {
             &scoped,
             "post-edit-guard.sh",
             &output_without_code,
+            None,
             None,
             "2026-06-19",
         ));
@@ -555,6 +607,7 @@ mod tests {
             "post-edit-guard.sh",
             &output,
             None,
+            None,
             "2026-06-19",
         ));
 
@@ -564,14 +617,34 @@ mod tests {
             "post-edit-guard.sh",
             &output,
             None,
+            None,
             "2026-06-19",
         ));
     }
 
     #[test]
     fn single_star_path_patterns_do_not_cross_segments() {
-        assert!(path_matches("docs/*.rs", "docs/basic.rs"));
-        assert!(!path_matches("docs/*.rs", "docs/examples/basic.rs"));
-        assert!(path_matches("docs/**/*.rs", "docs/examples/basic.rs"));
+        assert!(path_matches("docs/*.rs", "docs/basic.rs", None));
+        assert!(!path_matches("docs/*.rs", "docs/examples/basic.rs", None));
+        assert!(path_matches("docs/**/*.rs", "docs/examples/basic.rs", None));
+    }
+
+    #[test]
+    fn absolute_paths_match_only_inside_project_root() {
+        assert!(path_matches(
+            "docs/examples/**",
+            "/repo/docs/examples/basic.rs",
+            Some("/repo"),
+        ));
+        assert!(!path_matches(
+            "docs/examples/**",
+            "/repo/third_party/docs/examples/basic.rs",
+            Some("/repo"),
+        ));
+        assert!(!path_matches(
+            "docs/examples/**",
+            "/other/docs/examples/basic.rs",
+            Some("/repo"),
+        ));
     }
 }

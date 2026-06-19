@@ -220,6 +220,21 @@ PY
 bad_project_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema "${BAD_PROJECT_SCHEMA}" 2>&1 || true)"
 assert_contains "${bad_project_schema_out}" "project schema disabled_hooks enum drift" "manifest validation detects disabled_hooks schema drift"
 assert_not_contains "${bad_project_schema_out}" "Traceback" "disabled_hooks schema drift reports without traceback"
+project_schema_rule_out="$(
+  python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+schema = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+pattern = schema["properties"]["scoped_suppressions"]["items"]["properties"]["rule_id"]["pattern"]
+assert re.fullmatch(pattern, "L1")
+assert not re.fullmatch(pattern, "L8")
+print("ok")
+PY
+)"
+assert_contains "${project_schema_rule_out}" "ok" "project schema accepts L1 scoped suppression rule ids"
 
 BAD_LANGUAGE_SCHEMA="${TMP_DIR}/bad-language-vibeguard-project.schema.json"
 python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${BAD_LANGUAGE_SCHEMA}" <<'PY'

@@ -224,7 +224,7 @@ fn matching_scoped_suppression(
     let config_path = project_config_path(cwd, &HashMap::new())?;
     let config = load_project_config(&config_path).ok()?;
     config.scoped_suppressions.into_iter().find(|suppression| {
-        scoped_suppression_matches_output(suppression, hook_name, output, payload)
+        scoped_suppression_matches_output(suppression, hook_name, output, payload, cwd)
     })
 }
 

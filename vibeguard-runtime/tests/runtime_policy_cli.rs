@@ -394,9 +394,16 @@ fn runtime_policy_downgrade_output_suppresses_real_posttool_payload_shape() {
         r#"{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}"#,
     );
     let payload = repo.join("payload.json");
+    let file_path = repo.join("docs/examples/basic.rs");
     fs::write(
         &payload,
-        r#"{"hook_event_name":"PostToolUse","tool_input":{"file_path":"/repo/docs/examples/basic.rs"}}"#,
+        serde_json::json!({
+            "hook_event_name": "PostToolUse",
+            "tool_input": {
+                "file_path": file_path.to_string_lossy(),
+            }
+        })
+        .to_string(),
     )
     .expect("payload should be written");
 
