@@ -68,6 +68,33 @@ fn project_config_value_reads_valid_values_and_defaults_missing_values() {
 }
 
 #[test]
+fn project_config_validate_accepts_schema_backed_values() {
+    let dir = unique_temp_dir("project_config_schema_values");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join(".vibeguard.json");
+    fs::write(
+        &config,
+        r#"{
+          "languages": ["javascript"],
+          "disabled_guards": ["check_dependency_changes"],
+          "gc": {
+            "catchup_interval_hours": 24
+          }
+        }"#,
+    )
+    .expect("project config should be written");
+
+    let output = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+
+    assert_eq!(output.status.code(), Some(0));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn project_config_value_fails_visibly_before_reading_invalid_config() {
     let dir = unique_temp_dir("project_config_invalid_value");
     fs::create_dir_all(&dir).expect("temp dir should be created");

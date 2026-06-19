@@ -11,6 +11,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 from hooks_manifest import disableable_hook_names, load_manifest as load_hooks_manifest
+from project_schema_contract import (
+    gc_config_keys,
+    manifest_languages,
+    project_schema_contract_errors,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -356,27 +361,19 @@ def _validate_project_schema(
     project_schema: dict[str, Any],
     hooks_manifest: dict[str, Any],
 ) -> list[str]:
-    errors: list[str] = []
-    manifest_profiles = sorted(profile_names(manifest))
-    properties = project_schema.get("properties", {})
-    project_profile = properties.get("profile", {}).get("enum", [])
-    if sorted(project_profile) != manifest_profiles:
-        errors.append(
-            "project schema profile enum drift: "
-            f"manifest={manifest_profiles} schema={project_profile}"
-        )
-    disabled_hook_enum = (
-        properties.get("disabled_hooks", {})
-        .get("items", {})
-        .get("enum", [])
+    try:
+        expected_languages = manifest_languages(manifest)
+    except ValueError as exc:
+        return [str(exc)]
+
+    return project_schema_contract_errors(
+        project_schema,
+        manifest_profiles=sorted(profile_names(manifest)),
+        manifest_languages=expected_languages,
+        disabled_hooks=disableable_hook_names(hooks_manifest),
+        disabled_guards=guard_names(),
+        gc_keys=gc_config_keys(ROOT),
     )
-    expected_disabled_hooks = disableable_hook_names(hooks_manifest)
-    if sorted(disabled_hook_enum) != expected_disabled_hooks:
-        errors.append(
-            "project schema disabled_hooks enum drift: "
-            f"manifest={expected_disabled_hooks} schema={disabled_hook_enum}"
-        )
-    return errors
 
 
 def _hook_modules(manifest: dict[str, Any]) -> tuple[dict[str, set[str]], list[str]]:

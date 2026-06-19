@@ -203,6 +203,56 @@ bad_project_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema
 assert_contains "${bad_project_schema_out}" "project schema disabled_hooks enum drift" "manifest validation detects disabled_hooks schema drift"
 assert_not_contains "${bad_project_schema_out}" "Traceback" "disabled_hooks schema drift reports without traceback"
 
+BAD_LANGUAGE_SCHEMA="${TMP_DIR}/bad-language-vibeguard-project.schema.json"
+python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${BAD_LANGUAGE_SCHEMA}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+enum = data["properties"]["languages"]["items"]["enum"]
+enum.remove("javascript")
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_language_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema "${BAD_LANGUAGE_SCHEMA}" 2>&1 || true)"
+assert_contains "${bad_language_schema_out}" "project schema languages enum drift" "manifest validation detects language schema drift"
+assert_not_contains "${bad_language_schema_out}" "Traceback" "language schema drift reports without traceback"
+
+BAD_GUARD_SCHEMA="${TMP_DIR}/bad-guard-vibeguard-project.schema.json"
+python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${BAD_GUARD_SCHEMA}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+enum = data["properties"]["disabled_guards"]["items"]["enum"]
+enum.remove("check_runtime_drift")
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_guard_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema "${BAD_GUARD_SCHEMA}" 2>&1 || true)"
+assert_contains "${bad_guard_schema_out}" "project schema disabled_guards enum drift" "manifest validation detects disabled_guards schema drift"
+assert_not_contains "${bad_guard_schema_out}" "Traceback" "disabled_guards schema drift reports without traceback"
+
+BAD_GC_SCHEMA="${TMP_DIR}/bad-gc-vibeguard-project.schema.json"
+python3 - "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${BAD_GC_SCHEMA}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+data["properties"]["gc"]["properties"].pop("catchup_interval_hours")
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_gc_schema_out="$(python3 "${MANIFEST_HELPER}" validate --project-schema "${BAD_GC_SCHEMA}" 2>&1 || true)"
+assert_contains "${bad_gc_schema_out}" "project schema gc key drift" "manifest validation detects gc schema drift"
+assert_not_contains "${bad_gc_schema_out}" "Traceback" "gc schema drift reports without traceback"
+
 BAD_HOOKS_MANIFEST="${TMP_DIR}/bad-hooks-manifest.json"
 python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_HOOKS_MANIFEST}" <<'PY'
 import json

@@ -67,7 +67,9 @@
           "check_dead_shims",
           "check_declaration_execution_gap",
           "check_defer_in_loop",
+          "check_dependency_changes",
           "check_dependency_layers",
+          "check_doc_overload",
           "check_duplicate_constants",
           "check_duplicate_types",
           "check_duplicates",
@@ -75,10 +77,13 @@
           "check_goroutine_leak",
           "check_naming_convention",
           "check_nested_locks",
+          "check_runtime_drift",
+          "check_sec13_mcp_config_risks",
           "check_semantic_effect",
           "check_single_source_of_truth",
           "check_taste_invariants",
           "check_test_integrity",
+          "check_test_weakening",
           "check_unwrap_in_prod",
           "check_workspace_consistency"
         ]
@@ -126,6 +131,12 @@
           "minimum": 1,
           "default": 1024,
           "description": "Trim gc-cron.log when it exceeds this size in KB. Env override: VIBEGUARD_GC_LOG_MAX_KB."
+        },
+        "catchup_interval_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 168,
+          "description": "Maximum age in hours for scheduled GC catch-up runs. Env override: VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS."
         }
       }
     }
