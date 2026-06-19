@@ -248,7 +248,7 @@ fn parse_mode(value: &str) -> Result<Mode> {
 }
 
 fn read_main_events(options: &Options) -> Result<(Vec<Value>, String)> {
-    let read_limit = read_window_lines(options.limit);
+    let read_limit = read_window_lines_for_options(options);
     if let Some(path) = &options.log_file {
         return Ok((
             read_jsonl_file_limited(path, read_limit)?,
@@ -300,7 +300,7 @@ fn read_diag_events(options: &Options) -> Result<Vec<DiagSource>> {
 
     let log_path = display_path(&path);
     Ok(
-        read_jsonl_file_limited(&path, read_window_lines(options.limit))?
+        read_jsonl_file_limited(&path, read_window_lines_for_options(options))?
             .into_iter()
             .map(|event| DiagSource {
                 event,
@@ -314,6 +314,13 @@ fn read_window_lines(limit: usize) -> usize {
     limit
         .saturating_mul(READ_WINDOW_MULTIPLIER)
         .max(MIN_READ_WINDOW_LINES)
+}
+
+fn read_window_lines_for_options(options: &Options) -> usize {
+    if options.session.is_some() || options.event.is_some() {
+        return usize::MAX;
+    }
+    read_window_lines(options.limit)
 }
 
 fn read_jsonl_file(path: &Path) -> Result<Vec<Value>> {
