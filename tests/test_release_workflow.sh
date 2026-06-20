@@ -198,6 +198,13 @@ assert_cmd "runtime release manifest generator emits checked target metadata" ba
   script="$1"
   tmp="$(mktemp -d)"
   trap "rm -rf \"${tmp}\"" EXIT
+  sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$1" | awk "{print \$1}"
+    else
+      shasum -a 256 "$1" | awk "{print \$1}"
+    fi
+  }
   : > "${tmp}/SHA256SUMS"
   for target in \
     aarch64-apple-darwin \
@@ -207,11 +214,11 @@ assert_cmd "runtime release manifest generator emits checked target metadata" ba
   do
     asset="${tmp}/vibeguard-runtime-${target}"
     printf "runtime asset %s\n" "${target}" > "${asset}"
-    checksum="$(shasum -a 256 "${asset}" | awk "{print \$1}")"
+    checksum="$(sha256_file "${asset}")"
     printf "%s  %s\n" "${checksum}" "vibeguard-runtime-${target}" >> "${tmp}/SHA256SUMS"
   done
   printf "{}\n" > "${tmp}/vibeguard-runtime-dependency-metadata.json"
-  metadata_checksum="$(shasum -a 256 "${tmp}/vibeguard-runtime-dependency-metadata.json" | awk "{print \$1}")"
+  metadata_checksum="$(sha256_file "${tmp}/vibeguard-runtime-dependency-metadata.json")"
   printf "%s  vibeguard-runtime-dependency-metadata.json\n" "${metadata_checksum}" >> "${tmp}/SHA256SUMS"
   python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard"
   python3 - "${tmp}/vibeguard-runtime-releases.json" <<'"'"'PY'"'"'
@@ -244,9 +251,16 @@ assert_cmd "runtime release manifest generator rejects missing targets" bash -c 
   script="$1"
   tmp="$(mktemp -d)"
   trap "rm -rf \"${tmp}\"" EXIT
+  sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$1" | awk "{print \$1}"
+    else
+      shasum -a 256 "$1" | awk "{print \$1}"
+    fi
+  }
   asset="${tmp}/vibeguard-runtime-aarch64-apple-darwin"
   printf "runtime asset\n" > "${asset}"
-  checksum="$(shasum -a 256 "${asset}" | awk "{print \$1}")"
+  checksum="$(sha256_file "${asset}")"
   printf "%s  vibeguard-runtime-aarch64-apple-darwin\n" "${checksum}" > "${tmp}/SHA256SUMS"
   ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard"
 ' _ "${RELEASE_MANIFEST_SCRIPT}"
