@@ -196,8 +196,8 @@ download_prebuilt_runtime() {
   local target="$1" tag="$2" dest="$3"
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
-  local download_dir downloaded reason expected actual
-  local manifest_expected
+  local download_dir downloaded reason expected actual actual_size
+  local manifest_metadata manifest_expected manifest_size
   local provenance_rc provenance_status provenance_note
   local -a errors=()
 
@@ -273,7 +273,12 @@ download_prebuilt_runtime() {
     return 10
   fi
   if [[ -f "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" ]]; then
-    if ! manifest_expected="$(setup_runtime_release_manifest_sha256 \
+    if ! actual_size="$(setup_runtime_file_size "${download_dir}/${asset}")"; then
+      red "  ERROR: could not determine downloaded size for ${asset}."
+      rm -rf "${download_dir}"
+      return 10
+    fi
+    if ! manifest_metadata="$(setup_runtime_release_manifest_sha256 \
       "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" \
       "${tag}" \
       "${release_repo}" \
@@ -284,9 +289,16 @@ download_prebuilt_runtime() {
       rm -rf "${download_dir}"
       return 10
     fi
+    read -r manifest_expected manifest_size <<< "${manifest_metadata}"
     if [[ "${manifest_expected}" != "${expected}" ]]; then
       red "  ERROR: runtime release manifest checksum mismatch for ${asset}."
       red "  SHA256SUMS has ${expected}, ${SETUP_RUNTIME_RELEASE_MANIFEST} has ${manifest_expected}."
+      rm -rf "${download_dir}"
+      return 10
+    fi
+    if [[ "${manifest_size}" != "${actual_size}" ]]; then
+      red "  ERROR: runtime release manifest size mismatch for ${asset}."
+      red "  Downloaded ${actual_size} bytes, ${SETUP_RUNTIME_RELEASE_MANIFEST} has ${manifest_size}."
       rm -rf "${download_dir}"
       return 10
     fi

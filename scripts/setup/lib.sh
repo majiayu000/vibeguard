@@ -151,6 +151,13 @@ setup_runtime_sha256_file() {
   fi
 }
 
+setup_runtime_file_size() {
+  local path="$1" size
+  size="$(wc -c < "${path}" | tr -d '[:space:]')" || return 1
+  [[ "${size}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${size}"
+}
+
 setup_runtime_release_manifest_sha256() {
   local manifest_path="$1" tag="$2" release_repo="$3" target="$4" asset="$5"
   local version="${tag#v}"
@@ -198,7 +205,7 @@ setup_runtime_release_manifest_sha256() {
     END {
       manifest_ok = schema_ok && package_ok && repo_ok && tag_ok && version_ok && found_target && target_name == asset && target_size_ok && target_sha ~ /^[0-9a-f]{64}$/
       if (manifest_ok) {
-        print target_sha
+        print target_sha " " target_size
         exit 0
       }
       exit 1
@@ -241,7 +248,8 @@ setup_download_prebuilt_runtime_quiet() {
   local target="$1" tag="$2" dest="$3"
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
-  local download_dir downloaded expected actual provenance_rc manifest_expected
+  local download_dir downloaded expected actual actual_size provenance_rc
+  local manifest_metadata manifest_expected manifest_size
 
   download_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-download_XXXXXX")"
   downloaded=0
@@ -285,12 +293,21 @@ setup_download_prebuilt_runtime_quiet() {
     return 1
   fi
   if [[ -f "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" ]]; then
-    if ! manifest_expected="$(setup_runtime_release_manifest_sha256 \
+    if ! actual_size="$(setup_runtime_file_size "${download_dir}/${asset}")"; then
+      rm -rf "${download_dir}"
+      return 1
+    fi
+    if ! manifest_metadata="$(setup_runtime_release_manifest_sha256 \
       "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" \
       "${tag}" \
       "${release_repo}" \
       "${target}" \
-      "${asset}")" || [[ "${manifest_expected}" != "${expected}" ]]; then
+      "${asset}")"; then
+      rm -rf "${download_dir}"
+      return 1
+    fi
+    read -r manifest_expected manifest_size <<< "${manifest_metadata}"
+    if [[ "${manifest_expected}" != "${expected}" || "${manifest_size}" != "${actual_size}" ]]; then
       rm -rf "${download_dir}"
       return 1
     fi

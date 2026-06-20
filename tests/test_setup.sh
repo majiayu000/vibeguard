@@ -472,6 +472,8 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
       cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${dir}/SHA256SUMS"
     elif [[ "${pattern}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST:-0}" == "1" ]]; then
       cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json" "${dir}/vibeguard-runtime-releases.json"
+    elif [[ "${pattern}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST_SIZE:-0}" == "1" ]]; then
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad-size.json" "${dir}/vibeguard-runtime-releases.json"
     elif [[ "${pattern}" == "vibeguard-runtime-releases.json" && -f "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.${tag}.json" ]]; then
       cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.${tag}.json" "${dir}/vibeguard-runtime-releases.json"
     else
@@ -510,6 +512,8 @@ if [[ "${asset}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; th
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${out}"
 elif [[ "${asset}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST:-0}" == "1" ]]; then
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json" "${out}"
+elif [[ "${asset}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST_SIZE:-0}" == "1" ]]; then
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad-size.json" "${out}"
 else
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/${asset}" "${out}"
 fi
@@ -614,19 +618,41 @@ python3 "${REPO_DIR}/scripts/ci/generate_runtime_release_manifest.py" \
   "${TEST_RELEASE_DIR}" \
   "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.v9.9.9.json" \
   "majiayu000/vibeguard"
-python3 - <<'PY' "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.json" "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json"
+python3 - <<'PY' "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.json" "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json" "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad-size.json"
 import json
 import sys
 from pathlib import Path
 
 src = Path(sys.argv[1])
-dest = Path(sys.argv[2])
+checksum_dest = Path(sys.argv[2])
+size_dest = Path(sys.argv[3])
 manifest = json.loads(src.read_text(encoding="utf-8"))
-for asset in manifest["assets"].values():
+bad_checksum_manifest = json.loads(json.dumps(manifest))
+for asset in bad_checksum_manifest["assets"].values():
     asset["sha256"] = "1" * 64
-dest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+checksum_dest.write_text(json.dumps(bad_checksum_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+bad_size_manifest = json.loads(json.dumps(manifest))
+for asset in bad_size_manifest["assets"].values():
+    asset["size"] += 1
+size_dest.write_text(json.dumps(bad_size_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 export VIBEGUARD_TEST_RELEASE_DIR="${TEST_RELEASE_DIR}"
+
+assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
+  set -euo pipefail
+  repo_dir="$1"
+  tmp_home="$2"
+  mkdir -p "${tmp_home}/quiet-size-mismatch-home"
+  export HOME="${tmp_home}/quiet-size-mismatch-home"
+  export VIBEGUARD_REPO_DIR="${repo_dir}"
+  export VIBEGUARD_TEST_BAD_MANIFEST_SIZE=1
+  source "${repo_dir}/scripts/setup/lib.sh"
+  target="$(setup_runtime_release_target)"
+  tag="$(setup_runtime_release_tag)"
+  dest="${tmp_home}/quiet-size-mismatch-runtime"
+  ! setup_download_prebuilt_runtime_quiet "${target}" "${tag}" "${dest}"
+  test ! -e "${dest}"
+' _ "${REPO_DIR}" "${TMP_HOME}"
 
 
 for setup_test in \

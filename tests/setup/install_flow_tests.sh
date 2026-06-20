@@ -181,6 +181,17 @@ assert_contains "${manifest_fail_out}" "runtime release manifest checksum mismat
 assert_not_contains "${manifest_fail_out}" "Falling back to source build" "tampered runtime release manifest does not fall back to source"
 assert_not_contains "${manifest_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest does not report setup complete"
 
+manifest_size_fail_home="${TMP_HOME}/manifest-size-fail-home"
+mkdir -p "${manifest_size_fail_home}"
+set +e
+manifest_size_fail_out="$(HOME="${manifest_size_fail_home}" VIBEGUARD_TEST_BAD_MANIFEST_SIZE=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+manifest_size_fail_rc=$?
+set -e
+assert_cmd "tampered runtime release manifest size exits nonzero" test "${manifest_size_fail_rc}" -ne 0
+assert_contains "${manifest_size_fail_out}" "runtime release manifest size mismatch" "tampered runtime release manifest reports size mismatch"
+assert_not_contains "${manifest_size_fail_out}" "Falling back to source build" "tampered runtime release manifest size does not fall back to source"
+assert_not_contains "${manifest_size_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest size does not report setup complete"
+
 require_provenance_fail_home="${TMP_HOME}/require-provenance-fail-home"
 mkdir -p "${require_provenance_fail_home}"
 set +e

@@ -221,12 +221,13 @@ assert_cmd "runtime release manifest generator emits checked target metadata" ba
   metadata_checksum="$(sha256_file "${tmp}/vibeguard-runtime-dependency-metadata.json")"
   printf "%s  vibeguard-runtime-dependency-metadata.json\n" "${metadata_checksum}" >> "${tmp}/SHA256SUMS"
   python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard"
-  python3 - "${tmp}/vibeguard-runtime-releases.json" <<'"'"'PY'"'"'
+  python3 - "${tmp}/vibeguard-runtime-releases.json" "${tmp}" <<'"'"'PY'"'"'
 import json
 import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+artifacts_dir = Path(sys.argv[2])
 expected_targets = {
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -243,8 +244,28 @@ for target, asset in manifest["assets"].items():
     assert asset["name"] == f"vibeguard-runtime-{target}"
     assert len(asset["sha256"]) == 64
     int(asset["sha256"], 16)
-    assert asset["size"] > 0
+    assert asset["size"] == (artifacts_dir / asset["name"]).stat().st_size
 PY
+' _ "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator rejects malformed SHA256SUMS rows" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  printf "not-a-valid-sha-row\n" > "${tmp}/SHA256SUMS"
+  ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard" 2>"${tmp}/err"
+  grep -q "not a valid SHA256SUMS entry" "${tmp}/err"
+' _ "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator rejects unexpected runtime assets" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  checksum="0000000000000000000000000000000000000000000000000000000000000000"
+  printf "%s  vibeguard-runtime-surprise-target\n" "${checksum}" > "${tmp}/SHA256SUMS"
+  printf "unexpected runtime\n" > "${tmp}/vibeguard-runtime-surprise-target"
+  ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard" 2>"${tmp}/err"
+  grep -q "unexpected runtime release asset" "${tmp}/err"
 ' _ "${RELEASE_MANIFEST_SCRIPT}"
 assert_cmd "runtime release manifest generator rejects missing targets" bash -c '
   set -euo pipefail
