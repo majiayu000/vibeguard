@@ -15,7 +15,7 @@ PASS=0
 FAIL=0
 TOTAL=0
 TMP_DIR="$(mktemp -d)"
-BENCH_JSON_FILE="${REPO_DIR}/data/bench-latency-$(date +%Y%m%d).json"
+BENCH_JSON_FILE="${REPO_DIR}/.vibeguard/benchmarks/bench-latency-$(date +%Y%m%d).json"
 BENCH_JSON_TEMP="${TMP_DIR}/bench-latency.json"
 BENCH_ACTION_TEMP="${TMP_DIR}/bench-output.json"
 ROOT_BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
@@ -75,6 +75,20 @@ assert_file_contains() {
     PASS=$((PASS + 1))
   else
     red "$desc (expected: $expected)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_file_not_contains() {
+  local file="$1"
+  local unexpected="$2"
+  local desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if ! grep -qF -- "$unexpected" "$file"; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (unexpected: $unexpected)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -283,6 +297,7 @@ assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "laten
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "post-build-check (fake cargo)" "latency gate includes post-build fake command fixture"
 assert_success_contains "JSON latency output is written to override path" "Results: ${BENCH_JSON_TEMP}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --json-output="${BENCH_JSON_TEMP}" --bench-action-output="${BENCH_ACTION_TEMP}" --sla=100000
+assert_file_contains "${BENCH}" '.vibeguard/benchmarks/bench-latency-' "default latency JSON path stays out of data/"
 assert_file_contains "${BENCH_JSON_TEMP}" '"surface":"hook_e2e_ms"' "JSON latency output declares hook e2e surface"
 assert_file_contains "${BENCH_ACTION_TEMP}" " P50" "benchmark action output includes P50 samples"
 assert_file_contains "${BENCH_ACTION_TEMP}" " P95" "benchmark action output includes P95 samples"
@@ -316,6 +331,9 @@ pre-bash-guard,tp-case,tp,rule,block,1,1,5
 pre-bash-guard,fp-case,fp,rule,allow,0,1,5
 CSV
 assert_success_contains "fast benchmark reuses precision CSV fixture" "Cases: 2" "${TMP_DIR}/benchmark.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-results" VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+printf '{"rules":{}}\n' > "${TMP_DIR}/benchmark-results/rule-scorecard.json"
+assert_success_contains "fast benchmark ignores non-run JSON when comparing previous results" "Results archived:" "${TMP_DIR}/benchmark-seed-noise.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-results" VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${BENCHMARK}" --mode=fast
+assert_file_not_contains "${TMP_DIR}/benchmark-seed-noise.out" "rule-scorecard" "benchmark trend skips scorecard JSON"
 assert_fail_contains "fast benchmark fails on missing precision CSV" "VG_PRECISION_CSV_FILE does not exist" "${TMP_DIR}/benchmark-missing.out" env VIBEGUARD_BENCHMARK_RESULTS_DIR="${TMP_DIR}/benchmark-missing-results" VG_PRECISION_CSV_FILE="${TMP_DIR}/missing-precision.csv" bash "${BENCHMARK}" --mode=fast
 assert_success_contains "precision threshold validator accepts CSV fixture" "F1:" "${TMP_DIR}/threshold.out" env VG_PRECISION_CSV_FILE="${BENCHMARK_CSV}" bash "${THRESHOLD_VALIDATOR}"
 

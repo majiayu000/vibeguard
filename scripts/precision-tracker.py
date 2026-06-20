@@ -8,8 +8,8 @@ Reads data/triage.jsonl and data/rule-scorecard.json to:
   - Generate monthly/on-demand reports
 
 Usage:
-  python3 scripts/precision-tracker.py                  # print report
-  python3 scripts/precision-tracker.py --update-scorecard  # recalculate + save scorecard
+  python3 scripts/precision-tracker.py                  # print report, using seed scorecard if no local scorecard exists
+  python3 scripts/precision-tracker.py --update-scorecard  # recalculate + save local scorecard
   python3 scripts/precision-tracker.py --rule RS-03     # report for one rule
   python3 scripts/precision-tracker.py --record tp RS-03 [--context "note"]
   python3 scripts/precision-tracker.py --record fp RS-03 [--context "note"]
@@ -41,6 +41,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 TRIAGE_FILE = REPO_DIR / "data" / "triage.jsonl"
 SCORECARD_FILE = REPO_DIR / "data" / "rule-scorecard.json"
+SCORECARD_SEED_FILE = REPO_DIR / "data" / "rule-scorecard.seed.json"
 
 # ---------------------------------------------------------------------------
 # Lifecycle thresholds
@@ -194,6 +195,9 @@ def load_triage(path: Path) -> tuple[list[dict[str, Any]], int]:
 
 def load_scorecard(path: Path) -> dict[str, Any]:
     if not path.exists():
+        if path.resolve() == SCORECARD_FILE and SCORECARD_SEED_FILE.exists():
+            with SCORECARD_SEED_FILE.open(encoding="utf-8") as fh:
+                return json.load(fh)
         return {"rules": {}}
     with path.open(encoding="utf-8") as fh:
         return json.load(fh)

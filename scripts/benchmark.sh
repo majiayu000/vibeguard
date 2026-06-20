@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULTS_DIR="${VIBEGUARD_BENCHMARK_RESULTS_DIR:-$REPO_DIR/data}"
+RESULTS_DIR="${VIBEGUARD_BENCHMARK_RESULTS_DIR:-$REPO_DIR/.vibeguard/benchmarks}"
 DATE=$(date -u +%Y-%m-%d)
 RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 COMMIT_SHA=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -244,7 +244,7 @@ echo "[VibeGuard Score] $SCORE → $GRADE"
 # Delta comparison
 # ============================================================
 
-PREV_FILE=$(ls -1 "$RESULTS_DIR"/*.json 2>/dev/null | sort | tail -1 || true)
+PREV_FILE=$(find "$RESULTS_DIR" -maxdepth 1 -type f -name '*T*.json' -print 2>/dev/null | sort | tail -1 || true)
 if [[ -n "$PREV_FILE" ]] && [[ -f "$PREV_FILE" ]]; then
   PREV_SCORE=$(python3 -c "import json; print(json.load(open('$PREV_FILE'))['score'])" 2>/dev/null || echo "0")
   DELTA=$(python3 -c "print(f'{$SCORE - $PREV_SCORE:+.1f}')")

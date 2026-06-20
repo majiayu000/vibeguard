@@ -1,5 +1,5 @@
 {
-  "_comment": "VibeGuard rule lifecycle scorecard. Managed by scripts/precision-tracker.py",
+  "_comment": "VibeGuard rule lifecycle scorecard seed. scripts/precision-tracker.py writes mutable state to data/rule-scorecard.json.",
   "_schema": {
     "stage": "experimental | warn | error | demoted | disabled",
     "precision": "TP / (TP + FP), null if no samples",

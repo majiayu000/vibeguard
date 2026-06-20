@@ -95,6 +95,15 @@ assert_contains "$report" "experimental" "Report shows experimental phase"
 assert_contains "$report" "warn" "Report shows warn phase"
 assert_contains "$report" "N/A" "The accuracy displays N/A when there is no sample"
 
+default_report=$(python3 "$TRACKER" \
+  --triage-file "${TMPDIR_TEST}/missing-triage.jsonl")
+assert_contains "$default_report" "RS-03" "Default report falls back to repository scorecard seed"
+
+explicit_default_report=$(cd "$REPO_DIR" && python3 "$TRACKER" \
+  --triage-file "${TMPDIR_TEST}/missing-triage.jsonl" \
+  --scorecard-file data/rule-scorecard.json)
+assert_contains "$explicit_default_report" "RS-03" "Explicit default scorecard path falls back to repository scorecard seed"
+
 header "--rule filter"
 report_single=$(python3 "$TRACKER" \
   --triage-file "$TRIAGE_FILE" \

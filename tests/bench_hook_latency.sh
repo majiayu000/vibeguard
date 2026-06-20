@@ -32,7 +32,7 @@ ENVIRONMENT_DISTORTED=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --json) RESULTS_FILE="${REPO_DIR}/data/bench-latency-$(date +%Y%m%d).json"; shift ;;
+    --json) RESULTS_FILE="${REPO_DIR}/.vibeguard/benchmarks/bench-latency-$(date +%Y%m%d).json"; shift ;;
     --json-output=*) RESULTS_FILE="${1#--json-output=}"; shift ;;
     --bench-action-output=*) BENCH_ACTION_FILE="${1#--bench-action-output=}"; shift ;;
     --no-bench-action-output) BENCH_ACTION_FILE=""; shift ;;

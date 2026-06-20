@@ -366,16 +366,17 @@ bash scripts/benchmark.sh --mode=full
     fi
 ```
 
-### 6.4 Historical archive
+### 6.4 Local result archive
 
 ```
-data/
-  2026-03-23.json
-  2026-03-16.json
+.vibeguard/benchmarks/
+  20260620T120000Z-abc1234.json
+  bench-latency-20260620.json
   ...
 ```
 
-Each run appends the results to `data/`, and `scripts/benchmark.sh` automatically compares the last result and outputs delta.
+Local benchmark runs append ignored JSON artifacts under `.vibeguard/benchmarks/`.
+`scripts/benchmark.sh` compares the latest timestamped run artifact and outputs delta.
 
 ---
 
@@ -450,4 +451,3 @@ The `standard` mode (daily) uses the `haiku` model, with a full volume of about 
 ---
 
 *This document is a design plan, and the implementation details will be adjusted as needed during the execution of each phase. *
-
