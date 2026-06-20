@@ -470,6 +470,10 @@ if [[ "${1:-}" == "release" && "${2:-}" == "download" ]]; then
   for pattern in "${patterns[@]}"; do
     if [[ "${pattern}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
       cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${dir}/SHA256SUMS"
+    elif [[ "${pattern}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST:-0}" == "1" ]]; then
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json" "${dir}/vibeguard-runtime-releases.json"
+    elif [[ "${pattern}" == "vibeguard-runtime-releases.json" && -f "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.${tag}.json" ]]; then
+      cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.${tag}.json" "${dir}/vibeguard-runtime-releases.json"
     else
       cp "${VIBEGUARD_TEST_RELEASE_DIR}/${pattern}" "${dir}/${pattern}"
     fi
@@ -504,6 +508,8 @@ fi
 mkdir -p "$(dirname "${out}")"
 if [[ "${asset}" == "SHA256SUMS" && "${VIBEGUARD_TEST_BAD_SHA:-0}" == "1" ]]; then
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/SHA256SUMS.bad" "${out}"
+elif [[ "${asset}" == "vibeguard-runtime-releases.json" && "${VIBEGUARD_TEST_BAD_MANIFEST:-0}" == "1" ]]; then
+  cp "${VIBEGUARD_TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json" "${out}"
 else
   cp "${VIBEGUARD_TEST_RELEASE_DIR}/${asset}" "${out}"
 fi
@@ -597,6 +603,28 @@ for line in lines:
     bad_lines.append("0" * len(digest) + "  " + asset)
 lines = bad_lines
 dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+python3 "${REPO_DIR}/scripts/ci/generate_runtime_release_manifest.py" \
+  "$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")" \
+  "${TEST_RELEASE_DIR}" \
+  "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.json" \
+  "majiayu000/vibeguard"
+python3 "${REPO_DIR}/scripts/ci/generate_runtime_release_manifest.py" \
+  "9.9.9" \
+  "${TEST_RELEASE_DIR}" \
+  "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.v9.9.9.json" \
+  "majiayu000/vibeguard"
+python3 - <<'PY' "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.json" "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.bad.json"
+import json
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+manifest = json.loads(src.read_text(encoding="utf-8"))
+for asset in manifest["assets"].values():
+    asset["sha256"] = "1" * 64
+dest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 export VIBEGUARD_TEST_RELEASE_DIR="${TEST_RELEASE_DIR}"
 
