@@ -36,7 +36,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `scripts/ci/` | CI contract and static validation scripts. |
 | `scripts/verify/` | Local verification and freshness checks. |
 | `.github/` | GitHub Actions workflows, issue templates, and PR template. |
-| `data/` | Rule precision and triage data used by quality tooling. |
+| `data/` | Versioned seed/example files for rule precision tooling; mutable triage, scorecard, and benchmark outputs are ignored. |
 
 ## Documentation And Internal Notes
 
