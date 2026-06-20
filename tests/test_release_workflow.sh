@@ -11,6 +11,7 @@ CARGO_TOML="${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 RUST_TOOLCHAIN="${REPO_DIR}/rust-toolchain.toml"
 INSTALL_SH="${REPO_DIR}/scripts/setup/install.sh"
 SETUP_LIB="${REPO_DIR}/scripts/setup/lib.sh"
+RELEASE_MANIFEST_SCRIPT="${REPO_DIR}/scripts/ci/generate_runtime_release_manifest.py"
 DENY_TOML="${REPO_DIR}/deny.toml"
 LINUX_SETUP="${REPO_DIR}/docs/linux-setup.md"
 INSTALL_SPEC="${REPO_DIR}/docs/specs/install-friction-reduction.md"
@@ -155,6 +156,11 @@ assert_contains "$workflow_text" "subject-path: dist/\${{ matrix.target }}/vibeg
 assert_contains "$workflow_text" "sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS" "checksums use deterministic sorted layout"
 assert_contains "$workflow_text" "Attest checksum manifest" "release workflow attests checksum manifest"
 assert_contains "$workflow_text" "subject-path: dist/SHA256SUMS" "release workflow attests SHA256SUMS"
+assert_contains "$workflow_text" "Generate runtime release manifest" "release workflow generates runtime release manifest"
+assert_contains "$workflow_text" "generate_runtime_release_manifest.py" "release workflow uses manifest generator"
+assert_contains "$workflow_text" "dist/vibeguard-runtime-releases.json" "release workflow writes runtime release manifest asset"
+assert_contains "$workflow_text" "Attest runtime release manifest" "release workflow attests runtime release manifest"
+assert_contains "$workflow_text" "subject-path: dist/vibeguard-runtime-releases.json" "release workflow attests manifest path"
 assert_contains "$workflow_text" "Generate dependency metadata" "release workflow generates dependency metadata"
 assert_contains "$workflow_text" "cargo metadata --locked --manifest-path" "dependency metadata comes from locked Cargo graph"
 assert_contains "$workflow_text" "vibeguard-runtime-dependency-metadata.json" "release publishes dependency metadata asset"
@@ -168,6 +174,9 @@ assert_contains "$install_text" "--require-provenance" "install supports provena
 assert_contains "$install_text" "provenance verification is required but unavailable" "install fails closed when strict provenance cannot verify"
 assert_contains "$install_text" "cannot be combined with --build-from-source" "strict provenance rejects source-build mode"
 assert_contains "$install_text" "runtime-provenance" "install snapshot records runtime provenance status"
+assert_contains "$setup_lib_text" "vibeguard-runtime-releases.json" "setup knows runtime release manifest filename"
+assert_contains "$install_text" "runtime release manifest checksum mismatch" "install fails closed on manifest checksum mismatch"
+assert_contains "$install_text" "runtime release manifest verification failed" "install fails closed on malformed runtime release manifest"
 assert_contains "$linux_setup_text" "--require-provenance" "Linux setup docs document strict provenance mode"
 assert_contains "$linux_setup_text" "checksum-only" "Linux setup docs distinguish checksum-only mode"
 assert_contains "$install_spec_text" "--require-provenance" "install spec documents strict provenance mode"
@@ -181,6 +190,101 @@ for target in \
 do
   assert_contains "$workflow_text" "target: ${target}" "release matrix includes ${target}"
 done
+
+header "runtime release manifest contract"
+assert_cmd "runtime release manifest generator syntax is correct" python3 -m py_compile "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator emits checked target metadata" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$1" | awk "{print \$1}"
+    else
+      shasum -a 256 "$1" | awk "{print \$1}"
+    fi
+  }
+  : > "${tmp}/SHA256SUMS"
+  for target in \
+    aarch64-apple-darwin \
+    x86_64-apple-darwin \
+    x86_64-unknown-linux-musl \
+    aarch64-unknown-linux-musl
+  do
+    asset="${tmp}/vibeguard-runtime-${target}"
+    printf "runtime asset %s\n" "${target}" > "${asset}"
+    checksum="$(sha256_file "${asset}")"
+    printf "%s  %s\n" "${checksum}" "vibeguard-runtime-${target}" >> "${tmp}/SHA256SUMS"
+  done
+  printf "{}\n" > "${tmp}/vibeguard-runtime-dependency-metadata.json"
+  metadata_checksum="$(sha256_file "${tmp}/vibeguard-runtime-dependency-metadata.json")"
+  printf "%s  vibeguard-runtime-dependency-metadata.json\n" "${metadata_checksum}" >> "${tmp}/SHA256SUMS"
+  python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard"
+  python3 - "${tmp}/vibeguard-runtime-releases.json" "${tmp}" <<'"'"'PY'"'"'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+artifacts_dir = Path(sys.argv[2])
+expected_targets = {
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+}
+assert manifest["schema_version"] == 1
+assert manifest["package"] == "vibeguard-runtime"
+assert manifest["release_repo"] == "majiayu000/vibeguard"
+assert manifest["version"] == "9.9.9"
+assert manifest["tag"] == "v9.9.9"
+assert set(manifest["assets"]) == expected_targets
+for target, asset in manifest["assets"].items():
+    assert asset["name"] == f"vibeguard-runtime-{target}"
+    assert len(asset["sha256"]) == 64
+    int(asset["sha256"], 16)
+    assert asset["size"] == (artifacts_dir / asset["name"]).stat().st_size
+PY
+' _ "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator rejects malformed SHA256SUMS rows" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  printf "not-a-valid-sha-row\n" > "${tmp}/SHA256SUMS"
+  ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard" 2>"${tmp}/err"
+  grep -q "not a valid SHA256SUMS entry" "${tmp}/err"
+' _ "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator rejects unexpected runtime assets" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  checksum="0000000000000000000000000000000000000000000000000000000000000000"
+  printf "%s  vibeguard-runtime-surprise-target\n" "${checksum}" > "${tmp}/SHA256SUMS"
+  printf "unexpected runtime\n" > "${tmp}/vibeguard-runtime-surprise-target"
+  ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard" 2>"${tmp}/err"
+  grep -q "unexpected runtime release asset" "${tmp}/err"
+' _ "${RELEASE_MANIFEST_SCRIPT}"
+assert_cmd "runtime release manifest generator rejects missing targets" bash -c '
+  set -euo pipefail
+  script="$1"
+  tmp="$(mktemp -d)"
+  trap "rm -rf \"${tmp}\"" EXIT
+  sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$1" | awk "{print \$1}"
+    else
+      shasum -a 256 "$1" | awk "{print \$1}"
+    fi
+  }
+  asset="${tmp}/vibeguard-runtime-aarch64-apple-darwin"
+  printf "runtime asset\n" > "${asset}"
+  checksum="$(sha256_file "${asset}")"
+  printf "%s  vibeguard-runtime-aarch64-apple-darwin\n" "${checksum}" > "${tmp}/SHA256SUMS"
+  ! python3 "${script}" "9.9.9" "${tmp}" "${tmp}/vibeguard-runtime-releases.json" "majiayu000/vibeguard"
+' _ "${RELEASE_MANIFEST_SCRIPT}"
 
 header "runtime version contract"
 assert_cmd "runtime VERSION is non-empty" test -n "${runtime_version}"

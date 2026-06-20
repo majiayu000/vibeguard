@@ -192,10 +192,26 @@ jobs:
           sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Generate runtime release manifest
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 scripts/ci/generate_runtime_release_manifest.py \
+            "${TAG_NAME#v}" \
+            dist \
+            dist/vibeguard-runtime-releases.json \
+            "${GH_REPO}"
+
       - name: Attest checksum manifest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: dist/SHA256SUMS
+
+      - name: Attest runtime release manifest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/vibeguard-runtime-releases.json
 
       - name: Publish GitHub Release
         env:
@@ -209,4 +225,4 @@ jobs:
           fi
           gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
             --title "${TAG_NAME}" \
-            --notes "VibeGuard runtime binaries and dependency metadata for ${TAG_NAME}."
+            --notes "VibeGuard runtime binaries, release manifest, and dependency metadata for ${TAG_NAME}."

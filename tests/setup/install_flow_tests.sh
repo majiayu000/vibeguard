@@ -170,6 +170,28 @@ assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification 
 assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
 assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
 
+manifest_fail_home="${TMP_HOME}/manifest-fail-home"
+mkdir -p "${manifest_fail_home}"
+set +e
+manifest_fail_out="$(HOME="${manifest_fail_home}" VIBEGUARD_TEST_BAD_MANIFEST=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+manifest_fail_rc=$?
+set -e
+assert_cmd "tampered runtime release manifest exits nonzero" test "${manifest_fail_rc}" -ne 0
+assert_contains "${manifest_fail_out}" "runtime release manifest checksum mismatch" "tampered runtime release manifest reports checksum mismatch"
+assert_not_contains "${manifest_fail_out}" "Falling back to source build" "tampered runtime release manifest does not fall back to source"
+assert_not_contains "${manifest_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest does not report setup complete"
+
+manifest_size_fail_home="${TMP_HOME}/manifest-size-fail-home"
+mkdir -p "${manifest_size_fail_home}"
+set +e
+manifest_size_fail_out="$(HOME="${manifest_size_fail_home}" VIBEGUARD_TEST_BAD_MANIFEST_SIZE=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+manifest_size_fail_rc=$?
+set -e
+assert_cmd "tampered runtime release manifest size exits nonzero" test "${manifest_size_fail_rc}" -ne 0
+assert_contains "${manifest_size_fail_out}" "runtime release manifest size mismatch" "tampered runtime release manifest reports size mismatch"
+assert_not_contains "${manifest_size_fail_out}" "Falling back to source build" "tampered runtime release manifest size does not fall back to source"
+assert_not_contains "${manifest_size_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest size does not report setup complete"
+
 require_provenance_fail_home="${TMP_HOME}/require-provenance-fail-home"
 mkdir -p "${require_provenance_fail_home}"
 set +e
@@ -220,6 +242,7 @@ version_override_out="$(HOME="${version_override_home}" VIBEGUARD_TEST_CARGO_UNA
 assert_contains "${version_override_out}" "Runtime version override: v9.9.9" "--runtime-version reports selected release tag"
 assert_contains "${version_override_out}" "vibeguard-runtime downloaded and verified (v9.9.9," "--runtime-version downloads selected release tag"
 assert_cmd "--runtime-version passes selected tag to release download" grep -qF "tag=v9.9.9" "${version_override_log}"
+assert_cmd "--runtime-version tries runtime release manifest download" grep -qF "vibeguard-runtime-releases.json" "${version_override_log}"
 
 curl_download_home="${TMP_HOME}/curl-download-home"
 mkdir -p "${curl_download_home}"
