@@ -19,6 +19,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | Path | Role |
 |------|------|
 | `.claude/commands/` | Claude slash command source installed into `~/.claude/commands/`. |
+| `.claude/skills/` | Repo-local maintainer skills for this repository. They are validated by skill-format checks but are not installable product skills unless promoted into `skills/` or `workflows/` and declared in `schemas/install-modules.json`. |
 | `agents/` | Claude agent prompt source installed into `~/.claude/agents/`. |
 | `skills/` | Core reusable skills installed into Claude and Codex skill locations. |
 | `workflows/` | Codex workflow skills and shared workflow references. |
@@ -49,7 +50,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `docs/assets/` | Demo media and scripts used by public docs. |
 | `site/` | Static landing site deployed by GitHub Pages. |
 | `docs/internal/` | Research notes, historical specs, benchmark designs, and cross-session follow-ups. |
-| `plan/` | Active workflow output directory. Do not move until plan workflow specs change. |
+| `plan/` | Workflow output directory with mixed active, completed, draft, snapshot, and signal files. Read `plan/README.md` before treating any file as backlog; do not move files until plan workflow specs change. |
 
 ## Change Rules
 
