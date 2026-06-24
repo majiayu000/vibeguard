@@ -148,7 +148,9 @@ Interactive learning can inspect the current project without waiting for schedul
 GC and without writing digest state:
 
 ```bash
-python3 scripts/gc/learn_digest.py --scope current --project-root "$PWD" --dry-run --format json --no-code-scan
+VIBEGUARD_REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)}"
+test -f "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" || { echo "VibeGuard repo path missing; rerun setup.sh from a VibeGuard checkout" >&2; exit 1; }
+python3 "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" --scope current --project-root "$PWD" --dry-run --format json --no-code-scan
 ```
 
 Preview resolves the project log under `~/.vibeguard/projects/<hash>/` by

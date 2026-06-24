@@ -419,6 +419,29 @@ assert signal["count"] == 5, signal
 assert not any(item.get("error") == "guard_exit:1" for item in project["diagnostics"]), project
 PY
 
+fresh_scan_root="${TMP_ROOT}/fresh-code-scan"
+mkdir -p "$fresh_scan_root"
+fresh_scan_json="${TMP_ROOT}/learn-preview-fresh-code-scan.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" VIBEGUARD_REPO_DIR="$preview_guard_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$fresh_scan_root" \
+  --format json \
+  --output "$fresh_scan_json" \
+  --guard-timeout 1 \
+  --code-scan
+assert_cmd "explicit current code scan runs without log activity" python3 - "$fresh_scan_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project = data["projects"][0]
+assert project["has_recent_activity"] is False, project
+signal = next(item for item in project["signals"] if item.get("source") == "code_scan")
+assert signal["type"] == "linter_violations", signal
+assert signal["count"] == 5, signal
+PY
+
 cat > "${preview_guard_dir}/guards/universal/check_code_slop.sh" <<'SH'
 #!/usr/bin/env bash
 echo "guard crashed" >&2

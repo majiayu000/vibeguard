@@ -27,6 +27,7 @@ class AnalyzerOptions:
     code_scan: bool
     guard_timeout_seconds: float
     max_events: int | None
+    skip_stale_code_scan: bool
 
 
 class RunState:
@@ -550,7 +551,7 @@ def analyze_code_scan(
     project_root = result.get("project_root")
     if not (
         options.code_scan
-        and result["has_recent_activity"]
+        and (result["has_recent_activity"] or not options.skip_stale_code_scan)
         and project_root
         and os.path.isdir(project_root)
         and not state.budget_exceeded()
@@ -775,6 +776,7 @@ def main(argv: list[str] | None = None) -> int:
         code_scan=code_scan,
         guard_timeout_seconds=args.guard_timeout,
         max_events=args.max_events,
+        skip_stale_code_scan=args.scheduled or args.scope == "global",
     )
 
     if args.scope == "current":
