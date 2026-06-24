@@ -7,6 +7,15 @@
 - Severity: P0
 - Related: `scripts/gc/learn_digest.py`, `hooks/skills-loader.sh`, `hooks/learn-evaluator.sh`, `scripts/gc/gc-scheduled.sh`, `schemas/command-learn-output.schema.json`, `.claude/commands/vibeguard/learn.md`, `docs/how/learning-skill-generation.md`
 
+## Issue Tracking
+
+- Umbrella: https://github.com/majiayu000/vibeguard/issues/526
+- Bounded current-project preview: https://github.com/majiayu000/vibeguard/issues/527
+- Signal schema and classification: https://github.com/majiayu000/vibeguard/issues/528
+- Read-only display and triage state: https://github.com/majiayu000/vibeguard/issues/529
+- Adoption compiler and verification: https://github.com/majiayu000/vibeguard/issues/530
+- Success trajectory learning: https://github.com/majiayu000/vibeguard/issues/531
+
 ## 1. Problem
 
 The public learning story says VibeGuard should turn repeated mistakes into
