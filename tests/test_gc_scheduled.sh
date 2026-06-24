@@ -51,6 +51,7 @@ header "gc-scheduled.py helpers compile"
 assert_cmd "scheduled GC Python helpers compile" python3 -m py_compile \
   scripts/gc/session_metrics_cleanup.py \
   scripts/gc/learn_digest.py \
+  scripts/learn/analyze.py \
   scripts/gc/reflection_digest.py
 
 header "gc-scheduled.sh orchestrates helpers"
@@ -243,7 +244,7 @@ import sys
 from pathlib import Path
 
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-project_root = sys.argv[2]
+project_root = str(Path(sys.argv[2]).resolve())
 external_path = str(Path(sys.argv[3]).resolve())
 assert data["scope"] == "current", data
 assert data["partial"] is False, data
