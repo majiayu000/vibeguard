@@ -19,7 +19,7 @@ from typing import Any
 
 DEFAULT_GUARD_TIMEOUT_SECONDS = 30.0
 DEFAULT_LEARNING_WINDOW_DAYS = 7
-DEFAULT_PREVIEW_BUDGET_MS = 5000
+DEFAULT_PREVIEW_BUDGET_MS = 2000
 
 
 @dataclass
@@ -228,6 +228,11 @@ def run_guard(script: str, project_root: str, timeout_seconds: float) -> tuple[i
         return 0, [], f"os_error:{exc.__class__.__name__}"
 
     output = result.stdout.strip()
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        sample = stderr or output
+        examples = [sample.splitlines()[0][:200]] if sample else []
+        return 0, examples, f"guard_exit:{result.returncode}"
     if not output:
         return 0, [], None
     violations = [line for line in output.split("\n") if line.startswith("[")]
@@ -238,7 +243,7 @@ def extract_edit_path(detail: str) -> str:
     parts = detail.strip().split()
     if not parts:
         return ""
-    return parts[-1]
+    return parts[-1].split("||", 1)[0]
 
 
 def event_edit_path(event: dict[str, Any]) -> str:
@@ -565,8 +570,9 @@ def analyze_code_scan(
                 {
                     "type": "code_scan",
                     "guard": guard_name,
-                    "classification": "truncated" if diagnostic_error == "timeout" else "error",
+                    "classification": "truncated" if diagnostic_error == "timeout" else "runtime_health",
                     "error": diagnostic_error,
+                    **({"examples": examples} if examples else {}),
                 }
             )
             break
@@ -744,6 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-events", type=positive_int, help="Maximum number of events to read per project.")
     parser.add_argument("--budget-ms", type=positive_int, help="Wall-clock analysis budget in milliseconds.")
     parser.add_argument("--guard-timeout", type=float, default=DEFAULT_GUARD_TIMEOUT_SECONDS)
+    parser.add_argument("--code-scan", action="store_true", help="Enable guard/code scanning for preview.")
     parser.add_argument("--no-code-scan", action="store_true", help="Disable guard/code scanning.")
     parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
@@ -763,7 +770,7 @@ def main(argv: list[str] | None = None) -> int:
     if budget_ms is None and args.scope == "current" and not args.scheduled:
         budget_ms = DEFAULT_PREVIEW_BUDGET_MS
     state = RunState(budget_ms)
-    code_scan = args.scheduled and not args.no_code_scan
+    code_scan = (args.scheduled or args.code_scan) and not args.no_code_scan
     options = AnalyzerOptions(
         code_scan=code_scan,
         guard_timeout_seconds=args.guard_timeout,

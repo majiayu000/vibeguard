@@ -156,9 +156,10 @@ Preview resolves the project log under `~/.vibeguard/projects/<hash>/` by
 directory for `--scope current`; use `--scope global` with `--max-projects` for
 bounded cross-project inspection. Preview output includes `partial` and
 `truncated_reason` when `--budget-ms`, `--max-events`, `--max-projects`, or
-`--guard-timeout` stops analysis early. Hot-file signals are attributed to the
-current project root; external edit paths are reported as diagnostic noise
-instead of current-project hot files.
+`--guard-timeout` stops analysis early. Code scanning remains opt-in for
+preview via `--code-scan`; keep `--no-code-scan` for the lightweight default.
+Hot-file signals are attributed to the current project root; external edit paths
+are reported as diagnostic noise instead of current-project hot files.
 
 **Anti-repetitive learning (water mark mechanism):**
 

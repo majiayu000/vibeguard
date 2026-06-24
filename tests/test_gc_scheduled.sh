@@ -199,7 +199,7 @@ with path.open("w", encoding="utf-8") as f:
             "session": f"edit-{index % 3}",
             "tool": "Edit",
             "decision": "pass",
-            "detail": "src/hot.py",
+            "detail": f"src/hot.py||delta={index}",
         }) + "\n")
     for index in range(25):
         f.write(json.dumps({
@@ -207,7 +207,7 @@ with path.open("w", encoding="utf-8") as f:
             "session": f"external-{index % 4}",
             "tool": "Edit",
             "decision": "pass",
-            "detail": external_path,
+            "detail": f"{external_path}||delta={index}",
         }) + "\n")
 PY
 
@@ -384,6 +384,35 @@ from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert data["partial"] is True, data
 assert data["truncated_reason"] == "budget_ms", data
+PY
+
+preview_guard_dir="${TMP_ROOT}/preview-guard-vibeguard"
+mkdir -p "${preview_guard_dir}/guards/universal"
+cat > "${preview_guard_dir}/guards/universal/check_code_slop.sh" <<'SH'
+#!/usr/bin/env bash
+echo "guard crashed" >&2
+exit 2
+SH
+chmod +x "${preview_guard_dir}/guards/universal/check_code_slop.sh"
+
+preview_guard_json="${TMP_ROOT}/learn-preview-guard.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" VIBEGUARD_REPO_DIR="$preview_guard_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root" \
+  --format json \
+  --output "$preview_guard_json" \
+  --guard-timeout 1 \
+  --code-scan
+assert_cmd "current preview reports guard subprocess failures" python3 - "$preview_guard_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+diagnostics = data["projects"][0]["diagnostics"]
+runtime = next(item for item in diagnostics if item.get("classification") == "runtime_health")
+assert runtime["error"] == "guard_exit:2", runtime
+assert runtime["examples"] == ["guard crashed"], runtime
 PY
 
 header "gc-scheduled.sh catch-up mode"
