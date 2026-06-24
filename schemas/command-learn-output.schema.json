@@ -2,68 +2,268 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vibeguard.local/schemas/command-learn-output.schema.json",
   "title": "VibeGuard Learn Command Output",
-  "description": "Structured output contract for /vibeguard:learn.",
+  "description": "Envelope contract for /vibeguard:learn preview, triage, verification, and skill extraction modes.",
   "type": "object",
-  "required": ["command", "error", "rootCause", "improvements", "verification"],
+  "required": ["command", "mode"],
   "additionalProperties": false,
   "properties": {
     "command": {
       "const": "learn"
     },
-    "error": {
+    "mode": {
+      "enum": ["preview", "adopt", "verify", "extract_skill"]
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "generated_at": {
       "type": "string",
       "minLength": 1
     },
-    "rootCause": {
-      "type": "object",
-      "required": ["surface", "direct", "root"],
-      "additionalProperties": false,
-      "properties": {
-        "surface": {
-          "type": "string",
-          "minLength": 1
-        },
-        "direct": {
-          "type": "string",
-          "minLength": 1
-        },
-        "root": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
+    "partial": {
+      "type": "boolean"
     },
-    "improvements": {
+    "truncated_reason": {
+      "type": ["string", "null"]
+    },
+    "signals": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["type", "target", "description"],
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "enum": ["new_guard", "enhance_guard", "new_hook", "new_rule", "claude_md"]
-          },
-          "target": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": {
-            "type": "string",
-            "minLength": 1
+        "$ref": "#/$defs/signal_summary"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    },
+    "signal_id": {
+      "type": "string",
+      "pattern": "^(learn:|lrn_)[A-Za-z0-9_-]{8,}$"
+    },
+    "action": {
+      "$ref": "#/$defs/recommended_action"
+    },
+    "state_transition": {
+      "$ref": "#/$defs/state_transition"
+    },
+    "verification": {
+      "$ref": "#/$defs/verification_result"
+    },
+    "skill": {
+      "$ref": "#/$defs/skill_result"
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["schema_version", "generated_at", "partial", "signals", "diagnostics"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {},
+        "mode": {
+          "const": "preview"
+        },
+        "schema_version": {},
+        "generated_at": {},
+        "partial": {},
+        "truncated_reason": {},
+        "signals": {},
+        "diagnostics": {}
+      }
+    },
+    {
+      "required": ["schema_version", "signal_id", "action", "state_transition", "verification"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {},
+        "mode": {
+          "const": "adopt"
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "action": {},
+        "state_transition": {},
+        "verification": {}
+      }
+    },
+    {
+      "required": ["schema_version", "signal_id", "verification"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {},
+        "mode": {
+          "const": "verify"
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "verification": {}
+      }
+    },
+    {
+      "required": ["schema_version", "signal_id", "skill", "verification"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {},
+        "mode": {
+          "const": "extract_skill"
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "skill": {},
+        "verification": {}
+      }
+    }
+  ],
+  "$defs": {
+    "signal_summary": {
+      "type": "object",
+      "required": [
+        "signal_id",
+        "observation_id",
+        "classification",
+        "path_relation",
+        "affected_sessions",
+        "recommended_actions"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "signal_id": {
+          "type": "string",
+          "pattern": "^(learn:|lrn_)[A-Za-z0-9_-]{8,}$"
+        },
+        "observation_id": {
+          "type": "string",
+          "pattern": "^obs_[A-Za-z0-9_-]{8,}$"
+        },
+        "classification": {
+          "enum": [
+            "runtime_health",
+            "defense_gap",
+            "defense_friction",
+            "project_quality",
+            "workflow_friction",
+            "skill_candidate",
+            "noise"
+          ]
+        },
+        "path_relation": {
+          "enum": ["in_project", "external", "unknown"]
+        },
+        "affected_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recommended_actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/recommended_action"
           }
         }
       }
     },
-    "verification": {
+    "diagnostic": {
       "type": "object",
-      "required": ["newGuardPassed", "noRegression"],
+      "required": ["type", "classification"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": ["runtime_health", "noise", "truncated"]
+        }
+      }
+    },
+    "recommended_action": {
+      "type": "object",
+      "required": ["type", "rationale"],
       "additionalProperties": false,
       "properties": {
-        "newGuardPassed": {
-          "type": "boolean"
+        "type": {
+          "enum": [
+            "fix_runtime",
+            "tune_config",
+            "enhance_guard",
+            "add_hook",
+            "add_rule",
+            "add_scoped_suppression",
+            "change_project_code",
+            "create_or_update_skill",
+            "collect_more_evidence",
+            "no_action"
+          ]
         },
-        "noRegression": {
-          "type": "boolean"
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": ["string", "null"]
+        },
+        "verification_command": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "state_transition": {
+      "type": "object",
+      "required": ["from", "to", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "enum": ["new", "adopted", "skipped", "stale", "snoozed", "verified", "regressed"]
+        },
+        "to": {
+          "enum": ["new", "adopted", "skipped", "stale", "snoozed", "verified", "regressed"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "verification_result": {
+      "type": "object",
+      "required": ["status", "commands"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": ["pending", "passed", "failed", "verified", "regressed"]
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "skill_result": {
+      "type": "object",
+      "required": ["name", "source_signal_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": ["string", "null"]
+        },
+        "source_signal_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(learn:|lrn_)[A-Za-z0-9_-]{8,}$"
+          }
         }
       }
     }

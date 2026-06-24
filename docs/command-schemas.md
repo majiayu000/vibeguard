@@ -319,22 +319,63 @@ python3 scripts/skill_validate.py --check-repo-format --repo-root . --json
 ```json
 {
   "command": "learn",
-  "error": "Error description",
-  "rootCause": {
-    "surface": "surface reason",
-    "direct": "direct cause",
-    "root": "root cause"
-  },
-  "improvements": [
+  "mode": "preview",
+  "schema_version": 1,
+  "generated_at": "2026-06-25T00:00:00Z",
+  "partial": false,
+  "truncated_reason": null,
+  "signals": [
     {
-      "type": "enhance_guard",
-      "target": "target file path",
-      "description": "Improve description"
+      "signal_id": "lrn_a31f7c9d",
+      "observation_id": "obs_2026w26_77bc",
+      "classification": "runtime_health",
+      "path_relation": "unknown",
+      "affected_sessions": 3,
+      "recommended_actions": [
+        {
+          "type": "fix_runtime",
+          "rationale": "Metrics input truncation is a runtime pipeline issue."
+        }
+      ]
     }
   ],
-  "verification": {
-    "newGuardPassed": true,
-    "noRegression": true
-  }
+  "diagnostics": []
+}
+```
+
+## learn signal Schema
+
+```json
+{
+  "schema_version": 1,
+  "signal_id": "lrn_a31f7c9d",
+  "observation_id": "obs_2026w26_77bc",
+  "project_hash": "dc1db069",
+  "project_root": "/Users/me/code/app",
+  "type": "metrics_truncation",
+  "classification": "runtime_health",
+  "normalized_key": "source:learn-evaluator:metrics_truncation",
+  "path": null,
+  "path_relation": "unknown",
+  "source_hook": "learn-evaluator",
+  "source_tool": null,
+  "affected_sessions": 3,
+  "occurrences": 18,
+  "event_rate": 0.12,
+  "first_seen": "2026-06-24T00:00:00Z",
+  "last_seen": "2026-06-24T12:00:00Z",
+  "evidence_samples": [
+    {
+      "summary": "metrics input truncated before analysis"
+    }
+  ],
+  "recommended_actions": [
+    {
+      "type": "fix_runtime",
+      "rationale": "Runtime truncation should tune the metrics pipeline, not create a guard.",
+      "target": "hooks/learn-evaluator.sh",
+      "verification_command": "bash tests/test_gc_scheduled.sh"
+    }
+  ]
 }
 ```
