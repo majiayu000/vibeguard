@@ -142,6 +142,27 @@ Obtain the project physical path through the `.project-root` mapping file, autom
 }
 ```
 
+#### Current-project preview
+
+Interactive learning can inspect the current project without waiting for scheduled
+GC and without writing digest state:
+
+```bash
+VIBEGUARD_REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)}"
+test -f "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" || { echo "VibeGuard repo path missing; rerun setup.sh from a VibeGuard checkout" >&2; exit 1; }
+python3 "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" --scope current --project-root "$PWD" --dry-run --format json --no-code-scan
+```
+
+Preview resolves the project log under `~/.vibeguard/projects/<hash>/` by
+`.project-root`, `--project-root`, or `--project-hash`. It reads only that log
+directory for `--scope current`; use `--scope global` with `--max-projects` for
+bounded cross-project inspection. Preview output includes `partial` and
+`truncated_reason` when `--budget-ms`, `--max-events`, `--max-projects`, or
+`--guard-timeout` stops analysis early. Code scanning remains opt-in for
+preview via `--code-scan`; keep `--no-code-scan` for the lightweight default.
+Hot-file signals are attributed to the current project root; external edit paths
+are reported as diagnostic noise instead of current-project hot files.
+
 **Anti-repetitive learning (water mark mechanism):**
 
 `~/.vibeguard/.learn-watermark` stores the latest timestamp of the last consumption. skills-loader only reads new entries after the watermark, and updates the watermark after confirming adoption/skipping. The same signal is only recommended once.
