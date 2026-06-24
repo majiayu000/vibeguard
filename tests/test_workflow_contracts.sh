@@ -388,6 +388,14 @@ bad_runtime["recommended_actions"] = [{"type": "add_rule", "rationale": "wrong a
 if not module.validate_instance(bad_runtime, schema):
     raise SystemExit("expected runtime_health add_rule to fail")
 
+bad_truncation = deepcopy(signal)
+bad_truncation.update({
+    "classification": "defense_gap",
+    "recommended_actions": [{"type": "add_rule", "rationale": "wrong action space"}],
+})
+if not module.validate_instance(bad_truncation, schema):
+    raise SystemExit("expected metrics_truncation defense_gap to fail")
+
 bad_external = deepcopy(signal)
 bad_external.update({
     "type": "hot_files",
@@ -398,6 +406,17 @@ bad_external.update({
 })
 if not module.validate_instance(bad_external, schema):
     raise SystemExit("expected external project_quality to fail")
+
+bad_external_gap = deepcopy(signal)
+bad_external_gap.update({
+    "type": "hot_files",
+    "classification": "defense_gap",
+    "path": "/tmp/external.rs",
+    "path_relation": "external",
+    "recommended_actions": [{"type": "add_rule", "rationale": "wrong attribution"}],
+})
+if not module.validate_instance(bad_external_gap, schema):
+    raise SystemExit("expected external hot_files defense_gap to fail")
 PY
   green "learn signal schema enforces classification action space"
   PASS=$((PASS + 1))
@@ -410,6 +429,7 @@ if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
 import importlib.util
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 repo = Path(sys.argv[1])
@@ -463,6 +483,16 @@ for payload in payloads:
     errors = module.validate_instance(payload, schema)
     if errors:
         raise SystemExit(f"{payload['mode']}: " + "\n".join(errors))
+
+mixed_preview = deepcopy(payloads[0])
+mixed_preview.update({
+    "signal_id": signal_id,
+    "action": action,
+    "state_transition": {"from": "new", "to": "adopted", "reason": "wrong mode"},
+    "verification": verification,
+})
+if not module.validate_instance(mixed_preview, schema):
+    raise SystemExit("expected preview mixed with adopt fields to fail")
 PY
   green "learn command schema accepts preview adopt verify and skill modes"
   PASS=$((PASS + 1))

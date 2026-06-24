@@ -122,6 +122,9 @@
         "classification": {
           "const": "runtime_health"
         },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
         "recommended_actions": {
           "$ref": "#/$defs/runtime_health_actions"
         }
@@ -131,6 +134,12 @@
       "properties": {
         "classification": {
           "const": "defense_gap"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "linter_violations", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
         },
         "recommended_actions": {
           "$ref": "#/$defs/defense_gap_actions"
@@ -142,6 +151,12 @@
         "classification": {
           "const": "defense_friction"
         },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "linter_violations", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
         "recommended_actions": {
           "$ref": "#/$defs/defense_friction_actions"
         }
@@ -151,6 +166,9 @@
       "properties": {
         "classification": {
           "const": "project_quality"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "hot_files", "slow_sessions", "warn_escalation", "linter_violations"]
         },
         "path_relation": {
           "const": "in_project"
@@ -165,6 +183,12 @@
         "classification": {
           "const": "workflow_friction"
         },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "slow_sessions", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
         "recommended_actions": {
           "$ref": "#/$defs/workflow_friction_actions"
         }
@@ -175,6 +199,12 @@
         "classification": {
           "const": "skill_candidate"
         },
+        "type": {
+          "const": "skill_candidate"
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
         "recommended_actions": {
           "$ref": "#/$defs/skill_candidate_actions"
         }
@@ -184,6 +214,19 @@
       "properties": {
         "classification": {
           "const": "noise"
+        },
+        "type": {
+          "enum": [
+            "repeated_warn",
+            "chronic_block",
+            "hot_files",
+            "slow_sessions",
+            "warn_escalation",
+            "linter_violations",
+            "edit_path",
+            "workflow_retry",
+            "skill_candidate"
+          ]
         },
         "recommended_actions": {
           "$ref": "#/$defs/noise_actions"

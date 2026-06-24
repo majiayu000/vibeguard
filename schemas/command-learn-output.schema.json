@@ -58,34 +58,60 @@
   "oneOf": [
     {
       "required": ["schema_version", "generated_at", "partial", "signals", "diagnostics"],
+      "additionalProperties": false,
       "properties": {
+        "command": {},
         "mode": {
           "const": "preview"
-        }
+        },
+        "schema_version": {},
+        "generated_at": {},
+        "partial": {},
+        "truncated_reason": {},
+        "signals": {},
+        "diagnostics": {}
       }
     },
     {
       "required": ["schema_version", "signal_id", "action", "state_transition", "verification"],
+      "additionalProperties": false,
       "properties": {
+        "command": {},
         "mode": {
           "const": "adopt"
-        }
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "action": {},
+        "state_transition": {},
+        "verification": {}
       }
     },
     {
       "required": ["schema_version", "signal_id", "verification"],
+      "additionalProperties": false,
       "properties": {
+        "command": {},
         "mode": {
           "const": "verify"
-        }
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "verification": {}
       }
     },
     {
       "required": ["schema_version", "signal_id", "skill", "verification"],
+      "additionalProperties": false,
       "properties": {
+        "command": {},
         "mode": {
           "const": "extract_skill"
-        }
+        },
+        "schema_version": {},
+        "signal_id": {},
+        "skill": {},
+        "verification": {}
       }
     }
   ],
