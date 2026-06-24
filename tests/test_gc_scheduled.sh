@@ -150,6 +150,182 @@ assert_cmd "learning digest writes output after malformed UTF-8" test -f "${lear
 assert_contains "$learn_digest" "repeat-gc-warning" "learning digest keeps valid rows after malformed UTF-8"
 assert_not_contains "$learn_digest" "$stale_root" "learning digest skips code scan for stale project activity"
 
+header "learn_digest.py current-project preview"
+
+preview_log_dir="${TMP_ROOT}/preview-logs"
+preview_root="${TMP_ROOT}/preview-project"
+preview_external_root="${TMP_ROOT}/external-project"
+preview_hash="$(python3 - "$preview_root" <<'PY'
+import hashlib
+import sys
+
+print(hashlib.sha256(sys.argv[1].encode("utf-8")).hexdigest()[:8])
+PY
+)"
+preview_project_dir="${preview_log_dir}/projects/${preview_hash}"
+preview_other_project_dir="${preview_log_dir}/projects/ffff0000"
+mkdir -p "${preview_project_dir}" "${preview_root}/src" "${preview_external_root}" "${preview_other_project_dir}"
+printf '%s\n' "$preview_root" > "${preview_project_dir}/.project-root"
+printf '%s\n' "${TMP_ROOT}/other-project" > "${preview_other_project_dir}/.project-root"
+
+python3 - "${preview_project_dir}/events.jsonl" "$today" "${preview_external_root}/outside.py" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+today = sys.argv[2]
+external_path = sys.argv[3]
+with path.open("w", encoding="utf-8") as f:
+    for index in range(10):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"warn-{index % 2}",
+            "decision": "warn",
+            "reason": "repeat-preview-warning",
+        }) + "\n")
+    for index in range(5):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"block-{index}",
+            "decision": "block",
+            "reason": "repeat-preview-block",
+        }) + "\n")
+    for index in range(20):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"edit-{index % 3}",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "src/hot.py",
+        }) + "\n")
+    for index in range(25):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"external-{index % 4}",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": external_path,
+        }) + "\n")
+PY
+
+python3 - "${preview_other_project_dir}/events.jsonl" "$today" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+today = sys.argv[2]
+with path.open("w", encoding="utf-8") as f:
+    for index in range(10):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"other-{index}",
+            "decision": "warn",
+            "reason": "other-project-warning",
+        }) + "\n")
+PY
+
+preview_json="${TMP_ROOT}/learn-preview.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root" \
+  --dry-run \
+  --format json \
+  --output "$preview_json" \
+  --no-code-scan
+
+assert_cmd "current preview does not append learn digest" test ! -e "${preview_log_dir}/learn-digest.jsonl"
+assert_cmd "current preview does not write learn watermark" test ! -e "${preview_log_dir}/.learn-watermark"
+assert_cmd "current preview resolves one project and attributes paths" python3 - "$preview_json" "$preview_root" "${preview_external_root}/outside.py" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project_root = sys.argv[2]
+external_path = str(Path(sys.argv[3]).resolve())
+assert data["scope"] == "current", data
+assert data["partial"] is False, data
+assert len(data["projects"]) == 1, data["projects"]
+project = data["projects"][0]
+assert project["project_root"] == project_root, project
+signals = project["signals"]
+assert not any(signal.get("reason") == "other-project-warning" for signal in signals), signals
+warn = next(signal for signal in signals if signal["type"] == "repeated_warn")
+assert warn["reason"] == "repeat-preview-warning", warn
+assert warn["affected_sessions"] == 2, warn
+block = next(signal for signal in signals if signal["type"] == "chronic_block")
+assert block["reason"] == "repeat-preview-block", block
+assert block["affected_sessions"] == 5, block
+hot_files = [signal for signal in signals if signal["type"] == "hot_files"]
+assert len(hot_files) == 1, hot_files
+assert hot_files[0]["file"] == "src/hot.py", hot_files
+assert hot_files[0]["path_relation"] == "in_project", hot_files
+assert hot_files[0]["affected_sessions"] == 3, hot_files
+assert external_path not in json.dumps(hot_files), hot_files
+diagnostic = next(item for item in project["diagnostics"] if item["path_relation"] == "external")
+assert diagnostic["path"] == external_path, diagnostic
+assert diagnostic["classification"] == "noise", diagnostic
+assert diagnostic["affected_sessions"] == 4, diagnostic
+assert all(signal.get("signal_id", "").startswith("learn:") for signal in signals), signals
+PY
+
+preview_hash_json="${TMP_ROOT}/learn-preview-hash.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-hash "$preview_hash" \
+  --format json \
+  --output "$preview_hash_json" \
+  --no-code-scan
+assert_cmd "current preview supports project hash resolution" python3 - "$preview_hash_json" "$preview_hash" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert len(data["projects"]) == 1, data
+assert data["projects"][0]["project"] == sys.argv[2], data
+PY
+
+preview_json_again="${TMP_ROOT}/learn-preview-again.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root" \
+  --format json \
+  --output "$preview_json_again" \
+  --no-code-scan
+assert_cmd "current preview signal IDs are stable" python3 - "$preview_json" "$preview_json_again" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+def stable_ids(path):
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    signals = data["projects"][0]["signals"]
+    return sorted((signal["type"], signal.get("reason") or signal.get("file"), signal["signal_id"]) for signal in signals)
+
+assert stable_ids(sys.argv[1]) == stable_ids(sys.argv[2])
+PY
+
+preview_budget_json="${TMP_ROOT}/learn-preview-budget.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root" \
+  --format json \
+  --output "$preview_budget_json" \
+  --budget-ms 0 \
+  --no-code-scan
+assert_cmd "current preview reports budget truncation" python3 - "$preview_budget_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert data["partial"] is True, data
+assert data["truncated_reason"] == "budget_ms", data
+PY
+
 header "gc-scheduled.sh catch-up mode"
 
 skip_log_before="$(wc -l < "${log_dir}/gc-cron.log" | tr -d ' ')"

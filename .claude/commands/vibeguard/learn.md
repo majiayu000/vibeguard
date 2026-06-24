@@ -49,6 +49,8 @@ Automatically select a mode based on parameters and context:
 1. **Automatic pattern recognition (extracted from events.jsonl + learn-digest.jsonl)**
    - Read `~/.vibeguard/projects/<hash>/events.jsonl` and analyze recent event records
    - Read `~/.vibeguard/learn-digest.jsonl` to obtain the cross-session signals recognized by GC regular learning (repeated_warn / chronic_block / hot_files / slow_sessions / warn_escalation)
+   - For a bounded current-project preview, run `python3 scripts/gc/learn_digest.py --scope current --project-root "$PWD" --dry-run --format json --no-code-scan`
+   - Preview mode reads only the resolved current project log directory and does not append `learn-digest.jsonl` or update `.learn-watermark`
    - Extract high-frequency warn patterns: similar problems that have been warned many times but still reoccur
    - Extract similar operations that are repeatedly blocked: identify the operation patterns in which the agent repeatedly hits the wall
    - Group by hook + reason to output top 5 high-frequency problems
