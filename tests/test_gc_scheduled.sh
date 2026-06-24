@@ -168,6 +168,7 @@ preview_other_project_dir="${preview_log_dir}/projects/ffff0000"
 mkdir -p "${preview_project_dir}" "${preview_root}/src" "${preview_external_root}" "${preview_other_project_dir}"
 printf '%s\n' "$preview_root" > "${preview_project_dir}/.project-root"
 printf '%s\n' "${TMP_ROOT}/other-project" > "${preview_other_project_dir}/.project-root"
+git -C "$preview_root" init -q
 
 python3 - "${preview_project_dir}/events.jsonl" "$today" "${preview_external_root}/outside.py" <<'PY'
 import json
@@ -287,6 +288,64 @@ from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert len(data["projects"]) == 1, data
 assert data["projects"][0]["project"] == sys.argv[2], data
+PY
+
+preview_subdir_json="${TMP_ROOT}/learn-preview-subdir.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root/src" \
+  --format json \
+  --output "$preview_subdir_json" \
+  --no-code-scan
+assert_cmd "current preview resolves project root subdirectories through git" python3 - "$preview_subdir_json" "$preview_hash" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert len(data["projects"]) == 1, data
+assert data["projects"][0]["project"] == sys.argv[2], data
+PY
+
+unknown_hash="unknown1"
+unknown_project_dir="${preview_log_dir}/projects/${unknown_hash}"
+mkdir -p "$unknown_project_dir"
+python3 - "${unknown_project_dir}/events.jsonl" "$today" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+today = sys.argv[2]
+with path.open("w", encoding="utf-8") as f:
+    for index in range(20):
+        f.write(json.dumps({
+            "ts": today,
+            "session": f"unknown-{index % 2}",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": "legacy/hot.py",
+        }) + "\n")
+PY
+preview_unknown_json="${TMP_ROOT}/learn-preview-unknown.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-hash "$unknown_hash" \
+  --format json \
+  --output "$preview_unknown_json" \
+  --no-code-scan
+assert_cmd "hash preview keeps hot files when project root is unknown" python3 - "$preview_unknown_json" "$unknown_hash" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project = data["projects"][0]
+assert project["project"] == sys.argv[2], project
+hot = next(signal for signal in project["signals"] if signal["type"] == "hot_files")
+assert hot["file"] == "legacy/hot.py", hot
+assert hot["path_relation"] == "unknown", hot
+assert hot["affected_sessions"] == 2, hot
 PY
 
 preview_json_again="${TMP_ROOT}/learn-preview-again.json"

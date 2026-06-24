@@ -137,7 +137,7 @@ def resolve_current_project(log_dir: str, project_root: str | None, project_hash
             "project_root": read_project_root(project_dir) or project_root,
         }
 
-    root = project_root or git_root(os.getcwd()) or os.getcwd()
+    root = (git_root(project_root) or project_root) if project_root else (git_root(os.getcwd()) or os.getcwd())
     root = resolve_path_lossy(root)
     if os.path.isdir(projects_dir):
         for name in sorted(os.listdir(projects_dir)):
@@ -334,6 +334,7 @@ def analyze_events(
     edit_files: Counter[str] = Counter()
     edit_sessions: defaultdict[str, set[str]] = defaultdict(set)
     edit_paths: dict[str, str] = {}
+    edit_relations: dict[str, str] = {}
     external_edit_files: Counter[str] = Counter()
     external_edit_sessions: defaultdict[str, set[str]] = defaultdict(set)
     malformed_events = 0
@@ -376,9 +377,16 @@ def analyze_events(
                 edit_files[display] += 1
                 edit_sessions[display].add(session)
                 edit_paths[display] = normalized
+                edit_relations[display] = relation
             elif relation == "external":
                 external_edit_files[normalized] += 1
                 external_edit_sessions[normalized].add(session)
+            elif raw_path:
+                key = display or normalized or raw_path
+                edit_files[key] += 1
+                edit_sessions[key].add(session)
+                edit_paths[key] = normalized or raw_path
+                edit_relations[key] = "unknown"
         if event.get("duration_ms", 0) > 5000:
             slow_count += 1
             slow_sessions.add(session)
@@ -421,7 +429,7 @@ def analyze_events(
                         "source": "events",
                         "file": filepath,
                         "path": edit_paths[filepath],
-                        "path_relation": "in_project",
+                        "path_relation": edit_relations.get(filepath, "unknown"),
                         "edits": count,
                     },
                     edit_sessions[filepath],
