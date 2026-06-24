@@ -390,10 +390,40 @@ preview_guard_dir="${TMP_ROOT}/preview-guard-vibeguard"
 mkdir -p "${preview_guard_dir}/guards/universal"
 cat > "${preview_guard_dir}/guards/universal/check_code_slop.sh" <<'SH'
 #!/usr/bin/env bash
+for i in 1 2 3 4 5; do
+  echo "[SLOP] finding ${i}"
+done
+exit 1
+SH
+chmod +x "${preview_guard_dir}/guards/universal/check_code_slop.sh"
+
+preview_guard_violation_json="${TMP_ROOT}/learn-preview-guard-violation.json"
+VIBEGUARD_LOG_DIR="$preview_log_dir" VIBEGUARD_REPO_DIR="$preview_guard_dir" python3 scripts/gc/learn_digest.py \
+  --scope current \
+  --project-root "$preview_root" \
+  --format json \
+  --output "$preview_guard_violation_json" \
+  --guard-timeout 1 \
+  --code-scan
+assert_cmd "current preview treats guard findings as scan results" python3 - "$preview_guard_violation_json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project = data["projects"][0]
+signal = next(item for item in project["signals"] if item.get("source") == "code_scan")
+assert signal["type"] == "linter_violations", signal
+assert signal["guard"] == "code_slop", signal
+assert signal["count"] == 5, signal
+assert not any(item.get("error") == "guard_exit:1" for item in project["diagnostics"]), project
+PY
+
+cat > "${preview_guard_dir}/guards/universal/check_code_slop.sh" <<'SH'
+#!/usr/bin/env bash
 echo "guard crashed" >&2
 exit 2
 SH
-chmod +x "${preview_guard_dir}/guards/universal/check_code_slop.sh"
 
 preview_guard_json="${TMP_ROOT}/learn-preview-guard.json"
 VIBEGUARD_LOG_DIR="$preview_log_dir" VIBEGUARD_REPO_DIR="$preview_guard_dir" python3 scripts/gc/learn_digest.py \

@@ -228,15 +228,15 @@ def run_guard(script: str, project_root: str, timeout_seconds: float) -> tuple[i
         return 0, [], f"os_error:{exc.__class__.__name__}"
 
     output = result.stdout.strip()
+    violations = [line.lstrip("\0330123456789;m").strip() for line in output.splitlines()]
+    violations = [line for line in violations if line.startswith("[")]
+    if violations:
+        return len(violations), violations[:3], None
     if result.returncode != 0:
-        stderr = result.stderr.strip()
-        sample = stderr or output
+        sample = result.stderr.strip() or output
         examples = [sample.splitlines()[0][:200]] if sample else []
         return 0, examples, f"guard_exit:{result.returncode}"
-    if not output:
-        return 0, [], None
-    violations = [line for line in output.split("\n") if line.startswith("[")]
-    return len(violations), violations[:3], None
+    return 0, [], None
 
 
 def extract_edit_path(detail: str) -> str:
@@ -575,7 +575,7 @@ def analyze_code_scan(
                     **({"examples": examples} if examples else {}),
                 }
             )
-            break
+            if diagnostic_error == "timeout": break
         if violation_count >= 5:
             result["signals"].append(
                 make_signal(
