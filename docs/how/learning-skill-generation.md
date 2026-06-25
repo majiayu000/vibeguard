@@ -163,16 +163,18 @@ preview via `--code-scan`; keep `--no-code-scan` for the lightweight default.
 Hot-file signals are attributed to the current project root; external edit paths
 are reported as diagnostic noise instead of current-project hot files.
 
-**Anti-repetitive learning (water mark mechanism):**
+**Anti-repetitive learning (triage state):**
 
-`~/.vibeguard/.learn-watermark` stores the latest timestamp of the last consumption. skills-loader only reads new entries after the watermark, and updates the watermark after confirming adoption/skipping. The same signal is only recommended once.
+`~/.vibeguard/learn-state.jsonl` stores explicit append-only transitions keyed
+by `signal_id`. `skills-loader.sh` previews pending signals from
+`learn-digest.jsonl` and never advances a watermark or changes triage state.
+Signals are hidden only after an explicit `adopt`, `skip`, or `snooze`
+transition.
 
 ```
-learn-digest.jsonl:  ts=T1, ts=T2, ts=T3, ts=T4
-                                    ↑
-.learn-watermark: T3 (processed here)
-                                         ↑
-Watch only next time: T4 (new data)
+learn-digest.jsonl:  signal A, signal B, signal C
+learn-state.jsonl:   signal A -> adopted
+Next display:        signal B, signal C remain pending
 ```
 
 **Benchmarking against Harness GC Agent:**
@@ -311,9 +313,9 @@ If you need to manually hook into `PreToolUse(Read)`, it will trigger two things
 ```
 New Session → First Read
   │
-  ├─ [Learning Recommendation] Read learn-digest.jsonl (new signal after the water mark)
+  ├─ [Learning Recommendation] Read pending signals from learn-digest.jsonl
   │ ├─ There is a new signal → Output recommendations and prompt to run /vibeguard:learn
-  │ └─ Update the watermark (~/.vibeguard/.learn-watermark) and do not repeat it next time
+  │ └─ Display is read-only; only explicit triage commands append learn-state.jsonl
   │
   ├─ [Skill Match] Scan ~/.claude/skills/ and .claude/skills/
   │ ├─ Read the frontmatter (name + description) of each SKILL.md
