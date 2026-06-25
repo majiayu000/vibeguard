@@ -52,6 +52,8 @@ assert_cmd "scheduled GC Python helpers compile" python3 -m py_compile \
   scripts/gc/session_metrics_cleanup.py \
   scripts/gc/learn_digest.py \
   scripts/learn/analyze.py \
+  scripts/learn/adoption.py \
+  scripts/learn/trajectory.py \
   scripts/gc/reflection_digest.py
 
 header "gc-scheduled.sh orchestrates helpers"
@@ -538,6 +540,10 @@ VIBEGUARD_LOG_DIR="$log_dir" VIBEGUARD_PROJECT_CONFIG="$cfg" VIBEGUARD_GC_LOG_TH
 assert_cmd "failed scheduled GC records an attempt" test -f "${log_dir}/gc-last-attempt"
 assert_contains "$(cat "${log_dir}/gc-last-success")" "123" "failed scheduled GC does not update last-success"
 assert_contains "$(cat "${log_dir}/gc-cron.log")" "GC completed with errors" "failed scheduled GC is visible in cron log"
+
+header "learn adoption and trajectory regressions"
+assert_cmd "learn adoption regression suite passes" bash tests/test_learn_adoption.sh
+assert_cmd "learn trajectory regression suite passes" bash tests/test_learn_trajectory.sh
 
 printf '\n==============================\n'
 printf 'Total: %s  Pass: \033[32m%s\033[0m  Fail: \033[31m%s\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

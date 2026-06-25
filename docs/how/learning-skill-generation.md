@@ -177,6 +177,61 @@ learn-state.jsonl:   signal A -> adopted
 Next display:        signal B, signal C remain pending
 ```
 
+**Adoption compiler and verification:**
+
+Adopting a signal materializes a constrained action record instead of asking the
+model to invent the next step. The deterministic compiler records the selected
+action, changed files or artifacts, original evidence, verification commands,
+regression checks, baseline, expected later observation, and rollback path.
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/adoption.py" \
+  --state-file "$HOME/.vibeguard/learn-state.jsonl" \
+  --adoptions-file "$HOME/.vibeguard/learn-adoptions.jsonl" \
+  adopt \
+  --signal signal.json \
+  --action fix_runtime \
+  --artifact hooks/learn-evaluator.sh \
+  --verification-command "bash tests/test_gc_scheduled.sh" \
+  --regression-command "bash tests/test_gc_scheduled.sh" \
+  --baseline "18 truncated sessions" \
+  --expected-observation "truncation recurrence falls in the next window" \
+  --rollback "revert runtime pipeline change" \
+  --reason "adopt runtime fix"
+```
+
+Verification must use fresh evidence newer than the adoption record:
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/adoption.py" \
+  --state-file "$HOME/.vibeguard/learn-state.jsonl" \
+  --adoptions-file "$HOME/.vibeguard/learn-adoptions.jsonl" \
+  verify \
+  --signal-id lrn_a31f7c9d \
+  --evidence fresh-evidence.json \
+  --reason "later observation improved"
+```
+
+**W-37 success trajectory learning:**
+
+Learn records successful low-friction trajectories separately from failure and
+friction lessons. Planning retrieval should show both when they exist for the
+same task class; success-only retrieval is rejected if failure lessons exist.
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/trajectory.py" \
+  record \
+  --task-class rust-hook-fix \
+  --outcome success \
+  --low-friction \
+  --evidence "focused hook test and setup test passed without churn" \
+  --verification-command "bash tests/test_setup.sh"
+
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/trajectory.py" \
+  preview \
+  --task-class rust-hook-fix
+```
+
 **Benchmarking against Harness GC Agent:**
 
 | Harness GC Agent | VibeGuard GC Learning |

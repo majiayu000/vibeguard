@@ -16,6 +16,17 @@
 - Adoption compiler and verification: https://github.com/majiayu000/vibeguard/issues/530
 - Success trajectory learning: https://github.com/majiayu000/vibeguard/issues/531
 
+## Implementation notes
+
+- `scripts/learn/adoption.py` materializes adopted signals into append-only
+  records with verification commands, baseline, expected later observation, and
+  rollback path.
+- `scripts/learn/adoption.py verify` requires fresh evidence newer than the
+  adoption record before marking a signal `verified` or `regressed`.
+- `scripts/learn/trajectory.py` records W-37 success and failure trajectories
+  separately and rejects success-only retrieval when failure lessons exist for
+  the same task class.
+
 ## 1. Problem
 
 The public learning story says VibeGuard should turn repeated mistakes into

@@ -51,6 +51,9 @@
     "verification": {
       "$ref": "#/$defs/verification_result"
     },
+    "adoption": {
+      "$ref": "#/$defs/adoption_record"
+    },
     "skill": {
       "$ref": "#/$defs/skill_result"
     }
@@ -73,7 +76,7 @@
       }
     },
     {
-      "required": ["schema_version", "signal_id", "action", "state_transition", "verification"],
+      "required": ["schema_version", "signal_id", "action", "state_transition", "verification", "adoption"],
       "additionalProperties": false,
       "properties": {
         "command": {},
@@ -84,7 +87,8 @@
         "signal_id": {},
         "action": {},
         "state_transition": {},
-        "verification": {}
+        "verification": {},
+        "adoption": {}
       }
     },
     {
@@ -242,6 +246,111 @@
         },
         "notes": {
           "type": ["string", "null"]
+        },
+        "evidence_observed_at": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "adoption_record": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "ts",
+        "signal_id",
+        "classification",
+        "selected_action",
+        "files_or_artifacts",
+        "original_evidence",
+        "verification_commands",
+        "regression_checks",
+        "baseline",
+        "expected_later_observation",
+        "rollback_path",
+        "state_transition"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "ts": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signal_id": {
+          "type": "string",
+          "pattern": "^(learn:|lrn_)[A-Za-z0-9_-]{8,}$"
+        },
+        "observation_id": {
+          "type": "string"
+        },
+        "classification": {
+          "enum": [
+            "runtime_health",
+            "defense_gap",
+            "defense_friction",
+            "project_quality",
+            "workflow_friction",
+            "skill_candidate",
+            "noise"
+          ]
+        },
+        "selected_action": {
+          "$ref": "#/$defs/recommended_action"
+        },
+        "files_or_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "original_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["summary"],
+            "additionalProperties": true,
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "verification_commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "regression_checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "baseline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_later_observation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rollback_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state_transition": {
+          "$ref": "#/$defs/state_transition"
         }
       }
     },
