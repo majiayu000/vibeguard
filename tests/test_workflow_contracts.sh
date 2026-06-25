@@ -441,7 +441,28 @@ spec.loader.exec_module(module)
 schema = json.loads((repo / "schemas/command-learn-output.schema.json").read_text(encoding="utf-8"))
 signal_id = "lrn_a31f7c9d"
 action = {"type": "fix_runtime", "rationale": "runtime pipeline issue"}
-verification = {"status": "passed", "commands": ["bash tests/test_gc_scheduled.sh"], "notes": None}
+verification = {
+    "status": "passed",
+    "commands": ["bash tests/test_gc_scheduled.sh"],
+    "notes": None,
+    "evidence_observed_at": "2026-06-26T00:00:00Z",
+}
+adoption = {
+    "schema_version": 1,
+    "ts": "2026-06-25T00:00:00Z",
+    "signal_id": signal_id,
+    "observation_id": "obs_2026w26_77bc",
+    "classification": "runtime_health",
+    "selected_action": action,
+    "files_or_artifacts": ["hooks/learn-evaluator.sh"],
+    "original_evidence": [{"summary": "metrics input truncated"}],
+    "verification_commands": ["bash tests/test_gc_scheduled.sh"],
+    "regression_checks": ["bash tests/test_gc_scheduled.sh"],
+    "baseline": "18 truncated sessions",
+    "expected_later_observation": "truncation recurrence falls",
+    "rollback_path": "revert runtime pipeline change",
+    "state_transition": {"from": "new", "to": "adopted", "reason": "fix runtime"},
+}
 payloads = [
     {
         "command": "learn",
@@ -468,6 +489,7 @@ payloads = [
         "action": action,
         "state_transition": {"from": "new", "to": "adopted", "reason": "fix runtime"},
         "verification": verification,
+        "adoption": adoption,
     },
     {"command": "learn", "mode": "verify", "schema_version": 1, "signal_id": signal_id, "verification": verification},
     {

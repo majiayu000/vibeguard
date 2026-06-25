@@ -343,6 +343,53 @@ python3 scripts/skill_validate.py --check-repo-format --repo-root . --json
 }
 ```
 
+Adopt mode records the full materialization contract:
+
+```json
+{
+  "command": "learn",
+  "mode": "adopt",
+  "schema_version": 1,
+  "signal_id": "lrn_a31f7c9d",
+  "action": {
+    "type": "fix_runtime",
+    "rationale": "Runtime truncation should tune the metrics pipeline."
+  },
+  "state_transition": {
+    "from": "new",
+    "to": "adopted",
+    "reason": "fix runtime"
+  },
+  "verification": {
+    "status": "pending",
+    "commands": ["bash tests/test_gc_scheduled.sh"],
+    "notes": "truncation recurrence falls in the next window"
+  },
+  "adoption": {
+    "schema_version": 1,
+    "ts": "2026-06-25T00:00:00Z",
+    "signal_id": "lrn_a31f7c9d",
+    "classification": "runtime_health",
+    "selected_action": {
+      "type": "fix_runtime",
+      "rationale": "Runtime truncation should tune the metrics pipeline."
+    },
+    "files_or_artifacts": ["hooks/learn-evaluator.sh"],
+    "original_evidence": [{"summary": "metrics input truncated"}],
+    "verification_commands": ["bash tests/test_gc_scheduled.sh"],
+    "regression_checks": ["bash tests/test_gc_scheduled.sh"],
+    "baseline": "18 truncated sessions",
+    "expected_later_observation": "truncation recurrence falls",
+    "rollback_path": "revert runtime pipeline change",
+    "state_transition": {
+      "from": "new",
+      "to": "adopted",
+      "reason": "fix runtime"
+    }
+  }
+}
+```
+
 ## learn signal Schema
 
 ```json
