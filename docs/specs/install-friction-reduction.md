@@ -59,8 +59,10 @@ Add `.github/workflows/release.yml`, triggered on tag push `v*`:
   | `aarch64-unknown-linux-musl` | `ubuntu-latest` | via `cross` or musl toolchain, static |
 - Each job: `cargo build --release --target <t>`, rename output to
   `vibeguard-runtime-<target>`, compute SHA-256.
-- A final job uploads all binaries + a single `SHA256SUMS` file to the GitHub Release
-  for that tag (`gh release upload` or `softprops/action-gh-release`).
+- A final job uploads all binaries, `SHA256SUMS`,
+  `vibeguard-runtime-releases.json`, and
+  `vibeguard-runtime-dependency-metadata.json` to the GitHub Release for that
+  tag.
 - Reuse the existing toolchain/style from `.github/workflows/ci.yml`; pin Rust to a
   stable version that supports `edition = "2024"` (≥ 1.85).
 
@@ -135,7 +137,8 @@ true `curl | sh` one-liner. Tracked as a follow-up; large and out of scope here.
   and succeeds.
 - AC5: Default install adds **no** launchd/systemd entry; `--with-scheduler` adds it;
   `--clean` removes it.
-- AC6: A tag push publishes 4 platform binaries + `SHA256SUMS` to the Release.
+- AC6: A tag push publishes 4 platform binaries, `SHA256SUMS`, checked runtime
+  release metadata, and locked dependency metadata to the Release.
 - AC7: README install section reflects the no-Rust default path and the prerequisites
   matrix.
 - AC8: A release tag whose `vibeguard-runtime/VERSION` does not match the tag fails
