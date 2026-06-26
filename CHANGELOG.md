@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-06-27
+
+### Added
+- First-class Learn signal inbox support: current-project preview, signal schema/classification, triage state, adoption materialization, verification, and success/failure trajectory capture.
+- Quickstart, team rollout, and troubleshooting docs now give users a clear install-to-proof path with `doctor`, `verify-install`, Codex diagnosis, safe demo, and hook-health checks.
+- False-positive governance now includes a reporting workflow, known-issues documentation, scoped suppression handling, and runtime tests for redaction and matching edge cases.
+- Runtime release publishing now generates and attests a checked `vibeguard-runtime-releases.json` manifest alongside binaries, dependency metadata, and `SHA256SUMS`.
+
+### Fixed
+- Codex pre-edit internal-error handling, stale scheduler target detection, hook-status bounded log reads, post-write duplicate scanning, and post-edit history queries.
+- Scoped suppression matching now handles Codex patch payloads, native hook output, aggregate suppression edge cases, tokenized event ids, and prefixed secret redaction without silently widening matches.
+- Mutable benchmark and triage outputs moved out of tracked `data/` artifacts, keeping tracked data to seed/example files.
+
+### Changed
+- `vibeguard-runtime` is now `1.1.8`.
+- `/vibeguard:learn` is documented as a product-facing signal review loop rather than only a background GC digest.
+- Plan and spec docs now clarify repo-local skill policy, issue-first planning boundaries, and the Learn implementation sequence.
+
 ## [1.1.4] - 2026-06-08
 
 ### Added
@@ -264,7 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto-optimize` workflow integrated into VibeGuard
 - `setup.sh` and install scripts for one-command installation
 
-[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/majiayu000/vibeguard/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/majiayu000/vibeguard/compare/v1.1.7...v1.1.8
 [1.1.4]: https://github.com/majiayu000/vibeguard/compare/v1.1.2...v1.1.4
 [1.1.3]: https://github.com/majiayu000/vibeguard/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/majiayu000/vibeguard/compare/v1.1.1...v1.1.2
