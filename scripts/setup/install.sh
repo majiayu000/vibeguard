@@ -21,6 +21,7 @@ set -euo pipefail
 # bash setup.sh --dev-linked # Opt in to live-repo execution for local development
 # bash setup.sh --check # Check status only
 # bash setup.sh --clean # Clean installation
+# bash setup.sh --clean --purge-data # Clean installation and remove projects/config
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
@@ -94,7 +95,7 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
       exit 1 ;;
   esac
 done
@@ -815,6 +816,7 @@ install_repo_git_hook() {
     red "  ERROR: failed to install ${hook_name} hook at ${hook_path}"
     return 1
   fi
+  state_record_project_hook "${REPO_DIR}" "${hook_path}" "${hook_name}"
   green "  ${hook_name} hook installed to vibeguard repo"
 }
 

@@ -47,6 +47,9 @@ Check options:
   --no-summary       Legacy doctor/--check only; verify-* commands reject it
   --profile minimal|core|full|strict
 
+Clean options:
+  --purge-data       With --clean, also remove ~/.vibeguard/projects and config
+
 Examples:
   bash setup.sh --yes
   bash setup.sh doctor
