@@ -71,6 +71,7 @@ vibeguard_snapshot_drift_warn_once() {
   [[ -n "${repo_dir}" && -d "${repo_dir}" ]] || return 0
   installed_version="$(tr -d '[:space:]' < "${version_file}")"
   [[ -n "${installed_version}" ]] || return 0
+  # PERF-OK: snapshot drift check runs once per session and skips after marker creation.
   repo_version="$(git -C "${repo_dir}" rev-parse --short HEAD 2>/dev/null || true)"
   [[ -n "${repo_version}" ]] || return 0
   [[ "${installed_version}" != "${repo_version}" ]] || return 0
