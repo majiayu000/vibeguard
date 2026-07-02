@@ -111,6 +111,68 @@ vg_policy_json_field() {
   fi
 }
 
+vg_policy_json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+vg_policy_claude_event_name() {
+  local hook_name="$1" payload_ref="${2:-}" runtime_path="${VG_POLICY_RUNTIME_PATH:-}" event_name=""
+  if [[ -n "${payload_ref}" && -n "${runtime_path}" ]]; then
+    if [[ -f "${payload_ref}" ]]; then
+      event_name="$("${runtime_path}" json-field hook_event_name < "${payload_ref}" 2>/dev/null || true)"
+    else
+      event_name="$(printf '%s' "${payload_ref}" | "${runtime_path}" json-field hook_event_name 2>/dev/null || true)"
+    fi
+    if [[ -n "${event_name}" && "${event_name}" != "null" && "${event_name}" != \{* && "${event_name}" != \[* ]]; then
+      printf '%s\n' "${event_name}"
+      return 0
+    fi
+  fi
+
+  case "${hook_name}" in
+    pre-*|vibeguard-pre-*)
+      printf '%s\n' "PreToolUse"
+      ;;
+    post-*|vibeguard-post-*|analysis-paralysis-guard.sh)
+      printf '%s\n' "PostToolUse"
+      ;;
+    stop-guard.sh|vibeguard-stop-guard.sh|learn-evaluator.sh|vibeguard-learn-evaluator.sh)
+      printf '%s\n' "Stop"
+      ;;
+    count_active_constraints.sh|skills-loader.sh)
+      printf '%s\n' "SessionStart"
+      ;;
+    *)
+      printf '%s\n' "unknown"
+      ;;
+  esac
+}
+
+vg_policy_claude_event_enforces() {
+  case "${1:-}" in
+    PreToolUse|PermissionRequest) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+vg_policy_error_reason() {
+  local reason="${1:-}"
+  printf '%s' "${reason:-VibeGuard policy error: runtime policy check failed.}"
+}
+
+vg_policy_claude_error_output() {
+  local reason escaped_reason
+  reason="$(vg_policy_error_reason "${1:-}")"
+  escaped_reason="$(vg_policy_json_escape "${reason}")"
+  printf '{"decision":"block","reason":"%s"}\n' "${escaped_reason}"
+}
+
 vg_policy_payload_cwd() {
   local payload_ref="$1" runtime_path="$2" field value
   [[ -n "${payload_ref}" ]] || return 1
@@ -310,7 +372,8 @@ vg_policy_diag() {
 }
 
 vg_policy_codex_error_output() {
-  local event_name="$1" reason="$2" runtime_path
+  local event_name="$1" reason runtime_path
+  reason="$(vg_policy_error_reason "${2:-}")"
   runtime_path="${VG_POLICY_RUNTIME_PATH:-}"
   if [[ -z "${runtime_path}" ]] && ! runtime_path="$(vg_policy_runtime_path)"; then
     vg_policy_codex_error_fallback "${event_name}"
