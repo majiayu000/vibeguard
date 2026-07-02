@@ -262,13 +262,14 @@ bad_project_claude_out="$(run_claude_wrapper "${bad_project_home}" "${bad_projec
 bad_project_claude_status=$?
 set -e
 TOTAL=$((TOTAL + 1))
-if [[ "${bad_project_claude_status}" -ne 0 ]]; then
-  green "Claude wrapper fails loudly on invalid .vibeguard.json"
+if [[ "${bad_project_claude_status}" -eq 0 ]]; then
+  green "Claude wrapper exits cleanly after invalid .vibeguard.json block"
   PASS=$((PASS + 1))
 else
-  red "Claude wrapper fails loudly on invalid .vibeguard.json"
+  red "Claude wrapper exits cleanly after invalid .vibeguard.json block"
   FAIL=$((FAIL + 1))
 fi
+assert_contains "${bad_project_claude_out}" '"decision":"block"' "Claude wrapper blocks invalid .vibeguard.json"
 assert_contains "${bad_project_claude_out}" "VibeGuard project config invalid" "Claude wrapper explains invalid .vibeguard.json"
 
 set +e
@@ -289,9 +290,9 @@ assert_contains "${bad_project_codex_out}" "VibeGuard project config invalid" "C
 header "runtime policy — malformed user runtime config"
 bad_user_home="${WORK_DIR}/home-bad-user"
 bad_user_project="${WORK_DIR}/project-bad-user"
-bad_user_config="${WORK_DIR}/bad-config.json"
 make_home "${bad_user_home}"
 make_project "${bad_user_project}" '{}'
+bad_user_config="${bad_user_home}/.vibeguard/config.json"
 printf '{"write_mode":' > "${bad_user_config}"
 
 set +e
@@ -299,27 +300,66 @@ bad_user_claude_out="$(
   cd "${bad_user_project}" && printf '%s' "${pretool_block_input}" \
     | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
       VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
-      VIBEGUARD_CONFIG_FILE="${bad_user_config}" \
       bash "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh 2>&1
 )"
 bad_user_claude_status=$?
 set -e
 TOTAL=$((TOTAL + 1))
-if [[ "${bad_user_claude_status}" -ne 0 ]]; then
-  green "Claude wrapper fails loudly on malformed runtime config"
+if [[ "${bad_user_claude_status}" -eq 0 ]]; then
+  green "Claude wrapper exits cleanly after malformed runtime config block"
   PASS=$((PASS + 1))
 else
-  red "Claude wrapper fails loudly on malformed runtime config"
+  red "Claude wrapper exits cleanly after malformed runtime config block"
   FAIL=$((FAIL + 1))
 fi
+assert_contains "${bad_user_claude_out}" '"decision":"block"' "Claude wrapper blocks malformed runtime config"
 assert_contains "${bad_user_claude_out}" "VibeGuard runtime config invalid JSON" "Claude wrapper explains malformed runtime config"
+
+set +e
+bad_user_stop_out="$(
+  cd "${bad_user_project}" && printf '{"hook_event_name":"Stop"}' \
+    | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash "${REPO_DIR}/hooks/run-hook.sh" stop-guard.sh 2>&1
+)"
+bad_user_stop_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${bad_user_stop_status}" -eq 0 ]]; then
+  green "Claude Stop hook exits cleanly on malformed runtime config"
+  PASS=$((PASS + 1))
+else
+  red "Claude Stop hook exits cleanly on malformed runtime config"
+  FAIL=$((FAIL + 1))
+fi
+assert_not_contains "${bad_user_stop_out}" '"decision":"block"' "Claude Stop hook does not block on malformed runtime config"
+assert_contains "${bad_user_stop_out}" "VibeGuard runtime config invalid JSON" "Claude Stop hook keeps malformed runtime config visible"
+
+set +e
+bad_user_session_out="$(
+  cd "${bad_user_project}" && printf '{"hook_event_name":"SessionStart"}' \
+    | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash "${REPO_DIR}/hooks/run-hook.sh" count_active_constraints.sh 2>&1
+)"
+bad_user_session_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${bad_user_session_status}" -eq 0 ]]; then
+  green "Claude SessionStart hook exits cleanly on malformed runtime config"
+  PASS=$((PASS + 1))
+else
+  red "Claude SessionStart hook exits cleanly on malformed runtime config"
+  FAIL=$((FAIL + 1))
+fi
+assert_not_contains "${bad_user_session_out}" '"decision":"block"' "Claude SessionStart hook does not block on malformed runtime config"
+assert_contains "${bad_user_session_out}" "VibeGuard runtime config invalid JSON" "Claude SessionStart hook keeps malformed runtime config visible"
 
 set +e
 bad_user_codex_out="$(
   cd "${bad_user_project}" && printf '%s' "${codex_pretool_input}" \
     | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
       VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
-      VIBEGUARD_CONFIG_FILE="${bad_user_config}" \
       bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh 2>&1
 )"
 bad_user_codex_status=$?
