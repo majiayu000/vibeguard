@@ -52,6 +52,34 @@ vibeguard_execution_mode() {
   esac
 }
 
+vibeguard_snapshot_drift_warn_once() {
+  local version_file="${HOME}/.vibeguard/installed/version"
+  local repo_dir="" installed_version="" repo_version="" state_root="" session_id="" marker=""
+  [[ "${EXECUTION_MODE}" == "installed-snapshot" ]] || return 0
+  [[ -f "${version_file}" && -f "${REPO_PATH_FILE}" ]] || return 0
+
+  session_id="${VIBEGUARD_SESSION_ID:-unknown-session}"
+  session_id="${session_id//[^A-Za-z0-9._-]/_}"
+  [[ -n "${session_id}" ]] || session_id="unknown-session"
+  state_root="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}/snapshot-drift"
+  marker="${state_root}/${session_id}.checked"
+  [[ ! -f "${marker}" ]] || return 0
+  mkdir -p "${state_root}" 2>/dev/null || return 0
+  : > "${marker}" 2>/dev/null || return 0
+
+  repo_dir="$(<"${REPO_PATH_FILE}")"
+  [[ -n "${repo_dir}" && -d "${repo_dir}" ]] || return 0
+  installed_version="$(tr -d '[:space:]' < "${version_file}")"
+  [[ -n "${installed_version}" ]] || return 0
+  # PERF-OK: snapshot drift check runs once per session and skips after marker creation.
+  repo_version="$(git -C "${repo_dir}" rev-parse --short HEAD 2>/dev/null || true)"
+  [[ -n "${repo_version}" ]] || return 0
+  [[ "${installed_version}" != "${repo_version}" ]] || return 0
+
+  printf 'VIBEGUARD WARNING: installed hooks+guards snapshot is stale: %s (current repo: %s; run: bash setup.sh --yes)\n' \
+    "${installed_version}" "${repo_version}" >&2
+}
+
 EXECUTION_MODE="$(vibeguard_execution_mode)"
 if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
   if [[ ! -f "$REPO_PATH_FILE" ]]; then
@@ -86,6 +114,7 @@ if [[ -f "${WRAPPER_ENV_PATH}" ]]; then
   source "${WRAPPER_ENV_PATH}"
   vg_wrapper_env_export "claude"
 fi
+vibeguard_snapshot_drift_warn_once
 
 if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
   POLICY_PATH="$(dirname "${HOOK_PATH}")/_lib/policy.sh"
