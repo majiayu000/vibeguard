@@ -127,6 +127,17 @@ python3 "$TRACKER" \
 assert_contains "$(cat "$TRIAGE_FILE")" '"verdict": "fp"' "--record fp write triage.jsonl"
 assert_contains "$(cat "$TRIAGE_FILE")" "false alarm in tests" "--context write triage.jsonl"
 
+record_unclassified_stderr="${TMPDIR_TEST}/record-unclassified.err"
+if python3 "$TRACKER" \
+  --triage-file "$TRIAGE_FILE" \
+  --scorecard-file "$SCORECARD_FILE" \
+  --record unclassified RS-03 > /dev/null 2>"$record_unclassified_stderr"; then
+  FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+  red "--record rejects unclassified verdicts"
+else
+  assert_contains "$(cat "$record_unclassified_stderr")" "verdict must be tp, fp, or acceptable" "--record rejects unclassified verdicts"
+fi
+
 header "Precision calculation correctness"
 # 1 tp + 1 fp → precision = 50%
 updated_scorecard=$(cat "$SCORECARD_FILE")
@@ -145,6 +156,30 @@ print('OK')
 } || {
   FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
   red "Accuracy calculation error (expected 50%)"
+}
+
+printf '%s\n' '{"ts":"2026-03-01T00:00:00Z","rule":"RS-03","verdict":"unclassified","decision":"warn","context":"candidate only"}' >> "$TRIAGE_FILE"
+python3 "$TRACKER" \
+  --triage-file "$TRIAGE_FILE" \
+  --scorecard-file "$SCORECARD_FILE" \
+  --update-scorecard >/dev/null
+python3 - "$SCORECARD_FILE" <<'PY' >/dev/null && {
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    scorecard = json.load(fh)
+rs03 = scorecard["rules"]["RS-03"]
+assert rs03["samples"] == 2, rs03
+assert rs03["tp"] == 1, rs03
+assert rs03["fp"] == 1, rs03
+assert abs(rs03["precision"] - 0.5) < 0.001, rs03
+PY
+  PASS=$((PASS + 1)); TOTAL=$((TOTAL + 1))
+  green "Unclassified triage candidates do not affect precision counters"
+} || {
+  FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+  red "Unclassified triage candidates should not affect precision counters"
 }
 
 header "lifecycle promotion — experimental → warn"

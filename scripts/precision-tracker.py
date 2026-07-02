@@ -56,7 +56,8 @@ WARN_TO_ERROR_NO_FP_DAYS = 30
 DEMOTION_PRECISION = 0.80
 DEMOTION_MIN_SAMPLES = 20
 
-VALID_VERDICTS = {"tp", "fp", "acceptable"}
+CLASSIFIED_VERDICTS = {"tp", "fp", "acceptable"}
+VALID_VERDICTS = CLASSIFIED_VERDICTS | {"unclassified"}
 
 # Severity × Confidence → stage mapping
 # Used only as documentation; actual graduation is data-driven.
@@ -263,6 +264,8 @@ def compute_rule_stats(
                     pass  # ts already validated; should not reach here
         elif verdict == "acceptable":
             stats[rule]["acceptable"] += 1
+        elif verdict == "unclassified":
+            continue
 
     return stats
 
@@ -544,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     # --record verdict rule
     if args.record:
         verdict, rule = args.record
-        if verdict not in VALID_VERDICTS:
+        if verdict not in CLASSIFIED_VERDICTS:
             print(f"[ERROR] verdict must be tp, fp, or acceptable; got: {verdict}", file=sys.stderr)
             return 1
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
