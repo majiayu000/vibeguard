@@ -25,7 +25,7 @@ In `hooks/run-hook.sh`, on `policy_status` 20/30, branch on event class:
 - Enforcing PreToolUse / PermissionRequest → emit the same blocking output the guards use (`printf '{"decision":"block","reason":"..."}'` to stdout + `exit 0`, or `exit 2`), reusing `VG_POLICY_REASON`. Prefer reusing the existing helper that guards call so the JSON shape stays consistent.
 - Non-enforcing events (Stop, SessionStart, advisory PostToolUse) → keep current visible-but-allow (`exit 0`), never block.
 
-Factor the block-emit into a shared `_lib/policy.sh` helper if one does not already exist, so the Claude and Codex wrappers call the same reason-formatting logic and cannot drift again.
+Factor the block-emit into a shared `hooks/_lib/policy.sh` helper if one does not already exist, so the Claude and Codex wrappers call the same reason-formatting logic and cannot drift again.
 
 ## Product-to-Test Mapping
 
@@ -33,7 +33,7 @@ Factor the block-emit into a shared `_lib/policy.sh` helper if one does not alre
 | --- | --- | --- |
 | P1 block on policy/config error | `run-hook.sh` policy branch | `test_runtime_policy.sh` asserts block decision, not bare exit 1 |
 | P2 visible reason | reuse `VG_POLICY_REASON` | test asserts reason string present in output |
-| P3 Claude/Codex parity | shared `_lib/policy.sh` helper | differential test comparing both wrappers on same input |
+| P3 Claude/Codex parity | shared `hooks/_lib/policy.sh` helper | differential test comparing both wrappers on same input |
 | P4 Stop never blocks | event-class guard in wrapper | test fires Stop with broken runtime, asserts exit 0 |
 | P5 corrupt config blocks | end-to-end | test writes `{` to config, asserts next enforcing event blocked |
 
