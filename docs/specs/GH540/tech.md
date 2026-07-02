@@ -13,8 +13,8 @@ See `product.md`.
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Precision tracker | `scripts/precision-tracker.py` (613 lines) | Computes precision from scorecard; never fed | Consumer of the data we must produce |
-| Scorecard | `data/rule-scorecard.json` | All entries `samples:0, precision:null`, stale 2026-03-24 | The store to populate |
-| Triage log | `data/triage.jsonl` | Header/comments only, no rows | The capture sink |
+| Scorecard | `data/rule-scorecard.seed.json` (tracked seed; runtime writes generated `rule-scorecard.json`) | All entries `samples:0, precision:null`, stale 2026-03-24 | The store to populate |
+| Triage log | `data/triage.example.jsonl` (tracked example; runtime writes `triage.jsonl`) | Header/comments only, no rows | The capture sink |
 | Skill | `guard-precision-tracker` skill | Documents the workflow, no live wiring | Entry point to align |
 | Guard output | `hooks/*guard*.sh`, `hooks/_lib/log_write.sh` | Emits warn/block + logs events to `events.jsonl` | Natural hook to also emit triage records |
 
@@ -34,7 +34,7 @@ Reuse the existing event-log path. Guard hits already write to `events.jsonl` vi
 
 ## Data Flow
 
-Guard decision → (new) triage projection appends JSONL row → user/command classifies → `precision-tracker.py` updates `rule-scorecard.json`. Persistence: `data/triage.jsonl` (append-only), `data/rule-scorecard.json` (rewrite). No external calls.
+Guard decision → (new) triage projection appends JSONL row → user/command classifies → `precision-tracker.py` updates the runtime scorecard (generated from `data/rule-scorecard.seed.json`). Persistence: runtime `triage.jsonl` (append-only) and runtime `rule-scorecard.json` (rewrite); both are generated from the tracked seed/example. No external calls.
 
 ## Alternatives Considered
 

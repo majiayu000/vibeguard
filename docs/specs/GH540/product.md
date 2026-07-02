@@ -6,7 +6,7 @@ GH-540
 
 ## User Problem
 
-VibeGuard ships a full guard-precision pipeline — `scripts/precision-tracker.py`, `data/rule-scorecard.json`, `data/triage.jsonl`, and the `guard-precision-tracker` skill — but it has never received data. `triage.jsonl` has zero data rows; every scorecard entry is `samples: 0, precision: null`, last updated 2026-03-24. The rule lifecycle (experimental → warn → error → demoted → disabled) cannot run, so no rule has ever been promoted or demoted on evidence. The product claims to track false positives, but operates blind.
+VibeGuard ships a full guard-precision pipeline — `scripts/precision-tracker.py`, the tracked seed `data/rule-scorecard.seed.json` (from which the runtime writes the generated, gitignored `rule-scorecard.json`), the tracked `data/triage.example.jsonl` example, and the `guard-precision-tracker` skill — but it has never received data. The runtime triage log has zero data rows; every scorecard entry is `samples: 0, precision: null`, last updated 2026-03-24. The rule lifecycle (experimental → warn → error → demoted → disabled) cannot run, so no rule has ever been promoted or demoted on evidence. The product claims to track false positives, but operates blind.
 
 ## Goals
 
