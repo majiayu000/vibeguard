@@ -56,9 +56,51 @@ assert_profile_hook_restored_after_repair() {
 
 header "setup --clean"
 printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
+mkdir -p "${HOME}/.vibeguard/projects/session-a"
+printf '{"write_mode":"warn"}\n' > "${HOME}/.vibeguard/config.json"
+printf 'learn history\n' > "${HOME}/.vibeguard/projects/session-a/history.jsonl"
+foreign_pre_commit="${TMP_HOME}/foreign-pre-commit"
+cat > "${foreign_pre_commit}" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "${foreign_pre_commit}"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-commit"
+ln -s "${foreign_pre_commit}" "${REPO_GIT_HOOK_DIR}/pre-commit"
+project_init_target="${TMP_HOME}/project-init-target"
+mkdir -p "${project_init_target}"
+git -C "${project_init_target}" init >/dev/null
+cat > "${project_init_target}/Cargo.toml" <<'TOML'
+[package]
+name = "project-init-target"
+version = "0.1.0"
+edition = "2021"
+TOML
+project_init_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_target}" 2>&1)"
+assert_contains "${project_init_out}" "pre-commit hook installed" "project-init installs tracked pre-commit hook"
+assert_contains "${project_init_out}" "pre-push hook installed" "project-init installs tracked pre-push hook"
+assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
 assert_cmd "--clean removes scheduled GC entry" assert_scheduled_gc_absent
+assert_cmd "--clean preserves foreign repo pre-commit hook" bash -c "[[ \"\$(readlink '${REPO_GIT_HOOK_DIR}/pre-commit')\" == '${foreign_pre_commit}' ]]"
+assert_cmd "--clean removes owned repo pre-push hook" test ! -e "${REPO_GIT_HOOK_DIR}/pre-push"
+assert_cmd "--clean removes tracked project-init pre-commit hook" test ! -e "${project_init_target}/.git/hooks/pre-commit"
+assert_cmd "--clean removes tracked project-init pre-push hook" test ! -e "${project_init_target}/.git/hooks/pre-push"
+assert_cmd "--clean removes ~/.vibeguard/run-hook.sh" test ! -e "${HOME}/.vibeguard/run-hook.sh"
+assert_cmd "--clean removes ~/.vibeguard/run-hook-codex.sh" test ! -e "${HOME}/.vibeguard/run-hook-codex.sh"
+assert_cmd "--clean removes ~/.vibeguard/pre-commit wrapper" test ! -e "${HOME}/.vibeguard/pre-commit"
+assert_cmd "--clean removes ~/.vibeguard/pre-push wrapper" test ! -e "${HOME}/.vibeguard/pre-push"
+assert_cmd "--clean removes installed snapshot" test ! -e "${HOME}/.vibeguard/installed"
+assert_cmd "--clean preserves projects by default" test -f "${HOME}/.vibeguard/projects/session-a/history.jsonl"
+assert_cmd "--clean preserves runtime config by default" test -f "${HOME}/.vibeguard/config.json"
+clean_again_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
+assert_contains "${clean_again_out}" "VibeGuard cleaned." "--clean is idempotent"
+purge_out="$(bash "${REPO_DIR}/setup.sh" --clean --purge-data)"
+assert_contains "${purge_out}" "VibeGuard cleaned." "--clean --purge-data succeeds"
+assert_cmd "--clean --purge-data removes projects" test ! -e "${HOME}/.vibeguard/projects"
+assert_cmd "--clean --purge-data removes runtime config" test ! -e "${HOME}/.vibeguard/config.json"
 assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.claude/commands/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vibeguard"
 assert_cmd "~/.claude/commands/vg has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vg"

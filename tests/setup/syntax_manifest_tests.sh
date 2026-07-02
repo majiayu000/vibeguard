@@ -6,6 +6,7 @@ assert_cmd "scripts/setup/check.sh syntax is correct" bash -n "${REPO_DIR}/scrip
 assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/clean.sh"
 assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
 assert_cmd "scripts/codex-contract-check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/codex-contract-check.sh"
+assert_cmd "scripts/project-init.sh syntax is correct" bash -n "${REPO_DIR}/scripts/project-init.sh"
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scripts/lib/install-state.sh syntax is correct" bash -n "${REPO_DIR}/scripts/lib/install-state.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"
@@ -65,6 +66,7 @@ else
 fi
 assert_contains "${setup_help_out}" "Usage: bash setup.sh" "setup.sh --help prints usage"
 assert_contains "${setup_help_out}" "--profile minimal|core|full|strict" "setup.sh --help documents profiles"
+assert_contains "${setup_help_out}" "--purge-data" "setup.sh --help documents clean purge option"
 assert_not_contains "${setup_help_out}" "unknown argument" "setup.sh --help does not report unknown argument"
 
 header "install-state argv safety"
@@ -72,24 +74,29 @@ install_state_home="${TMP_HOME}/install-state quote ' home"
 install_state_repo="${TMP_HOME}/repo quote ' newline"$'\n'"dir"
 install_state_dest="${install_state_home}/tracked quote ' newline"$'\n'"file.txt"
 install_state_source="generated/source quote ' newline"$'\n'"file.txt"
+install_state_hook="${install_state_home}/project/.git/hooks/pre-commit"
 install_state_profile="core quote ' profile"
 install_state_languages="rust,py'thon"$'\n'"go"
-mkdir -p "${install_state_home}/.vibeguard" "$(dirname "${install_state_dest}")" "${install_state_repo}"
+mkdir -p "${install_state_home}/.vibeguard" "$(dirname "${install_state_dest}")" "$(dirname "${install_state_hook}")" "${install_state_repo}"
 printf '%s' "${install_state_repo}" > "${install_state_home}/.vibeguard/repo-path"
 printf 'tracked\n' > "${install_state_dest}"
+ln -s "${install_state_home}/.vibeguard/pre-commit" "${install_state_hook}"
 assert_cmd "install-state accepts quoted/newline values via argv" env \
   HOME="${install_state_home}" \
   SPECIAL_PROFILE="${install_state_profile}" \
   SPECIAL_LANGUAGES="${install_state_languages}" \
   SPECIAL_DEST="${install_state_dest}" \
   SPECIAL_SOURCE="${install_state_source}" \
+  SPECIAL_HOOK="${install_state_hook}" \
   bash -c '
     set -euo pipefail
     source "$1"
     state_init "$SPECIAL_PROFILE" "$SPECIAL_LANGUAGES"
     state_record_file "$SPECIAL_DEST" "$SPECIAL_SOURCE" "copy"
+    state_record_project_hook "$PWD" "$SPECIAL_HOOK" "pre-commit"
     state_check_drift >/dev/null
     state_list >/dev/null
+    state_list_project_hooks | grep -q "$SPECIAL_HOOK"
   ' bash "${REPO_DIR}/scripts/lib/install-state.sh"
 assert_cmd "install-state preserves quoted/newline JSON values" python3 - \
   "${install_state_home}/.vibeguard/install-state.json" \
@@ -97,21 +104,24 @@ assert_cmd "install-state preserves quoted/newline JSON values" python3 - \
   "${install_state_languages}" \
   "${install_state_repo}" \
   "${install_state_dest}" \
-  "${install_state_source}" <<'PY'
+  "${install_state_source}" \
+  "${install_state_hook}" <<'PY'
 import json
 import sys
 
-state_file, profile, languages, repo_dir, dest, source = sys.argv[1:7]
+state_file, profile, languages, repo_dir, dest, source, hook = sys.argv[1:8]
 with open(state_file, encoding="utf-8") as f:
     state = json.load(f)
 
 entry = state["files"][dest]
+hook_entry = state["project_hooks"][hook]
 assert state["profile"] == profile
 assert state["languages"] == languages.split(",")
 assert state["repo_dir"] == repo_dir
 assert entry["source"] == source
 assert entry["type"] == "copy"
 assert entry["checksum"].startswith("sha256:")
+assert hook_entry["hook_name"] == "pre-commit"
 PY
 
 header "manifest skill enumeration failure"
