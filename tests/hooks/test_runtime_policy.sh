@@ -55,6 +55,29 @@ run_codex_wrapper() {
       bash "${REPO_DIR}/hooks/run-hook-codex.sh" "${hook_name}"
 }
 
+make_installed_snapshot_home() {
+  local home_dir="$1" installed_version="$2"
+  mkdir -p "${home_dir}/.vibeguard/installed/hooks"
+  printf '%s' "${REPO_DIR}" > "${home_dir}/.vibeguard/repo-path"
+  printf '%s\n' "${installed_version}" > "${home_dir}/.vibeguard/installed/version"
+  hook_test_install_runtime_stub "${home_dir}"
+  cat > "${home_dir}/.vibeguard/installed/hooks/pre-bash-guard.sh" <<'SH'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+SH
+  chmod +x "${home_dir}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+}
+
+run_installed_claude_wrapper() {
+  local home_dir="$1" session_id="$2" input="$3"
+  printf '%s' "${input}" \
+    | HOME="${home_dir}" VIBEGUARD_LOG_DIR="${home_dir}/.vibeguard" \
+      VIBEGUARD_SESSION_ID="${session_id}" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh
+}
+
 probe_large_claude_stdin() {
   local home_dir="$1" project_dir="$2" hook_name="$3"
   node - "${home_dir}" "${project_dir}" "${hook_name}" "${REPO_DIR}" <<'NODE'
@@ -209,6 +232,36 @@ resolver_out="$(
 )"
 assert_not_contains "${resolver_out}" "${partial_runtime}" "runtime policy resolver rejects runtimes missing helper commands"
 assert_contains "${resolver_out}" "${RUNTIME_BIN}" "runtime policy resolver falls through to helper-capable runtime"
+
+header "runtime policy — installed snapshot drift advisory"
+snapshot_home="${WORK_DIR}/home-snapshot-drift"
+current_head="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+make_installed_snapshot_home "${snapshot_home}" "${current_head}"
+
+set +e
+snapshot_clean_out="$(run_installed_claude_wrapper "${snapshot_home}" "snapshot-clean" "${pretool_block_input}" 2>&1)"
+snapshot_clean_status=$?
+set -e
+assert_empty_success "${snapshot_clean_status}" "${snapshot_clean_out}" "installed snapshot wrapper is silent when version matches repo-path HEAD"
+
+printf '%s\n' "oldsha" > "${snapshot_home}/.vibeguard/installed/version"
+set +e
+snapshot_drift_out="$(run_installed_claude_wrapper "${snapshot_home}" "snapshot-drift" "${pretool_block_input}" 2>&1)"
+snapshot_drift_status=$?
+set -e
+assert_exit_zero "installed snapshot drift advisory does not change hook exit code" test "${snapshot_drift_status}" -eq 0
+assert_contains "${snapshot_drift_out}" "installed hooks+guards snapshot is stale: oldsha" "installed snapshot drift emits visible warning"
+assert_contains "${snapshot_drift_out}" "run: bash setup.sh --yes" "installed snapshot drift warning names setup remedy"
+
+snapshot_drift_second="$(
+  printf '%s' "${pretool_block_input}" \
+    | HOME="${snapshot_home}" VIBEGUARD_LOG_DIR="${snapshot_home}/.vibeguard" \
+      VIBEGUARD_SESSION_ID="snapshot-drift" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash -x "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh 2>&1 >/dev/null || true
+)"
+assert_not_contains "${snapshot_drift_second}" "installed hooks+guards snapshot is stale" "installed snapshot drift warns once per session"
+assert_not_contains "${snapshot_drift_second}" "rev-parse --short HEAD" "installed snapshot drift check caches live HEAD per session"
 
 header "runtime policy — disabled hooks"
 disabled_home="${WORK_DIR}/home-disabled"
