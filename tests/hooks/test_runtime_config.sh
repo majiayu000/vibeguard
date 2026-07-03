@@ -156,6 +156,17 @@ result=$(env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_U
   VG_PARALYSIS_THRESHOLD=5 bash hooks/analysis-paralysis-guard.sh)
 assert_not_contains "$result" "ANALYSIS PARALYSIS" "VG_PARALYSIS_THRESHOLD overrides JSON"
 
+paralysis_bash_log="$(make_log_dir)"
+seed_research_events "$paralysis_bash_log" "cfg-paralysis-bash" 2
+result=$(printf '%s' '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"printf x > /tmp/vg-paralysis-reset"}}' \
+  | env CI=false GITHUB_ACTIONS=false TRAVIS=false CIRCLECI=false JENKINS_URL= GITLAB_CI=false TF_BUILD=false \
+    VIBEGUARD_LOG_DIR="$paralysis_bash_log" VIBEGUARD_SESSION_ID="cfg-paralysis-bash" VIBEGUARD_CONFIG_FILE="$cfg" \
+    bash hooks/analysis-paralysis-guard.sh)
+assert_not_contains "$result" "ANALYSIS PARALYSIS" "Bash-triggered analysis hook does not warn at threshold"
+bash_paralysis_file=$(VIBEGUARD_LOG_DIR="$paralysis_bash_log" VIBEGUARD_SESSION_ID="cfg-paralysis-bash" bash -c 'source hooks/log.sh; printf "%s" "$VIBEGUARD_LOG_FILE"')
+bash_paralysis_log="$(grep '"hook": "analysis-paralysis-guard".*"tool": "Bash"' "$bash_paralysis_file" || true)"
+assert_contains "$bash_paralysis_log" '"tool": "Bash"' "analysis hook logs actual Bash trigger tool"
+
 paralysis_drain_log="$(make_log_dir)"
 seed_research_events "$paralysis_drain_log" "cfg-paralysis-drain" 2
 paralysis_drain_out=$(node - "${REPO_DIR}" "$paralysis_drain_log" "$cfg" <<'NODE'

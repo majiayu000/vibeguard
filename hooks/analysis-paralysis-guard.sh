@@ -13,8 +13,9 @@
 
 set -euo pipefail
 
+INPUT=""
 if [[ ! -t 0 ]]; then
-  if ! cat >/dev/null; then
+  if ! INPUT="$(cat)"; then
     echo "ERROR: failed to drain analysis-paralysis hook stdin" >&2
     exit 1
   fi
@@ -45,8 +46,30 @@ vg_is_ci && exit 0
 
 vg_config_get_int_result THRESHOLD VG_PARALYSIS_THRESHOLD paralysis.threshold 7
 
+HOOK_TOOL=""
+if [[ -n "$INPUT" ]]; then
+  HOOK_TOOL="$(printf '%s' "$INPUT" | vg_json_field "tool_name" 2>/dev/null | tr -d '\r\n' || true)"
+fi
+case "$HOOK_TOOL" in
+  Read|Glob|Grep|Write|Edit|Bash|MultiEdit|NotebookEdit|Task|Agent|PostToolUse) ;;
+  "") HOOK_TOOL="Read" ;;
+  *) HOOK_TOOL="unknown" ;;
+esac
+
+case "$HOOK_TOOL" in
+  Read|Glob|Grep) ;;
+  *)
+    vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "pass" "consecutive_reads=0" ""
+    if ! vg_cb_record_pass "analysis-paralysis-guard"; then
+      vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "block" "Circuit breaker state error; fail-visible" ""
+      _emit_cb_state_error
+    fi
+    exit 0
+    ;;
+esac
+
 # Count consecutive research-only tool calls (Read/Glob/Grep) at the tail of the session log.
-# Exclude this hook's own log entries (hook == "analysis-paralysis-guard") to avoid self-inflation.
+# Non-research trigger tools are logged and handled above so stale matchers reset instead of inflating the streak.
 # Note: Glob/Grep hooks also log via this same hook (matcher: Read|Glob|Grep in settings.json).
 # Read only last 300 lines to avoid O(n) full-file scan on long sessions
 CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
@@ -55,8 +78,8 @@ CONSECUTIVE=$(tail -300 "$VIBEGUARD_LOG_FILE" 2>/dev/null \
 
 CONSECUTIVE="${CONSECUTIVE:-0}"
 
-# Log the Read event itself (always, regardless of circuit breaker state)
-vg_log "analysis-paralysis-guard" "Read" "pass" "consecutive_reads=${CONSECUTIVE}" ""
+# Log the triggering research event itself (always, regardless of circuit breaker state)
+vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "pass" "consecutive_reads=${CONSECUTIVE}" ""
 
 if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   # Circuit breaker check: if this hook has been firing repeatedly without
@@ -71,9 +94,9 @@ if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   if [[ "$CB_STATUS" -eq 0 ]]; then
     WARNING="[ANALYSIS PARALYSIS] There have been ${CONSECUTIVE} consecutive read-only operations (Read/Glob/Grep) without any writes. You may be stuck in a \"read-read\" loop. You must choose: (1) Start writing code/editing files (2) Report the blocker to the user and explain where it is stuck."
 
-    vg_log "analysis-paralysis-guard" "Read" "warn" "paralysis ${CONSECUTIVE}x" ""
+    vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "warn" "paralysis ${CONSECUTIVE}x" ""
     if ! vg_cb_record_block "analysis-paralysis-guard"; then
-      vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+      vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "block" "Circuit breaker state error; fail-visible" ""
       _emit_cb_state_error
       exit 0
     fi
@@ -83,12 +106,12 @@ if [[ "$CONSECUTIVE" -ge "$THRESHOLD" ]]; then
   elif [[ "$CB_STATUS" -eq 1 ]]; then
     : # Circuit OPEN: vg_cb_check already logged the auto-pass.
   else
-    vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+    vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "block" "Circuit breaker state error; fail-visible" ""
     _emit_cb_state_error
   fi
 else
   if ! vg_cb_record_pass "analysis-paralysis-guard"; then
-    vg_log "analysis-paralysis-guard" "Read" "block" "Circuit breaker state error; fail-visible" ""
+    vg_log "analysis-paralysis-guard" "$HOOK_TOOL" "block" "Circuit breaker state error; fail-visible" ""
     _emit_cb_state_error
   fi
 fi

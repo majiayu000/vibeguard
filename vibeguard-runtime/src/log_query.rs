@@ -320,6 +320,7 @@ fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
         match e.get(field::TOOL).and_then(Value::as_str) {
             Some(tool_name) if tool::RESEARCH_ONLY.contains(&tool_name) => consecutive += 1,
             Some(tool_name) if tool::MUTATING.contains(&tool_name) => break,
+            Some(_) => break,
             _ => {}
         }
     }
@@ -673,6 +674,49 @@ mod tests {
 
         let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
         assert_eq!(count_paralysis_events(&events, now), 2);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_expanded_mutating_tools() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+
+        for mutating_tool in [
+            tool::MULTI_EDIT,
+            tool::NOTEBOOK_EDIT,
+            tool::TASK,
+            tool::AGENT,
+            tool::POST_TOOL_USE,
+        ] {
+            let events = vec![
+                json!({"tool": "Read", "ts": "2026-05-01T00:00:00Z"}),
+                json!({"tool": mutating_tool, "ts": "2026-05-01T00:10:00Z"}),
+                json!({"tool": "Grep", "ts": "2026-05-01T00:12:00Z"}),
+            ];
+
+            assert_eq!(
+                count_paralysis_events(&events, now),
+                1,
+                "tool {mutating_tool} should reset the read-only streak"
+            );
+        }
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_unknown_tool_events() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+
+        for reset_event in [
+            json!({"hook": "post-build-check", "tool": "CustomTool", "decision": "pass", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"hook": "analysis-paralysis-guard", "tool": "unknown", "decision": "pass", "ts": "2026-05-01T00:10:00Z"}),
+        ] {
+            let events = vec![
+                json!({"tool": "Read", "ts": "2026-05-01T00:00:00Z"}),
+                reset_event,
+                json!({"tool": "Glob", "ts": "2026-05-01T00:12:00Z"}),
+            ];
+
+            assert_eq!(count_paralysis_events(&events, now), 1);
+        }
     }
 
     #[test]
