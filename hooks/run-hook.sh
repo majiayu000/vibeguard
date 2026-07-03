@@ -107,9 +107,14 @@ if [[ ${policy_status} -eq 10 ]]; then
   vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
   exit 0
 elif [[ ${policy_status} -ne 0 ]]; then
-  vg_policy_diag "${HOOK_NAME}" "Claude" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
+  CLAUDE_EVENT_NAME="$(vg_policy_claude_event_name "${HOOK_NAME}" "${_VG_HOOK_STDIN_FILE:-}")"
+  vg_policy_diag "${HOOK_NAME}" "${CLAUDE_EVENT_NAME}" "${VG_POLICY_KIND}" "${VG_POLICY_REASON}"
+  if vg_policy_claude_event_enforces "${CLAUDE_EVENT_NAME}"; then
+    vg_policy_claude_error_output "${VG_POLICY_REASON}"
+    exit 0
+  fi
   printf '%s\n' "${VG_POLICY_REASON}" >&2
-  exit 1
+  exit 0
 fi
 
 # Ensure Python writes UTF-8 regardless of the terminal's default encoding (fixes Windows CP-1252)
