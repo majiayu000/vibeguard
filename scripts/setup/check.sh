@@ -416,6 +416,7 @@ _check_project_git_hooks() {
 _check_installed_snapshot_version() {
   local version_file="${HOME}/.vibeguard/installed/version"
   local installed_version=""
+  local repo_dir=""
   local repo_version=""
 
   if [[ ! -f "${version_file}" ]]; then
@@ -424,10 +425,16 @@ _check_installed_snapshot_version() {
   fi
 
   installed_version="$(tr -d '[:space:]' < "${version_file}")"
-  repo_version="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || true)"
+  repo_dir="$(_execution_repo_dir 2>/dev/null || true)"
+
+  if [[ -z "${repo_dir}" || ! -d "${repo_dir}" ]]; then
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo-path unavailable)"
+    return 0
+  fi
+  repo_version="$(git -C "${repo_dir}" rev-parse --short HEAD 2>/dev/null || true)"
 
   if [[ -z "${repo_version}" ]]; then
-    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo HEAD unavailable)"
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo-path HEAD unavailable)"
     return 0
   fi
   if [[ -z "${installed_version}" ]]; then
@@ -439,7 +446,7 @@ _check_installed_snapshot_version() {
     return 0
   fi
 
-  green "[OK] Installed hooks+guards snapshot matches repo HEAD (${repo_version})"
+  green "[OK] Installed hooks+guards snapshot matches repo-path HEAD (${repo_version})"
 }
 
 _check_installed_runtime_version() {
