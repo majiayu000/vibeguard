@@ -3,13 +3,14 @@ name: "VibeGuard: Stats"
 description: "View hooks trigger statistics - interception/warning/release times and reason analysis"
 category: VibeGuard
 tags: [vibeguard, stats, logging, observability]
-argument-hint: "[days|all|health [hours]]"
+argument-hint: "[days|all|health [hours]|weekly [days]]"
 ---
 
 **Core Features**
 - Analyze hook trigger logs in `~/.vibeguard/events.jsonl`
 - Output interception/warning/release statistics, distribution by hook, top 5 reasons, and daily trigger volume
 - Supports `health` snapshot mode: risk rate, Top risk hook, Top 10 recent risk events
+- Supports `weekly` report mode: rule trigger distribution, precision attention, and zero-usage rule/skill candidates
 - Help users understand whether VibeGuard is working and what is blocked
 
 **Steps**
@@ -20,6 +21,10 @@ argument-hint: "[days|all|health [hours]]"
      health_arg="${ARGUMENTS#health}"
      health_arg="${health_arg#"${health_arg%%[![:space:]]*}"}"
      bash ~/Desktop/code/AI/tools/vibeguard/scripts/hook-health.sh "${health_arg:-24}"
+   elif [[ "${ARGUMENTS:-}" == weekly* ]]; then
+     weekly_arg="${ARGUMENTS#weekly}"
+     weekly_arg="${weekly_arg#"${weekly_arg%%[![:space:]]*}"}"
+     bash ~/Desktop/code/AI/tools/vibeguard/scripts/weekly-health-report.sh "${weekly_arg:-30}"
    else
      bash ~/Desktop/code/AI/tools/vibeguard/scripts/stats.sh $ARGUMENTS
    fi
@@ -30,5 +35,7 @@ argument-hint: "[days|all|health [hours]]"
    - `all`: all history
    - `health`: health snapshot of the last 24 hours
    - `health 72`: Health snapshot of the last 72 hours
+   - `weekly`: Weekly health report over the last 30 days
+   - `weekly 14`: Weekly health report over the last 14 days
 
 2. Display the statistical results to the user. If there is an exception (such as interception is 0 but has been used for a period of time), you will be reminded to check whether the hooks configuration is correct.

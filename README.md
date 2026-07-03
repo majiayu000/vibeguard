@@ -290,6 +290,7 @@ Use workflow prompts and dispatcher guidance as consumers of that contract, not 
 bash ~/vibeguard/scripts/quality-grader.sh              # Quality grade (A/B/C/D)
 bash ~/vibeguard/scripts/stats.sh                       # Project hook trigger stats (7 days)
 bash ~/vibeguard/scripts/hook-health.sh 24              # Project hook health snapshot
+bash ~/vibeguard/scripts/weekly-health-report.sh        # Weekly rule/precision/zero-usage report
 bash ~/vibeguard/scripts/stats.sh --scope global        # Global hook trigger stats
 bash ~/vibeguard/scripts/doctors/codex-doctor.sh        # Codex install + hook capability diagnosis
 bash ~/vibeguard/scripts/metrics/metrics-exporter.sh    # Prometheus metrics export

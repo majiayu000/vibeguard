@@ -204,6 +204,7 @@ README、workflow prompts、dispatcher 都应该消费这份契约，而不是�
 bash ~/vibeguard/scripts/quality-grader.sh
 bash ~/vibeguard/scripts/stats.sh
 bash ~/vibeguard/scripts/hook-health.sh 24
+bash ~/vibeguard/scripts/weekly-health-report.sh
 bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 bash ~/vibeguard/scripts/metrics/metrics-exporter.sh
 bash ~/vibeguard/scripts/verify/doc-freshness-check.sh

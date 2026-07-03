@@ -8,6 +8,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 |------|------|
 | `stats.sh` | Analyze `events.jsonl` and summarize hook activity, decision mix, and hot spots |
 | `hook-health.sh` | Show recent hook health: risk rate, top noisy hooks, and recent risky events |
+| `weekly-health-report.sh` | Aggregate weekly rule triggers, precision attention, and zero-usage rule/skill candidates |
 | `quality-grader.sh` | Compute the current quality grade from runtime events |
 | `project-init.sh` | Bootstrap another repository with detected languages, recommended constraints, and git hook wiring |
 | `constraint-recommender.py` | Generate an initial preflight constraint draft from project structure |
@@ -58,6 +59,7 @@ Reference notes for the utility scripts shipped with VibeGuard.
 ```bash
 bash scripts/stats.sh
 bash scripts/hook-health.sh 24
+bash scripts/weekly-health-report.sh
 bash scripts/quality-grader.sh
 python3 scripts/authorized-discard.py --plan
 python3 scripts/live_truth.py checklist
