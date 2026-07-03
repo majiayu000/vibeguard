@@ -36,8 +36,8 @@ bash ~/vibeguard/setup.sh --yes
 bash ~/vibeguard/setup.sh verify-install
 ```
 
-On supported macOS/Linux release targets, the production install/check/clean path
-is Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
+On supported macOS/Linux release targets, the production install/check/clean path is
+Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
 verifies it with `SHA256SUMS`. When authenticated `gh` attestation verification
 is available, setup reports `verified-provenance`; otherwise it reports
 `checksum-only` instead of treating the release as provenance-verified. Rust/Cargo
