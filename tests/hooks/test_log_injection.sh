@@ -289,6 +289,81 @@ assert_contains "$stale_mirror_result" "global=1" "Stale runtime mirror fallback
 assert_not_contains "$(cat "$stale_mirror_runtime_stderr")" "runtime mirrored JSONL append failed" "Stale runtime mirror fallback does not report runtime mirror failure"
 rm -rf "$stale_mirror_runtime_test_dir"
 
+header "log.sh — triage projection"
+
+TRIAGE_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
+
+triage_test_dir="$(mktemp -d)"
+triage_file="${triage_test_dir}/triage.jsonl"
+triage_result=$(
+  export HOME="${triage_test_dir}/home"
+  export VIBEGUARD_LOG_DIR="${triage_test_dir}/logs"
+  export VIBEGUARD_PROJECT_LOG_DIR="${triage_test_dir}/project"
+  export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+  export VIBEGUARD_TRIAGE_FILE="${triage_file}"
+  export VIBEGUARD_SESSION_ID="triage-projection-test"
+  export VIBEGUARD_RUNTIME="${TRIAGE_RUNTIME}"
+  source hooks/log.sh
+  vg_log "post-edit-guard" "Edit" "warn" "[RS-03] unwrap Authorization: Bearer sk-triage-secret" "src/main.rs --token triage-token"
+  vg_log "post-edit-guard" "Edit" "pass" "[RS-03] pass should not project" "src/pass.rs"
+  python3 - "$triage_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    rows = [json.loads(line) for line in fh if line.strip()]
+assert len(rows) == 1, rows
+row = rows[0]
+assert row["rule"] == "RS-03", row
+assert row["verdict"] == "unclassified", row
+assert row["decision"] == "warn", row
+assert row["file"] == "src/main.rs --token ***REDACTED***", row
+assert row["session"] == "triage-projection-test", row
+print("triage-ok")
+PY
+)
+assert_contains "$triage_result" "triage-ok" "Warn/block guard hit projects one unclassified triage row"
+assert_not_contains "$(cat "$triage_file")" "sk-triage-secret" "Triage projection redacts bearer secrets"
+assert_not_contains "$(cat "$triage_file")" "triage-token" "Triage projection redacts token flags"
+rm -rf "$triage_test_dir"
+
+triage_concurrent_dir="$(mktemp -d)"
+triage_concurrent_file="${triage_concurrent_dir}/triage.jsonl"
+pids=()
+for i in $(seq 1 12); do
+  (
+    export HOME="${triage_concurrent_dir}/home-${i}"
+    export VIBEGUARD_LOG_DIR="${triage_concurrent_dir}/logs"
+    export VIBEGUARD_PROJECT_LOG_DIR="${triage_concurrent_dir}/project-${i}"
+    export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+    export VIBEGUARD_TRIAGE_FILE="${triage_concurrent_file}"
+    export VIBEGUARD_SESSION_ID="triage-concurrent-${i}"
+    export VIBEGUARD_RUNTIME="${TRIAGE_RUNTIME}"
+    source hooks/log.sh
+    vg_log "pre-write-guard" "Write" "block" "[U-16] concurrent candidate ${i}" "src/file_${i}.rs"
+  ) &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+  wait "$pid"
+done
+triage_concurrent_result=$(python3 - "$triage_concurrent_file" <<'PY'
+import json
+import sys
+
+rows = []
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for line in fh:
+        rows.append(json.loads(line))
+assert len(rows) == 12, len(rows)
+assert {row["rule"] for row in rows} == {"U-16"}, rows
+print(f"lines={len(rows)}")
+PY
+)
+assert_contains "$triage_concurrent_result" "lines=12" "Concurrent triage appends stay parseable and complete"
+rm -rf "$triage_concurrent_dir"
+
 # =========================================================
 
 hook_test_finish

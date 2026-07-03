@@ -186,6 +186,60 @@ vg_log_append_string_field() {
   printf '%s, "%s": "%s"' "$json" "$field" "$(vg_log_json_escape "$value")"
 }
 
+vg_log_triage_rule_id() {
+  local text="$1"
+  if [[ "${text}" =~ ([A-Z]+[A-Z0-9]*-[0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  if [[ "${text}" =~ (^|[^A-Z0-9_-])(DEBUG|STUB|CHURN|LARGE-EDIT)([^A-Z0-9_-]|$) ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  return 1
+}
+
+vg_log_triage_file() {
+  if [[ -n "${VIBEGUARD_TRIAGE_FILE:-}" ]]; then
+    printf '%s' "${VIBEGUARD_TRIAGE_FILE}"
+  elif [[ -n "${VIBEGUARD_REPO_DIR:-}" ]]; then
+    printf '%s/data/triage.jsonl' "${VIBEGUARD_REPO_DIR}"
+  else
+    printf '%s/triage.jsonl' "${VIBEGUARD_LOG_DIR}"
+  fi
+}
+
+vg_log_triage_projection() {
+  local ts="$1" hook="$2" tool="$3" decision="$4" reason="$5" detail="$6"
+  local rule_id triage_file triage_json triage_dir
+  case "${decision}" in
+    warn|block|gate|escalate) ;;
+    *) return 0 ;;
+  esac
+  rule_id="$(vg_log_triage_rule_id "${reason} ${detail}")" || return 0
+  triage_file="$(vg_log_triage_file)"
+  triage_dir="$(dirname "${triage_file}")"
+  mkdir -p "${triage_dir}" 2>/dev/null || {
+    printf 'VIBEGUARD ERROR: failed to create triage log directory: %s\n' "${triage_dir}" >&2
+    return 0
+  }
+
+  triage_json="{\"schema_version\": 1, \"ts\": \"${ts}\", \"rule\": \"$(vg_log_json_escape "${rule_id}")\", \"verdict\": \"unclassified\""
+  triage_json="$(vg_log_append_string_field "${triage_json}" "decision" "${decision}")"
+  triage_json="$(vg_log_append_string_field "${triage_json}" "hook" "${hook}")"
+  triage_json="$(vg_log_append_string_field "${triage_json}" "tool" "${tool}")"
+  triage_json="$(vg_log_append_string_field "${triage_json}" "file" "${detail}")"
+  triage_json="$(vg_log_append_string_field "${triage_json}" "context" "${reason}")"
+  triage_json="$(vg_log_append_string_field "${triage_json}" "session" "${VIBEGUARD_SESSION_ID:-}")"
+  triage_json="${triage_json}}"
+
+  vg_private_log_file "${triage_file}"
+  if ! vg_append_log_line "${triage_file}" "${triage_json}"; then
+    printf 'VIBEGUARD ERROR: triage log write failed: %s\n' "${triage_file}" >&2
+  fi
+  vg_private_log_file "${triage_file}"
+}
+
 vg_log() {
   local hook="$1"
   local tool="$2"
@@ -268,4 +322,5 @@ vg_log() {
   fi
   vg_private_log_file "$VIBEGUARD_LOG_FILE"
   vg_private_log_file "$global_log"
+  vg_log_triage_projection "${ts}" "${hook}" "${tool}" "${decision}" "${reason}" "${detail}"
 }
