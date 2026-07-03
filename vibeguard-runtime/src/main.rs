@@ -403,6 +403,11 @@ static COMMANDS: &[Command] = &[
         handler: setup_install_state::record_file,
     },
     Command {
+        name: "setup-state-record-project-hook",
+        usage: "<state-file> <repo-dir> <hook-path> <hook-name>  — record project git hook",
+        handler: setup_install_state::record_project_hook,
+    },
+    Command {
         name: "setup-state-check-drift",
         usage: "<state-file>  — check install-state drift",
         handler: setup_install_state::check_drift,
@@ -416,6 +421,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-list-symlinks-under",
         usage: "<state-file> <dest-dir>  — list tracked symlinks under a directory",
         handler: setup_install_state::list_tracked_symlinks_under,
+    },
+    Command {
+        name: "setup-state-list-project-hooks",
+        usage: "<state-file>  — list tracked project git hooks",
+        handler: setup_install_state::list_project_hooks,
     },
     Command {
         name: "setup-codex-config-enable-hooks",

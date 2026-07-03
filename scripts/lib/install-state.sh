@@ -79,6 +79,11 @@ state_record_file() {
   state_runtime setup-state-record-file "$STATE_FILE" "$dest" "$source" "$install_type"
 }
 
+state_record_project_hook() {
+  local repo_dir="$1" hook_path="$2" hook_name="$3"
+  state_runtime setup-state-record-project-hook "$STATE_FILE" "$repo_dir" "$hook_path" "$hook_name"
+}
+
 # Record all files (regular or symlink) under a directory as installed artifacts.
 # source_prefix is joined with each relative file path for traceability.
 state_record_tree() {
@@ -119,6 +124,12 @@ state_list_tracked_symlinks_under() {
   [[ -f "$STATE_FILE" ]] || return 0
 
   state_runtime setup-state-list-symlinks-under "$STATE_FILE" "$dest_dir"
+}
+
+state_list_project_hooks() {
+  [[ -f "$STATE_FILE" ]] || return 0
+
+  state_runtime setup-state-list-project-hooks "$STATE_FILE"
 }
 
 # Remove state file (used by clean.sh)
