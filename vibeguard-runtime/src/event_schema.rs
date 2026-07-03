@@ -121,3 +121,53 @@ pub mod metric_field {
     pub const CORRECTION_SIGNALS: &str = "correction_signals";
     pub const WARN_RATIO: &str = "warn_ratio";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutating_tools_cover_write_shell_and_dispatch_events() {
+        for expected in [
+            tool::WRITE,
+            tool::EDIT,
+            tool::BASH,
+            tool::MULTI_EDIT,
+            tool::NOTEBOOK_EDIT,
+            tool::TASK,
+            tool::AGENT,
+            tool::POST_TOOL_USE,
+        ] {
+            assert!(
+                tool::MUTATING.contains(&expected),
+                "missing mutating tool {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn research_only_tools_do_not_overlap_mutating_tools() {
+        assert_eq!(tool::RESEARCH_ONLY, [tool::READ, tool::GLOB, tool::GREP]);
+        for research_tool in tool::RESEARCH_ONLY {
+            assert!(
+                !tool::MUTATING.contains(&research_tool),
+                "research-only tool {research_tool} must not reset as mutating"
+            );
+        }
+    }
+
+    #[test]
+    fn negative_decisions_exclude_pass_and_terminal_complete() {
+        assert_eq!(
+            decision::NEGATIVE,
+            [
+                decision::WARN,
+                decision::BLOCK,
+                decision::ESCALATE,
+                decision::CORRECTION
+            ]
+        );
+        assert!(!decision::NEGATIVE.contains(&decision::PASS));
+        assert!(!decision::NEGATIVE.contains(&decision::COMPLETE));
+    }
+}

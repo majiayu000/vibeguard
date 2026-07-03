@@ -24,6 +24,11 @@ for file in "${REPO_DIR}"/tests/hooks/*.sh; do
   check_file "${file}" 400
 done
 
+for file in "${REPO_DIR}"/tests/lib/*.sh; do
+  [[ -f "${file}" ]] || continue
+  check_file "${file}" 400
+done
+
 for file in "${REPO_DIR}"/vibeguard-runtime/tests/*.rs; do
   [[ -f "${file}" ]] || continue
   check_file "${file}" 800
