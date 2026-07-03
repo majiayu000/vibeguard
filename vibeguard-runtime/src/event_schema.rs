@@ -112,3 +112,28 @@ pub mod metric_field {
     pub const CORRECTION_SIGNALS: &str = "correction_signals";
     pub const WARN_RATIO: &str = "warn_ratio";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::tool;
+
+    #[test]
+    fn tool_groups_keep_analysis_paralysis_boundaries() {
+        for research_tool in [tool::READ, tool::GLOB, tool::GREP] {
+            assert!(tool::RESEARCH_ONLY.contains(&research_tool));
+            assert!(!tool::MUTATING.contains(&research_tool));
+        }
+        for mutating_tool in [
+            tool::WRITE,
+            tool::EDIT,
+            tool::MULTI_EDIT,
+            tool::NOTEBOOK_EDIT,
+            tool::BASH,
+            tool::TASK,
+            tool::AGENT,
+        ] {
+            assert!(tool::MUTATING.contains(&mutating_tool));
+            assert!(!tool::RESEARCH_ONLY.contains(&mutating_tool));
+        }
+    }
+}
