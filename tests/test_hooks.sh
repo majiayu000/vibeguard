@@ -33,6 +33,7 @@ shards=(
   "tests/hooks/test_log_session.sh"
   "tests/hooks/test_post_edit_suppression.sh"
   "tests/hooks/test_log_timer.sh"
+  "tests/hooks/test_analysis_paralysis_guard.sh"
   "tests/hooks/test_skills_loader.sh"
   "tests/hooks/test_post_edit_w14.sh"
   "tests/hooks/test_post_edit_w15.sh"
