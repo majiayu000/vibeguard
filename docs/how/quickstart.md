@@ -10,10 +10,11 @@ git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh --yes
 ```
 
-On supported macOS/Linux targets, setup downloads a prebuilt
-`vibeguard-runtime` release binary and verifies its checksum. Source builds are
-only needed for unsupported targets, offline installs, or explicit
-`--build-from-source` runs.
+On supported macOS/Linux release targets, setup downloads a prebuilt
+`vibeguard-runtime` release binary and verifies its checksum when the pinned
+runtime version has published assets. Source builds are needed for unsupported
+targets, offline installs, explicit `--build-from-source` runs, or unreleased
+`main` checkouts whose `vibeguard-runtime/VERSION` is ahead of the latest tag.
 
 ## 2. Verify
 
