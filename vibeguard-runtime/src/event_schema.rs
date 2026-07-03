@@ -87,10 +87,15 @@ pub mod tool {
     pub const GREP: &str = "Grep";
     pub const WRITE: &str = "Write";
     pub const EDIT: &str = "Edit";
+    pub const MULTI_EDIT: &str = "MultiEdit";
+    pub const NOTEBOOK_EDIT: &str = "NotebookEdit";
     pub const BASH: &str = "Bash";
+    pub const TASK: &str = "Task";
+    pub const AGENT: &str = "Agent";
+    pub const POST_TOOL_USE: &str = "PostToolUse";
 
     pub const RESEARCH_ONLY: [&str; 3] = [READ, GLOB, GREP];
-    pub const MUTATING: [&str; 3] = [WRITE, EDIT, BASH];
+    pub const MUTATING: [&str; 7] = [WRITE, EDIT, MULTI_EDIT, NOTEBOOK_EDIT, BASH, TASK, AGENT];
 }
 
 pub mod metric_field {
