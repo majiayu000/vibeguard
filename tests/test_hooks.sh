@@ -31,6 +31,7 @@ shards=(
   "tests/hooks/test_precommit_ts_quality.sh"
   "tests/hooks/test_precommit_nested_roots.sh"
   "tests/hooks/test_log_session.sh"
+  "tests/hooks/test_runtime_resolution_order.sh"
   "tests/hooks/test_post_edit_suppression.sh"
   "tests/hooks/test_log_timer.sh"
   "tests/hooks/test_analysis_paralysis_guard.sh"
