@@ -361,7 +361,7 @@ assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 assert_cmd "Claude vibeguard skill targets installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/skills/vibeguard')\" == '${HOME}/.vibeguard/installed/skills/vibeguard' ]]"
 assert_cmd "Claude command target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/commands/vg')\" == '${HOME}/.vibeguard/installed/.claude/commands/vg' ]]"
-assert_cmd "native rule target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/rules/vibeguard/common/security.md')\" == '${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md' ]]"
+assert_cmd "core profile does not front-inject the native rule tree (GH-541)" test ! -e "${HOME}/.claude/rules/vibeguard/common/security.md"
 fake_live_repo="${TMP_HOME}/fake-live-repo"
 mkdir -p "${fake_live_repo}/hooks/git" "${fake_live_repo}/hooks"
 cat > "${fake_live_repo}/hooks/git/pre-push" <<'SH'
@@ -400,7 +400,9 @@ assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--ch
 
 dev_linked_home="${TMP_HOME}/dev-linked-home"
 mkdir -p "${dev_linked_home}"
-dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked)"
+# GH-541: the native rule tree is only front-injected under full/strict, so use
+# the full profile here to exercise dev-linked rule-symlink target resolution.
+dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked --profile full)"
 assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live repository paths)" "--dev-linked mode is visible during setup"
 assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
 assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/vibeguard')\" == '${REPO_DIR}/skills/vibeguard' ]]"
@@ -541,6 +543,9 @@ rm -f "${HOME}/.claude/skills/vibeguard"
 ln -s "${HOME}/.vibeguard/installed/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
 wrong_rule_target="${TMP_HOME}/wrong-security-rule.md"
 printf '## U-17: Wrong source\n' > "${wrong_rule_target}"
+# GH-541: the core profile no longer front-injects the tree, so create the
+# common/ dir before injecting the drift/stale symlinks the --check must catch.
+mkdir -p "${HOME}/.claude/rules/vibeguard/common"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
 ln -s "${wrong_rule_target}" "${HOME}/.claude/rules/vibeguard/common/security.md"
 drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
@@ -629,10 +634,10 @@ assert_cmd "run-hook-codex rejects non-namespaced hook names" bash -c "out=\$(pr
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
-assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
+assert_cmd "~/.claude/CLAUDE.md rule banner matches expected rules" assert_claude_rule_banner_matches_expected_rules
 assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.codex/AGENTS.md"
 assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
-assert_cmd "~/.codex/AGENTS.md rule banner matches installed rules" assert_codex_rule_banner_matches_installed_rules
+assert_cmd "~/.codex/AGENTS.md rule banner matches expected rules" assert_codex_rule_banner_matches_expected_rules
 assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"

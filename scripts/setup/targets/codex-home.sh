@@ -413,7 +413,7 @@ check_codex_agents_hygiene() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local actual_rule_count declared_count
   if [[ -d "${rules_dest}" ]]; then
-    actual_rule_count=$(vibeguard_rule_id_count "${rules_dest}")
+    actual_rule_count=$(claude_rule_count_for_banner)
     if declared_count=$(vibeguard_managed_rule_banner_count "${agents_md}"); then
       if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
         green "[OK] Rule count in ~/.codex/AGENTS.md: ${actual_rule_count} rules"

@@ -116,9 +116,21 @@ assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'nod
 
 header "setup install default languages before rust filter"
 install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
-assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "default install writes manifest native rules"
-assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
-assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# GH-541: the default (core) profile delivers only the compact L1-L7 + Key
+# Detailed Rules table via ~/.claude/CLAUDE.md and must NOT front-inject the
+# full native rule tree, so the live payload stays within the U-32 budget.
+assert_contains "${install_default_lang_out}" "compact core (core profile)" "core profile install reports compact core delivery"
+assert_cmd "core profile does not front-inject Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "core profile does not front-inject Go native rules" test ! -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+
+# The full rule text stays opt-in under the full/strict profiles.
+install_full_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full)"
+assert_contains "${install_full_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "full profile install writes manifest native rules"
+assert_cmd "full profile includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "full profile includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# Switching back to core removes the previously front-injected tree.
+install_core_again_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
+assert_cmd "core profile removes previously injected Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 BASH_C_PROFILE_SETTINGS="${TMP_HOME}/bash-c-profile-settings.json"
 python3 - "${HOME}/.claude/settings.json" "${BASH_C_PROFILE_SETTINGS}" <<'PY'
@@ -294,8 +306,20 @@ chmod +x "${old_profile_runtime}"
 old_runtime_check_out="$(VIBEGUARD_SETUP_RUNTIME="${old_profile_runtime}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_not_contains "${old_runtime_check_out}" "[MISSING] Claude hooks missing for core profile" "setup --check skips stale runtime profile-hook false missing"
 
+header "setup install core --languages rust"
+install_core_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+assert_contains "${install_core_lang_out}" "Languages: rust" "core --languages parameter takes effect"
+assert_cmd "core --languages does not front-inject Rust native rules" test ! -e "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+core_lang_check_rc=0
+core_lang_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || core_lang_check_rc=$?
+assert_cmd "core --languages setup --check --strict does not exit broken" test "${core_lang_check_rc}" -ne 2
+assert_not_contains "${core_lang_check_out}" "CLAUDE.md declares" "core --languages check preserves Claude rule banner count"
+assert_not_contains "${core_lang_check_out}" "~/.codex/AGENTS.md declares" "core --languages check preserves Codex rule banner count"
+assert_cmd "core --languages CLAUDE.md rule banner matches selected rules" assert_claude_rule_banner_matches_expected_rules
+assert_cmd "core --languages Codex AGENTS.md rule banner matches selected rules" assert_codex_rule_banner_matches_expected_rules
+
 header "setup install --languages rust"
-install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
 assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
 assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"
