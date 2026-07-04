@@ -8,6 +8,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 |---|---|---|
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH556/` | Draft | Weekly health report for rule trigger counts, precision risk, unclassified backlog, and idle asset detection |
+| `GH566/` | Draft | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `install-friction-reduction.md` | Implemented reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
 | `learn-first-class-signal-inbox.md` | Draft | Learn signal inbox, signal classification, triage state, adoption compiler, and outcome evaluator planning |
 | `rust-only-production-path.md` | Implemented reference | Python-free production path, Rust runtime boundaries, and remaining validation expectations |
