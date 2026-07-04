@@ -23,10 +23,13 @@ Run the standard setup script to install VibeGuard without a background schedule
 bash setup.sh --yes
 ```
 
-On `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, the default
-runtime path downloads a release binary, verifies it against `SHA256SUMS`, and
-prints either `verified-provenance` or `checksum-only` for release provenance.
-Rust/Cargo is not required. To force a local build:
+On `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, release
+checkouts whose pinned runtime version has published assets download a release
+binary, verify it against `SHA256SUMS`, and print either `verified-provenance`
+or `checksum-only` for release provenance. Rust/Cargo is not required for that
+released-assets path. Unreleased `main` checkouts can pin a runtime version
+before assets exist; those installs fall back to a local Cargo build unless
+`--require-provenance` is set. To force a local build:
 
 ```bash
 bash setup.sh --yes --build-from-source

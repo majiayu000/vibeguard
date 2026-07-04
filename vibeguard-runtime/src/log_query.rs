@@ -320,7 +320,9 @@ fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
         match e.get(field::TOOL).and_then(Value::as_str) {
             Some(tool_name) if tool::RESEARCH_ONLY.contains(&tool_name) => consecutive += 1,
             Some(tool_name) if tool::MUTATING.contains(&tool_name) => break,
-            _ => {}
+            Some(tool::POST_TOOL_USE) => break,
+            Some(_) => break,
+            None => {}
         }
     }
     consecutive
@@ -673,6 +675,38 @@ mod tests {
 
         let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
         assert_eq!(count_paralysis_events(&events, now), 2);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_posttool_and_unknown_tools() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+        let events_with_posttool = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"tool": "PostToolUse", "ts": "2026-05-01T00:11:00Z"}),
+            json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+        ];
+        let events_with_unknown = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"tool": "CustomMutator", "ts": "2026-05-01T00:11:00Z"}),
+            json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+        ];
+
+        assert_eq!(count_paralysis_events(&events_with_posttool, now), 1);
+        assert_eq!(count_paralysis_events(&events_with_unknown, now), 1);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_extended_mutating_tools() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+        for mutating_tool in ["MultiEdit", "NotebookEdit", "Task", "Agent"] {
+            let events = vec![
+                json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+                json!({"tool": mutating_tool, "ts": "2026-05-01T00:11:00Z"}),
+                json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+            ];
+
+            assert_eq!(count_paralysis_events(&events, now), 1, "{mutating_tool}");
+        }
     }
 
     #[test]
