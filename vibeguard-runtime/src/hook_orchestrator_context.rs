@@ -68,18 +68,28 @@ impl RuntimeContext {
             );
         }
 
-        let parent = infer_parent();
-        let cli = env_nonempty("VIBEGUARD_CLI")
+        let explicit_cli = env_nonempty("VIBEGUARD_CLI");
+        let explicit_session_id = env_nonempty("VIBEGUARD_SESSION_ID");
+        let skip_parent_inference = explicit_cli.is_none() && explicit_session_id.is_some();
+        let parent = if skip_parent_inference {
+            None
+        } else {
+            infer_parent()
+        };
+        let cli = explicit_cli
             .or_else(|| parent.as_ref().map(|info| info.cli.clone()))
             .unwrap_or_else(|| "unknown".to_string());
-        let session_id = env_nonempty("VIBEGUARD_SESSION_ID").unwrap_or_else(|| {
+        let session_id = explicit_session_id.unwrap_or_else(|| {
             resolve_session_id(&project_log_dir, &cli, &project_root_text, parent.as_ref())
         });
-        let client = env_nonempty("VIBEGUARD_CLIENT").unwrap_or_else(|| match cli.as_str() {
-            "claude" => "claude".to_string(),
-            "codex" => "codex".to_string(),
-            _ => "unknown".to_string(),
-        });
+        let explicit_client = env_nonempty("VIBEGUARD_CLIENT");
+        let client = explicit_client
+            .clone()
+            .unwrap_or_else(|| match cli.as_str() {
+                "claude" => "claude".to_string(),
+                "codex" => "codex".to_string(),
+                _ => "unknown".to_string(),
+            });
         let client_variant =
             env_nonempty("VIBEGUARD_CLIENT_VARIANT").unwrap_or_else(|| match client.as_str() {
                 "claude" => "claude-code-hooks".to_string(),
@@ -87,12 +97,12 @@ impl RuntimeContext {
                 _ => "unknown".to_string(),
             });
         let caller_evidence = env_nonempty("VIBEGUARD_CALLER_EVIDENCE").unwrap_or_else(|| {
-            if parent.is_some() {
-                "parent-process".to_string()
-            } else if cli == "unknown" {
-                "no-client-evidence".to_string()
-            } else {
+            if explicit_client.is_some() {
                 "explicit-client".to_string()
+            } else if matches!(cli.as_str(), "claude" | "codex") {
+                "parent-process".to_string()
+            } else {
+                "no-client-evidence".to_string()
             }
         });
 

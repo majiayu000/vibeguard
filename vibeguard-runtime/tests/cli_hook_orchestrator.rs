@@ -170,3 +170,95 @@ fn hook_orchestrator_malformed_input_fails_closed() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn hook_orchestrator_malformed_input_blocks_even_when_context_collection_fails() {
+    let root = unique_temp_dir("hook-orchestrator-malformed-context-failure");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    let bad_parent = root.join("not-a-dir");
+    let bad_project_log_dir = bad_parent.join("project");
+    let bad_log_file = bad_project_log_dir.join("events.jsonl");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    fs::write(&bad_parent, "not a directory").unwrap();
+
+    let mut child = hook_command(&repo, &log_root)
+        .args(["hook", "pre-write"])
+        .env("VIBEGUARD_PROJECT_LOG_DIR", &bad_project_log_dir)
+        .env("VIBEGUARD_LOG_FILE", &bad_log_file)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"not-json")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"decision\":\"block\""), "{stdout}");
+    assert!(
+        stdout.contains("invalid pre-write-guard hook input JSON; fail-closed"),
+        "{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("failed to collect context for fail-closed pre-write-guard event"),
+        "{stderr}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_manual_session_without_cli_stays_unknown() {
+    let root = unique_temp_dir("hook-orchestrator-manual-session");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let mut child = hook_command(&repo, &log_root)
+        .args(["hook", "pre-bash"])
+        .env_remove("VIBEGUARD_CLI")
+        .env_remove("VIBEGUARD_CLIENT")
+        .env_remove("VIBEGUARD_CLIENT_VARIANT")
+        .env_remove("VIBEGUARD_CALLER_EVIDENCE")
+        .env("VIBEGUARD_SESSION_ID", "manual-session")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(br#"{"tool_input":{"command":"echo manual"}}"#)
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let event = read_first_json(&project_dir.join("events.jsonl"));
+    assert_eq!(event["session"], "manual-session");
+    assert_eq!(event["cli"], "unknown");
+    assert_eq!(event["client"], "unknown");
+    assert_eq!(event["client_variant"], "unknown");
+    assert_eq!(event["caller_evidence"], "no-client-evidence");
+
+    let _ = fs::remove_dir_all(root);
+}

@@ -63,12 +63,18 @@ pub(crate) fn run(args: &[String]) -> Result {
     let kind = HookKind::parse(&args[0]).ok_or_else(|| format!("unknown hook: {}", args[0]))?;
     let start = Instant::now();
     let input = read_stdin()?;
-    let ctx = RuntimeContext::collect()?;
 
     let parsed = serde_json::from_str::<Value>(&input);
     match parsed {
         Ok(data) if data.is_object() => {
-            append_hook_event(
+            let ctx = match RuntimeContext::collect() {
+                Ok(ctx) => ctx,
+                Err(err) => {
+                    emit_runtime_failure_block(kind, "collect runtime context", err)?;
+                    return Ok(());
+                }
+            };
+            if let Err(err) = append_hook_event(
                 &ctx,
                 kind,
                 decision::PASS,
@@ -76,7 +82,9 @@ pub(crate) fn run(args: &[String]) -> Result {
                 "runtime hook orchestrator scaffold",
                 &detail_for(kind, &data),
                 elapsed_ms(start),
-            )?;
+            ) {
+                emit_runtime_failure_block(kind, "append hook event", err)?;
+            }
             Ok(())
         }
         _ => {
@@ -84,25 +92,60 @@ pub(crate) fn run(args: &[String]) -> Result {
                 "VIBEGUARD interception: invalid {} hook input JSON; fail-closed because runtime hook orchestrator could not parse stdin.",
                 kind.hook_name()
             );
-            append_hook_event(
-                &ctx,
-                kind,
-                decision::BLOCK,
-                status::BLOCK,
-                &reason,
-                "",
-                elapsed_ms(start),
-            )?;
-            println!(
-                "{}",
-                serde_json::to_string(&json!({
-                    "decision": "block",
-                    "reason": reason,
-                }))?
-            );
+            print_block(&reason)?;
+            match RuntimeContext::collect() {
+                Ok(ctx) => {
+                    if let Err(err) = append_hook_event(
+                        &ctx,
+                        kind,
+                        decision::BLOCK,
+                        status::BLOCK,
+                        &reason,
+                        "",
+                        elapsed_ms(start),
+                    ) {
+                        eprintln!(
+                            "VIBEGUARD: failed to log fail-closed {} event: {err}",
+                            kind.hook_name()
+                        );
+                    }
+                }
+                Err(err) => {
+                    eprintln!(
+                        "VIBEGUARD: failed to collect context for fail-closed {} event: {err}",
+                        kind.hook_name()
+                    );
+                }
+            }
             Ok(())
         }
     }
+}
+
+fn emit_runtime_failure_block(
+    kind: HookKind,
+    operation: &str,
+    err: Box<dyn std::error::Error>,
+) -> Result {
+    let reason = format!(
+        "VIBEGUARD interception: {} runtime orchestrator failed to {}; fail-closed.",
+        kind.hook_name(),
+        operation
+    );
+    print_block(&reason)?;
+    eprintln!("VIBEGUARD: {reason}: {err}");
+    Ok(())
+}
+
+fn print_block(reason: &str) -> Result {
+    println!(
+        "{}",
+        serde_json::to_string(&json!({
+            "decision": "block",
+            "reason": reason,
+        }))?
+    );
+    Ok(())
 }
 
 fn append_hook_event(
