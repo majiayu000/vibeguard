@@ -112,7 +112,7 @@ assert_cmd "~/.codex/hooks.json is preserved after cleaning (for non-VibeGuard h
 assert_cmd "VibeGuard managed Codex AGENTS block removed after cleaning" bash -c "! grep -q 'vibeguard-start' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "Unmanaged Codex AGENTS content remains after cleaning" grep -q 'user codex note' "${HOME}/.codex/AGENTS.md"
 assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${HOME}/.codex/hooks.json'"
-assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 
 header "setup install default languages before rust filter"
 install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"

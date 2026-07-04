@@ -17,6 +17,7 @@ set -euo pipefail
 # bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
 # bash setup.sh --require-provenance # Require GitHub artifact attestation verification for release binaries
 # bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
+# bash setup.sh --repair-stale-unmanaged-hooks # Opt in to prune missing-target Codex PreToolUse/PermissionRequest hooks
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
 # bash setup.sh --dev-linked # Opt in to live-repo execution for local development
 # bash setup.sh --check # Check status only
@@ -44,6 +45,7 @@ VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
+REPAIR_STALE_UNMANAGED_HOOKS="${VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
 REQUIRE_PROVENANCE="${VIBEGUARD_SETUP_REQUIRE_PROVENANCE:-0}"
 DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
@@ -79,6 +81,8 @@ while [[ $# -gt 0 ]]; do
       REQUIRE_PROVENANCE=1; shift ;;
     --with-scheduler)
       WITH_SCHEDULER=1; shift ;;
+    --repair-stale-unmanaged-hooks)
+      REPAIR_STALE_UNMANAGED_HOOKS=1; shift ;;
     --force-overwrite)
       VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
     --dev-linked)
@@ -95,11 +99,12 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--repair-stale-unmanaged-hooks] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
       exit 1 ;;
   esac
 done
 export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+export VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS="${REPAIR_STALE_UNMANAGED_HOOKS}"
 export VIBEGUARD_SETUP_REQUIRE_PROVENANCE="${REQUIRE_PROVENANCE}"
 export VIBEGUARD_SETUP_DEV_LINKED="${DEV_LINKED}"
 

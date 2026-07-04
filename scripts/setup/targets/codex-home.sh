@@ -70,6 +70,23 @@ install_codex_home_assets() {
     red "  Failed to update ~/.codex/hooks.json"
   fi
 
+  if [[ "${VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS:-0}" == "1" ]]; then
+    local repair_result
+    repair_result=$(setup_runtime setup-codex-hooks-prune-stale-unmanaged "${REPO_DIR}" "${hooks_file}" 2>&1 || echo "ERROR")
+    if grep -q '^ERROR$' <<< "${repair_result}"; then
+      red "  Failed to repair stale unmanaged Codex hooks"
+    else
+      while IFS= read -r line; do
+        case "${line}" in
+          "removed stale unmanaged Codex hook:"*) yellow "  ${line}" ;;
+          CHANGED) green "  Stale unmanaged Codex hooks repaired" ;;
+          SKIP) yellow "  No stale unmanaged Codex hooks to repair" ;;
+        esac
+      done <<< "${repair_result}"
+      state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
+    fi
+  fi
+
   # Enable native Codex hooks feature flag in config.toml
   _enable_codex_hooks_feature
   echo
@@ -173,11 +190,22 @@ check_codex_home_installation() {
     fi
 
     local stale_hooks_report
-    if stale_hooks_report="$(setup_runtime setup-codex-hooks-check-stale "${CODEX_DIR}/hooks.json" 2>&1)"; then
+    if stale_hooks_report="$(setup_runtime setup-codex-hooks-check-stale "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>&1)"; then
       :
     else
       while IFS= read -r line; do
-        [[ -n "${line}" ]] && red "[BROKEN] ${line}"
+        [[ -n "${line}" ]] || continue
+        if [[ "${line}" == repair-required\ unmanaged\ Codex\ blocking\ hook:* ]]; then
+          if [[ "${STRICT:-0}" == "1" || "${INSTALL:-0}" == "1" || "${PROJECT:-0}" == "1" || "${DEV_REPO:-0}" == "1" ]]; then
+            red "[BROKEN] ${line}"
+          else
+            yellow "[WARN] ${line}"
+          fi
+        elif [[ "${line}" == stale\ unmanaged\ Codex\ hook:* ]]; then
+          yellow "[WARN] ${line}"
+        else
+          red "[BROKEN] ${line}"
+        fi
       done <<< "${stale_hooks_report}"
     fi
 

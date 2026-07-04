@@ -38,6 +38,33 @@ Read-only exploration hooks such as Read/Glob/Grep are not available on the
 native Codex path. Use Claude Code or the optional app-server-wrapper when that
 coverage is required.
 
+### Codex `PreToolUse hook (failed)`
+
+If Codex shows a failure before every Bash command, first separate the requested
+command from the global Codex hook:
+
+```bash
+jq '.hooks.PreToolUse' ~/.codex/hooks.json
+bash setup.sh --check --strict
+```
+
+For an unmanaged entry, reproduce the hook command directly. A stale command
+such as `node /existing/non-vibeguard.js` fails before the requested Bash tool
+starts and should be repaired as hook configuration, not as a repo command
+failure.
+
+VibeGuard preserves third-party hooks by default. When `--check --strict`
+reports a missing-target unmanaged `PreToolUse` or `PermissionRequest` hook and
+the command is not a real integration, use the explicit repair path:
+
+```bash
+bash setup.sh --yes --repair-stale-unmanaged-hooks
+```
+
+The repair removes only missing-target unmanaged blocking hooks and leaves
+VibeGuard-managed hooks, valid third-party hooks, and unresolved third-party
+commands in place.
+
 ## Runtime and Provenance
 
 ```bash

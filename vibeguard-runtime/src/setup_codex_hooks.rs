@@ -1,10 +1,13 @@
 use crate::setup_support::{
-    SetupResult, basename, display_home_path, home_dir, read_json_object, shell_quote, shell_split,
-    write_json_atomic,
+    SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+
+pub use crate::setup_codex_hooks_health::{
+    codex_hooks_check_stale, codex_hooks_check_timeouts, codex_hooks_prune_stale_unmanaged,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CodexSpec {
@@ -138,70 +141,6 @@ pub fn codex_hooks_count(args: &[String]) -> SetupResult<()> {
         })
         .unwrap_or(0);
     println!("{total}");
-    Ok(())
-}
-
-pub fn codex_hooks_check_stale(args: &[String]) -> SetupResult<()> {
-    if args.len() != 1 {
-        return Err("Usage: vibeguard-runtime setup-codex-hooks-check-stale <hooks-file>".into());
-    }
-    let hooks_path = Path::new(&args[0]);
-    if !hooks_path.exists() {
-        return Ok(());
-    }
-    let data = Value::Object(read_json_object(hooks_path, false)?);
-    let findings = codex_stale_findings(&data, hooks_path);
-    for finding in &findings {
-        println!("{finding}");
-    }
-    if !findings.is_empty() {
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-pub fn codex_hooks_check_timeouts(args: &[String]) -> SetupResult<()> {
-    if args.len() != 2 {
-        return Err(
-            "Usage: vibeguard-runtime setup-codex-hooks-check-timeouts <repo-dir> <hooks-file>"
-                .into(),
-        );
-    }
-    let repo_dir = Path::new(&args[0]);
-    let hooks_path = Path::new(&args[1]);
-    if !hooks_path.exists() {
-        return Ok(());
-    }
-    let data = Value::Object(read_json_object(hooks_path, false)?);
-    let mut findings = Vec::new();
-    for (event, matcher, hook) in codex_hook_records(&data) {
-        let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-        if command.is_empty()
-            || hook
-                .get("timeout")
-                .and_then(Value::as_i64)
-                .is_some_and(|v| v > 0)
-        {
-            continue;
-        }
-        let managed = codex_command_is_managed(repo_dir, command);
-        let state = if managed { "managed" } else { "unmanaged" };
-        let repair = if managed {
-            "bash setup.sh --yes"
-        } else {
-            "add timeout or consult hook owner"
-        };
-        findings.push(format!(
-            "{state} Codex hook without timeout: config={} event={event} matcher={matcher} command={command} repair={repair}",
-            display_home_path(hooks_path)
-        ));
-    }
-    for finding in &findings {
-        println!("{finding}");
-    }
-    if !findings.is_empty() {
-        std::process::exit(1);
-    }
     Ok(())
 }
 
@@ -409,7 +348,7 @@ fn codex_has_entry(
     })
 }
 
-fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
+pub(crate) fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
     let scripts = codex_managed_scripts(repo_dir);
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
@@ -447,61 +386,6 @@ fn codex_managed_scripts(repo_dir: &Path) -> BTreeSet<String> {
     scripts
 }
 
-fn codex_hook_records(data: &Value) -> Vec<(String, String, serde_json::Map<String, Value>)> {
-    let mut records = Vec::new();
-    let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
-        return records;
-    };
-    for (event, entries) in hooks {
-        let Some(entries) = entries.as_array() else {
-            continue;
-        };
-        for entry in entries {
-            let Some(entry_obj) = entry.as_object() else {
-                continue;
-            };
-            let matcher = entry_obj
-                .get("matcher")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .unwrap_or("<none>")
-                .to_string();
-            let Some(hook_entries) = entry_obj.get("hooks").and_then(Value::as_array) else {
-                continue;
-            };
-            for hook in hook_entries {
-                if let Some(hook_obj) = hook.as_object() {
-                    records.push((event.clone(), matcher.clone(), hook_obj.clone()));
-                }
-            }
-        }
-    }
-    records
-}
-
-fn codex_stale_findings(data: &Value, config: &Path) -> Vec<String> {
-    codex_hook_records(data)
-        .into_iter()
-        .filter_map(|(event, matcher, hook)| {
-            let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            let target = if let Some(target) = codex_direct_installed_hook_target(command) {
-                target
-            } else {
-                let target = codex_hook_target(command)?;
-                if target.exists() {
-                    return None;
-                }
-                target
-            };
-            Some(format!(
-                "stale Codex hook command: config={} event={event} matcher={matcher} command_path={} repair=bash setup.sh --yes",
-                display_home_path(config),
-                target.display()
-            ))
-        })
-        .collect()
-}
-
 fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
     let home = home_dir()?;
     shell_split(command).into_iter().find_map(|token| {
@@ -516,7 +400,9 @@ fn codex_hook_target(command: &str) -> Option<PathBuf> {
     let home = home_dir()?;
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
-        let path = codex_expand_path(token, &home)?;
+        let Some(path) = codex_expand_path(token, &home) else {
+            continue;
+        };
         if path
             .to_string_lossy()
             .ends_with("/.vibeguard/run-hook-codex.sh")
@@ -533,7 +419,7 @@ fn codex_hook_target(command: &str) -> Option<PathBuf> {
     None
 }
 
-fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
+pub(crate) fn codex_expand_path(token: &str, home: &Path) -> Option<PathBuf> {
     token
         .strip_prefix("~/")
         .map(|tail| home.join(tail))
