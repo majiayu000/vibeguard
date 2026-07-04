@@ -18,6 +18,8 @@ mod hook_checks_history;
 mod hook_checks_scan;
 mod hook_checks_write;
 mod hook_checks_write_scan;
+mod hook_orchestrator;
+mod hook_orchestrator_context;
 mod hook_output;
 mod hook_status;
 mod json_field;
@@ -131,6 +133,11 @@ static COMMANDS: &[Command] = &[
         name: "pre-bash-check",
         usage: "<vibeguard-root>  — classify PreToolUse(Bash) input for hooks",
         handler: hook_checks_bash::pre_bash_check,
+    },
+    Command {
+        name: "hook",
+        usage: "<pre-write|pre-bash|pre-edit|post-write|post-edit|stop|learn>  — run a single-process hook orchestrator scaffold",
+        handler: hook_orchestrator::run,
     },
     Command {
         name: "session-metrics",
