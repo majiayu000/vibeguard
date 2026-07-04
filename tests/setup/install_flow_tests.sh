@@ -361,7 +361,7 @@ assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 assert_cmd "Claude vibeguard skill targets installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/skills/vibeguard')\" == '${HOME}/.vibeguard/installed/skills/vibeguard' ]]"
 assert_cmd "Claude command target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/commands/vg')\" == '${HOME}/.vibeguard/installed/.claude/commands/vg' ]]"
-assert_cmd "native rule target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/rules/vibeguard/common/security.md')\" == '${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md' ]]"
+assert_cmd "core profile does not front-inject the native rule tree (GH-541)" test ! -e "${HOME}/.claude/rules/vibeguard/common/security.md"
 fake_live_repo="${TMP_HOME}/fake-live-repo"
 mkdir -p "${fake_live_repo}/hooks/git" "${fake_live_repo}/hooks"
 cat > "${fake_live_repo}/hooks/git/pre-push" <<'SH'
@@ -400,7 +400,9 @@ assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--ch
 
 dev_linked_home="${TMP_HOME}/dev-linked-home"
 mkdir -p "${dev_linked_home}"
-dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked)"
+# GH-541: the native rule tree is only front-injected under full/strict, so use
+# the full profile here to exercise dev-linked rule-symlink target resolution.
+dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked --profile full)"
 assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live repository paths)" "--dev-linked mode is visible during setup"
 assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
 assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/vibeguard')\" == '${REPO_DIR}/skills/vibeguard' ]]"
@@ -541,6 +543,9 @@ rm -f "${HOME}/.claude/skills/vibeguard"
 ln -s "${HOME}/.vibeguard/installed/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
 wrong_rule_target="${TMP_HOME}/wrong-security-rule.md"
 printf '## U-17: Wrong source\n' > "${wrong_rule_target}"
+# GH-541: the core profile no longer front-injects the tree, so create the
+# common/ dir before injecting the drift/stale symlinks the --check must catch.
+mkdir -p "${HOME}/.claude/rules/vibeguard/common"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
 ln -s "${wrong_rule_target}" "${HOME}/.claude/rules/vibeguard/common/security.md"
 drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
