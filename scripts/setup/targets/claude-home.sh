@@ -185,6 +185,18 @@ _rule_label_is_selected() {
   return 1
 }
 
+# GH-541: the full native rule text (~126 constraints across rules/claude-rules/**)
+# is only front-injected under the full/strict profiles. The default (core) and
+# minimal profiles rely on the compact L1-L7 + Key Detailed Rules table already
+# synced into ~/.claude/CLAUDE.md, keeping the live payload within the U-32
+# budget. The full-text tree stays installed under ~/.vibeguard and is opt-in.
+_claude_profile_injects_full_rule_tree() {
+  case "${PROFILE:-core}" in
+    full|strict) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 _rule_dest_is_declared() {
   local dest_rel="$1" rule_links="$2"
   printf '%s\n' "${rule_links}" \
@@ -289,34 +301,51 @@ install_claude_home_assets() {
   echo "Step 5.5: Install native rules (symlinked)"
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local rule_links selected_labels all_labels source_path dest_rel label installed_count
-  rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
-  selected_labels="$(manifest_rule_labels_checked "${LANGUAGES:-}")" || return 1
-  all_labels="$(manifest_rule_labels_checked "")" || return 1
 
   mkdir -p "${rules_dest}"
-  while IFS= read -r label; do
-    [[ -n "${label}" ]] || continue
-    if _rule_label_is_selected "${label}" "${selected_labels}"; then
-      continue
-    fi
-    if [[ -d "${rules_dest}/${label}" ]]; then
-      _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
-      yellow "  ${label}/ removed (not in --languages filter)"
-    fi
-  done <<< "${all_labels}"
 
-  while IFS= read -r label; do
-    [[ -n "${label}" ]] || continue
-    _cleanup_unlisted_rule_files "${rules_dest}/${label}" "${label}" "${rule_links}" || return 1
-  done <<< "${selected_labels}"
+  if _claude_profile_injects_full_rule_tree; then
+    rule_links="$(manifest_rule_links_checked "${LANGUAGES:-}")" || return 1
+    selected_labels="$(manifest_rule_labels_checked "${LANGUAGES:-}")" || return 1
+    all_labels="$(manifest_rule_labels_checked "")" || return 1
 
-  installed_count=0
-  while IFS=$'\t' read -r source_path dest_rel label; do
-    [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
-    _install_manifest_rule_file "${source_path}" "${dest_rel}" "${label}" "${rules_dest}" || return 1
-    installed_count=$((installed_count + 1))
-  done <<< "${rule_links}"
-  green "  manifest rules -> ~/.claude/rules/vibeguard/ (${installed_count} files, symlinked)"
+    while IFS= read -r label; do
+      [[ -n "${label}" ]] || continue
+      if _rule_label_is_selected "${label}" "${selected_labels}"; then
+        continue
+      fi
+      if [[ -d "${rules_dest}/${label}" ]]; then
+        _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
+        yellow "  ${label}/ removed (not in --languages filter)"
+      fi
+    done <<< "${all_labels}"
+
+    while IFS= read -r label; do
+      [[ -n "${label}" ]] || continue
+      _cleanup_unlisted_rule_files "${rules_dest}/${label}" "${label}" "${rule_links}" || return 1
+    done <<< "${selected_labels}"
+
+    installed_count=0
+    while IFS=$'\t' read -r source_path dest_rel label; do
+      [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
+      _install_manifest_rule_file "${source_path}" "${dest_rel}" "${label}" "${rules_dest}" || return 1
+      installed_count=$((installed_count + 1))
+    done <<< "${rule_links}"
+    green "  manifest rules -> ~/.claude/rules/vibeguard/ (${installed_count} files, symlinked, ${PROFILE} profile)"
+  else
+    # GH-541: compact core default — remove any previously front-injected full
+    # rule tree so switching down from full/strict shrinks the live payload.
+    # The compact L1-L7 + Key Detailed Rules table in ~/.claude/CLAUDE.md is the
+    # always-on surface; custom/ user rules below are preserved.
+    all_labels="$(manifest_rule_labels_checked "")" || return 1
+    while IFS= read -r label; do
+      [[ -n "${label}" ]] || continue
+      if [[ -d "${rules_dest}/${label}" ]]; then
+        _remove_rule_subtree_if_safe "$(_claude_source_path "rules/claude-rules/${label}")" "${rules_dest}/${label}" "${label}" || return 1
+      fi
+    done <<< "${all_labels}"
+    green "  compact core (${PROFILE} profile): L1-L7 + Key Detailed Rules table via ~/.claude/CLAUDE.md; full rule text opt-in with --profile full|strict"
+  fi
 
   if [[ -d "${rules_dest}" ]]; then
     if [[ -d "${VIBEGUARD_HOME}/user-rules" ]]; then
