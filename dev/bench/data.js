@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783130819235,
+  "lastUpdate": 1783130877349,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -35636,6 +35636,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e post-write 5000 P99",
             "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 25,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9770504dfa517a8d9f7521ee529d4a70ca1a18f7",
+          "message": "feat(health): weekly health report aggregator (Refs #556) (#562)\n\nAdd scripts/health-report.py, a stdlib-only aggregator over existing\nstructured sources (observe summary/health JSON, precision tracker\ntriage/scorecard, Learn adoption JSONL). It normalizes them into one\nJSON schema and renders markdown from that same schema.\n\nData rules per docs/specs/GH556:\n- Missing event log is an explicit no-data state, not success-with-zero.\n- Malformed triage JSONL and invalid scorecard JSON are hard errors\n  (non-zero exit, error-level message); no silent degradation.\n- Project vs global scope stays explicit.\n- Rule ids are primary keys; rule-id-less triage candidates land in\n  unclassified_backlog instead of crashing the precision pipeline.\n- The scorecard file is never mutated during report generation.\n\nReuses precision math from scripts/precision-tracker.py instead of\nduplicating the formula. Adds tests/test_health_report.sh (markdown+json,\nno-data state, malformed-JSONL hard error, decision distribution,\nmissing-rule-id backlog, 30-day zero-trigger downgrade candidate) and\nwires it into CI. Documents the command in scripts/CLAUDE.md.\n\nScope: SP556-T1 through T6. T7 (human validation gate) and T8\n(scheduler) are follow-ups.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-07-04T09:51:08+08:00",
+          "tree_id": "34596e18d7aaab26ba02412198e674ffdc4f42d2",
+          "url": "https://github.com/majiayu000/vibeguard/commit/9770504dfa517a8d9f7521ee529d4a70ca1a18f7"
+        },
+        "date": 1783130876590,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 40,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 40,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 40,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 137,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 167,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 167,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 175,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 175,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 35,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 181,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 181,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 47,
             "unit": "ms"
           },
           {
