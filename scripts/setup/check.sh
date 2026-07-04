@@ -47,6 +47,7 @@ INSTALL=0
 PROJECT=0
 DEV_REPO=0
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
+LANGUAGES="${VIBEGUARD_SETUP_LANGUAGES:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
@@ -116,6 +117,14 @@ check_installed_profile() {
     minimal|core|full|strict) printf '%s\n' "${detected}" ;;
     *) return 1 ;;
   esac
+}
+
+check_installed_languages() {
+  local state_out detected
+  state_out="$(state_list 2>/dev/null)" || return 1
+  detected="$(awk -F': ' '/^Languages:/ {print $2; exit}' <<< "${state_out}")"
+  [[ -n "${detected}" ]] || return 1
+  printf '%s\n' "${detected}" | tr -d '[:space:]'
 }
 
 launchd_gc_script_path() {
@@ -236,6 +245,9 @@ if [[ -z "${PROFILE}" ]]; then
 fi
 PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
+if [[ -z "${LANGUAGES}" ]]; then
+  LANGUAGES="$(check_installed_languages 2>/dev/null || true)"
+fi
 
 _execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"

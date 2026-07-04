@@ -306,6 +306,18 @@ chmod +x "${old_profile_runtime}"
 old_runtime_check_out="$(VIBEGUARD_SETUP_RUNTIME="${old_profile_runtime}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_not_contains "${old_runtime_check_out}" "[MISSING] Claude hooks missing for core profile" "setup --check skips stale runtime profile-hook false missing"
 
+header "setup install core --languages rust"
+install_core_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+assert_contains "${install_core_lang_out}" "Languages: rust" "core --languages parameter takes effect"
+assert_cmd "core --languages does not front-inject Rust native rules" test ! -e "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+core_lang_check_rc=0
+core_lang_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || core_lang_check_rc=$?
+assert_cmd "core --languages setup --check --strict does not exit broken" test "${core_lang_check_rc}" -ne 2
+assert_not_contains "${core_lang_check_out}" "CLAUDE.md declares" "core --languages check preserves Claude rule banner count"
+assert_not_contains "${core_lang_check_out}" "~/.codex/AGENTS.md declares" "core --languages check preserves Codex rule banner count"
+assert_cmd "core --languages CLAUDE.md rule banner matches selected rules" assert_claude_rule_banner_matches_expected_rules
+assert_cmd "core --languages Codex AGENTS.md rule banner matches selected rules" assert_codex_rule_banner_matches_expected_rules
+
 header "setup install --languages rust"
 install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
