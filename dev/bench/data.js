@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783130877349,
+  "lastUpdate": 1783146722671,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -35870,6 +35870,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 25,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0cf92c1becf87819857b9a47f019aa6e8234af25",
+          "message": "fix(setup): default Claude profile skips full rule-tree injection (U-32) (#564)\n\n* fix(setup): default Claude profile skips full rule-tree injection (U-32)\n\nUnder the core/minimal profiles (core is the install default), the full\nrules/claude-rules tree is no longer front-injected into\n~/.claude/rules/vibeguard. Those profiles rely on the compact L1-L7 +\nKey Detailed Rules table already synced into ~/.claude/CLAUDE.md, keeping\nthe live constraint payload within the U-32 budget. The full-text tree\nstays installed under ~/.vibeguard and is opt-in via --profile full|strict.\n\nVerified: tests/hooks/test_count_active_constraints.sh (24/24) asserts the\ncompact core default stays within budget while the full common/ tree\nexceeds the block threshold.\n\nImplements GH541.\n\nFixes #541\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* test(setup): assert core profile skips native rule injection (U-32)\n\nUpdates the setup profile-flow integration test for GH541: the core\n(default) profile must report compact-core delivery and must NOT\nfront-inject Python/Go native rules; the full profile installs them and\nswitching back to core removes them. Without this the suite still asserts\nthe pre-GH541 behavior.\n\nImplements GH541.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* test(setup): align install-flow rule-tree assertions with compact-core default\n\nGH-541 makes the default (core) Claude profile skip full native rule-tree\ninjection. Update install-flow coverage accordingly: assert the core profile\ndoes not front-inject the tree, exercise dev-linked rule-symlink resolution\nunder --profile full (which now owns the tree), and pre-create common/ before\nthe drift/stale --check symlink cases.\n\nRefs #541\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* Fix compact core setup check assertions\n\n* fix(setup): preserve language-filtered compact rule banners\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-07-04T14:14:06+08:00",
+          "tree_id": "fd0ae09cea1208cdd8b31c5639f46756e7022939",
+          "url": "https://github.com/majiayu000/vibeguard/commit/0cf92c1becf87819857b9a47f019aa6e8234af25"
+        },
+        "date": 1783146721680,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 133,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 153,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 153,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 164,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 164,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 173,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 173,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 24,
             "unit": "ms"
           }
         ]
