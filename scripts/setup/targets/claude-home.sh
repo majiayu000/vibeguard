@@ -375,7 +375,7 @@ claude_rule_count_for_banner() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local total=0 dir_count rule_links source_path dest_rel label
 
-  if [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" && -d "${rules_dest}" ]]; then
+  if _claude_profile_injects_full_rule_tree && [[ "${VIBEGUARD_SETUP_DRY_RUN}" != "1" && -d "${rules_dest}" ]]; then
     claude_rule_id_count "${rules_dest}"
     return 0
   fi
@@ -485,22 +485,39 @@ check_claude_home_installation() {
 
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local rule_file_count actual_rule_count claude_md declared_count
-  local symlink_count copy_count
+  local symlink_count copy_count front_injected_count labels label label_count
   if [[ -d "${rules_dest}" ]]; then
-    rule_file_count=$(find "${rules_dest}" -name "*.md" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
-    symlink_count=$(find "${rules_dest}" -name "*.md" -type l 2>/dev/null | wc -l | tr -d ' ')
-    copy_count=$((rule_file_count - symlink_count))
-    if [[ "${rule_file_count}" -ge 7 ]]; then
-      green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/ (${symlink_count} symlinked)"
+    if _claude_profile_injects_full_rule_tree; then
+      rule_file_count=$(find "${rules_dest}" -name "*.md" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
+      symlink_count=$(find "${rules_dest}" -name "*.md" -type l 2>/dev/null | wc -l | tr -d ' ')
+      copy_count=$((rule_file_count - symlink_count))
+      if [[ "${rule_file_count}" -ge 7 ]]; then
+        green "[OK] ${rule_file_count} native rule files in ~/.claude/rules/vibeguard/ (${symlink_count} symlinked)"
+      else
+        yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
+      fi
+      if [[ "${copy_count}" -gt 0 ]]; then
+        yellow "[DRIFT] ${copy_count} rule files are copies instead of symlinks — re-run setup.sh to fix"
+      fi
+      actual_rule_count=$(claude_rule_id_count "${rules_dest}")
     else
-      yellow "[PARTIAL] Only ${rule_file_count} native rule files (expected 7+)"
-    fi
-    if [[ "${copy_count}" -gt 0 ]]; then
-      yellow "[DRIFT] ${copy_count} rule files are copies instead of symlinks — re-run setup.sh to fix"
+      front_injected_count=0
+      labels="$(manifest_rule_labels_checked "")" || return 1
+      while IFS= read -r label; do
+        [[ -n "${label}" ]] || continue
+        [[ -d "${rules_dest}/${label}" ]] || continue
+        label_count=$(claude_rule_id_count "${rules_dest}/${label}")
+        front_injected_count=$((front_injected_count + label_count))
+      done <<< "${labels}"
+      if [[ "${front_injected_count}" -eq 0 ]]; then
+        green "[OK] compact core profile does not front-inject native rule tree"
+      else
+        yellow "[DRIFT] compact core profile has ${front_injected_count} front-injected native rule(s); re-run setup.sh --yes --profile ${PROFILE}"
+      fi
+      actual_rule_count=$(claude_rule_count_for_banner)
     fi
     _check_claude_rule_symlink_targets
 
-    actual_rule_count=$(claude_rule_id_count "${rules_dest}")
     claude_md="${CLAUDE_DIR}/CLAUDE.md"
     if [[ -f "${claude_md}" ]]; then
       if declared_count=$(vibeguard_managed_rule_banner_count "${claude_md}"); then

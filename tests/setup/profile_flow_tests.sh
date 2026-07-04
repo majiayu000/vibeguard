@@ -307,7 +307,7 @@ old_runtime_check_out="$(VIBEGUARD_SETUP_RUNTIME="${old_profile_runtime}" bash "
 assert_not_contains "${old_runtime_check_out}" "[MISSING] Claude hooks missing for core profile" "setup --check skips stale runtime profile-hook false missing"
 
 header "setup install --languages rust"
-install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
 assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
 assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"
