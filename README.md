@@ -36,12 +36,16 @@ bash ~/vibeguard/setup.sh --yes
 bash ~/vibeguard/setup.sh verify-install
 ```
 
-On supported macOS/Linux targets, the production install/check/clean path is
+On supported macOS/Linux release targets, the production install/check/clean path is
 Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
 verifies it with `SHA256SUMS`. When authenticated `gh` attestation verification
 is available, setup reports `verified-provenance`; otherwise it reports
 `checksum-only` instead of treating the release as provenance-verified. Rust/Cargo
-is not required by default.
+is not required by default when the checkout's pinned runtime version has
+published release assets. On unreleased `main` commits, the pinned
+`vibeguard-runtime/VERSION` can be ahead of the latest tag; if matching assets do
+not exist yet, setup falls back to a local Cargo build unless
+`--require-provenance` is set.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
@@ -69,9 +73,10 @@ bash ~/vibeguard/scripts/project-init.sh /path/to/project
 
 ## Current status
 
-The current mainline is install-verified on macOS and CI-verified on Ubuntu, macOS, and Windows.
+The current mainline is install-verified on macOS, full-CI verified on Ubuntu and
+macOS, and smoke-contract verified on Windows.
 
-- Latest release train: `v1.1.x`
+- Latest release train: `v1.1.x`; unreleased `main` may pin the next runtime version before its release tag exists
 - Interactive health report: `bash setup.sh doctor` (compatibility alias: `bash setup.sh --check`)
 - CI/post-install health gate: `bash setup.sh verify-install`
 - Expected verdict after a healthy install: `HEALTHY`
@@ -91,6 +96,11 @@ Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report
 | **Slash Commands** | `/vibeguard:*` workflows for preflight / review / check / learn |
 | **Learning System** | Turn repeated AI mistakes into reusable defenses |
 | **Observability** | Metrics and health for every interception |
+
+Coverage boundary: hooks and guards provide mechanical enforcement for the
+covered surfaces below. The full rule set is broader; severity labels and
+workflow rules also guide review, planning, and verification, and do not imply
+that every rule is hook-blocked.
 
 ## Product Boundaries
 
@@ -117,13 +127,13 @@ Real Codex hook output:
 You:  "Add a login endpoint"
 
 AI:   → tries to create auth_service.py
-      ✗ VibeGuard blocks — duplicate of existing auth.py, search first
+      ⚠ VibeGuard warns or blocks — new source files require search first
 
       → tries to import `flask-auth-magic`
-      ✗ VibeGuard blocks — non-existent library, verify before adding
+      ⚠ VibeGuard rules/review contract — verify external libraries before adding
 
       → hardcodes JWT secret as "your-secret-key"
-      ✗ VibeGuard flags — use env var or secret manager
+      ⚠ VibeGuard security rule — use env var or secret manager
 
       → runs `git push --force`
       ✗ VibeGuard git pre-push hook denies — history rewrites require explicit human approval
@@ -148,11 +158,12 @@ Use VibeGuard if you:
 
 - Use Claude Code or Codex regularly
 - Have seen duplicate files, fake APIs, over-engineering, or unverified "done" claims
-- Want **mechanical enforcement**, not just prompt guidelines
+- Want mechanical enforcement for high-risk hook/guard surfaces, plus explicit
+  rule and workflow contracts for cases that are not mechanically covered yet
 
 It may be overkill if you only use AI occasionally or don't want hook-level interception.
 
-Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
+Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). VibeGuard maps the 5 Harness Golden Principles into repo-level rules, hooks, workflows, and observability; not every principle is a hook-level block.
 
 ## How It Works
 
@@ -281,6 +292,7 @@ Use workflow prompts and dispatcher guidance as consumers of that contract, not 
 | `tdd-guide` | RED → GREEN → IMPROVE test-driven development |
 | `code-reviewer` / `security-reviewer` | Layered code review and OWASP Top 10 |
 | `build-error-resolver` | Build error diagnosis and fix |
+| `go-build-resolver` | Go-specific build error diagnosis |
 | `go-reviewer` / `python-reviewer` / `database-reviewer` | Language-specific review |
 | `refactor-cleaner` / `doc-updater` / `e2e-runner` | Refactoring, docs, and E2E tests |
 
@@ -308,7 +320,7 @@ VibeGuard guards its own behavior — the test suite and eval harness ship in th
 
 - **Behavior eval (CI-blocking):** a zero-cost gate that runs the real guard hooks end-to-end and asserts the actual block/deny decision on both the Claude Code hook and the Codex wrapper. Enforced in CI at a 100% pass / 100% coverage threshold — removing a required platform slice fails the build (`eval/run_behavior_eval.py`).
 - **Rule-detection benchmark:** a 40-sample, schema-validated, digest-pinned dataset (planted rule violations across SEC / Python / TypeScript / Go / Rust / universal rules, plus clean controls) scored on detection rate, a severity-weighted score, and **per-severity Expected Calibration Error (ECE)** — calibration, not just accuracy. Run manually with `python3 eval/run_eval.py` (uses the Claude API; not a merge gate).
-- **Test suite:** ~40 hook/guard test scripts under `tests/` and 100+ unit tests in the Rust `vibeguard-runtime` crate. CI runs on Linux, macOS, and Windows.
+- **Test suite:** hook/guard test scripts under `tests/` and 100+ unit tests in the Rust `vibeguard-runtime` crate. Full CI runs on Linux and macOS; Windows runs cross-platform contract smoke tests.
 
 ## Learning System
 
@@ -335,8 +347,10 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 ### Runtime prerequisites
 
 Default setup downloads and verifies the pinned `vibeguard-runtime` release for
-supported platforms. Source builds remain available for unsupported/offline
-installs and for users who explicitly request them.
+supported platforms when the pinned runtime version has published release
+assets. Source builds remain available for unsupported/offline installs, for
+unreleased `main` checkouts whose pinned runtime version has not been tagged yet,
+and for users who explicitly request them.
 
 | Platform | Default runtime path | Rust/Cargo needed? |
 |----------|----------------------|--------------------|
@@ -344,7 +358,7 @@ installs and for users who explicitly request them.
 | macOS x86_64 (`x86_64-apple-darwin`) | Prebuilt release binary | No |
 | Linux x86_64 (`x86_64-unknown-linux-musl`) | Prebuilt release binary | No |
 | Linux arm64 (`aarch64-unknown-linux-musl`) | Prebuilt release binary | No |
-| Other targets, offline installs, or `--build-from-source` | Local source build | Yes |
+| Other targets, offline installs, unreleased runtime pins without assets, or `--build-from-source` | Local source build | Yes |
 
 `setup.sh` uses `gh release download` when `gh` is available, otherwise `curl`.
 If a supported-target download fails, it falls back to `cargo build` when Cargo
