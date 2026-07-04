@@ -116,9 +116,21 @@ assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'nod
 
 header "setup install default languages before rust filter"
 install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
-assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "default install writes manifest native rules"
-assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
-assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# GH-541: the default (core) profile delivers only the compact L1-L7 + Key
+# Detailed Rules table via ~/.claude/CLAUDE.md and must NOT front-inject the
+# full native rule tree, so the live payload stays within the U-32 budget.
+assert_contains "${install_default_lang_out}" "compact core (core profile)" "core profile install reports compact core delivery"
+assert_cmd "core profile does not front-inject Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "core profile does not front-inject Go native rules" test ! -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+
+# The full rule text stays opt-in under the full/strict profiles.
+install_full_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full)"
+assert_contains "${install_full_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "full profile install writes manifest native rules"
+assert_cmd "full profile includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "full profile includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# Switching back to core removes the previously front-injected tree.
+install_core_again_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
+assert_cmd "core profile removes previously injected Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 BASH_C_PROFILE_SETTINGS="${TMP_HOME}/bash-c-profile-settings.json"
 python3 - "${HOME}/.claude/settings.json" "${BASH_C_PROFILE_SETTINGS}" <<'PY'
