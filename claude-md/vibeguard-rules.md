@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 #VibeGuard — AI anti-hallucination rules
 
-> __VIBEGUARD_RULE_COUNT__ rules total. Claude loads the full set from `~/.claude/rules/vibeguard/`; Codex sees the L1-L7 layers + Key Detailed Rules table below. Repo-specific facts belong in the repo-level `AGENTS.md`.
+> __VIBEGUARD_RULE_COUNT__ rules total. Claude defaults to the compact L1-L7 layers + Key Detailed Rules table below; load matching native rule files on demand from `~/.vibeguard/installed/rules/claude-rules/` when path-specific depth is needed. Full/strict profiles may also front-inject native rule files from `~/.claude/rules/vibeguard/`. Codex sees the same compact table. Repo-specific facts belong in the repo-level `AGENTS.md`.
 
 ## Constraints (L1-L7 use rules, hooks, guards, and workflows)
 

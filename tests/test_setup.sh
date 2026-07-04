@@ -138,24 +138,77 @@ raise SystemExit(0 if len(set(blocks)) == 1 else 1)
 PY
 }
 
-assert_claude_rule_banner_matches_installed_rules() {
-  local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local actual=0 declared file_count rule_file
+rule_id_count_for_test() {
+  local root="$1"
+  local actual=0 file_count rule_file
   while IFS= read -r rule_file; do
     file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
     actual=$((actual + file_count))
-  done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  done < <(find "${root}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+  printf '%s\n' "${actual}"
+}
+
+installed_languages_for_test() {
+  python3 - <<'PY' "${HOME}/.vibeguard/install-state.json"
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    raise SystemExit(1)
+data = json.loads(path.read_text(encoding="utf-8"))
+languages = data.get("languages") or []
+print(",".join(str(item).strip() for item in languages if str(item).strip()))
+PY
+}
+
+manifest_rule_count_for_test() {
+  local languages="${1:-}"
+  local links source_path dest_rel label total=0 file_count
+  if [[ -n "${languages}" ]]; then
+    links="$(python3 "${MANIFEST_HELPER}" rule-links --languages "${languages}")"
+  else
+    links="$(python3 "${MANIFEST_HELPER}" rule-links)"
+  fi
+  while IFS=$'\t' read -r source_path dest_rel label; do
+    [[ -n "${source_path}" && -n "${dest_rel}" && -n "${label}" ]] || continue
+    file_count=$(rule_id_count_for_test "${REPO_DIR}/${source_path}")
+    total=$((total + file_count))
+  done <<< "${links}"
+  if [[ -d "${HOME}/.vibeguard/user-rules" ]]; then
+    file_count=$(rule_id_count_for_test "${HOME}/.vibeguard/user-rules")
+    total=$((total + file_count))
+  fi
+  printf '%s\n' "${total}"
+}
+
+expected_rule_banner_count_for_test() {
+  local rules_dest="${HOME}/.claude/rules/vibeguard"
+  local front_injected_count=0 label label_count languages
+  for label in common golang python rust typescript taste; do
+    [[ -d "${rules_dest}/${label}" ]] || continue
+    label_count=$(rule_id_count_for_test "${rules_dest}/${label}")
+    front_injected_count=$((front_injected_count + label_count))
+  done
+  if [[ "${front_injected_count}" -gt 0 ]]; then
+    printf '%s\n' "${front_injected_count}"
+    return
+  fi
+  languages="$(installed_languages_for_test 2>/dev/null || true)"
+  manifest_rule_count_for_test "${languages}"
+}
+
+assert_claude_rule_banner_matches_expected_rules() {
+  local actual declared
+  actual=$(expected_rule_banner_count_for_test)
   declared=$(managed_rule_banner_count_for_test "${HOME}/.claude/CLAUDE.md")
   [[ "${declared}" == "${actual}" ]]
 }
 
-assert_codex_rule_banner_matches_installed_rules() {
-  local rules_dest="${HOME}/.claude/rules/vibeguard"
-  local actual=0 declared file_count rule_file
-  while IFS= read -r rule_file; do
-    file_count=$(grep -cE '^##[[:space:]]+(RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+([[:space:]:]|$)' "${rule_file}" 2>/dev/null || true)
-    actual=$((actual + file_count))
-  done < <(find "${rules_dest}" \( -type f -o -type l \) -name "*.md" 2>/dev/null)
+assert_codex_rule_banner_matches_expected_rules() {
+  local actual declared
+  actual=$(expected_rule_banner_count_for_test)
   declared=$(managed_rule_banner_count_for_test "${HOME}/.codex/AGENTS.md")
   [[ "${declared}" == "${actual}" ]]
 }
