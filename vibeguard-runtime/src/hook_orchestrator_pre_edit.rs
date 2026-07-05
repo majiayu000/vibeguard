@@ -423,3 +423,104 @@ fn file_name(path: &str) -> &str {
 }
 
 const MALFORMED_PRE_EDIT_REASON: &str = "VIBEGUARD interception: malformed PreToolUse(Edit) hook input. The edit request could not be validated, so it was blocked instead of being treated as a safe skip.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "vibeguard-pre-edit-{label}-{}-{nanos}",
+            std::process::id()
+        ))
+    }
+
+    fn git(repo: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(repo)
+            .args(args)
+            .output()
+            .expect("git command runs");
+        assert!(
+            output.status.success(),
+            "git {args:?}\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn line_repeated(count: usize) -> String {
+        std::iter::repeat_n("fn value() {}", count)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn missing_file_candidates_reports_tracked_stem_matches() {
+        let root = unique_temp_dir("candidates");
+        let repo = root.join("repo");
+        fs::create_dir_all(repo.join("src")).expect("create src");
+        git(&repo, &["init"]);
+        let candidate = repo.join("src/hook_orchestrator_pre_edit.rs");
+        fs::write(&candidate, "fn existing() {}\n").expect("write candidate");
+        git(&repo, &["add", "src/hook_orchestrator_pre_edit.rs"]);
+
+        let missing = repo.join("src/pre_edit_runtime.rs");
+        let candidates = missing_file_candidates(&missing.to_string_lossy(), "pre_edit");
+
+        match candidates {
+            MissingFileCandidates::Found(paths) => {
+                assert_eq!(paths, vec![candidate.display().to_string()]);
+            }
+            other => panic!("expected tracked candidate, got {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_file_candidates_returns_empty_for_blank_stem() {
+        assert_eq!(
+            missing_file_candidates("src/lib.rs", ""),
+            MissingFileCandidates::Empty
+        );
+    }
+
+    #[test]
+    fn pre_edit_u16_result_blocks_delta_over_hard_limit() {
+        let root = unique_temp_dir("u16-block");
+        let file_path = root.join("src/lib.rs");
+        let data = json!({
+            "tool_input": {
+                "vibeguard_line_delta": 1
+            }
+        });
+        let content = line_repeated(800);
+
+        let result = pre_edit_u16_result(&data, &file_path.to_string_lossy(), &content, "", "");
+
+        match result {
+            Some(PreEditU16Result::Block { log_reason, output }) => {
+                assert_eq!(log_reason, "U-16 file size: 801 > 800");
+                assert!(output.contains("lib.rs"), "{output}");
+                assert!(output.contains("Do NOT proceed"), "{output}");
+            }
+            _ => panic!("expected U-16 block"),
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn u16_advisory_limit_respects_project_specific_hard_limit() {
+        assert_eq!(u16_advisory_limit(800, 1200, 400), 1200);
+        assert_eq!(u16_advisory_limit(800, 800, 400), 400);
+        assert_eq!(u16_advisory_limit(800, 300, 400), 300);
+    }
+}
