@@ -12,10 +12,10 @@ use crate::runtime_config::{runtime_config_int_value, runtime_config_str_value};
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
 use crate::wrapper_env::env_nonempty;
 
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub(crate) type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HookKind {
+pub(crate) enum HookKind {
     PreWrite,
     PreBash,
     PreEdit,
@@ -77,6 +77,21 @@ pub(crate) fn run(args: &[String]) -> Result {
             }
         };
         run_pre_write(&ctx, &input, start)?;
+        return Ok(());
+    }
+    if kind == HookKind::PreBash {
+        let ctx = match RuntimeContext::collect() {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                emit_runtime_failure_block(kind, "collect runtime context", err)?;
+                return Ok(());
+            }
+        };
+        crate::hook_orchestrator_pre_bash::run(&ctx, &input, start)?;
+        return Ok(());
+    }
+    if kind == HookKind::Stop {
+        crate::hook_orchestrator_stop::run(&input, start)?;
         return Ok(());
     }
 
@@ -503,7 +518,7 @@ fn print_block(reason: &str) -> Result {
     Ok(())
 }
 
-fn append_hook_event(
+pub(crate) fn append_hook_event(
     ctx: &RuntimeContext,
     kind: HookKind,
     decision_value: &str,
@@ -559,7 +574,7 @@ fn append_event(
         field::HOOK_PROTOCOL_VERSION,
     );
 
-    let line = serde_json::to_string(&event)?;
+    let line = serde_json::to_string(&event)?.replace("\":", "\": ");
     append_jsonl(&ctx.log_file, &line)?;
     let global_log = ctx.log_root.join("events.jsonl");
     if global_log != ctx.log_file {
@@ -602,7 +617,7 @@ fn detail_for(kind: HookKind, data: &Value) -> String {
     path.unwrap_or_default()
 }
 
-fn elapsed_ms(start: Instant) -> u64 {
+pub(crate) fn elapsed_ms(start: Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
 
@@ -616,7 +631,7 @@ fn print_pretty_decision(decision_value: &str, reason: &str) {
     println!("}}");
 }
 
-fn print_policy_decision_kv(decision_value: &str, reason: &str) {
+pub(crate) fn print_policy_decision_kv(decision_value: &str, reason: &str) {
     let output_decision = if env_nonempty("VIBEGUARD_POLICY_ENFORCEMENT").as_deref() == Some("warn")
         && matches!(
             decision_value,

@@ -216,6 +216,94 @@ PY
     cat >/dev/null
     printf 'PASS\n'
     ;;
+  hook)
+    hook_name="${1:-}"
+    input="$(cat || true)"
+    case "$hook_name" in
+      pre-bash|pre-bash-guard)
+        event_hook="pre-bash-guard"
+        event_tool="Bash"
+        detail="$(RUNTIME_INPUT="$input" python3 - <<'PY'
+import json
+import os
+
+try:
+    print(json.loads(os.environ.get("RUNTIME_INPUT", "")).get("tool_input", {}).get("command", ""))
+except Exception:
+    print("")
+PY
+)"
+        ;;
+      stop|stop-guard)
+        event_hook="stop-guard"
+        event_tool="Stop"
+        detail=""
+        ;;
+      *)
+        event_hook="${hook_name:-unknown}"
+        event_tool="unknown"
+        detail=""
+        ;;
+    esac
+    log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+    project_hash="${VIBEGUARD_PROJECT_HASH:-${VIBEGUARD_TEST_PROJECT_HASH:-abcdef12}}"
+    project_dir="${VIBEGUARD_PROJECT_LOG_DIR:-${log_dir}/projects/${project_hash}}"
+    log_file="${VIBEGUARD_LOG_FILE:-${project_dir}/events.jsonl}"
+    global_log="${log_dir}/events.jsonl"
+    mkdir -p "$(dirname "$log_file")" "$log_dir"
+    RUNTIME_HOOK="$event_hook" \
+    RUNTIME_TOOL="$event_tool" \
+    RUNTIME_DETAIL="$detail" \
+    RUNTIME_LOG_FILE="$log_file" \
+    RUNTIME_GLOBAL_LOG="$global_log" \
+    python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+cli = os.environ.get("VIBEGUARD_CLI", "unknown")
+client = os.environ.get("VIBEGUARD_CLIENT")
+if not client:
+    client = cli if cli in {"claude", "codex"} else "unknown"
+client_variant = os.environ.get("VIBEGUARD_CLIENT_VARIANT")
+if not client_variant:
+    client_variant = {
+        "claude": "claude-code-hooks",
+        "codex": "codex-cli-hooks",
+    }.get(client, "unknown")
+
+event = {
+    "schema_version": 1,
+    "ts": "2026-01-01T00:00:00Z",
+    "session": os.environ.get("VIBEGUARD_SESSION_ID", "stub-session"),
+    "hook": os.environ["RUNTIME_HOOK"],
+    "tool": os.environ["RUNTIME_TOOL"],
+    "decision": "pass",
+    "status": "pass",
+    "reason": "",
+    "detail": os.environ.get("RUNTIME_DETAIL", ""),
+    "duration_ms": 1,
+    "cli": cli,
+    "client": client,
+    "client_variant": client_variant,
+    "caller_evidence": os.environ.get("VIBEGUARD_CALLER_EVIDENCE", "stub"),
+}
+for env_name, key in [
+    ("VIBEGUARD_WRAPPER", "wrapper"),
+    ("VIBEGUARD_SOURCE_CONFIG", "source_config"),
+    ("VIBEGUARD_HOOK_PROTOCOL_VERSION", "hook_protocol_version"),
+]:
+    value = os.environ.get(env_name)
+    if value:
+        event[key] = value
+line = json.dumps(event)
+for name in ["RUNTIME_LOG_FILE", "RUNTIME_GLOBAL_LOG"]:
+    path = Path(os.environ[name])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+PY
+    ;;
   *)
     cat >/dev/null || true
     ;;
