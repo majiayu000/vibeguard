@@ -54,12 +54,11 @@ fn hook_orchestrator_writes_project_and_global_events() {
 
     let input = serde_json::json!({
         "tool_input": {
-            "file_path": "src/lib.rs",
-            "content": "fn main() {}"
+            "command": "git status"
         }
     })
     .to_string();
-    let out = run_hook(&repo, &log_root, "pre-write", &input);
+    let out = run_hook(&repo, &log_root, "pre-bash", &input);
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -84,8 +83,8 @@ fn hook_orchestrator_writes_project_and_global_events() {
     );
 
     let event = read_first_json(&project_log);
-    assert_eq!(event["hook"], "pre-write-guard");
-    assert_eq!(event["tool"], "Write");
+    assert_eq!(event["hook"], "pre-bash-guard");
+    assert_eq!(event["tool"], "Bash");
     assert_eq!(event["decision"], "pass");
     assert_eq!(event["status"], "pass");
     assert_eq!(event["session"], "session-test");
@@ -96,7 +95,7 @@ fn hook_orchestrator_writes_project_and_global_events() {
     assert_eq!(event["wrapper"], "test-wrapper");
     assert_eq!(event["source_config"], "test-config");
     assert_eq!(event["hook_protocol_version"], "1");
-    assert_eq!(event["detail"], "src/lib.rs");
+    assert_eq!(event["detail"], "git status");
     assert!(event["duration_ms"].as_u64().is_some(), "{event}");
     assert_eq!(event["project_hash"].as_str().unwrap().len(), 8);
 
@@ -151,9 +150,9 @@ fn hook_orchestrator_malformed_input_fails_closed() {
     let out = run_hook(&repo, &log_root, "pre-write-guard", "not-json");
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("\"decision\":\"block\""), "{stdout}");
+    assert!(stdout.contains("\"decision\": \"block\""), "{stdout}");
     assert!(
-        stdout.contains("invalid pre-write-guard hook input JSON; fail-closed"),
+        stdout.contains("malformed PreToolUse(Write) hook input"),
         "{stdout}"
     );
 
@@ -202,13 +201,63 @@ fn hook_orchestrator_malformed_input_blocks_even_when_context_collection_fails()
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("\"decision\":\"block\""), "{stdout}");
     assert!(
-        stdout.contains("invalid pre-write-guard hook input JSON; fail-closed"),
+        stdout.contains("runtime orchestrator failed to collect runtime context"),
         "{stdout}"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("failed to collect context for fail-closed pre-write-guard event"),
+        stderr.contains("runtime orchestrator failed to collect runtime context"),
         "{stderr}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_pre_write_source_new_logs_attempt_and_reminder() {
+    let root = unique_temp_dir("hook-orchestrator-prewrite-source-new");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": repo.join("src/new_file.rs"),
+            "content": "fn new_file() {}\n"
+        }
+    })
+    .to_string();
+    let out = run_hook(&repo, &log_root, "pre-write", &input);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hookSpecificOutput"), "{stdout}");
+    assert!(stdout.contains("new source file detected"), "{stdout}");
+
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let project_log = project_dir.join("events.jsonl");
+    let global_log = log_root.join("events.jsonl");
+    assert_eq!(
+        fs::read_to_string(&project_log).unwrap(),
+        fs::read_to_string(&global_log).unwrap()
+    );
+    let events = fs::read_to_string(&project_log).unwrap();
+    assert!(
+        events.contains("\"reason\":\"New source file attempt\""),
+        "{events}"
+    );
+    assert!(
+        events.contains("\"reason\":\"New source file reminder\""),
+        "{events}"
     );
 
     let _ = fs::remove_dir_all(root);
