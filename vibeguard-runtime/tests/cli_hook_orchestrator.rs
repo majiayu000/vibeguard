@@ -316,6 +316,55 @@ fn hook_orchestrator_pre_write_source_new_logs_attempt_and_reminder() {
 }
 
 #[test]
+fn hook_orchestrator_pre_edit_pass_logs_compact_event() {
+    let root = unique_temp_dir("hook-orchestrator-preedit-pass");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    let file_path = repo.join("src/lib.rs");
+    fs::write(&file_path, "pub fn value() -> i32 { 1 }\n").unwrap();
+
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": file_path,
+            "old_string": ""
+        }
+    })
+    .to_string();
+    let out = run_hook(&repo, &log_root, "pre-edit", &input);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty());
+
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let project_log = project_dir.join("events.jsonl");
+    let log_text = fs::read_to_string(&project_log).unwrap();
+    assert!(
+        log_text.contains("\"hook\":\"pre-edit-guard\""),
+        "{log_text}"
+    );
+
+    let event = read_first_json(&project_log);
+    assert_eq!(event["hook"], "pre-edit-guard");
+    assert_eq!(event["tool"], "Edit");
+    assert_eq!(event["decision"], "pass");
+    assert_eq!(event["status"], "pass");
+    assert_eq!(event["detail"], file_path.to_string_lossy().as_ref());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn hook_orchestrator_pre_bash_blocks_and_logs_reason() {
     let root = unique_temp_dir("hook-orchestrator-prebash-block");
     let repo = root.join("repo");

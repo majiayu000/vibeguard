@@ -90,6 +90,17 @@ pub(crate) fn run(args: &[String]) -> Result {
         crate::hook_orchestrator_pre_bash::run(&ctx, &input, start)?;
         return Ok(());
     }
+    if kind == HookKind::PreEdit {
+        let ctx = match RuntimeContext::collect() {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                emit_runtime_failure_block(kind, "collect runtime context", err)?;
+                return Ok(());
+            }
+        };
+        crate::hook_orchestrator_pre_edit::run(&ctx, &input, start)?;
+        return Ok(());
+    }
     if kind == HookKind::Stop {
         crate::hook_orchestrator_stop::run(&input, start)?;
         return Ok(());
@@ -574,7 +585,7 @@ fn append_event(
         field::HOOK_PROTOCOL_VERSION,
     );
 
-    let line = serde_json::to_string(&event)?.replace("\":", "\": ");
+    let line = serde_json::to_string(&event)?;
     append_jsonl(&ctx.log_file, &line)?;
     let global_log = ctx.log_root.join("events.jsonl");
     if global_log != ctx.log_file {

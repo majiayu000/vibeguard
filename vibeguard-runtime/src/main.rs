@@ -21,6 +21,7 @@ mod hook_checks_write_scan;
 mod hook_orchestrator;
 mod hook_orchestrator_context;
 mod hook_orchestrator_pre_bash;
+mod hook_orchestrator_pre_edit;
 mod hook_orchestrator_stop;
 mod hook_output;
 mod hook_status;
