@@ -116,3 +116,31 @@ fn stop_changed_detail(files: &[String]) -> String {
     detail.push(' ');
     detail
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_hook_active_only_accepts_true_boolean() {
+        assert!(stop_hook_active(r#"{"stop_hook_active":true}"#));
+        assert!(!stop_hook_active(r#"{"stop_hook_active":false}"#));
+        assert!(!stop_hook_active(r#"{"stop_hook_active":"true"}"#));
+        assert!(!stop_hook_active("{"));
+    }
+
+    #[test]
+    fn stop_changed_detail_includes_first_five_files_with_trailing_space() {
+        let files = vec![
+            "a.rs".to_string(),
+            "b.rs".to_string(),
+            "c.rs".to_string(),
+            "d.rs".to_string(),
+            "e.rs".to_string(),
+            "f.rs".to_string(),
+        ];
+
+        assert_eq!(stop_changed_detail(&files), "a.rs b.rs c.rs d.rs e.rs ");
+        assert_eq!(stop_changed_detail(&[]), "");
+    }
+}

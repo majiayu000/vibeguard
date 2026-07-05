@@ -215,3 +215,16 @@ fn command_output_text(output: &std::process::Output) -> String {
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     text
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_available_accepts_current_executable_path() {
+        let current_exe = env::current_exe().expect("current test executable path");
+
+        assert!(!command_available(""));
+        assert!(command_available(&current_exe.to_string_lossy()));
+    }
+}
