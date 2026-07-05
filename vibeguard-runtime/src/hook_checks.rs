@@ -14,6 +14,40 @@ use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_dup
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PreWriteCheck {
+    Malformed,
+    Exists {
+        file_path: String,
+    },
+    Allow {
+        file_path: String,
+    },
+    SourceNew {
+        file_path: String,
+    },
+    W12 {
+        file_path: String,
+    },
+    U16Block {
+        file_path: String,
+        line_count: usize,
+        limit: usize,
+    },
+    U16Warn {
+        file_path: String,
+        line_count: usize,
+        warn_limit: usize,
+        limit: usize,
+    },
+    U16WarnSourceNew {
+        file_path: String,
+        line_count: usize,
+        warn_limit: usize,
+        limit: usize,
+    },
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum MissingFileCandidates {
     Found(Vec<String>),
@@ -31,24 +65,28 @@ pub fn pre_write_check(args: &[String]) -> Result {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(400);
     let input = read_stdin()?;
-    let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("MALFORMED");
-        return Ok(());
+    print_pre_write_check(&evaluate_pre_write_input(&input, base_limit, warn_limit));
+    Ok(())
+}
+
+pub(crate) fn evaluate_pre_write_input(
+    input: &str,
+    base_limit: usize,
+    warn_limit: usize,
+) -> PreWriteCheck {
+    let Ok(data) = serde_json::from_str::<serde_json::Value>(input) else {
+        return PreWriteCheck::Malformed;
     };
 
     let Some(file_path) = nested_str(&data, "tool_input.file_path") else {
-        println!("MALFORMED");
-        return Ok(());
+        return PreWriteCheck::Malformed;
     };
     if file_path.is_empty() {
-        println!("MALFORMED");
-        return Ok(());
+        return PreWriteCheck::Malformed;
     }
 
     if is_test_infra_path(&file_path) {
-        println!("W12");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::W12 { file_path };
     }
 
     let content = nested_str(&data, "tool_input.content").unwrap_or_default();
@@ -57,11 +95,11 @@ pub fn pre_write_check(args: &[String]) -> Result {
     if is_source_path(&file_path) && !is_test_path(&file_path) {
         let limit = project_u16_limit(&file_path, base_limit);
         if line_count > limit {
-            println!("U16_BLOCK");
-            println!("{file_path}");
-            println!("{line_count}");
-            println!("{limit}");
-            return Ok(());
+            return PreWriteCheck::U16Block {
+                file_path,
+                line_count,
+                limit,
+            };
         }
         let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
         if advisory_limit < limit && line_count > advisory_limit {
@@ -70,37 +108,89 @@ pub fn pre_write_check(args: &[String]) -> Result {
     }
 
     if Path::new(&file_path).exists() {
-        if let Some((line_count, advisory_limit, limit)) = u16_advisory {
-            println!("U16_WARN");
-            println!("{file_path}");
-            println!("{line_count}");
-            println!("{advisory_limit}");
-            println!("{limit}");
-            return Ok(());
+        if let Some((line_count, warn_limit, limit)) = u16_advisory {
+            return PreWriteCheck::U16Warn {
+                file_path,
+                line_count,
+                warn_limit,
+                limit,
+            };
         }
-        println!("EXISTS");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::Exists { file_path };
     }
 
     if is_allowed_new_file(&file_path) || !is_source_path(&file_path) {
-        println!("ALLOW");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::Allow { file_path };
     }
 
-    if let Some((line_count, advisory_limit, limit)) = u16_advisory {
-        println!("U16_WARN_SOURCE_NEW");
-        println!("{file_path}");
-        println!("{line_count}");
-        println!("{advisory_limit}");
-        println!("{limit}");
-        return Ok(());
+    if let Some((line_count, warn_limit, limit)) = u16_advisory {
+        return PreWriteCheck::U16WarnSourceNew {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        };
     }
 
-    println!("SOURCE_NEW");
-    println!("{file_path}");
-    Ok(())
+    PreWriteCheck::SourceNew { file_path }
+}
+
+fn print_pre_write_check(check: &PreWriteCheck) {
+    match check {
+        PreWriteCheck::Malformed => {
+            println!("MALFORMED");
+        }
+        PreWriteCheck::Exists { file_path } => {
+            println!("EXISTS");
+            println!("{file_path}");
+        }
+        PreWriteCheck::Allow { file_path } => {
+            println!("ALLOW");
+            println!("{file_path}");
+        }
+        PreWriteCheck::SourceNew { file_path } => {
+            println!("SOURCE_NEW");
+            println!("{file_path}");
+        }
+        PreWriteCheck::W12 { file_path } => {
+            println!("W12");
+            println!("{file_path}");
+        }
+        PreWriteCheck::U16Block {
+            file_path,
+            line_count,
+            limit,
+        } => {
+            println!("U16_BLOCK");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{limit}");
+        }
+        PreWriteCheck::U16Warn {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        } => {
+            println!("U16_WARN");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{warn_limit}");
+            println!("{limit}");
+        }
+        PreWriteCheck::U16WarnSourceNew {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        } => {
+            println!("U16_WARN_SOURCE_NEW");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{warn_limit}");
+            println!("{limit}");
+        }
+    }
 }
 
 pub fn pre_edit_check(args: &[String]) -> Result {

@@ -71,22 +71,10 @@ pub fn runtime_config_get_int(args: &[String]) -> HandlerResult {
     let json_path = &args[1];
     let default_value = &args[2];
 
-    if let Some(value) = std::env::var(env_name)
-        .ok()
-        .filter(|value| is_nonnegative_digits(value))
-    {
-        println!("{value}");
-        return Ok(());
-    }
-
-    if let Some(value) = load_runtime_config_value(json_path) {
-        if let Some(number) = value.as_u64() {
-            println!("{number}");
-            return Ok(());
-        }
-    }
-
-    println!("{default_value}");
+    println!(
+        "{}",
+        runtime_config_int_value(env_name, json_path, default_value)
+    );
     Ok(())
 }
 
@@ -102,23 +90,53 @@ pub fn runtime_config_get_str(args: &[String]) -> HandlerResult {
     let json_path = &args[1];
     let default_value = &args[2];
 
+    println!(
+        "{}",
+        runtime_config_str_value(env_name, json_path, default_value)
+    );
+    Ok(())
+}
+
+pub(crate) fn runtime_config_int_value(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> u64 {
+    if let Some(value) = std::env::var(env_name)
+        .ok()
+        .filter(|value| is_nonnegative_digits(value))
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return value;
+    }
+
+    if let Some(value) = load_runtime_config_value(json_path).and_then(|value| value.as_u64()) {
+        return value;
+    }
+
+    default_value.parse::<u64>().unwrap_or(0)
+}
+
+pub(crate) fn runtime_config_str_value(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> String {
     if let Some(value) = std::env::var(env_name)
         .ok()
         .filter(|value| !value.is_empty())
     {
-        println!("{value}");
-        return Ok(());
+        return value;
     }
 
-    if let Some(value) = load_runtime_config_value(json_path) {
-        if let Some(text) = value.as_str().filter(|text| !text.is_empty()) {
-            println!("{text}");
-            return Ok(());
-        }
+    if let Some(text) = load_runtime_config_value(json_path)
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|text| !text.is_empty())
+    {
+        return text;
     }
 
-    println!("{default_value}");
-    Ok(())
+    default_value.to_string()
 }
 
 fn load_runtime_config_value(json_path: &str) -> Option<Value> {
