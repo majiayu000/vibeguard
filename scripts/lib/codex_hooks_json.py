@@ -26,6 +26,11 @@ MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST
 # wrapper path, so removal works even when a non-standard wrapper is used.
 _MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
 _WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook-codex.sh"})
+_BLOCKING_EVENTS: frozenset[str] = frozenset({"PreToolUse", "PermissionRequest"})
+_DEFAULT_REPAIR_EVENTS: tuple[str, ...] = ("PreToolUse", "PermissionRequest")
+_INTERPRETERS: frozenset[str] = frozenset(
+    {"node", "bash", "sh", "python", "python3", "python2", "ruby", "perl", "deno", "bun"}
+)
 
 
 def _display_path(path: Path, home: Path) -> str:
@@ -66,6 +71,43 @@ def _hook_target_from_command(command: str, home: Path) -> Path | None:
                 installed_dir = path.parent / "installed/hooks"
                 if installed_dir.exists():
                     return installed_dir / script_name
+    return None
+
+
+def _is_env_assignment(token: str) -> bool:
+    name, sep, _ = token.partition("=")
+    return bool(sep and name and all(ch.isalnum() or ch == "_" for ch in name))
+
+
+def _command_start_after_env(parts: list[str]) -> int | None:
+    index = 0
+    if parts and Path(parts[0]).name == "env":
+        index += 1
+    while index < len(parts) and _is_env_assignment(parts[index]):
+        index += 1
+    return index if index < len(parts) else None
+
+
+def _unmanaged_target_from_command(command: str, home: Path) -> Path | None:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    start = _command_start_after_env(parts)
+    if start is None:
+        return None
+    first = parts[start]
+    direct = _expand_shell_path(first, home)
+    if direct is not None:
+        return direct
+    if Path(first).name not in _INTERPRETERS:
+        return None
+    for token in parts[start + 1 :]:
+        if token.startswith("-") or _is_env_assignment(token):
+            continue
+        target = _expand_shell_path(token, home)
+        if target is not None:
+            return target
     return None
 
 
@@ -203,18 +245,48 @@ def _iter_hook_commands(data: dict[str, Any]) -> list[tuple[str, str, str]]:
 def stale_hook_findings(path: Path, home: Path) -> list[dict[str, str]]:
     data = load_hooks(path)
     findings: list[dict[str, str]] = []
-    for event, matcher, command in _iter_hook_commands(data):
-        hook_target = _hook_target_from_command(command, home)
-        if hook_target is None or hook_target.exists():
+    for event, matcher, hook in _iter_hook_records(data):
+        command = hook.get("command")
+        if not isinstance(command, str) or not command:
             continue
+        hook_target = _hook_target_from_command(command, home)
+        if hook_target is not None:
+            if hook_target.exists():
+                continue
+            findings.append(
+                {
+                    "label": "stale Codex hook command",
+                    "client": "Codex",
+                    "config": _display_path(path, home),
+                    "event": event,
+                    "matcher": matcher,
+                    "command": "",
+                    "command_path": str(hook_target),
+                    "repair": "bash setup.sh --yes",
+                }
+            )
+            continue
+        identity = _identity_for_hook(event, None if matcher == "<none>" else matcher, hook)
+        if identity.is_managed:
+            continue
+        unmanaged_target = _unmanaged_target_from_command(command, home)
+        if unmanaged_target is None or unmanaged_target.exists():
+            continue
+        label = (
+            "repair-required unmanaged Codex blocking hook"
+            if event in _BLOCKING_EVENTS
+            else "stale unmanaged Codex hook"
+        )
         findings.append(
             {
+                "label": label,
                 "client": "Codex",
                 "config": _display_path(path, home),
                 "event": event,
                 "matcher": matcher,
-                "command_path": str(hook_target),
-                "repair": "bash setup.sh --yes",
+                "command": command,
+                "command_path": str(unmanaged_target),
+                "repair": "bash setup.sh --yes --repair-stale-unmanaged-hooks",
             }
         )
     return findings
@@ -302,6 +374,62 @@ def _prune_stale_installed_hook_entries(data: dict[str, Any], home: Path) -> boo
         changed = True
 
     return changed
+
+
+def _prune_stale_unmanaged_hook_entries(data: dict[str, Any], home: Path, events: set[str]) -> list[str]:
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+
+    removed: list[str] = []
+    for event, entries in list(hooks.items()):
+        if str(event) not in events or not isinstance(entries, list):
+            continue
+
+        new_entries: list[Any] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                new_entries.append(entry)
+                continue
+            matcher_value = entry.get("matcher")
+            matcher = matcher_value if isinstance(matcher_value, str) and matcher_value else "<none>"
+            hook_entries = entry.get("hooks")
+            if not isinstance(hook_entries, list):
+                new_entries.append(entry)
+                continue
+
+            kept_hooks: list[Any] = []
+            for hook in hook_entries:
+                if not isinstance(hook, dict):
+                    kept_hooks.append(hook)
+                    continue
+                command = hook.get("command")
+                if not isinstance(command, str) or not command:
+                    kept_hooks.append(hook)
+                    continue
+                identity = _identity_for_hook(str(event), None if matcher == "<none>" else matcher, hook)
+                target = _unmanaged_target_from_command(command, home)
+                if identity.is_managed or target is None or target.exists():
+                    kept_hooks.append(hook)
+                    continue
+                removed.append(
+                    "removed stale unmanaged Codex hook: "
+                    f"event={event} matcher={matcher} command={command} command_path={target}"
+                )
+
+            if kept_hooks:
+                next_entry = dict(entry)
+                next_entry["hooks"] = kept_hooks
+                new_entries.append(next_entry)
+
+        if new_entries:
+            hooks[event] = new_entries
+        else:
+            hooks.pop(event, None)
+
+    if not hooks:
+        data.pop("hooks", None)
+    return removed
 
 
 def _build_entry(wrapper: str, spec: HookSpec) -> dict[str, Any]:
@@ -421,11 +549,32 @@ def cmd_check_stale_hooks(args: argparse.Namespace) -> int:
         return 0
     findings = stale_hook_findings(hooks_path, Path.home())
     for finding in findings:
+        command = f" command={finding['command']}" if finding.get("command") else ""
+        fields = dict(finding)
+        fields["command_suffix"] = command
         print(
-            "stale {client} hook command: config={config} event={event} "
-            "matcher={matcher} command_path={command_path} repair={repair}".format(**finding)
+            "{label}: config={config} event={event} matcher={matcher}{command_suffix} "
+            "command_path={command_path} repair={repair}".format(**fields)
         )
     return 1 if findings else 0
+
+
+def cmd_prune_stale_unmanaged(args: argparse.Namespace) -> int:
+    hooks_path = Path(args.hooks_file)
+    if not hooks_path.exists():
+        print("SKIP")
+        return 0
+    events = set(args.event or _DEFAULT_REPAIR_EVENTS)
+    data = load_hooks(hooks_path)
+    removed = _prune_stale_unmanaged_hook_entries(data, Path.home(), events)
+    for line in removed:
+        print(f"{line} config={_display_path(hooks_path, Path.home())}")
+    if removed:
+        save_hooks(hooks_path, data)
+        print("CHANGED")
+    else:
+        print("SKIP")
+    return 0
 
 
 def cmd_check_timeouts(args: argparse.Namespace) -> int:
@@ -483,6 +632,11 @@ def build_parser() -> argparse.ArgumentParser:
     stale = sub.add_parser("check-stale-hooks", help="Detect stale hook commands")
     stale.add_argument("--hooks-file", required=True)
     stale.set_defaults(func=cmd_check_stale_hooks)
+
+    prune = sub.add_parser("prune-stale-unmanaged", help="Remove stale unmanaged blocking hooks")
+    prune.add_argument("--hooks-file", required=True)
+    prune.add_argument("--event", action="append")
+    prune.set_defaults(func=cmd_prune_stale_unmanaged)
 
     timeouts = sub.add_parser("check-timeouts", help="Detect hook entries without timeout")
     timeouts.add_argument("--hooks-file", required=True)

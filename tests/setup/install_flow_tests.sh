@@ -12,12 +12,18 @@ assert_cmd "scheduled GC installers do not reference retired root path" bash -c 
 
 header "seed existing config"
 mkdir -p "${HOME}/.claude" "${HOME}/.codex"
+case "${HOME}" in
+  "${TMP_HOME}"*) ;;
+  *) red "refusing to write hook fixture outside TMP_HOME"; exit 1 ;;
+esac
+PREEXISTING_CODEX_HOOK_SCRIPT="${HOME}/codex-third-party-hook.js"
+printf 'process.exit(0)\n' > "${PREEXISTING_CODEX_HOOK_SCRIPT}"
 cat > "${HOME}/.claude/settings.json" <<'JSON'
 {
   "hooks": {}
 }
 JSON
-cat > "${HOME}/.codex/hooks.json" <<'JSON'
+cat > "${HOME}/.codex/hooks.json" <<JSON
 {
   "hooks": {
     "PreToolUse": [
@@ -26,7 +32,7 @@ cat > "${HOME}/.codex/hooks.json" <<'JSON'
         "hooks": [
           {
             "type": "command",
-            "command": "node /existing/non-vibeguard.js"
+            "command": "node ${PREEXISTING_CODEX_HOOK_SCRIPT}"
           }
         ]
       }
@@ -38,7 +44,7 @@ cat > "${HOME}/.codex/config.toml" <<'TOML'
 [features]
 hooks = true
 TOML
-assert_cmd "Pre-existing non-VibeGuard Codex hook is present" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "Pre-existing non-VibeGuard Codex hook is present" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 
 header "setup --check"
 check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
@@ -631,7 +637,36 @@ assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vib
 assert_cmd "Codex hooks include PermissionRequest native gates" bash -c "grep -q '\"PermissionRequest\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Edit\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Write\"' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
 assert_cmd "run-hook-codex rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); test -z \"\$out\""
-assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
+python3 - "${HOME}/.codex/hooks.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+entry = data["hooks"]["PreToolUse"][0]
+entry["hooks"].append({"type": "command", "command": "node /existing/non-vibeguard.js"})
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+set +e
+setup_without_stale_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+setup_without_stale_repair_rc=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${setup_without_stale_repair_rc}" -ne 0 ]]; then
+  green "setup without stale unmanaged repair fails install verification"
+  PASS=$((PASS + 1))
+else
+  red "setup without stale unmanaged repair fails install verification (expected nonzero)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "${setup_without_stale_repair_out}" "repair-required unmanaged Codex blocking hook" "setup without stale unmanaged repair reports blocker"
+assert_cmd "ordinary setup preserves stale unmanaged Codex hook by default" grep -q '/existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+setup_with_stale_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes --repair-stale-unmanaged-hooks)"
+assert_contains "${setup_with_stale_repair_out}" "Stale unmanaged Codex hooks repaired" "setup repair flag reports stale unmanaged repair"
+assert_cmd "repair flag removes stale unmanaged Codex hook" bash -c "! grep -q '/existing/non-vibeguard.js' '${HOME}/.codex/hooks.json'"
+assert_cmd "repair flag preserves valid third-party Codex hook" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
 assert_cmd "~/.claude/CLAUDE.md rule banner matches expected rules" assert_claude_rule_banner_matches_expected_rules

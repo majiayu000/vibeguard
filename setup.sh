@@ -35,6 +35,7 @@ Install options:
   --runtime-version vX.Y.Z
   --require-provenance
   --with-scheduler
+  --repair-stale-unmanaged-hooks
   --force-overwrite
   --profile minimal|core|full|strict
   --languages lang1,lang2

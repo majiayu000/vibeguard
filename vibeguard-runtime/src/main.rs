@@ -35,6 +35,7 @@ mod runtime_policy;
 mod session_metrics;
 mod setup_codex_config;
 mod setup_codex_hooks;
+mod setup_codex_hooks_health;
 mod setup_install_state;
 mod setup_manifest;
 mod setup_markdown;
@@ -466,8 +467,13 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-check-stale",
-        usage: "<hooks-file>  — detect stale Codex hook commands",
+        usage: "[repo-dir] <hooks-file>  — detect stale Codex hook commands",
         handler: setup_codex_hooks::codex_hooks_check_stale,
+    },
+    Command {
+        name: "setup-codex-hooks-prune-stale-unmanaged",
+        usage: "<repo-dir> <hooks-file> [event...]  — remove missing-target unmanaged Codex hooks for selected events",
+        handler: setup_codex_hooks::codex_hooks_prune_stale_unmanaged,
     },
     Command {
         name: "setup-codex-hooks-check-timeouts",
