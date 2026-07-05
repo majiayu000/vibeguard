@@ -27,6 +27,15 @@ header "pre-write-guard.sh — malformed input fails closed"
 result=$(printf '%s' '{"tool_input":' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Malformed Write hook JSON fails closed"
 assert_contains "$result" "malformed PreToolUse(Write)" "Malformed Write hook input explains validation failure"
+expected_malformed_output=$(cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "VIBEGUARD interception: malformed PreToolUse(Write) hook input. The write request could not be validated, so it was blocked instead of being treated as a safe skip."
+}
+EOF
+)
+assert_exit_zero "Malformed Write hook output matches legacy JSON shape" \
+  bash -c '[[ "$1" == "$2" ]]' _ "$result" "$expected_malformed_output"
 
 result=$(printf '%s' '{"tool_input":{}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Write hook payload missing file_path fails closed"
@@ -81,6 +90,15 @@ assert_not_contains "$result" "VIBEGUARD" "Source code files in the tests/ direc
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_dir/conftest.py"}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "W-12: Block writing to new conftest.py"
 assert_contains "$result" "W-12" "W-12: write guard error message contains rule number"
+expected_w12_output=$(cat <<'EOF'
+{
+  "decision": "block",
+  "reason": "[W-12] [block] [this-edit] OBSERVATION: writing to test infrastructure file blocked (conftest.py/jest.config/pytest.ini/.coveragerc/babel.config)\nFIX: Fix the production code that is failing — do not manipulate test framework configuration"
+}
+EOF
+)
+assert_exit_zero "W-12 Write hook output matches legacy JSON shape" \
+  bash -c '[[ "$1" == "$2" ]]' _ "$result" "$expected_w12_output"
 
 # W-12: Writing to existing conftest.py paths (including directories) should also be blocked
 result=$(echo '{"tool_input":{"file_path":"/project/tests/conftest.py"}}' | bash hooks/pre-write-guard.sh)

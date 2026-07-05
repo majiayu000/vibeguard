@@ -53,13 +53,63 @@ impl Default for CircuitState {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CircuitCheckOutcome {
+    Run,
+    AutoPass { reason: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CircuitRecordBlockOutcome {
+    Recorded,
+    Opened { reason: String },
+}
+
+pub(crate) fn check(
+    state_file: &Path,
+    lock_file: &Path,
+    cooldown: u64,
+    lock_timeout: u64,
+    session: &str,
+) -> Result<CircuitCheckOutcome> {
+    let _lock = CircuitLock::acquire(lock_file, lock_timeout)?;
+    let mut state = load_state(state_file)?;
+    let dirty = apply_session_reset(&mut state, session);
+    run_check(state_file, &mut state, session, cooldown, dirty)
+}
+
+pub(crate) fn record_block(
+    state_file: &Path,
+    lock_file: &Path,
+    threshold: u64,
+    cooldown: u64,
+    lock_timeout: u64,
+    session: &str,
+) -> Result<CircuitRecordBlockOutcome> {
+    let _lock = CircuitLock::acquire(lock_file, lock_timeout)?;
+    let mut state = load_state(state_file)?;
+    let _dirty = apply_session_reset(&mut state, session);
+    run_record_block(state_file, &mut state, session, threshold, cooldown)
+}
+
+pub(crate) fn record_pass(
+    state_file: &Path,
+    lock_file: &Path,
+    lock_timeout: u64,
+    session: &str,
+) -> Result {
+    let _lock = CircuitLock::acquire(lock_file, lock_timeout)?;
+    let mut state = load_state(state_file)?;
+    let dirty = apply_session_reset(&mut state, session);
+    run_record_pass(state_file, &mut state, session, dirty)
+}
+
 pub fn run(args: &[String]) -> Result {
     if args.len() != 7 {
         return Err("Usage: vibeguard-runtime circuit-breaker <check|record-block|record-pass> <hook> <state-file> <lock-file> <threshold> <cooldown-seconds> <lock-timeout-seconds>".into());
     }
 
     let action = args[0].as_str();
-    let hook = args[1].as_str();
     let state_file = Path::new(&args[2]);
     let lock_file = Path::new(&args[3]);
     let threshold = parse_u64(&args[4], "threshold")?;
@@ -67,16 +117,43 @@ pub fn run(args: &[String]) -> Result {
     let lock_timeout = parse_u64(&args[6], "lock-timeout-seconds")?;
     let session = std::env::var("VIBEGUARD_SESSION_ID").unwrap_or_default();
 
-    let _lock = CircuitLock::acquire(lock_file, lock_timeout)?;
-    let mut state = load_state(state_file)?;
-    let dirty = apply_session_reset(&mut state, &session);
-
     match action {
-        "check" => run_check(hook, state_file, &mut state, &session, cooldown, dirty),
+        "check" => match check(state_file, lock_file, cooldown, lock_timeout, &session)? {
+            CircuitCheckOutcome::Run => {
+                println!("RUN");
+                Ok(())
+            }
+            CircuitCheckOutcome::AutoPass { reason } => {
+                println!("AUTO_PASS");
+                println!("{reason}");
+                Ok(())
+            }
+        },
         "record-block" => {
-            run_record_block(hook, state_file, &mut state, &session, threshold, cooldown)
+            match record_block(
+                state_file,
+                lock_file,
+                threshold,
+                cooldown,
+                lock_timeout,
+                &session,
+            )? {
+                CircuitRecordBlockOutcome::Recorded => {
+                    println!("RECORDED");
+                    Ok(())
+                }
+                CircuitRecordBlockOutcome::Opened { reason } => {
+                    println!("OPENED");
+                    println!("{reason}");
+                    Ok(())
+                }
+            }
         }
-        "record-pass" => run_record_pass(state_file, &mut state, &session, dirty),
+        "record-pass" => {
+            record_pass(state_file, lock_file, lock_timeout, &session)?;
+            println!("RECORDED");
+            Ok(())
+        }
         _ => Err(format!("unknown circuit-breaker action: {action}").into()),
     }
 }
@@ -88,13 +165,12 @@ fn parse_u64(value: &str, name: &str) -> Result<u64> {
 }
 
 fn run_check(
-    _hook: &str,
     state_file: &Path,
     state: &mut CircuitState,
     session: &str,
     cooldown: u64,
     dirty: bool,
-) -> Result {
+) -> Result<CircuitCheckOutcome> {
     let now = now_unix_secs();
 
     match state.state {
@@ -102,7 +178,7 @@ fn run_check(
             if dirty {
                 save_state(state_file, state, session)?;
             }
-            println!("RUN");
+            Ok(CircuitCheckOutcome::Run)
         }
         CircuitStateName::Open => {
             let elapsed = now.saturating_sub(state.last_block);
@@ -110,53 +186,49 @@ fn run_check(
                 state.state = CircuitStateName::HalfOpen;
                 state.last_block = now;
                 save_state(state_file, state, session)?;
-                println!("RUN");
+                Ok(CircuitCheckOutcome::Run)
             } else {
                 let remaining = cooldown - elapsed;
-                println!("AUTO_PASS");
-                println!(
-                    "CB OPEN: auto-pass ({remaining}s remaining, {} consecutive blocks)",
-                    state.blocks
-                );
+                Ok(CircuitCheckOutcome::AutoPass {
+                    reason: format!(
+                        "CB OPEN: auto-pass ({remaining}s remaining, {} consecutive blocks)",
+                        state.blocks
+                    ),
+                })
             }
         }
-        CircuitStateName::HalfOpen => {
-            println!("AUTO_PASS");
-            println!(
+        CircuitStateName::HalfOpen => Ok(CircuitCheckOutcome::AutoPass {
+            reason: format!(
                 "CB HALF-OPEN: probe in-flight, auto-passing ({} prior blocks)",
                 state.blocks
-            );
-        }
+            ),
+        }),
     }
-
-    Ok(())
 }
 
 fn run_record_block(
-    _hook: &str,
     state_file: &Path,
     state: &mut CircuitState,
     session: &str,
     threshold: u64,
     cooldown: u64,
-) -> Result {
+) -> Result<CircuitRecordBlockOutcome> {
     state.blocks = state.blocks.saturating_add(1);
     state.last_block = now_unix_secs();
 
     if state.state == CircuitStateName::HalfOpen || state.blocks >= threshold {
         state.state = CircuitStateName::Open;
         save_state(state_file, state, session)?;
-        println!("OPENED");
-        println!(
-            "CB tripped OPEN: {} consecutive blocks, cooldown {cooldown}s",
-            state.blocks
-        );
+        Ok(CircuitRecordBlockOutcome::Opened {
+            reason: format!(
+                "CB tripped OPEN: {} consecutive blocks, cooldown {cooldown}s",
+                state.blocks
+            ),
+        })
     } else {
         save_state(state_file, state, session)?;
-        println!("RECORDED");
+        Ok(CircuitRecordBlockOutcome::Recorded)
     }
-
-    Ok(())
 }
 
 fn run_record_pass(
@@ -171,7 +243,6 @@ fn run_record_pass(
         state.last_block = 0;
         save_state(state_file, state, session)?;
     }
-    println!("RECORDED");
     Ok(())
 }
 
