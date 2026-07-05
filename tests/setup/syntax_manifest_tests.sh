@@ -7,6 +7,8 @@ assert_cmd "scripts/setup/clean.sh syntax is correct" bash -n "${REPO_DIR}/scrip
 assert_cmd "scripts/setup/codex-status.sh syntax is correct" bash -n "${REPO_DIR}/scripts/setup/codex-status.sh"
 assert_cmd "scripts/codex-contract-check.sh syntax is correct" bash -n "${REPO_DIR}/scripts/codex-contract-check.sh"
 assert_cmd "scripts/project-init.sh syntax is correct" bash -n "${REPO_DIR}/scripts/project-init.sh"
+assert_cmd "scripts/health-report-scheduled.sh syntax is correct" bash -n "${REPO_DIR}/scripts/health-report-scheduled.sh"
+assert_cmd "scripts/install-health-report-scheduler.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-health-report-scheduler.sh"
 assert_cmd "scripts/install-systemd.sh syntax is correct" bash -n "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scripts/lib/install-state.sh syntax is correct" bash -n "${REPO_DIR}/scripts/lib/install-state.sh"
 assert_cmd "scripts/lib/settings_json.py syntax is correct" python3 -m py_compile "${SETTINGS_HELPER}"

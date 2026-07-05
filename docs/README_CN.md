@@ -305,6 +305,8 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 # 运行时 / 调度器
 bash ~/vibeguard/setup.sh --build-from-source          # 强制使用 Cargo 本地构建
 bash ~/vibeguard/setup.sh --with-scheduler             # opt in 安装 launchd/systemd 定时 GC
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --dry-run
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # opt in 安装每周健康报告
 
 # 检查 / 卸载
 bash ~/vibeguard/setup.sh doctor                 # 面向人的友好报告，兼容性退出 0
