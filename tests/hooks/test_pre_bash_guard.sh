@@ -5,57 +5,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/hook_test_lib.sh"
 hook_test_init
 
-run_pre_bash_with_fake_runtime() {
-  local fake_case="$1"
+run_pre_bash_without_runtime() {
   local tmp_dir
   tmp_dir=$(mktemp -d)
-  mkdir -p "${tmp_dir}/hooks/_lib" "${tmp_dir}/home" "${tmp_dir}/log"
-  cp hooks/pre-bash-guard.sh hooks/log.sh "${tmp_dir}/hooks/"
-  cp hooks/_lib/*.sh "${tmp_dir}/hooks/_lib/"
-  cat > "${tmp_dir}/hooks/vibeguard-runtime" <<'EOF'
-#!/usr/bin/env bash
-case "$1" in
-  pre-bash-check)
-    case "${VIBEGUARD_FAKE_PRE_BASH:-}" in
-      stderr)
-        printf 'runtime noise\n' >&2
-        printf 'PASS\n{"command":"npm run build","precommit":false}\n'
-        exit 0
-        ;;
-      nonzero)
-        printf 'runtime exploded\n' >&2
-        exit 1
-        ;;
-      token)
-        printf 'SURPRISE\n{}\n'
-        exit 0
-        ;;
-      bad_payload)
-        printf 'BLOCK\n{}\n'
-        exit 0
-        ;;
-    esac
-    ;;
-  append-jsonl)
-    printf 'Unknown command: append-jsonl\n' >&2
-    exit 2
-    ;;
-  json-field)
-    printf 'Unknown command: json-field\n' >&2
-    exit 2
-    ;;
-esac
-printf 'Unknown command: %s\n' "$1" >&2
-exit 2
-EOF
-  chmod +x "${tmp_dir}/hooks/vibeguard-runtime"
+  mkdir -p "${tmp_dir}/hooks" "${tmp_dir}/home"
+  cp hooks/pre-bash-guard.sh "${tmp_dir}/hooks/"
+  set +e
   HOME="${tmp_dir}/home" \
-    VIBEGUARD_FAKE_PRE_BASH="$fake_case" \
-    VIBEGUARD_LOG_DIR="${tmp_dir}/log" \
-    VIBEGUARD_RUNTIME="${tmp_dir}/hooks/vibeguard-runtime" \
+    VIBEGUARD_RUNTIME="" \
     bash "${tmp_dir}/hooks/pre-bash-guard.sh" \
     <<< '{"tool_input":{"command":"npm run build"}}' 2>&1
+  local status=$?
+  set -e
+  printf '\n__status=%s\n' "$status"
   rm -rf "$tmp_dir"
+}
+
+assert_status_line() {
+  local output="$1" expected="$2" desc="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -qF "__status=${expected}" <<< "$output"; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected status ${expected})"
+    FAIL=$((FAIL + 1))
+  fi
 }
 
 header "pre-bash-guard.sh — Dangerous command interception"
@@ -175,21 +150,9 @@ assert_contains "$result" '"decision": "block"' "Missing Bash command field fail
 result=$(echo '{"tool_input":{"command":""}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Empty Bash command string remains a no-op"
 
-runtime_stderr_result=$(run_pre_bash_with_fake_runtime stderr)
-assert_contains "$runtime_stderr_result" '"decision": "block"' "Runtime stderr fails closed"
-assert_contains "$runtime_stderr_result" "runtime wrote stderr" "Runtime stderr diagnostic is visible"
-
-runtime_nonzero_result=$(run_pre_bash_with_fake_runtime nonzero)
-assert_contains "$runtime_nonzero_result" '"decision": "block"' "Runtime nonzero exit fails closed"
-assert_contains "$runtime_nonzero_result" "runtime failed" "Runtime nonzero diagnostic is visible"
-
-runtime_token_result=$(run_pre_bash_with_fake_runtime token)
-assert_contains "$runtime_token_result" '"decision": "block"' "Runtime unexpected token fails closed"
-assert_contains "$runtime_token_result" "unexpected token" "Runtime unexpected token diagnostic is visible"
-
-runtime_payload_result=$(run_pre_bash_with_fake_runtime bad_payload)
-assert_contains "$runtime_payload_result" '"decision": "block"' "Runtime malformed payload fails closed"
-assert_contains "$runtime_payload_result" "invalid BLOCK payload" "Runtime malformed payload diagnostic is visible"
+missing_runtime_result=$(run_pre_bash_without_runtime)
+assert_contains "$missing_runtime_result" "vibeguard-runtime not found" "Missing runtime emits explicit diagnostic"
+assert_status_line "$missing_runtime_result" "2" "Missing runtime exits nonzero"
 
 # =========================================================
 header "pre-bash-guard.sh — Package manager transparent correction (updatedInput)"

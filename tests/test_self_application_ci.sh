@@ -132,6 +132,26 @@ printf '%s\n' "$CORRECTED"
 EOF
 assert_cmd "runtime-owned package correction passes taint check" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${good_runtime_pkg_correction}"
 
+good_hook_runtime_pkg_correction="${TMP_DIR}/good-hook-runtime-pkg-correction"
+mkdir -p "${good_hook_runtime_pkg_correction}/hooks" "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src"
+cat > "${good_hook_runtime_pkg_correction}/hooks/pre-bash-guard.sh" <<'EOF'
+#!/usr/bin/env bash
+exec "$_VIBEGUARD_RUNTIME" hook pre-bash
+EOF
+cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_checks_bash.rs" <<'EOF'
+json!({
+  "updatedInput": {
+    "command": corrected,
+  }
+})
+EOF
+cat > "${good_hook_runtime_pkg_correction}/vibeguard-runtime/src/hook_orchestrator_pre_bash.rs" <<'EOF'
+fn run() {
+    println!("{}", corrected);
+}
+EOF
+assert_cmd "runtime hook package correction passes taint check" bash "${SELF_DIR}/check-pkg-correction-argv-only.sh" "${good_hook_runtime_pkg_correction}"
+
 bad_runtime_pkg_eval="${TMP_DIR}/bad-runtime-pkg-eval"
 mkdir -p "${bad_runtime_pkg_eval}/hooks"
 cat > "${bad_runtime_pkg_eval}/hooks/pre-bash-guard.sh" <<'EOF'
@@ -529,6 +549,23 @@ def x():
     return {"skipped": True, "EVAL_MAX_API_FAILURES": 1}
 PY
 assert_fails "runtime Python fallback references fail U-29 check" bash "${SELF_DIR}/check-u29-no-silent-degrade.sh" "${bad_runtime_fallback}"
+
+bad_runtime_u29="${TMP_DIR}/bad-runtime-u29"
+mkdir -p "${bad_runtime_u29}/hooks" "${bad_runtime_u29}/vibeguard-runtime/src" "${bad_runtime_u29}/eval"
+cat > "${bad_runtime_u29}/hooks/pre-bash-guard.sh" <<'EOF'
+exec "$_VIBEGUARD_RUNTIME" hook pre-bash
+EOF
+cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_checks_bash.rs" <<'EOF'
+fn evaluate_pre_bash_input() {}
+EOF
+cat > "${bad_runtime_u29}/vibeguard-runtime/src/hook_orchestrator_pre_bash.rs" <<'EOF'
+fn run() {}
+EOF
+cat > "${bad_runtime_u29}/eval/run_eval.py" <<'PY'
+def x():
+    return {"skipped": True, "EVAL_MAX_API_FAILURES": 1}
+PY
+assert_fails "runtime pre-bash without fail-closed classifier fails U-29 check" bash "${SELF_DIR}/check-u29-no-silent-degrade.sh" "${bad_runtime_u29}"
 
 header "SEC-14 sentinel"
 bad_sec14="${TMP_DIR}/bad-sec14"

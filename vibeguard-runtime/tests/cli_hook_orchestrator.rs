@@ -24,6 +24,35 @@ fn run_hook(repo: &Path, log_root: &Path, hook: &str, input: &str) -> Output {
     child.wait_with_output().unwrap()
 }
 
+fn run_hook_without_ci(repo: &Path, log_root: &Path, hook: &str, input: &str) -> Output {
+    let mut command = hook_command(repo, log_root);
+    for name in [
+        "CI",
+        "GITHUB_ACTIONS",
+        "TRAVIS",
+        "CIRCLECI",
+        "JENKINS_URL",
+        "GITLAB_CI",
+        "TF_BUILD",
+    ] {
+        command.env_remove(name);
+    }
+    let mut child = command
+        .args(["hook", hook])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
 fn hook_command(repo: &Path, log_root: &Path) -> Command {
     let mut command = bin();
     command
@@ -36,6 +65,20 @@ fn hook_command(repo: &Path, log_root: &Path) -> Command {
         .env("VIBEGUARD_SOURCE_CONFIG", "test-config")
         .env("VIBEGUARD_HOOK_PROTOCOL_VERSION", "1");
     command
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn read_first_json(path: &Path) -> Value {
@@ -251,14 +294,110 @@ fn hook_orchestrator_pre_write_source_new_logs_attempt_and_reminder() {
         fs::read_to_string(&global_log).unwrap()
     );
     let events = fs::read_to_string(&project_log).unwrap();
+    let reasons = events
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .map(|event| event["reason"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
     assert!(
-        events.contains("\"reason\":\"New source file attempt\""),
-        "{events}"
+        reasons
+            .iter()
+            .any(|reason| reason == "New source file attempt"),
+        "{reasons:?}"
     );
     assert!(
-        events.contains("\"reason\":\"New source file reminder\""),
-        "{events}"
+        reasons
+            .iter()
+            .any(|reason| reason == "New source file reminder"),
+        "{reasons:?}"
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_pre_bash_blocks_and_logs_reason() {
+    let root = unique_temp_dir("hook-orchestrator-prebash-block");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+
+    let input = serde_json::json!({
+        "tool_input": {
+            "command": "git checkout ."
+        }
+    })
+    .to_string();
+    let out = run_hook(&repo, &log_root, "pre-bash", &input);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"decision\": \"block\""), "{stdout}");
+    assert!(stdout.contains("authorized-discard.py"), "{stdout}");
+
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let event = read_first_json(&project_dir.join("events.jsonl"));
+    assert_eq!(event["hook"], "pre-bash-guard");
+    assert_eq!(event["tool"], "Bash");
+    assert_eq!(event["decision"], "block");
+    assert_eq!(event["status"], "block");
+    assert!(
+        event["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Disable git checkout/restore"),
+        "{event}"
+    );
+    assert_eq!(event["detail"], "git checkout .");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn hook_orchestrator_stop_logs_uncommitted_source_changes() {
+    let root = unique_temp_dir("hook-orchestrator-stop-gate");
+    let repo = root.join("repo");
+    let log_root = root.join("logs");
+    fs::create_dir_all(repo.join("src")).unwrap();
+    git(&repo, &["init"]);
+    git(&repo, &["config", "user.email", "test@example.com"]);
+    git(&repo, &["config", "user.name", "Test User"]);
+    fs::write(repo.join("src/lib.rs"), "pub fn value() -> i32 { 1 }\n").unwrap();
+    git(&repo, &["add", "src/lib.rs"]);
+    git(&repo, &["commit", "-m", "initial"]);
+    fs::write(repo.join("src/lib.rs"), "pub fn value() -> i32 { 2 }\n").unwrap();
+
+    let out = run_hook_without_ci(&repo, &log_root, "stop", r#"{"hook_event_name":"Stop"}"#);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty());
+
+    let project_dir = fs::read_dir(log_root.join("projects"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let event = read_first_json(&project_dir.join("events.jsonl"));
+    assert_eq!(event["hook"], "stop-guard");
+    assert_eq!(event["tool"], "Stop");
+    assert_eq!(event["decision"], "gate");
+    assert_eq!(event["status"], "gate");
+    assert_eq!(event["reason"], "uncommitted source changes: 1 files");
+    assert_eq!(event["detail"], "src/lib.rs ");
 
     let _ = fs::remove_dir_all(root);
 }
