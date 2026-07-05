@@ -585,7 +585,7 @@ fn append_event(
         field::HOOK_PROTOCOL_VERSION,
     );
 
-    let line = serde_json::to_string(&event)?;
+    let line = serde_json::to_string(&event)?.replace("\":", "\": ");
     append_jsonl(&ctx.log_file, &line)?;
     let global_log = ctx.log_root.join("events.jsonl");
     if global_log != ctx.log_file {

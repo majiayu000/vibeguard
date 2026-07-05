@@ -104,7 +104,7 @@ result=$(printf '{"tool_input":{"file_path":"%s","old_string":""}}' "$tmp_file" 
   | env -u VIBEGUARD_LOG_DIR -u VIBEGUARD_PROJECT_LOG_DIR -u VIBEGUARD_LOG_FILE HOME="$tmp_home" bash hooks/pre-edit-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Default log-dir fast path releases valid edits"
 global_log_text="$(cat "$tmp_home/.vibeguard/events.jsonl" 2>/dev/null || true)"
-assert_contains "$global_log_text" '"hook":"pre-edit-guard"' "Default log-dir Rust fast path writes global log"
+assert_contains "$global_log_text" '"hook": "pre-edit-guard"' "Default log-dir Rust fast path writes global log"
 rm -rf "$tmp_home" "$tmp_file"
 
 tmp_lock_dir=$(mktemp -d)
