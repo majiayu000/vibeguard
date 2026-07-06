@@ -9,6 +9,9 @@ assert_cmd "launchd plist points to canonical GC script path" grep -q "__VIBEGUA
 assert_cmd "systemd service points to canonical GC script path" grep -q "__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh" "${REPO_DIR}/scripts/systemd/vibeguard-gc.service"
 assert_cmd "systemd installer chmods canonical GC script path" grep -q 'scripts/gc/gc-scheduled.sh' "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scheduled GC installers do not reference retired root path" bash -c "! grep -q 'scripts/gc-scheduled.sh' '${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist' '${REPO_DIR}/scripts/systemd/vibeguard-gc.service' '${REPO_DIR}/scripts/install-systemd.sh'"
+assert_cmd "health report scheduled wrapper exists at canonical path" test -x "${REPO_DIR}/scripts/health-report-scheduled.sh"
+assert_cmd "health report scheduler installer exists at canonical path" test -x "${REPO_DIR}/scripts/install-health-report-scheduler.sh"
+assert_cmd "health report launchd plist points to canonical wrapper path" grep -q "__VIBEGUARD_DIR__/scripts/health-report-scheduled.sh" "${REPO_DIR}/scripts/setup/com.vibeguard.health-report.plist"
 
 header "seed existing config"
 mkdir -p "${HOME}/.claude" "${HOME}/.codex"
@@ -120,6 +123,7 @@ assert_cmd "--dry-run does not modify ~/.codex/hooks.json" test "${dry_run_codex
 assert_cmd "--dry-run does not modify ~/.codex/config.toml" test "${dry_run_codex_config_sha_before}" = "${dry_run_codex_config_sha_after}"
 assert_cmd "--dry-run does not create ~/.claude/CLAUDE.md" test ! -e "${HOME}/.claude/CLAUDE.md"
 assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.codex/AGENTS.md"
+assert_cmd "--dry-run does not install health report launchd scheduler" test ! -e "${HOME}/Library/LaunchAgents/com.vibeguard.health-report.plist"
 
 valid_project_config="${TMP_HOME}/valid-vibeguard.json"
 cat > "${valid_project_config}" <<'JSON'
