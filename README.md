@@ -383,6 +383,8 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 # Runtime / scheduler
 bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
 bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --dry-run
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # Opt in to weekly health reports
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh doctor                      # Human-friendly report, exits 0 for compatibility

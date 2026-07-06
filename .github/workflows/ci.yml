@@ -265,7 +265,9 @@ jobs:
       - name: Health report regression tests
         if: runner.os != 'Windows'
         shell: bash
-        run: bash tests/test_health_report.sh
+        run: |
+          bash tests/test_health_report.sh
+          bash tests/test_health_report_scheduler.sh
 
       - name: Quality grader regression tests
         if: runner.os != 'Windows'
