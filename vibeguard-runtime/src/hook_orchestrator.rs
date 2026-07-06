@@ -101,8 +101,34 @@ pub(crate) fn run(args: &[String]) -> Result {
         crate::hook_orchestrator_pre_edit::run(&ctx, &input, start)?;
         return Ok(());
     }
+    if kind == HookKind::PostWrite {
+        let ctx = match RuntimeContext::collect() {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                emit_runtime_failure_block(kind, "collect runtime context", err)?;
+                return Ok(());
+            }
+        };
+        crate::hook_orchestrator_post_write::run(&ctx, &input, start)?;
+        return Ok(());
+    }
+    if kind == HookKind::PostEdit {
+        let ctx = match RuntimeContext::collect() {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                emit_runtime_failure_block(kind, "collect runtime context", err)?;
+                return Ok(());
+            }
+        };
+        crate::hook_orchestrator_post_edit::run(&ctx, &input, start)?;
+        return Ok(());
+    }
     if kind == HookKind::Stop {
         crate::hook_orchestrator_stop::run(&input, start)?;
+        return Ok(());
+    }
+    if kind == HookKind::Learn {
+        crate::hook_orchestrator_learn::run(&input, start)?;
         return Ok(());
     }
 

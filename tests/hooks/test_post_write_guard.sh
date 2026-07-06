@@ -41,8 +41,8 @@ assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
-# The shell wrapper should not run a fast command and then a full command for
-# the same Write event; scan reuse lives inside the single runtime command.
+# The shell wrapper should call the single runtime hook orchestrator once for
+# the same Write event; scan reuse lives inside that runtime command.
 tmp_repo_runtime_once="$(mktemp -d)"
 tmp_runtime_log="${tmp_repo_runtime_once}/commands.log"
 tmp_runtime_bin="${tmp_repo_runtime_once}/vibeguard-runtime"
@@ -55,11 +55,16 @@ shift || true
 printf '%s\n' "$command" >> "${VIBEGUARD_RUNTIME_COMMAND_LOG:?}"
 
 case "$command" in
+  hook)
+    [[ "${1:-}" == "post-write" ]] || exit 8
+    cat >/dev/null
+    ;;
   runtime-config-get-int|runtime-config-get-str)
     printf '%s\n' "${3:-}"
     ;;
   post-write-check)
-    cat >/dev/null
+    printf 'unexpected legacy full check\n' >&2
+    exit 9
     ;;
   post-write-fast-check)
     printf 'unexpected fast check\n' >&2
@@ -82,7 +87,8 @@ result=$(printf '%s\n' "$json_payload" \
 runtime_commands="$(cat "$tmp_runtime_log")"
 assert_not_contains "$result" "VIBEGUARD" "Single-command runtime fixture remains silent"
 assert_occurrences "$runtime_commands" "post-write-fast-check" "0" "Post-write guard no longer calls fast check before full check"
-assert_occurrences "$runtime_commands" "post-write-check" "1" "Post-write guard calls the full runtime command once per Write event"
+assert_occurrences "$runtime_commands" "post-write-check" "0" "Post-write guard no longer calls the legacy full runtime command directly"
+assert_occurrences "$runtime_commands" "hook" "1" "Post-write guard calls the runtime hook orchestrator once per Write event"
 rm -rf "$tmp_repo_runtime_once"
 
 # Git worktrees expose .git as a file, and hook inputs can be relative paths.

@@ -349,7 +349,10 @@ fn hook_orchestrator_pre_edit_pass_logs_compatible_event() {
         .path();
     let project_log = project_dir.join("events.jsonl");
     let log_text = fs::read_to_string(&project_log).unwrap();
-    assert!(log_text.contains("\"hook\": \"pre-edit-guard\""), "{log_text}");
+    assert!(
+        log_text.contains("\"hook\": \"pre-edit-guard\""),
+        "{log_text}"
+    );
     assert!(log_text.contains("\"decision\": \"pass\""), "{log_text}");
 
     let event = read_first_json(&project_log);
