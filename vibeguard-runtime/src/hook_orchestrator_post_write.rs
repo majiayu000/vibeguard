@@ -137,3 +137,65 @@ fn post_write_failure_log_path(ctx: &RuntimeContext) -> PathBuf {
     }
     ctx.log_file.clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_context(root: PathBuf) -> RuntimeContext {
+        RuntimeContext {
+            log_root: root.clone(),
+            log_file: root.join("projects").join("hash").join("events.jsonl"),
+            project_hash: "hash".to_string(),
+            session_id: "session".to_string(),
+            cli: "codex".to_string(),
+            client: "codex".to_string(),
+            client_variant: "codex-cli-hooks".to_string(),
+            caller_evidence: "test".to_string(),
+        }
+    }
+
+    fn unique_root(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("vibeguard-{name}-{unique}"))
+    }
+
+    #[test]
+    fn env_usize_uses_fallback_for_missing_or_invalid_values() {
+        assert_eq!(env_usize("VIBEGUARD_TEST_POST_WRITE_MISSING", 17), 17);
+    }
+
+    #[test]
+    fn failure_log_path_prefers_locked_project_log() -> std::result::Result<(), Box<dyn Error>> {
+        let root = unique_root("post-write-project-lock");
+        let ctx = test_context(root.clone());
+        fs::create_dir_all(ctx.log_file.parent().unwrap_or(&root))?;
+        fs::create_dir_all(format!("{}.lock.d", ctx.log_file.display()))?;
+
+        assert_eq!(post_write_failure_log_path(&ctx), ctx.log_file);
+
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn failure_log_path_reports_global_lock_when_project_is_unlocked()
+    -> std::result::Result<(), Box<dyn Error>> {
+        let root = unique_root("post-write-global-lock");
+        let ctx = test_context(root.clone());
+        let global_log = root.join("events.jsonl");
+        fs::create_dir_all(root.join("projects").join("hash"))?;
+        fs::create_dir_all(format!("{}.lock.d", global_log.display()))?;
+
+        assert_eq!(post_write_failure_log_path(&ctx), global_log);
+
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+}

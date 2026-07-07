@@ -150,3 +150,40 @@ fn recent_log_text(path: &Path, tail_bytes: usize) -> std::io::Result<String> {
     file.read_to_end(&mut bytes)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn stop_hook_active_is_read_from_hook_input() {
+        assert!(learn_stop_hook_active(r#"{"stop_hook_active":true}"#));
+        assert!(!learn_stop_hook_active(r#"{"stop_hook_active":false}"#));
+        assert!(!learn_stop_hook_active("{"));
+    }
+
+    #[test]
+    fn session_key_sanitizer_preserves_safe_chars_only() {
+        assert_eq!(sanitize_session_key("abc_123.-"), "abc_123.-");
+        assert_eq!(sanitize_session_key("a/b c:1"), "a_b_c_1");
+    }
+
+    #[test]
+    fn recent_log_text_reads_only_requested_tail_bytes() -> std::result::Result<(), Box<dyn Error>>
+    {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = env::temp_dir().join(format!("vibeguard-learn-tail-{unique}.jsonl"));
+        fs::write(&path, "0123456789")?;
+
+        assert_eq!(recent_log_text(&path, 4)?, "6789");
+        assert_eq!(recent_log_text(&path, 0)?, "0123456789");
+
+        fs::remove_file(path).ok();
+        Ok(())
+    }
+}

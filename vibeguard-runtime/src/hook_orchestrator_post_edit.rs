@@ -472,3 +472,50 @@ fn extension(file_path: &str) -> String {
         .unwrap_or("")
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn post_edit_detail_records_character_delta() {
+        assert_eq!(
+            post_edit_log_detail("src/main.rs", "abc", "abcdef"),
+            "src/main.rs||delta=3"
+        );
+        assert_eq!(
+            post_edit_log_detail("src/main.rs", "abcdef", "abc"),
+            "src/main.rs||delta=-3"
+        );
+    }
+
+    #[test]
+    fn suppression_directive_removes_only_the_next_line() {
+        let filtered = filter_suppressed(
+            "// vibeguard-disable-next-line RS-03 -- intentional\nvalue.unwrap();\nother.unwrap();",
+            "RS-03",
+        );
+        assert!(!filtered.contains("value.unwrap()"));
+        assert!(filtered.contains("other.unwrap()"));
+    }
+
+    #[test]
+    fn go_detector_reports_discard_and_defer_in_loop() {
+        let mut warnings = Vec::new();
+        detect_go(
+            "main.go",
+            "func f() {\n_ = cleanup()\nfor _, item := range items {\ndefer item.Close()\n}\n}",
+            &mut warnings,
+        );
+
+        let text = warnings.join("\n");
+        assert!(text.contains("[GO-01]"));
+        assert!(text.contains("[GO-08]"));
+    }
+
+    #[test]
+    fn extension_handles_missing_suffix() {
+        assert_eq!(extension("src/main.rs"), "rs");
+        assert_eq!(extension("Makefile"), "");
+    }
+}

@@ -291,3 +291,38 @@ fn post_edit_history_extension(file_path: &str) -> String {
         .unwrap_or("")
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn delta_metadata_is_read_from_post_edit_detail() {
+        assert_eq!(
+            post_edit_delta_from_detail("src/main.rs||delta=-42"),
+            Some(-42)
+        );
+        assert_eq!(post_edit_delta_from_detail("src/main.rs||other=1"), None);
+    }
+
+    #[test]
+    fn same_file_trail_stops_at_first_other_file() {
+        let events = vec![
+            json!({"session":"s","tool":"Edit","hook":"post-edit-guard","detail":"src/a.rs||delta=9"}),
+            json!({"session":"s","tool":"Edit","hook":"post-edit-guard","detail":"src/b.rs||delta=8"}),
+            json!({"session":"s","tool":"Edit","hook":"post-edit-guard","detail":"src/a.rs||delta=5"}),
+            json!({"session":"s","tool":"Edit","hook":"post-edit-guard","detail":"src/a.rs||delta=3"}),
+        ];
+
+        let trail = same_file_edit_trail(&events, "s", "src/a.rs");
+        assert_eq!(trail.consecutive, 2);
+        assert_eq!(trail.deltas, vec![3, 5]);
+    }
+
+    #[test]
+    fn history_file_helpers_match_common_paths() {
+        assert_eq!(post_edit_history_file_name("src/main.rs"), "main.rs");
+        assert_eq!(post_edit_history_extension("docs/guide.md"), "md");
+    }
+}
