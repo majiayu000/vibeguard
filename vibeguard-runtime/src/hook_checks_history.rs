@@ -25,11 +25,11 @@ impl PostEditHistorySignals {
     }
 }
 
-struct OverlapSignal {
-    session: String,
-    agent: String,
-    hook: String,
-    tool: String,
+pub(crate) struct OverlapSignal {
+    pub(crate) session: String,
+    pub(crate) agent: String,
+    pub(crate) hook: String,
+    pub(crate) tool: String,
 }
 
 pub(crate) fn post_edit_history_signals(
@@ -115,7 +115,7 @@ fn is_churn_only_warning(event: &Value) -> bool {
     reason.contains("[CHURN") && !reason.contains("\n---\n")
 }
 
-fn recent_overlap(
+pub(crate) fn recent_overlap(
     events: &[Value],
     session: &str,
     agent: &str,
@@ -208,7 +208,7 @@ fn current_project_root() -> String {
         })
 }
 
-fn read_tail_lines(path: &str, max_lines: usize) -> io::Result<String> {
+pub(crate) fn read_tail_lines(path: &str, max_lines: usize) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut pos = file.metadata()?.len();
     let mut buf = Vec::new();
