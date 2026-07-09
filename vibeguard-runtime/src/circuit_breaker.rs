@@ -280,13 +280,12 @@ fn load_state(path: &Path) -> Result<CircuitState> {
                     state.last_block = last_block;
                 }
             }
-            "CB_SESSION" => {
+            "CB_SESSION"
                 if value
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'=' | b'-'))
-                {
-                    state.session = value.to_string();
-                }
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'=' | b'-')) =>
+            {
+                state.session = value.to_string();
             }
             _ => {}
         }
@@ -317,13 +316,13 @@ fn save_state(path: &Path, state: &CircuitState, session: &str) -> Result {
     ));
     write_state_file(&tmp_file, state, session)?;
     fs::rename(&tmp_file, path).map_err(|_| {
-        if let Err(remove_err) = fs::remove_file(&tmp_file) {
-            if remove_err.kind() != io::ErrorKind::NotFound {
-                eprintln!(
-                    "VIBEGUARD ERROR: failed to remove circuit breaker temp file: {}",
-                    tmp_file.display()
-                );
-            }
+        if let Err(remove_err) = fs::remove_file(&tmp_file)
+            && remove_err.kind() != io::ErrorKind::NotFound
+        {
+            eprintln!(
+                "VIBEGUARD ERROR: failed to remove circuit breaker temp file: {}",
+                tmp_file.display()
+            );
         }
         format!(
             "failed to persist circuit breaker state: {}",
@@ -378,6 +377,7 @@ impl CircuitLock {
         {
             let file = OpenOptions::new()
                 .create(true)
+                .truncate(false)
                 .write(true)
                 .open(lock_file)
                 .map_err(|_| {
@@ -482,15 +482,14 @@ impl Drop for CircuitLock {
         #[cfg(not(unix))]
         {}
 
-        if let Some(lock_dir) = &self.lock_dir {
-            if let Err(err) = fs::remove_dir(lock_dir) {
-                if err.kind() != io::ErrorKind::NotFound {
-                    eprintln!(
-                        "VIBEGUARD ERROR: failed to remove circuit breaker mkdir lock: {}",
-                        lock_dir.display()
-                    );
-                }
-            }
+        if let Some(lock_dir) = &self.lock_dir
+            && let Err(err) = fs::remove_dir(lock_dir)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            eprintln!(
+                "VIBEGUARD ERROR: failed to remove circuit breaker mkdir lock: {}",
+                lock_dir.display()
+            );
         }
     }
 }

@@ -332,13 +332,13 @@ fn validate_string_array(
             errors.push(format!("field {field} must contain only strings"));
             continue;
         };
-        if let Some(allowed) = allowed {
-            if !allowed.iter().any(|allowed| allowed == &text) {
-                if field == "disabled_hooks" {
-                    errors.push(format!("disabled_hooks contains unsupported hook {text}"));
-                } else {
-                    errors.push(format!(".{field}.{index}: unsupported value {text}"));
-                }
+        if let Some(allowed) = allowed
+            && !allowed.iter().any(|allowed| allowed == &text)
+        {
+            if field == "disabled_hooks" {
+                errors.push(format!("disabled_hooks contains unsupported hook {text}"));
+            } else {
+                errors.push(format!(".{field}.{index}: unsupported value {text}"));
             }
         }
     }
@@ -421,11 +421,11 @@ fn validate_gc(object: &serde_json::Map<String, Value>, errors: &mut Vec<String>
 fn unknown_property_error(path: &[&str]) -> String {
     let label = format!(".{}", path.join("."));
     let mut message = format!("{label}: unknown property");
-    if path.len() == 1 {
-        if let Some(hint) = runtime_config_key_hint(path[0]) {
-            message.push_str("; ");
-            message.push_str(hint);
-        }
+    if path.len() == 1
+        && let Some(hint) = runtime_config_key_hint(path[0])
+    {
+        message.push_str("; ");
+        message.push_str(hint);
     }
     message
 }

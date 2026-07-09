@@ -105,12 +105,11 @@ pub(super) fn run_inner(
             .unwrap_or(UNKNOWN);
         *tools.entry(t.into()).or_default() += 1;
 
-        if t == tool::EDIT {
-            if let Some(detail) = e.get(field::DETAIL).and_then(Value::as_str) {
-                if let Some(last) = detail.split_whitespace().last() {
-                    *edited_files.entry(last.into()).or_default() += 1;
-                }
-            }
+        if t == tool::EDIT
+            && let Some(detail) = e.get(field::DETAIL).and_then(Value::as_str)
+            && let Some(last) = detail.split_whitespace().last()
+        {
+            *edited_files.entry(last.into()).or_default() += 1;
         }
 
         if let Some(d_ms) = e.get(field::DURATION_MS).and_then(Value::as_u64) {

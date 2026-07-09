@@ -237,11 +237,11 @@ fn strip_rust_definition_modifiers(mut line: &str) -> &str {
             line = rest;
             continue;
         }
-        if let Some(rest) = line.strip_prefix("pub(") {
-            if let Some(end) = rest.find(')') {
-                line = &rest[end + 1..];
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix("pub(")
+            && let Some(end) = rest.find(')')
+        {
+            line = &rest[end + 1..];
+            continue;
         }
         if let Some(rest) = line.strip_prefix("async ") {
             line = rest;
@@ -343,10 +343,10 @@ pub(crate) fn write_log_event(
             crate::event_schema::field::CALLER_EVIDENCE,
         ),
     ] {
-        if let Ok(value) = env::var(env_name) {
-            if !value.is_empty() {
-                event[field_name] = serde_json::Value::String(value);
-            }
+        if let Ok(value) = env::var(env_name)
+            && !value.is_empty()
+        {
+            event[field_name] = serde_json::Value::String(value);
         }
     }
     let line = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());

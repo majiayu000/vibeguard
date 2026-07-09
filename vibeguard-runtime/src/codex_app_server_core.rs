@@ -226,21 +226,19 @@ pub fn feedback_messages(hook_name: &str, result: &HookResult) -> Vec<Value> {
             ("stopReason", "stopReason"),
             ("systemMessage", "systemMessage"),
         ] {
-            if let Some(text) = string_field(payload, field) {
-                if !text.is_empty() {
-                    messages.push(json!({"hook": hook_name, "kind": kind, "text": text}));
-                }
+            if let Some(text) = string_field(payload, field)
+                && !text.is_empty()
+            {
+                messages.push(json!({"hook": hook_name, "kind": kind, "text": text}));
             }
         }
         if let Some(text) = payload
             .get("hookSpecificOutput")
             .and_then(|v| v.get("additionalContext"))
             .and_then(Value::as_str)
+            && !text.is_empty()
         {
-            if !text.is_empty() {
-                messages
-                    .push(json!({"hook": hook_name, "kind": "additionalContext", "text": text}));
-            }
+            messages.push(json!({"hook": hook_name, "kind": "additionalContext", "text": text}));
         }
     }
     messages

@@ -31,7 +31,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 &detail,
                 elapsed_ms(start),
             )?;
-            print!("{output}\n");
+            println!("{output}");
         }
         BashDecision::Warn {
             log_reason,
@@ -47,7 +47,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 &detail,
                 elapsed_ms(start),
             )?;
-            print!("{output}\n");
+            println!("{output}");
         }
         BashDecision::Correction {
             command,
@@ -92,7 +92,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 &format!("{} → {}", truncate_chars(&command, 120), corrected),
                 elapsed_ms(start),
             )?;
-            print!("{output}\n");
+            println!("{output}");
         }
         BashDecision::Pass { command, precommit } => {
             if precommit {
@@ -162,10 +162,10 @@ fn vibeguard_root() -> String {
     if let Some(root) = env_nonempty("VIBEGUARD_DIR") {
         return root;
     }
-    if let Some(hook_dir) = env_nonempty("VIBEGUARD_HOOK_DIR").map(PathBuf::from) {
-        if let Some(parent) = hook_dir.parent() {
-            return parent.to_string_lossy().to_string();
-        }
+    if let Some(hook_dir) = env_nonempty("VIBEGUARD_HOOK_DIR").map(PathBuf::from)
+        && let Some(parent) = hook_dir.parent()
+    {
+        return parent.to_string_lossy().to_string();
     }
     env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))

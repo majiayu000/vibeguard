@@ -39,14 +39,13 @@ pub(crate) fn resolve_log_file(options: &LogScopeOptions) -> Result<ResolvedLogF
         return Ok(ResolvedLogFile { path: path.clone() });
     }
 
-    if options.allow_env_log_file {
-        if let Ok(path) = env::var("VIBEGUARD_LOG_FILE") {
-            if !path.trim().is_empty() {
-                return Ok(ResolvedLogFile {
-                    path: PathBuf::from(path),
-                });
-            }
-        }
+    if options.allow_env_log_file
+        && let Ok(path) = env::var("VIBEGUARD_LOG_FILE")
+        && !path.trim().is_empty()
+    {
+        return Ok(ResolvedLogFile {
+            path: PathBuf::from(path),
+        });
     }
 
     let log_root = log_root();

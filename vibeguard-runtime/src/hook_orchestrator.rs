@@ -699,16 +699,15 @@ fn print_hook_context(context: &str) -> Result {
 }
 
 fn source_new_context(check: &PreWriteCheck, has_u16_advisory: bool) -> String {
-    if has_u16_advisory {
-        if let PreWriteCheck::U16WarnSourceNew {
+    if has_u16_advisory
+        && let PreWriteCheck::U16WarnSourceNew {
             file_path,
             line_count,
             warn_limit,
             limit,
         } = check
-        {
-            return u16_advisory_context(file_path, *line_count, *warn_limit, *limit, true);
-        }
+    {
+        return u16_advisory_context(file_path, *line_count, *warn_limit, *limit, true);
     }
     L1_ADVISORY_CONTEXT.to_string()
 }

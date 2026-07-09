@@ -410,10 +410,10 @@ fn defer_inside_loop(content: &str) -> bool {
 fn is_cli_project(file_path: &str) -> bool {
     let mut dir = Path::new(file_path).parent();
     while let Some(path) = dir {
-        if let Ok(package) = fs::read_to_string(path.join("package.json")) {
-            if package.contains("\"bin\"") || package.contains("cli") {
-                return true;
-            }
+        if let Ok(package) = fs::read_to_string(path.join("package.json"))
+            && (package.contains("\"bin\"") || package.contains("cli"))
+        {
+            return true;
         }
         if path.join("src/cli.ts").exists()
             || path.join("src/cli.js").exists()

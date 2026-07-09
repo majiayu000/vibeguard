@@ -9,6 +9,7 @@ use crate::log_scope::{LogScope, LogScopeOptions, parse_scope, resolve_log_file}
 use crate::time_utils;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+type EventTotalKey = (String, String, String, String, String, String, String);
 
 const DEFAULT_SINCE_SECS: u64 = 7 * 24 * 60 * 60;
 const KNOWN_EXTS: &[&str] = &[
@@ -29,7 +30,7 @@ struct Aggregates {
     total_events: u64,
     hook_total: BTreeMap<(String, String), u64>,
     tool_total: BTreeMap<String, u64>,
-    event_total: BTreeMap<(String, String, String, String, String, String, String), u64>,
+    event_total: BTreeMap<EventTotalKey, u64>,
     violation_total: BTreeMap<(String, String, String, String, String, String), u64>,
     duration_sum: BTreeMap<String, f64>,
     duration_count: BTreeMap<String, u64>,
@@ -165,12 +166,11 @@ fn render_prometheus(reader: impl Read, cutoff_secs: Option<u64>) -> Result<Stri
     while reader.read_until(b'\n', &mut bytes)? != 0 {
         let line = String::from_utf8_lossy(&bytes);
         let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            if let Ok(event) = serde_json::from_str::<Value>(trimmed) {
-                if event_in_selected_period(&event, cutoff_secs) {
-                    aggr.record_event(&event);
-                }
-            }
+        if !trimmed.is_empty()
+            && let Ok(event) = serde_json::from_str::<Value>(trimmed)
+            && event_in_selected_period(&event, cutoff_secs)
+        {
+            aggr.record_event(&event);
         }
         bytes.clear();
     }

@@ -182,26 +182,26 @@ fn validate_entry(
     validate_required_string(entry, index, "action", errors);
     validate_required_string(entry, index, "reason", errors);
 
-    if let Some(hook) = entry.get("hook").and_then(Value::as_str) {
-        if !disabled_hook_values.iter().any(|allowed| allowed == hook) {
-            errors.push(format!(
-                ".scoped_suppressions.{index}.hook: unsupported hook {hook}"
-            ));
-        }
+    if let Some(hook) = entry.get("hook").and_then(Value::as_str)
+        && !disabled_hook_values.iter().any(|allowed| allowed == hook)
+    {
+        errors.push(format!(
+            ".scoped_suppressions.{index}.hook: unsupported hook {hook}"
+        ));
     }
-    if let Some(rule_id) = entry.get("rule_id").and_then(Value::as_str) {
-        if !valid_suppression_rule_id(rule_id) {
-            errors.push(format!(
-                ".scoped_suppressions.{index}.rule_id: unsupported rule id {rule_id}"
-            ));
-        }
+    if let Some(rule_id) = entry.get("rule_id").and_then(Value::as_str)
+        && !valid_suppression_rule_id(rule_id)
+    {
+        errors.push(format!(
+            ".scoped_suppressions.{index}.rule_id: unsupported rule id {rule_id}"
+        ));
     }
-    if let Some(path) = entry.get("path").and_then(Value::as_str) {
-        if !valid_project_path(path) {
-            errors.push(format!(
-                ".scoped_suppressions.{index}.path: expected project-relative path or glob"
-            ));
-        }
+    if let Some(path) = entry.get("path").and_then(Value::as_str)
+        && !valid_project_path(path)
+    {
+        errors.push(format!(
+            ".scoped_suppressions.{index}.path: expected project-relative path or glob"
+        ));
     }
     if let Some(code) = entry.get("code") {
         match code.as_str() {
@@ -214,22 +214,21 @@ fn validate_entry(
             )),
         }
     }
-    if let Some(action) = entry.get("action").and_then(Value::as_str) {
-        if !SUPPRESSION_ACTION_VALUES
+    if let Some(action) = entry.get("action").and_then(Value::as_str)
+        && !SUPPRESSION_ACTION_VALUES
             .iter()
             .any(|allowed| allowed == &action)
-        {
-            errors.push(format!(
-                ".scoped_suppressions.{index}.action: unsupported value {action}"
-            ));
-        }
+    {
+        errors.push(format!(
+            ".scoped_suppressions.{index}.action: unsupported value {action}"
+        ));
     }
-    if let Some(reason) = entry.get("reason").and_then(Value::as_str) {
-        if reason.trim().len() < 12 {
-            errors.push(format!(
-                ".scoped_suppressions.{index}.reason: expected at least 12 non-empty characters"
-            ));
-        }
+    if let Some(reason) = entry.get("reason").and_then(Value::as_str)
+        && reason.trim().len() < 12
+    {
+        errors.push(format!(
+            ".scoped_suppressions.{index}.reason: expected at least 12 non-empty characters"
+        ));
     }
     if let Some(expires_at) = entry.get("expires_at") {
         match expires_at.as_str() {

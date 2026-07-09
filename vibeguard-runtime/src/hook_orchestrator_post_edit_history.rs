@@ -127,6 +127,10 @@ fn detect_w14(
     );
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "W-15 detection consumes the complete edit and history context"
+)]
 fn detect_w15(
     ctx: &RuntimeContext,
     start: Instant,
@@ -205,7 +209,7 @@ pub(crate) fn count_prior_warn_events(ctx: &RuntimeContext, file_path: &str) -> 
                 && event.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
                 && event.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
                 && !churn_only
-                && first_detail_path(&event) == file_path
+                && first_detail_path(event) == file_path
         })
         .count()
 }

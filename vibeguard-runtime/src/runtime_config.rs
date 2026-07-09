@@ -150,20 +150,20 @@ fn load_runtime_config_value(json_path: &str) -> Option<Value> {
 }
 
 fn runtime_config_file() -> PathBuf {
-    if let Ok(path) = std::env::var("_VG_CONFIG_FILE") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Ok(path) = std::env::var("_VG_CONFIG_FILE")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
-    if let Ok(path) = std::env::var("VIBEGUARD_CONFIG_FILE") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Ok(path) = std::env::var("VIBEGUARD_CONFIG_FILE")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
-    if let Ok(log_dir) = std::env::var("VIBEGUARD_LOG_DIR") {
-        if !log_dir.is_empty() {
-            return PathBuf::from(log_dir).join("config.json");
-        }
+    if let Ok(log_dir) = std::env::var("VIBEGUARD_LOG_DIR")
+        && !log_dir.is_empty()
+    {
+        return PathBuf::from(log_dir).join("config.json");
     }
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
         .join(".vibeguard")
