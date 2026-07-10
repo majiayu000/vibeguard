@@ -63,8 +63,7 @@ for index in 1 2 3 4 5; do
       HOME="$loader_home" python3 "$REPO_DIR/scripts/learn/triage_state.py" skip "lrn_pending_0${index}" --reason "not useful" >/dev/null
       ;;
     5)
-      HOME="$loader_home" _VIBEGUARD_TEST_NOW="2026-06-24T00:00:00Z" \
-        python3 "$REPO_DIR/scripts/learn/triage_state.py" snooze "lrn_pending_05" --days 14 --reason "later" >/dev/null
+      HOME="$loader_home" python3 "$REPO_DIR/scripts/learn/triage_state.py" snooze "lrn_pending_05" --days 14 --reason "later" >/dev/null
       ;;
   esac
 done
