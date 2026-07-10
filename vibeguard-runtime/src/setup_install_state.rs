@@ -179,15 +179,15 @@ pub fn list(args: &[String]) -> SetupResult<()> {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
     );
-    if let Some(languages) = state.get("languages").and_then(Value::as_array) {
-        if !languages.is_empty() {
-            let text = languages
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("Languages: {text}");
-        }
+    if let Some(languages) = state.get("languages").and_then(Value::as_array)
+        && !languages.is_empty()
+    {
+        let text = languages
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("Languages: {text}");
     }
     let files = state
         .get("files")
@@ -336,10 +336,10 @@ fn now_timestamp() -> String {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = home_dir() {
-            return home.join(stripped);
-        }
+    if let Some(stripped) = path.strip_prefix("~/")
+        && let Some(home) = home_dir()
+    {
+        return home.join(stripped);
     }
     PathBuf::from(path)
 }

@@ -87,6 +87,8 @@ jobs:
       - name: Rust runtime checks
         shell: bash
         run: |
+          cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
+          cargo clippy --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings
           cargo check --manifest-path vibeguard-runtime/Cargo.toml
           cargo test --manifest-path vibeguard-runtime/Cargo.toml
           cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run

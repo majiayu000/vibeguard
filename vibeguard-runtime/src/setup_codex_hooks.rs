@@ -310,10 +310,10 @@ fn codex_build_entry(wrapper: &str, spec: &CodexSpec) -> Value {
     }
     let mut entry = serde_json::Map::new();
     entry.insert("hooks".to_string(), Value::Array(vec![Value::Object(hook)]));
-    if let Some(matcher) = &spec.matcher {
-        if !matcher.is_empty() {
-            entry.insert("matcher".to_string(), Value::String(matcher.clone()));
-        }
+    if let Some(matcher) = &spec.matcher
+        && !matcher.is_empty()
+    {
+        entry.insert("matcher".to_string(), Value::String(matcher.clone()));
     }
     Value::Object(entry)
 }
@@ -352,12 +352,11 @@ pub(crate) fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
     let scripts = codex_managed_scripts(repo_dir);
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
-        if basename(token) == "run-hook-codex.sh" {
-            if let Some(next) = parts.get(idx + 1) {
-                if scripts.contains(basename(next)) {
-                    return true;
-                }
-            }
+        if basename(token) == "run-hook-codex.sh"
+            && let Some(next) = parts.get(idx + 1)
+            && scripts.contains(basename(next))
+        {
+            return true;
         }
         let base = basename(token);
         if scripts.contains(base) {
@@ -372,14 +371,13 @@ fn codex_managed_scripts(repo_dir: &Path) -> BTreeSet<String> {
     if let Ok(specs) = codex_specs(repo_dir) {
         scripts.extend(specs.into_iter().map(|spec| spec.script));
     }
-    if let Ok(text) = std::fs::read_to_string(repo_dir.join("hooks/manifest.json")) {
-        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-            if let Some(hooks) = value.get("hooks").and_then(Value::as_array) {
-                for item in hooks {
-                    if let Some(script) = item.get("script").and_then(Value::as_str) {
-                        scripts.insert(script.to_string());
-                    }
-                }
+    if let Ok(text) = std::fs::read_to_string(repo_dir.join("hooks/manifest.json"))
+        && let Ok(value) = serde_json::from_str::<Value>(&text)
+        && let Some(hooks) = value.get("hooks").and_then(Value::as_array)
+    {
+        for item in hooks {
+            if let Some(script) = item.get("script").and_then(Value::as_str) {
+                scripts.insert(script.to_string());
             }
         }
     }

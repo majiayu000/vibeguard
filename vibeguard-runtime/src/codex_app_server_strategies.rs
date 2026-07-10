@@ -370,14 +370,13 @@ impl GateStrategy for VibeGuardGateStrategy {
                 {
                     thread.cwd = Some(cwd.into());
                 }
-                if method == "turn/start" {
-                    if let Some(turn_id) = params
+                if method == "turn/start"
+                    && let Some(turn_id) = params
                         .get("turnId")
                         .and_then(Value::as_str)
                         .filter(|s| !s.is_empty())
-                    {
-                        thread.turn_id = Some(turn_id.into());
-                    }
+                {
+                    thread.turn_id = Some(turn_id.into());
                 }
             }
             _ => {}

@@ -685,16 +685,18 @@ fn model_context_for_status(normalized_status: &str) -> bool {
 }
 
 fn entry_matches_filters(entry: &HookStatusEntry, options: &Options) -> bool {
-    if let Some(session) = &options.session {
-        if !session.is_empty() && entry.source == "event_log" && entry.session != *session {
-            return false;
-        }
+    if let Some(session) = &options.session
+        && !session.is_empty()
+        && entry.source == "event_log"
+        && entry.session != *session
+    {
+        return false;
     }
 
-    if let Some(event) = &options.event {
-        if &entry.event != event {
-            return false;
-        }
+    if let Some(event) = &options.event
+        && &entry.event != event
+    {
+        return false;
     }
 
     true

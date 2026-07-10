@@ -69,6 +69,10 @@ fn hook_status_entry(
     entry
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the diagnostic record intentionally mirrors the hook status schema"
+)]
 fn append_hook_status(
     diag_file: &str,
     hook_name: &str,

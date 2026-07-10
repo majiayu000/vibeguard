@@ -248,6 +248,7 @@ fn circuit_breaker_command_lock_timeout_is_error() {
     let lock_file = dir.join("hook.cb.lock");
     let file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .open(&lock_file)
         .unwrap();
@@ -274,7 +275,7 @@ fn circuit_breaker_command_mkdir_lock_timeout_is_error() {
     fs::create_dir_all(&dir).unwrap();
     let state_file = dir.join("hook.cb");
     let lock_file = dir.join("hook.cb.lock");
-    fs::create_dir(&dir.join("hook.cb.lock.d")).unwrap();
+    fs::create_dir(dir.join("hook.cb.lock.d")).unwrap();
 
     let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
     assert_eq!(out.status.code(), Some(1));

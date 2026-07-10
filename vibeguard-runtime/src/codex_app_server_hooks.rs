@@ -110,10 +110,10 @@ impl HookRunner {
                 return HookResult::hook_error(e.to_string());
             }
         };
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Err(e) = stdin.write_all(payload.to_string().as_bytes()) {
-                return HookResult::hook_error(e.to_string());
-            }
+        if let Some(mut stdin) = child.stdin.take()
+            && let Err(e) = stdin.write_all(payload.to_string().as_bytes())
+        {
+            return HookResult::hook_error(e.to_string());
         }
 
         let output = match child.wait_with_output() {
@@ -338,10 +338,10 @@ fn extract_payloads(output: &str) -> Vec<Value> {
         if !seen.insert(candidate.clone()) {
             continue;
         }
-        if let Ok(value) = serde_json::from_str::<Value>(&candidate) {
-            if value.is_object() {
-                payloads.push(value);
-            }
+        if let Ok(value) = serde_json::from_str::<Value>(&candidate)
+            && value.is_object()
+        {
+            payloads.push(value);
         }
     }
     payloads
