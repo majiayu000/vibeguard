@@ -48,7 +48,7 @@ trap cleanup EXIT
 header "self-application scripts"
 assert_cmd "all self-application scripts have valid syntax" bash -n "${SELF_DIR}"/*.sh
 assert_cmd "self-application run-all passes on this repository" bash "${SELF_DIR}/run-all.sh" "${REPO_DIR}"
-assert_cmd "strict U-22 coverage inventory passes on this repository" env VIBEGUARD_U22_STRICT=1 bash "${SELF_DIR}/check-u22-coverage.sh" "${REPO_DIR}"
+assert_cmd "U-22 measured coverage contract tests pass" bash "${REPO_DIR}/tests/test_u22_coverage.sh"
 assert_cmd "test file size guard passes on this repository" bash "${REPO_DIR}/scripts/verify/check-test-file-sizes.sh"
 
 header "Codex wrapper thinness sentinel"

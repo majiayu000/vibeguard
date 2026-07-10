@@ -15,6 +15,7 @@ defaults:
 
 env:
   CARGO_DENY_VERSION: "0.19.9"
+  CARGO_LLVM_COV_VERSION: "0.8.7"
 
 jobs:
   validate-and-test:
@@ -404,7 +405,7 @@ jobs:
   self-application:
     name: Self-Application CI
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     defaults:
       run:
         shell: bash
@@ -412,8 +413,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
+      - name: Install pinned cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked
+
       - name: Run self-application sentinels
         run: bash scripts/ci/self-application/run-all.sh
+
+      - name: Validate U-22 coverage gate contract
+        run: bash tests/test_u22_coverage.sh
+
+      - name: Enforce measured Rust line coverage baseline
+        run: bash scripts/ci/self-application/check-u22-coverage.sh
 
   benchmark-report:
     name: Benchmark Report
