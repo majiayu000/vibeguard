@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-07-09
+
+### Added
+- Opt-in weekly health report scheduler and aggregator that summarizes hook health, guard hits, and install state (#562, #572).
+- Precision guard-hit capture so false positives can be triaged from recorded hits (#545).
+
+### Changed
+- Hook hot paths (pre-write, pre-edit, stop, pre-bash) now run through the single `vibeguard-runtime` orchestrator instead of per-hook shell hot paths (#565, #569, #570).
+- Default Claude profile no longer injects the full rule tree into every session, reducing per-session constraint overload (U-32) (#546, #564).
+- `vibeguard-runtime` is now `1.1.10`. Version `1.1.9` was staged on main but never tagged or published, so this release supersedes it.
+
+### Fixed
+- Claude policy errors now fail closed instead of silently allowing the action (#544).
+- `setup.sh` repairs stale unmanaged Codex hooks, warns on stale installed snapshots, and `--clean` removes owned hook surfaces (#547, #548, #568).
+- Hook event log compatibility preserved across the runtime hot-path migration.
+
 ## [1.1.8] - 2026-06-27
 
 ### Added
