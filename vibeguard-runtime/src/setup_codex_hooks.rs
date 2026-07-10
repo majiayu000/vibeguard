@@ -17,6 +17,23 @@ struct CodexSpec {
     timeout: Option<i64>,
 }
 
+struct CodexManifestData {
+    specs: Vec<CodexSpec>,
+    managed_scripts: BTreeSet<String>,
+}
+
+const CODEX_EVENTS: &[&str] = &[
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "Stop",
+    "SessionStart",
+    "PreCompact",
+    "PostCompact",
+    "UserPromptSubmit",
+];
+const PROFILES: &[&str] = &["minimal", "core", "full", "strict"];
+
 pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     if args.len() != 3 {
         return Err(
@@ -27,16 +44,17 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     let repo_dir = Path::new(&args[0]);
     let hooks_path = Path::new(&args[1]);
     let wrapper = &args[2];
+    let manifest = codex_manifest_data(repo_dir)?;
     let mut data = Value::Object(read_json_object(hooks_path, true)?);
     let before = serde_json::to_string(&data)?;
     ensure_hooks_root(&mut data)?;
-    codex_prune_managed(&mut data, repo_dir);
+    codex_prune_managed(&mut data, &manifest.managed_scripts);
     codex_prune_stale(&mut data);
     ensure_hooks_root(&mut data)?;
     let hooks = data["hooks"]
         .as_object_mut()
         .ok_or("hooks.json hooks must be an object")?;
-    for spec in codex_specs(repo_dir)? {
+    for spec in manifest.specs {
         let entries = hooks.entry(spec.event.clone()).or_insert_with(|| json!([]));
         if !entries.is_array() {
             *entries = json!([]);
@@ -45,7 +63,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
         let command = format!("bash {} {}", shell_quote(wrapper), spec.script);
         if !codex_has_entry(
             entries_arr,
-            repo_dir,
+            &manifest.managed_scripts,
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
@@ -68,6 +86,7 @@ pub fn codex_hooks_remove(args: &[String]) -> SetupResult<()> {
             "Usage: vibeguard-runtime setup-codex-hooks-remove <repo-dir> <hooks-file>".into(),
         );
     }
+    let managed_scripts = codex_managed_scripts(Path::new(&args[0]))?;
     let hooks_path = Path::new(&args[1]);
     if !hooks_path.exists() {
         println!("SKIP");
@@ -75,7 +94,7 @@ pub fn codex_hooks_remove(args: &[String]) -> SetupResult<()> {
     }
     let mut data = Value::Object(read_json_object(hooks_path, false)?);
     let before = serde_json::to_string(&data)?;
-    codex_prune_managed(&mut data, Path::new(&args[0]));
+    codex_prune_managed(&mut data, &managed_scripts);
     if serde_json::to_string(&data)? == before {
         println!("SKIP");
     } else {
@@ -97,18 +116,19 @@ pub fn codex_hooks_check(args: &[String]) -> SetupResult<()> {
         );
     }
     let repo_dir = Path::new(&args[0]);
+    let manifest = codex_manifest_data(repo_dir)?;
     let data = Value::Object(read_json_object(Path::new(&args[1]), false)?);
     let Some(hooks) = data.get("hooks").and_then(Value::as_object) else {
         std::process::exit(1);
     };
-    for spec in codex_specs(repo_dir)? {
+    for spec in manifest.specs {
         let Some(entries) = hooks.get(&spec.event).and_then(Value::as_array) else {
             std::process::exit(1);
         };
         let command = format!("bash {} {}", shell_quote(&args[2]), spec.script);
         if !codex_has_entry(
             entries,
-            repo_dir,
+            &manifest.managed_scripts,
             &command,
             spec.matcher.as_deref(),
             spec.timeout,
@@ -144,66 +164,211 @@ pub fn codex_hooks_count(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
-fn codex_specs(repo_dir: &Path) -> SetupResult<Vec<CodexSpec>> {
-    let text = std::fs::read_to_string(repo_dir.join("hooks/manifest.json"))?;
-    let manifest: Value = serde_json::from_str(&text)?;
+fn codex_manifest_data(repo_dir: &Path) -> SetupResult<CodexManifestData> {
+    let manifest_path = repo_dir.join("hooks/manifest.json");
+    let text = std::fs::read_to_string(&manifest_path).map_err(|error| {
+        format!(
+            "failed to read Codex hooks manifest {}: {error}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: Value = serde_json::from_str(&text).map_err(|error| {
+        format!(
+            "Codex hooks manifest {} contains invalid JSON: {error}",
+            manifest_path.display()
+        )
+    })?;
+    codex_manifest_value(&manifest).map_err(|error| {
+        format!(
+            "Codex hooks manifest {} is invalid: {error}",
+            manifest_path.display()
+        )
+        .into()
+    })
+}
+
+fn codex_manifest_value(manifest: &Value) -> SetupResult<CodexManifestData> {
+    if manifest.get("schema_version").and_then(Value::as_i64) != Some(1) {
+        return Err("schema_version must be 1".into());
+    }
+    let profiles = manifest
+        .get("profiles")
+        .and_then(Value::as_array)
+        .filter(|profiles| !profiles.is_empty())
+        .ok_or("profiles must be a non-empty array")?;
+    let mut seen_profiles = BTreeSet::new();
+    for profile in profiles {
+        let profile = profile
+            .as_str()
+            .filter(|profile| PROFILES.contains(profile))
+            .ok_or("profiles contains an unknown or non-string value")?;
+        if !seen_profiles.insert(profile) {
+            return Err(format!("profiles contains duplicate value: {profile}").into());
+        }
+    }
     let hooks = manifest
         .get("hooks")
         .and_then(Value::as_array)
-        .ok_or("hooks manifest must contain a hooks array")?;
+        .filter(|hooks| !hooks.is_empty())
+        .ok_or("hooks must be a non-empty array")?;
     let mut specs = Vec::new();
+    let mut managed_scripts = BTreeSet::new();
     for item in hooks {
         let Some(item_obj) = item.as_object() else {
             return Err("each hook manifest entry must be an object".into());
         };
-        let Some(codex) = item_obj.get("codex").and_then(Value::as_object) else {
-            continue;
-        };
-        if codex.get("enabled").and_then(Value::as_bool) != Some(true) {
+        json_string(item_obj, "name")?;
+        let script = json_string(item_obj, "script")?;
+        validate_manifest_script(&script)?;
+        json_string(item_obj, "kind")?;
+        json_string(item_obj, "trigger")?;
+        json_string(item_obj, "responsibilities")?;
+        item_obj
+            .get("decision_types")
+            .and_then(Value::as_array)
+            .ok_or("hook decision_types must be an array")?;
+        item_obj
+            .get("claude")
+            .and_then(Value::as_object)
+            .and_then(|claude| claude.get("enabled"))
+            .and_then(Value::as_bool)
+            .ok_or("hook claude.enabled must be boolean")?;
+        managed_scripts.insert(script);
+        let codex = item_obj
+            .get("codex")
+            .and_then(Value::as_object)
+            .ok_or("hook codex must be an object")?;
+        let enabled = codex
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .ok_or("hook codex.enabled must be boolean")?;
+        validate_codex_optional_fields(codex)?;
+        if !enabled {
             continue;
         }
-        if let Some(entries) = codex.get("entries").and_then(Value::as_array) {
+        if let Some(entries_value) = codex.get("entries") {
+            let entries = entries_value
+                .as_array()
+                .filter(|entries| !entries.is_empty())
+                .ok_or("codex.entries must be a non-empty array")?;
             for entry in entries {
                 let entry = entry
                     .as_object()
                     .ok_or("codex.entries must contain objects")?;
-                specs.push(CodexSpec {
-                    event: json_string(entry, "event")?,
-                    matcher: entry
-                        .get("matcher")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    script: entry
-                        .get("script")
-                        .or_else(|| codex.get("script"))
-                        .and_then(Value::as_str)
-                        .ok_or("codex entry script missing")?
-                        .to_string(),
-                    timeout: entry
-                        .get("timeout")
-                        .or_else(|| codex.get("timeout"))
-                        .and_then(Value::as_i64),
-                });
+                specs.push(codex_spec(entry, Some(codex))?);
             }
         } else {
-            specs.push(CodexSpec {
-                event: json_string(codex, "event")?,
-                matcher: codex
-                    .get("matcher")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                script: json_string(codex, "script")?,
-                timeout: codex.get("timeout").and_then(Value::as_i64),
-            });
+            specs.push(codex_spec(codex, None)?);
         }
     }
-    Ok(specs)
+    managed_scripts.extend(specs.iter().map(|spec| spec.script.clone()));
+    Ok(CodexManifestData {
+        specs,
+        managed_scripts,
+    })
+}
+
+fn codex_spec(
+    object: &serde_json::Map<String, Value>,
+    fallback: Option<&serde_json::Map<String, Value>>,
+) -> SetupResult<CodexSpec> {
+    let event = json_string(object, "event")?;
+    if !CODEX_EVENTS.contains(&event.as_str()) {
+        return Err(format!("unsupported Codex event: {event}").into());
+    }
+    let script = object
+        .get("script")
+        .or_else(|| fallback.and_then(|value| value.get("script")))
+        .and_then(Value::as_str)
+        .ok_or("Codex script must be a string")?;
+    validate_codex_script(script)?;
+    let timeout = if object.contains_key("timeout") {
+        positive_timeout(object)?
+    } else {
+        fallback.map(positive_timeout).transpose()?.flatten()
+    };
+    Ok(CodexSpec {
+        event,
+        matcher: nullable_matcher(object)?,
+        script: script.to_string(),
+        timeout,
+    })
+}
+
+fn validate_codex_optional_fields(object: &serde_json::Map<String, Value>) -> SetupResult<()> {
+    if object.contains_key("matcher") {
+        nullable_matcher(object)?;
+    }
+    if let Some(event) = object.get("event") {
+        let event = event.as_str().ok_or("Codex event must be a string")?;
+        if !CODEX_EVENTS.contains(&event) {
+            return Err(format!("unsupported Codex event: {event}").into());
+        }
+    }
+    if let Some(script) = object.get("script") {
+        validate_codex_script(script.as_str().ok_or("Codex script must be a string")?)?;
+    }
+    positive_timeout(object)?;
+    Ok(())
+}
+
+fn nullable_matcher(object: &serde_json::Map<String, Value>) -> SetupResult<Option<String>> {
+    match object.get("matcher") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err("Codex matcher must be a string or null".into()),
+    }
+}
+
+fn positive_timeout(object: &serde_json::Map<String, Value>) -> SetupResult<Option<i64>> {
+    match object.get("timeout") {
+        None => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .filter(|timeout| *timeout > 0)
+            .map(Some)
+            .ok_or_else(|| "Codex timeout must be a positive integer".into()),
+    }
+}
+
+fn validate_codex_script(script: &str) -> SetupResult<()> {
+    let valid = script
+        .strip_prefix("vibeguard-")
+        .and_then(|value| value.strip_suffix(".sh"))
+        .is_some_and(|value| {
+            !value.is_empty()
+                && value
+                    .chars()
+                    .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+        });
+    if !valid {
+        return Err("Codex script must be a namespaced vibeguard-*.sh script".into());
+    }
+    Ok(())
+}
+
+fn validate_manifest_script(script: &str) -> SetupResult<()> {
+    let path = script.strip_suffix(".sh").unwrap_or(script);
+    let valid = !path.is_empty()
+        && path
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
+        && path.chars().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '/' | '-')
+        })
+        && path.split('/').all(|segment| !segment.is_empty());
+    if !valid {
+        return Err("hook script must be a safe hooks-relative path".into());
+    }
+    Ok(())
 }
 
 fn json_string(object: &serde_json::Map<String, Value>, key: &str) -> SetupResult<String> {
     object
         .get(key)
         .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
         .map(str::to_string)
         .ok_or_else(|| format!("missing string field: {key}").into())
 }
@@ -217,7 +382,7 @@ fn ensure_hooks_root(data: &mut Value) -> SetupResult<()> {
     Ok(())
 }
 
-fn codex_prune_managed(data: &mut Value, repo_dir: &Path) {
+fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
     let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
         return;
     };
@@ -239,7 +404,7 @@ fn codex_prune_managed(data: &mut Value, repo_dir: &Path) {
                 .iter()
                 .filter(|hook| {
                     let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                    !codex_command_is_managed(repo_dir, command)
+                    !codex_command_is_managed(managed_scripts, command)
                 })
                 .cloned()
                 .collect();
@@ -320,7 +485,7 @@ fn codex_build_entry(wrapper: &str, spec: &CodexSpec) -> Value {
 
 fn codex_has_entry(
     entries: &[Value],
-    repo_dir: &Path,
+    managed_scripts: &BTreeSet<String>,
     command: &str,
     matcher: Option<&str>,
     timeout: Option<i64>,
@@ -337,7 +502,7 @@ fn codex_has_entry(
         };
         hooks.iter().any(|hook| {
             let hook_command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            codex_command_is_managed(repo_dir, hook_command)
+            codex_command_is_managed(managed_scripts, hook_command)
                 && hook_command == command
                 && hook.get("type").and_then(Value::as_str) == Some("command")
                 && match timeout {
@@ -348,40 +513,25 @@ fn codex_has_entry(
     })
 }
 
-pub(crate) fn codex_command_is_managed(repo_dir: &Path, command: &str) -> bool {
-    let scripts = codex_managed_scripts(repo_dir);
+pub(crate) fn codex_command_is_managed(managed_scripts: &BTreeSet<String>, command: &str) -> bool {
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
         if basename(token) == "run-hook-codex.sh"
             && let Some(next) = parts.get(idx + 1)
-            && scripts.contains(basename(next))
+            && managed_scripts.contains(basename(next))
         {
             return true;
         }
         let base = basename(token);
-        if scripts.contains(base) {
+        if managed_scripts.contains(base) {
             return true;
         }
     }
     false
 }
 
-fn codex_managed_scripts(repo_dir: &Path) -> BTreeSet<String> {
-    let mut scripts = BTreeSet::new();
-    if let Ok(specs) = codex_specs(repo_dir) {
-        scripts.extend(specs.into_iter().map(|spec| spec.script));
-    }
-    if let Ok(text) = std::fs::read_to_string(repo_dir.join("hooks/manifest.json"))
-        && let Ok(value) = serde_json::from_str::<Value>(&text)
-        && let Some(hooks) = value.get("hooks").and_then(Value::as_array)
-    {
-        for item in hooks {
-            if let Some(script) = item.get("script").and_then(Value::as_str) {
-                scripts.insert(script.to_string());
-            }
-        }
-    }
-    scripts
+pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<String>> {
+    Ok(codex_manifest_data(repo_dir)?.managed_scripts)
 }
 
 fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
@@ -457,7 +607,11 @@ mod tests {
             }
         });
 
-        codex_prune_managed(&mut data, &repo_dir);
+        let managed_scripts = match codex_managed_scripts(&repo_dir) {
+            Ok(scripts) => scripts,
+            Err(error) => panic!("repository manifest must be valid: {error}"),
+        };
+        codex_prune_managed(&mut data, &managed_scripts);
 
         let hooks = data
             .pointer("/hooks/PreToolUse/0/hooks")
@@ -502,6 +656,10 @@ mod tests {
     #[test]
     fn managed_entry_check_requires_expected_timeout() {
         let repo_dir = repo_dir();
+        let managed_scripts = match codex_managed_scripts(&repo_dir) {
+            Ok(scripts) => scripts,
+            Err(error) => panic!("repository manifest must be valid: {error}"),
+        };
         let command = "bash /tmp/run-hook-codex.sh vibeguard-stop-guard.sh";
         let entries = vec![json!({
             "hooks": [
@@ -515,14 +673,14 @@ mod tests {
 
         assert!(!codex_has_entry(
             &entries,
-            &repo_dir,
+            &managed_scripts,
             command,
             None,
             Some(15)
         ));
         assert!(codex_has_entry(
             &entries,
-            &repo_dir,
+            &managed_scripts,
             command,
             None,
             Some(99)

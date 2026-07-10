@@ -1,4 +1,6 @@
-use crate::setup_codex_hooks::{codex_command_is_managed, codex_expand_path};
+use crate::setup_codex_hooks::{
+    codex_command_is_managed, codex_expand_path, codex_managed_scripts,
+};
 use crate::setup_support::{
     SetupResult, basename, display_home_path, home_dir, read_json_object, shell_split,
     write_json_atomic,
@@ -26,11 +28,12 @@ pub fn codex_hooks_check_stale(args: &[String]) -> SetupResult<()> {
             );
         }
     };
+    let managed_scripts = repo_dir.map(codex_managed_scripts).transpose()?;
     if !hooks_path.exists() {
         return Ok(());
     }
     let data = Value::Object(read_json_object(hooks_path, false)?);
-    let findings = codex_stale_findings(&data, hooks_path, repo_dir);
+    let findings = codex_stale_findings(&data, hooks_path, managed_scripts.as_ref());
     for finding in &findings {
         println!("{finding}");
     }
@@ -49,6 +52,7 @@ pub fn codex_hooks_prune_stale_unmanaged(args: &[String]) -> SetupResult<()> {
     }
     let repo_dir = Path::new(&args[0]);
     let hooks_path = Path::new(&args[1]);
+    let managed_scripts = codex_managed_scripts(repo_dir)?;
     if !hooks_path.exists() {
         println!("SKIP");
         return Ok(());
@@ -62,7 +66,7 @@ pub fn codex_hooks_prune_stale_unmanaged(args: &[String]) -> SetupResult<()> {
             .collect()
     };
     let mut data = Value::Object(read_json_object(hooks_path, false)?);
-    let removed = codex_prune_stale_unmanaged(&mut data, repo_dir, hooks_path, &events);
+    let removed = codex_prune_stale_unmanaged(&mut data, &managed_scripts, hooks_path, &events);
     for finding in &removed {
         println!("{finding}");
     }
@@ -84,6 +88,7 @@ pub fn codex_hooks_check_timeouts(args: &[String]) -> SetupResult<()> {
     }
     let repo_dir = Path::new(&args[0]);
     let hooks_path = Path::new(&args[1]);
+    let managed_scripts = codex_managed_scripts(repo_dir)?;
     if !hooks_path.exists() {
         return Ok(());
     }
@@ -99,7 +104,7 @@ pub fn codex_hooks_check_timeouts(args: &[String]) -> SetupResult<()> {
         {
             continue;
         }
-        let managed = codex_command_is_managed(repo_dir, command);
+        let managed = codex_command_is_managed(&managed_scripts, command);
         let state = if managed { "managed" } else { "unmanaged" };
         let repair = if managed {
             "bash setup.sh --yes"
@@ -120,7 +125,11 @@ pub fn codex_hooks_check_timeouts(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
-fn codex_stale_findings(data: &Value, config: &Path, repo_dir: Option<&Path>) -> Vec<String> {
+fn codex_stale_findings(
+    data: &Value,
+    config: &Path,
+    managed_scripts: Option<&BTreeSet<String>>,
+) -> Vec<String> {
     codex_hook_records(data)
         .into_iter()
         .filter_map(|(event, matcher, hook)| {
@@ -135,7 +144,7 @@ fn codex_stale_findings(data: &Value, config: &Path, repo_dir: Option<&Path>) ->
                     target.display()
                 ));
             }
-            match codex_command_state(repo_dir, command) {
+            match codex_command_state(managed_scripts, command) {
                 CodexCommandState::UnmanagedMissingTarget { target } => {
                     let label = if codex_event_is_blocking(&event) {
                         "repair-required unmanaged Codex blocking hook"
@@ -156,7 +165,7 @@ fn codex_stale_findings(data: &Value, config: &Path, repo_dir: Option<&Path>) ->
 
 fn codex_prune_stale_unmanaged(
     data: &mut Value,
-    repo_dir: &Path,
+    managed_scripts: &BTreeSet<String>,
     config: &Path,
     events: &BTreeSet<String>,
 ) -> Vec<String> {
@@ -185,7 +194,7 @@ fn codex_prune_stale_unmanaged(
             let mut kept_hooks = Vec::new();
             for hook in hook_entries {
                 let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-                match codex_command_state(Some(repo_dir), command) {
+                match codex_command_state(Some(managed_scripts), command) {
                     CodexCommandState::UnmanagedMissingTarget { target } => {
                         removed.push(format!(
                             "removed stale unmanaged Codex hook: config={} event={event} matcher={matcher} command={command} command_path={}",
@@ -253,8 +262,11 @@ fn codex_event_is_blocking(event: &str) -> bool {
     matches!(event, "PreToolUse" | "PermissionRequest")
 }
 
-fn codex_command_state(repo_dir: Option<&Path>, command: &str) -> CodexCommandState {
-    if repo_dir.is_some_and(|root| codex_command_is_managed(root, command)) {
+fn codex_command_state(
+    managed_scripts: Option<&BTreeSet<String>>,
+    command: &str,
+) -> CodexCommandState {
+    if managed_scripts.is_some_and(|scripts| codex_command_is_managed(scripts, command)) {
         return CodexCommandState::ManagedVibeguard;
     }
     let Some(target) = codex_unmanaged_command_target(command) else {
