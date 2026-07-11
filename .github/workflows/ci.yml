@@ -215,6 +215,10 @@ jobs:
         shell: bash
         run: bash tests/test_prompt_contract.sh
 
+      - name: Issue template contract regression tests
+        shell: bash
+        run: bash tests/test_issue_template_contract.sh
+
       - name: Codex plugin manifest regression tests
         shell: bash
         run: bash tests/test_codex_plugin_manifest.sh
@@ -395,6 +399,9 @@ jobs:
 
       - name: Manifest contract regression tests
         run: bash tests/test_manifest_contract.sh
+
+      - name: Issue template contract regression tests
+        run: bash tests/test_issue_template_contract.sh
 
       - name: Workflow contract regression tests
         run: bash tests/test_workflow_contracts.sh

@@ -1,6 +1,6 @@
 name: False Positive Report
 description: Report a VibeGuard hook or rule finding that should not have fired
-labels: ["false-positive"]
+labels: ["false positive"]
 body:
   - type: markdown
     attributes:
