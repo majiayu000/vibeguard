@@ -10,7 +10,7 @@
 
 `guards/universal/check_code_slop.sh` already auto-detects a self-scan of the vibeguard repo and excludes `workflows data scripts eval` (`guards/universal/check_code_slop.sh:83`), but two FP classes survive and dominate the weekly GC digest for this repo (~327 reported issues, majority FP):
 
-1. **CLI stdout counted as debug leftovers** — the debug-code regex (`check_code_slop.sh:111`) flags every Rust `println!`. `vibeguard-runtime` is a CLI whose product surface *is* stdout (`vibeguard-runtime/src/setup_manifest.rs`, `src/json_field.rs`, …): 248 hits.
+1. **CLI stdout counted as debug leftovers** — the debug-code regex (`check_code_slop.sh:111`) flags every Rust `println!`. `vibeguard-runtime` is a CLI whose product surface *is* stdout (`vibeguard-runtime/src/setup_manifest.rs`, `vibeguard-runtime/src/json_field.rs`, …): 248 hits.
 2. **Detector pattern strings counted as findings** — `vibeguard-runtime/src/hook_checks_write.rs:189-199` embeds `todo!(` / `unimplemented!(` as detection regex source and is flagged under "dead code markers".
 
 A guard whose self-report is ~75% noise degrades the real signal (U-29) and makes the GC summary unusable for this repo.
@@ -50,7 +50,7 @@ Decision point for reviewer: B-001 generic (all Rust repos) vs repo-scoped (self
 
 | Behavior invariant | Implementation area | Verification |
 |---|---|---|
-| B-001 | debug-code grep branch, `check_code_slop.sh:109-115` | fixture Rust file with `println!` + `dbg!` → only `dbg!` reported (new case in `tests/test_check_code_slop.sh` or the guard's existing test file) |
+| B-001 | debug-code grep branch, `check_code_slop.sh:109-115` | fixture Rust file with `println!` + `dbg!` → only `dbg!` reported (new test file test_check_code_slop.sh under `tests/`, following the `tests/test_guard_packs.sh` pattern) |
 | B-002 | self-detect block `:76-84` | self-scan run in tests asserts zero findings from `hook_checks_write.rs` |
 | B-003 | flag plumbing `:40-48` | `--strict-repo` run asserts the fixture `println!` IS reported |
 | B-005 | end-to-end | `bash guards/universal/check_code_slop.sh .` in CI: assert debug-code count < 20 (guard against future regression) |
