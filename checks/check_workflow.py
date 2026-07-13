@@ -15,13 +15,11 @@ from specrail_lib import (
     read_text,
     resolve_path,
     resolve_repo_path,
-    spec_packet_artifact_paths,
+    spec_packet_root,
     validate_action_policy,
-    validate_json_schemas,
     validate_labels,
     validate_state_graph,
     validate_skills_lock,
-    validate_template_parity,
 )
 
 
@@ -151,6 +149,20 @@ def validate_tokens(repo: Path) -> list[str]:
             if token not in text:
                 errors.append(f"{rel}: missing token {token!r}")
     return errors
+
+
+def validate_pack_assets(repo: Path) -> list[str]:
+    helper_path = repo / "checks" / "pack_asset_validation.py"
+    if not helper_path.is_file():
+        return []
+    try:
+        from pack_asset_validation import (
+            validate_json_schemas,
+            validate_template_parity,
+        )
+    except Exception as exc:
+        return [f"cannot load checks/pack_asset_validation.py: {exc}"]
+    return validate_json_schemas(repo) + validate_template_parity(repo)
 
 
 def validate_impl_branch_template(config: object) -> list[str]:
@@ -300,7 +312,7 @@ def discover_spec_packet_dirs(
     resolved_repo = resolve_path(repo, label="repository")
     spec_dirs: list[Path] = []
     for path in specs_dir.iterdir():
-        if not path.is_dir() or not re.fullmatch(r"GH([0-9]+)", path.name):
+        if not re.fullmatch(r"GH([0-9]+)", path.name):
             continue
         relative_path = PurePosixPath(*path.relative_to(resolved_repo).parts)
         resolved_path = resolve_repo_path(
@@ -313,6 +325,8 @@ def discover_spec_packet_dirs(
                 f"spec packet {path.name} resolves to a different name or "
                 "configured path"
             )
+        if not resolved_path.is_dir():
+            raise SpecRailError(f"spec packet {path.name} is not a directory")
         spec_dirs.append(resolved_path)
     return sorted(spec_dirs, key=spec_packet_sort_key)
 
@@ -325,8 +339,14 @@ def select_spec_packet_dirs(
     spec_root: PurePosixPath | None = None,
 ) -> list[Path]:
     spec_dirs: list[Path] = []
+    configured_root = spec_root if spec_root is not None else PurePosixPath("specs")
+    resolved_root = resolve_repo_path(
+        repo,
+        configured_root,
+        label="configured spec packet root",
+    )
     if all_specs:
-        spec_dirs.extend(discover_spec_packet_dirs(repo, spec_root))
+        spec_dirs.extend(discover_spec_packet_dirs(repo, configured_root))
     for raw_spec_dir in raw_spec_dirs:
         resolved_spec_dir = resolve_repo_path(
             repo,
@@ -337,6 +357,11 @@ def select_spec_packet_dirs(
         if resolved_spec_dir.name != lexical_name:
             raise SpecRailError(
                 f"spec directory {raw_spec_dir!r} resolves to a different packet identity"
+            )
+        if resolved_spec_dir != resolved_root / lexical_name:
+            raise SpecRailError(
+                f"spec directory {raw_spec_dir!r} must be an immediate child of the "
+                "configured spec packet root"
             )
         spec_dirs.append(resolved_spec_dir)
 
@@ -404,21 +429,22 @@ def main() -> int:
     try:
         repo = resolve_path(Path(args.repo), label="repository")
         config = load_pack(repo)
-        configured_spec_paths = spec_packet_artifact_paths(config, 1, repo=repo)
-        configured_spec_root = PurePosixPath(
-            configured_spec_paths["spec_packet"]
-        ).parent
+        configured_spec_root = spec_packet_root(config)
+        resolve_repo_path(
+            repo,
+            configured_spec_root,
+            label="workflow.yaml: configured spec packet root",
+        )
         errors.extend(validate_required_files(repo))
         errors.extend(validate_required_file_globs(repo))
         errors.extend(validate_tokens(repo))
-        errors.extend(validate_json_schemas(repo))
+        errors.extend(validate_pack_assets(repo))
         errors.extend(validate_state_graph(config))
         errors.extend(validate_labels(config))
         errors.extend(validate_action_policy(config))
         errors.extend(validate_impl_branch_template(config))
         errors.extend(validate_auth_mode(config))
         errors.extend(validate_skills_lock(repo))
-        errors.extend(validate_template_parity(repo))
         for spec_dir in select_spec_packet_dirs(
             repo,
             args.spec_dir,

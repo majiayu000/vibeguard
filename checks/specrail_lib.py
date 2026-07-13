@@ -13,9 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-from pack_asset_validation import validate_json_schemas, validate_template_parity
-
-
 SCHEMA_ANNOTATION_KEYS = {"$id", "$schema", "description", "title"}
 SUPPORTED_SCHEMA_KEYS = SCHEMA_ANNOTATION_KEYS | {
     "additionalProperties",

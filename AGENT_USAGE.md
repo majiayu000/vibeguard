@@ -7,7 +7,7 @@ write specs, prepare PRs, review, and report handoffs without inventing process.
 ## VibeGuard Adoption Pin
 
 VibeGuard adopted this pack from `majiayu000/specrail` commit
-`8b3c96310b40797ced67b0e08bcf4bdcf35d1d81` on 2026-07-13. Consumer-specific
+`b0aa7e8d0c31e07d596a366f8e64e204915169f8` on 2026-07-13. Consumer-specific
 overrides keep spec packets under `docs/specs/GH<number>`, set the default
 locale to `zh-CN`, align imported skills with VibeGuard's required skill
 sections, and replace source-only example paths with target-local evidence.
@@ -134,12 +134,13 @@ opened.
 ```sh
 python3 checks/check_workflow.py --repo .
 python3 checks/check_workflow.py --repo . --all-specs
-python3 checks/check_workflow.py --repo . --spec-dir docs/specs/GH<issue-number>
 ```
 
 `--all-specs` discovers packets from `workflow.yaml`'s
 `artifacts.spec_packet` template. The issue evidence adapter and route gate
-render their spec paths from the same artifact configuration.
+render their spec paths from the same artifact configuration. For a single
+packet, run the exact configured command returned by `route_gate.py` in
+`verification_commands`.
 
 9. Before reporting a PR as merge-ready, collect PR evidence and run:
 
