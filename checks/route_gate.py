@@ -19,6 +19,7 @@ from specrail_lib import (
     render_artifact_path,
     resolve_path,
     resolve_repo_path,
+    resolve_spec_packet_root,
     spec_packet_artifact_paths,
     state_map,
     validate_action_policy,
@@ -123,11 +124,7 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         configured_spec_root = PurePosixPath(
             configured_spec_paths["spec_packet"]
         ).parent
-        resolve_repo_path(
-            repo,
-            configured_spec_root,
-            label="workflow.yaml: configured spec packet root",
-        )
+        resolve_spec_packet_root(repo, configured_spec_root)
     except SpecRailError as exc:
         config_errors.append(str(exc))
 

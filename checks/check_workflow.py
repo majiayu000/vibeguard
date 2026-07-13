@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,7 @@ from specrail_lib import (
     read_text,
     resolve_path,
     resolve_repo_path,
+    resolve_spec_packet_root,
     spec_packet_artifact_paths,
     validate_action_policy,
     validate_labels,
@@ -156,13 +158,27 @@ def validate_pack_assets(repo: Path) -> list[str]:
     if not helper_path.is_file():
         return []
     try:
-        from pack_asset_validation import (
-            validate_json_schemas,
-            validate_template_parity,
+        spec = importlib.util.spec_from_file_location(
+            "_specrail_target_pack_asset_validation",
+            helper_path,
         )
+        if spec is None or spec.loader is None:
+            return ["cannot load checks/pack_asset_validation.py: no module loader"]
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
     except Exception as exc:
         return [f"cannot load checks/pack_asset_validation.py: {exc}"]
-    return validate_json_schemas(repo) + validate_template_parity(repo)
+    validate_json_schemas = getattr(module, "validate_json_schemas", None)
+    validate_template_parity = getattr(module, "validate_template_parity", None)
+    if not callable(validate_json_schemas) or not callable(validate_template_parity):
+        return [
+            "checks/pack_asset_validation.py: expected callable "
+            "validate_json_schemas and validate_template_parity"
+        ]
+    try:
+        return validate_json_schemas(repo) + validate_template_parity(repo)
+    except Exception as exc:
+        return [f"cannot run checks/pack_asset_validation.py: {exc}"]
 
 
 def validate_impl_branch_template(config: object) -> list[str]:
@@ -302,11 +318,7 @@ def discover_spec_packet_dirs(
     spec_root: PurePosixPath | None = None,
 ) -> list[Path]:
     configured_root = spec_root if spec_root is not None else PurePosixPath("specs")
-    specs_dir = resolve_repo_path(
-        repo,
-        configured_root,
-        label="configured spec packet root",
-    )
+    specs_dir = resolve_spec_packet_root(repo, configured_root)
     if not specs_dir.is_dir():
         return []
     resolved_repo = resolve_path(repo, label="repository")
@@ -340,11 +352,7 @@ def select_spec_packet_dirs(
 ) -> list[Path]:
     spec_dirs: list[Path] = []
     configured_root = spec_root if spec_root is not None else PurePosixPath("specs")
-    resolved_root = resolve_repo_path(
-        repo,
-        configured_root,
-        label="configured spec packet root",
-    )
+    resolved_root = resolve_spec_packet_root(repo, configured_root)
     if all_specs:
         spec_dirs.extend(discover_spec_packet_dirs(repo, configured_root))
     for raw_spec_dir in raw_spec_dirs:
@@ -433,11 +441,7 @@ def main() -> int:
         configured_spec_root = PurePosixPath(
             configured_spec_paths["spec_packet"]
         ).parent
-        resolve_repo_path(
-            repo,
-            configured_spec_root,
-            label="workflow.yaml: configured spec packet root",
-        )
+        resolve_spec_packet_root(repo, configured_spec_root)
         errors.extend(validate_required_files(repo))
         errors.extend(validate_required_file_globs(repo))
         errors.extend(validate_tokens(repo))

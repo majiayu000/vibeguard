@@ -25,13 +25,14 @@ currently recorded in this repository.
 
 | Repository | Current level | Status | Evidence | Next gap |
 | --- | --- | --- | --- | --- |
-| `rclean` | `smoke` | `needs_human` | `examples/rclean-smoke.md`, the GH5 source-pack fixture, `evaluate.py`, and `tests/test_specrail_adoption.sh` | Promote from read-only smoke to an explicit target-repo integration plan before writing into `rclean`. |
-| `litellm-rs` | `pr_gate` | `active` | the GH7 source-pack fixture, `tests/test_specrail_adoption.sh`, PR `majiayu000/litellm-rs#718` | Add reusable PR evidence fixtures for more review-thread and CI states. |
+| `rclean` | `smoke` | `needs_human` | `examples/rclean-smoke.md`, target-local `tests/test_specrail_adoption.sh`, and the upstream GH5 packet recorded as external evidence | Promote from read-only smoke to an explicit target-repo integration plan before writing into `rclean`. |
+| `litellm-rs` | `pr_gate` | `active` | target-local `checks/pr_gate.py`, `examples/fixtures/pr-clean-authorized.json`, `tests/test_specrail_adoption.sh`, the upstream GH7 packet recorded as external evidence, and PR `majiayu000/litellm-rs#718` | Add reusable PR evidence fixtures for more review-thread and CI states. |
 | `Claude-Code-Monitor` / `claude-hub` | `spec_packet` | `active` | External GH44 product and tech packets, issue `majiayu000/claude-hub#44`, PR `majiayu000/claude-hub#45` | Decide whether the target repo should carry a copied SpecRail pack or stay as an external pilot. |
 
-The machine-readable record is `examples/adoptions/matrix.json`. The evaluator
-checks that the three known pilots stay present and that SpecRail-local evidence
-paths exist.
+The machine-readable record is `examples/adoptions/matrix.json`. VibeGuard's
+adoption smoke checks that every target-local `specrail_artifact` path exists;
+upstream or third-party pointers are marked as external evidence and are not
+dereferenced by the offline check.
 
 ## Gate Fixture Corpus
 

@@ -23,14 +23,21 @@
         },
         {
           "kind": "specrail_artifact",
+          "path": "tests/test_specrail_adoption.sh"
+        },
+        {
+          "kind": "external_artifact",
+          "repo": "majiayu000/specrail",
           "path": "specs/GH5/product.md"
         },
         {
-          "kind": "specrail_artifact",
+          "kind": "external_artifact",
+          "repo": "majiayu000/specrail",
           "path": "specs/GH5/tech.md"
         },
         {
-          "kind": "specrail_artifact",
+          "kind": "external_artifact",
+          "repo": "majiayu000/specrail",
           "path": "specs/GH5/tasks.md"
         }
       ],
@@ -53,15 +60,25 @@
       "evidence": [
         {
           "kind": "specrail_artifact",
+          "path": "checks/pr_gate.py"
+        },
+        {
+          "kind": "specrail_artifact",
+          "path": "examples/fixtures/pr-clean-authorized.json"
+        },
+        {
+          "kind": "specrail_artifact",
+          "path": "tests/test_specrail_adoption.sh"
+        },
+        {
+          "kind": "external_artifact",
+          "repo": "majiayu000/specrail",
           "path": "specs/GH7/product.md"
         },
         {
-          "kind": "specrail_artifact",
+          "kind": "external_artifact",
+          "repo": "majiayu000/specrail",
           "path": "specs/GH7/tech.md"
-        },
-        {
-          "kind": "specrail_artifact",
-          "path": "tests/test_pr_gate.py"
         },
         {
           "kind": "github_pr",

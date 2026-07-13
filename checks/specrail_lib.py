@@ -511,16 +511,28 @@ def resolve_repo_path(repo: Path, raw: str | PurePosixPath, *, label: str) -> Pa
     return resolved_path
 
 
-def _validate_resolved_spec_packet_paths(
-    repo: Path,
-    configured_root: PurePosixPath,
-    paths: dict[str, str],
-) -> None:
+def resolve_spec_packet_root(repo: Path, configured_root: PurePosixPath) -> Path:
+    resolved_repo = resolve_path(repo, label="repository")
     resolved_root = resolve_repo_path(
         repo,
         configured_root,
         label="workflow.yaml: configured spec packet root",
     )
+    expected_root = resolved_repo.joinpath(*configured_root.parts)
+    if resolved_root != expected_root:
+        raise SpecRailError(
+            "workflow.yaml: configured spec packet root must preserve its "
+            "configured identity after resolution"
+        )
+    return resolved_root
+
+
+def _validate_resolved_spec_packet_paths(
+    repo: Path,
+    configured_root: PurePosixPath,
+    paths: dict[str, str],
+) -> None:
+    resolved_root = resolve_spec_packet_root(repo, configured_root)
     resolved_packet = resolve_repo_path(
         repo,
         paths["spec_packet"],

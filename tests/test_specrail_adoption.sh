@@ -30,6 +30,56 @@ for locale_path in "${required_locale_files[@]}"; do
   test -f "${locale_path}"
 done
 
+expected_specrail_pin="7e94c7b689207d60c437e5933f845e3ebcc2b1da"
+python3 - "${REPO_DIR}" "${expected_specrail_pin}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1]).resolve()
+expected_pin = sys.argv[2]
+sys.path.insert(0, str(repo / "checks"))
+
+from specrail_lib import artifact_templates, load_pack, resolve_repo_path
+
+usage_text = (repo / "AGENT_USAGE.md").read_text(encoding="utf-8")
+if expected_pin not in usage_text:
+    raise SystemExit(f"AGENT_USAGE.md: missing SpecRail adoption pin {expected_pin}")
+
+config = load_pack(repo)
+artifacts = artifact_templates(config)
+if artifacts.get("spec_packet", "").rstrip("/") != "docs/specs/GH{issue_number}":
+    raise SystemExit("workflow.yaml: VibeGuard spec packet root must remain docs/specs")
+presentation = config.workflow.get("presentation", {})
+if presentation.get("default_locale") != "zh-CN":
+    raise SystemExit("workflow.yaml: VibeGuard default locale must remain zh-CN")
+automation_policy = config.workflow.get("automation_policy", {})
+if automation_policy.get("auth_mode") != "review":
+    raise SystemExit("workflow.yaml: persisted auth_mode must remain review")
+
+matrix_path = repo / "examples" / "adoptions" / "matrix.json"
+matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+for adoption in matrix.get("adoptions", []):
+    adoption_id = adoption.get("id", "unknown")
+    for index, evidence in enumerate(adoption.get("evidence", [])):
+        if evidence.get("kind") != "specrail_artifact":
+            continue
+        raw_path = evidence.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise SystemExit(
+                f"matrix {adoption_id} evidence {index}: missing local artifact path"
+            )
+        resolved_path = resolve_repo_path(
+            repo,
+            raw_path,
+            label=f"matrix {adoption_id} evidence {index}",
+        )
+        if not resolved_path.is_file():
+            raise SystemExit(
+                f"matrix {adoption_id} evidence {index}: missing {raw_path}"
+            )
+PY
+
 python3 checks/check_workflow.py --repo .
 python3 checks/check_workflow.py --repo . --all-specs
 python3 checks/github_pr_evidence.py --help >/dev/null
