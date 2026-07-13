@@ -7,6 +7,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | Spec | Status | Use it for |
 |---|---|---|
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
+| `GH595/` | Draft implementation | SpecRail repository adoption, configured VibeGuard overrides, offline PR/runtime gates, target-local evidence, and preserved human merge boundaries |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Draft | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `install-friction-reduction.md` | Implemented reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
