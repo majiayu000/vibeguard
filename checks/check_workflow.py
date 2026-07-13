@@ -15,7 +15,7 @@ from specrail_lib import (
     read_text,
     resolve_path,
     resolve_repo_path,
-    spec_packet_root,
+    spec_packet_artifact_paths,
     validate_action_policy,
     validate_labels,
     validate_state_graph,
@@ -429,7 +429,10 @@ def main() -> int:
     try:
         repo = resolve_path(Path(args.repo), label="repository")
         config = load_pack(repo)
-        configured_spec_root = spec_packet_root(config)
+        configured_spec_paths = spec_packet_artifact_paths(config, 1)
+        configured_spec_root = PurePosixPath(
+            configured_spec_paths["spec_packet"]
+        ).parent
         resolve_repo_path(
             repo,
             configured_spec_root,

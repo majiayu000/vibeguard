@@ -7,7 +7,7 @@ import argparse
 import json
 import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from specrail_lib import (
@@ -20,7 +20,6 @@ from specrail_lib import (
     resolve_path,
     resolve_repo_path,
     spec_packet_artifact_paths,
-    spec_packet_root,
     state_map,
     validate_action_policy,
     validate_labels,
@@ -120,7 +119,10 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     config_errors.extend(validate_labels(config))
     config_errors.extend(validate_action_policy(config))
     try:
-        configured_spec_root = spec_packet_root(config)
+        configured_spec_paths = spec_packet_artifact_paths(config, 1)
+        configured_spec_root = PurePosixPath(
+            configured_spec_paths["spec_packet"]
+        ).parent
         resolve_repo_path(
             repo,
             configured_spec_root,
