@@ -30,7 +30,7 @@ for locale_path in "${required_locale_files[@]}"; do
   test -f "${locale_path}"
 done
 
-expected_specrail_pin="7e94c7b689207d60c437e5933f845e3ebcc2b1da"
+expected_specrail_pin="e9c82f55b11826cffab9f7c95cd3f3413428ee45"
 python3 - "${REPO_DIR}" "${expected_specrail_pin}" <<'PY'
 import json
 import sys
@@ -83,6 +83,34 @@ PY
 python3 checks/check_workflow.py --repo .
 python3 checks/check_workflow.py --repo . --all-specs
 python3 checks/github_pr_evidence.py --help >/dev/null
+
+python3 checks/route_gate.py \
+  --repo . \
+  --route implement \
+  --issue 539 \
+  --state ready_to_implement \
+  --artifact product_spec=README.md \
+  --json > "${TMP_DIR}/configured-artifact-gate.json"
+
+python3 - "${TMP_DIR}/configured-artifact-gate.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+expected = "docs/specs/GH539/product.md"
+if f"product_spec:{expected}" not in payload.get("missing", []):
+    raise SystemExit(f"{path.name}: configured product spec was not reported missing")
+if "product_spec: README.md" in payload.get("satisfied", []):
+    raise SystemExit(f"{path.name}: stale product spec path was accepted")
+if not any(
+    "product_spec provided at README.md does not match "
+    f"configured path {expected}" in reason
+    for reason in payload.get("reasons", [])
+):
+    raise SystemExit(f"{path.name}: configured path mismatch reason missing")
+PY
 
 python3 checks/pr_gate.py \
   --repo . \

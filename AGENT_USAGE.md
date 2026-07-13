@@ -7,7 +7,7 @@ write specs, prepare PRs, review, and report handoffs without inventing process.
 ## VibeGuard Adoption Pin
 
 VibeGuard adopted this pack from `majiayu000/specrail` commit
-`7e94c7b689207d60c437e5933f845e3ebcc2b1da` on 2026-07-13. Consumer-specific
+`e9c82f55b11826cffab9f7c95cd3f3413428ee45` on 2026-07-13. Consumer-specific
 overrides keep spec packets under `docs/specs/GH<number>`, set the default
 locale to `zh-CN`, align imported skills with VibeGuard's required skill
 sections, and replace source-only example paths with target-local evidence.
@@ -106,11 +106,11 @@ agent session may need to restart before the installed skills are discoverable.
    change is small and mechanical, or the user explicitly asks to skip spec
    creation.
 5. Confirm the current state from durable repo state when possible.
-6. Create or update the required artifact:
+6. Create or update the required artifact. For spec artifacts, use the
+   configured `artifacts.product_spec`, `artifacts.tech_spec`, and
+   `artifacts.task_plan` paths from `workflow.yaml`:
    - issue
-   - `docs/specs/GH<issue-number>/product.md`
-   - `docs/specs/GH<issue-number>/tech.md`
-   - `docs/specs/GH<issue-number>/tasks.md`
+   - configured product, tech, and task spec paths
    - PR body
    - review result
    - handoff

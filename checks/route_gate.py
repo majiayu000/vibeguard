@@ -269,7 +269,16 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         path = required_artifact_path(config, artifact, args.issue)
         required_artifacts.append(path or artifact)
         if provided:
-            if artifact in ARTIFACT_FILES and not artifact_exists(repo, str(provided)):
+            if artifact in ARTIFACT_FILES and str(provided) != path:
+                missing.append(f"{artifact}:{path}")
+                reasons.append(
+                    f"{artifact} provided at {provided} does not match "
+                    f"configured path {path}"
+                )
+            elif artifact in ARTIFACT_FILES and not artifact_exists(
+                repo,
+                str(provided),
+            ):
                 missing.append(f"{artifact}:{provided}")
             else:
                 satisfied.append(f"{artifact}: {provided}")
