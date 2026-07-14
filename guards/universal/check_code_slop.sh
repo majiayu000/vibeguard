@@ -116,17 +116,16 @@ DEBUG_CODE=$(grep --null -rn "${EXCLUDE_ARGS[@]}" \
 if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
   TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
   DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
-    function has_dbg_macro(text, i, ch, in_string, in_char, escaped) {
+    function has_dbg_macro(text, i, ch, in_string, escaped) {
       for (i = 1; i <= length(text); i++) {
         ch = substr(text, i, 1)
-        if (in_string || in_char) {
+        if (in_string) {
           if (escaped) {
             escaped = 0
           } else if (ch == "\\") {
             escaped = 1
-          } else if ((in_string && ch == "\"") || (in_char && ch == "\047")) {
+          } else if (ch == "\"") {
             in_string = 0
-            in_char = 0
           }
           continue
         }
@@ -135,9 +134,8 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
         }
         if (ch == "\"") {
           in_string = 1
-        } else if (ch == "\047") {
-          in_char = 1
-        } else if (substr(text, i, 5) == "dbg!(") {
+        } else if (substr(text, i, 4) == "dbg!" \
+            && (i == 1 || substr(text, i - 1, 1) !~ /[[:alnum:]_]/)) {
           return 1
         }
       }

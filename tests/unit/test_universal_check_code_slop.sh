@@ -156,10 +156,10 @@ cat > "${proj_self_scan}/vibeguard-runtime/src/main.rs" <<'EOF'
 fn main() {
     println!("cli product output");
     dbg!("runtime diagnostic");
-    println!("cli output"); dbg!("same-line diagnostic");
-    println!("{}", dbg!("nested diagnostic"));
+    println!("cli output"); dbg!("same-line diagnostic"); println!("{}", dbg!("nested diagnostic"));
     println!("dbg!( is product text, not a macro");
     dbg!("trace.rs:12: println!(\"x\")");
+    println!("cli output"); let value: &'static str = dbg!("lifetime diagnostic"); dbg! ("spaced diagnostic");
 }
 EOF
 cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
@@ -168,11 +168,6 @@ const DETECTOR_PATTERN: &str = "todo!("; // slop-pattern-source
 const ADJACENT_PATTERN: &str = "unimplemented!(";
 fn unfinished() {
     todo!();
-}
-EOF
-cat > "${proj_self_scan}/other/cli.rs" <<'EOF'
-fn probe() {
-    println!("outside runtime output");
 }
 EOF
 cat > "${proj_self_scan}/other/client.ts" <<'EOF'
@@ -186,6 +181,8 @@ assert_output_contains "self-scan retains dbg after same-line println" 'dbg!("sa
 assert_output_contains "self-scan retains dbg nested in println" 'dbg!("nested diagnostic")' bash "$GUARD" "$proj_self_scan"
 assert_output_not_contains "self-scan ignores dbg text inside println string" 'dbg!( is product text' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "self-scan retains leading dbg containing line-like text" 'trace.rs:12: println!' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains dbg after Rust lifetime" 'dbg!("lifetime diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains dbg with spaced delimiter" 'dbg! ("spaced diagnostic")' bash "$GUARD" "$proj_self_scan"
 assert_output_not_contains "self-scan suppresses same-line detector marker" 'const DETECTOR_PATTERN' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "adjacent marker does not suppress dead-code finding" 'const ADJACENT_PATTERN' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "unmarked real stub remains visible" 'todo!();' bash "$GUARD" "$proj_self_scan"
