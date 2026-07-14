@@ -116,9 +116,64 @@ DEBUG_CODE=$(grep --null -rn "${EXCLUDE_ARGS[@]}" \
 if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
   TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
   DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
-    function has_dbg_macro(text, i, ch, in_string, escaped) {
+    function repeat_hashes(count, result, position) {
+      result = ""
+      for (position = 0; position < count; position++) {
+        result = result "#"
+      }
+      return result
+    }
+    function raw_string_hashes(text, start, prefix_length, position, count) {
+      prefix_length = 0
+      if (substr(text, start, 1) == "r") {
+        prefix_length = 1
+      } else if (substr(text, start, 2) ~ /^(br|cr)$/) {
+        prefix_length = 2
+      } else {
+        return -1
+      }
+      if (start > 1 && substr(text, start - 1, 1) ~ /[[:alnum:]_]/) {
+        return -1
+      }
+      position = start + prefix_length
+      count = 0
+      while (substr(text, position, 1) == "#") {
+        count++
+        position++
+      }
+      if (substr(text, position, 1) != "\"") {
+        return -1
+      }
+      return count
+    }
+    function char_literal_end(text, start, position, ch, escaped) {
+      ch = substr(text, start + 1, 1)
+      if (ch ~ /[[:alpha:]_]/ && substr(text, start + 2, 1) != "\047") {
+        return 0
+      }
+      escaped = 0
+      for (position = start + 1; position <= length(text); position++) {
+        ch = substr(text, position, 1)
+        if (escaped) {
+          escaped = 0
+        } else if (ch == "\\") {
+          escaped = 1
+        } else if (ch == "\047") {
+          return position
+        }
+      }
+      return 0
+    }
+    function has_dbg_macro(text, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end) {
       for (i = 1; i <= length(text); i++) {
         ch = substr(text, i, 1)
+        if (raw_close != "") {
+          if (substr(text, i, length(raw_close)) == raw_close) {
+            i += length(raw_close) - 1
+            raw_close = ""
+          }
+          continue
+        }
         if (in_string) {
           if (escaped) {
             escaped = 0
@@ -132,7 +187,18 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
         if (substr(text, i, 2) == "//") {
           return 0
         }
-        if (ch == "\"") {
+        raw_hashes = raw_string_hashes(text, i)
+        if (raw_hashes >= 0) {
+          raw_prefix_length = substr(text, i, 1) == "r" ? 1 : 2
+          raw_quote = i + raw_prefix_length + raw_hashes
+          raw_close = "\"" repeat_hashes(raw_hashes)
+          i = raw_quote
+        } else if (ch == "\047") {
+          char_end = char_literal_end(text, i)
+          if (char_end > 0) {
+            i = char_end
+          }
+        } else if (ch == "\"") {
           in_string = 1
         } else if (substr(text, i, 4) == "dbg!" \
             && (i == 1 || substr(text, i - 1, 1) !~ /[[:alnum:]_]/)) {
