@@ -11,6 +11,7 @@ cd "${REPO_DIR}"
 
 required_checks=(
   checks/github_pr_evidence.py
+  checks/github_review_threads.py
   checks/pr_gate.py
   checks/runtime_ledger_gate.py
   checks/check_workflow.py
@@ -105,7 +106,7 @@ sys.path.insert(0, str(repo / "checks"))
 
 import check_workflow
 from check_workflow import discover_spec_packet_dirs, validate_pack_assets
-import github_pr_evidence
+import github_review_threads
 from github_evidence_common import EvidenceError
 from pr_gate import evaluate_pr_gate
 from specrail_lib import SpecRailError
@@ -239,7 +240,7 @@ first_page = review_threads_payload(
     end_cursor="cursor-100",
 )
 try:
-    github_pr_evidence.normalize_review_threads(first_page)
+    github_review_threads.normalize_review_threads(first_page)
 except EvidenceError as exc:
     if "hasNextPage is true" not in str(exc):
         raise SystemExit(f"unexpected incomplete thread error: {exc}") from exc
@@ -270,26 +271,20 @@ pages = [
     ),
 ]
 query_calls = []
-original_run_gh_json = github_pr_evidence.run_gh_json
-
-
 def fake_run_gh_json(args):
     query_calls.append(args)
     return pages.pop(0)
 
 
-github_pr_evidence.run_gh_json = fake_run_gh_json
-try:
-    complete_threads_payload = github_pr_evidence.collect_review_threads(
-        "owner",
-        "repo",
-        594,
-    )
-finally:
-    github_pr_evidence.run_gh_json = original_run_gh_json
+complete_threads_payload = github_review_threads.collect_review_threads(
+    "owner",
+    "repo",
+    594,
+    fake_run_gh_json,
+)
 if pages or len(query_calls) != 2 or "cursor=cursor-100" not in query_calls[1]:
     raise SystemExit(f"review thread pagination did not consume every page: {query_calls!r}")
-normalized_threads = github_pr_evidence.normalize_review_threads(
+normalized_threads = github_review_threads.normalize_review_threads(
     complete_threads_payload
 )
 if len(normalized_threads) != 101 or normalized_threads[-1]["is_resolved"]:
@@ -306,6 +301,50 @@ if gate_result.get("decision") != "blocked" or not any(
     for reason in gate_result.get("reasons", [])
 ):
     raise SystemExit(f"later-page unresolved thread bypassed PR gate: {gate_result!r}")
+
+duplicate_pages = [
+    review_threads_payload(
+        [resolved_threads[0]],
+        total_count=2,
+        has_next_page=True,
+        end_cursor="duplicate-cursor-1",
+    ),
+    review_threads_payload(
+        [resolved_threads[0]],
+        total_count=2,
+        has_next_page=False,
+        end_cursor="duplicate-cursor-2",
+    ),
+]
+try:
+    github_review_threads.collect_review_threads(
+        "owner",
+        "repo",
+        594,
+        lambda _args: duplicate_pages.pop(0),
+    )
+except EvidenceError as exc:
+    if "repeated thread id" not in str(exc):
+        raise SystemExit(f"unexpected duplicate thread error: {exc}") from exc
+else:
+    raise SystemExit("duplicate cross-page review thread id did not fail closed")
+
+missing_id_thread = dict(resolved_threads[0])
+missing_id_thread.pop("id")
+try:
+    github_review_threads.normalize_review_threads(
+        review_threads_payload(
+            [missing_id_thread],
+            total_count=1,
+            has_next_page=False,
+            end_cursor=None,
+        )
+    )
+except EvidenceError as exc:
+    if "id must be a non-empty string" not in str(exc):
+        raise SystemExit(f"unexpected missing thread id error: {exc}") from exc
+else:
+    raise SystemExit("review thread without an id did not fail closed")
 
 route_repo = tmp / "route-repo"
 route_repo.mkdir()
