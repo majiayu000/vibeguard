@@ -1,0 +1,19 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact with a suggestion on a deleted line.\n\n## Verdict\nREJECT: suggestions must stay on RIGHT-side comments.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 2,
+      "side": "LEFT",
+      "severity": "suggestion",
+      "body": "A deleted line cannot carry a suggested replacement.",
+      "suggestion": "    return title.strip()"
+    }
+  ],
+  "spec_alignment": {
+    "status": "matched",
+    "spec": "specs/GH23/tech.md",
+    "details": "The suggestion field is intentionally attached to the wrong side."
+  }
+}
