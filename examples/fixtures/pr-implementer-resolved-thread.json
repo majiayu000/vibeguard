@@ -1,0 +1,34 @@
+{
+  "checks": [
+    {
+      "conclusion": "SUCCESS",
+      "name": "Compile-check all features",
+      "status": "COMPLETED"
+    }
+  ],
+  "gate_query_completed_at": "2026-07-04T00:00:00Z",
+  "gate_query_head_sha": "e36d97517d8d0b27faca1abe5e5c63f9f88684d9",
+  "head_sha": "e36d97517d8d0b27faca1abe5e5c63f9f88684d9",
+  "human_authorization": {
+    "actor": "maintainer",
+    "source": "chat",
+    "summary": "merge approved"
+  },
+  "is_draft": false,
+  "linked_issue": 716,
+  "merge_state": "CLEAN",
+  "pr": 718,
+  "review_threads": [
+    {
+      "is_outdated": false,
+      "is_resolved": true,
+      "resolved_by": "implementer-lane",
+      "resolver_role": "implementer",
+      "url": "https://example.invalid/implementer-resolved-thread"
+    }
+  ],
+  "reviews": [],
+  "state": "OPEN",
+  "review_source": "independent_lane",
+  "lane_failures": []
+}
