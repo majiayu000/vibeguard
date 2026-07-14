@@ -29,6 +29,16 @@ assert_output_contains() {
   else red "$desc (missing: $expected)"; FAIL=$((FAIL+1)); fi
 }
 
+assert_output_not_contains() {
+  local desc="$1" unexpected="$2"; shift 2; TOTAL=$((TOTAL+1))
+  local out; out=$("$@" 2>&1 || true)
+  if printf '%s\n' "$out" | grep -qF "$unexpected"; then
+    red "$desc (unexpected: $unexpected)"; FAIL=$((FAIL+1))
+  else
+    green "$desc"; PASS=$((PASS+1))
+  fi
+}
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -133,6 +143,64 @@ EOF
 assert_ok "tests/fixtures debug code is ignored by default" bash "$GUARD" "$proj_fixtures"
 assert_fail "tests/fixtures debug code is scanned with --include-fixtures" bash "$GUARD" --include-fixtures "$proj_fixtures"
 assert_fail "tests/fixtures debug code is scanned with --strict-repo" bash "$GUARD" --strict-repo "$proj_fixtures"
+
+# --- VibeGuard self-scan precision: repo-local, category-local, line-scoped ---
+proj_self_scan="${tmpdir}/vibeguard_self_scan"
+mkdir -p \
+  "${proj_self_scan}/guards" \
+  "${proj_self_scan}/hooks" \
+  "${proj_self_scan}/vibeguard-runtime/src" \
+  "${proj_self_scan}/other"
+: > "${proj_self_scan}/.vibeguard-doc-paths-allowlist"
+cat > "${proj_self_scan}/vibeguard-runtime/src/main.rs" <<'EOF'
+fn main() {
+    println!("cli product output");
+    dbg!("runtime diagnostic");
+}
+EOF
+cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
+const DETECTOR_PATTERN: &str = "todo!("; // slop-pattern-source
+// slop-pattern-source
+const ADJACENT_PATTERN: &str = "unimplemented!(";
+fn unfinished() {
+    todo!();
+}
+EOF
+cat > "${proj_self_scan}/other/cli.rs" <<'EOF'
+fn probe() {
+    println!("outside runtime output");
+}
+EOF
+cat > "${proj_self_scan}/other/client.ts" <<'EOF'
+console.log("other category remains visible"); // slop-pattern-source
+EOF
+
+assert_fail "self-scan retains unsuppressed findings" bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan suppresses runtime CLI println" 'println!("cli product output")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains runtime dbg" 'dbg!("runtime diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains println outside runtime src" 'println!("outside runtime output")' bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan suppresses same-line detector marker" 'const DETECTOR_PATTERN' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "adjacent marker does not suppress dead-code finding" 'const ADJACENT_PATTERN' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "unmarked real stub remains visible" 'todo!();' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "marker does not suppress another category" 'console.log("other category remains visible")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "strict self-scan restores runtime println" 'println!("cli product output")' bash "$GUARD" --strict-repo "$proj_self_scan"
+assert_output_contains "strict self-scan restores marked detector line" 'const DETECTOR_PATTERN' bash "$GUARD" --strict-repo "$proj_self_scan"
+
+# A target with only two self-scan markers is an ordinary repo.  Neither the
+# runtime path nor marker text is a general-purpose suppression contract.
+proj_partial_marker="${tmpdir}/partial_self_markers"
+mkdir -p \
+  "${proj_partial_marker}/guards" \
+  "${proj_partial_marker}/hooks" \
+  "${proj_partial_marker}/vibeguard-runtime/src"
+cat > "${proj_partial_marker}/vibeguard-runtime/src/main.rs" <<'EOF'
+fn main() {
+    println!("ordinary repo output");
+}
+const PATTERN: &str = "todo!("; // slop-pattern-source
+EOF
+assert_output_contains "partial-marker repo retains runtime println" 'println!("ordinary repo output")' bash "$GUARD" "$proj_partial_marker"
+assert_output_contains "partial-marker repo retains marked dead-code line" 'const PATTERN' bash "$GUARD" "$proj_partial_marker"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

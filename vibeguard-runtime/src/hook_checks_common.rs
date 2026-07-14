@@ -159,8 +159,8 @@ pub(crate) fn is_clean_rust_fast_path(
         || has_let_underscore_assign(new_string)
         || new_string.contains(".db\"")
         || new_string.contains(".sqlite\"")
-        || new_string.contains("todo!(")
-        || new_string.contains("unimplemented!(")
+        || new_string.contains("todo!(") // slop-pattern-source
+        || new_string.contains("unimplemented!(") // slop-pattern-source
         || new_string.contains("panic!(\"not implemented")
     {
         return false;
@@ -187,8 +187,8 @@ pub(crate) fn is_clean_rust_write_fast_path(
     if count_lines(content) > base_limit {
         return false;
     }
-    if content.contains("todo!(")
-        || content.contains("unimplemented!(")
+    if content.contains("todo!(") // slop-pattern-source
+        || content.contains("unimplemented!(") // slop-pattern-source
         || content.contains("panic!(\"not implemented")
     {
         return false;
@@ -714,7 +714,7 @@ mod tests {
         ));
         assert!(!is_clean_rust_write_fast_path(
             "src/lib.rs",
-            "todo!()\n",
+            "todo!()\n", // slop-pattern-source
             800
         ));
         assert!(!is_clean_rust_write_fast_path(

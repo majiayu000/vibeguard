@@ -38,6 +38,7 @@ EOF
 
 INCLUDE_FIXTURES=false
 STRICT_REPO=false
+VIBEGUARD_SELF_SCAN=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-fixtures)
@@ -80,6 +81,7 @@ fi
 # test data, workflow YAML with shell snippets).  Use --strict-repo to disable.
 if [[ "$STRICT_REPO" != true ]] && [[ -f "${TARGET_DIR%/}/.vibeguard-doc-paths-allowlist" ]] \
   && [[ -d "${TARGET_DIR%/}/guards" ]] && [[ -d "${TARGET_DIR%/}/hooks" ]]; then
+  VIBEGUARD_SELF_SCAN=true
   EXCLUDE_DIRS+=(workflows data scripts eval)
 fi
 
@@ -111,6 +113,19 @@ DEBUG_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
   -E '^\s*(console\.(log|debug|info)\(|print\(|println!\(|dbg!\(|puts |p |pp )' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.rb' --include='*.go' \
   2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
+if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
+  TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | awk -v prefix="$TARGET_RUNTIME_SRC" '
+    index($0, prefix) == 1 {
+      matched = substr($0, length(prefix) + 1)
+      sub(/^[^:]*:[0-9]+:/, "", matched)
+      if (matched ~ /^[[:space:]]*println!\(/) {
+        next
+      }
+    }
+    { print }
+  ')
+fi
 if [[ -n "$DEBUG_CODE" ]]; then
   COUNT=$(echo "$DEBUG_CODE" | wc -l | tr -d ' ')
   yellow "Legacy debug code: ${COUNT}"
@@ -159,6 +174,17 @@ DEAD_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
   -E '(unreachable!|todo!|unimplemented!|#\[allow\(dead_code\)\]|// @ts-ignore|# type: ignore|# noqa)' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.rs' \
   2>/dev/null || true)
+if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEAD_CODE" ]]; then
+  DEAD_CODE=$(printf '%s\n' "$DEAD_CODE" | awk '
+    {
+      matched = $0
+      sub(/^[^:]*:[0-9]+:/, "", matched)
+      if (matched !~ /\/\/[[:space:]]*slop-pattern-source([[:space:]]|$)/) {
+        print
+      }
+    }
+  ')
+fi
 if [[ -n "$DEAD_CODE" ]]; then
   COUNT=$(echo "$DEAD_CODE" | wc -l | tr -d ' ')
   yellow "Dead code/suppression flag: ${COUNT}"
