@@ -80,10 +80,13 @@ git diff --check
 
 ## Handoff Notes
 
-- 当前 write-spec route 的本地 gate 为 `allowed`，但 repository `auth_mode: review`；任务
-  计划不等于 spec approval 或 implementation authorization。
-- pre-spec implement gate 返回 `needs_human`，缺少 duplicate evidence、product/tech
-  artifacts 与 spec approval；本 packet 只补 artifacts，不自行消除人类 gate。
+- 最新 live issue evidence 只包含 `bug`、`P2`、`dx`，没有受信任的 SpecRail readiness
+  state/label；不提供 `--state` 时，write_spec 与 implement route 都返回
+  `needs_human`，implement 还缺 duplicate evidence。readiness 与 spec approval 仍是人工
+  gate，本 task plan 不构成 implementation authorization。
+- 写作阶段曾显式传入 `--state ready_to_spec` 做本地规划状态检查；该假设性检查返回
+  `allowed` 只证明“若状态已由可信流程确立，write_spec policy 可通过”，不能冒充 live
+  GitHub readiness label、spec approval 或 implement authorization。
 - 旧 plan/spec-588-gc-check-execution-freshness.md 在本规格 PR 中删除；后续唯一设计真相
   是 `docs/specs/GH588/`，不得同时维护两份不一致 spec。
 - 实现前重新核对 line anchors 与 current head；本 tech spec 的 `path:line` 只表示写作时
