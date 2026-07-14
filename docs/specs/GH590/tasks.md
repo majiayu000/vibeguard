@@ -77,19 +77,23 @@ git diff --check
   `decision=info`、无向/不完整 key、无限 durability 暗示和 root Cargo 命令均不得沿用。
 - Product invariant set 与 tasks Covers union 都是
   `{B-001,B-002,B-003,B-004,B-005,B-006,B-007,B-008,B-009,B-010}`。
-- `runtime_pinning_snapshot: None` 只适用于本次 spec-only 短迁移；未来 implementation lane
-  在写前按 runtime drift contract 重新决定是否捕获 snapshot。
+- 本次 spec-only 迁移本身不进入执行，因此不需要 snapshot。下方 handoff 专门描述未来
+  implementation；它跨越 Rust decision、config distribution 和 regression 三个阶段，执行前
+  必须按 runtime drift contract 捕获 snapshot，不得把 `None` 带入实现。
 
 ```yaml
 handoff:
-  mode: specrail-plan-tasks
+  mode: specrail-implement
   artifacts:
     - docs/specs/GH590/product.md
     - docs/specs/GH590/tech.md
     - docs/specs/GH590/tasks.md
-  runtime_pinning_snapshot: None
+    - .specrail/runtime/runtime-pinning.snapshot
+    - .specrail/runtime/tool-inventory.txt
+  runtime_pinning_snapshot: .specrail/runtime/runtime-pinning.snapshot
   verification_owner: root coordinator
   stop_conditions:
+    - The W-20 snapshot or tool inventory is missing, or a resume drift check fails before writes.
     - Human packet approval or fresh duplicate evidence is missing before implementation.
     - The change adds an info decision, mutable cooldown state, or shell fallback parity.
     - Invalid or unavailable evidence would suppress instead of warn.
@@ -102,3 +106,15 @@ handoff:
     verification_integration: root coordinator
     independent_review: non-implementer read-only reviewer
 ```
+
+Before `SP590-T1` starts, the root coordinator must populate the tool inventory and capture the
+local execution snapshot:
+
+```bash
+bash guards/universal/check_runtime_drift.sh snapshot \
+  --snapshot .specrail/runtime/runtime-pinning.snapshot \
+  --tool-inventory .specrail/runtime/tool-inventory.txt
+```
+
+These two runtime-pinning files are coordinator-owned local evidence and are not part of the spec
+commit. On cross-session resume, run the matching `check` command before any write lane continues.
