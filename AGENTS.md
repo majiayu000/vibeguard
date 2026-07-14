@@ -14,6 +14,7 @@ VibeGuard is an anti-hallucination rules, hooks, runtime, installer, and workflo
 4. Read `docs/specs/README.md` before treating a spec as pending work.
 5. Read `plan/README.md` before treating files under `plan/` as active backlog.
 6. For runtime, hook, setup, or workflow changes, read the closest scoped `CLAUDE.md` in that subtree.
+7. For GitHub issue or PR work, read `AGENT_USAGE.md`, `workflow.yaml`, `states.yaml`, `labels.yaml`, and `skills/specrail-workflow/SKILL.md`.
 
 ## Core Rules
 
@@ -38,6 +39,13 @@ Follow `workflows/references/routing-contract.md` for non-trivial work.
 | Generated surface or high-context file rewrite | `plan_first` |
 
 `plan_first` handoffs must always carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`; use `None` or a minimal value when a field does not otherwise apply.
+
+## SpecRail Adoption
+
+- SpecRail packets use `docs/specs/GH<number>/`; do not create a second `specs/` root.
+- Persisted `automation_policy.auth_mode` remains `review`. An explicit `implx auto` invocation is transient authorization for that run only.
+- Automation authorization never bypasses `checks/pr_gate.py`, `checks/runtime_ledger_gate.py`, CI, review-thread, or merge-state evidence.
+- The adopted source commit and consumer overrides are recorded in `AGENT_USAGE.md`.
 
 ## Repository Map
 
