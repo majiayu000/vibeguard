@@ -7,7 +7,7 @@ write specs, prepare PRs, review, and report handoffs without inventing process.
 ## VibeGuard Adoption Pin
 
 VibeGuard adopted this pack from `majiayu000/specrail` commit
-`e9c82f55b11826cffab9f7c95cd3f3413428ee45` on 2026-07-13. Consumer-specific
+`7de16e4780d903607b40220a9edb7a08fe222c78` on 2026-07-14. Consumer-specific
 overrides keep spec packets under `docs/specs/GH<number>`, set the default
 locale to `zh-CN`, align imported skills with VibeGuard's required skill
 sections, and replace source-only example paths with target-local evidence.

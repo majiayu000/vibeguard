@@ -154,31 +154,31 @@ def validate_tokens(repo: Path) -> list[str]:
 
 
 def validate_pack_assets(repo: Path) -> list[str]:
-    helper_path = repo / "checks" / "pack_asset_validation.py"
+    helper_path = Path(__file__).with_name("pack_asset_validation.py")
     if not helper_path.is_file():
-        return []
+        return [
+            "cannot load trusted pack asset validation: "
+            "checks/pack_asset_validation.py is missing"
+        ]
     try:
         spec = importlib.util.spec_from_file_location(
-            "_specrail_target_pack_asset_validation",
+            "_specrail_trusted_pack_asset_validation",
             helper_path,
         )
         if spec is None or spec.loader is None:
-            return ["cannot load checks/pack_asset_validation.py: no module loader"]
+            return ["cannot load trusted pack asset validation: no module loader"]
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-    except Exception as exc:
-        return [f"cannot load checks/pack_asset_validation.py: {exc}"]
-    validate_json_schemas = getattr(module, "validate_json_schemas", None)
-    validate_template_parity = getattr(module, "validate_template_parity", None)
-    if not callable(validate_json_schemas) or not callable(validate_template_parity):
-        return [
-            "checks/pack_asset_validation.py: expected callable "
-            "validate_json_schemas and validate_template_parity"
-        ]
-    try:
+        validate_json_schemas = getattr(module, "validate_json_schemas", None)
+        validate_template_parity = getattr(module, "validate_template_parity", None)
+        if not callable(validate_json_schemas) or not callable(validate_template_parity):
+            return [
+                "trusted pack asset validation must define callable "
+                "validate_json_schemas and validate_template_parity"
+            ]
         return validate_json_schemas(repo) + validate_template_parity(repo)
     except Exception as exc:
-        return [f"cannot run checks/pack_asset_validation.py: {exc}"]
+        return [f"cannot run trusted pack asset validation: {exc}"]
 
 
 def validate_impl_branch_template(config: object) -> list[str]:
@@ -317,10 +317,19 @@ def discover_spec_packet_dirs(
     repo: Path,
     spec_root: PurePosixPath | None = None,
 ) -> list[Path]:
-    configured_root = spec_root if spec_root is not None else PurePosixPath("specs")
+    uses_configured_root = spec_root is not None
+    configured_root = spec_root if uses_configured_root else PurePosixPath("specs")
     specs_dir = resolve_spec_packet_root(repo, configured_root)
+    if not specs_dir.exists():
+        if not uses_configured_root:
+            return []
+        raise SpecRailError(
+            "workflow.yaml: configured spec packet root does not exist"
+        )
     if not specs_dir.is_dir():
-        return []
+        raise SpecRailError(
+            "workflow.yaml: configured spec packet root is not a directory"
+        )
     resolved_repo = resolve_path(repo, label="repository")
     spec_dirs: list[Path] = []
     for path in specs_dir.iterdir():
