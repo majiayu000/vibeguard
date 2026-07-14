@@ -105,6 +105,9 @@ sys.path.insert(0, str(repo / "checks"))
 
 import check_workflow
 from check_workflow import discover_spec_packet_dirs, validate_pack_assets
+import github_pr_evidence
+from github_evidence_common import EvidenceError
+from pr_gate import evaluate_pr_gate
 from specrail_lib import SpecRailError
 
 asset_target = tmp / "asset-target"
@@ -154,6 +157,155 @@ for root_name, expected in [
             raise SystemExit(f"unexpected configured root error: {exc}") from exc
     else:
         raise SystemExit(f"configured spec root {root_name} did not fail closed")
+
+cli_repo = tmp / "workflow-cli-repo"
+tracked = subprocess.run(
+    ["git", "-C", str(repo), "ls-files", "-z"],
+    check=True,
+    capture_output=True,
+).stdout.split(b"\0")
+for raw_path in tracked:
+    if not raw_path:
+        continue
+    relative_path = Path(raw_path.decode("utf-8"))
+    destination = cli_repo / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(repo / relative_path, destination)
+base_workflow_text = (repo / "workflow.yaml").read_text(encoding="utf-8")
+for configured_root, expected in [
+    ("missing-specs/GH{issue_number}", "does not exist"),
+    ("README.md/GH{issue_number}", "not a directory"),
+]:
+    (cli_repo / "workflow.yaml").write_text(
+        base_workflow_text.replace(
+            "docs/specs/GH{issue_number}",
+            configured_root,
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(repo / "checks" / "check_workflow.py"),
+            "--repo",
+            str(cli_repo),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout + result.stderr
+    if result.returncode == 0 or expected not in output:
+        raise SystemExit(
+            "default workflow validator did not reject configured root "
+            f"{configured_root}: rc={result.returncode}, output={output!r}"
+        )
+
+
+def review_threads_payload(nodes, *, total_count, has_next_page, end_cursor):
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": nodes,
+                        "totalCount": total_count,
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+
+resolved_threads = [
+    {
+        "id": f"THREAD-{index}",
+        "isResolved": True,
+        "isOutdated": False,
+        "resolvedBy": {"login": "independent-reviewer"},
+        "resolverRole": "reviewer_lane",
+        "comments": {"nodes": []},
+    }
+    for index in range(1, 101)
+]
+first_page = review_threads_payload(
+    resolved_threads,
+    total_count=101,
+    has_next_page=True,
+    end_cursor="cursor-100",
+)
+try:
+    github_pr_evidence.normalize_review_threads(first_page)
+except EvidenceError as exc:
+    if "hasNextPage is true" not in str(exc):
+        raise SystemExit(f"unexpected incomplete thread error: {exc}") from exc
+else:
+    raise SystemExit("incomplete review thread evidence did not fail closed")
+
+later_unresolved = {
+    "id": "THREAD-101",
+    "isResolved": False,
+    "isOutdated": False,
+    "resolvedBy": None,
+    "comments": {
+        "nodes": [
+            {
+                "url": "https://example.invalid/review/thread-101",
+                "author": {"login": "independent-reviewer"},
+            }
+        ]
+    },
+}
+pages = [
+    first_page,
+    review_threads_payload(
+        [later_unresolved],
+        total_count=101,
+        has_next_page=False,
+        end_cursor="cursor-101",
+    ),
+]
+query_calls = []
+original_run_gh_json = github_pr_evidence.run_gh_json
+
+
+def fake_run_gh_json(args):
+    query_calls.append(args)
+    return pages.pop(0)
+
+
+github_pr_evidence.run_gh_json = fake_run_gh_json
+try:
+    complete_threads_payload = github_pr_evidence.collect_review_threads(
+        "owner",
+        "repo",
+        594,
+    )
+finally:
+    github_pr_evidence.run_gh_json = original_run_gh_json
+if pages or len(query_calls) != 2 or "cursor=cursor-100" not in query_calls[1]:
+    raise SystemExit(f"review thread pagination did not consume every page: {query_calls!r}")
+normalized_threads = github_pr_evidence.normalize_review_threads(
+    complete_threads_payload
+)
+if len(normalized_threads) != 101 or normalized_threads[-1]["is_resolved"]:
+    raise SystemExit("later-page unresolved review thread was not preserved")
+gate_evidence = json.loads(
+    (repo / "examples" / "fixtures" / "pr-clean-authorized.json").read_text(
+        encoding="utf-8"
+    )
+)
+gate_evidence["review_threads"] = normalized_threads
+gate_result = evaluate_pr_gate(gate_evidence)
+if gate_result.get("decision") != "blocked" or not any(
+    "unresolved review threads" in reason
+    for reason in gate_result.get("reasons", [])
+):
+    raise SystemExit(f"later-page unresolved thread bypassed PR gate: {gate_result!r}")
 
 route_repo = tmp / "route-repo"
 route_repo.mkdir()

@@ -313,16 +313,9 @@ def spec_packet_sort_key(spec_dir: Path) -> tuple[int, int, str]:
     return (1, 0, str(spec_dir))
 
 
-def discover_spec_packet_dirs(
-    repo: Path,
-    spec_root: PurePosixPath | None = None,
-) -> list[Path]:
-    uses_configured_root = spec_root is not None
-    configured_root = spec_root if uses_configured_root else PurePosixPath("specs")
-    specs_dir = resolve_spec_packet_root(repo, configured_root)
+def validate_spec_packet_root(repo: Path, spec_root: PurePosixPath) -> Path:
+    specs_dir = resolve_spec_packet_root(repo, spec_root)
     if not specs_dir.exists():
-        if not uses_configured_root:
-            return []
         raise SpecRailError(
             "workflow.yaml: configured spec packet root does not exist"
         )
@@ -330,6 +323,25 @@ def discover_spec_packet_dirs(
         raise SpecRailError(
             "workflow.yaml: configured spec packet root is not a directory"
         )
+    return specs_dir
+
+
+def discover_spec_packet_dirs(
+    repo: Path,
+    spec_root: PurePosixPath | None = None,
+) -> list[Path]:
+    uses_configured_root = spec_root is not None
+    configured_root = spec_root if uses_configured_root else PurePosixPath("specs")
+    if not uses_configured_root:
+        specs_dir = resolve_spec_packet_root(repo, configured_root)
+        if not specs_dir.exists():
+            return []
+        if not specs_dir.is_dir():
+            raise SpecRailError(
+                "workflow.yaml: configured spec packet root is not a directory"
+            )
+    else:
+        specs_dir = validate_spec_packet_root(repo, configured_root)
     resolved_repo = resolve_path(repo, label="repository")
     spec_dirs: list[Path] = []
     for path in specs_dir.iterdir():
@@ -450,7 +462,7 @@ def main() -> int:
         configured_spec_root = PurePosixPath(
             configured_spec_paths["spec_packet"]
         ).parent
-        resolve_spec_packet_root(repo, configured_spec_root)
+        validate_spec_packet_root(repo, configured_spec_root)
         errors.extend(validate_required_files(repo))
         errors.extend(validate_required_file_globs(repo))
         errors.extend(validate_tokens(repo))

@@ -34,10 +34,20 @@ PR_VIEW_FIELDS = [
 ]
 
 REVIEW_THREADS_QUERY = """
-query SpecRailReviewThreads($owner: String!, $name: String!, $number: Int!) {
+query SpecRailReviewThreads(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $cursor: String
+) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           isResolved
@@ -150,8 +160,13 @@ def collect_issue_view(github_repo: str, issue_number: int) -> dict[str, Any]:
 
 
 def collect_review_threads(owner: str, name: str, pr_number: int) -> dict[str, Any]:
-    return run_gh_json(
-        [
+    nodes: list[Any] = []
+    expected_total: int | None = None
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+
+    while True:
+        query_args = [
             "api",
             "graphql",
             "-F",
@@ -163,7 +178,59 @@ def collect_review_threads(owner: str, name: str, pr_number: int) -> dict[str, A
             "-f",
             f"query={REVIEW_THREADS_QUERY}",
         ]
-    )
+        if cursor is not None:
+            query_args.extend(["-F", f"cursor={cursor}"])
+
+        payload = run_gh_json(query_args)
+        page_nodes, total_count, has_next_page, end_cursor = (
+            _review_thread_page(payload)
+        )
+        if expected_total is None:
+            expected_total = total_count
+        elif total_count != expected_total:
+            raise EvidenceError(
+                "review thread totalCount changed while collecting pages; "
+                "rerun PR evidence collection"
+            )
+        nodes.extend(page_nodes)
+        if len(nodes) > expected_total:
+            raise EvidenceError(
+                "review thread pagination returned more nodes than totalCount"
+            )
+
+        if not has_next_page:
+            if len(nodes) != expected_total:
+                raise EvidenceError(
+                    "review thread pagination ended before totalCount was collected"
+                )
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "nodes": nodes,
+                                "totalCount": expected_total,
+                                "pageInfo": {
+                                    "hasNextPage": False,
+                                    "endCursor": end_cursor,
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+
+        if not page_nodes:
+            raise EvidenceError(
+                "review thread pagination made no progress while hasNextPage is true"
+            )
+        if end_cursor in seen_cursors:
+            raise EvidenceError(
+                "review thread pagination repeated an endCursor; "
+                "rerun PR evidence collection"
+            )
+        seen_cursors.add(end_cursor)
+        cursor = end_cursor
 
 
 def _require_mapping(value: Any, field: str) -> dict[str, Any]:
@@ -176,6 +243,54 @@ def _require_list(value: Any, field: str) -> list[Any]:
     if not isinstance(value, list):
         raise EvidenceError(f"{field} must be a list")
     return value
+
+
+def _review_thread_page(
+    graphql_payload: dict[str, Any],
+) -> tuple[list[Any], int, bool, str | None]:
+    data = _require_mapping(graphql_payload.get("data"), "data")
+    repository = _require_mapping(data.get("repository"), "data.repository")
+    pull_request = _require_mapping(
+        repository.get("pullRequest"), "data.repository.pullRequest"
+    )
+    review_threads = _require_mapping(
+        pull_request.get("reviewThreads"),
+        "data.repository.pullRequest.reviewThreads",
+    )
+    nodes = _require_list(
+        review_threads.get("nodes"),
+        "data.repository.pullRequest.reviewThreads.nodes",
+    )
+    total_count = review_threads.get("totalCount")
+    if (
+        not isinstance(total_count, int)
+        or isinstance(total_count, bool)
+        or total_count < 0
+    ):
+        raise EvidenceError(
+            "data.repository.pullRequest.reviewThreads.totalCount "
+            "must be a non-negative integer"
+        )
+    page_info = _require_mapping(
+        review_threads.get("pageInfo"),
+        "data.repository.pullRequest.reviewThreads.pageInfo",
+    )
+    has_next_page = page_info.get("hasNextPage")
+    if not isinstance(has_next_page, bool):
+        raise EvidenceError(
+            "data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage "
+            "must be a boolean"
+        )
+    end_cursor = page_info.get("endCursor")
+    if has_next_page and (
+        not isinstance(end_cursor, str) or not end_cursor.strip()
+    ):
+        raise EvidenceError(
+            "data.repository.pullRequest.reviewThreads.pageInfo.endCursor "
+            "must be a non-empty string when hasNextPage is true"
+        )
+    normalized_cursor = end_cursor.strip() if isinstance(end_cursor, str) else None
+    return nodes, total_count, has_next_page, normalized_cursor
 
 
 def _require_positive_int(payload: dict[str, Any], field: str) -> int:
@@ -355,17 +470,15 @@ def normalize_review_threads(
     graphql_payload: dict[str, Any],
     resolver_roles: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    data = _require_mapping(graphql_payload.get("data"), "data")
-    repository = _require_mapping(data.get("repository"), "data.repository")
-    pull_request = _require_mapping(
-        repository.get("pullRequest"), "data.repository.pullRequest"
-    )
-    review_threads = _require_mapping(
-        pull_request.get("reviewThreads"), "data.repository.pullRequest.reviewThreads"
-    )
-    nodes = _require_list(
-        review_threads.get("nodes"), "data.repository.pullRequest.reviewThreads.nodes"
-    )
+    nodes, total_count, has_next_page, _ = _review_thread_page(graphql_payload)
+    if has_next_page:
+        raise EvidenceError(
+            "review thread evidence is incomplete because hasNextPage is true"
+        )
+    if len(nodes) != total_count:
+        raise EvidenceError(
+            "review thread evidence node count does not match totalCount"
+        )
 
     normalized: list[dict[str, Any]] = []
     for index, item in enumerate(nodes, start=1):
