@@ -115,7 +115,7 @@ DEBUG_CODE=$(grep --null -rn "${EXCLUDE_ARGS[@]}" \
   2>/dev/null | tr '\000' '\034' | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
 if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
   TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
-  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | LC_ALL=C TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
     function repeat_hashes(count, result, position) {
       result = ""
       for (position = 0; position < count; position++) {
@@ -164,63 +164,83 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
       }
       return 0
     }
-    function has_dbg_macro(text, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end, block_depth) {
-      for (i = 1; i <= length(text); i++) {
-        ch = substr(text, i, 1)
-        if (raw_close != "") {
-          if (substr(text, i, length(raw_close)) == raw_close) {
-            i += length(raw_close) - 1
-            raw_close = ""
+    function scan_rust_file(path, text, line_number, read_status, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end, block_depth, key) {
+      line_number = 0
+      while ((read_status = (getline text < path)) > 0) {
+        line_number++
+        escaped = 0
+        for (i = 1; i <= length(text); i++) {
+          ch = substr(text, i, 1)
+          if (raw_close != "") {
+            if (substr(text, i, length(raw_close)) == raw_close) {
+              i += length(raw_close) - 1
+              raw_close = ""
+            }
+            continue
           }
-          continue
-        }
-        if (in_string) {
-          if (escaped) {
-            escaped = 0
-          } else if (ch == "\\") {
-            escaped = 1
-          } else if (ch == "\"") {
-            in_string = 0
+          if (in_string) {
+            if (escaped) {
+              escaped = 0
+            } else if (ch == "\\") {
+              escaped = 1
+            } else if (ch == "\"") {
+              in_string = 0
+            }
+            continue
           }
-          continue
-        }
-        if (block_depth > 0) {
+          if (block_depth > 0) {
+            if (substr(text, i, 2) == "/*") {
+              block_depth++
+              i++
+            } else if (substr(text, i, 2) == "*/") {
+              block_depth--
+              i++
+            }
+            continue
+          }
+          if (substr(text, i, 2) == "//") {
+            break
+          }
           if (substr(text, i, 2) == "/*") {
-            block_depth++
+            block_depth = 1
             i++
-          } else if (substr(text, i, 2) == "*/") {
-            block_depth--
-            i++
+            continue
           }
-          continue
-        }
-        if (substr(text, i, 2) == "//") {
-          return 0
-        }
-        if (substr(text, i, 2) == "/*") {
-          block_depth = 1
-          i++
-          continue
-        }
-        raw_hashes = raw_string_hashes(text, i)
-        if (raw_hashes >= 0) {
-          raw_prefix_length = substr(text, i, 1) == "r" ? 1 : 2
-          raw_quote = i + raw_prefix_length + raw_hashes
-          raw_close = "\"" repeat_hashes(raw_hashes)
-          i = raw_quote
-        } else if (ch == "\047") {
-          char_end = char_literal_end(text, i)
-          if (char_end > 0) {
-            i = char_end
+          raw_hashes = raw_string_hashes(text, i)
+          if (raw_hashes >= 0) {
+            raw_prefix_length = substr(text, i, 1) == "r" ? 1 : 2
+            raw_quote = i + raw_prefix_length + raw_hashes
+            raw_close = "\"" repeat_hashes(raw_hashes)
+            i = raw_quote
+          } else if (ch == "\047") {
+            char_end = char_literal_end(text, i)
+            if (char_end > 0) {
+              i = char_end
+            }
+          } else if (ch == "\"") {
+            in_string = 1
+          } else if (substr(text, i, 4) == "dbg!" \
+              && (i == 1 || substr(text, i - 1, 1) !~ /[[:alnum:]_]/)) {
+            key = path SUBSEP line_number
+            dbg_lines[key] = 1
           }
-        } else if (ch == "\"") {
-          in_string = 1
-        } else if (substr(text, i, 4) == "dbg!" \
-            && (i == 1 || substr(text, i - 1, 1) !~ /[[:alnum:]_]/)) {
-          return 1
         }
       }
-      return 0
+      close(path)
+      scanned[path] = 1
+      if (read_status < 0) {
+        scan_failed[path] = 1
+      }
+    }
+    function file_line_has_dbg(path, line_number, key) {
+      if (!(path in scanned)) {
+        scan_rust_file(path)
+      }
+      if (path in scan_failed) {
+        return 1
+      }
+      key = path SUBSEP line_number
+      return key in dbg_lines
     }
     BEGIN {
       prefix = ENVIRON["TARGET_RUNTIME_SRC"]
@@ -230,9 +250,12 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
       separator_index = index($0, separator)
       finding_path = substr($0, 1, separator_index - 1)
       matched = substr($0, separator_index + 1)
+      line_number = matched
+      sub(/:.*/, "", line_number)
       sub(/^[0-9]+:/, "", matched)
       if (separator_index > 0 && index(finding_path, prefix) == 1 \
-          && matched ~ /^[[:space:]]*println!\(/ && !has_dbg_macro(matched)) {
+          && matched ~ /^[[:space:]]*println!\(/ \
+          && !file_line_has_dbg(finding_path, line_number + 0)) {
         next
       }
     }
