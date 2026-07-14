@@ -1,0 +1,18 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact reporting that implementation and spec expectations differ.\n\n## Verdict\nREJECT: the implementation and spec expectations differ.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 2,
+      "side": "RIGHT",
+      "severity": "important",
+      "body": "This change needs a spec decision before the review artifact can pass."
+    }
+  ],
+  "spec_alignment": {
+    "status": "drift",
+    "spec": "specs/GH17/tech.md",
+    "details": "The diff implements behavior that is not covered by the current spec packet."
+  }
+}
