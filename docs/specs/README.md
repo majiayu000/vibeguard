@@ -9,6 +9,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH581/` | Draft | Rust coverage ratchets from a latest-head clean measurement through risk-ordered, independently reviewed tranches to the enforced 80% gate |
 | `GH588/` | Draft | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
+| `GH589/` | Draft | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
 | `GH595/` | Draft implementation | SpecRail repository adoption, configured VibeGuard overrides, offline PR/runtime gates, target-local evidence, and preserved human merge boundaries |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Draft | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
