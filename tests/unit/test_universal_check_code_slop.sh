@@ -158,6 +158,8 @@ fn main() {
     dbg!("runtime diagnostic");
     println!("cli output"); dbg!("same-line diagnostic");
     println!("{}", dbg!("nested diagnostic"));
+    println!("dbg!( is product text, not a macro");
+    dbg!("trace.rs:12: println!(\"x\")");
 }
 EOF
 cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
@@ -182,13 +184,27 @@ assert_output_not_contains "self-scan suppresses runtime CLI println" 'println!(
 assert_output_contains "self-scan retains runtime dbg" 'dbg!("runtime diagnostic")' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "self-scan retains dbg after same-line println" 'dbg!("same-line diagnostic")' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "self-scan retains dbg nested in println" 'dbg!("nested diagnostic")' bash "$GUARD" "$proj_self_scan"
-assert_output_contains "self-scan retains println outside runtime src" 'println!("outside runtime output")' bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan ignores dbg text inside println string" 'dbg!( is product text' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains leading dbg containing line-like text" 'trace.rs:12: println!' bash "$GUARD" "$proj_self_scan"
 assert_output_not_contains "self-scan suppresses same-line detector marker" 'const DETECTOR_PATTERN' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "adjacent marker does not suppress dead-code finding" 'const ADJACENT_PATTERN' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "unmarked real stub remains visible" 'todo!();' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "marker does not suppress another category" 'console.log("other category remains visible")' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "strict self-scan restores runtime println" 'println!("cli product output")' bash "$GUARD" --strict-repo "$proj_self_scan"
 assert_output_contains "strict self-scan restores marked detector line" 'const DETECTOR_PATTERN' bash "$GUARD" --strict-repo "$proj_self_scan"
+
+# Keep the outside-runtime assertion isolated from the guard's five-line
+# display cap so additional retained runtime diagnostics cannot mask it.
+proj_outside_debug="${tmpdir}/outside_runtime_debug"
+mkdir -p \
+  "${proj_outside_debug}/guards" \
+  "${proj_outside_debug}/hooks" \
+  "${proj_outside_debug}/vibeguard-runtime/src" \
+  "${proj_outside_debug}/other"
+: > "${proj_outside_debug}/.vibeguard-doc-paths-allowlist"
+printf '%s\n' '    println!("inside product output");' > "${proj_outside_debug}/vibeguard-runtime/src/main.rs"
+printf '%s\n' '    println!("outside runtime output");' > "${proj_outside_debug}/other/main.rs"
+assert_output_contains "self-scan retains println outside runtime src" 'println!("outside runtime output")' bash "$GUARD" "$proj_outside_debug"
 
 # A target with only two self-scan markers is an ordinary repo.  Neither the
 # runtime path nor marker text is a general-purpose suppression contract.
@@ -216,7 +232,9 @@ mkdir -p \
   "${proj_escaped_path}/vibeguard-runtime/src"
 : > "${proj_escaped_path}/.vibeguard-doc-paths-allowlist"
 cat > "${proj_escaped_path}/vibeguard-runtime/src/cli:main.rs" <<'EOF'
-fn main() { println!("escaped path product output"); }
+fn main() {
+    println!("escaped path product output");
+}
 EOF
 assert_ok "self-scan handles backslash target and colon Rust filename" bash "$GUARD" "$proj_escaped_path"
 

@@ -109,23 +109,59 @@ fi
 
 # 2. Legacy debugging code
 echo "Check legacy debugging code..."
-DEBUG_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
+DEBUG_CODE=$(grep --null -rn "${EXCLUDE_ARGS[@]}" \
   -E '^\s*(console\.(log|debug|info)\(|print\(|println!\(|dbg!\(|puts |p |pp )' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.rb' --include='*.go' \
-  2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
+  2>/dev/null | tr '\000' '\034' | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
 if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
   TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
   DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
-    BEGIN { prefix = ENVIRON["TARGET_RUNTIME_SRC"] }
-    index($0, prefix) == 1 {
-      matched = substr($0, length(prefix) + 1)
-      sub(/^.*\.rs:[0-9]+:/, "", matched)
-      if (matched ~ /^[[:space:]]*println!\(/ && matched !~ /dbg!\(/) {
+    function has_dbg_macro(text, i, ch, in_string, in_char, escaped) {
+      for (i = 1; i <= length(text); i++) {
+        ch = substr(text, i, 1)
+        if (in_string || in_char) {
+          if (escaped) {
+            escaped = 0
+          } else if (ch == "\\") {
+            escaped = 1
+          } else if ((in_string && ch == "\"") || (in_char && ch == "\047")) {
+            in_string = 0
+            in_char = 0
+          }
+          continue
+        }
+        if (substr(text, i, 2) == "//") {
+          return 0
+        }
+        if (ch == "\"") {
+          in_string = 1
+        } else if (ch == "\047") {
+          in_char = 1
+        } else if (substr(text, i, 5) == "dbg!(") {
+          return 1
+        }
+      }
+      return 0
+    }
+    BEGIN {
+      prefix = ENVIRON["TARGET_RUNTIME_SRC"]
+      separator = sprintf("%c", 28)
+    }
+    {
+      separator_index = index($0, separator)
+      finding_path = substr($0, 1, separator_index - 1)
+      matched = substr($0, separator_index + 1)
+      sub(/^[0-9]+:/, "", matched)
+      if (separator_index > 0 && index(finding_path, prefix) == 1 \
+          && matched ~ /^[[:space:]]*println!\(/ && !has_dbg_macro(matched)) {
         next
       }
     }
     { print }
   ')
+fi
+if [[ -n "$DEBUG_CODE" ]]; then
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | tr '\034' ':')
 fi
 if [[ -n "$DEBUG_CODE" ]]; then
   COUNT=$(echo "$DEBUG_CODE" | wc -l | tr -d ' ')
