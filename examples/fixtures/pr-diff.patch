@@ -1,0 +1,15 @@
+diff --git a/src/app.py b/src/app.py
+index 5f58c91..b1a7832 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,2 +1,3 @@
+ def render_title(title):
+-    return title.strip()
++    cleaned = title.strip()
++    return cleaned
+@@ -10,3 +11,4 @@
+ def render_subtitle(subtitle):
+-    return subtitle.strip().lower()
++    cleaned = subtitle.strip()
++    return cleaned.lower()
+     # stable footer
