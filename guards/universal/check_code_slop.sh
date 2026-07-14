@@ -164,7 +164,7 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
       }
       return 0
     }
-    function has_dbg_macro(text, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end) {
+    function has_dbg_macro(text, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end, block_depth) {
       for (i = 1; i <= length(text); i++) {
         ch = substr(text, i, 1)
         if (raw_close != "") {
@@ -184,8 +184,23 @@ if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
           }
           continue
         }
+        if (block_depth > 0) {
+          if (substr(text, i, 2) == "/*") {
+            block_depth++
+            i++
+          } else if (substr(text, i, 2) == "*/") {
+            block_depth--
+            i++
+          }
+          continue
+        }
         if (substr(text, i, 2) == "//") {
           return 0
+        }
+        if (substr(text, i, 2) == "/*") {
+          block_depth = 1
+          i++
+          continue
         }
         raw_hashes = raw_string_hashes(text, i)
         if (raw_hashes >= 0) {

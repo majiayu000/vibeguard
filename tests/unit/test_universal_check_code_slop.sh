@@ -222,6 +222,16 @@ make_runtime_self_scan_project "$proj_raw_dbg"
 printf '%s\n' '    println!(r#"quote " inside"#); dbg!(value);' > "${proj_raw_dbg}/vibeguard-runtime/src/main.rs"
 assert_output_contains "self-scan retains dbg after Rust raw string" 'dbg!(value)' bash "$GUARD" "$proj_raw_dbg"
 
+proj_block_comment_dbg="${tmpdir}/self_scan_block_comment_dbg"
+make_runtime_self_scan_project "$proj_block_comment_dbg"
+printf '%s\n' '    println!("out"); /* " */ dbg!(value);' > "${proj_block_comment_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after Rust block comment" 'dbg!(value)' bash "$GUARD" "$proj_block_comment_dbg"
+
+proj_commented_dbg="${tmpdir}/self_scan_commented_dbg"
+make_runtime_self_scan_project "$proj_commented_dbg"
+printf '%s\n' '    println!("out"); /* dbg!(commented) */' > "${proj_commented_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_not_contains "self-scan ignores dbg inside Rust block comment" 'dbg!(commented)' bash "$GUARD" "$proj_commented_dbg"
+
 # Keep the outside-runtime assertion isolated from the guard's five-line
 # display cap so additional retained runtime diagnostics cannot mask it.
 proj_outside_debug="${tmpdir}/outside_runtime_debug"
