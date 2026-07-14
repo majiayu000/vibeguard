@@ -115,11 +115,12 @@ DEBUG_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
   2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
 if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
   TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
-  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | awk -v prefix="$TARGET_RUNTIME_SRC" '
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
+    BEGIN { prefix = ENVIRON["TARGET_RUNTIME_SRC"] }
     index($0, prefix) == 1 {
       matched = substr($0, length(prefix) + 1)
-      sub(/^[^:]*:[0-9]+:/, "", matched)
-      if (matched ~ /^[[:space:]]*println!\(/) {
+      sub(/^.*\.rs:[0-9]+:/, "", matched)
+      if (matched ~ /^[[:space:]]*println!\(/ && matched !~ /dbg!\(/) {
         next
       }
     }

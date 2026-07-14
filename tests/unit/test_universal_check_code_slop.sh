@@ -156,6 +156,8 @@ cat > "${proj_self_scan}/vibeguard-runtime/src/main.rs" <<'EOF'
 fn main() {
     println!("cli product output");
     dbg!("runtime diagnostic");
+    println!("cli output"); dbg!("same-line diagnostic");
+    println!("{}", dbg!("nested diagnostic"));
 }
 EOF
 cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
@@ -178,6 +180,8 @@ EOF
 assert_fail "self-scan retains unsuppressed findings" bash "$GUARD" "$proj_self_scan"
 assert_output_not_contains "self-scan suppresses runtime CLI println" 'println!("cli product output")' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "self-scan retains runtime dbg" 'dbg!("runtime diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains dbg after same-line println" 'dbg!("same-line diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains dbg nested in println" 'dbg!("nested diagnostic")' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "self-scan retains println outside runtime src" 'println!("outside runtime output")' bash "$GUARD" "$proj_self_scan"
 assert_output_not_contains "self-scan suppresses same-line detector marker" 'const DETECTOR_PATTERN' bash "$GUARD" "$proj_self_scan"
 assert_output_contains "adjacent marker does not suppress dead-code finding" 'const ADJACENT_PATTERN' bash "$GUARD" "$proj_self_scan"
@@ -201,6 +205,20 @@ const PATTERN: &str = "todo!("; // slop-pattern-source
 EOF
 assert_output_contains "partial-marker repo retains runtime println" 'println!("ordinary repo output")' bash "$GUARD" "$proj_partial_marker"
 assert_output_contains "partial-marker repo retains marked dead-code line" 'const PATTERN' bash "$GUARD" "$proj_partial_marker"
+
+# Grep renders findings as path:line:content.  Qualified self-scan filtering
+# must preserve literal path characters instead of interpreting them as awk
+# escapes or treating a colon in a Rust filename as the line delimiter.
+proj_escaped_path="${tmpdir}/vibeguard\\self_scan"
+mkdir -p \
+  "${proj_escaped_path}/guards" \
+  "${proj_escaped_path}/hooks" \
+  "${proj_escaped_path}/vibeguard-runtime/src"
+: > "${proj_escaped_path}/.vibeguard-doc-paths-allowlist"
+cat > "${proj_escaped_path}/vibeguard-runtime/src/cli:main.rs" <<'EOF'
+fn main() { println!("escaped path product output"); }
+EOF
+assert_ok "self-scan handles backslash target and colon Rust filename" bash "$GUARD" "$proj_escaped_path"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"
