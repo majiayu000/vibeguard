@@ -194,6 +194,14 @@ fn print_pre_write_check(check: &PreWriteCheck) {
 }
 
 pub fn pre_edit_check(args: &[String]) -> Result {
+    pre_edit_check_with_readers(args, read_stdin, read_lossy_file)
+}
+
+fn pre_edit_check_with_readers(
+    args: &[String],
+    read_input: impl FnOnce() -> io::Result<String>,
+    read_source: impl FnOnce(&str) -> io::Result<String>,
+) -> Result {
     if args.len() < 2 {
         return Err(
             "Usage: vibeguard-runtime pre-edit-check <base-limit> [warn-limit] <log-file>".into(),
@@ -206,7 +214,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
     } else {
         (400, &args[1])
     };
-    let input = read_stdin()?;
+    let input = read_input()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
         write_pre_edit_block(
             log_file,
@@ -257,7 +265,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
         return Ok(());
     }
 
-    let content = read_lossy_file(&file_path)?;
+    let content = read_source(&file_path)?;
     if !old_string.is_empty() && !content.contains(&old_string) {
         write_pre_edit_block(
             log_file,
