@@ -59,6 +59,15 @@ assert_cmd() {
   fi
 }
 
+file_mode() {
+  local file="$1"
+  if stat -f '%Lp' "${file}" >/dev/null 2>&1; then
+    stat -f '%Lp' "${file}"
+  else
+    stat -c '%a' "${file}"
+  fi
+}
+
 assert_manifest_skill_links_installed() {
   local target="$1"
   local dest_dir="$2"
@@ -249,6 +258,52 @@ assert_scheduled_gc_present() {
   fi
 }
 
+assert_gc_checker_repo_config_pinned() {
+  local outside="${TMP_HOME}/gc-conflicting-cwd" output
+  mkdir -p "${outside}"
+  git -C "${outside}" init -q
+  printf '{"gc":{"catchup_interval_hours":1}}\n' > "${outside}/.vibeguard.json"
+  printf '1999996000\n' > "${HOME}/.vibeguard/gc-last-success"
+  output="$(unset VIBEGUARD_PROJECT_CONFIG VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS; cd "${outside}" && VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_NOW_EPOCH=2000000000 bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "[OK] Scheduled GC execution freshness" "freshness ignores conflicting caller-CWD project config"
+  assert_contains "${output}" "threshold: 604800s / 168h" "freshness defaults to scheduler checkout-root config"
+}
+
+assert_launchd_gc_edge_gates() {
+  local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh" plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" output
+  local copy_root="${TMP_HOME}/gc-nonexec-copy" copy_expected original_mode original_digest
+  original_mode="$(file_mode "${expected}")"
+  original_digest="$(shasum -a 256 "${expected}" | cut -d' ' -f1)"
+  mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/.vibeguard"
+  touch "${HOME}/.launchctl-vibeguard-loaded"
+  : > "${HOME}/.launchctl-vibeguard-target"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "loaded job does not declare gc-scheduled.sh" "launchd loaded job without GC argument is broken"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd loaded job without GC argument skips freshness"
+  mkdir -p "${copy_root}"
+  git -C "${REPO_DIR}" archive HEAD | tar -x -C "${copy_root}"
+  copy_expected="${copy_root}/scripts/gc/gc-scheduled.sh"
+  printf '%s\n' "${copy_expected}" > "${HOME}/.launchctl-vibeguard-target"
+  chmod -x "${copy_expected}"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${copy_root}/setup.sh" --check)"
+  assert_contains "${output}" "target missing or not executable: ${copy_expected}" "launchd non-executable expected target is broken"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd non-executable expected target skips freshness"
+  assert_cmd "launchd non-executable fixture preserves scheduler mode" test "$(file_mode "${expected}")" = "${original_mode}"
+  assert_cmd "launchd non-executable fixture preserves scheduler digest" test "$(shasum -a 256 "${expected}" | cut -d' ' -f1)" = "${original_digest}"
+  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target"
+  sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" > "${plist}"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "plist exists but not loaded" "launchd plist-only registration remains inactive"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd plist-only registration skips freshness"
+  touch "${HOME}/.launchctl-vibeguard-loaded"
+  printf '%s\n' "${expected}" > "${HOME}/.launchctl-vibeguard-target"
+  printf '1999992800\n' > "${HOME}/.vibeguard/gc-last-success"
+  rm -f "${HOME}/.vibeguard/gc-launchd.log"
+  printf '[ERROR] launchd shared internal failure\n' > "${HOME}/.vibeguard/gc-cron.log"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin VIBEGUARD_TEST_NOW_EPOCH=2000000000 VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "internal evidence (gc-cron.log): [ERROR] launchd shared internal failure" "launchd freshness labels shared internal GC log"
+}
+
 assert_prepare_runtime_from_source_no_cargo_metadata() {
   python3 - <<'PY' "${REPO_DIR}/scripts/setup/install.sh"
 from pathlib import Path
@@ -324,16 +379,17 @@ if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
 fi
 mkdir -p "${TMP_HOME}/bin"
 REAL_UNAME="$(command -v uname)"
+REAL_DATE="$(command -v date)"
 REAL_CARGO="$(command -v cargo || true)"
 cat > "${TMP_HOME}/bin/uname" <<SH
 #!/usr/bin/env bash
-if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" ]]; then
+if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" || "\${VIBEGUARD_TEST_UNAME:-}" == "Darwin" ]]; then
   case "\${1:-}" in
     -m)
       printf '%s\n' "\${VIBEGUARD_TEST_UNAME_M:-x86_64}"
       ;;
     -s|"")
-      printf 'Linux\n'
+      printf '%s\n' "\${VIBEGUARD_TEST_UNAME}"
       ;;
     *)
       exec "${REAL_UNAME}" "\$@"
@@ -344,6 +400,15 @@ else
 fi
 SH
 chmod +x "${TMP_HOME}/bin/uname"
+cat > "${TMP_HOME}/bin/date" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "+%s" && -n "\${VIBEGUARD_TEST_NOW_EPOCH:-}" ]]; then
+  printf '%s\n' "\${VIBEGUARD_TEST_NOW_EPOCH}"
+  exit 0
+fi
+exec "${REAL_DATE}" "\$@"
+SH
+chmod +x "${TMP_HOME}/bin/date"
 cat > "${TMP_HOME}/bin/cargo" <<SH
 #!/usr/bin/env bash
 if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
