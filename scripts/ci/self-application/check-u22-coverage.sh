@@ -6,7 +6,7 @@ REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 RUNTIME_MANIFEST="${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 CARGO_BIN="${VIBEGUARD_U22_CARGO_BIN:-cargo}"
 CARGO_LLVM_COV_VERSION="0.8.7"
-LINE_COVERAGE_BASELINE="71"
+LINE_COVERAGE_BASELINE="72"
 LINE_COVERAGE_TARGET="80"
 
 if [[ ! -f "${RUNTIME_MANIFEST}" ]]; then

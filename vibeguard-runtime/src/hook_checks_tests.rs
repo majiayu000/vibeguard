@@ -53,6 +53,47 @@ fn missing_required_args_return_usage_errors_before_stdin() {
 }
 
 #[test]
+fn pre_edit_reader_failure_propagates_without_a_safe_pass() -> TestResult {
+    let root = temp_project("reader_failure");
+    fs::create_dir_all(&root)?;
+    let file_path = root.join("service.rs");
+    fs::write(&file_path, "fn service() {}\n")?;
+    let log_file = root.join("events.jsonl");
+    let args = vec![
+        "800".to_string(),
+        "400".to_string(),
+        log_file.to_string_lossy().into_owned(),
+    ];
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": file_path,
+            "old_string": "fn service() {}",
+            "new_string": "fn service() { work(); }"
+        }
+    })
+    .to_string();
+
+    let error = pre_edit_check_with_readers(
+        &args,
+        || Ok(input),
+        |_| Err(io::Error::other("injected pre-edit reader failure")),
+    )
+    .expect_err("source read failure must propagate instead of returning a safe pass");
+
+    assert!(
+        error
+            .to_string()
+            .contains("injected pre-edit reader failure")
+    );
+    assert!(
+        !log_file.exists(),
+        "read failure must not fabricate a pass log"
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
 fn missing_file_candidates_distinguishes_empty_from_lookup_failure() -> TestResult {
     let root = temp_project("empty");
     init_git_repo(&root)?;

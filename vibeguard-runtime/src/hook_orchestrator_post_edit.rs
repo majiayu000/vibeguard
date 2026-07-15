@@ -327,14 +327,28 @@ fn detect_large_edit(new_string: &str, warnings: &mut Vec<String>) {
 }
 
 fn detect_u16_size(file_path: &str, warnings: &mut Vec<String>) {
+    detect_u16_size_with(file_path, warnings, read_lossy_file);
+}
+
+fn detect_u16_size_with(
+    file_path: &str,
+    warnings: &mut Vec<String>,
+    read_source: impl FnOnce(&str) -> std::io::Result<String>,
+) {
     if !is_pre_edit_u16_source(file_path)
         || is_test_path(file_path)
         || !Path::new(file_path).is_file()
     {
         return;
     }
-    let Ok(content) = read_lossy_file(file_path) else {
-        return;
+    let content = match read_source(file_path) {
+        Ok(content) => content,
+        Err(err) => {
+            warnings.push(format!(
+                "VIBEGUARD internal error [VG-INTERNAL-U16-READ]: hook=post-edit-guard tool=Edit failure_kind=runtime mode=allow file_path={file_path} recovery=read the file and rerun the U-16 check detail=post-edit U-16 source read failed: {err}"
+            ));
+            return;
+        }
     };
     let total = count_lines(&content);
     let base_limit = runtime_config_int_value("VG_U16_LIMIT", "u16.limit", "800") as usize;
@@ -566,6 +580,30 @@ mod tests {
             post_edit_log_detail("src/main.rs", "abcdef", "abc"),
             "src/main.rs||delta=-3"
         );
+    }
+
+    #[test]
+    fn u16_read_failure_is_visible_with_path_and_original_error() {
+        let root = std::env::temp_dir().join(format!(
+            "vibeguard-post-edit-u16-read-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file_path = root.join("service.rs");
+        fs::write(&file_path, "fn service() {}\n").unwrap();
+        let file_path_text = file_path.to_string_lossy().into_owned();
+        let mut warnings = Vec::new();
+
+        detect_u16_size_with(&file_path_text, &mut warnings, |_| {
+            Err(std::io::Error::other("injected U-16 reader failure"))
+        });
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("VG-INTERNAL-U16-READ"));
+        assert!(warnings[0].contains(&file_path_text));
+        assert!(warnings[0].contains("injected U-16 reader failure"));
+        assert!(warnings[0].contains("mode=allow"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

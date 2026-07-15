@@ -20,18 +20,31 @@ fn post_edit_command(repo: &Path, log_root: &Path, log_file: &Path) -> Command {
         .env("VIBEGUARD_CLIENT", "codex")
         .env("VIBEGUARD_SESSION_ID", "post-edit-session")
         .env("VIBEGUARD_CALLER_EVIDENCE", "explicit-test")
-        .env("VIBEGUARD_AGENT_TYPE", "codex");
+        .env("VIBEGUARD_AGENT_TYPE", "codex")
+        .env("VG_U16_LIMIT", "800")
+        .env("VG_U16_WARN_LIMIT", "400");
     command
 }
 
 fn run_post_edit(repo: &Path, log_root: &Path, log_file: &Path, input: &str) -> Output {
-    let mut child = post_edit_command(repo, log_root, log_file)
+    run_post_edit_with(repo, log_root, log_file, input, |_| {})
+}
+
+fn run_post_edit_with(
+    repo: &Path,
+    log_root: &Path,
+    log_file: &Path,
+    input: &str,
+    configure: impl FnOnce(&mut Command),
+) -> Output {
+    let mut command = post_edit_command(repo, log_root, log_file);
+    command
         .args(["hook", "post-edit"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::piped());
+    configure(&mut command);
+    let mut child = command.spawn().unwrap();
     child
         .stdin
         .as_mut()
@@ -69,6 +82,15 @@ fn parse_test_event_log(path: &Path) -> Vec<Value> {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
+}
+
+fn write_numbered_lines(path: &Path, count: usize) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let content = (0..count)
+        .map(|index| format!("fn line_{index}() {{}}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(path, content).unwrap();
 }
 
 #[test]
@@ -263,6 +285,134 @@ fn post_edit_warning_survives_log_failure_with_internal_error() {
     assert!(stdout.contains("VG-INTERNAL-LOG-APPEND"), "{stdout}");
     assert!(stdout.contains("VIBEGUARD quality warning"), "{stdout}");
     assert!(stdout.contains("[RS-03]"), "{stdout}");
+    assert!(!log_file.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_u16_intentional_skips_and_small_source_log_pass() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-u16-skips");
+    let non_source = repo.join("notes.md");
+    let test_source = repo.join("tests/generated.rs");
+    let missing_source = repo.join("src/missing.rs");
+    let small_source = repo.join("src/small.rs");
+    write_numbered_lines(&non_source, 801);
+    write_numbered_lines(&test_source, 801);
+    write_numbered_lines(&small_source, 400);
+
+    for file_path in [&non_source, &test_source, &missing_source, &small_source] {
+        let input = edit_input(file_path.to_string_lossy().as_ref(), "old", "fn clean() {}");
+        let out = run_post_edit(&repo, &log_root, &log_file, &input);
+        assert_eq!(out.status.code(), Some(0));
+        assert!(
+            out.stdout.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        assert!(out.stderr.is_empty());
+    }
+
+    let events = parse_test_event_log(&log_file);
+    assert_eq!(events.len(), 4);
+    assert!(events.iter().all(|event| event["decision"] == "pass"));
+    assert!(
+        events
+            .iter()
+            .all(|event| !event["reason"].as_str().unwrap().contains("U-16"))
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_u16_advisory_is_visible_and_logged() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-u16-advisory");
+    let file_path = repo.join("src/advisory.rs");
+    write_numbered_lines(&file_path, 401);
+    let input = edit_input(file_path.to_string_lossy().as_ref(), "old", "fn clean() {}");
+
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("VIBEGUARD quality warning"), "{stdout}");
+    assert!(stdout.contains("[U-16] [advisory]"), "{stdout}");
+    assert!(stdout.contains("401 lines"), "{stdout}");
+    let event = parse_test_event_log(&log_file).pop().unwrap();
+    assert_eq!(event["decision"], "warn");
+    assert!(
+        event["reason"]
+            .as_str()
+            .unwrap()
+            .contains("[U-16] [advisory]")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_u16_hard_limit_warning_is_visible_and_logged() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-u16-hard");
+    let file_path = repo.join("src/oversized.rs");
+    write_numbered_lines(&file_path, 801);
+    let input = edit_input(file_path.to_string_lossy().as_ref(), "old", "fn clean() {}");
+
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("[U-16] [review]"), "{stdout}");
+    assert!(stdout.contains("801 lines"), "{stdout}");
+    assert!(stdout.contains("exceeding 800-line limit"), "{stdout}");
+    let event = parse_test_event_log(&log_file).pop().unwrap();
+    assert_eq!(event["decision"], "warn");
+    assert!(
+        event["reason"]
+            .as_str()
+            .unwrap()
+            .contains("[U-16] [review]")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_u16_project_exemption_suppresses_typical_range_warning() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-u16-exempt");
+    fs::write(
+        repo.join("CLAUDE.md"),
+        "U-16 exempt: `src/exempt.rs` may contain 1000 lines.\n",
+    )
+    .unwrap();
+    let file_path = repo.join("src/exempt.rs");
+    write_numbered_lines(&file_path, 850);
+    let input = edit_input(file_path.to_string_lossy().as_ref(), "old", "fn clean() {}");
+
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(out.stderr.is_empty());
+    let event = parse_test_event_log(&log_file).pop().unwrap();
+    assert_eq!(event["decision"], "pass");
+    assert_eq!(event["reason"], "");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_u16_warning_survives_event_log_failure() {
+    let (root, repo, log_root, _) = case_paths("post-edit-u16-log-failure");
+    let file_path = repo.join("src/advisory.rs");
+    write_numbered_lines(&file_path, 401);
+    let blocking_parent = root.join("not-a-directory");
+    fs::write(&blocking_parent, "blocks log parent creation").unwrap();
+    let log_file = blocking_parent.join("events.jsonl");
+    let input = edit_input(file_path.to_string_lossy().as_ref(), "old", "fn clean() {}");
+
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("VG-INTERNAL-LOG-APPEND"), "{stdout}");
+    assert!(stdout.contains("[U-16] [advisory]"), "{stdout}");
+    assert!(stdout.contains("mode=allow"), "{stdout}");
     assert!(!log_file.exists());
     let _ = fs::remove_dir_all(root);
 }
