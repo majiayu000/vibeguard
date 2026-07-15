@@ -12,7 +12,7 @@ use crate::hook_checks_common::{
 use crate::hook_orchestrator::{HookKind, Result, append_hook_event, elapsed_ms};
 use crate::hook_orchestrator_context::RuntimeContext;
 use crate::hook_orchestrator_post_edit_history::{
-    count_prior_warn_events, detect_history_warnings,
+    count_prior_warn_events, detect_history_warnings, read_post_edit_history_events,
 };
 use crate::runtime_config::runtime_config_int_value;
 
@@ -21,7 +21,7 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         Ok(data) => data,
         Err(_) => {
             let context = "VIBEGUARD ERROR: malformed PostToolUse(Edit) hook input. The edit result could not be inspected, so this warning is reported visibly instead of silently passing.";
-            let _ = append_hook_event(
+            let visible_context = match append_hook_event(
                 ctx,
                 HookKind::PostEdit,
                 decision::WARN,
@@ -29,8 +29,14 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 "Malformed hook input",
                 "",
                 elapsed_ms(start),
-            );
-            print_context(context)?;
+            ) {
+                Ok(()) => context.to_string(),
+                Err(err) => format!(
+                    "{context}\n---\n{}",
+                    internal_context(ctx, "allow", &err.to_string())
+                ),
+            };
+            print_context(&visible_context)?;
             return Ok(());
         }
     };
@@ -43,36 +49,46 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     let old_string = nested_str(&data, "tool_input.old_string").unwrap_or_default();
     let detail = post_edit_log_detail(&file_path, &old_string, &new_string);
     let mut warnings = Vec::new();
+    let history_events = match read_post_edit_history_events(ctx) {
+        Ok(events) => events,
+        Err(err) => {
+            warnings.push(history_read_context(ctx, &err.to_string()));
+            Vec::new()
+        }
+    };
 
     detect_stateless_warnings(&file_path, &new_string, &mut warnings);
     detect_history_warnings(
         ctx,
         start,
         &file_path,
-        &detail,
         &old_string,
         &new_string,
+        &history_events,
         &mut warnings,
     );
 
     if warnings.is_empty() {
-        if let Err(err) = append_hook_event(
+        return finish_clean_pass(
             ctx,
-            HookKind::PostEdit,
-            decision::PASS,
-            status::PASS,
-            "",
-            &detail,
-            elapsed_ms(start),
-        ) {
-            print_context(&internal_context(ctx, "allow", &err.to_string()))?;
-        }
-        return Ok(());
+            || {
+                append_hook_event(
+                    ctx,
+                    HookKind::PostEdit,
+                    decision::PASS,
+                    status::PASS,
+                    "",
+                    &detail,
+                    elapsed_ms(start),
+                )
+            },
+            print_context,
+        );
     }
 
     let mut decision_value = decision::WARN;
     let mut reason = warnings.join("\n---\n");
-    let prior_warn_count = count_prior_warn_events(ctx, &file_path);
+    let prior_warn_count = count_prior_warn_events(&history_events, &ctx.session_id, &file_path);
     if prior_warn_count >= 3 {
         decision_value = decision::ESCALATE;
         reason = format!(
@@ -468,6 +484,35 @@ fn internal_context(ctx: &RuntimeContext, mode: &str, detail: &str) -> String {
     )
 }
 
+fn clean_pass_append_failure<E: std::fmt::Display>(
+    ctx: &RuntimeContext,
+    append: impl FnOnce() -> std::result::Result<(), E>,
+) -> Option<String> {
+    append()
+        .err()
+        .map(|err| internal_context(ctx, "allow", &err.to_string()))
+}
+
+fn finish_clean_pass<E: std::fmt::Display>(
+    ctx: &RuntimeContext,
+    append: impl FnOnce() -> std::result::Result<(), E>,
+    emit: impl FnOnce(&str) -> Result,
+) -> Result {
+    if let Some(context) = clean_pass_append_failure(ctx, append) {
+        emit(&context)?;
+    }
+    Ok(())
+}
+
+fn history_read_context(ctx: &RuntimeContext, detail: &str) -> String {
+    format!(
+        "VIBEGUARD internal error [VG-INTERNAL-HISTORY-READ]: hook=post-edit-guard tool=Edit failure_kind=runtime mode=allow project={} session={} log_path={} recovery=bash scripts/hook-health.sh 24 detail=post-edit history read failed: {detail}",
+        ctx.project_hash,
+        ctx.session_id,
+        ctx.log_file.display()
+    )
+}
+
 fn extension(file_path: &str) -> String {
     Path::new(file_path)
         .extension()
@@ -479,6 +524,37 @@ fn extension(file_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_context() -> RuntimeContext {
+        RuntimeContext {
+            log_root: "/tmp/vg-clean-pass".into(),
+            log_file: "/tmp/vg-clean-pass/events.jsonl".into(),
+            project_hash: "test-project".into(),
+            session_id: "test-session".into(),
+            cli: "codex".into(),
+            client: "codex".into(),
+            client_variant: "codex-cli-hooks".into(),
+            caller_evidence: "explicit-test".into(),
+        }
+    }
+
+    #[test]
+    fn clean_pass_append_failure_emits_visible_internal_context() {
+        let mut visible = String::new();
+        finish_clean_pass(
+            &test_context(),
+            || Err::<(), _>(std::io::Error::other("injected clean-pass append failure")),
+            |context| {
+                visible = context.to_string();
+                Ok(())
+            },
+        )
+        .expect("append failure context must remain model-visible");
+
+        assert!(visible.contains("VG-INTERNAL-LOG-APPEND"));
+        assert!(visible.contains("mode=allow"));
+        assert!(visible.contains("injected clean-pass append failure"));
+    }
 
     #[test]
     fn post_edit_detail_records_character_delta() {
