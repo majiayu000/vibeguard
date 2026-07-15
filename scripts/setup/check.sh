@@ -157,6 +157,78 @@ launchd_gc_script_path_from_print() {
   '
 }
 
+gc_last_actionable_failure() {
+  local log_file="$1"
+  [[ -f "${log_file}" && -r "${log_file}" ]] || return 1
+  tail -n 200 "${log_file}" 2>/dev/null | awk '
+    /Operation not permitted|Permission denied|\[ERROR\]|GC completed with errors/ { last = $0 }
+    END { if (last != "") print last }
+  '
+}
+
+check_scheduled_gc_freshness() {
+  local scheduler_kind="$1" log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+  local success_file last_success="" attempt="" interval_hours now max_age age
+  local wrapper_log wrapper_line="" internal_line="" evidence=0 permission_evidence=0
+  success_file="${log_dir}/gc-last-success"
+  if ! interval_hours="$(vg_config_positive_int VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS gc.catchup_interval_hours 168 2>/dev/null)"; then
+    yellow "[WARN] Scheduled GC execution freshness unavailable: catch-up interval could not be read (rerun: bash setup.sh --yes --with-scheduler)"
+    return 0
+  fi
+  now="$(date +%s 2>/dev/null || true)"
+  if [[ ! "${now}" =~ ^[0-9]+$ ]]; then
+    yellow "[WARN] Scheduled GC execution freshness unavailable: current time is invalid (rerun: bash setup.sh --yes --with-scheduler)"
+    return 0
+  fi
+  max_age=$((interval_hours * 3600))
+  if [[ -r "${success_file}" ]]; then
+    last_success="$(cat "${success_file}" 2>/dev/null || true)"
+  fi
+  if [[ "${last_success}" =~ ^[0-9]+$ && ${#last_success} -le 18 ]]; then
+    age=$((10#${now} - 10#${last_success}))
+    if (( age >= 0 && age < max_age )); then
+      green "[OK] Scheduled GC execution freshness: last success ${age}s ago (threshold: ${max_age}s / ${interval_hours}h)"
+      return 0
+    fi
+  else
+    age=""
+  fi
+  if [[ -n "${age}" && "${age}" -ge "${max_age}" ]]; then
+    yellow "[WARN] Scheduled GC execution freshness stale: last success age ${age}s reached threshold ${max_age}s / ${interval_hours}h (rerun: bash setup.sh --yes --with-scheduler)"
+  else
+    yellow "[WARN] Scheduled GC execution freshness invalid: no valid last success recorded (threshold: ${max_age}s / ${interval_hours}h; rerun: bash setup.sh --yes --with-scheduler)"
+  fi
+  if [[ -r "${log_dir}/gc-last-attempt" ]]; then
+    attempt="$(cat "${log_dir}/gc-last-attempt" 2>/dev/null || true)"
+  fi
+  if [[ "${attempt}" =~ ^[0-9]+$ && ${#attempt} -le 18 && "${last_success}" =~ ^[0-9]+$ && ${#last_success} -le 18 ]] &&
+     (( 10#${attempt} > 10#${last_success} )); then
+    yellow "[WARN] Scheduled GC execution attempt ${attempt} is newer than last success ${last_success}"
+  fi
+  case "${scheduler_kind}" in
+    launchd) wrapper_log="${log_dir}/gc-launchd.log" ;;
+    systemd) wrapper_log="${log_dir}/gc-systemd.log" ;;
+    *) return 0 ;;
+  esac
+  wrapper_line="$(gc_last_actionable_failure "${wrapper_log}" || true)"
+  internal_line="$(gc_last_actionable_failure "${log_dir}/gc-cron.log" || true)"
+  if [[ -n "${wrapper_line}" ]]; then
+    yellow "[WARN] Scheduled GC wrapper evidence (${wrapper_log##*/}): ${wrapper_line}"
+    evidence=1
+  fi
+  if [[ -n "${internal_line}" ]]; then
+    yellow "[WARN] Scheduled GC internal evidence (gc-cron.log): ${internal_line}"
+    evidence=1
+  fi
+  if [[ "${wrapper_line}${internal_line}" == *"Operation not permitted"* || "${wrapper_line}${internal_line}" == *"Permission denied"* ]]; then
+    permission_evidence=1
+  fi
+  [[ "${evidence}" -eq 1 ]] || yellow "[INFO] Scheduled GC diagnostics: no actionable failure found in bounded log tails"
+  if [[ "${permission_evidence}" -eq 1 ]]; then
+    yellow "[WARN] Scheduled GC permission hint: move the checkout out of protected directories or grant the ${scheduler_kind} scheduler disk access"
+  fi
+}
+
 check_launchd_scheduled_gc() {
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
@@ -182,6 +254,7 @@ check_launchd_scheduled_gc() {
       red "[BROKEN] Scheduled GC launchd target missing or not executable: ${expected}"
     else
       green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
+      check_scheduled_gc_freshness launchd
     fi
 
     if [[ ! -f "${plist}" ]]; then
@@ -527,6 +600,7 @@ run_legacy_checks() {
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
     if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
       green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
+      check_scheduled_gc_freshness systemd
     elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
       yellow "[WARN] Scheduled GC unit exists but timer not active"
     else

@@ -324,16 +324,17 @@ if [[ -z "${RUSTUP_HOME:-}" && -d "${ORIG_HOME}/.rustup" ]]; then
 fi
 mkdir -p "${TMP_HOME}/bin"
 REAL_UNAME="$(command -v uname)"
+REAL_DATE="$(command -v date)"
 REAL_CARGO="$(command -v cargo || true)"
 cat > "${TMP_HOME}/bin/uname" <<SH
 #!/usr/bin/env bash
-if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" ]]; then
+if [[ "\${VIBEGUARD_TEST_UNAME:-}" == "Linux" || "\${VIBEGUARD_TEST_UNAME:-}" == "Darwin" ]]; then
   case "\${1:-}" in
     -m)
       printf '%s\n' "\${VIBEGUARD_TEST_UNAME_M:-x86_64}"
       ;;
     -s|"")
-      printf 'Linux\n'
+      printf '%s\n' "\${VIBEGUARD_TEST_UNAME}"
       ;;
     *)
       exec "${REAL_UNAME}" "\$@"
@@ -344,6 +345,15 @@ else
 fi
 SH
 chmod +x "${TMP_HOME}/bin/uname"
+cat > "${TMP_HOME}/bin/date" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "+%s" && -n "\${VIBEGUARD_TEST_NOW_EPOCH:-}" ]]; then
+  printf '%s\n' "\${VIBEGUARD_TEST_NOW_EPOCH}"
+  exit 0
+fi
+exec "${REAL_DATE}" "\$@"
+SH
+chmod +x "${TMP_HOME}/bin/date"
 cat > "${TMP_HOME}/bin/cargo" <<SH
 #!/usr/bin/env bash
 if [[ "\${VIBEGUARD_TEST_CARGO_UNAVAILABLE:-0}" == "1" ]]; then
