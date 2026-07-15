@@ -175,7 +175,9 @@ assert_contains "$_w14_missing" "[W-14]" "W-14 missing peer session fails open"
 _w14_seed_history "$_w14_file" "bad-history-peer"
 printf 'not-json\n' >> "$_w14_log_file"
 _w14_bad_history=$(_w14_run "$_w14_file")
-assert_contains "$_w14_bad_history" "[W-14]" "W-14 malformed history fails open"
+assert_contains "$_w14_bad_history" "VG-INTERNAL-HISTORY-READ" "Malformed history reports the history read failure"
+assert_contains "$_w14_bad_history" "malformed post-edit history JSONL at line 2" "Malformed history preserves the parse failure detail"
+assert_not_contains "$_w14_bad_history" "[W-14]" "Malformed history does not fabricate a W-14 finding"
 
 _w14_long_dir="$_w14_dir"
 for _w14_component_index in {1..8}; do
