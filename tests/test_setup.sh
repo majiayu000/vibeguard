@@ -59,6 +59,15 @@ assert_cmd() {
   fi
 }
 
+file_mode() {
+  local file="$1"
+  if stat -f '%Lp' "${file}" >/dev/null 2>&1; then
+    stat -f '%Lp' "${file}"
+  else
+    stat -c '%a' "${file}"
+  fi
+}
+
 assert_manifest_skill_links_installed() {
   local target="$1"
   local dest_dir="$2"
@@ -263,7 +272,7 @@ assert_gc_checker_repo_config_pinned() {
 assert_launchd_gc_edge_gates() {
   local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh" plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" output
   local copy_root="${TMP_HOME}/gc-nonexec-copy" copy_expected original_mode original_digest
-  original_mode="$(stat -f '%Lp' "${expected}" 2>/dev/null || stat -c '%a' "${expected}")"
+  original_mode="$(file_mode "${expected}")"
   original_digest="$(shasum -a 256 "${expected}" | cut -d' ' -f1)"
   mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/.vibeguard"
   touch "${HOME}/.launchctl-vibeguard-loaded"
@@ -279,7 +288,7 @@ assert_launchd_gc_edge_gates() {
   output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${copy_root}/setup.sh" --check)"
   assert_contains "${output}" "target missing or not executable: ${copy_expected}" "launchd non-executable expected target is broken"
   assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd non-executable expected target skips freshness"
-  assert_cmd "launchd non-executable fixture preserves scheduler mode" test "$(stat -f '%Lp' "${expected}" 2>/dev/null || stat -c '%a' "${expected}")" = "${original_mode}"
+  assert_cmd "launchd non-executable fixture preserves scheduler mode" test "$(file_mode "${expected}")" = "${original_mode}"
   assert_cmd "launchd non-executable fixture preserves scheduler digest" test "$(shasum -a 256 "${expected}" | cut -d' ' -f1)" = "${original_digest}"
   rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target"
   sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" > "${plist}"
