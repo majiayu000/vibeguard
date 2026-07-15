@@ -8,6 +8,9 @@
     "threshold": 3,
     "cooldown_seconds": 300
   },
+  "w14": {
+    "cooldown_seconds": 3600
+  },
   "paralysis": {
     "threshold": 7
   },

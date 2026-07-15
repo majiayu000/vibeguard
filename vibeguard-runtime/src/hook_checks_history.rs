@@ -30,6 +30,7 @@ pub(crate) struct OverlapSignal {
     pub(crate) agent: String,
     pub(crate) hook: String,
     pub(crate) tool: String,
+    pub(crate) normalized_file: String,
 }
 
 pub(crate) fn post_edit_history_signals(
@@ -171,6 +172,7 @@ pub(crate) fn recent_overlap(
                 .and_then(Value::as_str)
                 .unwrap_or("?")
                 .to_string(),
+            normalized_file: normalized_file.clone(),
         });
     }
     last
@@ -388,21 +390,20 @@ mod tests {
             consecutive_post_edit_count(&events, "current", "src/main.rs"),
             2
         );
-        assert!(
-            recent_overlap(
-                &[serde_json::json!({
-                    "ts": format_unix_secs_utc(now_unix_secs()),
-                    "session": "other",
-                    "agent": "codex",
-                    "tool": "Edit",
-                    "detail": "/tmp/main.rs"
-                })],
-                "current",
-                "codex",
-                "/tmp/main.rs"
-            )
-            .is_some()
-        );
+        let overlap = recent_overlap(
+            &[serde_json::json!({
+                "ts": format_unix_secs_utc(now_unix_secs()),
+                "session": "other",
+                "agent": "codex",
+                "tool": "Edit",
+                "detail": "/tmp/main.rs"
+            })],
+            "current",
+            "codex",
+            "/tmp/main.rs",
+        )
+        .expect("matching file should produce an overlap");
+        assert_eq!(overlap.normalized_file, "/tmp/main.rs");
     }
 
     #[test]

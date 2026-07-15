@@ -376,7 +376,7 @@ fn run_source_new(
                         ctx,
                         "pre-write-guard",
                         "circuit-breaker",
-                        decision::WARN,
+                        (decision::WARN, None),
                         &reason,
                         "",
                         elapsed_ms(start),
@@ -406,7 +406,7 @@ fn run_source_new(
                 ctx,
                 "pre-write-guard",
                 "circuit-breaker",
-                decision::PASS,
+                (decision::PASS, None),
                 &reason,
                 "",
                 elapsed_ms(start),
@@ -568,7 +568,27 @@ pub(crate) fn append_hook_event(
         ctx,
         kind.hook_name(),
         kind.tool_name(),
-        decision_value,
+        (decision_value, None),
+        reason,
+        detail,
+        duration_ms,
+    )
+}
+
+pub(crate) fn append_hook_event_with_status(
+    ctx: &RuntimeContext,
+    kind: HookKind,
+    decision_value: &str,
+    status_value: &str,
+    reason: &str,
+    detail: &str,
+    duration_ms: u64,
+) -> Result {
+    append_event(
+        ctx,
+        kind.hook_name(),
+        kind.tool_name(),
+        (decision_value, Some(status_value)),
         reason,
         detail,
         duration_ms,
@@ -579,12 +599,14 @@ fn append_event(
     ctx: &RuntimeContext,
     hook_name: &str,
     tool_name: &str,
-    decision_value: &str,
+    outcome: (&str, Option<&str>),
     reason: &str,
     detail: &str,
     duration_ms: u64,
 ) -> Result {
+    let (decision_value, status_value) = outcome;
     let (decision_value, reason) = log_policy_decision(decision_value, reason);
+    let status_value = status_value.unwrap_or(&decision_value);
     let mut event = json!({
         "schema_version": 1,
         field::TS: format_unix_secs_utc(now_unix_secs()),
@@ -592,7 +614,7 @@ fn append_event(
         field::HOOK: hook_name,
         field::TOOL: tool_name,
         field::DECISION: decision_value,
-        field::STATUS: decision_value,
+        field::STATUS: status_value,
         field::REASON: reason,
         field::DETAIL: truncate_chars(detail, 200),
         field::DURATION_MS: duration_ms,
