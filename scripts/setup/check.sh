@@ -167,11 +167,11 @@ gc_last_actionable_failure() {
 }
 
 check_scheduled_gc_freshness() {
-  local scheduler_kind="$1" log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}"
+  local scheduler_kind="$1" log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}" project_config="${VIBEGUARD_PROJECT_CONFIG:-${REPO_DIR}/.vibeguard.json}"
   local success_file last_success="" attempt="" interval_hours now max_age age
   local wrapper_log wrapper_line="" internal_line="" evidence=0 permission_evidence=0
   success_file="${log_dir}/gc-last-success"
-  if ! interval_hours="$(vg_config_positive_int VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS gc.catchup_interval_hours 168 2>/dev/null)"; then
+  if ! interval_hours="$(VIBEGUARD_PROJECT_CONFIG="${project_config}" vg_config_positive_int VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS gc.catchup_interval_hours 168 2>/dev/null)"; then
     yellow "[WARN] Scheduled GC execution freshness unavailable: catch-up interval could not be read (rerun: bash setup.sh --yes --with-scheduler)"
     return 0
   fi

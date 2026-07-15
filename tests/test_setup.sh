@@ -249,6 +249,45 @@ assert_scheduled_gc_present() {
   fi
 }
 
+assert_gc_checker_repo_config_pinned() {
+  local outside="${TMP_HOME}/gc-conflicting-cwd" output
+  mkdir -p "${outside}"
+  git -C "${outside}" init -q
+  printf '{"gc":{"catchup_interval_hours":1}}\n' > "${outside}/.vibeguard.json"
+  printf '1999996000\n' > "${HOME}/.vibeguard/gc-last-success"
+  output="$(unset VIBEGUARD_PROJECT_CONFIG VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS; cd "${outside}" && VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_NOW_EPOCH=2000000000 bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "[OK] Scheduled GC execution freshness" "freshness ignores conflicting caller-CWD project config"
+  assert_contains "${output}" "threshold: 604800s / 168h" "freshness defaults to scheduler checkout-root config"
+}
+
+assert_launchd_gc_edge_gates() {
+  local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh" plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" output
+  mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/.vibeguard"
+  touch "${HOME}/.launchctl-vibeguard-loaded"
+  : > "${HOME}/.launchctl-vibeguard-target"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "loaded job does not declare gc-scheduled.sh" "launchd loaded job without GC argument is broken"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd loaded job without GC argument skips freshness"
+  printf '%s\n' "${expected}" > "${HOME}/.launchctl-vibeguard-target"
+  chmod -x "${expected}"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+  chmod +x "${expected}"
+  assert_contains "${output}" "target missing or not executable: ${expected}" "launchd non-executable expected target is broken"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd non-executable expected target skips freshness"
+  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target"
+  sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" > "${plist}"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "plist exists but not loaded" "launchd plist-only registration remains inactive"
+  assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd plist-only registration skips freshness"
+  touch "${HOME}/.launchctl-vibeguard-loaded"
+  printf '%s\n' "${expected}" > "${HOME}/.launchctl-vibeguard-target"
+  printf '1999992800\n' > "${HOME}/.vibeguard/gc-last-success"
+  rm -f "${HOME}/.vibeguard/gc-launchd.log"
+  printf '[ERROR] launchd shared internal failure\n' > "${HOME}/.vibeguard/gc-cron.log"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin VIBEGUARD_TEST_NOW_EPOCH=2000000000 VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 bash "${REPO_DIR}/setup.sh" --check)"
+  assert_contains "${output}" "internal evidence (gc-cron.log): [ERROR] launchd shared internal failure" "launchd freshness labels shared internal GC log"
+}
+
 assert_prepare_runtime_from_source_no_cargo_metadata() {
   python3 - <<'PY' "${REPO_DIR}/scripts/setup/install.sh"
 from pathlib import Path
@@ -305,6 +344,7 @@ backup_repo_git_hooks
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
+  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh" 2>/dev/null || true
   if [[ -n "${LINKED_WORKTREE_PATH}" ]]; then
     git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null 2>&1 || true
     git -C "${REPO_DIR}" worktree prune >/dev/null 2>&1 || true

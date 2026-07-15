@@ -499,6 +499,7 @@ gc_project_interval_out="$(VIBEGUARD_PROJECT_CONFIG="${gc_project_config}" gc_ch
 assert_contains "${gc_project_interval_out}" "[WARN] Scheduled GC execution freshness stale" "freshness reads project interval"
 gc_env_interval_out="$(VIBEGUARD_PROJECT_CONFIG="${gc_project_config}" VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
 assert_contains "${gc_env_interval_out}" "[OK] Scheduled GC execution freshness" "freshness environment interval overrides project config"
+assert_gc_checker_repo_config_pinned
 
 printf '1999992800\n' > "${gc_success}"
 rm -f "${gc_attempt}"
@@ -564,6 +565,7 @@ printf '%s\n' "${TMP_HOME}/drifted/gc-scheduled.sh" > "${HOME}/.launchctl-vibegu
 gc_launchd_drift_out="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
 assert_not_contains "${gc_launchd_drift_out}" "Scheduled GC execution freshness" "drifted active launchd target does not run freshness"
 printf '%s\n' "${REPO_DIR}/scripts/gc/gc-scheduled.sh" > "${HOME}/.launchctl-vibeguard-target"
+assert_launchd_gc_edge_gates
 if [[ "$(uname)" == "Darwin" ]]; then
   stale_scheduler_dir="${TMP_HOME}/stale-vibeguard"
   mkdir -p "${stale_scheduler_dir}"
