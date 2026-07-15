@@ -7,11 +7,19 @@ use crate::event_schema::{decision, field, hook, status, tool};
 use crate::git_root::current_git_root_by_marker;
 use crate::hook_checks_common::first_detail_path;
 use crate::hook_checks_history::{read_tail_lines, recent_overlap};
-use crate::hook_orchestrator::{HookKind, append_hook_event, elapsed_ms};
+use crate::hook_orchestrator::{
+    HookKind, append_hook_event, append_hook_event_with_status, elapsed_ms,
+};
 use crate::hook_orchestrator_context::RuntimeContext;
 use crate::log_query::count_build_fail_events;
+use crate::runtime_config::runtime_config_int_value;
+use crate::setup_support::sha256_text;
+use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 const POST_EDIT_HISTORY_LINES: usize = 500;
+const W14_COOLDOWN_DEFAULT_SECONDS: &str = "3600";
+const W14_SHOWN_REASON_PREFIX: &str = "[W-14] overlap shown";
+const W14_SUPPRESSED_REASON_PREFIX: &str = "[W-14] overlap suppressed cooldown";
 
 pub(crate) fn detect_history_warnings(
     ctx: &RuntimeContext,
@@ -105,17 +113,72 @@ fn detect_w14(
     events: &[Value],
     warnings: &mut Vec<String>,
 ) {
+    let cooldown_seconds = runtime_config_int_value(
+        "VIBEGUARD_W14_COOLDOWN_SECONDS",
+        "w14.cooldown_seconds",
+        W14_COOLDOWN_DEFAULT_SECONDS,
+    );
+    detect_w14_at(
+        ctx,
+        start,
+        file_path,
+        events,
+        warnings,
+        now_unix_secs(),
+        cooldown_seconds,
+    );
+}
+
+fn detect_w14_at(
+    ctx: &RuntimeContext,
+    start: Instant,
+    file_path: &str,
+    events: &[Value],
+    warnings: &mut Vec<String>,
+    now: u64,
+    cooldown_seconds: u64,
+) {
     let agent = env::var("VIBEGUARD_AGENT_TYPE").unwrap_or_default();
     let Some(overlap) = recent_overlap(events, &ctx.session_id, &agent, file_path) else {
         return;
     };
+    let key = w14_key(&ctx.session_id, &overlap.session, &overlap.normalized_file);
+    if let Some(key) = key.as_deref() {
+        let eligible = cooldown_seconds > 0
+            && has_recent_w14_shown(events, &ctx.session_id, key, now, cooldown_seconds);
+        match suppress_after_audit(eligible, || {
+            let detail = w14_event_detail(file_path, key);
+            let detail_limit = detail.chars().count();
+            append_hook_event_with_status(
+                ctx,
+                HookKind::PostEdit,
+                decision::PASS,
+                status::SKIPPED,
+                W14_SUPPRESSED_REASON_PREFIX,
+                (&detail, detail_limit),
+                elapsed_ms(start),
+            )
+        }) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(err) => {
+                eprintln!("VIBEGUARD: W-14 suppressed telemetry append failed: {err}");
+            }
+        }
+    }
     warnings.push(format!("[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched {} ({} via {}, session {}, agent {})\nFIX: Isolate via a dedicated worktree before continuing. Copy-paste:\n  REPO=$(git rev-parse --show-toplevel) && SID=${{VIBEGUARD_SESSION_ID:-$(date +%s)}}\n  BASE=${{VIBEGUARD_WORKTREE_BASE:-${{REPO}}.wt}}\n  case \"$BASE\" in /*) ;; *) BASE=\"${{REPO}}/${{BASE}}\" ;; esac\n  BASE=${{BASE%/}}\n  git worktree add \"$BASE/$SID\" -b \"vg/$SID\" HEAD\n  cd \"$BASE/$SID\"\nDO NOT: Continue parallel/background edits to this file without an isolated worktree", post_edit_history_file_name(file_path), overlap.tool, overlap.hook, overlap.session, if overlap.agent.is_empty() { "unknown" } else { &overlap.agent }));
-    append_history_event(
+    let detail = key
+        .as_deref()
+        .map(|key| w14_event_detail(file_path, key))
+        .unwrap_or_else(|| file_path.to_string());
+    let detail_limit = detail.chars().count();
+    if let Err(err) = append_hook_event_with_status(
         ctx,
-        start,
+        HookKind::PostEdit,
         decision::WARN,
+        status::WARN,
         &format!(
-            "w14 overlap recent session {} agent {}",
+            "{W14_SHOWN_REASON_PREFIX} session {} agent {}",
             overlap.session,
             if overlap.agent.is_empty() {
                 "unknown"
@@ -123,8 +186,92 @@ fn detect_w14(
                 &overlap.agent
             }
         ),
-        file_path,
+        (&detail, detail_limit),
+        elapsed_ms(start),
+    ) {
+        eprintln!("VIBEGUARD: W-14 shown evidence append failed: {err}");
+    }
+}
+
+fn w14_key(current_session: &str, peer_session: &str, normalized_file: &str) -> Option<String> {
+    if !known_w14_session(current_session)
+        || !known_w14_session(peer_session)
+        || normalized_file.is_empty()
+    {
+        return None;
+    }
+    let tuple = format!(
+        "{}:{current_session}{}:{peer_session}{}:{normalized_file}",
+        current_session.len(),
+        peer_session.len(),
+        normalized_file.len()
     );
+    Some(sha256_text(&tuple))
+}
+
+fn known_w14_session(session: &str) -> bool {
+    let session = session.trim();
+    !session.is_empty() && session != "?" && !session.eq_ignore_ascii_case("unknown")
+}
+
+fn w14_event_detail(file_path: &str, key: &str) -> String {
+    format!("{file_path}||w14_key={key}")
+}
+
+fn has_recent_w14_shown(
+    events: &[Value],
+    current_session: &str,
+    key: &str,
+    now: u64,
+    cooldown_seconds: u64,
+) -> bool {
+    if cooldown_seconds == 0 || !known_w14_session(current_session) {
+        return false;
+    }
+    events
+        .iter()
+        .rev()
+        .take(POST_EDIT_HISTORY_LINES)
+        .any(|event| {
+            event.get(field::SESSION).and_then(Value::as_str) == Some(current_session)
+                && event.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
+                && event.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT)
+                && event.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
+                && event.get(field::STATUS).and_then(Value::as_str) == Some(status::WARN)
+                && event
+                    .get(field::REASON)
+                    .and_then(Value::as_str)
+                    .is_some_and(|reason| reason.starts_with(W14_SHOWN_REASON_PREFIX))
+                && event
+                    .get(field::DETAIL)
+                    .and_then(Value::as_str)
+                    .and_then(w14_key_from_detail)
+                    == Some(key)
+                && event
+                    .get(field::TS)
+                    .and_then(Value::as_str)
+                    .and_then(parse_iso_ts)
+                    .and_then(|timestamp| now.checked_sub(timestamp))
+                    .is_some_and(|age| age < cooldown_seconds)
+        })
+}
+
+fn w14_key_from_detail(detail: &str) -> Option<&str> {
+    detail
+        .split("||")
+        .skip(1)
+        .find_map(|part| part.strip_prefix("w14_key="))
+        .filter(|key| key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+fn suppress_after_audit<E>(
+    eligible: bool,
+    append: impl FnOnce() -> Result<(), E>,
+) -> Result<bool, E> {
+    if !eligible {
+        return Ok(false);
+    }
+    append().map(|()| true)
 }
 
 #[expect(
@@ -197,15 +344,23 @@ fn same_file_edit_trail(events: &[Value], session: &str, file_path: &str) -> W15
 }
 
 pub(crate) fn count_prior_warn_events(ctx: &RuntimeContext, file_path: &str) -> usize {
-    read_post_edit_history_events(ctx)
-        .into_iter()
+    count_prior_warn_events_in(
+        &read_post_edit_history_events(ctx),
+        &ctx.session_id,
+        file_path,
+    )
+}
+
+fn count_prior_warn_events_in(events: &[Value], session: &str, file_path: &str) -> usize {
+    events
+        .iter()
         .filter(|event| {
             let reason = event
                 .get(field::REASON)
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let churn_only = reason.contains("[CHURN") && !reason.contains("\n---\n");
-            event.get(field::SESSION).and_then(Value::as_str) == Some(ctx.session_id.as_str())
+            event.get(field::SESSION).and_then(Value::as_str) == Some(session)
                 && event.get(field::HOOK).and_then(Value::as_str) == Some(hook::POST_EDIT_GUARD)
                 && event.get(field::DECISION).and_then(Value::as_str) == Some(decision::WARN)
                 && !churn_only
@@ -301,6 +456,19 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn w14_shown_event(session: &str, key: &str, timestamp: u64) -> Value {
+        json!({
+            "ts": crate::time_utils::format_unix_secs_utc(timestamp),
+            "session": session,
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "warn",
+            "status": "warn",
+            "reason": "[W-14] overlap shown session peer agent codex",
+            "detail": format!("src/main.rs||w14_key={key}"),
+        })
+    }
+
     #[test]
     fn delta_metadata_is_read_from_post_edit_detail() {
         assert_eq!(
@@ -328,5 +496,159 @@ mod tests {
     fn history_file_helpers_match_common_paths() {
         assert_eq!(post_edit_history_file_name("src/main.rs"), "main.rs");
         assert_eq!(post_edit_history_extension("docs/guide.md"), "md");
+    }
+
+    #[test]
+    fn w14_key_is_directed_and_rejects_unknown_sessions() {
+        let Some(forward) = w14_key("current", "peer", "/repo/src/main.rs") else {
+            panic!("known sessions and file should produce a key");
+        };
+        let Some(reverse) = w14_key("peer", "current", "/repo/src/main.rs") else {
+            panic!("reversed known sessions should produce a key");
+        };
+        let Some(other_file) = w14_key("current", "peer", "/repo/src/lib.rs") else {
+            panic!("a different known file should produce a key");
+        };
+
+        assert_eq!(forward.len(), 64);
+        assert!(forward.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(forward, reverse);
+        assert_ne!(forward, other_file);
+        assert_eq!(w14_key("unknown", "peer", "/repo/src/main.rs"), None);
+        assert_eq!(w14_key("current", "?", "/repo/src/main.rs"), None);
+    }
+
+    #[test]
+    fn w14_detail_keeps_the_full_path_and_key_at_platform_scale() {
+        let key = "a".repeat(64);
+        let path = "x".repeat(8192);
+        let detail = w14_event_detail(&path, &key);
+        let detail_limit = detail.chars().count();
+
+        assert_eq!(detail_limit, path.chars().count() + 10 + key.len());
+        assert_eq!(first_detail_path(&json!({"detail": detail})), path);
+        assert!(detail.ends_with(&format!("||w14_key={key}")));
+        assert_eq!(w14_key_from_detail(&detail), Some(key.as_str()));
+    }
+
+    #[test]
+    fn shown_evidence_obeys_time_key_and_bounded_history_contract() {
+        let now = 1_800_000_000;
+        let key = "b".repeat(64);
+        let shown = w14_shown_event("current", &key, now - 59);
+        assert!(has_recent_w14_shown(
+            std::slice::from_ref(&shown),
+            "current",
+            &key,
+            now,
+            60
+        ));
+
+        let exact_boundary = w14_shown_event("current", &key, now - 60);
+        assert!(!has_recent_w14_shown(
+            &[exact_boundary],
+            "current",
+            &key,
+            now,
+            60
+        ));
+        let future = w14_shown_event("current", &key, now + 1);
+        assert!(!has_recent_w14_shown(&[future], "current", &key, now, 60));
+        let mut invalid_timestamp = shown.clone();
+        invalid_timestamp[field::TS] = json!("not-a-timestamp");
+        assert!(!has_recent_w14_shown(
+            &[invalid_timestamp],
+            "current",
+            &key,
+            now,
+            60
+        ));
+        assert!(!has_recent_w14_shown(
+            std::slice::from_ref(&shown),
+            "other-current",
+            &key,
+            now,
+            60
+        ));
+        assert!(!has_recent_w14_shown(
+            std::slice::from_ref(&shown),
+            "current",
+            &"c".repeat(64),
+            now,
+            60
+        ));
+
+        let suppressed = json!({
+            "ts": crate::time_utils::format_unix_secs_utc(now - 1),
+            "session": "current",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "status": "skipped",
+            "reason": "[W-14] overlap suppressed cooldown",
+            "detail": format!("src/main.rs||w14_key={key}"),
+        });
+        assert!(!has_recent_w14_shown(
+            &[suppressed],
+            "current",
+            &key,
+            now,
+            60
+        ));
+
+        let mut beyond_tail = vec![shown];
+        beyond_tail.extend((0..POST_EDIT_HISTORY_LINES).map(|index| {
+            json!({
+                "ts": crate::time_utils::format_unix_secs_utc(now - 1),
+                "session": format!("filler-{index}"),
+            })
+        }));
+        assert!(!has_recent_w14_shown(
+            &beyond_tail,
+            "current",
+            &key,
+            now,
+            60
+        ));
+    }
+
+    #[test]
+    fn suppression_requires_successful_audit_append() {
+        let called = std::cell::Cell::new(false);
+        assert_eq!(
+            suppress_after_audit(false, || {
+                called.set(true);
+                Ok::<(), ()>(())
+            }),
+            Ok(false)
+        );
+        assert!(!called.get());
+        assert_eq!(suppress_after_audit(true, || Ok::<(), ()>(())), Ok(true));
+        assert_eq!(
+            suppress_after_audit(true, || Err::<(), _>("locked")),
+            Err("locked")
+        );
+    }
+
+    #[test]
+    fn suppressed_w14_does_not_increase_prior_warn_count() {
+        let key = "d".repeat(64);
+        let events = vec![
+            w14_shown_event("current", &key, 1_800_000_000),
+            json!({
+                "session": "current",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "pass",
+                "status": "skipped",
+                "reason": "[W-14] overlap suppressed cooldown",
+                "detail": format!("src/main.rs||w14_key={key}"),
+            }),
+        ];
+
+        assert_eq!(
+            count_prior_warn_events_in(&events, "current", "src/main.rs"),
+            1
+        );
     }
 }

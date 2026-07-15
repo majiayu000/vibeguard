@@ -118,6 +118,48 @@ fn runtime_config_get_int_defaults_for_parse_errors_and_wrong_types() {
 }
 
 #[test]
+fn runtime_config_get_int_resolves_w14_cooldown_contract() {
+    let dir = runtime_config_temp_dir("w14_cooldown");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join("config.json");
+    fs::write(&config, r#"{"w14":{"cooldown_seconds":1800}}"#)
+        .expect("runtime config should be written");
+
+    let resolve = |env_value: Option<&str>| {
+        let mut command = bin();
+        command
+            .arg("runtime-config-get-int")
+            .arg("VIBEGUARD_W14_COOLDOWN_SECONDS")
+            .arg("w14.cooldown_seconds")
+            .arg("3600")
+            .env("VIBEGUARD_CONFIG_FILE", &config);
+        match env_value {
+            Some(value) => command.env("VIBEGUARD_W14_COOLDOWN_SECONDS", value),
+            None => command.env_remove("VIBEGUARD_W14_COOLDOWN_SECONDS"),
+        };
+        let output = command.output().expect("runtime config command should run");
+        assert_eq!(output.status.code(), Some(0));
+        String::from_utf8(output.stdout).expect("runtime config output should be UTF-8")
+    };
+
+    assert_eq!(resolve(None).trim(), "1800");
+    assert_eq!(resolve(Some("7200")).trim(), "7200");
+    assert_eq!(resolve(Some("0")).trim(), "0");
+    assert_eq!(resolve(Some("not-a-number")).trim(), "1800");
+
+    for body in [
+        r#"{"w14":{}}"#,
+        r#"{"w14":{"cooldown_seconds":"3600"}}"#,
+        r#"{"w14":{"cooldown_seconds":-1}}"#,
+    ] {
+        fs::write(&config, body).expect("runtime config should be rewritten");
+        assert_eq!(resolve(None).trim(), "3600");
+    }
+
+    fs::remove_dir_all(dir).expect("temp dir should be removed");
+}
+
+#[test]
 fn runtime_config_get_str_preserves_env_json_default_order() {
     let dir = runtime_config_temp_dir("str");
     fs::create_dir_all(&dir).expect("temp dir should be created");

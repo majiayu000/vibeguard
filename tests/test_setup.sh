@@ -116,6 +116,7 @@ checks = [
     data.get("u16", {}).get("limit") == 800,
     data.get("circuit_breaker", {}).get("threshold") == 3,
     data.get("circuit_breaker", {}).get("cooldown_seconds") == 300,
+    data.get("w14", {}).get("cooldown_seconds") == 3600,
     data.get("paralysis", {}).get("threshold") == 7,
 ]
 raise SystemExit(0 if all(checks) else 1)

@@ -80,6 +80,11 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         );
     }
 
+    let prefix = if decision_value == decision::ESCALATE {
+        "VIBEGUARD upgrade warning"
+    } else {
+        "VIBEGUARD quality warning"
+    };
     if let Err(err) = append_hook_event(
         ctx,
         HookKind::PostEdit,
@@ -89,15 +94,13 @@ pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
         &detail,
         elapsed_ms(start),
     ) {
-        print_context(&internal_context(ctx, "allow", &err.to_string()))?;
+        print_context(&format!(
+            "{}\n---\n{prefix}：{reason}",
+            internal_context(ctx, "allow", &err.to_string())
+        ))?;
         return Ok(());
     }
 
-    let prefix = if decision_value == decision::ESCALATE {
-        "VIBEGUARD upgrade warning"
-    } else {
-        "VIBEGUARD quality warning"
-    };
     print_context(&format!("{prefix}：{reason}"))?;
     Ok(())
 }
