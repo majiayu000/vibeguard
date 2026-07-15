@@ -16,6 +16,79 @@ _w14_project_hash=$(printf '%s' "$REPO_DIR" | shasum -a 256 2>/dev/null | cut -c
 _w14_log_file="$VIBEGUARD_LOG_DIR/projects/${_w14_project_hash}/events.jsonl"
 mkdir -p "$(dirname "$_w14_log_file")"
 
+_w14_timestamp_ago() {
+  python3 - "$1" <<'PY'
+from datetime import datetime, timedelta, timezone
+import sys
+
+seconds = int(sys.argv[1])
+print((datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+PY
+}
+
+_w14_key() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import hashlib
+import os
+import sys
+
+current, peer, path = sys.argv[1:]
+normalized = os.path.realpath(path)
+raw = f"{len(current)}:{current}{len(peer)}:{peer}{len(normalized)}:{normalized}"
+print(hashlib.sha256(raw.encode()).hexdigest())
+PY
+}
+
+_w14_seed_history() {
+  local target=$1
+  local peer=$2
+  local shown_key=${3:--}
+  local shown_age=${4:-0}
+  python3 - "$_w14_log_file" "$target" "$peer" "$shown_key" "$shown_age" <<'PY'
+from datetime import datetime, timedelta, timezone
+import json
+import sys
+
+log_file, target, peer, shown_key, shown_age = sys.argv[1:]
+now = datetime.now(timezone.utc)
+candidate = {
+    "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "hook": "post-write-guard",
+    "tool": "Write",
+    "decision": "pass",
+    "agent": "peer-agent",
+    "detail": target,
+}
+if peer != "__missing__":
+    candidate["session"] = peer
+events = [candidate]
+if shown_key != "-":
+    events.append({
+        "ts": (now - timedelta(seconds=int(shown_age))).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "session": "current-session",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "warn",
+        "status": "warn",
+        "agent": "codex",
+        "reason": "[W-14] overlap shown session peer agent codex",
+        "detail": f"{target}||w14_key={shown_key}",
+    })
+with open(log_file, "w", encoding="utf-8") as handle:
+    for event in events:
+        handle.write(json.dumps(event, separators=(",", ":")) + "\n")
+PY
+}
+
+_w14_run() {
+  local target=$1
+  shift
+  printf '{"tool_input":{"file_path":"%s","new_string":"value = 9\\n"}}' "$target" \
+    | env VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" \
+      VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_AGENT_TYPE="codex" \
+      "$@" bash hooks/post-edit-guard.sh
+}
+
 cat > "$_w14_log_file" <<EOF
 {"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","session":"other-session","hook":"post-write-guard","tool":"Write","decision":"pass","detail":"$_w14_file"}
 EOF
@@ -67,6 +140,75 @@ _w14_disabled=$(
     | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_W14_COOLDOWN_SECONDS=0 bash hooks/post-edit-guard.sh
 )
 assert_contains "$_w14_disabled" "[W-14]" "W-14 cooldown value zero restores visible warnings"
+
+printf 'value = 1\n' > "$_w14_file"
+_w14_boundary_key=$(_w14_key "current-session" "boundary-peer" "$_w14_file")
+_w14_seed_history "$_w14_file" "boundary-peer" "$_w14_boundary_key" 3600
+_w14_boundary=$(_w14_run "$_w14_file")
+assert_contains "$_w14_boundary" "[W-14]" "W-14 exact cooldown boundary fails open to a visible warning"
+
+_w14_other_file="$_w14_dir/other.py"
+printf 'value = 1\n' > "$_w14_other_file"
+_w14_wrong_file_key=$(_w14_key "current-session" "other-session" "$_w14_file")
+_w14_seed_history "$_w14_other_file" "other-session" "$_w14_wrong_file_key" 0
+_w14_other_file_result=$(_w14_run "$_w14_other_file")
+assert_contains "$_w14_other_file_result" "[W-14]" "W-14 does not share cooldown across normalized files"
+
+_w14_wrong_peer_key=$(_w14_key "current-session" "first-peer" "$_w14_file")
+_w14_seed_history "$_w14_file" "second-peer" "$_w14_wrong_peer_key" 0
+_w14_other_peer=$(_w14_run "$_w14_file")
+assert_contains "$_w14_other_peer" "[W-14]" "W-14 does not share cooldown across peer sessions"
+
+_w14_reverse_key=$(_w14_key "reverse-peer" "current-session" "$_w14_file")
+_w14_seed_history "$_w14_file" "reverse-peer" "$_w14_reverse_key" 0
+_w14_reverse=$(_w14_run "$_w14_file")
+assert_contains "$_w14_reverse" "[W-14]" "W-14 keeps current and peer session order directed"
+
+_w14_seed_history "$_w14_file" "unknown"
+_w14_unknown=$(_w14_run "$_w14_file")
+assert_contains "$_w14_unknown" "[W-14]" "W-14 unknown peer session fails open"
+
+_w14_seed_history "$_w14_file" "__missing__"
+_w14_missing=$(_w14_run "$_w14_file")
+assert_contains "$_w14_missing" "[W-14]" "W-14 missing peer session fails open"
+
+_w14_seed_history "$_w14_file" "bad-history-peer"
+printf 'not-json\n' >> "$_w14_log_file"
+_w14_bad_history=$(_w14_run "$_w14_file")
+assert_contains "$_w14_bad_history" "[W-14]" "W-14 malformed history fails open"
+
+_w14_long_dir="$_w14_dir/$(printf 'x%.0s' {1..140})"
+mkdir -p "$_w14_long_dir"
+_w14_long_file="$_w14_long_dir/long.py"
+printf 'value = 1\n' > "$_w14_long_file"
+_w14_seed_history "$_w14_long_file" "long-path-peer"
+_w14_long_result=$(_w14_run "$_w14_long_file")
+assert_contains "$_w14_long_result" "[W-14]" "W-14 long-path candidate remains visible"
+assert_exit_zero "W-14 shown evidence preserves a long file path and complete key" python3 - "$_w14_log_file" "$_w14_long_file" <<'PY'
+import json
+import re
+import sys
+
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
+shown = [event for event in events if event.get("reason", "").startswith("[W-14] overlap shown")]
+detail = shown[-1].get("detail", "") if shown else ""
+path, separator, key = detail.partition("||w14_key=")
+raise SystemExit(0 if path == sys.argv[2] and separator and re.fullmatch(r"[0-9a-f]{64}", key) else 1)
+PY
+
+_w14_append_key=$(_w14_key "current-session" "append-peer" "$_w14_file")
+_w14_seed_history "$_w14_file" "append-peer" "$_w14_append_key" 0
+mkdir -p "${_w14_log_file}.lock.d"
+printf 'held\n' > "${_w14_log_file}.lock.d/owner"
+_w14_append_failure=$(_w14_run "$_w14_file" \
+  VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+  VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+  VIBEGUARD_LOG_LOCK_STALE_SECONDS=3600 2>&1)
+rm -rf "${_w14_log_file}.lock.d"
+assert_contains "$_w14_append_failure" "[W-14]" "W-14 telemetry append failure preserves the visible warning"
+assert_contains "$_w14_append_failure" "W-14 suppressed telemetry append failed" "W-14 telemetry append failure reports its root cause"
+assert_contains "$_w14_append_failure" "VG-INTERNAL-LOG-APPEND" "W-14 final event append failure reports hook diagnostics"
+
 rm -rf "$_w14_dir"
 
 hook_test_finish

@@ -18,7 +18,7 @@ use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 const POST_EDIT_HISTORY_LINES: usize = 500;
 const W14_COOLDOWN_DEFAULT_SECONDS: &str = "3600";
-const EVENT_DETAIL_MAX_CHARS: usize = 200;
+const W14_EVENT_DETAIL_MAX_CHARS: usize = 4096;
 const W14_SHOWN_REASON_PREFIX: &str = "[W-14] overlap shown";
 const W14_SUPPRESSED_REASON_PREFIX: &str = "[W-14] overlap suppressed cooldown";
 
@@ -147,18 +147,25 @@ fn detect_w14_at(
     if let Some(key) = key.as_deref() {
         let eligible = cooldown_seconds > 0
             && has_recent_w14_shown(events, &ctx.session_id, key, now, cooldown_seconds);
-        if suppress_after_audit(eligible, || {
+        match suppress_after_audit(eligible, || {
             append_hook_event_with_status(
                 ctx,
                 HookKind::PostEdit,
                 decision::PASS,
                 status::SKIPPED,
                 W14_SUPPRESSED_REASON_PREFIX,
-                &w14_event_detail(file_path, key),
+                (
+                    &w14_event_detail(file_path, key),
+                    W14_EVENT_DETAIL_MAX_CHARS,
+                ),
                 elapsed_ms(start),
             )
         }) {
-            return;
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(err) => {
+                eprintln!("VIBEGUARD: W-14 suppressed telemetry append failed: {err}");
+            }
         }
     }
     warnings.push(format!("[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched {} ({} via {}, session {}, agent {})\nFIX: Isolate via a dedicated worktree before continuing. Copy-paste:\n  REPO=$(git rev-parse --show-toplevel) && SID=${{VIBEGUARD_SESSION_ID:-$(date +%s)}}\n  BASE=${{VIBEGUARD_WORKTREE_BASE:-${{REPO}}.wt}}\n  case \"$BASE\" in /*) ;; *) BASE=\"${{REPO}}/${{BASE}}\" ;; esac\n  BASE=${{BASE%/}}\n  git worktree add \"$BASE/$SID\" -b \"vg/$SID\" HEAD\n  cd \"$BASE/$SID\"\nDO NOT: Continue parallel/background edits to this file without an isolated worktree", post_edit_history_file_name(file_path), overlap.tool, overlap.hook, overlap.session, if overlap.agent.is_empty() { "unknown" } else { &overlap.agent }));
@@ -180,7 +187,7 @@ fn detect_w14_at(
                 &overlap.agent
             }
         ),
-        &detail,
+        (&detail, W14_EVENT_DETAIL_MAX_CHARS),
         elapsed_ms(start),
     ) {
         eprintln!("VIBEGUARD: W-14 shown evidence append failed: {err}");
@@ -209,10 +216,7 @@ fn known_w14_session(session: &str) -> bool {
 }
 
 fn w14_event_detail(file_path: &str, key: &str) -> String {
-    let suffix = format!("||w14_key={key}");
-    let path_limit = EVENT_DETAIL_MAX_CHARS.saturating_sub(suffix.chars().count());
-    let display_path = file_path.chars().take(path_limit).collect::<String>();
-    format!("{display_path}{suffix}")
+    format!("{file_path}||w14_key={key}")
 }
 
 fn has_recent_w14_shown(
@@ -261,8 +265,14 @@ fn w14_key_from_detail(detail: &str) -> Option<&str> {
         .filter(|key| key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
-fn suppress_after_audit<E>(eligible: bool, append: impl FnOnce() -> Result<(), E>) -> bool {
-    eligible && append().is_ok()
+fn suppress_after_audit<E>(
+    eligible: bool,
+    append: impl FnOnce() -> Result<(), E>,
+) -> Result<bool, E> {
+    if !eligible {
+        return Ok(false);
+    }
+    append().map(|()| true)
 }
 
 #[expect(
@@ -512,9 +522,11 @@ mod tests {
     #[test]
     fn w14_detail_keeps_the_full_key_within_the_event_limit() {
         let key = "a".repeat(64);
-        let detail = w14_event_detail(&"x".repeat(300), &key);
+        let path = "x".repeat(300);
+        let detail = w14_event_detail(&path, &key);
 
-        assert_eq!(detail.chars().count(), EVENT_DETAIL_MAX_CHARS);
+        assert!(detail.chars().count() < W14_EVENT_DETAIL_MAX_CHARS);
+        assert_eq!(first_detail_path(&json!({"detail": detail})), path);
         assert!(detail.ends_with(&format!("||w14_key={key}")));
         assert_eq!(w14_key_from_detail(&detail), Some(key.as_str()));
     }
@@ -603,13 +615,19 @@ mod tests {
     #[test]
     fn suppression_requires_successful_audit_append() {
         let called = std::cell::Cell::new(false);
-        assert!(!suppress_after_audit(false, || {
-            called.set(true);
-            Ok::<(), ()>(())
-        }));
+        assert_eq!(
+            suppress_after_audit(false, || {
+                called.set(true);
+                Ok::<(), ()>(())
+            }),
+            Ok(false)
+        );
         assert!(!called.get());
-        assert!(suppress_after_audit(true, || Ok::<(), ()>(())));
-        assert!(!suppress_after_audit(true, || Err::<(), _>("locked")));
+        assert_eq!(suppress_after_audit(true, || Ok::<(), ()>(())), Ok(true));
+        assert_eq!(
+            suppress_after_audit(true, || Err::<(), _>("locked")),
+            Err("locked")
+        );
     }
 
     #[test]

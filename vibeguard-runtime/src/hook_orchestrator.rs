@@ -14,6 +14,8 @@ use crate::wrapper_env::env_nonempty;
 
 pub(crate) type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+const EVENT_DETAIL_MAX_CHARS: usize = 200;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HookKind {
     PreWrite,
@@ -378,7 +380,7 @@ fn run_source_new(
                         "circuit-breaker",
                         (decision::WARN, None),
                         &reason,
-                        "",
+                        ("", EVENT_DETAIL_MAX_CHARS),
                         elapsed_ms(start),
                     )?;
                 }
@@ -408,7 +410,7 @@ fn run_source_new(
                 "circuit-breaker",
                 (decision::PASS, None),
                 &reason,
-                "",
+                ("", EVENT_DETAIL_MAX_CHARS),
                 elapsed_ms(start),
             )?;
         }
@@ -570,7 +572,7 @@ pub(crate) fn append_hook_event(
         kind.tool_name(),
         (decision_value, None),
         reason,
-        detail,
+        (detail, EVENT_DETAIL_MAX_CHARS),
         duration_ms,
     )
 }
@@ -581,7 +583,7 @@ pub(crate) fn append_hook_event_with_status(
     decision_value: &str,
     status_value: &str,
     reason: &str,
-    detail: &str,
+    detail: (&str, usize),
     duration_ms: u64,
 ) -> Result {
     append_event(
@@ -601,10 +603,11 @@ fn append_event(
     tool_name: &str,
     outcome: (&str, Option<&str>),
     reason: &str,
-    detail: &str,
+    detail: (&str, usize),
     duration_ms: u64,
 ) -> Result {
     let (decision_value, status_value) = outcome;
+    let (detail, detail_max_chars) = detail;
     let (decision_value, reason) = log_policy_decision(decision_value, reason);
     let status_value = status_value.unwrap_or(&decision_value);
     let mut event = json!({
@@ -616,7 +619,7 @@ fn append_event(
         field::DECISION: decision_value,
         field::STATUS: status_value,
         field::REASON: reason,
-        field::DETAIL: truncate_chars(detail, 200),
+        field::DETAIL: truncate_chars(detail, detail_max_chars),
         field::DURATION_MS: duration_ms,
         field::CLI: ctx.cli,
         field::CLIENT: ctx.client,
