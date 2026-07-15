@@ -262,18 +262,25 @@ assert_gc_checker_repo_config_pinned() {
 
 assert_launchd_gc_edge_gates() {
   local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh" plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" output
+  local copy_root="${TMP_HOME}/gc-nonexec-copy" copy_expected original_mode original_digest
+  original_mode="$(stat -f '%Lp' "${expected}" 2>/dev/null || stat -c '%a' "${expected}")"
+  original_digest="$(shasum -a 256 "${expected}" | cut -d' ' -f1)"
   mkdir -p "${HOME}/Library/LaunchAgents" "${HOME}/.vibeguard"
   touch "${HOME}/.launchctl-vibeguard-loaded"
   : > "${HOME}/.launchctl-vibeguard-target"
   output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
   assert_contains "${output}" "loaded job does not declare gc-scheduled.sh" "launchd loaded job without GC argument is broken"
   assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd loaded job without GC argument skips freshness"
-  printf '%s\n' "${expected}" > "${HOME}/.launchctl-vibeguard-target"
-  chmod -x "${expected}"
-  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
-  chmod +x "${expected}"
-  assert_contains "${output}" "target missing or not executable: ${expected}" "launchd non-executable expected target is broken"
+  mkdir -p "${copy_root}"
+  git -C "${REPO_DIR}" archive HEAD | tar -x -C "${copy_root}"
+  copy_expected="${copy_root}/scripts/gc/gc-scheduled.sh"
+  printf '%s\n' "${copy_expected}" > "${HOME}/.launchctl-vibeguard-target"
+  chmod -x "${copy_expected}"
+  output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${copy_root}/setup.sh" --check)"
+  assert_contains "${output}" "target missing or not executable: ${copy_expected}" "launchd non-executable expected target is broken"
   assert_not_contains "${output}" "Scheduled GC execution freshness" "launchd non-executable expected target skips freshness"
+  assert_cmd "launchd non-executable fixture preserves scheduler mode" test "$(stat -f '%Lp' "${expected}" 2>/dev/null || stat -c '%a' "${expected}")" = "${original_mode}"
+  assert_cmd "launchd non-executable fixture preserves scheduler digest" test "$(shasum -a 256 "${expected}" | cut -d' ' -f1)" = "${original_digest}"
   rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target"
   sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" > "${plist}"
   output="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
@@ -344,7 +351,6 @@ backup_repo_git_hooks
 cleanup() {
   export HOME="${ORIG_HOME}"
   export PATH="${ORIG_PATH}"
-  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh" 2>/dev/null || true
   if [[ -n "${LINKED_WORKTREE_PATH}" ]]; then
     git -C "${REPO_DIR}" worktree remove --force "${LINKED_WORKTREE_PATH}" >/dev/null 2>&1 || true
     git -C "${REPO_DIR}" worktree prune >/dev/null 2>&1 || true
