@@ -25,12 +25,11 @@ pub(crate) fn detect_history_warnings(
     ctx: &RuntimeContext,
     start: Instant,
     file_path: &str,
-    detail: &str,
     old_string: &str,
     new_string: &str,
+    events: &[Value],
     warnings: &mut Vec<String>,
 ) {
-    let events = read_post_edit_history_events(ctx);
     let session_events = events
         .iter()
         .filter(|event| {
@@ -38,10 +37,10 @@ pub(crate) fn detect_history_warnings(
         })
         .cloned()
         .collect::<Vec<_>>();
-    detect_churn(ctx, start, file_path, &session_events, &events, warnings);
-    detect_w14(ctx, start, file_path, &events, warnings);
+    detect_churn(ctx, start, file_path, &session_events, events, warnings);
+    detect_w14(ctx, start, file_path, events, warnings);
     detect_w15(
-        ctx, start, file_path, detail, old_string, new_string, &events, warnings,
+        ctx, start, file_path, old_string, new_string, events, warnings,
     );
 }
 
@@ -67,42 +66,58 @@ fn detect_churn(
     if churn_count >= 20 {
         let build_fail_count = count_build_failures(events);
         if build_fail_count >= 5 {
-            warnings.push(format!("[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {churn_count} times and the project has {build_fail_count} consecutive build failures — possible edit->fail->fix loop\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)\nDO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause"));
-            append_history_event(
-                ctx,
-                start,
-                decision::ESCALATE,
-                &format!("churn {churn_count}x critical build_fails {build_fail_count}x"),
-                file_path,
+            let warning = format!(
+                "[CHURN CRITICAL] [review] [this-file] OBSERVATION: {basename} has been edited {churn_count} times and the project has {build_fail_count} consecutive build failures — possible edit->fail->fix loop\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify; if failed loop, stop and re-check root cause (W-02)\nDO NOT: Keep making equivalent fix attempts without fresh build output and a confirmed root cause"
             );
+            preserve_warning_after_append(ctx, warnings, warning, || {
+                append_history_event(
+                    ctx,
+                    start,
+                    decision::ESCALATE,
+                    &format!("churn {churn_count}x critical build_fails {build_fail_count}x"),
+                    file_path,
+                )
+            });
         } else {
-            warnings.push(format!("[CHURN WARNING] [review] [this-file] OBSERVATION: {basename} has been edited {churn_count} times — high edit volume without repeated build-failure evidence\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.\nDO NOT: Treat edit count alone as proof of W-02 failure-loop behavior"));
+            let warning = format!(
+                "[CHURN WARNING] [review] [this-file] OBSERVATION: {basename} has been edited {churn_count} times — high edit volume without repeated build-failure evidence\nFIX: Pause and classify: planned refactor vs failed repair loop. If planned, make one scoped finishing edit and verify.\nDO NOT: Treat edit count alone as proof of W-02 failure-loop behavior"
+            );
+            preserve_warning_after_append(ctx, warnings, warning, || {
+                append_history_event(
+                    ctx,
+                    start,
+                    decision::CORRECTION,
+                    &format!("churn {churn_count}x volume"),
+                    file_path,
+                )
+            });
+        }
+    } else if churn_count >= 10 {
+        let warning = format!(
+            "[CHURN WARNING] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times — high edit volume\nFIX: Run full build to see the complete picture, or classify whether this is a planned refactor before continuing\nDO NOT: Take any action — monitor and decide whether to continue"
+        );
+        preserve_warning_after_append(ctx, warnings, warning, || {
             append_history_event(
                 ctx,
                 start,
                 decision::CORRECTION,
-                &format!("churn {churn_count}x volume"),
+                &format!("churn {churn_count}x warning"),
                 file_path,
-            );
-        }
-    } else if churn_count >= 10 {
-        warnings.push(format!("[CHURN WARNING] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times — high edit volume\nFIX: Run full build to see the complete picture, or classify whether this is a planned refactor before continuing\nDO NOT: Take any action — monitor and decide whether to continue"));
-        append_history_event(
-            ctx,
-            start,
-            decision::CORRECTION,
-            &format!("churn {churn_count}x warning"),
-            file_path,
-        );
+            )
+        });
     } else if churn_count >= 5 {
-        warnings.push(format!("[CHURN] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times\nFIX: Check if you are in a correction loop before continuing\nDO NOT: Take any action — this is informational only"));
-        append_history_event(
-            ctx,
-            start,
-            decision::CORRECTION,
-            &format!("churn {churn_count}x"),
-            file_path,
+        let warning = format!(
+            "[CHURN] [info] [this-file] OBSERVATION: {basename} has been edited {churn_count} times\nFIX: Check if you are in a correction loop before continuing\nDO NOT: Take any action — this is informational only"
         );
+        preserve_warning_after_append(ctx, warnings, warning, || {
+            append_history_event(
+                ctx,
+                start,
+                decision::CORRECTION,
+                &format!("churn {churn_count}x"),
+                file_path,
+            )
+        });
     }
 }
 
@@ -274,15 +289,10 @@ fn suppress_after_audit<E>(
     append().map(|()| true)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "W-15 detection consumes the complete edit and history context"
-)]
 fn detect_w15(
     ctx: &RuntimeContext,
     start: Instant,
     file_path: &str,
-    detail: &str,
     old_string: &str,
     new_string: &str,
     events: &[Value],
@@ -301,14 +311,20 @@ fn detect_w15(
     let cur = current_delta.unsigned_abs();
     if prev2 >= prev && prev >= cur && cur < 300 {
         let total = trail.consecutive + 1;
-        warnings.push(format!("[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {} with shrinking change radius (|Δ| {prev2}→{prev}→{cur} chars; latest <300)\nFIX: Pause — are these {total} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting\nESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)", post_edit_history_file_name(file_path), total + 1));
-        append_history_event(
-            ctx,
-            start,
-            decision::WARN,
-            &format!("w15 shrinking radius {prev2}>{prev}>{cur}"),
-            detail,
+        let warning = format!(
+            "[W-15] [review] [this-file] OBSERVATION: {total} consecutive edits to {} with shrinking change radius (|Δ| {prev2}→{prev}→{cur} chars; latest <300)\nFIX: Pause — are these {total} edits solving the same problem? If radius keeps shrinking, report a blocker instead of continuing to round {}\nDO NOT: Toggle between equivalent rewrites; do not continue same-direction micro-tuning without reporting\nESCAPE: set VIBEGUARD_SUPPRESS_W15=1 to suppress (e.g. for long-document writing)",
+            post_edit_history_file_name(file_path),
+            total + 1
         );
+        preserve_warning_after_append(ctx, warnings, warning, || {
+            append_history_event(
+                ctx,
+                start,
+                decision::WARN,
+                &format!("w15 shrinking radius {prev2}>{prev}>{cur}"),
+                &format!("{file_path}||delta={current_delta}"),
+            )
+        });
     }
 }
 
@@ -343,12 +359,8 @@ fn same_file_edit_trail(events: &[Value], session: &str, file_path: &str) -> W15
     }
 }
 
-pub(crate) fn count_prior_warn_events(ctx: &RuntimeContext, file_path: &str) -> usize {
-    count_prior_warn_events_in(
-        &read_post_edit_history_events(ctx),
-        &ctx.session_id,
-        file_path,
-    )
+pub(crate) fn count_prior_warn_events(events: &[Value], session: &str, file_path: &str) -> usize {
+    count_prior_warn_events_in(events, session, file_path)
 }
 
 fn count_prior_warn_events_in(events: &[Value], session: &str, file_path: &str) -> usize {
@@ -375,14 +387,14 @@ fn append_history_event(
     decision_value: &str,
     reason: &str,
     detail: &str,
-) {
+) -> crate::hook_orchestrator::Result {
     let status_value = match decision_value {
         decision::ESCALATE => status::ESCALATE,
         decision::CORRECTION => status::CORRECTION,
         decision::WARN => status::WARN,
         _ => decision_value,
     };
-    let _ = append_hook_event(
+    append_hook_event(
         ctx,
         HookKind::PostEdit,
         decision_value,
@@ -390,17 +402,51 @@ fn append_history_event(
         reason,
         detail,
         elapsed_ms(start),
-    );
+    )
 }
 
-fn read_post_edit_history_events(ctx: &RuntimeContext) -> Vec<Value> {
+fn preserve_warning_after_append<E: std::fmt::Display>(
+    ctx: &RuntimeContext,
+    warnings: &mut Vec<String>,
+    warning: String,
+    append: impl FnOnce() -> std::result::Result<(), E>,
+) {
+    warnings.push(warning);
+    if let Err(err) = append() {
+        warnings.push(format!(
+            "VIBEGUARD internal error [VG-INTERNAL-LOG-APPEND]: hook=post-edit-guard tool=Edit failure_kind=runtime mode=allow project={} session={} log_path={} recovery=bash scripts/hook-health.sh 24 detail=post-edit history telemetry append failed: {err}",
+            ctx.project_hash,
+            ctx.session_id,
+            ctx.log_file.display()
+        ));
+    }
+}
+
+pub(crate) fn read_post_edit_history_events(ctx: &RuntimeContext) -> std::io::Result<Vec<Value>> {
     let log_file = ctx.log_file.to_string_lossy();
-    let Ok(text) = read_tail_lines(&log_file, POST_EDIT_HISTORY_LINES) else {
-        return Vec::new();
+    let text = match read_tail_lines(&log_file, POST_EDIT_HISTORY_LINES) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err),
     };
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        .collect()
+    let mut events = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let event = serde_json::from_str::<Value>(line).map_err(|err| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "malformed post-edit history JSONL at line {}: {err}",
+                    index + 1
+                ),
+            )
+        })?;
+        events.push(event);
+    }
+    Ok(events)
 }
 
 fn count_build_failures(events: &[Value]) -> u32 {
@@ -455,6 +501,19 @@ fn post_edit_history_extension(file_path: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn test_context(log_file: std::path::PathBuf) -> RuntimeContext {
+        RuntimeContext {
+            log_root: log_file.parent().unwrap().to_path_buf(),
+            log_file,
+            project_hash: "test-project".into(),
+            session_id: "current".into(),
+            cli: "codex".into(),
+            client: "codex".into(),
+            client_variant: "codex-cli-hooks".into(),
+            caller_evidence: "explicit-test".into(),
+        }
+    }
 
     fn w14_shown_event(session: &str, key: &str, timestamp: u64) -> Value {
         json!({
@@ -651,4 +710,45 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn shared_history_snapshot_drives_warnings_and_prior_count() {
+        let root = std::env::temp_dir().join(format!("vg-history-snapshot-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = test_context(root.join("events.jsonl"));
+        let event = json!({
+            "session":"current", "hook":"post-edit-guard", "tool":"Edit",
+            "decision":"warn", "reason":"[RS-03] prior", "detail":"src/main.rs||delta=9"
+        });
+        std::fs::write(&ctx.log_file, format!("{event}\n")).unwrap();
+
+        let events = read_post_edit_history_events(&ctx).unwrap();
+        assert_eq!(
+            count_prior_warn_events(&events, "current", "src/main.rs"),
+            1
+        );
+        assert_eq!(
+            same_file_edit_trail(&events, "current", "src/main.rs").consecutive,
+            1
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn append_failure_preserves_churn_and_w15_warnings() {
+        let ctx = test_context(std::path::PathBuf::from("/not-written/events.jsonl"));
+        for label in ["[CHURN] original warning", "[W-15] original warning"] {
+            let mut warnings = Vec::new();
+            preserve_warning_after_append(&ctx, &mut warnings, label.to_string(), || {
+                Err::<(), _>(std::io::Error::other("injected append failure"))
+            });
+            assert_eq!(warnings[0], label);
+            assert!(warnings[1].contains("VG-INTERNAL-LOG-APPEND"));
+            assert!(warnings[1].contains("history telemetry append failed"));
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "hook_orchestrator_post_edit_history_tests.rs"]
+mod review_tests;

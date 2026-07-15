@@ -38,16 +38,31 @@ pub(crate) fn post_edit_history_signals(
     session: &str,
     agent: &str,
     file_path: &str,
-) -> Option<PostEditHistorySignals> {
-    let Ok(lines) = read_tail_lines(log_file, POST_EDIT_HISTORY_LINES) else {
-        return None;
+) -> io::Result<Option<PostEditHistorySignals>> {
+    let lines = match read_tail_lines(log_file, POST_EDIT_HISTORY_LINES) {
+        Ok(lines) => lines,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
     };
-    let events = lines
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
+    let mut events = Vec::new();
+    for (index, line) in lines.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let event = serde_json::from_str::<Value>(line).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "malformed post-edit history JSONL at line {}: {err}",
+                    index + 1
+                ),
+            )
+        })?;
+        events.push(event);
+    }
     if events.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let churn_count = events
@@ -74,13 +89,13 @@ pub(crate) fn post_edit_history_signals(
         0
     };
 
-    Some(PostEditHistorySignals {
+    Ok(Some(PostEditHistorySignals {
         churn_count,
         build_fail_count,
         warn_count,
         w15_count: consecutive_post_edit_count(&events, session, file_path),
         overlap: recent_overlap(&events, session, agent, file_path),
-    })
+    }))
 }
 
 fn count_session_build_fail_events(events: &[Value], session: &str, project: &str) -> u32 {
@@ -407,6 +422,56 @@ mod tests {
     }
 
     #[test]
+    fn history_signals_distinguish_no_history_from_malformed_history() {
+        let root =
+            std::env::temp_dir().join(format!("vibeguard-history-result-{}", std::process::id()));
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        let log_file = root.join("events.jsonl");
+        let log_path = log_file.to_string_lossy();
+
+        assert!(
+            post_edit_history_signals(&log_path, "s", "", "src/lib.rs")
+                .unwrap()
+                .is_none()
+        );
+        std::fs::write(&log_file, "\n").unwrap();
+        assert!(
+            post_edit_history_signals(&log_path, "s", "", "src/lib.rs")
+                .unwrap()
+                .is_none()
+        );
+        std::fs::write(&log_file, "not-json\n").unwrap();
+        let err = post_edit_history_signals(&log_path, "s", "", "src/lib.rs")
+            .err()
+            .expect("malformed non-empty history must fail");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string()
+                .contains("malformed post-edit history JSONL")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_history_reader_returns_only_requested_tail() {
+        let log_file = std::env::temp_dir().join(format!(
+            "vibeguard-history-tail-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(&log_file, "first\nsecond\nthird\nfourth\n").unwrap();
+
+        assert_eq!(
+            read_tail_lines(log_file.to_string_lossy().as_ref(), 2).unwrap(),
+            "third\nfourth\n"
+        );
+        assert_eq!(normalize_path(""), "");
+        std::fs::remove_file(log_file).unwrap();
+    }
+
+    #[test]
     fn w15_candidate_requires_shell_delta_check() {
         let signals = PostEditHistorySignals {
             churn_count: 0,
@@ -504,7 +569,9 @@ mod tests {
             .join("\n");
         std::fs::write(&log_file, format!("{text}\n")).unwrap();
 
-        let signals = post_edit_history_signals(&log_path, "s", "", "src/lib.rs").unwrap();
+        let signals = post_edit_history_signals(&log_path, "s", "", "src/lib.rs")
+            .unwrap()
+            .unwrap();
         assert_eq!(signals.warn_count, 2);
 
         let _ = std::fs::remove_file(log_file);
@@ -586,7 +653,9 @@ mod tests {
             .join("\n");
         std::fs::write(&log_file, format!("{text}\n")).unwrap();
 
-        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs").unwrap();
+        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs")
+            .unwrap()
+            .unwrap();
         assert_eq!(signals.churn_count, 20);
         assert_eq!(signals.build_fail_count, 0);
 
@@ -606,7 +675,9 @@ mod tests {
             .join("\n");
         std::fs::write(&log_file, format!("{text}\n")).unwrap();
 
-        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs").unwrap();
+        let signals = post_edit_history_signals(&log_path, "current", "", "src/lib.rs")
+            .unwrap()
+            .unwrap();
         assert_eq!(signals.build_fail_count, 5);
 
         let _ = std::fs::remove_file(log_file);

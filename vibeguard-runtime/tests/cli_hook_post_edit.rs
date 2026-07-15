@@ -88,6 +88,23 @@ fn post_edit_malformed_input_warns_visibly_and_logs() {
 }
 
 #[test]
+fn post_edit_malformed_input_keeps_warning_visible_when_log_fails() {
+    let (root, repo, log_root, _) = case_paths("post-edit-malformed-log-failure");
+    let blocking_parent = root.join("not-a-directory");
+    fs::write(&blocking_parent, "blocks log parent creation").unwrap();
+    let log_file = blocking_parent.join("events.jsonl");
+    let out = run_post_edit(&repo, &log_root, &log_file, "not-json");
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("malformed PostToolUse(Edit)"), "{stdout}");
+    assert!(stdout.contains("VG-INTERNAL-LOG-APPEND"), "{stdout}");
+    assert!(stdout.contains("mode=allow"), "{stdout}");
+    assert!(!log_file.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn post_edit_missing_fields_stay_silent_without_pass_log() {
     let (root, repo, log_root, log_file) = case_paths("post-edit-missing-fields");
 
@@ -172,6 +189,44 @@ fn post_edit_prior_warnings_escalate_current_warning() {
     let event = events.last().unwrap();
     assert_eq!(event["decision"], "escalate");
     assert!(event["reason"].as_str().unwrap().contains("[ESCALATE]"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_malformed_history_is_reported_visibly() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-malformed-history");
+    fs::write(&log_file, "not-json\n").unwrap();
+    let input = edit_input("src/lib.rs", "safe_call()?", "unsafe_call().unwrap()");
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("VG-INTERNAL-HISTORY-READ"), "{stdout}");
+    assert!(
+        stdout.contains("malformed post-edit history JSONL"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("[RS-03]"), "{stdout}");
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.starts_with("not-json\n"), "{log_text}");
+    assert!(log_text.contains("VG-INTERNAL-HISTORY-READ"), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_history_read_failure_preserves_stateless_warning() {
+    let (root, repo, log_root, _) = case_paths("post-edit-history-read-failure");
+    let log_file = log_root.join("projects/post-edit-project/events-as-directory");
+    fs::create_dir_all(&log_file).unwrap();
+    let input = edit_input("src/lib.rs", "safe_call()?", "unsafe_call().unwrap()");
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("VG-INTERNAL-HISTORY-READ"), "{stdout}");
+    assert!(stdout.contains("[RS-03]"), "{stdout}");
+    assert!(stdout.contains("VG-INTERNAL-LOG-APPEND"), "{stdout}");
+    assert!(log_file.is_dir());
     let _ = fs::remove_dir_all(root);
 }
 
