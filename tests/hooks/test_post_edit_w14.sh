@@ -109,10 +109,10 @@ print(json.dumps(matches[-1], sort_keys=True) if matches else "")
 assert_contains "$_w14_shown_event" '"decision": "warn"' "First W-14 records dedicated shown evidence"
 
 _w14_repeat=$(
-  printf '{"tool_input":{"file_path":"%s","new_string":"value = 3\\n"}}' "$_w14_rel" \
+  printf '{"tool_input":{"file_path":"%s","new_string":"value = 3\\n"}}' "$_w14_file" \
     | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" bash hooks/post-edit-guard.sh
 )
-assert_not_contains "$_w14_repeat" "[W-14]" "W-14 suppresses the same directed pair and file inside cooldown"
+assert_not_contains "$_w14_repeat" "[W-14]" "W-14 reuses cooldown across relative and absolute forms of the same file"
 _w14_suppressed_event=$(python3 -c '
 import json, sys
 events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
@@ -177,7 +177,10 @@ printf 'not-json\n' >> "$_w14_log_file"
 _w14_bad_history=$(_w14_run "$_w14_file")
 assert_contains "$_w14_bad_history" "[W-14]" "W-14 malformed history fails open"
 
-_w14_long_dir="$_w14_dir/$(printf 'x%.0s' {1..140})"
+_w14_long_dir="$_w14_dir"
+for _w14_component_index in {1..8}; do
+  _w14_long_dir="$_w14_long_dir/$(printf 'x%.0s' {1..100})$_w14_component_index"
+done
 mkdir -p "$_w14_long_dir"
 _w14_long_file="$_w14_long_dir/long.py"
 printf 'value = 1\n' > "$_w14_long_file"

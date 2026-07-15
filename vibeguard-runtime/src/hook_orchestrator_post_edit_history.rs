@@ -18,7 +18,6 @@ use crate::time_utils::{now_unix_secs, parse_iso_ts};
 
 const POST_EDIT_HISTORY_LINES: usize = 500;
 const W14_COOLDOWN_DEFAULT_SECONDS: &str = "3600";
-const W14_EVENT_DETAIL_MAX_CHARS: usize = 4096;
 const W14_SHOWN_REASON_PREFIX: &str = "[W-14] overlap shown";
 const W14_SUPPRESSED_REASON_PREFIX: &str = "[W-14] overlap suppressed cooldown";
 
@@ -148,16 +147,15 @@ fn detect_w14_at(
         let eligible = cooldown_seconds > 0
             && has_recent_w14_shown(events, &ctx.session_id, key, now, cooldown_seconds);
         match suppress_after_audit(eligible, || {
+            let detail = w14_event_detail(file_path, key);
+            let detail_limit = detail.chars().count();
             append_hook_event_with_status(
                 ctx,
                 HookKind::PostEdit,
                 decision::PASS,
                 status::SKIPPED,
                 W14_SUPPRESSED_REASON_PREFIX,
-                (
-                    &w14_event_detail(file_path, key),
-                    W14_EVENT_DETAIL_MAX_CHARS,
-                ),
+                (&detail, detail_limit),
                 elapsed_ms(start),
             )
         }) {
@@ -173,6 +171,7 @@ fn detect_w14_at(
         .as_deref()
         .map(|key| w14_event_detail(file_path, key))
         .unwrap_or_else(|| file_path.to_string());
+    let detail_limit = detail.chars().count();
     if let Err(err) = append_hook_event_with_status(
         ctx,
         HookKind::PostEdit,
@@ -187,7 +186,7 @@ fn detect_w14_at(
                 &overlap.agent
             }
         ),
-        (&detail, W14_EVENT_DETAIL_MAX_CHARS),
+        (&detail, detail_limit),
         elapsed_ms(start),
     ) {
         eprintln!("VIBEGUARD: W-14 shown evidence append failed: {err}");
@@ -520,12 +519,13 @@ mod tests {
     }
 
     #[test]
-    fn w14_detail_keeps_the_full_key_within_the_event_limit() {
+    fn w14_detail_keeps_the_full_path_and_key_at_platform_scale() {
         let key = "a".repeat(64);
-        let path = "x".repeat(300);
+        let path = "x".repeat(8192);
         let detail = w14_event_detail(&path, &key);
+        let detail_limit = detail.chars().count();
 
-        assert!(detail.chars().count() < W14_EVENT_DETAIL_MAX_CHARS);
+        assert_eq!(detail_limit, path.chars().count() + 10 + key.len());
         assert_eq!(first_detail_path(&json!({"detail": detail})), path);
         assert!(detail.ends_with(&format!("||w14_key={key}")));
         assert_eq!(w14_key_from_detail(&detail), Some(key.as_str()));
