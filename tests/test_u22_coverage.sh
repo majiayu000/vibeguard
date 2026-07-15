@@ -67,10 +67,10 @@ run_gate() {
 
 success_out="$(run_gate bash "${CHECK}" "${REPO_DIR}")"
 assert_cmd "coverage gate accepts a successful measured run" test -n "${success_out}"
-assert_cmd "coverage output names the 72% blocking baseline" grep -Fq "blocking baseline=72%" <<< "${success_out}"
+assert_cmd "coverage output names the 76% blocking baseline" grep -Fq "blocking baseline=76%" <<< "${success_out}"
 assert_cmd "coverage output keeps the 80% target visible" grep -Fq "target=80% (target not yet enforced)" <<< "${success_out}"
 assert_cmd "coverage command uses the locked runtime manifest" grep -Fq \
-  "llvm-cov --locked --manifest-path ${REPO_DIR}/vibeguard-runtime/Cargo.toml --summary-only --fail-under-lines 72" \
+  "llvm-cov --locked --manifest-path ${REPO_DIR}/vibeguard-runtime/Cargo.toml --summary-only --fail-under-lines 76" \
   "${CALL_LOG}"
 
 assert_fails "missing cargo-llvm-cov fails closed" env \
