@@ -721,7 +721,6 @@ fn pre_bash_all_append_errors_propagate() {
     assert_pre_bash_log_failure("prebash-log-missing-tool", &correction, |command| {
         command.env_remove("PATH");
     });
-
     let tools = unique_temp_dir("prebash-log-tools");
     fs::create_dir_all(&tools).unwrap();
     write_executable(&tools.join("uv"), "#!/bin/sh\nexit 0\n");
@@ -771,6 +770,29 @@ fn pre_bash_empty_and_pass_preserve_behavior() {
 
     let input = pre_bash_input("echo ok");
     let (root, logs, out) = run_pre_bash_case("prebash-pass", &input, |_| {});
+    assert!(out.stdout.is_empty());
+    assert_eq!(first_project_event(&logs)["decision"], "pass");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn pre_bash_deleted_cwd_uses_defensive_fallbacks() {
+    let root = unique_temp_dir("prebash-deleted-cwd");
+    let (repo, logs) = (root.join("repo"), root.join("logs"));
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    let mut command = hook_command(&repo, &logs);
+    command.args(["hook", "pre-bash"]).stdin(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    fs::remove_dir_all(&repo).unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(pre_bash_input("git commit -m deleted-cwd").as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
     assert_eq!(first_project_event(&logs)["decision"], "pass");
     let _ = fs::remove_dir_all(root);
