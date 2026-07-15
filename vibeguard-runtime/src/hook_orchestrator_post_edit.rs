@@ -252,12 +252,12 @@ fn detect_stubs(file_path: &str, new_string: &str, warnings: &mut Vec<String>) {
     let (patterns, lang_desc) = match extension(file_path).as_str() {
         "rs" if has_any(
             new_string,
-            &["todo!(", "unimplemented!(", "panic!(\"not implemented"],
+            &["todo!(", "unimplemented!(", "panic!(\"not implemented"], // slop-pattern-source
         ) =>
         {
             (
-                vec![r#"^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)"#],
-                "todo!/unimplemented!",
+                vec![r#"^\s*(todo!\(|unimplemented!\(|panic!\("not implemented)"#], // slop-pattern-source
+                "todo!/unimplemented!", // slop-pattern-source
             )
         }
         "ts" | "tsx" | "js" | "jsx"
