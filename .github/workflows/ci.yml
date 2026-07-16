@@ -336,7 +336,7 @@ jobs:
 
       - name: Hook latency benchmark
         shell: bash
-        run: bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression
+        run: bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression
 
       - name: Upload benchmark results
         if: runner.os == 'Linux'

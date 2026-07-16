@@ -595,7 +595,7 @@ workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
 required_steps = {
     "Hook performance static analysis": "bash scripts/ci/validate-hook-perf.sh",
     "Hook performance contract regression tests": "bash tests/test_hook_perf_contract.sh",
-    "Hook latency benchmark": "bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression",
+    "Hook latency benchmark": "bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression",
 }
 
 for name, command in required_steps.items():
