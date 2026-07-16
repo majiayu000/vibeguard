@@ -33,13 +33,26 @@ fixture 产生 1014ms/900ms outlier，证明错误不是特定 hook 的持续回
 3. 初始 P95 breach 且 environment healthy 时，用完全相同的 fixture、budget、环境与
    `RUNS` 执行 confirmation batch。confirmation breach 才累加 `FAILURES`；confirmation
    pass 使用明确的 `PASS-CONFIRMED`（最终命名由实现保持一致）状态。
-4. 每个 result 保留 initial metrics，并在触发确认时附加 confirmation metrics、
-   confirmation_runs 与 final decision。benchmark-action output 使用稳定的具名 initial/
-   confirmation P95 entries，不能只发布 cleared 后的较小值。
-5. 新增 deterministic transient synthetic fixture：第一次批次超 budget，后续确认批次正常；
-   与现有 persistent synthetic slow fixture 分别固定 cleared 与 confirmed-regression 分支。
-6. confirmation 命令失败、样本数不足或 percentile 为空时输出 ERROR 并非零退出。继续保留
-   environment-distorted 分支，不把它计为 confirmation。
+4. Internal JSON 的旧顶层 `p50/p95/p99/max/status/runs` 始终镜像 initial batch，保持旧
+   consumer 语义；新增 `decision` 闭集 `normal_pass | cleared_transient |
+   confirmed_regression | environment_distorted | confirmation_error`、`initial` metrics object、
+   `confirmation`（未触发/失败时为 null，否则为同 shape metrics object）和
+   `confirmation_runs`（未触发为 0）。
+5. Benchmark-action 的旧 `e2e <display> P50/P95/P99` rows 保持 initial 数值且继续使用
+   `unit: ms`。触发确认时追加固定 rows：`e2e <display> confirmation P95`、
+   `e2e <display> budget`，以及三选一的 `e2e <display> decision cleared`、
+   `... decision confirmed-regression`、`... decision confirmation-error`；decision row 的
+   numeric value 为 confirmation P95，error 时为 initial P95。所有新增 row 仍为 ms，旧
+   JSON parser contract 不变。
+6. 新增 deterministic direct transient 与 wrapper transient fixtures：第一次批次超 budget，
+   后续确认批次正常；与现有 persistent synthetic slow fixture 分别固定两种 adapter 的
+   cleared 分支和 confirmed-regression 分支。wrapper fixture 必须断言恰好一次确认并复用
+   相同 serializer/decision enum。
+7. confirmation 命令失败、样本数不足或 percentile 为空时输出 ERROR 并非零退出，同时先
+   flush initial evidence：internal decision 为 `confirmation_error`、confirmation 为 null；
+   action output 只有 initial/budget/error rows，严禁 cleared row。继续保留 distorted 分支。
+8. 新增正整数参数 `--confirmation-runs=<n>`，默认等于 `RUNS`；CI 显式传
+   `--confirmation-runs=3`，使 hard-gate 语义不依赖隐式默认。非法值按 B-009 失败。
 
 ## Product-to-Test Mapping
 
@@ -49,9 +62,9 @@ fixture 产生 1014ms/900ms outlier，证明错误不是特定 hook 的持续回
 | B-002 | confirmed regression decision | persistent slow fixture 非零且两批均 breach |
 | B-003/B-004 | evidence model 与 serializers | console/JSON/action output 断言 initial、confirmation、budget、cleared decision |
 | B-006 | existing distortion branch | 既有 distorted spawn test 保持通过且无伪 confirmation |
-| B-007 | shared evaluator | static/source assertion + direct transient 与 wrapper-compatible result schema |
+| B-007 | shared evaluator | direct transient 与 deterministic wrapper transient 都断言一次确认、相同 decision/evidence serializer |
 | B-008 | deterministic synthetic fixtures | `bash tests/test_hook_perf_contract.sh` |
-| B-009 | validation/error path | invalid runs/confirmation failure fixture 非零且具名 ERROR |
+| B-009 | validation/error path | confirmation failure 开启两类 machine output，断言非零、initial 保留、confirmation null、error row 存在且 cleared/PASS rows 不存在 |
 
 ## 备选方案
 

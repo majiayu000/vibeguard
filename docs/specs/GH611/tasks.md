@@ -11,9 +11,9 @@ GH-611
 
 ## 实现任务
 
-- [ ] `SP611-T1` Owner: implementation agent — 为 transient outlier、persistent regression、normal 和 distorted 路径补 deterministic red tests。Depends on: Spec PR merged and live implementation route allowed。Covers: B-001, B-002, B-003, B-005, B-006, B-008, B-009。Done when: 当前实现不能区分 transient/persistent，新增断言以预期方式失败且未弱化既有 slow fixture。Verify: focused contract harness。
+- [ ] `SP611-T1` Owner: implementation agent — 为 direct transient、wrapper transient、persistent regression、normal、distorted 与 confirmation-error 路径补 deterministic red tests。Depends on: Spec PR merged and live implementation route allowed。Covers: B-001, B-002, B-003, B-005, B-006, B-007, B-008, B-009。Done when: 两种 adapter 都证明恰好一次确认；error fixture 同时开启 internal/action output 并断言无 cleared/PASS evidence；既有 slow fixture 未弱化。Verify: focused contract harness。
 - [ ] `SP611-T2` Owner: implementation agent — 抽取 direct/wrapper 共用的 sampling/percentile/confirmation decision，并只在 initial breach 时运行同 fixture confirmation。Depends on: SP611-T1。Covers: B-001, B-002, B-003, B-005, B-006, B-007, B-009。Done when: 相同 budget/workload 下 transient cleared、persistent fail closed、normal 无额外批次，错误路径显式失败。Verify: syntax、ShellCheck、focused contract harness。
-- [ ] `SP611-T3` Owner: implementation agent — 扩展 console/internal/action evidence 并更新 latency contract，不改变预算表。Depends on: SP611-T2。Covers: B-003, B-004, B-007, B-008。Done when: 三种输出保留 initial/confirmation/final decision，旧核心 metrics 仍存在。Verify: JSON parsing 与具名 output assertions。
+- [ ] `SP611-T3` Owner: implementation agent — 按 tech spec 的固定字段/row names 扩展 console/internal/action evidence，更新 latency contract，并让 CI 显式传 `--confirmation-runs=3`。Depends on: SP611-T2。Covers: B-003, B-004, B-007, B-008, B-009。Done when: 旧 canonical rows 仍为 initial metrics；新增 confirmation/budget/decision rows 精确；CI 与文档显式声明确认参数；预算表不变。Verify: JSON parsing、具名 output assertions、CI source assertion。
 - [ ] `SP611-T4` Owner: verification owner + independent reviewer — 运行真实 CI 等价 benchmark、performance/broad gates并逐项审查。Depends on: SP611-T3。Covers: B-001..B-009。Done when: deterministic gates 全绿、persistent slow 仍红、无 budget/hook/timeout scope drift，当前 PR head 的 CI/threads/PR gate 有 fresh 证据。Verify: performance contract、latency benchmark、local contract quick、SpecRail review/gate。
 
 ## 并行拆分
@@ -23,7 +23,7 @@ T4 reviewer 只读。
 
 | Lane | Owner | Writable files |
 | --- | --- | --- |
-| implementation | `/root` | `tests/bench_hook_latency.sh`, `tests/test_hook_perf_contract.sh`, `docs/reference/hook-latency-contract.md` 及必要的 CI invocation |
+| implementation | `/root` | `tests/bench_hook_latency.sh`, `tests/test_hook_perf_contract.sh`, `docs/reference/hook-latency-contract.md`, `.github/workflows/ci.yml` |
 | verification | `/root` | none |
 | independent_review | native reviewer agent | none |
 
