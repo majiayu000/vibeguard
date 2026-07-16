@@ -30,8 +30,8 @@ GH-621
 - 不合并 `scripts/setup/lib.sh` 中面向 check/clean/bootstrap 的 quiet downloader；它有不同
   消费者和输出合同。
 - 不重写 setup 测试框架，不弱化或删除现有断言。
-- 不在本 Issue 中拆分 854 行的 `tests/test_self_application_ci.sh`；该独立违规保留给下一
-  优化周期。
+- 不在本 Issue 中修改或拆分 854 行的 `tests/test_self_application_ci.sh`；该独立违规已由
+  GH-623 排队，使用独立 Spec/Impl 周期处理。
 - 不移动公共 setup 路径或修改安装状态/schema 合同。
 
 ## Behavior Invariants
@@ -49,22 +49,26 @@ GH-621
    安装继续使用准备好的同一个 runtime，且 persistent write 的先后关系不变。
 6. B-006：`scripts/setup/install.sh` 小于 800 行；新的 install-time runtime helper 小于
    400 行，且不向已达 714 行的共享 `scripts/setup/lib.sh` 增加职责。
-7. B-007：文本/自应用合同读取 entrypoint 与 helper 组成的完整安装表面，仍能捕获 Python
-   runtime fallback、no-runtime degradation 和缺失来源验证文案；不得通过复制安全字符串
-   到注释来让检查通过。
-8. B-008：新 helper 在被调用前确定性 source；缺失或语法错误必须使 setup 立即失败，不得
-   静默跳过。
+7. B-007：文本/自应用合同读取 entrypoint 与 helper 组成的完整安装表面，分别用
+   entrypoint-only 与 helper-only mutation 证明仍能捕获 Python runtime fallback 和
+   no-runtime degradation；不得通过复制安全字符串到注释来让检查通过。
+8. B-008：新 helper 在被调用前确定性 source；helper 缺失或语法损坏时 setup 必须在任何
+   persistent write、runtime 下载或 source build 前非零失败，不得静默跳过。
 
 ## 验收标准
 
 - [ ] setup focused contract 先证明当前缺少 helper wiring/行数边界，再由实现使其通过。
 - [ ] runtime 安装函数机械移动到一个 `<400` 行 helper，`install.sh` 降到 `<800` 行。
-- [ ] prebuilt、checksum/manifest mutation、strict provenance、version override、source build、
-  project-config、dry-run 和完整安装回归全部通过。
+- [ ] 新 focused matrix 覆盖 attestation verification failure、strict unsupported target、
+  strict unresolved tag、non-strict downloaded-version mismatch fallback，以及 helper 缺失/
+  语法损坏的 fail-before-side-effect 行为。
+- [ ] 既有 prebuilt、checksum/manifest mutation、strict provenance、version override、source
+  build、project-config、dry-run 和完整安装回归全部通过。
 - [ ] release-workflow 合同与 U-29 self-application 检查覆盖两个安装文件并保持 mutation
   捕获能力。
 - [ ] setup 全量测试、release/self-application 测试、quick gate 与 shell syntax fresh 通过。
-- [ ] 没有生成文件、高上下文用户文件、公共文档路径或 CLI 行为变化。
+- [ ] 没有生成文件、高上下文用户文件、公共文档路径或 CLI 行为变化；#621 不修改
+  `tests/test_self_application_ci.sh`。
 
 ## 边界情况清单
 
