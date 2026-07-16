@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH615/` | Draft | Reminder-aware pre-write escalation counting, same-session Grep/Glob recovery, and actionable block guidance |
 | `GH623/` | Draft | Behavior-preserving decomposition of the oversized self-application CI harness into ordered focused test domains |
 | `GH621/` | Draft | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
