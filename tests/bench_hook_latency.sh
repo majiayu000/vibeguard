@@ -27,9 +27,11 @@ GLOBAL_SLA_MS=""
 DEFAULT_BUDGET_MS=300
 RUNS=5
 CONFIRMATION_RUNS=""
+CONFIRMATION_RUNS_SET=false
 INCLUDE_SLOW_FIXTURE=false
 INCLUDE_TRANSIENT_FIXTURES=false
 INCLUDE_CONFIRMATION_ERROR_FIXTURE=false
+INCLUDE_INITIAL_ERROR_FIXTURE=false
 SPAWN_BASELINE_MAX_MS="${VIBEGUARD_BENCH_SPAWN_MAX_MS:-10}"
 SPAWN_BASELINE_MS=""
 ENVIRONMENT_DISTORTED=false
@@ -43,10 +45,11 @@ while [[ $# -gt 0 ]]; do
     --fail-on-regression) FAIL_ON_REGRESSION=true; shift ;;
     --sla=*) GLOBAL_SLA_MS="${1#--sla=}"; shift ;;
     --runs=*) RUNS="${1#--runs=}"; shift ;;
-    --confirmation-runs=*) CONFIRMATION_RUNS="${1#--confirmation-runs=}"; shift ;;
+    --confirmation-runs=*) CONFIRMATION_RUNS="${1#--confirmation-runs=}"; CONFIRMATION_RUNS_SET=true; shift ;;
     --include-slow-fixture) INCLUDE_SLOW_FIXTURE=true; shift ;;
     --include-transient-fixtures) INCLUDE_TRANSIENT_FIXTURES=true; shift ;;
     --include-confirmation-error-fixture) INCLUDE_CONFIRMATION_ERROR_FIXTURE=true; shift ;;
+    --include-initial-error-fixture) INCLUDE_INITIAL_ERROR_FIXTURE=true; shift ;;
     *) shift ;;
   esac
 done
@@ -55,7 +58,7 @@ if [[ ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   printf '%s\n' "ERROR: --runs must be a positive integer" >&2
   exit 2
 fi
-if [[ -z "$CONFIRMATION_RUNS" ]]; then
+if [[ "$CONFIRMATION_RUNS_SET" == "false" ]]; then
   CONFIRMATION_RUNS="$RUNS"
 fi
 if [[ ! "$CONFIRMATION_RUNS" =~ ^[1-9][0-9]*$ ]]; then
@@ -238,7 +241,7 @@ budget_for() {
     codex-wrapper\ pre-bash-guard|codex-wrapper\ post-edit-guard\ \(100\)) printf '%s\n' 900 ;;
     post-build-check\ \(fake\ cargo\)) printf '%s\n' 900 ;;
     synthetic-slow-hook) printf '%s\n' 1 ;;
-    synthetic-transient-hook|codex-wrapper\ synthetic-transient-hook|synthetic-confirmation-error-hook) printf '%s\n' 500 ;;
+    synthetic-transient-hook|codex-wrapper\ synthetic-transient-hook|synthetic-confirmation-error-hook|synthetic-initial-error-hook) printf '%s\n' 500 ;;
     *) printf '%s\n' "$DEFAULT_BUDGET_MS" ;;
   esac
 }
@@ -347,8 +350,9 @@ benchmark_fixture() {
   local -a runner_args=("$@")
   local initial_p50=0 initial_p95=0 initial_p99=0 initial_max=0
   local confirmation_p50=0 confirmation_p95=0 confirmation_p99=0 confirmation_max=0
-  local initial_json confirmation_json="null" confirmation_runs=0
-  local status="PASS" decision="normal_pass"
+  local initial_json="null" confirmation_json="null" confirmation_runs=0
+  local initial_complete=false
+  local status="PASS" legacy_status="PASS" decision="normal_pass"
 
   if ! sample_batch "$RUNS" "$runner" "${runner_args[@]}"; then
     status="ERROR"
@@ -365,6 +369,7 @@ benchmark_fixture() {
     initial_p95="$METRIC_P95"
     initial_p99="$METRIC_P99"
     initial_max="$METRIC_MAX"
+    initial_complete=true
     if [[ "$initial_p95" -gt "$budget_ms" ]]; then
       if [[ "$ENVIRONMENT_DISTORTED" == "true" ]]; then
         status="ENV-DISTORTED"
@@ -403,12 +408,28 @@ benchmark_fixture() {
     fi
   fi
 
-  if [[ "$initial_p95" -le "$budget_ms" || "$ENVIRONMENT_DISTORTED" == "true" || "$status" == "ERROR" ]]; then
+  if [[ "$initial_complete" == "false" ]]; then
+    printf "  %-35s surface=%s  initial metrics=unavailable  budget=%4dms  hotspot=%s  [ERROR]\n" \
+      "$name" "$BENCH_SURFACE" "$budget_ms" "$hotspot"
+  elif [[ "$initial_p95" -le "$budget_ms" || "$ENVIRONMENT_DISTORTED" == "true" || "$status" == "ERROR" ]]; then
     print_metrics_row "$name" "initial" "$initial_p50" "$initial_p95" "$initial_p99" "$initial_max" "$budget_ms" "$hotspot" "$status"
   fi
 
-  initial_json=$(metrics_json "$initial_p50" "$initial_p95" "$initial_p99" "$initial_max" "$RUNS")
-  RESULTS+=("{\"name\":\"$name\",\"surface\":\"$BENCH_SURFACE\",\"p50\":$initial_p50,\"p95\":$initial_p95,\"p99\":$initial_p99,\"max\":$initial_max,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$status\",\"runs\":$RUNS,\"decision\":\"$decision\",\"initial\":$initial_json,\"confirmation\":$confirmation_json,\"confirmation_runs\":$confirmation_runs}")
+  if [[ "$initial_complete" == "true" ]]; then
+    initial_json=$(metrics_json "$initial_p50" "$initial_p95" "$initial_p99" "$initial_max" "$RUNS")
+  fi
+  case "$decision" in
+    environment_distorted) legacy_status="ENV-DISTORTED" ;;
+    cleared_transient|confirmed_regression) legacy_status="FAIL" ;;
+    confirmation_error)
+      [[ "$initial_p95" -gt "$budget_ms" ]] && legacy_status="FAIL" || legacy_status="ERROR"
+      ;;
+  esac
+  if [[ "$initial_complete" == "true" ]]; then
+    RESULTS+=("{\"name\":\"$name\",\"surface\":\"$BENCH_SURFACE\",\"p50\":$initial_p50,\"p95\":$initial_p95,\"p99\":$initial_p99,\"max\":$initial_max,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"$legacy_status\",\"runs\":$RUNS,\"decision\":\"$decision\",\"initial\":$initial_json,\"confirmation\":$confirmation_json,\"confirmation_runs\":$confirmation_runs}")
+  else
+    RESULTS+=("{\"name\":\"$name\",\"surface\":\"$BENCH_SURFACE\",\"p50\":null,\"p95\":null,\"p99\":null,\"max\":null,\"budget_ms\":$budget_ms,\"hotspot\":\"$hotspot\",\"status\":\"ERROR\",\"runs\":0,\"decision\":\"confirmation_error\",\"initial\":null,\"confirmation\":null,\"confirmation_runs\":0}")
+  fi
 }
 
 bench_hook() {
@@ -563,6 +584,12 @@ EOF
   echo ""
 fi
 
+if [[ "$INCLUDE_INITIAL_ERROR_FIXTURE" == "true" ]]; then
+  echo "[Synthetic initial sampling error fixture]"
+  bench_hook "synthetic-initial-error-hook" "$TMPDIR_BENCH/missing-initial-hook.sh" "$TMPDIR_BENCH/stop-input.json" "" 500 "synthetic initial execution error"
+  echo ""
+fi
+
 # --- Summary ---
 echo "======================================"
 if [[ $EXECUTION_ERRORS -gt 0 ]]; then
@@ -632,12 +659,15 @@ if [[ -n "$BENCH_ACTION_FILE" ]]; then
     for r in "${RESULTS[@]}"; do
       _name=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])" 2>/dev/null || echo "unknown")
       _display_name=$(bench_action_name "$_name")
-      _p50=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p50'])" 2>/dev/null || echo "0")
-      _p95=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p95'])" 2>/dev/null || echo "0")
-      _p99=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['p99'])" 2>/dev/null || echo "0")
+      _p50=$(echo "$r" | python3 -c "import json,sys; value=json.load(sys.stdin)['p50']; print('' if value is None else value)" 2>/dev/null || echo "")
+      _p95=$(echo "$r" | python3 -c "import json,sys; value=json.load(sys.stdin)['p95']; print('' if value is None else value)" 2>/dev/null || echo "")
+      _p99=$(echo "$r" | python3 -c "import json,sys; value=json.load(sys.stdin)['p99']; print('' if value is None else value)" 2>/dev/null || echo "")
       _budget=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['budget_ms'])" 2>/dev/null || echo "0")
       _decision=$(echo "$r" | python3 -c "import json,sys; print(json.load(sys.stdin)['decision'])" 2>/dev/null || echo "confirmation_error")
       _confirmation_p95=$(echo "$r" | python3 -c "import json,sys; data=json.load(sys.stdin); print('' if data['confirmation'] is None else data['confirmation']['p95'])" 2>/dev/null || echo "")
+      if [[ -z "$_p95" ]]; then
+        continue
+      fi
       bench_action_row "$_display_name P50" "$_p50"
       bench_action_row "$_display_name P95" "$_p95"
       bench_action_row "$_display_name P99" "$_p99"

@@ -24,6 +24,8 @@ TRANSIENT_JSON_TEMP="${TMP_DIR}/transient-bench-latency.json"
 TRANSIENT_ACTION_TEMP="${TMP_DIR}/transient-bench-output.json"
 CONFIRMATION_ERROR_JSON_TEMP="${TMP_DIR}/confirmation-error-bench-latency.json"
 CONFIRMATION_ERROR_ACTION_TEMP="${TMP_DIR}/confirmation-error-bench-output.json"
+INITIAL_ERROR_JSON_TEMP="${TMP_DIR}/initial-error-bench-latency.json"
+INITIAL_ERROR_ACTION_TEMP="${TMP_DIR}/initial-error-bench-output.json"
 ROOT_BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
 BENCH_JSON_EXISTED=false
 BENCH_JSON_BACKUP="${TMP_DIR}/bench-latency-existing.json"
@@ -324,6 +326,7 @@ assert_cmd "persistent slow JSON preserves both batches" python3 -c 'import json
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 row = next(item for item in data["results"] if item["name"] == "synthetic-slow-hook")
 assert row["decision"] == "confirmed_regression"
+assert row["status"] == "FAIL"
 assert row["confirmation"] is not None
 assert row["p95"] == row["initial"]["p95"]
 assert row["confirmation"]["p95"] > row["budget_ms"]
@@ -341,13 +344,14 @@ rows = [item for item in data["results"] if item["name"] in names]
 assert {row["name"] for row in rows} == names
 for row in rows:
     assert row["decision"] == "cleared_transient"
-    assert row["status"] == "PASS-CONFIRMED"
+    assert row["status"] == "FAIL"
     assert row["confirmation_runs"] == 1
     assert row["confirmation"] is not None
     assert row["p95"] == row["initial"]["p95"]
     assert row["initial"]["p95"] > row["budget_ms"]
     assert row["confirmation"]["p95"] <= row["budget_ms"]
 ' "${TRANSIENT_JSON_TEMP}"
+assert_file_contains "${TMP_DIR}/transient.out" "PASS-CONFIRMED" "transient console reports the final cleared state"
 assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e synthetic-transient-hook decision cleared" "direct transient action output records cleared decision"
 assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e codex synthetic-transient decision cleared" "wrapper transient action output records cleared decision"
 assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e synthetic-transient-hook confirmation P95" "direct transient action output records confirmation P95"
@@ -361,6 +365,7 @@ data = json.load(open(sys.argv[1], encoding="utf-8"))
 assert data["results"]
 for row in data["results"]:
     assert row["decision"] == "normal_pass"
+    assert row["status"] == "PASS"
     assert row["confirmation"] is None
     assert row["confirmation_runs"] == 0
 ' "${BENCH_JSON_TEMP}"
@@ -395,6 +400,7 @@ assert_cmd "confirmation error JSON retains initial evidence" python3 -c 'import
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 row = next(item for item in data["results"] if item["name"] == "synthetic-confirmation-error-hook")
 assert row["decision"] == "confirmation_error"
+assert row["status"] == "FAIL"
 assert row["confirmation"] is None
 assert row["initial"]["p95"] == row["p95"]
 ' "${CONFIRMATION_ERROR_JSON_TEMP}"
@@ -405,6 +411,20 @@ assert_file_not_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "synthetic-confirma
 assert_file_not_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "decision cleared" "confirmation error action output never records cleared"
 assert_file_not_contains "${TMP_DIR}/confirmation-error.out" "PASS-CONFIRMED" "confirmation error console never reports confirmed pass"
 assert_fail_contains "zero confirmation runs fails validation" "--confirmation-runs must be a positive integer" "${TMP_DIR}/invalid-confirmation-runs.out" bash "${BENCH}" --confirmation-runs=0 --no-bench-action-output
+assert_fail_contains "empty confirmation runs fails validation" "--confirmation-runs must be a positive integer" "${TMP_DIR}/empty-confirmation-runs.out" bash "${BENCH}" --confirmation-runs= --no-bench-action-output
+
+assert_fail_contains "initial fixture execution error fails visibly" "ERROR: initial sampling failed" "${TMP_DIR}/initial-error.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --include-initial-error-fixture --json-output="${INITIAL_ERROR_JSON_TEMP}" --bench-action-output="${INITIAL_ERROR_ACTION_TEMP}" --sla=100000
+assert_file_contains "${TMP_DIR}/initial-error.out" "initial metrics=unavailable" "initial execution error console reports unavailable metrics"
+assert_cmd "initial execution error JSON contains no fabricated samples" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+row = next(item for item in data["results"] if item["name"] == "synthetic-initial-error-hook")
+assert row["status"] == "ERROR"
+assert row["decision"] == "confirmation_error"
+assert row["runs"] == 0
+assert row["p50"] is None and row["p95"] is None and row["p99"] is None and row["max"] is None
+assert row["initial"] is None and row["confirmation"] is None
+' "${INITIAL_ERROR_JSON_TEMP}"
+assert_file_not_contains "${INITIAL_ERROR_ACTION_TEMP}" "synthetic-initial-error-hook" "initial execution error action output omits unavailable numeric metrics"
 assert_file_contains "${REPO_DIR}/.github/workflows/ci.yml" '--confirmation-runs=3' "CI pins confirmation sample count explicitly"
 
 header "benchmark score gate"
