@@ -6,7 +6,7 @@ REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 RUNTIME_MANIFEST="${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 CARGO_BIN="${VIBEGUARD_U22_CARGO_BIN:-cargo}"
 CARGO_LLVM_COV_VERSION="0.8.7"
-LINE_COVERAGE_BASELINE="76"
+LINE_COVERAGE_BASELINE="80"
 LINE_COVERAGE_TARGET="80"
 
 if [[ ! -f "${RUNTIME_MANIFEST}" ]]; then
@@ -26,7 +26,7 @@ if [[ "${version_output}" != "${expected_version}" ]]; then
   exit 1
 fi
 
-echo "U-22 Rust line coverage: blocking baseline=${LINE_COVERAGE_BASELINE}%, target=${LINE_COVERAGE_TARGET}% (target not yet enforced)"
+echo "U-22 Rust line coverage: blocking baseline=${LINE_COVERAGE_BASELINE}%, target=${LINE_COVERAGE_TARGET}%"
 set +e
 "${CARGO_BIN}" llvm-cov \
   --locked \

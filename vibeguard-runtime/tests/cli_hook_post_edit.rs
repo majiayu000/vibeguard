@@ -179,6 +179,59 @@ fn post_edit_rust_warning_is_visible_and_logged() {
 }
 
 #[test]
+fn post_edit_rs10_warning_is_visible_logged_and_rule_scoped() {
+    let (root, repo, log_root, log_file) = case_paths("post-edit-rs10-warning");
+    let new_string = concat!(
+        "// vibeguard-disable-next-line RS-10 -- intentional discard\n",
+        "let _ = intentionally_ignored();\n",
+        "let _ = must_be_reviewed();\n",
+        "let value = fallible_call().unwrap();\n"
+    );
+    let input = edit_input("src/lib.rs", "fn old() {}", new_string);
+    let out = run_post_edit(&repo, &log_root, &log_file, &input);
+
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stderr.is_empty());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("VIBEGUARD quality warning"), "{stdout}");
+    assert!(stdout.contains("[RS-10]"), "{stdout}");
+    assert!(
+        stdout.contains("1 new let _ = silent discard(s) added"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("2 new let _ = silent discard(s) added"));
+    assert!(stdout.contains("[RS-03]"), "{stdout}");
+    assert!(
+        stdout.contains("1 new unwrap()/expect() call(s) added"),
+        "{stdout}"
+    );
+
+    let events = parse_test_event_log(&log_file);
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    assert_eq!(event["decision"], "warn");
+    assert_eq!(event["status"], "warn");
+    let reason = event["reason"].as_str().unwrap();
+    assert!(reason.contains("[RS-10]"), "{reason}");
+    assert!(
+        reason.contains("1 new let _ = silent discard(s) added"),
+        "{reason}"
+    );
+    assert!(reason.contains("[RS-03]"), "{reason}");
+    assert!(
+        reason.contains("1 new unwrap()/expect() call(s) added"),
+        "{reason}"
+    );
+    assert!(
+        event["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("src/lib.rs||delta=")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn post_edit_prior_warnings_escalate_current_warning() {
     let (root, repo, log_root, log_file) = case_paths("post-edit-escalate");
     let prior = (0..3)

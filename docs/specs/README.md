@@ -7,7 +7,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | Spec | Status | Use it for |
 |---|---|---|
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
-| `GH581/` | Draft | Rust coverage ratchets from a latest-head clean measurement through risk-ordered, independently reviewed tranches to the enforced 80% gate |
+| `GH581/` | Implemented reference | Rust coverage ratchets from a latest-head clean measurement through risk-ordered, independently reviewed tranches to the enforced 80% gate |
 | `GH588/` | Draft | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
 | `GH589/` | Draft | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
 | `GH590/` | Draft | Directed session-pair W-14 cooldown, fail-open bounded history, schema-valid suppression telemetry, and runtime config distribution |

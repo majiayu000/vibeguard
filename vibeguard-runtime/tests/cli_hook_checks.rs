@@ -279,6 +279,99 @@ fn post_edit_fast_check_emits_churn_and_overlap_warning_from_history() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(unix)]
+#[test]
+fn post_edit_fast_check_falls_back_when_warning_log_append_fails() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let root = unique_temp_dir("post-edit-warning-log-failure");
+    fs::create_dir_all(&root).unwrap();
+    let history_file = root.join("read-only-history.jsonl");
+    let mut events = (0..5)
+        .map(|_| {
+            serde_json::json!({
+                "ts": "2099-01-01T00:00:00Z",
+                "session": "test-session",
+                "agent": "codex",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "pass",
+                "detail": "src/lib.rs||delta=1"
+            })
+        })
+        .collect::<Vec<_>>();
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "test-session",
+        "agent": "codex",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/other.rs||delta=1"
+    }));
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "peer-session",
+        "agent": "claude",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/lib.rs||delta=1"
+    }));
+    let history = events
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let mut history_writer = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .open(&history_file)
+        .unwrap();
+    history_writer.write_all(history.as_bytes()).unwrap();
+    drop(history_writer);
+
+    let history_reader = fs::File::open(&history_file).unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+    let mut child = bin()
+        .args([
+            "post-edit-fast-check",
+            "800",
+            "test-session",
+            "codex",
+            "/dev/fd/2",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(history_reader))
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, "FAST_PASS\nsrc/lib.rs\n");
+    assert!(!stdout.contains("FAST_OUTPUT"), "{stdout}");
+    assert_eq!(fs::read_to_string(&history_file).unwrap(), history);
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn post_edit_fast_check_defers_consecutive_history_to_shell_w15() {
     let root = unique_temp_dir("post-edit-history-w15-fallback");
