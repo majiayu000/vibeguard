@@ -11,7 +11,7 @@ GH-605
 
 ## 实现任务
 
-- [ ] `SP605-T1` Owner: implementation agent — 在 authoritative runtime classifier 中加入精确 `_tests.rs` suffix，并扩展 unit/CLI 正负例。Depends on: Spec PR merged and user authorization recorded。Covers: B-001, B-003, B-005。Done when: `--test`/`--prod` 互补分类正确，现有 test conventions 与相似 production names 保持原行为。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml test_path_matches_rust_guard_exclusions`；focused CLI filter assertions。
+- [ ] `SP605-T1` Owner: implementation agent — 在 authoritative runtime classifier 中加入精确 `_tests.rs` suffix，并扩展 unit/CLI 正负例。Depends on: Spec PR merged and live implementation route allowed。Covers: B-001, B-003, B-005。Done when: `--test`/`--prod` 互补分类正确，现有 test conventions 与相似 production names 保持原行为。Verify: `cargo test --manifest-path vibeguard-runtime/Cargo.toml test_path_matches_rust_guard_exclusions`；focused CLI filter assertions。
 - [ ] `SP605-T2` Owner: implementation agent — 同步 shell fallback 与 hook runtime stub，不在任何 hook/guard consumer 新增独立 glob。Depends on: SP605-T1。Covers: B-002, B-003, B-005。Done when: forced runtime failure 与正常 runtime 对具名路径分类一致，self-application check 证明没有第二套 consumer classifier。Verify: `bash tests/unit/test_rust_check_unwrap_in_prod.sh`; `bash scripts/ci/self-application/check-rust-test-path-classifier.sh .`。
 - [ ] `SP605-T3` Owner: implementation agent — 扩展 RS-03 focused harness，覆盖 standalone/staged 的 `_tests.rs` ignore、普通 `.rs` finding、相似文件负例与 strict/non-strict contract。Depends on: SP605-T2。Covers: B-003, B-004, B-006。Done when: assertions 绑定具名路径/finding，不含 checkout count threshold，不弱化现有 production failure assertions。Verify: `bash tests/unit/test_rust_check_unwrap_in_prod.sh`; manual self-scan grep。
 - [ ] `SP605-T4` Owner: verification owner + independent reviewer — 执行 focused、Rust、hook/guard 与 broad gates，并按 product spec 做逐项覆盖审查。Depends on: SP605-T3。Covers: B-001, B-002, B-003, B-004, B-005, B-006。Done when: deterministic checks 全绿；review 确认无通用 contains-tests 排除、无复制 classifier、无固定计数或测试弱化。Verify: `bash scripts/ci/validate-guards.sh`; `bash scripts/ci/validate-hooks.sh`; `cargo check --manifest-path vibeguard-runtime/Cargo.toml`; `cargo test --manifest-path vibeguard-runtime/Cargo.toml`; `bash scripts/local-contract-check.sh --quick`; `git diff --check`。
@@ -61,8 +61,7 @@ git diff --check
 ## Handoff Notes
 
 - 写作基线：`origin/main@2a2190ce2e890d8c8a5599dbf4c3a558dfa01a51`。
-- Issue #605 的 `ready_to_spec` 来自 live GitHub label，`state_trusted: true`；用户在当前
-  对话明确授权 Issue、标签、Spec/Impl PR 与通过真实 gates 后的 merge。
-- Spec PR 合并后，将 Issue label 切换到 `ready_to_implement`，重新收集 live issue 与
-  duplicate-work evidence，再创建独立 implementation branch。
+- Issue #605 的 readiness 必须由 live GitHub label 证明；durable spec packet 不构成未来
+  PR 的 merge authorization。每次 merge 前仍需当前 head 的 CI、独立 review、review
+  threads 与 SpecRail PR gate 证据。
 - 59 个 test-suffix finding 与 11 个 production finding 只是诊断快照，不得写入测试阈值。

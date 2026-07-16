@@ -38,7 +38,7 @@ GH-605
 | --- | --- | --- |
 | B-001 runtime 识别 `_tests.rs` | `is_test_path()` 与 unit/CLI filter | `cargo test --manifest-path vibeguard-runtime/Cargo.toml test_path_matches_rust_guard_exclusions`；具名 `test-path-filter --test/--prod` fixture |
 | B-002 fallback 与 runtime 一致 | `VIBEGUARD_TEST_FILE_PATTERN`、forced-failure fixture | `bash tests/unit/test_rust_check_unwrap_in_prod.sh` 中真实 runtime 与失败 runtime 两组断言 |
-| B-003 不排除相似生产文件 | runtime unit negatives 与 shell focused negatives | 同一 focused test 对 `contest.rs`、`latest.rs`、`tests_support.rs` 和普通 `.rs` 断言 finding 保留 |
+| B-003 不排除相似生产文件 | runtime unit negatives 与 shell focused negatives | 同一 focused test 对 `contest.rs`、`latest.rs`、`tests_support.rs`、`foo_tests.py` 和普通 `.rs` 断言 finding 保留 |
 | B-004 RS-03 standalone/staged 边界 | `filter_rs_prod_paths()`、RS-03 harness | `bash tests/unit/test_rust_check_unwrap_in_prod.sh`；staged fixture 确认 `_tests.rs` 不进入 finding、普通 `.rs` 仍进入 |
 | B-005 兼容且无第二套实现 | classifier/stub/self-application checks | `bash scripts/ci/self-application/check-rust-test-path-classifier.sh .`、Rust 全测、hook/guard validators |
 | B-006 精确证据，无固定计数 | focused assertions 与 manual self-scan | test source review 不含 `59`/`11` threshold；default self-scan 按具名 `_tests.rs`/production path 核对 |
