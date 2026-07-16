@@ -532,8 +532,8 @@ fn codex_hooks_health_missing_config_is_clean_or_explicit_skip() {
 fn codex_hooks_health_read_errors_are_visible_and_do_not_write() {
     let manifest = valid_codex_manifest(15);
     let (repo, hooks_file, _) = codex_setup_fixture("health-read-error", Some(&manifest));
-    fs::remove_file(&hooks_file).unwrap();
-    fs::create_dir(&hooks_file).unwrap();
+    let malformed = b"{not-json";
+    fs::write(&hooks_file, malformed).unwrap();
 
     for command in [
         "setup-codex-hooks-check-stale",
@@ -544,7 +544,7 @@ fn codex_hooks_health_read_errors_are_visible_and_do_not_write() {
         assert!(!output.status.success(), "{command} falsely succeeded");
         assert!(output.stdout.is_empty(), "{command}: {output:?}");
         assert!(!output.stderr.is_empty(), "{command} hid the read error");
-        assert!(hooks_file.is_dir(), "{command} replaced the directory");
+        assert_eq!(fs::read(&hooks_file).unwrap(), malformed, "{command} wrote");
     }
     fs::remove_dir_all(repo).unwrap();
 }

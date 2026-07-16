@@ -354,6 +354,11 @@ fn runtime_policy_downgrade_output_preserves_non_json_text() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "not json\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+
+    let scalar = run_runtime_with_stdin(&["runtime-policy-downgrade-output"], "42");
+    assert_eq!(scalar.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&scalar.stdout), "42\n");
+    assert_eq!(String::from_utf8_lossy(&scalar.stderr), "");
 }
 
 #[test]
