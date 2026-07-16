@@ -4,6 +4,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 GUARD="${REPO_DIR}/guards/rust/check_unwrap_in_prod.sh"
+source "${REPO_DIR}/tests/lib/hook_test_lib.sh"
 
 PASS=0; FAIL=0; TOTAL=0
 
@@ -53,6 +54,16 @@ cat > "$failing_runtime" <<'EOF'
 exit 1
 EOF
 chmod +x "$failing_runtime"
+
+stub_home="${tmpdir}/stub-home"
+hook_test_install_runtime_stub "$stub_home"
+stub_runtime="${stub_home}/.vibeguard/installed/bin/vibeguard-runtime"
+
+run_stub_filter() {
+  local mode="$1"
+  printf '%s\n' "src/foo_tests.rs" "src/Foo_Tests.rs" "src/contest.rs" \
+    | "$stub_runtime" test-path-filter "$mode"
+}
 
 run_guard_with_runtime() {
   local runtime="$1"; shift
@@ -163,10 +174,21 @@ fn parser_fixture() {
     let _ = x.expect("fixture");
 }
 EOF
+cat > "${proj5c}/src/Foo_Tests.rs" <<'EOF'
+fn mixed_case_fixture() { let _ = Some(42).unwrap(); }
+EOF
 assert_ok "*_tests.rs is ignored by runtime classifier" \
   run_guard_with_runtime "$runtime_wrapper" --strict "$proj5c"
 assert_ok "*_tests.rs is ignored by shell fallback" \
   run_guard_with_runtime "$failing_runtime" --strict "$proj5c"
+assert_output_contains "hook runtime stub --test includes lowercase suffix" "src/foo_tests.rs" \
+  run_stub_filter --test
+assert_output_contains "hook runtime stub --test normalizes mixed-case suffix" "src/Foo_Tests.rs" \
+  run_stub_filter --test
+assert_output_contains "hook runtime stub --prod keeps production path" "src/contest.rs" \
+  run_stub_filter --prod
+assert_output_not_contains "hook runtime stub --prod excludes test suffix" "Foo_Tests.rs" \
+  run_stub_filter --prod
 
 # --- FAIL: similar production names stay visible while *_tests.rs stays ignored ---
 proj5d="${tmpdir}/tests_suffix_boundaries"

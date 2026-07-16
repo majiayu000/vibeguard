@@ -106,6 +106,7 @@ fn help_lists_all_commands() {
 fn test_path_filter_classifies_rust_tests_suffix_without_broad_matches() {
     let input = concat!(
         "src/foo_tests.rs\n",
+        "src/Foo_Tests.rs\n",
         "src/nested/parser_tests.rs\n",
         "src/contest.rs\n",
         "src/latest.rs\n",
@@ -117,7 +118,7 @@ fn test_path_filter_classifies_rust_tests_suffix_without_broad_matches() {
     assert!(test_output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&test_output.stdout),
-        "src/foo_tests.rs\nsrc/nested/parser_tests.rs\n"
+        "src/foo_tests.rs\nsrc/Foo_Tests.rs\nsrc/nested/parser_tests.rs\n"
     );
 
     let prod_output = run_runtime_with_stdin(&["test-path-filter", "--prod"], input);

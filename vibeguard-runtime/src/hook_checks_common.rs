@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn test_path_matches_rust_guard_exclusions() {
-        let test_paths = "tests/integration.rs src/tests.rs src/test_helpers.rs src/test_helpers/mod.rs src/test_utils/helper.rs examples/demo.rs benches/throughput.rs test_root.rs src/math_test.rs src/math_tests.rs src/nested/parser_tests.rs src/lib.test.rs";
+        let test_paths = "tests/integration.rs src/tests.rs src/test_helpers.rs src/test_helpers/mod.rs src/test_utils/helper.rs examples/demo.rs benches/throughput.rs test_root.rs src/math_test.rs src/math_tests.rs src/Foo_Tests.rs src/nested/parser_tests.rs src/lib.test.rs";
         for path in test_paths.split_whitespace() {
             assert!(is_test_path(path), "{path} should be classified as test");
         }
