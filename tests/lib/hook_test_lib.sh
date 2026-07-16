@@ -111,7 +111,7 @@ case "$command" in
         tests/*|test/*|__tests__/*|spec/*|fixtures/*|mocks/*|testdata/*|examples/*|benches/*|test_*|*/tests/*|*/test/*|*/__tests__/*|*/spec/*|*/fixtures/*|*/mocks/*|*/testdata/*|*/examples/*|*/benches/*|*/test_*) is_test=1 ;;
       esac
       case "$base" in
-        tests.rs|test_helpers.rs|test_*|*_test.*|*.test.*|*.spec.*|*_test.rs) is_test=1 ;;
+        tests.rs|test_helpers.rs|test_*|*_test.*|*.test.*|*.spec.*|*_test.rs|*_tests.rs) is_test=1 ;;
       esac
       if [[ "$mode" == "--test" && "$is_test" -eq 1 ]] || [[ "$mode" == "--prod" && "$is_test" -eq 0 ]]; then
         printf '%s\n' "$path"
