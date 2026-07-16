@@ -354,6 +354,11 @@ fn runtime_policy_downgrade_output_preserves_non_json_text() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "not json\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+
+    let scalar = run_runtime_with_stdin(&["runtime-policy-downgrade-output"], "42");
+    assert_eq!(scalar.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&scalar.stdout), "42\n");
+    assert_eq!(String::from_utf8_lossy(&scalar.stderr), "");
 }
 
 #[test]
@@ -591,6 +596,11 @@ fn runtime_policy_codex_error_outputs_event_specific_payloads() {
     let stop_value: serde_json::Value =
         serde_json::from_slice(&stop.stdout).expect("Stop payload should be JSON");
     assert_eq!(stop_value["stopReason"], "stop denied");
+
+    let unknown = run_runtime_with_stdin(&["runtime-policy-codex-error", "Unknown"], "visible");
+    let unknown_value: serde_json::Value =
+        serde_json::from_slice(&unknown.stdout).expect("fallback payload should be JSON");
+    assert_eq!(unknown_value["systemMessage"], "visible");
 }
 
 #[test]
@@ -622,5 +632,164 @@ fn runtime_policy_diag_appends_jsonl_event() {
     assert_eq!(value["event"], "PreToolUse");
     assert_eq!(value["kind"], "policy_error");
     assert_eq!(value["reason"], "runtime missing");
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_check_runs_strict_only_hook_for_strict_profile() {
+    let repo = unique_temp_dir("strict_profile");
+    write_policy(&repo, r#"{"profile":"strict"}"#);
+
+    let output = run_runtime_policy(&repo, "count_active_constraints.sh");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let value = policy_json(&output);
+    assert_eq!(value["decision"], "run");
+    assert_eq!(value["profile"], "strict");
+    assert_eq!(value["enforcement"], "block");
+    assert!(value["reason"].is_null());
+
+    let alias_output = bin()
+        .args([
+            "runtime-policy-check",
+            "--project-root",
+            repo.to_str().expect("repo path should be utf8"),
+            "--",
+            "count_active_constraints.sh",
+        ])
+        .env_remove("VIBEGUARD_PROJECT_CONFIG")
+        .env_remove("VIBEGUARD_USER_CONFIG_FILE")
+        .output()
+        .expect("runtime policy command should run");
+    assert_eq!(alias_output.status.code(), Some(0));
+    assert_eq!(policy_json(&alias_output)["profile"], "strict");
+    let _ = fs::remove_dir_all(repo);
+}
+
+#[test]
+fn runtime_policy_argument_errors_are_visible() {
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &["runtime-policy-supports", "extra"],
+            "runtime-policy-supports",
+        ),
+        (&["runtime-policy-check"], "runtime-policy-check"),
+        (&["runtime-policy-check", "--cwd"], "runtime-policy-check"),
+        (
+            &["runtime-policy-check", "--cwd", "", "hook.sh"],
+            "runtime-policy-check",
+        ),
+        (
+            &["runtime-policy-check", "--unknown", "hook.sh"],
+            "runtime-policy-check",
+        ),
+        (&["runtime-policy-check", "--"], "runtime-policy-check"),
+        (
+            &["runtime-policy-check", "--", "one.sh", "two.sh"],
+            "runtime-policy-check",
+        ),
+        (
+            &["runtime-policy-check", "one.sh", "two.sh"],
+            "runtime-policy-check",
+        ),
+        (
+            &["runtime-policy-downgrade-output", "--cwd"],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &["runtime-policy-downgrade-output", "--payload"],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &["runtime-policy-downgrade-output", "--unknown"],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &[
+                "runtime-policy-downgrade-output",
+                "--cwd",
+                "one",
+                "--cwd",
+                "two",
+            ],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &[
+                "runtime-policy-downgrade-output",
+                "--payload",
+                "{}",
+                "--payload",
+                "{}",
+            ],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &["runtime-policy-downgrade-output", "one.sh", "two.sh"],
+            "runtime-policy-downgrade-output",
+        ),
+        (
+            &["runtime-policy-codex-error"],
+            "runtime-policy-codex-error",
+        ),
+        (&["runtime-policy-diag"], "runtime-policy-diag"),
+    ];
+
+    for (args, command) in cases {
+        let output = bin()
+            .args(*args)
+            .output()
+            .expect("runtime helper should run");
+        assert!(!output.status.success(), "{args:?} falsely succeeded");
+        assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("Usage:"), "{args:?}: {stderr}");
+        assert!(stderr.contains(command), "{args:?}: {stderr}");
+    }
+
+    let supports = bin()
+        .arg("runtime-policy-supports")
+        .output()
+        .expect("runtime helper should run");
+    assert!(supports.status.success());
+    assert!(supports.stdout.is_empty());
+    assert!(supports.stderr.is_empty());
+}
+
+#[test]
+fn runtime_policy_diag_open_error_is_visible() {
+    let repo = unique_temp_dir("diag_open_error");
+    fs::create_dir_all(&repo).expect("diag directory should be created");
+
+    let output = run_runtime_with_stdin(
+        &[
+            "runtime-policy-diag",
+            repo.to_str().expect("diag path should be utf8"),
+            "pre-bash-guard.sh",
+            "PreToolUse",
+            "policy_error",
+            "run-hook-codex.sh",
+        ],
+        "runtime missing",
+    );
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!output.stderr.is_empty());
+    assert!(repo.is_dir());
+
+    let invalid_payload = run_runtime_with_stdin(
+        &[
+            "runtime-policy-downgrade-output",
+            "--payload",
+            "not-json",
+            "post-edit-guard.sh",
+        ],
+        r#"{"decision":"block"}"#,
+    );
+    assert!(!invalid_payload.status.success());
+    assert!(invalid_payload.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&invalid_payload.stderr).contains("payload invalid JSON"));
     let _ = fs::remove_dir_all(repo);
 }
