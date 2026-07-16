@@ -9,15 +9,20 @@ set -euo pipefail
 #   bash vibeguard/scripts/verify/compliance_check.sh /path/to/my-project
 
 PROJECT_DIR="${1:-.}"
-VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
-source "$(dirname "$0")/../lib/guard_paths.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+VIBEGUARD_DIR="${VIBEGUARD_DIR:-${SCRIPT_ROOT}}"
+source "${SCRIPT_DIR}/../lib/guard_paths.sh"
 PASS=0
 FAIL=0
 WARN=0
+LANGUAGES=""
+LANGUAGE_SCOPE_VALID=true
 
 check_pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 check_fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 check_warn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
+language_selected() { [[ ",${LANGUAGES}," == *",$1,"* ]]; }
 
 echo "======================================"
 echo "VibeGuard Compliance Check"
@@ -26,24 +31,96 @@ echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================"
 echo
 
-# --- Layer 1: Anti-duplication system ---
-echo "--- Layer 1: Anti-Duplication ---"
-
-dup_guard=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
-if [[ -n "$dup_guard" ]]; then
-  check_pass "check_duplicates.py available (${dup_guard})"
+echo "--- Language Guard Packs ---"
+PROJECT_CONFIG="${PROJECT_DIR}/.vibeguard.json"
+if [[ ! -f "${PROJECT_CONFIG}" ]]; then
+  check_warn "project language scope undeclared (.vibeguard.json not found)"
 else
-  check_warn "check_duplicates.py not found (install vibeguard or copy guards/python/)"
+  if config_output="$(python3 \
+    "${SCRIPT_ROOT}/scripts/lib/project_config_validate.py" \
+    "${PROJECT_CONFIG}" \
+    "${SCRIPT_ROOT}/schemas/vibeguard-project.schema.json" \
+    --print-languages 2>&1)"; then
+    LANGUAGES="${config_output}"
+    if [[ -z "${LANGUAGES}" ]]; then
+      check_warn "project language scope undeclared (.vibeguard.json languages missing or empty)"
+    fi
+  else
+    check_fail "project language configuration invalid: ${config_output}"
+    LANGUAGE_SCOPE_VALID=false
+  fi
+fi
+
+if [[ "${LANGUAGE_SCOPE_VALID}" == "true" && -n "${LANGUAGES}" ]]; then
+  if guard_modules_output="$(python3 \
+    "${SCRIPT_ROOT}/scripts/lib/vibeguard_manifest.py" \
+    guard-modules \
+    --languages "${LANGUAGES}" \
+    --manifest-file "${SCRIPT_ROOT}/schemas/install-modules.json" 2>&1)"; then
+    while IFS= read -r module_line; do
+      if [[ -z "${module_line}" ]]; then
+        check_fail "language guard module resolution returned an empty record"
+        LANGUAGE_SCOPE_VALID=false
+        continue
+      fi
+      IFS=$'\t' read -r -a module_fields <<< "${module_line}"
+      if (( ${#module_fields[@]} < 2 )) || [[ -z "${module_fields[0]}" ]]; then
+        check_fail "language guard module resolution returned a malformed record"
+        LANGUAGE_SCOPE_VALID=false
+        continue
+      fi
+      module_id="${module_fields[0]}"
+      module_available=true
+      module_record_valid=true
+      for ((field_index = 1; field_index < ${#module_fields[@]}; field_index++)); do
+        module_path="${module_fields[${field_index}]%/}"
+        if [[ -z "${module_path}" ]]; then
+          check_fail "language guard module resolution returned an empty path for ${module_id}"
+          LANGUAGE_SCOPE_VALID=false
+          module_record_valid=false
+          break
+        fi
+        if [[ ! -e "${VIBEGUARD_DIR}/${module_path}" ]]; then
+          module_available=false
+          break
+        fi
+      done
+      if [[ "${module_record_valid}" != "true" ]]; then
+        continue
+      elif [[ "${module_available}" == "true" ]]; then
+        check_pass "guard module ${module_id} available"
+      else
+        check_warn "guard module ${module_id} unavailable under ${VIBEGUARD_DIR}"
+      fi
+    done <<< "${guard_modules_output}"
+  else
+    check_fail "language guard module resolution failed: ${guard_modules_output}"
+    LANGUAGE_SCOPE_VALID=false
+  fi
+fi
+
+# --- Layer 1: Anti-duplication system ---
+if [[ "${LANGUAGE_SCOPE_VALID}" == "true" ]] && language_selected "python"; then
+  echo "--- Layer 1: Anti-Duplication ---"
+
+  dup_guard=$(find_guard "python/check_duplicates.py" "$PROJECT_DIR")
+  if [[ -n "$dup_guard" ]]; then
+    check_pass "check_duplicates.py available (${dup_guard})"
+  else
+    check_warn "check_duplicates.py not found (install vibeguard or copy guards/python/)"
+  fi
 fi
 
 # --- Layer 2: Naming constraints ---
-echo "--- Layer 2: Naming Convention ---"
+if [[ "${LANGUAGE_SCOPE_VALID}" == "true" ]] && language_selected "python"; then
+  echo "--- Layer 2: Naming Convention ---"
 
-naming_guard=$(find_guard "python/check_naming_convention.py" "$PROJECT_DIR")
-if [[ -n "$naming_guard" ]]; then
-  check_pass "check_naming_convention.py available (${naming_guard})"
-else
-  check_warn "check_naming_convention.py not found (install vibeguard or copy guards/python/)"
+  naming_guard=$(find_guard "python/check_naming_convention.py" "$PROJECT_DIR")
+  if [[ -n "$naming_guard" ]]; then
+    check_pass "check_naming_convention.py available (${naming_guard})"
+  else
+    check_warn "check_naming_convention.py not found (install vibeguard or copy guards/python/)"
+  fi
 fi
 
 # --- Layer 3: Pre-commit Hooks ---
@@ -58,23 +135,27 @@ if [[ -f "${PROJECT_DIR}/.pre-commit-config.yaml" ]]; then
     check_warn "gitleaks not found in pre-commit config"
   fi
 
-  if grep -q "ruff" "${PROJECT_DIR}/.pre-commit-config.yaml"; then
-    check_pass "ruff linting configured"
-  else
-    check_warn "ruff not found in pre-commit config"
+  if [[ "${LANGUAGE_SCOPE_VALID}" == "true" ]] && language_selected "python"; then
+    if grep -q "ruff" "${PROJECT_DIR}/.pre-commit-config.yaml"; then
+      check_pass "ruff linting configured"
+    else
+      check_warn "ruff not found in pre-commit config"
+    fi
   fi
 else
   check_fail ".pre-commit-config.yaml not found"
 fi
 
 # --- Layer 4: Architecture Guard ---
-echo "--- Layer 4: Architecture Guards ---"
+if [[ "${LANGUAGE_SCOPE_VALID}" == "true" ]] && language_selected "python"; then
+  echo "--- Layer 4: Architecture Guards ---"
 
-guard_file=$(find_quality_guard "$PROJECT_DIR")
-if [[ -n "${guard_file}" ]]; then
-  check_pass "test_code_quality_guards.py exists: ${guard_file}"
-else
-  check_warn "test_code_quality_guards.py not found (recommended: copy from vibeguard/guards/python/)"
+  guard_file=$(find_quality_guard "$PROJECT_DIR")
+  if [[ -n "${guard_file}" ]]; then
+    check_pass "test_code_quality_guards.py exists: ${guard_file}"
+  else
+    check_warn "test_code_quality_guards.py not found (recommended: copy from vibeguard/guards/python/)"
+  fi
 fi
 
 # --- Layer 5: Workflows ---

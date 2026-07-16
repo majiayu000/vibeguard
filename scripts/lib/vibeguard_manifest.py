@@ -138,6 +138,75 @@ def _module_languages(module: dict[str, Any], module_id: str) -> set[str]:
             normalized.add(language)
     return normalized
 
+def reject_control_characters(value: str, label: str) -> None:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError(f"{label} must not contain control characters")
+
+def normalize_guard_source(path_str: str, module_id: str) -> str:
+    reject_control_characters(path_str, f"module {module_id}: guard path")
+    source = path_str.rstrip("/")
+    if not source:
+        raise ValueError(f"module {module_id}: guard path must not be empty")
+    if "\\" in source:
+        raise ValueError(f"module {module_id}: guard path must use forward slashes: {path_str}")
+    path = PurePosixPath(source)
+    if path.is_absolute():
+        raise ValueError(f"module {module_id}: guard path must be repo-relative: {path_str}")
+    if ".." in path.parts:
+        raise ValueError(f"module {module_id}: guard path must not contain '..': {path_str}")
+    try:
+        relative = path.relative_to(PurePosixPath("guards"))
+    except ValueError as exc:
+        raise ValueError(f"module {module_id}: guard path must live under guards/: {path_str}") from exc
+    if not relative.parts:
+        raise ValueError(f"module {module_id}: guard path must name a guard source: {path_str}")
+    return path.as_posix() + ("/" if path_str.endswith("/") else "")
+
+
+def guard_modules(manifest: dict[str, Any], languages: str | None) -> list[tuple[str, list[str]]]:
+    selected_languages = language_filter(languages)
+    if not selected_languages:
+        raise ValueError("guard module query requires at least one language")
+
+    modules = manifest.get("modules", [])
+    if not isinstance(modules, list):
+        raise ValueError("manifest modules must be a list")
+
+    matches: list[tuple[str, list[str]]] = []
+    covered_languages: set[str] = set()
+    seen_module_ids: set[str] = set()
+    for module in modules:
+        if not isinstance(module, dict):
+            raise ValueError("manifest module entry is not an object")
+        if module.get("kind") != "guards":
+            continue
+        module_id = module.get("id")
+        if not isinstance(module_id, str) or not module_id:
+            raise ValueError("guard module id must be a non-empty string")
+        reject_control_characters(module_id, "guard module id")
+        module_languages = _module_languages(module, module_id)
+        matched_languages = selected_languages & module_languages
+        if not matched_languages:
+            continue
+        if module_id in seen_module_ids:
+            raise ValueError(f"duplicate matching guard module id: {module_id}")
+        paths = module.get("paths")
+        if not isinstance(paths, list) or not paths:
+            raise ValueError(f"module {module_id}: paths must be a non-empty list")
+        normalized_paths: list[str] = []
+        for path_str in paths:
+            if not isinstance(path_str, str):
+                raise ValueError(f"module {module_id}: non-string guard path")
+            normalized_paths.append(normalize_guard_source(path_str, module_id))
+        matches.append((module_id, normalized_paths))
+        seen_module_ids.add(module_id)
+        covered_languages.update(matched_languages)
+
+    missing_languages = sorted(selected_languages - covered_languages)
+    if missing_languages:
+        raise ValueError(f"no language-specific guard module for: {', '.join(missing_languages)}")
+    return matches
+
 
 def normalize_skill_source(path_str: str, module_id: str) -> str:
     source = path_str.rstrip("/")
@@ -623,6 +692,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("hook-names", help="List user-disableable hook names")
     sub.add_parser("guard-names", help="List known guard names")
+    guard_module = sub.add_parser("guard-modules", help="List language-specific guard modules")
+    guard_module.add_argument("--languages", required=True)
+    guard_module.add_argument("--manifest-file", default=str(MANIFEST_FILE))
     rule_link = sub.add_parser("rule-links", help="List installable rule files")
     rule_link.add_argument("--languages", default="")
     rule_link.add_argument("--manifest-file", default=str(MANIFEST_FILE))
@@ -680,6 +752,12 @@ def main() -> int:
 
     if args.command == "guard-names":
         print_lines(guard_names())
+        return 0
+
+    if args.command == "guard-modules":
+        manifest = load_manifest(Path(args.manifest_file))
+        for module_id, paths in guard_modules(manifest, args.languages):
+            print("\t".join([module_id, *paths]))
         return 0
 
     if args.command == "rule-links":
