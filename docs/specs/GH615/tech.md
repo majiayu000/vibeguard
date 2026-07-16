@@ -34,14 +34,16 @@ GH-615
    却不构成用户忽略提醒的证据。
 4. escalation event reason 与 block 文案使用 `unheeded source-new reminders`/`visible ... reminders`
    语义。ACTION 明确“在本 repo 运行 Grep/Glob，确认无重复，然后重试 Write”，删除 child process 中
-   session-local `export` 和必须新 session 的恢复建议。threshold 的持久配置方式不在本修复中改写。
+   session-local `export` 和必须新 session 的恢复建议。若 copy 同时保留调高/禁用 threshold 的备选
+   路径，必须准确写出 `~/.vibeguard/config.json` 的 `write_escalate_threshold`，并标明它会产生持久、
+   全局影响；hook 不自动写该配置。
 5. 保持 `threshold == 0` 短路、`write_mode == block` 早期阻断、breaker record/check、attempt/reminder
    event schema 与 log read behavior 不变。本 Issue 不扩大为 log I/O 错误策略重构。
 6. Red-first 改写 `tests/hooks/test_pre_write_guard.sh` 的旧错误合同，使用隔离 log/state：
    - breaker threshold=1：一条 visible reminder 后多个 silent writes 不 escalation；
    - breaker threshold 高于 escalation threshold：可见 reminders 达阈值后下一次阻断；
    - append/emit 同 session Grep 或 Glob 后下一次 write 不再被旧 history 阻断；
-   - Read 与 other-session Grep 不恢复；
+   - Read、other-session Grep、malformed event 与 unrelated hook/tool/reason 不恢复；
    - 恢复后的新 reminders 可重新累计；
    - block copy 不含无效 export。
 7. 若 shell end-to-end test 无法确定性覆盖 event ordering，搜索后新增独立的
@@ -55,11 +57,11 @@ GH-615
 | --- | --- | --- |
 | B-001 | reminder-based history counter | focused breaker-silence regression + event-count assertions |
 | B-002 | reverse scan Grep/Glob boundary | same-session Grep and Glob recovery cases |
-| B-003 | session/tool/reason filters | Read, other-session Grep and malformed/unrelated event cases |
+| B-003 | session/tool/reason filters | Read、other-session Grep、malformed event、unrelated hook/tool/reason cases |
 | B-004 | unchanged breaker flow | threshold=1 silent-write regression and existing CB tests |
 | B-005 | post-boundary reminder accumulation | visible reminders reach threshold and next write blocks |
 | B-006 | escalation recovery | blocked → Grep/Glob → retry sequence, including OPEN breaker case |
-| B-007 | escalation copy | exact positive Grep/Glob guidance and negative export assertion |
+| B-007 | escalation copy | exact positive Grep/Glob guidance；negative export assertion；若保留 threshold 备选则 exact config path/key/persistent-global assertions |
 | B-008 | early modes, telemetry, bounded schema | existing threshold/write-mode/Rust telemetry tests + changed-file audit |
 
 ## 数据流
@@ -89,13 +91,16 @@ escalation 并输出 block。`analysis-paralysis-guard.sh` 已把 Grep/Glob tool
 - Silent degradation：malformed event 继续按现状忽略，log read 错误继续由现有调用层处理；本 Issue 不
   宣称修复该兼容边界，也不新增 fallback。
 - File size：`cli_hook_orchestrator.rs` 已 799 行，禁止追加；优先使用已有 focused shell test，必要时
-  新建职责单一的 Rust integration file。
+  新建职责单一的 Rust integration file。`hook_orchestrator.rs` 当前 777 行，production 修改后必须仍
+  `<800`；若无法在硬上限内清晰实现，停止并先拆分职责，不压缩可读性或绕过 guard。
 
 ## 测试计划
 
 - [ ] Red evidence：先改旧 shell regression 期待“silent attempts 不累计、search 可恢复、无 export”，
   在 production 未改时确定性失败并保存输出。
 - [ ] Focused：`bash tests/hooks/test_pre_write_guard.sh`。
+- [ ] Size：`wc -l vibeguard-runtime/src/hook_orchestrator.rs`，必须 `<800`；不得修改 799 行的既有 Rust
+  integration test。
 - [ ] Rust build/test：`cargo check --manifest-path vibeguard-runtime/Cargo.toml`；
   `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] Hook contracts：`bash tests/test_hooks.sh`；`bash scripts/ci/validate-hooks.sh`；

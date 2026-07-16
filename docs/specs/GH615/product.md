@@ -48,9 +48,10 @@ hook 子进程无法修改已运行 agent 的父进程环境。结果是正常 g
 6. B-006：一次 escalation 后，同一 session 的 Grep 或 Glob 必须让下一次新 source-file write 不再
    被旧 reminder 历史阻断；若 circuit breaker 仍 OPEN，该次 write 可以继续被 breaker 静默，但
    不能被旧 escalation trap 阻断。
-7. B-007：escalation block 文案要求用户运行 Grep/Glob 后重试，不再建议
-   `export VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0` 可在当前 agent session 生效；不再把必须新建
-   session 作为唯一恢复路径。
+7. B-007：escalation block 文案以运行 Grep/Glob 后重试作为主要恢复路径，不再建议
+   `export VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0` 可在当前 agent session 生效；如果同时提示调整或
+   禁用阈值，必须准确指向 `~/.vibeguard/config.json` 的 `write_escalate_threshold`，并明确这是持久、
+   全局变更，而非 session-local 恢复。
 8. B-008：`VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0`、`VIBEGUARD_WRITE_MODE=block`、现有 event
    schema、`New source file attempt` observability 与最多扫描最近 500 条 event 的边界保持兼容。
 
@@ -62,7 +63,8 @@ hook 子进程无法修改已运行 agent 的父进程环境。结果是正常 g
   reminder 数而非全部 attempts。
 - [ ] escalation 后同一 session 的 Grep 和 Glob 分别都能恢复；Read 与其他 session 的 Grep 不恢复。
 - [ ] 搜索恢复后产生的新可见 reminders 可以重新累计并再次触发 escalation。
-- [ ] block 文案包含可执行的 Grep/Glob retry 指引，且不包含无效的 session-local `export` 建议。
+- [ ] block 文案包含可执行的 Grep/Glob retry 指引，且不包含无效的 session-local `export` 建议；任何
+  阈值调整提示都同时包含 `~/.vibeguard/config.json`、`write_escalate_threshold` 和持久全局影响说明。
 - [ ] threshold=0、write-mode block、circuit breaker 与既有 attempt/reminder telemetry 回归全绿。
 - [ ] focused hook test、Rust tests、hook validators、quick contract 与 current-head CI 全绿。
 
