@@ -18,10 +18,16 @@ check_file() {
 }
 
 check_file "${REPO_DIR}/tests/test_hooks.sh" 100
+check_file "${REPO_DIR}/tests/test_self_application_ci.sh" 399
 
 for file in "${REPO_DIR}"/tests/hooks/*.sh; do
   [[ -f "${file}" ]] || continue
   check_file "${file}" 400
+done
+
+for file in "${REPO_DIR}"/tests/self_application/*.sh; do
+  [[ -f "${file}" ]] || continue
+  check_file "${file}" 399
 done
 
 for file in "${REPO_DIR}"/vibeguard-runtime/tests/*.rs; do
