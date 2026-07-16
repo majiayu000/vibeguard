@@ -36,10 +36,12 @@ COMPACT_RULE_IDS = (
     "SEC-13",
 )
 
+RULE_ID_PATTERN = r"(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+"
 HEADING_RE = re.compile(
-    r"^##\s+((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+):\s+(.+?)\s+\(([^)]+)\)\s*$",
+    rf"^##\s+({RULE_ID_PATTERN}):\s+(.+?)\s+\(([^)]+)\)\s*$",
     re.MULTILINE,
 )
+RULE_HEADING_CANDIDATE_RE = re.compile(rf"^##\s+({RULE_ID_PATTERN}):")
 FENCE_RE = re.compile(r"^```")
 COMPACT_GUIDANCE_RE = re.compile(r"^\*\*Compact guidance:\*\*[ \t]*(.*)$", re.MULTILINE)
 
@@ -109,11 +111,33 @@ def summarize_block(block: str, fallback: str) -> str:
     return text[:137].rstrip() + "..."
 
 
+def find_rule_headings(text: str, source: Path) -> list[re.Match[str]]:
+    matches: list[re.Match[str]] = []
+    in_fence = False
+    offset = 0
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        stripped = line.strip()
+        if FENCE_RE.match(stripped):
+            in_fence = not in_fence
+        elif not in_fence:
+            candidate = RULE_HEADING_CANDIDATE_RE.match(line)
+            if candidate:
+                match = HEADING_RE.match(text, offset)
+                if match is None:
+                    raise ValueError(
+                        f"Malformed rule heading {candidate.group(1)} in {source}:{line_number}"
+                    )
+                matches.append(match)
+        offset += len(line)
+    return matches
+
+
 def parse_rules(canonical_rules_dir: Path = CANONICAL_RULES_DIR) -> list[Rule]:
     rules: list[Rule] = []
     for path in sorted(canonical_rules_dir.rglob("*.md")):
         text = path.read_text(encoding="utf-8")
-        matches = list(HEADING_RE.finditer(text))
+        source = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path.relative_to(canonical_rules_dir)
+        matches = find_rule_headings(text, source)
         if not matches:
             continue
         for idx, match in enumerate(matches):
@@ -121,7 +145,6 @@ def parse_rules(canonical_rules_dir: Path = CANONICAL_RULES_DIR) -> list[Rule]:
             end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
             block = text[start:end]
             compact_matches = COMPACT_GUIDANCE_RE.findall(block)
-            source = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path.relative_to(canonical_rules_dir)
             if len(compact_matches) > 1:
                 raise ValueError(
                     f"Rule {match.group(1)} in {source} has duplicate compact guidance fields"

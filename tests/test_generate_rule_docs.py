@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,6 +125,38 @@ class CompactRuleGenerationTests(unittest.TestCase):
     def test_invalid_severity_fails_with_rule_and_file(self) -> None:
         with self.assertRaisesRegex(ValueError, r"U-16.*rules\.md.*Unknown severity"):
             self.parse_fixture(canonical_rule("U-16", "Guidance.", severity="invalid"))
+
+    def test_malformed_rule_heading_fails_with_id_file_and_line(self) -> None:
+        malformed_selected = "## U-16: Example rule strict\nCanonical body.\n"
+        malformed_unselected = "## U-99: Example rule strict\nCanonical body.\n"
+        valid = canonical_rule("U-16", "Guidance.")
+        cases = {
+            "selected only": malformed_selected,
+            "unselected before valid": malformed_unselected + valid,
+            "unselected after valid": valid + malformed_unselected,
+        }
+        for label, text in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(ValueError, r"U-(?:16|99).*rules\.md:\d+"):
+                    self.parse_fixture(text)
+
+    def test_rule_like_heading_inside_fence_is_not_canonical_input(self) -> None:
+        rules = self.parse_fixture(
+            "```markdown\n## U-99: Example rule strict\n```\n"
+            + canonical_rule("U-16", "Guidance.")
+        )
+        self.assertEqual([rule.id for rule in rules], ["U-16"])
+
+    def test_main_returns_nonzero_for_canonical_parse_failure(self) -> None:
+        error = ValueError("Malformed rule heading U-16 in rules.md:1")
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(generate_rule_docs, "parse_rules", side_effect=error),
+            mock.patch.object(sys, "argv", [str(GENERATOR_PATH), "--check"]),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(generate_rule_docs.main(), 1)
+        self.assertIn(str(error), stderr.getvalue())
 
     def test_generated_region_preserves_bytes_outside_inner_markers(self) -> None:
         start = generate_rule_docs.COMPACT_START_MARKER
