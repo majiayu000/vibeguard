@@ -617,6 +617,50 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "ci setup timeout headroom"
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}/.github/workflows/ci.yml" >/dev/null <<'PY'; then
+from pathlib import Path
+import re
+import sys
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+job_match = re.search(
+    r"(?ms)^  validate-and-test:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+    workflow,
+)
+if job_match is None:
+    raise SystemExit("missing validate-and-test job")
+job = job_match.group(0)
+
+required_lines = {
+    "stable required check name": "    name: CI (${{ matrix.os }})",
+    "finite timeout headroom": "    timeout-minutes: 45",
+    "Ubuntu/macOS matrix": "        os: [ubuntu-latest, macos-latest]",
+}
+for description, line in required_lines.items():
+    if line not in job.splitlines():
+        raise SystemExit(f"validate-and-test missing {description}: {line}")
+
+setup_match = re.search(
+    r"(?ms)^      - name: Setup regression tests\n(?P<body>.*?)(?=^      - name:|\Z)",
+    job,
+)
+if setup_match is None:
+    raise SystemExit("missing Setup regression tests step")
+setup_step = setup_match.group(0)
+if "        run: bash tests/test_setup.sh" not in setup_step.splitlines():
+    raise SystemExit("Setup regression tests must run bash tests/test_setup.sh exactly")
+if any(line.strip().startswith("continue-on-error:") for line in setup_step.splitlines()):
+    raise SystemExit("Setup regression tests must not use continue-on-error")
+PY
+  green "CI setup stays blocking with bounded timeout headroom"
+  PASS=$((PASS + 1))
+else
+  red "CI setup stays blocking with bounded timeout headroom"
+  FAIL=$((FAIL + 1))
+fi
+
 header "consumer drift failures"
 HANDOFF_FIXTURE="${TMP_DIR}/handoff"
 copy_schemas "${HANDOFF_FIXTURE}"
