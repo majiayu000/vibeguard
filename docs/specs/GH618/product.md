@@ -34,7 +34,7 @@ auto-optimize 把该脚本作为收尾基线，这种错配会让优化报告产
 5. B-005：语言选择只来自目标项目根目录的 `.vibeguard.json`，允许值只来自项目 schema，guard module 映射只来自 install-modules manifest，不维护重复的语言或 module 对照表。
 6. B-006：当 `.vibeguard.json` 缺失、未包含 `languages` 或 `languages` 为空时，compliance 明确报告语言范围未声明的 WARN，仅继续通用检查，不猜测语言，也不声称任何语言 pack 已覆盖。
 7. B-007：当项目配置 JSON 非法、类型错误或包含不支持的语言时，compliance 产生可见 FAIL 并返回非零；不得回退为 Python 或其他语言检查。
-8. B-008：当 manifest 的语言/module 数据无法读取或不满足查询合同，compliance 产生可见 FAIL 并返回非零，不静默跳过该错误。
+8. B-008：每个已声明语言必须在 manifest 中至少映射一个带非空有效 source paths 的 language-specific guard module，JavaScript 与 TypeScript 可以共享同一 module；manifest 无法读取、数据损坏或缺少任一声明语言映射时，compliance 产生可见 FAIL 并返回非零，不静默跳过该错误。
 9. B-009：现有通用检查、summary 计数语义、`VIBEGUARD_DIR` 显式 guard 根覆盖和 auto-optimize 使用的命令入口保持兼容。
 
 ## 验收标准
@@ -42,7 +42,7 @@ auto-optimize 把该脚本作为收尾基线，这种错配会让优化报告产
 - [ ] 隔离 fixture 分别覆盖 Rust、Python、JavaScript、TypeScript+JavaScript、混合语言、未声明语言和非法配置。
 - [ ] Rust/Go/TypeScript/JavaScript fixture 不出现任何 Python 专属检查文案，且出现 manifest 对应 guard module。
 - [ ] Python fixture 继续覆盖现有四类 Python 检查与显式 `VIBEGUARD_DIR` 覆盖。
-- [ ] 非法配置与损坏 manifest 均有具名 FAIL、非零退出码，并证明没有 Python fallback。
+- [ ] 非法配置、损坏 manifest 与删除某个声明语言 guard 映射的矛盾 manifest 均有具名 FAIL、非零退出码，并证明没有 Python fallback。
 - [ ] focused test、unit runner、manifest/schema 合同、workflow 合同与 quick gate 全部通过。
 
 ## 边界情况清单

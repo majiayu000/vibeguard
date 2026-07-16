@@ -23,12 +23,12 @@ GH-618
 ## 设计方案
 
 1. 在 `project_config_validate.py` 的现有成功路径增加显式、互斥的机器可读输出选项，用于按声明顺序输出经 schema 验证的语言。默认 CLI 输出保持不变；缺少 `languages` 与空数组都输出空结果，非法配置仍打印现有错误并返回非零。
-2. 在 `vibeguard_manifest.py` 增加公开的 guard-module 查询与 CLI 子命令。查询仅选择 `kind=guards`、语言集合非空且与请求语言相交的 module，按 manifest 顺序输出 module id 与 source path；一个 module 即使匹配多个语言也只输出一次。现有 `_module_languages`/normalization 负责验证，JS/TS 共享关系直接来自 manifest。
+2. 在 `vibeguard_manifest.py` 增加公开的 guard-module 查询与 CLI 子命令。查询仅选择 `kind=guards`、语言集合非空且与请求语言相交的 module，要求 module 至少有一个非空、有效的仓库相对 source path，并按 manifest 顺序输出 module id 与 source path；一个 module 即使匹配多个语言也只输出一次。查询还必须核对每个请求语言至少命中一个 language-specific guard module，JS/TS 可以命中同一个共享 module；任一请求语言零命中或 paths 无效时非零失败。现有 `_module_languages`/normalization 负责语言验证，JS/TS 共享关系直接来自 manifest。
 3. `compliance_check.sh` 分离两个根：脚本分发根用于定位 schema/helper/manifest，现有 `VIBEGUARD_DIR` 继续作为 guard 文件可用性查找根。这样显式覆盖不改变合同来源，也保留 GH608 的 guard root 语义。
 4. checker 在目标项目根查找 `.vibeguard.json`。缺失、缺少 `languages` 或空数组时记录一个具名 WARN，跳过全部语言专属检查。配置验证失败时记录具名 FAIL、保持语言集合为空并继续通用检查，最终由现有 summary 返回 1；不得采用默认语言。
 5. 对有效非空语言调用 manifest guard-module 查询。每个返回 module 的所有 source path 在 `VIBEGUARD_DIR` 下可访问时记录 PASS，否则记录 WARN；manifest/helper 查询失败记录 FAIL。shell 捕获并检查每个子命令状态，禁止 `|| true` 吞错。
 6. 仅当 Python 在声明集合中时执行现有 duplicate、naming、ruff 与 architecture guard 分支。pre-commit 文件和 gitleaks、skill/workflow、prompt rules 与 rule YAML syntax 仍是通用检查。现有 summary 只计 PASS/WARN/FAIL，不引入隐藏的 SKIP 计数。
-7. 扩展现有 focused harness，不新增第二个 compliance 测试入口。fixtures 显式写 `.vibeguard.json`；通过临时 manifest 副本验证 JS/TS 去重、mixed matrix、无声明、非法 JSON/语言、损坏 manifest 与显式 guard root。
+7. 扩展现有 focused harness，不新增第二个 compliance 测试入口。fixtures 显式写 `.vibeguard.json`；通过临时 manifest 副本验证 JS/TS 去重、mixed matrix、无声明、非法 JSON/语言、损坏 manifest、删除某个声明语言 guard 映射的 schema/manifest 矛盾与显式 guard root。
 8. 控制 `vibeguard_manifest.py` 在 800 行硬上限以内；若最小查询无法在该上限内实现，停止并重新拆分 helper，而不是提交超限文件。
 
 ## Product-to-Test Mapping
@@ -42,7 +42,7 @@ GH-618
 | B-005 | validator + manifest helper | `python3 scripts/lib/vibeguard_manifest.py validate` 与 focused fixture mutation |
 | B-006 | checker undeclared branch | 缺文件、缺字段、空数组三个 fixture 断言具名 WARN、零语言 pack/Python 结果 |
 | B-007 | validator failure bridge | 非法 JSON、错误类型、不支持语言 fixture 断言 FAIL、status 1、无 fallback |
-| B-008 | manifest query failure bridge | 损坏/缺失 manifest fixture 断言具名 FAIL、status 1 |
+| B-008 | manifest query completeness + checker failure bridge | 损坏/缺失 manifest 与删除 Rust guard 映射的矛盾 fixture 均断言具名 FAIL、status 1、无 Python fallback |
 | B-009 | unchanged global layers/summary/root/consumer | 现有 focused assertions、unit runner、workflow contracts、quick gate |
 
 ## 数据流
