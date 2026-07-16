@@ -3,9 +3,13 @@ mod common;
 use common::{bin, unique_temp_dir};
 use std::fs;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_STDIN_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
 
 fn run_runtime_with_file_stdin(args: &[&str], input: &str) -> std::process::Output {
-    let fixture_dir = unique_temp_dir("policy-diag-stdin");
+    let fixture_id = NEXT_STDIN_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+    let fixture_dir = unique_temp_dir(&format!("policy-diag-stdin-{fixture_id}"));
     fs::create_dir_all(&fixture_dir).expect("stdin fixture directory should be created");
     let input_path = fixture_dir.join("stdin");
     fs::write(&input_path, input).expect("stdin fixture should be written");
