@@ -29,8 +29,38 @@ assert_output_contains() {
   else red "$desc (missing: $expected)"; FAIL=$((FAIL+1)); fi
 }
 
+assert_output_not_contains() {
+  local desc="$1" unexpected="$2"; shift 2; TOTAL=$((TOTAL+1))
+  local out; out=$("$@" 2>&1 || true)
+  if ! echo "$out" | grep -qF "$unexpected"; then green "$desc"; PASS=$((PASS+1))
+  else red "$desc (unexpected: $unexpected)"; FAIL=$((FAIL+1)); fi
+}
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
+
+runtime_wrapper="${tmpdir}/runtime-wrapper"
+cat > "$runtime_wrapper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exec cargo run --quiet --manifest-path "${VG_TEST_RUNTIME_MANIFEST:?}" -- "$@"
+EOF
+chmod +x "$runtime_wrapper"
+
+failing_runtime="${tmpdir}/failing-runtime"
+cat > "$failing_runtime" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$failing_runtime"
+
+run_guard_with_runtime() {
+  local runtime="$1"; shift
+  env \
+    VG_TEST_RUNTIME_MANIFEST="${REPO_DIR}/vibeguard-runtime/Cargo.toml" \
+    VIBEGUARD_RUNTIME="$runtime" \
+    bash "$GUARD" "$@"
+}
 
 printf '\n=== check_unwrap_in_prod (RS-03) ===\n'
 
@@ -123,6 +153,73 @@ fn bench() {
 }
 EOF
 assert_ok "tests.rs/test_helpers/examples/benches are ignored" bash "$GUARD" --strict "$proj5b"
+
+# --- PASS: *_tests.rs is ignored by authoritative runtime and shell fallback ---
+proj5c="${tmpdir}/pass_tests_suffix"
+mkdir -p "${proj5c}/src/nested"
+cat > "${proj5c}/src/nested/parser_tests.rs" <<'EOF'
+fn parser_fixture() {
+    let x: Option<i32> = Some(42);
+    let _ = x.expect("fixture");
+}
+EOF
+assert_ok "*_tests.rs is ignored by runtime classifier" \
+  run_guard_with_runtime "$runtime_wrapper" --strict "$proj5c"
+assert_ok "*_tests.rs is ignored by shell fallback" \
+  run_guard_with_runtime "$failing_runtime" --strict "$proj5c"
+
+# --- FAIL: similar production names stay visible while *_tests.rs stays ignored ---
+proj5d="${tmpdir}/tests_suffix_boundaries"
+mkdir -p "${proj5d}/src"
+for name in contest latest tests_support; do
+  cat > "${proj5d}/src/${name}.rs" <<EOF
+fn ${name}() { let _ = Some(1).unwrap(); }
+EOF
+done
+cat > "${proj5d}/src/foo_tests.rs" <<'EOF'
+fn fixture() { let _ = Some(1).unwrap(); }
+EOF
+for runtime in "$runtime_wrapper" "$failing_runtime"; do
+  label="runtime classifier"
+  [[ "$runtime" == "$failing_runtime" ]] && label="shell fallback"
+  assert_fail "similar production names fail with ${label}" \
+    run_guard_with_runtime "$runtime" --strict "$proj5d"
+  for name in contest latest tests_support; do
+    assert_output_contains "${name}.rs remains visible with ${label}" "${name}.rs" \
+      run_guard_with_runtime "$runtime" --strict "$proj5d"
+  done
+  assert_output_not_contains "foo_tests.rs stays ignored with ${label}" "foo_tests.rs" \
+    run_guard_with_runtime "$runtime" --strict "$proj5d"
+done
+
+# --- STAGED: production finding remains while *_tests.rs is excluded ---
+proj5e="${tmpdir}/staged_tests_suffix"
+mkdir -p "${proj5e}/src"
+git -C "$proj5e" init -q
+git -C "$proj5e" config user.email "vibeguard-tests@example.invalid"
+git -C "$proj5e" config user.name "VibeGuard Tests"
+cat > "${proj5e}/src/foo.rs" <<'EOF'
+fn production() { let _ = Some(1).unwrap(); }
+EOF
+cat > "${proj5e}/src/foo_tests.rs" <<'EOF'
+fn fixture() { let _ = Some(1).unwrap(); }
+EOF
+git -C "$proj5e" add src/foo.rs src/foo_tests.rs
+staged_files="${proj5e}/staged-files"
+printf '%s\n' "src/foo.rs" "src/foo_tests.rs" > "$staged_files"
+run_staged_guard() {
+  (
+    cd "$proj5e"
+    env \
+      VG_TEST_RUNTIME_MANIFEST="${REPO_DIR}/vibeguard-runtime/Cargo.toml" \
+      VIBEGUARD_RUNTIME="$runtime_wrapper" \
+      VIBEGUARD_STAGED_FILES="$staged_files" \
+      bash "$GUARD" --strict "$proj5e"
+  )
+}
+assert_fail "staged production unwrap remains visible" run_staged_guard
+assert_output_contains "staged output contains foo.rs" "src/foo.rs" run_staged_guard
+assert_output_not_contains "staged output excludes foo_tests.rs" "foo_tests.rs" run_staged_guard
 
 # --- PASS: empty project (no .rs files) ---
 proj6="${tmpdir}/pass_empty"

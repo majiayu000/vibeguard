@@ -93,6 +93,7 @@ pub(crate) fn is_test_path(path: &str) -> bool {
         || basename.contains(".test.")
         || basename.contains(".spec.")
         || basename.ends_with("_test.rs")
+        || basename.ends_with("_tests.rs")
 }
 
 fn has_path_segment(path: &str, segment: &str) -> bool {
@@ -650,23 +651,17 @@ mod tests {
 
     #[test]
     fn test_path_matches_rust_guard_exclusions() {
-        for path in [
-            "tests/integration.rs",
-            "src/tests.rs",
-            "src/test_helpers.rs",
-            "src/test_helpers/mod.rs",
-            "src/test_utils/helper.rs",
-            "examples/demo.rs",
-            "benches/throughput.rs",
-            "test_root.rs",
-            "src/math_test.rs",
-            "src/lib.test.rs",
-        ] {
+        let test_paths = "tests/integration.rs src/tests.rs src/test_helpers.rs src/test_helpers/mod.rs src/test_utils/helper.rs examples/demo.rs benches/throughput.rs test_root.rs src/math_test.rs src/math_tests.rs src/nested/parser_tests.rs src/lib.test.rs";
+        for path in test_paths.split_whitespace() {
             assert!(is_test_path(path), "{path} should be classified as test");
         }
-        assert!(!is_test_path("src/contest.rs"));
-        assert!(!is_test_path("src/contest_helpers/mod.rs"));
-        assert!(!is_test_path("src/prod_helpers.rs"));
+        let prod_paths = "src/contest.rs src/latest.rs src/tests_support.rs src/foo_tests.py src/contest_helpers/mod.rs src/prod_helpers.rs";
+        for path in prod_paths.split_whitespace() {
+            assert!(
+                !is_test_path(path),
+                "{path} should be classified as production"
+            );
+        }
     }
 
     #[test]

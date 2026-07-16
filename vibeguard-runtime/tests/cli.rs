@@ -1,6 +1,6 @@
 mod common;
 
-use common::bin;
+use common::{bin, run_runtime_with_stdin};
 
 #[test]
 fn no_args_exits_2() {
@@ -100,4 +100,35 @@ fn help_lists_all_commands() {
             "expected '{name}' in help output: {stderr}"
         );
     }
+}
+
+#[test]
+fn test_path_filter_classifies_rust_tests_suffix_without_broad_matches() {
+    let input = concat!(
+        "src/foo_tests.rs\n",
+        "src/nested/parser_tests.rs\n",
+        "src/contest.rs\n",
+        "src/latest.rs\n",
+        "src/tests_support.rs\n",
+        "src/foo_tests.py\n",
+    );
+
+    let test_output = run_runtime_with_stdin(&["test-path-filter", "--test"], input);
+    assert!(test_output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&test_output.stdout),
+        "src/foo_tests.rs\nsrc/nested/parser_tests.rs\n"
+    );
+
+    let prod_output = run_runtime_with_stdin(&["test-path-filter", "--prod"], input);
+    assert!(prod_output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&prod_output.stdout),
+        concat!(
+            "src/contest.rs\n",
+            "src/latest.rs\n",
+            "src/tests_support.rs\n",
+            "src/foo_tests.py\n",
+        )
+    );
 }
