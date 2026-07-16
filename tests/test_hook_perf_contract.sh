@@ -18,6 +18,12 @@ TMP_DIR="$(mktemp -d)"
 BENCH_JSON_FILE="${REPO_DIR}/.vibeguard/benchmarks/bench-latency-$(date +%Y%m%d).json"
 BENCH_JSON_TEMP="${TMP_DIR}/bench-latency.json"
 BENCH_ACTION_TEMP="${TMP_DIR}/bench-output.json"
+SLOW_JSON_TEMP="${TMP_DIR}/slow-bench-latency.json"
+SLOW_ACTION_TEMP="${TMP_DIR}/slow-bench-output.json"
+TRANSIENT_JSON_TEMP="${TMP_DIR}/transient-bench-latency.json"
+TRANSIENT_ACTION_TEMP="${TMP_DIR}/transient-bench-output.json"
+CONFIRMATION_ERROR_JSON_TEMP="${TMP_DIR}/confirmation-error-bench-latency.json"
+CONFIRMATION_ERROR_ACTION_TEMP="${TMP_DIR}/confirmation-error-bench-output.json"
 ROOT_BENCH_ACTION_FILE="${REPO_DIR}/bench-output.json"
 BENCH_JSON_EXISTED=false
 BENCH_JSON_BACKUP="${TMP_DIR}/bench-latency-existing.json"
@@ -89,6 +95,23 @@ assert_file_not_contains() {
     PASS=$((PASS + 1))
   else
     red "$desc (unexpected: $unexpected)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_file_occurrences() {
+  local file="$1"
+  local expected="$2"
+  local count="$3"
+  local desc="$4"
+  local actual
+  TOTAL=$((TOTAL + 1))
+  actual=$(grep -cF -- "$expected" "$file" 2>/dev/null || true)
+  if [[ "$actual" -eq "$count" ]]; then
+    green "$desc"
+    PASS=$((PASS + 1))
+  else
+    red "$desc (expected ${count}, got ${actual}: ${expected})"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -288,7 +311,7 @@ assert_fail_contains "subprocess loop in executable hook fails static validator"
 assert_file_contains "${TMP_DIR}/bad-exec-loop.out" "pre-commit" "executable loop output names the hook"
 
 header "dynamic latency gate"
-assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
+assert_fail_contains "synthetic slow hook fails latency budget" "synthetic-slow-hook" "${TMP_DIR}/slow.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --include-slow-fixture --fail-on-regression --json-output="${SLOW_JSON_TEMP}" --bench-action-output="${SLOW_ACTION_TEMP}"
 assert_file_contains "${TMP_DIR}/slow.out" "Surface: hook_e2e_ms" "latency gate declares hook e2e surface"
 assert_file_contains "${TMP_DIR}/slow.out" "surface=hook_e2e_ms" "latency rows include hook e2e surface marker"
 assert_file_contains "${TMP_DIR}/slow.out" "exceeded latency budget" "slow hook output explains budget failure"
@@ -296,9 +319,52 @@ assert_file_contains "${TMP_DIR}/slow.out" "hotspot=synthetic sleep fixture" "sl
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper pre-bash-guard" "latency gate includes Codex PreToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "codex-wrapper post-edit-guard (100)" "latency gate includes Codex PostToolUse wrapper fixture"
 assert_file_contains "${TMP_DIR}/slow.out" "post-build-check (fake cargo)" "latency gate includes post-build fake command fixture"
-assert_success_contains "JSON latency output is written to override path" "Results: ${BENCH_JSON_TEMP}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --json-output="${BENCH_JSON_TEMP}" --bench-action-output="${BENCH_ACTION_TEMP}" --sla=100000
+assert_file_contains "${TMP_DIR}/slow.out" "CONFIRMED-REGRESSION" "persistent slow hook reports confirmed regression"
+assert_cmd "persistent slow JSON preserves both batches" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+row = next(item for item in data["results"] if item["name"] == "synthetic-slow-hook")
+assert row["decision"] == "confirmed_regression"
+assert row["confirmation"] is not None
+assert row["p95"] == row["initial"]["p95"]
+assert row["confirmation"]["p95"] > row["budget_ms"]
+' "${SLOW_JSON_TEMP}"
+assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook decision confirmed-regression" "persistent slow action output records confirmed decision"
+assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook confirmation P95" "persistent slow action output records confirmation P95"
+assert_file_contains "${SLOW_ACTION_TEMP}" "e2e synthetic-slow-hook budget" "persistent slow action output records budget"
+
+assert_success_contains "transient direct and wrapper outliers are cleared" "PASSED: All hooks within latency budget" "${TMP_DIR}/transient.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --include-transient-fixtures --fail-on-regression --json-output="${TRANSIENT_JSON_TEMP}" --bench-action-output="${TRANSIENT_ACTION_TEMP}" --sla=100000
+assert_file_occurrences "${TMP_DIR}/transient.out" "confirming fixture after initial P95 breach" 2 "direct and wrapper fixtures each trigger exactly one confirmation batch"
+assert_cmd "transient JSON uses one shared decision schema" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+names = {"synthetic-transient-hook", "codex-wrapper synthetic-transient-hook"}
+rows = [item for item in data["results"] if item["name"] in names]
+assert {row["name"] for row in rows} == names
+for row in rows:
+    assert row["decision"] == "cleared_transient"
+    assert row["status"] == "PASS-CONFIRMED"
+    assert row["confirmation_runs"] == 1
+    assert row["confirmation"] is not None
+    assert row["p95"] == row["initial"]["p95"]
+    assert row["initial"]["p95"] > row["budget_ms"]
+    assert row["confirmation"]["p95"] <= row["budget_ms"]
+' "${TRANSIENT_JSON_TEMP}"
+assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e synthetic-transient-hook decision cleared" "direct transient action output records cleared decision"
+assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e codex synthetic-transient decision cleared" "wrapper transient action output records cleared decision"
+assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e synthetic-transient-hook confirmation P95" "direct transient action output records confirmation P95"
+assert_file_contains "${TRANSIENT_ACTION_TEMP}" "e2e codex synthetic-transient budget" "wrapper transient action output records budget"
+
+assert_success_contains "JSON latency output is written to override path" "Results: ${BENCH_JSON_TEMP}" "${TMP_DIR}/json.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --json-output="${BENCH_JSON_TEMP}" --bench-action-output="${BENCH_ACTION_TEMP}" --sla=100000
 assert_file_contains "${BENCH}" '.vibeguard/benchmarks/bench-latency-' "default latency JSON path stays out of data/"
 assert_file_contains "${BENCH_JSON_TEMP}" '"surface":"hook_e2e_ms"' "JSON latency output declares hook e2e surface"
+assert_cmd "normal fixtures do not run confirmation" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["results"]
+for row in data["results"]:
+    assert row["decision"] == "normal_pass"
+    assert row["confirmation"] is None
+    assert row["confirmation_runs"] == 0
+' "${BENCH_JSON_TEMP}"
+assert_file_not_contains "${BENCH_ACTION_TEMP}" " confirmation P95" "normal action output has no confirmation rows"
 assert_file_contains "${BENCH_ACTION_TEMP}" " P50" "benchmark action output includes P50 samples"
 assert_file_contains "${BENCH_ACTION_TEMP}" " P95" "benchmark action output includes P95 samples"
 assert_file_contains "${BENCH_ACTION_TEMP}" " P99" "benchmark action output includes P99 samples"
@@ -322,6 +388,24 @@ assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'benchma
 assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'bash_destructive_restore' "core_us benchmark keeps bash classifier sample"
 assert_file_contains "${REPO_DIR}/vibeguard-runtime/benches/core_us.rs" 'write_clean_rust_fast_path' "core_us benchmark keeps write classifier sample"
 assert_success_contains "distorted spawn baseline suppresses latency failure" "ENVIRONMENT DISTORTED" "${TMP_DIR}/distorted.out" env VIBEGUARD_BENCH_SPAWN_BASELINE_MS=999 VIBEGUARD_BENCH_SPAWN_MAX_MS=10 bash "${BENCH}" --runs=1 --include-slow-fixture --fail-on-regression --no-bench-action-output
+assert_file_not_contains "${TMP_DIR}/distorted.out" "confirming fixture after initial P95 breach" "distorted environment does not fabricate confirmation"
+
+assert_fail_contains "confirmation execution error fails visibly" "ERROR: confirmation failed" "${TMP_DIR}/confirmation-error.out" env VIBEGUARD_BENCH_SPAWN_MAX_MS=100000 bash "${BENCH}" --runs=1 --confirmation-runs=1 --include-confirmation-error-fixture --fail-on-regression --json-output="${CONFIRMATION_ERROR_JSON_TEMP}" --bench-action-output="${CONFIRMATION_ERROR_ACTION_TEMP}" --sla=100000
+assert_cmd "confirmation error JSON retains initial evidence" python3 -c 'import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+row = next(item for item in data["results"] if item["name"] == "synthetic-confirmation-error-hook")
+assert row["decision"] == "confirmation_error"
+assert row["confirmation"] is None
+assert row["initial"]["p95"] == row["p95"]
+' "${CONFIRMATION_ERROR_JSON_TEMP}"
+assert_file_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "e2e synthetic-confirmation-error-hook decision confirmation-error" "confirmation error action output records error decision"
+assert_file_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "e2e synthetic-confirmation-error-hook P95" "confirmation error action output retains initial P95"
+assert_file_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "e2e synthetic-confirmation-error-hook budget" "confirmation error action output records budget"
+assert_file_not_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "synthetic-confirmation-error-hook confirmation P95" "confirmation error action output does not invent confirmation metrics"
+assert_file_not_contains "${CONFIRMATION_ERROR_ACTION_TEMP}" "decision cleared" "confirmation error action output never records cleared"
+assert_file_not_contains "${TMP_DIR}/confirmation-error.out" "PASS-CONFIRMED" "confirmation error console never reports confirmed pass"
+assert_fail_contains "zero confirmation runs fails validation" "--confirmation-runs must be a positive integer" "${TMP_DIR}/invalid-confirmation-runs.out" bash "${BENCH}" --confirmation-runs=0 --no-bench-action-output
+assert_file_contains "${REPO_DIR}/.github/workflows/ci.yml" '--confirmation-runs=3' "CI pins confirmation sample count explicitly"
 
 header "benchmark score gate"
 BENCHMARK_CSV="${TMP_DIR}/precision-fixture.csv"
