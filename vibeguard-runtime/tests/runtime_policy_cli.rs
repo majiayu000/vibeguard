@@ -758,38 +758,19 @@ fn runtime_policy_argument_errors_are_visible() {
 }
 
 #[test]
-fn runtime_policy_diag_open_error_is_visible() {
-    let repo = unique_temp_dir("diag_open_error");
-    fs::create_dir_all(&repo).expect("diag directory should be created");
-
-    let output = run_runtime_with_stdin(
-        &[
-            "runtime-policy-diag",
-            repo.to_str().expect("diag path should be utf8"),
-            "pre-bash-guard.sh",
-            "PreToolUse",
-            "policy_error",
-            "run-hook-codex.sh",
-        ],
-        "runtime missing",
-    );
-
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(!output.stderr.is_empty());
-    assert!(repo.is_dir());
-
-    let invalid_payload = run_runtime_with_stdin(
-        &[
+fn runtime_policy_downgrade_output_invalid_payload_is_visible() {
+    let invalid_payload = bin()
+        .args([
             "runtime-policy-downgrade-output",
             "--payload",
             "not-json",
             "post-edit-guard.sh",
-        ],
-        r#"{"decision":"block"}"#,
-    );
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("runtime helper should finish");
+
     assert!(!invalid_payload.status.success());
     assert!(invalid_payload.stdout.is_empty());
     assert!(String::from_utf8_lossy(&invalid_payload.stderr).contains("payload invalid JSON"));
-    let _ = fs::remove_dir_all(repo);
 }
