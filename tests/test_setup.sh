@@ -306,7 +306,7 @@ assert_launchd_gc_edge_gates() {
 }
 
 assert_prepare_runtime_from_source_no_cargo_metadata() {
-  python3 - <<'PY' "${REPO_DIR}/scripts/setup/install.sh"
+  python3 - <<'PY' "${REPO_DIR}/scripts/setup/runtime-install.sh"
 from pathlib import Path
 import re
 import sys
@@ -776,6 +776,7 @@ assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
 
 for setup_test in \
   "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh" \
+  "${REPO_DIR}/tests/setup/runtime_install_tests.sh" \
   "${REPO_DIR}/tests/setup/install_flow_tests.sh" \
   "${REPO_DIR}/tests/setup/protection_clean_tests.sh" \
   "${REPO_DIR}/tests/setup/profile_flow_tests.sh"; do

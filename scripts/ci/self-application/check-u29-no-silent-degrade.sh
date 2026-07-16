@@ -108,15 +108,17 @@ if eval_runner.exists():
     if "EVAL_MAX_API_FAILURES" not in text:
         errors.append("eval/run_eval.py: missing API failure threshold knob")
 
-setup_install = repo / "scripts/setup/install.sh"
-if setup_install.exists():
+for rel in ("scripts/setup/install.sh", "scripts/setup/runtime-install.sh"):
+    setup_install = repo / rel
+    if not setup_install.exists():
+        continue
     text = setup_install.read_text(encoding="utf-8")
     for phrase in ("falls back to Python", "falling back to Python", "using Python fallback"):
         if phrase in text:
-            errors.append(f"scripts/setup/install.sh: helper build must not advertise {phrase!r}")
+            errors.append(f"{rel}: helper build must not advertise {phrase!r}")
     for phrase in ("VIBEGUARD_ALLOW_NO_RUNTIME", "explicit degraded mode", "degraded install without"):
         if phrase in text:
-            errors.append(f"scripts/setup/install.sh: no-runtime compatibility path remains ({phrase!r})")
+            errors.append(f"{rel}: no-runtime compatibility path remains ({phrase!r})")
 
 if errors:
     print("FAIL: U-29 silent-degradation checks failed")
