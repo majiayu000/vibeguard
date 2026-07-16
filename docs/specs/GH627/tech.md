@@ -54,7 +54,7 @@ install-incomplete 可见错误，setup repair 负责刷新。
 | B-001 | wrapper resolver + canonical path lookup | 遍历 manifest namespaced names，断言执行对应 canonical fixture |
 | B-002 | closed-map/name validation + visible failure adapter | 缺失/空名、未知名、`../`、斜杠与双前缀 fixtures 覆盖 PreToolUse/PermissionRequest/Stop/其他已知事件，断言事件级可见拒绝、stable reason、exit 0 与目标未执行 |
 | B-003 | repo-linked/installed resolution | 两种模式的 canonical fixture tests；缺文件返回 visible failure |
-| B-004 | adapter/policy integration | `bash tests/codex_runtime/test_codex_hooks_adapter.sh` 与 manifest tests |
+| B-004 | adapter/policy integration | `bash tests/test_codex_runtime.sh` 与 manifest tests |
 | B-005 | file deletion + set-sync + safe-bash pack contract | alias glob 为空，manifest/canonical 集合通过；pack source/install 无 alias，Codex audit 命令仍传 requested name；`bash tests/test_guard_packs.sh` 通过 |
 | B-006 | diagnostics | requested name 与 stable error reason assertions |
 
@@ -76,7 +76,7 @@ adapter 输出 Codex JSON。无新增持久化。
 ## 测试计划
 
 - [ ] Unit/focused: resolver 正反名称 fixtures；所有失败事件断言 visible output、stable reason、exit 0 与零目标执行。
-- [ ] Integration: Codex adapter、installed snapshot 与 `bash tests/test_guard_packs.sh`。
+- [ ] Integration: `bash tests/test_codex_runtime.sh`、installed snapshot 与 `bash tests/test_guard_packs.sh`。
 - [ ] Required gates: `bash scripts/ci/validate-hooks.sh`、`bash scripts/ci/validate-hooks-manifest.sh`。
 - [ ] Manual: 从现有 manifest 命令调用每个 namespaced hook，确认不依赖 alias 文件。
 
