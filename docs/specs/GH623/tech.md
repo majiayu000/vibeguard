@@ -39,12 +39,15 @@ GH-623
    root、不安装 trap、不重置计数器，也不承诺 standalone 执行。这样 PASS/FAIL 聚合与失败后的 EXIT
    cleanup 仍由单一 owner 控制。
 5. 添加结构验证，确认 aggregate 显式 source 四个 exact paths、所有五个 shell 文件通过 `bash -n`、
-   行数 guard 通过，且拆分后的 `assert_cmd` / `assert_fails` 调用文案集合与 base snapshot 完全一致。
-   不以仅有的总数比较替代逐项清单比较。
-6. 运行 aggregate 并确认最终 `Total: 68 Pass: 68 Fail: 0`。现有 mutations 已覆盖四个提取域：
+   行数 guard 通过，且拆分后的 headings 与 `assert_cmd` / `assert_fails` 调用文案按执行顺序与 base
+   snapshot 做完整清单 diff。不以仅有的总数或无序集合比较替代逐项顺序比较。
+6. 使用两个隔离的临时 repository copy 验证 source 负路径：分别删除一个 child、向一个 child 注入
+   shell syntax error，在隔离 `TMPDIR` 中运行真实 aggregate，断言非零、对应 source/syntax 错误可见、
+   不输出成功 summary，且退出后 `TMPDIR` 中无 aggregate fixture 残留，从而证明原 EXIT trap 仍执行。
+7. 运行 aggregate 并确认最终 `Total: 68 Pass: 68 Fail: 0`。现有 mutations 已覆盖四个提取域：
    wrapper inline-Python failure、package eval/argv failures、SEC-13/U-29 failures、SEC-14 poisoned MCP
    failures；无需编造新 mutation 或改变 production checker。
-7. 不修改 `scripts/ci/self-application/*.sh`、`.github/workflows/ci.yml`、规则、hook 或 runtime。若机械
+8. 不修改 `scripts/ci/self-application/*.sh`、`.github/workflows/ci.yml`、规则、hook 或 runtime。若机械
    移动暴露 cross-domain fixture 依赖，触发 stop condition 并先修订 spec，而不是静默重写 fixtures。
 
 ## Product-to-Test Mapping
@@ -54,7 +57,7 @@ GH-623
 | B-001 | aggregate harness + ordered sources | aggregate output、68 个具名 assertion 清单、summary/exit |
 | B-002 | four focused fragments | base-vs-split section text comparison、diff review |
 | B-003 | aggregate-owned helpers/temp/trap | ownership search、重复定义检查、cleanup regression |
-| B-004 | explicit source wiring | exact-path source assertions、`bash -n`、missing-child source failure |
+| B-004 | explicit source wiring | exact-path source assertions、`bash -n`、isolated missing/broken-child aggregate failures + empty `TMPDIR` |
 | B-005 | canonical size guard | red-before/green-after `check-test-file-sizes.sh` |
 | B-006 | unchanged mutation fixtures | aggregate 68/68 + per-domain checker invocation inventory |
 | B-007 | read-only production surfaces | changed-file audit and CI entrypoint comparison |
@@ -98,7 +101,8 @@ temp root 累加同一组计数；控制返回 aggregate 后打印原 summary，
   `bash scripts/verify/check-test-file-sizes.sh`，确认具名报告 854 行 aggregate 超限。
 - [ ] Syntax：`bash -n tests/test_self_application_ci.sh tests/self_application/*.sh`。
 - [ ] Structural：`bash scripts/verify/check-test-file-sizes.sh`；`wc -l` 确认 aggregate/children `<400`；
-  ordered source、header 与 assertion-description inventory 对比。
+  ordered source、header 与 assertion-description full-list diff；临时 repo copy 中 missing/broken child
+  均使真实 aggregate 非零且隔离 `TMPDIR` 退出后为空。
 - [ ] Focused full：`bash tests/test_self_application_ci.sh`，期待 68/68。
 - [ ] Self-application production：`bash scripts/ci/self-application/run-all.sh .`。
 - [ ] Broad gate：`bash scripts/local-contract-check.sh --quick`；`git diff --check`。
