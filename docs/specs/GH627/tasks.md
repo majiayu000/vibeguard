@@ -29,5 +29,17 @@ GH-627
 
 ## Handoff Notes
 
-规格未批准或 issue 未置 `ready_to_implement` 时停止。禁止接受任意 strip 后的文件名，
-禁止保留 silent alias fallback。
+- `mode`: `specrail-implement`
+- `artifacts`: `docs/specs/GH627/product.md`, `docs/specs/GH627/tech.md`,
+  `docs/specs/GH627/tasks.md`
+- `runtime_pinning_snapshot`: None；实现必须从 Spec merge 后的最新 `origin/main` 建立独立
+  worktree，并在 PR evidence 中记录 exact base/head SHA。
+- `verification_owner`: `/root`
+- `stop_conditions`: 规格未批准或 issue 未置 `ready_to_implement`；解析不能保持 manifest
+  hook 闭集；必须接受任意 strip、路径型名称或 alias fallback；canonical 文件缺失不能产生可见
+  install-incomplete 失败；focused hook、manifest、setup 或 broad contract 检查失败；独立 reviewer
+  有 blocker；current-head CI、review threads 或 SpecRail required gate 未通过。
+- `lane_map`: specification `/root` 独占 `docs/specs/GH627/` 与 spec index；implementation
+  `/root` 独占 wrapper、alias 删除及相关 fixtures/tests；independent reviewer `/root/review_pr612`
+  只读，无可写文件。
+- Spec PR 只 `Refs #627`；只有独立 Impl PR 使用 `Fixes #627` 并在合并后关闭 Issue。
