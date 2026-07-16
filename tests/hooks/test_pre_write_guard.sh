@@ -214,6 +214,11 @@ assert_occurrences "$silent_events" "New source file reminder" "1" "silent attem
 assert_occurrences "$silent_events" "New source file attempt" "4" "silent attempts: attempt telemetry remains complete"
 assert_not_contains "$silent_events" '"decision": "escalate"' "silent attempts: no escalation event is recorded"
 
+printf '%s\n' '{"session":"prewrite-silent-attempts","hook":"analysis-paralysis-guard","tool":"Grep"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_silent_after_grep.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "silent attempts: Grep recovery is not trapped while the circuit remains open"
+assert_not_contains "$result" "VIBEGUARD" "silent attempts: the still-open circuit may keep the recovered retry silent"
+
 rm -rf "$cb_state_dir"
 unset cb_state_dir silent_events
 
