@@ -9,7 +9,7 @@ set -euo pipefail
 #   bash vibeguard/scripts/verify/compliance_check.sh /path/to/my-project
 
 PROJECT_DIR="${1:-.}"
-VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 source "$(dirname "$0")/../lib/guard_paths.sh"
 PASS=0
 FAIL=0
