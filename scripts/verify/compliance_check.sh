@@ -58,17 +58,36 @@ if [[ "${LANGUAGE_SCOPE_VALID}" == "true" && -n "${LANGUAGES}" ]]; then
     --languages "${LANGUAGES}" \
     --manifest-file "${SCRIPT_ROOT}/schemas/install-modules.json" 2>&1)"; then
     while IFS= read -r module_line; do
+      if [[ -z "${module_line}" ]]; then
+        check_fail "language guard module resolution returned an empty record"
+        LANGUAGE_SCOPE_VALID=false
+        continue
+      fi
       IFS=$'\t' read -r -a module_fields <<< "${module_line}"
+      if (( ${#module_fields[@]} < 2 )) || [[ -z "${module_fields[0]}" ]]; then
+        check_fail "language guard module resolution returned a malformed record"
+        LANGUAGE_SCOPE_VALID=false
+        continue
+      fi
       module_id="${module_fields[0]}"
       module_available=true
+      module_record_valid=true
       for ((field_index = 1; field_index < ${#module_fields[@]}; field_index++)); do
         module_path="${module_fields[${field_index}]%/}"
+        if [[ -z "${module_path}" ]]; then
+          check_fail "language guard module resolution returned an empty path for ${module_id}"
+          LANGUAGE_SCOPE_VALID=false
+          module_record_valid=false
+          break
+        fi
         if [[ ! -e "${VIBEGUARD_DIR}/${module_path}" ]]; then
           module_available=false
           break
         fi
       done
-      if [[ "${module_available}" == "true" ]]; then
+      if [[ "${module_record_valid}" != "true" ]]; then
+        continue
+      elif [[ "${module_available}" == "true" ]]; then
         check_pass "guard module ${module_id} available"
       else
         check_warn "guard module ${module_id} unavailable under ${VIBEGUARD_DIR}"

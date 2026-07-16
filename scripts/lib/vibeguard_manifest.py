@@ -138,8 +138,12 @@ def _module_languages(module: dict[str, Any], module_id: str) -> set[str]:
             normalized.add(language)
     return normalized
 
+def reject_control_characters(value: str, label: str) -> None:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError(f"{label} must not contain control characters")
 
 def normalize_guard_source(path_str: str, module_id: str) -> str:
+    reject_control_characters(path_str, f"module {module_id}: guard path")
     source = path_str.rstrip("/")
     if not source:
         raise ValueError(f"module {module_id}: guard path must not be empty")
@@ -159,10 +163,7 @@ def normalize_guard_source(path_str: str, module_id: str) -> str:
     return path.as_posix() + ("/" if path_str.endswith("/") else "")
 
 
-def guard_modules(
-    manifest: dict[str, Any],
-    languages: str | None,
-) -> list[tuple[str, list[str]]]:
+def guard_modules(manifest: dict[str, Any], languages: str | None) -> list[tuple[str, list[str]]]:
     selected_languages = language_filter(languages)
     if not selected_languages:
         raise ValueError("guard module query requires at least one language")
@@ -182,6 +183,7 @@ def guard_modules(
         module_id = module.get("id")
         if not isinstance(module_id, str) or not module_id:
             raise ValueError("guard module id must be a non-empty string")
+        reject_control_characters(module_id, "guard module id")
         module_languages = _module_languages(module, module_id)
         matched_languages = selected_languages & module_languages
         if not matched_languages:

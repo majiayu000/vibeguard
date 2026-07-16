@@ -139,6 +139,8 @@ OUTSIDE_CWD="${TMP_DIR}/outside cwd"
 OVERRIDE_ROOT="${TMP_DIR}/explicit root"
 MISSING_MAPPING_ROOT="${TMP_DIR}/missing mapping distribution"
 INVALID_PATHS_ROOT="${TMP_DIR}/invalid paths distribution"
+CONTROL_PATH_ROOT="${TMP_DIR}/control path distribution"
+MALFORMED_OUTPUT_ROOT="${TMP_DIR}/malformed output distribution"
 
 mkdir -p \
   "${FIXTURE_HOME}/.claude/skills/vibeguard" \
@@ -305,6 +307,38 @@ run_checker "${INVALID_PATHS_ROOT}/scripts/verify/compliance_check.sh" "${RUST_P
 assert_eq "empty guard paths fail compliance" 1 "${LAST_STATUS}"
 assert_contains "empty guard paths emit named failure" "${LAST_OUTPUT}" "language guard module resolution failed"
 assert_not_contains "empty guard paths do not fall back to Python" "${LAST_OUTPUT}" "check_duplicates.py"
+
+copy_distribution "${CONTROL_PATH_ROOT}"
+python3 - "${CONTROL_PATH_ROOT}/schemas/install-modules.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+manifest = json.loads(path.read_text(encoding="utf-8"))
+for module in manifest["modules"]:
+    if module.get("id") == "guards-rust":
+        module["paths"] = ["guards/rust/\nforged"]
+path.write_text(json.dumps(manifest), encoding="utf-8")
+PY
+run_checker "${CONTROL_PATH_ROOT}/scripts/verify/compliance_check.sh" "${RUST_PROJECT}"
+assert_eq "control-character guard path fails compliance" 1 "${LAST_STATUS}"
+assert_contains "control-character guard path emits named failure" "${LAST_OUTPUT}" "language guard module resolution failed"
+assert_not_contains "control-character guard path cannot forge availability" "${LAST_OUTPUT}" "guard module forged available"
+assert_not_contains "control-character guard path does not fall back to Python" "${LAST_OUTPUT}" "check_duplicates.py"
+
+copy_distribution "${MALFORMED_OUTPUT_ROOT}"
+printf '%s\n' \
+  'import sys' \
+  'if "guard-modules" in sys.argv:' \
+  '    print("forged")' \
+  'else:' \
+  '    raise SystemExit(1)' \
+  > "${MALFORMED_OUTPUT_ROOT}/scripts/lib/vibeguard_manifest.py"
+run_checker "${MALFORMED_OUTPUT_ROOT}/scripts/verify/compliance_check.sh" "${RUST_PROJECT}"
+assert_eq "malformed helper record fails compliance" 1 "${LAST_STATUS}"
+assert_contains "malformed helper record emits named failure" "${LAST_OUTPUT}" "language guard module resolution returned a malformed record"
+assert_not_contains "malformed helper record cannot forge availability" "${LAST_OUTPUT}" "guard module forged available"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' \
