@@ -617,6 +617,72 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "ci setup timeout headroom"
+TOTAL=$((TOTAL + 1))
+if python3 - "${REPO_DIR}/.github/workflows/ci.yml" >/dev/null <<'PY'; then
+from pathlib import Path
+import re
+import sys
+
+def validate(workflow: str) -> None:
+    job_match = re.search(
+        r"(?ms)^  validate-and-test:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        workflow,
+    )
+    if job_match is None:
+        raise SystemExit("missing validate-and-test job")
+    job = job_match.group(0)
+    job_lines = job.splitlines()
+    required_lines = {
+        "stable required check name": "    name: CI (${{ matrix.os }})",
+        "finite timeout headroom": "    timeout-minutes: 45",
+        "Ubuntu/macOS matrix": "        os: [ubuntu-latest, macos-latest]",
+    }
+    for description, line in required_lines.items():
+        if line not in job_lines:
+            raise SystemExit(f"validate-and-test missing {description}: {line}")
+    for prefix in ("    if:", "    continue-on-error:", "        include:", "        exclude:"):
+        if any(line.startswith(prefix) for line in job_lines):
+            raise SystemExit(f"validate-and-test must not contain {prefix.strip()}")
+
+    setup_match = re.search(
+        r"(?ms)^      - name: Setup regression tests\n(?P<body>.*?)(?=^      - name:|\Z)",
+        job,
+    )
+    if setup_match is None:
+        raise SystemExit("missing Setup regression tests step")
+    setup_lines = setup_match.group(0).splitlines()
+    run_lines = [line.strip() for line in setup_lines if line.strip().startswith("run:")]
+    if run_lines != ["run: bash tests/test_setup.sh"]:
+        raise SystemExit("Setup regression tests must run bash tests/test_setup.sh exactly once")
+    for prefix in ("if:", "continue-on-error:"):
+        if any(line.strip().startswith(prefix) for line in setup_lines):
+            raise SystemExit(f"Setup regression tests must not use {prefix}")
+
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+validate(workflow)
+mutations = {
+    "macOS setup skip": ("        shell: bash\n        run: bash tests/test_setup.sh", "        if: runner.os == 'Linux'\n        shell: bash\n        run: bash tests/test_setup.sh"),
+    "job advisory": ("    runs-on: ${{ matrix.os }}", "    runs-on: ${{ matrix.os }}\n    continue-on-error: true"),
+}
+for description, (old, new) in mutations.items():
+    mutated = workflow.replace(old, new, 1)
+    if mutated == workflow:
+        raise SystemExit(f"failed to create {description} mutation")
+    try:
+        validate(mutated)
+    except SystemExit:
+        continue
+    raise SystemExit(f"contract accepted forbidden mutation: {description}")
+PY
+  green "CI setup stays blocking with bounded timeout headroom"
+  PASS=$((PASS + 1))
+else
+  red "CI setup stays blocking with bounded timeout headroom"
+  FAIL=$((FAIL + 1))
+fi
+
 header "consumer drift failures"
 HANDOFF_FIXTURE="${TMP_DIR}/handoff"
 copy_schemas "${HANDOFF_FIXTURE}"

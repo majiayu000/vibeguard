@@ -21,7 +21,7 @@ jobs:
   validate-and-test:
     name: CI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     strategy:
       fail-fast: false
