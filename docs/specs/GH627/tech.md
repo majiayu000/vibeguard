@@ -31,9 +31,10 @@ canonical basename，诊断和 policy identity 继续按外部 contract 使用 r
 resolver 必须在任何目标 hook 执行前处理缺失、空、未知和路径型 requested name。失败路径先从
 stdin 取得 event，再复用 Codex visible-failure adapter：`PreToolUse` 输出
 `permissionDecision: deny`，`PermissionRequest` 输出 `behavior: deny`，`Stop` 输出
-`stopReason`，其他已知事件输出 `systemMessage`。每个响应包含稳定 invalid-hook-name 原因，
-保留 requested-name diagnostic，确认目标 fixture 未执行，并在输出 protocol-valid JSON 后
-以 wrapper exit 0 结束；禁止仅写 diagnostic、空 stdout 后 exit 0。
+`stopReason`，`PostToolUse` 保留现有顶层 `decision: block`/`reason` 与
+`hookSpecificOutput.additionalContext`，只有未识别/兜底事件输出 `systemMessage`。每个响应包含
+稳定 invalid-hook-name 原因，保留 requested-name diagnostic，确认目标 fixture 未执行，并在
+输出 protocol-valid JSON 后以 wrapper exit 0 结束；禁止仅写 diagnostic、空 stdout 后 exit 0。
 
 推荐显式 allowlist/map，而不是只执行 `${name#vibeguard-}`：后者会接受任何新 basename，
 无法阻止 prefix-looking traversal/未声明 hook。manifest、install modules 与 map 的集合
