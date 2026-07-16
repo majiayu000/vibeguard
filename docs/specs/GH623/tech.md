@@ -22,8 +22,9 @@ GH-623
 
 ## 设计方案
 
-1. 先扩展 `scripts/verify/check-test-file-sizes.sh`：将
-   `tests/test_self_application_ci.sh` 与 `tests/self_application/*.sh` 都设为 400 行上限。该变更在
+1. 先扩展 `scripts/verify/check-test-file-sizes.sh`：对
+   `tests/test_self_application_ci.sh` 与 `tests/self_application/*.sh` 调用现有 `check_file` 时传入
+   `max_lines=399`，从而精确执行 `<400` 合同。该变更在
    production split 前必须因当前 854 行 aggregate 失败，形成 red evidence。
 2. 新增 `tests/self_application/`，按现有连续 section 边界机械移动到四个 sourced fragments：
    - `codex_wrapper_tests.sh`：原 54-108 行；
@@ -85,8 +86,8 @@ temp root 累加同一组计数；控制返回 aggregate 后打印原 summary，
 - Heredoc boundary：大量 fixtures 含 shell/JS/Python heredoc；必须整段机械移动并执行所有文件 `bash -n`。
 - Assertion loss：简单行数下降可能误删 mutation；以 ordered description inventory 与 fresh 68/68 双重验证。
 - Cleanup drift：child 不得新增 trap 或 temp root；失败路径仍由 aggregate EXIT trap 清理。
-- Test guard false green：现有 size guard 未覆盖该 harness；将 aggregate + glob 加入 canonical guard，而不是
-  在测试中写一次性 `wc`。
+- Test guard false green：现有 size guard 未覆盖该 harness；将 aggregate + glob 以 inclusive max 399
+  加入 canonical guard，而不是在测试中写一次性 `wc`。
 - Future growth：四个 child 中最大约 304 行，均留出至少约 95 行余量；aggregate 降至约 70 行。
 - Reviewability：实现只允许 size-guard coverage、四个新 fragment 与 aggregate source/delete blocks；任何
   fixture/assertion 文本修改都触发 stop condition。
