@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH621/` | Draft | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH618/` | Draft | Manifest-driven compliance language scope, guard-pack reporting, and fail-visible config handling |
 | `GH614/` | Draft | Bounded macOS CI timeout headroom while preserving required check names and blocking setup coverage |
