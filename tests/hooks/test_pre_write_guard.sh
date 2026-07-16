@@ -185,33 +185,107 @@ rm -rf "$cb_state_dir"
 export VIBEGUARD_LOG_DIR="$prev_log_dir"
 unset VIBEGUARD_SESSION_ID VG_CB_LOCK_TIMEOUT_SECONDS cb_state_dir lock_file
 
-# Escalation must count source-new attempts even when the circuit breaker is
-# OPEN and individual reminder advisories are being silenced.
-header "pre-write-guard.sh — escalation counts circuit-breaker auto-pass attempts"
+# Escalation evidence must be based on advisories that were actually visible.
+header "pre-write-guard.sh — silent circuit-breaker attempts do not escalate"
 
 cb_state_dir=$(mktemp -d)
 export VIBEGUARD_LOG_DIR="$cb_state_dir"
+export VIBEGUARD_PROJECT_LOG_DIR="$cb_state_dir/project"
+export VIBEGUARD_LOG_FILE="$VIBEGUARD_PROJECT_LOG_DIR/events.jsonl"
+export VIBEGUARD_SESSION_ID="prewrite-silent-attempts"
 export VG_CB_THRESHOLD=1
 export VG_CB_COOLDOWN=300
 export VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=3
 
-result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_escalate_1.go"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" "[L1]" "escalate: write #1 emits L1 advisory"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_silent_1.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "silent attempts: write #1 emits the only visible reminder"
 
-result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_escalate_2.go"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "escalate: write #2 is silenced by open circuit"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_silent_2.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "silent attempts: write #2 is silenced by the open circuit"
 
-result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_escalate_3.go"}}' | bash hooks/pre-write-guard.sh)
-assert_not_contains "$result" "VIBEGUARD" "escalate: write #3 is also silenced by open circuit"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_silent_3.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "silent attempts: write #3 remains silent without escalating"
 
-result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_escalate_4.go"}}' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "escalate: write #4 blocks after counted source-new attempts"
-assert_contains "$result" "3 new source file attempts" "escalate: block message reports counted attempts"
-assert_contains "$result" "VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0" "escalate: block message names an effective disable knob"
-assert_not_contains "$result" "VIBEGUARD_WRITE_MODE=warn" "escalate: block message does not suggest no-op warn mode"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_cb_silent_4.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" "VIBEGUARD" "silent attempts: write #4 remains silent without escalating"
+
+silent_events=$(cat "$VIBEGUARD_LOG_FILE")
+assert_occurrences "$silent_events" "New source file reminder" "1" "silent attempts: only one visible reminder is recorded"
+assert_occurrences "$silent_events" "New source file attempt" "4" "silent attempts: attempt telemetry remains complete"
+assert_not_contains "$silent_events" '"decision": "escalate"' "silent attempts: no escalation event is recorded"
 
 rm -rf "$cb_state_dir"
-unset VG_CB_THRESHOLD VG_CB_COOLDOWN VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD cb_state_dir
+unset cb_state_dir silent_events
+
+# Only same-session Grep/Glob events form a recovery boundary. Invalid or
+# unrelated history must not weaken escalation, and new reminders after a
+# valid boundary must be able to escalate again.
+header "pre-write-guard.sh — escalation recovers after same-session search"
+
+cb_state_dir=$(mktemp -d)
+export VIBEGUARD_LOG_DIR="$cb_state_dir"
+export VIBEGUARD_PROJECT_LOG_DIR="$cb_state_dir/project"
+export VIBEGUARD_LOG_FILE="$VIBEGUARD_PROJECT_LOG_DIR/events.jsonl"
+export VIBEGUARD_SESSION_ID="prewrite-search-recovery"
+export VG_CB_THRESHOLD=100
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_search_1.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: reminder #1 is visible"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_search_2.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: reminder #2 is visible"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_search_3.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: reminder #3 is visible"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_search_blocked.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: threshold still blocks unheeded visible reminders"
+assert_contains "$result" "3 visible new source file reminders" "search recovery: block reports visible reminder count"
+assert_contains "$result" "~/.vibeguard/config.json" "search recovery: threshold alternative names the persistent config path"
+assert_contains "$result" "write_escalate_threshold" "search recovery: threshold alternative names the config key"
+assert_contains "$result" "persistent global change" "search recovery: threshold alternative explains global persistence"
+assert_not_contains "$result" "VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0" "search recovery: block omits ineffective session-local export"
+
+printf '%s\n' 'not-json' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_malformed.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: malformed history does not reset escalation"
+
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"other-hook","tool":"Grep","reason":"New source file reminder"}' >> "$VIBEGUARD_LOG_FILE"
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"analysis-paralysis-guard","tool":"Edit","reason":"New source file reminder"}' >> "$VIBEGUARD_LOG_FILE"
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"pre-write-guard","tool":"Write","reason":"unrelated"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_unrelated.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: unrelated hook/tool/reason events do not reset escalation"
+
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"analysis-paralysis-guard","tool":"Read"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_read.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: same-session Read does not reset escalation"
+
+printf '%s\n' '{"session":"other-session","hook":"analysis-paralysis-guard","tool":"Grep"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_other_session.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: other-session Grep does not reset escalation"
+
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"analysis-paralysis-guard","tool":"Grep"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_grep_1.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: same-session Grep releases the old escalation"
+assert_not_contains "$result" '"decision": "block"' "search recovery: Grep retry is not trapped by old reminders"
+
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_grep_2.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: post-Grep reminder #2 is visible"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_grep_3.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: post-Grep reminder #3 is visible"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_grep_blocked.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "search recovery: reminders after Grep can escalate again"
+
+printf '%s\n' '{"session":"prewrite-search-recovery","hook":"analysis-paralysis-guard","tool":"Glob"}' >> "$VIBEGUARD_LOG_FILE"
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_after_glob.go"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" "[L1]" "search recovery: same-session Glob also releases escalation"
+assert_not_contains "$result" '"decision": "block"' "search recovery: Glob retry is not trapped by old reminders"
+
+export VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0
+result=$(echo '{"tool_input":{"file_path":"/tmp/vg_escalation_disabled.go"}}' | bash hooks/pre-write-guard.sh)
+assert_not_contains "$result" '"decision": "block"' "search recovery: threshold zero keeps escalation disabled"
+
+rm -rf "$cb_state_dir"
+unset VG_CB_THRESHOLD VG_CB_COOLDOWN VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD
+unset VIBEGUARD_PROJECT_LOG_DIR VIBEGUARD_LOG_FILE VIBEGUARD_SESSION_ID cb_state_dir result
 
 # Codex P2 regression: a non-advisory write between source-file writes must
 # reset the breaker so the threshold counts CONSECUTIVE advisories, not
