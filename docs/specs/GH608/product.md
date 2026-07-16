@@ -21,7 +21,8 @@ GH-608
 
 ## 非目标
 
-- 不改变 Layer 1 至 Layer 7 的合规判断、PASS/WARN/FAIL 文案或退出码语义。
+- 除纠正 bundled guard discovery 结果外，不改变 Layer 1 至 Layer 7 的判断规则、
+  PASS/WARN/FAIL 文案、计数算法或退出码语义；汇总数值随正确分类自然变化。
 - 不调整 `find_guard` / `find_quality_guard` 的搜索顺序或支持矩阵。
 - 不修改 `scripts/metrics/metrics_collector.sh` 或其他脚本的根目录解析。
 - 不安装、复制或生成 guard 文件，也不修改用户的 Claude/VibeGuard 配置。
@@ -40,7 +41,8 @@ GH-608
 5. B-005 调用者显式设置 `VIBEGUARD_DIR` 时，该值必须保持最高优先级，包括路径含空格
    的有效目录；自动解析不得覆盖它。
 6. B-006 本变更只修正检查器传给共享 guard discovery 的默认根目录。项目本地 fallback、
-   其余 Layer、summary 计数以及现有退出码 contract 必须保持兼容。
+   其余 Layer、summary 计数算法以及现有退出码 contract 必须保持兼容；Layer 1/2 被正确
+   分类后，PASS/WARN 汇总数值必须如实反映新结果。
 7. B-007 验证必须断言具名 guard 的 available/not-found 状态与实际来源路径；不得只断言
    总 PASS/WARN 数量，也不得读取真实用户的 HOME 配置来制造通过结果。
 

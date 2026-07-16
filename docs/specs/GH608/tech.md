@@ -58,7 +58,8 @@ trace 显示 `VIBEGUARD_DIR` 被赋值为仓库的 `scripts/`，共享 discovery
 2. 未显式设置时，entrypoint 根据自身目录解析仓库根；显式值存在时直接保留。
 3. Layer 1/2 把该根目录与 project directory 交给共享 `find_guard`。
 4. `find_guard` 先检查 bundled root，再执行现有 project-local fallback。
-5. 每个 Layer 沿用现有 PASS/WARN/FAIL 汇总与最终退出码逻辑。
+5. 每个 Layer 沿用现有 PASS/WARN/FAIL 计数算法与最终退出码逻辑；Layer 1/2 的数值随
+   corrected discovery result 自然变化。
 
 ## 备选方案
 
