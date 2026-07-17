@@ -29,8 +29,8 @@ GH-630
 ## Handoff Notes
 
 - `mode`: `plan_first`
-- `artifacts`: `docs/specs/GH630/{product,tech,tasks}.md` 与 `docs/specs/README.md`；implementation 计划修改 eval baseline manifest、共享 resolver、三个 entrypoint 显示/契约及 focused tests
-- `runtime_pinning_snapshot`: `None`；单 writer、非 hook/runtime hot path、预计少于 10 分钟的实现 tranche，不满足 W-20 长任务阈值；若实际执行达到 10 分钟或 3 个以上 agent step，必须在继续前生成并记录 snapshot
+- `artifacts`: `docs/specs/GH630/{product,tech,tasks}.md`、`docs/specs/GH630/{runtime-pinning.snapshot,tool-inventory.txt}` 与 `docs/specs/README.md`；implementation 计划修改 eval baseline manifest、共享 resolver、三个 entrypoint 显示/契约及 focused tests
+- `runtime_pinning_snapshot`: `docs/specs/GH630/runtime-pinning.snapshot`；implementation 的 SP630-T1..T4 跨 4 个执行步骤，开始和每次续跑前必须执行 `bash guards/universal/check_runtime_drift.sh check --snapshot docs/specs/GH630/runtime-pinning.snapshot --tool-inventory docs/specs/GH630/tool-inventory.txt --rules-dir rules/claude-rules`
 - `verification_owner`: coordinator `/root`；independent reviewer 由 threads lane 指派且只读
 - `stop_conditions`: 无 spec approval/`ready_to_implement`、官方 ID 与 `verified_at` 无法再次核实、需要 CI 联网、默认不再是 dated Haiku ID、freshness 无法按 UTC day-90 闭区间确定、出现旧模型 silent fallback、需要改变 artifact schema/reader、或三个 entrypoint 产生第二份 mapping 时停止
 - `lane_map`: spec 与 implementation 由 coordinator `/root` 单 writer；independent reviewer `/root/review_pr612` 只读且无 writable files；时间边界、dry-run 与 eval contract 验证由 coordinator 串行运行
