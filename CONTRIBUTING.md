@@ -104,6 +104,18 @@ bash scripts/install-pre-commit-hook.sh
 
 > **Note:** The local gate is Unix-first (Linux and macOS). Windows contributors should run the full CI matrix for contract coverage, as several checks depend on Bash 5+ features not available in Git Bash or WSL by default.
 
+### Manual and convention-driven distribution assets
+
+Some tracked assets are intentionally discovered by a developer tool or copied by a maintainer instead of being installed by `setup.sh`. Their exact repository paths and owners are listed here so the distribution inventory can distinguish deliberate manual surfaces from orphan files.
+
+| Asset | Owner and use | Focused verification |
+|-------|---------------|----------------------|
+| `sgconfig.yml` | Maintainer-only repository-wide ast-grep configuration. Production guards continue to pass explicit `--rule` files. Run it manually with `ast-grep scan --config sgconfig.yml`. | Scan a Rust `Config::default()` fixture and confirm the `rs-14-config-default` rule is reported. |
+| `rust-toolchain.toml` | Canonical Rust toolchain selected implicitly by rustup and Cargo for repository commands. | `rustup show active-toolchain` |
+| `templates/language/python-CLAUDE.md`, `templates/language/rust-CLAUDE.md`, `templates/language/typescript-CLAUDE.md` | Maintainer-copyable starting points for language-specific project instructions; they are not default install modules. | Review the selected template before copying it into a project instruction file. |
+| `templates/project-rules/api-security.md`, `templates/project-rules/config-protection.md`, `templates/project-rules/test-patterns.md` | Maintainer-copyable scoped rule examples; they are not silently installed into user repositories. | Review the selected rule and its frontmatter before copying it into a project. |
+| `templates/vibeguard-config.README.md` | Companion operator guide for the user runtime config seeded from `templates/vibeguard-config.json.example`. | Verify both files describe the same supported runtime keys. |
+
 ---
 
 ## Contribution Workflow
