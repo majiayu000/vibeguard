@@ -25,6 +25,10 @@ MANAGED_SPECS: list[HookSpec] = [HookSpec(spec) for spec in codex_specs(MANIFEST
 # unambiguous enough to identify VibeGuard entries without inspecting the
 # wrapper path, so removal works even when a non-standard wrapper is used.
 _MANAGED_SCRIPT_NAMES: frozenset[str] = frozenset(spec["script"] for spec in MANAGED_SPECS)
+_MANAGED_SCRIPT_TARGETS: dict[str, str] = {
+    script_name: script_name.removeprefix("vibeguard-")
+    for script_name in _MANAGED_SCRIPT_NAMES
+}
 _WRAPPER_NAMES: frozenset[str] = frozenset({"run-hook-codex.sh"})
 _BLOCKING_EVENTS: frozenset[str] = frozenset({"PreToolUse", "PermissionRequest"})
 _DEFAULT_REPAIR_EVENTS: tuple[str, ...] = ("PreToolUse", "PermissionRequest")
@@ -68,9 +72,11 @@ def _hook_target_from_command(command: str, home: Path) -> Path | None:
         if path_text.endswith("/.vibeguard/run-hook-codex.sh") and index + 1 < len(parts):
             script_name = parts[index + 1]
             if script_name and "/" not in script_name:
+                if not path.exists():
+                    return path
                 installed_dir = path.parent / "installed/hooks"
-                if installed_dir.exists():
-                    return installed_dir / script_name
+                canonical_script = _MANAGED_SCRIPT_TARGETS.get(script_name, script_name)
+                return installed_dir / canonical_script
     return None
 
 

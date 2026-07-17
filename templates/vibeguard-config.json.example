@@ -6,7 +6,8 @@
   },
   "circuit_breaker": {
     "threshold": 3,
-    "cooldown_seconds": 300
+    "cooldown_seconds": 300,
+    "lock_timeout_seconds": 5
   },
   "w14": {
     "cooldown_seconds": 3600
@@ -14,5 +15,9 @@
   "paralysis": {
     "threshold": 7
   },
-  "write_mode": "warn"
+  "write_mode": "warn",
+  "write_escalate_threshold": 5,
+  "learn": {
+    "metrics_tail_bytes": 5242880
+  }
 }

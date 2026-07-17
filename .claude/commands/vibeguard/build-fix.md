@@ -70,6 +70,6 @@ argument-hint: "<build command or error message>"
 - Must verify that the build passes after fixing
 
 **Reference**
-- Universal rules: `vibeguard/rules/universal.md`
-- Language rules: `vibeguard/rules/<lang>.md`
+- Common rules: `rules/claude-rules/common/`
+- Language rules: `rules/claude-rules/<lang>/`
 <!-- VIBEGUARD:BUILD-FIX:END -->

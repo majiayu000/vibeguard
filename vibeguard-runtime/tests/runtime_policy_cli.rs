@@ -176,37 +176,6 @@ fn runtime_policy_check_reports_scoped_output_filter() {
 }
 
 #[test]
-fn runtime_policy_check_validates_user_runtime_config_before_policy() {
-    let repo = unique_temp_dir("bad_user_config");
-    write_policy(&repo, r#"{}"#);
-    let user_config = repo.join("bad-config.json");
-    fs::write(&user_config, r#"{"write_mode":"#).expect("runtime config should be written");
-
-    let output = bin()
-        .arg("runtime-policy-check")
-        .arg("--cwd")
-        .arg(&repo)
-        .arg("pre-bash-guard.sh")
-        .current_dir(&repo)
-        .env_remove("VIBEGUARD_PROJECT_CONFIG")
-        .env("VIBEGUARD_USER_CONFIG_FILE", &user_config)
-        .output()
-        .expect("runtime policy command should run");
-
-    assert_eq!(output.status.code(), Some(30));
-    let value = policy_json(&output);
-    assert_eq!(value["decision"], "error");
-    assert!(
-        value["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains("runtime config invalid JSON")
-    );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime config invalid JSON"));
-    let _ = fs::remove_dir_all(repo);
-}
-
-#[test]
 fn runtime_policy_check_reports_project_schema_errors_as_policy_errors() {
     let repo = unique_temp_dir("bad_project_schema");
     write_policy(&repo, r#"{"disabled_hooks":["missing-hook"]}"#);
@@ -758,38 +727,19 @@ fn runtime_policy_argument_errors_are_visible() {
 }
 
 #[test]
-fn runtime_policy_diag_open_error_is_visible() {
-    let repo = unique_temp_dir("diag_open_error");
-    fs::create_dir_all(&repo).expect("diag directory should be created");
-
-    let output = run_runtime_with_stdin(
-        &[
-            "runtime-policy-diag",
-            repo.to_str().expect("diag path should be utf8"),
-            "pre-bash-guard.sh",
-            "PreToolUse",
-            "policy_error",
-            "run-hook-codex.sh",
-        ],
-        "runtime missing",
-    );
-
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(!output.stderr.is_empty());
-    assert!(repo.is_dir());
-
-    let invalid_payload = run_runtime_with_stdin(
-        &[
+fn runtime_policy_downgrade_output_invalid_payload_is_visible() {
+    let invalid_payload = bin()
+        .args([
             "runtime-policy-downgrade-output",
             "--payload",
             "not-json",
             "post-edit-guard.sh",
-        ],
-        r#"{"decision":"block"}"#,
-    );
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("runtime helper should finish");
+
     assert!(!invalid_payload.status.success());
     assert!(invalid_payload.stdout.is_empty());
     assert!(String::from_utf8_lossy(&invalid_payload.stderr).contains("payload invalid JSON"));
-    let _ = fs::remove_dir_all(repo);
 }

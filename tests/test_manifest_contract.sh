@@ -324,6 +324,25 @@ bad_codex_entries_out="$(python3 "${REPO_DIR}/scripts/lib/hooks_manifest.py" --m
 assert_contains "${bad_codex_entries_out}" "codex.entries[0].extra_field" "hooks manifest schema rejects malformed codex entries"
 assert_not_contains "${bad_codex_entries_out}" "Traceback" "malformed codex entries report without traceback"
 
+BAD_CODEX_SCRIPT_MAPPING_MANIFEST="${TMP_DIR}/bad-codex-script-mapping-hooks-manifest.json"
+python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_CODEX_SCRIPT_MAPPING_MANIFEST}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+data = json.loads(source.read_text(encoding="utf-8"))
+for hook in data["hooks"]:
+    if hook["name"] == "pre-bash-guard":
+        hook["codex"]["script"] = "vibeguard-pre-edit-guard.sh"
+        break
+target.write_text(json.dumps(data), encoding="utf-8")
+PY
+bad_codex_script_mapping_out="$(python3 "${REPO_DIR}/scripts/lib/hooks_manifest.py" --manifest "${BAD_CODEX_SCRIPT_MAPPING_MANIFEST}" validate 2>&1 || true)"
+assert_contains "${bad_codex_script_mapping_out}" "must equal vibeguard-pre-bash-guard.sh" "hooks manifest rejects requested/canonical script drift"
+assert_not_contains "${bad_codex_script_mapping_out}" "Traceback" "requested/canonical script drift reports without traceback"
+
 BAD_GIT_HOOKS_MANIFEST="${TMP_DIR}/bad-git-hooks-manifest.json"
 python3 - "${REPO_DIR}/hooks/manifest.json" "${BAD_GIT_HOOKS_MANIFEST}" <<'PY'
 import json

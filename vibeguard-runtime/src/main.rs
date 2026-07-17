@@ -38,6 +38,7 @@ mod pkg_rewrite;
 mod project_config;
 mod project_config_scoped_suppression;
 mod runtime_config;
+mod runtime_config_validation;
 mod runtime_policy;
 mod session_metrics;
 mod setup_codex_config;
@@ -286,6 +287,11 @@ static COMMANDS: &[Command] = &[
         name: "runtime-policy-diag",
         usage: "<diag-file> <hook-name> <event-name> <kind> <wrapper>  — append policy diagnostic JSONL from stdin reason",
         handler: runtime_policy::runtime_policy_diag,
+    },
+    Command {
+        name: "runtime-config-validate",
+        usage: "<config-file>  — validate user runtime configuration",
+        handler: runtime_config::runtime_config_validate,
     },
     Command {
         name: "runtime-config-get-int",
