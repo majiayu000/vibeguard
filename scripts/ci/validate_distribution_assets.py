@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -28,6 +29,21 @@ EXECUTABLE_CONSUMER_PREFIXES = (
     "tools/",
     "vibeguard-runtime/",
 )
+EXECUTABLE_CONSUMER_SUFFIXES = {
+    ".c",
+    ".go",
+    ".h",
+    ".java",
+    ".js",
+    ".json",
+    ".py",
+    ".rs",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".yaml",
+    ".yml",
+}
 ROOT_CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml"}
 TOKEN_BYTES = frozenset(
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./*-"
@@ -125,6 +141,29 @@ def read_tracked_file(repo: Path, relative_path: str) -> bytes:
         raise ValidationError(f"cannot read tracked file {relative_path}: {exc}") from exc
 
 
+def python_docstring_lines(content: bytes) -> set[int]:
+    try:
+        tree = ast.parse(content.decode("utf-8"))
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        raise ValidationError(f"cannot parse Python consumer candidate: {exc}") from exc
+
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        first = body[0]
+        if not (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            continue
+        end_lineno = getattr(first, "end_lineno", first.lineno)
+        lines.update(range(first.lineno, end_lineno + 1))
+    return lines
+
+
 def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
     comment_markers: tuple[bytes, ...] = ()
     if suffix in {".py", ".sh", ".toml", ".yaml", ".yml"}:
@@ -132,8 +171,11 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
     elif suffix in {".c", ".go", ".h", ".java", ".js", ".rs", ".ts"}:
         comment_markers = (b"//", b"/*")
 
+    docstring_lines = python_docstring_lines(content) if suffix == ".py" else set()
     needle = asset.encode("utf-8")
-    for line in content.splitlines():
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        if line_number in docstring_lines:
+            continue
         stripped = line.lstrip()
         if stripped.startswith((b"#", b"//", b"/*", b"*", b"<!--")):
             continue
@@ -166,10 +208,13 @@ def find_consumer(
             continue
         if not relative_path.startswith(EXECUTABLE_CONSUMER_PREFIXES):
             continue
+        suffix = PurePosixPath(relative_path).suffix
+        if suffix not in EXECUTABLE_CONSUMER_SUFFIXES:
+            continue
         if contains_executable_reference(
             read_tracked_file(repo, relative_path),
             asset,
-            PurePosixPath(relative_path).suffix,
+            suffix,
         ):
             return relative_path
     return None
