@@ -163,6 +163,10 @@ printf '%s\n' '"""templates/orphan.yaml is only a module docstring."""' > \
   "$false_evidence_fixture/scripts/runtime/docstring.py"
 printf '%s\n' 'value = 1' '"templates/orphan.yaml"' > \
   "$false_evidence_fixture/scripts/runtime/noop.py"
+printf '%s\n' 'value = 1' 'f"templates/orphan.yaml"' > \
+  "$false_evidence_fixture/scripts/runtime/noop_fstring.py"
+printf '%s\n' "marker='x'\\''y'; # templates/orphan.yaml" > \
+  "$false_evidence_fixture/scripts/runtime/comment.sh"
 printf '%s\n' '/*' 'templates/orphan.yaml is only a block comment' '*/' > \
   "$false_evidence_fixture/scripts/runtime/comment.c"
 printf '%s\n' '`templates/orphan.yaml`' > \

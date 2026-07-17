@@ -141,19 +141,29 @@ def python_contains_executable_reference(content: bytes, asset: str) -> bool:
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise ValidationError(f"cannot parse Python consumer candidate: {exc}") from exc
 
-    standalone_strings: set[int] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Expr)
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        ):
-            standalone_strings.add(id(node.value))
+    parents = {
+        id(child): parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+    def is_executable_string(node: ast.Constant) -> bool:
+        current: ast.AST = node
+        has_effectful_ancestor = False
+        while id(current) in parents:
+            current = parents[id(current)]
+            if isinstance(current, (ast.Call, ast.Yield, ast.YieldFrom, ast.NamedExpr)):
+                has_effectful_ancestor = True
+            if isinstance(current, ast.Expr):
+                return has_effectful_ancestor
+            if isinstance(current, ast.stmt):
+                return True
+        return True
 
     return any(
         isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and id(node) not in standalone_strings
+        and is_executable_string(node)
         and contains_exact_path(node.value.encode("utf-8"), asset)
         for node in ast.walk(tree)
     )
@@ -168,7 +178,7 @@ def structured_strings(content: bytes, suffix: str) -> set[str]:
     return set(iter_json_strings(data))
 
 
-def strip_hash_comment(line: bytes) -> bytes:
+def strip_hash_comment(line: bytes, suffix: str) -> bytes:
     code = bytearray()
     quote: int | None = None
     index = 0
@@ -176,11 +186,21 @@ def strip_hash_comment(line: bytes) -> bytes:
         byte = line[index]
         if quote is not None:
             code.append(byte)
-            if byte == ord("\\") and index + 1 < len(line):
+            if (
+                byte == ord("\\")
+                and quote == ord('"')
+                and index + 1 < len(line)
+            ):
                 index += 1
                 code.append(line[index])
             elif byte == quote:
                 quote = None
+            index += 1
+            continue
+        if byte == ord("\\") and suffix == ".sh" and index + 1 < len(line):
+            code.append(byte)
+            index += 1
+            code.append(line[index])
             index += 1
             continue
         if byte in {ord("'"), ord('"')}:
@@ -205,7 +225,7 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
         )
 
     for raw_line in content.splitlines():
-        line = strip_hash_comment(raw_line)
+        line = strip_hash_comment(raw_line, suffix)
         if not contains_exact_path(line, asset):
             continue
         return True
