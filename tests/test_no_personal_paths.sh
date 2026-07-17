@@ -83,8 +83,13 @@ git -C "${FAKE_REPO}" add home-leak.md
 assert_fails_with "tracked Markdown home literal user fails" "home-leak.md:1: hardcoded_personal_path" \
   bash "${FAKE_REPO}/scripts/ci/validate-no-personal-paths.sh"
 
-git -C "${FAKE_REPO}" rm -q --cached leak.md home-leak.md
-rm "${FAKE_REPO}/leak.md" "${FAKE_REPO}/home-leak.md"
+printf 'run: /Users/%s/project/run.sh\n' carol > "${FAKE_REPO}/source.txt"
+git -C "${FAKE_REPO}" add source.txt
+assert_fails_with "tracked non-Markdown literal user fails" "source.txt:1: hardcoded_personal_path" \
+  bash "${FAKE_REPO}/scripts/ci/validate-no-personal-paths.sh"
+
+git -C "${FAKE_REPO}" rm -q --cached leak.md home-leak.md source.txt
+rm "${FAKE_REPO}/leak.md" "${FAKE_REPO}/home-leak.md" "${FAKE_REPO}/source.txt"
 cat > "${FAKE_REPO}/placeholder.md" <<'MD'
 run: /Users/<username>/project/run.sh
 run: /home/<user>/project/run.sh

@@ -161,6 +161,13 @@ git -C "${installed_fixture}" add .
 assert_fails_with "installed alias outside rule-links pair fails" "invalid_installed_alias" \
   bash "${VALIDATOR}" "${installed_fixture}" "${installed_fixture}"
 
+ordinary_missing_fixture="$(new_fixture ordinary-missing)"
+printf '%s\n' "Missing: \`missing/tool.sh\`." > "${ordinary_missing_fixture}/docs/missing.md"
+git -C "${ordinary_missing_fixture}" add docs/missing.md
+assert_fails_with "ordinary missing reference reports location and category" \
+  "docs/missing.md:1:11: missing_path_reference" \
+  bash "${VALIDATOR}" "${ordinary_missing_fixture}" "${ordinary_missing_fixture}"
+
 manifest_fixture="$(new_fixture manifest)"
 printf '#!/usr/bin/env python3\nraise SystemExit(7)\n' > \
   "${manifest_fixture}/scripts/lib/vibeguard_manifest.py"
