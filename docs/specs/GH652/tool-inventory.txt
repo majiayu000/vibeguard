@@ -3,9 +3,9 @@
 # cargo: Builds and pins the current worktree runtime before setup health assertions.
 cli cargo 729be8dd858eef9c37acba026d934520e53cf839c639b649a515be5816bbabf3
 # bash: Runs the setup structured-report and shell syntax regression gates.
-cli bash 7b7165cde611527eed3e31775a75f87fae3162c5f79a95d779a26f96d4b9255c
+cli bash d43cd4ccc54c7c1d83ce01396850e0a75475e2d278e602ba0f200ef286dd0681
 # python3: Runs SpecRail and documentation contract checks.
-cli python3 e4affd67c494b2a92709a2cec85730037db79c0ea2cb9670f8694901b93dcd89
+cli python3 c7e28250749658523360c2bbe65e83fcf062f1db9f4c4dd92da96dd6dd20504e
 # gh: Collects current GitHub PR, CI, review-thread, and merge evidence.
 cli gh bff89c0b113c19714e981adc032c17f11074dc408abac3f3661ff5c88c4f2c5b
 # git: Captures exact origin/main and worktree state for branch handoff.

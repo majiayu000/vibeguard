@@ -1,10 +1,9 @@
 # VibeGuard W-20 runtime pinning snapshot
 version=1
-selected_model_id=gpt-5
-created_at_utc=2026-07-17T10:21:58Z
-head=0cc7472815e34cb61479c364971368647026c33f
+created_at_utc=2026-07-17T11:10:06Z
+head=ae53212731cf02803cb87ac6138531d655583d86
 rules_dir=rules/claude-rules
 tool_inventory=docs/specs/GH652/tool-inventory.txt
-runtime_hash=8b219074ec68e9be602d112a372cf3564527fdcc6d2c8ccf892946a16c02bb0e
-tool_hash=ed558f63a38d75bfd6b507707658ba7f67f9836d5d50d4a3fcefaadc7b308f13
+runtime_hash=8dfe1143b97021d0c6a7724a6c69049156a5b1961ae28df9e5a87974bc88c6b7
+tool_hash=520caf6f8c1d35cebec34e3919db771b6da98f71eaf9a3b9e809967afa4c7116
 rules_hash=da28461022a2f0fa04c49bb88b687f2f212ca8bfaa34908d75a21289c6b7b6a4
