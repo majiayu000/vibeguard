@@ -25,25 +25,28 @@ GH-631
 
 ## Behavior Invariants
 
-1. B-001 `skills/awk-posix-compat/` 必须二选一：进入至少一个声明安装/发现 surface 并有
-   format/behavior validation，或从仓库删除且没有残留引用。
-2. B-002 alerting template 必须二选一：有真实文档入口、安装/复制流程和结构验证，或删除；
-   文件内自述 copy 命令不能单独算作 discoverability evidence。
-3. B-003 根 `sgconfig.yml` 必须明确声明“人工 repository-wide ast-grep scan”用途并由
-   可执行检查验证 `ruleDirs`，或删除；production guards 不得被悄悄切换到隐式全量配置。
+1. B-001 删除 `awk-posix-compat` skill 且不得留下安装、调用或产品文档引用；POSIX awk 防回归
+   继续由现有 `scripts/setup/check.sh` 与 `tests/test_setup_check.sh` 负责，不新增虚构安装入口。
+2. B-002 删除 alerting-rules template 且不得留下复制/安装引用；无外部发现入口且表达式
+   引用了 exporter 未提供的 metric、把事件计数当时间戳，因此不得把它包装成可用模板保留。
+3. B-003 保留根 `sgconfig.yml`，在贡献者文档明确声明“人工 repository-wide ast-grep scan”
+   用途和命令，并由可执行检查验证 `ruleDirs` 能发现已知规则；production guards 继续显式
+   `--rule`，不得切换到隐式全量配置。
 4. B-004 保留决策必须基于用户/维护者可执行路径，而不是为了避免删除而新增无调用方模块。
 5. B-005 删除决策必须同步清理 docs、manifest、tests 与生成/安装引用；搜索残留或 broken
    path 必须使验证失败。
 6. B-006 architecture template 与 dependency-layer guard 的现有契约必须保持，inventory
    cleanup 不得把它误判为 orphan。
-7. B-007 新增顶层 skill/template/config 候选时，CI 必须能证明其 install、runtime、manual
-   或 explicitly-internal 分类之一；未知分类不得 silent pass。
+7. B-007 CI 必须枚举 tracked `skills/*/SKILL.md`、`templates/*` 和仓库根
+   `*.yml`/`*.yaml`/`*.json`/`*.toml`：每项必须由 install module、`skills-lock.json`、
+   非 spec/test 的真实 consumer，或贡献者文档声明的 manual 路径证明；仅自身注释、spec、
+   plan 或测试引用不能算生命周期证据，未知项必须非零失败。
 
 ## 验收标准
 
-- [ ] 三个候选各有明确 keep/remove 结果和证据。
-- [ ] 保留项可从仓库文档/安装入口发现且验证通过。
-- [ ] 删除项无残留路径或 manifest 引用。
+- [ ] awk skill 与 alerting template 删除且无残留引用。
+- [ ] `sgconfig.yml` 可从贡献者文档发现，known-rule smoke 通过，production `--rule` 不变。
+- [ ] inventory gate 拒绝仅 self/spec/test 引用的未知 skill、template 与 root config fixtures。
 - [ ] architecture template/guard contract 不受影响。
 - [ ] inventory negative fixture 阻断新的未知资产。
 
@@ -64,5 +67,5 @@ GH-631
 
 ## 发布说明
 
-若删除未分发资产，记录为维护清理；若保留并接线，发布说明必须写明它是默认安装、可选
-安装还是仅人工维护者工具，不能模糊成已自动启用。
+删除未分发的 awk skill 与不可信 alerting template；保留的 `sgconfig.yml` 只作为贡献者手工
+全仓 ast-grep 扫描入口，不是默认安装或 production guard 调用方式。
