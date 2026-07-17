@@ -35,7 +35,13 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `tests/` | Shell and unit regression tests for hooks, guards, setup, and contracts. |
 | `eval/` | Evaluation samples and runner for rule compliance checks. |
 | `scripts/ci/` | CI contract and static validation scripts. |
+| `scripts/constraints/` | Constraint inventory and recommendation helpers used by guard and budget checks. |
+| `scripts/doctors/` | Maintainer diagnostics for supported agent runtimes and local installations. |
+| `scripts/gc/` | Scheduled and on-demand cleanup, digest, and maintenance helpers. |
+| `scripts/learn/` | Learning analysis, adoption, and trajectory helpers used by the learning workflow. |
+| `scripts/metrics/` | Metrics collection and Prometheus-format export helpers. |
 | `scripts/verify/` | Local verification and freshness checks. |
+| `scripts/systemd/` | Linux user-service templates for scheduled VibeGuard maintenance. |
 | `.github/` | GitHub Actions workflows, issue templates, and PR template. |
 | `data/` | Versioned seed/example files for rule precision tooling; mutable triage, scorecard, and benchmark outputs are ignored. |
 
