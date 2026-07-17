@@ -22,8 +22,11 @@ See `product.md`.
 
 这是 focused docs change：
 
-1. 在 directory map 的 verification/operations 分组中补充五个一级 script groups 及一句职责，
-   不逐文件复制目录树。
+1. 在 directory map 的 verification/operations 分组中补充当前遗漏的六个一级 script groups
+   （`constraints`、`doctors`、`gc`、`learn`、`metrics`、`systemd`）及一句职责，不逐文件复制
+   目录树。focused assertion 必须动态枚举全部 tracked 一级 `scripts/` 目录，并验证每个目录的
+   精确路径都出现在 map 中；现有 `ci`、`lib`、`setup`、`verify` 也属于该完整性检查，避免
+   新增目录再次静默漂移。
 2. site 推荐去掉 patch-sensitive literal，改成稳定的“v1 series”或 canonical release link；
    不推荐把 `1.1.10` 继续手填，因为下一 tag 会再次漂移。若仓库已有构建时 version source，
    可从该 source 生成，但不得新增第二份 metadata。
@@ -35,7 +38,7 @@ See `product.md`.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 | directory-map operations rows | 一级 script-dir inventory 与 map assertion |
+| B-001 | directory-map operations rows | 动态枚举全部一级 script-dir，并逐项验证 map 中的精确路径 |
 | B-002 | site badge/release link | search 不再出现含糊 patch-like literal；link/path check |
 | B-003 | benchmark snapshot wording | 两处 110 references 同时包含 snapshot context |
 | B-004 | plan-mode heading merge | heading count = 1；skill format test |
@@ -58,7 +61,8 @@ See `product.md`.
 - [ ] `bash scripts/ci/validate-doc-paths.sh`。
 - [ ] `bash scripts/ci/validate-doc-command-paths.sh`。
 - [ ] `bash scripts/ci/validate-skill-format.sh`。
-- [ ] focused search assertions for directory groups、snapshot context、heading count。
+- [ ] focused search assertions for dynamically enumerated first-level script groups、snapshot
+  context、heading count。
 
 ## 回滚方案
 
