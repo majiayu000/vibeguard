@@ -145,19 +145,24 @@ mkdir -p \
   "$false_evidence_fixture/docs/specs/GH1" \
   "$false_evidence_fixture/plan" \
   "$false_evidence_fixture/tests" \
-  "$false_evidence_fixture/scripts/ci"
+  "$false_evidence_fixture/scripts/ci" \
+  "$false_evidence_fixture/scripts/runtime"
 printf '# self reference: templates/orphan.yaml\n' > \
   "$false_evidence_fixture/templates/orphan.yaml"
 printf '%s\n' '`templates/orphan.yaml`' > \
   "$false_evidence_fixture/docs/specs/GH1/product.md"
 printf '%s\n' '`templates/orphan.yaml`' > "$false_evidence_fixture/plan/history.md"
 printf '%s\n' '`templates/orphan.yaml`' > "$false_evidence_fixture/tests/test_orphan.sh"
+printf '%s\n' 'This page merely mentions templates/orphan.yaml.' > \
+  "$false_evidence_fixture/README.md"
+printf '%s\n' '# templates/orphan.yaml is only a source comment' > \
+  "$false_evidence_fixture/scripts/runtime/comment.py"
 printf '%s\n' '`templates/orphan.yaml`' > \
   "$false_evidence_fixture/scripts/ci/validate_distribution_assets.py"
 printf '%s\n' 'Manual assets: `templates/*` and `orphan.yaml`.' > \
   "$false_evidence_fixture/CONTRIBUTING.md"
 git -C "$false_evidence_fixture" add .
-assert_fails_with "self/spec/plan/test/validator/glob/basename evidence fails" \
+assert_fails_with "self/spec/plan/test/validator/doc/comment/glob evidence fails" \
   "unowned distribution asset: templates/orphan.yaml" \
   python3 "$VALIDATOR" "$false_evidence_fixture"
 
@@ -175,7 +180,7 @@ printf 'ruleDirs: []\n' > "$positive_fixture/sgconfig.yml"
 printf '{"modules": [{"paths": ["skills/installed/"]}]}\n' > \
   "$positive_fixture/schemas/install-modules.json"
 printf '{"skills/locked/SKILL.md": {}}\n' > "$positive_fixture/skills-lock.json"
-printf '%s\n' 'templates/vibeguard-architecture.yaml' > \
+printf '%s\n' 'Path("templates/vibeguard-architecture.yaml").read_text()' > \
   "$positive_fixture/guards/universal/check_dependency_layers.py"
 printf '%s\n' 'skills-lock.json' > "$positive_fixture/tools/install.py"
 printf '%s\n' 'Manual config: `sgconfig.yml`.' > "$positive_fixture/CONTRIBUTING.md"

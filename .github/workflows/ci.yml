@@ -404,8 +404,8 @@ jobs:
       - name: Manifest contract regression tests
         run: bash tests/test_manifest_contract.sh
 
-      - name: Distribution asset contract regression tests
-        run: bash tests/test_distribution_assets.sh
+      - name: Distribution asset inventory
+        run: python scripts/ci/validate_distribution_assets.py .
 
       - name: Issue template contract regression tests
         run: bash tests/test_issue_template_contract.sh

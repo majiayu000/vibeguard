@@ -19,6 +19,15 @@ EXCLUDED_CONSUMER_PREFIXES = (
     "plan/",
     "tests/",
 )
+EXECUTABLE_CONSUMER_PREFIXES = (
+    ".github/workflows/",
+    "checks/",
+    "guards/",
+    "hooks/",
+    "scripts/",
+    "tools/",
+    "vibeguard-runtime/",
+)
 ROOT_CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml"}
 TOKEN_BYTES = frozenset(
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./*-"
@@ -116,6 +125,30 @@ def read_tracked_file(repo: Path, relative_path: str) -> bytes:
         raise ValidationError(f"cannot read tracked file {relative_path}: {exc}") from exc
 
 
+def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
+    comment_markers: tuple[bytes, ...] = ()
+    if suffix in {".py", ".sh", ".toml", ".yaml", ".yml"}:
+        comment_markers = (b"#",)
+    elif suffix in {".c", ".go", ".h", ".java", ".js", ".rs", ".ts"}:
+        comment_markers = (b"//", b"/*")
+
+    needle = asset.encode("utf-8")
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith((b"#", b"//", b"/*", b"*", b"<!--")):
+            continue
+        if not contains_exact_path(line, asset):
+            continue
+        asset_index = line.find(needle)
+        if any(
+            0 <= line.find(marker) < asset_index
+            for marker in comment_markers
+        ):
+            continue
+        return True
+    return False
+
+
 def find_consumer(
     repo: Path,
     asset: str,
@@ -131,7 +164,13 @@ def find_consumer(
             continue
         if relative_path.startswith(EXCLUDED_CONSUMER_PREFIXES):
             continue
-        if contains_exact_path(read_tracked_file(repo, relative_path), asset):
+        if not relative_path.startswith(EXECUTABLE_CONSUMER_PREFIXES):
+            continue
+        if contains_executable_reference(
+            read_tracked_file(repo, relative_path),
+            asset,
+            PurePosixPath(relative_path).suffix,
+        ):
             return relative_path
     return None
 
