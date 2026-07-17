@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH628/` | Draft | Git-tracked Markdown personal-path detection and strict, scoped doc-path allowlist freshness |
 | `GH627/` | Implemented reference | Closed-map resolution of Codex namespaced hook names to canonical hook files without physical alias shells |
 | `GH626/` | Implemented reference | Canonical-source generation and freshness enforcement for the compact injected rule table |
 | `GH644/` | Draft | Deterministic stdin and complete child-error evidence for runtime-policy expected-error integration tests |
