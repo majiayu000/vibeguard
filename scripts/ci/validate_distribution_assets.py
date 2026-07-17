@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import json
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -177,9 +178,12 @@ def structured_strings(content: bytes, suffix: str) -> set[str]:
 
 
 def validate_shell_syntax(content: bytes) -> None:
+    bash_path = shutil.which("bash")
+    if bash_path is None:
+        raise ValidationError("cannot run bash syntax validation: bash was not found")
     try:
         result = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-n"],
+            [bash_path, "--noprofile", "--norc", "-n", "-s"],
             input=content,
             check=False,
             capture_output=True,
@@ -187,9 +191,14 @@ def validate_shell_syntax(content: bytes) -> None:
     except OSError as exc:
         raise ValidationError(f"cannot run bash syntax validation: {exc}") from exc
     if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or result.stdout.decode("utf-8", errors="replace").strip()
+            or "no diagnostic output"
+        )
         raise ValidationError(
-            f"cannot parse shell consumer candidate: {detail or 'bash -n failed'}"
+            "cannot parse shell consumer candidate with "
+            f"{bash_path} (exit {result.returncode}): {detail}"
         )
 
 
@@ -422,11 +431,15 @@ def find_consumer(
         suffix = PurePosixPath(relative_path).suffix
         if suffix not in EXECUTABLE_CONSUMER_SUFFIXES:
             continue
-        if contains_executable_reference(
-            read_tracked_file(repo, relative_path),
-            asset,
-            suffix,
-        ):
+        try:
+            is_consumer = contains_executable_reference(
+                read_tracked_file(repo, relative_path),
+                asset,
+                suffix,
+            )
+        except ValidationError as exc:
+            raise ValidationError(f"{relative_path}: {exc}") from exc
+        if is_consumer:
             return relative_path
     return None
 

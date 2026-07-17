@@ -270,7 +270,7 @@ printf '%s\n' 'lock_path = "skills-lock.json"' > \
   "$malformed_shell_fixture/tools/install.py"
 git -C "$malformed_shell_fixture" add .
 assert_fails_with "malformed shell consumers fail visibly" \
-  "ERROR: cannot parse shell consumer candidate" \
+  "ERROR: scripts/runtime/broken.sh: cannot parse shell consumer candidate" \
   python3 "$VALIDATOR" "$malformed_shell_fixture"
 
 positive_fixture="$(new_fixture positive)"
