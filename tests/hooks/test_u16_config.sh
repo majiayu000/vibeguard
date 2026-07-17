@@ -132,8 +132,19 @@ assert_contains "$result" "500-line" "env-overridden limit appears in reason"
 unset VG_U16_LIMIT
 
 echo '{not-json' > "$cfg_file"
-result=$(run_pre_write)
-assert_contains "$result" '"decision": "block"' "malformed JSON falls back to default 800 (blocks)"
+set +e
+result=$(run_pre_write 2>&1)
+malformed_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "$malformed_status" -eq 30 ]]; then
+  green "malformed JSON fails visibly with exit 30"
+  PASS=$((PASS + 1))
+else
+  red "malformed JSON fails visibly with exit 30 (got: $malformed_status)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$result" "category=config_json_error" "malformed JSON reports its config error category"
 
 unset VIBEGUARD_CONFIG_FILE
 
@@ -274,9 +285,20 @@ TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
 
 echo '{"u16":{"limit":"oops"}}' > "$WORK_DIR/cfg.json"
 unset VG_TEST_X
-got=$(vg_config_get_int VG_TEST_X u16.limit 800)
-[[ "$got" == "800" ]] && green "wrong-typed JSON falls through to default" || { red "wrong type (got: $got)"; FAIL=$((FAIL+1)); }
-TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
+set +e
+got=$(vg_config_get_int VG_TEST_X u16.limit 800 2>&1)
+wrong_type_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "$wrong_type_status" -eq 2 ]]; then
+  green "wrong-typed JSON fails visibly through the shell adapter"
+  PASS=$((PASS + 1))
+else
+  red "wrong-typed JSON fails visibly through the shell adapter (got: $wrong_type_status)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$got" "category=config_type_error" "wrong-typed JSON reports its config error category"
+assert_not_contains "$got" "oops" "wrong-typed JSON does not leak the rejected value"
 
 [[ -n "$VIBEGUARD_CONFIG_FILE_SAVED" ]] && export VIBEGUARD_CONFIG_FILE="$VIBEGUARD_CONFIG_FILE_SAVED"
 

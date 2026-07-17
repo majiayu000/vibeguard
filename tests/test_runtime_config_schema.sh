@@ -8,6 +8,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "${REPO_DIR}" <<'PY'
 import copy
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -81,7 +82,10 @@ def validate(node, contract, path="$"):
                 errors.extend(validate(value, properties[key], f"{path}.{key}"))
         return errors
     if expected_type == "integer":
-        if isinstance(node, bool) or not isinstance(node, int):
+        is_integer = isinstance(node, int) or (
+            isinstance(node, float) and math.isfinite(node) and node.is_integer()
+        )
+        if isinstance(node, bool) or not is_integer:
             return [f"{path}: type"]
         if "const" in contract and node != contract["const"]:
             return [f"{path}: const"]
@@ -138,6 +142,8 @@ assert_valid("empty object", {})
 assert_valid("legacy version missing", {"write_mode": "block"})
 assert_valid("explicit version one", {"version": 1})
 assert_valid("partial nested object", {"u16": {"limit": 800}})
+assert_valid("integral decimal representation", {"u16": {"limit": 1.0}})
+assert_valid("integral exponent representation", json.loads('{"u16":{"limit":1e0}}'))
 assert_valid("legacy warn-limit clamp", {"u16": {"warn_limit": 900, "limit": 800}})
 assert_valid("published template", template)
 
@@ -149,6 +155,7 @@ assert_invalid("unknown nested", {"u16": {"typo": 1}}, "unknown_field")
 assert_invalid("invalid write mode", {"write_mode": "invalid"}, "enum")
 assert_invalid("numeric string", {"u16": {"limit": "800"}}, "type")
 assert_invalid("boolean integer", {"paralysis": {"threshold": True}}, "type")
+assert_invalid("non-integral number", {"paralysis": {"threshold": 1.5}}, "type")
 
 mutated_schema = copy.deepcopy(schema)
 del mutated_schema["properties"]["write_escalate_threshold"]

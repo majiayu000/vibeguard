@@ -169,14 +169,14 @@ pub fn classify_runtime_config_file(
             CONFIG_PARSE_ERROR,
         )
     })?;
-    let value = serde_json::from_str::<Value>(&text).map_err(|err| {
-        config_error(
-            path,
-            "$",
-            "config_json_error",
-            &format!("valid_json line={} column={}", err.line(), err.column()),
-            CONFIG_PARSE_ERROR,
-        )
+    let value = serde_json::from_str::<Value>(&text).map_err(|err| RuntimeConfigError {
+        message: format!(
+            "VibeGuard runtime config invalid JSON: {}: path=$ category=config_json_error expected=valid_json line={} column={}",
+            path.display(),
+            err.line(),
+            err.column()
+        ),
+        exit_code: CONFIG_PARSE_ERROR,
     })?;
     validate_runtime_config_value(path, &value)?;
     Ok((RuntimeConfigDecision::Valid, Some(value)))
@@ -266,9 +266,9 @@ fn validate_field(
 ) -> Result<(), RuntimeConfigError> {
     match kind {
         FieldKind::Integer { minimum, maximum } => {
-            let integer = if let Some(integer) = value.as_u64() {
+            let integer = if let Some(integer) = nonnegative_json_integer(value) {
                 integer
-            } else if value.as_i64().is_some() {
+            } else if is_json_schema_integer(value) {
                 return Err(config_error(
                     file_path,
                     display_path,
@@ -316,15 +316,25 @@ fn validate_field(
             }
         }
         FieldKind::Version => {
-            let version = value.as_u64().ok_or_else(|| {
-                config_error(
+            let version = if let Some(version) = nonnegative_json_integer(value) {
+                version
+            } else if is_json_schema_integer(value) {
+                return Err(config_error(
+                    file_path,
+                    display_path,
+                    "config_version_error",
+                    "supported_version=1",
+                    CONFIG_PARSE_ERROR,
+                ));
+            } else {
+                return Err(config_error(
                     file_path,
                     display_path,
                     "config_type_error",
                     "type=integer",
                     CONFIG_PARSE_ERROR,
-                )
-            })?;
+                ));
+            };
             if version != 1 {
                 return Err(config_error(
                     file_path,
@@ -337,6 +347,28 @@ fn validate_field(
         }
     }
     Ok(())
+}
+
+pub(crate) fn nonnegative_json_integer(value: &Value) -> Option<u64> {
+    if let Some(integer) = value.as_u64() {
+        return Some(integer);
+    }
+    let number = value.as_f64()?;
+    if number.is_finite() && number >= 0.0 && number.fract() == 0.0 && number <= u64::MAX as f64 {
+        let integer = number as u64;
+        if integer as f64 == number {
+            return Some(integer);
+        }
+    }
+    None
+}
+
+fn is_json_schema_integer(value: &Value) -> bool {
+    value.as_i64().is_some()
+        || value.as_u64().is_some()
+        || value
+            .as_f64()
+            .is_some_and(|number| number.is_finite() && number.fract() == 0.0)
 }
 
 #[cfg(test)]

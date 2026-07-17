@@ -1,6 +1,7 @@
 use crate::HandlerResult;
 use crate::runtime_config_validation::{
     RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
+    nonnegative_json_integer,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -89,7 +90,7 @@ fn resolve_runtime_config_int(
 
     if let Some(value) = config
         .and_then(|value| value_at_path(value, json_path))
-        .and_then(Value::as_u64)
+        .and_then(nonnegative_json_integer)
     {
         return Ok(value);
     }
