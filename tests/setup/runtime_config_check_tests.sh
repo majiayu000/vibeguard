@@ -4,10 +4,8 @@
 header "runtime config setup mode matrix"
 
 RUNTIME_CONFIG_TEST_FILE="${BROKEN_HOME}/runtime-config.json"
-RUNTIME_CONFIG_TEST_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+RUNTIME_CONFIG_TEST_RUNTIME="${VIBEGUARD_SETUP_RUNTIME}"
 printf '%s\n' '{"write_mode":"sensitive-setup-value"}' > "${RUNTIME_CONFIG_TEST_FILE}"
-assert_cmd "runtime config setup fixture builds current runtime" \
-  cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml"
 
 run_invalid_runtime_case() {
   local label="$1" expected_rc="$2"
