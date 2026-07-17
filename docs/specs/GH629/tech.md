@@ -29,35 +29,56 @@ See `product.md`.
 
 完整 field inventory 以 production getters 与已发布 template 的并集为迁移输入：
 
-| JSON path | Existing consumer/default | Schema/template action |
-| --- | --- | --- |
-| `version` | setup/template；legacy 缺失按 v1 | optional integer const 1 |
-| `u16.warn_limit` | Rust/shell，400 | nonnegative integer；不大于 `u16.limit` |
-| `u16.limit` | Rust/shell，800 | nonnegative integer |
-| `circuit_breaker.threshold` | Rust/shell，3 | nonnegative integer |
-| `circuit_breaker.cooldown_seconds` | Rust/shell，300 | nonnegative integer |
-| `circuit_breaker.lock_timeout_seconds` | Rust/shell，5 | nonnegative integer；补入 template |
-| `w14.cooldown_seconds` | Rust，3600 | nonnegative integer |
-| `paralysis.threshold` | shell，7 | nonnegative integer |
-| `write_mode` | Rust/shell，`warn` | enum `warn` / `block` |
-| `write_escalate_threshold` | Rust，5；0 表示禁用升级 | nonnegative integer；补入 template |
-| `learn.metrics_tail_bytes` | Rust，5242880 | nonnegative integer；补入 template |
+| JSON path | Existing consumer/default | Inclusive v1 domain | Schema/template action |
+| --- | --- | --- | --- |
+| `version` | setup/template；legacy 缺失按 v1 | integer const 1 | optional；未来 version 拒绝 |
+| `u16.warn_limit` | Rust/shell，400 | 0..1,000,000 | integer；保留 consumer clamp |
+| `u16.limit` | Rust/shell，800 | 0..1,000,000 | integer |
+| `circuit_breaker.threshold` | Rust/shell，3 | 0..1,000,000 | integer |
+| `circuit_breaker.cooldown_seconds` | Rust/shell，300 | 0..31,536,000 | integer；最长一年 |
+| `circuit_breaker.lock_timeout_seconds` | Rust/shell，5 | 0..300 | integer；补入 template；限制 mkdir retry 次数 |
+| `w14.cooldown_seconds` | Rust，3600 | 0..31,536,000 | integer；最长一年 |
+| `paralysis.threshold` | shell，7 | 0..1,000,000 | integer |
+| `write_mode` | Rust/shell，`warn` | `warn` / `block` | string enum |
+| `write_escalate_threshold` | Rust，5；0 表示禁用升级 | 0..1,000,000 | integer；补入 template |
+| `learn.metrics_tail_bytes` | Rust，5242880 | 0..268,435,456 | integer；补入 template；最多读取 256 MiB |
 
-数值上界必须由 schema 与 Rust 的同一 inventory 常量声明并覆盖边界测试，至少拒绝不能由
-production `u64` getter 无损表示的数值；不得让 schema 接受而 getter 回退。目录、断链 symlink、
-权限错误等“路径存在但不可作为普通配置读取”的状态必须与真正缺失文件区分并 fail visibly。
+这些上界同时避免 `usize` cast、shell signed arithmetic、`lock_timeout * 10` retry 与 tail-read
+资源失控。schema 与 Rust inventory 必须共享表中常量；每个 numeric path 都必须具名覆盖
+`0`、`max`、`max + 1`，不得让 schema 接受而 getter truncate、wrap 或 fallback。此前虽被
+parse-only getter 接受但超过这些范围的值定义为 unsafe invalid config，不属于合法 legacy。
 
 推荐 Route A（Rust typed validator + schema parity test）。Route B 在运行时加载并解释 JSON
 Schema，单一来源更直接，但会增加解析复杂度、依赖和 hook latency；不符合当前 Rust-only、
 低依赖路径。parity test 读取 schema/template 与 Rust 声明的 field inventory，阻断字段漂移。
 
 兼容策略：文件缺失和 `{}` 合法；`version` 缺失按 legacy v1 读取，显式 `version` 只能为 1。
-现有 getter 已接受 0，schema 保持 nonnegative 语义，并增加 `u16.warn_limit <= u16.limit`
-跨字段约束。未知字段和未来 version 拒绝。
+现有 getter 已接受 0，schema 保持 nonnegative 语义。`u16.warn_limit > u16.limit` 是合法 legacy
+输入，继续由现有 Rust/shell consumer clamp 到 effective limit，不新增 cross-field rejection；
+必须有 regression 覆盖。未知字段、未来 version 与表中 max+1 拒绝。
 
-`validate_runtime_config_file` 返回 parsed validated config 或至少复用一次 validator；getter 不得
-再次以 `.ok()?` 静默吞掉同一文件错误。runtime policy、直接 getter CLI 与 setup check 共享
-错误格式，只打印文件与 JSON path，不打印 value。
+新增 `vibeguard-runtime runtime-config-validate <path>` 作为 setup 与直接诊断 adapter；
+`validate_runtime_config_file` 返回 parsed validated config 或复用同一 typed validator，getter
+不得再次以 `.ok()?` 静默吞掉同一文件错误。validation 必须先于 env-over-JSON-default 的字段
+resolution，因此合法 env override 不能掩盖一个存在但 `INVALID` 的文件。runtime policy、
+validator/getter CLI 与 setup check 共享错误格式，只打印文件、JSON path、失败类别和允许范围，
+不打印 value。
+
+文件状态矩阵如下；除真正 missing 外，不得用 `Path::is_file() == false` 归入 defaults：
+
+| Config path state | Decision | Runtime validator/policy/getter | Setup rendering / exit |
+| --- | --- | --- | --- |
+| path 不存在且不是 symlink | `MISSING` | defaults，exit 0 | INFO/defaults，全部 mode exit 0 |
+| readable regular file | `VALID` 或内容型 `INVALID` | 由同一 typed validator 判定 | 同一 decision，按 mode 映射 |
+| readable symlink -> regular file | 与 target 相同 | 保留现有可读 symlink 兼容 | 与 target 相同 |
+| directory 或其他 non-regular（FIFO/socket/device） | `INVALID` | `config_path_type_error`，非零；不得 open FIFO | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
+| dangling symlink | `INVALID` | `config_path_target_error`，非零 | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
+| unreadable regular file/target | `INVALID` | `config_read_error`，非零 | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
+| invalid UTF-8 | `INVALID` | `config_utf8_error`，非零 | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
+
+setup adapter 在 default/doctor/quiet/no-summary 中保留 process exit 0；strict/json/project/dev-repo
+与 install verification 把 invalid config 记录为 broken，exit 2。JSON mode 只输出结构化事件，不得
+把 validator stderr 或配置 value 混入 stdout。
 
 ## Product-to-Test Mapping
 
@@ -65,10 +86,10 @@ Schema，单一来源更直接，但会增加解析复杂度、依赖和 hook la
 | --- | --- | --- |
 | B-001 | new schema + complete getter/template inventory | schema meta-validation；template validates；3 个缺失 template path 已补齐 |
 | B-002 | Rust validator default/legacy branch | missing file、`{}`、partial valid fixtures |
-| B-003 | typed validator | malformed/type/unknown/range/cross-field negatives return nonzero |
+| B-003 | typed validator + path classifier | file-state matrix、malformed/type/unknown/range negatives；runtime entrypoints return nonzero |
 | B-004 | `write_mode` enum | invalid-mode hook test expects config error |
 | B-005 | parity checker | template/schema/Rust field-set mutation fixtures |
-| B-006 | policy/getter/setup adapters | same fixture matrix through three entrypoints |
+| B-006 | policy/getter/setup adapters | same decision matrix；setup compatibility modes exit 0，strict/install modes exit 2 |
 | B-007 | version handling | missing v1、explicit v1 pass；future version fails |
 | B-008 | error rendering | secret-like value absent from stderr/payload assertions |
 
@@ -87,11 +108,11 @@ typed config，再按 env-over-JSON-default 优先级取值。validation failure
 
 ## 测试计划
 
-- [ ] Rust unit: full positive/negative config matrix 与 redacted errors。
-- [ ] Shell integration: `bash tests/hooks/test_runtime_config.sh`、runtime policy config errors。
-- [ ] Setup: focused `--check` invalid/valid user config fixtures。
-- [ ] Required: `cargo check --manifest-path vibeguard-runtime/Cargo.toml` 与 `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
-- [ ] Contracts: `bash tests/test_manifest_contract.sh`。
+- [ ] Schema/inventory: `bash tests/test_runtime_config_schema.sh` 与 `bash tests/test_manifest_contract.sh`。
+- [ ] Rust/file matrix: `cargo test --manifest-path vibeguard-runtime/Cargo.toml runtime_config` 与 `cargo test --manifest-path vibeguard-runtime/Cargo.toml --test runtime_config_cli`。
+- [ ] Policy/shell: `cargo test --manifest-path vibeguard-runtime/Cargo.toml --test runtime_policy_cli` 与 `bash tests/hooks/test_runtime_config.sh`。
+- [ ] Setup modes: `bash tests/test_setup_check.sh` 覆盖 default/doctor/quiet/no-summary/strict/json/install decision+exit matrix；`bash tests/test_setup.sh` 运行完整 setup gate。
+- [ ] Required: `cargo check --manifest-path vibeguard-runtime/Cargo.toml`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml`、`bash scripts/local-contract-check.sh --quick`、`git diff --check`。
 
 ## 回滚方案
 
