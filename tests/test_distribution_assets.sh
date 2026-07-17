@@ -202,6 +202,23 @@ git -C "$delimiter_consumer_fixture" add .
 assert_cmd "comment delimiters inside quoted strings preserve later consumers" \
   python3 "$VALIDATOR" "$delimiter_consumer_fixture"
 
+multiline_consumer_fixture="$(new_fixture multiline-consumer)"
+mkdir -p \
+  "$multiline_consumer_fixture/templates" \
+  "$multiline_consumer_fixture/scripts/runtime" \
+  "$multiline_consumer_fixture/tools"
+printf '# multiline consumer fixture\n' > \
+  "$multiline_consumer_fixture/templates/multiline-owned.yaml"
+printf '%s\n' \
+  'const payload = `' \
+  'https://example templates/multiline-owned.yaml' \
+  '`;' > "$multiline_consumer_fixture/scripts/runtime/consumer.js"
+printf '%s\n' 'skills-lock.json' > \
+  "$multiline_consumer_fixture/tools/install.py"
+git -C "$multiline_consumer_fixture" add .
+assert_cmd "multiline backtick strings preserve executable consumers" \
+  python3 "$VALIDATOR" "$multiline_consumer_fixture"
+
 positive_fixture="$(new_fixture positive)"
 mkdir -p \
   "$positive_fixture/skills/installed" \

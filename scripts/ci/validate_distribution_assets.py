@@ -164,15 +164,18 @@ def python_docstring_lines(content: bytes) -> set[int]:
     return lines
 
 
-def strip_c_style_comments(line: bytes, in_block_comment: bool) -> tuple[bytes, bool]:
+def strip_c_style_comments(
+    line: bytes,
+    in_block_comment: bool,
+    quote: int | None,
+) -> tuple[bytes, bool, int | None]:
     code = bytearray()
     index = 0
-    quote: int | None = None
     while index < len(line):
         if in_block_comment:
             block_end = line.find(b"*/", index)
             if block_end < 0:
-                return bytes(code), True
+                return bytes(code), True, quote
             index = block_end + 2
             in_block_comment = False
             continue
@@ -193,14 +196,14 @@ def strip_c_style_comments(line: bytes, in_block_comment: bool) -> tuple[bytes, 
             index += 1
             continue
         if line.startswith(b"//", index):
-            return bytes(code), False
+            return bytes(code), False, quote
         if line.startswith(b"/*", index):
             index += 2
             in_block_comment = True
             continue
         code.append(byte)
         index += 1
-    return bytes(code), in_block_comment
+    return bytes(code), in_block_comment, quote
 
 
 def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
@@ -211,12 +214,17 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
     docstring_lines = python_docstring_lines(content) if suffix == ".py" else set()
     c_style_suffix = suffix in {".c", ".go", ".h", ".java", ".js", ".rs", ".ts"}
     in_block_comment = False
+    quote: int | None = None
     needle = asset.encode("utf-8")
     for line_number, line in enumerate(content.splitlines(), start=1):
         if line_number in docstring_lines:
             continue
         if c_style_suffix:
-            line, in_block_comment = strip_c_style_comments(line, in_block_comment)
+            line, in_block_comment, quote = strip_c_style_comments(
+                line,
+                in_block_comment,
+                quote,
+            )
         stripped = line.lstrip()
         if stripped.startswith((b"#", b"//", b"/*", b"*", b"<!--")):
             continue
