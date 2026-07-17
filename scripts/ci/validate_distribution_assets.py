@@ -7,6 +7,7 @@ import ast
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 
 
@@ -134,49 +135,78 @@ def read_tracked_file(repo: Path, relative_path: str) -> bytes:
         raise ValidationError(f"cannot read tracked file {relative_path}: {exc}") from exc
 
 
-def python_docstring_lines(content: bytes) -> set[int]:
+def python_contains_executable_reference(content: bytes, asset: str) -> bool:
     try:
         tree = ast.parse(content.decode("utf-8"))
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise ValidationError(f"cannot parse Python consumer candidate: {exc}") from exc
 
-    lines: set[int] = set()
+    standalone_strings: set[int] = set()
     for node in ast.walk(tree):
-        body = getattr(node, "body", None)
-        if not isinstance(body, list) or not body:
-            continue
-        first = body[0]
-        if not (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Constant)
-            and isinstance(first.value.value, str)
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
         ):
+            standalone_strings.add(id(node.value))
+
+    return any(
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in standalone_strings
+        and contains_exact_path(node.value.encode("utf-8"), asset)
+        for node in ast.walk(tree)
+    )
+
+
+def structured_strings(content: bytes, suffix: str) -> set[str]:
+    try:
+        text = content.decode("utf-8")
+        data = json.loads(text) if suffix == ".json" else tomllib.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValidationError(f"cannot parse {suffix} consumer candidate: {exc}") from exc
+    return set(iter_json_strings(data))
+
+
+def strip_hash_comment(line: bytes) -> bytes:
+    code = bytearray()
+    quote: int | None = None
+    index = 0
+    while index < len(line):
+        byte = line[index]
+        if quote is not None:
+            code.append(byte)
+            if byte == ord("\\") and index + 1 < len(line):
+                index += 1
+                code.append(line[index])
+            elif byte == quote:
+                quote = None
+            index += 1
             continue
-        end_lineno = getattr(first, "end_lineno", first.lineno)
-        lines.update(range(first.lineno, end_lineno + 1))
-    return lines
+        if byte in {ord("'"), ord('"')}:
+            quote = byte
+            code.append(byte)
+            index += 1
+            continue
+        if byte == ord("#"):
+            break
+        code.append(byte)
+        index += 1
+    return bytes(code)
 
 
 def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
-    comment_markers: tuple[bytes, ...] = ()
-    if suffix in {".py", ".sh", ".toml", ".yaml", ".yml"}:
-        comment_markers = (b"#",)
+    if suffix == ".py":
+        return python_contains_executable_reference(content, asset)
+    if suffix in {".json", ".toml"}:
+        return any(
+            contains_exact_path(value.encode("utf-8"), asset)
+            for value in structured_strings(content, suffix)
+        )
 
-    docstring_lines = python_docstring_lines(content) if suffix == ".py" else set()
-    needle = asset.encode("utf-8")
-    for line_number, line in enumerate(content.splitlines(), start=1):
-        if line_number in docstring_lines:
-            continue
-        stripped = line.lstrip()
-        if stripped.startswith((b"#", b"//", b"/*", b"*", b"<!--")):
-            continue
+    for raw_line in content.splitlines():
+        line = strip_hash_comment(raw_line)
         if not contains_exact_path(line, asset):
-            continue
-        asset_index = line.find(needle)
-        if any(
-            0 <= line.find(marker) < asset_index
-            for marker in comment_markers
-        ):
             continue
         return True
     return False

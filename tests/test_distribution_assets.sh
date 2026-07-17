@@ -161,6 +161,8 @@ printf '%s\n' '# templates/orphan.yaml is only a source comment' > \
   "$false_evidence_fixture/scripts/runtime/comment.py"
 printf '%s\n' '"""templates/orphan.yaml is only a module docstring."""' > \
   "$false_evidence_fixture/scripts/runtime/docstring.py"
+printf '%s\n' 'value = 1' '"templates/orphan.yaml"' > \
+  "$false_evidence_fixture/scripts/runtime/noop.py"
 printf '%s\n' '/*' 'templates/orphan.yaml is only a block comment' '*/' > \
   "$false_evidence_fixture/scripts/runtime/comment.c"
 printf '%s\n' '`templates/orphan.yaml`' > \
@@ -171,6 +173,47 @@ git -C "$false_evidence_fixture" add .
 assert_fails_with "self/spec/plan/test/validator/doc/docstring/comments fail" \
   "unowned distribution asset: templates/orphan.yaml" \
   python3 "$VALIDATOR" "$false_evidence_fixture"
+
+structured_fixture="$(new_fixture structured-consumers)"
+mkdir -p \
+  "$structured_fixture/.github/workflows" \
+  "$structured_fixture/scripts/runtime" \
+  "$structured_fixture/templates" \
+  "$structured_fixture/tools"
+for name in python shell yaml toml json; do
+  printf '# owned fixture\n' > "$structured_fixture/templates/${name}-owned.yaml"
+done
+printf '%s\n' \
+  'print("tag#x"); Path("templates/python-owned.yaml").read_text()' > \
+  "$structured_fixture/scripts/runtime/consumer.py"
+printf '%s\n' \
+  'printf "%s" "tag#x"; cp "templates/shell-owned.yaml" /tmp/owned' > \
+  "$structured_fixture/scripts/runtime/consumer.sh"
+printf '%s\n' \
+  'steps:' \
+  '  - run: '\''printf "tag#x"; cp templates/yaml-owned.yaml /tmp/owned'\''' > \
+  "$structured_fixture/.github/workflows/consumer.yml"
+printf '%s\n' 'assets = ["tag#x", "templates/toml-owned.yaml"]' > \
+  "$structured_fixture/scripts/runtime/consumer.toml"
+printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
+  "$structured_fixture/scripts/runtime/consumer.json"
+printf '%s\n' 'lock_path = "skills-lock.json"' > \
+  "$structured_fixture/tools/install.py"
+git -C "$structured_fixture" add .
+assert_cmd "supported formats preserve quoted hashes and executable strings" \
+  python3 "$VALIDATOR" "$structured_fixture"
+
+noop_fixture="$(new_fixture python-noop)"
+mkdir -p "$noop_fixture/scripts/runtime" "$noop_fixture/templates" "$noop_fixture/tools"
+printf '# no-op fixture\n' > "$noop_fixture/templates/noop.yaml"
+printf '%s\n' 'value = 1' '"templates/noop.yaml"' > \
+  "$noop_fixture/scripts/runtime/noop.py"
+printf '%s\n' 'lock_path = "skills-lock.json"' > \
+  "$noop_fixture/tools/install.py"
+git -C "$noop_fixture" add .
+assert_fails_with "standalone Python strings do not establish ownership" \
+  "unowned distribution asset: templates/noop.yaml" \
+  python3 "$VALIDATOR" "$noop_fixture"
 
 positive_fixture="$(new_fixture positive)"
 mkdir -p \
@@ -188,7 +231,8 @@ printf '{"modules": [{"paths": ["skills/installed/"]}]}\n' > \
 printf '{"skills/locked/SKILL.md": {}}\n' > "$positive_fixture/skills-lock.json"
 printf '%s\n' 'Path("templates/vibeguard-architecture.yaml").read_text()' > \
   "$positive_fixture/guards/universal/check_dependency_layers.py"
-printf '%s\n' 'skills-lock.json' > "$positive_fixture/tools/install.py"
+printf '%s\n' 'lock_path = "skills-lock.json"' > \
+  "$positive_fixture/tools/install.py"
 printf '%s\n' 'Manual config: `sgconfig.yml`.' > "$positive_fixture/CONTRIBUTING.md"
 git -C "$positive_fixture" add .
 assert_cmd "install, lock, consumer, and exact manual evidence pass" \
