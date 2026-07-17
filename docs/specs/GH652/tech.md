@@ -24,8 +24,10 @@ See `product.md`.
 
 1. 在 suite 临时目录生成 executable stale runtime fixture：`version` 报告当前
    `vibeguard-runtime/VERSION`，其余 legacy probe commands 返回受支持结果，并在任何调用时写
-   marker。先以 marker disabled 执行现有 `setup_runtime_supports`，证明 fixture 确实能通过旧
-   version/command probe；验证后清空 marker。
+   marker。调用现有 `setup_runtime_supports` 时必须使用 command-scoped clean context：显式
+   `VIBEGUARD_REPO_DIR="${REPO_DIR}"`、显式 current `VIBEGUARD_SETUP_RUNTIME_VERSION`、marker
+   disabled；不得读取真实 caller 的错误 version。该 clean probe 证明 fixture 确实能通过旧
+   version/command contract；验证后清空 marker。
 2. 把 fixture 注入 `VIBEGUARD_SETUP_RUNTIME`，同时注入
    `VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1`、错误 `VIBEGUARD_SETUP_RUNTIME_VERSION`、外部
    `CARGO_TARGET_DIR` 与无效 `CARGO_BUILD_TARGET`，形成单一 hostile caller 场景。
@@ -79,8 +81,9 @@ See `product.md`.
 
 - [ ] `bash -n tests/test_setup_check.sh tests/setup/runtime_config_check_tests.sh`。
 - [ ] `bash tests/test_setup_check.sh`。
-- [ ] `bash tests/test_setup_check.sh`（内部 fixture 必须先通过 legacy capability probe，再以 hostile
-  env 运行完整 suite，最终 marker 零调用且 260/260）。
+- [ ] `bash tests/test_setup_check.sh`（内部 fixture 必须先在 scoped current-version/repo context
+  通过 legacy capability probe，再注入 hostile env 运行完整 suite，最终 marker 零调用且
+  260/260）。
 - [ ] `cargo check --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] SpecRail、doc paths、doc command paths 与 diff check。
