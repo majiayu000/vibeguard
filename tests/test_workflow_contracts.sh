@@ -782,6 +782,8 @@ else
 fi
 assert_contains "${command_doc_path_out}" ".claude/commands/vibeguard/bad.md" "full command doc missing path fails validation"
 assert_contains "${command_doc_path_out}" ".claude/commands/vg/bad.md" "shortcut command doc missing path fails validation"
+assert_cmd "structured doc path allowlist fixtures pass" \
+  bash "${REPO_DIR}/tests/test_doc_path_allowlist.sh"
 
 echo
 echo "=============================="
