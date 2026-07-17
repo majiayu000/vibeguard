@@ -164,6 +164,33 @@ def python_docstring_lines(content: bytes) -> set[int]:
     return lines
 
 
+def strip_c_style_comments(line: bytes, in_block_comment: bool) -> tuple[bytes, bool]:
+    code = bytearray()
+    index = 0
+    while index < len(line):
+        if in_block_comment:
+            block_end = line.find(b"*/", index)
+            if block_end < 0:
+                return bytes(code), True
+            index = block_end + 2
+            in_block_comment = False
+            continue
+
+        line_comment = line.find(b"//", index)
+        block_start = line.find(b"/*", index)
+        if line_comment >= 0 and (block_start < 0 or line_comment < block_start):
+            code.extend(line[index:line_comment])
+            return bytes(code), False
+        if block_start >= 0:
+            code.extend(line[index:block_start])
+            index = block_start + 2
+            in_block_comment = True
+            continue
+        code.extend(line[index:])
+        break
+    return bytes(code), in_block_comment
+
+
 def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
     comment_markers: tuple[bytes, ...] = ()
     if suffix in {".py", ".sh", ".toml", ".yaml", ".yml"}:
@@ -172,10 +199,14 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
         comment_markers = (b"//", b"/*")
 
     docstring_lines = python_docstring_lines(content) if suffix == ".py" else set()
+    c_style_suffix = suffix in {".c", ".go", ".h", ".java", ".js", ".rs", ".ts"}
+    in_block_comment = False
     needle = asset.encode("utf-8")
     for line_number, line in enumerate(content.splitlines(), start=1):
         if line_number in docstring_lines:
             continue
+        if c_style_suffix:
+            line, in_block_comment = strip_c_style_comments(line, in_block_comment)
         stripped = line.lstrip()
         if stripped.startswith((b"#", b"//", b"/*", b"*", b"<!--")):
             continue

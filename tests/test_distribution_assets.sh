@@ -161,12 +161,14 @@ printf '%s\n' '# templates/orphan.yaml is only a source comment' > \
   "$false_evidence_fixture/scripts/runtime/comment.py"
 printf '%s\n' '"""templates/orphan.yaml is only a module docstring."""' > \
   "$false_evidence_fixture/scripts/runtime/docstring.py"
+printf '%s\n' '/*' 'templates/orphan.yaml is only a block comment' '*/' > \
+  "$false_evidence_fixture/scripts/runtime/comment.c"
 printf '%s\n' '`templates/orphan.yaml`' > \
   "$false_evidence_fixture/scripts/ci/validate_distribution_assets.py"
 printf '%s\n' 'Manual assets: `templates/*` and `orphan.yaml`.' > \
   "$false_evidence_fixture/CONTRIBUTING.md"
 git -C "$false_evidence_fixture" add .
-assert_fails_with "self/spec/plan/test/validator/doc/docstring/comment evidence fails" \
+assert_fails_with "self/spec/plan/test/validator/doc/docstring/comments fail" \
   "unowned distribution asset: templates/orphan.yaml" \
   python3 "$VALIDATOR" "$false_evidence_fixture"
 
