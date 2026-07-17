@@ -1,0 +1,12 @@
+# W-20 tool inventory for GH652 implementation.
+# Descriptions are pinned by SHA-256; runtime/tool versions are captured separately by the snapshot guard.
+# cargo: Builds and pins the current worktree runtime before setup health assertions.
+cli cargo 729be8dd858eef9c37acba026d934520e53cf839c639b649a515be5816bbabf3
+# bash: Runs the setup structured-report and shell syntax regression gates.
+cli bash 7b7165cde611527eed3e31775a75f87fae3162c5f79a95d779a26f96d4b9255c
+# python3: Runs SpecRail and documentation contract checks.
+cli python3 e4affd67c494b2a92709a2cec85730037db79c0ea2cb9670f8694901b93dcd89
+# gh: Collects current GitHub PR, CI, review-thread, and merge evidence.
+cli gh bff89c0b113c19714e981adc032c17f11074dc408abac3f3661ff5c88c4f2c5b
+# git: Captures exact origin/main and worktree state for branch handoff.
+cli git 47a5eb1e302848b23b02a89ef58a0148fad3d1aa406328accc77816e33836567
