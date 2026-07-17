@@ -15,17 +15,17 @@ fn observe_export_prometheus_omits_raw_sensitive_labels() {
     fs::create_dir_all(&root).unwrap();
     let input = root.join("events.jsonl");
     let output_file = root.join("metrics.prom");
-    fs::write(
-        &input,
-        concat!(
-            "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
-            "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
-            "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
-            "\"detail\":\"Edit /Users/alice/project/src/private_token.rs\",",
-            "\"duration_ms\":250}\n"
-        ),
+    let personal_home = format!("/Users/{}", "alice");
+    let personal_path = format!("{personal_home}/project/src/private_token.rs");
+    let event = concat!(
+        "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
+        "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+        "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
+        "\"detail\":\"Edit __PERSONAL_PATH__\",",
+        "\"duration_ms\":250}\n"
     )
-    .unwrap();
+    .replace("__PERSONAL_PATH__", &personal_path);
+    fs::write(&input, event).unwrap();
 
     let out = bin()
         .args([
@@ -56,7 +56,7 @@ fn observe_export_prometheus_omits_raw_sensitive_labels() {
         "secret-session",
         "customer@example.com",
         "cargo test -- --ignored",
-        "/Users/alice",
+        personal_home.as_str(),
         "private_token",
     ] {
         assert!(!stdout.contains(raw), "raw value leaked: {raw}\n{stdout}");

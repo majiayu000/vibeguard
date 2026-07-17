@@ -1,0 +1,10 @@
+# W-20 tool inventory for GH630 implementation.
+# Descriptions are pinned by SHA-256; runtime/tool versions are captured separately by the snapshot guard.
+# python3: Runs model-baseline validation, eval unit tests, and dry-run checks.
+cli python3 31ac03c82e3f5c0079dcfd2d547c81e7252883e529683ca60f0c522489b26b70
+# bash: Runs eval and benchmark contract regression suites.
+cli bash 39732c88c121703445a24586a71aaa0dab5faedbdc9212d64cf9ca0549248594
+# gh: Collects current GitHub PR, CI, review-thread, and merge evidence.
+cli gh bff89c0b113c19714e981adc032c17f11074dc408abac3f3661ff5c88c4f2c5b
+# git: Captures exact origin/main and worktree state for branch handoff.
+cli git 47a5eb1e302848b23b02a89ef58a0148fad3d1aa406328accc77816e33836567

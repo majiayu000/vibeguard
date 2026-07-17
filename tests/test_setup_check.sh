@@ -631,6 +631,9 @@ HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" doctor >/dev/null 2>&1
 doctor_rc=$?
 assert_eq "$doctor_rc" "0" "doctor command: exit 0 on broken health (compat)"
 
+# shellcheck source=setup/runtime_config_check_tests.sh
+source "${REPO_DIR}/tests/setup/runtime_config_check_tests.sh"
+
 # --no-summary must also keep exiting 0.
 bash "${SETUP_SCRIPT}" --check --no-summary >/dev/null 2>&1
 no_sum_rc=$?

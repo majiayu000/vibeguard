@@ -208,6 +208,7 @@ stage_install_snapshot() {
   cp -r "${REPO_DIR}/.claude/commands" "${_INSTALL_TMP}/.claude/"
   mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
+  cp "${REPO_DIR}/schemas/vibeguard-runtime-config.schema.json" "${_INSTALL_TMP}/schemas/"
   printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
 
   # Runtime must be prepared before project config validation, but the staged

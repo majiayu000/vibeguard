@@ -137,7 +137,7 @@ When writing a file, a YAML-style metadata header (frontmatter) must be used at 
 ```markdown
 ---
 mode: plan
-cwd: <current working directory, for example /Users/xxx/project>
+cwd: <current working directory, for example /Users/<username>/project>
 task: <task title or summary (usually from your summary of $ARGUMENTS)>
 complexity: <simple|medium|complex>
 planning_method: builtin

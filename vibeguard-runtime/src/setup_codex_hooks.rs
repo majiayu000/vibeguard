@@ -2,7 +2,7 @@ use crate::setup_support::{
     SetupResult, basename, home_dir, read_json_object, shell_quote, shell_split, write_json_atomic,
 };
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub use crate::setup_codex_hooks_health::{
@@ -20,6 +20,7 @@ struct CodexSpec {
 struct CodexManifestData {
     specs: Vec<CodexSpec>,
     managed_scripts: BTreeSet<String>,
+    script_targets: BTreeMap<String, String>,
 }
 
 const CODEX_EVENTS: &[&str] = &[
@@ -49,7 +50,7 @@ pub fn codex_hooks_upsert(args: &[String]) -> SetupResult<()> {
     let before = serde_json::to_string(&data)?;
     ensure_hooks_root(&mut data)?;
     codex_prune_managed(&mut data, &manifest.managed_scripts);
-    codex_prune_stale(&mut data);
+    codex_prune_stale(&mut data, &manifest.script_targets);
     ensure_hooks_root(&mut data)?;
     let hooks = data["hooks"]
         .as_object_mut()
@@ -213,6 +214,7 @@ fn codex_manifest_value(manifest: &Value) -> SetupResult<CodexManifestData> {
         .ok_or("hooks must be a non-empty array")?;
     let mut specs = Vec::new();
     let mut managed_scripts = BTreeSet::new();
+    let mut script_targets = BTreeMap::new();
     for item in hooks {
         let Some(item_obj) = item.as_object() else {
             return Err("each hook manifest entry must be an object".into());
@@ -233,7 +235,7 @@ fn codex_manifest_value(manifest: &Value) -> SetupResult<CodexManifestData> {
             .and_then(|claude| claude.get("enabled"))
             .and_then(Value::as_bool)
             .ok_or("hook claude.enabled must be boolean")?;
-        managed_scripts.insert(script);
+        managed_scripts.insert(script.clone());
         let codex = item_obj
             .get("codex")
             .and_then(Value::as_object)
@@ -246,6 +248,7 @@ fn codex_manifest_value(manifest: &Value) -> SetupResult<CodexManifestData> {
         if !enabled {
             continue;
         }
+        let first_spec = specs.len();
         if let Some(entries_value) = codex.get("entries") {
             let entries = entries_value
                 .as_array()
@@ -260,11 +263,22 @@ fn codex_manifest_value(manifest: &Value) -> SetupResult<CodexManifestData> {
         } else {
             specs.push(codex_spec(codex, None)?);
         }
+        let expected_codex_script = format!("vibeguard-{script}");
+        for spec in &specs[first_spec..] {
+            if spec.script != expected_codex_script {
+                return Err(format!(
+                    "Codex script must equal {expected_codex_script} for canonical script {script}"
+                )
+                .into());
+            }
+            script_targets.insert(spec.script.clone(), script.clone());
+        }
     }
     managed_scripts.extend(specs.iter().map(|spec| spec.script.clone()));
     Ok(CodexManifestData {
         specs,
         managed_scripts,
+        script_targets,
     })
 }
 
@@ -424,7 +438,7 @@ fn codex_prune_managed(data: &mut Value, managed_scripts: &BTreeSet<String>) {
     }
 }
 
-fn codex_prune_stale(data: &mut Value) {
+fn codex_prune_stale(data: &mut Value, script_targets: &BTreeMap<String, String>) {
     let Some(hooks) = data.get_mut("hooks").and_then(Value::as_object_mut) else {
         return;
     };
@@ -447,7 +461,8 @@ fn codex_prune_stale(data: &mut Value) {
                 .filter(|hook| {
                     let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
                     codex_direct_installed_hook_target(command).is_none()
-                        && codex_hook_target(command).is_none_or(|target| target.exists())
+                        && codex_hook_target(command, script_targets)
+                            .is_none_or(|target| target.exists())
                 })
                 .cloned()
                 .collect();
@@ -534,6 +549,13 @@ pub(crate) fn codex_managed_scripts(repo_dir: &Path) -> SetupResult<BTreeSet<Str
     Ok(codex_manifest_data(repo_dir)?.managed_scripts)
 }
 
+pub(crate) fn codex_managed_script_contract(
+    repo_dir: &Path,
+) -> SetupResult<(BTreeSet<String>, BTreeMap<String, String>)> {
+    let manifest = codex_manifest_data(repo_dir)?;
+    Ok((manifest.managed_scripts, manifest.script_targets))
+}
+
 fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
     let home = home_dir()?;
     shell_split(command).into_iter().find_map(|token| {
@@ -544,7 +566,7 @@ fn codex_direct_installed_hook_target(command: &str) -> Option<PathBuf> {
     })
 }
 
-fn codex_hook_target(command: &str) -> Option<PathBuf> {
+fn codex_hook_target(command: &str, script_targets: &BTreeMap<String, String>) -> Option<PathBuf> {
     let home = home_dir()?;
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
@@ -557,7 +579,11 @@ fn codex_hook_target(command: &str) -> Option<PathBuf> {
         {
             let script = parts.get(idx + 1)?;
             if !script.contains('/') {
-                let installed = path.parent()?.join("installed/hooks").join(script);
+                let canonical_script = script_targets.get(script).unwrap_or(script);
+                let installed = path
+                    .parent()?
+                    .join("installed/hooks")
+                    .join(canonical_script);
                 if installed.parent().is_some_and(Path::exists) {
                     return Some(installed);
                 }
@@ -582,6 +608,30 @@ mod tests {
 
     fn repo_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    }
+
+    #[test]
+    fn manifest_rejects_requested_canonical_script_mismatch() {
+        let manifest_path = repo_dir().join("hooks/manifest.json");
+        let mut manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(manifest_path).expect("read repository manifest"),
+        )
+        .expect("parse repository manifest");
+        let hook = manifest["hooks"]
+            .as_array_mut()
+            .and_then(|hooks| {
+                hooks.iter_mut().find(|hook| {
+                    hook.pointer("/codex/enabled").and_then(Value::as_bool) == Some(true)
+                })
+            })
+            .expect("enabled Codex hook");
+        hook["codex"]["script"] = Value::String("vibeguard-mismatched.sh".to_string());
+
+        let error = match codex_manifest_value(&manifest) {
+            Ok(_) => panic!("requested/canonical mismatch must fail"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("for canonical script"));
     }
 
     #[test]
