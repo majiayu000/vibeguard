@@ -178,9 +178,13 @@ def structured_strings(content: bytes, suffix: str) -> set[str]:
     return set(iter_json_strings(data))
 
 
-def strip_hash_comment(line: bytes, suffix: str) -> bytes:
+SHELL_WORD_SEPARATORS = frozenset(b" \t\r\n;|&()<>")
+
+
+def strip_shell_comment(line: bytes) -> bytes:
     code = bytearray()
     quote: int | None = None
+    at_word_start = True
     index = 0
     while index < len(line):
         byte = line[index]
@@ -195,20 +199,53 @@ def strip_hash_comment(line: bytes, suffix: str) -> bytes:
                 code.append(line[index])
             elif byte == quote:
                 quote = None
+            at_word_start = False
             index += 1
             continue
-        if byte == ord("\\") and suffix == ".sh" and index + 1 < len(line):
+        if byte == ord("\\") and index + 1 < len(line):
             code.append(byte)
             index += 1
             code.append(line[index])
+            at_word_start = False
             index += 1
             continue
         if byte in {ord("'"), ord('"')}:
             quote = byte
             code.append(byte)
+            at_word_start = False
             index += 1
             continue
-        if byte == ord("#"):
+        if byte == ord("#") and at_word_start:
+            break
+        code.append(byte)
+        at_word_start = byte in SHELL_WORD_SEPARATORS
+        index += 1
+    return bytes(code)
+
+
+def strip_yaml_comment(line: bytes) -> bytes:
+    code = bytearray()
+    quote: int | None = None
+    index = 0
+    while index < len(line):
+        byte = line[index]
+        if quote is not None:
+            code.append(byte)
+            if byte == ord("\\") and quote == ord('"') and index + 1 < len(line):
+                index += 1
+                code.append(line[index])
+            elif byte == quote:
+                quote = None
+            index += 1
+            continue
+        if byte in {ord("'"), ord('"')} and (
+            not code or code[-1] in b" \t[{,:"
+        ):
+            quote = byte
+            code.append(byte)
+            index += 1
+            continue
+        if byte == ord("#") and (not code or code[-1] in b" \t"):
             break
         code.append(byte)
         index += 1
@@ -225,7 +262,11 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
         )
 
     for raw_line in content.splitlines():
-        line = strip_hash_comment(raw_line, suffix)
+        line = (
+            strip_shell_comment(raw_line)
+            if suffix == ".sh"
+            else strip_yaml_comment(raw_line)
+        )
         if not contains_exact_path(line, asset):
             continue
         return True

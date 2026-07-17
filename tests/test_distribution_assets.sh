@@ -167,6 +167,8 @@ printf '%s\n' 'value = 1' 'f"templates/orphan.yaml"' > \
   "$false_evidence_fixture/scripts/runtime/noop_fstring.py"
 printf '%s\n' "marker='x'\\''y'; # templates/orphan.yaml" > \
   "$false_evidence_fixture/scripts/runtime/comment.sh"
+printf '%s\n' "note: can't # templates/orphan.yaml" > \
+  "$false_evidence_fixture/scripts/runtime/comment.yml"
 printf '%s\n' '/*' 'templates/orphan.yaml is only a block comment' '*/' > \
   "$false_evidence_fixture/scripts/runtime/comment.c"
 printf '%s\n' '`templates/orphan.yaml`' > \
@@ -184,7 +186,7 @@ mkdir -p \
   "$structured_fixture/scripts/runtime" \
   "$structured_fixture/templates" \
   "$structured_fixture/tools"
-for name in python shell yaml toml json; do
+for name in python shell shell-parameter yaml yaml-plain toml json; do
   printf '# owned fixture\n' > "$structured_fixture/templates/${name}-owned.yaml"
 done
 printf '%s\n' \
@@ -194,8 +196,14 @@ printf '%s\n' \
   'printf "%s" "tag#x"; cp "templates/shell-owned.yaml" /tmp/owned' > \
   "$structured_fixture/scripts/runtime/consumer.sh"
 printf '%s\n' \
+  'value=prefix-data; trimmed=${value#prefix}; cp templates/shell-parameter-owned.yaml /tmp/owned' >> \
+  "$structured_fixture/scripts/runtime/consumer.sh"
+printf '%s\n' \
   'steps:' \
   '  - run: '\''printf "tag#x"; cp templates/yaml-owned.yaml /tmp/owned'\''' > \
+  "$structured_fixture/.github/workflows/consumer.yml"
+printf '%s\n' \
+  'items: [tag#x, templates/yaml-plain-owned.yaml]' >> \
   "$structured_fixture/.github/workflows/consumer.yml"
 printf '%s\n' 'assets = ["tag#x", "templates/toml-owned.yaml"]' > \
   "$structured_fixture/scripts/runtime/consumer.toml"
