@@ -784,6 +784,8 @@ assert_contains "${command_doc_path_out}" ".claude/commands/vibeguard/bad.md" "f
 assert_contains "${command_doc_path_out}" ".claude/commands/vg/bad.md" "shortcut command doc missing path fails validation"
 assert_cmd "structured doc path allowlist fixtures pass" \
   bash "${REPO_DIR}/tests/test_doc_path_allowlist.sh"
+assert_cmd "documentation metadata contracts pass" \
+  bash "${REPO_DIR}/tests/test_docs_metadata_contract.sh"
 
 echo
 echo "=============================="
