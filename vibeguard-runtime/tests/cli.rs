@@ -81,6 +81,7 @@ fn help_lists_all_commands() {
         "runtime-policy-downgrade-output",
         "runtime-policy-codex-error",
         "runtime-policy-diag",
+        "runtime-config-validate",
         "runtime-config-get-int",
         "runtime-config-get-str",
         "wrapper-env",

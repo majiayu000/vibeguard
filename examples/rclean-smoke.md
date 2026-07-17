@@ -2,11 +2,11 @@
 
 Purpose: define a read-only pilot for applying SpecRail evaluator checks to `rclean`.
 
-Scope: read-only. Do not modify `/Users/lifcc/Desktop/code/AI/tool/rclean`, do not submit issues, do not create PRs, and do not remove untracked `drafts/`.
+Scope: read-only. Do not modify `/path/to/rclean`, do not submit issues, do not create PRs, and do not remove untracked `drafts/`.
 
 ## Scout Facts
 
-- repo: `/Users/lifcc/Desktop/code/AI/tool/rclean`
+- repo: `/path/to/rclean`
 - origin: `https://github.com/majiayu000/rclean.git`
 - branch: `feat/rules-python-global`
 - untracked: `drafts/`
@@ -128,7 +128,7 @@ Pass condition:
 These commands may be used by a human or agent to refresh the scout facts without changing `rclean`:
 
 ```sh
-cd /Users/lifcc/Desktop/code/AI/tool/rclean
+cd /path/to/rclean
 git status --short --branch
 git remote -v
 find . -maxdepth 3 -name AGENTS.md -o -name CLAUDE.md -o -name WARP.md

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.dev/schemas/vibeguard-runtime-config.schema.json",
+  "title": "VibeGuard Runtime Configuration",
+  "description": "User-level runtime tuning stored in ~/.vibeguard/config.json. Missing fields use runtime defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Optional schema version. A missing version is treated as legacy version 1."
+    },
+    "u16": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "warn_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 400
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 800
+        }
+      }
+    },
+    "circuit_breaker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 3
+        },
+        "cooldown_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31536000,
+          "default": 300
+        },
+        "lock_timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300,
+          "default": 5
+        }
+      }
+    },
+    "w14": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cooldown_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31536000,
+          "default": 3600
+        }
+      }
+    },
+    "paralysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 7
+        }
+      }
+    },
+    "write_mode": {
+      "type": "string",
+      "enum": ["warn", "block"],
+      "default": "warn"
+    },
+    "write_escalate_threshold": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000,
+      "default": 5
+    },
+    "learn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metrics_tail_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456,
+          "default": 5242880
+        }
+      }
+    }
+  }
+}

@@ -313,7 +313,7 @@ fn run_source_new(
         "5",
     );
     let prior_count = if threshold > 0 {
-        count_recent_source_new_attempts(ctx).unwrap_or(0)
+        count_unheeded_source_new_reminders(ctx).unwrap_or(0)
     } else {
         0
     };
@@ -323,14 +323,14 @@ fn run_source_new(
             HookKind::PreWrite,
             decision::ESCALATE,
             status::ESCALATE,
-            &format!("L1 escalation after {prior_count} unheeded source-new attempts"),
+            &format!("L1 escalation after {prior_count} unheeded source-new reminders"),
             file_path,
             elapsed_ms(start),
         )?;
         print_pretty_decision(
             "block",
             &format!(
-                "VIBEGUARD [L1] [block] [escalation] OBSERVATION: {prior_count} new source file attempts in this session went unheeded\nSCOPE: pause new file creation — run Grep for similar function/class names and Glob for same-named files in this repo before any further Write\nACTION: REVIEW — confirm no duplicate exists; after manual verification start a new session, raise VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD, or export VIBEGUARD_PRE_WRITE_ESCALATE_THRESHOLD=0 to disable escalation for this session"
+                "VIBEGUARD [L1] [block] [escalation] OBSERVATION: {prior_count} visible new source file reminders in this session went unheeded\nSCOPE: pause new file creation — run Grep for similar function/class names and Glob for same-named files in this repo before any further Write\nACTION: REVIEW — confirm no duplicate exists, then retry Write. To change the threshold, edit write_escalate_threshold in ~/.vibeguard/config.json; this is a persistent global change"
             ),
         );
         return Ok(());
@@ -506,25 +506,36 @@ fn breaker_config(ctx: &RuntimeContext, hook: &str) -> BreakerConfig {
     }
 }
 
-fn count_recent_source_new_attempts(ctx: &RuntimeContext) -> Result<u64> {
+fn count_unheeded_source_new_reminders(ctx: &RuntimeContext) -> Result<u64> {
     let text = match fs::read_to_string(&ctx.log_file) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err.into()),
     };
-    let count = text
+    let mut count = 0;
+    for event in text
         .lines()
         .rev()
         .take(500)
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|event| {
-            event.get(field::SESSION).and_then(Value::as_str) == Some(ctx.session_id.as_str())
-                && event.get(field::HOOK).and_then(Value::as_str) == Some("pre-write-guard")
-                && event.get(field::REASON).and_then(Value::as_str)
-                    == Some("New source file attempt")
-        })
-        .count();
-    Ok(count as u64)
+    {
+        if event.get(field::SESSION).and_then(Value::as_str) != Some(ctx.session_id.as_str()) {
+            continue;
+        }
+        let hook = event.get(field::HOOK).and_then(Value::as_str);
+        let event_tool = event.get(field::TOOL).and_then(Value::as_str);
+        if hook == Some("analysis-paralysis-guard")
+            && matches!(event_tool, Some(tool::GREP) | Some(tool::GLOB))
+        {
+            break;
+        }
+        if hook == Some("pre-write-guard")
+            && event.get(field::REASON).and_then(Value::as_str) == Some("New source file reminder")
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 const MALFORMED_PRE_WRITE_REASON: &str = "VIBEGUARD interception: malformed PreToolUse(Write) hook input. The write request could not be validated, so it was blocked instead of being treated as a safe skip.";

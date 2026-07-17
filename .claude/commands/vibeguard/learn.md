@@ -366,10 +366,10 @@ Automatically select a mode based on parameters and context:
 
 ## Reference
 
-- VibeGuard guard script template: `vibeguard/guards/`
-- Hook script template: `vibeguard/hooks/`
-- Rules file: `vibeguard/rules/`
-- Rule index: `vibeguard/claude-md/vibeguard-rules.md`
+- VibeGuard guard script template: `guards/`
+- Hook script template: `hooks/`
+- Rules file: `rules/claude-rules/`
+- Rule index: `claude-md/vibeguard-rules.md`
 - Skill template: `templates/skill-template.md`
 - Academic references: Voyager (skill libraries), CASCADE (meta-skills), Reflexion (self-reflection)
 <!-- VIBEGUARD:LEARN:END -->

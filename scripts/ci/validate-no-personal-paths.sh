@@ -1,88 +1,101 @@
 #!/usr/bin/env bash
-# VibeGuard CI: Detect leaked personal paths in source code
-# Prevent /Users/<username>/ or /home/<username>/ from being hardcoded into the warehouse
+# VibeGuard CI: Detect leaked personal paths in Git-tracked files.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-errors=0
-checked=0
 
-echo "Scanning for hardcoded personal paths..."
+python3 - "${REPO_DIR}" <<'PY'
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
 
-# Patterns to detect (case-insensitive home directory references)
-# Excludes: .git/, node_modules/, dist/, .benchmarks/, local agent state, *.jsonl, *.lock
-EXCLUDE_DIRS="--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.benchmarks --exclude-dir=.vibeguard --exclude-dir=.omx --exclude-dir=.pytest_cache --exclude-dir=worktrees --exclude-dir=target --exclude-dir=.claude --exclude-dir=__pycache__"
-EXCLUDE_FILES="--exclude=*.jsonl --exclude=*.lock --exclude=bun.lock --exclude=package-lock.json"
+repo_dir = Path(sys.argv[1]).resolve()
+personal_path_re = re.compile(rb"/(?:Users|home)/[A-Za-z0-9._-]+/")
+tilde_assignment_re = re.compile(rb"=[ \t]*~/[A-Za-z]")
 
-# Pattern: /Users/<anything>/ or /home/<anything>/ (common home dir patterns)
-# But NOT in comments explaining the pattern (like this file does)
-while IFS= read -r match; do
-  file="${match%%:*}"
-  rest="${match#*:}"
-  lineno="${rest%%:*}"
-  content="${rest#*:}"
 
-  # Skip this validator script itself
-  [[ "$file" == *"validate-no-personal-paths.sh" ]] && continue
+def tracked_paths() -> list[bytes]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", os.fspath(repo_dir), "ls-files", "-z"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"cannot execute git: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"git ls-files failed: {detail or f'exit {result.returncode}'}")
+    return sorted(path for path in result.stdout.split(b"\0") if path)
 
-  # Skip git metadata. In linked worktrees, .git is a file containing
-  # the path to the real gitdir, so --exclude-dir=.git is not enough.
-  [[ "$file" == "${REPO_DIR}/.git" ]] && continue
 
-  # Skip test files that may legitimately test path patterns
-  [[ "$file" == *"/tests/"* ]] && continue
+def display_path(path_bytes: bytes) -> str:
+    return os.fsdecode(path_bytes)
 
-  # Skip documentation that explains the concept
-  [[ "$file" == *".md" ]] && continue
 
-  # Skip changelog
-  [[ "$file" == *"CHANGELOG"* ]] && continue
+def read_tracked(path_bytes: bytes) -> bytes:
+    path = repo_dir / display_path(path_bytes)
+    try:
+        if path.is_symlink():
+            return os.fsencode(os.readlink(path))
+        return path.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(f"cannot read tracked file {display_path(path_bytes)}: {exc}") from exc
 
-  # Skip .npmignore / .gitignore
-  [[ "$file" == *"ignore" ]] && continue
 
-  echo "FAIL: ${file}:${lineno}: hardcoded personal path detected"
-  echo "  ${content}"
-  ((errors++))
-done < <(grep -rnH ${EXCLUDE_DIRS} ${EXCLUDE_FILES} \
-  -E '(/Users/[a-zA-Z0-9._-]+/|/home/[a-zA-Z0-9._-]+/)' \
-  "${REPO_DIR}" 2>/dev/null || true)
+def main() -> int:
+    print("Scanning Git-tracked files for hardcoded personal paths...")
+    try:
+        paths = tracked_paths()
+    except RuntimeError as exc:
+        print(f"FAIL: {repo_dir}: scan_error: {exc}")
+        return 1
 
-# Also check for ~ expansion in shell scripts that should use $HOME
-while IFS= read -r match; do
-  file="${match%%:*}"
-  rest="${match#*:}"
-  lineno="${rest%%:*}"
-  content="${rest#*:}"
+    failures: list[str] = []
+    warnings: list[str] = []
+    for path_bytes in paths:
+        try:
+            content = read_tracked(path_bytes)
+        except RuntimeError as exc:
+            failures.append(f"FAIL: {display_path(path_bytes)}: scan_error: {exc}")
+            continue
+        if b"\0" in content:
+            continue
 
-  # Skip this script, tests, docs
-  [[ "$file" == *"validate-no-personal-paths.sh" ]] && continue
-  [[ "$file" == "${REPO_DIR}/.git" ]] && continue
-  [[ "$file" == *"/tests/"* ]] && continue
-  [[ "$file" == *".md" ]] && continue
+        path_text = display_path(path_bytes)
+        for line_number, line in enumerate(content.splitlines(), 1):
+            if personal_path_re.search(line):
+                rendered = line.decode("utf-8", errors="replace").strip()
+                failures.append(
+                    f"FAIL: {path_text}:{line_number}: hardcoded_personal_path: {rendered}"
+                )
 
-  # Only flag shell scripts that hardcode ~ in variable assignments (not in comments)
-  [[ "$file" != *.sh ]] && continue
+            if not path_text.endswith(".sh") or not tilde_assignment_re.search(line):
+                continue
+            stripped = line.lstrip()
+            if stripped.startswith(b"#") or b"echo " in stripped or b"printf " in stripped:
+                continue
+            rendered = line.decode("utf-8", errors="replace").strip()
+            warnings.append(
+                f"WARN: {path_text}:{line_number}: prefer_home_variable: {rendered}"
+            )
 
-  # Skip comments
-  trimmed="${content#"${content%%[![:space:]]*}"}"
-  [[ "$trimmed" == "#"* ]] && continue
+    for warning in warnings:
+        print(warning)
+    for failure in failures:
+        print(failure)
 
-  # Skip echo/printf (display only)
-  [[ "$trimmed" == *"echo "* ]] && continue
-  [[ "$trimmed" == *"printf "* ]] && continue
+    if failures:
+        print(f"FAILED: {len(failures)} personal-path or scan error(s) detected.")
+        print("Fix: use $HOME, a repository-relative path, or an explicit placeholder.")
+        return 1
+    print("No hardcoded personal paths found in Git-tracked files.")
+    return 0
 
-  echo "WARN: ${file}:${lineno}: consider using \$HOME instead of ~"
-  echo "  ${content}"
-done < <(grep -rnH ${EXCLUDE_DIRS} ${EXCLUDE_FILES} \
-  -E '=[[:space:]]*~/[a-zA-Z]' \
-  "${REPO_DIR}"/*.sh "${REPO_DIR}"/hooks/*.sh "${REPO_DIR}"/scripts/**/*.sh 2>/dev/null || true)
 
-echo
-if [[ ${errors} -eq 0 ]]; then
-  echo "No hardcoded personal paths found."
-else
-  echo "FAILED: ${errors} hardcoded personal paths detected."
-  echo "Fix: Replace with \$HOME, \${REPO_DIR}, or relative paths."
-  exit 1
-fi
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
