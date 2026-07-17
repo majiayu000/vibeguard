@@ -1,6 +1,6 @@
 ---
 mode: plan
-cwd: /Users/apple/Desktop/code/AI/tool/vibeguard
+cwd: <repo>
 task: Fix 2026-05-01 VibeGuard codebase audit findings
 complexity: complex
 planning_method: plan-mode+plan-flow
@@ -14,7 +14,7 @@ completed_at: 2026-05-02T11:02:37+08:00
 # Plan: VibeGuard Audit Remediation
 
 - Planned version: v1
-- Applicable repository: `/Users/apple/Desktop/code/AI/tool/vibeguard`
+- Applicable repository: `<repo>`
 - Current baseline: `main` at `92d948d`
 - Current local state: clean after PR #154 merge
 - Execution mode: change one step -> run directed tests -> run health check -> update this plan -> continue
@@ -1208,7 +1208,7 @@ Append entries here after each implemented step.
     - `bash tests/test_gc_logs_concurrent.sh` -> pass, 13/13.
     - `bash tests/test_gc_config.sh` -> pass, 7/7.
     - `(cd vibeguard-runtime && cargo test)` -> pass, 65/65.
-    - `uv run python -m pytest eval scripts` -> unavailable: `/Users/apple/.local/share/uv/python/cpython-3.14.2-macos-aarch64-none/bin/python3.14: No module named pytest`.
+    - `uv run python -m pytest eval scripts` -> unavailable: `/Users/<username>/.local/share/uv/python/cpython-3.14.2-macos-aarch64-none/bin/python3.14: No module named pytest`.
     - `uv run --with pytest python -m pytest eval/test_run_eval.py scripts/test_constraint_recommender.py` -> pass, 10/10.
     - `bash scripts/ci/self-application/run-all.sh` -> pass.
     - `bash tests/test_self_application_ci.sh` -> pass, 5/5.

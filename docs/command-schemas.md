@@ -398,7 +398,7 @@ Adopt mode records the full materialization contract:
   "signal_id": "lrn_a31f7c9d",
   "observation_id": "obs_2026w26_77bc",
   "project_hash": "dc1db069",
-  "project_root": "/Users/me/code/app",
+  "project_root": "/Users/<username>/code/app",
   "type": "metrics_truncation",
   "classification": "runtime_health",
   "normalized_key": "source:learn-evaluator:metrics_truncation",

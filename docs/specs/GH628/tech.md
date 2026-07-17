@@ -13,7 +13,7 @@ See `product.md`.
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Personal-path scanner | `scripts/ci/validate-no-personal-paths.sh:36` | 对全部 `*.md` 直接 continue | tracked Markdown 盲区根因 |
-| Historical plan | `plan/2026-05-01_18-56-41-vibeguard-audit-remediation.md:3` | 保存 literal `/Users/apple/...` cwd | 当前主线可复现漏报 |
+| Historical plan | `plan/2026-05-01_18-56-41-vibeguard-audit-remediation.md:3` | 保存 literal `/Users/<literal-user>/...` cwd | 当前主线可复现漏报 |
 | Older plan | `plan/2026-04-19_00-15-39-main-architecture-convergence.md:3` | 保存另一机器 literal user path | 证明不是单一用户名特例 |
 | Doc allowlist | `.vibeguard-doc-paths-allowlist:20` | 保留已迁移命令的旧位置条目 | stale entry 示例 |
 | Current path entry | `.vibeguard-doc-paths-allowlist:35` | 同时允许迁移后路径 | 双豁免会掩盖迁移漂移 |
@@ -39,7 +39,7 @@ reference | category | scope_glob | canonical_source | reason
 ```
 
 - `runtime_alias`：`reference` 必须精确等于 `vibeguard/{canonical_source}`，且 canonical
-  source 是当前 tracked file/dir；因此旧 `vibeguard/scripts/compliance_check.sh` 不能映射到
+  source 是当前 tracked file/dir；因此旧 "vibeguard/scripts/compliance_check.sh" 不能映射到
   新 `scripts/verify/compliance_check.sh` 后继续放行。
 - `installed_alias`：仅适用于 native rule 安装目标。`canonical_source` 必须是当前
   `scripts/lib/vibeguard_manifest.py rule-links` 输出第一列，`reference` 必须精确等于同一行
