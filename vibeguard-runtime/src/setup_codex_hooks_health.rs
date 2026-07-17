@@ -368,7 +368,7 @@ fn codex_installed_hook_target(
             if !script.contains('/') {
                 let canonical_script = match script_targets {
                     Some(targets) => targets.get(script).map(String::as_str).unwrap_or(script),
-                    None => script.strip_prefix("vibeguard-").unwrap_or(script),
+                    None => codex_builtin_script_target(script).unwrap_or(script),
                 };
                 return Some(
                     path.parent()?
@@ -379,6 +379,20 @@ fn codex_installed_hook_target(
         }
     }
     None
+}
+
+fn codex_builtin_script_target(script: &str) -> Option<&'static str> {
+    match script {
+        "vibeguard-pre-bash-guard.sh" => Some("pre-bash-guard.sh"),
+        "vibeguard-pre-edit-guard.sh" => Some("pre-edit-guard.sh"),
+        "vibeguard-pre-write-guard.sh" => Some("pre-write-guard.sh"),
+        "vibeguard-post-edit-guard.sh" => Some("post-edit-guard.sh"),
+        "vibeguard-post-write-guard.sh" => Some("post-write-guard.sh"),
+        "vibeguard-post-build-check.sh" => Some("post-build-check.sh"),
+        "vibeguard-stop-guard.sh" => Some("stop-guard.sh"),
+        "vibeguard-learn-evaluator.sh" => Some("learn-evaluator.sh"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -431,9 +445,51 @@ mod tests {
         }]}]}});
 
         assert!(codex_stale_findings(&data, &home.join("hooks.json"), None, None).is_empty());
+        for (invalid_script, tempting_target) in [
+            ("vibeguard-unknown-hook.sh", "unknown-hook.sh"),
+            (
+                "vibeguard-vibeguard-pre-bash-guard.sh",
+                "vibeguard-pre-bash-guard.sh",
+            ),
+        ] {
+            if let Err(error) = fs::write(installed_dir.join(tempting_target), "#!/bin/sh\n") {
+                panic!("failed to write invalid target fixture: {error}");
+            }
+            let invalid_data = serde_json::json!({"hooks": {"PreToolUse": [{"hooks": [{
+                "command": format!("bash {} {invalid_script}", wrapper.display())
+            }]}]}});
+            let findings =
+                codex_stale_findings(&invalid_data, &home.join("hooks.json"), None, None);
+            assert_eq!(findings.len(), 1, "{invalid_script}");
+            assert!(findings[0].contains(invalid_script), "{}", findings[0]);
+        }
         fs::remove_file(&wrapper).expect("remove wrapper");
         let findings = codex_stale_findings(&data, &home.join("hooks.json"), None, None);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].contains(wrapper.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn one_arg_builtin_map_matches_manifest_closed_map() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let (_, targets) = match codex_managed_script_contract(&repo) {
+            Ok(contract) => contract,
+            Err(error) => panic!("manifest contract failed: {error}"),
+        };
+        assert_eq!(targets.len(), 8);
+        for (requested, canonical) in targets {
+            assert_eq!(
+                codex_builtin_script_target(&requested),
+                Some(canonical.as_str())
+            );
+        }
+        assert_eq!(
+            codex_builtin_script_target("vibeguard-unknown-hook.sh"),
+            None
+        );
+        assert_eq!(
+            codex_builtin_script_target("vibeguard-vibeguard-pre-bash-guard.sh"),
+            None
+        );
     }
 }
