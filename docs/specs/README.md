@@ -6,6 +6,11 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH628/` | Implemented reference | Git-tracked Markdown personal-path detection and strict, scoped doc-path allowlist freshness |
+| `GH627/` | Implemented reference | Closed-map resolution of Codex namespaced hook names to canonical hook files without physical alias shells |
+| `GH626/` | Implemented reference | Canonical-source generation and freshness enforcement for the compact injected rule table |
+| `GH644/` | Draft | Deterministic stdin and complete child-error evidence for runtime-policy expected-error integration tests |
+| `GH615/` | Draft | Reminder-aware pre-write escalation counting, same-session Grep/Glob recovery, and actionable block guidance |
 | `GH623/` | Draft | Behavior-preserving decomposition of the oversized self-application CI harness into ordered focused test domains |
 | `GH621/` | Draft | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
 | `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |

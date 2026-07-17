@@ -42,13 +42,13 @@ install_codex_home_assets() {
   echo
 
   echo "Step 6.5: Install Codex hooks"
-  # Copy Codex-specific hook wrapper
-  cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
+  # Install compatible helpers before exposing the new Codex wrapper.
   mkdir -p "${HOME}/.vibeguard/_lib"
   cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${HOME}/.vibeguard/_lib/codex_diag.sh"
   cp "${REPO_DIR}/hooks/_lib/codex_runner.sh" "${HOME}/.vibeguard/_lib/codex_runner.sh"
   cp "${REPO_DIR}/hooks/_lib/timeout.sh" "${HOME}/.vibeguard/_lib/timeout.sh"
   cp "${REPO_DIR}/hooks/_lib/wrapper_env.sh" "${HOME}/.vibeguard/_lib/wrapper_env.sh"
+  cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
   chmod +x "${HOME}/.vibeguard/run-hook-codex.sh"
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"

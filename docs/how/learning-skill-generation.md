@@ -134,7 +134,7 @@ Obtain the project physical path through the `.project-root` mapping file, autom
 {
   "ts": "2026-03-02T03:00:00Z",
   "project": "a1b2c3d4",
-  "project_root": "/Users/me/code/my-app",
+  "project_root": "/Users/<username>/code/my-app",
   "signals": [
     {"type": "repeated_warn", "source": "events", "reason": "unwrap detected", "count": 23},
     {"type": "linter_violations", "source": "code_scan", "guard": "console_residual", "count": 96}

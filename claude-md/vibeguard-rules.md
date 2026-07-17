@@ -61,6 +61,7 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 
 ## Key Detailed Rules (full set in `rules/claude-rules/**`)
 
+<!-- vibeguard-generated-compact-rules:start -->
 | ID | Severity | Rule |
 |----|----------|------|
 | U-16 | Guideline | Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split. |
@@ -79,4 +80,5 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |
 | SEC-11 | Strict | AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`. |
 | SEC-13 | Strict | High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators. |
+<!-- vibeguard-generated-compact-rules:end -->
 <!-- vibeguard-end -->
