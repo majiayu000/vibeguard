@@ -90,7 +90,8 @@ setup_runtime_supports() {
     setup-codex-hooks-check \
     setup-codex-hooks-check-stale \
     setup-codex-hooks-prune-stale-unmanaged \
-    setup-codex-hooks-check-timeouts; do
+    setup-codex-hooks-check-timeouts \
+    runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
       return 1

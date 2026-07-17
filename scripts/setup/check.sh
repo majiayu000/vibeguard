@@ -37,6 +37,8 @@ source "${SCRIPT_DIR}/../lib/status_report.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 # shellcheck source=targets/codex-home.sh
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+# shellcheck source=runtime_config_health.sh
+source "${SCRIPT_DIR}/runtime_config_health.sh"
 
 # --- Argument parsing ---
 QUIET=0
@@ -623,6 +625,8 @@ run_legacy_checks() {
   if [[ "${PROJECT}" -eq 1 ]]; then
     _check_project_git_hooks
   fi
+
+  check_user_runtime_config
 
   # Check project-level runtime config
   echo

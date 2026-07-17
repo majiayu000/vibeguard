@@ -360,6 +360,7 @@ assert_cmd "vibeguard-runtime version matches VERSION after setup" bash -c '
   [[ "$("${runtime}" version)" == "$(tr -d "[:space:]" < "${version_file}")" ]]
 ' _ "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" "${REPO_DIR}/vibeguard-runtime/VERSION"
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
+assert_cmd "runtime config schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-runtime-config.schema.json"
 printf '{"profile":"core"}\n' > "${TMP_HOME}/valid-project-config.json"
 assert_cmd "runtime policy project validator moved into runtime" "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" project-config-validate "${TMP_HOME}/valid-project-config.json"
 assert_cmd "runtime policy Python project validator not installed after setup" test ! -e "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"

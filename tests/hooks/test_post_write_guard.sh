@@ -59,8 +59,22 @@ case "$command" in
     [[ "${1:-}" == "post-write" ]] || exit 8
     cat >/dev/null
     ;;
-  runtime-config-get-int|runtime-config-get-str)
-    printf '%s\n' "${3:-}"
+  runtime-config-validate)
+    printf 'VALID\n'
+    ;;
+  runtime-config-get-int)
+    if [[ "${1:-}" == "__VIBEGUARD_CONFIG_PROBE_INT__" ]]; then
+      printf '19\n'
+    else
+      printf '%s\n' "${3:-}"
+    fi
+    ;;
+  runtime-config-get-str)
+    if [[ "${1:-}" == "__VIBEGUARD_CONFIG_PROBE_STR__" ]]; then
+      printf 'block\n'
+    else
+      printf '%s\n' "${3:-}"
+    fi
     ;;
   post-write-check)
     printf 'unexpected legacy full check\n' >&2

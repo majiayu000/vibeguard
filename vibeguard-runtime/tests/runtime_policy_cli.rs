@@ -176,37 +176,6 @@ fn runtime_policy_check_reports_scoped_output_filter() {
 }
 
 #[test]
-fn runtime_policy_check_validates_user_runtime_config_before_policy() {
-    let repo = unique_temp_dir("bad_user_config");
-    write_policy(&repo, r#"{}"#);
-    let user_config = repo.join("bad-config.json");
-    fs::write(&user_config, r#"{"write_mode":"#).expect("runtime config should be written");
-
-    let output = bin()
-        .arg("runtime-policy-check")
-        .arg("--cwd")
-        .arg(&repo)
-        .arg("pre-bash-guard.sh")
-        .current_dir(&repo)
-        .env_remove("VIBEGUARD_PROJECT_CONFIG")
-        .env("VIBEGUARD_USER_CONFIG_FILE", &user_config)
-        .output()
-        .expect("runtime policy command should run");
-
-    assert_eq!(output.status.code(), Some(30));
-    let value = policy_json(&output);
-    assert_eq!(value["decision"], "error");
-    assert!(
-        value["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains("runtime config invalid JSON")
-    );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime config invalid JSON"));
-    let _ = fs::remove_dir_all(repo);
-}
-
-#[test]
 fn runtime_policy_check_reports_project_schema_errors_as_policy_errors() {
     let repo = unique_temp_dir("bad_project_schema");
     write_policy(&repo, r#"{"disabled_hooks":["missing-hook"]}"#);
