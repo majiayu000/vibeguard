@@ -17,14 +17,16 @@ RUN_TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 COMMIT_SHA=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 RUN_ID="${RUN_TIMESTAMP}-${COMMIT_SHA}"
 MODE="fast"
-L2_MODEL="haiku"
+MODEL_BASELINE_TOOL="$REPO_DIR/eval/model_baseline.py"
+L2_MODEL="$(python3 "$MODEL_BASELINE_TOOL" --print-default)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode=*) MODE="${1#--mode=}"; shift ;;
     --model=*) L2_MODEL="${1#--model=}"; shift ;;
     --help|-h)
-      echo "Usage: bash scripts/benchmark.sh [--mode=fast|standard|full] [--model=haiku|sonnet]"
+      echo "Usage: bash scripts/benchmark.sh [--mode=fast|standard|full] [--model=ALIAS_OR_FULL_ID]"
+      python3 "$MODEL_BASELINE_TOOL" --print-help-evidence
       exit 0
       ;;
     *) shift ;;
@@ -144,14 +146,15 @@ L2_RESULT='{"layer2_score": 0, "sws": 0, "fpr": 0, "detection_rate": 0, "total_s
 
 if [[ "$MODE" == "standard" ]] || [[ "$MODE" == "full" ]]; then
   echo "[Layer 2: Rule compliance (model=$L2_MODEL)]"
+  python3 "$MODEL_BASELINE_TOOL" --describe "$L2_MODEL"
 
-  L2_RULES_FLAG=""
+  L2_RULES_ARGS=()
   if [[ "$MODE" == "standard" ]]; then
-    L2_RULES_FLAG="--rules SEC"
+    L2_RULES_ARGS=(--rules SEC)
   fi
 
   # Run LLM-as-Judge evaluation
-  L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" $L2_RULES_FLAG 2>&1)
+  L2_OUTPUT=$(cd "$REPO_DIR" && python3 eval/run_eval.py --model "$L2_MODEL" "${L2_RULES_ARGS[@]}" 2>&1)
   L2_RESULT_PATH=$(printf '%s\n' "$L2_OUTPUT" | awk -F'Result saved: ' '/Result saved:/ {print $2}' | tail -1)
 
   # Read the immutable eval run artifact emitted by run_eval.py.

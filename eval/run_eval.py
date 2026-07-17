@@ -208,12 +208,8 @@ def filter_samples(samples: list[dict], args) -> list[dict]:
 def print_model_evidence(
     baseline: ModelBaseline,
     requested_model: str,
-    resolved_model: str,
 ) -> None:
-    print(f"Requested model: {requested_model}")
-    print(f"Resolved model: {resolved_model}")
-    print(f"Model baseline verified at (UTC): {baseline.verified_at.isoformat()}")
-    print(f"Model baseline source: {baseline.official_source}")
+    print("\n".join(baseline.evidence_lines(requested_model)))
 
 
 def run_eval(args, baseline: ModelBaseline):
@@ -235,7 +231,7 @@ def run_eval(args, baseline: ModelBaseline):
     model = baseline.resolve(args.model)
 
     if args.dry_run:
-        print_model_evidence(baseline, args.model, model)
+        print_model_evidence(baseline, args.model)
         print(f"Rule text length: {len(rules)} characters")
         print(f"Number of samples: {len(samples)}")
         print(f"Dataset source: {dataset_path}")
@@ -257,7 +253,7 @@ def run_eval(args, baseline: ModelBaseline):
         sys.exit(1)
     client = anthropic.Anthropic()
 
-    print_model_evidence(baseline, args.model, model)
+    print_model_evidence(baseline, args.model)
     print(f"Model: {model}")
     print(f"Number of samples: {len(samples)}")
     print(f"Rule text: {len(rules)} characters")
@@ -566,15 +562,15 @@ def main() -> int:
         print(f"Invalid eval model baseline: {error}", file=sys.stderr)
         return 2
 
-    parser = argparse.ArgumentParser(description="VibeGuard LLM-as-Judge Evaluation")
+    parser = argparse.ArgumentParser(
+        description="VibeGuard LLM-as-Judge Evaluation",
+        epilog="\n".join(baseline.help_lines()),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--model",
         default=baseline.default_alias,
-        help=(
-            f"Model alias or full ID (default: {baseline.default_alias}; "
-            f"{baseline.alias_table()}; verified_at={baseline.verified_at.isoformat()}; "
-            f"source={baseline.official_source})"
-        ),
+        help="Model alias or full ID",
     )
     parser.add_argument("--rules", help="Rule prefix filtering (such as SEC, PY, TS, GO, RS)")
     parser.add_argument("--type", choices=["tp", "fp"], help="Sample type filtering: tp=violation, fp=legal")
@@ -600,7 +596,11 @@ def main() -> int:
         help="Core constraint snippet file to append (defaults to repository snapshot)",
     )
     args = parser.parse_args()
-    run_eval(args, baseline)
+    try:
+        run_eval(args, baseline)
+    except ModelBaselineError as error:
+        print(f"Invalid requested model: {error}", file=sys.stderr)
+        return 2
     return 0
 
 

@@ -46,6 +46,22 @@ class ModelBaseline:
             f"{alias} -> {self.aliases[alias]}" for alias in sorted(self.aliases)
         )
 
+    def evidence_lines(self, requested: str) -> tuple[str, ...]:
+        return (
+            f"Requested model: {requested}",
+            f"Resolved model: {self.resolve(requested)}",
+            f"Model baseline verified at (UTC): {self.verified_at.isoformat()}",
+            f"Model baseline source: {self.official_source}",
+        )
+
+    def help_lines(self) -> tuple[str, ...]:
+        return (
+            f"Default model alias: {self.default_alias}",
+            f"Model aliases: {self.alias_table()}",
+            f"Model baseline verified at (UTC): {self.verified_at.isoformat()}",
+            f"Model baseline source: {self.official_source}",
+        )
+
 
 def _require_exact_keys(value: object, expected: set[str], location: str) -> dict:
     if not isinstance(value, dict):
@@ -162,17 +178,32 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate the offline eval model baseline")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE_PATH)
     parser.add_argument("--as-of", type=_parse_as_of, help="inject UTC date for deterministic checks")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--print-default", action="store_true")
+    output.add_argument("--print-help-evidence", action="store_true")
+    output.add_argument("--describe", metavar="MODEL")
     args = parser.parse_args()
     try:
         baseline = load_model_baseline(args.baseline, as_of=args.as_of)
     except ModelBaselineError as error:
         print(f"Invalid eval model baseline: {error}", file=sys.stderr)
         return 2
-    print(
-        "OK: eval model baseline valid "
-        f"(verified_at={baseline.verified_at.isoformat()}, "
-        f"age_days={baseline.age_days}, freshness_days={baseline.freshness_days})"
-    )
+    try:
+        if args.print_default:
+            print(baseline.default_alias)
+        elif args.print_help_evidence:
+            print("\n".join(baseline.help_lines()))
+        elif args.describe is not None:
+            print("\n".join(baseline.evidence_lines(args.describe)))
+        else:
+            print(
+                "OK: eval model baseline valid "
+                f"(verified_at={baseline.verified_at.isoformat()}, "
+                f"age_days={baseline.age_days}, freshness_days={baseline.freshness_days})"
+            )
+    except ModelBaselineError as error:
+        print(f"Invalid requested model: {error}", file=sys.stderr)
+        return 2
     return 0
 
 
