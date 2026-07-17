@@ -136,7 +136,7 @@ cat > "${valid_project_config}" <<'JSON'
 JSON
 valid_project_install_home="${TMP_HOME}/valid-project-install-home"
 mkdir -p "${valid_project_install_home}"
-valid_project_install_out="$(HOME="${valid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${valid_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes)"
+valid_project_install_out="$(HOME="${valid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${valid_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)" || { printf '%s\n' "${valid_project_install_out}" >&2; exit 1; }
 assert_contains "${valid_project_install_out}" "vibeguard-runtime downloaded and verified" "setup install prepares runtime for valid project config"
 assert_contains "${valid_project_install_out}" "Project config valid: ${valid_project_config}" "setup install validates project config with prepared runtime"
 assert_contains "${valid_project_install_out}" "Setup complete! All components installed." "clean setup install with project config succeeds"
@@ -756,7 +756,7 @@ assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]
 assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex hooks include PermissionRequest native gates" bash -c "grep -q '\"PermissionRequest\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Edit\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Write\"' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
-assert_cmd "run-hook-codex rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); test -z \"\$out\""
+assert_cmd "run-hook-codex visibly rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); grep -q 'permissionDecision' <<<\"\$out\" && grep -q 'invalid-hook-name' <<<\"\$out\""
 assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 python3 - "${HOME}/.codex/hooks.json" <<'PY'
 import json
