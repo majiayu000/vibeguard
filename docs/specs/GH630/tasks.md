@@ -29,8 +29,8 @@ GH-630
 ## Handoff Notes
 
 - `mode`: `plan_first`
-- `artifacts`: `docs/specs/GH630/{product,tech,tasks}.md`、`docs/specs/GH630/{runtime-pinning.snapshot,runtime-inventory.txt,tool-inventory.txt}` 与 `docs/specs/README.md`；implementation 计划修改 eval baseline manifest、共享 resolver、三个 entrypoint 显示/契约及 focused tests
-- `runtime_pinning_snapshot`: `docs/specs/GH630/runtime-pinning.snapshot`；implementation 的 SP630-T1..T4 跨 4 个执行步骤，开始和每次续跑前必须执行 `bash guards/universal/check_runtime_drift.sh check --snapshot docs/specs/GH630/runtime-pinning.snapshot --runtime-inventory docs/specs/GH630/runtime-inventory.txt --tool-inventory docs/specs/GH630/tool-inventory.txt --rules-dir rules/claude-rules`；显式 runtime inventory 避免不同 agent lane 的 ambient model/PATH 改写指纹
+- `artifacts`: `docs/specs/GH630/{product,tech,tasks}.md`、`docs/specs/GH630/{runtime-pinning.snapshot,tool-inventory.txt}` 与 `docs/specs/README.md`；implementation 计划修改 eval baseline manifest、共享 resolver、三个 entrypoint 显示/契约及 focused tests
+- `runtime_pinning_snapshot`: `docs/specs/GH630/runtime-pinning.snapshot`；implementation 的 SP630-T1..T4 跨 4 个执行步骤，coordinator 的唯一 writable implementation lane 开始和每次续跑前必须执行 `VIBEGUARD_MODEL_ID=gpt-5 bash guards/universal/check_runtime_drift.sh check --snapshot docs/specs/GH630/runtime-pinning.snapshot --tool-inventory docs/specs/GH630/tool-inventory.txt --rules-dir rules/claude-rules`，使用 live runtime/PATH capture；不同 reviewer lane 若因自身 PATH 产生 drift，必须保持只读并报告 lane mismatch，不得把静态 baseline inventory 作为 current runtime 重放
 - `verification_owner`: coordinator `/root`；independent reviewer 由 threads lane 指派且只读
 - `stop_conditions`: 无 spec approval/`ready_to_implement`、官方 ID 与 `verified_at` 无法再次核实、需要 CI 联网、默认不再是 dated Haiku ID、freshness 无法按 UTC day-90 闭区间确定、出现旧模型 silent fallback、需要改变 artifact schema/reader、或三个 entrypoint 产生第二份 mapping 时停止
 - `lane_map`: spec 与 implementation 由 coordinator `/root` 单 writer；independent reviewer `/root/review_pr612` 只读且无 writable files；时间边界、dry-run 与 eval contract 验证由 coordinator 串行运行
