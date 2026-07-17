@@ -29,7 +29,10 @@ GH-627
 
 ## Handoff Notes
 
-实现按已批准规格完成：Codex wrapper 使用 manifest 同步的 closed map 解析 requested 名称，
-repo-linked/installed snapshot 与 Rust/Python setup 健康检查只验证 canonical 文件；8 个物理 alias
-shell 已删除。非法名称按 event 输出可见拒绝并保留 stable diagnostic。Rust 全量、Codex runtime
-181/181、manifest 97/97、guard packs 79/79 与 setup 535/535 均通过 fresh verification。
+- mode: `plan_first`
+- artifacts: `hooks/run-hook-codex.sh`、`hooks/_lib/codex_diag.sh`、setup/runtime health 实现、manifest/pack contracts、focused regression tests 与本 spec packet
+- runtime_pinning_snapshot: implementation base `origin/main@1c5f95f03748436497f6235c6d98bd585991f8f2`; production setup 继续以 Rust runtime 为唯一 hook 配置写入/健康检查路径
+- verification_owner: coordinator `/root`; independent read-only reviewer `/root/review_pr612`
+- stop_conditions: current-head CI 失败、active review thread、spec/implementation mismatch、非 `CLEAN` merge state 或 exact-head PR gate 拒绝时停止合并
+- lane_map: coordinator 是唯一 writer；independent reviewer 只读且不评论、不批准、不合并
+- completion_evidence: Codex wrapper 使用 manifest 同步的 closed map 解析 requested 名称，repo-linked/installed snapshot 与 Rust/Python setup 健康检查只验证 canonical 文件；8 个物理 alias shell 已删除。非法名称按 event 输出可见拒绝并保留 stable diagnostic。Fresh verification：Rust 全量通过、Codex runtime 183/183、manifest 97/97、guard packs 79/79、setup 535/535、self-application 与 broad local contract 通过；exact-head CI 与 PR gate 证据在 PR #648 收敛后记录。

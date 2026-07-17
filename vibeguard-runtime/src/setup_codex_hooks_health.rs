@@ -361,18 +361,20 @@ fn codex_installed_hook_target(
             return Some(path);
         }
         if path_text.ends_with("/.vibeguard/run-hook-codex.sh") {
+            if !path.exists() {
+                return Some(path);
+            }
             let script = parts.get(idx + 1)?;
             if !script.contains('/') {
-                let canonical_script = script_targets
-                    .and_then(|targets| targets.get(script))
-                    .unwrap_or(script);
-                let installed = path
-                    .parent()?
-                    .join("installed/hooks")
-                    .join(canonical_script);
-                if installed.parent().is_some_and(Path::exists) {
-                    return Some(installed);
-                }
+                let canonical_script = match script_targets {
+                    Some(targets) => targets.get(script).map(String::as_str).unwrap_or(script),
+                    None => script.strip_prefix("vibeguard-").unwrap_or(script),
+                };
+                return Some(
+                    path.parent()?
+                        .join("installed/hooks")
+                        .join(canonical_script),
+                );
             }
         }
     }
@@ -392,9 +394,6 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("vg-codex-health-{stamp}"));
         fs::create_dir_all(&path).expect("temp home");
-        unsafe {
-            std::env::set_var("HOME", &path);
-        }
         path
     }
 
@@ -416,5 +415,25 @@ mod tests {
             codex_command_state(None, "node --eval 'console.log(1)'"),
             CodexCommandState::UnmanagedUnresolved
         );
+    }
+
+    #[test]
+    fn one_arg_stale_check_resolves_canonical_target_and_checks_wrapper_first() {
+        let home = temp_home();
+        let vg_dir = home.join(".vibeguard");
+        let installed_dir = vg_dir.join("installed/hooks");
+        fs::create_dir_all(&installed_dir).expect("installed hooks");
+        let wrapper = vg_dir.join("run-hook-codex.sh");
+        fs::write(&wrapper, "#!/bin/sh\n").expect("wrapper");
+        fs::write(installed_dir.join("pre-bash-guard.sh"), "#!/bin/sh\n").expect("canonical hook");
+        let data = serde_json::json!({"hooks": {"PreToolUse": [{"hooks": [{
+            "command": format!("bash {} vibeguard-pre-bash-guard.sh", wrapper.display())
+        }]}]}});
+
+        assert!(codex_stale_findings(&data, &home.join("hooks.json"), None, None).is_empty());
+        fs::remove_file(&wrapper).expect("remove wrapper");
+        let findings = codex_stale_findings(&data, &home.join("hooks.json"), None, None);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].contains(wrapper.to_string_lossy().as_ref()));
     }
 }

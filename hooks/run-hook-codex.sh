@@ -36,7 +36,6 @@ if [[ -f "${DIAG_PATH}" ]]; then
   fi
 else
   codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
-  resolve_codex_hook_name() { case "$1" in vibeguard-pre-bash-guard.sh|vibeguard-pre-edit-guard.sh|vibeguard-pre-write-guard.sh|vibeguard-post-edit-guard.sh|vibeguard-post-write-guard.sh|vibeguard-post-build-check.sh|vibeguard-stop-guard.sh|vibeguard-learn-evaluator.sh) printf '%s\n' "${1#vibeguard-}" ;; *) return 1 ;; esac; }
   codex_fallback_json_escape() { local value="$1"; value="${value//\\/\\\\}"; value="${value//\"/\\\"}"; value="${value//$'\n'/ }"; value="${value//$'\r'/ }"; value="${value//$'\t'/ }"; printf '%s' "${value}"; }
   codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(codex_fallback_json_escape "$1")"; }
   codex_permission_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "$(codex_fallback_json_escape "$1")"; }
@@ -59,6 +58,7 @@ else
   codex_hook_status() { return 0; }
   codex_hook_status_from_output() { return 0; }
 fi
+if ! declare -F resolve_codex_hook_name >/dev/null 2>&1; then resolve_codex_hook_name() { case "$1" in vibeguard-pre-bash-guard.sh|vibeguard-pre-edit-guard.sh|vibeguard-pre-write-guard.sh|vibeguard-post-edit-guard.sh|vibeguard-post-write-guard.sh|vibeguard-post-build-check.sh|vibeguard-stop-guard.sh|vibeguard-learn-evaluator.sh) printf '%s\n' "${1#vibeguard-}" ;; *) return 1 ;; esac; }; fi
 if ! declare -F codex_hook_status_from_output >/dev/null 2>&1; then
   codex_hook_status_from_output() { return 0; }
 fi

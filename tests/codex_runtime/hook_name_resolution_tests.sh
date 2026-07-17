@@ -19,7 +19,7 @@ mkdir -p "${NAME_HOME}/.vibeguard" "${NAME_REPO}/hooks"
 printf '%s' "${NAME_REPO}" > "${NAME_HOME}/.vibeguard/repo-path"
 
 name_map_sync_output="$(
-  { python3 - "${REPO_DIR}/hooks/manifest.json" "${REPO_DIR}/hooks/_lib/codex_diag.sh" <<'PY'
+  { python3 - "${REPO_DIR}/hooks/manifest.json" "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${REPO_DIR}/hooks/run-hook-codex.sh" <<'PY'
 import json
 import re
 import sys
@@ -33,20 +33,30 @@ expected = {
 }
 helper = Path(sys.argv[2]).read_text(encoding="utf-8")
 function_body = helper.split("resolve_codex_hook_name() {", 1)[1].split("\n}", 1)[0]
-actual_pairs = re.findall(
+helper_pairs = re.findall(
     r'^\s*(vibeguard-[^)]+)\) printf \'%s\\n\' "([^"]+)" ;;$',
     function_body,
     flags=re.MULTILINE,
 )
-actual = set(actual_pairs)
-if len(actual_pairs) != len(actual) or actual != expected:
-    print(f"expected={sorted(expected)} actual={sorted(actual_pairs)}")
-    raise SystemExit(1)
+wrapper = Path(sys.argv[3]).read_text(encoding="utf-8")
+fallback_match = re.search(
+    r'resolve_codex_hook_name\(\) \{ case "\$1" in ([^)]+)\) printf',
+    wrapper,
+)
+if fallback_match is None:
+    raise SystemExit("wrapper fallback resolver not found")
+fallback_names = fallback_match.group(1).split("|")
+fallback_pairs = [(name, name.removeprefix("vibeguard-")) for name in fallback_names]
+for source, pairs in (("helper", helper_pairs), ("wrapper", fallback_pairs)):
+    actual = set(pairs)
+    if len(pairs) != len(actual) or actual != expected:
+        print(f"source={source} expected={sorted(expected)} actual={sorted(pairs)}")
+        raise SystemExit(1)
 print("hook-name-map-sync-ok")
 PY
   } 2>&1 || true
 )"
-assert_contains "${name_map_sync_output}" "hook-name-map-sync-ok" "wrapper allowlist exactly matches manifest requested/canonical pairs"
+assert_contains "${name_map_sync_output}" "hook-name-map-sync-ok" "helper and wrapper fallback maps exactly match manifest pairs"
 
 name_mapping_count=0
 while IFS=$'\t' read -r requested_name canonical_name event_name; do
@@ -157,3 +167,26 @@ fallback_invalid_output="$(
 assert_contains "${fallback_invalid_output}" "invalid-hook-name" "missing diagnostic helper preserves invalid-name reason"
 assert_contains "${fallback_invalid_output}" '"permissionDecision":"deny"' "missing diagnostic helper fails closed visibly"
 assert_codex_pretool_output_contract "${fallback_invalid_output}" "missing diagnostic helper deny matches Codex contract"
+
+LEGACY_HELPER_HOME="${TMP_DIR}/hook-name-legacy-helper-home"
+mkdir -p "${LEGACY_HELPER_HOME}/.vibeguard/installed/hooks/_lib"
+cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${LEGACY_HELPER_HOME}/.vibeguard/run-hook-codex.sh"
+sed '/^resolve_codex_hook_name() {$/,/^}$/d' "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
+  > "${LEGACY_HELPER_HOME}/.vibeguard/installed/hooks/_lib/codex_diag.sh"
+for helper in codex_adapter.sh codex_runner.sh timeout.sh wrapper_env.sh policy.sh; do
+  cp "${REPO_DIR}/hooks/_lib/${helper}" "${LEGACY_HELPER_HOME}/.vibeguard/installed/hooks/_lib/${helper}"
+done
+cat > "${LEGACY_HELPER_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"systemMessage":"resolved:legacy-helper-pre-bash-guard.sh"}\n'
+HOOK
+chmod +x "${LEGACY_HELPER_HOME}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+legacy_helper_output="$(
+  printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"echo ok"}}' \
+    | HOME="${LEGACY_HELPER_HOME}" VIBEGUARD_EXECUTION_MODE="installed-snapshot" \
+      VIBEGUARD_RUNTIME="${VIBEGUARD_RUNTIME}" bash "${LEGACY_HELPER_HOME}/.vibeguard/run-hook-codex.sh" \
+      vibeguard-pre-bash-guard.sh
+)"
+assert_contains "${legacy_helper_output}" "resolved:legacy-helper-pre-bash-guard.sh" "new wrapper resolves valid name with legacy helper present"
+assert_not_contains "${legacy_helper_output}" "invalid-hook-name" "legacy helper does not misclassify a valid name"

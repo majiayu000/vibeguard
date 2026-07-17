@@ -608,7 +608,9 @@ fn codex_stale_check_resolves_wrapper_script_targets() {
     let installed_dir = vg_dir.join("installed/hooks");
     fs::create_dir_all(&installed_dir).unwrap();
     let wrapper = vg_dir.join("run-hook-codex.sh");
+    fs::write(&wrapper, "#!/bin/sh\n").unwrap();
     let present = installed_dir.join("pre-bash-guard.sh");
+    let missing_nested = repo.join("nested/missing.sh");
     fs::write(&present, "#!/bin/sh\n").unwrap();
     fs::write(
         &hooks_file,
@@ -617,7 +619,7 @@ fn codex_stale_check_resolves_wrapper_script_targets() {
                 "PreToolUse": [{"hooks": [
                     {"command": format!("bash {} vibeguard-pre-bash-guard.sh", wrapper.display()), "timeout": 15},
                     {"command": format!("bash {} missing.sh", wrapper.display()), "timeout": 15},
-                    {"command": format!("bash {} nested/missing.sh", wrapper.display()), "timeout": 15}
+                    {"command": format!("bash {}", missing_nested.display()), "timeout": 15}
                 ]}]
             }
         })
@@ -634,9 +636,8 @@ fn codex_stale_check_resolves_wrapper_script_targets() {
         stdout.contains("repair-required unmanaged Codex blocking hook:"),
         "{stdout}"
     );
-    assert!(stdout.contains("nested/missing.sh"), "{stdout}");
     assert!(
-        stdout.contains(wrapper.to_string_lossy().as_ref()),
+        stdout.contains(missing_nested.to_string_lossy().as_ref()),
         "{stdout}"
     );
     fs::remove_dir_all(repo).unwrap();
