@@ -2,6 +2,7 @@
 
 > Design date: 2026-03-23
 > Goal: To quantitatively evaluate the actual guarding capabilities of VibeGuard and replace pure artificial perception.
+> Snapshot scope: Rule counts in this document describe the 2026-03-23 design snapshot. They are not the current rule inventory and must not be updated without rerunning the benchmark.
 
 ---
 
@@ -11,7 +12,7 @@
 
 | Dimensions | Current Situation | Problems |
 |------|------|------|
-| Hook coverage | 6/110 rules (5.5%) are enforced by hooks | 94.5% of the rules rely on model awareness |
+| Hook coverage | In the 2026-03-23 design snapshot, 6/110 rules (5.5%) are enforced by hooks | 94.5% of the snapshot rules rely on model awareness |
 | Detection accuracy | test_hooks.sh 51 cases, no TP/FP distinction | Don’t know the false positive rate of each guard |
 | Rule Compliance | run_eval.py covers ~20 rules | 90 rules covered with zero evaluation |
 | Trend tracking | No time series data | After changing the guard, I don’t know whether it will get better or worse |
@@ -287,7 +288,7 @@ Layer2_Score = Severity-Weighted Detection Rate
 
 **Weight allocation basis**:
 - Layer 1 (40%): Hook is a deterministic line of defense, but has less coverage (6 rules)
-- Layer 2 (60%): Covers 110 rules, but has a probabilistic line of defense
+- Layer 2 (60%): Covers 110 rules in the 2026-03-23 design snapshot, but has a probabilistic line of defense
 
 ### 5.2 Grading standards
 
