@@ -12,7 +12,7 @@ GH-652
 
 ## 实现任务
 
-- [ ] `SP652-T1` 在 structured-report suite 首次 setup invocation 前 build 并 fail-fast pin 当前 runtime。Covers: B-001, B-002, B-003. Owner: implementation agent. Dependencies: spec approval + `ready_to_implement` + W-20 check. Done when: caller runtime 被覆盖，build/executable 失败立即退出，所有 setup 子进程继承当前 absolute binary。Verify: shell syntax、stale caller env full suite、source-order audit。
+- [ ] `SP652-T1` 在 structured-report suite 首次 setup invocation 前 build 并 fail-fast pin 当前 runtime。Covers: B-001, B-002, B-003. Owner: implementation agent. Dependencies: spec approval + `ready_to_implement` + W-20 check. Done when: explicit worktree target dir 覆盖 caller Cargo target dir，caller runtime 被覆盖，build/executable 失败立即退出，所有 setup 子进程继承对应 absolute binary。Verify: shell syntax、stale caller runtime + external target-dir full suite、source-order audit。
 - [ ] `SP652-T2` 收敛 runtime-config matrix 到唯一 suite pin。Covers: B-004, B-005, B-006. Owner: implementation agent. Dependencies: SP652-T1. Done when: late matrix 不再首次/重复 build，现有 assertions 不变，生产 resolver 无 diff。Verify: one-build-owner audit、260-case suite、production exclusion diff。
 - [ ] `SP652-T3` 运行提交门禁并更新 spec 状态。Covers: B-001, B-002, B-003, B-004, B-005, B-006. Owner: verification owner. Dependencies: SP652-T1..T2. Done when: Rust check/test、setup focused、SpecRail/docs gates 同一提交通过。Verify: Tech Spec 测试计划全部命令。
 

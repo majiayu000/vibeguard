@@ -22,7 +22,9 @@ See `product.md`.
 在 `tests/test_setup_check.sh` 的 shared assertion helpers 已声明、但首个 `setup.sh` invocation 尚未
 发生的位置建立唯一 runtime owner：
 
-1. 以 array-safe `cargo build --manifest-path ...` build 当前 worktree runtime。
+1. 以 array-safe `cargo build --manifest-path ... --target-dir
+   "${REPO_DIR}/vibeguard-runtime/target"` build 当前 worktree runtime；显式 target dir 覆盖 caller
+   `CARGO_TARGET_DIR`，保证 build output 与 pin 指向同一目录。
 2. build 失败时立即打印具名错误并非零退出，禁止继续测试或 fallback。
 3. 校验确定路径 `vibeguard-runtime/target/debug/vibeguard-runtime` 可执行，然后无条件 export
    `VIBEGUARD_SETUP_RUNTIME` 为该绝对路径，覆盖调用者值。
@@ -37,7 +39,7 @@ See `product.md`.
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | `tests/test_setup_check.sh` preflight | source-order audit；`bash tests/test_setup_check.sh` |
-| B-002 | unconditional absolute runtime export | `VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh` |
+| B-002 | explicit worktree target dir + unconditional absolute runtime export | `CARGO_TARGET_DIR=/tmp/ignored VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh` |
 | B-003 | fail-fast cargo/executable checks | focused static review；shell syntax；negative command-path review |
 | B-004 | `tests/setup/runtime_config_check_tests.sh` reuse | only one `cargo build` owner；full suite |
 | B-005 | existing assertions | diff audit + full 260-case suite |
@@ -66,7 +68,7 @@ See `product.md`.
 
 - [ ] `bash -n tests/test_setup_check.sh tests/setup/runtime_config_check_tests.sh`。
 - [ ] `bash tests/test_setup_check.sh`。
-- [ ] `VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh`。
+- [ ] `CARGO_TARGET_DIR=/tmp/ignored VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh`。
 - [ ] `cargo check --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] SpecRail、doc paths、doc command paths 与 diff check。
