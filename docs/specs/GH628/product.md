@@ -28,8 +28,9 @@ GH-628
    不能成为 blanket exemption。
 2. B-002 `/Users/<literal-user>/...` 与 `/home/<literal-user>/...` 必须失败；明确占位符、
    正则模式说明和 validator 自身测试 fixture 只有在可判定分类时才允许。
-3. B-003 历史 plan 中的机器路径必须替换为相对路径/占位符，或进入带路径、原因与范围的
-   窄豁免；不得用“所有 Markdown”继续豁免。
+3. B-003 历史 plan 与其他 tracked Markdown 中不可判定为明确占位符的机器路径必须替换为
+   相对路径/明确占位符，或进入带路径、原因与范围的窄豁免；不得用“所有 Markdown”继续
+   豁免。
 4. B-004 doc-path allowlist 的每个 active entry 必须至少匹配一个当前允许场景；未使用、
    重复或仅指向已删除旧路径的条目必须使 CI 失败。
 5. B-005 allowlist 不能同时允许迁移前和迁移后路径来掩盖错误引用；真实文档引用不存在
@@ -41,7 +42,8 @@ GH-628
 ## 验收标准
 
 - [ ] Markdown 中真实个人路径 negative fixture 被阻断，合法 placeholder fixture 通过。
-- [ ] 当前 plan 个人路径不再依赖 blanket skip。
+- [ ] 当前 tracked Markdown 的个人路径不再依赖 blanket skip；历史 plan 与文档/示例中的
+      literal user 均已机械改为相对路径或明确 placeholder。
 - [ ] unused/stale/duplicate allowlist fixtures 被阻断。
 - [ ] 当前 doc path 与 command path validators 继续通过有效引用。
 

@@ -27,8 +27,10 @@ See `product.md`.
 整个 worktree 后按扩展名跳过。实现保留 shell entrypoint；分类逻辑集中到可测试 helper：
 literal username、明确 placeholder 与 pattern documentation 使用不同 decision。默认只允许
 `<username>`、`<user>`、`$USER`/`${USER}` 等可判定占位符；测试动态拼接 negative fixture，
-不得恢复 `tests/` 或 `*.md` blanket skip。真实历史路径机械替换为 repo-relative command
-或 `<repo>` 表达。`git ls-files`、tracked-file read 或 classifier 错误均 fail visible。
+不得恢复 `tests/` 或 `*.md` blanket skip。历史 plan、docs、examples 与 workflow 文档中的
+不可判定 literal user 路径机械替换为 repo-relative command 或 `<repo>`、`<username>` 表达；
+validator 自身 pattern documentation 与测试 negative fixture 必须由窄分类或动态拼接覆盖，
+不能依赖目录豁免。`git ls-files`、tracked-file read 或 classifier 错误均 fail visible。
 
 `.vibeguard-doc-paths-allowlist` 改为严格的 pipe-delimited 五字段格式：
 
@@ -59,7 +61,7 @@ reference | category | scope_glob | canonical_source | reason
 | --- | --- | --- |
 | B-001 | tracked-file enumeration | Markdown literal-path fixture 被扫描；untracked artifact 不扫描 |
 | B-002 | path classifier | literal user negatives 与 placeholder/pattern positives |
-| B-003 | plan cleanup + narrow policy | `rg '/Users/|/home/' plan` 只剩经允许 pattern/placeholder |
+| B-003 | tracked Markdown cleanup + narrow policy | tracked Markdown audit 只剩可判定 pattern/placeholder 或带范围豁免 |
 | B-004 | strict allowlist parser + usage accounting | unused、duplicate、invalid category/source/scope fixtures 返回非零 |
 | B-005 | exact `runtime_alias` mapping + normal path validation | stale old alias 与 broken doc reference 失败；current canonical alias 通过 |
 | B-006 | error reporter | 文件/行/类别 assertions；模拟 read/parse failure 非零 |
@@ -83,6 +85,8 @@ classifier 输出 violations 与 allowlist hit set；entrypoint 汇总并以 exi
 - [ ] Unit/fixture: 扩展 `tests/test_no_personal_paths.sh`，覆盖 tracked Markdown、placeholder、
   dynamic negative fixture、untracked artifact 与 Git/read failure。
 - [ ] Integration: `bash scripts/ci/validate-no-personal-paths.sh`。
+- [ ] Migration: 审计全部 tracked Markdown，并机械替换 plan/docs/examples/workflows 中不可判定的
+  literal user；保留历史结论与示例意图。
 - [ ] Allowlist: 为 `validate-doc-paths.sh` 增加 isolated Git fixture，覆盖 strict format、
   zero-hit、duplicate、多重命中、scope/category/source 与 stale/current runtime alias。
 - [ ] Required: `bash scripts/ci/validate-doc-paths.sh`、`bash scripts/ci/validate-doc-command-paths.sh`。
