@@ -6,7 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
-| `GH629/` | Draft | Fail-visible, schema-backed user runtime config validation with complete getter/template inventory |
+| `GH629/` | Implemented reference | Fail-visible, schema-backed user runtime config validation with complete getter/template inventory |
 | `GH628/` | Implemented reference | Git-tracked Markdown personal-path detection and strict, scoped doc-path allowlist freshness |
 | `GH627/` | Implemented reference | Closed-map resolution of Codex namespaced hook names to canonical hook files without physical alias shells |
 | `GH626/` | Implemented reference | Canonical-source generation and freshness enforcement for the compact injected rule table |
