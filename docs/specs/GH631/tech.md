@@ -14,7 +14,7 @@ See `product.md`.
 | --- | --- | --- | --- |
 | Candidate skill | awk-posix-compat skill | 存在 skill metadata，但 install modules 未列入 | setup 已有相同 portability owner |
 | Skill distribution | `schemas/install-modules.json:150` | `skills-core` 使用显式 paths | 无 wildcard 自动安装候选 skill |
-| Alert template | alerting-rules.yaml template | 只在文件内说明手工 copy；含 exporter 不存在的 `vibeguard_guard_violation_total`，并用 `vibeguard_events_total` count 计算 elapsed time | 不能作为可信样例保留 |
+| Alert template | alerting-rules.yaml template | 只在文件内说明手工 copy；exporter 提供所引用的 metric names，但 `NoRecentEvents` 用 `vibeguard_events_total` count 计算 elapsed time | 不能把整体作为已验证的可信样例保留 |
 | Root ast-grep config | `sgconfig.yml:1` | 仅声明 `guards/ast-grep-rules` | production scripts 未显式使用 |
 | Valid architecture template | `templates/vibeguard-architecture.yaml:1` | 提供 dependency layer 示例 | 已有真实 consumer，不得误删 |
 | Architecture consumer | `guards/universal/check_dependency_layers.py:31` | 读取用户项目 `.vibeguard-architecture.yaml` | B-006 保护证据 |
@@ -37,10 +37,14 @@ See `product.md`.
 在现有 `scripts/ci/` 下新增 distribution asset Python validator 和 focused shell regression。validator 只枚举
 tracked 顶层 `skills/*/SKILL.md`、`templates/*` 以及根目录 `*.yml`/`*.yaml`/`*.json`/`*.toml`。
 生命周期证据限于 `schemas/install-modules.json`、`skills-lock.json`、候选文件之外的非
-`docs/specs/`、非 `plan/`、非 `tests/` tracked consumer，或 `CONTRIBUTING.md` 的 manual
-说明。validator 自身、候选自述、spec/plan/test 不能自证。实现接入 CI 与 local contract gate，
-并用隔离 git fixture 证明未知 skill/template/root-config 均非零、architecture template 通过。
-它不是通用 dead-code 检测器，不扫描 runtime files。
+`docs/specs/`、非 `plan/`、非 `tests/` tracked consumer，或 `CONTRIBUTING.md` 中包含候选
+精确仓库相对路径的 manual 说明。实现必须在 `CONTRIBUTING.md` 补齐当前仅由工具文件名约定
+或人工复制使用的合法资产（包括 `rust-toolchain.toml`、language/project-rule templates 与
+`templates/vibeguard-config.README.md`）的精确发现入口。validator 必须匹配完整路径 token；
+validator 自身、候选自述、文件名片段、目录/通配符、spec/plan/test 或代码 allowlist 都不能
+自证。实现接入 CI 与 local contract gate，并用隔离 git fixture 证明未知
+skill/template/root-config 均非零、architecture template 通过。它不是通用 dead-code 检测器，
+不扫描 runtime files。
 
 实现需阅读候选子树的 scoped instructions。删除时用 inventory、doc path、skill format 与
 manifest checks 证明无残留；保留 `vibeguard-architecture.yaml` 的 consumer fixture。
@@ -55,7 +59,7 @@ manifest checks 证明无残留；保留 `vibeguard-architecture.yaml` 的 consu
 | B-004 | 固定 spec decision evidence | inventory rejects self-reference-only fixture |
 | B-005 | cleanup validators | doc path、skill format、manifest tests |
 | B-006 | architecture exclusion | dependency-layer focused test 与 template reference assertion |
-| B-007 | narrow inventory gate | unknown skill/template/root-config fixtures fail |
+| B-007 | narrow inventory gate + exact-path contributor discovery for convention/manual assets | retained inventory passes；unknown skill/template/root-config fixtures fail |
 
 ## 数据流
 
@@ -69,11 +73,13 @@ manifest checks 证明无残留；保留 `vibeguard-architecture.yaml` 的 consu
 - Compatibility: Git history/release/docs 搜索只证明 awk skill 来自 learn 产物、alert template
   没有公开入口；删除不改变已声明安装模块。sgconfig 仅新增文档，不改变 production guard。
 - Performance: inventory 只扫描小型声明集合。
-- Maintenance: 避免构建无法解释例外的宽 allowlist。
+- Maintenance: 当前 convention/manual assets 通过精确贡献者文档入口说明，不构建无法解释的
+  宽 allowlist；新增同目录文件不会自动继承证据。
 
 ## 测试计划
 
-- [ ] Focused inventory positive/negative fixtures（unknown skill/template/root config）。
+- [ ] Focused inventory positive/negative fixtures（完整 retained inventory；unknown
+  skill/template/root config；basename/glob/self/spec/test/validator allowlist 均不能自证）。
 - [ ] sgconfig known-rule smoke 与 production `--rule` audit。
 - [ ] `bash tests/test_setup_check.sh` 保持 awk portability coverage。
 - [ ] `bash scripts/ci/validate-skill-format.sh`。

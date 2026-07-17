@@ -27,8 +27,9 @@ GH-631
 
 1. B-001 删除 `awk-posix-compat` skill 且不得留下安装、调用或产品文档引用；POSIX awk 防回归
    继续由现有 `scripts/setup/check.sh` 与 `tests/test_setup_check.sh` 负责，不新增虚构安装入口。
-2. B-002 删除 alerting-rules template 且不得留下复制/安装引用；无外部发现入口且表达式
-   引用了 exporter 未提供的 metric、把事件计数当时间戳，因此不得把它包装成可用模板保留。
+2. B-002 删除 alerting-rules template 且不得留下复制/安装引用；虽然 exporter 提供模板引用的
+   metric names，但模板无外部发现入口，且 `NoRecentEvents` 把事件计数当时间戳，因此不得把
+   整体包装成已验证、可用的告警模板保留。
 3. B-003 保留根 `sgconfig.yml`，在贡献者文档明确声明“人工 repository-wide ast-grep scan”
    用途和命令，并由可执行检查验证 `ruleDirs` 能发现已知规则；production guards 继续显式
    `--rule`，不得切换到隐式全量配置。
@@ -39,8 +40,10 @@ GH-631
    cleanup 不得把它误判为 orphan。
 7. B-007 CI 必须枚举 tracked `skills/*/SKILL.md`、`templates/*` 和仓库根
    `*.yml`/`*.yaml`/`*.json`/`*.toml`：每项必须由 install module、`skills-lock.json`、
-   非 spec/test 的真实 consumer，或贡献者文档声明的 manual 路径证明；仅自身注释、spec、
-   plan 或测试引用不能算生命周期证据，未知项必须非零失败。
+   非 spec/plan/test 的真实 consumer，或 `CONTRIBUTING.md` 中包含精确仓库相对路径的 manual
+   声明证明。实现必须为当前依赖工具约定或人工发现的合法资产补齐精确文档入口；仅自身注释、
+   文件名片段、目录/通配符、spec、plan、测试或 validator allowlist 不能算生命周期证据，
+   未知项必须非零失败。
 
 ## 验收标准
 
