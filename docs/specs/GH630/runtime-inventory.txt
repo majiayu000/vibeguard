@@ -1,0 +1,8 @@
+# W-20 runtime inventory for GH630 implementation.
+# Captured by the coordinator before the specification handoff.
+codex=codex-cli 0.144.5
+claude=2.1.202 (Claude Code)
+node=v24.14.0
+python3=Python 3.14.5
+cargo=cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+go=go version go1.25.7 darwin/arm64
