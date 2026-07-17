@@ -41,21 +41,25 @@ See `product.md`.
 | `paralysis.threshold` | shell，7 | 0..1,000,000 | integer |
 | `write_mode` | Rust/shell，`warn` | `warn` / `block` | string enum |
 | `write_escalate_threshold` | Rust，5；0 表示禁用升级 | 0..1,000,000 | integer；补入 template |
-| `learn.metrics_tail_bytes` | Rust，5242880 | 0..268,435,456 | integer；补入 template；最多读取 256 MiB |
+| `learn.metrics_tail_bytes` | Rust，5242880；当前 0 会读取全文件 | 1..268,435,456 | integer；补入 template；最多读取 256 MiB；0 拒绝 |
 
 这些上界同时避免 `usize` cast、shell signed arithmetic、`lock_timeout * 10` retry 与 tail-read
-资源失控。schema 与 Rust inventory 必须共享表中常量；每个 numeric path 都必须具名覆盖
-`0`、`max`、`max + 1`，不得让 schema 接受而 getter truncate、wrap 或 fallback。此前虽被
-parse-only getter 接受但超过这些范围的值定义为 unsafe invalid config，不属于合法 legacy。
+资源失控。schema 与 Rust inventory 必须共享表中常量；每个 tunable numeric path 都必须具名
+覆盖 `minimum`、`max`、`max + 1`，并对允许 0 的 path 额外覆盖 0。`version` 覆盖 missing、
+0、1、2；`learn.metrics_tail_bytes` 覆盖 0 rejection，禁止保留当前 0 -> unbounded full-read
+分支。不得让 schema 接受而 getter truncate、wrap 或 fallback。此前虽被 parse-only getter
+接受但超过这些范围或令 Learn 无界读取的值定义为 unsafe invalid config，不属于合法 legacy。
 
 推荐 Route A（Rust typed validator + schema parity test）。Route B 在运行时加载并解释 JSON
 Schema，单一来源更直接，但会增加解析复杂度、依赖和 hook latency；不符合当前 Rust-only、
 低依赖路径。parity test 读取 schema/template 与 Rust 声明的 field inventory，阻断字段漂移。
 
 兼容策略：文件缺失和 `{}` 合法；`version` 缺失按 legacy v1 读取，显式 `version` 只能为 1。
-现有 getter 已接受 0，schema 保持 nonnegative 语义。`u16.warn_limit > u16.limit` 是合法 legacy
-输入，继续由现有 Rust/shell consumer clamp 到 effective limit，不新增 cross-field rejection；
-必须有 regression 覆盖。未知字段、未来 version 与表中 max+1 拒绝。
+除 `learn.metrics_tail_bytes` 外，现有 getter 已接受 0，schema 保持相同 nonnegative 语义；
+Learn 的 0 因现有实现跳过 seek 并读取完整日志而改为 invalid，不赋予“禁用”或“读取零字节”的
+新行为。`u16.warn_limit > u16.limit` 是合法 legacy 输入，继续由现有 Rust/shell consumer
+clamp 到 effective limit，不新增 cross-field rejection；必须有 regression 覆盖。未知字段、
+未来 version 与表中 max+1 拒绝。
 
 新增 `vibeguard-runtime runtime-config-validate <path>` 作为 setup 与直接诊断 adapter；
 `validate_runtime_config_file` 返回 parsed validated config 或复用同一 typed validator，getter
@@ -76,9 +80,29 @@ validator/getter CLI 与 setup check 共享错误格式，只打印文件、JSON
 | unreadable regular file/target | `INVALID` | `config_read_error`，非零 | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
 | invalid UTF-8 | `INVALID` | `config_utf8_error`，非零 | `[FAIL]`；兼容 mode 0，strict/install mode 2 |
 
-setup adapter 在 default/doctor/quiet/no-summary 中保留 process exit 0；strict/json/project/dev-repo
-与 install verification 把 invalid config 记录为 broken，exit 2。JSON mode 只输出结构化事件，不得
-把 validator stderr 或配置 value 混入 stdout。
+Setup 对 `INVALID` 始终记录同一个 broken decision；只由现有 mode precedence 决定进程状态：
+
+| Fully-qualified invocation | Existing precedence to preserve | INVALID result |
+| --- | --- | --- |
+| `bash setup.sh doctor`；`bash setup.sh --check` | human compatibility，无 machine flag | redacted `[FAIL]`，exit 0 |
+| `bash setup.sh doctor --quiet`；`bash setup.sh --check --quiet` | quiet 只过滤 healthy output | redacted problem row，exit 0 |
+| `bash setup.sh doctor --project`；`bash setup.sh --check --project` | bare project 只增加 project hooks，不隐式 strict | redacted `[FAIL]`，exit 0 |
+| `bash setup.sh doctor --no-summary`；`bash setup.sh --check --no-summary` | legacy no-summary | redacted `[FAIL]`，exit 0 |
+| `bash setup.sh doctor --strict`；`bash setup.sh doctor --quiet --strict` | strict 胜过 human/quiet | broken，exit 2 |
+| `bash setup.sh doctor --json` | JSON implies strict，只输出单行 JSON | broken verdict，exit 2 |
+| `bash setup.sh doctor --install` | install machine status | broken required state，exit 2 |
+| `bash setup.sh doctor --strict --no-summary`；`bash setup.sh doctor --install --no-summary` | direct doctor 保留 check.sh 的 no-summary 最终 exit 0 | redacted row，无 summary，exit 0 |
+| `bash setup.sh --check --strict`；`bash setup.sh --check --quiet --strict` | alias 自动加入 project；strict 胜过 quiet | broken，exit 2 |
+| `bash setup.sh --check --json` | alias 自动加入 project；JSON implies strict | broken verdict，exit 2 |
+| `bash setup.sh --check --install` | install machine status | broken required state，exit 2 |
+| `bash setup.sh verify-project`；`bash setup.sh verify-project --json` | 固定 `--strict --project` | broken / broken JSON，exit 2 |
+| `bash setup.sh verify-dev-repo`；`bash setup.sh verify-dev-repo --json` | 固定 `--strict --dev-repo` | broken / broken JSON，exit 2 |
+| `bash setup.sh verify-install` | 固定 `--install` | broken required state，exit 2 |
+| `--json --quiet`、`--json --install`、`--json --no-summary` | check.sh 参数冲突 | usage error，exit 64 |
+| `--check --strict|--json|--install` + `--no-summary`；任一 `verify-* --no-summary` | top-level machine alias 拒绝 legacy no-summary | usage error，exit 64 |
+
+`--project`/`--dev-repo` 自身只选择检查范围；只有 fully-qualified verify alias 或显式 strict/json
+才改变 health exit。JSON mode 不得把 validator stderr 或配置 value 混入 stdout。
 
 ## Product-to-Test Mapping
 
@@ -111,7 +135,7 @@ typed config，再按 env-over-JSON-default 优先级取值。validation failure
 - [ ] Schema/inventory: `bash tests/test_runtime_config_schema.sh` 与 `bash tests/test_manifest_contract.sh`。
 - [ ] Rust/file matrix: `cargo test --manifest-path vibeguard-runtime/Cargo.toml runtime_config` 与 `cargo test --manifest-path vibeguard-runtime/Cargo.toml --test runtime_config_cli`。
 - [ ] Policy/shell: `cargo test --manifest-path vibeguard-runtime/Cargo.toml --test runtime_policy_cli` 与 `bash tests/hooks/test_runtime_config.sh`。
-- [ ] Setup modes: `bash tests/test_setup_check.sh` 覆盖 default/doctor/quiet/no-summary/strict/json/install decision+exit matrix；`bash tests/test_setup.sh` 运行完整 setup gate。
+- [ ] Setup modes: `bash tests/test_setup_check.sh` 逐行覆盖上述 fully-qualified doctor/`--check`/project/dev-repo/quiet/no-summary/strict/json/install/verify alias 与 exit-64 conflict matrix；`bash tests/test_setup.sh` 运行完整 setup gate。
 - [ ] Required: `cargo check --manifest-path vibeguard-runtime/Cargo.toml`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml`、`bash scripts/local-contract-check.sh --quick`、`git diff --check`。
 
 ## 回滚方案
