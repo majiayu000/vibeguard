@@ -187,11 +187,10 @@ assert_fails_with "self/spec/plan/test/validator/doc/docstring/comments fail" \
 
 structured_fixture="$(new_fixture structured-consumers)"
 mkdir -p \
-  "$structured_fixture/.github/workflows" \
   "$structured_fixture/scripts/runtime" \
   "$structured_fixture/templates" \
   "$structured_fixture/tools"
-for name in python shell shell-parameter shell-multiline shell-continuation yaml yaml-plain yaml-escaped toml json; do
+for name in python shell shell-parameter shell-multiline shell-continuation shell-arithmetic shell-arithmetic-command toml json; do
   printf '# owned fixture\n' > "$structured_fixture/templates/${name}-owned.yaml"
 done
 printf '%s\n' \
@@ -212,15 +211,11 @@ printf '%s\n' \
   '#x; cp templates/shell-continuation-owned.yaml /tmp/owned' >> \
   "$structured_fixture/scripts/runtime/consumer.sh"
 printf '%s\n' \
-  'steps:' \
-  '  - run: '\''printf "tag#x"; cp templates/yaml-owned.yaml /tmp/owned'\''' > \
-  "$structured_fixture/.github/workflows/consumer.yml"
+  'x=$((1 << 2)); cp templates/shell-arithmetic-owned.yaml /tmp/owned' >> \
+  "$structured_fixture/scripts/runtime/consumer.sh"
 printf '%s\n' \
-  'items: [tag#x, templates/yaml-plain-owned.yaml]' >> \
-  "$structured_fixture/.github/workflows/consumer.yml"
-printf '%s\n' \
-  "asset: 'can''t # templates/yaml-escaped-owned.yaml'" >> \
-  "$structured_fixture/.github/workflows/consumer.yml"
+  '(( x = 1 << 2 )); cp templates/shell-arithmetic-command-owned.yaml /tmp/owned' >> \
+  "$structured_fixture/scripts/runtime/consumer.sh"
 printf '%s\n' 'assets = ["tag#x", "templates/toml-owned.yaml"]' > \
   "$structured_fixture/scripts/runtime/consumer.toml"
 printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
@@ -228,8 +223,26 @@ printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
 printf '%s\n' 'lock_path = "skills-lock.json"' > \
   "$structured_fixture/tools/install.py"
 git -C "$structured_fixture" add .
-assert_cmd "supported formats preserve quoted hashes and executable strings" \
+assert_cmd "supported formats preserve executable string and shell syntax" \
   python3 "$VALIDATOR" "$structured_fixture"
+
+unsupported_yaml_fixture="$(new_fixture unsupported-yaml)"
+mkdir -p \
+  "$unsupported_yaml_fixture/.github/workflows" \
+  "$unsupported_yaml_fixture/templates" \
+  "$unsupported_yaml_fixture/tools"
+printf '# unsupported YAML fixture\n' > \
+  "$unsupported_yaml_fixture/templates/orphan.yaml"
+printf '%s\n' \
+  'steps:' \
+  '  - run: cp templates/orphan.yaml /tmp/owned' > \
+  "$unsupported_yaml_fixture/.github/workflows/consumer.yml"
+printf '%s\n' 'lock_path = "skills-lock.json"' > \
+  "$unsupported_yaml_fixture/tools/install.py"
+git -C "$unsupported_yaml_fixture" add .
+assert_fails_with "YAML consumers fail closed without a declared parser" \
+  "unowned distribution asset: templates/orphan.yaml" \
+  python3 "$VALIDATOR" "$unsupported_yaml_fixture"
 
 noop_fixture="$(new_fixture python-noop)"
 mkdir -p "$noop_fixture/scripts/runtime" "$noop_fixture/templates" "$noop_fixture/tools"
@@ -249,12 +262,15 @@ mkdir -p \
   "$malformed_shell_fixture/templates" \
   "$malformed_shell_fixture/tools"
 printf '# malformed fixture\n' > "$malformed_shell_fixture/templates/orphan.yaml"
-printf '%s\n' "printf '%s" > "$malformed_shell_fixture/scripts/runtime/broken.sh"
+printf '%s\n' \
+  'if true; then' \
+  '  cp templates/orphan.yaml /tmp/owned' > \
+  "$malformed_shell_fixture/scripts/runtime/broken.sh"
 printf '%s\n' 'lock_path = "skills-lock.json"' > \
   "$malformed_shell_fixture/tools/install.py"
 git -C "$malformed_shell_fixture" add .
 assert_fails_with "malformed shell consumers fail visibly" \
-  "ERROR: unterminated shell quote" \
+  "ERROR: cannot parse shell consumer candidate" \
   python3 "$VALIDATOR" "$malformed_shell_fixture"
 
 positive_fixture="$(new_fixture positive)"

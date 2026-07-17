@@ -108,8 +108,11 @@ bash scripts/install-pre-commit-hook.sh
 
 Some tracked assets are intentionally discovered by a developer tool or copied by a maintainer instead of being installed by `setup.sh`. Their exact repository paths and owners are listed here so the distribution inventory can distinguish deliberate manual surfaces from orphan files.
 
+Executable consumer evidence is intentionally limited to syntax-aware `.py`, `.sh`, `.json`, and `.toml` files. YAML is not accepted as lifecycle evidence because this repository does not ship a dependency-free general YAML parser; YAML-only ownership must use a formal manifest or an exact manual declaration in this table.
+
 | Asset | Owner and use | Focused verification |
 |-------|---------------|----------------------|
+| `deny.toml` | Cargo dependency-policy configuration consumed by CI and available to maintainers through `cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources`. | Run the documented `cargo deny` command on Linux. |
 | `sgconfig.yml` | Maintainer-only repository-wide ast-grep configuration. Production guards continue to pass explicit `--rule` files. Run it manually with `ast-grep scan --config sgconfig.yml`. | Scan a Rust `Config::default()` fixture and confirm the `rs-14-config-default` rule is reported. |
 | `rust-toolchain.toml` | Canonical Rust toolchain selected implicitly by rustup and Cargo for repository commands. | `rustup show active-toolchain` |
 | `templates/language/python-CLAUDE.md`, `templates/language/rust-CLAUDE.md`, `templates/language/typescript-CLAUDE.md` | Maintainer-copyable starting points for language-specific project instructions; they are not default install modules. | Review the selected template before copying it into a project instruction file. |

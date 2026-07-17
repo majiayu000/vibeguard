@@ -35,8 +35,6 @@ EXECUTABLE_CONSUMER_SUFFIXES = {
     ".py",
     ".sh",
     ".toml",
-    ".yaml",
-    ".yml",
 }
 ROOT_CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml"}
 TOKEN_BYTES = frozenset(
@@ -178,6 +176,23 @@ def structured_strings(content: bytes, suffix: str) -> set[str]:
     return set(iter_json_strings(data))
 
 
+def validate_shell_syntax(content: bytes) -> None:
+    try:
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-n"],
+            input=content,
+            check=False,
+            capture_output=True,
+        )
+    except OSError as exc:
+        raise ValidationError(f"cannot run bash syntax validation: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ValidationError(
+            f"cannot parse shell consumer candidate: {detail or 'bash -n failed'}"
+        )
+
+
 SHELL_WORD_SEPARATORS = frozenset(b" \t\r\n;|&()<>")
 
 
@@ -229,8 +244,11 @@ def shell_code_without_comments(content: bytes) -> bytes:
     code = bytearray()
     quote: int | None = None
     at_word_start = True
+    contexts: list[str] = []
     command_depths: list[int] = []
-    outer_quotes: list[int | None] = []
+    command_outer_quotes: list[int | None] = []
+    arithmetic_depths: list[int] = []
+    arithmetic_outer_quotes: list[int | None] = []
     queued_heredocs: list[tuple[bytes, bool]] = []
     active_heredocs: list[tuple[bytes, bool]] = []
 
@@ -248,10 +266,20 @@ def shell_code_without_comments(content: bytes) -> bytes:
         continued = False
         while index < len(line):
             byte = line[index]
+            if line[index : index + 3] == b"$((" and quote != ord("'"):
+                code.extend(b"$((")
+                contexts.append("arithmetic")
+                arithmetic_depths.append(2)
+                arithmetic_outer_quotes.append(quote)
+                quote = None
+                at_word_start = False
+                index += 3
+                continue
             if line[index : index + 2] == b"$(" and quote != ord("'"):
                 code.extend(b"$(")
+                contexts.append("command")
                 command_depths.append(1)
-                outer_quotes.append(quote)
+                command_outer_quotes.append(quote)
                 quote = None
                 at_word_start = False
                 index += 2
@@ -270,6 +298,27 @@ def shell_code_without_comments(content: bytes) -> bytes:
                 at_word_start = False
                 index += 1
                 continue
+            if line[index : index + 2] == b"((" and not arithmetic_depths:
+                code.extend(b"((")
+                contexts.append("arithmetic")
+                arithmetic_depths.append(2)
+                arithmetic_outer_quotes.append(None)
+                at_word_start = False
+                index += 2
+                continue
+            if contexts and contexts[-1] == "arithmetic":
+                if byte == ord("("):
+                    arithmetic_depths[-1] += 1
+                elif byte == ord(")"):
+                    arithmetic_depths[-1] -= 1
+                    if arithmetic_depths[-1] == 0:
+                        arithmetic_depths.pop()
+                        contexts.pop()
+                        quote = arithmetic_outer_quotes.pop()
+                code.append(byte)
+                at_word_start = False
+                index += 1
+                continue
             if line[index : index + 3] == b"<<<":
                 code.extend(b"<<<")
                 at_word_start = False
@@ -285,13 +334,14 @@ def shell_code_without_comments(content: bytes) -> bytes:
                 code.extend(b"<<HEREDOC")
                 at_word_start = False
                 continue
-            if command_depths and byte == ord("("):
+            if contexts and contexts[-1] == "command" and byte == ord("("):
                 command_depths[-1] += 1
-            elif command_depths and byte == ord(")"):
+            elif contexts and contexts[-1] == "command" and byte == ord(")"):
                 command_depths[-1] -= 1
                 if command_depths[-1] == 0:
                     command_depths.pop()
-                    quote = outer_quotes.pop()
+                    contexts.pop()
+                    quote = command_outer_quotes.pop()
             if byte == ord("\\") and index + 1 < len(line):
                 if line[index + 1] in b"\r\n":
                     continued = True
@@ -330,47 +380,10 @@ def shell_code_without_comments(content: bytes) -> bytes:
         raise ValidationError("unterminated shell quote")
     if command_depths:
         raise ValidationError("unterminated shell command substitution")
+    if arithmetic_depths:
+        raise ValidationError("unterminated shell arithmetic expression")
     if active_heredocs or queued_heredocs:
         raise ValidationError("unterminated shell heredoc")
-    return bytes(code)
-
-
-def strip_yaml_comment(line: bytes) -> bytes:
-    code = bytearray()
-    quote: int | None = None
-    index = 0
-    while index < len(line):
-        byte = line[index]
-        if quote is not None:
-            code.append(byte)
-            if (
-                byte == ord("'")
-                and quote == ord("'")
-                and index + 1 < len(line)
-                and line[index + 1] == ord("'")
-            ):
-                index += 1
-                code.append(line[index])
-                index += 1
-                continue
-            if byte == ord("\\") and quote == ord('"') and index + 1 < len(line):
-                index += 1
-                code.append(line[index])
-            elif byte == quote:
-                quote = None
-            index += 1
-            continue
-        if byte in {ord("'"), ord('"')} and (
-            not code or code[-1] in b" \t[{,:"
-        ):
-            quote = byte
-            code.append(byte)
-            index += 1
-            continue
-        if byte == ord("#") and (not code or code[-1] in b" \t"):
-            break
-        code.append(byte)
-        index += 1
     return bytes(code)
 
 
@@ -384,13 +397,8 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
         )
 
     if suffix == ".sh":
+        validate_shell_syntax(content)
         return contains_exact_path(shell_code_without_comments(content), asset)
-
-    for raw_line in content.splitlines():
-        line = strip_yaml_comment(raw_line)
-        if not contains_exact_path(line, asset):
-            continue
-        return True
     return False
 
 
