@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import ast
 import json
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -34,7 +33,6 @@ EXECUTABLE_CONSUMER_PREFIXES = (
 EXECUTABLE_CONSUMER_SUFFIXES = {
     ".json",
     ".py",
-    ".sh",
     ".toml",
 }
 ROOT_CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml"}
@@ -177,225 +175,6 @@ def structured_strings(content: bytes, suffix: str) -> set[str]:
     return set(iter_json_strings(data))
 
 
-def validate_shell_syntax(content: bytes) -> None:
-    bash_path = shutil.which("bash")
-    if bash_path is None:
-        raise ValidationError("cannot run bash syntax validation: bash was not found")
-    try:
-        result = subprocess.run(
-            [bash_path, "--noprofile", "--norc", "-n", "-s"],
-            input=content,
-            check=False,
-            capture_output=True,
-        )
-    except OSError as exc:
-        raise ValidationError(f"cannot run bash syntax validation: {exc}") from exc
-    if result.returncode != 0:
-        detail = (
-            result.stderr.decode("utf-8", errors="replace").strip()
-            or result.stdout.decode("utf-8", errors="replace").strip()
-            or "no diagnostic output"
-        )
-        raise ValidationError(
-            "cannot parse shell consumer candidate with "
-            f"{bash_path} (exit {result.returncode}): {detail}"
-        )
-
-
-SHELL_WORD_SEPARATORS = frozenset(b" \t\r\n;|&()<>")
-
-
-def parse_heredoc_delimiter(
-    line: bytes,
-    operator_index: int,
-) -> tuple[int, bytes, bool]:
-    index = operator_index + 2
-    strip_tabs = index < len(line) and line[index] == ord("-")
-    if strip_tabs:
-        index += 1
-    while index < len(line) and line[index] in b" \t":
-        index += 1
-
-    delimiter = bytearray()
-    quote: int | None = None
-    while index < len(line):
-        byte = line[index]
-        if quote is not None:
-            if byte == quote:
-                quote = None
-            elif byte == ord("\\") and quote == ord('"') and index + 1 < len(line):
-                index += 1
-                delimiter.append(line[index])
-            else:
-                delimiter.append(byte)
-            index += 1
-            continue
-        if byte in {ord("'"), ord('"')}:
-            quote = byte
-            index += 1
-            continue
-        if byte == ord("\\") and index + 1 < len(line):
-            index += 1
-            delimiter.append(line[index])
-            index += 1
-            continue
-        if byte in SHELL_WORD_SEPARATORS:
-            break
-        delimiter.append(byte)
-        index += 1
-
-    if quote is not None or not delimiter:
-        raise ValidationError("cannot parse shell heredoc delimiter")
-    return index, bytes(delimiter), strip_tabs
-
-
-def shell_code_without_comments(content: bytes) -> bytes:
-    code = bytearray()
-    quote: int | None = None
-    at_word_start = True
-    contexts: list[str] = []
-    command_depths: list[int] = []
-    command_outer_quotes: list[int | None] = []
-    arithmetic_depths: list[int] = []
-    arithmetic_outer_quotes: list[int | None] = []
-    queued_heredocs: list[tuple[bytes, bool]] = []
-    active_heredocs: list[tuple[bytes, bool]] = []
-
-    for line in content.splitlines(keepends=True):
-        if active_heredocs:
-            delimiter, strip_tabs = active_heredocs[0]
-            candidate = line.rstrip(b"\r\n")
-            if strip_tabs:
-                candidate = candidate.lstrip(b"\t")
-            if candidate == delimiter:
-                active_heredocs.pop(0)
-            continue
-
-        index = 0
-        continued = False
-        while index < len(line):
-            byte = line[index]
-            if line[index : index + 3] == b"$((" and quote != ord("'"):
-                code.extend(b"$((")
-                contexts.append("arithmetic")
-                arithmetic_depths.append(2)
-                arithmetic_outer_quotes.append(quote)
-                quote = None
-                at_word_start = False
-                index += 3
-                continue
-            if line[index : index + 2] == b"$(" and quote != ord("'"):
-                code.extend(b"$(")
-                contexts.append("command")
-                command_depths.append(1)
-                command_outer_quotes.append(quote)
-                quote = None
-                at_word_start = False
-                index += 2
-                continue
-            if quote is not None:
-                code.append(byte)
-                if (
-                    byte == ord("\\")
-                    and quote == ord('"')
-                    and index + 1 < len(line)
-                ):
-                    index += 1
-                    code.append(line[index])
-                elif byte == quote:
-                    quote = None
-                at_word_start = False
-                index += 1
-                continue
-            if line[index : index + 2] == b"((" and not arithmetic_depths:
-                code.extend(b"((")
-                contexts.append("arithmetic")
-                arithmetic_depths.append(2)
-                arithmetic_outer_quotes.append(None)
-                at_word_start = False
-                index += 2
-                continue
-            if contexts and contexts[-1] == "arithmetic":
-                if byte == ord("("):
-                    arithmetic_depths[-1] += 1
-                elif byte == ord(")"):
-                    arithmetic_depths[-1] -= 1
-                    if arithmetic_depths[-1] == 0:
-                        arithmetic_depths.pop()
-                        contexts.pop()
-                        quote = arithmetic_outer_quotes.pop()
-                code.append(byte)
-                at_word_start = False
-                index += 1
-                continue
-            if line[index : index + 3] == b"<<<":
-                code.extend(b"<<<")
-                at_word_start = False
-                index += 3
-                continue
-            if (
-                byte == ord("<")
-                and index + 1 < len(line)
-                and line[index + 1] == ord("<")
-            ):
-                index, delimiter, strip_tabs = parse_heredoc_delimiter(line, index)
-                queued_heredocs.append((delimiter, strip_tabs))
-                code.extend(b"<<HEREDOC")
-                at_word_start = False
-                continue
-            if contexts and contexts[-1] == "command" and byte == ord("("):
-                command_depths[-1] += 1
-            elif contexts and contexts[-1] == "command" and byte == ord(")"):
-                command_depths[-1] -= 1
-                if command_depths[-1] == 0:
-                    command_depths.pop()
-                    contexts.pop()
-                    quote = command_outer_quotes.pop()
-            if byte == ord("\\") and index + 1 < len(line):
-                if line[index + 1] in b"\r\n":
-                    continued = True
-                    index += 2
-                    if index < len(line) and line[index - 1] == ord("\r") and line[index] == ord("\n"):
-                        index += 1
-                    continue
-                code.append(byte)
-                index += 1
-                code.append(line[index])
-                at_word_start = False
-                index += 1
-                continue
-            if byte in {ord("'"), ord('"')}:
-                quote = byte
-                code.append(byte)
-                at_word_start = False
-                index += 1
-                continue
-            if byte == ord("#") and at_word_start:
-                newline_index = line.find(b"\n", index)
-                if newline_index >= 0:
-                    code.append(ord("\n"))
-                    at_word_start = True
-                index = len(line)
-                continue
-            code.append(byte)
-            at_word_start = byte in SHELL_WORD_SEPARATORS
-            index += 1
-
-        if queued_heredocs and not continued:
-            active_heredocs.extend(queued_heredocs)
-            queued_heredocs.clear()
-
-    if quote is not None:
-        raise ValidationError("unterminated shell quote")
-    if command_depths:
-        raise ValidationError("unterminated shell command substitution")
-    if arithmetic_depths:
-        raise ValidationError("unterminated shell arithmetic expression")
-    if active_heredocs or queued_heredocs:
-        raise ValidationError("unterminated shell heredoc")
-    return bytes(code)
-
-
 def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bool:
     if suffix == ".py":
         return python_contains_executable_reference(content, asset)
@@ -405,9 +184,6 @@ def contains_executable_reference(content: bytes, asset: str, suffix: str) -> bo
             for value in structured_strings(content, suffix)
         )
 
-    if suffix == ".sh":
-        validate_shell_syntax(content)
-        return contains_exact_path(shell_code_without_comments(content), asset)
     return False
 
 

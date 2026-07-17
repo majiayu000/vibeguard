@@ -190,32 +190,12 @@ mkdir -p \
   "$structured_fixture/scripts/runtime" \
   "$structured_fixture/templates" \
   "$structured_fixture/tools"
-for name in python shell shell-parameter shell-multiline shell-continuation shell-arithmetic shell-arithmetic-command toml json; do
+for name in python toml json; do
   printf '# owned fixture\n' > "$structured_fixture/templates/${name}-owned.yaml"
 done
 printf '%s\n' \
   'print("tag#x"); Path("templates/python-owned.yaml").read_text()' > \
   "$structured_fixture/scripts/runtime/consumer.py"
-printf '%s\n' \
-  'printf "%s" "tag#x"; cp "templates/shell-owned.yaml" /tmp/owned' > \
-  "$structured_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' \
-  'value=prefix-data; trimmed=${value#prefix}; cp templates/shell-parameter-owned.yaml /tmp/owned' >> \
-  "$structured_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' \
-  'printf "%s" "tag' \
-  '# templates/shell-multiline-owned.yaml"' >> \
-  "$structured_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' \
-  'echo tag\' \
-  '#x; cp templates/shell-continuation-owned.yaml /tmp/owned' >> \
-  "$structured_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' \
-  'x=$((1 << 2)); cp templates/shell-arithmetic-owned.yaml /tmp/owned' >> \
-  "$structured_fixture/scripts/runtime/consumer.sh"
-printf '%s\n' \
-  '(( x = 1 << 2 )); cp templates/shell-arithmetic-command-owned.yaml /tmp/owned' >> \
-  "$structured_fixture/scripts/runtime/consumer.sh"
 printf '%s\n' 'assets = ["tag#x", "templates/toml-owned.yaml"]' > \
   "$structured_fixture/scripts/runtime/consumer.toml"
 printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
@@ -223,8 +203,29 @@ printf '%s\n' '{"assets":["tag#x","templates/json-owned.yaml"]}' > \
 printf '%s\n' 'lock_path = "skills-lock.json"' > \
   "$structured_fixture/tools/install.py"
 git -C "$structured_fixture" add .
-assert_cmd "supported formats preserve executable string and shell syntax" \
+assert_cmd "supported formats preserve executable strings" \
   python3 "$VALIDATOR" "$structured_fixture"
+
+unsupported_shell_fixture="$(new_fixture unsupported-shell)"
+mkdir -p \
+  "$unsupported_shell_fixture/scripts/runtime" \
+  "$unsupported_shell_fixture/templates" \
+  "$unsupported_shell_fixture/tools"
+printf '# unsupported shell fixture\n' > \
+  "$unsupported_shell_fixture/templates/orphan.yaml"
+printf '%s\n' \
+  'cp templates/orphan.yaml /tmp/owned' \
+  'x="$(case x in' \
+  '  x) # templates/orphan.yaml' \
+  '    echo ok;;' \
+  'esac)"' > \
+  "$unsupported_shell_fixture/scripts/runtime/consumer.sh"
+printf '%s\n' 'lock_path = "skills-lock.json"' > \
+  "$unsupported_shell_fixture/tools/install.py"
+git -C "$unsupported_shell_fixture" add .
+assert_fails_with "shell consumers fail closed without a declared parser" \
+  "unowned distribution asset: templates/orphan.yaml" \
+  python3 "$VALIDATOR" "$unsupported_shell_fixture"
 
 unsupported_yaml_fixture="$(new_fixture unsupported-yaml)"
 mkdir -p \
@@ -255,23 +256,6 @@ git -C "$noop_fixture" add .
 assert_fails_with "standalone Python strings do not establish ownership" \
   "unowned distribution asset: templates/noop.yaml" \
   python3 "$VALIDATOR" "$noop_fixture"
-
-malformed_shell_fixture="$(new_fixture malformed-shell)"
-mkdir -p \
-  "$malformed_shell_fixture/scripts/runtime" \
-  "$malformed_shell_fixture/templates" \
-  "$malformed_shell_fixture/tools"
-printf '# malformed fixture\n' > "$malformed_shell_fixture/templates/orphan.yaml"
-printf '%s\n' \
-  'if true; then' \
-  '  cp templates/orphan.yaml /tmp/owned' > \
-  "$malformed_shell_fixture/scripts/runtime/broken.sh"
-printf '%s\n' 'lock_path = "skills-lock.json"' > \
-  "$malformed_shell_fixture/tools/install.py"
-git -C "$malformed_shell_fixture" add .
-assert_fails_with "malformed shell consumers fail visibly" \
-  "ERROR: scripts/runtime/broken.sh: cannot parse shell consumer candidate" \
-  python3 "$VALIDATOR" "$malformed_shell_fixture"
 
 positive_fixture="$(new_fixture positive)"
 mkdir -p \
