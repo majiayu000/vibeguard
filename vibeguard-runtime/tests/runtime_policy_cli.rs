@@ -200,9 +200,9 @@ fn runtime_policy_check_validates_user_runtime_config_before_policy() {
         value["reason"]
             .as_str()
             .unwrap_or("")
-            .contains("runtime config invalid JSON")
+            .contains("category=config_json_error")
     );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime config invalid JSON"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("category=config_json_error"));
     let _ = fs::remove_dir_all(repo);
 }
 
