@@ -608,14 +608,14 @@ fn codex_stale_check_resolves_wrapper_script_targets() {
     let installed_dir = vg_dir.join("installed/hooks");
     fs::create_dir_all(&installed_dir).unwrap();
     let wrapper = vg_dir.join("run-hook-codex.sh");
-    let present = installed_dir.join("present.sh");
+    let present = installed_dir.join("pre-bash-guard.sh");
     fs::write(&present, "#!/bin/sh\n").unwrap();
     fs::write(
         &hooks_file,
         serde_json::json!({
             "hooks": {
                 "PreToolUse": [{"hooks": [
-                    {"command": format!("bash {} present.sh", wrapper.display()), "timeout": 15},
+                    {"command": format!("bash {} vibeguard-pre-bash-guard.sh", wrapper.display()), "timeout": 15},
                     {"command": format!("bash {} missing.sh", wrapper.display()), "timeout": 15},
                     {"command": format!("bash {} nested/missing.sh", wrapper.display()), "timeout": 15}
                 ]}]
@@ -629,7 +629,7 @@ fn codex_stale_check_resolves_wrapper_script_targets() {
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains(&installed_dir.join("missing.sh").display().to_string()));
-    assert!(!stdout.contains("present.sh"), "{stdout}");
+    assert!(!stdout.contains("vibeguard-pre-bash-guard.sh"), "{stdout}");
     assert!(
         stdout.contains("repair-required unmanaged Codex blocking hook:"),
         "{stdout}"

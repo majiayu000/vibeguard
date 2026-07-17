@@ -4,7 +4,7 @@ TMP_FAKE_REPO_NATIVE="${TMP_DIR}/fake-repo-native"
 mkdir -p "${TMP_HOME_NATIVE}/.vibeguard" "${TMP_FAKE_REPO_NATIVE}/hooks"
 printf '%s' "${TMP_FAKE_REPO_NATIVE}" > "${TMP_HOME_NATIVE}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-pre-write-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_NATIVE}/hooks/pre-write-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -17,7 +17,7 @@ print(json.dumps({
 }))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-pre-write-guard.sh"
+chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/pre-write-guard.sh"
 
 native_pretool_out="$(
   printf '{"hook_event_name":"PreToolUse","tool_input":{"file_path":"src/new.ts"}}' \
@@ -26,7 +26,7 @@ native_pretool_out="$(
 assert_contains "${native_pretool_out}" '"hookEventName": "PreToolUse"' "run-hook-codex preserves native PreToolUse output"
 assert_contains "${native_pretool_out}" 'search before writing new source' "run-hook-codex preserves native PreToolUse additionalContext"
 
-cat > "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-post-edit-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_NATIVE}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -39,7 +39,7 @@ print(json.dumps({
 }))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-post-edit-guard.sh"
+chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/post-edit-guard.sh"
 
 native_posttool_out="$(
   printf '{"hook_event_name":"PostToolUse","tool_input":{"file_path":"src/main.ts"},"tool_response":{"output":"ok"}}' \
@@ -48,7 +48,7 @@ native_posttool_out="$(
 assert_contains "${native_posttool_out}" '"hookEventName": "PostToolUse"' "run-hook-codex preserves native PostToolUse output"
 assert_contains "${native_posttool_out}" 'quality warning reached Codex' "run-hook-codex preserves native PostToolUse additionalContext"
 
-cat > "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_NATIVE}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -64,7 +64,7 @@ print(json.dumps({
 }))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_NATIVE}/hooks/pre-bash-guard.sh"
 
 native_permission_out="$(
   printf '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' \
@@ -73,12 +73,12 @@ native_permission_out="$(
 assert_contains "${native_permission_out}" '"hookEventName": "PermissionRequest"' "run-hook-codex preserves native PermissionRequest output"
 assert_contains "${native_permission_out}" 'native permission deny reached Codex' "run-hook-codex preserves native PermissionRequest deny message"
 
-cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{'
 HOOK
-chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/vibeguard-post-build-check.sh"
+chmod +x "${TMP_FAKE_REPO_POSTTOOL}/hooks/post-build-check.sh"
 posttool_bad_diag="${TMP_DIR}/posttool-bad.jsonl"
 bad_posttool_out="$({
   printf '{"hook_event_name":"PostToolUse","tool_input":{"command":"cargo check"}}' \
@@ -95,7 +95,7 @@ TMP_FAKE_REPO_PERMISSION="${TMP_DIR}/fake-repo-permission"
 mkdir -p "${TMP_HOME_PERMISSION}/.vibeguard" "${TMP_FAKE_REPO_PERMISSION}/hooks"
 printf '%s' "${TMP_FAKE_REPO_PERMISSION}" > "${TMP_HOME_PERMISSION}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_PERMISSION}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_PERMISSION}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -103,7 +103,7 @@ import json
 print(json.dumps({"decision": "block", "reason": "permission denied by vibeguard"}))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_PERMISSION}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_PERMISSION}/hooks/pre-bash-guard.sh"
 
 permission_out="$(
   printf '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' \
@@ -119,7 +119,7 @@ TMP_FAKE_REPO_PATCH="${TMP_DIR}/fake-repo-patch"
 mkdir -p "${TMP_HOME_PATCH}/.vibeguard" "${TMP_FAKE_REPO_PATCH}/hooks"
 printf '%s' "${TMP_FAKE_REPO_PATCH}" > "${TMP_HOME_PATCH}/.vibeguard/repo-path"
 
-cat > "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-write-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_PATCH}/hooks/pre-write-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 payload=$(cat)
 PAYLOAD="$payload" python3 - <<'PY'
@@ -131,7 +131,7 @@ reason = f"normalized:{payload['tool_name']}:{tool_input.get('file_path')}:{tool
 print(json.dumps({"decision": "block", "reason": reason}))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-write-guard.sh"
+chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/pre-write-guard.sh"
 
 patch_input="$(python3 - <<'PY'
 import json
@@ -156,7 +156,7 @@ permission_patch_out="$(
 assert_contains "${permission_patch_out}" '"hookEventName": "PermissionRequest"' "apply_patch PermissionRequest keeps the PermissionRequest event"
 assert_contains "${permission_patch_out}" '"behavior": "deny"' "apply_patch PermissionRequest can be denied through the Write alias"
 
-cat > "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-edit-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_PATCH}/hooks/pre-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 payload=$(cat)
 PAYLOAD="$payload" python3 - <<'PY'
@@ -173,7 +173,7 @@ reason = (
 print(json.dumps({"decision": "block", "reason": reason}))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-pre-edit-guard.sh"
+chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/pre-edit-guard.sh"
 
 patch_update_input="$(python3 - <<'PY'
 import json
@@ -194,7 +194,7 @@ assert_contains "${patch_update_out}" '"permissionDecision": "deny"' "apply_patc
 assert_contains "${patch_update_out}" 'normalized:Edit:src/existing.rs:delta=1' "apply_patch Update File carries line delta to Edit hook"
 
 printf '%s\n' '{"scoped_suppressions":[{"hook":"post-edit-guard","rule_id":"RS-03","path":"docs/examples/**","action":"suppress","reason":"Known documentation example false positive"}]}' > "${TMP_FAKE_REPO_PATCH}/.vibeguard.json"
-cat > "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-post-edit-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_PATCH}/hooks/post-edit-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 python3 - <<'PY'
@@ -207,7 +207,7 @@ print(json.dumps({
 }))
 PY
 HOOK
-chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/vibeguard-post-edit-guard.sh"
+chmod +x "${TMP_FAKE_REPO_PATCH}/hooks/post-edit-guard.sh"
 
 scoped_patch_input="$(python3 - <<'PY'
 import json

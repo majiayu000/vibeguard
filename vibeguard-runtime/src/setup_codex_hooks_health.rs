@@ -1,12 +1,13 @@
 use crate::setup_codex_hooks::{
-    codex_command_is_managed, codex_expand_path, codex_managed_scripts,
+    codex_command_is_managed, codex_expand_path, codex_managed_script_contract,
+    codex_managed_scripts,
 };
 use crate::setup_support::{
     SetupResult, basename, display_home_path, home_dir, read_json_object, shell_split,
     write_json_atomic,
 };
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,12 +29,17 @@ pub fn codex_hooks_check_stale(args: &[String]) -> SetupResult<()> {
             );
         }
     };
-    let managed_scripts = repo_dir.map(codex_managed_scripts).transpose()?;
+    let managed_contract = repo_dir.map(codex_managed_script_contract).transpose()?;
     if !hooks_path.exists() {
         return Ok(());
     }
     let data = Value::Object(read_json_object(hooks_path, false)?);
-    let findings = codex_stale_findings(&data, hooks_path, managed_scripts.as_ref());
+    let findings = codex_stale_findings(
+        &data,
+        hooks_path,
+        managed_contract.as_ref().map(|contract| &contract.0),
+        managed_contract.as_ref().map(|contract| &contract.1),
+    );
     for finding in &findings {
         println!("{finding}");
     }
@@ -129,12 +135,13 @@ fn codex_stale_findings(
     data: &Value,
     config: &Path,
     managed_scripts: Option<&BTreeSet<String>>,
+    script_targets: Option<&BTreeMap<String, String>>,
 ) -> Vec<String> {
     codex_hook_records(data)
         .into_iter()
         .filter_map(|(event, matcher, hook)| {
             let command = hook.get("command").and_then(Value::as_str).unwrap_or("");
-            if let Some(target) = codex_installed_hook_target(command) {
+            if let Some(target) = codex_installed_hook_target(command, script_targets) {
                 if target.exists() {
                     return None;
                 }
@@ -339,7 +346,10 @@ fn codex_token_is_interpreter(token: &str) -> bool {
     )
 }
 
-fn codex_installed_hook_target(command: &str) -> Option<PathBuf> {
+fn codex_installed_hook_target(
+    command: &str,
+    script_targets: Option<&BTreeMap<String, String>>,
+) -> Option<PathBuf> {
     let home = home_dir()?;
     let parts = shell_split(command);
     for (idx, token) in parts.iter().enumerate() {
@@ -353,7 +363,13 @@ fn codex_installed_hook_target(command: &str) -> Option<PathBuf> {
         if path_text.ends_with("/.vibeguard/run-hook-codex.sh") {
             let script = parts.get(idx + 1)?;
             if !script.contains('/') {
-                let installed = path.parent()?.join("installed/hooks").join(script);
+                let canonical_script = script_targets
+                    .and_then(|targets| targets.get(script))
+                    .unwrap_or(script);
+                let installed = path
+                    .parent()?
+                    .join("installed/hooks")
+                    .join(canonical_script);
                 if installed.parent().is_some_and(Path::exists) {
                     return Some(installed);
                 }

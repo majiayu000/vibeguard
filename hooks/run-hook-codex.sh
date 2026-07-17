@@ -4,8 +4,10 @@
 set -euo pipefail
 
 WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK_NAME="${1:?Usage: run-hook-codex.sh <hook-name>}"
-shift
+REQUESTED_HOOK_NAME="${1:-}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
 
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
@@ -17,6 +19,20 @@ vibeguard_execution_mode() {
   case "${mode}" in
     dev-linked|dev-linked-repo|repo|repo-linked) printf '%s\n' "dev-linked-repo" ;;
     *) printf '%s\n' "installed-snapshot" ;;
+  esac
+}
+
+resolve_codex_hook_name() {
+  case "$1" in
+    vibeguard-pre-bash-guard.sh) printf '%s\n' "pre-bash-guard.sh" ;;
+    vibeguard-pre-edit-guard.sh) printf '%s\n' "pre-edit-guard.sh" ;;
+    vibeguard-pre-write-guard.sh) printf '%s\n' "pre-write-guard.sh" ;;
+    vibeguard-post-edit-guard.sh) printf '%s\n' "post-edit-guard.sh" ;;
+    vibeguard-post-write-guard.sh) printf '%s\n' "post-write-guard.sh" ;;
+    vibeguard-post-build-check.sh) printf '%s\n' "post-build-check.sh" ;;
+    vibeguard-stop-guard.sh) printf '%s\n' "stop-guard.sh" ;;
+    vibeguard-learn-evaluator.sh) printf '%s\n' "learn-evaluator.sh" ;;
+    *) return 1 ;;
   esac
 }
 
@@ -45,13 +61,31 @@ if [[ -f "${DIAG_PATH}" ]]; then
   fi
 else
   codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
-  codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"VIBEGUARD install incomplete."}}\n'; }
-  codex_permission_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"VIBEGUARD install incomplete."}}}\n'; }
+  codex_fallback_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/ }"
+    value="${value//$'\r'/ }"
+    value="${value//$'\t'/ }"
+    printf '%s' "${value}"
+  }
+  codex_pretool_deny_raw() {
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(codex_fallback_json_escape "$1")"
+  }
+  codex_permission_deny_raw() {
+    printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "$(codex_fallback_json_escape "$1")"
+  }
   codex_visible_failure_raw() {
-    [[ "$1" == "PreToolUse" ]] && { codex_pretool_deny_raw "$2"; return; }
-    [[ "$1" == "PermissionRequest" ]] && { codex_permission_deny_raw "$2"; return; }
-    [[ "$1" == "Stop" ]] && { printf '{"stopReason":"VIBEGUARD install incomplete."}\n'; return; }
-    printf '{"systemMessage":"VIBEGUARD install incomplete."}\n'
+    local event_name="$1" reason="$2" escaped_reason
+    escaped_reason="$(codex_fallback_json_escape "${reason}")"
+    case "${event_name}" in
+      PreToolUse) codex_pretool_deny_raw "${reason}" ;;
+      PermissionRequest) codex_permission_deny_raw "${reason}" ;;
+      Stop) printf '{"stopReason":"%s"}\n' "${escaped_reason}" ;;
+      PostToolUse) printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "${escaped_reason}" "${escaped_reason}" ;;
+      *) printf '{"systemMessage":"%s"}\n' "${escaped_reason}" ;;
+    esac
   }
   codex_set_caller_identity() { export VIBEGUARD_CLIENT="${VIBEGUARD_CLIENT:-unknown}" VIBEGUARD_CLIENT_VARIANT="${VIBEGUARD_CLIENT_VARIANT:-unknown}" VIBEGUARD_CALLER_EVIDENCE="${VIBEGUARD_CALLER_EVIDENCE:-missing-codex-diag-helper}"; }
   codex_diag() { return 0; }
@@ -69,10 +103,12 @@ INPUT=$(cat)
 EVENT_NAME=$(codex_raw_event_name "$INPUT")
 codex_set_caller_identity "${EVENT_NAME}"
 
-if [[ "${HOOK_NAME}" != vibeguard-* ]]; then
-  codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "non-namespaced-hook" "${HOOK_NAME}"
+if ! CANONICAL_HOOK_NAME="$(resolve_codex_hook_name "${REQUESTED_HOOK_NAME}")"; then
+  codex_diag "${REQUESTED_HOOK_NAME}" "${EVENT_NAME}" "invalid-hook-name" "${REQUESTED_HOOK_NAME:-<missing>}"
+  codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD invalid hook name (invalid-hook-name)."
   exit 0
 fi
+HOOK_NAME="${REQUESTED_HOOK_NAME}"
 
 ADAPTER_PATH="$(helper_path codex_adapter.sh "${VIBEGUARD_CODEX_ADAPTER_PATH:-}")" # hooks/_lib/codex_adapter.sh
 RUNNER_PATH="$(helper_path codex_runner.sh)"
@@ -84,9 +120,9 @@ if [[ "${EXECUTION_MODE}" == "dev-linked-repo" ]]; then
     codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing repo-path."
     exit 0
   fi
-  HOOK_PATH="${REPO_DIR}/hooks/${HOOK_NAME}"
+  HOOK_PATH="${REPO_DIR}/hooks/${CANONICAL_HOOK_NAME}"
 else
-  HOOK_PATH="${INSTALLED_DIR}/${HOOK_NAME}"
+  HOOK_PATH="${INSTALLED_DIR}/${CANONICAL_HOOK_NAME}"
   if [[ ! -d "$INSTALLED_DIR" ]]; then
     codex_diag "${HOOK_NAME}" "${EVENT_NAME}" "missing-installed-snapshot" "${INSTALLED_DIR}"
     codex_visible_failure_raw "${EVENT_NAME}" "VIBEGUARD install incomplete: missing installed hook snapshot."
