@@ -41,15 +41,22 @@ reference | category | scope_glob | canonical_source | reason
 - `runtime_alias`：`reference` 必须精确等于 `vibeguard/{canonical_source}`，且 canonical
   source 是当前 tracked file/dir；因此旧 `vibeguard/scripts/compliance_check.sh` 不能映射到
   新 `scripts/verify/compliance_check.sh` 后继续放行。
-- `installed_alias`：canonical source 必须存在，scope 必须限定到描述安装后布局的具体文档。
+- `installed_alias`：仅适用于 native rule 安装目标。`canonical_source` 必须是当前
+  `scripts/lib/vibeguard_manifest.py rule-links` 输出第一列，`reference` 必须精确等于同一行
+  第二列 `dest_rel`；scope 必须限定到描述该安装后布局的具体文档。manifest command 失败、
+  pair 缺失或 source/destination 任一不匹配均失败。
 - `historical`：canonical source 为 `-`；scope 只允许 `CHANGELOG.md`、`docs/internal/**` 或
   `plan/**`，reason 必须说明历史时间/上下文。
 - `planned`：canonical source 为 `-`；scope 只允许 `docs/internal/**` 或 `plan/**`，reason
   必须说明未落地边界。
 
-`scripts/ci/validate-doc-paths.sh` 是该 allowlist 的唯一 freshness owner：扫描 tracked Markdown
-时记录 `(reference, scope)` 命中；结束时拒绝空字段、未知 category、zero-hit、重复 entry、
-一个引用多重命中、scope 越界、缺失 canonical source 或不满足 exact runtime alias 关系。
+`scripts/ci/validate-doc-paths.sh` 是该 allowlist 的唯一 freshness owner。hit occurrence 定义为
+`(document_path, line, column, reference)`：每个 entry 可在自身 scope 内命中多个 occurrence，
+但每个 occurrence 必须且只能匹配一个 entry；相同 reference 的 disjoint scopes 合法，重叠
+scope 造成同一 occurrence 匹配多个 entry 时失败。结束时拒绝空字段、未知 category、zero-hit、
+规范化五字段完全重复、overlap hit、scope 越界、live alias 缺失 canonical/mapping 证据，或
+不满足 exact runtime/installed alias 关系。historical/planned 不要求目标存在，但仍要求 live
+scoped occurrence、合法 scope/category 与非空结构化 reason。
 普通存在路径不应进入 allowlist。`validate-doc-command-paths.sh` 当前不消费该 allowlist，保持
 独立 command-path contract；实现不得为了“共享”而让它重复解析 allowlist。两个 validator
 仍在同一回归 gate 中运行。allowlist parse、Git enumeration 或 tracked Markdown read error
@@ -62,8 +69,8 @@ reference | category | scope_glob | canonical_source | reason
 | B-001 | tracked-file enumeration | Markdown literal-path fixture 被扫描；untracked artifact 不扫描 |
 | B-002 | path classifier | literal user negatives 与 placeholder/pattern positives |
 | B-003 | tracked Markdown cleanup + narrow policy | tracked Markdown audit 只剩可判定 pattern/placeholder 或带范围豁免 |
-| B-004 | strict allowlist parser + usage accounting | unused、duplicate、invalid category/source/scope fixtures 返回非零 |
-| B-005 | exact `runtime_alias` mapping + normal path validation | stale old alias 与 broken doc reference 失败；current canonical alias 通过 |
+| B-004 | strict allowlist parser + usage accounting | unused、duplicate、overlap、invalid category/source/scope fixtures 返回非零；multi-occurrence single entry 通过 |
+| B-005 | exact live-alias mapping + normal path validation | stale runtime alias、invalid manifest rule-link pair 与 broken doc reference 失败；current pairs 通过 |
 | B-006 | error reporter | 文件/行/类别 assertions；模拟 read/parse failure 非零 |
 | B-007 | Git-boundary tests | 相同 commit 重跑输出稳定，untracked files 不改变结果 |
 
@@ -78,7 +85,8 @@ classifier 输出 violations 与 allowlist hit set；entrypoint 汇总并以 exi
 - Security: 避免把本机用户名/路径继续发布；validator 必须正确处理特殊字符而非 shell 注入。
 - Compatibility: 历史文档可能含合法示例，需以明确 placeholder 转写而非删除证据。
 - Performance: tracked files 单次扫描；不得对整个 build tree 递归。
-- Maintenance: 两个 doc validators 必须共享 allowlist 语义。
+- Maintenance: doc-path validator 独占 allowlist 语义；command-path validator 仅共享 fail-visible
+  discipline 与同一 CI gate，不解析 allowlist。
 
 ## 测试计划
 
@@ -88,7 +96,8 @@ classifier 输出 violations 与 allowlist hit set；entrypoint 汇总并以 exi
 - [ ] Migration: 审计全部 tracked Markdown，并机械替换 plan/docs/examples/workflows 中不可判定的
   literal user；保留历史结论与示例意图。
 - [ ] Allowlist: 为 `validate-doc-paths.sh` 增加 isolated Git fixture，覆盖 strict format、
-  zero-hit、duplicate、多重命中、scope/category/source 与 stale/current runtime alias。
+  zero-hit、duplicate、overlap hit、single-entry multi-occurrence、scope/category/source、
+  historical/planned scoped exception、stale/current runtime alias 与 manifest rule-link pair。
 - [ ] Required: `bash scripts/ci/validate-doc-paths.sh`、`bash scripts/ci/validate-doc-command-paths.sh`。
 - [ ] Broad: `bash scripts/local-contract-check.sh --quick`。
 

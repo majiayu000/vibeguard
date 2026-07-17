@@ -31,10 +31,12 @@ GH-628
 3. B-003 历史 plan 与其他 tracked Markdown 中不可判定为明确占位符的机器路径必须替换为
    相对路径/明确占位符，或进入带路径、原因与范围的窄豁免；不得用“所有 Markdown”继续
    豁免。
-4. B-004 doc-path allowlist 的每个 active entry 必须至少匹配一个当前允许场景；未使用、
-   重复或仅指向已删除旧路径的条目必须使 CI 失败。
-5. B-005 allowlist 不能同时允许迁移前和迁移后路径来掩盖错误引用；真实文档引用不存在
-   时仍必须失败。
+4. B-004 doc-path allowlist 的每个 active entry 必须至少匹配一个当前允许场景；未使用或
+   重复条目必须失败。runtime/installed alias 必须有当前 canonical/mapping 证据；historical/
+   planned 可引用不存在路径，但仅在 live scoped usage、合法 category/scope 与非空 reason
+   同时成立时通过。
+5. B-005 runtime/installed alias 不能同时允许迁移前和迁移后路径来掩盖错误引用；真实当前
+   文档引用不存在时仍必须失败。带 scoped usage/reason 的 historical 提及不视为 live alias。
 6. B-006 验证结果必须列出文件、行号与失败类别并返回非零；扫描/解析错误不得被当作
    “没有问题”。
 7. B-007 相同 tracked tree 的结果必须确定性一致，且 untracked `artifacts/` 不影响 CI。
