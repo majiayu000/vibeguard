@@ -28,9 +28,10 @@ debug binary，测试会先消费旧行为；后段测试才执行 `cargo build`
 
 1. B-001 setup structured-report suite 在第一次执行 `setup.sh` 前必须 build 当前 worktree runtime，
    并把本 suite 的全部 setup 调用显式绑定到该 binary。
-2. B-002 调用者预置的不存在、stale 或 same-version `VIBEGUARD_SETUP_RUNTIME` 不得接管测试；
-   caller `CARGO_TARGET_DIR` 也不得把 fresh build 与 pinned path 分离。suite 必须以显式 worktree
-   target dir build，并用对应确定路径覆盖 runtime。
+2. B-002 调用者预置的 stale/same-version `VIBEGUARD_SETUP_RUNTIME`、
+   `VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1`、错误 `VIBEGUARD_SETUP_RUNTIME_VERSION`、外部
+   `CARGO_TARGET_DIR` 或 `CARGO_BUILD_TARGET` 不得接管或重定向测试。suite 必须规范化这些
+   freshness-affecting inputs，以显式 worktree target dir build，并用对应确定路径覆盖 runtime。
 3. B-003 build 失败或当前 binary 不可执行时必须立即非零退出，不得继续并回退 installed、
    release 或 PATH runtime。
 4. B-004 runtime-config mode matrix 必须复用 suite 已 pin 的同一个 binary，不得在后段才首次
@@ -41,8 +42,8 @@ debug binary，测试会先消费旧行为；后段测试才执行 `cargo build`
 
 ## 验收标准
 
-- [ ] stale caller runtime 与外部 Cargo target dir 环境下，suite 仍 build/pin 当前 worktree runtime
-  并全部通过。
+- [ ] probe-compatible、报告当前版本的 stale runtime 与 hostile caller env 同时存在时，suite 仍
+  build/pin 当前 worktree runtime，stale fixture 零调用且现有 260 项 assertions 全部通过。
 - [ ] build/pin 发生在首个 setup behavior invocation 之前，失败时立即停止。
 - [ ] 后段 runtime-config matrix 复用同一 pin，无重复/迟到 build owner。
 - [ ] 现有 setup assertions 与生产 resolver 均未弱化或改写。

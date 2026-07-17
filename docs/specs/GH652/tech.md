@@ -20,16 +20,27 @@ See `product.md`.
 ## 设计方案
 
 在 `tests/test_setup_check.sh` 的 shared assertion helpers 已声明、但首个 `setup.sh` invocation 尚未
-发生的位置建立唯一 runtime owner：
+发生的位置建立唯一 runtime owner 和自包含回归场景：
 
-1. 以 array-safe `cargo build --manifest-path ... --target-dir
+1. 在 suite 临时目录生成 executable stale runtime fixture：`version` 报告当前
+   `vibeguard-runtime/VERSION`，其余 legacy probe commands 返回受支持结果，并在任何调用时写
+   marker。先以 marker disabled 执行现有 `setup_runtime_supports`，证明 fixture 确实能通过旧
+   version/command probe；验证后清空 marker。
+2. 把 fixture 注入 `VIBEGUARD_SETUP_RUNTIME`，同时注入
+   `VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1`、错误 `VIBEGUARD_SETUP_RUNTIME_VERSION`、外部
+   `CARGO_TARGET_DIR` 与无效 `CARGO_BUILD_TARGET`，形成单一 hostile caller 场景。
+3. 在 build 前 unset `CARGO_BUILD_TARGET` 与 `VIBEGUARD_SETUP_RUNTIME_VERSION`，固定
+   `VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=0`。以 array-safe
+   `cargo build --manifest-path ... --target-dir
    "${REPO_DIR}/vibeguard-runtime/target"` build 当前 worktree runtime；显式 target dir 覆盖 caller
    `CARGO_TARGET_DIR`，保证 build output 与 pin 指向同一目录。
-2. build 失败时立即打印具名错误并非零退出，禁止继续测试或 fallback。
-3. 校验确定路径 `vibeguard-runtime/target/debug/vibeguard-runtime` 可执行，然后无条件 export
+4. build 失败时立即打印具名错误并非零退出，禁止继续测试或 fallback。该 build 继续占用原有
+   260 项中的 build assertion 计数，不删除任何既有 assertion。
+5. 校验确定路径 `vibeguard-runtime/target/debug/vibeguard-runtime` 可执行，然后无条件 export
    `VIBEGUARD_SETUP_RUNTIME` 为该绝对路径，覆盖调用者值。
-4. `tests/setup/runtime_config_check_tests.sh` 删除迟到的重复 build，直接复用 suite pin；它仍可用
+6. `tests/setup/runtime_config_check_tests.sh` 删除迟到的重复 build，直接复用 suite pin；它仍可用
    现有 per-command env 传递同一值。
+7. 全部 setup assertions 后检查 stale fixture marker 不存在；出现任何调用立即使 suite 非零失败。
 
 不改 `scripts/setup/lib.sh`。现有 behavior assertions 文本、期望结果和 fixture 不变；实现 diff
 只移动 build ownership、增加 fail-fast pin，并让后段 matrix 引用唯一 pin。
@@ -39,10 +50,10 @@ See `product.md`.
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | `tests/test_setup_check.sh` preflight | source-order audit；`bash tests/test_setup_check.sh` |
-| B-002 | explicit worktree target dir + unconditional absolute runtime export | `CARGO_TARGET_DIR=/tmp/ignored VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh` |
+| B-002 | probe-compatible same-version stale fixture + hostile env normalization + zero-call marker | self-contained hostile scenario；`bash tests/test_setup_check.sh` |
 | B-003 | fail-fast cargo/executable checks | focused static review；shell syntax；negative command-path review |
 | B-004 | `tests/setup/runtime_config_check_tests.sh` reuse | only one `cargo build` owner；full suite |
-| B-005 | existing assertions | diff audit + full 260-case suite |
+| B-005 | existing assertions | assertion diff/count audit + full 260/260 suite |
 | B-006 | production resolver exclusion | `git diff --name-only` and Rust/setup focused verification |
 
 ## 数据流
@@ -68,7 +79,8 @@ See `product.md`.
 
 - [ ] `bash -n tests/test_setup_check.sh tests/setup/runtime_config_check_tests.sh`。
 - [ ] `bash tests/test_setup_check.sh`。
-- [ ] `CARGO_TARGET_DIR=/tmp/ignored VIBEGUARD_SETUP_RUNTIME=/nonexistent bash tests/test_setup_check.sh`。
+- [ ] `bash tests/test_setup_check.sh`（内部 fixture 必须先通过 legacy capability probe，再以 hostile
+  env 运行完整 suite，最终 marker 零调用且 260/260）。
 - [ ] `cargo check --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] `cargo test --manifest-path vibeguard-runtime/Cargo.toml`。
 - [ ] SpecRail、doc paths、doc command paths 与 diff check。
