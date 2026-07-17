@@ -19,7 +19,7 @@ mkdir -p "${NAME_HOME}/.vibeguard" "${NAME_REPO}/hooks"
 printf '%s' "${NAME_REPO}" > "${NAME_HOME}/.vibeguard/repo-path"
 
 name_map_sync_output="$(
-  { python3 - "${REPO_DIR}/hooks/manifest.json" "${REPO_DIR}/hooks/run-hook-codex.sh" <<'PY'
+  { python3 - "${REPO_DIR}/hooks/manifest.json" "${REPO_DIR}/hooks/_lib/codex_diag.sh" <<'PY'
 import json
 import re
 import sys
@@ -31,8 +31,8 @@ expected = {
     for item in manifest["hooks"]
     if item.get("codex", {}).get("enabled")
 }
-wrapper = Path(sys.argv[2]).read_text(encoding="utf-8")
-function_body = wrapper.split("resolve_codex_hook_name() {", 1)[1].split("\n}", 1)[0]
+helper = Path(sys.argv[2]).read_text(encoding="utf-8")
+function_body = helper.split("resolve_codex_hook_name() {", 1)[1].split("\n}", 1)[0]
 actual_pairs = re.findall(
     r'^\s*(vibeguard-[^)]+)\) printf \'%s\\n\' "([^"]+)" ;;$',
     function_body,

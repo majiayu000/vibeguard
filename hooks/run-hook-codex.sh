@@ -1,45 +1,20 @@
 #!/usr/bin/env bash
 # VibeGuard Codex Hook Wrapper: adapt Claude-style hook output to Codex.
-
 set -euo pipefail
-
 WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUESTED_HOOK_NAME="${1:-}"
-if [[ $# -gt 0 ]]; then
-  shift
-fi
-
+if [[ $# -gt 0 ]]; then shift; fi
 INSTALLED_DIR="${HOME}/.vibeguard/installed/hooks"
 REPO_PATH_FILE="${HOME}/.vibeguard/repo-path"
 EXECUTION_MODE_FILE="${HOME}/.vibeguard/execution-mode"
-
 vibeguard_execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"
   [[ -n "${mode}" || ! -f "${EXECUTION_MODE_FILE}" ]] || mode="$(tr -d '[:space:]' < "${EXECUTION_MODE_FILE}")"
-  case "${mode}" in
-    dev-linked|dev-linked-repo|repo|repo-linked) printf '%s\n' "dev-linked-repo" ;;
-    *) printf '%s\n' "installed-snapshot" ;;
-  esac
+  case "${mode}" in dev-linked|dev-linked-repo|repo|repo-linked) printf '%s\n' "dev-linked-repo" ;; *) printf '%s\n' "installed-snapshot" ;; esac
 }
-
-resolve_codex_hook_name() {
-  case "$1" in
-    vibeguard-pre-bash-guard.sh) printf '%s\n' "pre-bash-guard.sh" ;;
-    vibeguard-pre-edit-guard.sh) printf '%s\n' "pre-edit-guard.sh" ;;
-    vibeguard-pre-write-guard.sh) printf '%s\n' "pre-write-guard.sh" ;;
-    vibeguard-post-edit-guard.sh) printf '%s\n' "post-edit-guard.sh" ;;
-    vibeguard-post-write-guard.sh) printf '%s\n' "post-write-guard.sh" ;;
-    vibeguard-post-build-check.sh) printf '%s\n' "post-build-check.sh" ;;
-    vibeguard-stop-guard.sh) printf '%s\n' "stop-guard.sh" ;;
-    vibeguard-learn-evaluator.sh) printf '%s\n' "learn-evaluator.sh" ;;
-    *) return 1 ;;
-  esac
-}
-
 EXECUTION_MODE="$(vibeguard_execution_mode)"
 REPO_DIR=""
 [[ "${EXECUTION_MODE}" != "dev-linked-repo" || ! -f "${REPO_PATH_FILE}" ]] || REPO_DIR=$(<"${REPO_PATH_FILE}")
-
 helper_path() {
   local helper="$1" override="${2:-}"
   [[ -z "${override}" ]] || { printf '%s\n' "${override}"; return; }
@@ -61,21 +36,10 @@ if [[ -f "${DIAG_PATH}" ]]; then
   fi
 else
   codex_raw_event_name() { [[ "$1" =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"; }
-  codex_fallback_json_escape() {
-    local value="$1"
-    value="${value//\\/\\\\}"
-    value="${value//\"/\\\"}"
-    value="${value//$'\n'/ }"
-    value="${value//$'\r'/ }"
-    value="${value//$'\t'/ }"
-    printf '%s' "${value}"
-  }
-  codex_pretool_deny_raw() {
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(codex_fallback_json_escape "$1")"
-  }
-  codex_permission_deny_raw() {
-    printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "$(codex_fallback_json_escape "$1")"
-  }
+  resolve_codex_hook_name() { case "$1" in vibeguard-pre-bash-guard.sh|vibeguard-pre-edit-guard.sh|vibeguard-pre-write-guard.sh|vibeguard-post-edit-guard.sh|vibeguard-post-write-guard.sh|vibeguard-post-build-check.sh|vibeguard-stop-guard.sh|vibeguard-learn-evaluator.sh) printf '%s\n' "${1#vibeguard-}" ;; *) return 1 ;; esac; }
+  codex_fallback_json_escape() { local value="$1"; value="${value//\\/\\\\}"; value="${value//\"/\\\"}"; value="${value//$'\n'/ }"; value="${value//$'\r'/ }"; value="${value//$'\t'/ }"; printf '%s' "${value}"; }
+  codex_pretool_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$(codex_fallback_json_escape "$1")"; }
+  codex_permission_deny_raw() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"%s"}}}\n' "$(codex_fallback_json_escape "$1")"; }
   codex_visible_failure_raw() {
     local event_name="$1" reason="$2" escaped_reason
     escaped_reason="$(codex_fallback_json_escape "${reason}")"
