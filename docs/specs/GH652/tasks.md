@@ -36,3 +36,23 @@ reviewer lane 只读。
 - `lane_map`: coordinator `/root` 单 writer 串行 T1..T3；independent reviewer `/root/review_pr612` 只读且无 writable files
 
 实现不得以重试、删断言或版本字符串检查替代 current-source build/pin。
+
+## Runtime Drift Decision
+
+- Timestamp: `2026-07-17T11:15:47Z`
+- Approver: user；本轮对仓库优化和必要 GitHub 操作的 standing authorization
+- Snapshot: `docs/specs/GH652/runtime-pinning.snapshot`
+- Accepted surface: runtime hash only；tool hash 与 rules hash 无 drift
+- Snapshot runtime hash: `8dfe1143b97021d0c6a7724a6c69049156a5b1961ae28df9e5a87974bc88c6b7`
+- Coordinator runtime hash: `8b219074ec68e9be602d112a372cf3564527fdcc6d2c8ccf892946a16c02bb0e`
+- Reason: 两个已授权的并发执行环境在同一 `gpt-5` model identity 下暴露不同的 agent
+  CLI/SDK runtime 版本，导致 snapshot 被交替重写；GH652 的 specs、tool inventory 和 rule set
+  未变化。接受该跨会话 runtime drift 以停止无意义的 hash ping-pong；不据此声称 deterministic
+  replay，implementation lane 仍须记录并使用自己的 fresh verification output。
+
+Fresh check output:
+
+```text
+[W-20] runtime drift: 8dfe1143b97021d0c6a7724a6c69049156a5b1961ae28df9e5a87974bc88c6b7 -> 8b219074ec68e9be602d112a372cf3564527fdcc6d2c8ccf892946a16c02bb0e
+[W-20] drift detected; stop or record explicit user acceptance before continuing
+```
