@@ -33,7 +33,9 @@ Install options:
   --dry-run
   --build-from-source
   --runtime-version vX.Y.Z
+  --require-provenance
   --with-scheduler
+  --repair-stale-unmanaged-hooks
   --force-overwrite
   --profile minimal|core|full|strict
   --languages lang1,lang2
@@ -45,6 +47,9 @@ Check options:
   --install
   --no-summary       Legacy doctor/--check only; verify-* commands reject it
   --profile minimal|core|full|strict
+
+Clean options:
+  --purge-data       With --clean, also remove ~/.vibeguard/projects and config
 
 Examples:
   bash setup.sh --yes

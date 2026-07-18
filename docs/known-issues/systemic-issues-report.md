@@ -261,7 +261,7 @@ Manual maintenance of `files` list + no automatic verification = new directories
 }
 ```
 
-**Required directory check script** (`scripts/verify-package-contents.sh`):
+**Required directory check script** (planned "scripts/verify-package-contents.sh"):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail

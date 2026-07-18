@@ -35,7 +35,7 @@ Triggered when user mentions:
 ## Red Flags
 
 - A new guard or rule is proposed without a corresponding automated detection method.
-- A workflow skips the routing contract or omits `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, or `lane_map`.
+- A workflow skips the routing contract, omits `work_surface`, or omits `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, or `lane_map`.
 - A completion claim lacks fresh verification output from the current session.
 
 ## Checklist
@@ -115,6 +115,7 @@ Refer to references/review-template.md, record:
 
 - [ ] Confirm the task goal, context, constraints, and done-when criteria.
 - [ ] Search for existing rules, hooks, workflows, skills, and tests before adding new ones.
+- [ ] Require exact `precedence`, then classify `work_surface` as `code_execution`, `writing_research`, or `chat_support` before choosing a routing lane.
 - [ ] Pick the correct routing lane by setting `readiness`: `execute_direct`, `plan_first`, or `clarify_first`.
 - [ ] Carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` when planning hands off to execution.
 - [ ] Attach a focused verification command to every behavior change.

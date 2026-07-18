@@ -9,15 +9,24 @@ assert_cmd "launchd plist points to canonical GC script path" grep -q "__VIBEGUA
 assert_cmd "systemd service points to canonical GC script path" grep -q "__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh" "${REPO_DIR}/scripts/systemd/vibeguard-gc.service"
 assert_cmd "systemd installer chmods canonical GC script path" grep -q 'scripts/gc/gc-scheduled.sh' "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scheduled GC installers do not reference retired root path" bash -c "! grep -q 'scripts/gc-scheduled.sh' '${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist' '${REPO_DIR}/scripts/systemd/vibeguard-gc.service' '${REPO_DIR}/scripts/install-systemd.sh'"
+assert_cmd "health report scheduled wrapper exists at canonical path" test -x "${REPO_DIR}/scripts/health-report-scheduled.sh"
+assert_cmd "health report scheduler installer exists at canonical path" test -x "${REPO_DIR}/scripts/install-health-report-scheduler.sh"
+assert_cmd "health report launchd plist points to canonical wrapper path" grep -q "__VIBEGUARD_DIR__/scripts/health-report-scheduled.sh" "${REPO_DIR}/scripts/setup/com.vibeguard.health-report.plist"
 
 header "seed existing config"
 mkdir -p "${HOME}/.claude" "${HOME}/.codex"
+case "${HOME}" in
+  "${TMP_HOME}"*) ;;
+  *) red "refusing to write hook fixture outside TMP_HOME"; exit 1 ;;
+esac
+PREEXISTING_CODEX_HOOK_SCRIPT="${HOME}/codex-third-party-hook.js"
+printf 'process.exit(0)\n' > "${PREEXISTING_CODEX_HOOK_SCRIPT}"
 cat > "${HOME}/.claude/settings.json" <<'JSON'
 {
   "hooks": {}
 }
 JSON
-cat > "${HOME}/.codex/hooks.json" <<'JSON'
+cat > "${HOME}/.codex/hooks.json" <<JSON
 {
   "hooks": {
     "PreToolUse": [
@@ -26,7 +35,7 @@ cat > "${HOME}/.codex/hooks.json" <<'JSON'
         "hooks": [
           {
             "type": "command",
-            "command": "node /existing/non-vibeguard.js"
+            "command": "node ${PREEXISTING_CODEX_HOOK_SCRIPT}"
           }
         ]
       }
@@ -38,7 +47,7 @@ cat > "${HOME}/.codex/config.toml" <<'TOML'
 [features]
 hooks = true
 TOML
-assert_cmd "Pre-existing non-VibeGuard Codex hook is present" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "Pre-existing non-VibeGuard Codex hook is present" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 
 header "setup --check"
 check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
@@ -114,6 +123,7 @@ assert_cmd "--dry-run does not modify ~/.codex/hooks.json" test "${dry_run_codex
 assert_cmd "--dry-run does not modify ~/.codex/config.toml" test "${dry_run_codex_config_sha_before}" = "${dry_run_codex_config_sha_after}"
 assert_cmd "--dry-run does not create ~/.claude/CLAUDE.md" test ! -e "${HOME}/.claude/CLAUDE.md"
 assert_cmd "--dry-run does not create ~/.codex/AGENTS.md" test ! -e "${HOME}/.codex/AGENTS.md"
+assert_cmd "--dry-run does not install health report launchd scheduler" test ! -e "${HOME}/Library/LaunchAgents/com.vibeguard.health-report.plist"
 
 valid_project_config="${TMP_HOME}/valid-vibeguard.json"
 cat > "${valid_project_config}" <<'JSON'
@@ -126,7 +136,7 @@ cat > "${valid_project_config}" <<'JSON'
 JSON
 valid_project_install_home="${TMP_HOME}/valid-project-install-home"
 mkdir -p "${valid_project_install_home}"
-valid_project_install_out="$(HOME="${valid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${valid_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes)"
+valid_project_install_out="$(HOME="${valid_project_install_home}" VIBEGUARD_PROJECT_CONFIG="${valid_project_config}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)" || { printf '%s\n' "${valid_project_install_out}" >&2; exit 1; }
 assert_contains "${valid_project_install_out}" "vibeguard-runtime downloaded and verified" "setup install prepares runtime for valid project config"
 assert_contains "${valid_project_install_out}" "Project config valid: ${valid_project_config}" "setup install validates project config with prepared runtime"
 assert_contains "${valid_project_install_out}" "Setup complete! All components installed." "clean setup install with project config succeeds"
@@ -170,6 +180,60 @@ assert_contains "${checksum_fail_out}" "vibeguard-runtime checksum verification 
 assert_not_contains "${checksum_fail_out}" "Falling back to source build" "tampered prebuilt checksum does not fall back to source"
 assert_not_contains "${checksum_fail_out}" "Setup complete! All components installed." "tampered prebuilt checksum does not report setup complete"
 
+manifest_fail_home="${TMP_HOME}/manifest-fail-home"
+mkdir -p "${manifest_fail_home}"
+set +e
+manifest_fail_out="$(HOME="${manifest_fail_home}" VIBEGUARD_TEST_BAD_MANIFEST=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+manifest_fail_rc=$?
+set -e
+assert_cmd "tampered runtime release manifest exits nonzero" test "${manifest_fail_rc}" -ne 0
+assert_contains "${manifest_fail_out}" "runtime release manifest checksum mismatch" "tampered runtime release manifest reports checksum mismatch"
+assert_not_contains "${manifest_fail_out}" "Falling back to source build" "tampered runtime release manifest does not fall back to source"
+assert_not_contains "${manifest_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest does not report setup complete"
+
+manifest_size_fail_home="${TMP_HOME}/manifest-size-fail-home"
+mkdir -p "${manifest_size_fail_home}"
+set +e
+manifest_size_fail_out="$(HOME="${manifest_size_fail_home}" VIBEGUARD_TEST_BAD_MANIFEST_SIZE=1 VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+manifest_size_fail_rc=$?
+set -e
+assert_cmd "tampered runtime release manifest size exits nonzero" test "${manifest_size_fail_rc}" -ne 0
+assert_contains "${manifest_size_fail_out}" "runtime release manifest size mismatch" "tampered runtime release manifest reports size mismatch"
+assert_not_contains "${manifest_size_fail_out}" "Falling back to source build" "tampered runtime release manifest size does not fall back to source"
+assert_not_contains "${manifest_size_fail_out}" "Setup complete! All components installed." "tampered runtime release manifest size does not report setup complete"
+
+require_provenance_fail_home="${TMP_HOME}/require-provenance-fail-home"
+mkdir -p "${require_provenance_fail_home}"
+set +e
+require_provenance_fail_out="$(HOME="${require_provenance_fail_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance 2>&1)"
+require_provenance_fail_rc=$?
+set -e
+assert_cmd "--require-provenance exits nonzero when attestation verifier is unavailable" test "${require_provenance_fail_rc}" -ne 0
+assert_contains "${require_provenance_fail_out}" "Mode: require-provenance" "--require-provenance reports strict mode"
+assert_contains "${require_provenance_fail_out}" "provenance verification is required but unavailable" "--require-provenance fails closed on checksum-only provenance"
+assert_contains "${require_provenance_fail_out}" "gh attestation verify unavailable" "--require-provenance reports missing attestation verifier"
+assert_not_contains "${require_provenance_fail_out}" "Setup complete! All components installed." "--require-provenance unavailable verifier does not report setup complete"
+
+require_provenance_ok_home="${TMP_HOME}/require-provenance-ok-home"
+mkdir -p "${require_provenance_ok_home}"
+require_provenance_ok_out="$(HOME="${require_provenance_ok_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 VIBEGUARD_TEST_GH_AUTH_OK=1 VIBEGUARD_TEST_ATTESTATION_OK=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance)"
+assert_contains "${require_provenance_ok_out}" "Mode: require-provenance" "--require-provenance success reports strict mode"
+assert_contains "${require_provenance_ok_out}" "provenance=verified-provenance" "--require-provenance requires verified provenance"
+assert_contains "${require_provenance_ok_out}" "runtime provenance status: verified-provenance" "--require-provenance records verified provenance status"
+assert_contains "${require_provenance_ok_out}" "Setup complete! All components installed." "--require-provenance install succeeds with verified attestation"
+
+require_provenance_mismatch_home="${TMP_HOME}/require-provenance-mismatch-home"
+mkdir -p "${require_provenance_mismatch_home}"
+set +e
+require_provenance_mismatch_out="$(HOME="${require_provenance_mismatch_home}" VIBEGUARD_TEST_RUNTIME_VERSION=0.0.0 VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 VIBEGUARD_TEST_GH_AUTH_OK=1 VIBEGUARD_TEST_ATTESTATION_OK=1 bash "${REPO_DIR}/setup.sh" --yes --require-provenance 2>&1)"
+require_provenance_mismatch_rc=$?
+set -e
+assert_cmd "--require-provenance exits nonzero when verified runtime version mismatches" test "${require_provenance_mismatch_rc}" -ne 0
+assert_contains "${require_provenance_mismatch_out}" "prepared vibeguard-runtime is incompatible" "--require-provenance mismatch reports incompatible runtime"
+assert_contains "${require_provenance_mismatch_out}" "--require-provenance requires a downloaded runtime that matches the repo runtime VERSION" "--require-provenance mismatch fails before source fallback"
+assert_not_contains "${require_provenance_mismatch_out}" "Falling back to source build" "--require-provenance mismatch does not fall back to source"
+assert_not_contains "${require_provenance_mismatch_out}" "Setup complete! All components installed." "--require-provenance mismatch does not report setup complete"
+
 empty_version_home="${TMP_HOME}/empty-version-home"
 mkdir -p "${empty_version_home}"
 set +e
@@ -188,6 +252,7 @@ version_override_out="$(HOME="${version_override_home}" VIBEGUARD_TEST_CARGO_UNA
 assert_contains "${version_override_out}" "Runtime version override: v9.9.9" "--runtime-version reports selected release tag"
 assert_contains "${version_override_out}" "vibeguard-runtime downloaded and verified (v9.9.9," "--runtime-version downloads selected release tag"
 assert_cmd "--runtime-version passes selected tag to release download" grep -qF "tag=v9.9.9" "${version_override_log}"
+assert_cmd "--runtime-version tries runtime release manifest download" grep -qF "vibeguard-runtime-releases.json" "${version_override_log}"
 
 curl_download_home="${TMP_HOME}/curl-download-home"
 mkdir -p "${curl_download_home}"
@@ -295,18 +360,19 @@ assert_cmd "vibeguard-runtime version matches VERSION after setup" bash -c '
   [[ "$("${runtime}" version)" == "$(tr -d "[:space:]" < "${version_file}")" ]]
 ' _ "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" "${REPO_DIR}/vibeguard-runtime/VERSION"
 assert_cmd "runtime policy project schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
+assert_cmd "runtime config schema installed after setup" test -f "${HOME}/.vibeguard/installed/schemas/vibeguard-runtime-config.schema.json"
 printf '{"profile":"core"}\n' > "${TMP_HOME}/valid-project-config.json"
 assert_cmd "runtime policy project validator moved into runtime" "${HOME}/.vibeguard/installed/bin/vibeguard-runtime" project-config-validate "${TMP_HOME}/valid-project-config.json"
 assert_cmd "runtime policy Python project validator not installed after setup" test ! -e "${HOME}/.vibeguard/installed/scripts/lib/project_config_validate.py"
 assert_contains "${install_out}" "[OK] vibeguard-runtime version matches repo VERSION" "setup install reports runtime version health"
-assert_contains "${install_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "setup install reports current installed snapshot"
+assert_contains "${install_out}" "[OK] Installed hooks+guards snapshot matches repo-path HEAD" "setup install reports current installed snapshot"
 assert_contains "${install_out}" "~/.vibeguard/config.json present (preserved)" "setup preserves seeded runtime config during install"
 assert_cmd "pre-push wrapper is installed after setup" test -x "${HOME}/.vibeguard/pre-push"
 assert_cmd "repo pre-commit hook is installed after setup" assert_repo_git_hook_target "pre-commit" "${HOME}/.vibeguard/pre-commit"
 assert_cmd "repo pre-push hook is installed after setup" assert_repo_git_hook_target "pre-push" "${HOME}/.vibeguard/pre-push"
 assert_cmd "Claude vibeguard skill targets installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/skills/vibeguard')\" == '${HOME}/.vibeguard/installed/skills/vibeguard' ]]"
 assert_cmd "Claude command target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/commands/vg')\" == '${HOME}/.vibeguard/installed/.claude/commands/vg' ]]"
-assert_cmd "native rule target uses installed snapshot" bash -c "[[ \"\$(readlink '${HOME}/.claude/rules/vibeguard/common/security.md')\" == '${HOME}/.vibeguard/installed/rules/claude-rules/common/security.md' ]]"
+assert_cmd "core profile does not front-inject the native rule tree (GH-541)" test ! -e "${HOME}/.claude/rules/vibeguard/common/security.md"
 fake_live_repo="${TMP_HOME}/fake-live-repo"
 mkdir -p "${fake_live_repo}/hooks/git" "${fake_live_repo}/hooks"
 cat > "${fake_live_repo}/hooks/git/pre-push" <<'SH'
@@ -345,7 +411,9 @@ assert_not_contains "${default_scheduler_check_out}" "[WARN] Scheduled GC" "--ch
 
 dev_linked_home="${TMP_HOME}/dev-linked-home"
 mkdir -p "${dev_linked_home}"
-dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked)"
+# GH-541: the native rule tree is only front-injected under full/strict, so use
+# the full profile here to exercise dev-linked rule-symlink target resolution.
+dev_linked_out="$(HOME="${dev_linked_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --dev-linked --profile full)"
 assert_contains "${dev_linked_out}" "Mode: dev-linked repo (execution uses live repository paths)" "--dev-linked mode is visible during setup"
 assert_cmd "--dev-linked writes explicit execution mode" grep -q '^dev-linked-repo$' "${dev_linked_home}/.vibeguard/execution-mode"
 assert_cmd "--dev-linked Claude skill targets repo" bash -c "[[ \"\$(readlink '${dev_linked_home}/.claude/skills/vibeguard')\" == '${REPO_DIR}/skills/vibeguard' ]]"
@@ -383,6 +451,141 @@ assert_contains "${scheduler_install_out}" "Scheduled GC installed via" "--with-
 assert_cmd "--with-scheduler creates scheduled GC entry" assert_scheduled_gc_present
 scheduler_active_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${scheduler_active_check_out}" "[OK] Scheduled GC active" "--check reports opt-in scheduled GC active"
+gc_dir="${HOME}/.vibeguard"
+gc_success="${gc_dir}/gc-last-success"
+gc_attempt="${gc_dir}/gc-last-attempt"
+gc_check() {
+  VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_NOW_EPOCH=2000000000 bash "${REPO_DIR}/setup.sh" --check "$@"
+}
+mkdir -p "${HOME}/.config/systemd/user" "${gc_dir}"
+touch "${HOME}/.config/systemd/user/vibeguard-gc.timer"
+rm -f "${HOME}/.systemctl-vibeguard-gc-active" "${gc_success}" "${gc_attempt}" "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log"
+gc_inactive_out="$(gc_check)"
+assert_not_contains "${gc_inactive_out}" "Scheduled GC execution freshness" "inactive systemd timer does not run freshness"
+touch "${HOME}/.systemctl-vibeguard-gc-active"
+
+printf '2000000000\n' > "${gc_success}"
+gc_fresh_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_fresh_out}" "last success 0s ago" "freshness accepts age zero"
+printf '1999992801\n' > "${gc_success}"
+gc_before_boundary_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_before_boundary_out}" "[OK] Scheduled GC execution freshness" "freshness accepts interval minus one second"
+printf '1999992800\n' > "${gc_success}"
+gc_boundary_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_boundary_out}" "[WARN] Scheduled GC execution freshness stale" "freshness rejects exact interval boundary"
+printf '2000000001\n' > "${gc_success}"
+gc_future_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_future_out}" "[WARN] Scheduled GC execution freshness invalid" "freshness rejects future success"
+for gc_bad_value in "" garbled; do
+  printf '%s\n' "${gc_bad_value}" > "${gc_success}"
+  gc_invalid_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+  assert_contains "${gc_invalid_out}" "[WARN] Scheduled GC execution freshness invalid" "freshness rejects ${gc_bad_value:-empty} success state"
+done
+rm -f "${gc_success}"
+gc_missing_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_missing_out}" "[WARN] Scheduled GC execution freshness invalid" "freshness warns when success state is missing"
+printf '1999999999\n' > "${gc_success}"
+chmod 000 "${gc_success}"
+gc_unreadable_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+chmod 600 "${gc_success}"
+assert_contains "${gc_unreadable_out}" "[WARN] Scheduled GC execution freshness invalid" "freshness rejects unreadable success state"
+
+printf '1999395201\n' > "${gc_success}"
+gc_default_interval_out="$(gc_check)"
+assert_contains "${gc_default_interval_out}" "[OK] Scheduled GC execution freshness" "freshness uses default 168-hour interval"
+gc_project_config="${TMP_HOME}/gc-freshness-project.json"
+printf '{"gc":{"catchup_interval_hours":1}}\n' > "${gc_project_config}"
+printf '1999996000\n' > "${gc_success}"
+gc_project_interval_out="$(VIBEGUARD_PROJECT_CONFIG="${gc_project_config}" gc_check)"
+assert_contains "${gc_project_interval_out}" "[WARN] Scheduled GC execution freshness stale" "freshness reads project interval"
+gc_env_interval_out="$(VIBEGUARD_PROJECT_CONFIG="${gc_project_config}" VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_env_interval_out}" "[OK] Scheduled GC execution freshness" "freshness environment interval overrides project config"
+assert_gc_checker_repo_config_pinned
+
+printf '1999992800\n' > "${gc_success}"
+rm -f "${gc_attempt}"
+{ printf '[ERROR] outside bounded tail\n'; for _ in {1..201}; do printf 'noise\n'; done; printf '[ERROR] Operation not permitted: latest systemd wrapper\n'; } > "${gc_dir}/gc-systemd.log"
+printf '[ERROR] old internal\nGC completed with errors: latest internal\n' > "${gc_dir}/gc-cron.log"
+gc_evidence_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_evidence_out}" "wrapper evidence (gc-systemd.log): [ERROR] Operation not permitted: latest systemd wrapper" "systemd freshness shows last bounded wrapper failure without attempt"
+assert_contains "${gc_evidence_out}" "internal evidence (gc-cron.log): GC completed with errors: latest internal" "systemd freshness labels shared internal log"
+assert_not_contains "${gc_evidence_out}" "outside bounded tail" "wrapper evidence excludes failures outside bounded tail"
+assert_not_contains "${gc_evidence_out}" "old internal" "internal evidence selects only the last actionable line"
+assert_contains "${gc_evidence_out}" "bash setup.sh --yes --with-scheduler" "unhealthy freshness suggests scheduler re-registration"
+assert_contains "${gc_evidence_out}" "protected directories" "permission evidence suggests moving protected checkout"
+assert_contains "${gc_evidence_out}" "scheduler disk access" "permission evidence suggests scheduler disk access"
+printf '1999992900\n' > "${gc_attempt}"
+gc_attempt_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_attempt_out}" "execution attempt 1999992900 is newer than last success 1999992800" "newer optional attempt is correlated"
+printf 'corrupt\n' > "${gc_attempt}"
+gc_corrupt_attempt_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_corrupt_attempt_out}" "latest systemd wrapper" "corrupt attempt does not suppress wrapper evidence"
+
+rm -f "${gc_attempt}" "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log"
+gc_no_evidence_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+assert_contains "${gc_no_evidence_out}" "no actionable failure found in bounded log tails" "missing logs preserve generic freshness warning"
+assert_contains "${gc_no_evidence_out}" "bash setup.sh --yes --with-scheduler" "missing logs preserve re-registration hint"
+printf '[ERROR] unreadable wrapper\n' > "${gc_dir}/gc-systemd.log"
+printf '[ERROR] unreadable internal\n' > "${gc_dir}/gc-cron.log"
+chmod 000 "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log"
+gc_unreadable_logs_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+chmod 600 "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log"
+assert_contains "${gc_unreadable_logs_out}" "no actionable failure found in bounded log tails" "unreadable logs preserve generic freshness warning"
+printf 'no actionable match\n' > "${gc_dir}/gc-systemd.log"
+printf 'no actionable match\n' > "${gc_dir}/gc-cron.log"
+gc_digest_before="$(shasum -a 256 "${gc_success}" "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log" "${HOME}/.systemctl-vibeguard-gc-active")"
+gc_repeat_one="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+gc_repeat_two="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"
+gc_digest_after="$(shasum -a 256 "${gc_success}" "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log" "${HOME}/.systemctl-vibeguard-gc-active")"
+assert_cmd "freshness check leaves state and logs unchanged" test "${gc_digest_before}" = "${gc_digest_after}"
+assert_cmd "freshness classification is idempotent" test "$(grep -F 'Scheduled GC execution freshness' <<< "${gc_repeat_one}")" = "$(grep -F 'Scheduled GC execution freshness' <<< "${gc_repeat_two}")"
+
+set +e
+gc_default_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check)"; gc_default_rc=$?
+gc_strict_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check --strict)"; gc_strict_rc=$?
+gc_json_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check --json)"; gc_json_rc=$?
+gc_install_out="$(VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 gc_check --install)"; gc_install_rc=$?
+set -e
+assert_cmd "freshness-only WARN keeps default check exit zero" test "${gc_default_rc}" -eq 0
+assert_contains "${gc_default_out}" "[WARN] Scheduled GC execution freshness stale" "default mode keeps freshness classification"
+assert_cmd "freshness-only WARN makes strict check degraded" test "${gc_strict_rc}" -eq 1
+assert_contains "${gc_strict_out}" "DEGRADED" "strict freshness WARN reports DEGRADED"
+assert_cmd "freshness-only WARN makes JSON check degraded" test "${gc_json_rc}" -eq 1
+assert_cmd "JSON freshness output is one degraded document with WARN event" python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["verdict"] == "degraded" and any(e["level"] == "WARN" and "Scheduled GC execution freshness" in e["message"] for e in d["events"])' "${gc_json_out}"
+assert_cmd "freshness-only WARN keeps install check exit zero" test "${gc_install_rc}" -eq 0
+assert_contains "${gc_install_out}" "[WARN] Scheduled GC execution freshness stale" "install mode keeps freshness classification"
+
+printf '%s\n' "${REPO_DIR}/scripts/gc/gc-scheduled.sh" > "${HOME}/.launchctl-vibeguard-target"
+touch "${HOME}/.launchctl-vibeguard-loaded"
+printf '[ERROR] launchd wrapper failure\n' > "${gc_dir}/gc-launchd.log"
+printf '[ERROR] systemd wrapper must stay hidden\n' > "${gc_dir}/gc-systemd.log"
+gc_launchd_out="$(VIBEGUARD_TEST_UNAME=Darwin VIBEGUARD_TEST_NOW_EPOCH=2000000000 VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS=2 bash "${REPO_DIR}/setup.sh" --check)"
+assert_contains "${gc_launchd_out}" "wrapper evidence (gc-launchd.log): [ERROR] launchd wrapper failure" "launchd freshness uses launchd wrapper log"
+assert_not_contains "${gc_launchd_out}" "systemd wrapper must stay hidden" "launchd freshness does not read systemd wrapper log"
+printf '%s\n' "${TMP_HOME}/drifted/gc-scheduled.sh" > "${HOME}/.launchctl-vibeguard-target"
+gc_launchd_drift_out="$(VIBEGUARD_TEST_UNAME=Darwin bash "${REPO_DIR}/setup.sh" --check)"
+assert_not_contains "${gc_launchd_drift_out}" "Scheduled GC execution freshness" "drifted active launchd target does not run freshness"
+printf '%s\n' "${REPO_DIR}/scripts/gc/gc-scheduled.sh" > "${HOME}/.launchctl-vibeguard-target"
+assert_launchd_gc_edge_gates
+if [[ "$(uname)" == "Darwin" ]]; then
+  stale_scheduler_dir="${TMP_HOME}/stale-vibeguard"
+  mkdir -p "${stale_scheduler_dir}"
+  sed -e "s|__VIBEGUARD_DIR__|${stale_scheduler_dir}|g" -e "s|__HOME__|${HOME}|g" \
+    "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" \
+    > "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  stale_plist_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+  assert_contains "${stale_plist_check_out}" "[OK] Scheduled GC active via launchd" "--check keeps active scheduled GC healthy when only persisted plist drifts"
+  assert_contains "${stale_plist_check_out}" "[WARN] Scheduled GC plist target drift:" "--check reports persisted scheduled GC target drift"
+  assert_not_contains "${stale_plist_check_out}" "[BROKEN] Scheduled GC launchd target drift:" "--check does not treat plist-only scheduled GC drift as active target drift"
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  stale_scheduler_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
+  assert_contains "${stale_scheduler_check_out}" "[BROKEN] Scheduled GC launchd target drift:" "--check reports loaded scheduled GC target drift"
+  assert_contains "${stale_scheduler_check_out}" "${stale_scheduler_dir}/scripts/gc/gc-scheduled.sh" "--check reports stale scheduled GC target path"
+  assert_not_contains "${stale_scheduler_check_out}" "[OK] Scheduled GC active via launchd" "--check does not treat stale scheduled GC as healthy"
+  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+  rm -f "${HOME}/.launchctl-vibeguard-loaded" "${HOME}/.launchctl-vibeguard-target" "${HOME}/.launchctl-vibeguard-plist" "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+fi
 expected_agent_count="$(find "${REPO_DIR}/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 printf 'user-owned agent\n' > "${HOME}/.claude/agents/user-blog-agent.md"
 managed_agent_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
@@ -394,7 +597,7 @@ assert_contains "${missing_managed_agent_check_out}" "[MISSING] 1/${expected_age
 cp "${REPO_DIR}/agents/dispatcher.md" "${HOME}/.claude/agents/dispatcher.md"
 installed_git_hook_check_out="$(bash "${REPO_DIR}/setup.sh" --check)"
 assert_contains "${installed_git_hook_check_out}" "[OK] vg shortcut commands symlinked to ~/.claude/commands/" "--check reports vg shortcut commands healthy"
-assert_contains "${installed_git_hook_check_out}" "[OK] Installed hooks+guards snapshot matches repo HEAD" "--check reports installed snapshot healthy"
+assert_contains "${installed_git_hook_check_out}" "[OK] Installed hooks+guards snapshot matches repo-path HEAD" "--check reports installed snapshot healthy"
 tracked_snapshot_file="${HOME}/.vibeguard/installed/schemas/vibeguard-project.schema.json"
 tracked_snapshot_backup="${TMP_HOME}/tracked-snapshot-schema.json"
 cp "${tracked_snapshot_file}" "${tracked_snapshot_backup}"
@@ -436,6 +639,19 @@ set -e
 assert_cmd "--check --strict exits broken for mismatched runtime version" test "${mismatched_runtime_check_rc}" -eq 2
 assert_contains "${mismatched_runtime_check_out}" "[BROKEN] vibeguard-runtime version mismatch: 0.0.0" "--check reports mismatched runtime version"
 cp "${runtime_backup}" "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+snapshot_repo_path_check="${TMP_HOME}/snapshot-repo-path-check"
+mkdir -p "${snapshot_repo_path_check}"
+git -C "${snapshot_repo_path_check}" init -q
+git -C "${snapshot_repo_path_check}" config user.email "vibeguard@example.test"
+git -C "${snapshot_repo_path_check}" config user.name "VibeGuard Test"
+printf 'snapshot repo\n' > "${snapshot_repo_path_check}/README.md"
+git -C "${snapshot_repo_path_check}" add README.md
+git -C "${snapshot_repo_path_check}" commit -q -m "seed snapshot repo"
+printf '%s' "${snapshot_repo_path_check}" > "${HOME}/.vibeguard/repo-path"
+git -C "${snapshot_repo_path_check}" rev-parse --short HEAD > "${HOME}/.vibeguard/installed/version"
+snapshot_repo_path_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
+assert_contains "${snapshot_repo_path_check_out}" "[OK] Installed hooks+guards snapshot matches repo-path HEAD" "--check compares installed snapshot against repo-path HEAD"
+printf '%s' "${REPO_DIR}" > "${HOME}/.vibeguard/repo-path"
 printf 'oldsha\n' > "${HOME}/.vibeguard/installed/version"
 stale_snapshot_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_contains "${stale_snapshot_check_out}" "[WARN] Installed hooks+guards snapshot is stale: oldsha" "--check reports stale installed snapshot"
@@ -454,6 +670,9 @@ rm -f "${HOME}/.claude/skills/vibeguard"
 ln -s "${HOME}/.vibeguard/installed/skills/vibeguard" "${HOME}/.claude/skills/vibeguard"
 wrong_rule_target="${TMP_HOME}/wrong-security-rule.md"
 printf '## U-17: Wrong source\n' > "${wrong_rule_target}"
+# GH-541: the core profile no longer front-injects the tree, so create the
+# common/ dir before injecting the drift/stale symlinks the --check must catch.
+mkdir -p "${HOME}/.claude/rules/vibeguard/common"
 rm -f "${HOME}/.claude/rules/vibeguard/common/security.md"
 ln -s "${wrong_rule_target}" "${HOME}/.claude/rules/vibeguard/common/security.md"
 drift_claude_rule_check_out="$(bash "${REPO_DIR}/setup.sh" --check 2>&1 || true)"
@@ -538,14 +757,43 @@ assert_cmd "Enable hooks feature after installation" grep -Eq '^hooks[[:space:]]
 assert_cmd "Codex hooks are namespaced (vibeguard prefix)" bash -c "grep -q 'vibeguard-pre-bash-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-pre-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-edit-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-write-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-post-build-check.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-stop-guard.sh' '${HOME}/.codex/hooks.json' && grep -q 'vibeguard-learn-evaluator.sh' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex hooks include PermissionRequest native gates" bash -c "grep -q '\"PermissionRequest\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Edit\"' '${HOME}/.codex/hooks.json' && grep -q '\"matcher\": \"Write\"' '${HOME}/.codex/hooks.json'"
 assert_cmd "Codex helper validates managed hooks" python3 "${CODEX_HOOKS_HELPER}" check-vibeguard --hooks-file "${HOME}/.codex/hooks.json" --wrapper "${HOME}/.vibeguard/run-hook-codex.sh"
-assert_cmd "run-hook-codex rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); test -z \"\$out\""
-assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "run-hook-codex visibly rejects non-namespaced hook names" bash -c "out=\$(printf '{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"}}' | bash '${REPO_DIR}/hooks/run-hook-codex.sh' pre-bash-guard.sh); grep -q 'permissionDecision' <<<\"\$out\" && grep -q 'invalid-hook-name' <<<\"\$out\""
+assert_cmd "Pre-existing non-VibeGuard hook is preserved" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
+python3 - "${HOME}/.codex/hooks.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+entry = data["hooks"]["PreToolUse"][0]
+entry["hooks"].append({"type": "command", "command": "node /existing/non-vibeguard.js"})
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+set +e
+setup_without_stale_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1)"
+setup_without_stale_repair_rc=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${setup_without_stale_repair_rc}" -ne 0 ]]; then
+  green "setup without stale unmanaged repair fails install verification"
+  PASS=$((PASS + 1))
+else
+  red "setup without stale unmanaged repair fails install verification (expected nonzero)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "${setup_without_stale_repair_out}" "repair-required unmanaged Codex blocking hook" "setup without stale unmanaged repair reports blocker"
+assert_cmd "ordinary setup preserves stale unmanaged Codex hook by default" grep -q '/existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+setup_with_stale_repair_out="$(bash "${REPO_DIR}/setup.sh" --yes --repair-stale-unmanaged-hooks)"
+assert_contains "${setup_with_stale_repair_out}" "Stale unmanaged Codex hooks repaired" "setup repair flag reports stale unmanaged repair"
+assert_cmd "repair flag removes stale unmanaged Codex hook" bash -c "! grep -q '/existing/non-vibeguard.js' '${HOME}/.codex/hooks.json'"
+assert_cmd "repair flag preserves valid third-party Codex hook" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 assert_cmd "Codex hooks include managed + preserved entries" python3 -c "import json; data=json.load(open('${HOME}/.codex/hooks.json')); total=sum(len(entries) for entries in data.get('hooks', {}).values() if isinstance(entries, list)); raise SystemExit(0 if total >= 5 else 1)"
 assert_cmd "~/.claude/CLAUDE.md includes the chat contract anchor after installation" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${HOME}/.claude/CLAUDE.md"
-assert_cmd "~/.claude/CLAUDE.md rule banner matches installed rules" assert_claude_rule_banner_matches_installed_rules
+assert_cmd "~/.claude/CLAUDE.md rule banner matches expected rules" assert_claude_rule_banner_matches_expected_rules
 assert_cmd "~/.codex/AGENTS.md exists after installation" test -f "${HOME}/.codex/AGENTS.md"
 assert_cmd "~/.codex/AGENTS.md includes managed markers after installation" bash -c "grep -q '<!-- vibeguard-start -->' '${HOME}/.codex/AGENTS.md' && grep -q '<!-- vibeguard-end -->' '${HOME}/.codex/AGENTS.md'"
-assert_cmd "~/.codex/AGENTS.md rule banner matches installed rules" assert_codex_rule_banner_matches_installed_rules
+assert_cmd "~/.codex/AGENTS.md rule banner matches expected rules" assert_codex_rule_banner_matches_expected_rules
 assert_cmd "~/.codex/AGENTS.md includes key Codex-visible anchors" bash -c "grep -qF 'Compact Chat Contract' '${HOME}/.codex/AGENTS.md' && grep -qF '| W-03 |' '${HOME}/.codex/AGENTS.md' && grep -qF '| SEC-13 |' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "templates/AGENTS.md includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/templates/AGENTS.md"
 assert_cmd "docs/CLAUDE.md.example includes the chat contract anchor" grep -qF "${CHAT_CONTRACT_ANCHOR}" "${REPO_DIR}/docs/CLAUDE.md.example"

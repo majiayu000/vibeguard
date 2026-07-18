@@ -9,8 +9,7 @@
   "adoption_layer_statement": "Guard Packs are an adoption layer over VibeGuard Core; this pack does not change hook or rule semantics.",
   "source_of_truth": {
     "hooks": [
-      "hooks/pre-bash-guard.sh",
-      "hooks/vibeguard-pre-bash-guard.sh"
+      "hooks/pre-bash-guard.sh"
     ],
     "manifests": [
       "hooks/manifest.json",
@@ -75,7 +74,6 @@
         "PermissionRequest(Bash)"
       ],
       "would_install": [
-        "hooks/vibeguard-pre-bash-guard.sh",
         "hooks/pre-bash-guard.sh",
         "hooks/run-hook-codex.sh",
         "hooks/log.sh",

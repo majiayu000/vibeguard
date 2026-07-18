@@ -20,6 +20,18 @@ pub fn run(args: &[String]) -> Result {
     run_inner(args, io::stdin().lock(), &mut io::stdout(), cutoff_secs)
 }
 
+pub(crate) fn run_text(
+    session: &str,
+    project_dir: &str,
+    input: &str,
+) -> std::result::Result<String, Box<dyn std::error::Error>> {
+    let args = vec![session.to_string(), project_dir.to_string()];
+    let cutoff_secs = now_unix_secs().saturating_sub(30 * 60);
+    let mut out = Vec::new();
+    run_inner(&args, io::Cursor::new(input), &mut out, cutoff_secs)?;
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
 pub(super) fn run_inner(
     args: &[String],
     stdin: impl BufRead,
@@ -93,12 +105,11 @@ pub(super) fn run_inner(
             .unwrap_or(UNKNOWN);
         *tools.entry(t.into()).or_default() += 1;
 
-        if t == tool::EDIT {
-            if let Some(detail) = e.get(field::DETAIL).and_then(Value::as_str) {
-                if let Some(last) = detail.split_whitespace().last() {
-                    *edited_files.entry(last.into()).or_default() += 1;
-                }
-            }
+        if t == tool::EDIT
+            && let Some(detail) = e.get(field::DETAIL).and_then(Value::as_str)
+            && let Some(last) = detail.split_whitespace().last()
+        {
+            *edited_files.entry(last.into()).or_default() += 1;
         }
 
         if let Some(d_ms) = e.get(field::DURATION_MS).and_then(Value::as_u64) {

@@ -1,0 +1,17 @@
+{
+  "artifacts": {
+    "product_spec": "specs/GH16/product.md",
+    "task_plan": "specs/GH16/tasks.md",
+    "tech_spec": "specs/GH16/tech.md"
+  },
+  "issue": 16,
+  "github_state": "OPEN",
+  "labels": [
+    "reserved_internal"
+  ],
+  "state": "reserved_internal",
+  "state_source": "label",
+  "state_trusted": true,
+  "title": "Implement GitHub issue evidence adapter",
+  "url": "https://github.com/majiayu000/specrail/issues/16"
+}
