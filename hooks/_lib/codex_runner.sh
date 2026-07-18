@@ -140,15 +140,14 @@ codex_run_hook() {
     fi
 
     if [[ ${hook_exit} -ne 0 ]]; then
-      # Exit code is the only forensic signal when the hook dies without
-      # output (e.g. EMFILE or a signal kill), so always record it.
       local nonzero_reason="exit=${hook_exit}"
       if (( hook_exit > 128 )); then
         nonzero_reason="exit=${hook_exit} (signal $((hook_exit - 128)))"
       fi
-      codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${nonzero_reason}: ${hook_err:-${hook_output:-<no output>}}"
-      rm -f "${normalized_file}" 2>/dev/null || true
-      codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped hook exited nonzero (${nonzero_reason})."
+      local nonzero_evidence="${nonzero_reason}: ${hook_err:-${hook_output:-<no output>}}"
+      codex_diag "${hook_name}" "${event_name}" "wrapped-hook-nonzero" "${nonzero_evidence}"
+      rm -f "${normalized_file}" "${normalized_payload_file}" 2>/dev/null || true
+      codex_visible_failure_raw "${event_name}" "VIBEGUARD hook failed: wrapped hook exited nonzero (${nonzero_evidence})."
       return 0
     fi
 
