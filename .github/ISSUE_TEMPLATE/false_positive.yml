@@ -1,0 +1,83 @@
+name: False Positive Report
+description: Report a VibeGuard hook or rule finding that should not have fired
+labels: ["false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use `python3 scripts/report-false-positive.py <event-id> --event-log ~/.vibeguard/events.jsonl` to generate a redacted report body when possible.
+
+  - type: input
+    id: event-id
+    attributes:
+      label: Event ID or Code
+      description: Stable `VG-*` event id/code or bracketed rule id shown in hook output.
+      placeholder: "VG-POLICY-RS03-DOC-EXAMPLE"
+    validations:
+      required: true
+
+  - type: input
+    id: hook
+    attributes:
+      label: Hook
+      description: Hook that produced the finding.
+      placeholder: "post-edit-guard"
+    validations:
+      required: true
+
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule ID
+      description: Canonical rule id, if available.
+      placeholder: "RS-03"
+    validations:
+      required: false
+
+  - type: input
+    id: path
+    attributes:
+      label: Path
+      description: Project-relative path that triggered the finding.
+      placeholder: "docs/examples/demo.rs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Redacted Hook Output
+      description: Paste the redacted block/warn output. Do not include secrets, tokens, or private customer data.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: remediation-context
+    attributes:
+      label: Why This Is a False Positive
+      description: Explain the expected behavior, why the code is acceptable, and whether a scoped suppression is requested.
+      placeholder: "This is documentation/test fixture code showing an intentionally unsafe pattern."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scoped-suppression
+    attributes:
+      label: Proposed Scoped Suppression
+      description: Optional `.vibeguard.json` snippet using hook + rule_id + path + action + reason.
+      render: json
+      placeholder: |
+        {
+          "scoped_suppressions": [
+            {
+              "hook": "post-edit-guard",
+              "rule_id": "RS-03",
+              "path": "docs/examples/**",
+              "action": "downgrade_to_warn",
+              "reason": "documentation intentionally shows unwrap"
+            }
+          ]
+        }
+    validations:
+      required: false

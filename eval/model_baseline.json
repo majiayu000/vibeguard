@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "aliases": {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5",
+    "opus": "claude-opus-4-8"
+  },
+  "default_alias": "haiku",
+  "official_source": "https://platform.claude.com/docs/en/about-claude/models/overview",
+  "verified_at": "2026-07-17",
+  "freshness_days": 90
+}

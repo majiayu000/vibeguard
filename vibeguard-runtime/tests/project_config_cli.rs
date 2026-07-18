@@ -68,6 +68,109 @@ fn project_config_value_reads_valid_values_and_defaults_missing_values() {
 }
 
 #[test]
+fn project_config_validate_accepts_schema_backed_values() {
+    let dir = unique_temp_dir("project_config_schema_values");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join(".vibeguard.json");
+    fs::write(
+        &config,
+        r#"{
+          "languages": ["javascript"],
+          "disabled_guards": ["check_dependency_changes"],
+          "gc": {
+            "catchup_interval_hours": 24
+          }
+        }"#,
+    )
+    .expect("project config should be written");
+
+    let output = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+
+    assert_eq!(output.status.code(), Some(0));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn project_config_validate_accepts_scoped_suppressions() {
+    let dir = unique_temp_dir("project_config_scoped_suppressions");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join(".vibeguard.json");
+    fs::write(
+        &config,
+        r#"{
+          "scoped_suppressions": [
+            {
+              "hook": "post-edit-guard",
+              "rule_id": "RS-03",
+              "path": "docs/examples/**",
+              "code": "VG-POLICY-RS03-DOC-EXAMPLE",
+              "action": "downgrade_to_warn",
+              "reason": "documentation intentionally shows unwrap",
+              "expires_at": "2026-12-31"
+            }
+          ]
+        }"#,
+    )
+    .expect("project config should be written");
+
+    let output = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+
+    assert_eq!(output.status.code(), Some(0));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn project_config_validate_rejects_malformed_scoped_suppressions() {
+    let dir = unique_temp_dir("project_config_bad_scoped_suppressions");
+    fs::create_dir_all(&dir).expect("temp dir should be created");
+    let config = dir.join(".vibeguard.json");
+    fs::write(
+        &config,
+        r#"{
+          "scoped_suppressions": [
+            {
+              "hook": "missing-hook",
+              "rule_id": "bad-rule",
+              "path": "../secret.rs",
+              "code": "bad-code",
+              "action": "hide",
+              "reason": "short",
+              "expires_at": "tomorrow",
+              "extra": true
+            }
+          ]
+        }"#,
+    )
+    .expect("project config should be written");
+
+    let output = bin()
+        .arg("project-config-validate")
+        .arg(&config)
+        .output()
+        .expect("project config validate should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(".scoped_suppressions.0.hook: unsupported hook missing-hook"));
+    assert!(stderr.contains(".scoped_suppressions.0.rule_id: unsupported rule id bad-rule"));
+    assert!(stderr.contains(".scoped_suppressions.0.path: expected project-relative path"));
+    assert!(stderr.contains(".scoped_suppressions.0.code: unsupported event code bad-code"));
+    assert!(stderr.contains(".scoped_suppressions.0.action: unsupported value hide"));
+    assert!(stderr.contains(".scoped_suppressions.0.reason: expected at least 12"));
+    assert!(stderr.contains(".scoped_suppressions.0.expires_at: expected YYYY-MM-DD"));
+    assert!(stderr.contains(".scoped_suppressions.0.extra: unknown property"));
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn project_config_value_fails_visibly_before_reading_invalid_config() {
     let dir = unique_temp_dir("project_config_invalid_value");
     fs::create_dir_all(&dir).expect("temp dir should be created");

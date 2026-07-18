@@ -1,0 +1,18 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact with an unsupported severity value.\n\n## Verdict\nREJECT: the severity vocabulary is invalid.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 2,
+      "side": "RIGHT",
+      "severity": "blocker",
+      "body": "Severity must use the stable review vocabulary."
+    }
+  ],
+  "spec_alignment": {
+    "status": "matched",
+    "spec": "specs/GH17/tech.md",
+    "details": "Only the severity value is invalid."
+  }
+}

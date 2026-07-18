@@ -65,6 +65,32 @@ pub fn record_file(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn record_project_hook(args: &[String]) -> SetupResult<()> {
+    if args.len() != 4 {
+        return Err(
+            "Usage: vibeguard-runtime setup-state-record-project-hook <state-file> <repo-dir> <hook-path> <hook-name>"
+                .into(),
+        );
+    }
+    let state_file = Path::new(&args[0]);
+    let mut state = read_state_or_empty(state_file)?;
+    ensure_state_version(&state)?;
+    let mut entry = serde_json::Map::new();
+    entry.insert("repo_dir".to_string(), Value::String(args[1].clone()));
+    entry.insert("hook_name".to_string(), Value::String(args[3].clone()));
+    state
+        .as_object_mut()
+        .ok_or_else(|| "install-state root must be an object".to_string())?
+        .entry("project_hooks")
+        .or_insert_with(|| json!({}));
+    state["project_hooks"]
+        .as_object_mut()
+        .ok_or("install-state project_hooks must be an object")?
+        .insert(args[2].clone(), Value::Object(entry));
+    write_json_atomic(state_file, &state)?;
+    Ok(())
+}
+
 pub fn check_drift(args: &[String]) -> SetupResult<()> {
     if args.len() != 1 {
         return Err("Usage: vibeguard-runtime setup-state-check-drift <state-file>".into());
@@ -153,15 +179,15 @@ pub fn list(args: &[String]) -> SetupResult<()> {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
     );
-    if let Some(languages) = state.get("languages").and_then(Value::as_array) {
-        if !languages.is_empty() {
-            let text = languages
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!("Languages: {text}");
-        }
+    if let Some(languages) = state.get("languages").and_then(Value::as_array)
+        && !languages.is_empty()
+    {
+        let text = languages
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("Languages: {text}");
     }
     let files = state
         .get("files")
@@ -219,6 +245,48 @@ pub fn list_tracked_symlinks_under(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+pub fn list_project_hooks(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-state-list-project-hooks <state-file>".into());
+    }
+    let state_file = Path::new(&args[0]);
+    if !state_file.exists() {
+        return Ok(());
+    }
+    let state = match read_state(state_file) {
+        Ok(state) => state,
+        Err(_) => return Ok(()),
+    };
+    if state
+        .get("version")
+        .and_then(Value::as_i64)
+        .unwrap_or(STATE_VERSION)
+        != STATE_VERSION
+    {
+        eprintln!("WARN: unsupported install-state version; skipping project hook cleanup");
+        return Ok(());
+    }
+    let hooks = state
+        .get("project_hooks")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (hook_path, info) in hooks {
+        let repo_dir = info.get("repo_dir").and_then(Value::as_str).unwrap_or("");
+        let hook_name = info.get("hook_name").and_then(Value::as_str).unwrap_or("");
+        if hook_path.is_empty() || hook_name.is_empty() {
+            continue;
+        }
+        println!(
+            "{}\t{}\t{}",
+            expand_home(&hook_path).display(),
+            hook_name,
+            repo_dir
+        );
+    }
+    Ok(())
+}
+
 fn read_state(path: &Path) -> SetupResult<Value> {
     let text = std::fs::read_to_string(path)?;
     let value: Value = serde_json::from_str(&text)?;
@@ -268,10 +336,10 @@ fn now_timestamp() -> String {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = home_dir() {
-            return home.join(stripped);
-        }
+    if let Some(stripped) = path.strip_prefix("~/")
+        && let Some(home) = home_dir()
+    {
+        return home.join(stripped);
     }
     PathBuf::from(path)
 }
@@ -332,6 +400,51 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(dir);
+        Ok(())
+    }
+
+    #[test]
+    fn record_project_hook_stores_repo_and_hook_name() -> SetupResult<()> {
+        let dir = unique_temp_dir("install-state-project-hook")?;
+        let state_file = dir.join("install-state.json");
+        let repo_dir = dir.join("project");
+        let hook_path = repo_dir.join(".git/hooks/pre-commit");
+        let hook_parent = hook_path
+            .parent()
+            .ok_or_else(|| "hook path has no parent".to_string())?;
+        fs::create_dir_all(hook_parent)?;
+        fs::write(&hook_path, "hook")?;
+
+        record_project_hook(&[
+            state_file.display().to_string(),
+            repo_dir.display().to_string(),
+            hook_path.display().to_string(),
+            "pre-commit".to_string(),
+        ])?;
+
+        let state = read_state(&state_file)?;
+        let entry = state
+            .get("project_hooks")
+            .and_then(Value::as_object)
+            .and_then(|hooks| hooks.get(&hook_path.display().to_string()));
+        assert_eq!(
+            entry
+                .and_then(|value| value.get("repo_dir"))
+                .and_then(Value::as_str),
+            Some(
+                repo_dir
+                    .to_str()
+                    .ok_or_else(|| "temp path is not utf-8".to_string())?
+            )
+        );
+        assert_eq!(
+            entry
+                .and_then(|value| value.get("hook_name"))
+                .and_then(Value::as_str),
+            Some("pre-commit")
+        );
+
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 

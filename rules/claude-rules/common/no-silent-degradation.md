@@ -1,6 +1,7 @@
 # No Silent Degradation Rules
 
 ## U-29: Error-driven downgrade paths must be observable at error level (strict)
+**Compact guidance:** No silent degradation: errors causing user-visible missing data or wrong output must `error` or raise, not `warning` + fallback.
 
 If an error causes user-visible missing data or incorrect output, you must log it at `error` level or raise it. Do not use `warning` plus fallback to silently emit a wrong result.
 

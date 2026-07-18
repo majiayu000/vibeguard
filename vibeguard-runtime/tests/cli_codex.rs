@@ -1,6 +1,91 @@
 mod common;
 
-use common::run_runtime_with_stdin;
+use common::{bin, run_runtime_with_stdin, unique_temp_dir};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn codex_setup_fixture(label: &str, manifest: Option<&str>) -> (PathBuf, PathBuf, Vec<u8>) {
+    let repo = unique_temp_dir(label);
+    let hooks_dir = repo.join("hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    if let Some(manifest) = manifest {
+        fs::write(hooks_dir.join("manifest.json"), manifest).unwrap();
+    }
+    let hooks_file = repo.join("codex-hooks.json");
+    fs::write(
+        &hooks_file,
+        r#"{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /missing/run-hook-codex.sh vibeguard-pre-bash-guard.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash /missing/third-party.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
+"#,
+    )
+    .unwrap();
+    let before = fs::read(&hooks_file).unwrap();
+    (repo, hooks_file, before)
+}
+
+fn run_codex_setup(command: &str, repo: &Path, hooks_file: &Path) -> std::process::Output {
+    bin()
+        .arg(command)
+        .arg(repo)
+        .arg(hooks_file)
+        .output()
+        .unwrap()
+}
+
+fn valid_codex_manifest(timeout: i64) -> String {
+    serde_json::json!({
+        "schema_version": 1,
+        "profiles": ["core"],
+        "hooks": [
+            {
+                "name": "pre-bash-guard",
+                "script": "pre-bash-guard.sh",
+                "kind": "hook",
+                "trigger": "PreToolUse(Bash)",
+                "responsibilities": "test fixture",
+                "decision_types": ["block"],
+                "claude": { "enabled": false },
+                "codex": {
+                    "enabled": true,
+                    "event": "PreToolUse",
+                    "matcher": "Bash",
+                    "script": "vibeguard-pre-bash-guard.sh",
+                    "timeout": timeout
+                }
+            }
+        ]
+    })
+    .to_string()
+}
+
+fn assert_manifest_failure(output: &std::process::Output) {
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("manifest.json"),
+        "stderr did not identify the manifest: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[test]
 fn codex_event_name_extracts_event_and_tolerates_invalid_json() {
@@ -267,4 +352,448 @@ fn codex_apply_patch_normalizer_maps_file_hook_payloads() {
         moved_delete_json[1]["tool_input"]["vibeguard_line_delta"],
         -1
     );
+}
+
+#[test]
+fn codex_hooks_remove_fails_closed_on_manifest_errors() {
+    let cases = [
+        ("missing-manifest", None),
+        ("invalid-manifest-json", Some("{not-json")),
+        ("invalid-manifest-schema", Some(r#"{"hooks": {}}"#)),
+        (
+            "empty-manifest-hooks",
+            Some(r#"{"schema_version":1,"profiles":["core"],"hooks":[]}"#),
+        ),
+    ];
+
+    for (label, manifest) in cases {
+        let (repo, hooks_file, before) = codex_setup_fixture(label, manifest);
+        let output = run_codex_setup("setup-codex-hooks-remove", &repo, &hooks_file);
+
+        assert_manifest_failure(&output);
+        assert_eq!(fs::read(&hooks_file).unwrap(), before);
+        fs::remove_dir_all(repo).unwrap();
+    }
+}
+
+#[test]
+fn codex_hooks_reject_nonpositive_manifest_timeout_before_writes() {
+    let manifest = valid_codex_manifest(0);
+    let (repo, hooks_file, before) =
+        codex_setup_fixture("invalid-manifest-timeout", Some(&manifest));
+    let output = run_codex_setup("setup-codex-hooks-remove", &repo, &hooks_file);
+
+    assert_manifest_failure(&output);
+    assert_eq!(fs::read(&hooks_file).unwrap(), before);
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_hooks_reject_unsafe_managed_script_before_writes() {
+    let mut manifest: serde_json::Value = serde_json::from_str(&valid_codex_manifest(15)).unwrap();
+    manifest["hooks"][0]["script"] = serde_json::Value::String("../foo.sh".to_string());
+    let manifest = manifest.to_string();
+    let (repo, hooks_file, before) = codex_setup_fixture("unsafe-managed-script", Some(&manifest));
+    let output = run_codex_setup("setup-codex-hooks-remove", &repo, &hooks_file);
+
+    assert_manifest_failure(&output);
+    assert_eq!(fs::read(&hooks_file).unwrap(), before);
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_setup_validates_manifest_before_missing_hooks_file_short_circuits() {
+    for command in [
+        "setup-codex-hooks-remove",
+        "setup-codex-hooks-prune-stale-unmanaged",
+        "setup-codex-hooks-check-stale",
+        "setup-codex-hooks-check-timeouts",
+    ] {
+        let (repo, hooks_file, _) = codex_setup_fixture(command, None);
+        fs::remove_file(&hooks_file).unwrap();
+        let output = run_codex_setup(command, &repo, &hooks_file);
+
+        assert_manifest_failure(&output);
+        assert!(!hooks_file.exists());
+        fs::remove_dir_all(repo).unwrap();
+    }
+}
+
+#[test]
+fn codex_hooks_prune_fails_before_output_or_writes_on_invalid_manifest() {
+    let (repo, hooks_file, before) =
+        codex_setup_fixture("prune-invalid-manifest", Some("{not-json"));
+    let output = bin()
+        .arg("setup-codex-hooks-prune-stale-unmanaged")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg("PreToolUse")
+        .output()
+        .unwrap();
+
+    assert_manifest_failure(&output);
+    assert_eq!(fs::read(&hooks_file).unwrap(), before);
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_hooks_health_checks_validate_manifest_before_classification() {
+    for command in [
+        "setup-codex-hooks-check-stale",
+        "setup-codex-hooks-check-timeouts",
+    ] {
+        let (repo, hooks_file, before) = codex_setup_fixture(command, Some(r#"{"hooks": {}}"#));
+        let output = run_codex_setup(command, &repo, &hooks_file);
+
+        assert_manifest_failure(&output);
+        assert_eq!(fs::read(&hooks_file).unwrap(), before);
+        fs::remove_dir_all(repo).unwrap();
+    }
+}
+
+#[test]
+fn codex_hooks_remove_preserves_third_party_hooks_with_valid_manifest() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("remove-valid-manifest", Some(&manifest));
+    let output = run_codex_setup("setup-codex-hooks-remove", &repo, &hooks_file);
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "CHANGED\n");
+    let hooks: serde_json::Value = serde_json::from_slice(&fs::read(&hooks_file).unwrap()).unwrap();
+    let remaining = hooks
+        .pointer("/hooks/PreToolUse/0/hooks")
+        .and_then(serde_json::Value::as_array)
+        .unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(
+        remaining[0]
+            .get("command")
+            .and_then(serde_json::Value::as_str),
+        Some("bash /missing/third-party.sh")
+    );
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_hooks_health_missing_config_is_clean_or_explicit_skip() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-missing", Some(&manifest));
+    fs::remove_file(&hooks_file).unwrap();
+
+    for command in [
+        "setup-codex-hooks-check-stale",
+        "setup-codex-hooks-check-timeouts",
+    ] {
+        let output = run_codex_setup(command, &repo, &hooks_file);
+        assert!(output.status.success(), "{command}: {output:?}");
+        assert!(output.stdout.is_empty(), "{command}");
+        assert!(output.stderr.is_empty(), "{command}");
+        assert!(!hooks_file.exists(), "{command} created the config");
+    }
+
+    let prune = run_codex_setup(
+        "setup-codex-hooks-prune-stale-unmanaged",
+        &repo,
+        &hooks_file,
+    );
+    assert!(prune.status.success(), "{prune:?}");
+    assert_eq!(String::from_utf8_lossy(&prune.stdout), "SKIP\n");
+    assert!(prune.stderr.is_empty());
+    assert!(!hooks_file.exists());
+
+    let one_arg = bin()
+        .arg("setup-codex-hooks-check-stale")
+        .arg(&hooks_file)
+        .output()
+        .unwrap();
+    assert!(one_arg.status.success(), "{one_arg:?}");
+    assert!(one_arg.stdout.is_empty());
+    assert!(one_arg.stderr.is_empty());
+
+    for config in [
+        "{}",
+        r#"{"hooks":{"PreToolUse":["bad",{}, {"hooks":"bad"}]}}"#,
+    ] {
+        fs::write(&hooks_file, config).unwrap();
+        for command in [
+            "setup-codex-hooks-check-stale",
+            "setup-codex-hooks-check-timeouts",
+        ] {
+            let output = run_codex_setup(command, &repo, &hooks_file);
+            assert!(output.status.success(), "{command}: {output:?}");
+            assert!(output.stdout.is_empty(), "{command}: {output:?}");
+            assert!(output.stderr.is_empty(), "{command}: {output:?}");
+        }
+    }
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_hooks_health_read_errors_are_visible_and_do_not_write() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-read-error", Some(&manifest));
+    let malformed = b"{not-json";
+    fs::write(&hooks_file, malformed).unwrap();
+
+    for command in [
+        "setup-codex-hooks-check-stale",
+        "setup-codex-hooks-check-timeouts",
+        "setup-codex-hooks-prune-stale-unmanaged",
+    ] {
+        let output = run_codex_setup(command, &repo, &hooks_file);
+        assert!(!output.status.success(), "{command} falsely succeeded");
+        assert!(output.stdout.is_empty(), "{command}: {output:?}");
+        assert!(!output.stderr.is_empty(), "{command} hid the read error");
+        assert_eq!(fs::read(&hooks_file).unwrap(), malformed, "{command} wrote");
+    }
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_stale_check_reports_installed_and_unmanaged_missing_targets() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-stale", Some(&manifest));
+    let installed_dir = repo.join(".vibeguard/installed/hooks");
+    fs::create_dir_all(&installed_dir).unwrap();
+    let existing = repo.join("existing-third-party.sh");
+    fs::write(&existing, "#!/bin/sh\n").unwrap();
+    let missing_installed = installed_dir.join("missing-installed.sh");
+    let missing_blocking = repo.join("missing-blocking.sh");
+    let missing_nonblocking = repo.join("missing-nonblocking.js");
+    fs::write(
+        &hooks_file,
+        serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"command": format!("bash {}", missing_installed.display()), "timeout": 15},
+                        {"command": missing_blocking.display().to_string(), "timeout": 15},
+                        {"command": format!("bash {}", existing.display()), "timeout": 15},
+                        {"command": "echo unresolved", "timeout": 15}
+                    ]
+                }],
+                "PostToolUse": [{
+                    "hooks": [{"command": format!("node {}", missing_nonblocking.display()), "timeout": 15}]
+                }]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = run_codex_setup("setup-codex-hooks-check-stale", &repo, &hooks_file);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("stale Codex hook command:"), "{stdout}");
+    assert!(stdout.contains(missing_installed.to_string_lossy().as_ref()));
+    assert!(
+        stdout.contains("repair-required unmanaged Codex blocking hook:"),
+        "{stdout}"
+    );
+    assert!(stdout.contains(missing_blocking.to_string_lossy().as_ref()));
+    assert!(stdout.contains("stale unmanaged Codex hook:"), "{stdout}");
+    assert!(stdout.contains(missing_nonblocking.to_string_lossy().as_ref()));
+    assert!(!stdout.contains(existing.to_string_lossy().as_ref()));
+    assert!(!stdout.contains("echo unresolved"));
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_stale_check_resolves_wrapper_script_targets() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-wrapper", Some(&manifest));
+    let vg_dir = repo.join(".vibeguard");
+    let installed_dir = vg_dir.join("installed/hooks");
+    fs::create_dir_all(&installed_dir).unwrap();
+    let wrapper = vg_dir.join("run-hook-codex.sh");
+    fs::write(&wrapper, "#!/bin/sh\n").unwrap();
+    let present = installed_dir.join("pre-bash-guard.sh");
+    let missing_nested = repo.join("nested/missing.sh");
+    fs::write(&present, "#!/bin/sh\n").unwrap();
+    fs::write(
+        &hooks_file,
+        serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{"hooks": [
+                    {"command": format!("bash {} vibeguard-pre-bash-guard.sh", wrapper.display()), "timeout": 15},
+                    {"command": format!("bash {} missing.sh", wrapper.display()), "timeout": 15},
+                    {"command": format!("bash {}", missing_nested.display()), "timeout": 15}
+                ]}]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = run_codex_setup("setup-codex-hooks-check-stale", &repo, &hooks_file);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&installed_dir.join("missing.sh").display().to_string()));
+    assert!(!stdout.contains("vibeguard-pre-bash-guard.sh"), "{stdout}");
+    assert!(
+        stdout.contains("repair-required unmanaged Codex blocking hook:"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(missing_nested.to_string_lossy().as_ref()),
+        "{stdout}"
+    );
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_prune_removes_only_selected_missing_unmanaged_hooks() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-prune", Some(&manifest));
+    let existing = repo.join("existing.sh");
+    let stale = repo.join("stale.sh");
+    let unselected = repo.join("unselected.sh");
+    fs::write(&existing, "#!/bin/sh\n").unwrap();
+    let managed = repo.join("vibeguard-pre-bash-guard.sh");
+    let original = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Bash", "hooks": [
+                    {"command": format!("bash {}", stale.display())},
+                    {"command": format!("bash {}", existing.display())},
+                    {"command": format!("bash {}", managed.display())},
+                    {"command": "echo unresolved"}
+                ]},
+                "malformed-entry",
+                {"matcher": "Read"}
+            ],
+            "PostToolUse": [{"hooks": [{"command": format!("bash {}", unselected.display())}]}],
+            "MalformedEvent": {"hooks": []}
+        }
+    });
+    fs::write(&hooks_file, original.to_string()).unwrap();
+
+    let output = bin()
+        .arg("setup-codex-hooks-prune-stale-unmanaged")
+        .arg(&repo)
+        .arg(&hooks_file)
+        .arg("PreToolUse")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("removed stale unmanaged Codex hook:"),
+        "{stdout}"
+    );
+    assert!(stdout.ends_with("CHANGED\n"), "{stdout}");
+
+    let updated: serde_json::Value =
+        serde_json::from_slice(&fs::read(&hooks_file).unwrap()).unwrap();
+    let text = updated.to_string();
+    assert!(!text.contains(stale.to_string_lossy().as_ref()));
+    assert!(text.contains(existing.to_string_lossy().as_ref()));
+    assert!(text.contains(managed.to_string_lossy().as_ref()));
+    assert!(text.contains("echo unresolved"));
+    assert!(text.contains(unselected.to_string_lossy().as_ref()));
+    assert!(text.contains("malformed-entry"));
+    assert!(updated["hooks"].get("MalformedEvent").is_none());
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_timeout_check_distinguishes_managed_and_unmanaged_repairs() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-timeout", Some(&manifest));
+    let managed = repo.join("vibeguard-pre-bash-guard.sh");
+    let unmanaged = repo.join("third-party.sh");
+    fs::write(
+        &hooks_file,
+        serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{"matcher": "", "hooks": [
+                    {"command": format!("bash {}", managed.display())},
+                    {"command": format!("bash {}", unmanaged.display()), "timeout": 0},
+                    {"command": "bash /ignored-positive.sh", "timeout": 1},
+                    {"command": ""},
+                    "malformed"
+                ]}],
+                "MalformedEvent": "not-an-array"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = run_codex_setup("setup-codex-hooks-check-timeouts", &repo, &hooks_file);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("managed Codex hook without timeout:"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("repair=bash setup.sh --yes"), "{stdout}");
+    assert!(
+        stdout.contains("unmanaged Codex hook without timeout:"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("repair=add timeout or consult hook owner"),
+        "{stdout}"
+    );
+    assert_eq!(stdout.matches("Codex hook without timeout:").count(), 2);
+    assert!(stdout.contains("matcher=<none>"));
+    fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn codex_prune_handles_empty_malformed_kept_and_fully_removed_containers() {
+    let manifest = valid_codex_manifest(15);
+    let (repo, hooks_file, _) = codex_setup_fixture("health-prune-containers", Some(&manifest));
+
+    for data in [
+        serde_json::json!({}),
+        serde_json::json!({"hooks": {"PreToolUse": {"hooks": []}}}),
+        serde_json::json!({"hooks": {"PreToolUse": [{"hooks": [
+            {"command": "echo unresolved"}
+        ]}]}}),
+    ] {
+        fs::write(&hooks_file, data.to_string()).unwrap();
+        let output = run_codex_setup(
+            "setup-codex-hooks-prune-stale-unmanaged",
+            &repo,
+            &hooks_file,
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "SKIP\n");
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&hooks_file).unwrap()).unwrap(),
+            data
+        );
+    }
+
+    let stale = repo.join("only-stale.sh");
+    fs::write(
+        &hooks_file,
+        serde_json::json!({"hooks": {"PreToolUse": [{"hooks": [
+            {"command": format!("bash {}", stale.display())}
+        ]}]}})
+        .to_string(),
+    )
+    .unwrap();
+    let output = run_codex_setup(
+        "setup-codex-hooks-prune-stale-unmanaged",
+        &repo,
+        &hooks_file,
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).ends_with("CHANGED\n"),
+        "{output:?}"
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&hooks_file).unwrap()).unwrap(),
+        serde_json::json!({})
+    );
+    fs::remove_dir_all(repo).unwrap();
 }

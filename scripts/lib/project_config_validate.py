@@ -155,6 +155,11 @@ def main() -> int:
     parser.add_argument("config", type=Path)
     parser.add_argument("schema", type=Path)
     parser.add_argument("--quiet", action="store_true", help="Suppress success output")
+    parser.add_argument(
+        "--print-languages",
+        action="store_true",
+        help="Print validated project languages as a comma-separated value",
+    )
     args = parser.parse_args()
 
     try:
@@ -171,7 +176,9 @@ def main() -> int:
             print(f"  {error}", file=sys.stderr)
         return 1
 
-    if not args.quiet:
+    if args.print_languages:
+        print(",".join(config.get("languages", [])))
+    elif not args.quiet:
         print(f"OK: {args.config}")
     return 0
 

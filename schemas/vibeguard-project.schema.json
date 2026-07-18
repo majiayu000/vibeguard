@@ -67,7 +67,9 @@
           "check_dead_shims",
           "check_declaration_execution_gap",
           "check_defer_in_loop",
+          "check_dependency_changes",
           "check_dependency_layers",
+          "check_doc_overload",
           "check_duplicate_constants",
           "check_duplicate_types",
           "check_duplicates",
@@ -75,16 +77,74 @@
           "check_goroutine_leak",
           "check_naming_convention",
           "check_nested_locks",
+          "check_runtime_drift",
+          "check_sec13_mcp_config_risks",
           "check_semantic_effect",
           "check_single_source_of_truth",
           "check_taste_invariants",
           "check_test_integrity",
+          "check_test_weakening",
           "check_unwrap_in_prod",
           "check_workspace_consistency"
         ]
       },
       "default": [],
       "description": "Guard script names to skip. e.g. [\"check_unwrap_in_prod\", \"check_any_abuse\"]"
+    },
+    "scoped_suppressions": {
+      "type": "array",
+      "default": [],
+      "description": "Narrow false-positive suppressions by hook, rule id, and project-relative path pattern.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hook", "rule_id", "path", "action", "reason"],
+        "properties": {
+          "hook": {
+            "type": "string",
+            "enum": [
+              "analysis-paralysis-guard",
+              "count-active-constraints",
+              "learn-evaluator",
+              "post-build-check",
+              "post-edit-guard",
+              "post-write-guard",
+              "pre-bash-guard",
+              "pre-commit-guard",
+              "pre-edit-guard",
+              "pre-write-guard",
+              "stop-guard"
+            ]
+          },
+          "rule_id": {
+            "type": "string",
+            "pattern": "^(L[1-7]|(SEC|RS|GO|TS|PY|U|W|TASTE)-[A-Za-z0-9-]+)$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Project-relative path or glob, such as docs/** or tests/fixtures/**."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^VG-[A-Z0-9-]+$",
+            "description": "Optional stable event code from hook output or events.jsonl."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["downgrade_to_warn", "suppress"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 12
+          },
+          "expires_at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+            "description": "Optional YYYY-MM-DD expiry for temporary suppressions."
+          }
+        }
+      }
     },
     "gc": {
       "type": "object",
@@ -126,6 +186,12 @@
           "minimum": 1,
           "default": 1024,
           "description": "Trim gc-cron.log when it exceeds this size in KB. Env override: VIBEGUARD_GC_LOG_MAX_KB."
+        },
+        "catchup_interval_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 168,
+          "description": "Maximum age in hours for scheduled GC catch-up runs. Env override: VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS."
         }
       }
     }

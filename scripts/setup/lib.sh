@@ -14,6 +14,7 @@ SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
+SETUP_RUNTIME_RELEASE_MANIFEST="vibeguard-runtime-releases.json"
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
@@ -88,7 +89,9 @@ setup_runtime_supports() {
     setup-codex-hooks-upsert \
     setup-codex-hooks-check \
     setup-codex-hooks-check-stale \
-    setup-codex-hooks-check-timeouts; do
+    setup-codex-hooks-prune-stale-unmanaged \
+    setup-codex-hooks-check-timeouts \
+    runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"
     if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
       return 1
@@ -150,6 +153,68 @@ setup_runtime_sha256_file() {
   fi
 }
 
+setup_runtime_file_size() {
+  local path="$1" size
+  size="$(wc -c < "${path}" | tr -d '[:space:]')" || return 1
+  [[ "${size}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${size}"
+}
+
+setup_runtime_release_manifest_sha256() {
+  local manifest_path="$1" tag="$2" release_repo="$3" target="$4" asset="$5"
+  local version="${tag#v}"
+  [[ -f "${manifest_path}" && -n "${version}" && "${tag}" == v* ]] || return 1
+  awk -v tag="${tag}" \
+    -v version="${version}" \
+    -v release_repo="${release_repo}" \
+    -v target="${target}" \
+    -v asset="${asset}" '
+    function string_value(line, value) {
+      value = line
+      sub(/^[^:]*:[[:space:]]*"/, "", value)
+      sub(/",[[:space:]]*$/, "", value)
+      sub(/"[[:space:]]*$/, "", value)
+      return value
+    }
+    function number_value(line, value) {
+      value = line
+      sub(/^[^:]*:[[:space:]]*/, "", value)
+      sub(/,[[:space:]]*$/, "", value)
+      return value
+    }
+    $0 ~ /"schema_version"[[:space:]]*:[[:space:]]*1[[:space:],]*$/ { schema_ok = 1 }
+    $0 ~ /"package"[[:space:]]*:/ { package_ok = (string_value($0) == "vibeguard-runtime") }
+    $0 ~ /"release_repo"[[:space:]]*:/ { repo_ok = (string_value($0) == release_repo) }
+    $0 ~ /"tag"[[:space:]]*:/ { tag_ok = (string_value($0) == tag) }
+    $0 ~ /"version"[[:space:]]*:/ { version_ok = (string_value($0) == version) }
+    index($0, "\"" target "\"") && $0 ~ /:[[:space:]]*\{[[:space:]]*$/ {
+      in_target = 1
+      target_name = ""
+      target_sha = ""
+      target_size_ok = 0
+      next
+    }
+    in_target && $0 ~ /"name"[[:space:]]*:/ { target_name = string_value($0) }
+    in_target && $0 ~ /"sha256"[[:space:]]*:/ { target_sha = string_value($0) }
+    in_target && $0 ~ /"size"[[:space:]]*:/ {
+      target_size = number_value($0)
+      target_size_ok = (target_size ~ /^[1-9][0-9]*$/)
+    }
+    in_target && $0 ~ /^[[:space:]]*}[,]?[[:space:]]*$/ {
+      found_target = 1
+      in_target = 0
+    }
+    END {
+      manifest_ok = schema_ok && package_ok && repo_ok && tag_ok && version_ok && found_target && target_name == asset && target_size_ok && target_sha ~ /^[0-9a-f]{64}$/
+      if (manifest_ok) {
+        print target_sha " " target_size
+        exit 0
+      }
+      exit 1
+    }
+  ' "${manifest_path}"
+}
+
 setup_runtime_verify_release_provenance() {
   local asset_path="$1" release_repo="$2" tag="$3"
   SETUP_RUNTIME_PROVENANCE_STATUS="checksum-only"
@@ -185,7 +250,8 @@ setup_download_prebuilt_runtime_quiet() {
   local target="$1" tag="$2" dest="$3"
   local asset="vibeguard-runtime-${target}"
   local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
-  local download_dir downloaded expected actual provenance_rc
+  local download_dir downloaded expected actual actual_size provenance_rc
+  local manifest_metadata manifest_expected manifest_size
 
   download_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-runtime-download_XXXXXX")"
   downloaded=0
@@ -197,6 +263,10 @@ setup_download_prebuilt_runtime_quiet() {
       --pattern "SHA256SUMS" \
       --dir "${download_dir}" >/dev/null 2>&1; then
       downloaded=1
+      gh release download "${tag}" \
+        --repo "${release_repo}" \
+        --pattern "${SETUP_RUNTIME_RELEASE_MANIFEST}" \
+        --dir "${download_dir}" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -205,6 +275,8 @@ setup_download_prebuilt_runtime_quiet() {
     if curl -fsSL -o "${download_dir}/${asset}" "${base_url}/${asset}" >/dev/null 2>&1 \
       && curl -fsSL -o "${download_dir}/SHA256SUMS" "${base_url}/SHA256SUMS" >/dev/null 2>&1; then
       downloaded=1
+      curl -fsSL -o "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" \
+        "${base_url}/${SETUP_RUNTIME_RELEASE_MANIFEST}" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -221,6 +293,26 @@ setup_download_prebuilt_runtime_quiet() {
   if ! actual="$(setup_runtime_sha256_file "${download_dir}/${asset}")" || [[ "${actual}" != "${expected}" ]]; then
     rm -rf "${download_dir}"
     return 1
+  fi
+  if [[ -f "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" ]]; then
+    if ! actual_size="$(setup_runtime_file_size "${download_dir}/${asset}")"; then
+      rm -rf "${download_dir}"
+      return 1
+    fi
+    if ! manifest_metadata="$(setup_runtime_release_manifest_sha256 \
+      "${download_dir}/${SETUP_RUNTIME_RELEASE_MANIFEST}" \
+      "${tag}" \
+      "${release_repo}" \
+      "${target}" \
+      "${asset}")"; then
+      rm -rf "${download_dir}"
+      return 1
+    fi
+    read -r manifest_expected manifest_size <<< "${manifest_metadata}"
+    if [[ "${manifest_expected}" != "${expected}" || "${manifest_size}" != "${actual_size}" ]]; then
+      rm -rf "${download_dir}"
+      return 1
+    fi
   fi
   provenance_rc=0
   setup_runtime_verify_release_provenance "${download_dir}/${asset}" "${release_repo}" "${tag}" || provenance_rc=$?

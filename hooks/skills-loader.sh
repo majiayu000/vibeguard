@@ -123,29 +123,69 @@ for score, name, desc in matches[:5]:
     print(f'{name}: {desc}')
 " 2>/dev/null || true)
 
-# ── Learning signal recommendation (consume learn-digest.jsonl, water level deduplication) ──
+# ── Learning signal recommendation (read-only signal inbox preview) ──
 DIGEST_FILE="${HOME}/.vibeguard/learn-digest.jsonl"
-WATERMARK_FILE="${HOME}/.vibeguard/.learn-watermark"
+LEARN_STATE_FILE="${HOME}/.vibeguard/learn-state.jsonl"
 
-LEARN_HINTS=$(python3 -c "
-import json, os, sys
+LEARN_HINTS=$(DIGEST_FILE="$DIGEST_FILE" LEARN_STATE_FILE="$LEARN_STATE_FILE" python3 <<'PY'
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime, timezone
 
-digest = '${DIGEST_FILE}'
-watermark = '${WATERMARK_FILE}'
-
+digest = os.environ["DIGEST_FILE"]
+state_file = os.environ["LEARN_STATE_FILE"]
 if not os.path.exists(digest):
     sys.exit(0)
 
-# Read water level
-last_ts = ''
-if os.path.exists(watermark):
-    with open(watermark) as f:
-        last_ts = f.read().strip()
+now = datetime.now(timezone.utc)
+states = {}
+if os.path.exists(state_file):
+    with open(state_file, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            signal_id = record.get("signal_id")
+            to_state = record.get("to")
+            if not isinstance(signal_id, str) or not isinstance(to_state, str):
+                continue
+            states[signal_id] = record
 
-# Read the new signal after the water mark
-new_signals = []
-latest_ts = last_ts
-with open(digest) as f:
+def fallback_signal_id(project, sig):
+    key = json.dumps(
+        {
+            "project": project,
+            "type": sig.get("type", ""),
+            "reason": sig.get("reason", ""),
+            "file": sig.get("file", ""),
+            "guard": sig.get("guard", ""),
+        },
+        sort_keys=True,
+    )
+    return "legacy:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+def is_pending(signal_id):
+    record = states.get(signal_id)
+    if not record:
+        return True
+    state = record.get("to")
+    if state in {"adopted", "skipped", "verified", "stale"}:
+        return False
+    if state == "snoozed":
+        until = record.get("until")
+        if not isinstance(until, str):
+            return True
+        try:
+            return datetime.fromisoformat(until.replace("Z", "+00:00")) <= now
+        except ValueError:
+            return True
+    return True
+
+pending_signals = []
+with open(digest, encoding="utf-8", errors="replace") as f:
     for line in f:
         line = line.strip()
         if not line:
@@ -155,18 +195,23 @@ with open(digest) as f:
         except json.JSONDecodeError:
             continue
         ts = entry.get('ts', '')
-        if ts <= last_ts:
-            continue
-        if ts > latest_ts:
-            latest_ts = ts
+        project = entry.get('project', '')
         for sig in entry.get('signals', []):
-            sig['project'] = entry.get('project', '')
-            new_signals.append(sig)
+            if not isinstance(sig, dict):
+                continue
+            sig = dict(sig)
+            sig['project'] = project
+            sig['ts'] = ts
+            signal_id = sig.get('signal_id') or fallback_signal_id(project, sig)
+            sig['signal_id'] = signal_id
+            if is_pending(signal_id):
+                pending_signals.append(sig)
 
-if not new_signals:
+if not pending_signals:
     sys.exit(0)
 
-# Summarize by type, output up to 5 items
+# Summarize by type, output up to 5 items. Display is read-only; triage state
+# changes only through scripts/learn/triage_state.py.
 type_labels = {
     'repeated_warn': 'High frequency warning',
     'chronic_block': 'Repeated interception',
@@ -176,7 +221,7 @@ type_labels = {
     'linter_violations': 'Code violations',
 }
 output = []
-for sig in new_signals[:5]:
+for sig in pending_signals[:5]:
     t = type_labels.get(sig['type'], sig['type'])
     src = '[scan]' if sig.get('source') == 'code_scan' else '[log]'
     if sig['type'] == 'linter_violations':
@@ -189,13 +234,10 @@ for sig in new_signals[:5]:
         detail = '...' + detail[-52:]
     output.append(f'{src} {t}: {detail} ({count} times)')
 
-# Update water level
-with open(watermark, 'w') as f:
-    f.write(latest_ts)
-
 for line in output:
     print(line)
-" 2>/dev/null || true)
+PY
+) || LEARN_HINTS=""
 
 # output
 HAS_OUTPUT=false

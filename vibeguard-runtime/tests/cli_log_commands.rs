@@ -15,17 +15,17 @@ fn observe_export_prometheus_omits_raw_sensitive_labels() {
     fs::create_dir_all(&root).unwrap();
     let input = root.join("events.jsonl");
     let output_file = root.join("metrics.prom");
-    fs::write(
-        &input,
-        concat!(
-            "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
-            "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
-            "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
-            "\"detail\":\"Edit /Users/alice/project/src/private_token.rs\",",
-            "\"duration_ms\":250}\n"
-        ),
+    let personal_home = format!("/Users/{}", "alice");
+    let personal_path = format!("{personal_home}/project/src/private_token.rs");
+    let event = concat!(
+        "{\"ts\":\"2026-05-31T00:00:00Z\",\"session\":\"secret-session\",",
+        "\"hook\":\"post-edit-guard\",\"tool\":\"Edit\",\"decision\":\"warn\",",
+        "\"reason\":\"U-16 block for customer@example.com command cargo test -- --ignored\",",
+        "\"detail\":\"Edit __PERSONAL_PATH__\",",
+        "\"duration_ms\":250}\n"
     )
-    .unwrap();
+    .replace("__PERSONAL_PATH__", &personal_path);
+    fs::write(&input, event).unwrap();
 
     let out = bin()
         .args([
@@ -56,7 +56,7 @@ fn observe_export_prometheus_omits_raw_sensitive_labels() {
         "secret-session",
         "customer@example.com",
         "cargo test -- --ignored",
-        "/Users/alice",
+        personal_home.as_str(),
         "private_token",
     ] {
         assert!(!stdout.contains(raw), "raw value leaked: {raw}\n{stdout}");
@@ -248,6 +248,7 @@ fn circuit_breaker_command_lock_timeout_is_error() {
     let lock_file = dir.join("hook.cb.lock");
     let file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .open(&lock_file)
         .unwrap();
@@ -274,7 +275,7 @@ fn circuit_breaker_command_mkdir_lock_timeout_is_error() {
     fs::create_dir_all(&dir).unwrap();
     let state_file = dir.join("hook.cb");
     let lock_file = dir.join("hook.cb.lock");
-    fs::create_dir(&dir.join("hook.cb.lock.d")).unwrap();
+    fs::create_dir(dir.join("hook.cb.lock.d")).unwrap();
 
     let out = run_circuit_breaker("check", "cb-hook", &state_file, &lock_file, "session-a");
     assert_eq!(out.status.code(), Some(1));
@@ -552,6 +553,40 @@ fn append_jsonl_command_lock_timeout_does_not_write_unlocked() {
         "expected lock timeout in stderr: {stderr}"
     );
     assert!(!log_file.exists());
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn append_jsonl_command_removes_stale_lock_dir() {
+    let dir = unique_temp_dir("append-jsonl-stale-lock");
+    fs::create_dir_all(&dir).unwrap();
+    let log_file = dir.join("events.jsonl");
+    let lock_dir = format!("{}.lock.d", log_file.display());
+    fs::create_dir(&lock_dir).unwrap();
+    let mut child = bin()
+        .args(["append-jsonl", log_file.to_str().unwrap()])
+        .env("VIBEGUARD_LOG_LOCK_ATTEMPTS", "1")
+        .env("VIBEGUARD_LOG_LOCK_SLEEP_SECONDS", "0")
+        .env("VIBEGUARD_LOG_LOCK_STALE_SECONDS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"stale_lock\":true}")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("\"stale_lock\":true"), "{log_text}");
+    assert!(
+        !std::path::Path::new(&lock_dir).exists(),
+        "stale lock dir should be removed"
+    );
     let _ = fs::remove_dir_all(dir);
 }
 

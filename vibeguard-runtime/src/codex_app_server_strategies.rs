@@ -370,14 +370,13 @@ impl GateStrategy for VibeGuardGateStrategy {
                 {
                     thread.cwd = Some(cwd.into());
                 }
-                if method == "turn/start" {
-                    if let Some(turn_id) = params
+                if method == "turn/start"
+                    && let Some(turn_id) = params
                         .get("turnId")
                         .and_then(Value::as_str)
                         .filter(|s| !s.is_empty())
-                    {
-                        thread.turn_id = Some(turn_id.into());
-                    }
+                {
+                    thread.turn_id = Some(turn_id.into());
                 }
             }
             _ => {}
@@ -438,6 +437,10 @@ mod profile_tests;
 #[cfg(test)]
 #[path = "codex_app_server_missing_hook_tests.rs"]
 mod missing_hook_tests;
+
+#[cfg(test)]
+#[path = "codex_app_server_scoped_suppression_tests.rs"]
+mod scoped_suppression_tests;
 
 #[cfg(test)]
 #[path = "codex_app_server_strategies_tests.rs"]

@@ -85,8 +85,8 @@ Evaluation-driven development: Not just "can the code run", but quantify "how go
 ## VibeGuard Integration
 
 - Code base Grader can reuse guard script output (such as `guards/<lang>/check_*.sh`)
-- Security Grader reference `vibeguard/rules/security.md`
-- Quality Grader reference `vibeguard/rules/universal.md`
+- Security Grader reference `rules/claude-rules/common/security.md`
+- Quality Grader reference `rules/claude-rules/common/coding-style.md`
 
 ## Red Flags
 

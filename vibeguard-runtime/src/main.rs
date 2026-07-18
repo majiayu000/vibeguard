@@ -3,6 +3,7 @@ mod circuit_breaker;
 mod codex_app_server;
 mod codex_app_server_core;
 mod codex_app_server_file_changes;
+mod codex_app_server_hooks;
 mod codex_app_server_policy;
 mod codex_app_server_strategies;
 mod codex_hooks;
@@ -17,6 +18,15 @@ mod hook_checks_history;
 mod hook_checks_scan;
 mod hook_checks_write;
 mod hook_checks_write_scan;
+mod hook_orchestrator;
+mod hook_orchestrator_context;
+mod hook_orchestrator_learn;
+mod hook_orchestrator_post_edit;
+mod hook_orchestrator_post_edit_history;
+mod hook_orchestrator_post_write;
+mod hook_orchestrator_pre_bash;
+mod hook_orchestrator_pre_edit;
+mod hook_orchestrator_stop;
 mod hook_output;
 mod hook_status;
 mod json_field;
@@ -26,11 +36,14 @@ mod log_scope;
 mod observe;
 mod pkg_rewrite;
 mod project_config;
+mod project_config_scoped_suppression;
 mod runtime_config;
+mod runtime_config_validation;
 mod runtime_policy;
 mod session_metrics;
 mod setup_codex_config;
 mod setup_codex_hooks;
+mod setup_codex_hooks_health;
 mod setup_install_state;
 mod setup_manifest;
 mod setup_markdown;
@@ -129,6 +142,11 @@ static COMMANDS: &[Command] = &[
         name: "pre-bash-check",
         usage: "<vibeguard-root>  — classify PreToolUse(Bash) input for hooks",
         handler: hook_checks_bash::pre_bash_check,
+    },
+    Command {
+        name: "hook",
+        usage: "<pre-write|pre-bash|pre-edit|post-write|post-edit|stop|learn>  — run a single-process hook orchestrator scaffold",
+        handler: hook_orchestrator::run,
     },
     Command {
         name: "session-metrics",
@@ -257,7 +275,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "runtime-policy-downgrade-output",
-        usage: "  — downgrade stdin hook JSON to warn-mode advisory output",
+        usage: "[--warn-mode] [--cwd <path>] [--payload <path-or-json>] [<hook-name>]  — downgrade stdin hook JSON for warn-mode or scoped suppressions",
         handler: runtime_policy::runtime_policy_downgrade_output,
     },
     Command {
@@ -269,6 +287,11 @@ static COMMANDS: &[Command] = &[
         name: "runtime-policy-diag",
         usage: "<diag-file> <hook-name> <event-name> <kind> <wrapper>  — append policy diagnostic JSONL from stdin reason",
         handler: runtime_policy::runtime_policy_diag,
+    },
+    Command {
+        name: "runtime-config-validate",
+        usage: "<config-file>  — validate user runtime configuration",
+        handler: runtime_config::runtime_config_validate,
     },
     Command {
         name: "runtime-config-get-int",
@@ -401,6 +424,11 @@ static COMMANDS: &[Command] = &[
         handler: setup_install_state::record_file,
     },
     Command {
+        name: "setup-state-record-project-hook",
+        usage: "<state-file> <repo-dir> <hook-path> <hook-name>  — record project git hook",
+        handler: setup_install_state::record_project_hook,
+    },
+    Command {
         name: "setup-state-check-drift",
         usage: "<state-file>  — check install-state drift",
         handler: setup_install_state::check_drift,
@@ -414,6 +442,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-list-symlinks-under",
         usage: "<state-file> <dest-dir>  — list tracked symlinks under a directory",
         handler: setup_install_state::list_tracked_symlinks_under,
+    },
+    Command {
+        name: "setup-state-list-project-hooks",
+        usage: "<state-file>  — list tracked project git hooks",
+        handler: setup_install_state::list_project_hooks,
     },
     Command {
         name: "setup-codex-config-enable-hooks",
@@ -447,8 +480,13 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-codex-hooks-check-stale",
-        usage: "<hooks-file>  — detect stale Codex hook commands",
+        usage: "[repo-dir] <hooks-file>  — detect stale Codex hook commands",
         handler: setup_codex_hooks::codex_hooks_check_stale,
+    },
+    Command {
+        name: "setup-codex-hooks-prune-stale-unmanaged",
+        usage: "<repo-dir> <hooks-file> [event...]  — remove missing-target unmanaged Codex hooks for selected events",
+        handler: setup_codex_hooks::codex_hooks_prune_stale_unmanaged,
     },
     Command {
         name: "setup-codex-hooks-check-timeouts",

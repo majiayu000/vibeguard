@@ -1,6 +1,7 @@
 # Security Rules
 
 ## SEC-01: SQL / NoSQL / OS command injection (critical)
+**Compact guidance:** No SQL / NoSQL / OS command injection: use parameterized queries and array argument lists.
 String concatenation is used to build queries or commands. Fix: use parameterized queries; pass command arguments as an array instead of a shell string.
 ```python
 cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))  # Correct
@@ -8,6 +9,7 @@ subprocess.run(["ls", "-la", path], check=True)                   # Correct
 ```
 
 ## SEC-02: Hardcoded keys / credentials / API tokens (critical)
+**Compact guidance:** No hardcoded keys, credentials, or API tokens. Load from env / secret manager.
 Secrets are written directly in code. Fix: move them to environment variables or a secret manager. Add `.env` to `.gitignore`.
 
 ## SEC-03: Unescaped user input rendered directly into HTML (high)
@@ -35,6 +37,7 @@ Examples include `pickle` and `yaml.load`. Fix: use `yaml.safe_load()` in Python
 Passwords or tokens appear in logs. Fix: redact log output and replace sensitive fields with `***`.
 
 ## SEC-11: AI-generated code security defect baseline (strict)
+**Compact guidance:** AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`.
 AI-generated code carries materially higher security risk than hand-written code, so review intensity must increase accordingly.
 
 **Empirical data** (source: Addy Osmani, "Code Review in the Age of AI", 2026):
@@ -118,6 +121,7 @@ Claude Code v2.1.121 (released 2026-04-28, verified via `gh api repos/anthropics
 **Downgrade path** (U-32 compliance): if a project legitimately needs `alwaysLoad: true` for latency reasons (e.g. an internal MCP server with thousands of vetted tools), the project must record the decision in its repo (e.g. an ADR or `SECURITY.md` note) and re-confirm the decision when any of those tool descriptions changes.
 
 ## SEC-13: High-context file integrity protection (strict)
+**Compact guidance:** High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators.
 `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, `.claude/**/*.md`, hook configurations and hook scripts (`.claude/hooks/**`, the `hooks` field of `~/.claude/settings.json`, plus the actual command path the hook resolves to), and rule or skill definitions are **high-context files**. If a dependency, build script, or external generator silently rewrites them, it can change the agent's behavior boundaries and summary output.
 
 **Rules**:

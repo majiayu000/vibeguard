@@ -14,18 +14,14 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 - User explicitly says `/plan`, `/prompts:plan`, or "enter Plan mode".
 - User wants a structured execution plan written under `plan/`.
 - User asks for planning before implementation and does not want code changes yet.
+- The task should be decomposed before implementation instead of executed directly.
+- A previous plan needs a deliberate update or replacement with traceable scope.
 
 > Note: This skill only takes effect when the user explicitly triggers Plan mode and does not affect normal conversations.
 > In actual use, you can pass:
 >
 > - Enter `/` and select `/prompts:plan` in the pop-up window; or
 > - Configure shortcut keys in the terminal and automatically enter `/prompts:plan` to obtain a one-click experience similar to "/plan".
-
-## When to Activate
-
-- The user explicitly asks for Plan mode, `/prompts:plan`, `/plan`, or a plan file under `plan/`.
-- The task should be decomposed before implementation instead of executed directly.
-- A previous plan needs a deliberate update or replacement with traceable scope.
 
 ## Red Flags
 
@@ -137,7 +133,7 @@ When writing a file, a YAML-style metadata header (frontmatter) must be used at 
 ```markdown
 ---
 mode: plan
-cwd: <current working directory, for example /Users/xxx/project>
+cwd: <current working directory, for example /Users/<username>/project>
 task: <task title or summary (usually from your summary of $ARGUMENTS)>
 complexity: <simple|medium|complex>
 planning_method: builtin

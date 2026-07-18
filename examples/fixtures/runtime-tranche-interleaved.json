@@ -1,0 +1,68 @@
+{
+  "checkpoint_version": 1,
+  "repo": "example/repo",
+  "status": "running",
+  "context_budget": {
+    "window_tokens": 258400,
+    "soft_stop_ratio": 0.5,
+    "hard_stop_ratio": 0.65,
+    "critical_stop_ratio": 0.75
+  },
+  "output_firewall": {
+    "raw_log_policy": "file_only",
+    "max_parent_stdout_lines": 150,
+    "max_subagent_final_lines": 150,
+    "artifact_root": "artifacts/logs/tranche-mix-example"
+  },
+  "resume_prompt": "Read this checkpoint and refresh remote truth.",
+  "tranche_id": "2026-07-04-tranche-interleaved-t01",
+  "scope": "spec and implementation PRs interleaved within the cap",
+  "items": [
+    {
+      "issue": 401,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "spec"
+    },
+    {
+      "issue": 402,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "spec"
+    },
+    {
+      "issue": 403,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "impl"
+    },
+    {
+      "issue": 404,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "spec"
+    },
+    {
+      "issue": 405,
+      "state": "blocked",
+      "next_action": "continue queue"
+    },
+    {
+      "issue": 406,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "spec"
+    },
+    {
+      "issue": 407,
+      "state": "running",
+      "next_action": "continue queue",
+      "pr_kind": "mixed_impl"
+    }
+  ],
+  "tranche_mix": {
+    "spec_pr_count": 4,
+    "impl_pr_count": 2,
+    "consecutive_spec_only": 2
+  }
+}

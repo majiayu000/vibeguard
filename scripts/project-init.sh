@@ -8,8 +8,15 @@ set -euo pipefail
 
 PROJECT_ROOT="${1:-$(pwd)}"
 cd "$PROJECT_ROOT" || { echo "ERROR: Unable to enter directory $PROJECT_ROOT"; exit 1; }
+PROJECT_ROOT_ABS="$(pwd -P)"
 
 VIBEGUARD_DIR="${VIBEGUARD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+if [[ -f "${VIBEGUARD_DIR}/scripts/lib/install-state.sh" ]]; then
+  # shellcheck source=scripts/lib/install-state.sh
+  source "${VIBEGUARD_DIR}/scripts/lib/install-state.sh"
+else
+  state_record_project_hook() { return 127; }
+fi
 
 echo "=== VibeGuard Project Init ==="
 echo "Project: $PROJECT_ROOT"
@@ -180,13 +187,23 @@ echo
 echo "--- Git Hooks ---"
 PRE_COMMIT_WRAPPER="${HOME}/.vibeguard/pre-commit"
 PRE_PUSH_WRAPPER="${HOME}/.vibeguard/pre-push"
-GIT_HOOKS_DIR="${PROJECT_ROOT}/.git/hooks"
-if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
+GIT_HOOKS_DIR="${PROJECT_ROOT_ABS}/.git/hooks"
+record_project_hook_install() {
+  local hook_name="$1" hook_path="$2" hook_dir abs_hook_path
+  hook_dir="$(dirname "${hook_path}")"
+  abs_hook_path="$(cd "${hook_dir}" && pwd -P)/$(basename "${hook_path}")"
+  if ! state_record_project_hook "${PROJECT_ROOT_ABS}" "${abs_hook_path}" "${hook_name}"; then
+    echo "WARN: failed to record ${hook_name} hook for setup --clean; manual removal may be needed: ${abs_hook_path}" >&2
+  fi
+}
+
+if [[ -d "${PROJECT_ROOT_ABS}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
   mkdir -p "$GIT_HOOKS_DIR"
   if [[ -f "$GIT_HOOKS_DIR/pre-commit" ]]; then
     echo ".git/hooks/pre-commit already exists, skip (manual override: ln -sf $PRE_COMMIT_WRAPPER $GIT_HOOKS_DIR/pre-commit)"
   else
     ln -sf "$PRE_COMMIT_WRAPPER" "$GIT_HOOKS_DIR/pre-commit"
+    record_project_hook_install "pre-commit" "${GIT_HOOKS_DIR}/pre-commit"
     echo "pre-commit hook installed"
   fi
   if [[ -f "$PRE_PUSH_WRAPPER" ]]; then
@@ -194,12 +211,13 @@ if [[ -d "${PROJECT_ROOT}/.git" ]] && [[ -f "$PRE_COMMIT_WRAPPER" ]]; then
       echo ".git/hooks/pre-push already exists, skip (manual overwrite: ln -sf $PRE_PUSH_WRAPPER $GIT_HOOKS_DIR/pre-push)"
     else
       ln -sf "$PRE_PUSH_WRAPPER" "$GIT_HOOKS_DIR/pre-push"
+      record_project_hook_install "pre-push" "${GIT_HOOKS_DIR}/pre-push"
       echo "pre-push hook installed"
     fi
   else
     echo " ~/.vibeguard/pre-push does not exist, please run setup.sh first"
   fi
-elif [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
+elif [[ ! -d "${PROJECT_ROOT_ABS}/.git" ]]; then
   echo "Non-git repository, skip"
 elif [[ ! -f "$PRE_COMMIT_WRAPPER" ]]; then
   echo " ~/.vibeguard/pre-commit does not exist, please run setup.sh first"

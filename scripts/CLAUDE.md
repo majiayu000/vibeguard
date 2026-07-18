@@ -7,6 +7,9 @@ Reference notes for the utility scripts shipped with VibeGuard.
 | Script | Purpose |
 |------|------|
 | `stats.sh` | Analyze `events.jsonl` and summarize hook activity, decision mix, and hot spots |
+| `health-report.py` | Aggregate observe summary/health, precision tracker, and Learn adoption into a weekly health report (markdown or JSON); reads existing sources only, never mutates the scorecard |
+| `health-report-scheduled.sh` | Write a dated weekly health report file under `~/.vibeguard/reports/health/`; does not install a scheduler |
+| `install-health-report-scheduler.sh` | Opt-in installer/remover for the weekly health report launchd/cron scheduler; default mode is dry-run |
 | `hook-health.sh` | Show recent hook health: risk rate, top noisy hooks, and recent risky events |
 | `quality-grader.sh` | Compute the current quality grade from runtime events |
 | `project-init.sh` | Bootstrap another repository with detected languages, recommended constraints, and git hook wiring |
@@ -57,6 +60,10 @@ Reference notes for the utility scripts shipped with VibeGuard.
 
 ```bash
 bash scripts/stats.sh
+python3 scripts/health-report.py --days 7 --format markdown
+python3 scripts/health-report.py --days 30 --scope global --format json --output report.json
+bash scripts/health-report-scheduled.sh --dry-run
+bash scripts/install-health-report-scheduler.sh --dry-run
 bash scripts/hook-health.sh 24
 bash scripts/quality-grader.sh
 python3 scripts/authorized-discard.py --plan

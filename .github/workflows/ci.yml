@@ -13,11 +13,15 @@ defaults:
   run:
     shell: bash
 
+env:
+  CARGO_DENY_VERSION: "0.19.9"
+  CARGO_LLVM_COV_VERSION: "0.8.7"
+
 jobs:
   validate-and-test:
     name: CI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     strategy:
       fail-fast: false
@@ -48,6 +52,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install cargo-deny
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
+
+      - name: Validate Rust dependency policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources
+
       - name: Install bash 4+ (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -74,6 +88,8 @@ jobs:
       - name: Rust runtime checks
         shell: bash
         run: |
+          cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
+          cargo clippy --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings
           cargo check --manifest-path vibeguard-runtime/Cargo.toml
           cargo test --manifest-path vibeguard-runtime/Cargo.toml
           cargo bench --manifest-path vibeguard-runtime/Cargo.toml --bench core_us --no-run
@@ -187,6 +203,10 @@ jobs:
         shell: bash
         run: bash tests/test_manifest_contract.sh
 
+      - name: Distribution asset contract regression tests
+        shell: bash
+        run: bash tests/test_distribution_assets.sh
+
       - name: Workflow contract regression tests
         shell: bash
         run: bash tests/test_workflow_contracts.sh
@@ -198,6 +218,10 @@ jobs:
       - name: Prompt contract regression tests
         shell: bash
         run: bash tests/test_prompt_contract.sh
+
+      - name: Issue template contract regression tests
+        shell: bash
+        run: bash tests/test_issue_template_contract.sh
 
       - name: Codex plugin manifest regression tests
         shell: bash
@@ -249,6 +273,13 @@ jobs:
         shell: bash
         run: bash tests/test_stats.sh
 
+      - name: Health report regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bash tests/test_health_report.sh
+          bash tests/test_health_report_scheduler.sh
+
       - name: Quality grader regression tests
         if: runner.os != 'Windows'
         shell: bash
@@ -295,6 +326,10 @@ jobs:
         shell: bash
         run: bash tests/test_precision_tracker.sh
 
+      - name: False-positive report regression tests
+        shell: bash
+        run: bash tests/test_report_false_positive.sh
+
       - name: Hook performance static analysis
         shell: bash
         run: bash scripts/ci/validate-hook-perf.sh
@@ -305,7 +340,7 @@ jobs:
 
       - name: Hook latency benchmark
         shell: bash
-        run: bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression
+        run: bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression
 
       - name: Upload benchmark results
         if: runner.os == 'Linux'
@@ -369,6 +404,12 @@ jobs:
       - name: Manifest contract regression tests
         run: bash tests/test_manifest_contract.sh
 
+      - name: Distribution asset inventory
+        run: python scripts/ci/validate_distribution_assets.py .
+
+      - name: Issue template contract regression tests
+        run: bash tests/test_issue_template_contract.sh
+
       - name: Workflow contract regression tests
         run: bash tests/test_workflow_contracts.sh
 
@@ -378,7 +419,7 @@ jobs:
   self-application:
     name: Self-Application CI
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     defaults:
       run:
         shell: bash
@@ -386,8 +427,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
+      - name: Install pinned cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked
+
       - name: Run self-application sentinels
         run: bash scripts/ci/self-application/run-all.sh
+
+      - name: Validate U-22 coverage gate contract
+        run: bash tests/test_u22_coverage.sh
+
+      - name: Enforce measured Rust line coverage baseline
+        run: bash scripts/ci/self-application/check-u22-coverage.sh
 
   benchmark-report:
     name: Benchmark Report
