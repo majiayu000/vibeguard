@@ -61,7 +61,7 @@
       "paths": ["rules/claude-rules/typescript/quality.md"],
       "target": "~/.claude/rules/vibeguard/typescript/",
       "defaultInstall": true,
-      "languages": ["typescript"],
+      "languages": ["typescript", "javascript"],
       "cost": "light",
       "stability": "stable"
     },
@@ -149,11 +149,10 @@
     {
       "id": "skills-core",
       "kind": "skills",
-      "description": "Claude core skills (vibeguard, auto-optimize, strategic-compact, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
+      "description": "Claude core skills (vibeguard, auto-optimize, eval-harness, iterative-retrieval, agentsmd-audit, trajectory-review)",
       "paths": [
         "skills/vibeguard/",
         "workflows/auto-optimize/",
-        "skills/strategic-compact/",
         "skills/eval-harness/",
         "skills/iterative-retrieval/",
         "skills/agentsmd-audit/",
@@ -251,7 +250,7 @@
       "description": "TypeScript guard scripts (any abuse, console residual, duplication)",
       "paths": ["guards/typescript/"],
       "defaultInstall": true,
-      "languages": ["typescript"],
+      "languages": ["typescript", "javascript"],
       "cost": "light",
       "stability": "stable"
     },

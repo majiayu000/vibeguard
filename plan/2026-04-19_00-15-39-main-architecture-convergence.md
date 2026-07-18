@@ -1,6 +1,6 @@
 ---
 mode: plan
-cwd: /Users/lifcc/Desktop/code/AI/tools/vibeguard
+cwd: <repo>
 task: Converge latest main architecture debt into a single-source-of-truth install/runtime/verification model
 complexity: complex
 planning_method: plan-flow
@@ -11,7 +11,7 @@ source_ref: origin/main@17504d0
 # VibeGuard main architecture convergence plan
 
 - Planned version: v1
-- Applicable repository: `/Users/lifcc/Desktop/code/AI/tools/vibeguard`
+- Applicable repository: `<repo>`
 - Execution mode: analyze root cause -> change one step -> run step tests -> update plan -> continue
 
 ## 0. Execution constraints (DoR)

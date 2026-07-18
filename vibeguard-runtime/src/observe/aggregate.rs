@@ -377,4 +377,28 @@ mod tests {
             status::UNKNOWN
         );
     }
+
+    #[test]
+    fn suppressed_w14_is_counted_without_attention_or_warn_inflation() {
+        let event = json!({
+            "ts":"2026-06-01T00:00:09Z",
+            "session":"s1",
+            "hook":"post-edit-guard",
+            "tool":"Edit",
+            "decision":"pass",
+            "status":"skipped",
+            "reason":"[W-14] overlap suppressed cooldown",
+            "detail":"src/main.rs||w14_key=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        });
+
+        let aggregate = aggregate_events(std::slice::from_ref(&event), 2_000);
+        let rendered = observe_event_json(&event, 2_000);
+
+        assert_eq!(aggregate.attention_count, 0);
+        assert_eq!(aggregate.decision_counts.get("pass"), Some(&1));
+        assert_eq!(aggregate.decision_counts.get("warn"), None);
+        assert_eq!(aggregate.rule_ids.get("W-14"), Some(&1));
+        assert_eq!(rendered[field::STATUS], status::SKIPPED);
+        assert_eq!(rendered[field::MODEL_CONTEXT], false);
+    }
 }

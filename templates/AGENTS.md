@@ -11,6 +11,8 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
+- Work surface: classify the request as `code_execution`, `writing_research`, or `chat_support` before applying workflow routing.
+- Writing/research: keep factual/source verification and the requested tone, but do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
 
 ## Operating Principles
 
@@ -29,7 +31,7 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 | L3 | No silent exception swallowing. No `Any` in public signatures |
 | L4 | No data = show blank. Never invent APIs or fields that don't exist |
 | L5 | Only do what was asked. No extra improvements, comments, or abstractions |
-| L6 | Follow `workflows/references/routing-contract.md`: `execute_direct`, `plan_first`, `clarify_first`, and the shared handoff fields |
+| L6 | Follow `workflows/references/routing-contract.md`: classify `work_surface`, then choose `execute_direct`, `plan_first`, `clarify_first`, and the shared handoff fields |
 | L7 | No AI markers. No force push. No secrets in commits |
 
 ## Project Constraints To Fill In
@@ -50,6 +52,7 @@ Before completing any task:
 ## Routing
 
 Follow `workflows/references/routing-contract.md`:
+- Classify `work_surface` first: `code_execution`, `writing_research`, or `chat_support`.
 - `execute_direct`: clear, low-risk, local change with known verification.
 - `plan_first`: multi-file, architectural, migration, or ambiguous implementation path.
 - `clarify_first`: missing goal, context, constraints, or done-when would make execution unsafe.

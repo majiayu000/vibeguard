@@ -56,9 +56,51 @@ assert_profile_hook_restored_after_repair() {
 
 header "setup --clean"
 printf 'user codex note\n' >> "${HOME}/.codex/AGENTS.md"
+mkdir -p "${HOME}/.vibeguard/projects/session-a"
+printf '{"write_mode":"warn"}\n' > "${HOME}/.vibeguard/config.json"
+printf 'learn history\n' > "${HOME}/.vibeguard/projects/session-a/history.jsonl"
+foreign_pre_commit="${TMP_HOME}/foreign-pre-commit"
+cat > "${foreign_pre_commit}" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "${foreign_pre_commit}"
+rm -f "${REPO_GIT_HOOK_DIR}/pre-commit"
+ln -s "${foreign_pre_commit}" "${REPO_GIT_HOOK_DIR}/pre-commit"
+project_init_target="${TMP_HOME}/project-init-target"
+mkdir -p "${project_init_target}"
+git -C "${project_init_target}" init >/dev/null
+cat > "${project_init_target}/Cargo.toml" <<'TOML'
+[package]
+name = "project-init-target"
+version = "0.1.0"
+edition = "2021"
+TOML
+project_init_out="$(bash "${REPO_DIR}/scripts/project-init.sh" "${project_init_target}" 2>&1)"
+assert_contains "${project_init_out}" "pre-commit hook installed" "project-init installs tracked pre-commit hook"
+assert_contains "${project_init_out}" "pre-push hook installed" "project-init installs tracked pre-push hook"
+assert_cmd "project-init pre-commit hook targets VibeGuard wrapper" bash -c "[[ \"\$(readlink '${project_init_target}/.git/hooks/pre-commit')\" == '${HOME}/.vibeguard/pre-commit' ]]"
+assert_cmd "install-state records project-init hooks" bash -c "grep -q '${project_init_target}/.git/hooks/pre-commit' '${HOME}/.vibeguard/install-state.json'"
 clean_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
 assert_contains "${clean_out}" "VibeGuard cleaned." "--clean route to cleanup process"
 assert_cmd "--clean removes scheduled GC entry" assert_scheduled_gc_absent
+assert_cmd "--clean preserves foreign repo pre-commit hook" bash -c "[[ \"\$(readlink '${REPO_GIT_HOOK_DIR}/pre-commit')\" == '${foreign_pre_commit}' ]]"
+assert_cmd "--clean removes owned repo pre-push hook" test ! -e "${REPO_GIT_HOOK_DIR}/pre-push"
+assert_cmd "--clean removes tracked project-init pre-commit hook" test ! -e "${project_init_target}/.git/hooks/pre-commit"
+assert_cmd "--clean removes tracked project-init pre-push hook" test ! -e "${project_init_target}/.git/hooks/pre-push"
+assert_cmd "--clean removes ~/.vibeguard/run-hook.sh" test ! -e "${HOME}/.vibeguard/run-hook.sh"
+assert_cmd "--clean removes ~/.vibeguard/run-hook-codex.sh" test ! -e "${HOME}/.vibeguard/run-hook-codex.sh"
+assert_cmd "--clean removes ~/.vibeguard/pre-commit wrapper" test ! -e "${HOME}/.vibeguard/pre-commit"
+assert_cmd "--clean removes ~/.vibeguard/pre-push wrapper" test ! -e "${HOME}/.vibeguard/pre-push"
+assert_cmd "--clean removes installed snapshot" test ! -e "${HOME}/.vibeguard/installed"
+assert_cmd "--clean preserves projects by default" test -f "${HOME}/.vibeguard/projects/session-a/history.jsonl"
+assert_cmd "--clean preserves runtime config by default" test -f "${HOME}/.vibeguard/config.json"
+clean_again_out="$(bash "${REPO_DIR}/setup.sh" --clean)"
+assert_contains "${clean_again_out}" "VibeGuard cleaned." "--clean is idempotent"
+purge_out="$(bash "${REPO_DIR}/setup.sh" --clean --purge-data)"
+assert_contains "${purge_out}" "VibeGuard cleaned." "--clean --purge-data succeeds"
+assert_cmd "--clean --purge-data removes projects" test ! -e "${HOME}/.vibeguard/projects"
+assert_cmd "--clean --purge-data removes runtime config" test ! -e "${HOME}/.vibeguard/config.json"
 assert_cmd "~/.claude/skills/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/skills/vibeguard"
 assert_cmd "~/.claude/commands/vibeguard has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vibeguard"
 assert_cmd "~/.claude/commands/vg has been removed after cleaning" test ! -e "${HOME}/.claude/commands/vg"
@@ -70,13 +112,25 @@ assert_cmd "~/.codex/hooks.json is preserved after cleaning (for non-VibeGuard h
 assert_cmd "VibeGuard managed Codex AGENTS block removed after cleaning" bash -c "! grep -q 'vibeguard-start' '${HOME}/.codex/AGENTS.md'"
 assert_cmd "Unmanaged Codex AGENTS content remains after cleaning" grep -q 'user codex note' "${HOME}/.codex/AGENTS.md"
 assert_cmd "VibeGuard managed Codex hooks removed after cleaning" bash -c "! grep -qE 'vibeguard-(pre-bash-guard|pre-edit-guard|pre-write-guard|post-edit-guard|post-write-guard|post-build-check|stop-guard|learn-evaluator)\\.sh' '${HOME}/.codex/hooks.json'"
-assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q 'node /existing/non-vibeguard.js' "${HOME}/.codex/hooks.json"
+assert_cmd "Pre-existing non-VibeGuard hook remains after cleaning" grep -q "node ${PREEXISTING_CODEX_HOOK_SCRIPT}" "${HOME}/.codex/hooks.json"
 
 header "setup install default languages before rust filter"
 install_default_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
-assert_contains "${install_default_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "default install writes manifest native rules"
-assert_cmd "default install includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
-assert_cmd "default install includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# GH-541: the default (core) profile delivers only the compact L1-L7 + Key
+# Detailed Rules table via ~/.claude/CLAUDE.md and must NOT front-inject the
+# full native rule tree, so the live payload stays within the U-32 budget.
+assert_contains "${install_default_lang_out}" "compact core (core profile)" "core profile install reports compact core delivery"
+assert_cmd "core profile does not front-inject Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "core profile does not front-inject Go native rules" test ! -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+
+# The full rule text stays opt-in under the full/strict profiles.
+install_full_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full)"
+assert_contains "${install_full_lang_out}" "manifest rules -> ~/.claude/rules/vibeguard/" "full profile install writes manifest native rules"
+assert_cmd "full profile includes Python native rules" test -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
+assert_cmd "full profile includes Go native rules" test -L "${HOME}/.claude/rules/vibeguard/golang/quality.md"
+# Switching back to core removes the previously front-injected tree.
+install_core_again_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core)"
+assert_cmd "core profile removes previously injected Python native rules" test ! -L "${HOME}/.claude/rules/vibeguard/python/quality.md"
 assert_cmd "core profile hooks match manifest" python3 "${SETTINGS_HELPER}" check --settings-file "${HOME}/.claude/settings.json" --target profile-hooks:core
 BASH_C_PROFILE_SETTINGS="${TMP_HOME}/bash-c-profile-settings.json"
 python3 - "${HOME}/.claude/settings.json" "${BASH_C_PROFILE_SETTINGS}" <<'PY'
@@ -252,8 +306,20 @@ chmod +x "${old_profile_runtime}"
 old_runtime_check_out="$(VIBEGUARD_SETUP_RUNTIME="${old_profile_runtime}" bash "${REPO_DIR}/setup.sh" --check --strict 2>&1 || true)"
 assert_not_contains "${old_runtime_check_out}" "[MISSING] Claude hooks missing for core profile" "setup --check skips stale runtime profile-hook false missing"
 
+header "setup install core --languages rust"
+install_core_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+assert_contains "${install_core_lang_out}" "Languages: rust" "core --languages parameter takes effect"
+assert_cmd "core --languages does not front-inject Rust native rules" test ! -e "${HOME}/.claude/rules/vibeguard/rust/quality.md"
+core_lang_check_rc=0
+core_lang_check_out="$(bash "${REPO_DIR}/setup.sh" --check --strict 2>&1)" || core_lang_check_rc=$?
+assert_cmd "core --languages setup --check --strict does not exit broken" test "${core_lang_check_rc}" -ne 2
+assert_not_contains "${core_lang_check_out}" "CLAUDE.md declares" "core --languages check preserves Claude rule banner count"
+assert_not_contains "${core_lang_check_out}" "~/.codex/AGENTS.md declares" "core --languages check preserves Codex rule banner count"
+assert_cmd "core --languages CLAUDE.md rule banner matches selected rules" assert_claude_rule_banner_matches_expected_rules
+assert_cmd "core --languages Codex AGENTS.md rule banner matches selected rules" assert_codex_rule_banner_matches_expected_rules
+
 header "setup install --languages rust"
-install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile core --languages rust)"
+install_lang_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --languages rust)"
 assert_contains "${install_lang_out}" "Languages: rust" "--languages parameter takes effect"
 assert_cmd "--languages keeps common native rules" test -L "${HOME}/.claude/rules/vibeguard/common/security.md"
 assert_cmd "--languages installs selected Rust native rules" test -L "${HOME}/.claude/rules/vibeguard/rust/quality.md"

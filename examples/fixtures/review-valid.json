@@ -1,0 +1,28 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact. The implementation needs one fix before human final review.\n\n## Verdict\nREJECT: request changes before human final review.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 3,
+      "side": "RIGHT",
+      "start_line": 2,
+      "start_side": "RIGHT",
+      "severity": "important",
+      "body": "The temporary value should preserve the existing empty-string behavior before this is accepted.\n\n```suggestion\n    return title.strip()\n```",
+      "suggestion": "    return title.strip()"
+    },
+    {
+      "path": "src/app.py",
+      "line": 2,
+      "side": "LEFT",
+      "severity": "nit",
+      "body": "This removed line is the behavior being compared against."
+    }
+  ],
+  "spec_alignment": {
+    "status": "matched",
+    "spec": "specs/GH17/tech.md",
+    "details": "The artifact matches the review JSON gate scope."
+  }
+}

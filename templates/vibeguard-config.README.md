@@ -3,7 +3,7 @@
 User-level runtime tuning for hook thresholds. This is separate from the
 repository policy file `.vibeguard.json`, which accepts project policy keys such
 as `profile`, `enforcement`, `disabled_hooks`, `disabled_rules`,
-`disabled_guards`, and `gc`.
+`disabled_guards`, `scoped_suppressions`, and `gc`.
 
 Hooks resolve each runtime value in priority order:
 
@@ -23,6 +23,7 @@ weaken unrelated hook behavior.
 | `u16.limit` | `VG_U16_LIMIT` | `800` | Source-file line limit. Files over this trigger block on `Write`/`Edit` and warn after `PostToolUse`. Per-file `CLAUDE.md` exemptions (`U-16 exempt: \`pattern\` → N`) can raise it further per repo. |
 | `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` | Consecutive blocks before the hook circuit trips OPEN (silences batch advisories). |
 | `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` | Seconds an OPEN circuit waits before HALF-OPEN. |
+| `w14.cooldown_seconds` | `VIBEGUARD_W14_COOLDOWN_SECONDS` | `3600` | Suppresses repeated W-14 reports for the same directed session pair and file; `0` disables suppression. |
 | `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` | W-13 read-only-action streak before paralysis warning. |
 | `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `warn` = advisory; `block` = hard reject new source files without prior search. |
 

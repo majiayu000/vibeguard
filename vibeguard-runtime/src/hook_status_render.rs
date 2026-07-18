@@ -173,11 +173,11 @@ fn format_entry_line(entry: &HookStatusEntry, mode: Mode) -> String {
         line.push_str(" - ");
         line.push_str(&format_duration(Some(ms)));
     }
-    if entry.status == status::RUNNING {
-        if let Some(timeout_ms) = entry.timeout_ms {
-            line.push_str(" / ");
-            line.push_str(&format_duration(Some(timeout_ms)));
-        }
+    if entry.status == status::RUNNING
+        && let Some(timeout_ms) = entry.timeout_ms
+    {
+        line.push_str(" / ");
+        line.push_str(&format_duration(Some(timeout_ms)));
     }
     if matches!(mode, Mode::Full) {
         line.push_str(&format!(

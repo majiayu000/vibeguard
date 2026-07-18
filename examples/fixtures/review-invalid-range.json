@@ -1,0 +1,20 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact with a multi-line range that spans missing diff lines.\n\n## Verdict\nREJECT: the inline range is invalid.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 12,
+      "side": "RIGHT",
+      "start_line": 3,
+      "start_side": "RIGHT",
+      "severity": "important",
+      "body": "This range spans across hunks and includes lines that are not present in the diff."
+    }
+  ],
+  "spec_alignment": {
+    "status": "matched",
+    "spec": "specs/GH23/tech.md",
+    "details": "The artifact shape is aligned, but the range location is invalid."
+  }
+}

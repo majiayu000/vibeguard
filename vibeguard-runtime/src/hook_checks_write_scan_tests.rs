@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod write_scan_tests {
     use super::super::*;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -107,6 +108,53 @@ mod write_scan_tests {
                 .any(|path| path.ends_with("existing/service.py")),
             "{combined:?}"
         );
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_definition_scan_reads_each_candidate_once_for_all_definitions() -> TestResult {
+        let root = temp_write_scan_project("single_pass_defs")?;
+        fs::create_dir_all(root.join("src"))?;
+        let existing = root.join("src").join("existing.py");
+        let helper = root.join("src").join("helper.py");
+        fs::write(
+            &existing,
+            "def firstThing():\n    pass\n\ndef secondThing():\n    pass\n",
+        )?;
+        fs::write(&helper, "def unrelatedThing():\n    pass\n")?;
+        let mut expected_reads = vec![existing.clone(), helper.clone()];
+        for index in 0..30 {
+            let candidate = root.join("src").join(format!("candidate_{index}.py"));
+            fs::write(
+                &candidate,
+                format!("def unrelatedThing{index}():\n    pass\n"),
+            )?;
+            expected_reads.push(candidate);
+        }
+        let scan = scan_project_files(&root, 100);
+        let mut reads: HashMap<PathBuf, usize> = HashMap::new();
+
+        let found = duplicate_definition_scan_with_reader(
+            &scan.files,
+            root.join("src").join("new.py").to_string_lossy().as_ref(),
+            "def firstThing():\n    return 1\n\ndef secondThing():\n    return 2\n",
+            "py",
+            20,
+            5,
+            |path| {
+                *reads.entry(path.to_path_buf()).or_insert(0) += 1;
+                fs::read_to_string(path)
+            },
+        );
+
+        assert_eq!(found.duplicates.len(), 2, "{found:?}");
+        assert!(found.duplicates[0].contains("firstThing"), "{found:?}");
+        assert!(found.duplicates[1].contains("secondThing"), "{found:?}");
+        assert_eq!(reads.len(), expected_reads.len(), "{reads:?}");
+        for path in expected_reads {
+            assert_eq!(reads.get(&path).copied(), Some(1), "{path:?} {reads:?}");
+        }
         fs::remove_dir_all(root)?;
         Ok(())
     }

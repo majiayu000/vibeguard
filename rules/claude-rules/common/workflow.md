@@ -3,6 +3,7 @@
 > Adapted from the Superpowers framework and made complementary to VibeGuard's existing rules. Focused on debugging, verification, and TDD workflow constraints.
 
 ## W-01: No fixes without root cause (strict)
+**Compact guidance:** No fixes without root cause: reproduce first, then form one hypothesis, then fix.
 Every bug fix must identify the root cause before changing code. Do not make blind "let's try this" patches.
 
 **Four-phase debugging protocol**:
@@ -17,6 +18,7 @@ Every bug fix must identify the root cause before changing code. Do not make bli
 - After the fix, rerun the reproduction step to verify the problem is gone.
 
 ## W-02: Back off after 3 consecutive failures (strict)
+**Compact guidance:** After 3 consecutive failed fixes on the same problem, stop and challenge the hypothesis or architecture.
 If you fail to fix the same problem three times in a row, stop and question the hypothesis or the architectural direction.
 
 **Anti-pattern**: edit -> fail -> fix -> new fail -> fix -> new fail ...
@@ -31,6 +33,7 @@ If you fail to fix the same problem three times in a row, stop and question the 
 Research on multi-round reasoning suggests the optimal stopping policy comes from allocating an error budget across rounds, not from a hardcoded round count. "Three times" is a practical heuristic: after each failed attempt, the confidence of the active hypothesis tree drops exponentially, and the expected value of continuing approaches zero. Past that threshold, changing direction has higher expected value than repeating the same line of attack.
 
 ## W-03: Verify before claiming completion (strict)
+**Compact guidance:** Verify before claiming completion: produce fresh command output proving the claim.
 Before saying "fixed" or "done", produce fresh verification evidence.
 
 **Protocol**:
@@ -93,6 +96,7 @@ REFACTOR -> keep the tests green while cleaning the implementation
 **Not a fit**: exploratory prototypes, configuration changes, documentation updates
 
 ## W-12: Protect test integrity (strict)
+**Compact guidance:** Protect test integrity: fix production code, never weaken assertions or tamper with test infrastructure.
 When tests fail, fix the production code rather than manipulating the test harness. Do not "pass" the suite by weakening tests or infrastructure.
 
 **Source**: OpenAI, "Monitoring Reasoning Models for Misbehavior" (Baker et al., 2026) — seven classes of reward-hacking behavior were observed in RL-trained coding agents, and every one manipulated tests instead of fixing the underlying issue.
@@ -119,6 +123,7 @@ When tests fail, fix the production code rather than manipulating the test harne
 - If source and tests both change, test changes must not reduce assertion strength; run `bash guards/universal/check_test_weakening.sh --base origin/main --head HEAD` during PR review when a diff is available.
 
 ## W-14: Parallel-agent file ownership (strict)
+**Compact guidance:** Parallel agents must have explicit, disjoint file ownership; no shared writable file.
 When multiple agents work in parallel, prompts must assign explicit file ownership so agents cannot silently overwrite one another.
 
 **Root cause** (source: GitHub Copilot CLI / fleet docs, 2026):
@@ -195,6 +200,7 @@ If the information gain shrinks for three consecutive rounds, stop that directio
 - For one-shot suppression in a single edit, the size-cap (300 chars) already prevents large content additions from triggering.
 
 ## W-16: Verification commands must come from this session (strict)
+**Compact guidance:** Verification commands must come from this session. "Earlier passed" / "should work" do not count.
 When you say "fixed", "done", or "verified", you must cite command output produced in this session. Memory, "it passed earlier", or "it should work" do not count.
 
 **Sources** (four-source convergence, 2026-04-16):
@@ -297,7 +303,7 @@ Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when t
 The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
 
 **Fix**:
-- Split into `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files. Use the `claude-md-split` skill (`~/.claude/skills/claude-md-split/SKILL.md`) for a structured workflow.
+- Split into a `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files, preserving routing links and path-scoped ownership.
 - Replace inline canonical rule text with a single-line reference such as `see vibeguard U-29 for the canonical text`.
 - For each prohibition phrase (English `Don't ...` / `NO X` or Chinese equivalents), pair it with a concrete `GOOD:` example or move the warning to a reference file.
 

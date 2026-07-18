@@ -27,13 +27,8 @@ from dataset import (
     sample_set_digest,
     sha256_text,
 )
+from model_baseline import ModelBaseline, ModelBaselineError, load_model_baseline
 from scoring import CONFIDENCE_SCORES, ScorerParseError, parse_confidence, parse_scorer_output
-
-MODELS = {
-    "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-6",
-}
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RULES_DIR = REPO_ROOT / "rules" / "claude-rules"
@@ -210,7 +205,14 @@ def filter_samples(samples: list[dict], args) -> list[dict]:
     return filtered
 
 
-def run_eval(args):
+def print_model_evidence(
+    baseline: ModelBaseline,
+    requested_model: str,
+) -> None:
+    print("\n".join(baseline.evidence_lines(requested_model)))
+
+
+def run_eval(args, baseline: ModelBaseline):
     rules_dir = Path(args.rules_dir).resolve()
     core_rules_file = Path(args.core_rules_file).resolve() if args.core_rules_file else None
     dataset_path = Path(args.dataset).resolve()
@@ -226,8 +228,10 @@ def run_eval(args):
     dataset_digest = file_digest(dataset_path)
     samples = filter_samples(all_samples, args)
     filtered_sample_digest = sample_set_digest(samples)
+    model = baseline.resolve(args.model)
 
     if args.dry_run:
+        print_model_evidence(baseline, args.model)
         print(f"Rule text length: {len(rules)} characters")
         print(f"Number of samples: {len(samples)}")
         print(f"Dataset source: {dataset_path}")
@@ -242,7 +246,6 @@ def run_eval(args):
             print(f"  [{tag}] {s['id']}: {s['description']}")
         return
 
-    model = MODELS.get(args.model, args.model)
     try:
         import anthropic
     except ImportError:
@@ -250,6 +253,7 @@ def run_eval(args):
         sys.exit(1)
     client = anthropic.Anthropic()
 
+    print_model_evidence(baseline, args.model)
     print(f"Model: {model}")
     print(f"Number of samples: {len(samples)}")
     print(f"Rule text: {len(rules)} characters")
@@ -551,9 +555,23 @@ def print_calibration(results: list[dict]) -> None:
         )
 
 
-def main():
-    parser = argparse.ArgumentParser(description="VibeGuard LLM-as-Judge Evaluation")
-    parser.add_argument("--model", default="haiku", help="Model: haiku/sonnet/opus or full ID")
+def main() -> int:
+    try:
+        baseline = load_model_baseline()
+    except ModelBaselineError as error:
+        print(f"Invalid eval model baseline: {error}", file=sys.stderr)
+        return 2
+
+    parser = argparse.ArgumentParser(
+        description="VibeGuard LLM-as-Judge Evaluation",
+        epilog="\n".join(baseline.help_lines()),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--model",
+        default=baseline.default_alias,
+        help="Model alias or full ID",
+    )
     parser.add_argument("--rules", help="Rule prefix filtering (such as SEC, PY, TS, GO, RS)")
     parser.add_argument("--type", choices=["tp", "fp"], help="Sample type filtering: tp=violation, fp=legal")
     parser.add_argument("--dry-run", action="store_true", help="Only display samples without adjusting API")
@@ -578,8 +596,13 @@ def main():
         help="Core constraint snippet file to append (defaults to repository snapshot)",
     )
     args = parser.parse_args()
-    run_eval(args)
+    try:
+        run_eval(args, baseline)
+    except ModelBaselineError as error:
+        print(f"Invalid requested model: {error}", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

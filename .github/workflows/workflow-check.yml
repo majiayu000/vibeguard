@@ -1,0 +1,46 @@
+name: specrail-workflow-check
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-check:
+    name: SpecRail workflow check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Check SpecRail pack and spec packets
+        run: python3 checks/check_workflow.py --repo . --all-specs
+
+      - name: Run SpecRail adoption smoke tests
+        run: bash tests/test_specrail_adoption.sh
+
+      - name: Check whitespace
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          case "${EVENT_NAME}" in
+            pull_request) diff_range="${BASE_SHA}...${HEAD_SHA}" ;;
+            push) diff_range="${BASE_SHA}..${HEAD_SHA}" ;;
+            *) diff_range="HEAD^..HEAD" ;;
+          esac
+          git diff --check "${diff_range}"

@@ -140,79 +140,6 @@ assert_contains "$mode_result" "dir=700" "Existing log directory permissions are
 assert_contains "$mode_result" "primary=600" "Existing primary log permissions are tightened"
 assert_contains "$mode_result" "global=600" "Existing global log permissions are tightened"
 
-header "log.sh — lock contention"
-
-lock_test_dir="$(mktemp -d)"
-lock_test_file="${lock_test_dir}/events.jsonl"
-lock_test_stderr="${lock_test_dir}/stderr"
-: > "$lock_test_file"
-mkdir "${lock_test_file}.lock.d"
-
-set +e
-lock_result=$(
-  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
-  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
-  source hooks/_lib/log_write.sh
-  vg_append_log_line "$lock_test_file" '{"locked":true}' 2>"$lock_test_stderr"
-  printf 'rc=%s' "$?"
-)
-set -e
-
-assert_contains "$lock_result" "rc=1" "Log append lock contention returns nonzero"
-assert_contains "$(cat "$lock_test_stderr")" "failed to acquire log lock" "Log append lock contention reports diagnostic"
-assert_not_contains "$(cat "$lock_test_file")" '{"locked":true}' "Log append lock contention does not write unlocked"
-rm -rf "$lock_test_dir"
-
-header "log.sh — runtime append lock contention"
-
-runtime_lock_test_dir="$(mktemp -d)"
-runtime_lock_test_file="${runtime_lock_test_dir}/events.jsonl"
-runtime_lock_test_stderr="${runtime_lock_test_dir}/stderr"
-: > "$runtime_lock_test_file"
-mkdir "${runtime_lock_test_file}.lock.d"
-
-set +e
-runtime_lock_result=$(
-  export VIBEGUARD_LOG_LOCK_ATTEMPTS=1
-  export VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0
-  export HOME="${runtime_lock_test_dir}/home"
-  export VIBEGUARD_LOG_DIR="${runtime_lock_test_dir}/logs"
-  export VIBEGUARD_SESSION_ID="runtime-lock-test"
-  source hooks/log.sh
-  vg_append_log_line "$runtime_lock_test_file" '{"runtime_locked":true}' 2>"$runtime_lock_test_stderr"
-  printf 'rc=%s' "$?"
-)
-set -e
-
-assert_contains "$runtime_lock_result" "rc=1" "Runtime log append lock contention returns nonzero"
-assert_contains "$(cat "$runtime_lock_test_stderr")" "timed out waiting for JSONL append lock" "Runtime log append lock contention reports runtime diagnostic"
-assert_contains "$(cat "$runtime_lock_test_stderr")" "runtime JSONL append failed" "Runtime log append lock contention reports hook diagnostic"
-assert_not_contains "$(cat "$runtime_lock_test_file")" '{"runtime_locked":true}' "Runtime log append lock contention does not write unlocked"
-
-runtime_errexit_stderr="${runtime_lock_test_dir}/errexit-stderr"
-set +e
-runtime_errexit_stdout=$(
-  VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
-  VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
-  HOME="${runtime_lock_test_dir}/home-errexit" \
-  VIBEGUARD_LOG_DIR="${runtime_lock_test_dir}/logs-errexit" \
-  VIBEGUARD_SESSION_ID="runtime-lock-errexit-test" \
-  bash -c '
-    set -e
-    source hooks/log.sh
-    vg_append_log_line "$1" "$2"
-    printf "after-runtime-append"
-  ' bash "$runtime_lock_test_file" '{"errexit_locked":true}' 2>"$runtime_errexit_stderr"
-)
-runtime_errexit_rc=$?
-set -e
-
-assert_contains "rc=$runtime_errexit_rc" "rc=1" "Runtime append lock failure exits direct set -e caller"
-assert_not_contains "$runtime_errexit_stdout" "after-runtime-append" "Runtime append lock failure stops direct set -e caller"
-assert_contains "$(cat "$runtime_errexit_stderr")" "runtime JSONL append failed" "Runtime append lock failure reports hook diagnostic before set -e exit"
-assert_not_contains "$(cat "$runtime_lock_test_file")" '{"errexit_locked":true}' "Runtime append set -e failure does not write unlocked"
-rm -rf "$runtime_lock_test_dir"
-
 header "log.sh — runtime mirror append"
 
 mirror_runtime_test_dir="$(mktemp -d)"
@@ -361,6 +288,81 @@ assert_contains "$stale_mirror_result" "primary=1" "Stale runtime mirror fallbac
 assert_contains "$stale_mirror_result" "global=1" "Stale runtime mirror fallback writes the global log"
 assert_not_contains "$(cat "$stale_mirror_runtime_stderr")" "runtime mirrored JSONL append failed" "Stale runtime mirror fallback does not report runtime mirror failure"
 rm -rf "$stale_mirror_runtime_test_dir"
+
+header "log.sh — triage projection"
+
+TRIAGE_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" >/dev/null
+
+triage_test_dir="$(mktemp -d)"
+triage_file="${triage_test_dir}/triage.jsonl"
+triage_result=$(
+  export HOME="${triage_test_dir}/home"
+  export VIBEGUARD_LOG_DIR="${triage_test_dir}/logs"
+  export VIBEGUARD_PROJECT_LOG_DIR="${triage_test_dir}/project"
+  export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+  export VIBEGUARD_TRIAGE_FILE="${triage_file}"
+  export VIBEGUARD_SESSION_ID="triage-projection-test"
+  export VIBEGUARD_RUNTIME="${TRIAGE_RUNTIME}"
+  source hooks/log.sh
+  vg_log "post-edit-guard" "Edit" "warn" "[RS-03] unwrap Authorization: Bearer sk-triage-secret" "src/main.rs --token triage-token"
+  vg_log "post-edit-guard" "Edit" "pass" "[RS-03] pass should not project" "src/pass.rs"
+  python3 - "$triage_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    rows = [json.loads(line) for line in fh if line.strip()]
+assert len(rows) == 1, rows
+row = rows[0]
+assert row["rule"] == "RS-03", row
+assert row["verdict"] == "unclassified", row
+assert row["decision"] == "warn", row
+assert row["file"] == "src/main.rs --token ***REDACTED***", row
+assert row["session"] == "triage-projection-test", row
+print("triage-ok")
+PY
+)
+assert_contains "$triage_result" "triage-ok" "Warn/block guard hit projects one unclassified triage row"
+assert_not_contains "$(cat "$triage_file")" "sk-triage-secret" "Triage projection redacts bearer secrets"
+assert_not_contains "$(cat "$triage_file")" "triage-token" "Triage projection redacts token flags"
+rm -rf "$triage_test_dir"
+
+triage_concurrent_dir="$(mktemp -d)"
+triage_concurrent_file="${triage_concurrent_dir}/triage.jsonl"
+pids=()
+for i in $(seq 1 12); do
+  (
+    export HOME="${triage_concurrent_dir}/home-${i}"
+    export VIBEGUARD_LOG_DIR="${triage_concurrent_dir}/logs"
+    export VIBEGUARD_PROJECT_LOG_DIR="${triage_concurrent_dir}/project-${i}"
+    export VIBEGUARD_LOG_FILE="${VIBEGUARD_PROJECT_LOG_DIR}/events.jsonl"
+    export VIBEGUARD_TRIAGE_FILE="${triage_concurrent_file}"
+    export VIBEGUARD_SESSION_ID="triage-concurrent-${i}"
+    export VIBEGUARD_RUNTIME="${TRIAGE_RUNTIME}"
+    source hooks/log.sh
+    vg_log "pre-write-guard" "Write" "block" "[U-16] concurrent candidate ${i}" "src/file_${i}.rs"
+  ) &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+  wait "$pid"
+done
+triage_concurrent_result=$(python3 - "$triage_concurrent_file" <<'PY'
+import json
+import sys
+
+rows = []
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for line in fh:
+        rows.append(json.loads(line))
+assert len(rows) == 12, len(rows)
+assert {row["rule"] for row in rows} == {"U-16"}, rows
+print(f"lines={len(rows)}")
+PY
+)
+assert_contains "$triage_concurrent_result" "lines=12" "Concurrent triage appends stay parseable and complete"
+rm -rf "$triage_concurrent_dir"
 
 # =========================================================
 

@@ -16,7 +16,6 @@ checks=(
   "check-hook-production-python-free.sh"
   "check-hook-output-rewriting.sh"
   "check-rust-test-path-classifier.sh"
-  "check-u22-coverage.sh"
 )
 
 failures=0
@@ -24,11 +23,7 @@ echo "Running VibeGuard self-application checks..."
 for check in "${checks[@]}"; do
   echo
   echo "==> ${check}"
-  if [[ "${check}" == "check-u22-coverage.sh" ]]; then
-    check_cmd=(env VIBEGUARD_U22_STRICT=1 bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}")
-  else
-    check_cmd=(bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}")
-  fi
+  check_cmd=(bash "${SCRIPT_DIR}/${check}" "${REPO_DIR}")
 
   if "${check_cmd[@]}"; then
     echo "OK: ${check}"

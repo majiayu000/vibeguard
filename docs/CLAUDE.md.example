@@ -12,6 +12,8 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Progress updates: for non-trivial or tool-heavy work, send a short update at start, after discovery, before edits, after verification, and when blocked.
 - Default verbosity: keep answers concise by default; use short paragraphs for simple tasks and expand only when the work is complex or the user asks for depth.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
+- Work surface: classify the request as `code_execution`, `writing_research`, or `chat_support` before applying workflow routing.
+- Writing/research: keep factual/source verification and the requested tone, but do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
 
 ## Workflow Orchestration
 
@@ -19,7 +21,8 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 
 Follow the canonical router in `workflows/references/routing-contract.md`.
 
-- Precedence: `user_override` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
+- Precedence: `user_override` → `work_surface classifier` → `risk/destructive gate` → `ambiguity gate` → `readiness classifier` → `execution/delegation lane`
+- Work surfaces: `code_execution`, `writing_research`, `chat_support`
 - Readiness outputs: `execute_direct`, `plan_first`, `clarify_first`
 - Planning handoff keys: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, `lane_map`
 
@@ -88,7 +91,7 @@ Rules, guard scripts, hooks, and workflow commands provide the coverage. Not eve
 | **L3** | Disable silent exception swallowing; disable Any type | **Hook warning** |
 | **L4** | Blank display with no data; API not invented | **Hook Warning** |
 | **L5** | Only do what is asked | Review constraints |
-| **L6** | Follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
+| **L6** | Classify `work_surface`, then follow the canonical routing contract in `workflows/references/routing-contract.md` | Process constraints |
 | **L7** | Disable AI tag / force push / key | Agent/review contract + pre-commit quality/build checks + git pre-push remote-history block |
 
 ---

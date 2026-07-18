@@ -5,13 +5,14 @@ set -euo pipefail
 REPO_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 HOOK="${REPO_DIR}/hooks/pre-bash-guard.sh"
 
-python3 - <<'PY' "${HOOK}"
+python3 - <<'PY' "${REPO_DIR}" "${HOOK}"
 import re
 import shlex
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+repo = Path(sys.argv[1])
+path = Path(sys.argv[2])
 errors: list[str] = []
 
 
@@ -131,10 +132,23 @@ if not path.exists():
 else:
     text = path.read_text(encoding="utf-8")
 
-    runtime_owned = "pre-bash-check" in text and "_PKG_CORRECTION" not in text
+    runtime_owned = (
+        ("pre-bash-check" in text or re.search(r"\bhook\s+pre-bash\b", text) is not None)
+        and "_PKG_CORRECTION" not in text
+    )
     taint_source_vars = {"_PKG_CORRECTION"}
     if runtime_owned:
         taint_source_vars.add("CORRECTED")
+        classifier = repo / "vibeguard-runtime/src/hook_checks_bash.rs"
+        orchestrator = repo / "vibeguard-runtime/src/hook_orchestrator_pre_bash.rs"
+        if classifier.exists():
+            classifier_text = classifier.read_text(encoding="utf-8")
+            if "updatedInput" not in classifier_text or '"command": corrected' not in classifier_text:
+                errors.append("runtime package correction must emit corrected command through updatedInput")
+        if orchestrator.exists():
+            orchestrator_text = orchestrator.read_text(encoding="utf-8")
+            if re.search(r"Command::new\(\"(?:bash|sh)\"\)\s*\.arg\(\"-c\"\)", orchestrator_text):
+                errors.append("runtime package correction must not flow corrected command through shell -c")
 
     if not runtime_owned:
         if "PKG-CORRECTION-ARGV-CONTRACT" not in text:

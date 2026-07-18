@@ -14,12 +14,12 @@ use crate::hook_checks_write_scan::{
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PostWriteConfig {
-    base_limit: usize,
-    warn_limit: usize,
-    max_scan_files: usize,
-    max_scan_defs: usize,
-    max_matches: usize,
+pub(crate) struct PostWriteConfig {
+    pub(crate) base_limit: usize,
+    pub(crate) warn_limit: usize,
+    pub(crate) max_scan_files: usize,
+    pub(crate) max_scan_defs: usize,
+    pub(crate) max_matches: usize,
 }
 
 pub fn post_write_check(args: &[String]) -> Result {
@@ -87,12 +87,12 @@ pub fn post_write_check(args: &[String]) -> Result {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum PostWriteOutcome {
+pub(crate) enum PostWriteOutcome {
     Pass { reason: &'static str },
     Warn { warnings: String },
 }
 
-fn evaluate_post_write(
+pub(crate) fn evaluate_post_write(
     file_path: &str,
     content: &str,
     config: PostWriteConfig,
@@ -186,19 +186,19 @@ fn evaluate_post_write(
 fn stub_warning(file_path: &str, content: &str) -> Option<String> {
     let (patterns, lang_desc) = match extension(file_path).as_str() {
         "rs" => {
-            if !(content.contains("todo!(")
-                || content.contains("unimplemented!(")
+            if !(content.contains("todo!(") // slop-pattern-source
+                || content.contains("unimplemented!(") // slop-pattern-source
                 || content.contains("panic!(\"not implemented"))
             {
                 return None;
             }
             (
                 &[
-                    r"^\s*todo!\(",
-                    r"^\s*unimplemented!\(",
+                    r"^\s*todo!\(",          // slop-pattern-source
+                    r"^\s*unimplemented!\(", // slop-pattern-source
                     r#"^\s*panic!\("not implemented"#,
                 ][..],
-                "todo!/unimplemented!",
+                "todo!/unimplemented!", // slop-pattern-source
             )
         }
         "ts" | "tsx" | "js" | "jsx" => {
@@ -306,7 +306,7 @@ fn u16_warning(
     None
 }
 
-fn post_write_warning_output(warnings: &str) -> Result<String> {
+pub(crate) fn post_write_warning_output(warnings: &str) -> Result<String> {
     post_write_context_output(&format!("VIBEGUARD duplicate detection:{warnings}"))
 }
 

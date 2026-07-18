@@ -139,14 +139,13 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
     let t_in = thread::spawn(move || {
         let reader = BufReader::new(std::io::stdin());
         for line in reader.lines().map_while(Result::ok) {
-            if let Ok(message) = serde_json::from_str::<Value>(line.trim()) {
-                if message.is_object() {
-                    if let Ok(mut guard) = stdin_shared.lock() {
-                        let mut session = std::mem::take(&mut guard.session);
-                        guard.strategy.on_client_message(&message, &mut session);
-                        guard.session = session;
-                    }
-                }
+            if let Ok(message) = serde_json::from_str::<Value>(line.trim())
+                && message.is_object()
+                && let Ok(mut guard) = stdin_shared.lock()
+            {
+                let mut session = std::mem::take(&mut guard.session);
+                guard.strategy.on_client_message(&message, &mut session);
+                guard.session = session;
             }
             write_line_to_child(&stdin_writer, &line);
         }
@@ -159,41 +158,39 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
         let reader = BufReader::new(child_stdout);
         for mut line in reader.lines().map_while(Result::ok) {
             let mut intercepted = false;
-            if let Ok(message) = serde_json::from_str::<Value>(line.trim()) {
-                if message.is_object() {
-                    let method_is_string = message.get("method").and_then(Value::as_str).is_some();
-                    if method_is_string && message.get("id").is_some() {
-                        if stdout_signal_tx.send(StdoutSignal::RequestStarted).is_err() {
-                            break;
-                        }
-                        let mut server_writes = Vec::new();
-                        if let Ok(mut guard) = stdout_shared.lock() {
-                            let mut session = std::mem::take(&mut guard.session);
-                            let mut write_to_server = |obj: Value| {
-                                server_writes.push(obj);
-                            };
-                            intercepted = guard.strategy.handle_server_request(
-                                &message,
-                                &mut session,
-                                &mut write_to_server,
-                            );
-                            guard.session = session;
-                        }
-                        write_values_to_child(&stdout_writer, server_writes);
-                        if stdout_signal_tx
-                            .send(StdoutSignal::RequestFinished)
-                            .is_err()
-                        {
-                            break;
-                        }
-                    } else if method_is_string {
-                        if let Ok(mut guard) = stdout_shared.lock() {
-                            let mut session = std::mem::take(&mut guard.session);
-                            let next = guard.strategy.on_server_notification(message, &mut session);
-                            guard.session = session;
-                            line = next.to_string();
-                        }
+            if let Ok(message) = serde_json::from_str::<Value>(line.trim())
+                && message.is_object()
+            {
+                let method_is_string = message.get("method").and_then(Value::as_str).is_some();
+                if method_is_string && message.get("id").is_some() {
+                    if stdout_signal_tx.send(StdoutSignal::RequestStarted).is_err() {
+                        break;
                     }
+                    let mut server_writes = Vec::new();
+                    if let Ok(mut guard) = stdout_shared.lock() {
+                        let mut session = std::mem::take(&mut guard.session);
+                        let mut write_to_server = |obj: Value| {
+                            server_writes.push(obj);
+                        };
+                        intercepted = guard.strategy.handle_server_request(
+                            &message,
+                            &mut session,
+                            &mut write_to_server,
+                        );
+                        guard.session = session;
+                    }
+                    write_values_to_child(&stdout_writer, server_writes);
+                    if stdout_signal_tx
+                        .send(StdoutSignal::RequestFinished)
+                        .is_err()
+                    {
+                        break;
+                    }
+                } else if method_is_string && let Ok(mut guard) = stdout_shared.lock() {
+                    let mut session = std::mem::take(&mut guard.session);
+                    let next = guard.strategy.on_server_notification(message, &mut session);
+                    guard.session = session;
+                    line = next.to_string();
                 }
             }
             if !intercepted {
@@ -201,9 +198,7 @@ fn run_proxy(strategy: Box<dyn GateStrategy>, codex_command: &str) -> Result<(),
                 let _ = std::io::stdout().flush();
             }
         }
-        if stdout_signal_tx.send(StdoutSignal::Done).is_err() {
-            return;
-        }
+        let _ = stdout_signal_tx.send(StdoutSignal::Done);
     });
 
     let t_err = thread::spawn(move || {
@@ -265,11 +260,11 @@ fn wait_for_stdout_drain(
 }
 
 fn write_line_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, line: &str) {
-    if let Ok(mut writer) = writer.lock() {
-        if let Some(stdin) = writer.as_mut() {
-            let _ = writeln!(stdin, "{line}");
-            let _ = stdin.flush();
-        }
+    if let Ok(mut writer) = writer.lock()
+        && let Some(stdin) = writer.as_mut()
+    {
+        let _ = writeln!(stdin, "{line}");
+        let _ = stdin.flush();
     }
 }
 
@@ -277,13 +272,13 @@ fn write_values_to_child(writer: &Arc<Mutex<Option<ChildStdin>>>, values: Vec<Va
     if values.is_empty() {
         return;
     }
-    if let Ok(mut writer) = writer.lock() {
-        if let Some(stdin) = writer.as_mut() {
-            for value in values {
-                let _ = writeln!(stdin, "{value}");
-            }
-            let _ = stdin.flush();
+    if let Ok(mut writer) = writer.lock()
+        && let Some(stdin) = writer.as_mut()
+    {
+        for value in values {
+            let _ = writeln!(stdin, "{value}");
         }
+        let _ = stdin.flush();
     }
 }
 

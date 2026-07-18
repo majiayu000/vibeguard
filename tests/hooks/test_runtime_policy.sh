@@ -55,6 +55,29 @@ run_codex_wrapper() {
       bash "${REPO_DIR}/hooks/run-hook-codex.sh" "${hook_name}"
 }
 
+make_installed_snapshot_home() {
+  local home_dir="$1" installed_version="$2"
+  mkdir -p "${home_dir}/.vibeguard/installed/hooks"
+  printf '%s' "${REPO_DIR}" > "${home_dir}/.vibeguard/repo-path"
+  printf '%s\n' "${installed_version}" > "${home_dir}/.vibeguard/installed/version"
+  hook_test_install_runtime_stub "${home_dir}"
+  cat > "${home_dir}/.vibeguard/installed/hooks/pre-bash-guard.sh" <<'SH'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+SH
+  chmod +x "${home_dir}/.vibeguard/installed/hooks/pre-bash-guard.sh"
+}
+
+run_installed_claude_wrapper() {
+  local home_dir="$1" session_id="$2" input="$3"
+  printf '%s' "${input}" \
+    | HOME="${home_dir}" VIBEGUARD_LOG_DIR="${home_dir}/.vibeguard" \
+      VIBEGUARD_SESSION_ID="${session_id}" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh
+}
+
 probe_large_claude_stdin() {
   local home_dir="$1" project_dir="$2" hook_name="$3"
   node - "${home_dir}" "${project_dir}" "${hook_name}" "${REPO_DIR}" <<'NODE'
@@ -210,6 +233,36 @@ resolver_out="$(
 assert_not_contains "${resolver_out}" "${partial_runtime}" "runtime policy resolver rejects runtimes missing helper commands"
 assert_contains "${resolver_out}" "${RUNTIME_BIN}" "runtime policy resolver falls through to helper-capable runtime"
 
+header "runtime policy — installed snapshot drift advisory"
+snapshot_home="${WORK_DIR}/home-snapshot-drift"
+current_head="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+make_installed_snapshot_home "${snapshot_home}" "${current_head}"
+
+set +e
+snapshot_clean_out="$(run_installed_claude_wrapper "${snapshot_home}" "snapshot-clean" "${pretool_block_input}" 2>&1)"
+snapshot_clean_status=$?
+set -e
+assert_empty_success "${snapshot_clean_status}" "${snapshot_clean_out}" "installed snapshot wrapper is silent when version matches repo-path HEAD"
+
+printf '%s\n' "oldsha" > "${snapshot_home}/.vibeguard/installed/version"
+set +e
+snapshot_drift_out="$(run_installed_claude_wrapper "${snapshot_home}" "snapshot-drift" "${pretool_block_input}" 2>&1)"
+snapshot_drift_status=$?
+set -e
+assert_exit_zero "installed snapshot drift advisory does not change hook exit code" test "${snapshot_drift_status}" -eq 0
+assert_contains "${snapshot_drift_out}" "installed hooks+guards snapshot is stale: oldsha" "installed snapshot drift emits visible warning"
+assert_contains "${snapshot_drift_out}" "run: bash setup.sh --yes" "installed snapshot drift warning names setup remedy"
+
+snapshot_drift_second="$(
+  printf '%s' "${pretool_block_input}" \
+    | HOME="${snapshot_home}" VIBEGUARD_LOG_DIR="${snapshot_home}/.vibeguard" \
+      VIBEGUARD_SESSION_ID="snapshot-drift" \
+      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
+      bash -x "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh 2>&1 >/dev/null || true
+)"
+assert_not_contains "${snapshot_drift_second}" "installed hooks+guards snapshot is stale" "installed snapshot drift warns once per session"
+assert_not_contains "${snapshot_drift_second}" "rev-parse --short HEAD" "installed snapshot drift check caches live HEAD per session"
+
 header "runtime policy — disabled hooks"
 disabled_home="${WORK_DIR}/home-disabled"
 disabled_project="${WORK_DIR}/project-disabled"
@@ -251,92 +304,7 @@ assert_contains "${warn_codex_out}" "systemMessage" "Codex wrapper emits advisor
 assert_not_contains "${warn_codex_out}" '"permissionDecision": "deny"' "Codex wrapper does not deny in warn mode"
 assert_contains "$(cat "${warn_home}/.vibeguard/projects/"*/events.jsonl)" '"decision": "warn"' "warn mode records downgraded warning telemetry"
 
-header "runtime policy — invalid project config"
-bad_project_home="${WORK_DIR}/home-bad-project"
-bad_project="${WORK_DIR}/project-bad"
-make_home "${bad_project_home}"
-make_project "${bad_project}" '{"disabled_hooks":["missing-hook"]}'
-
-set +e
-bad_project_claude_out="$(run_claude_wrapper "${bad_project_home}" "${bad_project}" pre-bash-guard.sh "${pretool_block_input}" 2>&1)"
-bad_project_claude_status=$?
-set -e
-TOTAL=$((TOTAL + 1))
-if [[ "${bad_project_claude_status}" -ne 0 ]]; then
-  green "Claude wrapper fails loudly on invalid .vibeguard.json"
-  PASS=$((PASS + 1))
-else
-  red "Claude wrapper fails loudly on invalid .vibeguard.json"
-  FAIL=$((FAIL + 1))
-fi
-assert_contains "${bad_project_claude_out}" "VibeGuard project config invalid" "Claude wrapper explains invalid .vibeguard.json"
-
-set +e
-bad_project_codex_out="$(run_codex_wrapper "${bad_project_home}" "${bad_project}" vibeguard-pre-bash-guard.sh "${codex_pretool_input}" 2>&1)"
-bad_project_codex_status=$?
-set -e
-TOTAL=$((TOTAL + 1))
-if [[ "${bad_project_codex_status}" -eq 0 ]]; then
-  green "Codex wrapper exits cleanly after emitting policy denial"
-  PASS=$((PASS + 1))
-else
-  red "Codex wrapper exits cleanly after emitting policy denial"
-  FAIL=$((FAIL + 1))
-fi
-assert_contains "${bad_project_codex_out}" '"permissionDecision": "deny"' "Codex wrapper denies invalid .vibeguard.json"
-assert_contains "${bad_project_codex_out}" "VibeGuard project config invalid" "Codex wrapper explains invalid .vibeguard.json"
-
-header "runtime policy — malformed user runtime config"
-bad_user_home="${WORK_DIR}/home-bad-user"
-bad_user_project="${WORK_DIR}/project-bad-user"
-bad_user_config="${WORK_DIR}/bad-config.json"
-make_home "${bad_user_home}"
-make_project "${bad_user_project}" '{}'
-printf '{"write_mode":' > "${bad_user_config}"
-
-set +e
-bad_user_claude_out="$(
-  cd "${bad_user_project}" && printf '%s' "${pretool_block_input}" \
-    | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
-      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
-      VIBEGUARD_CONFIG_FILE="${bad_user_config}" \
-      bash "${REPO_DIR}/hooks/run-hook.sh" pre-bash-guard.sh 2>&1
-)"
-bad_user_claude_status=$?
-set -e
-TOTAL=$((TOTAL + 1))
-if [[ "${bad_user_claude_status}" -ne 0 ]]; then
-  green "Claude wrapper fails loudly on malformed runtime config"
-  PASS=$((PASS + 1))
-else
-  red "Claude wrapper fails loudly on malformed runtime config"
-  FAIL=$((FAIL + 1))
-fi
-assert_contains "${bad_user_claude_out}" "VibeGuard runtime config invalid JSON" "Claude wrapper explains malformed runtime config"
-
-set +e
-bad_user_codex_out="$(
-  cd "${bad_user_project}" && printf '%s' "${codex_pretool_input}" \
-    | HOME="${bad_user_home}" VIBEGUARD_LOG_DIR="${bad_user_home}/.vibeguard" \
-      VIBEGUARD_POLICY_RUNTIME="${RUNTIME_BIN}" \
-      VIBEGUARD_CONFIG_FILE="${bad_user_config}" \
-      bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh 2>&1
-)"
-bad_user_codex_status=$?
-set -e
-TOTAL=$((TOTAL + 1))
-if [[ "${bad_user_codex_status}" -eq 0 ]]; then
-  green "Codex wrapper exits cleanly after malformed config denial"
-  PASS=$((PASS + 1))
-else
-  red "Codex wrapper exits cleanly after malformed config denial"
-  FAIL=$((FAIL + 1))
-fi
-assert_contains "${bad_user_codex_out}" '"permissionDecision": "deny"' "Codex wrapper denies malformed runtime config"
-assert_contains "${bad_user_codex_out}" "VibeGuard runtime config invalid JSON" "Codex wrapper explains malformed runtime config"
-assert_contains "$(cat "${bad_user_home}/.vibeguard/policy.jsonl")" "config_parse_error" "runtime policy emits config_parse_error telemetry"
-
-header "runtime policy — no Python policy helpers"
-assert_not_contains "$(sed -n '1,240p' "${REPO_DIR}/hooks/_lib/policy.sh")" "python3" "policy helper no longer shells out to python3"
+# Invalid .vibeguard.json and malformed ~/.vibeguard/config.json coverage lives
+# in test_runtime_policy_config_errors.sh (split to satisfy the test file size guard).
 
 hook_test_finish

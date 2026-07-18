@@ -164,11 +164,27 @@ jobs:
       attestations: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal
+          rustup default "${RUST_VERSION}"
+          rustc --version
+
       - name: Download runtime artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           merge-multiple: true
+
+      - name: Generate dependency metadata
+        run: |
+          cargo metadata --locked --manifest-path "${RUNTIME_MANIFEST}" --format-version 1 \
+            > dist/vibeguard-runtime-dependency-metadata.json
 
       - name: Generate checksums
         run: |
@@ -176,10 +192,26 @@ jobs:
           sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Generate runtime release manifest
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 scripts/ci/generate_runtime_release_manifest.py \
+            "${TAG_NAME#v}" \
+            dist \
+            dist/vibeguard-runtime-releases.json \
+            "${GH_REPO}"
+
       - name: Attest checksum manifest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: dist/SHA256SUMS
+
+      - name: Attest runtime release manifest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/vibeguard-runtime-releases.json
 
       - name: Publish GitHub Release
         env:
@@ -193,4 +225,4 @@ jobs:
           fi
           gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
             --title "${TAG_NAME}" \
-            --notes "VibeGuard runtime binaries for ${TAG_NAME}."
+            --notes "VibeGuard runtime binaries, release manifest, and dependency metadata for ${TAG_NAME}."

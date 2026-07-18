@@ -2,6 +2,45 @@
 
 Known false positive scenarios and fix status for Guard and Hook. **A must-read when developing Agent** to avoid repeated pitfalls.
 
+## Reporting workflow
+
+False-positive reports must carry a stable identifier that can be searched across hook output, `events.jsonl`, GitHub issues, and precision-tracker history. Use one of:
+
+- `event_id` or `code` shaped like `VG-POLICY-RS03-DOC-EXAMPLE`
+- a canonical rule id such as `RS-03` or `U-16` when no `VG-*` code exists yet
+
+Generate a redacted report body from an event log row when possible:
+
+```sh
+python3 scripts/report-false-positive.py VG-POLICY-RS03-DOC-EXAMPLE --event-log ~/.vibeguard/events.jsonl
+```
+
+The report must include hook, rule id, project-relative path, event id/code, decision/status, and remediation context. Do not paste secrets; the helper redacts common token and key shapes, but reporters still own final review.
+
+Scoped suppressions belong in `.vibeguard.json` and must stay narrow:
+
+```json
+{
+  "scoped_suppressions": [
+    {
+      "hook": "post-edit-guard",
+      "rule_id": "RS-03",
+      "path": "docs/examples/**",
+      "code": "VG-POLICY-RS03-DOC-EXAMPLE",
+      "action": "downgrade_to_warn",
+      "reason": "documentation intentionally shows unwrap",
+      "expires_at": "2026-12-31"
+    }
+  ]
+}
+```
+
+After triage confirms a false positive, feed the precision lifecycle:
+
+```sh
+python3 scripts/precision-tracker.py --record fp RS-03 --context "VG-POLICY-RS03-DOC-EXAMPLE docs/examples/**"
+```
+
 ## Fixed
 
 ### TS-03: CLI project console false positive
