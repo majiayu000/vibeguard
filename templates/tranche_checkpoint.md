@@ -11,6 +11,17 @@ Runtime item `state` values are handoff states mapped by
 `checks/specrail_lib.py` as `RUNTIME_STATE_MAPPING`; they do not replace the
 canonical workflow state machine in `states.yaml`.
 
+Budget guidance: prefer `basis: compaction` when the runtime exposes
+compaction. When `item_cap` is declared in `auth_mode: auto`, it defaults
+to 3; declaring `item_cap: 1` requires an `item_cap_reason` string in the
+budget object naming the high-risk item that justifies it.
+
+Goal guidance: for `auth_mode: auto` + `queue_mode: full_queue_drain` with
+Codex goal capability available, a thread goal is created by default per
+the Goal Use auto-drain branch; fill the `goal` object with the drain
+objective, status, and token budget (user-provided, or the recorded
+conservative default).
+
 ```json
 {
   "checkpoint_version": 2,

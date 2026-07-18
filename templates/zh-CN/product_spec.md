@@ -19,9 +19,11 @@ GH-
 ## Behavior Invariants
 
 用编号列表写可观察、可测试、无实现细节的行为契约。使用稳定 ID
-（`B-001`、`B-002`…）；修订只追加，不重排、不复用。长度启发式、密度规则
-与 worked example 见 `specrail-write-product-spec` skill。trivial 变更在
-Linked Issue 下声明 `complexity: trivial` 并保持最小 spec。
+（`B-001`、`B-002`…）；修订只追加，不重排、不复用。不变式优先使用 EARS
+条件式触发写法（当/如果/若/WHEN/IF/WHILE），让每条契约写明触发条件。
+长度启发式、密度规则与 worked example 见 `specrail-write-product-spec`
+skill。trivial 变更在 Linked Issue 下声明 `complexity: trivial` 并保持最小
+spec。
 
 1. B-001
 

@@ -20,7 +20,9 @@ Describe the user-visible problem and why it matters.
 
 List numbered, testable behavior requirements without implementation details.
 Use stable IDs (`B-001`, `B-002`, ...); revisions append, never renumber or
-reuse. Follow the length heuristic, density rule, and worked example in the
+reuse. Prefer EARS-style conditional triggers (WHEN / IF / WHILE / 当 / 如果 /
+若) so each invariant names the condition under which it fires. Follow the
+length heuristic, density rule, and worked example in the
 `specrail-write-product-spec` skill. For trivial changes declare
 `complexity: trivial` under Linked Issue and keep the spec minimal.
 

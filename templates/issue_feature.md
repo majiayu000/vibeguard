@@ -18,8 +18,8 @@ List what this request should not include.
 
 ## Acceptance Criteria
 
-- [ ] <!-- acceptance criterion -->
-- [ ] <!-- acceptance criterion -->
+- [ ] 
+- [ ] 
 
 ## Readiness
 
@@ -29,3 +29,4 @@ Maintainers choose one:
 - `ready_to_spec`
 - `ready_to_implement`
 - `reserved_internal`
+

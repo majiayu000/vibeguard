@@ -15,8 +15,8 @@ Each task line: backticked `SP<issue>-T<n>` ID, description,
 `Covers: B-xxx` (or `Covers: none` + reason), then `Owner:`, `Done when:`,
 `Verify:`.
 
-- [ ] <!-- implementation task -->
-- [ ] <!-- implementation task -->
+- [ ] 
+- [ ] 
 
 ## Parallelization
 
@@ -24,7 +24,7 @@ List tasks that can run in parallel and their disjoint file ownership.
 
 ## Verification
 
-- [ ] <!-- verification step -->
+- [ ] 
 
 ## Handoff Notes
 

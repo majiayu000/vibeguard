@@ -28,6 +28,13 @@ from specrail_lib import (
     validate_state_graph,
 )
 from duplicate_work_gate import evaluate_duplicate_work_gate_path
+from sensitive_enforcement import (
+    classification_from_approved_tech,
+    evaluate_sensitive_evidence,
+    sensitive_registry,
+    trusted_default_base,
+    validate_sensitive_registry,
+)
 
 
 ROUTE_ALIASES = {
@@ -122,6 +129,7 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     config_errors.extend(validate_state_graph(config))
     config_errors.extend(validate_labels(config))
     config_errors.extend(validate_action_policy(config))
+    config_errors.extend(validate_sensitive_registry(config))
     try:
         configured_spec_paths = spec_packet_artifact_paths(config, 1)
         configured_spec_root = PurePosixPath(
@@ -156,6 +164,8 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     required_artifacts: list[str] = []
     human_gates: list[str] = []
     duplicate_work_result: dict[str, Any] | None = None
+    sensitive_classification: dict[str, Any] | None = None
+    sensitive_errors: list[str] = []
 
     if config_errors:
         return {
@@ -304,6 +314,51 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
             required_artifacts.append(path)
 
     if route == "implement":
+        trusted_classification: dict[str, Any] | None = None
+        sensitive_input = dict(evidence)
+        sensitive_input.pop("sensitive_classification", None)
+        registry = sensitive_registry(config)
+        if registry["paths"] or registry["specs"]:
+            try:
+                _trusted_base_ref, trusted_base_sha = trusted_default_base(
+                    repo,
+                    default_base_ref=evidence.get("default_base_ref"),
+                    default_base_sha=evidence.get("default_base_sha"),
+                )
+                trusted_classification = classification_from_approved_tech(
+                    config,
+                    repo,
+                    issue=args.issue,
+                    base_sha=trusted_base_sha,
+                )
+                sensitive_input["sensitive_classification"] = {
+                    key: trusted_classification[key]
+                    for key in [
+                        "source", "changed_paths", "spec_refs", "matched_paths",
+                        "matched_specs", "registry_configured",
+                        "enforcement_sensitive",
+                    ]
+                }
+            except (SpecRailError, TypeError) as exc:
+                sensitive_errors.append(str(exc))
+        sensitive_classification, sensitive_satisfied, evaluated_sensitive_errors = (
+            evaluate_sensitive_evidence(
+                config,
+                repo,
+                sensitive_input,
+                expected_source="tech_spec",
+                issue=args.issue,
+                expected_base_ref=evidence.get("base_ref"),
+                expected_base_head=evidence.get("base_sha"),
+            )
+        )
+        sensitive_errors.extend(evaluated_sensitive_errors)
+        if trusted_classification is not None:
+            sensitive_classification = trusted_classification
+        satisfied.extend(sensitive_satisfied)
+        if sensitive_errors:
+            reasons.extend(sensitive_errors)
+            missing.append("sensitive_enforcement")
         if args.issue is None:
             duplicate_work_result = {
                 "decision": "needs_human",
@@ -357,6 +412,8 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
 
     if duplicate_work_result is not None:
         decision = stricter_decision(decision, str(duplicate_work_result["decision"]))
+    if sensitive_errors:
+        decision = "blocked"
 
     for artifact in creates:
         if args.issue is None:
@@ -389,6 +446,7 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         "allowed_actions": sorted(set(allowed_actions)),
         "blocked_actions": sorted(set(blocked_actions)),
         "duplicate_work_gate": duplicate_work_result,
+        "sensitive_classification": sensitive_classification,
         "verification_commands": verification_commands,
     }
 

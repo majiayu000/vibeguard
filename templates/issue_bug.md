@@ -10,9 +10,9 @@ List related existing issues or explain that none were found.
 
 ## Steps To Reproduce
 
-1. <!-- first reproduction step -->
-2. <!-- second reproduction step -->
-3. <!-- third reproduction step -->
+1. 
+2. 
+3. 
 
 ## Expected Behavior
 
@@ -31,3 +31,4 @@ Describe what happened instead. Include logs when useful.
 ## Impact
 
 State whether this blocks normal use, causes data loss, or has a workaround.
+

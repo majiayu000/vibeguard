@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sensitive_enforcement import parse_planned_changes_manifest
+from specrail_lib import SpecRailError
+
 
 SPEC_SCHEMA_FILES = frozenset(
     {
         "adoption_matrix.schema.json",
+        "closure_audit_result.schema.json",
         "duplicate_work_evidence.schema.json",
         "evaluation_result.schema.json",
         "flow_manifest.schema.json",
@@ -37,6 +41,9 @@ STABLE_TEMPLATE_FILES = frozenset(
     {"issue_feature.md", "product_spec.md", "pull_request.md", "tech_spec.md"}
 )
 STABLE_TEMPLATE_TOKENS = ("GH-", "ready_to_spec", "ready_to_implement")
+TECH_TEMPLATE_MANIFEST = {
+    "version": 1, "issue": 0, "complete": False, "paths": [], "spec_refs": [],
+}
 
 
 def _read_asset_text(path: Path, repo: Path, errors: list[str]) -> str | None:
@@ -70,6 +77,21 @@ def validate_template_parity(repo: Path) -> list[str]:
         for token in STABLE_TEMPLATE_TOKENS:
             if token in base_text and token not in localized_text:
                 errors.append(f"templates/zh-CN/{name}: missing stable token {token}")
+        if name == "tech_spec.md":
+            for path, text in [(base_path, base_text), (localized_path, localized_text)]:
+                relative = path.relative_to(repo).as_posix()
+                try:
+                    manifest = parse_planned_changes_manifest(
+                        text.encode("utf-8"), label=relative
+                    )
+                except SpecRailError as exc:
+                    errors.append(str(exc))
+                    continue
+                if manifest != TECH_TEMPLATE_MANIFEST:
+                    errors.append(
+                        f"{relative}: planned-changes manifest must be the "
+                        "fail-closed template skeleton"
+                    )
     return errors
 
 

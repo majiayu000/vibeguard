@@ -23,6 +23,10 @@ from specrail_lib import (
     validate_state_graph,
     validate_skills_lock,
 )
+from sensitive_enforcement import (
+    parse_planned_changes_manifest,
+    validate_sensitive_registry,
+)
 
 
 REQUIRED_FILES = [
@@ -38,13 +42,18 @@ REQUIRED_FILES = [
     "checks/duplicate_work_gate.py",
     "checks/github_evidence_common.py",
     "checks/github_duplicate_evidence.py",
+    "checks/github_approved_spec_evidence.py",
     "checks/github_issue_reference.py",
     "checks/github_issue_evidence.py",
     "checks/github_pr_evidence.py",
-    "checks/github_review_threads.py",
+    "checks/github_pr_snapshot.py",
+    "checks/github_review_evidence.py",
     "checks/pack_asset_validation.py",
+    "checks/closure_audit.py",
     "checks/pr_gate.py",
+    "checks/pr_review_contract.py",
     "checks/review_json_gate.py",
+    "checks/review_result_semantics.py",
     "schemas/duplicate_work_evidence.schema.json",
     "tools/install_codex_skills.py",
     "skills-lock.json",
@@ -67,12 +76,16 @@ REQUIRED_FILES = [
     "policies/maintainer_escalation.md",
     "checks/runtime_ledger_gate.py",
     "checks/runtime_gate_rules.py",
+    "checks/schema_validation.py",
+    "checks/sensitive_enforcement.py",
     "templates/tranche_checkpoint.md",
 ]
 REQUIRED_FILE_GLOBS = [
     "examples/fixtures/*",
     "schemas/*.schema.json",
 ]
+
+PLANNED_CHANGES_REQUIRED_MARKER = "specrail-requires-planned-changes-v1"
 
 VALID_AUTH_MODES = ("auto", "review")
 
@@ -107,6 +120,7 @@ REQUIRED_TOKENS = {
         "## Proposed Design",
         "## Test Plan",
         "## Rollback Plan",
+        PLANNED_CHANGES_REQUIRED_MARKER,
     ],
     "templates/tasks.md": [
         "## Implementation Tasks",
@@ -284,6 +298,27 @@ def validate_spec_packet(spec_dir: Path) -> list[str]:
             errors.append(f"{path}: must not be empty")
         if issue_tokens and not any(token in text for token in issue_tokens):
             errors.append(f"{path}: missing linked issue token {' or '.join(issue_tokens)}")
+        if name == "tech.md" and (
+            PLANNED_CHANGES_REQUIRED_MARKER in text
+            or "specrail-planned-changes" in text
+        ):
+            try:
+                manifest = parse_planned_changes_manifest(
+                    text.encode("utf-8"), label=str(path)
+                )
+            except SpecRailError as exc:
+                errors.append(str(exc))
+            else:
+                if manifest["version"] != 1:
+                    errors.append(f"{path}: manifest version must be 1")
+                if issue_number and manifest["issue"] != int(issue_number):
+                    errors.append(
+                        f"{path}: manifest issue must match GH{issue_number}"
+                    )
+                if manifest["complete"] is not True:
+                    errors.append(f"{path}: manifest must declare complete=true")
+                if not manifest["paths"]:
+                    errors.append(f"{path}: manifest paths must not be empty")
 
     task_path = spec_dir / "tasks.md"
     if not task_path.is_file():
@@ -314,9 +349,16 @@ def spec_packet_sort_key(spec_dir: Path) -> tuple[int, int, str]:
     return (1, 0, str(spec_dir))
 
 
-def validate_spec_packet_root(repo: Path, spec_root: PurePosixPath) -> Path:
-    specs_dir = resolve_spec_packet_root(repo, spec_root)
+def discover_spec_packet_dirs(
+    repo: Path,
+    spec_root: PurePosixPath | None = None,
+) -> list[Path]:
+    uses_configured_root = spec_root is not None
+    configured_root = spec_root if uses_configured_root else PurePosixPath("specs")
+    specs_dir = resolve_spec_packet_root(repo, configured_root)
     if not specs_dir.exists():
+        if not uses_configured_root:
+            return []
         raise SpecRailError(
             "workflow.yaml: configured spec packet root does not exist"
         )
@@ -324,25 +366,6 @@ def validate_spec_packet_root(repo: Path, spec_root: PurePosixPath) -> Path:
         raise SpecRailError(
             "workflow.yaml: configured spec packet root is not a directory"
         )
-    return specs_dir
-
-
-def discover_spec_packet_dirs(
-    repo: Path,
-    spec_root: PurePosixPath | None = None,
-) -> list[Path]:
-    uses_configured_root = spec_root is not None
-    configured_root = spec_root if uses_configured_root else PurePosixPath("specs")
-    if not uses_configured_root:
-        specs_dir = resolve_spec_packet_root(repo, configured_root)
-        if not specs_dir.exists():
-            return []
-        if not specs_dir.is_dir():
-            raise SpecRailError(
-                "workflow.yaml: configured spec packet root is not a directory"
-            )
-    else:
-        specs_dir = validate_spec_packet_root(repo, configured_root)
     resolved_repo = resolve_path(repo, label="repository")
     spec_dirs: list[Path] = []
     for path in specs_dir.iterdir():
@@ -463,7 +486,7 @@ def main() -> int:
         configured_spec_root = PurePosixPath(
             configured_spec_paths["spec_packet"]
         ).parent
-        validate_spec_packet_root(repo, configured_spec_root)
+        resolve_spec_packet_root(repo, configured_spec_root)
         errors.extend(validate_required_files(repo))
         errors.extend(validate_required_file_globs(repo))
         errors.extend(validate_tokens(repo))
@@ -471,6 +494,7 @@ def main() -> int:
         errors.extend(validate_state_graph(config))
         errors.extend(validate_labels(config))
         errors.extend(validate_action_policy(config))
+        errors.extend(validate_sensitive_registry(config))
         errors.extend(validate_impl_branch_template(config))
         errors.extend(validate_auth_mode(config))
         errors.extend(validate_skills_lock(repo))

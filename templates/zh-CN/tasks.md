@@ -14,8 +14,8 @@ GH-
 每个任务行：反引号 `SP<issue>-T<n>` ID、描述、`Covers: B-xxx`（或
 `Covers: none` + 原因），以及 `Owner:`、`Done when:`、`Verify:`。
 
-- [ ] <!-- 实现任务 -->
-- [ ] <!-- 实现任务 -->
+- [ ] 
+- [ ] 
 
 ## 并行拆分
 
@@ -23,7 +23,7 @@ GH-
 
 ## 验证
 
-- [ ] <!-- 验证步骤 -->
+- [ ] 
 
 ## Handoff Notes
 

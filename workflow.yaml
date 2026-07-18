@@ -58,13 +58,22 @@ required_human_gates:
   - merge
   - release
 
+# Consumer repositories populate these repo-relative glob registries. Empty
+# registries preserve compatibility; a configured registry makes trusted path
+# evidence mandatory for implement and PR gates.
+enforcement:
+  sensitive_registry:
+    paths: []
+    specs: []
+
 artifacts:
-  spec_packet: docs/specs/GH{issue_number}/
-  product_spec: docs/specs/GH{issue_number}/product.md
-  tech_spec: docs/specs/GH{issue_number}/tech.md
-  task_plan: docs/specs/GH{issue_number}/tasks.md
+  spec_packet: specs/GH{issue_number}/
+  product_spec: specs/GH{issue_number}/product.md
+  tech_spec: specs/GH{issue_number}/tech.md
+  task_plan: specs/GH{issue_number}/tasks.md
   impl_branch: "{agent}/gh{issue_number}-{slug}"
   agent_review: artifacts/review/pr-{pr_number}.json
+  closure_audit_result: artifacts/closure/pr-{pr_number}.json
   triage_result: artifacts/triage/issue-{issue_number}.json
 
 action_policy:
@@ -138,7 +147,7 @@ action_policy:
         - release
 
 presentation:
-  default_locale: zh-CN
+  default_locale: en-US
   supported_locales:
     - en-US
     - zh-CN

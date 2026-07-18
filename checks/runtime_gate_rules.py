@@ -156,14 +156,35 @@ def _validate_lane_failure_outcome(
         )
 
 
+def _distinct_failed_lane_ids(raw_item: dict[str, Any]) -> set[str]:
+    lane_failures = raw_item.get("lane_failures")
+    if not isinstance(lane_failures, list):
+        return set()
+    return {
+        failure["lane_id"].strip()
+        for failure in lane_failures
+        if isinstance(failure, dict) and _nonempty_string(failure.get("lane_id"))
+    }
+
+
 def _validate_self_review_authorization(
     raw_item: dict[str, Any],
     label: str,
     errors: list[str],
+    *,
+    auth_mode: str = "",
 ) -> None:
     lane_failures = raw_item.get("lane_failures")
     if not isinstance(lane_failures, list) or not lane_failures:
         errors.append(f"{label}: self_review requires recorded lane_failures")
+    if str(auth_mode).strip().lower() == "auto":
+        distinct = _distinct_failed_lane_ids(raw_item)
+        if len(distinct) < 2:
+            errors.append(
+                f"{label}: auth_mode auto self_review requires two distinct "
+                f"failed reviewer lanes (found {len(distinct)}); a single lane "
+                "failure still requires an independent retry lane"
+            )
     value = raw_item.get("self_review_authorization")
     if not isinstance(value, dict):
         errors.append(f"{label}: self_review requires self_review_authorization")
@@ -171,6 +192,43 @@ def _validate_self_review_authorization(
     for key in ["scope", "conversation_marker"]:
         if not _nonempty_string(value.get(key)):
             errors.append(f"{label}: self_review_authorization.{key} is required")
+
+
+def _validate_terminal_review_summary(
+    review: dict[str, Any],
+    *,
+    head_sha: Any,
+    review_source: Any,
+    label: str,
+    errors: list[str],
+) -> None:
+    for key in ["manifest", "artifact_id", "head_sha", "review_completed_at"]:
+        if not _nonempty_string(review.get(key)):
+            errors.append(f"{label}: terminal review requires review.{key}")
+    if review.get("head_sha") != head_sha:
+        errors.append(f"{label}: terminal review head_sha must match item head_sha")
+    if review.get("terminal_status") != "completed":
+        errors.append(f"{label}: terminal review status must be completed")
+    if review.get("verdict") not in {"clean", "non_blocking"}:
+        errors.append(f"{label}: terminal review verdict must be clean or non_blocking")
+    findings = review.get("findings")
+    if not isinstance(findings, list):
+        errors.append(f"{label}: terminal review findings must be a list")
+    else:
+        for finding in findings:
+            if not isinstance(finding, dict):
+                errors.append(f"{label}: terminal review finding must be an object")
+            elif finding.get("severity") in {"critical", "important"} or finding.get("actionable") is True:
+                errors.append(f"{label}: terminal review has blocking/actionable finding")
+    prior_findings = review.get("prior_findings")
+    if not isinstance(prior_findings, list):
+        errors.append(f"{label}: terminal review prior_findings must be a list")
+    else:
+        for finding in prior_findings:
+            if isinstance(finding, dict) and finding.get("status") == "unresolved":
+                errors.append(f"{label}: terminal review has unresolved prior finding")
+    if review_source == "self_review" and review.get("human_final_review_required") is not True:
+        errors.append(f"{label}: self_review requires human_final_review_required=true")
 
 
 def _validate_declaration(

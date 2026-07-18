@@ -408,6 +408,12 @@
           "review_source": {
             "enum": ["independent_lane", "self_review", null]
           },
+          "enforcement_sensitive": {
+            "type": ["boolean", "null"]
+          },
+          "approved_spec_evidence": {
+            "type": ["string", "null"]
+          },
           "ci": {
             "type": ["object", "null"],
             "additionalProperties": true,
@@ -467,7 +473,20 @@
               },
               "evidence": {
                 "type": ["string", "null"]
-              }
+              },
+              "manifest": {"type": ["string", "null"]},
+              "artifact_id": {"type": ["string", "null"]},
+              "head_sha": {"type": ["string", "null"]},
+              "review_completed_at": {"type": ["string", "null"]},
+              "terminal_status": {
+                "enum": ["completed", "pending", "failed", "cancelled", "superseded", null]
+              },
+              "verdict": {
+                "enum": ["clean", "non_blocking", "changes_requested", "blocking", null]
+              },
+              "human_final_review_required": {"type": ["boolean", "null"]},
+              "findings": {"type": ["array", "null"]},
+              "prior_findings": {"type": ["array", "null"]}
             }
           },
           "lane_failures": {

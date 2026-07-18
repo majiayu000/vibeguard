@@ -12,7 +12,8 @@
     "labels",
     "url",
     "title",
-    "artifacts"
+    "artifacts",
+    "repository"
   ],
   "additionalProperties": false,
   "allOf": [
@@ -39,12 +40,72 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "anyOf": [
+          {"required": ["base_ref"]},
+          {"required": ["base_sha"]},
+          {"required": ["default_base_ref"]},
+          {"required": ["default_base_sha"]},
+          {"required": ["enforcement_sensitive"]},
+          {"required": ["sensitive_classification"]},
+          {"required": ["approved_spec"]}
+        ]
+      },
+      "then": {
+        "required": [
+          "base_ref",
+          "base_sha",
+          "default_base_ref",
+          "default_base_sha",
+          "enforcement_sensitive",
+          "sensitive_classification"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {"enforcement_sensitive": {"const": true}},
+        "required": ["enforcement_sensitive"]
+      },
+      "then": {
+        "required": ["approved_spec"],
+        "properties": {
+          "sensitive_classification": {
+            "properties": {"enforcement_sensitive": {"const": true}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"enforcement_sensitive": {"const": false}},
+        "required": ["enforcement_sensitive"]
+      },
+      "then": {
+        "properties": {
+          "sensitive_classification": {
+            "properties": {"enforcement_sensitive": {"const": false}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"required": ["approved_spec"]},
+      "then": {
+        "properties": {"enforcement_sensitive": {"const": true}}
+      }
     }
   ],
   "properties": {
     "issue": {
       "type": "integer",
       "minimum": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
     },
     "state": {
       "type": ["string", "null"],
@@ -100,6 +161,136 @@
         "task_plan": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "base_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "default_base_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default_base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "enforcement_sensitive": {
+      "type": "boolean"
+    },
+    "sensitive_classification": {
+      "type": "object",
+      "required": [
+        "source",
+        "changed_paths",
+        "spec_refs",
+        "matched_paths",
+        "matched_specs",
+        "registry_configured",
+        "enforcement_sensitive",
+        "source_path",
+        "source_content_hash",
+        "source_base_sha",
+        "planned_paths_complete"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {"const": "tech_spec"},
+        "changed_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "spec_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "matched_paths": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "matched_specs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "registry_configured": {"const": true},
+        "enforcement_sensitive": {"type": "boolean"},
+        "source_path": {"type": "string", "minLength": 1},
+        "source_content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{40}$"
+        },
+        "planned_paths_complete": {"const": true}
+      }
+    },
+    "approved_spec": {
+      "type": "object",
+      "required": [
+        "repository",
+        "issue",
+        "spec_paths",
+        "content_hashes",
+        "spec_revisions",
+        "approved_at",
+        "maintainer_actor",
+        "state_source",
+        "state_trusted",
+        "default_base_ref",
+        "default_base_sha"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "issue": {"type": "integer", "minimum": 1},
+        "spec_paths": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "content_hashes": {"type": "object", "minProperties": 2},
+        "spec_revisions": {
+          "type": "object",
+          "minProperties": 2,
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "source_commit_sha",
+              "pr_number",
+              "merged_at",
+              "merge_commit_sha"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "source_commit_sha": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{40}$"
+              },
+              "pr_number": {"type": "integer", "minimum": 1},
+              "merged_at": {"type": "string", "minLength": 1},
+              "merge_commit_sha": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{40}$"
+              }
+            }
+          }
+        },
+        "approved_at": {"type": "string", "minLength": 1},
+        "maintainer_actor": {"type": "string", "minLength": 1},
+        "state_source": {"const": "label"},
+        "state_trusted": {"const": true},
+        "default_base_ref": {"type": "string", "minLength": 1},
+        "default_base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{40}$"
         }
       }
     }

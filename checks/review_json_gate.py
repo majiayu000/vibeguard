@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from review_result_semantics import REVIEW_VERDICTS, validate_review_artifact
 
-VERDICTS = {"APPROVE", "REJECT"}
+
+VERDICTS = REVIEW_VERDICTS
 SIDES = {"RIGHT", "LEFT"}
 SEVERITIES = {"critical", "important", "suggestion", "nit"}
 SPEC_ALIGNMENT_STATUSES = {"matched", "drift", "not_applicable"}
@@ -162,6 +164,15 @@ def _validate_top_level(review: dict[str, Any]) -> tuple[list[str], list[str], l
     reasons: list[str] = []
     allowed_keys = {
         "verdict",
+        "artifact_id",
+        "reviewer_lane",
+        "producer_identity",
+        "review_source",
+        "review_started_at",
+        "review_completed_at",
+        "status",
+        "human_final_review_required",
+        "findings",
         "body",
         "comments",
         "spec_alignment",
@@ -181,7 +192,10 @@ def _validate_top_level(review: dict[str, Any]) -> tuple[list[str], list[str], l
     if verdict in VERDICTS:
         satisfied.append(f"verdict: {verdict}")
     elif "verdict" in review:
-        reasons.append(f"verdict must be APPROVE or REJECT; got {verdict!r}")
+        reasons.append(
+            "verdict must be clean, non_blocking, changes_requested, or blocking; "
+            f"got {verdict!r}"
+        )
     else:
         missing.append("verdict")
 
@@ -535,6 +549,15 @@ def evaluate_review_gate(review: dict[str, Any], diff_text: str) -> dict[str, An
     satisfied.extend(top_satisfied)
     missing.extend(top_missing)
     reasons.extend(top_reasons)
+    semantic_result = validate_review_artifact(review)
+    reasons.extend(semantic_result["errors"])
+    reasons.extend(
+        item
+        for item in semantic_result["blocking_reasons"]
+        if item == "clean verdict requires zero findings"
+    )
+    if semantic_result["valid"]:
+        satisfied.append("review artifact v2 semantics valid")
     reasons.extend(_find_forbidden_language(review))
 
     try:

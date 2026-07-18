@@ -4,15 +4,6 @@ SpecRail is primarily for code agents, not for human project management. Humans
 own policy and final gates; agents use this repository to decide how to triage,
 write specs, prepare PRs, review, and report handoffs without inventing process.
 
-## VibeGuard Adoption Pin
-
-VibeGuard adopted this pack from `majiayu000/specrail` commit
-`7de16e4780d903607b40220a9edb7a08fe222c78` on 2026-07-14. Consumer-specific
-overrides keep spec packets under `docs/specs/GH<number>`, set the default
-locale to `zh-CN`, align imported skills with VibeGuard's required skill
-sections, and replace source-only example paths with target-local evidence.
-VibeGuard's own README, LICENSE, and CHANGELOG remain authoritative.
-
 ## What The Agent Should Load
 
 When a repository adopts SpecRail, the agent should read these files before
@@ -220,7 +211,7 @@ packet. A missing issue number is not permission to skip spec creation.
 
 If the task is a GitHub issue or PR queue, needs disjoint parallel lanes, or
 requires review-thread, CI, merge-gate, or closure-audit handling, load
-`skills/specrail-implement-queue/SKILL.md` after SpecRail preflight. SpecRail still owns policy,
+`integrations/threads.md` after SpecRail preflight. SpecRail still owns policy,
 locale, required artifacts, and human gates. Threads owns lane orchestration,
 remote queue truth, and closure audit.
 
@@ -256,7 +247,7 @@ Do not translate stable machine-facing identifiers:
 - state IDs such as `ready_to_spec`
 - decision values such as `needs_human`
 - artifact IDs such as `product_spec`
-- paths such as `docs/specs/GH539/product.md`
+- paths such as `specs/GH1/product.md`
 - commands and CLI flags
 - JSON keys and schema field names
 

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specrail.local/schemas/closure_audit_result.schema.json",
+  "title": "Closure Audit Result",
+  "type": "object",
+  "required": [
+    "version",
+    "status",
+    "advisory_only",
+    "github_writes_performed",
+    "repository",
+    "pr_number",
+    "final_head_sha",
+    "checked_at",
+    "violations",
+    "required_follow_up"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "compliant"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "violations": {"const": []},
+          "required_follow_up": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "violation"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "violations": {"type": "array", "minItems": 1},
+          "required_follow_up": {
+            "type": "object",
+            "required": [
+              "violation_code",
+              "repository",
+              "pr_number",
+              "final_head_sha",
+              "idempotency_key",
+              "summary"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "violation_code": {
+                "enum": [
+                  "external_merge_missing_chain",
+                  "closure_missing_gate_evidence",
+                  "closure_missing_dispatch_evidence",
+                  "closure_missing_merge_evidence",
+                  "closure_gate_not_allowed",
+                  "closure_head_mismatch",
+                  "closure_invalid_timestamp",
+                  "closure_dispatch_not_after_gate",
+                  "closure_merge_before_dispatch"
+                ]
+              },
+              "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+              "pr_number": {"type": "integer", "minimum": 1},
+              "final_head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+              "idempotency_key": {"type": "string", "pattern": "^specrail-closure-v1:[0-9a-f]{64}$"},
+              "summary": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "status": {"enum": ["compliant", "violation"]},
+    "advisory_only": {"const": true},
+    "github_writes_performed": {"const": false},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "pr_number": {"type": "integer", "minimum": 1},
+    "final_head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "checked_at": {"type": "string", "minLength": 1},
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "external_merge_missing_chain",
+              "closure_missing_gate_evidence",
+              "closure_missing_dispatch_evidence",
+              "closure_missing_merge_evidence",
+              "closure_gate_not_allowed",
+              "closure_head_mismatch",
+              "closure_invalid_timestamp",
+              "closure_dispatch_not_after_gate",
+              "closure_merge_before_dispatch"
+            ]
+          },
+          "summary": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "required_follow_up": {"type": ["object", "null"]}
+  }
+}

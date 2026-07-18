@@ -4,6 +4,11 @@
 
 GH-
 
+<!-- specrail-requires-planned-changes-v1 -->
+<!-- specrail-planned-changes
+{"version":1,"issue":0,"complete":false,"paths":[],"spec_refs":[]}
+-->
+
 ## Product Spec
 
 Link to `product.md`.
@@ -36,7 +41,7 @@ Describe inputs, outputs, persistence, and external calls.
 
 ## Alternatives Considered
 
-- <!-- alternative -->
+- 
 
 ## Risks
 
