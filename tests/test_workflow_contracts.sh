@@ -559,7 +559,8 @@ for path, contract in expected.items():
     missing_requires = contract["requires"] - set(consumer.get("requires", []))
     if missing_requires:
         raise SystemExit(f"{path} missing requirements: {sorted(missing_requires)}")
-
+if "execution_handoff" in consumers[".claude/commands/vibeguard/preflight.md"]["requires"]:
+    raise SystemExit("execute_direct consumer must remain handoff-free")
 examples = {
     (example.get("heading"), example.get("schema"))
     for example in registry.get("markdown_examples", [])
@@ -684,19 +685,21 @@ else
 fi
 
 header "consumer drift failures"
-HANDOFF_FIXTURE="${TMP_DIR}/handoff"
-copy_schemas "${HANDOFF_FIXTURE}"
-mkdir -p "${HANDOFF_FIXTURE}/agents"
-python3 - "${REPO_DIR}/agents/dispatcher.md" "${HANDOFF_FIXTURE}/agents/dispatcher.md" <<'PY'
+PLANNED_FIXTURE="${TMP_DIR}/planned"
+copy_schemas "${PLANNED_FIXTURE}"
+mkdir -p "${PLANNED_FIXTURE}/workflows/plan-flow/references"
+python3 - "${REPO_DIR}/workflows/plan-flow/references/execplan-integration.md" "${PLANNED_FIXTURE}/workflows/plan-flow/references" <<'PY'
 from pathlib import Path
 import sys
 source, target = map(Path, sys.argv[1:3])
-text = source.read_text(encoding="utf-8").replace("verification_owner", "verificationOwner")
-target.write_text(text, encoding="utf-8")
+text = source.read_text(encoding="utf-8"); (target / "missing-routing.md").write_text(text.replace("work_surface", "workSurface"), encoding="utf-8")
+(target / "missing-handoff.md").write_text(text.replace("verification_owner", "verificationOwner"), encoding="utf-8")
 PY
-write_registry "${HANDOFF_FIXTURE}" '"markdown_examples": [], "consumers": [{"path": "agents/dispatcher.md", "references": [], "requires": ["execution_handoff"]}], "legacy_routing_markers": []'
-assert_fails_with "renamed handoff field fails consumer validation" "verification_owner" \
-  python3 "${HELPER}" --repo-dir "${HANDOFF_FIXTURE}" --schema-dir "${HANDOFF_FIXTURE}/schemas" --registry "${HANDOFF_FIXTURE}/schemas/workflow-contract-consumers.json" validate
+write_registry "${PLANNED_FIXTURE}" '"markdown_examples": [], "consumers": [{"path": "workflows/plan-flow/references/missing-routing.md", "references": [], "requires": ["routing_decision", "execution_handoff"]}, {"path": "workflows/plan-flow/references/missing-handoff.md", "references": [], "requires": ["routing_decision", "execution_handoff"]}], "legacy_routing_markers": []'
+assert_fails_with "planned consumer rejects missing routing decision" "work_surface" \
+  python3 "${HELPER}" --repo-dir "${PLANNED_FIXTURE}" --schema-dir "${PLANNED_FIXTURE}/schemas" --registry "${PLANNED_FIXTURE}/schemas/workflow-contract-consumers.json" validate
+assert_fails_with "planned consumer rejects missing execution handoff" "verification_owner" \
+  python3 "${HELPER}" --repo-dir "${PLANNED_FIXTURE}" --schema-dir "${PLANNED_FIXTURE}/schemas" --registry "${PLANNED_FIXTURE}/schemas/workflow-contract-consumers.json" validate
 
 DELEGATION_FIXTURE="${TMP_DIR}/delegation"
 copy_schemas "${DELEGATION_FIXTURE}"
