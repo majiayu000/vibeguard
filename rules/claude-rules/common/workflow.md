@@ -303,7 +303,7 @@ Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when t
 The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
 
 **Fix**:
-- Split into `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files. Use the `claude-md-split` skill (`~/.claude/skills/claude-md-split/SKILL.md`) for a structured workflow.
+- Split into a `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files, preserving routing links and path-scoped ownership.
 - Replace inline canonical rule text with a single-line reference such as `see vibeguard U-29 for the canonical text`.
 - For each prohibition phrase (English `Don't ...` / `NO X` or Chinese equivalents), pair it with a concrete `GOOD:` example or move the warning to a reference file.
 
