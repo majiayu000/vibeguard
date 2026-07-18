@@ -280,6 +280,70 @@ no_python_patch_out="$(
 assert_contains "${no_python_patch_out}" '"permissionDecision": "deny"' "codex_run_hook apply_patch normalizer works without python3"
 assert_contains "${no_python_patch_out}" 'apply_patch normalized without python' "codex_run_hook apply_patch path reaches normalized Write hook without python3"
 
+TMP_FAKE_REPO_NONZERO="${TMP_DIR}/fake-repo-nonzero"
+mkdir -p "${TMP_FAKE_REPO_NONZERO}/hooks"
+cat > "${TMP_FAKE_REPO_NONZERO}/hooks/nonzero-case.sh" <<'HOOK'
+#!/usr/bin/env bash
+cat >/dev/null
+case "${1:?case required}" in
+  empty) exit 1 ;;
+  signal) exit 143 ;;
+  stderr) printf 'stderr-only evidence' >&2; exit 2 ;;
+  stdout) printf 'stdout-only evidence'; exit 3 ;;
+  both) printf 'stdout-must-be-ignored'; printf 'stderr-wins' >&2; exit 4 ;;
+  timeout) exit 124 ;;
+  *) exit 64 ;;
+esac
+HOOK
+chmod +x "${TMP_FAKE_REPO_NONZERO}/hooks/nonzero-case.sh"
+
+run_nonzero_case() {
+  local case_name="$1"
+  WRAPPER_DIR="${REPO_DIR}/hooks" bash -c '
+    set -euo pipefail
+    source "$1"
+    EVENT_NAME=PreToolUse
+    codex_hook_timeout_ms() { printf "0\n"; }
+    codex_hook_start_info() { printf "PreToolUse\tBash\ttest\n"; }
+    codex_hook_status() { return 0; }
+    codex_diag() { printf "diag=%s:%s\n" "$3" "$4"; }
+    codex_visible_failure_raw() { printf "visible=%s\n" "$2"; }
+    codex_run_hook "vibeguard-pre-bash-guard.sh" "$2" "{\"hook_event_name\":\"PreToolUse\"}" "$3"
+  ' -- \
+    "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
+    "${TMP_FAKE_REPO_NONZERO}/hooks/nonzero-case.sh" \
+    "${case_name}"
+}
+
+# GH661 critical-path coverage: ordinary/empty, signal-style, stderr-only,
+# stdout-only, and the dedicated timeout branch each execute directly.
+nonzero_empty_out="$(run_nonzero_case empty)"
+assert_contains "${nonzero_empty_out}" "diag=wrapped-hook-nonzero:exit=1: <no output>" "nonzero runner records empty-output exit in diagnostics"
+assert_contains "${nonzero_empty_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=1: <no output>)." "nonzero runner records empty-output exit visibly"
+
+nonzero_signal_out="$(run_nonzero_case signal)"
+assert_contains "${nonzero_signal_out}" "diag=wrapped-hook-nonzero:exit=143 (signal 15): <no output>" "nonzero runner decodes signal-style exit in diagnostics"
+assert_contains "${nonzero_signal_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=143 (signal 15): <no output>)." "nonzero runner decodes signal-style exit visibly"
+
+nonzero_stderr_out="$(run_nonzero_case stderr)"
+assert_contains "${nonzero_stderr_out}" "diag=wrapped-hook-nonzero:exit=2: stderr-only evidence" "nonzero runner preserves stderr in diagnostics"
+assert_contains "${nonzero_stderr_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=2: stderr-only evidence)." "nonzero runner preserves stderr visibly"
+
+nonzero_stdout_out="$(run_nonzero_case stdout)"
+assert_contains "${nonzero_stdout_out}" "diag=wrapped-hook-nonzero:exit=3: stdout-only evidence" "nonzero runner preserves stdout in diagnostics"
+assert_contains "${nonzero_stdout_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=3: stdout-only evidence)." "nonzero runner preserves stdout visibly"
+
+nonzero_both_out="$(run_nonzero_case both)"
+assert_contains "${nonzero_both_out}" "diag=wrapped-hook-nonzero:exit=4: stderr-wins" "nonzero runner prefers stderr in diagnostics"
+assert_contains "${nonzero_both_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=4: stderr-wins)." "nonzero runner prefers stderr visibly"
+assert_not_contains "${nonzero_both_out}" "stdout-must-be-ignored" "nonzero runner excludes stdout when stderr exists"
+
+nonzero_timeout_out="$(run_nonzero_case timeout)"
+assert_contains "${nonzero_timeout_out}" "diag=wrapped-hook-timeout:wrapped hook timeout after ?s" "exit 124 keeps timeout diagnostics"
+assert_contains "${nonzero_timeout_out}" "visible=VIBEGUARD hook timed out after ?s." "exit 124 keeps visible timeout evidence"
+assert_not_contains "${nonzero_timeout_out}" "wrapped-hook-nonzero" "exit 124 bypasses generic nonzero diagnostics"
+assert_not_contains "${nonzero_timeout_out}" "exit=124" "exit 124 bypasses generic exit evidence"
+
 TMP_FAKE_REPO_TIMEOUT="${TMP_DIR}/fake-repo-timeout"
 mkdir -p "${TMP_FAKE_REPO_TIMEOUT}/hooks"
 cat > "${TMP_FAKE_REPO_TIMEOUT}/hooks/pre-bash-guard.sh" <<'HOOK'

@@ -46,9 +46,9 @@ Keep the exit-124 timeout branch and all pass/fail decisions unchanged.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 exit code in diagnostic and visible evidence while exit 124 stays on its timeout branch | Generic nonzero branch in `codex_run_hook`; direct runner fixture | `bash tests/codex_runtime/protocol_helper_tests.sh` covers exit 1, stderr-only, stdout-only, and unchanged exit 124 |
-| B-002 conventional signal decoding | Same branch and fixture | Focused exit-143 assertion in `bash tests/codex_runtime/protocol_helper_tests.sh` |
-| B-003 `<no output>` placeholder | Same branch and fixture | Focused empty-stream assertion in `bash tests/codex_runtime/protocol_helper_tests.sh` |
+| B-001 exit code in diagnostic and visible evidence while exit 124 stays on its timeout branch | Generic nonzero branch in `codex_run_hook`; direct runner fixture | `bash tests/test_codex_runtime.sh` sources the fixture and covers exit 1, stderr-only, stdout-only, and unchanged exit 124 |
+| B-002 conventional signal decoding | Same branch and fixture | Focused exit-143 assertion in `bash tests/test_codex_runtime.sh` |
+| B-003 `<no output>` placeholder | Same branch and fixture | Focused empty-stream assertion in `bash tests/test_codex_runtime.sh` |
 
 ## Data Flow
 
