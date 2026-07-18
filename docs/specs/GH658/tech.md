@@ -28,13 +28,20 @@ GH-658
 2. Define `code_execution`, `writing_research`, and `chat_support` with an
    exhaustive priority table. Project-state mutation wins for mixed work;
    durable prose without project mutation is writing/research; no mutation or
-   durable artifact is chat support. Ambiguous facts fail to clarification.
+   durable artifact is chat support. The classifier may produce an internal
+   unresolved result, but that is not a schema enum: the next ambiguity gate
+   requests clarification and no `routing_decision` payload is emitted until
+   classification completes.
 3. Require plan-mode and plan-flow to preserve the validated
-   `routing_decision` alongside, not inside, the unchanged six-field handoff.
-   Add that dependency to the consumer registry.
-4. Require dispatcher and delivery consumers to receive both objects, reject
-   missing classification, and preserve the upstream surface. Gate delivery
-   workflows on `code_execution`.
+   `routing_decision` alongside, not inside, the unchanged six-field handoff
+   only for `plan_first`. Add that dependency to the consumer registry.
+   `execute_direct` carries the validated routing decision without creating a
+   planning handoff.
+4. Require every dispatcher and delivery consumer to receive the validated
+   routing decision and preserve the upstream surface. Later `plan_first`
+   executors additionally require the six-field handoff. A new instruction
+   that changes the work surface returns to the canonical router; consumers
+   never reclassify locally. Gate delivery workflows on `code_execution`.
 5. Update each shipped routing-summary surface and example payload without
    unrelated style-policy changes.
 6. Add all positive and negative schema and consumer assertions to the
@@ -62,6 +69,7 @@ GH-658
     "claude-md/vibeguard-rules.md",
     "docs/CLAUDE.md.example",
     "docs/command-schemas.md",
+    "docs/README_CN.md",
     ".claude/commands/vibeguard/preflight.md",
     "skills/vibeguard/SKILL.md",
     "tests/test_workflow_contracts.sh"
@@ -81,22 +89,26 @@ GH-658
 | B-001 missing work_surface rejected | Routing schema required list | Negative assertion in `bash tests/test_workflow_contracts.sh` |
 | B-002 closed enum and nonempty reason | Routing schema object | Unknown-enum and empty-reason assertions in the same suite |
 | B-003 required exact precedence array | Schema, canonical contract, examples | Missing/reordered/duplicated/extra assertions plus exact valid fixture |
-| B-004 dispatcher preserves surface | Dispatcher input and rules | Workflow contract test checks required input tokens |
+| B-004 dispatcher preserves surface and reroutes changed intent | Dispatcher input and canonical-router return rule | Workflow contract test checks required input tokens and forbids local reclassification |
 | B-005 delivery starts only for code execution | Delivery base and three execution skills | Contract-token validation plus focused file inspection |
 | B-006 writing/research verification translation | Canonical contract and instruction surfaces | Contract-token validation plus focused file inspection |
-| B-007 classify-first instruction summaries | Seven shipped instruction surfaces | `bash scripts/ci/validate-workflow-contracts.sh` |
+| B-007 classify-first instruction summaries | Eight shipped instruction surfaces, including `docs/README_CN.md` | `bash scripts/ci/validate-workflow-contracts.sh` |
 | B-008 positive and negative contract cases | Existing workflow contract suite | `bash tests/test_workflow_contracts.sh` |
 | B-009 chat support avoids code-only framing | Canonical contract and instruction surfaces | Contract-token validation plus focused file inspection |
-| B-010 routing decision persists across planning handoff | Plan-mode, plan-flow, registry, dispatcher, delivery | Manifest contract plus missing-routing consumer assertions |
-| B-011 deterministic mixed/overlap classification | Canonical priority table and examples | Table/example contract inspection and ambiguous-input assertion |
+| B-010 routing decision persists across `plan_first` handoff without burdening `execute_direct` | Plan-mode, plan-flow, registry, dispatcher, delivery | Manifest contract plus direct/planned missing-object consumer assertions |
+| B-011 deterministic mixed/overlap classification and pre-payload clarification stop | Canonical priority table, ambiguity gate, and examples | Table/example contract inspection and assertion that unresolved classification emits no payload |
 
 ## Data Flow
 
-The upstream router emits a validated `routing_decision` containing exact
-precedence, work surface, and readiness. Direct consumers receive it
-immediately. Planning workflows preserve that object beside the existing
-six-field handoff so later or cross-session executors receive both. Consumers
-reject either object when incomplete and never reconstruct the surface.
+The classifier first determines a work surface or an internal unresolved
+result. An unresolved result advances to the ambiguity gate, which requests
+clarification without emitting a schema payload. Once classification is
+complete, the upstream router emits a validated `routing_decision` containing
+exact precedence, work surface, and readiness. Direct consumers receive that
+object immediately. For `plan_first`, planning workflows preserve it beside
+the existing six-field handoff so later or cross-session executors receive
+both. Consumers reject the objects required by their lane and never reconstruct
+or locally convert the surface.
 
 ## Alternatives Considered
 
@@ -124,8 +136,9 @@ reject either object when incomplete and never reconstruct the surface.
 - Unit: all three valid surfaces plus missing/unknown/empty surface and
   missing/reordered/duplicated/extra precedence assertions in
   `bash tests/test_workflow_contracts.sh`.
-- Consumer: plan-mode/plan-flow preservation and dispatcher/delivery rejection
-  when the routing decision is missing or incomplete.
+- Consumer: `plan_first` preservation of both objects, `execute_direct`
+  consumption without a handoff, dispatcher/delivery rejection when their
+  required object is missing, and canonical rerouting after changed intent.
 - Contract: `bash scripts/ci/validate-workflow-contracts.sh`.
 - Manifest: `bash tests/test_manifest_contract.sh`.
 - Manual: inspect the six-stage order and the writing/chat verification

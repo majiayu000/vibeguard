@@ -41,9 +41,11 @@ readiness even when the requested deliverable is not code.
    `ambiguity_gate`, `readiness_classifier`, and
    `execution_or_delegation_lane`. Missing, reordered, duplicated, or extra
    stages fail schema validation.
-4. B-004: The dispatcher requires upstream `work_surface` and does not
-   convert `writing_research` or `chat_support` into `code_execution` unless
-   the upstream decision or a new user instruction requests repository edits.
+4. B-004: The dispatcher requires upstream `work_surface` and never converts
+   `writing_research` or `chat_support` into `code_execution` locally. When a
+   new user instruction adds repository edits, the request returns to the
+   canonical router and reruns the complete precedence ladder before any
+   execution lane starts.
 5. B-005: Delivery workflows start only for `code_execution`; other surfaces
    do not enter build/edit flows merely because readiness is otherwise clear.
 6. B-006: `writing_research` keeps domain-appropriate verification such as
@@ -56,18 +58,23 @@ readiness even when the requested deliverable is not code.
 9. B-009: `chat_support` produces the requested direct conversational answer
    without build/test/changed-files/PR-readiness framing unless repository
    edits become part of the request.
-10. B-010: Planning workflows preserve the validated `routing_decision`
-    alongside the unchanged six-field execution handoff. Downstream consumers
-    require both objects and fail loudly instead of inferring a missing
-    `work_surface`.
+10. B-010: Every downstream consumer requires a validated `routing_decision`.
+    When readiness selects `plan_first`, planning workflows also preserve that
+    decision alongside the unchanged six-field `execution_handoff`, and the
+    later executor requires both objects. `execute_direct` has no planning
+    handoff dependency and still fails loudly when `routing_decision` is
+    missing or incomplete.
 11. B-011: Classification uses this deterministic priority: any repository,
     runtime, deployment, or executable-state mutation is `code_execution`; a
     durable prose/research artifact without project-state mutation is
     `writing_research`; a response with neither mutation nor durable artifact
     is `chat_support`. Mixed requests containing project-state mutation are
     `code_execution` while retaining writing-domain verification for their
-    prose portion. Missing or conflicting facts route to clarification rather
-    than a default.
+    prose portion. The schema represents only completed routing decisions: if
+    the classifier lacks or finds conflicting facts, it records no
+    `work_surface` payload value, the following ambiguity gate routes to
+    clarification, and the router emits no `routing_decision` until the user
+    supplies enough facts. No unresolved/default enum value exists.
 
 ## Acceptance Criteria
 
@@ -81,7 +88,9 @@ readiness even when the requested deliverable is not code.
 - [ ] Dispatcher, delivery, workflow, and instruction surfaces preserve the
       behavior mapped by B-004 through B-011.
 - [ ] Plan-mode and plan-flow persist the routing decision beside the
-      six-field handoff, and consumers reject either object when incomplete.
+      six-field handoff for `plan_first`; direct consumers require only the
+      complete routing decision, and later executors reject either planned
+      object when incomplete.
 - [ ] Workflow contract and manifest contract suites pass fresh.
 
 ## Boundary Checklist
