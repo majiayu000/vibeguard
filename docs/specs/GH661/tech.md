@@ -46,7 +46,7 @@ Keep the exit-124 timeout branch and all pass/fail decisions unchanged.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 exit code in diagnostic and visible evidence | Nonzero branch in `codex_run_hook`; direct runner fixture | `bash tests/codex_runtime/protocol_helper_tests.sh` covers exit 1 plus nonempty stderr/stdout |
+| B-001 exit code in diagnostic and visible evidence while exit 124 stays on its timeout branch | Generic nonzero branch in `codex_run_hook`; direct runner fixture | `bash tests/codex_runtime/protocol_helper_tests.sh` covers exit 1, stderr-only, stdout-only, and unchanged exit 124 |
 | B-002 conventional signal decoding | Same branch and fixture | Focused exit-143 assertion in `bash tests/codex_runtime/protocol_helper_tests.sh` |
 | B-003 `<no output>` placeholder | Same branch and fixture | Focused empty-stream assertion in `bash tests/codex_runtime/protocol_helper_tests.sh` |
 
@@ -77,8 +77,12 @@ added.
 ## Test Plan
 
 - [ ] Unit tests: add direct nonzero runner cases for exit 1, exit 143, empty
-      streams, and nonempty stderr/stdout to
+      streams, stderr-only, stdout-only, and unchanged exit 124 to
       `tests/codex_runtime/protocol_helper_tests.sh`.
+- [ ] Coverage evidence: map every added executable line and conditional arm to
+      those direct cases. The generic nonzero branch is critical, so every new
+      arm must execute (100% critical-path coverage); the resulting mapping
+      must also demonstrate at least 80% new-code line coverage under U-22.
 - [ ] Integration tests: run `bash tests/test_hook_health.sh`.
 - [ ] Manual verification: run `bash -n hooks/_lib/codex_runner.sh`.
 

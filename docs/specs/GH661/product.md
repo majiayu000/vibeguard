@@ -29,20 +29,29 @@ failure from a conventional signal-style exit.
 
 ## Behavior Invariants
 
-1. B-001: A nonzero wrapped-hook exit includes `exit=<code>` in both the
-   diagnostic entry and user-visible failure, alongside captured stderr or
-   stdout when present.
+1. B-001: A wrapped-hook exit handled by the generic nonzero branch (all
+   nonzero statuses except the dedicated timeout status 124) includes
+   `exit=<code>` in both the diagnostic entry and user-visible failure,
+   alongside captured stderr or stdout when present. Exit 124 keeps the
+   existing timeout-specific evidence unchanged.
 2. B-002: A status above 128 additionally includes the conventional
    `(signal N)` decoding where `N = code - 128`.
-3. B-003: When both output streams are empty, both evidence surfaces include
-   `<no output>` instead of an empty reason.
+3. B-003: In that generic nonzero branch, when both output streams are empty,
+   both evidence surfaces include `<no output>` instead of an empty reason.
 
 ## Acceptance Criteria
 
 - [ ] Exit 1 with empty stdout/stderr produces `exit=1: <no output>` in both
       diagnostic and user-visible failure evidence.
 - [ ] Exit 143 includes `exit=143 (signal 15)` in both evidence surfaces.
-- [ ] Nonempty stderr or stdout remains present alongside the exit reason.
+- [ ] A stderr-only failure preserves stderr alongside the exit reason, and a
+      separate stdout-only failure preserves stdout alongside the exit reason.
+- [ ] Exit 124 continues to use the existing timeout-specific evidence without
+      the generic nonzero message contract.
+- [ ] Direct cases exercise every new executable line and each critical branch
+      (ordinary exit, signal-style exit, stderr-only, stdout-only, and empty
+      output), providing 100% critical-path coverage and at least 80% line
+      coverage for the new code as required by U-22.
 - [ ] The focused runner tests and existing hook-health suite pass fresh.
 
 ## Boundary Checklist
