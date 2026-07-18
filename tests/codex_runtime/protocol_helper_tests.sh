@@ -290,6 +290,7 @@ case "${1:?case required}" in
   signal) exit 143 ;;
   stderr) printf 'stderr-only evidence' >&2; exit 2 ;;
   stdout) printf 'stdout-only evidence'; exit 3 ;;
+  both) printf 'stdout-must-be-ignored'; printf 'stderr-wins' >&2; exit 4 ;;
   timeout) exit 124 ;;
   *) exit 64 ;;
 esac
@@ -331,6 +332,11 @@ assert_contains "${nonzero_stderr_out}" "visible=VIBEGUARD hook failed: wrapped 
 nonzero_stdout_out="$(run_nonzero_case stdout)"
 assert_contains "${nonzero_stdout_out}" "diag=wrapped-hook-nonzero:exit=3: stdout-only evidence" "nonzero runner preserves stdout in diagnostics"
 assert_contains "${nonzero_stdout_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=3: stdout-only evidence)." "nonzero runner preserves stdout visibly"
+
+nonzero_both_out="$(run_nonzero_case both)"
+assert_contains "${nonzero_both_out}" "diag=wrapped-hook-nonzero:exit=4: stderr-wins" "nonzero runner prefers stderr in diagnostics"
+assert_contains "${nonzero_both_out}" "visible=VIBEGUARD hook failed: wrapped hook exited nonzero (exit=4: stderr-wins)." "nonzero runner prefers stderr visibly"
+assert_not_contains "${nonzero_both_out}" "stdout-must-be-ignored" "nonzero runner excludes stdout when stderr exists"
 
 nonzero_timeout_out="$(run_nonzero_case timeout)"
 assert_contains "${nonzero_timeout_out}" "diag=wrapped-hook-timeout:wrapped hook timeout after ?s" "exit 124 keeps timeout diagnostics"
