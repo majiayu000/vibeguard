@@ -14,18 +14,45 @@ from typing import Callable, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_RULES_DIR = ROOT / "rules" / "claude-rules"
+COMPACT_RULES_PATH = ROOT / "claude-md" / "vibeguard-rules.md"
+COMPACT_START_MARKER = "<!-- vibeguard-generated-compact-rules:start -->"
+COMPACT_END_MARKER = "<!-- vibeguard-generated-compact-rules:end -->"
+COMPACT_RULE_IDS = (
+    "U-16",
+    "U-17",
+    "U-22",
+    "U-25",
+    "U-26",
+    "U-29",
+    "W-01",
+    "W-02",
+    "W-03",
+    "W-12",
+    "W-14",
+    "W-16",
+    "SEC-01",
+    "SEC-02",
+    "SEC-11",
+    "SEC-13",
+)
 
+RULE_ID_PATTERN = r"(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+"
 HEADING_RE = re.compile(
-    r"^##\s+((?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+):\s+(.+?)\s+\(([^)]+)\)\s*$",
+    rf"^##\s+({RULE_ID_PATTERN}):\s+(.+?)\s+\(([^)]+)\)\s*$",
     re.MULTILINE,
 )
+RULE_HEADING_CANDIDATE_RE = re.compile(rf"^##\s+({RULE_ID_PATTERN}):")
 FENCE_RE = re.compile(r"^```")
+COMPACT_GUIDANCE_RE = re.compile(r"^\*\*Compact guidance:\*\*[ \t]*(.*)$", re.MULTILINE)
+
+
 @dataclass(frozen=True)
 class Rule:
     id: str
     name: str
     severity: str
     summary: str
+    compact_guidance: str | None
     source: Path
 
 
@@ -84,26 +111,108 @@ def summarize_block(block: str, fallback: str) -> str:
     return text[:137].rstrip() + "..."
 
 
-def parse_rules() -> list[Rule]:
+def find_rule_headings(text: str, source: Path) -> list[re.Match[str]]:
+    matches: list[re.Match[str]] = []
+    in_fence = False
+    offset = 0
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        stripped = line.strip()
+        if FENCE_RE.match(stripped):
+            in_fence = not in_fence
+        elif not in_fence:
+            candidate = RULE_HEADING_CANDIDATE_RE.match(line)
+            if candidate:
+                match = HEADING_RE.match(text, offset)
+                if match is None:
+                    raise ValueError(
+                        f"Malformed rule heading {candidate.group(1)} in {source}:{line_number}"
+                    )
+                matches.append(match)
+        offset += len(line)
+    return matches
+
+
+def parse_rules(canonical_rules_dir: Path = CANONICAL_RULES_DIR) -> list[Rule]:
     rules: list[Rule] = []
-    for path in sorted(CANONICAL_RULES_DIR.rglob("*.md")):
+    for path in sorted(canonical_rules_dir.rglob("*.md")):
         text = path.read_text(encoding="utf-8")
-        matches = list(HEADING_RE.finditer(text))
+        source = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path.relative_to(canonical_rules_dir)
+        matches = find_rule_headings(text, source)
         if not matches:
             continue
         for idx, match in enumerate(matches):
             start = match.end()
             end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
             block = text[start:end]
+            compact_matches = COMPACT_GUIDANCE_RE.findall(block)
+            if len(compact_matches) > 1:
+                raise ValueError(
+                    f"Rule {match.group(1)} in {source} has duplicate compact guidance fields"
+                )
+            try:
+                severity = normalize_severity(match.group(3))
+            except ValueError as error:
+                raise ValueError(f"Rule {match.group(1)} in {source}: {error}") from error
             rule = Rule(
                 id=match.group(1),
                 name=match.group(2).strip(),
-                severity=normalize_severity(match.group(3)),
+                severity=severity,
                 summary=summarize_block(block, match.group(2)),
-                source=path.relative_to(ROOT),
+                compact_guidance=compact_matches[0].strip() if compact_matches else None,
+                source=source,
             )
             rules.append(rule)
     return rules
+
+
+def render_compact_table(
+    rules: Iterable[Rule],
+    selection: Iterable[str] = COMPACT_RULE_IDS,
+) -> str:
+    selected_ids = tuple(selection)
+    seen_selection: set[str] = set()
+    for rule_id in selected_ids:
+        if rule_id in seen_selection:
+            raise ValueError(f"duplicate compact rule selection: {rule_id}")
+        seen_selection.add(rule_id)
+
+    rules_by_id: dict[str, list[Rule]] = {}
+    for rule in rules:
+        rules_by_id.setdefault(rule.id, []).append(rule)
+
+    rows = ["| ID | Severity | Rule |", "|----|----------|------|"]
+    for rule_id in selected_ids:
+        matches = rules_by_id.get(rule_id, [])
+        if not matches:
+            raise ValueError(f"missing selected compact rule: {rule_id}")
+        if len(matches) > 1:
+            sources = ", ".join(str(rule.source) for rule in matches)
+            raise ValueError(f"duplicate canonical compact rule {rule_id}: {sources}")
+        rule = matches[0]
+        if not rule.compact_guidance:
+            raise ValueError(f"compact guidance is missing or empty for {rule_id} in {rule.source}")
+        rows.append(f"| {rule.id} | {rule.severity} | {rule.compact_guidance} |")
+    return "\n".join(rows)
+
+
+def replace_compact_region(document: str, table: str) -> str:
+    start_token = COMPACT_START_MARKER + "\n"
+    end_token = COMPACT_END_MARKER
+    if document.count(COMPACT_START_MARKER) != 1 or document.count(COMPACT_END_MARKER) != 1:
+        raise ValueError("compact rule marker must appear exactly once")
+
+    start_index = document.find(start_token)
+    end_index = document.find(end_token)
+    if start_index < 0 or end_index < 0 or end_index < start_index + len(start_token):
+        raise ValueError("compact rule markers must be on their own lines and in order")
+    if start_index > 0 and document[start_index - 1] != "\n":
+        raise ValueError("compact rule marker must be on its own line")
+    after_end = end_index + len(end_token)
+    if after_end < len(document) and document[after_end] != "\n":
+        raise ValueError("compact rule marker must be on its own line")
+
+    content_start = start_index + len(start_token)
+    return document[:content_start] + table.rstrip("\n") + "\n" + document[end_index:]
 
 
 def make_table(headers: list[str], rows: list[list[str]]) -> str:
@@ -519,7 +628,21 @@ GENERATORS: dict[Path, Callable[[list[Rule]], str]] = {
 
 
 def render_all(rules: list[Rule]) -> dict[Path, str]:
-    return {path: generator(rules).rstrip() + "\n" for path, generator in GENERATORS.items()}
+    outputs = {path: generator(rules).rstrip() + "\n" for path, generator in GENERATORS.items()}
+    compact_document = COMPACT_RULES_PATH.read_text(encoding="utf-8")
+    try:
+        outputs[COMPACT_RULES_PATH] = replace_compact_region(
+            compact_document,
+            render_compact_table(rules),
+        )
+    except ValueError as error:
+        relative_path = COMPACT_RULES_PATH.relative_to(ROOT)
+        raise ValueError(f"{relative_path}: {error}") from error
+    return outputs
+
+
+def display_path(path: Path) -> Path:
+    return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
 
 
 def check_mode(outputs: dict[Path, str]) -> int:
@@ -529,7 +652,7 @@ def check_mode(outputs: dict[Path, str]) -> int:
         if actual == expected:
             continue
         ok = False
-        rel = path.relative_to(ROOT)
+        rel = display_path(path)
         print(f"Generated file drift detected: {rel}", file=sys.stderr)
         diff = difflib.unified_diff(
             actual.splitlines(),
@@ -546,7 +669,7 @@ def check_mode(outputs: dict[Path, str]) -> int:
 def write_mode(outputs: dict[Path, str]) -> int:
     for path, content in outputs.items():
         path.write_text(content, encoding="utf-8")
-        print(f"Updated {path.relative_to(ROOT)}")
+        print(f"Updated {display_path(path)}")
     return 0
 
 
@@ -558,9 +681,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    rules = parse_rules()
-    outputs = render_all(rules)
-    return check_mode(outputs) if args.check else write_mode(outputs)
+    try:
+        rules = parse_rules()
+        outputs = render_all(rules)
+        return check_mode(outputs) if args.check else write_mode(outputs)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

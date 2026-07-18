@@ -9,6 +9,7 @@ mod time;
 mod tests;
 
 pub use engine::run;
+pub(crate) use engine::run_text;
 
 #[cfg(test)]
 use engine::run_inner;

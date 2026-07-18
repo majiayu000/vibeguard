@@ -37,6 +37,8 @@ source "${SCRIPT_DIR}/../lib/status_report.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 # shellcheck source=targets/codex-home.sh
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+# shellcheck source=runtime_config_health.sh
+source "${SCRIPT_DIR}/runtime_config_health.sh"
 
 # --- Argument parsing ---
 QUIET=0
@@ -47,6 +49,7 @@ INSTALL=0
 PROJECT=0
 DEV_REPO=0
 PROFILE="${VIBEGUARD_SETUP_PROFILE:-}"
+LANGUAGES="${VIBEGUARD_SETUP_LANGUAGES:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quiet|-q)     QUIET=1; shift ;;
@@ -118,6 +121,164 @@ check_installed_profile() {
   esac
 }
 
+check_installed_languages() {
+  local state_out detected
+  state_out="$(state_list 2>/dev/null)" || return 1
+  detected="$(awk -F': ' '/^Languages:/ {print $2; exit}' <<< "${state_out}")"
+  [[ -n "${detected}" ]] || return 1
+  printf '%s\n' "${detected}" | tr -d '[:space:]'
+}
+
+launchd_gc_script_path() {
+  local plist="$1"
+  [[ -f "${plist}" ]] || return 1
+  awk '
+    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+    in_args && /<\/array>/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^.*<string>/, "", line)
+      sub(/<\/string>.*$/, "", line)
+      print line
+      exit
+    }
+  ' "${plist}"
+}
+
+launchd_gc_script_path_from_print() {
+  awk '
+    /^[[:space:]]*arguments = \{/ { in_args = 1; next }
+    in_args && /^[[:space:]]*\}/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      exit
+    }
+  '
+}
+
+gc_last_actionable_failure() {
+  local log_file="$1"
+  [[ -f "${log_file}" && -r "${log_file}" ]] || return 1
+  tail -n 200 "${log_file}" 2>/dev/null | awk '
+    /Operation not permitted|Permission denied|\[ERROR\]|GC completed with errors/ { last = $0 }
+    END { if (last != "") print last }
+  '
+}
+
+check_scheduled_gc_freshness() {
+  local scheduler_kind="$1" log_dir="${VIBEGUARD_LOG_DIR:-${HOME}/.vibeguard}" project_config="${VIBEGUARD_PROJECT_CONFIG:-${REPO_DIR}/.vibeguard.json}"
+  local success_file last_success="" attempt="" interval_hours now max_age age
+  local wrapper_log wrapper_line="" internal_line="" evidence=0 permission_evidence=0
+  success_file="${log_dir}/gc-last-success"
+  if ! interval_hours="$(VIBEGUARD_PROJECT_CONFIG="${project_config}" vg_config_positive_int VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS gc.catchup_interval_hours 168 2>/dev/null)"; then
+    yellow "[WARN] Scheduled GC execution freshness unavailable: catch-up interval could not be read (rerun: bash setup.sh --yes --with-scheduler)"
+    return 0
+  fi
+  now="$(date +%s 2>/dev/null || true)"
+  if [[ ! "${now}" =~ ^[0-9]+$ ]]; then
+    yellow "[WARN] Scheduled GC execution freshness unavailable: current time is invalid (rerun: bash setup.sh --yes --with-scheduler)"
+    return 0
+  fi
+  max_age=$((interval_hours * 3600))
+  if [[ -r "${success_file}" ]]; then
+    last_success="$(cat "${success_file}" 2>/dev/null || true)"
+  fi
+  if [[ "${last_success}" =~ ^[0-9]+$ && ${#last_success} -le 18 ]]; then
+    age=$((10#${now} - 10#${last_success}))
+    if (( age >= 0 && age < max_age )); then
+      green "[OK] Scheduled GC execution freshness: last success ${age}s ago (threshold: ${max_age}s / ${interval_hours}h)"
+      return 0
+    fi
+  else
+    age=""
+  fi
+  if [[ -n "${age}" && "${age}" -ge "${max_age}" ]]; then
+    yellow "[WARN] Scheduled GC execution freshness stale: last success age ${age}s reached threshold ${max_age}s / ${interval_hours}h (rerun: bash setup.sh --yes --with-scheduler)"
+  else
+    yellow "[WARN] Scheduled GC execution freshness invalid: no valid last success recorded (threshold: ${max_age}s / ${interval_hours}h; rerun: bash setup.sh --yes --with-scheduler)"
+  fi
+  if [[ -r "${log_dir}/gc-last-attempt" ]]; then
+    attempt="$(cat "${log_dir}/gc-last-attempt" 2>/dev/null || true)"
+  fi
+  if [[ "${attempt}" =~ ^[0-9]+$ && ${#attempt} -le 18 && "${last_success}" =~ ^[0-9]+$ && ${#last_success} -le 18 ]] &&
+     (( 10#${attempt} > 10#${last_success} )); then
+    yellow "[WARN] Scheduled GC execution attempt ${attempt} is newer than last success ${last_success}"
+  fi
+  case "${scheduler_kind}" in
+    launchd) wrapper_log="${log_dir}/gc-launchd.log" ;;
+    systemd) wrapper_log="${log_dir}/gc-systemd.log" ;;
+    *) return 0 ;;
+  esac
+  wrapper_line="$(gc_last_actionable_failure "${wrapper_log}" || true)"
+  internal_line="$(gc_last_actionable_failure "${log_dir}/gc-cron.log" || true)"
+  if [[ -n "${wrapper_line}" ]]; then
+    yellow "[WARN] Scheduled GC wrapper evidence (${wrapper_log##*/}): ${wrapper_line}"
+    evidence=1
+  fi
+  if [[ -n "${internal_line}" ]]; then
+    yellow "[WARN] Scheduled GC internal evidence (gc-cron.log): ${internal_line}"
+    evidence=1
+  fi
+  if [[ "${wrapper_line}${internal_line}" == *"Operation not permitted"* || "${wrapper_line}${internal_line}" == *"Permission denied"* ]]; then
+    permission_evidence=1
+  fi
+  [[ "${evidence}" -eq 1 ]] || yellow "[INFO] Scheduled GC diagnostics: no actionable failure found in bounded log tails"
+  if [[ "${permission_evidence}" -eq 1 ]]; then
+    yellow "[WARN] Scheduled GC permission hint: move the checkout out of protected directories or grant the ${scheduler_kind} scheduler disk access"
+  fi
+}
+
+check_launchd_scheduled_gc() {
+  local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+  local plist_actual=""
+  local active_actual=""
+  local active_print=""
+  local loaded=0
+
+  if active_print="$(launchctl print "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null)"; then
+    loaded=1
+    active_actual="$(launchd_gc_script_path_from_print <<< "${active_print}" 2>/dev/null || true)"
+  fi
+  if [[ -f "${plist}" ]]; then
+    plist_actual="$(launchd_gc_script_path "${plist}" 2>/dev/null || true)"
+  fi
+
+  if [[ "${loaded}" -eq 1 ]]; then
+    if [[ -z "${active_actual}" ]]; then
+      red "[BROKEN] Scheduled GC active via launchd but loaded job does not declare gc-scheduled.sh"
+    elif [[ "${active_actual}" != "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC launchd target drift: ${active_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler)"
+    elif [[ ! -x "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC launchd target missing or not executable: ${expected}"
+    else
+      green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
+      check_scheduled_gc_freshness launchd
+    fi
+
+    if [[ ! -f "${plist}" ]]; then
+      yellow "[WARN] Scheduled GC plist missing while launchd job is loaded: ${plist}"
+    elif [[ -z "${plist_actual}" ]]; then
+      yellow "[WARN] Scheduled GC plist does not declare gc-scheduled.sh: ${plist}"
+    elif [[ "${plist_actual}" != "${expected}" ]]; then
+      yellow "[WARN] Scheduled GC plist target drift: ${plist_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
+    fi
+  elif [[ -f "${plist}" ]]; then
+    if [[ -n "${plist_actual}" && "${plist_actual}" != "${expected}" ]]; then
+      yellow "[WARN] Scheduled GC plist target drift: ${plist_actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler or remove the plist)"
+    elif [[ -n "${plist_actual}" && ! -x "${plist_actual}" ]]; then
+      yellow "[WARN] Scheduled GC plist target missing or not executable: ${plist_actual}"
+    else
+      yellow "[WARN] Scheduled GC plist exists but not loaded"
+    fi
+  else
+    yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
+  fi
+}
+
 validate_setup_profile() {
   case "$1" in
     minimal|core|full|strict) ;;
@@ -159,6 +320,9 @@ if [[ -z "${PROFILE}" ]]; then
 fi
 PROFILE="${PROFILE:-core}"
 validate_setup_profile "${PROFILE}"
+if [[ -z "${LANGUAGES}" ]]; then
+  LANGUAGES="$(check_installed_languages 2>/dev/null || true)"
+fi
 
 _execution_mode() {
   local mode="${VIBEGUARD_EXECUTION_MODE:-}"
@@ -339,6 +503,7 @@ _check_project_git_hooks() {
 _check_installed_snapshot_version() {
   local version_file="${HOME}/.vibeguard/installed/version"
   local installed_version=""
+  local repo_dir=""
   local repo_version=""
 
   if [[ ! -f "${version_file}" ]]; then
@@ -347,10 +512,16 @@ _check_installed_snapshot_version() {
   fi
 
   installed_version="$(tr -d '[:space:]' < "${version_file}")"
-  repo_version="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || true)"
+  repo_dir="$(_execution_repo_dir 2>/dev/null || true)"
+
+  if [[ -z "${repo_dir}" || ! -d "${repo_dir}" ]]; then
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo-path unavailable)"
+    return 0
+  fi
+  repo_version="$(git -C "${repo_dir}" rev-parse --short HEAD 2>/dev/null || true)"
 
   if [[ -z "${repo_version}" ]]; then
-    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo HEAD unavailable)"
+    yellow "[INFO] Installed hooks+guards snapshot version: ${installed_version:-unknown} (repo-path HEAD unavailable)"
     return 0
   fi
   if [[ -z "${installed_version}" ]]; then
@@ -362,7 +533,7 @@ _check_installed_snapshot_version() {
     return 0
   fi
 
-  green "[OK] Installed hooks+guards snapshot matches repo HEAD (${repo_version})"
+  green "[OK] Installed hooks+guards snapshot matches repo-path HEAD (${repo_version})"
 }
 
 _check_installed_runtime_version() {
@@ -427,16 +598,11 @@ run_legacy_checks() {
 
   # Check scheduled GC
   if [[ "$(uname)" == "Darwin" ]]; then
-    if launchctl print "gui/$(id -u)/com.vibeguard.gc" &>/dev/null; then
-      green "[OK] Scheduled GC active via launchd (com.vibeguard.gc)"
-    elif [[ -f "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]; then
-      yellow "[WARN] Scheduled GC plist exists but not loaded"
-    else
-      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
-    fi
+    check_launchd_scheduled_gc
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
     if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
       green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
+      check_scheduled_gc_freshness systemd
     elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
       yellow "[WARN] Scheduled GC unit exists but timer not active"
     else
@@ -459,6 +625,8 @@ run_legacy_checks() {
   if [[ "${PROJECT}" -eq 1 ]]; then
     _check_project_git_hooks
   fi
+
+  check_user_runtime_config
 
   # Check project-level runtime config
   echo

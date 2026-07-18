@@ -3,6 +3,7 @@
   "schema_files": {
     "check_output": "command-check-output.schema.json",
     "learn_output": "command-learn-output.schema.json",
+    "learn_signal": "learn-signal.schema.json",
     "live_truth_output": "command-live-truth-output.schema.json",
     "preflight_output": "command-preflight-output.schema.json",
     "review_output": "command-review-output.schema.json",
@@ -73,6 +74,11 @@
       "path": "docs/command-schemas.md",
       "heading": "learn output Schema",
       "schema": "learn_output"
+    },
+    {
+      "path": "docs/command-schemas.md",
+      "heading": "learn signal Schema",
+      "schema": "learn_signal"
     }
   ],
   "consumers": [

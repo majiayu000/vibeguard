@@ -53,7 +53,7 @@ Three complementary perspectives, each focusing on a different failure mode:
 
 4. **Claude generates review report (Round 1)**
    - Review by priority P0-P3 (consistent with `/vibeguard:review`):
-     - P0 security: refer to `vibeguard/rules/security.md`, OWASP Top 10, key leakage, input verification
+     - P0 security: refer to `rules/claude-rules/common/security.md`, OWASP Top 10, key leakage, input verification
      - P1 logic: boundary conditions, error handling, concurrency safety, data consistency (U-11~U-14)
      - P2 quality: duplicate code, naming conventions, exception handling, file size
      - P3 performance: hot paths, N+1 queries, memory allocation
@@ -185,8 +185,8 @@ Three complementary perspectives, each focusing on a different failure mode:
 - Lens allocation is strictly based on the number of changed rows and cannot be overwritten manually (to ensure consistency)
 
 **Reference**
-- Security rules: `vibeguard/rules/security.md`
-- Universal rules: `vibeguard/rules/universal.md`
-- Language rules: `vibeguard/rules/<lang>.md`
+- Security rules: `rules/claude-rules/common/security.md`
+- Common rules: `rules/claude-rules/common/`
+- Language rules: `rules/claude-rules/<lang>/`
 - Single model review: `.claude/commands/vibeguard/review.md`
 <!-- VIBEGUARD:CROSS-REVIEW:END -->

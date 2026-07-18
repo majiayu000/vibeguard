@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::time_utils::{format_unix_secs_utc, now_unix_millis, now_unix_secs};
 
@@ -93,6 +93,7 @@ pub(crate) fn is_test_path(path: &str) -> bool {
         || basename.contains(".test.")
         || basename.contains(".spec.")
         || basename.ends_with("_test.rs")
+        || basename.ends_with("_tests.rs")
 }
 
 fn has_path_segment(path: &str, segment: &str) -> bool {
@@ -159,8 +160,8 @@ pub(crate) fn is_clean_rust_fast_path(
         || has_let_underscore_assign(new_string)
         || new_string.contains(".db\"")
         || new_string.contains(".sqlite\"")
-        || new_string.contains("todo!(")
-        || new_string.contains("unimplemented!(")
+        || new_string.contains("todo!(") // slop-pattern-source
+        || new_string.contains("unimplemented!(") // slop-pattern-source
         || new_string.contains("panic!(\"not implemented")
     {
         return false;
@@ -187,8 +188,8 @@ pub(crate) fn is_clean_rust_write_fast_path(
     if count_lines(content) > base_limit {
         return false;
     }
-    if content.contains("todo!(")
-        || content.contains("unimplemented!(")
+    if content.contains("todo!(") // slop-pattern-source
+        || content.contains("unimplemented!(") // slop-pattern-source
         || content.contains("panic!(\"not implemented")
     {
         return false;
@@ -237,11 +238,11 @@ fn strip_rust_definition_modifiers(mut line: &str) -> &str {
             line = rest;
             continue;
         }
-        if let Some(rest) = line.strip_prefix("pub(") {
-            if let Some(end) = rest.find(')') {
-                line = &rest[end + 1..];
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix("pub(")
+            && let Some(end) = rest.find(')')
+        {
+            line = &rest[end + 1..];
+            continue;
         }
         if let Some(rest) = line.strip_prefix("async ") {
             line = rest;
@@ -343,10 +344,10 @@ pub(crate) fn write_log_event(
             crate::event_schema::field::CALLER_EVIDENCE,
         ),
     ] {
-        if let Ok(value) = env::var(env_name) {
-            if !value.is_empty() {
-                event[field_name] = serde_json::Value::String(value);
-            }
+        if let Ok(value) = env::var(env_name)
+            && !value.is_empty()
+        {
+            event[field_name] = serde_json::Value::String(value);
         }
     }
     let line = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
@@ -355,7 +356,11 @@ pub(crate) fn write_log_event(
     if let Ok(log_dir) = env::var("VIBEGUARD_LOG_DIR") {
         let global = Path::new(&log_dir).join("events.jsonl");
         if global != Path::new(log_file) {
-            append_jsonl(&global, &line)?;
+            append_jsonl(&global, &line).map_err(|err| {
+                let path = global.display();
+                let msg = format!("global JSONL mirror append failed for {path}: {err}");
+                io::Error::new(err.kind(), msg)
+            })?;
         }
     }
     Ok(())
@@ -409,6 +414,13 @@ impl JsonlAppendLock {
                     return Ok(Self { lock_dir });
                 }
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                    if remove_stale_jsonl_lock(&lock_dir)? {
+                        match fs::create_dir(&lock_dir) {
+                            Ok(()) => return Ok(Self { lock_dir }),
+                            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+                            Err(err) => return Err(err),
+                        }
+                    }
                     if attempt + 1 < max_attempts && !sleep_duration.is_zero() {
                         std::thread::sleep(sleep_duration);
                     }
@@ -420,10 +432,43 @@ impl JsonlAppendLock {
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
             format!(
-                "timed out waiting for JSONL append lock after {max_attempts} attempts: {}",
+                "timed out waiting for JSONL append lock after {max_attempts} attempts: {}; recovery: if no VibeGuard process is active, remove this stale lock directory",
                 lock_dir.display()
             ),
         ))
+    }
+}
+
+fn remove_stale_jsonl_lock(lock_dir: &Path) -> io::Result<bool> {
+    let stale_after = jsonl_lock_stale_duration();
+    let Ok(metadata) = fs::metadata(lock_dir) else {
+        return Ok(false);
+    };
+    if !metadata.is_dir() {
+        return Ok(false);
+    }
+    if stale_after.is_zero() {
+        return remove_jsonl_lock_dir(lock_dir);
+    }
+    let Ok(modified) = metadata.modified() else {
+        return Ok(false);
+    };
+    let Ok(age) = SystemTime::now().duration_since(modified) else {
+        return Ok(false);
+    };
+    if age < stale_after {
+        return Ok(false);
+    }
+
+    remove_jsonl_lock_dir(lock_dir)
+}
+
+fn remove_jsonl_lock_dir(lock_dir: &Path) -> io::Result<bool> {
+    match fs::remove_dir(lock_dir) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(false),
+        Err(err) => Err(err),
     }
 }
 
@@ -442,6 +487,15 @@ fn jsonl_lock_sleep_duration() -> Duration {
         .filter(|value| value.is_finite() && *value >= 0.0)
         .map(Duration::from_secs_f64)
         .unwrap_or_else(|| Duration::from_millis(10))
+}
+
+fn jsonl_lock_stale_duration() -> Duration {
+    env::var("VIBEGUARD_LOG_LOCK_STALE_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or_else(|| Duration::from_secs(10 * 60))
 }
 
 impl Drop for JsonlAppendLock {
@@ -597,23 +651,17 @@ mod tests {
 
     #[test]
     fn test_path_matches_rust_guard_exclusions() {
-        for path in [
-            "tests/integration.rs",
-            "src/tests.rs",
-            "src/test_helpers.rs",
-            "src/test_helpers/mod.rs",
-            "src/test_utils/helper.rs",
-            "examples/demo.rs",
-            "benches/throughput.rs",
-            "test_root.rs",
-            "src/math_test.rs",
-            "src/lib.test.rs",
-        ] {
+        let test_paths = "tests/integration.rs src/tests.rs src/test_helpers.rs src/test_helpers/mod.rs src/test_utils/helper.rs examples/demo.rs benches/throughput.rs test_root.rs src/math_test.rs src/math_tests.rs src/Foo_Tests.rs src/nested/parser_tests.rs src/lib.test.rs";
+        for path in test_paths.split_whitespace() {
             assert!(is_test_path(path), "{path} should be classified as test");
         }
-        assert!(!is_test_path("src/contest.rs"));
-        assert!(!is_test_path("src/contest_helpers/mod.rs"));
-        assert!(!is_test_path("src/prod_helpers.rs"));
+        let prod_paths = "src/contest.rs src/latest.rs src/tests_support.rs src/foo_tests.py src/contest_helpers/mod.rs src/prod_helpers.rs";
+        for path in prod_paths.split_whitespace() {
+            assert!(
+                !is_test_path(path),
+                "{path} should be classified as production"
+            );
+        }
     }
 
     #[test]
@@ -661,7 +709,7 @@ mod tests {
         ));
         assert!(!is_clean_rust_write_fast_path(
             "src/lib.rs",
-            "todo!()\n",
+            "todo!()\n", // slop-pattern-source
             800
         ));
         assert!(!is_clean_rust_write_fast_path(

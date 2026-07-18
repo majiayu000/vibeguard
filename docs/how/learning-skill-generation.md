@@ -134,7 +134,7 @@ Obtain the project physical path through the `.project-root` mapping file, autom
 {
   "ts": "2026-03-02T03:00:00Z",
   "project": "a1b2c3d4",
-  "project_root": "/Users/me/code/my-app",
+  "project_root": "/Users/<username>/code/my-app",
   "signals": [
     {"type": "repeated_warn", "source": "events", "reason": "unwrap detected", "count": 23},
     {"type": "linter_violations", "source": "code_scan", "guard": "console_residual", "count": 96}
@@ -142,16 +142,94 @@ Obtain the project physical path through the `.project-root` mapping file, autom
 }
 ```
 
-**Anti-repetitive learning (water mark mechanism):**
+#### Current-project preview
 
-`~/.vibeguard/.learn-watermark` stores the latest timestamp of the last consumption. skills-loader only reads new entries after the watermark, and updates the watermark after confirming adoption/skipping. The same signal is only recommended once.
+Interactive learning can inspect the current project without waiting for scheduled
+GC and without writing digest state:
+
+```bash
+VIBEGUARD_REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cat "$HOME/.vibeguard/repo-path" 2>/dev/null)}"
+test -f "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" || { echo "VibeGuard repo path missing; rerun setup.sh from a VibeGuard checkout" >&2; exit 1; }
+python3 "$VIBEGUARD_REPO_DIR/scripts/gc/learn_digest.py" --scope current --project-root "$PWD" --dry-run --format json --no-code-scan
+```
+
+Preview resolves the project log under `~/.vibeguard/projects/<hash>/` by
+`.project-root`, `--project-root`, or `--project-hash`. It reads only that log
+directory for `--scope current`; use `--scope global` with `--max-projects` for
+bounded cross-project inspection. Preview output includes `partial` and
+`truncated_reason` when `--budget-ms`, `--max-events`, `--max-projects`, or
+`--guard-timeout` stops analysis early. Code scanning remains opt-in for
+preview via `--code-scan`; keep `--no-code-scan` for the lightweight default.
+Hot-file signals are attributed to the current project root; external edit paths
+are reported as diagnostic noise instead of current-project hot files.
+
+**Anti-repetitive learning (triage state):**
+
+`~/.vibeguard/learn-state.jsonl` stores explicit append-only transitions keyed
+by `signal_id`. `skills-loader.sh` previews pending signals from
+`learn-digest.jsonl` and never advances a watermark or changes triage state.
+Signals are hidden only after an explicit `adopt`, `skip`, or `snooze`
+transition.
 
 ```
-learn-digest.jsonl:  ts=T1, ts=T2, ts=T3, ts=T4
-                                    ↑
-.learn-watermark: T3 (processed here)
-                                         ↑
-Watch only next time: T4 (new data)
+learn-digest.jsonl:  signal A, signal B, signal C
+learn-state.jsonl:   signal A -> adopted
+Next display:        signal B, signal C remain pending
+```
+
+**Adoption compiler and verification:**
+
+Adopting a signal materializes a constrained action record instead of asking the
+model to invent the next step. The deterministic compiler records the selected
+action, changed files or artifacts, original evidence, verification commands,
+regression checks, baseline, expected later observation, and rollback path.
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/adoption.py" \
+  --state-file "$HOME/.vibeguard/learn-state.jsonl" \
+  --adoptions-file "$HOME/.vibeguard/learn-adoptions.jsonl" \
+  adopt \
+  --signal signal.json \
+  --action fix_runtime \
+  --artifact hooks/learn-evaluator.sh \
+  --verification-command "bash tests/test_gc_scheduled.sh" \
+  --regression-command "bash tests/test_gc_scheduled.sh" \
+  --baseline "18 truncated sessions" \
+  --expected-observation "truncation recurrence falls in the next window" \
+  --rollback "revert runtime pipeline change" \
+  --reason "adopt runtime fix"
+```
+
+Verification must use fresh evidence newer than the adoption record:
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/adoption.py" \
+  --state-file "$HOME/.vibeguard/learn-state.jsonl" \
+  --adoptions-file "$HOME/.vibeguard/learn-adoptions.jsonl" \
+  verify \
+  --signal-id lrn_a31f7c9d \
+  --evidence fresh-evidence.json \
+  --reason "later observation improved"
+```
+
+**W-37 success trajectory learning:**
+
+Learn records successful low-friction trajectories separately from failure and
+friction lessons. Planning retrieval should show both when they exist for the
+same task class; success-only retrieval is rejected if failure lessons exist.
+
+```bash
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/trajectory.py" \
+  record \
+  --task-class rust-hook-fix \
+  --outcome success \
+  --low-friction \
+  --evidence "focused hook test and setup test passed without churn" \
+  --verification-command "bash tests/test_setup.sh"
+
+python3 "$VIBEGUARD_REPO_DIR/scripts/learn/trajectory.py" \
+  preview \
+  --task-class rust-hook-fix
 ```
 
 **Benchmarking against Harness GC Agent:**
@@ -290,9 +368,9 @@ If you need to manually hook into `PreToolUse(Read)`, it will trigger two things
 ```
 New Session → First Read
   │
-  ├─ [Learning Recommendation] Read learn-digest.jsonl (new signal after the water mark)
+  ├─ [Learning Recommendation] Read pending signals from learn-digest.jsonl
   │ ├─ There is a new signal → Output recommendations and prompt to run /vibeguard:learn
-  │ └─ Update the watermark (~/.vibeguard/.learn-watermark) and do not repeat it next time
+  │ └─ Display is read-only; only explicit triage commands append learn-state.jsonl
   │
   ├─ [Skill Match] Scan ~/.claude/skills/ and .claude/skills/
   │ ├─ Read the frontmatter (name + description) of each SKILL.md

@@ -11,6 +11,11 @@ use crate::time_utils::{now_unix_secs, parse_iso_ts};
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 const PARALYSIS_WINDOW_SECS: u64 = 30 * 60;
 
+struct PositionedEvent {
+    line_index: usize,
+    value: Value,
+}
+
 fn read_events(session: &str) -> Vec<Value> {
     read_all_events()
         .into_iter()
@@ -19,15 +24,24 @@ fn read_events(session: &str) -> Vec<Value> {
 }
 
 fn read_all_events() -> Vec<Value> {
+    read_positioned_events()
+        .0
+        .into_iter()
+        .map(|event| event.value)
+        .collect()
+}
+
+fn read_positioned_events() -> (Vec<PositionedEvent>, usize) {
     let stdin = io::stdin();
     let mut reader = io::BufReader::new(stdin.lock());
     let mut events = Vec::new();
     let mut buf = Vec::new();
+    let mut line_count = 0usize;
     loop {
         buf.clear();
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => break,
-            Ok(_) => {}
+            Ok(_) => line_count += 1,
             Err(_) => break,
         }
         // Use lossy decoding so malformed UTF-8 bytes become U+FFFD rather than
@@ -38,10 +52,13 @@ fn read_all_events() -> Vec<Value> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Value>(line) {
-            events.push(v);
+            events.push(PositionedEvent {
+                line_index: line_count - 1,
+                value: v,
+            });
         }
     }
-    events
+    (events, line_count)
 }
 
 fn event_within_time_window(e: &Value, cutoff_secs: u64) -> bool {
@@ -227,10 +244,13 @@ fn recent_overlap(
     last
 }
 
-pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
+fn count_build_fail_events_from_newest<'a>(
+    events: impl IntoIterator<Item = &'a Value>,
+    project: &str,
+) -> u32 {
     let project_prefix = format!("{}/", project.trim_end_matches('/'));
     let mut count = 0u32;
-    for e in events.iter().rev() {
+    for e in events {
         if e.get(field::HOOK).and_then(Value::as_str) != Some(hook::POST_BUILD_CHECK) {
             continue;
         }
@@ -245,6 +265,44 @@ pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
         }
     }
     count
+}
+
+pub(crate) fn count_build_fail_events(events: &[Value], project: &str) -> u32 {
+    count_build_fail_events_from_newest(events.iter().rev(), project)
+}
+
+fn count_build_fail_events_in_recent_lines(
+    events: &[PositionedEvent],
+    total_lines: usize,
+    tail_lines: usize,
+    session: &str,
+    project: &str,
+) -> u32 {
+    let first_line = total_lines.saturating_sub(tail_lines);
+    count_build_fail_events_from_newest(
+        events
+            .iter()
+            .rev()
+            .take_while(|event| event.line_index >= first_line)
+            .filter(|event| {
+                event.value.get(field::SESSION).and_then(Value::as_str) == Some(session)
+            })
+            .map(|event| &event.value),
+        project,
+    )
+}
+
+fn events_in_recent_lines(
+    events: &[PositionedEvent],
+    total_lines: usize,
+    tail_lines: usize,
+) -> Vec<Value> {
+    let first_line = total_lines.saturating_sub(tail_lines);
+    events
+        .iter()
+        .filter(|event| event.line_index >= first_line)
+        .map(|event| event.value.clone())
+        .collect()
 }
 
 fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
@@ -262,7 +320,9 @@ fn count_paralysis_events(events: &[Value], now_secs: u64) -> u32 {
         match e.get(field::TOOL).and_then(Value::as_str) {
             Some(tool_name) if tool::RESEARCH_ONLY.contains(&tool_name) => consecutive += 1,
             Some(tool_name) if tool::MUTATING.contains(&tool_name) => break,
-            _ => {}
+            Some(tool::POST_TOOL_USE) => break,
+            Some(_) => break,
+            None => {}
         }
     }
     consecutive
@@ -318,32 +378,58 @@ pub fn reason_count(args: &[String]) -> Result {
     Ok(())
 }
 
-/// Combined post-edit history query. Replaces multiple tail+Python/helper calls.
-/// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent]
+/// Combined post-edit history query. Replaces multiple tail+runtime helper calls.
+/// Usage: tail -500 log | vibeguard-runtime post-edit-history <session> <file_path> [agent] [project_root]
 pub fn post_edit_history(args: &[String]) -> Result {
     if args.len() < 2 {
         return Err(
-            "Usage: tail -N log | vibeguard-runtime post-edit-history <session> <file_path> [agent]".into(),
+            "Usage: tail -N log | vibeguard-runtime post-edit-history <session> <file_path> [agent] [project_root]".into(),
         );
     }
     let session = &args[0];
     let file_path = &args[1];
     let agent = args.get(2).map(String::as_str).unwrap_or("");
-    let events = read_all_events();
+    let project = args.get(3).map(String::as_str).unwrap_or("");
+    let (positioned_events, total_lines) = read_positioned_events();
+    let events = positioned_events
+        .iter()
+        .map(|event| event.value.clone())
+        .collect::<Vec<_>>();
     let session_events = events
         .iter()
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
         .cloned()
         .collect::<Vec<_>>();
+    let w15_events = events_in_recent_lines(&positioned_events, total_lines, 200);
+    let w15_trail = same_file_edit_delta_trail(&w15_events, session, file_path);
 
     println!("CHURN\t{}", count_churn_events(&session_events, file_path));
     println!(
         "W15\t{}",
-        consecutive_same_file_edits(&events, session, file_path)
+        consecutive_same_file_edits(&w15_events, session, file_path)
+    );
+    println!(
+        "W15_DELTAS\t{}",
+        w15_trail
+            .iter()
+            .take(2)
+            .map(|delta| delta.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     println!(
         "WARN_COUNT\t{}",
         count_warn_events(&session_events, file_path)
+    );
+    println!(
+        "BUILD_FAILS\t{}",
+        count_build_fail_events_in_recent_lines(
+            &positioned_events,
+            total_lines,
+            200,
+            session,
+            project
+        )
     );
     if let Some((session_id, agent_name, hook_name, tool_name)) =
         recent_overlap(&events, session, agent, file_path, now_unix_secs())
@@ -493,6 +579,91 @@ mod tests {
     }
 
     #[test]
+    fn combined_history_can_compute_build_fails_from_shared_events() {
+        let events = vec![
+            json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "decision": "pass", "detail": "src/a.rs||delta=20"}),
+            json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "decision": "warn", "reason": "[RS-03] unwrap", "detail": "src/a.rs||delta=10"}),
+            json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/a.rs"}),
+            json!({"session": "s", "hook": "post-build-check", "decision": "escalate", "detail": "/repo/src/b.rs"}),
+            json!({"session": "other", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/c.rs"}),
+        ];
+        let session_events = events
+            .iter()
+            .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some("s"))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(count_churn_events(&session_events, "src/a.rs"), 2);
+        assert_eq!(count_warn_events(&session_events, "src/a.rs"), 1);
+        assert_eq!(
+            same_file_edit_delta_trail(&events, "s", "src/a.rs"),
+            vec![10, 20]
+        );
+        assert_eq!(count_build_fail_events(&session_events, "/repo"), 2);
+    }
+
+    #[test]
+    fn combined_history_build_fails_uses_recent_200_raw_lines() {
+        let mut events = Vec::new();
+        for index in 0..5 {
+            events.push(PositionedEvent {
+                line_index: index,
+                value: json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/old.rs"}),
+            });
+        }
+        events.push(PositionedEvent {
+            line_index: 450,
+            value: json!({"session": "s", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/recent.rs"}),
+        });
+        events.push(PositionedEvent {
+            line_index: 451,
+            value: json!({"session": "other", "hook": "post-build-check", "decision": "warn", "detail": "/repo/src/other.rs"}),
+        });
+
+        assert_eq!(
+            count_build_fail_events_in_recent_lines(&events, 500, 200, "s", "/repo"),
+            1
+        );
+    }
+
+    #[test]
+    fn combined_history_w15_uses_recent_200_raw_lines() {
+        let events = vec![
+            PositionedEvent {
+                line_index: 10,
+                value: json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "detail": "src/a.rs||delta=200"}),
+            },
+            PositionedEvent {
+                line_index: 20,
+                value: json!({"session": "s", "hook": "post-edit-guard", "tool": "Edit", "detail": "src/a.rs||delta=100"}),
+            },
+            PositionedEvent {
+                line_index: 450,
+                value: json!({"session": "s", "hook": "pre-bash-guard", "tool": "Bash", "detail": "cargo test"}),
+            },
+        ];
+        let all_events = events
+            .iter()
+            .map(|event| event.value.clone())
+            .collect::<Vec<_>>();
+        let recent_events = events_in_recent_lines(&events, 500, 200);
+
+        assert_eq!(consecutive_same_file_edits(&all_events, "s", "src/a.rs"), 2);
+        assert_eq!(
+            same_file_edit_delta_trail(&all_events, "s", "src/a.rs"),
+            vec![100, 200]
+        );
+        assert_eq!(
+            consecutive_same_file_edits(&recent_events, "s", "src/a.rs"),
+            0
+        );
+        assert_eq!(
+            same_file_edit_delta_trail(&recent_events, "s", "src/a.rs"),
+            Vec::<i64>::new()
+        );
+    }
+
+    #[test]
     fn paralysis_count_skips_guard_warnings_and_stops_at_mutation() {
         let events = vec![
             json!({"tool": "Read", "ts": "2026-05-01T00:00:00Z"}),
@@ -504,6 +675,38 @@ mod tests {
 
         let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
         assert_eq!(count_paralysis_events(&events, now), 2);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_posttool_and_unknown_tools() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+        let events_with_posttool = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"tool": "PostToolUse", "ts": "2026-05-01T00:11:00Z"}),
+            json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+        ];
+        let events_with_unknown = vec![
+            json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+            json!({"tool": "CustomMutator", "ts": "2026-05-01T00:11:00Z"}),
+            json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+        ];
+
+        assert_eq!(count_paralysis_events(&events_with_posttool, now), 1);
+        assert_eq!(count_paralysis_events(&events_with_unknown, now), 1);
+    }
+
+    #[test]
+    fn paralysis_count_stops_at_extended_mutating_tools() {
+        let now = parse_iso_ts("2026-05-01T00:20:00Z").expect("valid timestamp");
+        for mutating_tool in ["MultiEdit", "NotebookEdit", "Task", "Agent"] {
+            let events = vec![
+                json!({"tool": "Read", "ts": "2026-05-01T00:10:00Z"}),
+                json!({"tool": mutating_tool, "ts": "2026-05-01T00:11:00Z"}),
+                json!({"tool": "Read", "ts": "2026-05-01T00:12:00Z"}),
+            ];
+
+            assert_eq!(count_paralysis_events(&events, now), 1, "{mutating_tool}");
+        }
     }
 
     #[test]

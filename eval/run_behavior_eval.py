@@ -22,6 +22,7 @@ from artifacts import (
     utc_timestamp,
     write_run_artifacts,
 )
+from model_baseline import ModelBaseline, ModelBaselineError, load_model_baseline
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET_PATH = REPO_ROOT / "eval" / "behavior" / "datasets" / "v1.jsonl"
@@ -441,7 +442,8 @@ def print_text_report(report: dict[str, Any]) -> None:
     print("====================================")
 
 
-def run_behavior_eval(args: argparse.Namespace) -> int:
+def run_behavior_eval(args: argparse.Namespace, baseline: ModelBaseline) -> int:
+    baseline.resolve(args.model)
     dataset_path = Path(args.dataset).resolve()
     requirements_path = Path(args.requirements).resolve()
     thresholds_path = Path(args.thresholds).resolve()
@@ -470,6 +472,7 @@ def run_behavior_eval(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps({"metadata": metadata, "samples": samples}, indent=2, ensure_ascii=False))
         else:
+            print("\n".join(baseline.evidence_lines(args.model)))
             print(f"Behavior dataset source: {dataset_path}")
             print(f"Behavior sample count: {len(samples)}")
             print(f"Behavior sample digest: {digest}")
@@ -518,7 +521,17 @@ def run_behavior_eval(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run zero-cost VibeGuard behavior evals")
+    try:
+        baseline = load_model_baseline()
+    except ModelBaselineError as error:
+        print(f"Invalid eval model baseline: {error}", file=sys.stderr)
+        return 2
+
+    parser = argparse.ArgumentParser(
+        description="Run zero-cost VibeGuard behavior evals",
+        epilog="\n".join(baseline.help_lines()),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET_PATH))
     parser.add_argument("--requirements", default=str(DEFAULT_REQUIREMENTS_PATH))
     parser.add_argument("--thresholds", default=str(DEFAULT_THRESHOLDS_PATH))
@@ -529,9 +542,17 @@ def main() -> int:
     parser.add_argument("--fail-on-threshold", action="store_true")
     parser.add_argument("--no-artifacts", action="store_true")
     parser.add_argument("--model-gate", action="store_true", help="also run eval/run_eval.py for manual/API-backed gates")
-    parser.add_argument("--model", default="haiku")
+    parser.add_argument(
+        "--model",
+        default=baseline.default_alias,
+        help="Model alias or full ID",
+    )
     parser.add_argument("--model-rules", help="optional rule prefix for the model-backed gate")
-    return run_behavior_eval(parser.parse_args())
+    try:
+        return run_behavior_eval(parser.parse_args(), baseline)
+    except ModelBaselineError as error:
+        print(f"Invalid requested model: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

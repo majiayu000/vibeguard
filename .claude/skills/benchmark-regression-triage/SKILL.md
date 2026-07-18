@@ -7,6 +7,8 @@ description: Use this skill whenever VibeGuard hook latency, benchmark-action ou
 
 ## Overview
 
+This is a repo-local maintainer skill for VibeGuard contributors. It is intentionally stored under `.claude/skills/` so maintainers can use it while working in this repository, but it is not an installable product skill and must not be added to `schemas/install-modules.json` unless it is promoted into `skills/` or `workflows/` with a user-facing support contract.
+
 This skill diagnoses VibeGuard hook latency regressions by comparing GitHub Actions `bench-output` artifacts across PR runs, merge runs, and mainline runs. It is meant for non-obvious cases where the current benchmark is under budget but slower than a previous design, such as a `post-write-guard` path losing its `post-write-fast-check` fast path after a runtime migration.
 
 Treat CI artifacts as the trend source. Local benchmarks are useful for reproduction after a hypothesis exists, but they are not comparable to GitHub runner history because machine load, shell startup, cache state, and `--runs` count can dominate P95.

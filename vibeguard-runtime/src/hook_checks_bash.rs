@@ -12,7 +12,7 @@ const INVALID_INPUT_REASON: &str = "VIBEGUARD interception: invalid Bash hook in
 const DOC_WARNING_CONTEXT: &str = "VIBEGUARD Warning: Creation of non-standard .md file detected. Only README/CLAUDE/CONTRIBUTING/CHANGELOG/LICENSE/SKILL.md is allowed to be created. Please confirm the file purpose if necessary.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum BashDecision {
+pub(crate) enum BashDecision {
     Empty,
     Pass {
         command: String,
@@ -138,6 +138,10 @@ fn emit_decision(decision: &BashDecision) -> Result {
         }
     }
     Ok(())
+}
+
+pub(crate) fn evaluate_pre_bash_input(input: &str, vibeguard_root: &str) -> BashDecision {
+    classify_input(input, vibeguard_root)
 }
 
 fn classify_input(input: &str, vibeguard_root: &str) -> BashDecision {

@@ -189,6 +189,24 @@ def _validate_profiles(value: Any, path: str) -> None:
         raise ValueError(f"{path} contains unknown profiles: {unknown}")
 
 
+def _validate_codex_script(
+    codex_script: object,
+    canonical_script: str | None,
+    prefix: str,
+) -> list[str]:
+    if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
+        return [f"{prefix}.script must be a namespaced vibeguard-* script"]
+    if canonical_script is None:
+        return []
+    expected = f"vibeguard-{canonical_script}"
+    if codex_script != expected:
+        return [
+            f"{prefix}.script must equal {expected} "
+            f"for canonical script {canonical_script}"
+        ]
+    return []
+
+
 def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     names: set[str] = set()
@@ -267,16 +285,10 @@ def validate_manifest(data: dict[str, Any], repo_root: Path = ROOT) -> list[str]
                             except ValueError as exc:
                                 errors.append(str(exc))
                             codex_script = entry.get("script", platform_data.get("script"))
-                            if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
-                                errors.append(f"{entry_prefix}.script must be a namespaced vibeguard-* script")
-                            elif not (repo_root / "hooks" / codex_script).exists():
-                                errors.append(f"{entry_prefix}.script missing hooks/{codex_script}")
+                            errors.extend(_validate_codex_script(codex_script, script, entry_prefix))
                     else:
                         codex_script = platform_data.get("script")
-                        if not isinstance(codex_script, str) or not codex_script.startswith("vibeguard-"):
-                            errors.append(f"{prefix}.codex.script must be a namespaced vibeguard-* script")
-                        elif not (repo_root / "hooks" / codex_script).exists():
-                            errors.append(f"{prefix}.codex.script missing hooks/{codex_script}")
+                        errors.extend(_validate_codex_script(codex_script, script, f"{prefix}.codex"))
             except ValueError as exc:
                 errors.append(str(exc))
 
