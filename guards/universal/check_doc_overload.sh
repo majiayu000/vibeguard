@@ -102,9 +102,9 @@ for file in "${DOC_FILES[@]}"; do
 
   # Check 1: line count
   if [[ "$LINES" -gt "$FAIL_LINES" ]]; then
-    fail "$file:1 file is $LINES lines (limit $FAIL_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
+    fail "$file:1 file is $LINES lines (limit $FAIL_LINES, ignoring vibeguard auto-gen region). Fix: keep a short index and move topic detail into .claude/references/"
   elif [[ "$LINES" -gt "$WARN_LINES" ]]; then
-    warn "$file:1 file is $LINES lines (target ≤$WARN_LINES, ignoring vibeguard auto-gen region). Fix: split into .claude/references/ per claude-md-split skill"
+    warn "$file:1 file is $LINES lines (target ≤$WARN_LINES, ignoring vibeguard auto-gen region). Fix: keep a short index and move topic detail into .claude/references/"
   fi
 
   # Check 2: prohibition density

@@ -68,9 +68,6 @@ If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write
 - Tell the user what blocker is preventing progress
 - If more reading is genuinely required, explain why the earlier reading was insufficient
 
-**Downgrade path** (U-32 compliance):
-- `VIBEGUARD_SUPPRESS_PARALYSIS=1` skips the detector entirely. Use it for explicitly read-only agent roles such as architecture review, code review, research, or audit agents where the expected output is a written conclusion rather than a file edit.
-
 **Anti-patterns**:
 - Reading 10 files in a row without producing either a change or a conclusion
 - Jumping between files in search of "perfect understanding" without ever starting the work
@@ -297,7 +294,7 @@ Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when t
 The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
 
 **Fix**:
-- Split into `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files. Use the `claude-md-split` skill (`~/.claude/skills/claude-md-split/SKILL.md`) for a structured workflow.
+- Split into a `~150-line` index `CLAUDE.md` plus `.claude/references/` topical files, preserving routing links and path-scoped ownership.
 - Replace inline canonical rule text with a single-line reference such as `see vibeguard U-29 for the canonical text`.
 - For each prohibition phrase (English `Don't ...` / `NO X` or Chinese equivalents), pair it with a concrete `GOOD:` example or move the warning to a reference file.
 
