@@ -70,18 +70,18 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn env_nonempty(name: &str) -> Option<String> {
+pub(crate) fn env_nonempty(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
-fn log_root() -> PathBuf {
+pub(crate) fn log_root() -> PathBuf {
     env_nonempty("VIBEGUARD_LOG_DIR")
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|home| home.join(".vibeguard")))
         .unwrap_or_else(|| PathBuf::from(".vibeguard"))
 }
 
-fn hash_slug_from_log_dir(path: &Path) -> Option<String> {
+pub(crate) fn hash_slug_from_log_dir(path: &Path) -> Option<String> {
     let slug = path.file_name()?.to_string_lossy();
     is_hash_slug(&slug).then(|| slug.to_string())
 }
@@ -140,7 +140,7 @@ fn parse_pid(value: &str) -> Option<libc::pid_t> {
     (parsed > 1).then_some(parsed)
 }
 
-fn read_recent_session(path: &Path, expected_start: &str) -> Option<String> {
+pub(crate) fn read_recent_session(path: &Path, expected_start: &str) -> Option<String> {
     let modified = fs::metadata(path).ok()?.modified().ok()?;
     if modified.elapsed().ok()? > SESSION_TTL {
         return None;
@@ -163,11 +163,15 @@ fn read_recent_session(path: &Path, expected_start: &str) -> Option<String> {
     }
 }
 
-fn write_session_file(path: &Path, start: &str, session_id: &str) -> std::io::Result<()> {
+pub(crate) fn write_session_file(
+    path: &Path,
+    start: &str,
+    session_id: &str,
+) -> std::io::Result<()> {
     fs::write(path, format!("{start}\n{session_id}\n"))
 }
 
-fn cleanup_old_sessions(project_log_dir: &Path) {
+pub(crate) fn cleanup_old_sessions(project_log_dir: &Path) {
     let Ok(entries) = fs::read_dir(project_log_dir) else {
         return;
     };
@@ -248,7 +252,7 @@ fn process_start_token(_pid: libc::pid_t) -> Option<String> {
     None
 }
 
-fn sanitize_token(value: &str) -> String {
+pub(crate) fn sanitize_token(value: &str) -> String {
     let token: String = value
         .chars()
         .map(|ch| {

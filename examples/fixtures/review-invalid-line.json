@@ -1,0 +1,18 @@
+{
+  "verdict": "REJECT",
+  "body": "## Summary\nAdvisory review artifact with a misplaced inline comment.\n\n## Verdict\nREJECT: the inline comment location is invalid.",
+  "comments": [
+    {
+      "path": "src/app.py",
+      "line": 99,
+      "side": "RIGHT",
+      "severity": "important",
+      "body": "This comment points outside the changed or context lines in the diff."
+    }
+  ],
+  "spec_alignment": {
+    "status": "matched",
+    "spec": "specs/GH17/tech.md",
+    "details": "The artifact shape is aligned, but the inline location is invalid."
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "checkpoint_version": 1,
+  "tranche_id": "2026-07-01-example-full-queue-t01",
+  "repo": "example/repo",
+  "scope": "invalid full queue completion with spec work remaining",
+  "status": "complete",
+  "overall_objective": "drain_all_actionable_issues_and_prs",
+  "queue_mode": "full_queue_drain",
+  "spec_coverage": {
+    "checked_at": "2026-07-01T00:00:00Z",
+    "complete": [],
+    "needs_tasks": [],
+    "needs_spec": [88],
+    "umbrella_covered": [],
+    "exception_allowed": []
+  },
+  "context_budget": {
+    "window_tokens": 258400,
+    "soft_stop_ratio": 0.5,
+    "hard_stop_ratio": 0.65,
+    "critical_stop_ratio": 0.75
+  },
+  "output_firewall": {
+    "raw_log_policy": "file_only",
+    "max_parent_stdout_lines": 150,
+    "max_subagent_final_lines": 150,
+    "artifact_root": "artifacts/logs/2026-07-01-example-full-queue-t01"
+  },
+  "items": [
+    {
+      "issue": 88,
+      "state": "needs_spec",
+      "spec_status": "needs_spec",
+      "spec_status_reason": "missing product.md or tech.md for the issue",
+      "next_action": "write specs/GH88/product.md and tech.md before implementation"
+    }
+  ],
+  "remaining_queue": [
+    {
+      "issue": 88,
+      "state": "needs_spec",
+      "spec_status": "needs_spec",
+      "spec_status_reason": "missing product.md or tech.md for the issue",
+      "blocker": null,
+      "next_action": "write specs/GH88/product.md and tech.md before implementation"
+    }
+  ],
+  "resume_prompt": "This checkpoint is intentionally invalid: the queue cannot be complete while GH88 still needs a spec."
+}

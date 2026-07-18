@@ -141,6 +141,29 @@ pub(crate) fn duplicate_definition_scan(
     max_scan_defs: usize,
     max_matches: usize,
 ) -> DefinitionScan {
+    duplicate_definition_scan_with_reader(
+        files,
+        file_path,
+        content,
+        ext,
+        max_scan_defs,
+        max_matches,
+        |path| fs::read_to_string(path),
+    )
+}
+
+fn duplicate_definition_scan_with_reader<F>(
+    files: &[PathBuf],
+    file_path: &str,
+    content: &str,
+    ext: &str,
+    max_scan_defs: usize,
+    max_matches: usize,
+    mut read_file: F,
+) -> DefinitionScan
+where
+    F: FnMut(&Path) -> std::io::Result<String>,
+{
     let definitions = extract_definitions(content, ext)
         .into_iter()
         .take(max_scan_defs)
@@ -152,16 +175,57 @@ pub(crate) fn duplicate_definition_scan(
         };
     }
 
-    let target = absolute_path(file_path);
-    let mut duplicates = Vec::new();
+    let per_definition_limit = max_matches.min(3);
     let mut incomplete = false;
+    let mut matchers = Vec::new();
     for defname in definitions {
-        let found = find_definition_matches(files, &target, ext, &defname, max_matches.min(3));
-        incomplete |= found.incomplete;
-        if !found.matches.is_empty() {
-            duplicates.push(format!("{defname}(in {})", found.matches.join(", ")));
+        match duplicate_definition_regex(&defname) {
+            Ok(regex) => matchers.push((defname, regex, Vec::<String>::new())),
+            Err(_) => incomplete = true,
         }
     }
+    if matchers.is_empty() || per_definition_limit == 0 {
+        return DefinitionScan {
+            duplicates: Vec::new(),
+            incomplete,
+        };
+    }
+
+    let target = absolute_path(file_path);
+    for path in files {
+        if matchers
+            .iter()
+            .all(|(_, _, matches)| matches.len() >= per_definition_limit)
+        {
+            break;
+        }
+        if path.extension().and_then(|s| s.to_str()) != Some(ext) {
+            continue;
+        }
+        if absolute_path(path.to_string_lossy().as_ref()) == target {
+            continue;
+        }
+        let Ok(text) = read_file(path) else {
+            incomplete = true;
+            continue;
+        };
+        let path_display = path.to_string_lossy().into_owned();
+        for (_, regex, matches) in &mut matchers {
+            if matches.len() >= per_definition_limit {
+                continue;
+            }
+            if regex.is_match(&text) {
+                matches.push(path_display.clone());
+            }
+        }
+    }
+
+    let duplicates = matchers
+        .into_iter()
+        .filter_map(|(defname, _, matches)| {
+            (!matches.is_empty()).then(|| format!("{defname}(in {})", matches.join(", ")))
+        })
+        .collect();
     DefinitionScan {
         duplicates,
         incomplete,
@@ -371,50 +435,6 @@ fn definition_patterns(ext: &str) -> &'static [&'static str] {
             r"(?:class|interface)\s+(\w+)",
             r"(?:function|func|def)\s+(\w+)",
         ],
-    }
-}
-
-struct DefinitionMatchScan {
-    matches: Vec<String>,
-    incomplete: bool,
-}
-
-fn find_definition_matches(
-    files: &[PathBuf],
-    target: &Path,
-    ext: &str,
-    defname: &str,
-    max_matches: usize,
-) -> DefinitionMatchScan {
-    let mut found = Vec::new();
-    let Ok(regex) = duplicate_definition_regex(defname) else {
-        return DefinitionMatchScan {
-            matches: found,
-            incomplete: true,
-        };
-    };
-    let mut incomplete = false;
-    for path in files {
-        if found.len() >= max_matches {
-            break;
-        }
-        if path.extension().and_then(|s| s.to_str()) != Some(ext) {
-            continue;
-        }
-        if absolute_path(path.to_string_lossy().as_ref()) == target {
-            continue;
-        }
-        let Ok(text) = fs::read_to_string(path) else {
-            incomplete = true;
-            continue;
-        };
-        if regex.is_match(&text) {
-            found.push(path.to_string_lossy().into_owned());
-        }
-    }
-    DefinitionMatchScan {
-        matches: found,
-        incomplete,
     }
 }
 

@@ -1,10 +1,9 @@
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use crate::git_root::{current_git_root, git_root_for};
+use crate::setup_support::sha256_text_short;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -40,14 +39,13 @@ pub(crate) fn resolve_log_file(options: &LogScopeOptions) -> Result<ResolvedLogF
         return Ok(ResolvedLogFile { path: path.clone() });
     }
 
-    if options.allow_env_log_file {
-        if let Ok(path) = env::var("VIBEGUARD_LOG_FILE") {
-            if !path.trim().is_empty() {
-                return Ok(ResolvedLogFile {
-                    path: PathBuf::from(path),
-                });
-            }
-        }
+    if options.allow_env_log_file
+        && let Ok(path) = env::var("VIBEGUARD_LOG_FILE")
+        && !path.trim().is_empty()
+    {
+        return Ok(ResolvedLogFile {
+            path: PathBuf::from(path),
+        });
     }
 
     let log_root = log_root();
@@ -118,11 +116,15 @@ fn project_log_path(log_root: &Path, project: ProjectRef) -> Result<PathBuf> {
             .join("events.jsonl")),
         ProjectRef::Path(root) => {
             let root_text = root.to_string_lossy().to_string();
+            let digest = sha256_text_short(&root_text);
+            let direct_path = log_root.join("projects").join(digest).join("events.jsonl");
+            if direct_path.exists() {
+                return Ok(direct_path);
+            }
             if let Some(path) = project_log_path_from_mapping(log_root, &root_text) {
                 return Ok(path);
             }
-            let digest = sha256_short(&root_text)?;
-            Ok(log_root.join("projects").join(digest).join("events.jsonl"))
+            Ok(direct_path)
         }
     }
 }
@@ -156,43 +158,6 @@ fn same_project_root(left: &str, right: &str) -> bool {
         (Ok(left_real), Ok(right_real)) => left_real == right_real,
         _ => false,
     }
-}
-
-fn sha256_short(input: &str) -> Result<String> {
-    for (program, args) in [("shasum", &["-a", "256"][..]), ("sha256sum", &[][..])] {
-        if let Some(digest) = run_sha256_command(program, args, input)? {
-            return Ok(digest);
-        }
-    }
-    Err("unable to compute project log hash: shasum or sha256sum is required".into())
-}
-
-fn run_sha256_command(program: &str, args: &[&str], input: &str) -> Result<Option<String>> {
-    let mut child = match Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(Box::new(error)),
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input.as_bytes())?;
-    }
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let digest = text
-        .split_whitespace()
-        .next()
-        .filter(|value| value.len() >= 8 && value.bytes().all(|byte| byte.is_ascii_hexdigit()));
-    Ok(digest.map(|value| value[..8].to_ascii_lowercase()))
 }
 
 #[cfg(test)]
@@ -231,5 +196,48 @@ mod tests {
         assert_eq!(path, mapped.join("events.jsonl"));
 
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn deterministic_hash_path_wins_before_legacy_mapping_scan() {
+        let unique = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(error) => panic!("system time should be after unix epoch: {error}"),
+        };
+        let temp = env::temp_dir().join(format!("vibeguard-log-scope-direct-{unique}"));
+        let project = temp.join("repo");
+        let log_root = temp.join("logs");
+        let direct = log_root
+            .join("projects")
+            .join(sha256_text_short(project.to_string_lossy().as_ref()));
+        let mapped = log_root.join("projects/knownhash");
+        if let Err(error) = fs::create_dir_all(&project) {
+            panic!("test project directory should be created: {error}");
+        }
+        if let Err(error) = fs::create_dir_all(&direct) {
+            panic!("direct log directory should be created: {error}");
+        }
+        if let Err(error) = fs::create_dir_all(&mapped) {
+            panic!("legacy mapped directory should be created: {error}");
+        }
+        if let Err(error) = fs::write(direct.join("events.jsonl"), "") {
+            panic!("direct log file should be created: {error}");
+        }
+        if let Err(error) = fs::write(
+            mapped.join(".project-root"),
+            project.to_string_lossy().as_ref(),
+        ) {
+            panic!("legacy mapping should be written: {error}");
+        }
+
+        let path = match project_log_path(&log_root, ProjectRef::Path(project)) {
+            Ok(path) => path,
+            Err(error) => panic!("project log path should resolve: {error}"),
+        };
+        assert_eq!(path, direct.join("events.jsonl"));
+
+        if let Err(error) = fs::remove_dir_all(temp) {
+            panic!("test temp directory should be removed: {error}");
+        }
     }
 }

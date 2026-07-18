@@ -1,7 +1,7 @@
 <!-- vibeguard-start -->
 #VibeGuard — AI anti-hallucination rules
 
-> __VIBEGUARD_RULE_COUNT__ rules total. Claude loads the full set from `~/.claude/rules/vibeguard/`; Codex sees the L1-L7 layers + Key Detailed Rules table below. Repo-specific facts belong in the repo-level `AGENTS.md`.
+> __VIBEGUARD_RULE_COUNT__ rules total. Claude defaults to the compact L1-L7 layers + Key Detailed Rules table below; load matching native rule files on demand from `~/.vibeguard/installed/rules/claude-rules/` when path-specific depth is needed. Full/strict profiles may also front-inject native rule files from `~/.claude/rules/vibeguard/`. Codex sees the same compact table. Repo-specific facts belong in the repo-level `AGENTS.md`.
 
 ## Constraints (L1-L7 use rules, hooks, guards, and workflows)
 
@@ -61,6 +61,7 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 
 ## Key Detailed Rules (full set in `rules/claude-rules/**`)
 
+<!-- vibeguard-generated-compact-rules:start -->
 | ID | Severity | Rule |
 |----|----------|------|
 | U-16 | Guideline | Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split. |
@@ -79,4 +80,5 @@ Security > Logic > Data Splitting > Repeating Types > Unwrap > Naming
 | SEC-02 | Critical | No hardcoded keys, credentials, or API tokens. Load from env / secret manager. |
 | SEC-11 | Strict | AI-generated code carries higher security risk; mandatory human review for auth, payments, secrets, `innerHTML` / `eval` / `exec`. |
 | SEC-13 | Strict | High-context files (`AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, hooks) must not be silently modified by dependencies or generators. |
+<!-- vibeguard-generated-compact-rules:end -->
 <!-- vibeguard-end -->

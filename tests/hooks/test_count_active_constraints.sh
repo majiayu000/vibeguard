@@ -164,4 +164,39 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
+# The default (core/minimal) Claude profile injects only the compact L1-L7 +
+# Key Detailed Rules table into ~/.claude/CLAUDE.md; the full rules/claude-rules
+# tree is opt-in under full/strict. This asserts the actual production content:
+# the compact core stays within the U-32 budget, while the full common/ tree —
+# the payload the default profile must NOT front-inject — blows past the block
+# threshold. See scripts/setup/targets/claude-home.sh Step 5.5.
+
+COMPACT_SRC="${REPO_DIR}/claude-md/vibeguard-rules.md"
+TOTAL=$((TOTAL + 1))
+if [[ -f "${COMPACT_SRC}" ]]; then
+  green "compact core source present: claude-md/vibeguard-rules.md"
+  PASS=$((PASS + 1))
+
+  CORE_HOME="${TMP_ROOT}/home-gh541-core"
+  CORE_REPO="${TMP_ROOT}/repo-gh541-core"
+  make_home "${CORE_HOME}"
+  make_repo "${CORE_REPO}"
+  cp "${COMPACT_SRC}" "${CORE_HOME}/.claude/CLAUDE.md"
+  core_json="$(python3 "${COUNTER}" --root "${CORE_REPO}" --home "${CORE_HOME}" --json)"
+  assert_contains "${core_json}" '"status": "ok"' "compact core default payload stays within U-32 budget"
+
+  FULL_HOME="${TMP_ROOT}/home-gh541-full"
+  FULL_REPO="${TMP_ROOT}/repo-gh541-full"
+  make_home "${FULL_HOME}"
+  make_repo "${FULL_REPO}"
+  mkdir -p "${FULL_HOME}/.claude/rules/vibeguard/common"
+  cp "${REPO_DIR}/rules/claude-rules/common/"*.md "${FULL_HOME}/.claude/rules/vibeguard/common/"
+  assert_exit_nonzero "full common/ tree exceeds the block budget (must stay opt-in, not default)" \
+    python3 "${COUNTER}" --root "${FULL_REPO}" --home "${FULL_HOME}" --fail-on-block
+else
+  red "compact core source present: claude-md/vibeguard-rules.md"
+  FAIL=$((FAIL + 1))
+fi
+
 hook_test_finish

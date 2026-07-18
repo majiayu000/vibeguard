@@ -72,10 +72,23 @@ if precommit.exists():
 prebash = repo / "hooks/pre-bash-guard.sh"
 if prebash.exists():
     text = prebash.read_text(encoding="utf-8")
-    if "pre-bash-check" not in text:
-        errors.append("hooks/pre-bash-guard.sh: Bash command extraction is not runtime fail-closed")
-    if "invalid Bash hook input JSON; fail-closed" not in text:
-        errors.append("hooks/pre-bash-guard.sh: missing fail-closed parse warning")
+    runtime_owned = re.search(r"\bhook\s+pre-bash\b", text) is not None
+    if runtime_owned:
+        classifier = repo / "vibeguard-runtime/src/hook_checks_bash.rs"
+        orchestrator = repo / "vibeguard-runtime/src/hook_orchestrator_pre_bash.rs"
+        classifier_text = classifier.read_text(encoding="utf-8") if classifier.exists() else ""
+        orchestrator_text = orchestrator.read_text(encoding="utf-8") if orchestrator.exists() else ""
+        if "evaluate_pre_bash_input" not in classifier_text:
+            errors.append("vibeguard-runtime/src/hook_checks_bash.rs: Bash command extraction is not runtime fail-closed")
+        if "invalid Bash hook input JSON; fail-closed" not in classifier_text:
+            errors.append("vibeguard-runtime/src/hook_checks_bash.rs: missing fail-closed parse warning")
+        if "evaluate_pre_bash_input(input, &vibeguard_root)" not in orchestrator_text:
+            errors.append("vibeguard-runtime/src/hook_orchestrator_pre_bash.rs: pre-bash hook does not use runtime classifier")
+    else:
+        if "pre-bash-check" not in text:
+            errors.append("hooks/pre-bash-guard.sh: Bash command extraction is not runtime fail-closed")
+        if "invalid Bash hook input JSON; fail-closed" not in text:
+            errors.append("hooks/pre-bash-guard.sh: missing fail-closed parse warning")
 
 runtime_python_fallbacks = {
     "hooks/pre-bash-guard.sh": "_lib/pkg_rewrite.py",
@@ -95,15 +108,17 @@ if eval_runner.exists():
     if "EVAL_MAX_API_FAILURES" not in text:
         errors.append("eval/run_eval.py: missing API failure threshold knob")
 
-setup_install = repo / "scripts/setup/install.sh"
-if setup_install.exists():
+for rel in ("scripts/setup/install.sh", "scripts/setup/runtime-install.sh"):
+    setup_install = repo / rel
+    if not setup_install.exists():
+        continue
     text = setup_install.read_text(encoding="utf-8")
     for phrase in ("falls back to Python", "falling back to Python", "using Python fallback"):
         if phrase in text:
-            errors.append(f"scripts/setup/install.sh: helper build must not advertise {phrase!r}")
+            errors.append(f"{rel}: helper build must not advertise {phrase!r}")
     for phrase in ("VIBEGUARD_ALLOW_NO_RUNTIME", "explicit degraded mode", "degraded install without"):
         if phrase in text:
-            errors.append(f"scripts/setup/install.sh: no-runtime compatibility path remains ({phrase!r})")
+            errors.append(f"{rel}: no-runtime compatibility path remains ({phrase!r})")
 
 if errors:
     print("FAIL: U-29 silent-degradation checks failed")

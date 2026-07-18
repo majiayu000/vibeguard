@@ -34,9 +34,11 @@ If the intent is unclear, mark it as DEFER or ask the user to clarify.
 Create new objects instead of mutating existing ones. Treat function parameters as read-only.
 
 ## U-16: Keep file size under control (guideline)
+**Compact guidance:** Keep file size under control: 200-400 lines typical, 800 lines hard ceiling. Files above 800 must be split.
 200-400 lines is typical, 800 lines is the hard ceiling. Files above 800 lines must be split.
 
 ## U-17: Handle errors completely (strict)
+**Compact guidance:** Handle errors completely. Do not swallow exceptions silently.
 See U-29 for canonical error-handling guidance. U-17 keeps the compatibility-level principle: do not swallow exception or error paths; surface user-visible failures at error level or raise.
 
 ## U-18: Validate inputs (guideline)
@@ -52,6 +54,7 @@ Use a standard envelope such as `{ data, error, meta }`. Standardize error codes
 Record why the change exists, not just what changed. Use the repository's Lore trailers to preserve constraints, rejected alternatives, confidence, and verification evidence.
 
 ## U-22: Test coverage (strict)
+**Compact guidance:** New code minimum 80% line coverage; critical paths 100%.
 New code must reach at least 80% line coverage. Critical paths require 100% coverage.
 
 **Mechanical checks (agent execution rules)**:
@@ -67,6 +70,7 @@ See U-29 for canonical no-silent-degradation guidance. Unsupported strategies or
 Do not keep function, type, command, or directory aliases. If you find the old name, replace it everywhere and delete the alias.
 
 ## U-25: Fix build failures first (strict)
+**Compact guidance:** Fix build failures first before any other edit; do not add new code while build is red.
 When a build failure is detected, you must fix the build before continuing any other edits. Do not add new code while the build is red.
 
 **Mechanical checks (agent execution rules)**:
@@ -76,6 +80,7 @@ When a build failure is detected, you must fix the build before continuing any o
 - Do not add unrelated feature code while the build is red.
 
 ## U-26: Declaration-execution completeness (strict)
+**Compact guidance:** Declaration-execution completeness: declared Config / Trait / persistence layers must be wired into startup.
 When you declare framework components such as configs, traits, persistence layers, or state containers, you must also finish the startup integration. Do not leave components declared-but-unwired.
 
 **Checklist**:

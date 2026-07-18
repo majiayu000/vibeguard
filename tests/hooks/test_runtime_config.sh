@@ -71,9 +71,14 @@ result=$(run_pre_write "$cfg" VIBEGUARD_WRITE_MODE=warn)
 assert_not_contains "$result" '"decision": "block"' "env write_mode=warn overrides JSON block"
 assert_contains "$result" "hookSpecificOutput" "env write_mode=warn emits advisory"
 
-write_cfg "$cfg" '{"write_mode":"invalid"}'
-result=$(run_pre_write "$cfg")
-assert_not_contains "$result" '"decision": "block"' "invalid JSON write_mode falls back to warn"
+write_cfg "$cfg" '{"write_mode":"sensitive-invalid-mode"}'
+set +e
+result=$(run_pre_write "$cfg" 2>&1)
+invalid_mode_rc=$?
+set -e
+assert_exit_zero "invalid JSON write_mode fails visibly with exit 30" test "$invalid_mode_rc" = "30"
+assert_contains "$result" "category=config_enum_error" "invalid JSON write_mode reports enum category"
+assert_not_contains "$result" "sensitive-invalid-mode" "invalid JSON write_mode does not leak value"
 
 header "runtime config — circuit breaker"
 write_cfg "$cfg" '{"circuit_breaker":{"threshold":1,"cooldown_seconds":42}}'
@@ -295,6 +300,9 @@ cat > "$cache_runtime" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VIBEGUARD_RUNTIME_COMMAND_LOG:?}"
 case "${1:-}" in
+  runtime-config-validate)
+    printf 'VALID\n'
+    ;;
   runtime-config-get-int)
     case "${2:-}" in
       __VIBEGUARD_CONFIG_PROBE_INT__) printf '19\n' ;;
@@ -304,7 +312,7 @@ case "${1:-}" in
     ;;
   runtime-config-get-str)
     case "${2:-}" in
-      __VIBEGUARD_CONFIG_PROBE_STR__) printf 'probe-hit\n' ;;
+      __VIBEGUARD_CONFIG_PROBE_STR__) printf 'block\n' ;;
       VG_TEST_MODE) printf 'block\n' ;;
       *) printf '%s\n' "${4:-}" ;;
     esac
@@ -326,8 +334,9 @@ cache_out="$(
 )"
 assert_contains "$cache_out" "1234/block/1234" "runtime config cache preserves config values"
 cache_commands="$(cat "$cache_log")"
-assert_occurrences "$cache_commands" "runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ probe.int 17" "1" "runtime config resolver probes int support once per process"
-assert_occurrences "$cache_commands" "runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ probe.str probe-default" "1" "runtime config resolver probes str support once per process"
+assert_occurrences "$cache_commands" "runtime-config-validate" "1" "runtime config resolver probes validator support once per process"
+assert_occurrences "$cache_commands" "runtime-config-get-int __VIBEGUARD_CONFIG_PROBE_INT__ u16.limit 17" "1" "runtime config resolver probes int support once per process"
+assert_occurrences "$cache_commands" "runtime-config-get-str __VIBEGUARD_CONFIG_PROBE_STR__ write_mode probe-default" "1" "runtime config resolver probes str support once per process"
 assert_occurrences "$cache_commands" "runtime-config-get-int VG_TEST_X u16.limit 800" "2" "runtime config cache still performs requested int reads"
 assert_occurrences "$cache_commands" "runtime-config-get-str VG_TEST_MODE write_mode warn" "1" "runtime config cache still performs requested str reads"
 
@@ -350,6 +359,9 @@ default_only_runtime="$WORK_DIR/default-only-runtime"
 cat > "$default_only_runtime" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
+  runtime-config-validate)
+    printf 'VALID\n'
+    ;;
   runtime-config-get-int|runtime-config-get-str)
     printf '%s\n' "${4:?}"
     ;;

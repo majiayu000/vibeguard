@@ -41,8 +41,8 @@ assert_not_contains "$result" "VIBEGUARD" "Empty content is released"
 result=$(echo '{"tool_input":{"file_path":"","content":"fn main() {}"}}' | bash hooks/post-write-guard.sh)
 assert_not_contains "$result" "VIBEGUARD" "Empty file_path is allowed"
 
-# The shell wrapper should not run a fast command and then a full command for
-# the same Write event; scan reuse lives inside the single runtime command.
+# The shell wrapper should call the single runtime hook orchestrator once for
+# the same Write event; scan reuse lives inside that runtime command.
 tmp_repo_runtime_once="$(mktemp -d)"
 tmp_runtime_log="${tmp_repo_runtime_once}/commands.log"
 tmp_runtime_bin="${tmp_repo_runtime_once}/vibeguard-runtime"
@@ -55,11 +55,30 @@ shift || true
 printf '%s\n' "$command" >> "${VIBEGUARD_RUNTIME_COMMAND_LOG:?}"
 
 case "$command" in
-  runtime-config-get-int|runtime-config-get-str)
-    printf '%s\n' "${3:-}"
+  hook)
+    [[ "${1:-}" == "post-write" ]] || exit 8
+    cat >/dev/null
+    ;;
+  runtime-config-validate)
+    printf 'VALID\n'
+    ;;
+  runtime-config-get-int)
+    if [[ "${1:-}" == "__VIBEGUARD_CONFIG_PROBE_INT__" ]]; then
+      printf '19\n'
+    else
+      printf '%s\n' "${3:-}"
+    fi
+    ;;
+  runtime-config-get-str)
+    if [[ "${1:-}" == "__VIBEGUARD_CONFIG_PROBE_STR__" ]]; then
+      printf 'block\n'
+    else
+      printf '%s\n' "${3:-}"
+    fi
     ;;
   post-write-check)
-    cat >/dev/null
+    printf 'unexpected legacy full check\n' >&2
+    exit 9
     ;;
   post-write-fast-check)
     printf 'unexpected fast check\n' >&2
@@ -82,7 +101,8 @@ result=$(printf '%s\n' "$json_payload" \
 runtime_commands="$(cat "$tmp_runtime_log")"
 assert_not_contains "$result" "VIBEGUARD" "Single-command runtime fixture remains silent"
 assert_occurrences "$runtime_commands" "post-write-fast-check" "0" "Post-write guard no longer calls fast check before full check"
-assert_occurrences "$runtime_commands" "post-write-check" "1" "Post-write guard calls the full runtime command once per Write event"
+assert_occurrences "$runtime_commands" "post-write-check" "0" "Post-write guard no longer calls the legacy full runtime command directly"
+assert_occurrences "$runtime_commands" "hook" "1" "Post-write guard calls the runtime hook orchestrator once per Write event"
 rm -rf "$tmp_repo_runtime_once"
 
 # Git worktrees expose .git as a file, and hook inputs can be relative paths.
@@ -191,6 +211,25 @@ result=$(echo "$json_payload" \
     bash hooks/post-write-guard.sh 2>/dev/null)
 assert_contains "$result" "post-write runtime check failed" "Runtime failure remains visible when fallback logging fails"
 rm -rf "$tmp_repo_runtime_fail" "$tmp_log_dir"
+
+tmp_repo_global_lock="$(mktemp -d)"
+git -C "$tmp_repo_global_lock" init -q
+tmp_global_lock_dir="$(mktemp -d)"
+tmp_project_log_dir="$tmp_global_lock_dir/project"
+mkdir -p "$tmp_project_log_dir"
+mkdir "$tmp_global_lock_dir/events.jsonl.lock.d"
+json_payload=$(printf '{"tool_input":{"file_path":"%s","content":"# x"}}' "$tmp_repo_global_lock/README.md")
+result=$(echo "$json_payload" \
+  | VIBEGUARD_LOG_DIR="$tmp_global_lock_dir" \
+    VIBEGUARD_PROJECT_LOG_DIR="$tmp_project_log_dir" \
+    VIBEGUARD_LOG_FILE="$tmp_project_log_dir/events.jsonl" \
+    VIBEGUARD_LOG_LOCK_ATTEMPTS=1 \
+    VIBEGUARD_LOG_LOCK_SLEEP_SECONDS=0 \
+    bash hooks/post-write-guard.sh 2>/dev/null)
+assert_contains "$result" "failure_kind=lock" "Post-write global mirror lock reports lock failure kind"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl" "Post-write global mirror lock reports global log path"
+assert_contains "$result" "$tmp_global_lock_dir/events.jsonl.lock.d" "Post-write global mirror lock reports global recovery path"
+rm -rf "$tmp_repo_global_lock" "$tmp_global_lock_dir"
 
 # =========================================================
 

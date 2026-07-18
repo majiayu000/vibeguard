@@ -1,70 +1,44 @@
 #!/usr/bin/env bash
 # VibeGuard Stop Hook — Verify access control before completion
 #
-# Check if there are any uncommitted source code changes at the end of the AI session.
-# There are uncommitted changes → exit 0 (log only; exit 2 will trigger an infinite loop in the Stop context)
-# No changes or non-git repository → exit 0 (pass silently)
+# Thin compatibility entry point. The hot path lives in vibeguard-runtime so
+# Stop hooks avoid sourcing the shared bash logging stack.
 
 set -euo pipefail
 
-source "$(dirname "$0")/log.sh"
-vg_start_timer
+_VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VIBEGUARD_RUNTIME=""
 
-vg_stop_is_ci() {
-  case "${CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  case "${GITHUB_ACTIONS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  case "${TRAVIS:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  case "${CIRCLECI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  [[ -n "${JENKINS_URL:-}" ]] && return 0
-  case "${GITLAB_CI:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  case "${TF_BUILD:-}" in true|True|TRUE|1|yes|Yes|YES) return 0 ;; esac
-  return 1
+_vg_stop_installed_context() {
+  local installed_hooks="${HOME:-}/.vibeguard/installed/hooks"
+  [[ -n "${HOME:-}" && ( "${_VG_HOOK_DIR}" == "${installed_hooks}" || "${_VG_HOOK_DIR}" == "${installed_hooks}/"* ) ]]
 }
 
-vg_stop_hook_active_fast() {
-  local input="$1" active=""
-  active=$(printf '%s' "$input" | "$_VIBEGUARD_RUNTIME" json-field stop_hook_active 2>/dev/null || true)
-  [[ "$active" == "true" ]]
-}
-
-# CI guard: skip interactive hooks in CI environments
-vg_stop_is_ci && exit 0
-
-# Read stdin once (Stop hook receives JSON input)
-INPUT=$(cat 2>/dev/null || true)
-
-# stop_hook_active: platform sets this when a Stop hook triggered another Stop hook.
-# Checking it breaks the feedback → Stop hook → feedback → Stop hook infinite loop.
-vg_stop_hook_active_fast "$INPUT" && exit 0
-
-# PERF-OK: Stop hook skips source-change counting outside git; single cheap probe.
-if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-  exit 0
-fi
-
-# Check if there are any uncommitted source code changes (staged + unstaged)
-changed_source_files=""
-while IFS= read -r file; do
-  if [[ -n "$file" ]] && vg_is_source_file "$file"; then
-    changed_source_files="${changed_source_files}${file}"$'\n'
+_vg_stop_runtime_candidates() {
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if _vg_stop_installed_context; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
   fi
-done < <(
-  # PERF-OK: Stop hook only needs changed file names to count source edits.
-  git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null
-)
+}
 
-# Remove duplicates
-if [[ -n "$changed_source_files" ]]; then
-  changed_source_files=$(echo "$changed_source_files" | sort -u)
-  count=$(echo "$changed_source_files" | grep -c . || true)
+while IFS= read -r _candidate; do
+  if [[ -n "$_candidate" && -f "$_candidate" && -x "$_candidate" ]]; then
+    _VIBEGUARD_RUNTIME="$_candidate"
+    break
+  fi
+done < <(_vg_stop_runtime_candidates)
 
-  vg_log "stop-guard" "Stop" "gate" "uncommitted source changes: ${count} files" "$(echo "$changed_source_files" | head -5 | tr '\n' ' ')"
-
-  # exit 0: log only, do not block — Claude cannot commit in Stop context,
-  # so exit 2 here causes an infinite loop (feedback → response → stop hooks → repeat).
-  # See GitHub issues #3573, #10205.
-  exit 0
+if [[ -z "$_VIBEGUARD_RUNTIME" ]]; then
+  printf '%s\n' "VIBEGUARD ERROR: vibeguard-runtime not found. Run setup.sh or cargo build --release --manifest-path vibeguard-runtime/Cargo.toml." >&2
+  exit 2
 fi
 
-vg_log "stop-guard" "Stop" "pass" "" ""
-exit 0
+VIBEGUARD_HOOK_DIR="${VIBEGUARD_HOOK_DIR:-$_VG_HOOK_DIR}" exec "$_VIBEGUARD_RUNTIME" hook stop

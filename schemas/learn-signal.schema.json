@@ -1,0 +1,462 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeguard.local/schemas/learn-signal.schema.json",
+  "title": "VibeGuard Learn Signal",
+  "description": "Stable Learn signal protocol with classification-bound action constraints.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "signal_id",
+    "observation_id",
+    "project_hash",
+    "project_root",
+    "type",
+    "classification",
+    "normalized_key",
+    "path_relation",
+    "affected_sessions",
+    "occurrences",
+    "first_seen",
+    "last_seen",
+    "evidence_samples",
+    "recommended_actions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "signal_id": {
+      "type": "string",
+      "pattern": "^(learn:|lrn_)[A-Za-z0-9_-]{8,}$"
+    },
+    "observation_id": {
+      "type": "string",
+      "pattern": "^obs_[A-Za-z0-9_-]{8,}$"
+    },
+    "project_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_root": {
+      "type": ["string", "null"]
+    },
+    "type": {
+      "enum": [
+        "repeated_warn",
+        "chronic_block",
+        "hot_files",
+        "slow_sessions",
+        "warn_escalation",
+        "linter_violations",
+        "metrics_truncation",
+        "edit_path",
+        "workflow_retry",
+        "skill_candidate"
+      ]
+    },
+    "classification": {
+      "enum": [
+        "runtime_health",
+        "defense_gap",
+        "defense_friction",
+        "project_quality",
+        "workflow_friction",
+        "skill_candidate",
+        "noise"
+      ]
+    },
+    "normalized_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": ["string", "null"]
+    },
+    "path_relation": {
+      "enum": ["in_project", "external", "unknown"]
+    },
+    "source_hook": {
+      "type": ["string", "null"]
+    },
+    "source_tool": {
+      "type": ["string", "null"]
+    },
+    "affected_sessions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "occurrences": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "event_rate": {
+      "type": "number",
+      "minimum": 0
+    },
+    "first_seen": {
+      "type": "string",
+      "minLength": 1
+    },
+    "last_seen": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_samples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_sample"
+      }
+    },
+    "recommended_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/recommended_action"
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "classification": {
+          "const": "runtime_health"
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/runtime_health_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "defense_gap"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "linter_violations", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/defense_gap_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "defense_friction"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "linter_violations", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/defense_friction_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "project_quality"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "hot_files", "slow_sessions", "warn_escalation", "linter_violations"]
+        },
+        "path_relation": {
+          "const": "in_project"
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/project_quality_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "workflow_friction"
+        },
+        "type": {
+          "enum": ["repeated_warn", "chronic_block", "slow_sessions", "warn_escalation", "workflow_retry"]
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/workflow_friction_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "skill_candidate"
+        },
+        "type": {
+          "const": "skill_candidate"
+        },
+        "path_relation": {
+          "enum": ["in_project", "unknown"]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/skill_candidate_actions"
+        }
+      }
+    },
+    {
+      "properties": {
+        "classification": {
+          "const": "noise"
+        },
+        "type": {
+          "enum": [
+            "repeated_warn",
+            "chronic_block",
+            "hot_files",
+            "slow_sessions",
+            "warn_escalation",
+            "linter_violations",
+            "edit_path",
+            "workflow_retry",
+            "skill_candidate"
+          ]
+        },
+        "recommended_actions": {
+          "$ref": "#/$defs/noise_actions"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "evidence_sample": {
+      "type": "object",
+      "required": ["summary"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": ["string", "null"]
+        },
+        "ts": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "recommended_action": {
+      "type": "object",
+      "required": ["type", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "fix_runtime",
+            "tune_config",
+            "enhance_guard",
+            "add_hook",
+            "add_rule",
+            "add_scoped_suppression",
+            "change_project_code",
+            "create_or_update_skill",
+            "collect_more_evidence",
+            "no_action"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": ["string", "null"]
+        },
+        "verification_command": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/recommended_action"
+      }
+    },
+    "runtime_health_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["fix_runtime", "tune_config", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "defense_gap_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["enhance_guard", "add_hook", "add_rule", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "defense_friction_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["add_scoped_suppression", "enhance_guard", "tune_config", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "project_quality_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["change_project_code", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "workflow_friction_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["create_or_update_skill", "tune_config", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "skill_candidate_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["create_or_update_skill"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "noise_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "rationale"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["no_action", "collect_more_evidence"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": ["string", "null"]
+          },
+          "verification_command": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    }
+  }
+}

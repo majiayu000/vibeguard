@@ -16,10 +16,12 @@ CHECK_SCRIPT="${REPO_DIR}/scripts/setup/check.sh"
 SETUP_SCRIPT="${REPO_DIR}/setup.sh"
 AWK_PORTABILITY_FIXTURE=""
 STALE_HOOK_HOME=""
+UNMANAGED_HOOK_HOME=""
 TIMEOUT_HOOK_HOME=""
 BROKEN_HOME=""
 PROJECT_HOOK_HOME=""
 PROJECT_HOOK_REPO=""
+STALE_RUNTIME_DIR=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -27,6 +29,9 @@ cleanup() {
   fi
   if [[ -n "${STALE_HOOK_HOME}" ]]; then
     rm -rf "${STALE_HOOK_HOME}"
+  fi
+  if [[ -n "${UNMANAGED_HOOK_HOME}" ]]; then
+    rm -rf "${UNMANAGED_HOOK_HOME}"
   fi
   if [[ -n "${TIMEOUT_HOOK_HOME}" ]]; then
     rm -rf "${TIMEOUT_HOOK_HOME}"
@@ -39,6 +44,9 @@ cleanup() {
   fi
   if [[ -n "${PROJECT_HOOK_REPO}" ]]; then
     rm -rf "${PROJECT_HOOK_REPO}"
+  fi
+  if [[ -n "${STALE_RUNTIME_DIR}" ]]; then
+    rm -rf "${STALE_RUNTIME_DIR}"
   fi
 }
 trap cleanup EXIT
@@ -110,6 +118,68 @@ assert_cmd() {
     red "$desc (cmd: $*)"; FAIL=$((FAIL + 1))
   fi
 }
+
+# Establish one current-source runtime before any setup behavior invocation.
+# The hostile fixture first proves that version/command probes alone cannot
+# distinguish a same-version stale binary, then the suite overrides every
+# freshness-affecting caller input with the worktree build.
+STALE_RUNTIME_DIR="$(mktemp -d)"
+STALE_RUNTIME="${STALE_RUNTIME_DIR}/vibeguard-runtime"
+STALE_RUNTIME_MARKER="${STALE_RUNTIME_DIR}/called"
+CURRENT_RUNTIME_VERSION="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
+cat > "${STALE_RUNTIME}" <<'SH'
+#!/usr/bin/env bash
+if [[ -n "${VIBEGUARD_STALE_RUNTIME_MARKER:-}" ]]; then
+  printf '%s\n' "${1:-<none>}" >> "${VIBEGUARD_STALE_RUNTIME_MARKER}"
+fi
+case "${1:-}" in
+  version) printf '%s\n' "${VIBEGUARD_STALE_RUNTIME_VERSION:?}" ;;
+  *) exit 0 ;;
+esac
+SH
+chmod +x "${STALE_RUNTIME}"
+
+if ! env \
+  VIBEGUARD_REPO_DIR="${REPO_DIR}" \
+  VIBEGUARD_SETUP_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
+  VIBEGUARD_STALE_RUNTIME_MARKER= \
+  VIBEGUARD_STALE_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}" \
+  bash -c 'source "$1"; setup_runtime_supports "$2"' \
+    _ "${REPO_DIR}/scripts/setup/lib.sh" "${STALE_RUNTIME}"; then
+  printf 'ERROR: stale runtime fixture did not satisfy the legacy setup probe\n' >&2
+  exit 1
+fi
+rm -f "${STALE_RUNTIME_MARKER}"
+
+export VIBEGUARD_SETUP_RUNTIME="${STALE_RUNTIME}"
+export VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=1
+export VIBEGUARD_SETUP_RUNTIME_VERSION="hostile-version"
+export CARGO_TARGET_DIR="${STALE_RUNTIME_DIR}/external-target"
+export CARGO_BUILD_TARGET="invalid-host-target"
+export VIBEGUARD_STALE_RUNTIME_MARKER="${STALE_RUNTIME_MARKER}"
+export VIBEGUARD_STALE_RUNTIME_VERSION="${CURRENT_RUNTIME_VERSION}"
+
+unset CARGO_BUILD_TARGET
+unset VIBEGUARD_SETUP_RUNTIME_VERSION
+export VIBEGUARD_SETUP_SKIP_REPO_RUNTIME=0
+CURRENT_SETUP_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
+TOTAL=$((TOTAL + 1))
+if cargo build \
+  --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" \
+  --target-dir "${REPO_DIR}/vibeguard-runtime/target"; then
+  green "runtime config setup fixture builds current runtime"
+  PASS=$((PASS + 1))
+else
+  red "runtime config setup fixture failed to build current worktree runtime"
+  FAIL=$((FAIL + 1))
+  exit 1
+fi
+if [[ ! -x "${CURRENT_SETUP_RUNTIME}" ]]; then
+  printf 'ERROR: current setup runtime is not executable: %s\n' \
+    "${CURRENT_SETUP_RUNTIME}" >&2
+  exit 1
+fi
+export VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}"
 
 # --- Syntax checks ---
 header "syntax"
@@ -464,6 +534,56 @@ assert_cmd "stale hook repair: Codex installed hook path removed" bash -c "! gre
 assert_cmd "stale hook repair: Claude stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/settings_json.py" check-stale-hooks --settings-file "${STALE_HOOK_HOME}/.claude/settings.json"
 assert_cmd "stale hook repair: Codex stale check passes" env HOME="${STALE_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${STALE_HOOK_HOME}/.codex/hooks.json"
 
+# --- Codex unmanaged PreToolUse stale hook detection and explicit repair ---
+header "codex unmanaged stale pretool repair"
+UNMANAGED_HOOK_HOME="$(mktemp -d)"
+mkdir -p "${UNMANAGED_HOOK_HOME}/.codex" "${UNMANAGED_HOOK_HOME}/.vibeguard"
+printf '#!/usr/bin/env bash\n' > "${UNMANAGED_HOOK_HOME}/.vibeguard/run-hook-codex.sh"
+chmod +x "${UNMANAGED_HOOK_HOME}/.vibeguard/run-hook-codex.sh"
+valid_third_party="${UNMANAGED_HOOK_HOME}/valid-third-party.js"
+printf 'process.exit(0)\n' > "${valid_third_party}"
+cat > "${UNMANAGED_HOOK_HOME}/.codex/hooks.json" <<JSON
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /existing/non-vibeguard.js"
+          },
+          {
+            "type": "command",
+            "command": "env FOO=1 node ${valid_third_party}"
+          },
+          {
+            "type": "command",
+            "command": "bash ${UNMANAGED_HOOK_HOME}/.vibeguard/run-hook-codex.sh vibeguard-pre-bash-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+
+unmanaged_helper_out="$(HOME="${UNMANAGED_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" check-stale-hooks --hooks-file "${UNMANAGED_HOOK_HOME}/.codex/hooks.json" 2>&1 || true)"
+assert_contains "$unmanaged_helper_out" "repair-required unmanaged Codex blocking hook" "unmanaged stale helper: reports repair-required blocking hook"
+assert_contains "$unmanaged_helper_out" "event=PreToolUse matcher=Bash command=node /existing/non-vibeguard.js" "unmanaged stale helper: names event matcher and command"
+assert_contains "$unmanaged_helper_out" "command_path=/existing/non-vibeguard.js" "unmanaged stale helper: names missing command path"
+assert_contains "$unmanaged_helper_out" "repair=bash setup.sh --yes --repair-stale-unmanaged-hooks" "unmanaged stale helper: names explicit repair flag"
+
+unmanaged_strict_out="$(HOME="${UNMANAGED_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check --strict 2>&1 || true)"
+assert_contains "$unmanaged_strict_out" "[BROKEN] repair-required unmanaged Codex blocking hook" "setup --check --strict: promotes stale PreToolUse to broken"
+
+HOME="${UNMANAGED_HOOK_HOME}" python3 "${REPO_DIR}/scripts/lib/codex_hooks_json.py" prune-stale-unmanaged \
+  --hooks-file "${UNMANAGED_HOOK_HOME}/.codex/hooks.json" >/dev/null
+assert_cmd "unmanaged stale repair removes missing PreToolUse hook" bash -c "! grep -q '/existing/non-vibeguard.js' '${UNMANAGED_HOOK_HOME}/.codex/hooks.json'"
+assert_cmd "unmanaged stale repair preserves valid third-party hook" grep -q "${valid_third_party}" "${UNMANAGED_HOOK_HOME}/.codex/hooks.json"
+assert_cmd "unmanaged stale repair preserves managed VibeGuard hook" grep -q "vibeguard-pre-bash-guard.sh" "${UNMANAGED_HOOK_HOME}/.codex/hooks.json"
+assert_cmd "unmanaged stale repair leaves valid JSON" python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "${UNMANAGED_HOOK_HOME}/.codex/hooks.json"
+
 # --- Project git hook detection ---
 header "verify-project project git hooks"
 PROJECT_HOOK_HOME="$(mktemp -d)"
@@ -577,6 +697,9 @@ HOME="${BROKEN_HOME}" bash "${SETUP_SCRIPT}" doctor >/dev/null 2>&1
 doctor_rc=$?
 assert_eq "$doctor_rc" "0" "doctor command: exit 0 on broken health (compat)"
 
+# shellcheck source=setup/runtime_config_check_tests.sh
+source "${REPO_DIR}/tests/setup/runtime_config_check_tests.sh"
+
 # --no-summary must also keep exiting 0.
 bash "${SETUP_SCRIPT}" --check --no-summary >/dev/null 2>&1
 no_sum_rc=$?
@@ -661,6 +784,11 @@ verify_dev_repo_rc=$?
 assert_eq "$verify_dev_repo_rc" "2" "verify-dev-repo command: broken state exits 2"
 
 # --- Summary ---
+if [[ -e "${STALE_RUNTIME_MARKER}" ]]; then
+  printf 'ERROR: stale setup runtime was invoked after the current runtime pin\n' >&2
+  exit 1
+fi
+
 printf '\n'
 if [[ "$FAIL" -eq 0 ]]; then
   printf '\033[32mAll %d/%d tests passed\033[0m\n' "$PASS" "$TOTAL"

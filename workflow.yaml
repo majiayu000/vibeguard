@@ -1,0 +1,145 @@
+name: specrail
+version: 0.3.0
+description: Issue-first, spec-first, AI-assisted repository workflow pack.
+
+durable_state:
+  provider: github
+  objects:
+    - issues
+    - labels
+    - pull_requests
+    - comments
+    - reviews
+    - branches
+
+automation_policy:
+  default_mode: dry_run
+  # auth_mode is the persisted safety baseline and must remain review. It
+  #   preserves per-PR explicit human merge authorization for plain implx.
+  #   Only the current `implx auto` invocation may select transient auto mode;
+  #   repository configuration never supplies standing merge authorization.
+  auth_mode: review
+  allowed_agent_actions:
+    - propose_labels
+    - draft_specs
+    - draft_tasks
+    - implement_code
+    - review_pull_request
+    - diagnose_ci
+    - draft_release_notes
+  forbidden_agent_actions:
+    - force_push
+    - close_disputed_issue
+    - public_security_disclosure
+    - permission_change
+
+auth_modes:
+  auto:
+    description: "Explicit `implx auto` queue drains. The invocation is the standing merge authorization; merge only when ALL current evidence is green (CI rollup, pr_gate, resolved review threads, reviewer-lane evidence, clean merge state). Missing spec/task packets are auto-drafted and implemented in the same run; items needing a human choice are skipped and reported once in a final human_decisions list."
+    allowed_agent_actions:
+      - merge_on_complete_evidence
+      - close_issue_on_merged_evidence
+    waived_human_gates:
+      - spec_approval
+      - final_pr_review
+      - merge
+  review:
+    description: "Per-PR explicit human merge authorization in the current conversation. Freshly drafted specs wait for human confirmation before implementation."
+    forbidden_agent_actions:
+      - final_approval
+      - merge
+    waived_human_gates: []
+
+required_human_gates:
+  - readiness_label
+  - spec_approval
+  - final_pr_review
+  - security_decision
+  - merge
+  - release
+
+artifacts:
+  spec_packet: docs/specs/GH{issue_number}/
+  product_spec: docs/specs/GH{issue_number}/product.md
+  tech_spec: docs/specs/GH{issue_number}/tech.md
+  task_plan: docs/specs/GH{issue_number}/tasks.md
+  impl_branch: "{agent}/gh{issue_number}-{slug}"
+  agent_review: artifacts/review/pr-{pr_number}.json
+  triage_result: artifacts/triage/issue-{issue_number}.json
+
+action_policy:
+  actions:
+    triage_issue:
+      allowed_from:
+        - new_issue
+        - needs_info
+        - triaged
+      required_artifacts: []
+      creates_artifacts:
+        - triage_result
+      human_gates: []
+
+    write_spec:
+      allowed_from:
+        - triaged
+        - ready_to_spec
+      required_artifacts:
+        - linked_issue
+      creates_artifacts:
+        - product_spec
+        - tech_spec
+      human_gates:
+        - readiness_label
+
+    implement:
+      allowed_from:
+        - ready_to_implement
+      required_artifacts:
+        - linked_issue
+        - product_spec
+        - tech_spec
+      creates_artifacts:
+        - task_plan
+      human_gates:
+        - readiness_label
+        - spec_approval
+
+    review_pr:
+      allowed_from:
+        - impl_pr_open
+        - agent_review
+        - human_review
+      required_artifacts:
+        - linked_issue
+        - linked_pr
+        - verification
+      creates_artifacts:
+        - agent_review
+      human_gates:
+        - final_pr_review
+
+    fix_ci:
+      allowed_from:
+        - human_review
+        - ci_green
+      required_artifacts:
+        - linked_pr
+      creates_artifacts:
+        - verification
+      human_gates: []
+
+    draft_release_note:
+      allowed_from:
+        - merged
+      required_artifacts:
+        - linked_pr
+      creates_artifacts: []
+      human_gates:
+        - release
+
+presentation:
+  default_locale: zh-CN
+  supported_locales:
+    - en-US
+    - zh-CN
+  fallback_locale: en-US
