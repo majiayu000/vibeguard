@@ -29,8 +29,8 @@ the external skill.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 skill and install metadata removed | `skills/strategic-compact/`, `schemas/install-modules.json` | `bash tests/test_manifest_contract.sh` and `! rg 'strategic-compact' schemas/install-modules.json skills` |
-| B-002 guidance no longer names `claude-md-split` | `workflow.md` W-19 fix, `check_doc_overload.sh` messages | `! rg 'claude-md-split' rules/claude-rules/common/workflow.md guards/universal/check_doc_overload.sh` |
+| B-001 skill and install metadata removed | `skills/strategic-compact/`, `schemas/install-modules.json` | `bash tests/test_manifest_contract.sh` and `if rg 'strategic-compact' schemas/install-modules.json skills; then exit 1; else test $? -eq 1; fi` |
+| B-002 guidance no longer names `claude-md-split` | `workflow.md` W-19 fix, `check_doc_overload.sh` messages | `if rg 'claude-md-split' rules/claude-rules/common/workflow.md guards/universal/check_doc_overload.sh; then exit 1; else test $? -eq 1; fi` |
 
 ## Rollback
 
