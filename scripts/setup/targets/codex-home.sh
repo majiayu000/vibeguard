@@ -42,13 +42,13 @@ install_codex_home_assets() {
   echo
 
   echo "Step 6.5: Install Codex hooks"
-  # Copy Codex-specific hook wrapper
-  cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
+  # Install compatible helpers before exposing the new Codex wrapper.
   mkdir -p "${HOME}/.vibeguard/_lib"
   cp "${REPO_DIR}/hooks/_lib/codex_diag.sh" "${HOME}/.vibeguard/_lib/codex_diag.sh"
   cp "${REPO_DIR}/hooks/_lib/codex_runner.sh" "${HOME}/.vibeguard/_lib/codex_runner.sh"
   cp "${REPO_DIR}/hooks/_lib/timeout.sh" "${HOME}/.vibeguard/_lib/timeout.sh"
   cp "${REPO_DIR}/hooks/_lib/wrapper_env.sh" "${HOME}/.vibeguard/_lib/wrapper_env.sh"
+  cp "${REPO_DIR}/hooks/run-hook-codex.sh" "${HOME}/.vibeguard/run-hook-codex.sh"
   chmod +x "${HOME}/.vibeguard/run-hook-codex.sh"
   state_record_file "${HOME}/.vibeguard/run-hook-codex.sh" "hooks/run-hook-codex.sh" "copy"
   state_record_file "${HOME}/.vibeguard/_lib/codex_diag.sh" "hooks/_lib/codex_diag.sh" "copy"
@@ -68,6 +68,23 @@ install_codex_home_assets() {
     yellow "  Codex capability profile: native Bash/apply_patch gates + PermissionRequest + Stop; Read hooks remain unavailable"
   else
     red "  Failed to update ~/.codex/hooks.json"
+  fi
+
+  if [[ "${VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS:-0}" == "1" ]]; then
+    local repair_result
+    repair_result=$(setup_runtime setup-codex-hooks-prune-stale-unmanaged "${REPO_DIR}" "${hooks_file}" 2>&1 || echo "ERROR")
+    if grep -q '^ERROR$' <<< "${repair_result}"; then
+      red "  Failed to repair stale unmanaged Codex hooks"
+    else
+      while IFS= read -r line; do
+        case "${line}" in
+          "removed stale unmanaged Codex hook:"*) yellow "  ${line}" ;;
+          CHANGED) green "  Stale unmanaged Codex hooks repaired" ;;
+          SKIP) yellow "  No stale unmanaged Codex hooks to repair" ;;
+        esac
+      done <<< "${repair_result}"
+      state_record_file "${hooks_file}" "generated/codex-hooks.json" "copy"
+    fi
   fi
 
   # Enable native Codex hooks feature flag in config.toml
@@ -173,11 +190,22 @@ check_codex_home_installation() {
     fi
 
     local stale_hooks_report
-    if stale_hooks_report="$(setup_runtime setup-codex-hooks-check-stale "${CODEX_DIR}/hooks.json" 2>&1)"; then
+    if stale_hooks_report="$(setup_runtime setup-codex-hooks-check-stale "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>&1)"; then
       :
     else
       while IFS= read -r line; do
-        [[ -n "${line}" ]] && red "[BROKEN] ${line}"
+        [[ -n "${line}" ]] || continue
+        if [[ "${line}" == repair-required\ unmanaged\ Codex\ blocking\ hook:* ]]; then
+          if [[ "${STRICT:-0}" == "1" || "${INSTALL:-0}" == "1" || "${PROJECT:-0}" == "1" || "${DEV_REPO:-0}" == "1" ]]; then
+            red "[BROKEN] ${line}"
+          else
+            yellow "[WARN] ${line}"
+          fi
+        elif [[ "${line}" == stale\ unmanaged\ Codex\ hook:* ]]; then
+          yellow "[WARN] ${line}"
+        else
+          red "[BROKEN] ${line}"
+        fi
       done <<< "${stale_hooks_report}"
     fi
 
@@ -413,7 +441,7 @@ check_codex_agents_hygiene() {
   local rules_dest="${HOME}/.claude/rules/vibeguard"
   local actual_rule_count declared_count
   if [[ -d "${rules_dest}" ]]; then
-    actual_rule_count=$(vibeguard_rule_id_count "${rules_dest}")
+    actual_rule_count=$(claude_rule_count_for_banner)
     if declared_count=$(vibeguard_managed_rule_banner_count "${agents_md}"); then
       if [[ "${actual_rule_count}" -eq "${declared_count}" ]]; then
         green "[OK] Rule count in ~/.codex/AGENTS.md: ${actual_rule_count} rules"

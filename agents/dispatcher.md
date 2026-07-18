@@ -21,11 +21,18 @@ Required upstream routing input. The upstream `routing_decision.work_surface.dec
 
 ```yaml
 routing_decision:
+  precedence:
+    - user_override
+    - work_surface_classifier
+    - risk_destructive_gate
+    - ambiguity_gate
+    - readiness_classifier
+    - execution_or_delegation_lane
   work_surface:
     decision: code_execution | writing_research | chat_support
   readiness:
     decision: execute_direct | plan_first | clarify_first
-handoff:
+handoff: # Required only when readiness.decision is plan_first.
   mode: <optional preselected execution mode>
   artifacts: [...]
   runtime_pinning_snapshot: <path | None>
@@ -49,7 +56,8 @@ handoff:
 Dispatcher rules:
 
 - Never infer `plan` vs `execute` locally.
-- Never convert `writing_research` or `chat_support` into `code_execution` unless the upstream route or a new user instruction asks for repository edits.
+- Never convert `writing_research` or `chat_support` into `code_execution` locally. A new user instruction that adds project-state mutation returns to the canonical router before dispatch continues.
+- Reject a missing or incomplete `routing_decision`. Require the six-field handoff only for `plan_first`; `execute_direct` has no handoff dependency.
 - If upstream `readiness.decision` is `clarify_first`, return clarification needs instead of dispatching execution.
 - If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.

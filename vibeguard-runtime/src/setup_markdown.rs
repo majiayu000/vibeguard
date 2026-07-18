@@ -287,10 +287,10 @@ fn claude_specs(repo_dir: &Path, profile: Option<&str>) -> SetupResult<Vec<Claud
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if let Some(profile) = profile {
-            if !profiles.iter().any(|value| value.as_str() == Some(profile)) {
-                continue;
-            }
+        if let Some(profile) = profile
+            && !profiles.iter().any(|value| value.as_str() == Some(profile))
+        {
+            continue;
         }
         let matchers = claude
             .get("matchers")

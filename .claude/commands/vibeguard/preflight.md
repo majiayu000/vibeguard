@@ -14,7 +14,7 @@ tags: [vibeguard, preflight, constraints, prevention]
 
 **Routing**
 
-Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. First classify `work_surface` as `code_execution`, `writing_research`, or `chat_support`; then classify `readiness`. The `readiness` decision has exactly three outputs:
+Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. Require its complete exact `precedence`; first classify `work_surface` as `code_execution`, `writing_research`, or `chat_support`, then classify `readiness`. The `readiness` decision has exactly three outputs:
 
 - `execute_direct`: skip preflight when the task is bounded, the next edit is clear, and verification can be owned immediately.
 - `plan_first`: run preflight when the task is well-specified but broad enough that a constraint set or planning handoff is needed before code changes.

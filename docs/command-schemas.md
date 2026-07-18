@@ -139,7 +139,12 @@ Runtime observability rows are validated one JSONL row at a time:
 - `schemas/event-log.schema.json` describes `events.jsonl` hook events.
 - `schemas/session-metrics.schema.json` describes `session-metrics.jsonl` rows emitted by `vibeguard-runtime session-metrics`.
 
-Schema v1 keeps normalized event-log fields optional. Legacy hook rows that only contain `ts`, `session`, `hook`, `tool`, `decision`, `reason`, and `detail` remain valid, while current rows may also include `event`, `matcher`, `status`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
+Schema v1 requires current event-log rows to include `schema_version`, `ts`,
+`session`, `hook`, `tool`, `decision`, and `status`. Rows may also include
+`event`, `event_id`, `code`, `rule_id`, `path`, `matcher`, `elapsed_ms`,
+`timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
+`event_id` and `code` use stable `VG-*` values for false-positive reporting and
+support search; `rule_id` carries canonical ids such as `RS-03` or `U-16`.
 
 ## preflight output Schema
 
@@ -320,22 +325,110 @@ python3 scripts/skill_validate.py --check-repo-format --repo-root . --json
 ```json
 {
   "command": "learn",
-  "error": "Error description",
-  "rootCause": {
-    "surface": "surface reason",
-    "direct": "direct cause",
-    "root": "root cause"
-  },
-  "improvements": [
+  "mode": "preview",
+  "schema_version": 1,
+  "generated_at": "2026-06-25T00:00:00Z",
+  "partial": false,
+  "truncated_reason": null,
+  "signals": [
     {
-      "type": "enhance_guard",
-      "target": "target file path",
-      "description": "Improve description"
+      "signal_id": "lrn_a31f7c9d",
+      "observation_id": "obs_2026w26_77bc",
+      "classification": "runtime_health",
+      "path_relation": "unknown",
+      "affected_sessions": 3,
+      "recommended_actions": [
+        {
+          "type": "fix_runtime",
+          "rationale": "Metrics input truncation is a runtime pipeline issue."
+        }
+      ]
     }
   ],
+  "diagnostics": []
+}
+```
+
+Adopt mode records the full materialization contract:
+
+```json
+{
+  "command": "learn",
+  "mode": "adopt",
+  "schema_version": 1,
+  "signal_id": "lrn_a31f7c9d",
+  "action": {
+    "type": "fix_runtime",
+    "rationale": "Runtime truncation should tune the metrics pipeline."
+  },
+  "state_transition": {
+    "from": "new",
+    "to": "adopted",
+    "reason": "fix runtime"
+  },
   "verification": {
-    "newGuardPassed": true,
-    "noRegression": true
+    "status": "pending",
+    "commands": ["bash tests/test_gc_scheduled.sh"],
+    "notes": "truncation recurrence falls in the next window"
+  },
+  "adoption": {
+    "schema_version": 1,
+    "ts": "2026-06-25T00:00:00Z",
+    "signal_id": "lrn_a31f7c9d",
+    "classification": "runtime_health",
+    "selected_action": {
+      "type": "fix_runtime",
+      "rationale": "Runtime truncation should tune the metrics pipeline."
+    },
+    "files_or_artifacts": ["hooks/learn-evaluator.sh"],
+    "original_evidence": [{"summary": "metrics input truncated"}],
+    "verification_commands": ["bash tests/test_gc_scheduled.sh"],
+    "regression_checks": ["bash tests/test_gc_scheduled.sh"],
+    "baseline": "18 truncated sessions",
+    "expected_later_observation": "truncation recurrence falls",
+    "rollback_path": "revert runtime pipeline change",
+    "state_transition": {
+      "from": "new",
+      "to": "adopted",
+      "reason": "fix runtime"
+    }
   }
+}
+```
+
+## learn signal Schema
+
+```json
+{
+  "schema_version": 1,
+  "signal_id": "lrn_a31f7c9d",
+  "observation_id": "obs_2026w26_77bc",
+  "project_hash": "dc1db069",
+  "project_root": "/Users/<username>/code/app",
+  "type": "metrics_truncation",
+  "classification": "runtime_health",
+  "normalized_key": "source:learn-evaluator:metrics_truncation",
+  "path": null,
+  "path_relation": "unknown",
+  "source_hook": "learn-evaluator",
+  "source_tool": null,
+  "affected_sessions": 3,
+  "occurrences": 18,
+  "event_rate": 0.12,
+  "first_seen": "2026-06-24T00:00:00Z",
+  "last_seen": "2026-06-24T12:00:00Z",
+  "evidence_samples": [
+    {
+      "summary": "metrics input truncated before analysis"
+    }
+  ],
+  "recommended_actions": [
+    {
+      "type": "fix_runtime",
+      "rationale": "Runtime truncation should tune the metrics pipeline, not create a guard.",
+      "target": "hooks/learn-evaluator.sh",
+      "verification_command": "bash tests/test_gc_scheduled.sh"
+    }
+  ]
 }
 ```

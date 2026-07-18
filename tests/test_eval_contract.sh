@@ -59,6 +59,7 @@ assert_cmd "eval support modules syntax is correct" python3 -m py_compile \
   "${REPO_DIR}/eval/dataset.py" \
   "${REPO_DIR}/eval/scoring.py" \
   "${REPO_DIR}/eval/artifacts.py" \
+  "${REPO_DIR}/eval/model_baseline.py" \
   "${REPO_DIR}/eval/sample_ids.py" \
   "${REPO_DIR}/eval/samples.py" \
   "${REPO_DIR}/eval/summarize_runs.py"
@@ -75,7 +76,27 @@ assert_contains "${normalized_out}" "Sample digest:" "dry-run reports sample dig
 assert_contains "${normalized_out}" "Rules source: ${REPO_DIR_RESOLVED}/rules/claude-rules" "dry-run reports repository rule source"
 assert_contains "${normalized_out}" "Rule digest:" "dry-run reports rule digest"
 assert_contains "${normalized_out}" "Core constraint source: ${REPO_DIR_RESOLVED}/claude-md/vibeguard-rules.md" "dry-run reports repository core rules source"
+assert_contains "${normalized_out}" "Requested model: haiku" "dry-run reports requested default model"
+assert_contains "${normalized_out}" "Resolved model: claude-haiku-4-5-20251001" "dry-run resolves default model from baseline"
+assert_contains "${normalized_out}" "Model baseline verified at (UTC): 2026-07-17" "dry-run reports baseline verification date"
+assert_contains "${normalized_out}" "Model baseline source: https://platform.claude.com/docs/en/about-claude/models/overview" "dry-run reports baseline source"
 assert_cmd "dry-run does not write mutable eval/results.json" test ! -e "${REPO_DIR}/eval/results.json"
+
+sonnet_dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run --model sonnet)"
+assert_contains "${sonnet_dry_run_out}" "Resolved model: claude-sonnet-5" "sonnet alias resolves from baseline"
+opus_dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run --model opus)"
+assert_contains "${opus_dry_run_out}" "Resolved model: claude-opus-4-8" "opus alias resolves from baseline"
+historical_dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run --model claude-sonnet-4-6)"
+assert_contains "${historical_dry_run_out}" "Resolved model: claude-sonnet-4-6" "full historical model ID passes through"
+empty_model_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --dry-run --model '' 2>&1 || true)"
+assert_cmd "empty requested model fails visibly" bash -c "cd '${REPO_DIR}' && ! python3 eval/run_eval.py --dry-run --model ''"
+assert_contains "${empty_model_out}" "Invalid requested model: requested model must not be empty" "empty requested model explains failure"
+
+eval_help_out="$(cd "${REPO_DIR}" && python3 eval/run_eval.py --help)"
+assert_contains "${eval_help_out}" "Default model alias: haiku" "eval help reports baseline default"
+assert_contains "${eval_help_out}" "haiku -> claude-haiku-4-5-20251001" "eval help reports Haiku alias"
+assert_contains "${eval_help_out}" "sonnet -> claude-sonnet-5" "eval help reports Sonnet alias"
+assert_contains "${eval_help_out}" "opus -> claude-opus-4-8" "eval help reports Opus alias"
 
 header "behavior eval dry-run"
 behavior_dry_run_out="$(cd "${REPO_DIR}" && python3 eval/run_behavior_eval.py --dry-run)"
@@ -84,6 +105,18 @@ assert_contains "${behavior_normalized_out}" "Behavior dataset source: ${REPO_DI
 assert_contains "${behavior_normalized_out}" "Behavior sample digest:" "behavior dry-run reports sample digest"
 assert_contains "${behavior_normalized_out}" "Required coverage source: ${REPO_DIR_RESOLVED}/eval/behavior/requirements.json" "behavior dry-run reports required coverage source"
 assert_contains "${behavior_normalized_out}" "Threshold source: ${REPO_DIR_RESOLVED}/eval/behavior/thresholds.json" "behavior dry-run reports threshold source"
+assert_contains "${behavior_normalized_out}" "Requested model: haiku" "behavior dry-run reports requested default model"
+assert_contains "${behavior_normalized_out}" "Resolved model: claude-haiku-4-5-20251001" "behavior dry-run resolves shared default model"
+behavior_help_out="$(cd "${REPO_DIR}" && python3 eval/run_behavior_eval.py --help)"
+assert_contains "${behavior_help_out}" "sonnet -> claude-sonnet-5" "behavior help reports shared alias table"
+assert_contains "${behavior_help_out}" "Model baseline verified at (UTC): 2026-07-17" "behavior help reports baseline evidence"
+
+benchmark_help_out="$(cd "${REPO_DIR}" && bash scripts/benchmark.sh --help)"
+assert_contains "${benchmark_help_out}" "Default model alias: haiku" "benchmark help reads shared default"
+assert_contains "${benchmark_help_out}" "haiku -> claude-haiku-4-5-20251001" "benchmark help reports Haiku alias"
+assert_contains "${benchmark_help_out}" "sonnet -> claude-sonnet-5" "benchmark help reports Sonnet alias"
+assert_contains "${benchmark_help_out}" "opus -> claude-opus-4-8" "benchmark help reports Opus alias"
+assert_contains "${benchmark_help_out}" "Model baseline verified at (UTC): 2026-07-17" "benchmark help reports baseline evidence"
 
 header "eval summary index"
 assert_cmd "eval run summary schema loads" python3 -c '

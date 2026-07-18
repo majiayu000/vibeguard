@@ -41,7 +41,20 @@ Classify the requested deliverable before applying execution routing:
 
 `writing_research` keeps verification, but translates it to the writing domain: cite or name sources when claims depend on external facts, separate facts from interpretation, preserve the requested audience and tone, and inspect the saved/rendered artifact when one is produced. Do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
 
-Avoid stock contrast framing such as "not X, but Y" or "不是 X，而是 Y" unless the user explicitly asks for punchy opinion writing.
+Use this deterministic priority when categories overlap:
+
+| Priority | Observed deliverable | `work_surface` |
+|---|---|---|
+| 1 | Any repository, runtime, deployment, executable-state, or generated-site mutation | `code_execution` |
+| 2 | No project-state mutation, but a durable prose or research artifact is requested | `writing_research` |
+| 3 | Neither project-state mutation nor a durable artifact is requested | `chat_support` |
+
+Mixed work containing project-state mutation is `code_execution`, while its
+prose portion keeps writing-domain verification. If facts are missing or
+conflicting, keep the classification internal and unresolved, advance to the
+ambiguity gate, and request clarification. The router must not emit a partial
+`routing_decision`, invent a default surface, or expose an unresolved enum
+value; it emits the payload only after classification is complete.
 
 ### 3. Risk / Destructive Gate
 
@@ -85,11 +98,27 @@ File count may be used as a secondary hint, but it is not the contract and must 
 
 If delegation ownership is missing or conflicting, stop and return `clarify_first`.
 
+Every downstream consumer receives and validates the complete
+`routing_decision`. `execute_direct` proceeds with that object and does not create an execution handoff. `plan_first` planners preserve the same routing
+decision beside the handoff, and later executors require both objects. If a
+new user instruction changes the requested deliverable surface, the consumer
+returns the request to this canonical router and reruns the full precedence
+ladder before starting or continuing execution. Consumers never reclassify locally.
+
 ## Shared Planning Handoff
 
-Planning workflows must emit the same execution handoff payload:
+Planning workflows must preserve the validated routing decision and emit the
+same execution handoff payload beside it:
 
 ```yaml
+routing_decision:
+  precedence: [user_override, work_surface_classifier, risk_destructive_gate, ambiguity_gate, readiness_classifier, execution_or_delegation_lane]
+  work_surface:
+    decision: code_execution | writing_research | chat_support
+    reason: <nonempty classification evidence>
+  readiness:
+    decision: plan_first
+    reason: <nonempty readiness evidence>
 handoff:
   mode: <execution mode selected by the planner>
   artifacts:
@@ -113,6 +142,8 @@ Required keys:
 
 Consumption rules:
 
+- The complete validated `routing_decision` remains authoritative and is not
+  nested inside or reconstructed from the handoff.
 - Execution workflows must honor all required keys.
 - `mode` is preselected by planning; execution workflows do not re-route back to planning on their own.
 - `artifacts` are the canonical inputs for downstream execution.

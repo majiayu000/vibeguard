@@ -14,6 +14,40 @@ use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_dup
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PreWriteCheck {
+    Malformed,
+    Exists {
+        file_path: String,
+    },
+    Allow {
+        file_path: String,
+    },
+    SourceNew {
+        file_path: String,
+    },
+    W12 {
+        file_path: String,
+    },
+    U16Block {
+        file_path: String,
+        line_count: usize,
+        limit: usize,
+    },
+    U16Warn {
+        file_path: String,
+        line_count: usize,
+        warn_limit: usize,
+        limit: usize,
+    },
+    U16WarnSourceNew {
+        file_path: String,
+        line_count: usize,
+        warn_limit: usize,
+        limit: usize,
+    },
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum MissingFileCandidates {
     Found(Vec<String>),
@@ -31,24 +65,28 @@ pub fn pre_write_check(args: &[String]) -> Result {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(400);
     let input = read_stdin()?;
-    let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        println!("MALFORMED");
-        return Ok(());
+    print_pre_write_check(&evaluate_pre_write_input(&input, base_limit, warn_limit));
+    Ok(())
+}
+
+pub(crate) fn evaluate_pre_write_input(
+    input: &str,
+    base_limit: usize,
+    warn_limit: usize,
+) -> PreWriteCheck {
+    let Ok(data) = serde_json::from_str::<serde_json::Value>(input) else {
+        return PreWriteCheck::Malformed;
     };
 
     let Some(file_path) = nested_str(&data, "tool_input.file_path") else {
-        println!("MALFORMED");
-        return Ok(());
+        return PreWriteCheck::Malformed;
     };
     if file_path.is_empty() {
-        println!("MALFORMED");
-        return Ok(());
+        return PreWriteCheck::Malformed;
     }
 
     if is_test_infra_path(&file_path) {
-        println!("W12");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::W12 { file_path };
     }
 
     let content = nested_str(&data, "tool_input.content").unwrap_or_default();
@@ -57,11 +95,11 @@ pub fn pre_write_check(args: &[String]) -> Result {
     if is_source_path(&file_path) && !is_test_path(&file_path) {
         let limit = project_u16_limit(&file_path, base_limit);
         if line_count > limit {
-            println!("U16_BLOCK");
-            println!("{file_path}");
-            println!("{line_count}");
-            println!("{limit}");
-            return Ok(());
+            return PreWriteCheck::U16Block {
+                file_path,
+                line_count,
+                limit,
+            };
         }
         let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
         if advisory_limit < limit && line_count > advisory_limit {
@@ -70,40 +108,100 @@ pub fn pre_write_check(args: &[String]) -> Result {
     }
 
     if Path::new(&file_path).exists() {
-        if let Some((line_count, advisory_limit, limit)) = u16_advisory {
-            println!("U16_WARN");
-            println!("{file_path}");
-            println!("{line_count}");
-            println!("{advisory_limit}");
-            println!("{limit}");
-            return Ok(());
+        if let Some((line_count, warn_limit, limit)) = u16_advisory {
+            return PreWriteCheck::U16Warn {
+                file_path,
+                line_count,
+                warn_limit,
+                limit,
+            };
         }
-        println!("EXISTS");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::Exists { file_path };
     }
 
     if is_allowed_new_file(&file_path) || !is_source_path(&file_path) {
-        println!("ALLOW");
-        println!("{file_path}");
-        return Ok(());
+        return PreWriteCheck::Allow { file_path };
     }
 
-    if let Some((line_count, advisory_limit, limit)) = u16_advisory {
-        println!("U16_WARN_SOURCE_NEW");
-        println!("{file_path}");
-        println!("{line_count}");
-        println!("{advisory_limit}");
-        println!("{limit}");
-        return Ok(());
+    if let Some((line_count, warn_limit, limit)) = u16_advisory {
+        return PreWriteCheck::U16WarnSourceNew {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        };
     }
 
-    println!("SOURCE_NEW");
-    println!("{file_path}");
-    Ok(())
+    PreWriteCheck::SourceNew { file_path }
+}
+
+fn print_pre_write_check(check: &PreWriteCheck) {
+    match check {
+        PreWriteCheck::Malformed => {
+            println!("MALFORMED");
+        }
+        PreWriteCheck::Exists { file_path } => {
+            println!("EXISTS");
+            println!("{file_path}");
+        }
+        PreWriteCheck::Allow { file_path } => {
+            println!("ALLOW");
+            println!("{file_path}");
+        }
+        PreWriteCheck::SourceNew { file_path } => {
+            println!("SOURCE_NEW");
+            println!("{file_path}");
+        }
+        PreWriteCheck::W12 { file_path } => {
+            println!("W12");
+            println!("{file_path}");
+        }
+        PreWriteCheck::U16Block {
+            file_path,
+            line_count,
+            limit,
+        } => {
+            println!("U16_BLOCK");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{limit}");
+        }
+        PreWriteCheck::U16Warn {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        } => {
+            println!("U16_WARN");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{warn_limit}");
+            println!("{limit}");
+        }
+        PreWriteCheck::U16WarnSourceNew {
+            file_path,
+            line_count,
+            warn_limit,
+            limit,
+        } => {
+            println!("U16_WARN_SOURCE_NEW");
+            println!("{file_path}");
+            println!("{line_count}");
+            println!("{warn_limit}");
+            println!("{limit}");
+        }
+    }
 }
 
 pub fn pre_edit_check(args: &[String]) -> Result {
+    pre_edit_check_with_readers(args, read_stdin, read_lossy_file)
+}
+
+fn pre_edit_check_with_readers(
+    args: &[String],
+    read_input: impl FnOnce() -> io::Result<String>,
+    read_source: impl FnOnce(&str) -> io::Result<String>,
+) -> Result {
     if args.len() < 2 {
         return Err(
             "Usage: vibeguard-runtime pre-edit-check <base-limit> [warn-limit] <log-file>".into(),
@@ -116,7 +214,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
     } else {
         (400, &args[1])
     };
-    let input = read_stdin()?;
+    let input = read_input()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
         write_pre_edit_block(
             log_file,
@@ -167,7 +265,7 @@ pub fn pre_edit_check(args: &[String]) -> Result {
         return Ok(());
     }
 
-    let content = read_lossy_file(&file_path)?;
+    let content = read_source(&file_path)?;
     if !old_string.is_empty() && !content.contains(&old_string) {
         write_pre_edit_block(
             log_file,
@@ -223,6 +321,14 @@ pub fn pre_edit_check(args: &[String]) -> Result {
             }
             let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
             if advisory_limit < limit && estimated > advisory_limit {
+                let context = u16_advisory_context(
+                    &file_path,
+                    estimated,
+                    advisory_limit,
+                    limit,
+                    "this edit would leave",
+                    false,
+                );
                 if write_log_event(
                     log_file,
                     "pre-edit-guard",
@@ -233,33 +339,23 @@ pub fn pre_edit_check(args: &[String]) -> Result {
                 )
                 .is_err()
                 {
-                    println!("FALLBACK");
+                    println!("FALLBACK_OUTPUT");
+                    println!("{context}");
                     return Ok(());
                 }
                 println!("FAST_OUTPUT");
-                println!(
-                    "{}",
-                    hook_context_json(
-                        "PreToolUse",
-                        &u16_advisory_context(
-                            &file_path,
-                            estimated,
-                            advisory_limit,
-                            limit,
-                            "this edit would leave",
-                            false,
-                        )
-                    )
-                );
+                println!("{}", hook_context_json("PreToolUse", &context));
                 return Ok(());
             }
         }
     }
 
-    if write_log_event(log_file, "pre-edit-guard", "Edit", "pass", "", &file_path).is_ok() {
-        println!("FAST_LOGGED");
-    } else {
-        println!("FALLBACK");
+    match write_log_event(log_file, "pre-edit-guard", "Edit", "pass", "", &file_path) {
+        Ok(()) => println!("FAST_LOGGED"),
+        Err(err) => {
+            println!("FALLBACK");
+            println!("{err}");
+        }
     }
     Ok(())
 }
@@ -294,17 +390,42 @@ fn write_pre_edit_block(
     file_path: &str,
     output_reason: &str,
 ) -> io::Result<()> {
-    write_log_event(
+    let mut visible_reason = output_reason.to_string();
+    if let Err(err) = write_log_event(
         log_file,
         "pre-edit-guard",
         "Edit",
         "block",
         log_reason,
         file_path,
-    )?;
+    ) {
+        eprintln!("VIBEGUARD ERROR: pre-edit block log append failed: {err}");
+        visible_reason.push_str("\n\n");
+        visible_reason.push_str(&pre_edit_log_failure_message(log_file, &err.to_string()));
+    }
     println!("FAST_OUTPUT");
-    println!("{}", decision_block_json(output_reason));
+    println!("{}", decision_block_json(&visible_reason));
     Ok(())
+}
+
+fn pre_edit_log_failure_message(log_file: &str, detail: &str) -> String {
+    let lock_path = format!("{log_file}.lock.d");
+    let failure_kind = if Path::new(&lock_path).is_dir() {
+        "lock"
+    } else {
+        "runtime"
+    };
+    let recovery = if failure_kind == "lock" {
+        format!("if no VibeGuard hook is active, run: rmdir \"{lock_path}\"")
+    } else {
+        "bash scripts/hook-health.sh 24".to_string()
+    };
+    let project = std::env::var("VIBEGUARD_PROJECT_HASH").unwrap_or_else(|_| "unknown".to_string());
+    let session = std::env::var("VIBEGUARD_SESSION_ID").unwrap_or_else(|_| "unknown".to_string());
+
+    format!(
+        "VIBEGUARD internal error [VG-INTERNAL-LOG-APPEND]: hook=pre-edit-guard tool=Edit failure_kind={failure_kind} mode=block project={project} session={session} log_path={log_file} recovery={recovery} detail=pre-edit block log append failed: {detail}"
+    )
 }
 
 fn missing_file_reason(file_path: &str) -> String {
@@ -451,7 +572,7 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
     let log_file = &args[3];
     let input = read_stdin()?;
     let Ok(data) = serde_json::from_str::<serde_json::Value>(&input) else {
-        let context = "VIBEGUARD ERROR: malformed PostToolUse(Edit) hook input. The edit result could not be inspected, so this warning is reported visibly instead of silently passing.";
+        let mut context = "VIBEGUARD ERROR: malformed PostToolUse(Edit) hook input. The edit result could not be inspected, so this warning is reported visibly instead of silently passing.".to_string();
         if let Err(exc) = write_log_event(
             log_file,
             "post-edit-guard",
@@ -461,9 +582,16 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
             "",
         ) {
             eprintln!("post-edit malformed input log failed: {exc}");
+            let project =
+                std::env::var("VIBEGUARD_PROJECT_HASH").unwrap_or_else(|_| "unknown".to_string());
+            let session =
+                std::env::var("VIBEGUARD_SESSION_ID").unwrap_or_else(|_| "unknown".to_string());
+            context.push_str(&format!(
+                "\n---\nVIBEGUARD internal error [VG-INTERNAL-LOG-APPEND]: hook=post-edit-guard tool=Edit failure_kind=runtime mode=allow project={project} session={session} log_path={log_file} recovery=bash scripts/hook-health.sh 24 detail=post-edit malformed input log append failed: {exc}"
+            ));
         }
         println!("FAST_OUTPUT");
-        println!("{}", hook_context_json("PostToolUse", context));
+        println!("{}", hook_context_json("PostToolUse", &context));
         return Ok(());
     };
 
@@ -481,7 +609,14 @@ pub fn post_edit_fast_check(args: &[String]) -> Result {
         return Ok(());
     }
 
-    let history = post_edit_history_signals(log_file, session, agent, &file_path);
+    let history = match post_edit_history_signals(log_file, session, agent, &file_path) {
+        Ok(history) => history,
+        Err(err) => {
+            eprintln!("VIBEGUARD ERROR: post-edit history read failed: {err}");
+            println!("FALLBACK");
+            return Ok(());
+        }
+    };
     if history
         .as_ref()
         .is_some_and(|signals| signals.needs_shell_w15_check())
@@ -610,122 +745,5 @@ pub fn post_write_fast_check(args: &[String]) -> Result {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
-
-    fn temp_project(name: &str) -> PathBuf {
-        let unique = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "vibeguard_runtime_hook_checks_{name}_{}_{}",
-            std::process::id(),
-            unique
-        ))
-    }
-
-    fn init_git_repo(root: &Path) -> io::Result<()> {
-        fs::create_dir_all(root)?;
-        let output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .arg("init")
-            .arg("-q")
-            .output()?;
-        assert!(
-            output.status.success(),
-            "git init failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn decision_block_json_escapes_reason_text() {
-        let output = decision_block_json("old_string \"missing\"\nread first");
-        let value: serde_json::Value =
-            serde_json::from_str(&output).expect("decision output should be valid JSON");
-
-        assert_eq!(value["decision"], "block");
-        assert_eq!(value["reason"], "old_string \"missing\"\nread first");
-    }
-
-    #[test]
-    fn missing_required_args_return_usage_errors_before_stdin() {
-        let pre_edit = pre_edit_check(&[]).expect_err("pre-edit args should be required");
-        let post_edit = post_edit_fast_check(&[]).expect_err("post-edit args should be required");
-        let post_write =
-            post_write_fast_check(&[]).expect_err("post-write args should be required");
-
-        assert!(pre_edit.to_string().contains("pre-edit-check"));
-        assert!(post_edit.to_string().contains("post-edit-fast-check"));
-        assert!(post_write.to_string().contains("post-write-fast-check"));
-    }
-
-    #[test]
-    fn missing_file_candidates_distinguishes_empty_from_lookup_failure() -> TestResult {
-        let root = temp_project("empty");
-        init_git_repo(&root)?;
-        let src_dir = root.join("src");
-        fs::create_dir_all(&src_dir)?;
-        let tracked = src_dir.join("lib.rs");
-        fs::write(&tracked, "pub fn lib() {}\n")?;
-        let add_output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .arg("add")
-            .arg("src/lib.rs")
-            .output()?;
-        assert!(
-            add_output.status.success(),
-            "git add failed: {}",
-            String::from_utf8_lossy(&add_output.stderr)
-        );
-
-        let missing = root.join("src").join("missing_name.rs");
-        assert_eq!(
-            missing_file_candidates(missing.to_string_lossy().as_ref(), "missing_name"),
-            MissingFileCandidates::Empty
-        );
-
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[test]
-    fn missing_file_candidates_reports_git_lookup_failure() -> TestResult {
-        let root = temp_project("bad_git");
-        fs::create_dir_all(root.join(".git"))?;
-        fs::create_dir_all(root.join("src"))?;
-        let missing = root.join("src").join("lib.rs");
-
-        let result = missing_file_candidates(missing.to_string_lossy().as_ref(), "lib");
-        assert!(
-            matches!(
-                result,
-                MissingFileCandidates::LookupFailed(ref detail)
-                    if detail.contains("git ls-files")
-            ),
-            "expected lookup failure that names git ls-files, got {result:?}"
-        );
-
-        fs::remove_dir_all(root)?;
-        Ok(())
-    }
-
-    #[test]
-    fn post_edit_log_detail_preserves_delta_metadata() {
-        assert_eq!(
-            post_edit_log_detail("src/lib.rs", "old", "newer"),
-            "src/lib.rs||delta=2"
-        );
-        assert_eq!(
-            post_edit_log_detail("src/lib.rs", "abcdef", "xy"),
-            "src/lib.rs||delta=-4"
-        );
-    }
-}
+#[path = "hook_checks_tests.rs"]
+mod tests;

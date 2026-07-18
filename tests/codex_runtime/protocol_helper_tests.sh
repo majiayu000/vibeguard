@@ -1,4 +1,11 @@
 header "build Rust vibeguard-runtime"
+now_millis() {
+  python3 - <<'PY'
+import time
+print(time.monotonic_ns() // 1_000_000)
+PY
+}
+
 if command -v cargo >/dev/null 2>&1; then
   cargo build --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --quiet
   VIBEGUARD_RUNTIME="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
@@ -139,12 +146,12 @@ assert_not_contains "${old_status_out}" "runtime-unavailable" "old runtime statu
 
 TMP_FAKE_REPO_OLD_RUNTIME="${TMP_DIR}/fake-repo-old-runtime"
 mkdir -p "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks"
-cat > "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{"decision":"block","reason":"old runner fallback"}\n'
 HOOK
-chmod +x "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/pre-bash-guard.sh"
 old_runner_out="$(
   WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${OLD_STATUS_RUNTIME}" VIBEGUARD_CODEX_DIAG_FILE="${TMP_DIR}/old-runner-diag.jsonl" bash -c '
     set -euo pipefail
@@ -157,7 +164,7 @@ old_runner_out="$(
     "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh"
+    "${TMP_FAKE_REPO_OLD_RUNTIME}/hooks/pre-bash-guard.sh"
 )"
 assert_contains "${old_runner_out}" '"permissionDecision":"deny"' "codex_run_hook falls back when old runtime lacks batched helpers"
 assert_contains "${old_runner_out}" "old-runtime-adapted" "old runtime fallback still adapts PreToolUse output"
@@ -173,12 +180,12 @@ SH
 chmod +x "${COUNTING_RUNTIME}"
 TMP_FAKE_REPO_COUNTING="${TMP_DIR}/fake-repo-counting-runtime"
 mkdir -p "${TMP_FAKE_REPO_COUNTING}/hooks"
-cat > "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_COUNTING}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{"decision":"block","reason":"counted block"}\n'
 HOOK
-chmod +x "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_COUNTING}/hooks/pre-bash-guard.sh"
 COUNTING_REAL_RUNTIME="${VIBEGUARD_RUNTIME}"
 counting_runner_out="$(
   WRAPPER_DIR="${REPO_DIR}/hooks" \
@@ -198,7 +205,7 @@ counting_runner_out="$(
     "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_COUNTING}/hooks/vibeguard-pre-bash-guard.sh"
+    "${TMP_FAKE_REPO_COUNTING}/hooks/pre-bash-guard.sh"
 )"
 assert_contains "${counting_runner_out}" "counted block" "counting runtime path still blocks PreToolUse"
 assert_contains "${counting_runner_out}" "runtime_count=2" "codex_run_hook uses two runtime spawns for normal non-empty PreToolUse output"
@@ -225,12 +232,12 @@ TMP_HOME_BROKEN_RUNTIME="${TMP_DIR}/home-broken-runtime"
 TMP_FAKE_REPO_BROKEN_RUNTIME="${TMP_DIR}/fake-repo-broken-runtime"
 mkdir -p "${TMP_HOME_BROKEN_RUNTIME}/.vibeguard" "${TMP_FAKE_REPO_BROKEN_RUNTIME}/hooks"
 printf '%s' "${TMP_FAKE_REPO_BROKEN_RUNTIME}" > "${TMP_HOME_BROKEN_RUNTIME}/.vibeguard/repo-path"
-cat > "${TMP_FAKE_REPO_BROKEN_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_BROKEN_RUNTIME}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 printf '{'
 HOOK
-chmod +x "${TMP_FAKE_REPO_BROKEN_RUNTIME}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_BROKEN_RUNTIME}/hooks/pre-bash-guard.sh"
 broken_runtime_wrapper_out="$(
   printf '{"hook_event_name":"PreToolUse","tool_input":{"command":"rm -rf /"}}' \
     | HOME="${TMP_HOME_BROKEN_RUNTIME}" VIBEGUARD_RUNTIME="${BROKEN_RUNTIME}" bash "${REPO_DIR}/hooks/run-hook-codex.sh" vibeguard-pre-bash-guard.sh
@@ -242,7 +249,7 @@ TMP_HOME_NO_PYTHON_PATCH="${TMP_DIR}/home-no-python-patch"
 TMP_FAKE_REPO_NO_PYTHON_PATCH="${TMP_DIR}/fake-repo-no-python-patch"
 mkdir -p "${TMP_HOME_NO_PYTHON_PATCH}/.vibeguard" "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks"
 printf '%s' "${TMP_FAKE_REPO_NO_PYTHON_PATCH}" > "${TMP_HOME_NO_PYTHON_PATCH}/.vibeguard/repo-path"
-cat > "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/pre-write-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 input="$(cat)"
 if [[ "${input}" == *'"tool_name":"Write"'* && "${input}" == *'src/no_python.rs'* ]]; then
@@ -251,7 +258,7 @@ else
   printf '{"decision":"pass"}\n'
 fi
 HOOK
-chmod +x "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh"
+chmod +x "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/pre-write-guard.sh"
 no_python_patch_payload='{"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: src/no_python.rs\n+fn main() {}\n*** End Patch"}}'
 no_python_patch_out="$(
   WRAPPER_DIR="${REPO_DIR}/hooks" PATH="${NO_PYTHON_BIN}:${PATH}" VIBEGUARD_RUNTIME="${VIBEGUARD_RUNTIME}" bash -c '
@@ -267,7 +274,7 @@ no_python_patch_out="$(
     "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/pre-write-guard.sh" \
     "${no_python_patch_payload}"
 )"
 assert_contains "${no_python_patch_out}" '"permissionDecision": "deny"' "codex_run_hook apply_patch normalizer works without python3"
@@ -275,13 +282,13 @@ assert_contains "${no_python_patch_out}" 'apply_patch normalized without python'
 
 TMP_FAKE_REPO_TIMEOUT="${TMP_DIR}/fake-repo-timeout"
 mkdir -p "${TMP_FAKE_REPO_TIMEOUT}/hooks"
-cat > "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh" <<'HOOK'
+cat > "${TMP_FAKE_REPO_TIMEOUT}/hooks/pre-bash-guard.sh" <<'HOOK'
 #!/usr/bin/env bash
 cat >/dev/null
 sleep 5
 printf '{"decision":"pass"}\n'
 HOOK
-chmod +x "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh"
+chmod +x "${TMP_FAKE_REPO_TIMEOUT}/hooks/pre-bash-guard.sh"
 timeout_out="$(
   WRAPPER_DIR="${REPO_DIR}/hooks" VIBEGUARD_RUNTIME="${VIBEGUARD_RUNTIME}" bash -c '
     set -euo pipefail
@@ -299,13 +306,13 @@ timeout_out="$(
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/timeout.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_TIMEOUT}/hooks/vibeguard-pre-bash-guard.sh"
+    "${TMP_FAKE_REPO_TIMEOUT}/hooks/pre-bash-guard.sh"
 )"
 assert_contains "${timeout_out}" "status=timeout" "codex_run_hook enforces wrapped hook timeout"
 assert_contains "${timeout_out}" "wrapped-hook-timeout" "codex_run_hook records timeout diagnostic"
 assert_contains "${timeout_out}" "VIBEGUARD hook timed out" "codex_run_hook emits visible timeout failure"
 
-timeout_fast_started="$(date +%s)"
+timeout_fast_started="$(now_millis)"
 timeout_fast_out="$(
   bash -c '
     set -euo pipefail
@@ -313,9 +320,9 @@ timeout_fast_out="$(
     vg_run_with_timeout 3 bash -c "exit 0"
   ' -- "${REPO_DIR}/hooks/_lib/timeout.sh"
 )"
-timeout_fast_elapsed=$(( $(date +%s) - timeout_fast_started ))
+timeout_fast_elapsed=$(( $(now_millis) - timeout_fast_started ))
 TOTAL=$((TOTAL + 1))
-if [[ "${timeout_fast_elapsed}" -lt 3 ]]; then
+if [[ "${timeout_fast_elapsed}" -lt 3000 ]]; then
   green "timeout fallback returns before the deadline for fast commands"
   PASS=$((PASS + 1))
 else
@@ -348,7 +355,7 @@ timeout_stdin_out="$(
 )"
 assert_contains "${timeout_stdin_out}" "line=abc" "timeout fallback preserves pipeline stdin"
 
-timeout_unclosed_stdin_started="$(date +%s)"
+timeout_unclosed_stdin_started="$(now_millis)"
 timeout_unclosed_stdin_out="$(
   bash -c '
     set -euo pipefail
@@ -359,10 +366,10 @@ timeout_unclosed_stdin_out="$(
     printf "status=%s\n" "$run_status"
   ' -- "${NO_TIMEOUT_BIN}" "${REPO_DIR}/hooks/_lib/timeout.sh"
 )"
-timeout_unclosed_stdin_elapsed=$(( $(date +%s) - timeout_unclosed_stdin_started ))
+timeout_unclosed_stdin_elapsed=$(( $(now_millis) - timeout_unclosed_stdin_started ))
 assert_contains "${timeout_unclosed_stdin_out}" "status=124" "timeout fallback bounds unclosed pipeline stdin"
 TOTAL=$((TOTAL + 1))
-if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3 ]]; then
+if [[ "${timeout_unclosed_stdin_elapsed}" -lt 3000 ]]; then
   green "timeout fallback returns promptly for unclosed pipeline stdin"
   PASS=$((PASS + 1))
 else
@@ -418,7 +425,7 @@ old_runtime_patch_out="$(
     "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/pre-write-guard.sh" \
     "${no_python_patch_payload}"
 )"
 assert_contains "${old_runtime_patch_out}" '"permissionDecision":"deny"' "codex_run_hook fails closed when old runtime lacks apply_patch normalizer"
@@ -439,7 +446,7 @@ broken_no_python_patch_out="$(
     "${REPO_DIR}/hooks/_lib/codex_diag.sh" \
     "${REPO_DIR}/hooks/_lib/codex_adapter.sh" \
     "${REPO_DIR}/hooks/_lib/codex_runner.sh" \
-    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/vibeguard-pre-write-guard.sh" \
+    "${TMP_FAKE_REPO_NO_PYTHON_PATCH}/hooks/pre-write-guard.sh" \
     "${no_python_patch_payload}"
 )"
 assert_contains "${broken_no_python_patch_out}" '"permissionDecision":"deny"' "codex_run_hook fails closed when runtime normalizer fails"

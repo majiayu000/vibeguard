@@ -19,6 +19,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | Path | Role |
 |------|------|
 | `.claude/commands/` | Claude slash command source installed into `~/.claude/commands/`. |
+| `.claude/skills/` | Repo-local maintainer skills for this repository. They are validated by skill-format checks but are not installable product skills unless promoted into `skills/` or `workflows/` and declared in `schemas/install-modules.json`. |
 | `agents/` | Claude agent prompt source installed into `~/.claude/agents/`. |
 | `skills/` | Core reusable skills installed into Claude and Codex skill locations. |
 | `workflows/` | Codex workflow skills and shared workflow references. |
@@ -34,9 +35,15 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `tests/` | Shell and unit regression tests for hooks, guards, setup, and contracts. |
 | `eval/` | Evaluation samples and runner for rule compliance checks. |
 | `scripts/ci/` | CI contract and static validation scripts. |
+| `scripts/constraints/` | Constraint inventory and recommendation helpers used by guard and budget checks. |
+| `scripts/doctors/` | Maintainer diagnostics for supported agent runtimes and local installations. |
+| `scripts/gc/` | Scheduled and on-demand cleanup, digest, and maintenance helpers. |
+| `scripts/learn/` | Learning analysis, adoption, and trajectory helpers used by the learning workflow. |
+| `scripts/metrics/` | Metrics collection and Prometheus-format export helpers. |
 | `scripts/verify/` | Local verification and freshness checks. |
+| `scripts/systemd/` | Linux user-service templates for scheduled VibeGuard maintenance. |
 | `.github/` | GitHub Actions workflows, issue templates, and PR template. |
-| `data/` | Rule precision and triage data used by quality tooling. |
+| `data/` | Versioned seed/example files for rule precision tooling; mutable triage, scorecard, and benchmark outputs are ignored. |
 
 ## Documentation And Internal Notes
 
@@ -49,7 +56,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `docs/assets/` | Demo media and scripts used by public docs. |
 | `site/` | Static landing site deployed by GitHub Pages. |
 | `docs/internal/` | Research notes, historical specs, benchmark designs, and cross-session follow-ups. |
-| `plan/` | Active workflow output directory. Do not move until plan workflow specs change. |
+| `plan/` | Workflow output directory with mixed active, completed, draft, snapshot, and signal files. Read `plan/README.md` before treating any file as backlog; do not move files until plan workflow specs change. |
 
 ## Change Rules
 

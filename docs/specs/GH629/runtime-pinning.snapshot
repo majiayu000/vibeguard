@@ -1,0 +1,9 @@
+# VibeGuard W-20 runtime pinning snapshot
+version=1
+created_at_utc=2026-07-17T04:50:47Z
+head=9401f00320e377c7efb3caf91132a7fd247778c7
+rules_dir=rules/claude-rules
+tool_inventory=docs/specs/GH629/tool-inventory.txt
+runtime_hash=154fa9805a5f3e3b128b95991decaaf20c892b5fcc8110fc800bba6fd7c2e2a2
+tool_hash=38aaddb6a7d81a63e0750010d0c7353f9174c453888c39737d1369250264ec4c
+rules_hash=da28461022a2f0fa04c49bb88b687f2f212ca8bfaa34908d75a21289c6b7b6a4

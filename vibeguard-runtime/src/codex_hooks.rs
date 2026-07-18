@@ -94,8 +94,7 @@ fn codex_status_from_output(data: &Value) -> (String, String) {
         .get("reason")
         .and_then(Value::as_str)
         .unwrap_or("")
-        .replace('\t', " ")
-        .replace('\n', " ");
+        .replace(['\t', '\n'], " ");
 
     let mut status = "pass";
     if matches!(

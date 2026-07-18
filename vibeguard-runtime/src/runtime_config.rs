@@ -1,61 +1,28 @@
 use crate::HandlerResult;
+use crate::runtime_config_validation::{
+    RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
+    nonnegative_json_integer,
+};
 use serde_json::Value;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::process;
+use std::sync::OnceLock;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeConfigError {
-    pub message: String,
-    pub exit_code: i32,
-}
-
-impl RuntimeConfigError {
-    fn config_parse_error(message: String) -> Self {
-        Self {
-            message,
-            exit_code: 30,
-        }
-    }
-
-    fn policy_error(message: String) -> Self {
-        Self {
-            message,
-            exit_code: 20,
-        }
-    }
-}
+static RUNTIME_CONFIG: OnceLock<Result<Option<Value>, RuntimeConfigError>> = OnceLock::new();
 
 pub fn validate_runtime_config_file(path_text: &str) -> Result<(), RuntimeConfigError> {
-    if path_text.is_empty() {
-        return Ok(());
+    classify_runtime_config_file(path_text).map(|_| ())
+}
+
+pub fn runtime_config_validate(args: &[String]) -> HandlerResult {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime runtime-config-validate <config-file>".into());
     }
-
-    let path = Path::new(path_text);
-    if !path.is_file() {
-        return Ok(());
+    let (decision, _) = classify_runtime_config_file(&args[0])?;
+    match decision {
+        RuntimeConfigDecision::Missing => println!("MISSING"),
+        RuntimeConfigDecision::Valid => println!("VALID"),
     }
-
-    let text = std::fs::read_to_string(path).map_err(|err| {
-        if err.kind() == ErrorKind::InvalidData {
-            RuntimeConfigError::config_parse_error(format!(
-                "VibeGuard runtime config invalid UTF-8: {}: {err}",
-                path.display()
-            ))
-        } else {
-            RuntimeConfigError::policy_error(format!(
-                "VibeGuard runtime config cannot be read: {}: {err}",
-                path.display()
-            ))
-        }
-    })?;
-
-    serde_json::from_str::<serde_json::Value>(&text).map_err(|err| {
-        RuntimeConfigError::config_parse_error(format!(
-            "VibeGuard runtime config invalid JSON: {}: {err}",
-            path.display()
-        ))
-    })?;
-
     Ok(())
 }
 
@@ -67,26 +34,10 @@ pub fn runtime_config_get_int(args: &[String]) -> HandlerResult {
         );
     }
 
-    let env_name = &args[0];
-    let json_path = &args[1];
-    let default_value = &args[2];
-
-    if let Some(value) = std::env::var(env_name)
-        .ok()
-        .filter(|value| is_nonnegative_digits(value))
-    {
-        println!("{value}");
-        return Ok(());
-    }
-
-    if let Some(value) = load_runtime_config_value(json_path) {
-        if let Some(number) = value.as_u64() {
-            println!("{number}");
-            return Ok(());
-        }
-    }
-
-    println!("{default_value}");
+    println!(
+        "{}",
+        resolve_runtime_config_int(&args[0], &args[1], &args[2])?
+    );
     Ok(())
 }
 
@@ -98,54 +49,113 @@ pub fn runtime_config_get_str(args: &[String]) -> HandlerResult {
         );
     }
 
-    let env_name = &args[0];
-    let json_path = &args[1];
-    let default_value = &args[2];
+    println!(
+        "{}",
+        resolve_runtime_config_str(&args[0], &args[1], &args[2])?
+    );
+    Ok(())
+}
 
+pub(crate) fn runtime_config_int_value(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> u64 {
+    resolve_runtime_config_int(env_name, json_path, default_value)
+        .unwrap_or_else(exit_runtime_config_error)
+}
+
+pub(crate) fn runtime_config_str_value(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> String {
+    resolve_runtime_config_str(env_name, json_path, default_value)
+        .unwrap_or_else(exit_runtime_config_error)
+}
+
+fn resolve_runtime_config_int(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> Result<u64, RuntimeConfigError> {
+    let config = loaded_runtime_config()?;
+    if let Some(value) = std::env::var(env_name)
+        .ok()
+        .filter(|value| is_nonnegative_digits(value))
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Ok(value);
+    }
+
+    if let Some(value) = config
+        .and_then(|value| value_at_path(value, json_path))
+        .and_then(nonnegative_json_integer)
+    {
+        return Ok(value);
+    }
+
+    default_value.parse::<u64>().map_err(|_| RuntimeConfigError {
+        message: "VibeGuard runtime config default invalid: category=default_type_error expected=nonnegative_integer".into(),
+        exit_code: 20,
+    })
+}
+
+fn resolve_runtime_config_str(
+    env_name: &str,
+    json_path: &str,
+    default_value: &str,
+) -> Result<String, RuntimeConfigError> {
+    let config = loaded_runtime_config()?;
     if let Some(value) = std::env::var(env_name)
         .ok()
         .filter(|value| !value.is_empty())
     {
-        println!("{value}");
-        return Ok(());
+        return Ok(value);
     }
 
-    if let Some(value) = load_runtime_config_value(json_path) {
-        if let Some(text) = value.as_str().filter(|text| !text.is_empty()) {
-            println!("{text}");
-            return Ok(());
-        }
+    if let Some(text) = config
+        .and_then(|value| value_at_path(value, json_path))
+        .and_then(Value::as_str)
+    {
+        return Ok(text.to_string());
     }
 
-    println!("{default_value}");
-    Ok(())
+    Ok(default_value.to_string())
 }
 
-fn load_runtime_config_value(json_path: &str) -> Option<Value> {
-    let path = runtime_config_file();
-    if !path.is_file() {
-        return None;
+fn loaded_runtime_config() -> Result<Option<&'static Value>, RuntimeConfigError> {
+    let result = RUNTIME_CONFIG.get_or_init(|| {
+        let path = runtime_config_file();
+        let path_text = path.to_string_lossy();
+        classify_runtime_config_file(&path_text).map(|(_, value)| value)
+    });
+    match result {
+        Ok(value) => Ok(value.as_ref()),
+        Err(error) => Err(error.clone()),
     }
-    let text = std::fs::read_to_string(path).ok()?;
-    let value = serde_json::from_str::<Value>(&text).ok()?;
-    value_at_path(&value, json_path).cloned()
+}
+
+fn exit_runtime_config_error<T>(error: RuntimeConfigError) -> T {
+    eprintln!("{}", error.message);
+    process::exit(error.exit_code);
 }
 
 fn runtime_config_file() -> PathBuf {
-    if let Ok(path) = std::env::var("_VG_CONFIG_FILE") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Ok(path) = std::env::var("_VG_CONFIG_FILE")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
-    if let Ok(path) = std::env::var("VIBEGUARD_CONFIG_FILE") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
+    if let Ok(path) = std::env::var("VIBEGUARD_CONFIG_FILE")
+        && !path.is_empty()
+    {
+        return PathBuf::from(path);
     }
-    if let Ok(log_dir) = std::env::var("VIBEGUARD_LOG_DIR") {
-        if !log_dir.is_empty() {
-            return PathBuf::from(log_dir).join("config.json");
-        }
+    if let Ok(log_dir) = std::env::var("VIBEGUARD_LOG_DIR")
+        && !log_dir.is_empty()
+    {
+        return PathBuf::from(log_dir).join("config.json");
     }
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
         .join(".vibeguard")

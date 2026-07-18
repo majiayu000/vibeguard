@@ -13,7 +13,6 @@ Compact Chat Contract: progress updates, concise answers, plain formatting.
 - Formatting: use Markdown only when it helps; prefer prose first, flat bullets only for natural lists, and avoid decorative structure.
 - Work surface: classify the request as `code_execution`, `writing_research`, or `chat_support` before applying workflow routing.
 - Writing/research: keep factual/source verification and the requested tone, but do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
-- Style: avoid stock contrast framing such as "not X, but Y" / "不是 X，而是 Y" unless the user asks for punchy opinion writing.
 
 ## Operating Principles
 

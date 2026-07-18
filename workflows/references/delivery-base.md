@@ -6,16 +6,17 @@ Delivery step base shared by fixflow and optflow. Both reuse common processes by
 
 Before execution starts, consume the canonical router in [`workflows/references/routing-contract.md`](routing-contract.md).
 
-- Start direct execution only after upstream `readiness` resolves to `execute_direct`, or after a planning workflow emits a handoff that preselects execution.
-- Consume upstream `work_surface` first: delivery execution is for `code_execution`; `writing_research` and `chat_support` should not enter delivery unless the user asks to edit code, generated site content, or repository files.
+- Require a complete validated `routing_decision` before any delivery path. Start direct execution only after its `readiness` resolves to `execute_direct`; direct execution does not require or synthesize an execution handoff.
+- Consume its upstream `work_surface` first: delivery execution is for `code_execution`; `writing_research` and `chat_support` do not enter delivery unless a new user instruction requests code, generated-site, or repository edits and the canonical router reclassifies the full request.
 - If upstream routing resolves to `clarify_first`, stop and clarify before building a plan or editing code.
 - If upstream `readiness` resolves to `plan_first`, wait for a planning handoff before editing.
 - Do not reinterpret the route locally with file-count shortcuts.
+- If a new user instruction changes the deliverable surface, return to the canonical router and rerun the complete precedence ladder before editing; do not reclassify locally.
 - If execution delegates work, consume [`workflows/references/delegation-contract.md`](delegation-contract.md) before any child-agent or parallel write lane starts.
 
 ## Execution Handoff Contract
 
-Planning workflows hand execution the same payload:
+Planning workflows preserve the complete `routing_decision` beside the same handoff payload. Later executors require both objects:
 
 ```yaml
 handoff:

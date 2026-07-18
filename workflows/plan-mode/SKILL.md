@@ -14,18 +14,14 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 - User explicitly says `/plan`, `/prompts:plan`, or "enter Plan mode".
 - User wants a structured execution plan written under `plan/`.
 - User asks for planning before implementation and does not want code changes yet.
+- The task should be decomposed before implementation instead of executed directly.
+- A previous plan needs a deliberate update or replacement with traceable scope.
 
 > Note: This skill only takes effect when the user explicitly triggers Plan mode and does not affect normal conversations.
 > In actual use, you can pass:
 >
 > - Enter `/` and select `/prompts:plan` in the pop-up window; or
 > - Configure shortcut keys in the terminal and automatically enter `/prompts:plan` to obtain a one-click experience similar to "/plan".
-
-## When to Activate
-
-- The user explicitly asks for Plan mode, `/prompts:plan`, `/plan`, or a plan file under `plan/`.
-- The task should be decomposed before implementation instead of executed directly.
-- A previous plan needs a deliberate update or replacement with traceable scope.
 
 ## Red Flags
 
@@ -44,10 +40,12 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
 
 - Explicit `/plan` usage is a user override that selects the planning lane.
+- Require a complete validated `routing_decision`, including exact `precedence`, `work_surface` (`code_execution`, `writing_research`, or `chat_support`), and `readiness` (`execute_direct`, `plan_first`, or `clarify_first`); preserve it unchanged beside any execution handoff.
 - User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
 - Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
 - When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
 - When the plan delegates work, include assignments from [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) before any child-agent write lane starts.
+- If a new user instruction changes the deliverable surface, return to the canonical router and rerun the full precedence ladder; never reclassify locally.
 
 ## 1. Overall behavioral agreement (must be observed)
 
@@ -137,7 +135,7 @@ When writing a file, a YAML-style metadata header (frontmatter) must be used at 
 ```markdown
 ---
 mode: plan
-cwd: <current working directory, for example /Users/xxx/project>
+cwd: <current working directory, for example /Users/<username>/project>
 task: <task title or summary (usually from your summary of $ARGUMENTS)>
 complexity: <simple|medium|complex>
 planning_method: builtin

@@ -37,7 +37,7 @@ Trigger this skill when the user asks for one or more of:
 
 ## Routing Contract Integration
 
-Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and require its exact validated `precedence`.
 
 Fixflow can start directly only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either of these is true:
 
@@ -59,6 +59,10 @@ When Fixflow receives a planning handoff, it must honor all required keys:
 - `lane_map`
 
 If `lane_map` does not assign Fixflow-owned work clearly, stop and clarify before editing.
+
+If a new user instruction changes the requested deliverable surface, return
+to the canonical router before continuing; Fixflow must not reclassify the
+request locally.
 
 If Fixflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
 

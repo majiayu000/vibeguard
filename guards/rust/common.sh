@@ -11,7 +11,7 @@ VIBEGUARD_EXCLUDE_PATHS='(.harness/worktrees/|/target/|/.git/|/node_modules/)'
 
 # Fallback only. The authoritative test-path classifier is
 # `vibeguard-runtime test-path-filter`; keep this for old/unbuilt runtime paths.
-VIBEGUARD_TEST_FILE_PATTERN='((^|/)tests/|(^|/)test/|(^|/)__tests__/|(^|/)spec/|(^|/)fixtures/|(^|/)mocks/|(^|/)testdata/|(^|/)examples/|(^|/)benches/|(^|/)test_|_test\.rs$|tests\.rs$|test_helpers\.rs$)'
+VIBEGUARD_TEST_FILE_PATTERN='((^|/)tests/|(^|/)test/|(^|/)__tests__/|(^|/)spec/|(^|/)fixtures/|(^|/)mocks/|(^|/)testdata/|(^|/)examples/|(^|/)benches/|(^|/)test_|_test\.rs$|_[tT][eE][sS][tT][sS]\.[rR][sS]$|tests\.rs$|test_helpers\.rs$)'
 
 vibeguard_rust_runtime_path() {
   local script_dir repo_dir candidate

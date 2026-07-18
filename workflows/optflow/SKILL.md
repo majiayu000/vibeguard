@@ -35,7 +35,7 @@ Trigger this skill when the user asks for one or more of:
 
 ## Routing Contract Integration
 
-Optflow follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Optflow follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and requires its exact validated `precedence`.
 
 Optflow can start discovery or execution only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either condition is true:
 
@@ -57,6 +57,10 @@ When Optflow receives a planning handoff, it must honor:
 - `lane_map`
 
 If `lane_map` does not assign Optflow-owned work clearly, stop and clarify before editing.
+
+If a new user instruction changes the requested deliverable surface, return
+to the canonical router before continuing; Optflow must not reclassify the
+request locally.
 
 If Optflow delegates any task to a child agent or parallel worker, it must use [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) and keep a single integration owner for shared outputs.
 

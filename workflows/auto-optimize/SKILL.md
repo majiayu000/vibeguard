@@ -30,7 +30,7 @@ Integrate the project autonomous optimization workflow of the VibeGuard guard sy
 
 ## Routing Contract Integration
 
-Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
+Auto-Optimize follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) and requires its exact validated `precedence`.
 
 Start autonomous optimization only when both conditions are true:
 
@@ -54,6 +54,10 @@ When Auto-Optimize consumes a planning handoff, it must honor:
 - `lane_map`
 
 Workflow-local judgment does not replace the shared readiness or delegation contract in [`workflows/references/delegation-contract.md`](../references/delegation-contract.md).
+
+If a new user instruction changes the requested deliverable surface, return
+to the canonical router before continuing; Auto-Optimize must not reclassify
+the request locally.
 
 ## Core principles (extracted from 30+ practical sessions)
 

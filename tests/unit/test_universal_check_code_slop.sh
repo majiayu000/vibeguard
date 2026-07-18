@@ -29,6 +29,16 @@ assert_output_contains() {
   else red "$desc (missing: $expected)"; FAIL=$((FAIL+1)); fi
 }
 
+assert_output_not_contains() {
+  local desc="$1" unexpected="$2"; shift 2; TOTAL=$((TOTAL+1))
+  local out; out=$("$@" 2>&1 || true)
+  if printf '%s\n' "$out" | grep -qF "$unexpected"; then
+    red "$desc (unexpected: $unexpected)"; FAIL=$((FAIL+1))
+  else
+    green "$desc"; PASS=$((PASS+1))
+  fi
+}
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -133,6 +143,149 @@ EOF
 assert_ok "tests/fixtures debug code is ignored by default" bash "$GUARD" "$proj_fixtures"
 assert_fail "tests/fixtures debug code is scanned with --include-fixtures" bash "$GUARD" --include-fixtures "$proj_fixtures"
 assert_fail "tests/fixtures debug code is scanned with --strict-repo" bash "$GUARD" --strict-repo "$proj_fixtures"
+
+# --- VibeGuard self-scan precision: repo-local, category-local, line-scoped ---
+proj_self_scan="${tmpdir}/vibeguard_self_scan"
+mkdir -p \
+  "${proj_self_scan}/guards" \
+  "${proj_self_scan}/hooks" \
+  "${proj_self_scan}/vibeguard-runtime/src" \
+  "${proj_self_scan}/other"
+: > "${proj_self_scan}/.vibeguard-doc-paths-allowlist"
+cat > "${proj_self_scan}/vibeguard-runtime/src/main.rs" <<'EOF'
+fn main() {
+    println!("cli product output");
+    dbg!("runtime diagnostic");
+    println!("cli output"); dbg!("same-line diagnostic");
+    println!("dbg!( is product text, not a macro");
+    dbg!("trace.rs:12: println!(\"x\")");
+}
+EOF
+cat > "${proj_self_scan}/vibeguard-runtime/src/hook_checks_common.rs" <<'EOF'
+const DETECTOR_PATTERN: &str = "todo!("; // slop-pattern-source
+// slop-pattern-source
+const ADJACENT_PATTERN: &str = "unimplemented!(";
+fn unfinished() {
+    todo!();
+}
+EOF
+cat > "${proj_self_scan}/other/client.ts" <<'EOF'
+console.log("other category remains visible"); // slop-pattern-source
+EOF
+
+assert_fail "self-scan retains unsuppressed findings" bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan suppresses runtime CLI println" 'println!("cli product output")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains runtime dbg" 'dbg!("runtime diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains dbg after same-line println" 'dbg!("same-line diagnostic")' bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan ignores dbg text inside println string" 'dbg!( is product text' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "self-scan retains leading dbg containing line-like text" 'trace.rs:12: println!' bash "$GUARD" "$proj_self_scan"
+assert_output_not_contains "self-scan suppresses same-line detector marker" 'const DETECTOR_PATTERN' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "adjacent marker does not suppress dead-code finding" 'const ADJACENT_PATTERN' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "unmarked real stub remains visible" 'todo!();' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "marker does not suppress another category" 'console.log("other category remains visible")' bash "$GUARD" "$proj_self_scan"
+assert_output_contains "strict self-scan restores runtime println" 'println!("cli product output")' bash "$GUARD" --strict-repo "$proj_self_scan"
+assert_output_contains "strict self-scan restores marked detector line" 'const DETECTOR_PATTERN' bash "$GUARD" --strict-repo "$proj_self_scan"
+
+# Keep lexer edge cases in separate projects so each assertion proves its own
+# finding instead of inheriting visibility from another dbg! on the same line.
+make_runtime_self_scan_project() {
+  local project_dir="$1"
+  mkdir -p \
+    "${project_dir}/guards" \
+    "${project_dir}/hooks" \
+    "${project_dir}/vibeguard-runtime/src"
+  : > "${project_dir}/.vibeguard-doc-paths-allowlist"
+}
+
+proj_nested_dbg="${tmpdir}/self_scan_nested_dbg"
+make_runtime_self_scan_project "$proj_nested_dbg"
+printf '%s\n' '    println!("{}", dbg!("nested diagnostic"));' > "${proj_nested_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg nested in println" 'dbg!("nested diagnostic")' bash "$GUARD" "$proj_nested_dbg"
+
+proj_lifetime_dbg="${tmpdir}/self_scan_lifetime_dbg"
+make_runtime_self_scan_project "$proj_lifetime_dbg"
+printf '%s\n' "    println!(\"cli output\"); let value: &'static str = dbg!(\"lifetime diagnostic\");" > "${proj_lifetime_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after Rust lifetime" 'dbg!("lifetime diagnostic")' bash "$GUARD" "$proj_lifetime_dbg"
+
+proj_spaced_dbg="${tmpdir}/self_scan_spaced_dbg"
+make_runtime_self_scan_project "$proj_spaced_dbg"
+printf '%s\n' '    println!("cli output"); dbg! ("spaced diagnostic");' > "${proj_spaced_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg with spaced delimiter" 'dbg! ("spaced diagnostic")' bash "$GUARD" "$proj_spaced_dbg"
+
+proj_char_dbg="${tmpdir}/self_scan_char_dbg"
+make_runtime_self_scan_project "$proj_char_dbg"
+printf '%s\n' '    println!("out"); let quote = '\''"'\''; dbg!(quote);' > "${proj_char_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after Rust char literal" 'dbg!(quote)' bash "$GUARD" "$proj_char_dbg"
+
+proj_raw_dbg="${tmpdir}/self_scan_raw_dbg"
+make_runtime_self_scan_project "$proj_raw_dbg"
+printf '%s\n' '    println!(r#"quote " inside"#); dbg!(value);' > "${proj_raw_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after Rust raw string" 'dbg!(value)' bash "$GUARD" "$proj_raw_dbg"
+
+proj_block_comment_dbg="${tmpdir}/self_scan_block_comment_dbg"
+make_runtime_self_scan_project "$proj_block_comment_dbg"
+printf '%s\n' '    println!("out"); /* " */ dbg!(value);' > "${proj_block_comment_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after Rust block comment" 'dbg!(value)' bash "$GUARD" "$proj_block_comment_dbg"
+
+proj_commented_dbg="${tmpdir}/self_scan_commented_dbg"
+make_runtime_self_scan_project "$proj_commented_dbg"
+printf '%s\n' '    println!("out"); /* dbg!(commented) */' > "${proj_commented_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_not_contains "self-scan ignores dbg inside Rust block comment" 'dbg!(commented)' bash "$GUARD" "$proj_commented_dbg"
+
+proj_multiline_comment_dbg="${tmpdir}/self_scan_multiline_comment_dbg"
+make_runtime_self_scan_project "$proj_multiline_comment_dbg"
+printf '%s\n' '/*' '    println!("commented"); " */ dbg!(value);' > "${proj_multiline_comment_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_contains "self-scan retains dbg after multiline Rust block comment" 'dbg!(value)' bash "$GUARD" "$proj_multiline_comment_dbg"
+
+proj_multiline_commented_dbg="${tmpdir}/self_scan_multiline_commented_dbg"
+make_runtime_self_scan_project "$proj_multiline_commented_dbg"
+printf '%s\n' '/*' '    println!("commented"); dbg!(commented);' '*/' > "${proj_multiline_commented_dbg}/vibeguard-runtime/src/main.rs"
+assert_output_not_contains "self-scan ignores dbg inside multiline Rust block comment" 'dbg!(commented)' bash "$GUARD" "$proj_multiline_commented_dbg"
+
+# Keep the outside-runtime assertion isolated from the guard's five-line
+# display cap so additional retained runtime diagnostics cannot mask it.
+proj_outside_debug="${tmpdir}/outside_runtime_debug"
+mkdir -p \
+  "${proj_outside_debug}/guards" \
+  "${proj_outside_debug}/hooks" \
+  "${proj_outside_debug}/vibeguard-runtime/src" \
+  "${proj_outside_debug}/other"
+: > "${proj_outside_debug}/.vibeguard-doc-paths-allowlist"
+printf '%s\n' '    println!("inside product output");' > "${proj_outside_debug}/vibeguard-runtime/src/main.rs"
+printf '%s\n' '    println!("outside runtime output");' > "${proj_outside_debug}/other/main.rs"
+assert_output_contains "self-scan retains println outside runtime src" 'println!("outside runtime output")' bash "$GUARD" "$proj_outside_debug"
+
+# A target with only two self-scan markers is an ordinary repo.  Neither the
+# runtime path nor marker text is a general-purpose suppression contract.
+proj_partial_marker="${tmpdir}/partial_self_markers"
+mkdir -p \
+  "${proj_partial_marker}/guards" \
+  "${proj_partial_marker}/hooks" \
+  "${proj_partial_marker}/vibeguard-runtime/src"
+cat > "${proj_partial_marker}/vibeguard-runtime/src/main.rs" <<'EOF'
+fn main() {
+    println!("ordinary repo output");
+}
+const PATTERN: &str = "todo!("; // slop-pattern-source
+EOF
+assert_output_contains "partial-marker repo retains runtime println" 'println!("ordinary repo output")' bash "$GUARD" "$proj_partial_marker"
+assert_output_contains "partial-marker repo retains marked dead-code line" 'const PATTERN' bash "$GUARD" "$proj_partial_marker"
+
+# Grep renders findings as path:line:content.  Qualified self-scan filtering
+# must preserve literal path characters instead of interpreting them as awk
+# escapes or treating a colon in a Rust filename as the line delimiter.
+proj_escaped_path="${tmpdir}/vibeguard\\self_scan"
+mkdir -p \
+  "${proj_escaped_path}/guards" \
+  "${proj_escaped_path}/hooks" \
+  "${proj_escaped_path}/vibeguard-runtime/src"
+: > "${proj_escaped_path}/.vibeguard-doc-paths-allowlist"
+cat > "${proj_escaped_path}/vibeguard-runtime/src/cli:main.rs" <<'EOF'
+fn main() {
+    println!("escaped path product output");
+}
+EOF
+assert_ok "self-scan handles backslash target and colon Rust filename" bash "$GUARD" "$proj_escaped_path"
 
 echo
 printf 'Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n' "$TOTAL" "$PASS" "$FAIL"

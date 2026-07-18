@@ -63,6 +63,20 @@ _codex_json_escape() {
   printf '%s' "${value}"
 }
 
+resolve_codex_hook_name() {
+  case "$1" in
+    vibeguard-pre-bash-guard.sh) printf '%s\n' "pre-bash-guard.sh" ;;
+    vibeguard-pre-edit-guard.sh) printf '%s\n' "pre-edit-guard.sh" ;;
+    vibeguard-pre-write-guard.sh) printf '%s\n' "pre-write-guard.sh" ;;
+    vibeguard-post-edit-guard.sh) printf '%s\n' "post-edit-guard.sh" ;;
+    vibeguard-post-write-guard.sh) printf '%s\n' "post-write-guard.sh" ;;
+    vibeguard-post-build-check.sh) printf '%s\n' "post-build-check.sh" ;;
+    vibeguard-stop-guard.sh) printf '%s\n' "stop-guard.sh" ;;
+    vibeguard-learn-evaluator.sh) printf '%s\n' "learn-evaluator.sh" ;;
+    *) return 1 ;;
+  esac
+}
+
 codex_raw_event_name() {
   local input="$1"
   if codex_runtime_stdin "codex-event-name" "${input}" 2>/dev/null; then
