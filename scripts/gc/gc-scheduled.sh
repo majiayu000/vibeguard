@@ -23,6 +23,7 @@ SESSION_METRICS_RETAIN_DAYS="$(vg_config_positive_int VIBEGUARD_GC_SESSION_METRI
 LEARNING_WINDOW_DAYS="$(vg_config_positive_int VIBEGUARD_GC_LEARNING_WINDOW_DAYS gc.learning_window_days 7)"
 GC_LOG_MAX_KB="$(vg_config_positive_int VIBEGUARD_GC_LOG_MAX_KB gc.gc_log_max_kb 1024)"
 GC_LOG_THRESHOLD_MB="$(vg_config_positive_int VIBEGUARD_GC_LOG_THRESHOLD_MB gc.log_threshold_mb 10)"
+GC_CURRENT_MONTH_MAX_BYTES=$((8192 * 1024))
 GC_CATCHUP_INTERVAL_HOURS="$(vg_config_positive_int VIBEGUARD_GC_CATCHUP_INTERVAL_HOURS gc.catchup_interval_hours 168)"
 SCHEDULED=false
 GC_FAILED=0
@@ -42,17 +43,41 @@ log_file_size_mb() {
   du -m "$file" 2>/dev/null | cut -f1
 }
 
+log_requires_gc() {
+  local file="$1" size_mb size_bytes line_count
+  size_mb="$(log_file_size_mb "$file")"
+  size_bytes="$(wc -c < "$file" | tr -d '[:space:]')"
+  if ! [[ "$size_mb" =~ ^[0-9]+$ && "$size_bytes" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if [[ "$size_mb" -lt "$GC_LOG_THRESHOLD_MB" && "$size_bytes" -le "$GC_CURRENT_MONTH_MAX_BYTES" ]]; then
+    return 1
+  fi
+
+  # GC must retain a single newest complete record even when it alone exceeds
+  # the cap. Do not turn that explicit exception into a permanent failure.
+  line_count="$(wc -l < "$file" | tr -d '[:space:]')"
+  if [[ "$size_bytes" -gt "$GC_CURRENT_MONTH_MAX_BYTES" && "$line_count" -le 1 ]]; then
+    return 1
+  fi
+  return 0
+}
+
 find_oversized_logs() {
   local file size
-  file="${LOG_DIR}/events.jsonl"
-  if [[ -f "$file" ]]; then
-    size="$(log_file_size_mb "$file")"
-    [[ "$size" =~ ^[0-9]+$ && "$size" -ge "$GC_LOG_THRESHOLD_MB" ]] && printf '%s\t%s\n' "$size" "$file"
-  fi
+  for file in "${LOG_DIR}/codex-wrapper.jsonl" "${LOG_DIR}/events.jsonl"; do
+    [[ -f "$file" ]] || continue
+    if log_requires_gc "$file"; then
+      size="$(log_file_size_mb "$file")"
+      printf '%s\t%s\n' "$size" "$file"
+    fi
+  done
   for file in "${LOG_DIR}"/projects/*/events.jsonl; do
     [[ -f "$file" ]] || continue
-    size="$(log_file_size_mb "$file")"
-    [[ "$size" =~ ^[0-9]+$ && "$size" -ge "$GC_LOG_THRESHOLD_MB" ]] && printf '%s\t%s\n' "$size" "$file"
+    if log_requires_gc "$file"; then
+      size="$(log_file_size_mb "$file")"
+      printf '%s\t%s\n' "$size" "$file"
+    fi
   done
   # The trailing [[ ]] && printf leaves a nonzero status when the last file is
   # below threshold, which kills the set -e caller mid-run.

@@ -3,7 +3,7 @@
 #
 # events.jsonl / codex-wrapper.jsonl archive (gzip) monthly when threshold is
 # exceeded, retaining the last 3 months. The current month is additionally
-# capped by line count so heavy-usage months cannot grow unbounded.
+# capped by encoded bytes so heavy-usage months cannot grow unbounded.
 #
 # Usage:
 # bash gc-logs.sh # Default 10MB threshold
@@ -27,8 +27,8 @@ ARCHIVE_DIR="${LOG_DIR}/archive"
 THRESHOLD_MB="$(vg_config_positive_int VIBEGUARD_GC_LOG_THRESHOLD_MB gc.log_threshold_mb 10)"
 DRY_RUN=false
 RETAIN_MONTHS="$(vg_config_positive_int VIBEGUARD_GC_ARCHIVE_RETAIN_MONTHS gc.archive_retain_months 3)"
-# Must stay below THRESHOLD_MB or the post-GC size re-check keeps failing.
-CURRENT_MONTH_MAX_KB="$(vg_config_positive_int VIBEGUARD_GC_CURRENT_MONTH_MAX_KB gc.current_month_max_kb 8192)"
+# Internal contract: keep this below the default 10 MiB archive threshold.
+CURRENT_MONTH_MAX_BYTES=$((8192 * 1024))
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,22 +45,25 @@ gc_one_log_file() {
   local label="$3"
   local prefix="${4:-events}"
   local file_size_mb
+  local file_size_bytes
 
   file_size_mb=$(du -m "$log_file" | cut -f1)
+  file_size_bytes=$(wc -c < "$log_file" | tr -d '[:space:]')
   echo "Processing ${label}: ${log_file}"
   echo "Current log size: ${file_size_mb}MB (Threshold: ${THRESHOLD_MB}MB)"
 
-  # Archive: split and compress by month when threshold is exceeded.
-  if [[ "$file_size_mb" -ge "$THRESHOLD_MB" ]]; then
-    mkdir -p "$archive_dir"
-
+  # Archive when either the configured threshold or the internal live-byte cap
+  # is exceeded. Dry-run deliberately avoids directories, locks, and temp files.
+  if [[ "$file_size_mb" -ge "$THRESHOLD_MB" || "$file_size_bytes" -gt "$CURRENT_MONTH_MAX_BYTES" ]]; then
     _GC_LOG_FILE="$log_file" \
     _GC_ARCHIVE_DIR="$archive_dir" \
     _GC_ARCHIVE_PREFIX="$prefix" \
-    _GC_CURRENT_MONTH_MAX_KB="$CURRENT_MONTH_MAX_KB" \
+    _GC_CURRENT_MONTH_MAX_BYTES="$CURRENT_MONTH_MAX_BYTES" \
     _GC_DRY_RUN="$([[ "$DRY_RUN" == "true" ]] && echo 1 || echo 0)" \
+    _GC_RUN_STAMP="${_GC_RUN_STAMP:-}" \
     python3 <<'PYEOF'
 import fcntl
+import gzip
 import json
 import os
 import tempfile
@@ -70,7 +73,7 @@ from collections import defaultdict
 log_file = os.environ['_GC_LOG_FILE']
 archive_dir = os.environ['_GC_ARCHIVE_DIR']
 prefix = os.environ.get('_GC_ARCHIVE_PREFIX', 'events')
-max_current_bytes = int(os.environ.get('_GC_CURRENT_MONTH_MAX_KB', '0') or '0') * 1024
+max_current_bytes = int(os.environ['_GC_CURRENT_MONTH_MAX_BYTES'])
 dry_run = os.environ['_GC_DRY_RUN'] == '1'
 lock_dir = log_file + '.lock.d'
 lock_file = log_file + '.lock'
@@ -127,24 +130,70 @@ def atomic_replace_log(lines):
             pass
         raise
 
-run_stamp = time.strftime('%Y%m%dT%H%M%S')
+run_stamp = os.environ.get('_GC_RUN_STAMP') or time.strftime('%Y%m%dT%H%M%S')
+reserved_paths = set()
+
+def targets_absent(gzip_path):
+    jsonl_path = gzip_path[:-3]
+    return (gzip_path not in reserved_paths
+            and not os.path.exists(gzip_path)
+            and not os.path.exists(jsonl_path))
 
 def archive_target(month):
-    # A compressed archive for this month may already exist from a previous
-    # run; appending to a fresh plain file and re-running `gzip -f` would
-    # silently replace it. Use a run-stamped name in that case.
-    path = os.path.join(archive_dir, f'{prefix}-{month}.jsonl')
-    if os.path.exists(path + '.gz'):
-        path = os.path.join(archive_dir, f'{prefix}-{month}-{run_stamp}.jsonl')
-    return path
+    canonical = os.path.join(archive_dir, f'{prefix}-{month}.jsonl.gz')
+    if targets_absent(canonical):
+        reserved_paths.add(canonical)
+        return canonical
 
-def append_archive(path, lines):
-    with open(path, 'a', encoding='utf-8') as af:
-        af.write('\n'.join(lines) + '\n')
-        af.flush()
-        os.fsync(af.fileno())
+    counter = 0
+    while True:
+        suffix = run_stamp if counter == 0 else f'{run_stamp}-{counter}'
+        candidate = os.path.join(
+            archive_dir, f'{prefix}-{month}-{suffix}.jsonl.gz')
+        if targets_absent(candidate):
+            reserved_paths.add(candidate)
+            return candidate
+        counter += 1
 
-lock_fd = acquire_lock()
+def write_compressed_archive(month, lines, description):
+    target = archive_target(month)
+    if dry_run:
+        print(f' [DRY-RUN] Archive {description} -> {target}')
+        print(f' [DRY-RUN] Compress archive -> {target}')
+        return
+
+    os.makedirs(archive_dir, mode=0o700, exist_ok=True)
+    # Exclusive creation is the final collision check. A collision between
+    # candidate selection and creation retries with a fresh counter suffix.
+    while True:
+        try:
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            reserved_paths.discard(target)
+            target = archive_target(month)
+
+    try:
+        with os.fdopen(fd, 'wb') as raw:
+            with gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=0) as zipped:
+                zipped.write(('\n'.join(lines) + '\n').encode('utf-8'))
+            raw.flush()
+            os.fsync(raw.fileno())
+        dir_fd = os.open(archive_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(target)
+        except FileNotFoundError:
+            pass
+        raise
+    print(f'Archived {description} -> {target}')
+    print(f'Compressed: {os.path.basename(target)}')
+
+lock_fd = None if dry_run else acquire_lock()
 try:
     with open(log_file, encoding='utf-8', errors='replace') as f:
         for line in f:
@@ -174,13 +223,17 @@ try:
         current_lines = months.pop(current_month)
 
     overflow = []
-    if max_current_bytes > 0:
-        budget = max_current_bytes
-        keep_from = len(current_lines)
-        for idx in range(len(current_lines) - 1, -1, -1):
-            budget -= len(current_lines[idx].encode('utf-8')) + 1
-            if budget < 0:
+    if current_lines:
+        # The newest complete line is always live, even when that single line
+        # is itself larger than the cap. Add older lines newest-first only
+        # while they fit the remaining byte budget.
+        keep_from = len(current_lines) - 1
+        budget = max_current_bytes - len(current_lines[-1].encode('utf-8')) - 1
+        for idx in range(len(current_lines) - 2, -1, -1):
+            line_bytes = len(current_lines[idx].encode('utf-8')) + 1
+            if line_bytes > budget:
                 break
+            budget -= line_bytes
             keep_from = idx
         overflow = current_lines[:keep_from]
         current_lines = current_lines[keep_from:]
@@ -188,20 +241,13 @@ try:
 
     archived = 0
     for month, lines in sorted(months.items()):
-        archive_path = archive_target(month)
-        if dry_run:
-            print(f' [DRY-RUN] Archive {len(lines)} -> {archive_path}')
-        else:
-            append_archive(archive_path, lines)
+        write_compressed_archive(month, lines, f'{len(lines)} items')
         archived += len(lines)
 
     if overflow:
-        overflow_path = os.path.join(
-            archive_dir, f'{prefix}-{current_month}-{run_stamp}.jsonl')
-        if dry_run:
-            print(f' [DRY-RUN] Archive current-month overflow {len(overflow)} -> {overflow_path}')
-        else:
-            append_archive(overflow_path, overflow)
+        write_compressed_archive(
+            current_month, overflow,
+            f'current-month overflow {len(overflow)} items')
         archived += len(overflow)
 
     if not dry_run and archived > 0:
@@ -209,18 +255,11 @@ try:
 
     print(f'Total {total} items, archive {archived} items, retain {len(kept)} items')
 finally:
-    release_lock(lock_fd)
+    if lock_fd is not None:
+        release_lock(lock_fd)
 PYEOF
-
-    # Compress archive files for this log target.
-    if [[ "$DRY_RUN" == "false" ]]; then
-      for f in "${archive_dir}/${prefix}-"*.jsonl; do
-        [[ -f "$f" ]] || continue
-        gzip -f "$f" 2>/dev/null && green "Compressed: $(basename "$f").gz"
-      done
-    fi
   else
-    green "Log size does not exceed the threshold, no need to archive"
+    green "Log size does not exceed the threshold or current-month cap, no need to archive"
   fi
 
   # Clean up expired archives for this log target.
@@ -246,15 +285,37 @@ PYEOF
 cleanup_stale_markers() {
   # Per-session learn-metrics warning dedup flags; useless once the session
   # is gone, and they otherwise accumulate forever (thousands of empty files).
-  local stale_count
-  stale_count=$(find "$LOG_DIR" -maxdepth 1 -name '.learn_metrics_truncated_*' -mtime +1 2>/dev/null | wc -l | tr -d ' ')
-  [[ "$stale_count" -gt 0 ]] || return 0
-  if [[ "$DRY_RUN" == "true" ]]; then
-    yellow " [DRY-RUN] Delete ${stale_count} stale learn-metrics markers"
-  else
-    find "$LOG_DIR" -maxdepth 1 -name '.learn_metrics_truncated_*' -mtime +1 -delete 2>/dev/null || true
-    green "Removed ${stale_count} stale learn-metrics markers"
-  fi
+  _GC_LOG_DIR="$LOG_DIR" \
+  _GC_DRY_RUN="$([[ "$DRY_RUN" == "true" ]] && echo 1 || echo 0)" \
+  _GC_NOW_EPOCH="${_GC_NOW_EPOCH:-}" \
+  python3 <<'PYEOF'
+import os
+import time
+
+log_dir = os.environ['_GC_LOG_DIR']
+dry_run = os.environ['_GC_DRY_RUN'] == '1'
+now = float(os.environ.get('_GC_NOW_EPOCH') or time.time())
+cutoff = now - 86400
+
+if not os.path.isdir(log_dir):
+    raise SystemExit(0)
+
+stale = []
+for entry in os.scandir(log_dir):
+    if not entry.name.startswith('.learn_metrics_truncated_'):
+        continue
+    if entry.stat(follow_symlinks=False).st_mtime < cutoff:
+        stale.append(entry)
+
+for entry in sorted(stale, key=lambda item: item.name):
+    if dry_run:
+        print(f' [DRY-RUN] Delete stale learn-metrics marker: {entry.name}')
+    else:
+        os.unlink(entry.path)
+
+if stale and not dry_run:
+    print(f'Removed {len(stale)} stale learn-metrics markers')
+PYEOF
 }
 
 processed=0
