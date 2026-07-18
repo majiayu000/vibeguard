@@ -262,24 +262,31 @@ PYEOF
     green "Log size does not exceed the threshold or current-month cap, no need to archive"
   fi
 
-  # Clean up expired archives for this log target.
-  if [[ -d "$archive_dir" ]]; then
-    CUTOFF=$(date -v-${RETAIN_MONTHS}m +%Y-%m 2>/dev/null || date -d "${RETAIN_MONTHS} months ago" +%Y-%m 2>/dev/null || echo "")
-    if [[ -n "$CUTOFF" ]]; then
-      for f in "${archive_dir}/${prefix}-"*.jsonl.gz; do
-        [[ -f "$f" ]] || continue
-        MONTH=$(basename "$f" | sed "s/^${prefix}-\(.*\)\.jsonl\.gz$/\1/")
-        if [[ "$MONTH" < "$CUTOFF" ]]; then
-          if [[ "$DRY_RUN" == "true" ]]; then
-            yellow " [DRY-RUN] Delete expired archives: $(basename "$f")"
-          else
-            rm "$f"
-            yellow "Expired archive deleted: $(basename "$f")"
-          fi
-        fi
-      done
+}
+
+cleanup_expired_archives() {
+  local archive_dir="$1"
+  local prefix="$2"
+  local cutoff file month
+  [[ -d "$archive_dir" ]] || return 0
+
+  cutoff=$(date -v-${RETAIN_MONTHS}m +%Y-%m 2>/dev/null \
+    || date -d "${RETAIN_MONTHS} months ago" +%Y-%m 2>/dev/null \
+    || echo "")
+  [[ -n "$cutoff" ]] || return 0
+
+  for file in "${archive_dir}/${prefix}-"*.jsonl.gz; do
+    [[ -f "$file" ]] || continue
+    month=$(basename "$file" | sed "s/^${prefix}-\(.*\)\.jsonl\.gz$/\1/")
+    if [[ "$month" < "$cutoff" ]]; then
+      if [[ "$DRY_RUN" == "true" ]]; then
+        yellow " [DRY-RUN] Delete expired archives: $(basename "$file")"
+      else
+        rm "$file"
+        yellow "Expired archive deleted: $(basename "$file")"
+      fi
     fi
-  fi
+  done
 }
 
 cleanup_stale_markers() {
@@ -329,10 +336,17 @@ if [[ -f "$WRAPPER_LOG_FILE" ]]; then
   processed=$((processed + 1))
 fi
 
-for project_log in "${LOG_DIR}"/projects/*/events.jsonl; do
-  [[ -f "$project_log" ]] || continue
-  gc_one_log_file "$project_log" "$(dirname "$project_log")/archive" "project log"
-  processed=$((processed + 1))
+cleanup_expired_archives "$ARCHIVE_DIR" "events"
+cleanup_expired_archives "$ARCHIVE_DIR" "codex-wrapper"
+
+for project_dir in "${LOG_DIR}"/projects/*; do
+  [[ -d "$project_dir" ]] || continue
+  project_log="${project_dir}/events.jsonl"
+  if [[ -f "$project_log" ]]; then
+    gc_one_log_file "$project_log" "${project_dir}/archive" "project log"
+    processed=$((processed + 1))
+  fi
+  cleanup_expired_archives "${project_dir}/archive" "events"
 done
 
 cleanup_stale_markers

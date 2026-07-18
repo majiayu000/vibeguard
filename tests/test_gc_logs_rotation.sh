@@ -221,8 +221,6 @@ assert_contains "$out" "[DRY-RUN] Delete stale learn-metrics marker" "dry-run re
 header "B-006 and B-007 retention covers both archive prefixes"
 LOG_DIR="$(fresh_log_dir retention)"
 mkdir -p "${LOG_DIR}/archive"
-write_events "${LOG_DIR}/events.jsonl" "$(current_month)" 1
-write_events "${LOG_DIR}/codex-wrapper.jsonl" "$(current_month)" 1
 for prefix in events codex-wrapper; do
   printf 'expired\n' | gzip > "${LOG_DIR}/archive/${prefix}-2000-01.jsonl.gz"
   printf 'current\n' | gzip > "${LOG_DIR}/archive/${prefix}-$(current_month).jsonl.gz"
@@ -231,6 +229,8 @@ before="$(snapshot_tree "$LOG_DIR")"
 out="$(VIBEGUARD_LOG_DIR="$LOG_DIR" bash scripts/gc/gc-logs.sh --threshold 20 --dry-run)"
 after="$(snapshot_tree "$LOG_DIR")"
 assert_eq "$after" "$before" "retention dry-run is non-mutating"
+assert_true "retention fixture has no live logs" \
+  sh -c 'test ! -e "$1/events.jsonl" && test ! -e "$1/codex-wrapper.jsonl"' _ "$LOG_DIR"
 assert_contains "$out" "events-2000-01.jsonl.gz" "dry-run reports expired events archive"
 assert_contains "$out" "codex-wrapper-2000-01.jsonl.gz" "dry-run reports expired wrapper archive"
 VIBEGUARD_LOG_DIR="$LOG_DIR" bash scripts/gc/gc-logs.sh --threshold 20 >/dev/null
