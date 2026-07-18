@@ -32,6 +32,7 @@ Other categories N/A — doc/manifest removal with no runtime behavior.
 
 ## Acceptance
 
-`bash tests/test_manifest_contract.sh` passes; `rg
-'strategic-compact|claude-md-split' rules guards schemas skills` returns no
-stale install-surface or guidance references.
+`bash tests/test_manifest_contract.sh` passes. The reference scan accepts only
+`rg` exit 1 as "no match" and preserves scanner errors:
+`if rg 'strategic-compact|claude-md-split' rules guards schemas skills; then
+exit 1; else test $? -eq 1; fi`.
