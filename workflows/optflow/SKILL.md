@@ -37,7 +37,7 @@ Trigger this skill when the user asks for one or more of:
 
 Optflow follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
 
-Optflow can start discovery or execution only when either condition is true:
+Optflow can start discovery or execution only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either condition is true:
 
 - upstream readiness resolved to `execute_direct`
 - a planning workflow already emitted a handoff that preselects Optflow

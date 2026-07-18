@@ -8,7 +8,7 @@ VibeGuard is an anti-hallucination rules, hooks, and workflow repository. There 
 - Keep names snake_case unless an external API boundary requires camelCase.
 - Do not swallow errors silently. User-visible missing data or wrong output must fail loudly.
 - Do only the requested scope; avoid opportunistic refactors.
-- Follow `workflows/references/routing-contract.md`: set `readiness` to `execute_direct`, `plan_first`, or `clarify_first`; handoffs carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
+- Follow `workflows/references/routing-contract.md`: classify `work_surface` as `code_execution`, `writing_research`, or `chat_support` before setting `readiness` to `execute_direct`, `plan_first`, or `clarify_first`; handoffs carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
 - High-context files such as `AGENTS.md`, `CLAUDE.md`, `.claude/settings*.json`, setup scripts, and hooks must not be modified by generated output without explicit intent.
 
 ## Validation

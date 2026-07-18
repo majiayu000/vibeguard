@@ -39,7 +39,7 @@ Trigger this skill when the user asks for one or more of:
 
 Use the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
 
-Fixflow can start directly when either of these is true:
+Fixflow can start directly only when upstream `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`, and either of these is true:
 
 - upstream readiness resolved to `execute_direct`
 - a planning workflow already emitted a handoff that preselects Fixflow for execution

@@ -14,13 +14,15 @@ tags: [vibeguard, preflight, constraints, prevention]
 
 **Routing**
 
-Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. The `readiness` decision has exactly three outputs:
+Follow the canonical router in `workflows/references/routing-contract.md` before starting preflight. First classify `work_surface` as `code_execution`, `writing_research`, or `chat_support`; then classify `readiness`. The `readiness` decision has exactly three outputs:
 
 - `execute_direct`: skip preflight when the task is bounded, the next edit is clear, and verification can be owned immediately.
 - `plan_first`: run preflight when the task is well-specified but broad enough that a constraint set or planning handoff is needed before code changes.
 - `clarify_first`: ask for the missing scope, non-goals, decision boundaries, or delegation ownership before reading further or planning.
 
 File count can inform the routing decision as a secondary signal, but it is not the routing contract and must not replace `execute_direct`, `plan_first`, or `clarify_first`.
+
+For `writing_research` or `chat_support`, keep source/fact verification when needed but do not run code preflight unless repository edits are requested.
 
 **Trigger Condition**
 - Changes involving several file levels or cross-cutting areas

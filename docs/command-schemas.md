@@ -22,6 +22,7 @@ Executable schema sources:
 
 ## routing decision Schema
 
+Allowed `work_surface.decision` values are `code_execution`, `writing_research`, and `chat_support`.
 Allowed `readiness.decision` values are `execute_direct`, `plan_first`, and `clarify_first`.
 
 ```json
@@ -29,11 +30,16 @@ Allowed `readiness.decision` values are `execute_direct`, `plan_first`, and `cla
   "command": "routing_decision",
   "precedence": [
     "user_override",
+    "work_surface_classifier",
     "risk_destructive_gate",
     "ambiguity_gate",
     "readiness_classifier",
     "execution_or_delegation_lane"
   ],
+  "work_surface": {
+    "decision": "code_execution",
+    "reason": "Filesystem and runtime state are the deliverable"
+  },
   "readiness": {
     "decision": "execute_direct",
     "reason": "Task is bounded, ownership is clear, and verification can run immediately"
@@ -133,10 +139,7 @@ Runtime observability rows are validated one JSONL row at a time:
 - `schemas/event-log.schema.json` describes `events.jsonl` hook events.
 - `schemas/session-metrics.schema.json` describes `session-metrics.jsonl` rows emitted by `vibeguard-runtime session-metrics`.
 
-Schema v1 requires current event-log rows to include `schema_version`, `ts`,
-`session`, `hook`, `tool`, `decision`, and `status`. Rows may also include
-`event`, `matcher`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`,
-`source`, and caller identity fields.
+Schema v1 keeps normalized event-log fields optional. Legacy hook rows that only contain `ts`, `session`, `hook`, `tool`, `decision`, `reason`, and `detail` remain valid, while current rows may also include `event`, `matcher`, `status`, `elapsed_ms`, `timeout_ms`, `model_context`, `log_path`, `source`, and caller identity fields.
 
 ## preflight output Schema
 

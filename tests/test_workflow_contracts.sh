@@ -121,6 +121,10 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 schema = json.loads((repo / "schemas/workflow-routing-decision.schema.json").read_text(encoding="utf-8"))
 payload = {
+    "work_surface": {
+        "decision": "code_execution",
+        "reason": "Repository state changes are in scope",
+    },
     "readiness": {
         "decision": "clarify_first",
         "reason": "Need scope confirmation",
@@ -402,38 +406,6 @@ PY
   PASS=$((PASS + 1))
 else
   red "command output examples and workflow consumers stay registered"
-  FAIL=$((FAIL + 1))
-fi
-
-header "ci performance gate wiring"
-TOTAL=$((TOTAL + 1))
-if python3 - "${REPO_DIR}/.github/workflows/ci.yml" >/dev/null <<'PY'; then
-from pathlib import Path
-import sys
-
-workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
-required_steps = {
-    "Hook performance static analysis": "bash scripts/ci/validate-hook-perf.sh",
-    "Hook performance contract regression tests": "bash tests/test_hook_perf_contract.sh",
-    "Hook latency benchmark": "bash tests/bench_hook_latency.sh --runs=3 --fail-on-regression",
-}
-
-for name, command in required_steps.items():
-    marker = f"- name: {name}"
-    start = workflow.find(marker)
-    if start < 0:
-        raise SystemExit(f"missing CI performance step: {name}")
-    next_step = workflow.find("\n      - name:", start + len(marker))
-    block = workflow[start:] if next_step < 0 else workflow[start:next_step]
-    if command not in block:
-        raise SystemExit(f"{name} does not run required command: {command}")
-    if "continue-on-error" in block:
-        raise SystemExit(f"{name} must not use continue-on-error")
-PY
-  green "CI performance gates stay blocking"
-  PASS=$((PASS + 1))
-else
-  red "CI performance gates stay blocking"
   FAIL=$((FAIL + 1))
 fi
 

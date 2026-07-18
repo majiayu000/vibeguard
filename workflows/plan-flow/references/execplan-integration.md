@@ -9,10 +9,17 @@ ExecPlan follows the same precedence ladder as the rest of the workflow system. 
 Apply routing in this order:
 
 1. `user_override`
-2. `risk/destructive gate`
-3. `ambiguity gate`
-4. `readiness classifier`
-5. `execution/delegation lane`
+2. `work_surface classifier`
+3. `risk/destructive gate`
+4. `ambiguity gate`
+5. `readiness classifier`
+6. `execution/delegation lane`
+
+Classify `work_surface` before readiness:
+
+- `code_execution`
+- `writing_research`
+- `chat_support`
 
 Readiness still resolves to exactly one of:
 

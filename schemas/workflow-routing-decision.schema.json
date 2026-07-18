@@ -4,25 +4,40 @@
   "title": "VibeGuard Workflow Routing Decision",
   "description": "Machine-readable contract for routing decisions before workflow execution.",
   "type": "object",
-  "required": ["readiness"],
+  "required": ["work_surface", "readiness"],
   "additionalProperties": false,
-  "x_markdown_tokens": ["readiness", "execute_direct", "plan_first", "clarify_first"],
+  "x_markdown_tokens": ["work_surface", "code_execution", "writing_research", "chat_support", "readiness", "execute_direct", "plan_first", "clarify_first"],
   "properties": {
     "command": {
       "const": "routing_decision"
     },
     "precedence": {
       "type": "array",
-      "minItems": 5,
+      "minItems": 6,
       "uniqueItems": true,
       "items": {
         "enum": [
           "user_override",
+          "work_surface_classifier",
           "risk_destructive_gate",
           "ambiguity_gate",
           "readiness_classifier",
           "execution_or_delegation_lane"
         ]
+      }
+    },
+    "work_surface": {
+      "type": "object",
+      "required": ["decision", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": ["code_execution", "writing_research", "chat_support"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "readiness": {

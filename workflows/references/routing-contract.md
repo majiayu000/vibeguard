@@ -16,10 +16,11 @@ Executable schema sources:
 Apply routing in this order:
 
 1. `user_override`
-2. `risk/destructive gate`
-3. `ambiguity gate`
-4. `readiness classifier`
-5. `execution/delegation lane`
+2. `work_surface classifier`
+3. `risk/destructive gate`
+4. `ambiguity gate`
+5. `readiness classifier`
+6. `execution/delegation lane`
 
 Later stages must not override an earlier decision without an explicit new user instruction.
 
@@ -30,12 +31,24 @@ Later stages must not override an earlier decision without an explicit new user 
 - If the user explicitly selects a workflow or says to plan first, treat that as the requested lane.
 - User override does not bypass the risk/destructive gate or the ambiguity gate.
 
-### 2. Risk / Destructive Gate
+### 2. Work Surface Classifier
+
+Classify the requested deliverable before applying execution routing:
+
+- `code_execution`: source changes, build/test repair, migrations, deployment, repository settings, generated site content, or any task where filesystem/runtime state is the deliverable.
+- `writing_research`: prose, research, strategy, critique, prompt wording, or a saved/report artifact where the proof surface is source accuracy, argument quality, requested tone, citation coverage, and artifact delivery.
+- `chat_support`: direct explanation, debugging advice, or lightweight Q&A where no durable artifact or execution handoff is requested.
+
+`writing_research` keeps verification, but translates it to the writing domain: cite or name sources when claims depend on external facts, separate facts from interpretation, preserve the requested audience and tone, and inspect the saved/rendered artifact when one is produced. Do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
+
+Avoid stock contrast framing such as "not X, but Y" or "不是 X，而是 Y" unless the user explicitly asks for punchy opinion writing.
+
+### 3. Risk / Destructive Gate
 
 - Route to a safety-first lane before execution when the requested action is destructive, high-risk, or irreversible.
 - Examples: force-push, schema/data deletion, production config mutation, broad automated rewrites.
 
-### 3. Ambiguity Gate
+### 4. Ambiguity Gate
 
 Route to `clarify_first` when execution or planning would require guessing any of:
 
@@ -46,7 +59,7 @@ Route to `clarify_first` when execution or planning would require guessing any o
 
 Planning is not a substitute for missing task boundaries.
 
-### 4. Readiness Classifier
+### 5. Readiness Classifier
 
 The readiness classifier has exactly three outputs:
 
@@ -62,7 +75,7 @@ Choose `clarify_first` when required scope or decision boundaries are missing.
 
 File count may be used as a secondary hint, but it is not the contract and must not replace the readiness outputs above.
 
-### 5. Execution / Delegation Lane
+### 6. Execution / Delegation Lane
 
 - `execute_direct` enters an execution workflow immediately.
 - `plan_first` enters a planning workflow that emits the shared handoff block below.
@@ -146,7 +159,16 @@ User says: "Delete the legacy schema and push directly to production."
 User says: "Update the README link that points to the wrong file."
 
 - ambiguity gate passes
+- work surface: `code_execution`
 - readiness output: `execute_direct`
+
+### Writing Or Research Task
+
+User says: "Draft a short analysis of why this agent style feels too execution-heavy."
+
+- work surface: `writing_research`
+- verify factual claims and preserve the requested tone
+- do not force code build/test, changed-files, PR-readiness, or root-cause framing unless the user asks to edit repository files
 
 ### Large, Well-Specified Task
 

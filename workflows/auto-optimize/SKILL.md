@@ -34,6 +34,7 @@ Auto-Optimize follows the canonical router in [`workflows/references/routing-con
 
 Start autonomous optimization only when both conditions are true:
 
+- `work_surface` resolved to `code_execution` rather than `writing_research` or `chat_support`
 - readiness already resolved to executable work (`execute_direct`, or a planning handoff selected this workflow)
 - `lane_map` assigns clear ownership for every delegated lane used by the run
 

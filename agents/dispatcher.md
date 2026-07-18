@@ -17,10 +17,12 @@ Boundary:
 - This dispatcher only chooses the best role **within** the already chosen lifecycle.
 - If lifecycle and role routing disagree, lifecycle wins first and dispatcher refines inside that lane.
 
-Required upstream routing input. The upstream `routing_decision.readiness.decision` value must be one of `execute_direct`, `plan_first`, or `clarify_first`:
+Required upstream routing input. The upstream `routing_decision.work_surface.decision` value must be one of `code_execution`, `writing_research`, or `chat_support`, and `routing_decision.readiness.decision` must be one of `execute_direct`, `plan_first`, or `clarify_first`:
 
 ```yaml
 routing_decision:
+  work_surface:
+    decision: code_execution | writing_research | chat_support
   readiness:
     decision: execute_direct | plan_first | clarify_first
 handoff:
@@ -47,6 +49,7 @@ handoff:
 Dispatcher rules:
 
 - Never infer `plan` vs `execute` locally.
+- Never convert `writing_research` or `chat_support` into `code_execution` unless the upstream route or a new user instruction asks for repository edits.
 - If upstream `readiness.decision` is `clarify_first`, return clarification needs instead of dispatching execution.
 - If a handoff is present, consume its `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map` as authoritative routing context.
 - Do not schedule delegated work when `lane_map` is missing or leaves the target lane without an owner.
