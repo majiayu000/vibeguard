@@ -71,6 +71,9 @@ If there are 7+ consecutive read-only actions (Read / Glob / Grep) with no write
 - Tell the user what blocker is preventing progress
 - If more reading is genuinely required, explain why the earlier reading was insufficient
 
+**Downgrade path** (U-32 compliance):
+- `VIBEGUARD_SUPPRESS_PARALYSIS=1` skips the detector entirely. Use it for explicitly read-only agent roles such as architecture review, code review, research, or audit agents where the expected output is a written conclusion rather than a file edit.
+
 **Anti-patterns**:
 - Reading 10 files in a row without producing either a change or a conclusion
 - Jumping between files in search of "perfect understanding" without ever starting the work
