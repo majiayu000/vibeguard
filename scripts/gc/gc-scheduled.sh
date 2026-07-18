@@ -54,6 +54,9 @@ find_oversized_logs() {
     size="$(log_file_size_mb "$file")"
     [[ "$size" =~ ^[0-9]+$ && "$size" -ge "$GC_LOG_THRESHOLD_MB" ]] && printf '%s\t%s\n' "$size" "$file"
   done
+  # The trailing [[ ]] && printf leaves a nonzero status when the last file is
+  # below threshold, which kills the set -e caller mid-run.
+  return 0
 }
 
 scheduled_run_due() {
