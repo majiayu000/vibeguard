@@ -168,6 +168,10 @@ impl FileChangeApprovalStrategy {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "approval evaluation requires the complete protocol and hook context"
+    )]
     fn evaluate(
         &self,
         msg_id: Value,
@@ -195,20 +199,17 @@ impl FileChangeApprovalStrategy {
             }
         }
 
-        if let Some((hook_name, result)) = pre_block {
-            if self.policy.blocks_enabled() {
-                write_to_server(json!({"id": msg_id, "result": {"decision": response_decision}}));
-                let text = primary_feedback_text(
-                    &hook_name,
-                    &result,
-                    "file-change guard blocked the edit",
-                );
-                emit_warning(write_to_server, format!("{hook_name}: {text}"), thread_id);
-                eprintln!(
-                    "[vibeguard-codex-wrapper] blocked file-change approval via {hook_name}: {text}"
-                );
-                return true;
-            }
+        if let Some((hook_name, result)) = pre_block
+            && self.policy.blocks_enabled()
+        {
+            write_to_server(json!({"id": msg_id, "result": {"decision": response_decision}}));
+            let text =
+                primary_feedback_text(&hook_name, &result, "file-change guard blocked the edit");
+            emit_warning(write_to_server, format!("{hook_name}: {text}"), thread_id);
+            eprintln!(
+                "[vibeguard-codex-wrapper] blocked file-change approval via {hook_name}: {text}"
+            );
+            return true;
         }
 
         emit_feedback_warnings(write_to_server, &feedback, thread_id);

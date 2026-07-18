@@ -6,7 +6,7 @@
 
 ![VibeGuard project card](docs/assets/readme-card.png)
 
-[Chinese Docs](docs/README_CN.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
+[Chinese Docs](docs/README_CN.md) · [Quickstart](docs/how/quickstart.md) · [Team Rollout](docs/how/team-rollout.md) · [Troubleshooting](docs/how/troubleshooting.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 VibeGuard adds **native rules + real-time hooks + static guards** to catch what AI coding agents get wrong — **before it reaches your codebase**:
 
@@ -20,27 +20,40 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 
 Works with **Claude Code** and **Codex CLI**.
 
-## Install in 30 seconds
+## Start Here
+
+| Path | Use it when | Start with |
+|------|-------------|------------|
+| **Quickstart** | You want one local install, one health check, and one real intercepted demo | [docs/how/quickstart.md](docs/how/quickstart.md) |
+| **Team rollout** | You need profiles, CI policy, rollout expectations, or project bootstrap guidance | [docs/how/team-rollout.md](docs/how/team-rollout.md) |
+| **Troubleshooting** | Setup/check/status output is stale, degraded, broken, or confusing | [docs/how/troubleshooting.md](docs/how/troubleshooting.md) |
+
+Fastest local proof:
 
 ```bash
 git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
 bash ~/vibeguard/setup.sh --yes
+bash ~/vibeguard/setup.sh verify-install
 ```
 
-On supported macOS/Linux targets, the production install/check/clean path is
+On supported macOS/Linux release targets, the production install/check/clean path is
 Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
 verifies it with `SHA256SUMS`. When authenticated `gh` attestation verification
 is available, setup reports `verified-provenance`; otherwise it reports
 `checksum-only` instead of treating the release as provenance-verified. Rust/Cargo
-is not required by default.
+is not required by default when the checkout's pinned runtime version has
+published release assets. On unreleased `main` commits, the pinned
+`vibeguard-runtime/VERSION` can be ahead of the latest tag; if matching assets do
+not exist yet, setup falls back to a local Cargo build unless
+`--require-provenance` is set.
 Python still supports evals, docs generation, developer tools, and optional
 language-specific guard packs.
 
-Open a new Claude Code or Codex session. Run `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
+Open a new Claude Code or Codex session after install. Use `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
 
 ### First 5 minutes
 
-Use this path to prove the install is active before changing another project:
+The complete first-run flow lives in [Quickstart](docs/how/quickstart.md). These commands prove the install is active before changing another project:
 
 ```bash
 bash ~/vibeguard/setup.sh doctor
@@ -60,15 +73,16 @@ bash ~/vibeguard/scripts/project-init.sh /path/to/project
 
 ## Current status
 
-The current mainline is install-verified on macOS and CI-verified on Ubuntu, macOS, and Windows.
+The current mainline is install-verified on macOS, full-CI verified on Ubuntu and
+macOS, and smoke-contract verified on Windows.
 
-- Latest release train: `v1.1.x`
+- Latest release train: `v1.1.x`; unreleased `main` may pin the next runtime version before its release tag exists
 - Interactive health report: `bash setup.sh doctor` (compatibility alias: `bash setup.sh --check`)
 - CI/post-install health gate: `bash setup.sh verify-install`
 - Expected verdict after a healthy install: `HEALTHY`
-- Claude Code: native rules, skills, commands, hooks, and git hooks are installed by `setup.sh`; scheduled GC is opt-in with `--with-scheduler`
-- Codex CLI: `~/.codex/AGENTS.md`, copied skills, native Bash/apply_patch/PermissionRequest/PostToolUse/Stop hooks, and `~/.vibeguard/run-hook-codex.sh` are installed by `setup.sh`
-- Known Codex boundary: Read/Glob/Grep native hooks are not currently available through Codex, so read-only exploration gates remain Claude Code or app-server-wrapper only
+- Claude Code and Codex install details: [Quickstart](docs/how/quickstart.md)
+- Profiles, CI rollout, and scheduler expectations: [Team Rollout](docs/how/team-rollout.md)
+- Stale install/runtime/hook diagnosis: [Troubleshooting](docs/how/troubleshooting.md)
 
 Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report and checked against per-hook budgets. The previous-commit ratio is useful for spotting changes, but single-run noise can move it; merge decisions should use the budget gate plus recent-main trend, not one baseline sample alone.
 
@@ -82,6 +96,11 @@ Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report
 | **Slash Commands** | `/vibeguard:*` workflows for preflight / review / check / learn |
 | **Learning System** | Turn repeated AI mistakes into reusable defenses |
 | **Observability** | Metrics and health for every interception |
+
+Coverage boundary: hooks and guards provide mechanical enforcement for the
+covered surfaces below. The full rule set is broader; severity labels and
+workflow rules also guide review, planning, and verification, and do not imply
+that every rule is hook-blocked.
 
 ## Product Boundaries
 
@@ -108,13 +127,13 @@ Real Codex hook output:
 You:  "Add a login endpoint"
 
 AI:   → tries to create auth_service.py
-      ✗ VibeGuard blocks — duplicate of existing auth.py, search first
+      ⚠ VibeGuard warns or blocks — new source files require search first
 
       → tries to import `flask-auth-magic`
-      ✗ VibeGuard blocks — non-existent library, verify before adding
+      ⚠ VibeGuard rules/review contract — verify external libraries before adding
 
       → hardcodes JWT secret as "your-secret-key"
-      ✗ VibeGuard flags — use env var or secret manager
+      ⚠ VibeGuard security rule — use env var or secret manager
 
       → runs `git push --force`
       ✗ VibeGuard git pre-push hook denies — history rewrites require explicit human approval
@@ -139,11 +158,12 @@ Use VibeGuard if you:
 
 - Use Claude Code or Codex regularly
 - Have seen duplicate files, fake APIs, over-engineering, or unverified "done" claims
-- Want **mechanical enforcement**, not just prompt guidelines
+- Want mechanical enforcement for high-risk hook/guard surfaces, plus explicit
+  rule and workflow contracts for cases that are not mechanically covered yet
 
 It may be overkill if you only use AI occasionally or don't want hook-level interception.
 
-Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). Fully implements all 5 Harness Golden Principles.
+Inspired by [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/) and [Stripe Minions](https://www.youtube.com/watch?v=bZ0z1ApYjJo). VibeGuard maps the 5 Harness Golden Principles into repo-level rules, hooks, workflows, and observability; not every principle is a hook-level block.
 
 ## How It Works
 
@@ -272,6 +292,7 @@ Use workflow prompts and dispatcher guidance as consumers of that contract, not 
 | `tdd-guide` | RED → GREEN → IMPROVE test-driven development |
 | `code-reviewer` / `security-reviewer` | Layered code review and OWASP Top 10 |
 | `build-error-resolver` | Build error diagnosis and fix |
+| `go-build-resolver` | Go-specific build error diagnosis |
 | `go-reviewer` / `python-reviewer` / `database-reviewer` | Language-specific review |
 | `refactor-cleaner` / `doc-updater` / `e2e-runner` | Refactoring, docs, and E2E tests |
 
@@ -299,7 +320,7 @@ VibeGuard guards its own behavior — the test suite and eval harness ship in th
 
 - **Behavior eval (CI-blocking):** a zero-cost gate that runs the real guard hooks end-to-end and asserts the actual block/deny decision on both the Claude Code hook and the Codex wrapper. Enforced in CI at a 100% pass / 100% coverage threshold — removing a required platform slice fails the build (`eval/run_behavior_eval.py`).
 - **Rule-detection benchmark:** a 40-sample, schema-validated, digest-pinned dataset (planted rule violations across SEC / Python / TypeScript / Go / Rust / universal rules, plus clean controls) scored on detection rate, a severity-weighted score, and **per-severity Expected Calibration Error (ECE)** — calibration, not just accuracy. Run manually with `python3 eval/run_eval.py` (uses the Claude API; not a merge gate).
-- **Test suite:** ~40 hook/guard test scripts under `tests/` and 100+ unit tests in the Rust `vibeguard-runtime` crate. CI runs on Linux, macOS, and Windows.
+- **Test suite:** hook/guard test scripts under `tests/` and 100+ unit tests in the Rust `vibeguard-runtime` crate. Full CI runs on Linux and macOS; Windows runs cross-platform contract smoke tests.
 
 ## Learning System
 
@@ -326,8 +347,10 @@ Extracts non-obvious solutions as structured Skill files for future reuse.
 ### Runtime prerequisites
 
 Default setup downloads and verifies the pinned `vibeguard-runtime` release for
-supported platforms. Source builds remain available for unsupported/offline
-installs and for users who explicitly request them.
+supported platforms when the pinned runtime version has published release
+assets. Source builds remain available for unsupported/offline installs, for
+unreleased `main` checkouts whose pinned runtime version has not been tagged yet,
+and for users who explicitly request them.
 
 | Platform | Default runtime path | Rust/Cargo needed? |
 |----------|----------------------|--------------------|
@@ -335,7 +358,7 @@ installs and for users who explicitly request them.
 | macOS x86_64 (`x86_64-apple-darwin`) | Prebuilt release binary | No |
 | Linux x86_64 (`x86_64-unknown-linux-musl`) | Prebuilt release binary | No |
 | Linux arm64 (`aarch64-unknown-linux-musl`) | Prebuilt release binary | No |
-| Other targets, offline installs, or `--build-from-source` | Local source build | Yes |
+| Other targets, offline installs, unreleased runtime pins without assets, or `--build-from-source` | Local source build | Yes |
 
 `setup.sh` uses `gh release download` when `gh` is available, otherwise `curl`.
 If a supported-target download fails, it falls back to `cargo build` when Cargo
@@ -360,6 +383,8 @@ bash ~/vibeguard/setup.sh --profile full --languages rust,typescript
 # Runtime / scheduler
 bash ~/vibeguard/setup.sh --build-from-source          # Force local Cargo build
 bash ~/vibeguard/setup.sh --with-scheduler             # Opt in to launchd/systemd scheduled GC
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --dry-run
+bash ~/vibeguard/scripts/install-health-report-scheduler.sh --install  # Opt in to weekly health reports
 
 # Verify / Uninstall
 bash ~/vibeguard/setup.sh doctor                      # Human-friendly report, exits 0 for compatibility
@@ -519,12 +544,34 @@ Key lessons:
 | Doc | Purpose |
 |-----|---------|
 | [docs/README_CN.md](docs/README_CN.md) | Chinese overview and setup guide |
+| [docs/how/quickstart.md](docs/how/quickstart.md) | Minimal install, verification, project bootstrap, and intercepted demo path |
+| [docs/how/team-rollout.md](docs/how/team-rollout.md) | Profiles, CI policy, scheduler rollout, and team verification expectations |
+| [docs/how/troubleshooting.md](docs/how/troubleshooting.md) | Install, runtime, Codex hook, and hook-status diagnosis |
 | [docs/rule-reference.md](docs/rule-reference.md) | Rule layers, guard coverage, and language-specific checks |
 | [docs/CLAUDE.md.example](docs/CLAUDE.md.example) | Project-level CLAUDE template without installing hooks |
 | [docs/linux-setup.md](docs/linux-setup.md) | Linux-specific setup notes |
 | [docs/known-issues/false-positives.md](docs/known-issues/false-positives.md) | Known guard false positives and mitigation notes |
 | [docs/assets/README.md](docs/assets/README.md) | Demo recording script and assets |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow, validation commands, and commit protocol |
+
+## The Agent Infra Stack
+
+This project is one layer of an open-source stack for running coding agents (Claude Code, Codex) as serious infrastructure. Every piece works standalone; together they close the loop:
+
+`vibeguard` is the **Trust** layer at runtime — rules, hooks, and guards while the agent works. Its install-time counterpart is `argus`.
+
+| Layer | Project | What it does |
+|---|---|---|
+| Extend | [claude-skill-registry](https://github.com/majiayu000/claude-skill-registry) | Discover and search community Claude Code skills |
+| Extend | [spellbook](https://github.com/majiayu000/spellbook) | Cross-runtime skills for Claude Code, Codex, and multi-agent workflows |
+| Trust | [argus](https://github.com/majiayu000/argus) | Static install-time scanner for supply-chain attacks (npm / PyPI / crates.io) |
+| Trust | [vibeguard](https://github.com/majiayu000/vibeguard) **◀ you are here** | Rules, hooks, and guards against hallucinated or unverified agent changes |
+| Remember | [remem](https://github.com/majiayu000/remem) | Local-first persistent memory for Claude Code and Codex sessions |
+| Orchestrate | [harness](https://github.com/majiayu000/harness) | Rust agent orchestration platform — rules, skills, GC, observability |
+| Route | [litellm-rs](https://github.com/majiayu000/litellm-rs) | High-performance Rust AI gateway — 100+ LLM APIs via OpenAI format |
+| Keep | [keepline](https://github.com/majiayu000/keepline) | Session command center — monitor, recover, never lose agent work |
+
+---
 
 ## References
 

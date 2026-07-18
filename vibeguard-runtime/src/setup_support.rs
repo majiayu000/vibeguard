@@ -66,10 +66,10 @@ pub fn sha256_text_short(value: &str) -> String {
 }
 
 pub fn display_home_path(path: &Path) -> String {
-    if let Some(home) = home_dir() {
-        if let Ok(rel) = path.strip_prefix(&home) {
-            return format!("~/{}", rel.display());
-        }
+    if let Some(home) = home_dir()
+        && let Ok(rel) = path.strip_prefix(&home)
+    {
+        return format!("~/{}", rel.display());
     }
     path.display().to_string()
 }

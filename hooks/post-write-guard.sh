@@ -1,56 +1,44 @@
 #!/usr/bin/env bash
 # VibeGuard PostToolUse(Write) Hook
 #
-# Review-only duplicate/stub/U-16 scan after Write. The parser, project scan,
-# warning construction, and log append are owned by vibeguard-runtime.
+# Thin compatibility entry point. The hot path lives in vibeguard-runtime so
+# Write post-hooks avoid sourcing the shared bash logging stack.
 
 set -euo pipefail
 
-source "$(dirname "$0")/log.sh"
-vg_start_timer
-export VIBEGUARD_HOOK_START_MS="${_VG_START_MS:-}"
+_VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VIBEGUARD_RUNTIME=""
 
-INPUT=$(cat)
+_vg_postwrite_installed_context() {
+  local installed_hooks="${HOME:-}/.vibeguard/installed/hooks"
+  [[ -n "${HOME:-}" && ( "${_VG_HOOK_DIR}" == "${installed_hooks}" || "${_VG_HOOK_DIR}" == "${installed_hooks}/"* ) ]]
+}
 
-vg_config_get_int_result _VG_U16_BASE_LIMIT VG_U16_LIMIT u16.limit 800
-vg_u16_warn_limit_result _VG_U16_WARN_LIMIT "$_VG_U16_BASE_LIMIT"
-_VG_SCAN_MAX_FILES="${VG_SCAN_MAX_FILES:-5000}"
-_VG_SCAN_MAX_DEFS="${VG_SCAN_MAX_DEFS:-20}"
-_VG_SCAN_MATCH_LIMIT="${VG_SCAN_MATCH_LIMIT:-5}"
-
-_VG_RUNTIME_ERR="$(mktemp)"
-_vg_cleanup_runtime_err() {
-  local status=$?
-  if ! rm -f "$_VG_RUNTIME_ERR" 2>/dev/null; then
-    printf 'VIBEGUARD ERROR: failed to remove post-write runtime stderr temp file\n' >&2
+_vg_postwrite_runtime_candidates() {
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if _vg_postwrite_installed_context; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
   fi
-  trap - EXIT
-  return "$status"
 }
-trap _vg_cleanup_runtime_err EXIT
 
-if printf '%s' "$INPUT" | "$_VIBEGUARD_RUNTIME" post-write-check \
-  "$_VG_U16_BASE_LIMIT" \
-  "$_VG_U16_WARN_LIMIT" \
-  "$_VG_SCAN_MAX_FILES" \
-  "$_VG_SCAN_MAX_DEFS" \
-  "$_VG_SCAN_MATCH_LIMIT" \
-  "$VIBEGUARD_LOG_FILE" \
-  2>"$_VG_RUNTIME_ERR"; then
-  exit 0
+while IFS= read -r _candidate; do
+  if [[ -n "$_candidate" && -f "$_candidate" && -x "$_candidate" ]]; then
+    _VIBEGUARD_RUNTIME="$_candidate"
+    break
+  fi
+done < <(_vg_postwrite_runtime_candidates)
+
+if [[ -z "$_VIBEGUARD_RUNTIME" ]]; then
+  printf '%s\n' "VIBEGUARD ERROR: vibeguard-runtime not found. Run setup.sh or cargo build --release --manifest-path vibeguard-runtime/Cargo.toml." >&2
+  exit 2
 fi
 
-_VG_RUNTIME_MSG="$(head -c 300 "$_VG_RUNTIME_ERR" 2>/dev/null || true)"
-[[ -n "$_VG_RUNTIME_MSG" ]] || _VG_RUNTIME_MSG="unknown runtime error"
-if ! vg_log "post-write-guard" "Write" "warn" "runtime post-write-check failed; fail-closed: $_VG_RUNTIME_MSG" ""; then
-  printf 'VIBEGUARD ERROR: failed to log post-write runtime failure\n' >&2
-fi
-
-cat <<'EOF'
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "VIBEGUARD ERROR: post-write runtime check failed; reporting visibly instead of silently passing."
-  }
-}
-EOF
+exec "$_VIBEGUARD_RUNTIME" hook post-write

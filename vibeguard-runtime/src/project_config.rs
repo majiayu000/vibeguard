@@ -1,5 +1,8 @@
 use crate::HandlerResult;
 use crate::git_root::git_root_for;
+use crate::project_config_scoped_suppression::{
+    ScopedSuppression, scoped_suppressions_from_object, validate_scoped_suppressions,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -19,7 +22,9 @@ const DISABLED_GUARD_VALUES: &[&str] = &[
     "check_dead_shims",
     "check_declaration_execution_gap",
     "check_defer_in_loop",
+    "check_dependency_changes",
     "check_dependency_layers",
+    "check_doc_overload",
     "check_duplicate_constants",
     "check_duplicate_types",
     "check_duplicates",
@@ -27,10 +32,13 @@ const DISABLED_GUARD_VALUES: &[&str] = &[
     "check_goroutine_leak",
     "check_naming_convention",
     "check_nested_locks",
+    "check_runtime_drift",
+    "check_sec13_mcp_config_risks",
     "check_semantic_effect",
     "check_single_source_of_truth",
     "check_taste_invariants",
     "check_test_integrity",
+    "check_test_weakening",
     "check_unwrap_in_prod",
     "check_workspace_consistency",
 ];
@@ -41,6 +49,7 @@ const GC_KEYS: &[&str] = &[
     "session_metrics_retain_days",
     "learning_window_days",
     "gc_log_max_kb",
+    "catchup_interval_hours",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +57,7 @@ pub struct ProjectConfig {
     pub enforcement: Option<String>,
     pub profile: Option<String>,
     pub disabled_hooks: Vec<String>,
+    pub scoped_suppressions: Vec<ScopedSuppression>,
 }
 
 pub fn project_config_path(
@@ -73,6 +83,12 @@ pub fn project_config_path(
 
     let candidate = cwd_path.join(".vibeguard.json");
     candidate.is_file().then_some(candidate)
+}
+
+pub fn project_config_root(path: &Path) -> Option<String> {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| parent.to_string_lossy().into_owned())
 }
 
 pub fn load_project_config(path: &Path) -> Result<ProjectConfig, String> {
@@ -102,6 +118,7 @@ pub fn load_project_config(path: &Path) -> Result<ProjectConfig, String> {
                     .collect()
             })
             .unwrap_or_default(),
+        scoped_suppressions: scoped_suppressions_from_object(object),
     })
 }
 
@@ -206,6 +223,7 @@ fn validate_project_config_value(path: &Path, value: &Value) -> Result<(), Strin
     validate_optional_enum(object, "enforcement", ENFORCEMENT_VALUES, &mut errors);
     validate_string_array(object, "languages", Some(LANGUAGE_VALUES), &mut errors);
     validate_string_array_values(object, "disabled_hooks", &disabled_hook_values, &mut errors);
+    validate_scoped_suppressions(object, &disabled_hook_values, &mut errors);
     validate_string_array(
         object,
         "disabled_guards",
@@ -232,6 +250,7 @@ fn validate_known_properties(object: &serde_json::Map<String, Value>, errors: &m
                 | "disabled_hooks"
                 | "disabled_rules"
                 | "disabled_guards"
+                | "scoped_suppressions"
                 | "gc"
         ) {
             errors.push(unknown_property_error(&[key.as_str()]));
@@ -313,13 +332,13 @@ fn validate_string_array(
             errors.push(format!("field {field} must contain only strings"));
             continue;
         };
-        if let Some(allowed) = allowed {
-            if !allowed.iter().any(|allowed| allowed == &text) {
-                if field == "disabled_hooks" {
-                    errors.push(format!("disabled_hooks contains unsupported hook {text}"));
-                } else {
-                    errors.push(format!(".{field}.{index}: unsupported value {text}"));
-                }
+        if let Some(allowed) = allowed
+            && !allowed.iter().any(|allowed| allowed == &text)
+        {
+            if field == "disabled_hooks" {
+                errors.push(format!("disabled_hooks contains unsupported hook {text}"));
+            } else {
+                errors.push(format!(".{field}.{index}: unsupported value {text}"));
             }
         }
     }
@@ -402,11 +421,11 @@ fn validate_gc(object: &serde_json::Map<String, Value>, errors: &mut Vec<String>
 fn unknown_property_error(path: &[&str]) -> String {
     let label = format!(".{}", path.join("."));
     let mut message = format!("{label}: unknown property");
-    if path.len() == 1 {
-        if let Some(hint) = runtime_config_key_hint(path[0]) {
-            message.push_str("; ");
-            message.push_str(hint);
-        }
+    if path.len() == 1
+        && let Some(hint) = runtime_config_key_hint(path[0])
+    {
+        message.push_str("; ");
+        message.push_str(hint);
     }
     message
 }
@@ -470,6 +489,80 @@ mod tests {
     use serde_json::json;
 
     const PROJECT_SCHEMA_JSON: &str = include_str!("../../schemas/vibeguard-project.schema.json");
+
+    fn sorted_values(values: &[&str]) -> Vec<String> {
+        let mut values = values
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_string_enum(field: &str) -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"][field]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("schema {field} enum should be an array"))
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .unwrap_or_else(|| panic!("schema {field} enum entries should be strings"))
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_array_enum(field: &str) -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"][field]["items"]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("schema {field} items enum should be an array"))
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .unwrap_or_else(|| panic!("schema {field} enum entries should be strings"))
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    fn schema_gc_keys() -> Vec<String> {
+        let schema = serde_json::from_str::<Value>(PROJECT_SCHEMA_JSON)
+            .expect("project schema should be valid JSON");
+        let mut values = schema["properties"]["gc"]["properties"]
+            .as_object()
+            .expect("schema gc properties should be an object")
+            .keys()
+            .map(|key| key.to_string())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+
+    #[test]
+    fn project_config_allowlists_match_schema() {
+        assert_eq!(schema_string_enum("profile"), sorted_values(PROFILE_VALUES));
+        assert_eq!(
+            schema_string_enum("enforcement"),
+            sorted_values(ENFORCEMENT_VALUES)
+        );
+        assert_eq!(
+            schema_array_enum("languages"),
+            sorted_values(LANGUAGE_VALUES)
+        );
+        assert_eq!(
+            schema_array_enum("disabled_guards"),
+            sorted_values(DISABLED_GUARD_VALUES)
+        );
+        assert_eq!(schema_gc_keys(), sorted_values(GC_KEYS));
+    }
 
     #[test]
     fn validation_reports_runtime_config_key_hints() {

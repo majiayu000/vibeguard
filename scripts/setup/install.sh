@@ -15,11 +15,14 @@ set -euo pipefail
 # bash setup.sh --yes # Apply high-context diffs non-interactively
 # bash setup.sh --build-from-source # Build vibeguard-runtime with cargo instead of downloading a release binary
 # bash setup.sh --runtime-version v1.2.3 # Download a specific vibeguard-runtime release tag
+# bash setup.sh --require-provenance # Require GitHub artifact attestation verification for release binaries
 # bash setup.sh --with-scheduler # Opt in to launchd/systemd scheduled GC
+# bash setup.sh --repair-stale-unmanaged-hooks # Opt in to prune missing-target Codex PreToolUse/PermissionRequest hooks
 # bash setup.sh --force-overwrite # Replace user-customized managed files/commands
 # bash setup.sh --dev-linked # Opt in to live-repo execution for local development
 # bash setup.sh --check # Check status only
 # bash setup.sh --clean # Clean installation
+# bash setup.sh --clean --purge-data # Clean installation and remove projects/config
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
@@ -27,6 +30,7 @@ source "${SCRIPT_DIR}/../lib/install-state.sh"
 source "${SCRIPT_DIR}/../lib/project_config.sh"
 source "${SCRIPT_DIR}/targets/claude-home.sh"
 source "${SCRIPT_DIR}/targets/codex-home.sh"
+source "${SCRIPT_DIR}/runtime-install.sh"
 
 # --- Mode dispatch ---
 case "${1:-}" in
@@ -42,7 +46,9 @@ VIBEGUARD_SETUP_DRY_RUN="${VIBEGUARD_SETUP_DRY_RUN:-0}"
 VIBEGUARD_SETUP_AUTO="${VIBEGUARD_SETUP_AUTO:-0}"
 VIBEGUARD_SETUP_FORCE_OVERWRITE="${VIBEGUARD_SETUP_FORCE_OVERWRITE:-0}"
 WITH_SCHEDULER="${VIBEGUARD_SETUP_WITH_SCHEDULER:-0}"
+REPAIR_STALE_UNMANAGED_HOOKS="${VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS:-0}"
 BUILD_FROM_SOURCE="${VIBEGUARD_SETUP_BUILD_FROM_SOURCE:-0}"
+REQUIRE_PROVENANCE="${VIBEGUARD_SETUP_REQUIRE_PROVENANCE:-0}"
 DEV_LINKED="${VIBEGUARD_SETUP_DEV_LINKED:-0}"
 VIBEGUARD_HOME="${HOME}/.vibeguard"
 _INSTALL_TMP=""
@@ -72,8 +78,12 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_VERSION_OVERRIDE="$2"; RUNTIME_VERSION_OVERRIDE_SET=1; shift 2 ;;
     --runtime-version=*)
       RUNTIME_VERSION_OVERRIDE="${1#*=}"; RUNTIME_VERSION_OVERRIDE_SET=1; shift ;;
+    --require-provenance)
+      REQUIRE_PROVENANCE=1; shift ;;
     --with-scheduler)
       WITH_SCHEDULER=1; shift ;;
+    --repair-stale-unmanaged-hooks)
+      REPAIR_STALE_UNMANAGED_HOOKS=1; shift ;;
     --force-overwrite)
       VIBEGUARD_SETUP_FORCE_OVERWRITE=1; shift ;;
     --dev-linked)
@@ -90,11 +100,13 @@ while [[ $# -gt 0 ]]; do
       LANGUAGES="${1#*=}"; shift ;;
     *)
       red "ERROR: unknown argument: $1"
-      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--with-scheduler] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean"
+      red "Usage: bash setup.sh [--yes] [--dry-run] [--build-from-source] [--runtime-version vX.Y.Z] [--require-provenance] [--with-scheduler] [--repair-stale-unmanaged-hooks] [--force-overwrite] [--dev-linked] [--profile minimal|core|full|strict] [--languages lang1,lang2] | --check | --clean [--purge-data]"
       exit 1 ;;
   esac
 done
 export VIBEGUARD_SETUP_DRY_RUN VIBEGUARD_SETUP_AUTO VIBEGUARD_SETUP_FORCE_OVERWRITE
+export VIBEGUARD_SETUP_REPAIR_STALE_UNMANAGED_HOOKS="${REPAIR_STALE_UNMANAGED_HOOKS}"
+export VIBEGUARD_SETUP_REQUIRE_PROVENANCE="${REQUIRE_PROVENANCE}"
 export VIBEGUARD_SETUP_DEV_LINKED="${DEV_LINKED}"
 
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE}" ]]; then
@@ -103,6 +115,14 @@ if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE
 fi
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
   export VIBEGUARD_SETUP_RUNTIME_VERSION="${RUNTIME_VERSION_OVERRIDE}"
+fi
+case "${REQUIRE_PROVENANCE}" in
+  0|1) ;;
+  *) red "ERROR: VIBEGUARD_SETUP_REQUIRE_PROVENANCE must be 0 or 1"; exit 1 ;;
+esac
+if [[ "${REQUIRE_PROVENANCE}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
+  red "ERROR: --require-provenance cannot be combined with --build-from-source; release provenance is only available for downloaded release binaries."
+  exit 1
 fi
 
 case "${PROFILE}" in
@@ -132,282 +152,6 @@ lang_selected() {
     fi
   done
   return 1
-}
-
-runtime_release_target() {
-  local os arch
-  os="$(uname -s)"
-  arch="$(uname -m)"
-  case "${os}:${arch}" in
-    Darwin:arm64|Darwin:aarch64)
-      printf 'aarch64-apple-darwin' ;;
-    Darwin:x86_64|Darwin:amd64)
-      printf 'x86_64-apple-darwin' ;;
-    Linux:x86_64|Linux:amd64)
-      printf 'x86_64-unknown-linux-musl' ;;
-    Linux:aarch64|Linux:arm64)
-      printf 'aarch64-unknown-linux-musl' ;;
-    *)
-      return 1 ;;
-  esac
-}
-
-runtime_release_tag() {
-  local version version_file
-  if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
-    version="${RUNTIME_VERSION_OVERRIDE}"
-  else
-    version_file="${REPO_DIR}/vibeguard-runtime/VERSION"
-    [[ -f "${version_file}" ]] || return 1
-    version="$(tr -d '[:space:]' < "${version_file}")"
-  fi
-  [[ -n "${version}" ]] || return 1
-  case "${version}" in
-    v*) printf '%s' "${version}" ;;
-    *) printf 'v%s' "${version}" ;;
-  esac
-}
-
-runtime_sha256_file() {
-  local path="$1"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "${path}" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "${path}" | awk '{print $1}'
-  else
-    return 1
-  fi
-}
-
-download_prebuilt_runtime() {
-  local target="$1" tag="$2" dest="$3"
-  local asset="vibeguard-runtime-${target}"
-  local release_repo="${VIBEGUARD_RUNTIME_RELEASE_REPO:-majiayu000/vibeguard}"
-  local download_dir downloaded reason expected actual
-  local provenance_rc provenance_status provenance_note
-  local -a errors=()
-
-  download_dir="$(mktemp -d "$(dirname "${dest}")/runtime_download_XXXXXX")"
-  downloaded=0
-  echo "  Downloading ${asset} from ${release_repo}@${tag}..."
-
-  if command -v gh >/dev/null 2>&1; then
-    if gh release download "${tag}" \
-      --repo "${release_repo}" \
-      --pattern "${asset}" \
-      --pattern "SHA256SUMS" \
-      --dir "${download_dir}" >/dev/null 2>&1; then
-      downloaded=1
-    else
-      errors+=("gh release download failed")
-    fi
-  else
-    errors+=("gh not found")
-  fi
-
-  if [[ "${downloaded}" != "1" ]]; then
-    if command -v curl >/dev/null 2>&1; then
-      local base_url="https://github.com/${release_repo}/releases/download/${tag}"
-      if curl -fsSL -o "${download_dir}/${asset}" "${base_url}/${asset}" >/dev/null 2>&1 \
-        && curl -fsSL -o "${download_dir}/SHA256SUMS" "${base_url}/SHA256SUMS" >/dev/null 2>&1; then
-        downloaded=1
-      else
-        errors+=("curl release download failed")
-      fi
-    else
-      errors+=("curl not found")
-    fi
-  fi
-
-  if [[ "${downloaded}" != "1" ]]; then
-    reason="download failed"
-    if [[ ${#errors[@]} -gt 0 ]]; then
-      reason="${errors[*]}"
-    fi
-    RUNTIME_PREBUILT_REASON="${reason}"
-    rm -rf "${download_dir}"
-    return 1
-  fi
-
-  if [[ ! -f "${download_dir}/${asset}" || ! -f "${download_dir}/SHA256SUMS" ]]; then
-    red "  ERROR: release download did not include ${asset} and SHA256SUMS."
-    rm -rf "${download_dir}"
-    return 10
-  fi
-
-  expected="$(awk -v file="${asset}" '($2 == file || $2 == "*" file) { print $1; exit }' "${download_dir}/SHA256SUMS")"
-  if [[ -z "${expected}" ]]; then
-    red "  ERROR: SHA256SUMS missing entry for ${asset}."
-    rm -rf "${download_dir}"
-    return 10
-  fi
-  if ! actual="$(runtime_sha256_file "${download_dir}/${asset}")"; then
-    red "  ERROR: sha256sum or shasum not found; cannot verify vibeguard-runtime release binary."
-    rm -rf "${download_dir}"
-    return 10
-  fi
-  if [[ "${actual}" != "${expected}" ]]; then
-    red "  ERROR: vibeguard-runtime checksum verification failed for ${asset}."
-    red "  Expected ${expected}, got ${actual}."
-    rm -rf "${download_dir}"
-    return 10
-  fi
-  provenance_rc=0
-  setup_runtime_verify_release_provenance "${download_dir}/${asset}" "${release_repo}" "${tag}" || provenance_rc=$?
-  case "${provenance_rc}" in
-    0)
-      provenance_status="verified-provenance"
-      provenance_note="provenance=verified-provenance"
-      ;;
-    2)
-      provenance_status="checksum-only"
-      provenance_note="provenance=checksum-only (${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable})"
-      yellow "  Runtime provenance is checksum-only: ${SETUP_RUNTIME_PROVENANCE_REASON:-verifier unavailable}."
-      ;;
-    *)
-      red "  ERROR: vibeguard-runtime provenance verification failed for ${asset}."
-      red "  ${SETUP_RUNTIME_PROVENANCE_REASON:-unknown provenance verification failure}"
-      rm -rf "${download_dir}"
-      return 10
-      ;;
-  esac
-
-  mkdir -p "$(dirname "${dest}")"
-  cp "${download_dir}/${asset}" "${dest}"
-  chmod +x "${dest}"
-  RUNTIME_PROVENANCE_STATUS="${provenance_status}"
-  RUNTIME_PROVENANCE_REASON="${SETUP_RUNTIME_PROVENANCE_REASON:-}"
-  RUNTIME_PROVENANCE_RELEASE_REPO="${release_repo}"
-  RUNTIME_PROVENANCE_TAG="${tag}"
-  RUNTIME_PROVENANCE_TARGET="${target}"
-  RUNTIME_PROVENANCE_SHA256="${actual}"
-  rm -rf "${download_dir}"
-  green "  vibeguard-runtime downloaded and verified (${tag}, ${target}; ${provenance_note})"
-}
-
-runtime_version_mismatch_reason() {
-  local runtime_path="$1" expected actual
-  expected="$(setup_runtime_expected_version 2>/dev/null)" || {
-    printf 'runtime VERSION could not be resolved'
-    return 1
-  }
-  actual="$("${runtime_path}" version 2>/dev/null)" || {
-    printf 'runtime does not support the version command'
-    return 1
-  }
-  actual="${actual%%$'\n'*}"
-  actual="${actual//$'\r'/}"
-  if [[ "${actual}" != "${expected}" ]]; then
-    printf 'runtime self-reported version %s, expected %s' "${actual:-unknown}" "${expected}"
-    return 1
-  fi
-  return 0
-}
-
-verify_prepared_runtime_version() {
-  local runtime_path="$1" reason
-  if reason="$(runtime_version_mismatch_reason "${runtime_path}")"; then
-    return 0
-  fi
-  red "  ERROR: prepared vibeguard-runtime is incompatible: ${reason}"
-  return 1
-}
-
-prepare_runtime_from_source() {
-  local fallback_reason="${1:-}"
-  if [[ -n "${fallback_reason}" ]]; then
-    yellow "  Falling back to source build (${fallback_reason})."
-  fi
-  if [[ ! -f "${REPO_DIR}/vibeguard-runtime/Cargo.toml" ]]; then
-    red "  ERROR: vibeguard-runtime/Cargo.toml not found; cannot install hooks without the Rust runtime."
-    exit 2
-  fi
-  if ! command -v cargo >/dev/null 2>&1; then
-    if [[ -n "${fallback_reason}" ]]; then
-      red "  ERROR: prebuilt vibeguard-runtime unavailable (${fallback_reason}) and cargo not found for source fallback."
-      red "  Install Rust/Cargo or use a platform with a published release binary."
-    else
-      red "  ERROR: --build-from-source requested but cargo not found. Install Rust/Cargo before installing VibeGuard."
-    fi
-    exit 2
-  fi
-  echo "  Building vibeguard-runtime from source (Rust)..."
-  local runtime_target_dir="${_INSTALL_TMP}/cargo-target"
-  if cargo build --release --manifest-path "${REPO_DIR}/vibeguard-runtime/Cargo.toml" --target-dir "${runtime_target_dir}" --quiet 2>/dev/null; then
-    local runtime_binary
-    runtime_binary="${runtime_target_dir}/release/vibeguard-runtime"
-    if [[ ! -x "${runtime_binary}" ]]; then
-      red "  ERROR: vibeguard-runtime build output not found at ${runtime_binary}"
-      exit 2
-    fi
-    mkdir -p "${_INSTALL_TMP}/bin"
-    cp "${runtime_binary}" "${_INSTALL_TMP}/bin/vibeguard-runtime"
-    chmod +x "${_INSTALL_TMP}/bin/vibeguard-runtime"
-    verify_prepared_runtime_version "${_INSTALL_TMP}/bin/vibeguard-runtime" || exit 2
-    rm -rf "${runtime_target_dir}"
-    RUNTIME_PROVENANCE_STATUS="source-build"
-    RUNTIME_PROVENANCE_REASON="${fallback_reason:-build-from-source requested}"
-    RUNTIME_PROVENANCE_RELEASE_REPO=""
-    RUNTIME_PROVENANCE_TAG=""
-    RUNTIME_PROVENANCE_TARGET=""
-    RUNTIME_PROVENANCE_SHA256=""
-    green "  vibeguard-runtime binary prepared from source"
-  else
-    red "  ERROR: vibeguard-runtime build failed. Fix the Rust build before installing VibeGuard."
-    exit 2
-  fi
-}
-
-write_runtime_provenance_state() {
-  local dest="$1"
-  mkdir -p "$(dirname "${dest}")"
-  {
-    printf 'status=%s\n' "${RUNTIME_PROVENANCE_STATUS:-unknown}"
-    [[ -z "${RUNTIME_PROVENANCE_REASON}" ]] || printf 'reason=%s\n' "${RUNTIME_PROVENANCE_REASON}"
-    [[ -z "${RUNTIME_PROVENANCE_RELEASE_REPO}" ]] || printf 'release_repo=%s\n' "${RUNTIME_PROVENANCE_RELEASE_REPO}"
-    [[ -z "${RUNTIME_PROVENANCE_TAG}" ]] || printf 'tag=%s\n' "${RUNTIME_PROVENANCE_TAG}"
-    [[ -z "${RUNTIME_PROVENANCE_TARGET}" ]] || printf 'target=%s\n' "${RUNTIME_PROVENANCE_TARGET}"
-    [[ -z "${RUNTIME_PROVENANCE_SHA256}" ]] || printf 'sha256=%s\n' "${RUNTIME_PROVENANCE_SHA256}"
-  } > "${dest}"
-}
-
-prepare_runtime_binary() {
-  local target tag download_rc fallback_reason
-  mkdir -p "${_INSTALL_TMP}/bin"
-
-  if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then
-    prepare_runtime_from_source ""
-    return
-  fi
-
-  if ! target="$(runtime_release_target)"; then
-    prepare_runtime_from_source "unsupported platform $(uname -s)/$(uname -m)"
-    return
-  fi
-  if ! tag="$(runtime_release_tag)"; then
-    prepare_runtime_from_source "runtime VERSION could not be resolved"
-    return
-  fi
-
-  RUNTIME_PREBUILT_REASON=""
-  download_rc=0
-  download_prebuilt_runtime "${target}" "${tag}" "${_INSTALL_TMP}/bin/vibeguard-runtime" || download_rc=$?
-  if [[ "${download_rc}" -eq 0 ]]; then
-    if verify_prepared_runtime_version "${_INSTALL_TMP}/bin/vibeguard-runtime"; then
-      return
-    fi
-    if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
-      exit 2
-    fi
-    rm -f "${_INSTALL_TMP}/bin/vibeguard-runtime"
-    prepare_runtime_from_source "downloaded runtime does not match repo runtime VERSION"
-    return
-  fi
-  if [[ "${download_rc}" -eq 10 ]]; then
-    exit 2
-  fi
-  fallback_reason="${RUNTIME_PREBUILT_REASON:-download failed}"
-  prepare_runtime_from_source "${fallback_reason}"
 }
 
 validate_project_config_for_install() {
@@ -464,6 +208,7 @@ stage_install_snapshot() {
   cp -r "${REPO_DIR}/.claude/commands" "${_INSTALL_TMP}/.claude/"
   mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
+  cp "${REPO_DIR}/schemas/vibeguard-runtime-config.schema.json" "${_INSTALL_TMP}/schemas/"
   printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
 
   # Runtime must be prepared before project config validation, but the staged
@@ -487,6 +232,9 @@ if [[ "${VIBEGUARD_SETUP_FORCE_OVERWRITE}" == "1" ]]; then
 fi
 if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then
   echo "Mode: build-from-source (vibeguard-runtime will be built with cargo)"
+fi
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  echo "Mode: require-provenance (release attestation must verify)"
 fi
 if [[ -n "${RUNTIME_VERSION_OVERRIDE}" ]]; then
   echo "Runtime version override: ${RUNTIME_VERSION_OVERRIDE}"
@@ -739,6 +487,7 @@ install_repo_git_hook() {
     red "  ERROR: failed to install ${hook_name} hook at ${hook_path}"
     return 1
   fi
+  state_record_project_hook "${REPO_DIR}" "${hook_path}" "${hook_name}"
   green "  ${hook_name} hook installed to vibeguard repo"
 }
 

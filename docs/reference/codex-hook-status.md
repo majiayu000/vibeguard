@@ -27,3 +27,5 @@ JSON mode is intended for UI polling:
 The JSON payload follows `schemas/hook-status.schema.json`. Each entry includes the hook name, event, matcher, normalized status, reason, duration, model-context flag, and log path.
 
 `setup.sh --check` also inspects `~/.codex/hooks.json` for non-Stop hook entries without `timeout`. VibeGuard-managed timeout drift is reported as broken install state. External hooks without timeout, such as an Orca bridge entry, are reported as warnings with the owning command so the user can add a timeout or consult that hook owner.
+
+`setup.sh --check --strict` reports unmanaged `PreToolUse` and `PermissionRequest` hooks whose target file is missing as repair-required broken state. This catches stale commands such as `node /existing/non-vibeguard.js` that fail before the requested Bash command starts. Ordinary `setup.sh --yes` preserves unmanaged hooks; use `setup.sh --yes --repair-stale-unmanaged-hooks` only when the reported missing target is not a real third-party integration.

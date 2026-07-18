@@ -30,7 +30,7 @@ pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {
     let year: i64 = dp[0].parse().ok()?;
     let month: i64 = dp[1].parse().ok()?;
     let day: i64 = dp[2].parse().ok()?;
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return None;
     }
     let (time_part, offset_secs) = split_iso_time_and_offset(time_part)?;
@@ -53,7 +53,7 @@ pub(crate) fn parse_iso_ts(ts: &str) -> Option<u64> {
         None => tp[2],
     };
     let sec: i64 = sec_part.parse().ok()?;
-    if hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59 {
+    if !(0..=23).contains(&hour) || !(0..=59).contains(&min) || !(0..=59).contains(&sec) {
         return None;
     }
 

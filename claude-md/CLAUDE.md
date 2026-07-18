@@ -10,6 +10,7 @@ VibeGuard rule injection mechanism. This directory contains template files that 
 
 ## Modify rules
 
-1. Edit `vibeguard-rules.md`
-2. Run `bash setup.sh` to re-inject
-3. Valid in new Claude Code session
+1. Edit the canonical rule under `rules/claude-rules/**`, including its `**Compact guidance:**` field when the rule is selected for compact injection
+2. Run `python3 scripts/generate_rule_docs.py` from the repository root
+3. Run `bash setup.sh` to re-inject
+4. Valid in new Claude Code session

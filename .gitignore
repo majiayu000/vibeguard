@@ -10,3 +10,9 @@ mcp-server/
 .claude/worktrees/
 .omx/
 bench-output.json
+.vibeguard/benchmarks/
+data/triage.jsonl
+data/rule-scorecard.json
+data/*T*.json
+data/benchmark-*.json
+data/bench-latency-*.json
