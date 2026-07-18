@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH658/` | Draft | Required work-surface classification before readiness routing |
 | `GH652/` | Draft | Deterministic current-source runtime build and pinning before setup structured-report assertions |
 | `GH631/` | Draft | Explicit orphan deletion, maintainer-only sgconfig discovery, and fail-visible distribution asset inventory |
 | `GH630/` | Implemented reference | Pinned Claude eval aliases, UTC-bounded offline freshness evidence, and one shared model-resolution contract |
