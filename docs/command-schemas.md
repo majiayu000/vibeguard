@@ -22,6 +22,7 @@ Executable schema sources:
 
 ## routing decision Schema
 
+Allowed `work_surface.decision` values are `code_execution`, `writing_research`, and `chat_support`.
 Allowed `readiness.decision` values are `execute_direct`, `plan_first`, and `clarify_first`.
 
 ```json
@@ -29,11 +30,16 @@ Allowed `readiness.decision` values are `execute_direct`, `plan_first`, and `cla
   "command": "routing_decision",
   "precedence": [
     "user_override",
+    "work_surface_classifier",
     "risk_destructive_gate",
     "ambiguity_gate",
     "readiness_classifier",
     "execution_or_delegation_lane"
   ],
+  "work_surface": {
+    "decision": "code_execution",
+    "reason": "Filesystem and runtime state are the deliverable"
+  },
   "readiness": {
     "decision": "execute_direct",
     "reason": "Task is bounded, ownership is clear, and verification can run immediately"

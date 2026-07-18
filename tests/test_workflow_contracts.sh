@@ -108,11 +108,8 @@ required_out="$(python3 "${HELPER}" list-required execution_handoff)"
 assert_contains "${required_out}" "runtime_pinning_snapshot" "handoff required fields come from schema"
 TOTAL=$((TOTAL + 1))
 if python3 - "${REPO_DIR}" >/dev/null <<'PY'; then
-import importlib.util
-import json
-import sys
+import importlib.util, json, sys
 from pathlib import Path
-
 repo = Path(sys.argv[1])
 spec = importlib.util.spec_from_file_location("workflow_contracts", repo / "scripts/lib/workflow_contracts.py")
 module = importlib.util.module_from_spec(spec)
@@ -120,21 +117,34 @@ assert spec.loader is not None
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 schema = json.loads((repo / "schemas/workflow-routing-decision.schema.json").read_text(encoding="utf-8"))
-payload = {
-    "readiness": {
-        "decision": "clarify_first",
-        "reason": "Need scope confirmation",
-        "blocking_questions": ["Which path is in scope?"],
-    }
-}
-errors = module.validate_instance(payload, schema)
-if errors:
-    raise SystemExit("\n".join(errors))
+precedence = ["user_override", "work_surface_classifier", "risk_destructive_gate", "ambiguity_gate", "readiness_classifier", "execution_or_delegation_lane"]
+def payload(surface):
+    return {"precedence": precedence, "work_surface": {"decision": surface, "reason": "Complete classification evidence"}, "readiness": {"decision": "clarify_first", "reason": "Need scope confirmation", "blocking_questions": ["Which path is in scope?"]}}
+for surface in ["code_execution", "writing_research", "chat_support"]:
+    errors = module.validate_instance(payload(surface), schema)
+    if errors:
+        raise SystemExit(f"valid {surface}: " + "\n".join(errors))
+valid = payload("code_execution")
+invalid = [
+    {key: value for key, value in valid.items() if key != "work_surface"},
+    valid | {"work_surface": {"decision": "unknown", "reason": "invalid"}},
+    valid | {"work_surface": {"decision": "code_execution", "reason": ""}},
+    {key: value for key, value in valid.items() if key != "precedence"},
+    valid | {"precedence": [precedence[1], precedence[0], *precedence[2:]]},
+    valid | {"precedence": [*precedence[:-1], precedence[-2]]},
+    valid | {"precedence": [*precedence, "extra_stage"]},
+]
+if any(not module.validate_instance(candidate, schema) for candidate in invalid):
+    raise SystemExit("routing schema accepted a missing, invalid, reordered, duplicated, or extra field")
+contract = (repo / "workflows/references/routing-contract.md").read_text(encoding="utf-8")
+for token in ["must not emit a partial", "Consumers never reclassify locally", "does not create an execution handoff", "later executors require both objects"]:
+    if token not in contract:
+        raise SystemExit(f"routing contract missing: {token}")
 PY
-  green "routing schema accepts snake_case blocking_questions"
+  green "routing schema and consumer contract enforce work-surface routing"
   PASS=$((PASS + 1))
 else
-  red "routing schema accepts snake_case blocking_questions"
+  red "routing schema and consumer contract enforce work-surface routing"
   FAIL=$((FAIL + 1))
 fi
 TOTAL=$((TOTAL + 1))
@@ -532,22 +542,12 @@ repo = Path(sys.argv[1])
 registry = json.loads((repo / "schemas/workflow-contract-consumers.json").read_text(encoding="utf-8"))
 consumers = {consumer.get("path"): consumer for consumer in registry["consumers"]}
 expected = {
-    ".claude/commands/vibeguard/preflight.md": {
-        "references": {"routing-contract.md"},
-        "requires": {"routing_decision"},
-    },
-    "workflows/optflow/SKILL.md": {
-        "references": {"routing-contract.md", "delegation-contract.md"},
-        "requires": {"routing_decision", "execution_handoff", "lane_map", "verification_gate"},
-    },
-    "AGENTS.md": {
-        "references": {"routing-contract.md"},
-        "requires": {"routing_decision", "execution_handoff"},
-    },
-    "skills/vibeguard/SKILL.md": {
-        "references": {"routing-contract.md"},
-        "requires": {"routing_decision", "execution_handoff"},
-    },
+    ".claude/commands/vibeguard/preflight.md": {"references": {"routing-contract.md"}, "requires": {"routing_decision"}},
+    "workflows/optflow/SKILL.md": {"references": {"routing-contract.md", "delegation-contract.md"}, "requires": {"routing_decision", "execution_handoff", "lane_map", "verification_gate"}},
+    "workflows/plan-flow/SKILL.md": {"references": {"routing-contract.md", "delegation-contract.md"}, "requires": {"routing_decision", "execution_handoff", "lane_map", "verification_gate"}},
+    "workflows/plan-mode/SKILL.md": {"references": {"routing-contract.md", "delegation-contract.md"}, "requires": {"routing_decision", "execution_handoff", "lane_map", "verification_gate"}},
+    "AGENTS.md": {"references": {"routing-contract.md"}, "requires": {"routing_decision", "execution_handoff"}},
+    "skills/vibeguard/SKILL.md": {"references": {"routing-contract.md"}, "requires": {"routing_decision", "execution_handoff"}},
 }
 for path, contract in expected.items():
     consumer = consumers.get(path)
@@ -559,7 +559,8 @@ for path, contract in expected.items():
     missing_requires = contract["requires"] - set(consumer.get("requires", []))
     if missing_requires:
         raise SystemExit(f"{path} missing requirements: {sorted(missing_requires)}")
-
+if "execution_handoff" in consumers[".claude/commands/vibeguard/preflight.md"]["requires"]:
+    raise SystemExit("execute_direct consumer must remain handoff-free")
 examples = {
     (example.get("heading"), example.get("schema"))
     for example in registry.get("markdown_examples", [])
@@ -684,19 +685,21 @@ else
 fi
 
 header "consumer drift failures"
-HANDOFF_FIXTURE="${TMP_DIR}/handoff"
-copy_schemas "${HANDOFF_FIXTURE}"
-mkdir -p "${HANDOFF_FIXTURE}/agents"
-python3 - "${REPO_DIR}/agents/dispatcher.md" "${HANDOFF_FIXTURE}/agents/dispatcher.md" <<'PY'
+PLANNED_FIXTURE="${TMP_DIR}/planned"
+copy_schemas "${PLANNED_FIXTURE}"
+mkdir -p "${PLANNED_FIXTURE}/workflows/plan-flow/references"
+python3 - "${REPO_DIR}/workflows/plan-flow/references/execplan-integration.md" "${PLANNED_FIXTURE}/workflows/plan-flow/references" <<'PY'
 from pathlib import Path
 import sys
 source, target = map(Path, sys.argv[1:3])
-text = source.read_text(encoding="utf-8").replace("verification_owner", "verificationOwner")
-target.write_text(text, encoding="utf-8")
+text = source.read_text(encoding="utf-8"); (target / "missing-routing.md").write_text(text.replace("work_surface", "workSurface"), encoding="utf-8")
+(target / "missing-handoff.md").write_text(text.replace("verification_owner", "verificationOwner"), encoding="utf-8")
 PY
-write_registry "${HANDOFF_FIXTURE}" '"markdown_examples": [], "consumers": [{"path": "agents/dispatcher.md", "references": [], "requires": ["execution_handoff"]}], "legacy_routing_markers": []'
-assert_fails_with "renamed handoff field fails consumer validation" "verification_owner" \
-  python3 "${HELPER}" --repo-dir "${HANDOFF_FIXTURE}" --schema-dir "${HANDOFF_FIXTURE}/schemas" --registry "${HANDOFF_FIXTURE}/schemas/workflow-contract-consumers.json" validate
+write_registry "${PLANNED_FIXTURE}" '"markdown_examples": [], "consumers": [{"path": "workflows/plan-flow/references/missing-routing.md", "references": [], "requires": ["routing_decision", "execution_handoff"]}, {"path": "workflows/plan-flow/references/missing-handoff.md", "references": [], "requires": ["routing_decision", "execution_handoff"]}], "legacy_routing_markers": []'
+assert_fails_with "planned consumer rejects missing routing decision" "work_surface" \
+  python3 "${HELPER}" --repo-dir "${PLANNED_FIXTURE}" --schema-dir "${PLANNED_FIXTURE}/schemas" --registry "${PLANNED_FIXTURE}/schemas/workflow-contract-consumers.json" validate
+assert_fails_with "planned consumer rejects missing execution handoff" "verification_owner" \
+  python3 "${HELPER}" --repo-dir "${PLANNED_FIXTURE}" --schema-dir "${PLANNED_FIXTURE}/schemas" --registry "${PLANNED_FIXTURE}/schemas/workflow-contract-consumers.json" validate
 
 DELEGATION_FIXTURE="${TMP_DIR}/delegation"
 copy_schemas "${DELEGATION_FIXTURE}"

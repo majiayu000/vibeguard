@@ -40,10 +40,12 @@ Goal: Develop a implementable and traceable technical execution plan for the tas
 Plan Mode follows the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md).
 
 - Explicit `/plan` usage is a user override that selects the planning lane.
+- Require a complete validated `routing_decision`, including exact `precedence`, `work_surface` (`code_execution`, `writing_research`, or `chat_support`), and `readiness` (`execute_direct`, `plan_first`, or `clarify_first`); preserve it unchanged beside any execution handoff.
 - User override does not bypass the ambiguity gate. If non-goals, decision boundaries, or delegation ownership are missing, return `clarify_first` questions before writing the plan.
 - Once ambiguity is resolved, Plan Mode operates as the `plan_first` planner for one-session work.
 - When execution is expected after planning, emit the shared handoff fields: `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`.
 - When the plan delegates work, include assignments from [`workflows/references/delegation-contract.md`](../references/delegation-contract.md) before any child-agent write lane starts.
+- If a new user instruction changes the deliverable surface, return to the canonical router and rerun the full precedence ladder; never reclassify locally.
 
 ## 1. Overall behavioral agreement (must be observed)
 

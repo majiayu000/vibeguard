@@ -120,12 +120,12 @@
     {
       "path": "workflows/plan-flow/SKILL.md",
       "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["execution_handoff", "lane_map", "verification_gate"]
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
     },
     {
       "path": "workflows/plan-mode/SKILL.md",
       "references": ["routing-contract.md", "delegation-contract.md"],
-      "requires": ["execution_handoff", "lane_map", "verification_gate"]
+      "requires": ["routing_decision", "execution_handoff", "lane_map", "verification_gate"]
     },
     {
       "path": "workflows/auto-optimize/SKILL.md",

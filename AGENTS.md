@@ -30,6 +30,12 @@ VibeGuard is an anti-hallucination rules, hooks, runtime, installer, and workflo
 
 Follow `workflows/references/routing-contract.md` for non-trivial work.
 
+Classify `work_surface` as `code_execution`, `writing_research`, or
+`chat_support` through the exact `precedence` ladder before setting `readiness` to `execute_direct`, `plan_first`, or
+`clarify_first`. If classification lacks or finds conflicting facts, clarify
+before emitting a routing decision; downstream consumers must not reclassify
+the surface locally.
+
 | Change | Default readiness |
 |---|---|
 | Focused docs or test-only cleanup | `execute_direct` |

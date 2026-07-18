@@ -36,6 +36,14 @@ This skill is repository-agnostic. It defines how to analyze and plan, not only 
 
 Plan Flow owns the task only after the canonical router in [`workflows/references/routing-contract.md`](../references/routing-contract.md) resolves to `plan_first`.
 
+Require the complete validated `routing_decision`, including its exact
+`precedence`, a resolved `work_surface` of `code_execution`,
+`writing_research`, or `chat_support`, and a `readiness` value of
+`execute_direct`, `plan_first`, or `clarify_first`. Preserve that object unchanged beside
+the execution handoff; do not nest it inside the handoff or reconstruct it
+from planning artifacts. If a new user instruction changes the deliverable
+surface, return to the canonical router before planning or execution continues.
+
 Route into Plan Flow when these readiness signals are true:
 
 - ambiguity has already been resolved
