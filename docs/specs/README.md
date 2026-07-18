@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH659/` | Draft | Bound wrapper/event log growth, stale learning markers, and scheduled oversized-scan status |
 | `GH661/` | Draft | Preserve wrapped-hook exit code, conventional signal decoding, and nonempty failure evidence |
 | `GH658/` | Draft | Required work-surface classification before readiness routing |
 | `GH652/` | Draft | Deterministic current-source runtime build and pinning before setup structured-report assertions |
