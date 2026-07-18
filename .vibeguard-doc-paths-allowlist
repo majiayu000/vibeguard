@@ -1,60 +1,14 @@
-# Rule directory paths referenced in README_CN.md (user-local, not in repo)
-common/coding-style.md
-common/data-consistency.md
-common/security.md
-common/workflow.md
-rust/quality.md
-golang/quality.md
-typescript/quality.md
-python/quality.md
+# Strict format: reference | category | scope_glob | canonical_source | reason
+# Historical and planned entries must stay scoped to live tracked Markdown usage.
 
-# Script referenced in systemic issues report (removed after cleanup)
-scripts/verify-package-contents.sh
-
-# Paths in docs that reference removed/external files
-tests/test_post_write_perf.sh
-vibeguard/claude-md/vibeguard-rules.md
-vibeguard/resources/skill-template.md
-vibeguard/rules/security.md
-vibeguard/rules/universal.md
-vibeguard/scripts/compliance_check.sh
-vibeguard/spec.md
-
-# CHANGELOG historical references (files existed at time of release)
-scripts/verify/verify-package-contents.sh
-hooks/post-guard-check.sh
-scripts/ci/validate-wiring-contract.sh
-scripts/ci/validate-config-contract.sh
-
-# Skill command references with vibeguard/ prefix (resolved at runtime)
-vibeguard/guards/
-vibeguard/hooks/
-vibeguard/rules/
-vibeguard/templates/skill-template.md
-vibeguard/docs/internal/history/spec.md
-vibeguard/scripts/verify/compliance_check.sh
-
-# Placeholder path in docs/how/memory-files.md — illustrates project-level CLAUDE.md location (not a real repo path)
-project/.claude/CLAUDE.md
-
-# FOLLOWUPS placeholders and workspace-local notes
-docs/internal/research/knowledge-discovery/YYYY-MM-DD.md
-vibeguard/README.md
-vibeguard/docs/internal/research/knowledge-discovery/2026-04-17.md
-vibeguard/docs/internal/followups.md
-
-# 2026-05-01 audit/spec historical and planned-path references
-hooks/_lib/pkg_rewrite.py
-hooks/_lib/session_metrics.py
-vg-helper/src/session_metrics.rs
-scripts/ci/check-codex-shim-consistency.sh
-_lib/log.sh
-_lib/detect_duplicate.sh
-_lib/detect_filename_collision.sh
-
-# Local SPEC-96 draft placeholders (may exist as untracked planning notes)
-schemas/prompt-contract.schema.yaml
-scripts/ci/validate-prompt-contract.sh
-tests/test_prompt_contract.sh
-docs/prompt-contract.md
-skills/vibeguard/references/prompt-contract.yaml
+scripts/verify/verify-package-contents.sh | historical | CHANGELOG.md | - | Release history retains the script path that existed at publication time
+hooks/post-guard-check.sh | historical | CHANGELOG.md | - | Release history retains the hook path that existed at publication time
+hooks/_lib/pkg_rewrite.py | historical | plan/** | - | Completed audit plans retain the pre-Rust helper path discussed at the time
+hooks/_lib/pkg_rewrite.py | historical | docs/internal/** | - | Internal audit evidence retains the pre-Rust helper path discussed at the time
+hooks/_lib/session_metrics.py | historical | plan/** | - | Completed audit plans retain the pre-Rust helper path discussed at the time
+hooks/_lib/session_metrics.py | historical | docs/internal/** | - | Internal audit evidence retains the pre-Rust helper path discussed at the time
+scripts/ci/check-codex-shim-consistency.sh | historical | plan/** | - | Completed audit plan records the earlier shim validator name
+_lib/log.sh | historical | plan/** | - | Completed audit plan records the earlier unqualified helper layout
+_lib/detect_duplicate.sh | historical | plan/** | - | Completed audit plan records the earlier unqualified helper layout
+_lib/detect_filename_collision.sh | historical | plan/** | - | Completed audit plan records the earlier unqualified helper layout
+schemas/prompt-contract.schema.yaml | planned | plan/** | - | SPEC-96 plan records the proposed YAML schema path before implementation selected JSON

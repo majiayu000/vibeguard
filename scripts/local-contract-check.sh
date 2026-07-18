@@ -70,6 +70,7 @@ run_check "validate-doc-command-paths" "$REPO_DIR/scripts/ci/validate-doc-comman
 run_check "validate-no-personal-paths" "$REPO_DIR/scripts/ci/validate-no-personal-paths.sh" "false"
 run_check "validate-prompt-contract" "$REPO_DIR/scripts/ci/validate-prompt-contract.sh" "true"
 run_check "validate-skill-format"    "$REPO_DIR/scripts/ci/validate-skill-format.sh"    "false"
+run_check "distribution-assets"      "$REPO_DIR/tests/test_distribution_assets.sh"     "true"
 
 if [[ "$QUICK" -eq 0 ]]; then
   run_check "doc-freshness (--strict)" "$REPO_DIR/scripts/verify/doc-freshness-check.sh" "true" --strict
@@ -80,6 +81,10 @@ fi
 # PR #80 contract tests — activate automatically once those files exist
 if [[ -f "$REPO_DIR/tests/test_manifest_contract.sh" ]]; then
   run_check "test_manifest_contract" "$REPO_DIR/tests/test_manifest_contract.sh" "true"
+fi
+
+if [[ -f "$REPO_DIR/tests/test_issue_template_contract.sh" ]]; then
+  run_check "test_issue_template_contract" "$REPO_DIR/tests/test_issue_template_contract.sh" "false"
 fi
 
 if [[ -f "$REPO_DIR/tests/test_prompt_contract.sh" ]]; then

@@ -38,6 +38,7 @@ EOF
 
 INCLUDE_FIXTURES=false
 STRICT_REPO=false
+VIBEGUARD_SELF_SCAN=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-fixtures)
@@ -80,6 +81,7 @@ fi
 # test data, workflow YAML with shell snippets).  Use --strict-repo to disable.
 if [[ "$STRICT_REPO" != true ]] && [[ -f "${TARGET_DIR%/}/.vibeguard-doc-paths-allowlist" ]] \
   && [[ -d "${TARGET_DIR%/}/guards" ]] && [[ -d "${TARGET_DIR%/}/hooks" ]]; then
+  VIBEGUARD_SELF_SCAN=true
   EXCLUDE_DIRS+=(workflows data scripts eval)
 fi
 
@@ -107,10 +109,162 @@ fi
 
 # 2. Legacy debugging code
 echo "Check legacy debugging code..."
-DEBUG_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
+DEBUG_CODE=$(grep --null -rn "${EXCLUDE_ARGS[@]}" \
   -E '^\s*(console\.(log|debug|info)\(|print\(|println!\(|dbg!\(|puts |p |pp )' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.tsx' --include='*.jsx' --include='*.rs' --include='*.rb' --include='*.go' \
-  2>/dev/null | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
+  2>/dev/null | tr '\000' '\034' | grep -v '// keep' | grep -v '# keep' | grep -v 'logger\.') || true
+if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEBUG_CODE" ]]; then
+  TARGET_RUNTIME_SRC="${TARGET_DIR%/}/vibeguard-runtime/src/"
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | LC_ALL=C TARGET_RUNTIME_SRC="$TARGET_RUNTIME_SRC" awk '
+    function repeat_hashes(count, result, position) {
+      result = ""
+      for (position = 0; position < count; position++) {
+        result = result "#"
+      }
+      return result
+    }
+    function raw_string_hashes(text, start, prefix_length, position, count) {
+      prefix_length = 0
+      if (substr(text, start, 1) == "r") {
+        prefix_length = 1
+      } else if (substr(text, start, 2) ~ /^(br|cr)$/) {
+        prefix_length = 2
+      } else {
+        return -1
+      }
+      if (start > 1 && substr(text, start - 1, 1) ~ /[[:alnum:]_]/) {
+        return -1
+      }
+      position = start + prefix_length
+      count = 0
+      while (substr(text, position, 1) == "#") {
+        count++
+        position++
+      }
+      if (substr(text, position, 1) != "\"") {
+        return -1
+      }
+      return count
+    }
+    function char_literal_end(text, start, position, ch, escaped) {
+      ch = substr(text, start + 1, 1)
+      if (ch ~ /[[:alpha:]_]/ && substr(text, start + 2, 1) != "\047") {
+        return 0
+      }
+      escaped = 0
+      for (position = start + 1; position <= length(text); position++) {
+        ch = substr(text, position, 1)
+        if (escaped) {
+          escaped = 0
+        } else if (ch == "\\") {
+          escaped = 1
+        } else if (ch == "\047") {
+          return position
+        }
+      }
+      return 0
+    }
+    function scan_rust_file(path, text, line_number, read_status, i, ch, in_string, escaped, raw_hashes, raw_prefix_length, raw_quote, raw_close, char_end, block_depth, key) {
+      line_number = 0
+      while ((read_status = (getline text < path)) > 0) {
+        line_number++
+        escaped = 0
+        for (i = 1; i <= length(text); i++) {
+          ch = substr(text, i, 1)
+          if (raw_close != "") {
+            if (substr(text, i, length(raw_close)) == raw_close) {
+              i += length(raw_close) - 1
+              raw_close = ""
+            }
+            continue
+          }
+          if (in_string) {
+            if (escaped) {
+              escaped = 0
+            } else if (ch == "\\") {
+              escaped = 1
+            } else if (ch == "\"") {
+              in_string = 0
+            }
+            continue
+          }
+          if (block_depth > 0) {
+            if (substr(text, i, 2) == "/*") {
+              block_depth++
+              i++
+            } else if (substr(text, i, 2) == "*/") {
+              block_depth--
+              i++
+            }
+            continue
+          }
+          if (substr(text, i, 2) == "//") {
+            break
+          }
+          if (substr(text, i, 2) == "/*") {
+            block_depth = 1
+            i++
+            continue
+          }
+          raw_hashes = raw_string_hashes(text, i)
+          if (raw_hashes >= 0) {
+            raw_prefix_length = substr(text, i, 1) == "r" ? 1 : 2
+            raw_quote = i + raw_prefix_length + raw_hashes
+            raw_close = "\"" repeat_hashes(raw_hashes)
+            i = raw_quote
+          } else if (ch == "\047") {
+            char_end = char_literal_end(text, i)
+            if (char_end > 0) {
+              i = char_end
+            }
+          } else if (ch == "\"") {
+            in_string = 1
+          } else if (substr(text, i, 4) == "dbg!" \
+              && (i == 1 || substr(text, i - 1, 1) !~ /[[:alnum:]_]/)) {
+            key = path SUBSEP line_number
+            dbg_lines[key] = 1
+          }
+        }
+      }
+      close(path)
+      scanned[path] = 1
+      if (read_status < 0) {
+        scan_failed[path] = 1
+      }
+    }
+    function file_line_has_dbg(path, line_number, key) {
+      if (!(path in scanned)) {
+        scan_rust_file(path)
+      }
+      if (path in scan_failed) {
+        return 1
+      }
+      key = path SUBSEP line_number
+      return key in dbg_lines
+    }
+    BEGIN {
+      prefix = ENVIRON["TARGET_RUNTIME_SRC"]
+      separator = sprintf("%c", 28)
+    }
+    {
+      separator_index = index($0, separator)
+      finding_path = substr($0, 1, separator_index - 1)
+      matched = substr($0, separator_index + 1)
+      line_number = matched
+      sub(/:.*/, "", line_number)
+      sub(/^[0-9]+:/, "", matched)
+      if (separator_index > 0 && index(finding_path, prefix) == 1 \
+          && matched ~ /^[[:space:]]*println!\(/ \
+          && !file_line_has_dbg(finding_path, line_number + 0)) {
+        next
+      }
+    }
+    { print }
+  ')
+fi
+if [[ -n "$DEBUG_CODE" ]]; then
+  DEBUG_CODE=$(printf '%s\n' "$DEBUG_CODE" | tr '\034' ':')
+fi
 if [[ -n "$DEBUG_CODE" ]]; then
   COUNT=$(echo "$DEBUG_CODE" | wc -l | tr -d ' ')
   yellow "Legacy debug code: ${COUNT}"
@@ -159,6 +313,17 @@ DEAD_CODE=$(grep -rn "${EXCLUDE_ARGS[@]}" \
   -E '(unreachable!|todo!|unimplemented!|#\[allow\(dead_code\)\]|// @ts-ignore|# type: ignore|# noqa)' \
   "$TARGET_DIR" --include='*.py' --include='*.ts' --include='*.js' --include='*.rs' \
   2>/dev/null || true)
+if [[ "$VIBEGUARD_SELF_SCAN" == true && -n "$DEAD_CODE" ]]; then
+  DEAD_CODE=$(printf '%s\n' "$DEAD_CODE" | awk '
+    {
+      matched = $0
+      sub(/^[^:]*:[0-9]+:/, "", matched)
+      if (matched !~ /\/\/[[:space:]]*slop-pattern-source([[:space:]]|$)/) {
+        print
+      }
+    }
+  ')
+fi
 if [[ -n "$DEAD_CODE" ]]; then
   COUNT=$(echo "$DEAD_CODE" | wc -l | tr -d ' ')
   yellow "Dead code/suppression flag: ${COUNT}"

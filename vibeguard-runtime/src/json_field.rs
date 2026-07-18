@@ -26,10 +26,7 @@ fn read_stdin() -> io::Result<String> {
 fn get_nested<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut val = data;
     for key in path.split('.') {
-        val = match val.get(key) {
-            Some(v) => v,
-            None => return None,
-        };
+        val = val.get(key)?;
     }
     Some(val)
 }
@@ -139,7 +136,7 @@ mod tests {
 
     #[test]
     fn bool_field_preserves_json_boolean_type() {
-        let args = vec!["stop_hook_active".to_string()];
+        let args = ["stop_hook_active".to_string()];
 
         let data = json!({"stop_hook_active": true});
         assert_eq!(

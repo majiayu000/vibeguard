@@ -9,10 +9,17 @@ ExecPlan follows the same precedence ladder as the rest of the workflow system. 
 Apply routing in this order:
 
 1. `user_override`
-2. `risk/destructive gate`
-3. `ambiguity gate`
-4. `readiness classifier`
-5. `execution/delegation lane`
+2. `work_surface classifier`
+3. `risk/destructive gate`
+4. `ambiguity gate`
+5. `readiness classifier`
+6. `execution/delegation lane`
+
+Classify `work_surface` before readiness:
+
+- `code_execution`
+- `writing_research`
+- `chat_support`
 
 Readiness still resolves to exactly one of:
 
@@ -41,10 +48,10 @@ Identification rules:
 ## Complete pipeline
 
 ```
-user_override / risk gate / ambiguity gate
+user_override / work_surface classifier / risk gate / ambiguity gate
     │
     ▼
-readiness = plan_first
+validated routing_decision: exact precedence + resolved work_surface + readiness = plan_first
     │
     ▼
 /vibeguard:interview (if a SPEC is still needed)
@@ -56,10 +63,11 @@ SPEC.md
 /vibeguard:exec-plan init
     │
     ▼
-*-execplan.md + W-20 runtime pinning snapshot + shared handoff
+validated routing_decision + *-execplan.md + W-20 runtime pinning snapshot + shared execution_handoff
     │
     ▼
 execution workflow consumes:
+  complete validated routing_decision, unchanged from planning
   mode / artifacts / runtime_pinning_snapshot / verification_owner / stop_conditions / lane_map
   delegation assignments from workflows/references/delegation-contract.md when child agents or parallel lanes are used
     │
@@ -99,13 +107,15 @@ When execution resumes with a new session:
 3. Find the first `in_progress` or `pending` step
 4. Read the Context chapter to restore the project context
 5. Read the Decision Log to understand the existing decisions
-6. Reuse the last shared handoff fields:
+6. Reuse and validate the last complete `routing_decision`, including exact `precedence`, resolved `work_surface`, and `readiness: plan_first`; do not reconstruct or reclassify it locally
+7. Reuse the last shared `execution_handoff` fields:
    - `mode`
    - `artifacts`
    - `runtime_pinning_snapshot`
    - `verification_owner`
    - `stop_conditions`
    - `lane_map`
-7. Reuse delegation assignments from [`workflows/references/delegation-contract.md`](../../references/delegation-contract.md) before restarting any child-agent or parallel lane
-8. Run `check_runtime_drift.sh check` against `runtime_pinning_snapshot`
-9. Continue execution only if the snapshot still matches or accepted drift has been recorded
+8. Stop if either the routing decision or execution handoff is missing or incomplete; `execute_direct` does not use ExecPlan and remains handoff-free
+9. Reuse delegation assignments from [`workflows/references/delegation-contract.md`](../../references/delegation-contract.md) before restarting any child-agent or parallel lane
+10. Run `check_runtime_drift.sh check` against `runtime_pinning_snapshot`
+11. Continue execution only if the snapshot still matches or accepted drift has been recorded

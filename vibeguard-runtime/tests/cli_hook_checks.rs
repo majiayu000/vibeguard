@@ -1,6 +1,6 @@
 mod common;
 
-use common::{bin, run_runtime_with_stdin, unique_temp_dir};
+use common::{bin, unique_temp_dir};
 use std::fs;
 use std::io::Write;
 use std::process::Stdio;
@@ -31,21 +31,35 @@ fn run_post_write_check(input: &str, log_file: &std::path::Path) -> std::process
     child.wait_with_output().unwrap()
 }
 
+fn run_post_edit_fast_check(input: &str, log_file: &std::path::Path) -> std::process::Output {
+    let mut child = bin()
+        .args([
+            "post-edit-fast-check",
+            "800",
+            "test-session",
+            "codex",
+            log_file.to_string_lossy().as_ref(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
 #[test]
 fn post_edit_fast_check_reports_malformed_json() {
     let root = unique_temp_dir("post-edit-malformed");
     fs::create_dir_all(&root).unwrap();
     let log_file = root.join("events.jsonl");
-    let out = run_runtime_with_stdin(
-        &[
-            "post-edit-fast-check",
-            "400",
-            "test-session",
-            "codex",
-            log_file.to_string_lossy().as_ref(),
-        ],
-        "not-json",
-    );
+    let out = run_post_edit_fast_check("not-json", &log_file);
 
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -55,6 +69,366 @@ fn post_edit_fast_check_reports_malformed_json() {
     let log_text = fs::read_to_string(&log_file).unwrap();
     assert!(log_text.contains("Malformed hook input"), "{log_text}");
     assert!(log_text.contains("\"decision\":\"warn\""), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_keeps_malformed_warning_visible_when_log_fails() {
+    let root = unique_temp_dir("post-edit-malformed-log-failure");
+    fs::create_dir_all(&root).unwrap();
+    let blocking_parent = root.join("not-a-directory");
+    fs::write(&blocking_parent, "blocks log parent creation").unwrap();
+    let log_file = blocking_parent.join("events.jsonl");
+
+    let out = run_post_edit_fast_check("not-json", &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stdout.contains("FAST_OUTPUT"), "{stdout}");
+    assert!(stdout.contains("malformed PostToolUse(Edit)"), "{stdout}");
+    assert!(stdout.contains("VG-INTERNAL-LOG-APPEND"), "{stdout}");
+    assert!(stdout.contains("mode=allow"), "{stdout}");
+    assert!(
+        stderr.contains("post-edit malformed input log failed"),
+        "{stderr}"
+    );
+    assert!(!log_file.exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_skips_missing_required_fields() {
+    let root = unique_temp_dir("post-edit-missing-fields");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+
+    for input in [
+        r#"{"tool_input":{"new_string":"fn clean() {}"}}"#,
+        r#"{"tool_input":{"file_path":"src/lib.rs"}}"#,
+    ] {
+        let out = run_post_edit_fast_check(input, &log_file);
+        assert_eq!(out.status.code(), Some(0));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "SKIP\n");
+        assert!(out.stderr.is_empty());
+    }
+    assert!(!log_file.exists(), "skip must not fabricate a pass log");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_exposes_non_clean_edit_fallback() {
+    let root = unique_temp_dir("post-edit-fallback");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "safe_call()?",
+            "new_string": "unsafe_call().unwrap()"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "FALLBACK\n");
+    assert!(out.stderr.is_empty());
+    assert!(!log_file.exists(), "fallback must defer the final decision");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_logs_pass_when_history_file_is_missing() {
+    let root = unique_temp_dir("post-edit-missing-history");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "FAST_LOGGED\n");
+    assert!(out.stderr.is_empty());
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("\"decision\":\"pass\""), "{log_text}");
+    assert!(log_text.contains("src/lib.rs||delta=2"), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_malformed_history_falls_back_visibly() {
+    let root = unique_temp_dir("post-edit-malformed-history");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    fs::write(&log_file, "not-json\n").unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "FALLBACK\n");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("post-edit history read failed"), "{stderr}");
+    assert!(
+        stderr.contains("malformed post-edit history JSONL"),
+        "{stderr}"
+    );
+    assert_eq!(fs::read_to_string(&log_file).unwrap(), "not-json\n");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_history_io_error_falls_back_visibly() {
+    let root = unique_temp_dir("post-edit-history-io-error");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events-as-directory");
+    fs::create_dir_all(&log_file).unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "FALLBACK\n");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("post-edit history read failed"), "{stderr}");
+    assert!(
+        log_file.is_dir(),
+        "history I/O fixture must remain a directory"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_emits_churn_and_overlap_warning_from_history() {
+    let root = unique_temp_dir("post-edit-history-warning");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let mut events = (0..5)
+        .map(|_| {
+            serde_json::json!({
+                "ts": "2099-01-01T00:00:00Z",
+                "session": "test-session",
+                "agent": "codex",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "pass",
+                "detail": "src/lib.rs||delta=1"
+            })
+        })
+        .collect::<Vec<_>>();
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "test-session",
+        "agent": "codex",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/other.rs||delta=1"
+    }));
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "peer-session",
+        "agent": "claude",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/lib.rs||delta=1"
+    }));
+    let history = events
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&log_file, format!("{history}\n")).unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("FAST_OUTPUT\n"), "{stdout}");
+    assert!(stdout.contains("[CHURN]"), "{stdout}");
+    assert!(stdout.contains("[W-14]"), "{stdout}");
+    assert!(stdout.contains("peer-session"), "{stdout}");
+    let log_text = fs::read_to_string(&log_file).unwrap();
+    assert!(log_text.contains("\"decision\":\"warn\""), "{log_text}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn post_edit_fast_check_falls_back_when_warning_log_append_fails() {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let root = unique_temp_dir("post-edit-warning-log-failure");
+    fs::create_dir_all(&root).unwrap();
+    let history_file = root.join("read-only-history.jsonl");
+    let mut events = (0..5)
+        .map(|_| {
+            serde_json::json!({
+                "ts": "2099-01-01T00:00:00Z",
+                "session": "test-session",
+                "agent": "codex",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "pass",
+                "detail": "src/lib.rs||delta=1"
+            })
+        })
+        .collect::<Vec<_>>();
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "test-session",
+        "agent": "codex",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/other.rs||delta=1"
+    }));
+    events.push(serde_json::json!({
+        "ts": "2099-01-01T00:00:00Z",
+        "session": "peer-session",
+        "agent": "claude",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/lib.rs||delta=1"
+    }));
+    let history = events
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let mut history_writer = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .open(&history_file)
+        .unwrap();
+    history_writer.write_all(history.as_bytes()).unwrap();
+    drop(history_writer);
+
+    let history_reader = fs::File::open(&history_file).unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+    let mut child = bin()
+        .args([
+            "post-edit-fast-check",
+            "800",
+            "test-session",
+            "codex",
+            "/dev/fd/2",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(history_reader))
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, "FAST_PASS\nsrc/lib.rs\n");
+    assert!(!stdout.contains("FAST_OUTPUT"), "{stdout}");
+    assert_eq!(fs::read_to_string(&history_file).unwrap(), history);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_defers_consecutive_history_to_shell_w15() {
+    let root = unique_temp_dir("post-edit-history-w15-fallback");
+    fs::create_dir_all(&root).unwrap();
+    let log_file = root.join("events.jsonl");
+    let event = serde_json::json!({
+        "session": "test-session",
+        "hook": "post-edit-guard",
+        "tool": "Edit",
+        "decision": "pass",
+        "detail": "src/lib.rs||delta=1"
+    });
+    fs::write(&log_file, format!("{event}\n{event}\n")).unwrap();
+    let before = fs::read_to_string(&log_file).unwrap();
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "FALLBACK\n");
+    assert!(out.stderr.is_empty());
+    assert_eq!(fs::read_to_string(&log_file).unwrap(), before);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn post_edit_fast_check_exposes_history_read_failure_before_pass_log() {
+    let root = unique_temp_dir("post-edit-log-failure");
+    fs::create_dir_all(&root).unwrap();
+    let blocking_parent = root.join("not-a-directory");
+    fs::write(&blocking_parent, "blocks log parent creation").unwrap();
+    let log_file = blocking_parent.join("events.jsonl");
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": "src/lib.rs",
+            "old_string": "fn old() {}",
+            "new_string": "fn clean() {}"
+        }
+    })
+    .to_string();
+
+    let out = run_post_edit_fast_check(&input, &log_file);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, "FALLBACK\n");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("post-edit history read failed"), "{stderr}");
+    assert!(
+        !log_file.exists(),
+        "failed logging must not claim persistence"
+    );
     let _ = fs::remove_dir_all(root);
 }
 

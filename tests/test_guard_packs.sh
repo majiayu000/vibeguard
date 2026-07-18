@@ -512,7 +512,6 @@ mkdir -p \
 touch "${codex_direct_hook_home}/.vibeguard/installed/bin/vibeguard-runtime"
 chmod +x "${codex_direct_hook_home}/.vibeguard/installed/bin/vibeguard-runtime"
 touch "${codex_direct_hook_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
-touch "${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
 touch "${codex_direct_hook_home}/.vibeguard/run-hook-codex.sh"
 chmod +x "${codex_direct_hook_home}/.vibeguard/run-hook-codex.sh"
 cat > "${codex_direct_hook_home}/.codex/hooks.json" <<JSON
@@ -524,7 +523,7 @@ cat > "${codex_direct_hook_home}/.codex/hooks.json" <<JSON
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
+            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
           }
         ]
       }
@@ -535,7 +534,7 @@ cat > "${codex_direct_hook_home}/.codex/hooks.json" <<JSON
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/vibeguard-pre-bash-guard.sh"
+            "command": "bash ${codex_direct_hook_home}/.vibeguard/installed/hooks/pre-bash-guard.sh"
           }
         ]
       }

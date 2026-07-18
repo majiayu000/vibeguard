@@ -24,7 +24,7 @@ argument-hint: "<project directory or file path>"
    - If no parameters: review the files in the current git staging area
 
 3. **P0 — Security Review**
-   - Refer to `vibeguard/rules/security.md`
+   - Refer to `rules/claude-rules/common/security.md`
    - Check OWASP Top 10 related questions
    - Check for key/credential leaks
    - Check input validation and sanitization
@@ -97,7 +97,7 @@ argument-hint: "<project directory or file path>"
 - AI generated tags are not included in review reports
 
 **Reference**
-- Security rules: `vibeguard/rules/security.md`
-- Universal rules: `vibeguard/rules/universal.md`
-- Language rules: `vibeguard/rules/<lang>.md`
+- Security rules: `rules/claude-rules/common/security.md`
+- Common rules: `rules/claude-rules/common/`
+- Language rules: `rules/claude-rules/<lang>/`
 <!-- VIBEGUARD:REVIEW:END -->

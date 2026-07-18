@@ -1,39 +1,44 @@
 #!/usr/bin/env bash
 # VibeGuard PreToolUse(Edit) Hook
 #
-# Anti-hallucination check before editing files:
-# - Detect whether the edited file exists (prevents AI from editing non-existent file paths)
-# - Check if old_string is actually in the file (to prevent AI hallucinating editing content)
+# Thin compatibility entry point. The hot path lives in vibeguard-runtime so
+# Edit hooks avoid sourcing the shared bash logging stack.
 
 set -euo pipefail
 
-source "$(dirname "$0")/log.sh"
+_VG_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VIBEGUARD_RUNTIME=""
 
-INPUT=$(cat)
+_vg_preedit_installed_context() {
+  local installed_hooks="${HOME:-}/.vibeguard/installed/hooks"
+  [[ -n "${HOME:-}" && ( "${_VG_HOOK_DIR}" == "${installed_hooks}" || "${_VG_HOOK_DIR}" == "${installed_hooks}/"* ) ]]
+}
 
-# Base U-16 limit resolved from env var > ~/.vibeguard/config.json > built-in 800.
-vg_config_get_int_result _U16_BASE_LIMIT VG_U16_LIMIT u16.limit 800
-vg_u16_warn_limit_result _U16_WARN_LIMIT "$_U16_BASE_LIMIT"
-if [[ -n "${_VIBEGUARD_RUNTIME:-}" ]]; then
-  _VG_FAST_RESULT=$(printf '%s' "$INPUT" \
-    | "$_VIBEGUARD_RUNTIME" pre-edit-check "$_U16_BASE_LIMIT" "$_U16_WARN_LIMIT" "$VIBEGUARD_LOG_FILE" \
-    2>/dev/null || true)
-  _VG_FAST_STATUS="${_VG_FAST_RESULT%%$'\n'*}"
-  case "$_VG_FAST_STATUS" in
-    SKIP)
-      exit 0
-      ;;
-    FAST_LOGGED)
-      exit 0
-      ;;
-    FAST_OUTPUT)
-      _VG_FAST_PAYLOAD="${_VG_FAST_RESULT#*$'\n'}"
-      [[ "$_VG_FAST_PAYLOAD" != "$_VG_FAST_RESULT" ]] && printf '%s\n' "$_VG_FAST_PAYLOAD"
-      exit 0
-      ;;
-  esac
+_vg_preedit_runtime_candidates() {
+  printf '%s\n' "${VIBEGUARD_RUNTIME:-}"
+  if _vg_preedit_installed_context; then
+    printf '%s\n' "${HOME}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+  else
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/release/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/../vibeguard-runtime/target/debug/vibeguard-runtime"
+    printf '%s\n' "${HOME:-}/.vibeguard/installed/bin/vibeguard-runtime"
+    printf '%s\n' "${_VG_HOOK_DIR}/vibeguard-runtime"
+  fi
+}
+
+while IFS= read -r _candidate; do
+  if [[ -n "$_candidate" && -f "$_candidate" && -x "$_candidate" ]]; then
+    _VIBEGUARD_RUNTIME="$_candidate"
+    break
+  fi
+done < <(_vg_preedit_runtime_candidates)
+
+if [[ -z "$_VIBEGUARD_RUNTIME" ]]; then
+  printf '%s\n' "VIBEGUARD ERROR: vibeguard-runtime not found. Run setup.sh or cargo build --release --manifest-path vibeguard-runtime/Cargo.toml." >&2
+  exit 2
 fi
 
-vg_log "pre-edit-guard" "Edit" "block" "pre-edit runtime check failed; fail-closed" ""
-vg_json_output_kv decision block reason "VIBEGUARD interception: runtime pre-edit-check failed or returned an unsupported status; fail-closed."
-exit 0
+exec "$_VIBEGUARD_RUNTIME" hook pre-edit

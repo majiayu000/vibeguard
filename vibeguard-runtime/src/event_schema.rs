@@ -10,6 +10,12 @@ pub mod field {
     pub const TS: &str = "ts";
     pub const SESSION: &str = "session";
     pub const EVENT: &str = "event";
+    #[allow(dead_code)]
+    pub const EVENT_ID: &str = "event_id";
+    #[allow(dead_code)]
+    pub const CODE: &str = "code";
+    #[allow(dead_code)]
+    pub const RULE_ID: &str = "rule_id";
     pub const HOOK: &str = "hook";
     pub const TOOL: &str = "tool";
     pub const MATCHER: &str = "matcher";
@@ -17,6 +23,8 @@ pub mod field {
     pub const STATUS: &str = "status";
     pub const REASON: &str = "reason";
     pub const DETAIL: &str = "detail";
+    #[allow(dead_code)]
+    pub const PATH: &str = "path";
     pub const DURATION_MS: &str = "duration_ms";
     pub const ELAPSED_MS: &str = "elapsed_ms";
     pub const TIMEOUT_MS: &str = "timeout_ms";
@@ -79,10 +87,15 @@ pub mod tool {
     pub const GREP: &str = "Grep";
     pub const WRITE: &str = "Write";
     pub const EDIT: &str = "Edit";
+    pub const MULTI_EDIT: &str = "MultiEdit";
+    pub const NOTEBOOK_EDIT: &str = "NotebookEdit";
     pub const BASH: &str = "Bash";
+    pub const TASK: &str = "Task";
+    pub const AGENT: &str = "Agent";
+    pub const POST_TOOL_USE: &str = "PostToolUse";
 
     pub const RESEARCH_ONLY: [&str; 3] = [READ, GLOB, GREP];
-    pub const MUTATING: [&str; 3] = [WRITE, EDIT, BASH];
+    pub const MUTATING: [&str; 7] = [WRITE, EDIT, MULTI_EDIT, NOTEBOOK_EDIT, BASH, TASK, AGENT];
 }
 
 pub mod metric_field {
@@ -98,4 +111,29 @@ pub mod metric_field {
     pub const SLOW_OPS: &str = "slow_ops";
     pub const CORRECTION_SIGNALS: &str = "correction_signals";
     pub const WARN_RATIO: &str = "warn_ratio";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool;
+
+    #[test]
+    fn tool_groups_keep_analysis_paralysis_boundaries() {
+        for research_tool in [tool::READ, tool::GLOB, tool::GREP] {
+            assert!(tool::RESEARCH_ONLY.contains(&research_tool));
+            assert!(!tool::MUTATING.contains(&research_tool));
+        }
+        for mutating_tool in [
+            tool::WRITE,
+            tool::EDIT,
+            tool::MULTI_EDIT,
+            tool::NOTEBOOK_EDIT,
+            tool::BASH,
+            tool::TASK,
+            tool::AGENT,
+        ] {
+            assert!(tool::MUTATING.contains(&mutating_tool));
+            assert!(!tool::RESEARCH_ONLY.contains(&mutating_tool));
+        }
+    }
 }

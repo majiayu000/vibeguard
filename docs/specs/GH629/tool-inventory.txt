@@ -1,0 +1,14 @@
+# W-20 tool inventory for GH629 implementation.
+# Descriptions are pinned by SHA-256; runtime/tool versions are captured separately by the snapshot guard.
+# cargo: Runs Rust formatting, compile checks, and tests for vibeguard-runtime.
+cli cargo 97542bdfbaab801561c2c9c78cd423b8a7328c93d1123e0238b7a0e784bc34c0
+# bash: Runs setup, hook, and contract regression suites.
+cli bash a76078f32cf8a7664ee1b48a8c1cea2b5cc5b047f9f3cbc77dbbb4f8492713f4
+# python3: Runs SpecRail and repository contract checkers.
+cli python3 59f065a0769f446384a6008c0d709673b90110d7f020edb4d54af2a65887a99a
+# gh: Collects current GitHub PR, CI, review-thread, and merge evidence.
+cli gh bff89c0b113c19714e981adc032c17f11074dc408abac3f3661ff5c88c4f2c5b
+# shellcheck: Validates changed shell scripts and focused shell fixtures.
+cli shellcheck 1accb0f05ef79ed58eb49794a100e096a17b53b0213605c70e77f341afddbf51
+# git: Captures exact origin/main and worktree state for branch handoff.
+cli git 47a5eb1e302848b23b02a89ef58a0148fad3d1aa406328accc77816e33836567

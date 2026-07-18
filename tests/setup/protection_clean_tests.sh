@@ -39,15 +39,15 @@ mixed_clean_out="$(bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
 assert_contains "${mixed_clean_out}" "VibeGuard cleaned." "setup --clean succeeds with mixed Claude hook entry"
 assert_cmd "setup --clean preserves third-party Claude hook in mixed entry" grep -q "/tmp/third-party-pre-bash.sh" "${HOME}/.claude/settings.json"
 assert_cmd "setup --clean removes VibeGuard hook from mixed entry" bash -c "! grep -q 'pre-bash-guard.sh' '${HOME}/.claude/settings.json'"
-bash "${REPO_DIR}/setup.sh" --yes >/dev/null
+bash "${REPO_DIR}/setup.sh" --yes --profile full >/dev/null
 
 _CUSTOM_RULE="${HOME}/.claude/rules/vibeguard/common/security.md"
 rm -f "${_CUSTOM_RULE}"
 printf 'local custom security rule\n' > "${_CUSTOM_RULE}"
-rule_protect_out="$(bash "${REPO_DIR}/setup.sh" --yes 2>&1 || true)"
+rule_protect_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full 2>&1 || true)"
 assert_contains "${rule_protect_out}" "refusing to overwrite modified local rule file" "setup refuses to overwrite modified local rule copies"
 assert_cmd "modified local rule copy remains a regular file" bash -c "[ -f '${_CUSTOM_RULE}' ] && [ ! -L '${_CUSTOM_RULE}' ]"
-rule_force_out="$(bash "${REPO_DIR}/setup.sh" --yes --force-overwrite 2>&1)"
+rule_force_out="$(bash "${REPO_DIR}/setup.sh" --yes --profile full --force-overwrite 2>&1)"
 assert_contains "${rule_force_out}" "FORCE: replacing local rule copy" "--force-overwrite reports local rule replacement"
 assert_cmd "--force-overwrite restores rule symlink" test -L "${_CUSTOM_RULE}"
 
@@ -216,8 +216,8 @@ assert_cmd "--check does not rewrite ~/.codex/AGENTS.md" test "${agents_before_s
 assert_cmd "--check does not drop or duplicate the chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 repair_out="$(bash "${REPO_DIR}/setup.sh" --yes)"
 assert_contains "${repair_out}" "Setup complete! All components installed." "re-running setup after drift still succeeds"
-assert_cmd "repair restores CLAUDE.md rule banner count" assert_claude_rule_banner_matches_installed_rules
-assert_cmd "repair restores Codex AGENTS.md rule banner count" assert_codex_rule_banner_matches_installed_rules
+assert_cmd "repair restores CLAUDE.md rule banner count" assert_claude_rule_banner_matches_expected_rules
+assert_cmd "repair restores Codex AGENTS.md rule banner count" assert_codex_rule_banner_matches_expected_rules
 assert_cmd "repeat setup keeps exactly one chat contract block" python3 -c "from pathlib import Path; text = Path('${HOME}/.claude/CLAUDE.md').read_text(encoding='utf-8'); raise SystemExit(0 if text.count('${CHAT_CONTRACT_ANCHOR}') == 1 else 1)"
 
 header "upsert idempotency with non-standard wrapper path"

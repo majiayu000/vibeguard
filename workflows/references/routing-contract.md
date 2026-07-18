@@ -16,10 +16,11 @@ Executable schema sources:
 Apply routing in this order:
 
 1. `user_override`
-2. `risk/destructive gate`
-3. `ambiguity gate`
-4. `readiness classifier`
-5. `execution/delegation lane`
+2. `work_surface classifier`
+3. `risk/destructive gate`
+4. `ambiguity gate`
+5. `readiness classifier`
+6. `execution/delegation lane`
 
 Later stages must not override an earlier decision without an explicit new user instruction.
 
@@ -30,12 +31,37 @@ Later stages must not override an earlier decision without an explicit new user 
 - If the user explicitly selects a workflow or says to plan first, treat that as the requested lane.
 - User override does not bypass the risk/destructive gate or the ambiguity gate.
 
-### 2. Risk / Destructive Gate
+### 2. Work Surface Classifier
+
+Classify the requested deliverable before applying execution routing:
+
+- `code_execution`: source changes, build/test repair, migrations, deployment, repository settings, generated site content, or any task where filesystem/runtime state is the deliverable.
+- `writing_research`: prose, research, strategy, critique, prompt wording, or a saved/report artifact where the proof surface is source accuracy, argument quality, requested tone, citation coverage, and artifact delivery.
+- `chat_support`: direct explanation, debugging advice, or lightweight Q&A where no durable artifact or execution handoff is requested.
+
+`writing_research` keeps verification, but translates it to the writing domain: cite or name sources when claims depend on external facts, separate facts from interpretation, preserve the requested audience and tone, and inspect the saved/rendered artifact when one is produced. Do not force build/test/changed-files/PR-readiness/root-cause framing unless code, generated site content, or repository files are edited.
+
+Use this deterministic priority when categories overlap:
+
+| Priority | Observed deliverable | `work_surface` |
+|---|---|---|
+| 1 | Any repository, runtime, deployment, executable-state, or generated-site mutation | `code_execution` |
+| 2 | No project-state mutation, but a durable prose or research artifact is requested | `writing_research` |
+| 3 | Neither project-state mutation nor a durable artifact is requested | `chat_support` |
+
+Mixed work containing project-state mutation is `code_execution`, while its
+prose portion keeps writing-domain verification. If facts are missing or
+conflicting, keep the classification internal and unresolved, advance to the
+ambiguity gate, and request clarification. The router must not emit a partial
+`routing_decision`, invent a default surface, or expose an unresolved enum
+value; it emits the payload only after classification is complete.
+
+### 3. Risk / Destructive Gate
 
 - Route to a safety-first lane before execution when the requested action is destructive, high-risk, or irreversible.
 - Examples: force-push, schema/data deletion, production config mutation, broad automated rewrites.
 
-### 3. Ambiguity Gate
+### 4. Ambiguity Gate
 
 Route to `clarify_first` when execution or planning would require guessing any of:
 
@@ -46,7 +72,7 @@ Route to `clarify_first` when execution or planning would require guessing any o
 
 Planning is not a substitute for missing task boundaries.
 
-### 4. Readiness Classifier
+### 5. Readiness Classifier
 
 The readiness classifier has exactly three outputs:
 
@@ -62,7 +88,7 @@ Choose `clarify_first` when required scope or decision boundaries are missing.
 
 File count may be used as a secondary hint, but it is not the contract and must not replace the readiness outputs above.
 
-### 5. Execution / Delegation Lane
+### 6. Execution / Delegation Lane
 
 - `execute_direct` enters an execution workflow immediately.
 - `plan_first` enters a planning workflow that emits the shared handoff block below.
@@ -72,11 +98,27 @@ File count may be used as a secondary hint, but it is not the contract and must 
 
 If delegation ownership is missing or conflicting, stop and return `clarify_first`.
 
+Every downstream consumer receives and validates the complete
+`routing_decision`. `execute_direct` proceeds with that object and does not create an execution handoff. `plan_first` planners preserve the same routing
+decision beside the handoff, and later executors require both objects. If a
+new user instruction changes the requested deliverable surface, the consumer
+returns the request to this canonical router and reruns the full precedence
+ladder before starting or continuing execution. Consumers never reclassify locally.
+
 ## Shared Planning Handoff
 
-Planning workflows must emit the same execution handoff payload:
+Planning workflows must preserve the validated routing decision and emit the
+same execution handoff payload beside it:
 
 ```yaml
+routing_decision:
+  precedence: [user_override, work_surface_classifier, risk_destructive_gate, ambiguity_gate, readiness_classifier, execution_or_delegation_lane]
+  work_surface:
+    decision: code_execution | writing_research | chat_support
+    reason: <nonempty classification evidence>
+  readiness:
+    decision: plan_first
+    reason: <nonempty readiness evidence>
 handoff:
   mode: <execution mode selected by the planner>
   artifacts:
@@ -100,6 +142,8 @@ Required keys:
 
 Consumption rules:
 
+- The complete validated `routing_decision` remains authoritative and is not
+  nested inside or reconstructed from the handoff.
 - Execution workflows must honor all required keys.
 - `mode` is preselected by planning; execution workflows do not re-route back to planning on their own.
 - `artifacts` are the canonical inputs for downstream execution.
@@ -146,7 +190,16 @@ User says: "Delete the legacy schema and push directly to production."
 User says: "Update the README link that points to the wrong file."
 
 - ambiguity gate passes
+- work surface: `code_execution`
 - readiness output: `execute_direct`
+
+### Writing Or Research Task
+
+User says: "Draft a short analysis of why this agent style feels too execution-heavy."
+
+- work surface: `writing_research`
+- verify factual claims and preserve the requested tone
+- do not force code build/test, changed-files, PR-readiness, or root-cause framing unless the user asks to edit repository files
 
 ### Large, Well-Specified Task
 

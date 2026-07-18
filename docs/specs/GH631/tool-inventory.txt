@@ -1,0 +1,12 @@
+# W-20 tool inventory for GH631 implementation.
+# Descriptions are pinned by SHA-256; runtime/tool versions are captured separately by the snapshot guard.
+# python3: Runs SpecRail, distribution inventory, and documentation contract checks.
+cli python3 e4affd67c494b2a92709a2cec85730037db79c0ea2cb9670f8694901b93dcd89
+# bash: Runs focused distribution and repository contract regression suites.
+cli bash 7b7165cde611527eed3e31775a75f87fae3162c5f79a95d779a26f96d4b9255c
+# ast-grep: Validates manual repository-wide sgconfig rule discovery without changing production guard calls.
+cli ast-grep e3da377344952af5df901db50e2646c9de3ad670a0e9401cd827f0bc0bce9f65
+# gh: Collects current GitHub PR, CI, review-thread, and merge evidence.
+cli gh bff89c0b113c19714e981adc032c17f11074dc408abac3f3661ff5c88c4f2c5b
+# git: Captures exact origin/main and worktree state for branch handoff.
+cli git 47a5eb1e302848b23b02a89ef58a0148fad3d1aa406328accc77816e33836567

@@ -213,6 +213,7 @@ export VIBEGUARD_EXECUTION_MODE=dev-linked-repo
 
 for codex_runtime_test in \
   "${REPO_DIR}/tests/codex_runtime/protocol_helper_tests.sh" \
+  "${REPO_DIR}/tests/codex_runtime/hook_name_resolution_tests.sh" \
   "${REPO_DIR}/tests/codex_runtime/pretool_diagnostic_tests.sh" \
   "${REPO_DIR}/tests/codex_runtime/posttool_large_io_tests.sh" \
   "${REPO_DIR}/tests/codex_runtime/native_permission_patch_tests.sh" \
