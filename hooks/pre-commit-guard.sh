@@ -52,7 +52,7 @@ command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 
 # --- Collect staged source code files (single git diff, filter by extension) ---
 # PERF-OK: pre-commit must inspect the cached index once; errors are non-blocking outside git.
-_ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
+_ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
 STAGED_FILES=""
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
@@ -98,6 +98,25 @@ git diff --cached -U0 2>/dev/null \
   | sed 's/^+//' \
   > "$_DIFF_ADDED_TMPFILE" || true
 export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
+
+# --- U-16 staged baseline enforcement ---
+if [[ -z "${_VIBEGUARD_RUNTIME:-}" || ! -x "${_VIBEGUARD_RUNTIME:-}" ]]; then
+  echo "VibeGuard Pre-Commit Guard: vibeguard-runtime is required for U-16 baseline enforcement" >&2
+  exit 2
+fi
+
+U16_BASELINE_OUTPUT=""
+if ! U16_BASELINE_OUTPUT=$("$_VIBEGUARD_RUNTIME" u16-baseline-check --staged 2>&1); then
+  echo "VibeGuard Pre-Commit Guard: U-16 baseline violation"
+  echo "======================================="
+  echo "$U16_BASELINE_OUTPUT"
+  vg_log "pre-commit-guard" "git-commit" "block" "U-16 baseline violation" "$U16_BASELINE_OUTPUT"
+  exit 1
+fi
+if echo "$U16_BASELINE_OUTPUT" | grep -q '^U16_LEGACY_DEBT'; then
+  echo "$U16_BASELINE_OUTPUT" >&2
+  vg_log "pre-commit-guard" "git-commit" "warn" "U-16 legacy debt" "$U16_BASELINE_OUTPUT"
+fi
 
 # --- Language and project-root detection (driven by the staged tree, not the working tree) ---
 index_has_path() {

@@ -21,7 +21,7 @@ AI coded agent hooks script, automatically triggered before and after the operat
 | `skills-loader.sh` | Manual optional | Optional first read prompt script; not registered to hooks by default. | unsupported |
 | `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal. | native |
 | `learn-evaluator.sh` | Stop | Collect metrics at the end of session, detect corrective signals, and suggest /learn when signals exist. | native |
-| `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: quality check plus build check, timeout hard limit. | - |
+| `pre-commit-guard.sh` | git pre-commit | Automatic guard before submission: U-16 staged baseline, quality check plus build check, timeout hard limit. | - |
 | `git/pre-push` | git pre-push | Block non-fast-forward pushes, remote branch deletion, and force-like push options by default. | - |
 <!-- hooks-manifest-table:end -->
 

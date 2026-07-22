@@ -120,6 +120,37 @@ assert_contains "$result" '"decision": "block"' "W-12: Block writes to babel.con
 result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_myconfig.json"}}' | bash hooks/pre-write-guard.sh)
 assert_not_contains "$result" "W-12" "W-12: Normal config.json does not trigger test infrastructure protection"
 
+header "pre-write-guard.sh — U-16 legacy baseline"
+
+u16_legacy_file="${VIBEGUARD_LOG_DIR}/u16_write_legacy.ts"
+python3 - <<'PY' "${u16_legacy_file}"
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text("".join(f"// old {i:04d}\n" for i in range(900)), encoding="utf-8")
+PY
+
+result=$(python3 - <<'PY' "${u16_legacy_file}" | bash hooks/pre-write-guard.sh
+import json
+import sys
+
+content = "".join(f"// shrink {i:04d}\n" for i in range(850))
+print(json.dumps({"tool_input": {"file_path": sys.argv[1], "content": content}}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "U-16: legacy shrinking full write is allowed"
+assert_contains "$result" "U16_LEGACY_DEBT" "U-16: legacy shrinking full write emits debt advisory"
+
+result=$(python3 - <<'PY' "${u16_legacy_file}" | bash hooks/pre-write-guard.sh
+import json
+import sys
+
+content = "".join(f"// grow {i:04d}\n" for i in range(901))
+print(json.dumps({"tool_input": {"file_path": sys.argv[1], "content": content}}))
+PY
+)
+assert_contains "$result" '"decision": "block"' "U-16: legacy growth full write still blocks"
+
 # Circuit breaker: warn-mode advisories must silence after CB_THRESHOLD consecutive
 # notices in the same session, so a 6-file batch write does not inject 6 redundant
 # L1 advisories.

@@ -45,6 +45,7 @@ shards=(
   "tests/hooks/test_runtime_policy_json.sh"
   "tests/hooks/test_count_active_constraints.sh"
   "tests/hooks/test_u16_config.sh"
+  "tests/hooks/test_u16_baseline.sh"
 )
 
 for shard in "${shards[@]}"; do

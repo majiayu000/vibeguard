@@ -14,6 +14,10 @@ use crate::hook_orchestrator::{
     HookKind, Result, append_hook_event, elapsed_ms, print_policy_decision_kv,
 };
 use crate::hook_orchestrator_context::RuntimeContext;
+use crate::u16_baseline::{
+    U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
+    u16_advisory_limit, u16_display_name,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 enum MissingFileCandidates {
@@ -198,21 +202,30 @@ fn pre_edit_u16_result(
         "400",
     ) as usize;
     let limit = project_u16_limit(file_path, base_limit);
-    if estimated > limit {
-        return Some(PreEditU16Result::Block {
-            log_reason: format!("U-16 file size: {estimated} > {limit}"),
-            output: format!(
-                "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
-                file_name(file_path)
-            ),
-        });
+    match evaluate_u16_baseline(true, current_lines, estimated, limit) {
+        U16BaselineDecision::Block(_) => {
+            return Some(PreEditU16Result::Block {
+                log_reason: format!("U-16 file size: {estimated} > {limit}"),
+                output: format!(
+                    "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
+                    u16_display_name(file_path)
+                ),
+            });
+        }
+        U16BaselineDecision::LegacyDebt => {
+            return Some(PreEditU16Result::Advisory {
+                log_reason: format!("U-16 legacy debt: {current_lines} -> {estimated} > {limit}"),
+                context: legacy_debt_context(file_path, current_lines, estimated, limit),
+            });
+        }
+        U16BaselineDecision::Allow => {}
     }
 
     let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
     if advisory_limit < limit && estimated > advisory_limit {
         return Some(PreEditU16Result::Advisory {
             log_reason: format!("U-16 file size advisory: {estimated} > {advisory_limit}"),
-            context: u16_advisory_context(file_path, estimated, advisory_limit, limit),
+            context: edit_advisory_context(file_path, estimated, advisory_limit, limit),
         });
     }
 
@@ -393,33 +406,6 @@ fn missing_file_candidates(file_path: &str, stem: &str) -> MissingFileCandidates
     } else {
         MissingFileCandidates::Found(candidates)
     }
-}
-
-fn u16_advisory_limit(base_limit: usize, hard_limit: usize, warn_limit: usize) -> usize {
-    if hard_limit > base_limit {
-        hard_limit
-    } else {
-        warn_limit.min(hard_limit)
-    }
-}
-
-fn u16_advisory_context(
-    file_path: &str,
-    line_count: usize,
-    warn_limit: usize,
-    hard_limit: usize,
-) -> String {
-    format!(
-        "VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: this edit would leave {} with {line_count} lines exceeds the {warn_limit}-line typical range but stays under the {hard_limit}-line hard limit\nSCOPE: keep the current change localized; plan a split if this file keeps growing\nACTION: NONE - advisory only, continue without acknowledgement",
-        file_name(file_path)
-    )
-}
-
-fn file_name(path: &str) -> &str {
-    Path::new(path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(path)
 }
 
 const MALFORMED_PRE_EDIT_REASON: &str = "VIBEGUARD interception: malformed PreToolUse(Edit) hook input. The edit request could not be validated, so it was blocked instead of being treated as a safe skip.";

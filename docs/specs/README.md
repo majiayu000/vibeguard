@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH671/` | Draft implementation | Baseline-aware U-16 enforcement for legacy oversized files plus staged/CI changed-file checks |
 | `GH659/` | Draft | Bound wrapper/event log growth, stale learning markers, and scheduled oversized-scan status |
 | `GH661/` | Draft | Preserve wrapped-hook exit code, conventional signal decoding, and nonempty failure evidence |
 | `GH658/` | Draft | Required work-surface classification before readiness routing |

@@ -284,7 +284,7 @@
       "install_targets": [],
       "config_exposure": {"disabled_hook": true},
       "trigger": "git pre-commit",
-      "responsibilities": "Automatic guard before submission: quality check plus build check, timeout hard limit.",
+      "responsibilities": "Automatic guard before submission: U-16 staged baseline, quality check plus build check, timeout hard limit.",
       "decision_types": ["pass", "warn", "block"],
       "claude": {"enabled": false, "support": "not-applicable", "reason": "git hook"},
       "codex": {"enabled": false, "support": "not-applicable", "reason": "git hook"}

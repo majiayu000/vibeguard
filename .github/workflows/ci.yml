@@ -36,6 +36,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
 
       - name: Configure Git identity (for tests that create commits)
         run: |
@@ -106,6 +108,11 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: bash scripts/ci/validate-hooks.sh
+
+      - name: Validate U-16 baseline
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci/validate-u16-baseline.sh
 
       - name: Validate hooks manifest
         shell: bash

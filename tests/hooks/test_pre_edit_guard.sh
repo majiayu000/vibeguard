@@ -97,6 +97,46 @@ PY
 assert_contains "$result" '"decision": "block"' "U-16: Block Codex apply_patch edit over 800 lines"
 assert_contains "$result" "U-16" "U-16: Codex apply_patch edit block cites rule"
 
+u16_legacy_file="${VIBEGUARD_LOG_DIR}/u16_legacy.ts"
+python3 - <<'PY' "${u16_legacy_file}"
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text("".join(f"// line {i:04d}\n" for i in range(1, 901)), encoding="utf-8")
+PY
+result=$(python3 - <<'PY' "${u16_legacy_file}" | bash hooks/pre-edit-guard.sh
+import json
+import sys
+
+print(json.dumps({
+    "tool_input": {
+        "file_path": sys.argv[1],
+        "old_string": "",
+        "new_string": "",
+        "vibeguard_line_delta": -1,
+    }
+}))
+PY
+)
+assert_not_contains "$result" '"decision": "block"' "U-16: legacy shrinking edit is allowed"
+assert_contains "$result" "U16_LEGACY_DEBT" "U-16: legacy shrinking edit emits debt advisory"
+
+result=$(python3 - <<'PY' "${u16_legacy_file}" | bash hooks/pre-edit-guard.sh
+import json
+import sys
+
+print(json.dumps({
+    "tool_input": {
+        "file_path": sys.argv[1],
+        "old_string": "",
+        "new_string": "",
+        "vibeguard_line_delta": 1,
+    }
+}))
+PY
+)
+assert_contains "$result" '"decision": "block"' "U-16: legacy growth edit still blocks"
+
 tmp_home=$(mktemp -d)
 tmp_file=$(mktemp)
 printf 'x\n' > "$tmp_file"
