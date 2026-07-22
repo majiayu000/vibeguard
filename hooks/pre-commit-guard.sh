@@ -101,8 +101,12 @@ export VIBEGUARD_DIFF_ADDED_LINES="$_DIFF_ADDED_TMPFILE"
 
 # --- U-16 staged baseline enforcement ---
 if [[ -z "${_VIBEGUARD_RUNTIME:-}" || ! -x "${_VIBEGUARD_RUNTIME:-}" ]]; then
-  echo "VibeGuard Pre-Commit Guard: vibeguard-runtime is required for U-16 baseline enforcement" >&2
-  exit 2
+  if [[ -n "${VIBEGUARD_RUNTIME:-}" && -x "${VIBEGUARD_RUNTIME:-}" ]]; then
+    _VIBEGUARD_RUNTIME="$VIBEGUARD_RUNTIME"
+  else
+    echo "VibeGuard Pre-Commit Guard: vibeguard-runtime is required for U-16 baseline enforcement" >&2
+    exit 2
+  fi
 fi
 
 U16_BASELINE_OUTPUT=""

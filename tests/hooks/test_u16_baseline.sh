@@ -150,6 +150,19 @@ set -e
 assert_contains "status=$precommit_status" "status=1" "pre-commit blocks staged oversized source import"
 assert_contains "$precommit_output" "U16_BASELINE_BLOCK" "pre-commit prints U-16 baseline block evidence"
 
+repo="$(make_repo precommit-standalone)"
+standalone_hook_dir="$WORK_ROOT/standalone-hook"
+mkdir -p "$standalone_hook_dir"
+cp "$REPO_DIR/hooks/pre-commit-guard.sh" "$standalone_hook_dir/pre-commit-guard.sh"
+write_lines "$repo/src/new_big.rs" 801
+git -C "$repo" add src/new_big.rs
+set +e
+standalone_precommit_output="$(cd "$repo" && VIBEGUARD_RUNTIME="$runtime" bash "$standalone_hook_dir/pre-commit-guard.sh" 2>&1)"
+standalone_precommit_status=$?
+set -e
+assert_contains "status=$standalone_precommit_status" "status=1" "standalone pre-commit honors explicit VIBEGUARD_RUNTIME"
+assert_contains "$standalone_precommit_output" "U16_BASELINE_BLOCK" "standalone pre-commit still prints U-16 evidence"
+
 repo="$(make_repo ci)"
 write_lines "$repo/src/lib.rs" 10
 commit_all "$repo" "base"
