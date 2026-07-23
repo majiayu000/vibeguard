@@ -51,8 +51,15 @@ fi
 command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 
 # --- Collect staged source code files (single git diff, filter by extension) ---
-# PERF-OK: pre-commit must inspect the cached index once; errors are non-blocking outside git.
-_ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
+# PERF-OK: pre-commit must inspect the cached index once; errors block because an
+# empty fallback would bypass U-16 and every downstream staged-file guard.
+_ALL_STAGED=""
+if ! _ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>&1); then
+  echo "VibeGuard Pre-Commit Guard: failed to enumerate staged files; blocking commit" >&2
+  echo "$_ALL_STAGED" >&2
+  vg_log "pre-commit-guard" "git-commit" "block" "staged file enumeration failed" "$_ALL_STAGED"
+  exit 2
+fi
 STAGED_FILES=""
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue

@@ -3,13 +3,13 @@ use serde_json::json;
 use std::path::Path;
 
 use crate::hook_checks_common::{
-    count_lines, is_source_path, is_test_path, nested_str, project_u16_limit, read_stdin,
-    write_log_event,
+    count_lines, is_source_path, is_test_path, nested_str, read_stdin, write_log_event,
 };
 use crate::hook_checks_scan::find_project_dir;
 use crate::hook_checks_write_scan::{
     duplicate_definition_scan, scan_project_files, scan_project_files_with_same_name,
 };
+use crate::u16_config::project_u16_limit;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

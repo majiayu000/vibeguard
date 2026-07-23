@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::hook_checks_common::{
     count_lines, is_allowed_new_file, is_clean_rust_fast_path, is_clean_rust_write_fast_path,
     is_pre_edit_u16_source, is_source_path, is_test_infra_path, is_test_path, nested_str,
-    project_u16_limit, read_lossy_file, read_stdin, write_log_event,
+    read_lossy_file, read_stdin, write_log_event,
 };
 use crate::hook_checks_history::{
     build_fast_warning_output, post_edit_history_signals, post_edit_history_warnings,
@@ -15,6 +15,7 @@ use crate::u16_baseline::{
     U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
     u16_advisory_limit,
 };
+use crate::u16_config::project_u16_limit;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 

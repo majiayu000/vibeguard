@@ -140,6 +140,26 @@ capture_staged "$repo"
 assert_contains "status=$CAPTURED_STATUS" "status=0" "explicit U-16 exemption allows configured oversized file"
 assert_contains "$CAPTURED_OUTPUT" "U16_BASELINE_OK" "explicit U-16 exemption uses shared decision"
 
+repo="$(make_repo staged-exemption)"
+printf '%s\n' 'U-16 exempt `src/generated.rs` 1500' > "$repo/CLAUDE.md"
+git -C "$repo" add CLAUDE.md
+printf '%s\n' 'working tree intentionally differs from the staged exemption' > "$repo/CLAUDE.md"
+write_lines "$repo/src/generated.rs" 1200 "generated"
+git -C "$repo" add src/generated.rs
+capture_staged "$repo"
+assert_contains "status=$CAPTURED_STATUS" "status=0" "staged exemption is authoritative over working tree content"
+assert_contains "$CAPTURED_OUTPUT" "U16_BASELINE_OK" "staged exemption snapshot uses shared decision"
+
+repo="$(make_repo unstaged-exemption)"
+printf '%s\n' 'U-16 exempt `src/generated.rs` 1500' > "$repo/CLAUDE.md"
+commit_all "$repo" "exemption"
+git -C "$repo" rm --cached -q CLAUDE.md
+write_lines "$repo/src/generated.rs" 1200 "generated"
+git -C "$repo" add src/generated.rs
+capture_staged "$repo"
+assert_contains "status=$CAPTURED_STATUS" "status=1" "unstaged exemption cannot authorize staged oversized source"
+assert_contains "$CAPTURED_OUTPUT" "new_oversized" "staged snapshot rejects exemption absent from resulting commit"
+
 repo="$(make_repo precommit)"
 write_lines "$repo/src/new_big.rs" 801
 git -C "$repo" add src/new_big.rs
@@ -163,6 +183,33 @@ set -e
 assert_contains "status=$standalone_precommit_status" "status=1" "standalone pre-commit honors explicit VIBEGUARD_RUNTIME"
 assert_contains "$standalone_precommit_output" "U16_BASELINE_BLOCK" "standalone pre-commit still prints U-16 evidence"
 
+repo="$(make_repo precommit-git-failure)"
+write_lines "$repo/src/small.rs" 10 "small"
+git -C "$repo" add src/small.rs
+real_git="$(command -v git)"
+fake_git_dir="$WORK_ROOT/fake-git"
+mkdir -p "$fake_git_dir"
+cat > "$fake_git_dir/git" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "diff" && "${2:-}" == "--cached" && "${3:-}" == "--name-only" ]]; then
+  echo "forced staged enumeration failure" >&2
+  exit 42
+fi
+exec "$REAL_GIT" "$@"
+SH
+chmod +x "$fake_git_dir/git"
+set +e
+precommit_git_failure_output="$(
+  cd "$repo" &&
+    REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" VIBEGUARD_RUNTIME="$runtime" \
+      bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1
+)"
+precommit_git_failure_status=$?
+set -e
+assert_contains "status=$precommit_git_failure_status" "status=2" "pre-commit fails closed when staged enumeration fails"
+assert_contains "$precommit_git_failure_output" "forced staged enumeration failure" "pre-commit exposes staged enumeration error"
+
 repo="$(make_repo ci)"
 write_lines "$repo/src/lib.rs" 10
 commit_all "$repo" "base"
@@ -175,5 +222,23 @@ ci_status=$?
 set -e
 assert_contains "status=$ci_status" "status=1" "CI baseline check blocks oversized import"
 assert_contains "$ci_output" "new_oversized" "CI baseline check names block reason"
+
+repo="$(make_repo ci-exemption-snapshot)"
+write_lines "$repo/src/lib.rs" 10
+commit_all "$repo" "base"
+base_ref="$(git -C "$repo" rev-parse HEAD)"
+printf '%s\n' 'U-16 exempt `src/generated.rs` 1500' > "$repo/CLAUDE.md"
+write_lines "$repo/src/generated.rs" 1200 "generated"
+commit_all "$repo" "configured generated source"
+printf '%s\n' 'working tree intentionally differs from committed head' > "$repo/CLAUDE.md"
+set +e
+ci_exemption_output="$(
+  VIBEGUARD_U16_REPO_DIR="$repo" VIBEGUARD_RUNTIME="$runtime" \
+    bash "$REPO_DIR/scripts/ci/validate-u16-baseline.sh" "$base_ref" HEAD 2>&1
+)"
+ci_exemption_status=$?
+set -e
+assert_contains "status=$ci_exemption_status" "status=0" "CI uses exemption from compared head snapshot"
+assert_contains "$ci_exemption_output" "U16_BASELINE_OK" "CI head exemption snapshot uses shared decision"
 
 hook_test_finish

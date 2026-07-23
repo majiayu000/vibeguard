@@ -1,6 +1,8 @@
 use crate::HandlerResult;
-use crate::hook_checks_common::{count_lines, is_source_path, is_test_path, project_u16_limit};
+use crate::hook_checks_common::{count_lines, is_source_path, is_test_path};
 use crate::runtime_config::runtime_config_int_value;
+use crate::u16_config::u16_limit_from_claude_text;
+use std::path::PathBuf;
 use std::process::{self, Command};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +105,7 @@ pub(crate) fn run_cli(args: &[String]) -> HandlerResult {
     let base_limit = config
         .base_limit
         .unwrap_or_else(|| runtime_config_int_value("VG_U16_LIMIT", "u16.limit", "800") as usize);
+    let limit_snapshot = U16LimitSnapshot::load(&config.mode)?;
     let entries = diff_entries(&config.mode)?;
     let mut blocks = Vec::new();
     let mut legacy = Vec::new();
@@ -123,7 +126,7 @@ pub(crate) fn run_cli(args: &[String]) -> HandlerResult {
             .map(|content| count_lines(content))
             .unwrap_or(0);
         let new_lines = count_lines(&new_content);
-        let limit = project_u16_limit(&entry.new_path, base_limit);
+        let limit = limit_snapshot.limit_for(&entry.new_path, base_limit);
 
         match evaluate_u16_baseline(old_content.is_some(), old_lines, new_lines, limit) {
             U16BaselineDecision::Allow => {}
@@ -182,6 +185,41 @@ struct U16Finding {
 struct U16CliConfig {
     mode: U16GitMode,
     base_limit: Option<usize>,
+}
+
+struct U16LimitSnapshot {
+    project_root: PathBuf,
+    claude_text: Option<String>,
+}
+
+impl U16LimitSnapshot {
+    fn load(mode: &U16GitMode) -> Result<Self, String> {
+        let project_root = git_stdout(&["rev-parse".to_string(), "--show-toplevel".to_string()])?;
+        let project_root = project_root.trim();
+        if project_root.is_empty() {
+            return Err("git rev-parse --show-toplevel returned an empty path".to_string());
+        }
+
+        let claude_text = if new_blob_exists(mode, "CLAUDE.md")? {
+            Some(read_blob(mode, OldOrNew::New, "CLAUDE.md")?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            project_root: PathBuf::from(project_root),
+            claude_text,
+        })
+    }
+
+    fn limit_for(&self, file_path: &str, base_limit: usize) -> usize {
+        match &self.claude_text {
+            Some(text) => {
+                u16_limit_from_claude_text(text, file_path, &self.project_root, base_limit)
+            }
+            None => base_limit,
+        }
+    }
 }
 
 impl U16CliConfig {
@@ -347,6 +385,27 @@ fn read_blob(mode: &U16GitMode, which: OldOrNew, path: &str) -> Result<String, S
         (U16GitMode::Base { head, .. }, OldOrNew::New) => format!("{head}:{path}"),
     };
     git_stdout(&["show".to_string(), spec])
+}
+
+fn new_blob_exists(mode: &U16GitMode, path: &str) -> Result<bool, String> {
+    let args = match mode {
+        U16GitMode::Staged => vec![
+            "ls-files".to_string(),
+            "--cached".to_string(),
+            "-z".to_string(),
+            "--".to_string(),
+            path.to_string(),
+        ],
+        U16GitMode::Base { head, .. } => vec![
+            "ls-tree".to_string(),
+            "--name-only".to_string(),
+            "-z".to_string(),
+            head.to_string(),
+            "--".to_string(),
+            path.to_string(),
+        ],
+    };
+    Ok(!git_bytes(&args)?.is_empty())
 }
 
 fn git_bytes(args: &[String]) -> Result<Vec<u8>, String> {

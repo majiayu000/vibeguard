@@ -516,17 +516,6 @@ fn set_owner_only(path: &Path) {
 #[cfg(not(unix))]
 fn set_owner_only(_path: &Path) {}
 
-pub(crate) fn project_u16_limit(file_path: &str, base_limit: usize) -> usize {
-    let mut dir = absolute_parent(file_path);
-    while let Some(current) = dir {
-        if current.join(".git").exists() {
-            return claude_u16_limit(&current.join("CLAUDE.md"), file_path, &current, base_limit);
-        }
-        dir = current.parent().map(Path::to_path_buf);
-    }
-    base_limit
-}
-
 pub(crate) fn absolute_parent(file_path: &str) -> Option<PathBuf> {
     let path = Path::new(file_path);
     let absolute = if path.is_absolute() {
@@ -535,60 +524,6 @@ pub(crate) fn absolute_parent(file_path: &str) -> Option<PathBuf> {
         std::env::current_dir().ok()?.join(path)
     };
     absolute.parent().map(Path::to_path_buf)
-}
-
-fn claude_u16_limit(path: &Path, file_path: &str, project_root: &Path, base_limit: usize) -> usize {
-    let Ok(text) = fs::read_to_string(path) else {
-        return base_limit;
-    };
-    let mut limit = base_limit;
-    for line in text.lines().filter(|line| line.contains("U-16 exempt")) {
-        for (pattern, value) in backtick_limit_pairs(line) {
-            if u16_pattern_matches(&pattern, file_path, project_root) {
-                limit = limit.max(value);
-            }
-        }
-    }
-    limit
-}
-
-fn u16_pattern_matches(pattern: &str, file_path: &str, project_root: &Path) -> bool {
-    if glob_match(pattern, file_path) {
-        return true;
-    }
-    let path = Path::new(file_path);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        project_root.join(path)
-    };
-    if let Ok(relative) = absolute.strip_prefix(project_root) {
-        let relative = relative.to_string_lossy().replace('\\', "/");
-        return glob_match(pattern, &relative);
-    }
-    false
-}
-
-fn backtick_limit_pairs(line: &str) -> Vec<(String, usize)> {
-    let mut pairs = Vec::new();
-    let mut rest = line;
-    while let Some(start) = rest.find('`') {
-        rest = &rest[start + 1..];
-        let Some(end) = rest.find('`') else {
-            break;
-        };
-        let pattern = rest[..end].to_string();
-        rest = &rest[end + 1..];
-        let digits = rest
-            .chars()
-            .skip_while(|c| !c.is_ascii_digit())
-            .take_while(|c| c.is_ascii_digit())
-            .collect::<String>();
-        if let Ok(limit) = digits.parse::<usize>() {
-            pairs.push((pattern, limit));
-        }
-    }
-    pairs
 }
 
 pub(crate) fn glob_match(pattern: &str, value: &str) -> bool {
@@ -726,27 +661,6 @@ mod tests {
             "src/lib.rs",
             "pub(crate) unsafe async fn sync_user() {}\n",
             800
-        ));
-    }
-
-    #[test]
-    fn relative_u16_exemption_matches_absolute_project_path() {
-        let project_root = std::env::current_dir().unwrap().join("repo-root");
-        let file_path = project_root.join("src").join("large.rs");
-        assert!(u16_pattern_matches(
-            "src/large.rs",
-            &file_path.to_string_lossy(),
-            &project_root
-        ));
-        assert!(u16_pattern_matches(
-            "src/*.rs",
-            &file_path.to_string_lossy(),
-            &project_root
-        ));
-        assert!(!u16_pattern_matches(
-            "tests/*.rs",
-            &file_path.to_string_lossy(),
-            &project_root
         ));
     }
 

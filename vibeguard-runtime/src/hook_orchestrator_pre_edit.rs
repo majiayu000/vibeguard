@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::event_schema::{decision, status};
 use crate::hook_checks_common::{
     count_lines, is_pre_edit_u16_source, is_test_infra_path, is_test_path, nested_str,
-    project_u16_limit, read_lossy_file,
+    read_lossy_file,
 };
 use crate::hook_checks_scan::find_project_dir;
 use crate::hook_orchestrator::{
@@ -18,6 +18,7 @@ use crate::u16_baseline::{
     U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
     u16_advisory_limit, u16_display_name,
 };
+use crate::u16_config::project_u16_limit;
 
 #[derive(Debug, PartialEq, Eq)]
 enum MissingFileCandidates {

@@ -50,6 +50,7 @@ mod setup_markdown;
 mod setup_support;
 mod time_utils;
 mod u16_baseline;
+mod u16_config;
 mod wrapper_env;
 
 use std::env;
