@@ -5,12 +5,17 @@ use std::process::Command;
 use crate::hook_checks_common::{
     count_lines, is_allowed_new_file, is_clean_rust_fast_path, is_clean_rust_write_fast_path,
     is_pre_edit_u16_source, is_source_path, is_test_infra_path, is_test_path, nested_str,
-    project_u16_limit, read_lossy_file, read_stdin, write_log_event,
+    read_lossy_file, read_stdin, write_log_event,
 };
 use crate::hook_checks_history::{
     build_fast_warning_output, post_edit_history_signals, post_edit_history_warnings,
 };
 use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_duplicate};
+use crate::u16_baseline::{
+    U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
+    u16_advisory_limit,
+};
+use crate::u16_config::project_u16_limit;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -31,6 +36,12 @@ pub(crate) enum PreWriteCheck {
     },
     U16Block {
         file_path: String,
+        line_count: usize,
+        limit: usize,
+    },
+    U16LegacyDebt {
+        file_path: String,
+        old_line_count: usize,
         line_count: usize,
         limit: usize,
     },
@@ -89,17 +100,37 @@ pub(crate) fn evaluate_pre_write_input(
         return PreWriteCheck::W12 { file_path };
     }
 
-    let content = nested_str(&data, "tool_input.content").unwrap_or_default();
-    let line_count = count_lines(&content);
+    let content = nested_str(&data, "tool_input.content");
+    let line_count = count_lines(content.as_deref().unwrap_or_default());
     let mut u16_advisory = None;
-    if is_source_path(&file_path) && !is_test_path(&file_path) {
+    if content.is_some() && is_source_path(&file_path) && !is_test_path(&file_path) {
         let limit = project_u16_limit(&file_path, base_limit);
-        if line_count > limit {
-            return PreWriteCheck::U16Block {
-                file_path,
-                line_count,
-                limit,
-            };
+        let existed_before = Path::new(&file_path).exists();
+        let old_line_count = if existed_before {
+            match read_lossy_file(&file_path) {
+                Ok(old_content) => count_lines(&old_content),
+                Err(_) => return PreWriteCheck::Malformed,
+            }
+        } else {
+            0
+        };
+        match evaluate_u16_baseline(existed_before, old_line_count, line_count, limit) {
+            U16BaselineDecision::Block(_) => {
+                return PreWriteCheck::U16Block {
+                    file_path,
+                    line_count,
+                    limit,
+                };
+            }
+            U16BaselineDecision::LegacyDebt => {
+                return PreWriteCheck::U16LegacyDebt {
+                    file_path,
+                    old_line_count,
+                    line_count,
+                    limit,
+                };
+            }
+            U16BaselineDecision::Allow => {}
         }
         let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
         if advisory_limit < limit && line_count > advisory_limit {
@@ -163,6 +194,18 @@ fn print_pre_write_check(check: &PreWriteCheck) {
         } => {
             println!("U16_BLOCK");
             println!("{file_path}");
+            println!("{line_count}");
+            println!("{limit}");
+        }
+        PreWriteCheck::U16LegacyDebt {
+            file_path,
+            old_line_count,
+            line_count,
+            limit,
+        } => {
+            println!("U16_LEGACY_DEBT");
+            println!("{file_path}");
+            println!("{old_line_count}");
             println!("{line_count}");
             println!("{limit}");
         }
@@ -304,31 +347,47 @@ fn pre_edit_check_with_readers(
 
         if let Some(estimated) = estimated {
             let limit = project_u16_limit(&file_path, base_limit);
-            if estimated > limit {
-                write_pre_edit_block(
-                    log_file,
-                    &format!("U-16 file size: {estimated} > {limit}"),
-                    &file_path,
-                    &format!(
-                        "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
-                        Path::new(&file_path)
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or(&file_path)
-                    ),
-                )?;
-                return Ok(());
+            match evaluate_u16_baseline(true, current_lines, estimated, limit) {
+                U16BaselineDecision::Block(_) => {
+                    write_pre_edit_block(
+                        log_file,
+                        &format!("U-16 file size: {estimated} > {limit}"),
+                        &file_path,
+                        &format!(
+                            "VIBEGUARD [U-16] block: this edit would bring {} to ~{estimated} lines (limit: {limit}). Split the file into focused submodules before adding more code. Do NOT proceed with this edit.",
+                            Path::new(&file_path)
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or(&file_path)
+                        ),
+                    )?;
+                    return Ok(());
+                }
+                U16BaselineDecision::LegacyDebt => {
+                    let context = legacy_debt_context(&file_path, current_lines, estimated, limit);
+                    if write_log_event(
+                        log_file,
+                        "pre-edit-guard",
+                        "Edit",
+                        "warn",
+                        &format!("U-16 legacy debt: {current_lines} -> {estimated} > {limit}"),
+                        &file_path,
+                    )
+                    .is_err()
+                    {
+                        println!("FALLBACK_OUTPUT");
+                        println!("{context}");
+                        return Ok(());
+                    }
+                    println!("FAST_OUTPUT");
+                    println!("{}", hook_context_json("PreToolUse", &context));
+                    return Ok(());
+                }
+                U16BaselineDecision::Allow => {}
             }
             let advisory_limit = u16_advisory_limit(base_limit, limit, warn_limit);
             if advisory_limit < limit && estimated > advisory_limit {
-                let context = u16_advisory_context(
-                    &file_path,
-                    estimated,
-                    advisory_limit,
-                    limit,
-                    "this edit would leave",
-                    false,
-                );
+                let context = edit_advisory_context(&file_path, estimated, advisory_limit, limit);
                 if write_log_event(
                     log_file,
                     "pre-edit-guard",
@@ -525,37 +584,6 @@ fn hook_context_json(event_name: &str, context: &str) -> String {
     format!(
         "{{\"hookSpecificOutput\":{{\"hookEventName\":\"{event_name}\",\"additionalContext\":{escaped}}}}}"
     )
-}
-
-fn u16_advisory_limit(base_limit: usize, hard_limit: usize, warn_limit: usize) -> usize {
-    if hard_limit > base_limit {
-        hard_limit
-    } else {
-        warn_limit.min(hard_limit)
-    }
-}
-
-fn u16_advisory_context(
-    file_path: &str,
-    line_count: usize,
-    warn_limit: usize,
-    hard_limit: usize,
-    action: &str,
-    include_search: bool,
-) -> String {
-    let file_name = Path::new(file_path)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(file_path);
-    let mut context = format!(
-        "VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: {action} {file_name} with {line_count} lines exceeds the {warn_limit}-line typical range but stays under the {hard_limit}-line hard limit\nSCOPE: keep the current change localized; plan a split if this file keeps growing\nACTION: NONE — advisory only, continue without acknowledgement"
-    );
-    if include_search {
-        context.push_str(
-            "\n---\nVIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement",
-        );
-    }
-    context
 }
 
 pub fn post_edit_fast_check(args: &[String]) -> Result {

@@ -98,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation command examples updated to current script layout (`scripts/metrics/` and `scripts/verify/`)
 - `doc-freshness-check.sh` now uses `rules/claude-rules/` as canonical rule source and deduplicates guard file reporting
 - Added missing `PY-13` rule definition in Claude-native Python rule set
+- U-16 now compares old and new line counts for pre-edit, pre-write, git pre-commit, and CI changed-file checks; legacy oversized files can shrink or receive same-size fixes with a `U16_LEGACY_DEBT` advisory, while oversized imports and growth still block
 - Codex `apply_patch Update File` now passes line deltas into `pre-edit-guard.sh`, so U-16 over-800-line source edits are denied before mutation instead of only warning after the file changes
 - Claude native rule installation now derives installed rule files from `schemas/install-modules.json` instead of hardcoded rule directories
 - `setup.sh --check` now detects native rule symlink target drift, repo-owned stale rule symlinks no longer declared by the manifest, installed snapshot drift, managed agent drift, shortcut command drift, and repository git hook drift

@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::circuit_breaker::{self, CircuitCheckOutcome, CircuitRecordBlockOutcome};
@@ -10,6 +10,9 @@ use crate::hook_checks_common::{append_jsonl, nested_str, read_stdin, truncate_c
 use crate::hook_orchestrator_context::RuntimeContext;
 use crate::runtime_config::{runtime_config_int_value, runtime_config_str_value};
 use crate::time_utils::{format_unix_secs_utc, now_unix_secs};
+use crate::u16_baseline::{
+    L1_ADVISORY_CONTEXT, legacy_debt_context, u16_display_name, write_advisory_context,
+};
 use crate::wrapper_env::env_nonempty;
 
 pub(crate) type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -243,9 +246,31 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 "block",
                 &format!(
                     "VIBEGUARD [U-16] block: writing {} with {line_count} lines exceeds the {limit}-line limit. Split into focused submodules first. Do NOT proceed with this write.",
-                    file_name(file_path)
+                    u16_display_name(file_path)
                 ),
             );
+        }
+        PreWriteCheck::U16LegacyDebt {
+            file_path,
+            old_line_count,
+            line_count,
+            limit,
+        } => {
+            append_hook_event(
+                ctx,
+                HookKind::PreWrite,
+                decision::WARN,
+                status::WARN,
+                &format!("U-16 legacy debt: {old_line_count} -> {line_count} > {limit}"),
+                file_path,
+                elapsed_ms(start),
+            )?;
+            print_hook_context(&legacy_debt_context(
+                file_path,
+                *old_line_count,
+                *line_count,
+                *limit,
+            ))?;
         }
         PreWriteCheck::U16Warn {
             file_path,
@@ -262,7 +287,7 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
                 file_path,
                 elapsed_ms(start),
             )?;
-            print_hook_context(&u16_advisory_context(
+            print_hook_context(&write_advisory_context(
                 file_path,
                 *line_count,
                 *warn_limit,
@@ -743,37 +768,10 @@ fn source_new_context(check: &PreWriteCheck, has_u16_advisory: bool) -> String {
             limit,
         } = check
     {
-        return u16_advisory_context(file_path, *line_count, *warn_limit, *limit, true);
+        return write_advisory_context(file_path, *line_count, *warn_limit, *limit, true);
     }
     L1_ADVISORY_CONTEXT.to_string()
 }
-
-fn u16_advisory_context(
-    file_path: &str,
-    line_count: usize,
-    warn_limit: usize,
-    limit: usize,
-    include_search: bool,
-) -> String {
-    let mut context = format!(
-        "VIBEGUARD [U-16] [advisory] [this-file] OBSERVATION: writing {} with {line_count} lines exceeds the {warn_limit}-line typical range but stays under the {limit}-line hard limit\nSCOPE: keep the current change localized; plan a split if this file keeps growing\nACTION: NONE — advisory only, continue without acknowledgement",
-        file_name(file_path)
-    );
-    if include_search {
-        context.push_str("\n---\n");
-        context.push_str(L1_ADVISORY_CONTEXT);
-    }
-    context
-}
-
-fn file_name(path: &str) -> &str {
-    Path::new(path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(path)
-}
-
-const L1_ADVISORY_CONTEXT: &str = "VIBEGUARD [L1] [advisory] [this-edit] OBSERVATION: new source file detected — search for similar implementation before adding duplicates\nSCOPE: if not yet checked, consider Grep for functions/classes/structs and Glob for same-named files\nACTION: NONE — advisory only, continue without acknowledgement";
 
 #[cfg(test)]
 mod tests {

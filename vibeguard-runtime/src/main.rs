@@ -49,6 +49,8 @@ mod setup_manifest;
 mod setup_markdown;
 mod setup_support;
 mod time_utils;
+mod u16_baseline;
+mod u16_config;
 mod wrapper_env;
 
 use std::env;
@@ -332,6 +334,11 @@ static COMMANDS: &[Command] = &[
         name: "u16-limit",
         usage: "<file-path> <base-limit>  — resolve U-16 project exemption limit",
         handler: hook_checks::u16_limit,
+    },
+    Command {
+        name: "u16-baseline-check",
+        usage: "(--staged|--base <ref> [--head <ref>]) [--base-limit <n>]  — enforce baseline-aware U-16 changed-file policy",
+        handler: u16_baseline::run_cli,
     },
     Command {
         name: "test-path-filter",

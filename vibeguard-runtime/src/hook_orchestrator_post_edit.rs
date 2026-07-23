@@ -6,8 +6,7 @@ use std::time::Instant;
 
 use crate::event_schema::{decision, status};
 use crate::hook_checks_common::{
-    count_lines, is_pre_edit_u16_source, is_test_path, nested_str, project_u16_limit,
-    read_lossy_file,
+    count_lines, is_pre_edit_u16_source, is_test_path, nested_str, read_lossy_file,
 };
 use crate::hook_orchestrator::{HookKind, Result, append_hook_event, elapsed_ms};
 use crate::hook_orchestrator_context::RuntimeContext;
@@ -15,6 +14,7 @@ use crate::hook_orchestrator_post_edit_history::{
     count_prior_warn_events, detect_history_warnings, read_post_edit_history_events,
 };
 use crate::runtime_config::runtime_config_int_value;
+use crate::u16_config::project_u16_limit;
 
 pub(crate) fn run(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     let data = match serde_json::from_str::<Value>(input) {
