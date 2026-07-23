@@ -50,6 +50,23 @@ elif command -v gtimeout >/dev/null 2>&1; then
 fi
 command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 
+# The installed wrapper is also probed directly by setup diagnostics. Outside a
+# repository there is no commit to guard, so preserve the historical no-op
+# contract. Any other Git context failure remains blocking.
+_GIT_CONTEXT=""
+if ! _GIT_CONTEXT=$(LC_ALL=C git rev-parse --is-inside-work-tree 2>&1); then
+  if [[ "$_GIT_CONTEXT" == *"not a git repository"* ]]; then
+    exit 0
+  fi
+  echo "VibeGuard Pre-Commit Guard: failed to determine Git worktree context; blocking commit" >&2
+  echo "$_GIT_CONTEXT" >&2
+  vg_log "pre-commit-guard" "git-commit" "block" "Git worktree detection failed" "$_GIT_CONTEXT"
+  exit 2
+fi
+if [[ "$_GIT_CONTEXT" != "true" ]]; then
+  exit 0
+fi
+
 # --- Collect staged source code files (single git diff, filter by extension) ---
 # PERF-OK: pre-commit must inspect the cached index once; errors block because an
 # empty fallback would bypass U-16 and every downstream staged-file guard.

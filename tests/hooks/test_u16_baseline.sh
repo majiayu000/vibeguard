@@ -183,6 +183,18 @@ set -e
 assert_contains "status=$standalone_precommit_status" "status=1" "standalone pre-commit honors explicit VIBEGUARD_RUNTIME"
 assert_contains "$standalone_precommit_output" "U16_BASELINE_BLOCK" "standalone pre-commit still prints U-16 evidence"
 
+non_repo_dir="$WORK_ROOT/non-repo"
+mkdir -p "$non_repo_dir"
+set +e
+non_repo_precommit_output="$(
+  cd "$non_repo_dir" &&
+    VIBEGUARD_RUNTIME="$runtime" bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1
+)"
+non_repo_precommit_status=$?
+set -e
+assert_contains "status=$non_repo_precommit_status" "status=0" "pre-commit is a no-op outside a Git worktree"
+assert_not_contains "$non_repo_precommit_output" "failed to enumerate staged files" "non-repository no-op is not reported as an enumeration failure"
+
 repo="$(make_repo precommit-git-failure)"
 write_lines "$repo/src/small.rs" 10 "small"
 git -C "$repo" add src/small.rs
@@ -192,6 +204,10 @@ mkdir -p "$fake_git_dir"
 cat > "$fake_git_dir/git" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${FORCE_CONTEXT_FAILURE:-0}" == "1" && "${1:-}" == "rev-parse" && "${2:-}" == "--is-inside-work-tree" ]]; then
+  echo "forced Git context failure" >&2
+  exit 43
+fi
 if [[ "${1:-}" == "diff" && "${2:-}" == "--cached" && "${3:-}" == "--name-only" ]]; then
   echo "forced staged enumeration failure" >&2
   exit 42
@@ -209,6 +225,17 @@ precommit_git_failure_status=$?
 set -e
 assert_contains "status=$precommit_git_failure_status" "status=2" "pre-commit fails closed when staged enumeration fails"
 assert_contains "$precommit_git_failure_output" "forced staged enumeration failure" "pre-commit exposes staged enumeration error"
+
+set +e
+precommit_context_failure_output="$(
+  cd "$repo" &&
+    FORCE_CONTEXT_FAILURE=1 REAL_GIT="$real_git" PATH="$fake_git_dir:$PATH" VIBEGUARD_RUNTIME="$runtime" \
+      bash "$REPO_DIR/hooks/pre-commit-guard.sh" 2>&1
+)"
+precommit_context_failure_status=$?
+set -e
+assert_contains "status=$precommit_context_failure_status" "status=2" "pre-commit fails closed when Git worktree detection fails"
+assert_contains "$precommit_context_failure_output" "forced Git context failure" "pre-commit exposes Git worktree detection error"
 
 repo="$(make_repo ci)"
 write_lines "$repo/src/lib.rs" 10
