@@ -54,6 +54,7 @@ command -v python3 >/dev/null 2>&1 && HAS_PYTHON3=1
 # repository there is no commit to guard, so preserve the historical no-op
 # contract. Any other Git context failure remains blocking.
 _GIT_CONTEXT=""
+# PERF-OK: one constant-time worktree probe distinguishes setup diagnostics from commits.
 if ! _GIT_CONTEXT=$(LC_ALL=C git rev-parse --is-inside-work-tree 2>&1); then
   if [[ "$_GIT_CONTEXT" == *"not a git repository"* ]]; then
     exit 0
@@ -71,6 +72,7 @@ fi
 # PERF-OK: pre-commit must inspect the cached index once; errors block because an
 # empty fallback would bypass U-16 and every downstream staged-file guard.
 _ALL_STAGED=""
+# PERF-OK: one cached name-only diff feeds every downstream staged-file guard.
 if ! _ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>&1); then
   echo "VibeGuard Pre-Commit Guard: failed to enumerate staged files; blocking commit" >&2
   echo "$_ALL_STAGED" >&2
