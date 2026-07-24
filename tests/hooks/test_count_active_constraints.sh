@@ -21,6 +21,7 @@ hook_no_ci_env=(
   JENKINS_URL=
   GITLAB_CI=false
   TF_BUILD=false
+  VIBEGUARD_HOME=
 )
 
 make_home() {
@@ -148,6 +149,18 @@ JSON
 assert_contains "${hook_warn_out}" "hookSpecificOutput" "hook emits additional context on warning"
 assert_contains "${hook_warn_out}" "effective task constraints=16" "hook warning includes constraint count"
 
+# GH-683: without a strict profile, exceeding the block budget must surface as
+# injected context (exit 0), not a failed hook — core/full users still see it.
+hook_softblock_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-softblock" bash "${HOOK}" <<'JSON'
+{"hook_event_name":"SessionStart"}
+JSON
+)"
+assert_contains "${hook_softblock_out}" "hookSpecificOutput" "non-strict profile surfaces block budget as context"
+assert_contains "${hook_softblock_out}" "VIBEGUARD U-32 block" "non-strict block context names the U-32 status"
+
+mkdir -p "${BLOCK_HOME}/.vibeguard"
+printf '{\n  "profile": "strict"\n}\n' > "${BLOCK_HOME}/.vibeguard/install-state.json"
+
 hook_block_err="${TMP_ROOT}/hook-block.err"
 set +e
 env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-block" bash "${HOOK}" <<'JSON' 2>"${hook_block_err}" >/dev/null
@@ -163,6 +176,13 @@ else
   red "hook blocks when strict budget exceeds 30"
   FAIL=$((FAIL + 1))
 fi
+
+# Explicit env override still wins over the installed profile.
+hook_override_out="$(env "${hook_no_ci_env[@]}" HOME="${BLOCK_HOME}" VIBEGUARD_U32_STRICT=0 VIBEGUARD_PROJECT_ROOT="${BLOCK_REPO}" VIBEGUARD_LOG_DIR="${TMP_ROOT}/logs-override" bash "${HOOK}" <<'JSON'
+{"hook_event_name":"SessionStart"}
+JSON
+)"
+assert_contains "${hook_override_out}" "hookSpecificOutput" "VIBEGUARD_U32_STRICT=0 downgrades strict block to context"
 
 header "GH-541 rule-delivery budget (compact core default vs full-tree opt-in)"
 # The default (core/minimal) Claude profile injects only the compact L1-L7 +
