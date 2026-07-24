@@ -86,6 +86,7 @@ _w14_run() {
   printf '{"tool_input":{"file_path":"%s","new_string":"value = 9\\n"}}' "$target" \
     | env VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" \
       VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_AGENT_TYPE="codex" \
+      VIBEGUARD_SESSION_SOURCE="codex-thread" \
       "$@" bash hooks/post-edit-guard.sh
 }
 
@@ -95,7 +96,7 @@ EOF
 
 _w14_result=$(
   printf '{"tool_input":{"file_path":"%s","new_string":"value = 2\\n"}}' "$_w14_rel" \
-    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" bash hooks/post-edit-guard.sh
+    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_SESSION_SOURCE="codex-thread" bash hooks/post-edit-guard.sh
 )
 assert_contains "$_w14_result" "[W-14]" "W-14 detects relative/absolute matches for the same file"
 assert_contains "$_w14_result" 'BASE=${VIBEGUARD_WORKTREE_BASE:-${REPO}.wt}' "W-14 worktree hint reads configured base"
@@ -110,7 +111,7 @@ assert_contains "$_w14_shown_event" '"decision": "warn"' "First W-14 records ded
 
 _w14_repeat=$(
   printf '{"tool_input":{"file_path":"%s","new_string":"value = 3\\n"}}' "$_w14_file" \
-    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" bash hooks/post-edit-guard.sh
+    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_SESSION_SOURCE="codex-thread" bash hooks/post-edit-guard.sh
 )
 assert_not_contains "$_w14_repeat" "[W-14]" "W-14 reuses cooldown across relative and absolute forms of the same file"
 _w14_suppressed_event=$(python3 -c '
@@ -130,14 +131,14 @@ raise SystemExit(0 if re.search(r"\\|\\|w14_key=[0-9a-f]{64}$", event.get("detai
 for _ in {1..801}; do printf 'value = 1\n'; done > "$_w14_file"
 _w14_mixed=$(
   printf '{"tool_input":{"file_path":"%s","new_string":"value = 4\\n"}}' "$_w14_rel" \
-    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" bash hooks/post-edit-guard.sh
+    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_SESSION_SOURCE="codex-thread" bash hooks/post-edit-guard.sh
 )
 assert_not_contains "$_w14_mixed" "[W-14]" "W-14 cooldown does not renew from suppressed telemetry"
 assert_contains "$_w14_mixed" "[U-16]" "W-14 cooldown preserves other post-edit warnings"
 
 _w14_disabled=$(
   printf '{"tool_input":{"file_path":"%s","new_string":"value = 5\\n"}}' "$_w14_rel" \
-    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_W14_COOLDOWN_SECONDS=0 bash hooks/post-edit-guard.sh
+    | VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_SESSION_SOURCE="codex-thread" VIBEGUARD_W14_COOLDOWN_SECONDS=0 bash hooks/post-edit-guard.sh
 )
 assert_contains "$_w14_disabled" "[W-14]" "W-14 cooldown value zero restores visible warnings"
 
@@ -213,6 +214,47 @@ rm -rf "${_w14_log_file}.lock.d"
 assert_contains "$_w14_append_failure" "[W-14]" "W-14 telemetry append failure preserves the visible warning"
 assert_contains "$_w14_append_failure" "W-14 suppressed telemetry append failed" "W-14 telemetry append failure reports its root cause"
 assert_contains "$_w14_append_failure" "VG-INTERNAL-LOG-APPEND" "W-14 final event append failure reports hook diagnostics"
+
+# Issue #673: Codex identity without a payload-derived logical session is
+# process-derived and low-confidence — W-14 downgrades to info and must not
+# demand a worktree from a PID difference alone.
+_w14_low_file="$_w14_dir/low_confidence.py"
+printf 'value = 1\n' > "$_w14_low_file"
+_w14_seed_history "$_w14_low_file" "downgrade-peer"
+_w14_low=$(
+  printf '{"tool_input":{"file_path":"%s","new_string":"value = 6\\n"}}' "$_w14_low_file" \
+    | env VIBEGUARD_LOG_DIR="$VIBEGUARD_LOG_DIR" VIBEGUARD_CLI="codex" \
+      VIBEGUARD_SESSION_ID="current-session" VIBEGUARD_AGENT_TYPE="codex" \
+      bash hooks/post-edit-guard.sh
+)
+assert_contains "$_w14_low" "[W-14] [info]" "W-14 downgrades to info without logical Codex identity"
+assert_contains "$_w14_low" "low-confidence" "W-14 downgrade names the low-confidence identity"
+assert_not_contains "$_w14_low" "git worktree add" "W-14 downgrade does not mandate a worktree"
+
+# Issue #673: a pre-edit-only history entry records intent, not a completed
+# touch — it must not count as another writer.
+_w14_pre_file="$_w14_dir/pre_intent.py"
+printf 'value = 1\n' > "$_w14_pre_file"
+python3 - "$_w14_log_file" "$_w14_pre_file" <<'PY'
+from datetime import datetime, timezone
+import json
+import sys
+
+log_file, target = sys.argv[1:]
+event = {
+    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "session": "pre-intent-peer",
+    "hook": "pre-edit-guard",
+    "tool": "Edit",
+    "decision": "pass",
+    "agent": "peer-agent",
+    "detail": target,
+}
+with open(log_file, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(event, separators=(",", ":")) + "\n")
+PY
+_w14_pre=$(_w14_run "$_w14_pre_file")
+assert_not_contains "$_w14_pre" "[W-14]" "W-14 ignores pre-hook intent-only history entries"
 
 rm -rf "$_w14_dir"
 

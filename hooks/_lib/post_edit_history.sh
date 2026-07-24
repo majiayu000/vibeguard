@@ -143,6 +143,16 @@ vg_post_edit_detect_w14_overlap() {
 
   [[ -n "$recent_conflict" ]] || return 0
   IFS='|' read -r other_session other_agent other_hook other_tool <<< "$recent_conflict"
+  # Codex sessions without a payload-derived logical identity fall back to
+  # process-derived ids that can fragment within one logical thread (issue
+  # #673). A PID-difference alone is then too weak to demand a worktree.
+  if [[ "${VIBEGUARD_CLI:-}" == "codex" && "${VIBEGUARD_SESSION_SOURCE:-}" != "codex-thread" ]]; then
+    vg_post_edit_append_warning "[W-14] [info] [this-file] OBSERVATION: a possibly different session recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown}) — writer identity is process-derived and low-confidence
+FIX: Confirm a second signal (another Codex thread or agent actually editing this file) before isolating; if confirmed, create a dedicated worktree
+DO NOT: Treat process-id/session differences alone as proof of another writer"
+    vg_log "post-edit-guard" "Edit" "warn" "w14 overlap low-confidence session ${other_session} agent ${other_agent:-unknown}" "$FILE_PATH"
+    return 0
+  fi
   vg_post_edit_append_warning "[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched ${FILE_PATH##*/} (${other_tool} via ${other_hook}, session ${other_session}, agent ${other_agent:-unknown})"'
 FIX: Isolate via a dedicated worktree before continuing. Copy-paste:
   REPO=$(git rev-parse --show-toplevel) && SID=${VIBEGUARD_SESSION_ID:-$(date +%s)}

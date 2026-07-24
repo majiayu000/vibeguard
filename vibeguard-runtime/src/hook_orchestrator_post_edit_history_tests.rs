@@ -24,6 +24,7 @@ fn review_context(log_file: std::path::PathBuf) -> RuntimeContext {
         client: "codex".into(),
         client_variant: "codex-cli-hooks".into(),
         caller_evidence: "explicit-test".into(),
+        session_source: "codex-thread".into(),
     }
 }
 
@@ -270,6 +271,59 @@ fn w14_main_path_records_show_suppresses_and_restores_on_append_failure() {
     assert!(restored_warnings[0].contains("session peer"));
     assert!(!failed_ctx.log_file.exists());
     assert!(blocking_parent.is_file());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn w14_ignores_pre_hook_intent_events() {
+    let root = temp_root("w14-pre-intent");
+    let file_path = root.join("src/main.rs").to_string_lossy().to_string();
+    let now = now_unix_secs();
+    let mut pre_event = overlap_event(&file_path, now);
+    pre_event["hook"] = json!("pre-edit-guard");
+
+    let ctx = review_context(root.join("events.jsonl"));
+    let mut warnings = Vec::new();
+    detect_w14_at(
+        &ctx,
+        Instant::now(),
+        &file_path,
+        std::slice::from_ref(&pre_event),
+        &mut warnings,
+        now,
+        60,
+    );
+    assert!(warnings.is_empty());
+    assert!(!ctx.log_file.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn w14_downgrades_to_info_without_logical_codex_identity() {
+    let root = temp_root("w14-low-confidence");
+    let file_path = root.join("src/main.rs").to_string_lossy().to_string();
+    let now = now_unix_secs();
+    let overlap = overlap_event(&file_path, now);
+
+    let mut ctx = review_context(root.join("events.jsonl"));
+    ctx.session_source = String::new();
+    let mut warnings = Vec::new();
+    detect_w14_at(
+        &ctx,
+        Instant::now(),
+        &file_path,
+        std::slice::from_ref(&overlap),
+        &mut warnings,
+        now,
+        60,
+    );
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("[W-14] [info]"));
+    assert!(warnings[0].contains("low-confidence"));
+    assert!(!warnings[0].contains("git worktree add"));
+    let events = read_test_events(&ctx.log_file);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0][field::DECISION], decision::WARN);
     fs::remove_dir_all(root).unwrap();
 }
 

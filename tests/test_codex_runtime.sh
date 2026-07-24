@@ -217,7 +217,8 @@ for codex_runtime_test in \
   "${REPO_DIR}/tests/codex_runtime/pretool_diagnostic_tests.sh" \
   "${REPO_DIR}/tests/codex_runtime/posttool_large_io_tests.sh" \
   "${REPO_DIR}/tests/codex_runtime/native_permission_patch_tests.sh" \
-  "${REPO_DIR}/tests/codex_runtime/app_server_wrapper_tests.sh"; do
+  "${REPO_DIR}/tests/codex_runtime/app_server_wrapper_tests.sh" \
+  "${REPO_DIR}/tests/codex_runtime/session_identity_tests.sh"; do
   # shellcheck source=/dev/null
   source "${codex_runtime_test}"
 done
