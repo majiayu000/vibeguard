@@ -139,6 +139,42 @@ pub(crate) fn is_allowed_new_file(path: &str) -> bool {
         || is_test_path(path)
 }
 
+/// Session-scoped temp paths (scratchpad dirs, TMPDIR, system temp roots) are
+/// single-session-exclusive by construction: cross-session file ownership
+/// conflicts (W-14) and correction-loop churn signals are structurally absent
+/// there (issue #681). Downgrade path (U-32): VIBEGUARD_W14_SKIP_TEMP=0 opts
+/// back into detection on temp paths.
+pub(crate) fn is_session_temp_path(path: &str) -> bool {
+    if env::var("VIBEGUARD_W14_SKIP_TEMP").as_deref() == Ok("0") {
+        return false;
+    }
+    let normalized = path.replace('\\', "/");
+    if normalized.split('/').any(|part| part == "scratchpad") {
+        return true;
+    }
+    let mut roots = vec![
+        "/tmp/".to_string(),
+        "/private/tmp/".to_string(),
+        "/var/folders/".to_string(),
+        "/private/var/folders/".to_string(),
+    ];
+    if let Ok(tmpdir) = env::var("TMPDIR") {
+        let tmpdir = tmpdir.replace('\\', "/");
+        let tmpdir = tmpdir.trim_end_matches('/');
+        if !tmpdir.is_empty() {
+            roots.push(format!("{tmpdir}/"));
+        }
+    }
+    let system_temp = std::env::temp_dir().to_string_lossy().replace('\\', "/");
+    let system_temp = system_temp.trim_end_matches('/');
+    if !system_temp.is_empty() {
+        roots.push(format!("{system_temp}/"));
+    }
+    roots
+        .iter()
+        .any(|root| normalized.starts_with(root.as_str()))
+}
+
 pub(crate) fn count_lines(content: &str) -> usize {
     if content.is_empty() {
         0
@@ -597,6 +633,20 @@ mod tests {
                 "{path} should be classified as production"
             );
         }
+    }
+
+    #[test]
+    fn session_temp_paths_cover_scratchpad_and_temp_roots() {
+        assert!(is_session_temp_path(
+            "/private/tmp/claude-502/session-x/scratchpad/report.html"
+        ));
+        assert!(is_session_temp_path("/repo/work/scratchpad/notes.html"));
+        assert!(is_session_temp_path("/tmp/build-probe.rs"));
+        assert!(is_session_temp_path("/private/tmp/probe.py"));
+        assert!(is_session_temp_path("/var/folders/ab/T/probe.py"));
+        assert!(!is_session_temp_path("/repo/src/main.rs"));
+        assert!(!is_session_temp_path("src/scratchpad.rs"));
+        assert!(!is_session_temp_path("docs/tmp-notes.md"));
     }
 
     #[test]

@@ -37,8 +37,12 @@ pub(crate) fn detect_history_warnings(
         })
         .cloned()
         .collect::<Vec<_>>();
-    detect_churn(ctx, start, file_path, &session_events, events, warnings);
-    detect_w14(ctx, start, file_path, events, warnings);
+    // Session-scoped temp paths cannot have cross-session ownership conflicts
+    // and long-doc scratchpad builds are not correction loops (issue #681).
+    if !crate::hook_checks_common::is_session_temp_path(file_path) {
+        detect_churn(ctx, start, file_path, &session_events, events, warnings);
+        detect_w14(ctx, start, file_path, events, warnings);
+    }
     detect_w15(
         ctx, start, file_path, old_string, new_string, events, warnings,
     );

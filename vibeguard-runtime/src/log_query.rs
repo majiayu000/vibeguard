@@ -193,6 +193,11 @@ fn recent_overlap(
     file_path: &str,
     now_secs: u64,
 ) -> Option<(String, String, String, String)> {
+    // Without a known current-session identity, "different session" cannot be
+    // established: prior self-writes would be misattributed (issue #681).
+    if session.trim().is_empty() || session == "?" || session.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
     let normalized_file = normalize_path(file_path);
     let cutoff = now_secs.saturating_sub(30 * 60);
     let mut last = None;
@@ -411,7 +416,17 @@ pub fn post_edit_history(args: &[String]) -> Result {
     let w15_events = events_in_recent_lines(&positioned_events, total_lines, 200);
     let w15_trail = same_file_edit_delta_trail(&w15_events, session, file_path);
 
-    println!("CHURN\t{}", count_churn_events(&session_events, file_path));
+    // Session-temp paths (scratchpad, TMPDIR) are exempt from churn and W-14
+    // (issue #681); W-15 stays active but already skips doc paths.
+    let session_temp = crate::hook_checks_common::is_session_temp_path(file_path);
+    println!(
+        "CHURN\t{}",
+        if session_temp {
+            0
+        } else {
+            count_churn_events(&session_events, file_path)
+        }
+    );
     println!(
         "W15\t{}",
         consecutive_same_file_edits(&w15_events, session, file_path)
@@ -439,8 +454,9 @@ pub fn post_edit_history(args: &[String]) -> Result {
             project
         )
     );
-    if let Some((session_id, agent_name, hook_name, tool_name)) =
-        recent_overlap(&events, session, agent, file_path, now_unix_secs())
+    if !session_temp
+        && let Some((session_id, agent_name, hook_name, tool_name)) =
+            recent_overlap(&events, session, agent, file_path, now_unix_secs())
     {
         println!("W14\t{session_id}\t{agent_name}\t{hook_name}\t{tool_name}");
     }
