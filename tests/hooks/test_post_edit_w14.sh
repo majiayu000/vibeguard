@@ -256,6 +256,70 @@ PY
 _w14_pre=$(_w14_run "$_w14_pre_file")
 assert_not_contains "$_w14_pre" "[W-14]" "W-14 ignores pre-hook intent-only history entries"
 
+# Issue #681: session-scoped temp paths (scratchpad, TMPDIR) cannot have
+# cross-session ownership conflicts — W-14 and churn must not fire there.
+_w14_scratch_dir=$(mktemp -d "${TMPDIR:-/tmp}/vg-w14-scratch.XXXXXX")/scratchpad
+mkdir -p "$_w14_scratch_dir"
+_w14_scratch_file="$_w14_scratch_dir/report.py"
+printf 'value = 1\n' > "$_w14_scratch_file"
+_w14_seed_history "$_w14_scratch_file" "scratch-peer"
+_w14_scratch=$(_w14_run "$_w14_scratch_file")
+assert_not_contains "$_w14_scratch" "[W-14]" "W-14 exempts session-scoped scratchpad paths"
+
+python3 - "$_w14_log_file" "$_w14_scratch_file" <<'PY'
+from datetime import datetime, timezone
+import json
+import sys
+
+log_file, target = sys.argv[1:]
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with open(log_file, "w", encoding="utf-8") as handle:
+    for _ in range(6):
+        handle.write(json.dumps({
+            "ts": now,
+            "session": "current-session",
+            "hook": "post-edit-guard",
+            "tool": "Edit",
+            "decision": "pass",
+            "detail": target,
+        }, separators=(",", ":")) + "\n")
+PY
+_w14_scratch_churn=$(_w14_run "$_w14_scratch_file")
+assert_not_contains "$_w14_scratch_churn" "[CHURN" "churn exempts session-scoped scratchpad paths"
+
+_w14_seed_history "$_w14_scratch_file" "scratch-peer"
+_w14_scratch_optin=$(_w14_run "$_w14_scratch_file" VIBEGUARD_W14_SKIP_TEMP=0)
+assert_contains "$_w14_scratch_optin" "[W-14]" "VIBEGUARD_W14_SKIP_TEMP=0 restores detection on temp paths"
+rm -rf "${_w14_scratch_dir%/scratchpad}"
+
+# The exemption is anchored on the system temp root, not on a `scratchpad`
+# path component: a repository-local scratchpad/ directory holds real source
+# files and must keep full W-14 coverage.
+_w14_repo_scratch_dir="$_w14_dir/scratchpad"
+mkdir -p "$_w14_repo_scratch_dir"
+_w14_repo_scratch_file="$_w14_repo_scratch_dir/report.py"
+printf 'value = 1\n' > "$_w14_repo_scratch_file"
+_w14_seed_history "$_w14_repo_scratch_file" "scratch-peer"
+_w14_repo_scratch=$(_w14_run "$_w14_repo_scratch_file")
+assert_contains "$_w14_repo_scratch" "[W-14]" \
+  "W-14 still fires inside a repository-local scratchpad/ directory"
+
+# TMPDIR is agent-writable: pointing it at the working tree must not exempt it.
+_w14_seed_history "$_w14_file" "peer-session"
+_w14_tmpdir_spoof=$(_w14_run "$_w14_file" "TMPDIR=$_w14_dir")
+assert_contains "$_w14_tmpdir_spoof" "[W-14]" \
+  "a TMPDIR pointing at the working tree does not exempt it from W-14"
+
+# Issue #681: at the query API level an unknown current-session identity must
+# not produce an overlap (self-writes would be misattributed). The end-to-end
+# hook path always resolves a session id, so probe the runtime query directly.
+_w14_unknown_self=$(
+  printf '{"ts":"%s","session":"prior-self-write","hook":"post-write-guard","tool":"Write","decision":"pass","detail":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_w14_file" \
+    | "$(bash -c 'source hooks/_lib/config.sh; _vg_config_runtime_path')" post-edit-history "" "$_w14_file"
+)
+assert_not_contains "$_w14_unknown_self" "W14" "post-edit-history query reports no overlap for an unknown current session"
+
 rm -rf "$_w14_dir"
 
 hook_test_finish
