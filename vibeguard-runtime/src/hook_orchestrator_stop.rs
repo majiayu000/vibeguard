@@ -94,15 +94,14 @@ fn detect_unverified_stop(ctx: &RuntimeContext, git_root: &Path, start: Instant)
                     edited.push(path.to_string());
                 }
             }
-            "pre-bash-guard" => {
+            "pre-bash-guard"
                 if event.get(field::TOOL).and_then(Value::as_str) == Some(tool::BASH)
                     && event
                         .get(field::DETAIL)
                         .and_then(Value::as_str)
-                        .is_some_and(is_verification_command)
-                {
-                    verified = true;
-                }
+                        .is_some_and(is_verification_command) =>
+            {
+                verified = true;
             }
             _ => {}
         }
@@ -122,7 +121,7 @@ fn detect_unverified_stop(ctx: &RuntimeContext, git_root: &Path, start: Instant)
         edited.len()
     );
     append_hook_event(
-        &ctx,
+        ctx,
         HookKind::Stop,
         decision::WARN,
         status::WARN,
