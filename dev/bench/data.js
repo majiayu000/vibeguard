@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784917656815,
+  "lastUpdate": 1784923175497,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -51170,6 +51170,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 11,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5eca642bb0297508070acdf23259a6524293e73",
+          "message": "fix: exempt session-scoped temp paths from W-14/churn and guard unknown session identity (#688)\n\n* fix: derive Codex W-14 writer identity from payload session_id, not wrapper PID\n\nOne logical Codex thread could fragment into multiple VibeGuard sessions\nbecause the native hook wrapper anchored identity to its short-lived\nparent PID. The pre/post hooks of a single Edit then looked like two\nwriters, and W-14 told the agent to create a worktree against its own\npre-hook event.\n\n- runtime: new codex-session-id command parses the hook payload's\n  top-level session_id and derives a stable identity via the existing\n  session_id_for_thread semantics (same model as the app-server path)\n- wrapper: run-hook-codex.sh resolves the logical identity before\n  wrapper-env, exporting VIBEGUARD_SESSION_SOURCE=codex-thread; the PID\n  anchor remains only as a fallback\n- evidence: recent_overlap (orchestrator + log-query fallback) no longer\n  counts pre-hook events as completed file touches\n- downgrade: Codex sessions without logical identity get an info-level\n  W-14 without the mandatory worktree instruction, since a PID\n  difference alone cannot prove another writer\n\nFixes #673\n\nLore-Why: process-derived identity fragments under Codex's short-lived hook parents; logical thread identity is available in the payload and must win\nLore-Rejected: bash-regex extraction of session_id (unordered JSON keys let tool_input content shadow the top-level field); suppressing W-14 for codex entirely (real cross-thread overlaps must still fire)\nLore-Verify: cargo test 23 suites all ok (321 bin tests); test_post_edit_w14.sh 29/29; session_identity_tests 7/7; test_hooks.sh 36/36; hooks tests w15/churn/basic/suppression/log_session/post_write/pre_edit all pass (this session)\n\n* fix: exempt session-scoped temp paths from W-14/churn and guard unknown session identity\n\nIssue #681: building one long document under a session-scoped scratchpad\ndirectory fired 3x W-14 plus a churn ESCALATE recommending a worktree,\nalthough no second session or agent existed.\n\n- is_session_temp_path(): */scratchpad/* segments, TMPDIR, and system temp\n  roots are single-session-exclusive by construction; W-14 and churn skip\n  them in both the Rust orchestrator and the shell-path runtime query.\n  VIBEGUARD_W14_SKIP_TEMP=0 opts back into detection (U-32 downgrade path).\n- recent_overlap() (both backends) returns no overlap when the current\n  session identity is empty/?/unknown: \"another session\" cannot be\n  established, and prior self-writes were misattributed as a peer writer.\n- W-15 is unchanged: it already skips doc paths and size-caps appends.\n\nConstraint: exemption is detection-side only; events are still logged, so\nthe audit trail keeps temp-path edit history.\nRejected: append-aware churn relaxation on all paths — the issue's FP\nevidence is confined to session temp; widening it would blunt the\ncorrection-loop signal for repo sources.\nConfidence: high\nScope-risk: narrow\nVerification: cargo test (23 suites), tests/hooks/test_post_edit_w14.sh\n33/33, test_post_edit_churn.sh 23/23, tests/test_hooks.sh all shards,\nscripts/ci/validate-rules.sh + canonical-rule-language OK\n\nFixes #681\n\n* fix: use event_schema::UNKNOWN constant in log_query session guard\n\nCI check-event-schema-literals.sh forbids raw \"unknown\" literals in\nevent readers; switch the #681 unknown-session guard to the canonical\nconstant.\n\nConfidence: high\nScope-risk: narrow\nVerification: bash scripts/ci/check-event-schema-literals.sh OK, cargo check OK\n\n* ci: retrigger workflows for d53f830 (Actions did not create check suites)\n\n* chore: remove local draft artifacts and settings accidentally committed in merge\n\ndocs/artifacts/ drafts and .claude/settings.local.json are session-local\nfiles; the doc-path validator correctly flagged stale path references in\nthem.\n\nConfidence: high\nScope-risk: narrow\nVerification: git ls-files docs/artifacts/ now empty on this branch\n\n* fix(w14): anchor the session-temp exemption on system temp roots\n\nReviewer lane found two bypasses in the #681 exemption:\n\n1. A bare `scratchpad` path component exempted a path anywhere, not only\n   under a temp root. Any repository with a `scratchpad/` directory silently\n   lost W-14 and churn coverage for that whole subtree, and a unit test had\n   frozen that behavior as expected.\n2. `TMPDIR` was accepted as an exemption root without validation, so\n   `export TMPDIR=$PWD` disabled W-14 and churn across the working tree —\n   exactly the self-bypass W-14 exists to prevent. `std::env::temp_dir()`\n   reads the same variable and had the same hole.\n\nThe exemption is now anchored on the four system temp prefixes only. The\nexplicit VIBEGUARD_W14_SKIP_TEMP=0 downgrade remains the one supported way to\nchange enforcement.\n\nAlso fold the three copies of the \"is the current session identity known\"\npredicate into one `known_w14_session` in hook_checks_common, so `\" ? \"` and\n`\"Unknown\"` cannot be classified differently on different paths; document\nVIBEGUARD_W14_SKIP_TEMP in the config README; correct a comment claiming W-15\nalready skips every long-document path; and ignore test scratch dirs.\n\nNew regression tests fail against the pre-fix binary and pass against this\none: a repo-local scratchpad/ file still trips W-14, and a TMPDIR pointed at\nthe working tree does not exempt it.\n\nRefs #681\n\n* docs(w14): fix the orphaned session-temp rustdoc and duplicated comment\n\nRemoving the old function body left its rustdoc attached to\nSYSTEM_TEMP_PREFIXES, where it contradicted the const's own doc: one half\nstill named TMPDIR and bare scratchpad dirs as exemption grounds, the other\nexplained why TMPDIR cannot be trusted. A later reader could have restored\nthe deleted TMPDIR branch from it. Move it back onto is_session_temp_path and\nstate the actual rule.\n\nhook_checks_history carried both the old and new exemption comment; keep the\none that gives the churn reason correctly.\n\nRecord the suppression-evidence gap as TODO(#691) at the exemption branch so\nit does not disappear with this PR.\n\nThe new negative assertions used /Users/... and /home/... literals, which\nscripts/ci/validate-no-personal-paths.sh rejects — that is what failed CI on\nmacOS. Use neutral paths and add two near-miss prefixes (/tmpfs,\n/var/folders-backup) that must not count as temp roots.\n\nRefs #681",
+          "timestamp": "2026-07-25T03:28:10+08:00",
+          "tree_id": "800886a74c2cb179562f9cae7b683f103a77ee3c",
+          "url": "https://github.com/majiayu000/vibeguard/commit/d5eca642bb0297508070acdf23259a6524293e73"
+        },
+        "date": 1784923174451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 41,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 42,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 42,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 46,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 42,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 43,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 43,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 23,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 119,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 119,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 10,
             "unit": "ms"
           }
         ]
