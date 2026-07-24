@@ -195,10 +195,7 @@ fn recent_overlap(
 ) -> Option<(String, String, String, String)> {
     // Without a known current-session identity, "different session" cannot be
     // established: prior self-writes would be misattributed (issue #681).
-    if session.trim().is_empty()
-        || session == "?"
-        || session.eq_ignore_ascii_case(crate::event_schema::UNKNOWN)
-    {
+    if !crate::hook_checks_common::known_w14_session(session) {
         return None;
     }
     let normalized_file = normalize_path(file_path);
@@ -419,8 +416,9 @@ pub fn post_edit_history(args: &[String]) -> Result {
     let w15_events = events_in_recent_lines(&positioned_events, total_lines, 200);
     let w15_trail = same_file_edit_delta_trail(&w15_events, session, file_path);
 
-    // Session-temp paths (scratchpad, TMPDIR) are exempt from churn and W-14
-    // (issue #681); W-15 stays active but already skips doc paths.
+    // Session temp roots are exempt from churn and W-14 (issue #681). W-15
+    // stays active here and is only relaxed by its own `w15_doc_skip` list,
+    // which does not cover every long-document extension.
     let session_temp = crate::hook_checks_common::is_session_temp_path(file_path);
     println!(
         "CHURN\t{}",

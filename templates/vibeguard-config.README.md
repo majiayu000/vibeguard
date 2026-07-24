@@ -24,6 +24,7 @@ weaken unrelated hook behavior.
 | `circuit_breaker.threshold` | `VG_CB_THRESHOLD` | `3` | Consecutive blocks before the hook circuit trips OPEN (silences batch advisories). |
 | `circuit_breaker.cooldown_seconds` | `VG_CB_COOLDOWN` | `300` | Seconds an OPEN circuit waits before HALF-OPEN. |
 | `w14.cooldown_seconds` | `VIBEGUARD_W14_COOLDOWN_SECONDS` | `3600` | Suppresses repeated W-14 reports for the same directed session pair and file; `0` disables suppression. |
+| _(env only)_ | `VIBEGUARD_W14_SKIP_TEMP` | unset | Set to exactly `0` to keep W-14 **and** churn active on system temp roots (`/tmp`, `/private/tmp`, `/var/folders`). By default those paths are exempt because a session-scoped scratchpad cannot have cross-session write conflicts. Repository paths are never exempt, including a repo-local `scratchpad/` directory. |
 | `paralysis.threshold` | `VG_PARALYSIS_THRESHOLD` | `7` | W-13 read-only-action streak before paralysis warning. |
 | `write_mode` | `VIBEGUARD_WRITE_MODE` | `warn` | `warn` = advisory; `block` = hard reject new source files without prior search. |
 

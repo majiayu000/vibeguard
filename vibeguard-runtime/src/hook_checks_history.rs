@@ -151,7 +151,7 @@ pub(crate) fn recent_overlap(
     // Without a known current-session identity, "different session" cannot be
     // established: the guard would misattribute its own prior sequential
     // writes as another writer (issue #681).
-    if session.trim().is_empty() || session == "?" || session.eq_ignore_ascii_case("unknown") {
+    if !crate::hook_checks_common::known_w14_session(session) {
         return None;
     }
     let normalized_file = normalize_path(file_path);

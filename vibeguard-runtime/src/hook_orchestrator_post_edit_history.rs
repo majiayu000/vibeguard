@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::event_schema::{decision, field, hook, status, tool};
 use crate::git_root::current_git_root_by_marker;
-use crate::hook_checks_common::first_detail_path;
+use crate::hook_checks_common::{first_detail_path, known_w14_session};
 use crate::hook_checks_history::{read_tail_lines, recent_overlap};
 use crate::hook_orchestrator::{
     HookKind, append_hook_event, append_hook_event_with_status, elapsed_ms,
@@ -234,11 +234,6 @@ fn w14_key(current_session: &str, peer_session: &str, normalized_file: &str) -> 
         normalized_file.len()
     );
     Some(sha256_text(&tuple))
-}
-
-fn known_w14_session(session: &str) -> bool {
-    let session = session.trim();
-    !session.is_empty() && session != "?" && !session.eq_ignore_ascii_case("unknown")
 }
 
 fn w14_event_detail(file_path: &str, key: &str) -> String {

@@ -144,35 +144,42 @@ pub(crate) fn is_allowed_new_file(path: &str) -> bool {
 /// conflicts (W-14) and correction-loop churn signals are structurally absent
 /// there (issue #681). Downgrade path (U-32): VIBEGUARD_W14_SKIP_TEMP=0 opts
 /// back into detection on temp paths.
+/// System temp prefixes that a session temp root must live under. `TMPDIR` and
+/// `std::env::temp_dir()` are environment-controlled, so an unvalidated root
+/// would let `TMPDIR=$PWD` disable W-14 and churn across a whole repository —
+/// exactly the self-bypass W-14 exists to prevent. Only the explicit
+/// `VIBEGUARD_W14_SKIP_TEMP=0` downgrade may change enforcement.
+const SYSTEM_TEMP_PREFIXES: [&str; 4] = [
+    "/tmp/",
+    "/private/tmp/",
+    "/var/folders/",
+    "/private/var/folders/",
+];
+
+/// A W-14 comparison needs a known current-session identity. Without one,
+/// "different session" cannot be established and the guard would misattribute
+/// its own prior sequential writes as another writer (issue #681). Single
+/// source of truth for every call site so `" ? "` and `"Unknown"` cannot be
+/// classified differently on different paths.
+pub(crate) fn known_w14_session(session: &str) -> bool {
+    let session = session.trim();
+    !session.is_empty()
+        && session != "?"
+        && !session.eq_ignore_ascii_case(crate::event_schema::UNKNOWN)
+}
+
 pub(crate) fn is_session_temp_path(path: &str) -> bool {
     if env::var("VIBEGUARD_W14_SKIP_TEMP").as_deref() == Ok("0") {
         return false;
     }
+    // A bare `scratchpad/` path component is deliberately NOT enough: a
+    // repository-local `scratchpad/` directory holds real source files and must
+    // keep full W-14 and churn coverage. Only the system temp roots below,
+    // where a session-scoped scratchpad actually lives, are exempt.
     let normalized = path.replace('\\', "/");
-    if normalized.split('/').any(|part| part == "scratchpad") {
-        return true;
-    }
-    let mut roots = vec![
-        "/tmp/".to_string(),
-        "/private/tmp/".to_string(),
-        "/var/folders/".to_string(),
-        "/private/var/folders/".to_string(),
-    ];
-    if let Ok(tmpdir) = env::var("TMPDIR") {
-        let tmpdir = tmpdir.replace('\\', "/");
-        let tmpdir = tmpdir.trim_end_matches('/');
-        if !tmpdir.is_empty() {
-            roots.push(format!("{tmpdir}/"));
-        }
-    }
-    let system_temp = std::env::temp_dir().to_string_lossy().replace('\\', "/");
-    let system_temp = system_temp.trim_end_matches('/');
-    if !system_temp.is_empty() {
-        roots.push(format!("{system_temp}/"));
-    }
-    roots
+    SYSTEM_TEMP_PREFIXES
         .iter()
-        .any(|root| normalized.starts_with(root.as_str()))
+        .any(|prefix| normalized.starts_with(prefix))
 }
 
 pub(crate) fn count_lines(content: &str) -> usize {
@@ -640,13 +647,38 @@ mod tests {
         assert!(is_session_temp_path(
             "/private/tmp/claude-502/session-x/scratchpad/report.html"
         ));
-        assert!(is_session_temp_path("/repo/work/scratchpad/notes.html"));
         assert!(is_session_temp_path("/tmp/build-probe.rs"));
         assert!(is_session_temp_path("/private/tmp/probe.py"));
         assert!(is_session_temp_path("/var/folders/ab/T/probe.py"));
         assert!(!is_session_temp_path("/repo/src/main.rs"));
         assert!(!is_session_temp_path("src/scratchpad.rs"));
         assert!(!is_session_temp_path("docs/tmp-notes.md"));
+    }
+
+    #[test]
+    fn repo_local_scratchpad_directories_keep_w14_coverage() {
+        // A `scratchpad` path component outside a system temp root must not
+        // disable W-14 or churn: otherwise any repository with a scratchpad/
+        // directory silently loses parallel-write protection for that subtree.
+        for path in [
+            "/repo/work/scratchpad/notes.html",
+            "/repo/scratchpad/src/main.rs",
+            "/repo/src/scratchpad/mod.rs",
+            "docs/scratchpad/notes.md",
+        ] {
+            assert!(
+                !is_session_temp_path(path),
+                "{path} must stay under W-14 and churn coverage"
+            );
+        }
+    }
+
+    #[test]
+    fn env_controlled_temp_root_cannot_exempt_a_repository() {
+        // TMPDIR is agent-writable. Pointing it at a working tree must not turn
+        // that tree into an exempt session temp path.
+        assert!(!is_session_temp_path("/Users/someone/proj/src/lib.rs"));
+        assert!(!is_session_temp_path("/home/someone/proj/src/lib.rs"));
     }
 
     #[test]

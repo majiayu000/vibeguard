@@ -292,6 +292,24 @@ _w14_scratch_optin=$(_w14_run "$_w14_scratch_file" VIBEGUARD_W14_SKIP_TEMP=0)
 assert_contains "$_w14_scratch_optin" "[W-14]" "VIBEGUARD_W14_SKIP_TEMP=0 restores detection on temp paths"
 rm -rf "${_w14_scratch_dir%/scratchpad}"
 
+# The exemption is anchored on the system temp root, not on a `scratchpad`
+# path component: a repository-local scratchpad/ directory holds real source
+# files and must keep full W-14 coverage.
+_w14_repo_scratch_dir="$_w14_dir/scratchpad"
+mkdir -p "$_w14_repo_scratch_dir"
+_w14_repo_scratch_file="$_w14_repo_scratch_dir/report.py"
+printf 'value = 1\n' > "$_w14_repo_scratch_file"
+_w14_seed_history "$_w14_repo_scratch_file" "scratch-peer"
+_w14_repo_scratch=$(_w14_run "$_w14_repo_scratch_file")
+assert_contains "$_w14_repo_scratch" "[W-14]" \
+  "W-14 still fires inside a repository-local scratchpad/ directory"
+
+# TMPDIR is agent-writable: pointing it at the working tree must not exempt it.
+_w14_seed_history "$_w14_file" "peer-session"
+_w14_tmpdir_spoof=$(_w14_run "$_w14_file" "TMPDIR=$_w14_dir")
+assert_contains "$_w14_tmpdir_spoof" "[W-14]" \
+  "a TMPDIR pointing at the working tree does not exempt it from W-14"
+
 # Issue #681: at the query API level an unknown current-session identity must
 # not produce an overlap (self-writes would be misattributed). The end-to-end
 # hook path always resolves a session id, so probe the runtime query directly.
