@@ -155,6 +155,7 @@ mod tests {
             client: "codex".to_string(),
             client_variant: "codex-cli-hooks".to_string(),
             caller_evidence: "test".to_string(),
+            session_source: "codex-thread".to_string(),
         }
     }
 

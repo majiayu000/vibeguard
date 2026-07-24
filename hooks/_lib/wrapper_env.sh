@@ -65,6 +65,20 @@ vg_wrapper_env_export_line() {
   esac
 }
 
+# Derive writer identity from the Codex payload's logical session_id instead of
+# the wrapper's short-lived parent PID (issue #673). Pre/post hooks of one tool
+# call can run under different parent processes but share this payload field.
+vg_wrapper_env_codex_session() {
+  local input="$1" runtime_path logical_session
+  [[ -z "${VIBEGUARD_SESSION_ID:-}" ]] || return 0
+  [[ -n "${input}" ]] || return 0
+  runtime_path="$(vg_wrapper_env_runtime_path)" || return 0
+  logical_session="$(printf '%s' "${input}" | "${runtime_path}" codex-session-id 2>/dev/null | head -1)" || return 0
+  [[ -n "${logical_session}" ]] || return 0
+  export VIBEGUARD_SESSION_ID="${logical_session}"
+  export VIBEGUARD_SESSION_SOURCE="codex-thread"
+}
+
 vg_wrapper_env_export() {
   local cli="${1:-unknown}" runtime_path output line
   export VIBEGUARD_CLI="${VIBEGUARD_CLI:-${cli}}"

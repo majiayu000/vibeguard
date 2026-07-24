@@ -252,6 +252,14 @@ def evaluate_expectations(expect: dict[str, Any], exit_code: int, stdout: str) -
             "expected": needle,
             "actual": stdout[:500],
         })
+
+    if expect.get("stdout_empty"):
+        checks.append({
+            "name": "stdout_empty",
+            "passed": stdout.strip() == "",
+            "expected": "",
+            "actual": stdout[:500],
+        })
     return checks
 
 
