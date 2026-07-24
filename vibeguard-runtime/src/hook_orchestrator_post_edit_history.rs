@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::event_schema::{decision, field, hook, status, tool};
 use crate::git_root::current_git_root_by_marker;
-use crate::hook_checks_common::first_detail_path;
+use crate::hook_checks_common::{first_detail_path, known_w14_session};
 use crate::hook_checks_history::{read_tail_lines, recent_overlap};
 use crate::hook_orchestrator::{
     HookKind, append_hook_event, append_hook_event_with_status, elapsed_ms,
@@ -37,8 +37,15 @@ pub(crate) fn detect_history_warnings(
         })
         .cloned()
         .collect::<Vec<_>>();
-    detect_churn(ctx, start, file_path, &session_events, events, warnings);
-    detect_w14(ctx, start, file_path, events, warnings);
+    // Session-scoped temp paths cannot have cross-session ownership conflicts
+    // and long-doc scratchpad builds are not correction loops (issue #681).
+    // TODO(#691): leave a suppression trace like the cooldown path does. Doing
+    // it here would log on every temp write; the suppression point has to move
+    // inside detect_churn / detect_w14 first so only real findings are logged.
+    if !crate::hook_checks_common::is_session_temp_path(file_path) {
+        detect_churn(ctx, start, file_path, &session_events, events, warnings);
+        detect_w14(ctx, start, file_path, events, warnings);
+    }
     detect_w15(
         ctx, start, file_path, old_string, new_string, events, warnings,
     );
@@ -230,11 +237,6 @@ fn w14_key(current_session: &str, peer_session: &str, normalized_file: &str) -> 
         normalized_file.len()
     );
     Some(sha256_text(&tuple))
-}
-
-fn known_w14_session(session: &str) -> bool {
-    let session = session.trim();
-    !session.is_empty() && session != "?" && !session.eq_ignore_ascii_case("unknown")
 }
 
 fn w14_event_detail(file_path: &str, key: &str) -> String {

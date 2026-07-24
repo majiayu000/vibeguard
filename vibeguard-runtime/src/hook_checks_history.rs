@@ -65,16 +65,24 @@ pub(crate) fn post_edit_history_signals(
         return Ok(None);
     }
 
-    let churn_count = events
-        .iter()
-        .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
-        .filter(|e| e.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT))
-        .filter(|e| {
-            e.get(field::DETAIL)
-                .and_then(Value::as_str)
-                .is_some_and(|detail| detail.contains(file_path))
-        })
-        .count();
+    // System temp roots are exempt from churn and W-14: cross-session conflicts
+    // cannot occur there and long-doc scratchpad builds are not correction
+    // loops (issue #681).
+    let session_temp = crate::hook_checks_common::is_session_temp_path(file_path);
+    let churn_count = if session_temp {
+        0
+    } else {
+        events
+            .iter()
+            .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
+            .filter(|e| e.get(field::TOOL).and_then(Value::as_str) == Some(tool::EDIT))
+            .filter(|e| {
+                e.get(field::DETAIL)
+                    .and_then(Value::as_str)
+                    .is_some_and(|detail| detail.contains(file_path))
+            })
+            .count()
+    };
     let warn_count = events
         .iter()
         .filter(|e| e.get(field::SESSION).and_then(Value::as_str) == Some(session))
@@ -94,7 +102,11 @@ pub(crate) fn post_edit_history_signals(
         build_fail_count,
         warn_count,
         w15_count: consecutive_post_edit_count(&events, session, file_path),
-        overlap: recent_overlap(&events, session, agent, file_path),
+        overlap: if session_temp {
+            None
+        } else {
+            recent_overlap(&events, session, agent, file_path)
+        },
     }))
 }
 
@@ -137,6 +149,12 @@ pub(crate) fn recent_overlap(
     agent: &str,
     file_path: &str,
 ) -> Option<OverlapSignal> {
+    // Without a known current-session identity, "different session" cannot be
+    // established: the guard would misattribute its own prior sequential
+    // writes as another writer (issue #681).
+    if !crate::hook_checks_common::known_w14_session(session) {
+        return None;
+    }
     let normalized_file = normalize_path(file_path);
     let cutoff = now_unix_secs().saturating_sub(30 * 60);
     let mut last = None;
@@ -450,6 +468,63 @@ mod tests {
             "detail": "/tmp/main.rs"
         })];
         assert!(recent_overlap(&post, "current", "codex", "/tmp/main.rs").is_some());
+    }
+
+    #[test]
+    fn recent_overlap_requires_known_current_session() {
+        let peer_write = [serde_json::json!({
+            "ts": format_unix_secs_utc(now_unix_secs()),
+            "session": "55de39723a97d61d",
+            "agent": "",
+            "tool": "Write",
+            "hook": "post-write-guard",
+            "detail": "/repo/report.html"
+        })];
+        assert!(recent_overlap(&peer_write, "", "", "/repo/report.html").is_none());
+        assert!(recent_overlap(&peer_write, "?", "", "/repo/report.html").is_none());
+        assert!(recent_overlap(&peer_write, "unknown", "", "/repo/report.html").is_none());
+        assert!(recent_overlap(&peer_write, "current", "", "/repo/report.html").is_some());
+    }
+
+    #[test]
+    fn history_signals_exempt_session_temp_scratchpad_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "vibeguard-history-temp-exempt-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let log_file = root.join("events.jsonl");
+        let scratch = "/private/tmp/claude-1/session/scratchpad/report.html";
+        let mut lines = String::new();
+        for _ in 0..6 {
+            lines.push_str(&format!(
+                "{}\n",
+                serde_json::json!({
+                    "ts": format_unix_secs_utc(now_unix_secs()),
+                    "session": "peer",
+                    "tool": "Edit",
+                    "hook": "post-edit-guard",
+                    "detail": scratch
+                })
+            ));
+        }
+        std::fs::write(&log_file, &lines).unwrap();
+
+        let signals = post_edit_history_signals(&log_file.to_string_lossy(), "peer", "", scratch)
+            .unwrap()
+            .expect("history events must produce signals");
+        assert_eq!(signals.churn_count, 0);
+        assert!(signals.overlap.is_none());
+
+        let source_signals =
+            post_edit_history_signals(&log_file.to_string_lossy(), "current", "", "src/lib.rs")
+                .unwrap()
+                .expect("history events must produce signals");
+        assert!(
+            source_signals.overlap.is_none(),
+            "different file no overlap"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

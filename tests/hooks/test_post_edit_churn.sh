@@ -7,7 +7,8 @@ hook_test_init
 
 header "post-edit-guard.sh — CHURN critical evidence gate"
 
-WORK_DIR=$(mktemp -d)
+# Repo-local work dir: TMPDIR paths are churn-exempt session temp (issue #681).
+WORK_DIR=$(mktemp -d "$REPO_DIR/.tmp-churn.XXXXXX")
 trap 'rm -rf "$WORK_DIR" "$VIBEGUARD_LOG_DIR"' EXIT
 
 export VIBEGUARD_SESSION_ID="churn-test-session"

@@ -154,6 +154,7 @@ Agent B owns: src/api.rs, src/middleware.rs (only modify these files)
 - When file boundaries overlap, prefer shrinking the writable scope over adding more coordination rules.
 - **Observability hook**: `hooks/post-edit-guard.sh` detects recent same-file edits across sessions or agents.
 - **Downgrade path**: if reliable file ownership cannot be declared, fall back to a single primary writer or an isolated worktree.
+- **Known FP exemptions** (U-32 compliance): session-scoped temp paths (`*/scratchpad/*`, `$TMPDIR`, system temp roots) are single-session-exclusive by construction — W-14 and churn skip them (`VIBEGUARD_W14_SKIP_TEMP=0` opts back in). When the current session identity is unknown, the overlap comparison is skipped entirely so prior self-writes are never misattributed as another writer.
 
 ## W-15: Low-information loop detection (strict)
 If the information gain shrinks for three consecutive rounds, stop that direction and report it.

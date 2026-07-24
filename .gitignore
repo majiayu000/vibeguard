@@ -16,3 +16,5 @@ data/rule-scorecard.json
 data/*T*.json
 data/benchmark-*.json
 data/bench-latency-*.json
+# Test scratch dirs; a SIGKILLed test skips its cleanup trap.
+.tmp-*/
