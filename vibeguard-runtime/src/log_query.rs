@@ -195,7 +195,10 @@ fn recent_overlap(
 ) -> Option<(String, String, String, String)> {
     // Without a known current-session identity, "different session" cannot be
     // established: prior self-writes would be misattributed (issue #681).
-    if session.trim().is_empty() || session == "?" || session.eq_ignore_ascii_case("unknown") {
+    if session.trim().is_empty()
+        || session == "?"
+        || session.eq_ignore_ascii_case(crate::event_schema::UNKNOWN)
+    {
         return None;
     }
     let normalized_file = normalize_path(file_path);
