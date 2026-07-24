@@ -25,7 +25,7 @@ GH-686
 
 ### 1. 配对运行入口
 
-新增 `eval/run_paired_eval.py`，不修改 `run_eval.py` 的既有语义：
+在 `eval/` 下新增 `run_paired_eval.py`，不修改 `run_eval.py` 的既有语义：
 
 ```
 python3 eval/run_paired_eval.py \
@@ -57,7 +57,7 @@ python3 eval/run_paired_eval.py \
 
 ### 3. 样本量下限
 
-新增 `eval/paired/thresholds.json`，与既有 `eval/behavior/thresholds.json` 平行：
+在 `eval/paired/` 下新增 `thresholds.json`，与既有 `eval/behavior/thresholds.json` 平行：
 
 ```json
 {
