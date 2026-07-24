@@ -40,6 +40,7 @@ VibeGuard installs native rule files under `common/`, `rust/`, `golang/`, `types
 │   ├── coding-style.md
 │   ├── data-consistency.md
 │   ├── eval-validation.md
+│   ├── evidence-provenance.md
 │   ├── execution-pinning.md
 │   ├── fact-inference-separation.md
 │   ├── long-horizon-reliability.md
