@@ -129,6 +129,46 @@ mkdir -p "$TMP/packages/api"
 run_case "nested AGENTS.md is inspected" 0 "packages/api/AGENTS.md" "$TMP"
 rm -rf "$TMP"
 
+# --- Case 11: always-on rules under a .claude home (> 200 aggregate lines) warn ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/.claude/rules/vibeguard/common"
+{ echo "# Rules"; for i in $(seq 1 250); do echo "- rule line $i"; done; } \
+  > "$TMP/.claude/rules/vibeguard/common/big.md"
+run_case "always-on native rules over budget warn (.claude home)" 0 \
+  "always-on native rules inject" "$TMP/.claude"
+rm -rf "$TMP"
+
+# --- Case 12: path-scoped rules (paths: frontmatter) are excluded ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/.claude/rules/vibeguard/rust"
+{
+  echo "---"
+  echo "paths: **/*.rs,**/Cargo.toml"
+  echo "---"
+  echo "# Rust Rules"
+  for i in $(seq 1 300); do echo "- rust rule $i"; done
+} > "$TMP/.claude/rules/vibeguard/rust/quality.md"
+run_case "path-scoped rules are excluded from injection surface" 0 "OK" "$TMP/.claude"
+rm -rf "$TMP"
+
+# --- Case 13: always-on rules > 800 aggregate lines fail in --strict ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/.claude/rules/vibeguard/common"
+{ echo "# Rules"; for i in $(seq 1 900); do echo "- rule line $i"; done; } \
+  > "$TMP/.claude/rules/vibeguard/common/huge.md"
+run_case "always-on rules over hard limit fail strict" 1 \
+  "always-on native rules inject" --strict "$TMP/.claude"
+rm -rf "$TMP"
+
+# --- Case 14: a project-level rules/ source tree is not an injection surface ---
+TMP=$(mktemp -d)
+mkdir -p "$TMP/rules/claude-rules/common"
+echo "# Project" > "$TMP/CLAUDE.md"
+{ echo "# Canonical source"; for i in $(seq 1 900); do echo "- line $i"; done; } \
+  > "$TMP/rules/claude-rules/common/security.md"
+run_case "canonical rules/ source tree in a project is not counted" 0 "OK" "$TMP"
+rm -rf "$TMP"
+
 echo
 echo "=============================="
 TOTAL=$((PASS + FAIL))

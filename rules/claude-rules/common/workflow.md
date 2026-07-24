@@ -299,6 +299,7 @@ Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when t
 | Lines outside vibeguard auto-gen region | > 200 | > 800 |
 | Chinese prohibition keywords (counted by the guard) | > 30 (warn only) | — |
 | Inline mentions of any single canonical rule ID (U-17, U-26..U-32, W-01..W-17) | ≥ 3 (likely redefining canonical text) | — |
+| Aggregate lines of always-on native rule files under `.claude/rules/` (no `paths:` frontmatter) | > 200 | > 800 |
 
 The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and `<!-- vibeguard-end -->`) is excluded from line counting because it is owned by `setup.sh`.
 

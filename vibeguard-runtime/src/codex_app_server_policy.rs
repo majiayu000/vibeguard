@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn core_profile_excludes_strict_only_count_active_constraints() {
+    fn core_profile_runs_count_active_constraints() {
         let repo = temp_policy_dir("core_count_active_constraints");
         if let Err(err) = fs::write(repo.join(".vibeguard.json"), r#"{"profile":"core"}"#) {
             panic!("project config should be written: {err}");
@@ -304,7 +304,8 @@ mod tests {
         );
 
         assert!(
-            matches!(decision, HookPolicyDecision::Skip(reason) if reason.contains("profile=core excludes count-active-constraints"))
+            !matches!(decision, HookPolicyDecision::Skip(_)),
+            "count_active_constraints should run under core profile, got: {decision:?}"
         );
         if let Err(err) = fs::remove_dir_all(&repo) {
             panic!("temp policy dir should be removed: {err}");
