@@ -58,6 +58,7 @@ fn assert_churn_warning(root: &Path, count: usize, marker: &str, expected_reason
         &ctx,
         Instant::now(),
         "src/main.rs",
+        false,
         &events,
         &events,
         &mut warnings,
@@ -81,6 +82,7 @@ fn churn_thresholds_and_w15_shrinking_radius_are_behavioral() {
         &four_ctx,
         Instant::now(),
         "src/main.rs",
+        false,
         &four,
         &four,
         &mut warnings,
@@ -97,6 +99,7 @@ fn churn_thresholds_and_w15_shrinking_radius_are_behavioral() {
         &volume_ctx,
         Instant::now(),
         "src/main.rs",
+        false,
         &volume,
         &volume,
         &mut warnings,
@@ -127,6 +130,7 @@ fn churn_thresholds_and_w15_shrinking_radius_are_behavioral() {
         &critical_ctx,
         Instant::now(),
         "src/main.rs",
+        false,
         &critical,
         &critical,
         &mut critical_warnings,
@@ -203,6 +207,7 @@ fn w14_main_path_records_show_suppresses_and_restores_on_append_failure() {
         &shown_ctx,
         Instant::now(),
         &file_path,
+        false,
         std::slice::from_ref(&overlap),
         &mut shown_warnings,
         now,
@@ -238,6 +243,7 @@ fn w14_main_path_records_show_suppresses_and_restores_on_append_failure() {
         &suppressed_ctx,
         Instant::now(),
         &file_path,
+        false,
         &history,
         &mut suppressed_warnings,
         now,
@@ -261,6 +267,7 @@ fn w14_main_path_records_show_suppresses_and_restores_on_append_failure() {
         &failed_ctx,
         Instant::now(),
         &file_path,
+        false,
         &history,
         &mut restored_warnings,
         now,
@@ -288,6 +295,7 @@ fn w14_ignores_pre_hook_intent_events() {
         &ctx,
         Instant::now(),
         &file_path,
+        false,
         std::slice::from_ref(&pre_event),
         &mut warnings,
         now,
@@ -312,6 +320,7 @@ fn w14_downgrades_to_info_without_logical_codex_identity() {
         &ctx,
         Instant::now(),
         &file_path,
+        false,
         std::slice::from_ref(&overlap),
         &mut warnings,
         now,
@@ -335,5 +344,98 @@ fn full_history_reader_treats_whitespace_only_log_as_empty() {
 
     let events = read_post_edit_history_events(&ctx).unwrap();
     assert!(events.is_empty());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_temp_suppression_leaves_evidence_only_for_real_findings() {
+    let root = temp_root("temp-evidence");
+    let scratch = "/private/tmp/claude-x/session/scratchpad/report.html";
+    let now = now_unix_secs();
+
+    // Ordinary temp write: no finding would fire -> zero events (issue #691).
+    let quiet_ctx = review_context(root.join("quiet.jsonl"));
+    let quiet = edit_events(2, scratch);
+    let mut quiet_warnings = Vec::new();
+    detect_churn(
+        &quiet_ctx,
+        Instant::now(),
+        scratch,
+        true,
+        &quiet,
+        &quiet,
+        &mut quiet_warnings,
+    );
+    detect_w14_at(
+        &quiet_ctx,
+        Instant::now(),
+        scratch,
+        true,
+        &quiet,
+        &mut quiet_warnings,
+        now,
+        60,
+    );
+    assert!(quiet_warnings.is_empty());
+    assert!(!quiet_ctx.log_file.exists());
+
+    // Churn would have warned -> suppressed evidence, no user warning.
+    let churn_ctx = review_context(root.join("churn.jsonl"));
+    let churny = edit_events(6, scratch);
+    let mut churn_warnings = Vec::new();
+    detect_churn(
+        &churn_ctx,
+        Instant::now(),
+        scratch,
+        true,
+        &churny,
+        &churny,
+        &mut churn_warnings,
+    );
+    assert!(churn_warnings.is_empty());
+    let churn_events = read_test_events(&churn_ctx.log_file);
+    assert_eq!(churn_events.len(), 1);
+    assert_eq!(churn_events[0][field::DECISION], decision::PASS);
+    assert_eq!(churn_events[0][field::STATUS], status::SKIPPED);
+    assert_eq!(
+        churn_events[0][field::REASON],
+        CHURN_SUPPRESSED_REASON_PREFIX
+    );
+    assert!(
+        churn_events[0][field::DETAIL]
+            .as_str()
+            .unwrap()
+            .ends_with("||churn=6")
+    );
+
+    // W-14 overlap would have warned -> suppressed evidence, no user warning.
+    let w14_ctx = review_context(root.join("w14.jsonl"));
+    let overlap = overlap_event(scratch, now);
+    let mut w14_warnings = Vec::new();
+    detect_w14_at(
+        &w14_ctx,
+        Instant::now(),
+        scratch,
+        true,
+        std::slice::from_ref(&overlap),
+        &mut w14_warnings,
+        now,
+        60,
+    );
+    assert!(w14_warnings.is_empty());
+    let w14_events = read_test_events(&w14_ctx.log_file);
+    assert_eq!(w14_events.len(), 1);
+    assert_eq!(w14_events[0][field::DECISION], decision::PASS);
+    assert_eq!(w14_events[0][field::STATUS], status::SKIPPED);
+    assert_eq!(
+        w14_events[0][field::REASON],
+        W14_TEMP_SUPPRESSED_REASON_PREFIX
+    );
+    assert!(
+        w14_events[0][field::DETAIL]
+            .as_str()
+            .unwrap()
+            .ends_with("||peer=peer")
+    );
     fs::remove_dir_all(root).unwrap();
 }
