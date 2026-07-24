@@ -8,14 +8,14 @@ complexity: medium
 
 ## 用户问题
 
-规则精度生命周期机制（`scripts/precision-tracker.py` + `data/rule-scorecard.json`
+规则精度生命周期机制（`scripts/precision-tracker.py` + 本地 scorecard
 + `data/triage.jsonl`）已经完整建成，但**没有任何反馈数据流经它**，所以数据驱动
 的 promote / demote 循环今天实际上是空转的。
 
 本会话核实的事实：
 
 - `data/triage.jsonl` 不存在（仓库只有 `data/triage.example.jsonl`），
-  `data/rule-scorecard.json` 也不存在，回退到 `rule-scorecard.seed.json`。
+  本地 scorecard 也不存在，回退到 `data/rule-scorecard.seed.json`。
 - `python3 scripts/precision-tracker.py` 输出的 11 条规则全部
   `samples=0`、`precision=N/A`。
 - `scripts/report-false-positive.py:160` 生成误报报告时，只是**打印一句提示**
@@ -43,7 +43,7 @@ complexity: medium
   真阳性与误报，自动回填等于伪造反馈数据。
 - 不把 triage 记录接入 CI 或任何阻断路径。反馈仍然是人工裁定，本 issue 只消除
   "裁定完了却没地方一步落库"的摩擦。
-- 不改变 `data/triage.jsonl` 与 `data/rule-scorecard.json` 被 gitignore 的现状
+- 不改变 `data/triage.jsonl` 与本地 scorecard 被 gitignore 的现状
   （它们是本地运行时数据，不是仓库产物）。
 
 ## Behavior Invariants
@@ -67,12 +67,12 @@ complexity: medium
 
 ## 验收标准
 
-- [ ] `report-false-positive.py --record-triage fp --rule RS-03` 在输出报告的同时
+- [x] `report-false-positive.py --record-triage fp --rule RS-03` 在输出报告的同时
       向 triage 追加一条记录并更新 scorecard。
-- [ ] 缺少规则 ID 时该选项报错退出。
-- [ ] 空反馈通道在 `precision-tracker.py` 报告中有显式警告块。
-- [ ] CONTRIBUTING 有 triage 反馈闭环小节。
-- [ ] 确定性测试覆盖 B-001 ~ B-007。
+- [x] 缺少规则 ID 时该选项报错退出。
+- [x] 空反馈通道在 `precision-tracker.py` 报告中有显式警告块。
+- [x] CONTRIBUTING 有 triage 反馈闭环小节。
+- [x] 确定性测试覆盖 B-001 ~ B-007。
 
 ## 边界情况清单
 
@@ -91,5 +91,5 @@ complexity: medium
 
 ## 发布说明
 
-`data/triage.jsonl` 与 `data/rule-scorecard.json` 仍是本地文件，不进仓库。
+`data/triage.jsonl` 与本地 scorecard（从 `data/rule-scorecard.seed.json` 播种）仍是本地文件，不进仓库。
 现有用户无需迁移；新选项是纯增量。

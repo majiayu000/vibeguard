@@ -15,7 +15,7 @@ GH-675
 | 消费者 | `scripts/precision-tracker.py:540` | `--record` 已实现完整写入路径：scorecard 写锁、坏行阻断、先写 scorecard 再追加 triage | 生产者应复用它，不能重写 |
 | 报告渲染 | `scripts/precision-tracker.py:445` | 全 0 样本渲染成 `N/A` 表格，读起来像正常 | 空通道需要显式警告 |
 | 指路牌 | `scripts/report-false-positive.py:160` | 只打印一句"事后请自己去 record" | 这是缺失的生产者位置 |
-| 数据文件 | `.gitignore` | `data/triage.jsonl`、`data/rule-scorecard.json` 被忽略 | 本地运行时数据，不改变这一点 |
+| 数据文件 | `.gitignore` | triage 日志与本地 scorecard 被忽略，仓库只跟踪 `data/rule-scorecard.seed.json` | 本地运行时数据，不改变这一点 |
 | 种子 | `data/rule-scorecard.seed.json` | 无本地 scorecard 时的回退 | 空样本的来源 |
 | 测试 | `tests/test_report_false_positive.sh`、`tests/test_precision_tracker.sh` | 均已在 CI 中显式列步骤 | 新断言挂在既有测试上，不新增 CI 步骤 |
 
@@ -42,7 +42,7 @@ GH-675
 | B-001 | `report-false-positive.py` `--record-triage` | `bash tests/test_report_false_positive.sh` |
 | B-002 | subprocess 委托给 `precision-tracker.py --record` | `bash tests/test_report_false_positive.sh`（断言 triage 与 scorecard 同时产生） |
 | B-003 | `record_triage_verdict` 规则 ID 校验 | `bash tests/test_report_false_positive.sh` |
-| B-004 | 子进程退出码透传 | `bash tests/test_report_false_positive.sh`（缺 rule 时非零退出且不写入） |
+| B-004 | 子进程退出码透传 | `bash tests/test_report_false_positive.sh`（triage 损坏时非零退出、报告声明未被记录支撑、triage 无新增） |
 | B-005 | 未传选项时的既有路径 | `bash tests/test_report_false_positive.sh` |
 | B-006 | `render_report` 空通道警告 | `bash tests/test_precision_tracker.sh` |
 | B-007 | 有样本时不输出警告 | `bash tests/test_precision_tracker.sh` |

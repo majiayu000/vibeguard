@@ -125,7 +125,7 @@ assert_not_contains "$missing_event_out" '"hook": "unknown"' "missing event does
 # GH-675: recording the triage verdict must happen in the same call that
 # produces the report, instead of printing an instruction nobody runs.
 triage_dir="$(mktemp -d)"
-trap 'rm -rf "${triage_dir}"' EXIT
+trap 'rm -rf "$TMP_DIR" "${triage_dir}"' EXIT
 triage_file="${triage_dir}/triage.jsonl"
 scorecard_file="${triage_dir}/rule-scorecard.json"
 
@@ -152,12 +152,86 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# The context must not be filled with placeholder text.
-assert_not_contains "$(cat "${triage_file}")" "unknown unknown" \
+# The context must not be filled with placeholder text. Assert on the single
+# word: "unknown unknown" still passes when only one field is unknown.
+assert_not_contains "$(cat "${triage_file}")" "unknown" \
   "recorded context omits unknown placeholders"
+
+# The report must not also tell the reader to record the verdict: someone
+# pasting it into an issue would follow that and double-count the verdict.
+assert_contains "$record_out" "already recorded" \
+  "report states the verdict is already recorded"
+assert_not_contains "$record_out" "Record the triage verdict with" \
+  "report drops the record-it-later instruction once recorded"
+
+# --format json must stay parseable; the tracker's chatter belongs on stderr.
+json_record_out="$(python3 "${SCRIPT}" VG-TEST-JSON --rule RS-10 --code VG-POLICY-RS10 \
+  --record-triage tp --format json \
+  --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if printf '%s' "$json_record_out" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+  green "--record-triage keeps --format json parseable"
+  PASS=$((PASS + 1))
+else
+  red "--record-triage keeps --format json parseable"
+  FAIL=$((FAIL + 1))
+fi
+
+# B-004: a failing record must not look like a success. This is the whole point
+# of the change, so it needs its own case rather than sharing B-003's.
+corrupt_triage="${triage_dir}/corrupt-triage.jsonl"
+corrupt_scorecard="${triage_dir}/corrupt-scorecard.json"
+printf 'not-json\n' > "${corrupt_triage}"
+set +e
+corrupt_out="$(python3 "${SCRIPT}" VG-TEST-CORRUPT --rule RS-03 --record-triage fp \
+  --triage-file "${corrupt_triage}" --scorecard-file "${corrupt_scorecard}" 2>&1)"
+corrupt_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${corrupt_status}" -ne 0 ]]; then
+  green "a failed record exits nonzero"
+  PASS=$((PASS + 1))
+else
+  red "a failed record exits nonzero"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$corrupt_out" "not backed by a triage record" \
+  "a failed record says the report is not backed by one"
+assert_not_contains "$corrupt_out" "already recorded" \
+  "a failed record does not claim the verdict was recorded"
+TOTAL=$((TOTAL + 1))
+if [[ "$(wc -l < "${corrupt_triage}")" -eq 1 ]]; then
+  green "a failed record appends nothing to the triage log"
+  PASS=$((PASS + 1))
+else
+  red "a failed record appends nothing to the triage log"
+  FAIL=$((FAIL + 1))
+fi
+
+# A rule id from an event log can be junk; it must not reach the ledger.
+set +e
+junk_out="$(python3 "${SCRIPT}" VG-TEST-JUNK --rule -- --record-triage fp \
+  --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
+junk_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${junk_status}" -ne 0 ]]; then
+  green "a malformed rule id exits nonzero"
+  PASS=$((PASS + 1))
+else
+  red "a malformed rule id exits nonzero"
+  FAIL=$((FAIL + 1))
+fi
+
+# Word-form rule ids that the scorecard really tracks must still be accepted.
+word_rule_out="$(python3 "${SCRIPT}" VG-TEST-WORD --rule LARGE-EDIT --record-triage acceptable \
+  --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
+assert_contains "$word_rule_out" "Recorded acceptable for LARGE-EDIT" \
+  "word-form rule ids such as LARGE-EDIT are accepted"
 
 # Without a rule id there is nothing to attribute the verdict to: fail loudly
 # rather than emit a report that looks recorded but is not.
+entries_before_reject="$(grep -c '"verdict"' "${triage_file}")"
 set +e
 norule_out="$(python3 "${SCRIPT}" VG-TEST-NORULE --record-triage fp \
   --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
@@ -174,7 +248,7 @@ fi
 assert_contains "$norule_out" "needs a rule id" "--record-triage names the missing rule id"
 
 TOTAL=$((TOTAL + 1))
-if [[ "$(grep -c '"verdict"' "${triage_file}")" == "1" ]]; then
+if [[ "$(grep -c '"verdict"' "${triage_file}")" == "${entries_before_reject}" ]]; then
   green "a rejected record leaves no triage entry"
   PASS=$((PASS + 1))
 else

@@ -442,6 +442,25 @@ _STAGE_SYMBOL_ASCII: dict[str, str] = {
 STAGE_SYMBOL = _STAGE_SYMBOL_UNICODE if _stdout_supports_unicode() else _STAGE_SYMBOL_ASCII
 
 
+def entry_samples(entry: Any) -> int:
+    """Sample count of one scorecard entry, tolerant of a hand-edited file.
+
+    The scorecard is a local file a user can edit, so a malformed `samples`
+    must not crash the whole report. It is still reported on stderr: treating
+    a bad value as 0 without saying so would be the silent degradation U-29
+    forbids.
+    """
+    if not isinstance(entry, dict):
+        print(f"[WARN] scorecard entry is not an object: {entry!r}", file=sys.stderr)
+        return 0
+    raw = entry.get("samples", 0) or 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        print(f"[WARN] scorecard has a non-numeric samples value: {raw!r}", file=sys.stderr)
+        return 0
+
+
 def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> str:
     lines: list[str] = []
     lines.append("VibeGuard Rule Precision Scorecard")
@@ -450,7 +469,8 @@ def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> 
     lines.append(f"Updated: {updated}")
     lines.append("")
 
-    rules = scorecard.get("rules", {})
+    all_rules = scorecard.get("rules", {})
+    rules = all_rules
     if rule_filter:
         rules = {k: v for k, v in rules.items() if k == rule_filter}
 
@@ -480,7 +500,10 @@ def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> 
         )
 
     lines.append("")
-    if sum(int(entry.get("samples", 0) or 0) for entry in rules.values()) == 0:
+    # Judge emptiness on the whole scorecard, not the filtered view: with
+    # --rule RS-99 a filtered-only sum would announce "every rule has 0 samples"
+    # while other rules are populated, which is simply false.
+    if sum(entry_samples(entry) for entry in all_rules.values()) == 0:
         # An all-N/A table reads like a healthy scorecard. Say plainly that the
         # feedback channel is empty, because with zero samples not one of the
         # thresholds below can ever fire (issue #675).
