@@ -22,5 +22,17 @@
     "hook": "pre-edit-guard",
     "profile": "default",
     "severity": "high"
+  },
+  {
+    "platform": "claude",
+    "hook": "pre-write-guard",
+    "profile": "default",
+    "severity": "medium"
+  },
+  {
+    "platform": "codex",
+    "hook": "pre-write-guard",
+    "profile": "default",
+    "severity": "medium"
   }
 ]
