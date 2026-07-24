@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784907226059,
+  "lastUpdate": 1784913027993,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -50558,6 +50558,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ad38dce02057ec286ab21c0997f5a0bcfd87c56",
+          "message": "fix: derive Codex W-14 writer identity from payload session_id, not wrapper PID (#682)\n\nOne logical Codex thread could fragment into multiple VibeGuard sessions\nbecause the native hook wrapper anchored identity to its short-lived\nparent PID. The pre/post hooks of a single Edit then looked like two\nwriters, and W-14 told the agent to create a worktree against its own\npre-hook event.\n\n- runtime: new codex-session-id command parses the hook payload's\n  top-level session_id and derives a stable identity via the existing\n  session_id_for_thread semantics (same model as the app-server path)\n- wrapper: run-hook-codex.sh resolves the logical identity before\n  wrapper-env, exporting VIBEGUARD_SESSION_SOURCE=codex-thread; the PID\n  anchor remains only as a fallback\n- evidence: recent_overlap (orchestrator + log-query fallback) no longer\n  counts pre-hook events as completed file touches\n- downgrade: Codex sessions without logical identity get an info-level\n  W-14 without the mandatory worktree instruction, since a PID\n  difference alone cannot prove another writer\n\nFixes #673\n\nLore-Why: process-derived identity fragments under Codex's short-lived hook parents; logical thread identity is available in the payload and must win\nLore-Rejected: bash-regex extraction of session_id (unordered JSON keys let tool_input content shadow the top-level field); suppressing W-14 for codex entirely (real cross-thread overlaps must still fire)\nLore-Verify: cargo test 23 suites all ok (321 bin tests); test_post_edit_w14.sh 29/29; session_identity_tests 7/7; test_hooks.sh 36/36; hooks tests w15/churn/basic/suppression/log_session/post_write/pre_edit all pass (this session)",
+          "timestamp": "2026-07-25T00:37:43+08:00",
+          "tree_id": "52272557e754c9525a7770dac2b10831587e37d9",
+          "url": "https://github.com/majiayu000/vibeguard/commit/0ad38dce02057ec286ab21c0997f5a0bcfd87c56"
+        },
+        "date": 1784913026664,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 81,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 90,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 92,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 92,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 85,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 89,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 89,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 13,
             "unit": "ms"
           }
         ]
