@@ -16,7 +16,7 @@ A long-context session can fabricate an experiment it never ran and then reason 
 |------|------|
 | Session transcript | Grep the on-disk session JSONL for the claimed command, file path, or output. A claim with no matching `tool_use` / `tool_result` record did not happen. |
 | Filesystem | Stat or hash the file the claim depends on. A file the claim says was written must exist on disk. |
-| Git | `git status`, `git diff`, and `git log` show what actually changed, independent of what the session believes it changed. |
+| Git | `git status`, `git diff`, and `git log` show what actually changed on disk, independent of what the session believes it changed. Git proves what changed; it never substitutes for the fresh command output W-16 requires. |
 | Persisted single values | Exit codes and hashes written to a file during the run, re-read afterwards. |
 
 **Protocol**:

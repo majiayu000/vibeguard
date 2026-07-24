@@ -66,13 +66,13 @@ hook。事后 grep 该会话的 transcript JSONL 证明：被称为"决定性实
 
 ## 验收标准
 
-- [ ] 新规则以规范源形式落在 `rules/claude-rules/common/` 下，可被
+- [x] 新规则以规范源形式落在 `rules/claude-rules/common/` 下，可被
       `scripts/generate_rule_docs.py` 解析。
-- [ ] W-01 的四阶段调试协议前多出 step 0，且 `W-21` 与 `W-01` 互相交叉引用。
-- [ ] `python3 scripts/generate_rule_docs.py --check` 通过（派生文档已同步）。
-- [ ] `bash scripts/ci/validate-rules.sh` 与
+- [x] W-01 的四阶段调试协议前多出 step 0，且 `W-21` 与 `W-01` 互相交叉引用。
+- [x] `python3 scripts/generate_rule_docs.py --check` 通过（派生文档已同步）。
+- [x] `bash scripts/ci/validate-rules.sh` 与
       `bash scripts/ci/validate-generated-rule-docs.sh` 通过。
-- [ ] 存在一个确定性测试，断言 B-001 ~ B-007 的规则文本要素存在。
+- [x] 存在一个确定性测试，断言 B-001 ~ B-007 的规则文本要素存在。
 
 ## 边界情况清单
 

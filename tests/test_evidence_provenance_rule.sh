@@ -40,10 +40,30 @@ assert_file_matches "$RULE_FILE" \
 header "B-002 out-of-session channels"
 assert_file_matches "$RULE_FILE" 'Out-of-session channels' \
   "W-21 defines out-of-session channels"
-for channel in 'transcript' 'Filesystem' 'Git' 'Exit codes'; do
-  assert_file_matches "$RULE_FILE" "$channel" \
-    "W-21 names the ${channel} channel"
-done
+# Anchor on the table rows, not on bare words anywhere in the file: a bare
+# grep stays green even if the channel table is replaced by a vague sentence.
+assert_file_matches "$RULE_FILE" \
+  '^\| Session transcript \|.*tool_use' \
+  "transcript row tells the agent to grep the session JSONL"
+assert_file_matches "$RULE_FILE" \
+  '^\| Filesystem \|.*(hash|exist)' \
+  "filesystem row requires the file to actually exist"
+assert_file_matches "$RULE_FILE" \
+  '^\| Git \|.*git (status|diff|log)' \
+  "git row names concrete git commands"
+assert_file_matches "$RULE_FILE" \
+  '^\| Persisted single values \|.*[Ee]xit code' \
+  "persisted-values row names exit codes"
+
+TOTAL=$((TOTAL + 1))
+channel_rows="$(grep -Ec '^\| [A-Z]' "$RULE_FILE" || true)"
+if [[ "${channel_rows:-0}" -ge 4 ]]; then
+  green "channel table keeps at least 4 concrete rows"
+  PASS=$((PASS + 1))
+else
+  red "channel table must keep at least 4 rows (found: ${channel_rows:-0})"
+  FAIL=$((FAIL + 1))
+fi
 
 header "B-003 single-value signals over text recall"
 assert_file_matches "$RULE_FILE" \
@@ -88,8 +108,11 @@ assert_file_matches "$WORKFLOW_RULE" \
 
 header "B-007 rule ID uniqueness"
 TOTAL=$((TOTAL + 1))
+# `|| true`: under `set -euo pipefail` a zero-match grep would abort the script
+# here, hiding this failure message and every later assertion.
 w21_definitions="$(grep -rc '^## W-21:' rules/claude-rules/ 2>/dev/null \
-  | awk -F: '{ sum += $2 } END { print sum + 0 }')"
+  | awk -F: '{ sum += $2 } END { print sum + 0 }' || true)"
+w21_definitions="${w21_definitions:-0}"
 if [[ "$w21_definitions" == "1" ]]; then
   green "W-21 is defined exactly once in the canonical source"
   PASS=$((PASS + 1))
@@ -109,11 +132,12 @@ fi
 
 header "B-008 generated docs are in sync"
 TOTAL=$((TOTAL + 1))
-if python3 scripts/generate_rule_docs.py --check >/dev/null 2>&1; then
+if generator_diff="$(python3 scripts/generate_rule_docs.py --check 2>&1)"; then
   green "generated rule docs match the canonical source"
   PASS=$((PASS + 1))
 else
   red "generated rule docs are stale (run: python3 scripts/generate_rule_docs.py)"
+  printf '%s\n' "$generator_diff"
   FAIL=$((FAIL + 1))
 fi
 
