@@ -183,13 +183,13 @@ require_absent "schemas/vibeguard-project.schema.json" 'strict=same hook set as 
 require_present "schemas/vibeguard-project.schema.json" 'strict=full plus Claude Code U-32 SessionStart constraint budget; Codex native hooks remain full' \
   "project schema profile description must describe the strict-only U-32 hook"
 
-require_present "hooks/manifest.json" 'Record uncommitted source code changes as a non-blocking Stop signal.' \
+require_present "hooks/manifest.json" 'Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command.' \
   "hooks manifest must describe stop-guard as a non-blocking Stop signal"
 require_absent "hooks/manifest.json" 'Intercept dangerous commands: force push, rm -rf /, reset --hard, etc.' \
   "hooks manifest must not assign force-push protection to pre-bash-guard"
 require_present "hooks/manifest.json" 'force-push protection lives in the git pre-push hook' \
   "hooks manifest must describe force-push as git pre-push owned"
-require_present "hooks/CLAUDE.md" '| `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal. | native |' \
+require_present "hooks/CLAUDE.md" '| `stop-guard.sh` | Stop | Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command. | native |' \
   "generated hook docs must describe stop-guard as a non-blocking Stop signal"
 require_present "hooks/CLAUDE.md" '| `pre-bash-guard.sh` | PreToolUse(Bash) | Intercept destructive local cleanup commands:' \
   "generated hook docs must describe pre-bash local cleanup scope"
