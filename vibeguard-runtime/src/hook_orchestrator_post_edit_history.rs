@@ -181,7 +181,15 @@ fn detect_w14_at(
             }
         }
     }
-    warnings.push(format!("[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched {} ({} via {}, session {}, agent {})\nFIX: Isolate via a dedicated worktree before continuing. Copy-paste:\n  REPO=$(git rev-parse --show-toplevel) && SID=${{VIBEGUARD_SESSION_ID:-$(date +%s)}}\n  BASE=${{VIBEGUARD_WORKTREE_BASE:-${{REPO}}.wt}}\n  case \"$BASE\" in /*) ;; *) BASE=\"${{REPO}}/${{BASE}}\" ;; esac\n  BASE=${{BASE%/}}\n  git worktree add \"$BASE/$SID\" -b \"vg/$SID\" HEAD\n  cd \"$BASE/$SID\"\nDO NOT: Continue parallel/background edits to this file without an isolated worktree", post_edit_history_file_name(file_path), overlap.tool, overlap.hook, overlap.session, if overlap.agent.is_empty() { "unknown" } else { &overlap.agent }));
+    // Codex sessions without a payload-derived logical identity fall back to
+    // process-derived ids that can fragment within one logical thread (issue
+    // #673). A PID-difference alone is then too weak to demand a worktree.
+    let low_confidence_identity = ctx.cli == "codex" && ctx.session_source != "codex-thread";
+    if low_confidence_identity {
+        warnings.push(format!("[W-14] [info] [this-file] OBSERVATION: a possibly different session recently touched {} ({} via {}, session {}, agent {}) — writer identity is process-derived and low-confidence\nFIX: Confirm a second signal (another Codex thread or agent actually editing this file) before isolating; if confirmed, create a dedicated worktree\nDO NOT: Treat process-id/session differences alone as proof of another writer", post_edit_history_file_name(file_path), overlap.tool, overlap.hook, overlap.session, if overlap.agent.is_empty() { "unknown" } else { &overlap.agent }));
+    } else {
+        warnings.push(format!("[W-14] [review] [this-file] OBSERVATION: another session or agent recently touched {} ({} via {}, session {}, agent {})\nFIX: Isolate via a dedicated worktree before continuing. Copy-paste:\n  REPO=$(git rev-parse --show-toplevel) && SID=${{VIBEGUARD_SESSION_ID:-$(date +%s)}}\n  BASE=${{VIBEGUARD_WORKTREE_BASE:-${{REPO}}.wt}}\n  case \"$BASE\" in /*) ;; *) BASE=\"${{REPO}}/${{BASE}}\" ;; esac\n  BASE=${{BASE%/}}\n  git worktree add \"$BASE/$SID\" -b \"vg/$SID\" HEAD\n  cd \"$BASE/$SID\"\nDO NOT: Continue parallel/background edits to this file without an isolated worktree", post_edit_history_file_name(file_path), overlap.tool, overlap.hook, overlap.session, if overlap.agent.is_empty() { "unknown" } else { &overlap.agent }));
+    }
     let detail = key
         .as_deref()
         .map(|key| w14_event_detail(file_path, key))
@@ -512,6 +520,7 @@ mod tests {
             client: "codex".into(),
             client_variant: "codex-cli-hooks".into(),
             caller_evidence: "explicit-test".into(),
+            session_source: "codex-thread".into(),
         }
     }
 

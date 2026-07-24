@@ -24,6 +24,7 @@ pub(crate) struct RuntimeContext {
     pub(crate) client: String,
     pub(crate) client_variant: String,
     pub(crate) caller_evidence: String,
+    pub(crate) session_source: String,
 }
 
 #[derive(Debug)]
@@ -106,6 +107,8 @@ impl RuntimeContext {
             }
         });
 
+        let session_source = env_nonempty("VIBEGUARD_SESSION_SOURCE").unwrap_or_default();
+
         Ok(Self {
             log_root,
             log_file,
@@ -115,6 +118,7 @@ impl RuntimeContext {
             client,
             client_variant,
             caller_evidence,
+            session_source,
         })
     }
 }
