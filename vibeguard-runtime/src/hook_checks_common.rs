@@ -139,11 +139,6 @@ pub(crate) fn is_allowed_new_file(path: &str) -> bool {
         || is_test_path(path)
 }
 
-/// Session-scoped temp paths (scratchpad dirs, TMPDIR, system temp roots) are
-/// single-session-exclusive by construction: cross-session file ownership
-/// conflicts (W-14) and correction-loop churn signals are structurally absent
-/// there (issue #681). Downgrade path (U-32): VIBEGUARD_W14_SKIP_TEMP=0 opts
-/// back into detection on temp paths.
 /// System temp prefixes that a session temp root must live under. `TMPDIR` and
 /// `std::env::temp_dir()` are environment-controlled, so an unvalidated root
 /// would let `TMPDIR=$PWD` disable W-14 and churn across a whole repository —
@@ -168,6 +163,13 @@ pub(crate) fn known_w14_session(session: &str) -> bool {
         && !session.eq_ignore_ascii_case(crate::event_schema::UNKNOWN)
 }
 
+/// Paths under the fixed system temp roots in [`SYSTEM_TEMP_PREFIXES`] are
+/// single-session-exclusive by construction: cross-session file ownership
+/// conflicts (W-14) and correction-loop churn signals are structurally absent
+/// there (issue #681). Nothing outside those roots qualifies — not a
+/// repository-local `scratchpad/` directory, and not an environment-provided
+/// `TMPDIR`. Downgrade path (U-32): `VIBEGUARD_W14_SKIP_TEMP=0` opts back into
+/// detection on temp paths.
 pub(crate) fn is_session_temp_path(path: &str) -> bool {
     if env::var("VIBEGUARD_W14_SKIP_TEMP").as_deref() == Ok("0") {
         return false;
@@ -677,8 +679,11 @@ mod tests {
     fn env_controlled_temp_root_cannot_exempt_a_repository() {
         // TMPDIR is agent-writable. Pointing it at a working tree must not turn
         // that tree into an exempt session temp path.
-        assert!(!is_session_temp_path("/Users/someone/proj/src/lib.rs"));
-        assert!(!is_session_temp_path("/home/someone/proj/src/lib.rs"));
+        assert!(!is_session_temp_path("/workspace/proj/src/lib.rs"));
+        assert!(!is_session_temp_path("/srv/checkout/proj/src/lib.rs"));
+        // Near-miss prefixes must not be treated as temp roots either.
+        assert!(!is_session_temp_path("/tmpfs/proj/src/lib.rs"));
+        assert!(!is_session_temp_path("/var/folders-backup/proj/src/lib.rs"));
     }
 
     #[test]

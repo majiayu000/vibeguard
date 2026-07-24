@@ -65,8 +65,9 @@ pub(crate) fn post_edit_history_signals(
         return Ok(None);
     }
 
-    // Session-temp paths (scratchpad, TMPDIR) are exempt from churn and W-14:
-    // cross-session conflicts are structurally absent there (issue #681).
+    // System temp roots are exempt from churn and W-14: cross-session conflicts
+    // cannot occur there and long-doc scratchpad builds are not correction
+    // loops (issue #681).
     let session_temp = crate::hook_checks_common::is_session_temp_path(file_path);
     let churn_count = if session_temp {
         0

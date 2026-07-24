@@ -39,6 +39,9 @@ pub(crate) fn detect_history_warnings(
         .collect::<Vec<_>>();
     // Session-scoped temp paths cannot have cross-session ownership conflicts
     // and long-doc scratchpad builds are not correction loops (issue #681).
+    // TODO(#691): leave a suppression trace like the cooldown path does. Doing
+    // it here would log on every temp write; the suppression point has to move
+    // inside detect_churn / detect_w14 first so only real findings are logged.
     if !crate::hook_checks_common::is_session_temp_path(file_path) {
         detect_churn(ctx, start, file_path, &session_events, events, warnings);
         detect_w14(ctx, start, file_path, events, warnings);
