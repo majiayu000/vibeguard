@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784923175497,
+  "lastUpdate": 1784927134633,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -51374,6 +51374,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 10,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "307b5e8c5a39949f6e387ebd725c95476b4aeeb3",
+          "message": "fix: leave suppression evidence when session-temp exemption mutes churn/W-14 (#692)\n\nIssue #691: the #688 session-temp exemption silently skipped churn and\nW-14 with no event, so stats could not distinguish \"guard did not fire\"\nfrom \"guard was exempted here\" — inconsistent with the cooldown path's\npass/skipped evidence pattern.\n\n- Sink the exemption from detect_history_warnings into detect_churn /\n  detect_w14: the detectors first compute whether a finding would fire,\n  and only then, on temp paths, append a pass/skipped event\n  (\"[CHURN] suppressed session-temp\" / \"[W-14] overlap suppressed\n  session-temp\") instead of the warning. Ordinary temp writes with no\n  finding produce zero events, so no constant log overhead.\n- Split the inline unit tests of hook_orchestrator_post_edit_history.rs\n  into hook_orchestrator_post_edit_history_unit_tests.rs — the evidence\n  branch pushed the file past the U-16 800-line ceiling.\n\nConstraint: evidence only on would-have-warned, per the issue's decisive\nrationale against per-write logging.\nRejected: unconditional append in the exemption branch — adds constant\nlog volume on a pure noise-reduction change (the #688 review round\nalready rejected this).\nConfidence: high\nScope-risk: narrow\nVerification: cargo test (23 suites; new session_temp_suppression_leaves_\nevidence_only_for_real_findings), cargo clippy -D warnings clean,\ntests/hooks/test_post_edit_w14.sh 35/35, tests/test_hooks.sh all shards\n\nFixes #691",
+          "timestamp": "2026-07-25T04:32:44+08:00",
+          "tree_id": "e7e146d5b4699379789a4888d02f5a93e4b2a3ab",
+          "url": "https://github.com/majiayu000/vibeguard/commit/307b5e8c5a39949f6e387ebd725c95476b4aeeb3"
+        },
+        "date": 1784927133190,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 81,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 81,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
             "unit": "ms"
           }
         ]
