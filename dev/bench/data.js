@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784927134633,
+  "lastUpdate": 1784929084476,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -51578,6 +51578,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e31e6552216c3e861d6aa118bb9eb91f7ad595c",
+          "message": "feat(rules): W-21 evidence must be provably executed + W-01 channel-trust step 0 (#690)\n\n* feat(rules): add W-21 evidence provenance and W-01 channel-trust step 0\n\nLong-context sessions can fabricate a \"decisive experiment\" that never ran\nand then reason confidently from that fabricated observation. W-01/W-03/W-16\nare all formally satisfied in that failure mode because citation discipline\nverifies that evidence is cited, not that it happened.\n\nAdd W-21 (strict): decisive or root-cause-locked claims must be confirmable\nthrough an out-of-session channel — session transcript, filesystem, git, or\nexit codes and hashes persisted to disk. Prefer single-value signals over\nmulti-line text recall. Accusing the harness, hooks, or filesystem of\ncorruption is itself a red flag and must not lead to disabling a guard\nwithout out-of-session proof. Two falsified root-cause theories in one\ninvestigation terminate the session; state is recovered from disk artifacts,\nnot from degraded context.\n\nAdd step 0 to W-01's debugging protocol: confirm the observation channel is\ntrustworthy before naming any mechanism.\n\nW-21 stays out of the compact rule table so the resident constraint budget\n(U-32) is unchanged.\n\nThe issue proposed the ID W-20, which is already assigned to \"long tasks must\npin runtime, tools, and rules\" (rules/universal.md). W-21 is the next free ID.\n\nThe U-32/W-19 self-compliance proposal in the issue (ship only the compact\nindex by default) changes install defaults for every user and is left for a\nseparate maintainer decision.\n\nRefs #687\n\n* test(rules): anchor W-21 channel assertions and stop hiding failures\n\nReviewer lane proved the B-002 assertions had no sensitivity: replacing the\nwhole out-of-session channel table with a vague one-liner kept the suite at\n22/22 green, because the four checks only grepped bare words anywhere in the\nfile. They now anchor on the table rows and require at least four concrete\nrows. Verified: the same gutted-table experiment exits 1.\n\nTwo more failure-reporting defects in the same file:\n- Under `set -euo pipefail`, a zero-match `grep -r` aborted the script at\n  B-007, so the B-007 failure text and the entire B-008 section never\n  printed. Guard the pipeline with `|| true`.\n- The generator check discarded its diff, leaving a one-line FAIL with no\n  evidence. Capture and print it.\n\nAlso add W-21 to the installed rule tree in docs/how/memory-files.md, note in\nthe Git channel row that git proves what changed but never substitutes for\nthe fresh command output W-16 requires, correct SP687-T4's coverage to\nB-001..B-008, and tick the completed task and acceptance boxes.\n\nRefs #687\n\n* fix(install): register the W-21 rule file in the install manifest\n\nThe rule source existed but was never listed in schemas/install-modules.json,\nso setup.sh would not have copied it to ~/.claude/rules/vibeguard/common/ —\nthe rule would have shipped as a repository file that never reaches a user\nsession. The manifest contract check caught it on Windows CI.\n\nRefs #687\n\n* docs(site): bump the native rule count for W-21\n\nvalidate-doc-command-paths.sh pins the count fragment in site/index.html to\nthe canonical rule total, so adding W-21 made it stale on every CI platform.\n\nRefs #687",
+          "timestamp": "2026-07-25T05:05:02+08:00",
+          "tree_id": "7987cd2244d0adfb602b1083e65a8f27626679e1",
+          "url": "https://github.com/majiayu000/vibeguard/commit/3e31e6552216c3e861d6aa118bb9eb91f7ad595c"
+        },
+        "date": 1784929083127,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 36,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 39,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 38,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 8,
             "unit": "ms"
           }
         ]
