@@ -10,5 +10,17 @@
     "hook": "pre-bash-guard",
     "profile": "default",
     "severity": "critical"
+  },
+  {
+    "platform": "claude",
+    "hook": "pre-edit-guard",
+    "profile": "default",
+    "severity": "high"
+  },
+  {
+    "platform": "codex",
+    "hook": "pre-edit-guard",
+    "profile": "default",
+    "severity": "high"
   }
 ]
