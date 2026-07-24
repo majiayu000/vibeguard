@@ -549,6 +549,7 @@ mod tests {
             client: "codex".into(),
             client_variant: "codex-cli-hooks".into(),
             caller_evidence: "explicit-test".into(),
+            session_source: "codex-thread".into(),
         }
     }
 

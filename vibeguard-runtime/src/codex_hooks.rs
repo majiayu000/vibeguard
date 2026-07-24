@@ -24,6 +24,30 @@ fn codex_event_name(data: &Value) -> &str {
         .unwrap_or("")
 }
 
+// Writer identity must come from the logical Codex session, not the wrapper's
+// short-lived parent PID (issue #673): pre/post hooks of one Edit can run under
+// different parent processes, but they share the payload's top-level session_id.
+fn codex_logical_session_id(data: &Value) -> String {
+    data.get("session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(crate::codex_app_server_core::session_id_for_thread)
+        .unwrap_or_default()
+}
+
+pub fn session_id(args: &[String]) -> Result {
+    ensure_no_args(args, "Usage: vibeguard-runtime codex-session-id")?;
+    let data = read_json_tolerant()?;
+    println!(
+        "{}",
+        data.as_ref()
+            .map(codex_logical_session_id)
+            .unwrap_or_default()
+    );
+    Ok(())
+}
+
 fn codex_status_matcher(data: &Value) -> &str {
     data.get("tool_name").and_then(Value::as_str).unwrap_or("")
 }
@@ -413,6 +437,33 @@ mod tests {
             "PreToolUse"
         );
         assert_eq!(codex_event_name(&json!({"hook_event_name": 7})), "");
+    }
+
+    #[test]
+    fn logical_session_id_is_stable_across_pre_and_post_payloads() {
+        let pre = json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": "0198c5b1-thread",
+            "tool_name": "Edit"
+        });
+        let post = json!({
+            "hook_event_name": "PostToolUse",
+            "session_id": "0198c5b1-thread",
+            "tool_name": "Edit"
+        });
+        let id = codex_logical_session_id(&pre);
+        assert!(id.starts_with("codex-thread-"));
+        assert_eq!(id, codex_logical_session_id(&post));
+    }
+
+    #[test]
+    fn logical_session_id_separates_threads_and_rejects_missing_or_blank() {
+        let a = codex_logical_session_id(&json!({"session_id": "thread-a"}));
+        let b = codex_logical_session_id(&json!({"session_id": "thread-b"}));
+        assert_ne!(a, b);
+        assert_eq!(codex_logical_session_id(&json!({})), "");
+        assert_eq!(codex_logical_session_id(&json!({"session_id": "   "})), "");
+        assert_eq!(codex_logical_session_id(&json!({"session_id": 7})), "");
     }
 
     #[test]

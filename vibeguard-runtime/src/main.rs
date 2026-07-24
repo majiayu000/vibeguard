@@ -186,6 +186,11 @@ static COMMANDS: &[Command] = &[
         handler: codex_hooks::event_name,
     },
     Command {
+        name: "codex-session-id",
+        usage: "  — derive a stable logical session id from Codex hook stdin",
+        handler: codex_hooks::session_id,
+    },
+    Command {
         name: "codex-status-detail",
         usage: "  — extract Codex hook status detail from stdin",
         handler: codex_hooks::status_detail,

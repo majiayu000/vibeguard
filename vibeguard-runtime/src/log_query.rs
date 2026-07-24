@@ -203,6 +203,14 @@ fn recent_overlap(
         ) {
             continue;
         }
+        // Pre-hook events record intent to edit, not a completed write; they
+        // must not count as another writer touching the file (issue #673).
+        if e.get(field::HOOK)
+            .and_then(Value::as_str)
+            .is_some_and(|hook| hook.starts_with("pre-"))
+        {
+            continue;
+        }
         let detail_path = first_detail_path(e);
         if detail_path != file_path && normalize_path(detail_path) != normalized_file {
             continue;
@@ -521,6 +529,31 @@ mod tests {
         ];
 
         assert_eq!(count_warn_events(&events, "src/lib.rs"), 3);
+    }
+
+    #[test]
+    fn recent_overlap_ignores_pre_hook_intent_events() {
+        let now = now_unix_secs();
+        let ts = crate::time_utils::format_unix_secs_utc(now);
+        let pre_only = [json!({
+            "ts": ts,
+            "session": "other",
+            "agent": "codex",
+            "tool": "Edit",
+            "hook": "pre-edit-guard",
+            "detail": "/tmp/main.rs"
+        })];
+        assert!(recent_overlap(&pre_only, "current", "codex", "/tmp/main.rs", now).is_none());
+
+        let post = [json!({
+            "ts": ts,
+            "session": "other",
+            "agent": "codex",
+            "tool": "Write",
+            "hook": "post-write-guard",
+            "detail": "/tmp/main.rs"
+        })];
+        assert!(recent_overlap(&post, "current", "codex", "/tmp/main.rs", now).is_some());
     }
 
     #[test]

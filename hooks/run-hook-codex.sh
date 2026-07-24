@@ -95,7 +95,7 @@ else
 fi
 
 WRAPPER_ENV_PATH="$(helper_path wrapper_env.sh)"
-[[ ! -f "${WRAPPER_ENV_PATH}" ]] || { source "${WRAPPER_ENV_PATH}"; vg_wrapper_env_export "codex"; }
+[[ ! -f "${WRAPPER_ENV_PATH}" ]] || { source "${WRAPPER_ENV_PATH}"; vg_wrapper_env_codex_session "${INPUT}"; vg_wrapper_env_export "codex"; }
 
 POLICY_PATH="$(helper_path policy.sh)"
 if [[ ! -f "${POLICY_PATH}" ]]; then
