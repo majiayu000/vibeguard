@@ -93,6 +93,60 @@ assert_contains "$report" "RS-03" "Report contains RS-03"
 assert_contains "$report" "RS-99" "Report contains RS-99"
 assert_contains "$report" "experimental" "Report shows experimental phase"
 assert_contains "$report" "warn" "Report shows warn phase"
+
+# GH-675: an all-N/A table reads like a healthy scorecard. With zero samples no
+# threshold can ever fire, and the report has to say so.
+assert_contains "$report" "NO FEEDBACK DATA" "Empty feedback channel is called out"
+assert_contains "$report" "no promotion or demotion below can fire" \
+  "Empty channel explains that the lifecycle loop is inert"
+assert_contains "$report" "report-false-positive.py" \
+  "Empty channel names the report-false-positive recording path"
+
+# The warning must disappear once real samples exist, or it becomes noise.
+# Use a separate pair of files so the shared fixtures below stay at zero.
+POPULATED_TRIAGE="${TMPDIR_TEST}/populated-triage.jsonl"
+POPULATED_SCORECARD="${TMPDIR_TEST}/populated-scorecard.json"
+cp "$SCORECARD_FILE" "$POPULATED_SCORECARD"
+touch "$POPULATED_TRIAGE"
+python3 "$TRACKER" --record tp RS-03 --context "gh675 populated channel" \
+  --triage-file "$POPULATED_TRIAGE" --scorecard-file "$POPULATED_SCORECARD" >/dev/null
+populated_report=$(python3 "$TRACKER" \
+  --triage-file "$POPULATED_TRIAGE" \
+  --scorecard-file "$POPULATED_SCORECARD")
+assert_not_contains "$populated_report" "NO FEEDBACK DATA" \
+  "Populated feedback channel drops the warning"
+
+# --rule filters the table, but emptiness is a property of the whole scorecard.
+# Judging it on the filtered view would announce "every rule has 0 samples"
+# while other rules are populated.
+filtered_report=$(python3 "$TRACKER" --rule RS-99 \
+  --triage-file "$POPULATED_TRIAGE" \
+  --scorecard-file "$POPULATED_SCORECARD")
+assert_not_contains "$filtered_report" "NO FEEDBACK DATA" \
+  "--rule on a zero-sample rule does not claim the whole channel is empty"
+
+# A hand-edited scorecard must not crash the report; the bad value is reported.
+BAD_SCORECARD="${TMPDIR_TEST}/bad-scorecard.json"
+python3 -c "
+import json
+print(json.dumps({'rules': {'RS-03': {'stage': 'warn', 'samples': 'many',
+  'tp': 0, 'fp': 0, 'acceptable': 0, 'precision': None, 'notes': 'bad'}}}))
+" > "$BAD_SCORECARD"
+set +e
+bad_report=$(python3 "$TRACKER" --triage-file "$TRIAGE_FILE" \
+  --scorecard-file "$BAD_SCORECARD" 2>"${TMPDIR_TEST}/bad.err")
+bad_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "$bad_status" -eq 0 ]]; then
+  green "non-numeric samples does not crash the report"
+  PASS=$((PASS + 1))
+else
+  red "non-numeric samples does not crash the report (exit $bad_status)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$(cat "${TMPDIR_TEST}/bad.err")" "non-numeric samples" \
+  "non-numeric samples is reported instead of silently treated as zero"
 assert_contains "$report" "N/A" "The accuracy displays N/A when there is no sample"
 
 default_report=$(python3 "$TRACKER" \
