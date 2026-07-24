@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784913650786,
+  "lastUpdate": 1784917656815,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -50966,6 +50966,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8aa2ee9a1d8ce6e0a26f6ddda777c228d72700a5",
+          "message": "feat(stop-guard): W-16 advisory for sessions that edit source with no verification (#689)\n\n* feat(stop-guard): emit W-16 advisory when a session edits source with no verification\n\nIssue #674: across 707 Codex + 125 Claude Code sessions, one-file sessions\nended with no test/build command 4-5x more often than >10-file sessions.\nW-03/W-16 are prose obligations; this adds the missing mechanical\nobservation surface at Stop, extending the existing stop-guard gate per\nW-17 instead of adding a new rule.\n\n- At Stop, scan this session's events: pre-edit/pre-write targets that are\n  non-test, non-generated source files vs pre-bash commands matching the\n  verification pattern set (cargo/go/pytest/npm/tsc/make/just/bazel/...).\n- Edits present + zero verification -> print a W-16 advisory naming the\n  files and the detected toolchain command, and log a warn event with a\n  stable reason prefix so guard-precision-tracker can measure FP rate\n  before any severity increase.\n- Advisory only: exit stays 0, the Stop event is never blocked, and the\n  existing uncommitted-changes gate is unchanged.\n- FP controls (U-32): skip when no toolchain manifest exists, skip\n  test/fixture/generated paths, VIBEGUARD_SUPPRESS_STOP_VERIFY=1 opt-out.\n\nConstraint: requires evidence of an attempted verification, not a passing\none — pass/fail judgment stays with W-03.\nRejected: blocking Stop via exit 2 — the Stop context cannot act on it\nwithout the feedback loop and would trap sessions.\nConfidence: high\nScope-risk: narrow\nVerification: cargo test (23 suites), tests/hooks/test_stop_guard.sh\n16/16 (8 new), tests/test_hooks.sh all shards, validate-hook-behavior-docs\n/ hooks-manifest / manifest-contract / rules / canonical-rule-language OK\n\nFixes #674\n\n* fix: satisfy clippy collapsible_match and needless_borrow in stop-guard advisory\n\nCI runs clippy with -D warnings; fold the pre-bash-guard condition into\nthe match guard and drop the needless ctx borrow.\n\nConfidence: high\nScope-risk: narrow\nVerification: cargo clippy --all-targets -- -D warnings clean,\ntests/hooks/test_stop_guard.sh 16/16",
+          "timestamp": "2026-07-25T01:54:39+08:00",
+          "tree_id": "99b979618f353412810c05458e93ce1653a06633",
+          "url": "https://github.com/majiayu000/vibeguard/commit/8aa2ee9a1d8ce6e0a26f6ddda777c228d72700a5"
+        },
+        "date": 1784917654844,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 49,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 53,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 53,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 56,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 56,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 56,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 26,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 26,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 50,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 51,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 11,
             "unit": "ms"
           }
         ]
