@@ -195,7 +195,7 @@ else
   red "a failed record exits nonzero"
   FAIL=$((FAIL + 1))
 fi
-assert_contains "$corrupt_out" "not backed by a triage record" \
+assert_contains "$corrupt_out" "no triage record backs this report" \
   "a failed record says the report is not backed by one"
 assert_not_contains "$corrupt_out" "already recorded" \
   "a failed record does not claim the verdict was recorded"
@@ -208,24 +208,53 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# A rule id from an event log can be junk; it must not reach the ledger.
+# A junk rule id reaches us through the event log, not the command line: an
+# option-looking value on the CLI is rejected by argparse before our code runs,
+# so asserting on `--rule --` would pass for the wrong reason.
+junk_event_log="${triage_dir}/junk-events.jsonl"
+printf '%s\n' \
+  '{"schema_version":1,"ts":"2026-06-19T00:00:00Z","session":"s1","event_id":"VG-TEST-JUNK","code":"VG-TEST-JUNK","rule_id":"--scorecard-file","hook":"post-edit-guard","tool":"Edit","decision":"warn","status":"warn","path":"src/lib.rs","reason":"junk rule id"}' \
+  > "${junk_event_log}"
+entries_before_junk="$(grep -c '"verdict"' "${triage_file}")"
 set +e
-junk_out="$(python3 "${SCRIPT}" VG-TEST-JUNK --rule -- --record-triage fp \
+junk_out="$(python3 "${SCRIPT}" VG-TEST-JUNK --event-log "${junk_event_log}" --record-triage fp \
   --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
 junk_status=$?
 set -e
 TOTAL=$((TOTAL + 1))
 if [[ "${junk_status}" -ne 0 ]]; then
-  green "a malformed rule id exits nonzero"
+  green "a malformed rule id from the event log exits nonzero"
   PASS=$((PASS + 1))
 else
-  red "a malformed rule id exits nonzero"
+  red "a malformed rule id from the event log exits nonzero"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$junk_out" "is not a valid rule id" \
+  "a malformed rule id says why it was rejected"
+TOTAL=$((TOTAL + 1))
+if [[ "$(grep -c '"verdict"' "${triage_file}")" == "${entries_before_junk}" ]]; then
+  green "a malformed rule id reaches no triage entry"
+  PASS=$((PASS + 1))
+else
+  red "a malformed rule id reaches no triage entry"
   FAIL=$((FAIL + 1))
 fi
 
-# Word-form rule ids that the scorecard really tracks must still be accepted.
+# Word-form rule ids that the scorecard really tracks must still be accepted:
+# CHURN, STUB, DEBUG and LARGE-EDIT would all be rejected by a stricter shape.
+set +e
 word_rule_out="$(python3 "${SCRIPT}" VG-TEST-WORD --rule LARGE-EDIT --record-triage acceptable \
   --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
+word_rule_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${word_rule_status}" -eq 0 ]]; then
+  green "word-form rule ids such as LARGE-EDIT exit zero"
+  PASS=$((PASS + 1))
+else
+  red "word-form rule ids such as LARGE-EDIT exit zero (exit ${word_rule_status})"
+  FAIL=$((FAIL + 1))
+fi
 assert_contains "$word_rule_out" "Recorded acceptable for LARGE-EDIT" \
   "word-form rule ids such as LARGE-EDIT are accepted"
 

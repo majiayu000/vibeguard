@@ -271,7 +271,7 @@ def record_triage_verdict(verdict: str, payload: dict[str, str], args: argparse.
         sys.stderr.write(result.stderr)
         print(
             f"ERROR: recording the {verdict} verdict for {rule} failed; "
-            "the report above is not backed by a triage record.",
+            "no triage record backs this report.",
             file=sys.stderr,
         )
         return result.returncode
