@@ -122,6 +122,70 @@ TOTAL=$((TOTAL + 1))
 assert_contains "$missing_event_out" "event id not found in event log: VG-MISSING-EVENT" "missing event reports absent id"
 assert_not_contains "$missing_event_out" '"hook": "unknown"' "missing event does not emit unknown report"
 
+# GH-675: recording the triage verdict must happen in the same call that
+# produces the report, instead of printing an instruction nobody runs.
+triage_dir="$(mktemp -d)"
+trap 'rm -rf "${triage_dir}"' EXIT
+triage_file="${triage_dir}/triage.jsonl"
+scorecard_file="${triage_dir}/rule-scorecard.json"
+
+record_out="$(python3 "${SCRIPT}" VG-TEST-RECORD --rule RS-03 --code VG-POLICY-RS03 \
+  --record-triage fp --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
+assert_contains "$record_out" "Recorded fp for RS-03" "--record-triage records the verdict"
+
+TOTAL=$((TOTAL + 1))
+if [[ -f "${triage_file}" ]] && grep -q '"verdict": "fp"' "${triage_file}" \
+  && grep -q '"rule": "RS-03"' "${triage_file}"; then
+  green "--record-triage appends a triage record"
+  PASS=$((PASS + 1))
+else
+  red "--record-triage appends a triage record"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [[ -f "${scorecard_file}" ]]; then
+  green "--record-triage updates the scorecard"
+  PASS=$((PASS + 1))
+else
+  red "--record-triage updates the scorecard"
+  FAIL=$((FAIL + 1))
+fi
+
+# The context must not be filled with placeholder text.
+assert_not_contains "$(cat "${triage_file}")" "unknown unknown" \
+  "recorded context omits unknown placeholders"
+
+# Without a rule id there is nothing to attribute the verdict to: fail loudly
+# rather than emit a report that looks recorded but is not.
+set +e
+norule_out="$(python3 "${SCRIPT}" VG-TEST-NORULE --record-triage fp \
+  --triage-file "${triage_file}" --scorecard-file "${scorecard_file}" 2>&1)"
+norule_status=$?
+set -e
+TOTAL=$((TOTAL + 1))
+if [[ "${norule_status}" -ne 0 ]]; then
+  green "--record-triage without a rule id exits nonzero"
+  PASS=$((PASS + 1))
+else
+  red "--record-triage without a rule id exits nonzero"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$norule_out" "needs a rule id" "--record-triage names the missing rule id"
+
+TOTAL=$((TOTAL + 1))
+if [[ "$(grep -c '"verdict"' "${triage_file}")" == "1" ]]; then
+  green "a rejected record leaves no triage entry"
+  PASS=$((PASS + 1))
+else
+  red "a rejected record leaves no triage entry"
+  FAIL=$((FAIL + 1))
+fi
+
+# Default behavior is unchanged when the flag is absent.
+plain_out="$(python3 "${SCRIPT}" VG-TEST-PLAIN --rule RS-03 2>&1)"
+assert_not_contains "$plain_out" "Recorded fp" "no verdict is recorded without --record-triage"
+
 printf '\n'
 if [[ "$FAIL" -eq 0 ]]; then
   printf '\033[32mAll %d/%d tests passed\033[0m\n' "$PASS" "$TOTAL"

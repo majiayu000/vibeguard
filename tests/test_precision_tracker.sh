@@ -93,6 +93,28 @@ assert_contains "$report" "RS-03" "Report contains RS-03"
 assert_contains "$report" "RS-99" "Report contains RS-99"
 assert_contains "$report" "experimental" "Report shows experimental phase"
 assert_contains "$report" "warn" "Report shows warn phase"
+
+# GH-675: an all-N/A table reads like a healthy scorecard. With zero samples no
+# threshold can ever fire, and the report has to say so.
+assert_contains "$report" "NO FEEDBACK DATA" "Empty feedback channel is called out"
+assert_contains "$report" "no promotion or demotion below can fire" \
+  "Empty channel explains that the lifecycle loop is inert"
+assert_contains "$report" "report-false-positive.py" \
+  "Empty channel names the report-false-positive recording path"
+
+# The warning must disappear once real samples exist, or it becomes noise.
+# Use a separate pair of files so the shared fixtures below stay at zero.
+POPULATED_TRIAGE="${TMPDIR_TEST}/populated-triage.jsonl"
+POPULATED_SCORECARD="${TMPDIR_TEST}/populated-scorecard.json"
+cp "$SCORECARD_FILE" "$POPULATED_SCORECARD"
+touch "$POPULATED_TRIAGE"
+python3 "$TRACKER" --record tp RS-03 --context "gh675 populated channel" \
+  --triage-file "$POPULATED_TRIAGE" --scorecard-file "$POPULATED_SCORECARD" >/dev/null
+populated_report=$(python3 "$TRACKER" \
+  --triage-file "$POPULATED_TRIAGE" \
+  --scorecard-file "$POPULATED_SCORECARD")
+assert_not_contains "$populated_report" "NO FEEDBACK DATA" \
+  "Populated feedback channel drops the warning"
 assert_contains "$report" "N/A" "The accuracy displays N/A when there is no sample"
 
 default_report=$(python3 "$TRACKER" \

@@ -480,6 +480,22 @@ def render_report(scorecard: dict[str, Any], rule_filter: str | None = None) -> 
         )
 
     lines.append("")
+    if sum(int(entry.get("samples", 0) or 0) for entry in rules.values()) == 0:
+        # An all-N/A table reads like a healthy scorecard. Say plainly that the
+        # feedback channel is empty, because with zero samples not one of the
+        # thresholds below can ever fire (issue #675).
+        lines.append("!! NO FEEDBACK DATA — the lifecycle loop is inert.")
+        lines.append(
+            "   Every rule has 0 samples, so no promotion or demotion below can fire."
+        )
+        lines.append("   Feed it by recording a verdict when you triage a finding:")
+        lines.append(
+            "     python3 scripts/precision-tracker.py --record tp|fp|acceptable RULE-ID --context NOTE"
+        )
+        lines.append(
+            "     python3 scripts/report-false-positive.py <EVENT-ID> --rule RULE-ID --record-triage fp"
+        )
+        lines.append("")
     lines.append("Lifecycle thresholds:")
     lines.append(
         f"  experimental → warn : precision ≥ {EXPERIMENTAL_TO_WARN_PRECISION*100:.0f}%  AND samples ≥ {EXPERIMENTAL_TO_WARN_SAMPLES}"

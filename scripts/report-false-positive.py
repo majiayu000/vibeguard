@@ -6,9 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PRECISION_TRACKER = SCRIPT_DIR / "precision-tracker.py"
+TRIAGE_VERDICTS = ("fp", "tp", "acceptable")
 
 
 SECRET_KEY_PATTERN = (
@@ -181,7 +187,71 @@ def parse_report_args(argv: list[str]) -> argparse.Namespace:
         default="markdown",
         help="Output format.",
     )
+    parser.add_argument(
+        "--record-triage",
+        choices=list(TRIAGE_VERDICTS),
+        help=(
+            "Record this verdict in the precision triage log while generating the "
+            "report, instead of printing an instruction to do it later."
+        ),
+    )
+    parser.add_argument(
+        "--triage-file",
+        help="Override the triage.jsonl path passed to precision-tracker.py.",
+    )
+    parser.add_argument(
+        "--scorecard-file",
+        help="Override the rule-scorecard.json path passed to precision-tracker.py.",
+    )
     return parser.parse_args(argv)
+
+
+def record_triage_verdict(verdict: str, payload: dict[str, str], args: argparse.Namespace) -> int:
+    """Delegate to precision-tracker.py so triage and scorecard stay consistent.
+
+    Reimplementing the append here would duplicate the scorecard write lock and
+    the "bad triage lines block the write" protection, and the two copies would
+    drift.
+    """
+    rule = payload.get("rule_id", "")
+    if not rule or rule == "unknown":
+        print(
+            "ERROR: --record-triage needs a rule id; pass --rule <RULE-ID>. "
+            "No verdict was recorded.",
+            file=sys.stderr,
+        )
+        return 2
+
+    known = [
+        payload.get(key, "")
+        for key in ("code", "path")
+        if payload.get(key, "unknown") != "unknown"
+    ]
+    command = [
+        sys.executable,
+        str(PRECISION_TRACKER),
+        "--record",
+        verdict,
+        rule,
+        "--context",
+        " ".join(known) or payload["event_id"],
+    ]
+    if args.triage_file:
+        command += ["--triage-file", args.triage_file]
+    if args.scorecard_file:
+        command += ["--scorecard-file", args.scorecard_file]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        print(
+            f"ERROR: recording the {verdict} verdict for {rule} failed; "
+            "the report above is not backed by a triage record.",
+            file=sys.stderr,
+        )
+        return result.returncode
+    sys.stdout.write(result.stdout)
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -191,6 +261,8 @@ def main(argv: list[str]) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(render_markdown(payload))
+    if args.record_triage:
+        return record_triage_verdict(args.record_triage, payload, args)
     return 0
 
 
