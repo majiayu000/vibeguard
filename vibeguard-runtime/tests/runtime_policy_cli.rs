@@ -244,22 +244,19 @@ fn runtime_policy_check_reports_project_utf8_errors_as_config_parse_errors() {
 }
 
 #[test]
-fn runtime_policy_check_uses_shared_profile_filtering_for_strict_only_hooks() {
-    let repo = unique_temp_dir("strict_only");
+fn runtime_policy_check_runs_count_active_constraints_under_core_profile() {
+    let repo = unique_temp_dir("core_count_active_constraints");
     write_policy(&repo, r#"{"profile":"core"}"#);
 
     let output = run_runtime_policy(&repo, "count_active_constraints.sh");
 
-    assert_eq!(output.status.code(), Some(10));
+    assert_eq!(output.status.code(), Some(0));
     let value = policy_json(&output);
-    assert_eq!(value["decision"], "skip");
-    assert_eq!(value["profile"], "core");
     assert!(
-        value["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains("profile=core excludes count-active-constraints")
+        value["decision"] != "skip",
+        "count_active_constraints should run under core profile, got: {value}"
     );
+    assert_eq!(value["profile"], "core");
     let _ = fs::remove_dir_all(repo);
 }
 
