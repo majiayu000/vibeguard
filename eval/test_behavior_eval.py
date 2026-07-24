@@ -44,6 +44,28 @@ class BehaviorEvalTest(unittest.TestCase):
 
         self.assertTrue(all(check["passed"] for check in checks))
 
+    def test_stdout_empty_expectation_passes_on_silent_allow(self) -> None:
+        checks = run_behavior_eval.evaluate_expectations(
+            {"exit_code": 0, "stdout_empty": True},
+            0,
+            "",
+        )
+
+        self.assertTrue(all(check["passed"] for check in checks))
+
+    def test_stdout_empty_expectation_fails_when_hook_emits_output(self) -> None:
+        stdout = json.dumps({"decision": "block", "reason": "denied"})
+
+        checks = run_behavior_eval.evaluate_expectations(
+            {"exit_code": 0, "stdout_empty": True},
+            0,
+            stdout,
+        )
+
+        empty_check = next(check for check in checks if check["name"] == "stdout_empty")
+        self.assertFalse(empty_check["passed"])
+        self.assertEqual(empty_check["actual"], stdout)
+
     def test_timeout_stream_text_decodes_bytes(self) -> None:
         self.assertEqual(run_behavior_eval.timeout_stream_text(b"partial\n"), "partial\n")
         self.assertEqual(run_behavior_eval.timeout_stream_text(None), "")
