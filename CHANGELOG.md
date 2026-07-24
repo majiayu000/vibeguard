@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- W-21 "evidence must be provably executed, not merely cited": decisive claims need an out-of-session channel (transcript, filesystem, git, persisted exit codes/hashes), accusing the harness or hooks is a red flag, and two falsified root-cause theories in one investigation terminate the session (#687).
+
+### Changed
+- W-01's debugging protocol now starts at step 0, a channel-trust check that rules out degraded reading before any filesystem, harness, or hook is blamed (#687).
+
 ## [1.1.10] - 2026-07-09
 
 ### Added
