@@ -61,4 +61,66 @@ assert_contains "$stop_events" 'src/lib.rs ' "Stop hook records changed source d
 
 rm -rf "$stop_repo" "$stop_log" /tmp/vg-stop-out.txt
 
+header "stop-guard.sh — W-16 unverified-stop advisory (issue #674)"
+
+verify_repo=$(mktemp -d)
+verify_log=$(mktemp -d)
+git -C "$verify_repo" init >/dev/null
+git -C "$verify_repo" config user.email test@example.com
+git -C "$verify_repo" config user.name "Test User"
+printf '[package]\nname = "probe"\nversion = "0.0.1"\n' > "$verify_repo/Cargo.toml"
+git -C "$verify_repo" add Cargo.toml
+git -C "$verify_repo" commit -m initial >/dev/null
+
+_verify_hash=$(printf '%s' "$(cd "$verify_repo" && pwd -P)" | shasum -a 256 | cut -c1-8)
+_verify_project_log="$verify_log/projects/${_verify_hash}/events.jsonl"
+mkdir -p "$(dirname "$_verify_project_log")"
+
+seed_verify_event() {
+  local hook="$1" tool="$2" detail="$3"
+  printf '{"ts":"%s","session":"stop-verify-session","hook":"%s","tool":"%s","decision":"pass","detail":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$hook" "$tool" "$detail" >> "$_verify_project_log"
+}
+
+run_stop_verify() {
+  (
+    cd "$verify_repo"
+    env -u CI -u GITHUB_ACTIONS -u TRAVIS -u CIRCLECI -u JENKINS_URL -u GITLAB_CI -u TF_BUILD \
+      VIBEGUARD_LOG_DIR="$verify_log" VIBEGUARD_SESSION_ID="stop-verify-session" \
+      "$@" bash "$REPO_DIR/hooks/stop-guard.sh" <<< '{"hook_event_name":"Stop"}'
+  )
+}
+
+seed_verify_event "pre-edit-guard" "Edit" "$verify_repo/src/lib.rs"
+unverified_output="$(run_stop_verify)"
+assert_contains "$unverified_output" "[W-16]" "source edit with no verification emits W-16 advisory"
+assert_contains "$unverified_output" "cargo test" "advisory suggests the detected toolchain command"
+assert_contains "$unverified_output" "src/lib.rs" "advisory names the edited file"
+assert_contains "$(cat "$_verify_project_log")" "stop without verification evidence" "advisory records trackable warn event"
+
+: > "$_verify_project_log"
+seed_verify_event "pre-edit-guard" "Edit" "$verify_repo/src/lib.rs"
+seed_verify_event "pre-bash-guard" "Bash" "cargo test -q"
+verified_output="$(run_stop_verify)"
+assert_not_contains "$verified_output" "[W-16]" "verification command in session silences the advisory"
+
+: > "$_verify_project_log"
+seed_verify_event "pre-edit-guard" "Edit" "$verify_repo/tests/helper.rs"
+test_only_output="$(run_stop_verify)"
+assert_not_contains "$test_only_output" "[W-16]" "test-path-only edits do not trigger the advisory"
+
+: > "$_verify_project_log"
+seed_verify_event "pre-edit-guard" "Edit" "$verify_repo/src/lib.rs"
+suppressed_output="$(run_stop_verify VIBEGUARD_SUPPRESS_STOP_VERIFY=1)"
+assert_not_contains "$suppressed_output" "[W-16]" "VIBEGUARD_SUPPRESS_STOP_VERIFY=1 suppresses the advisory"
+
+rm -f "$verify_repo/Cargo.toml"
+git -C "$verify_repo" rm -q --cached Cargo.toml 2>/dev/null || true
+: > "$_verify_project_log"
+seed_verify_event "pre-edit-guard" "Edit" "$verify_repo/src/lib.rs"
+no_toolchain_output="$(run_stop_verify)"
+assert_not_contains "$no_toolchain_output" "[W-16]" "repos without a known toolchain skip the advisory"
+
+rm -rf "$verify_repo" "$verify_log"
+
 hook_test_finish
