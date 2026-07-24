@@ -183,13 +183,13 @@
       "install_targets": [],
       "config_exposure": {"disabled_hook": true},
       "trigger": "SessionStart",
-      "responsibilities": "Count effective task constraints loaded into agent context and enforce the U-32 live-context budget in strict profile.",
+      "responsibilities": "Count effective task constraints loaded into agent context; warn over the U-32 budget in core/full profiles and hard-block in strict profile.",
       "decision_types": ["pass", "warn", "block"],
       "claude": {
         "enabled": true,
         "event": "SessionStart",
         "matchers": [null],
-        "profiles": ["strict"]
+        "profiles": ["core", "full", "strict"]
       },
       "codex": {"enabled": false, "support": "unsupported", "reason": "Not part of the default Codex native enforcement layer"}
     },

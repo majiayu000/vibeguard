@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # VibeGuard Guard — Agent-instruction document overload detection (W-19)
 #
-# Detect three anti-patterns in agent-instruction documents (CLAUDE.md / AGENTS.md):
+# Detect four anti-patterns in the effective agent-instruction surface:
 #   1. File too long       — > 200 lines warns, > 800 lines fails in --strict
 #   2. Unpaired prohibitions — > 30 Chinese 禁止/不要 rules without paired ✅ GOOD examples
 #   3. Inline redefinition  — a canonical vibeguard rule ID from the curated
 #                              CANONICAL_IDS list below appears ≥ 3 times in one file
+#   4. Always-on rule injection — native rule files under `.claude/rules/`
+#                              (or `rules/` when the target dir is a `.claude`
+#                              home) that lack `paths:` frontmatter are injected
+#                              into every session; their aggregate line count is
+#                              part of the instruction surface even though the
+#                              doc files themselves look small (GH-683)
 #
 # The vibeguard auto-gen region (between `<!-- vibeguard-start -->` and
 # `<!-- vibeguard-end -->`) is excluded from line counting.
@@ -59,7 +65,15 @@ done < <(
     -type f -name 'AGENTS.md' -print0
 )
 
-if [[ ${#DOC_FILES[@]} -eq 0 ]]; then
+# Always-on native rule surface: `.claude/rules/` under a project dir, or
+# `rules/` when the target dir is itself a `.claude` home (~/.claude).
+RULES_DIRS=()
+[[ -d "${TARGET_DIR}/.claude/rules" ]] && RULES_DIRS+=("${TARGET_DIR}/.claude/rules")
+if [[ "$(basename "$(cd "${TARGET_DIR}" && pwd)")" == ".claude" && -d "${TARGET_DIR}/rules" ]]; then
+  RULES_DIRS+=("${TARGET_DIR}/rules")
+fi
+
+if [[ ${#DOC_FILES[@]} -eq 0 && ${#RULES_DIRS[@]} -eq 0 ]]; then
   exit 0
 fi
 
@@ -87,10 +101,22 @@ CANONICAL_IDS=(
   "W${DASH}15" "W${DASH}16" "W${DASH}17"
 )
 
+# A rule file is path-scoped (loaded on demand) only when its YAML frontmatter
+# declares a `paths:` key; everything else is injected into every session.
+_rule_is_path_scoped() {
+  awk '
+    NR == 1 { if ($0 != "---") exit; next }
+    /^---[[:space:]]*$/ { exit }
+    /^paths:/ { found = 1; exit }
+    NR > 40 { exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
 echo "Doc Overload Check (W-19): ${TARGET_DIR}"
 echo "---"
 
-for file in "${DOC_FILES[@]}"; do
+for file in ${DOC_FILES[@]+"${DOC_FILES[@]}"}; do
   # Strip the vibeguard auto-gen region so line counts reflect user-authored content
   CONTENT=$(awk '
     /<!-- vibeguard-start -->/ { skip = 1; next }
@@ -121,6 +147,33 @@ for file in "${DOC_FILES[@]}"; do
     fi
   done
 done
+
+# Check 4: aggregate size of always-on native rule files (no `paths:` frontmatter)
+if [[ ${#RULES_DIRS[@]} -gt 0 ]]; then
+  ALWAYS_ON_TOTAL=0
+  ALWAYS_ON_COUNT=0
+  ALWAYS_ON_DETAIL=""
+  while IFS= read -r -d '' rule_file; do
+    _rule_is_path_scoped "$rule_file" && continue
+    RULE_LINES=$(wc -l < "$rule_file" | tr -d ' ')
+    ALWAYS_ON_TOTAL=$((ALWAYS_ON_TOTAL + RULE_LINES))
+    ALWAYS_ON_COUNT=$((ALWAYS_ON_COUNT + 1))
+    ALWAYS_ON_DETAIL="${ALWAYS_ON_DETAIL}${RULE_LINES}	${rule_file}
+"
+  done < <(find -L "${RULES_DIRS[@]}" -type f -name '*.md' -print0 2>/dev/null)
+
+  if [[ "$ALWAYS_ON_TOTAL" -gt "$WARN_LINES" ]]; then
+    TOP_RULES=$(printf '%s' "$ALWAYS_ON_DETAIL" | sort -rn | head -3 \
+      | awk -F '	' '{ printf "%s (%s lines); ", $2, $1 }')
+    RULE_MSG="always-on native rules inject ${ALWAYS_ON_TOTAL} lines across ${ALWAYS_ON_COUNT} files without paths: frontmatter"
+    RULE_FIX="Fix: add paths: frontmatter to scope rules to file types, or demote long-tail rules to skills/on-demand references"
+    if [[ "$ALWAYS_ON_TOTAL" -gt "$FAIL_LINES" ]]; then
+      fail "${RULE_MSG} (limit ${FAIL_LINES}). Largest: ${TOP_RULES}${RULE_FIX}"
+    else
+      warn "${RULE_MSG} (target ≤${WARN_LINES}). Largest: ${TOP_RULES}${RULE_FIX}"
+    fi
+  fi
+fi
 
 echo "---"
 if [[ "$WARNINGS" -eq 0 && "$FAILURES" -eq 0 ]]; then

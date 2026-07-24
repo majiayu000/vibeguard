@@ -2,7 +2,8 @@
 # VibeGuard SessionStart/UserPromptSubmit Hook — U-32 live constraint budget
 #
 # Counts the effective constraints that can enter the current agent context.
-# >15 emits an advisory, >30 becomes a hard block when strict mode is enabled.
+# >15 emits an advisory; >30 emits a warning under core/full profiles and a
+# hard block under the strict profile (override via VIBEGUARD_U32_STRICT).
 
 set -euo pipefail
 
@@ -56,9 +57,21 @@ fi
 
 MESSAGE="VIBEGUARD U-32 ${STATUS}: effective task constraints=${TOTAL} (warn>${WARN_THRESHOLD}, block>${BLOCK_THRESHOLD}). Split low-frequency rules into path-scoped files, skills, or hooks before adding more persistent instructions. Top sources: ${SUMMARY}"
 
+# Hard-block semantics are opt-in: default follows the installed profile so
+# core/full users get the budget signal as context instead of a failed hook.
+_vg_u32_strict_default() {
+  local state_file="${VIBEGUARD_HOME:-${HOME}/.vibeguard}/install-state.json"
+  local profile=""
+  if [[ -f "${state_file}" ]]; then
+    profile=$(grep -o '"profile"[[:space:]]*:[[:space:]]*"[a-z]*"' "${state_file}" 2>/dev/null \
+      | tail -1 | grep -o '"[a-z]*"$' | tr -d '"' || true)
+  fi
+  if [[ "${profile}" == "strict" ]]; then printf '1'; else printf '0'; fi
+}
+
 if [[ "${STATUS}" == "block" ]]; then
   vg_log "count-active-constraints" "${HOOK_EVENT}" "block" "constraints=${TOTAL}" "${SUMMARY}"
-  if [[ "${VIBEGUARD_U32_STRICT:-1}" == "1" ]]; then
+  if [[ "${VIBEGUARD_U32_STRICT:-$(_vg_u32_strict_default)}" == "1" ]]; then
     printf '%s\n' "[BLOCKED] ${MESSAGE}" >&2
     exit 2
   fi
