@@ -236,7 +236,7 @@
       "install_targets": ["hooks-full"],
       "config_exposure": {"disabled_hook": true},
       "trigger": "Stop",
-      "responsibilities": "Record uncommitted source code changes as a non-blocking Stop signal.",
+      "responsibilities": "Record uncommitted source code changes as a non-blocking Stop signal; emit a W-16 advisory when the session edited source files but ran no verification command.",
       "decision_types": ["pass", "gate"],
       "claude": {
         "enabled": true,

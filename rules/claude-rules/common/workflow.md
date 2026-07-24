@@ -239,6 +239,8 @@ Fixed: `cargo test --lib auth` passed in this session (tool output from Bash cal
 - "CI will run it." -> CI happens later; local completion claims need local evidence.
 - "A teammate or an earlier commit already verified it." -> cross-person and cross-session evidence does not count as current-session verification.
 
+**Observability hook**: `hooks/stop-guard.sh` emits a W-16 advisory at Stop when the session edited source files but ran no verification command (issue #674 measured 1-file sessions ending unverified 4-5x more often than >10-file sessions). Advisory only; `VIBEGUARD_SUPPRESS_STOP_VERIFY=1` opts out for exploratory sessions.
+
 **Lightweight fallback** (Bridge R2.8 — fresh-context self-review):
 Use fresh-context self-review only for documentation-only or design-only changes where no command can prove the claim. It cannot replace command execution for code, configuration, setup, migration, or runtime behavior changes.
 
