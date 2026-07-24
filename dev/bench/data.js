@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784875795096,
+  "lastUpdate": 1784907226059,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -50324,6 +50324,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e post-write 5000 P99",
             "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98001da0fe15c0172645ae89d85c81f0f6617eef",
+          "message": "fix: close GH-683 W-19 blindspot and enforce U-32 across all profiles (#685)\n\n* fix: close GH-683 W-19 blindspot and enforce U-32 across all profiles\n\n- guards/universal/check_doc_overload.sh now detects the always-on native\n  rule surface under .claude/rules/ that lacks paths: frontmatter (GH-683).\n- hooks/count_active_constraints.sh now runs in core/full profiles; only\n  strict profile hard-blocks >30 constraints by default, matching the\n  default/strict rule-delivery split in setup.sh.\n- Update W-19 thresholds table to include the new aggregate metric.\n- Add unit/hook tests for always-on rule detection and profile-aware\n  blocking.\n\nConstraint: core profile keeps the compact L1-L7 table, but any always-on\nrule injection >200 lines is now visible as W-19 warning/failure.\nRejected: dropping count_active_constraints back to strict-only — that was\nexactly the enforcement gap that allowed the current overload.\nConfidence: high\nScope-risk: narrow\nVerification: tests/unit/test_check_doc_overload.sh,\n              tests/hooks/test_count_active_constraints.sh,\n              tests/test_setup.sh all pass\n\n* test(runtime): update policy tests for count_active_constraints in core profile\n\nThe previous tests asserted that count_active_constraints.sh is excluded\nunder the core profile. After GH-683 it now runs under core/full/strict\n(with strict-only hard-blocking), so update the assertions to expect it\nto run under core.\n\nConfidence: high\nScope-risk: narrow",
+          "timestamp": "2026-07-24T23:00:34+08:00",
+          "tree_id": "d853b59f0fba1b52a7bbd0c07fcdddd0269341a1",
+          "url": "https://github.com/majiayu000/vibeguard/commit/98001da0fe15c0172645ae89d85c81f0f6617eef"
+        },
+        "date": 1784907225088,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 80,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 66,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 29,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 30,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 78,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 79,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 79,
             "unit": "ms"
           },
           {
