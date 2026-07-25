@@ -48,11 +48,27 @@ GH-686
      不允许整文件删除——`rules/claude-rules/common/coding-style.md` 一个文件里有 24 条
      `## U-` 规则，整文件删除会连带移除 23 条无关规则，直接违反 B-001。
    - core 文件：复制到临时文件，删除该 ID 的表格行。
-3. **差集断言（B-003）**：`with_text` 按同样规则剔除候选小节与表格行之后，必须与
-   `without_text` **逐字节相等**。这条断言同时证明了"候选被移除"和"其他什么都没变"，
-   是把弱门变强门的关键。
-4. **全文 token 断言**：`without_text` 中不得出现候选 ID 的任何独立 token
-   （`\b<ID>\b`），覆盖两个来源。
+3. **在场断言（B-003a）**：`with_text` 必须真的包含候选规则的定义。找不到就以
+   "候选规则不存在"终止。没有这条，剔除是 no-op 时 `strip(A) == A == B`，一对完全
+   相同的运行会冒充合法对照，把"ID 写错/规则不在树里"误报成"规则无效果"。
+   core 文件的 marker 区只有约 16 条 Key Detailed Rules，所以 core 侧剔除对多数候选
+   本来就是 no-op —— no-op 是常态，不是异常。
+4. **非平凡断言（B-003b）**：`len(with_text) > len(without_text)`，且被删 span 必须以
+   `## <ID>:` 起始。
+5. **差集断言（B-003c）**：`with_text` 按同样规则剔除候选定义之后，必须与
+   `without_text` **逐字节相等**。这条同时证明了"候选被移除"和"其他什么都没变"。
+6. **定义位点 token 断言**：`without_text` 中不得出现候选的**定义位点**
+   （`## <ID>:` 小节标题、core 表格行）。
+
+**断言范围为什么不是全文（B-012）**：规则之间存在跨文件交叉引用。实测全仓 127 条规则
+定义中，**19 条**被其它规则文件的正文引用，例如 `U-32` 出现在
+`rules/claude-rules/common/security.md:121`、`:178`、`:202`。小节级剔除后这些引用仍在
+`without_text` 里，一条 `\b<ID>\b` 全文断言会让门对这 19 条规则**无条件终止** ——
+其中就包括 `U-32`，也就是本 issue 用来论证自身动机的那条规则。
+
+这些交叉引用**无法消除**：删掉它们会改动其它规则的正文，直接违反 B-001 的"其余规则
+完全一致"。因此它们是已知残留，必须在报告中逐条列出（`文件:行号`）并计入结果的
+caveat —— 显式声明，不能装作不存在。
 
 ### 2. 与 `run_eval` 的集成方式
 
@@ -121,10 +137,21 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 `calibrated: false` 时整体判定**强制降级为 `inconclusive`，永不输出 `pass`**。
 只打一行 warning 是不够的——那样未标定的门仍会被下游当作已标定的门引用。
 
+当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键。`max_skip_rate` 与
+`max_skip_delta` 同样是新拍的数字。标定其中一项就把整个文件翻成 `true`，会顺带把仍
+未标定的其余阈值洗白 —— 若将来分项标定，改为逐键标注。
+
+未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
+**inconclusive 报告加两轴 delta 数值与样本量**，不是 `pass`（B-009）。
+
 ### 8. 离线 dry-run
 
-不调用模型，输出：四次运行的规则摘要与差集断言结果、数据集与样本集摘要、目标/非目标
-样本划分与数量、解析后的模型 ID、阈值是否已标定。确定性测试只测这条路径。
+不调用模型，输出：四次运行的规则摘要与在场/非平凡/差集三条断言的结果、交叉引用残留
+清单、数据集与样本集摘要、目标/非目标样本划分与数量、解析后的模型 ID、阈值是否已标定。
+
+**dry-run 不产出判定**，因此不受"未标定强制 inconclusive"与"inconclusive 非零退出"
+约束，正常完成时退出 0。否则在 `calibrated: false` 阶段 dry-run 会恒定非零退出，而
+确定性测试只测这条路径，那些测试将永远无法通过。
 
 ## 前置决策的结论
 
@@ -153,9 +180,9 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 | 小节级剔除 + 差集断言 | `bash tests/test_paired_eval.sh`（整文件删除必须被拒） |
+| B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
 | B-002 | 按轴配对的摘要相等断言 | `bash tests/test_paired_eval.sh` |
-| B-003 | 差集断言 + 全文 token 断言 | `bash tests/test_paired_eval.sh`（core 文件仍含候选时必须终止） |
+| B-003 | 在场 + 非平凡 + 差集 + 定义位点 token | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 文件仍含候选时终止；no-op 剔除必须被拒） |
 | B-004 | 精确匹配的目标/非目标划分 | `bash tests/test_paired_eval.sh` |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
 | B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
@@ -163,7 +190,8 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
-| B-011 | inconclusive 以非零退出码结束 | `bash tests/test_paired_eval.sh` |
+| B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
+| B-012 | 交叉引用残留逐条列出 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留） |
 
 ## 数据流
 
@@ -174,8 +202,11 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
         +-- without: <tmp 规则树, 剔除该 ## <ID>: 小节>
                    + <tmp core 文件, 剔除该 ID 表格行>                       --> text_B
         |
-        |   断言 1: strip_candidate(text_A) == text_B   (逐字节)
-        |   断言 2: text_B 不含 \b<ID>\b
+        |   断言 1: text_A 含候选定义        (否则"候选不存在"终止)
+        |   断言 2: len(text_A) > len(text_B)  (剔除非平凡)
+        |   断言 3: strip_candidate(text_A) == text_B   (逐字节)
+        |   断言 4: text_B 不含候选的定义位点  (非全文 token)
+        |   报告:   其它规则对该 ID 的交叉引用清单 (已知残留)
         v
    同一模型 ID
         |
