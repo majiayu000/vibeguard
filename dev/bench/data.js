@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784929084476,
+  "lastUpdate": 1785008077273,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -51782,6 +51782,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 8,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8130533e3ca6e364c46315b74519c02ca211c1df",
+          "message": "feat(precision): close the triage feedback gap and surface an empty channel (#694)\n\n* feat(precision): close the triage feedback gap and surface an empty channel\n\nThe rule precision lifecycle is fully built but nothing feeds it, so the\ndata-driven promote/demote loop is inert. Two concrete causes:\n\nThe producer does not exist. report-false-positive.py identifies the finding\nand already knows the rule id, but only prints an instruction telling someone\nto run precision-tracker.py --record later. Nothing runs it. Add\n--record-triage {fp,tp,acceptable} so the verdict is recorded in the same\ncall, delegating to precision-tracker.py --record rather than duplicating its\nscorecard write lock and its \"bad triage lines block the write\" protection. A\nmissing rule id and a failed record both exit nonzero: a report that looks\nrecorded but is not is worse than no report.\n\nThe emptiness is invisible. With zero samples the report renders as an\nordinary table whose precision column reads N/A, which looks like a healthy\nscorecard rather than a channel that cannot move any rule between stages. Emit\nan explicit banner while the total sample count is zero, and drop it once real\nsamples exist. The exit code is unchanged so existing callers such as\nhealth-report.py keep working.\n\nCONTRIBUTING now documents the loop, including why batch-backfilling verdicts\nfrom event history is forbidden: only a human can separate a true positive\nfrom a false one, so generated verdicts would be fabricated feedback.\n\nRefs #675\n\n* fix(precision): repair the gaps an independent review found\n\nThe doc-path validator was green before the spec was committed and red after:\nit only scans tracked files, so five `data/rule-scorecard.json` references in\nthe new spec were never checked. That file is gitignored and does not exist,\nso CI would have failed. Reference the tracked seed file instead.\n\nB-004 — a failed record must not look like a success — had no test of its own;\nits mapping pointed at B-003's case. Silencing the subprocess exit code kept\nthe suite green. Add a case that corrupts the triage log and asserts nonzero\nexit, the \"not backed by a triage record\" message, no \"already recorded\"\nclaim, and no new triage entry.\n\nFour defects in the new code:\n\n- The empty-channel banner summed the filtered view, so `--rule RS-99` printed\n  \"every rule has 0 samples\" while other rules were populated. Sum the whole\n  scorecard.\n- A non-numeric `samples` in the hand-editable scorecard crashed the report,\n  which main handled fine. Parse tolerantly and warn on stderr — treating a\n  bad value as 0 in silence would be the degradation U-29 forbids.\n- `--format json` plus `--record-triage` emitted the tracker's success line\n  after the JSON document, making it unparseable. Send it to stderr.\n- A rule id straight out of an event log was written to the ledger unvalidated.\n  Require a rule-id shape, broad enough to keep word-form ids like LARGE-EDIT.\n\nThe report also still told the reader to record the verdict after it had just\nbeen recorded; anyone pasting that into an issue would double-count it. Record\nfirst, then render what actually happened. The JSON document is unchanged when\n--record-triage is absent.\n\nTest-only: the context assertion matched \"unknown unknown\", which still passed\nwhen a single field was unknown; and a second EXIT trap replaced the first,\nleaking a temp dir per run.\n\nRefs #675\n\n* test(precision): make the rule-id validation test actually test it\n\nThe junk-rule-id case passed for the wrong reason: `--rule --` is rejected by\nargparse before record_triage_verdict ever runs, so deleting the whole rule-id\ncheck kept the suite green. A junk rule id really arrives through the event\nlog, not the command line, where an option-looking value never survives the\nouter parser. Drive the case through --event-log instead, and assert the\nrejection message and that nothing reached the triage log.\n\nVerified both directions now fail the suite: dropping the check exits 1, and\nnarrowing the pattern to `[A-Z]{2}-[0-9]+` also exits 1 because LARGE-EDIT\nstops being accepted.\n\nTwo smaller ones: the failure message said \"the report above\" but the report\nnow renders after the error, and the LARGE-EDIT case ran under `set -e`, so a\nregression there aborted the suite before the remaining assertions and the\nsummary line.\n\nRefs #675",
+          "timestamp": "2026-07-26T03:08:53+08:00",
+          "tree_id": "832b35a092507194b4f051a7c766d4f04c9b5e7c",
+          "url": "https://github.com/majiayu000/vibeguard/commit/8130533e3ca6e364c46315b74519c02ca211c1df"
+        },
+        "date": 1785008076202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 101,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 102,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 102,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 95,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 98,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 98,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 96,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 101,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 101,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 93,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 103,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 103,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 42,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 43,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 43,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 47,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 94,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 95,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 95,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 98,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 99,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 15,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 17,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 19,
             "unit": "ms"
           }
         ]
