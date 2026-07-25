@@ -24,7 +24,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH615/` | Implemented reference | Reminder-aware pre-write escalation counting, same-session Grep/Glob recovery, and actionable block guidance |
 | `GH623/` | Implemented reference | Behavior-preserving decomposition of the oversized self-application CI harness into ordered focused test domains |
 | `GH621/` | Implemented reference | Behavior-preserving extraction of install-time runtime acquisition, provenance, and source fallback from the oversized setup entrypoint |
-| `codex-app-observability-plugin.md` | Draft implementation | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
+| `codex-app-observability-plugin.md` | Implemented reference | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH618/` | Implemented reference | Manifest-driven compliance language scope, guard-pack reporting, and fail-visible config handling |
 | `GH614/` | Implemented reference | Bounded macOS CI timeout headroom while preserving required check names and blocking setup coverage |
 | `GH581/` | Implemented reference | Rust coverage ratchets from a latest-head clean measurement through risk-ordered, independently reviewed tranches to the enforced 80% gate |
@@ -35,7 +35,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Implemented reference | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `install-friction-reduction.md` | Implemented reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
-| `learn-first-class-signal-inbox.md` | Draft | Learn signal inbox, signal classification, triage state, adoption compiler, and outcome evaluator planning |
+| `learn-first-class-signal-inbox.md` | Implemented reference | Learn signal inbox, signal classification, triage state, adoption compiler, and outcome evaluator planning |
 | `rust-only-production-path.md` | Implemented reference | Python-free production path, Rust runtime boundaries, and remaining validation expectations |
 
 ## Reading Rules

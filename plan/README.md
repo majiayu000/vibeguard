@@ -11,9 +11,9 @@ Keep `plan/` as the workflow output directory. Historical or completed files sta
 | Class | Meaning | Files |
 |---|---|---|
 | Active execution plan | Current multi-step work where remaining steps may still be actionable after checking linked issues and main branch | None currently |
-| Completed record | Historical execution evidence or implemented plan record; use for context, not new scope | `2026-05-01_18-56-41-vibeguard-audit-remediation.md`, `2026-06-05_22-28-rust-only-production-path.md`, `spec-96-prompt-contract-schema.md`, `spec-app-server-runtime-policy-gate.md`, `spec-codebase-audit-remediation.md`, `spec-posttool-malformed-input-fail-visible.md`, `spec-runtime-config-contract-clarity.md` |
+| Completed record | Historical execution evidence or implemented plan record; use for context, not new scope | `2026-05-01_18-56-41-vibeguard-audit-remediation.md`, `2026-06-05_22-28-rust-only-production-path.md`, `spec-96-prompt-contract-schema.md`, `spec-app-server-runtime-policy-gate.md`, `spec-codebase-audit-remediation.md`, `spec-posttool-malformed-input-fail-visible.md`, `spec-runtime-config-contract-clarity.md`, `spec-test-file-size-decomposition.md` |
 | Historical convergence plan | Older architecture plan; verify current code and newer specs before acting | `2026-04-19_00-15-39-main-architecture-convergence.md` |
-| Draft spec | Candidate work that needs issue and code-state verification before implementation | `spec-test-file-size-decomposition.md`, `full-english-localization-spec.md` |
+| Draft spec | Candidate work that needs issue and code-state verification before implementation | `full-english-localization-spec.md` |
 | Snapshot or signal report | Evidence artifact for another plan or issue; do not implement directly without an owning spec | `w20-rust-only-production-path-snapshot.md`, `signal-report-legacy-vibeguard-mcp-cleanup.md` |
 
 ## File Status Index
@@ -30,7 +30,7 @@ Keep `plan/` as the workflow output directory. Historical or completed files sta
 | `spec-codebase-audit-remediation.md` | Completed record | Use as remediation history; create a fresh issue for any remaining work. |
 | `spec-posttool-malformed-input-fail-visible.md` | Completed record | Use as fail-visible behavior context; current tests are authoritative. |
 | `spec-runtime-config-contract-clarity.md` | Completed record | Use as config-contract history; current schema and setup tests are authoritative. |
-| `spec-test-file-size-decomposition.md` | Draft spec | Verify current file-size pressure and open a GitHub issue before implementation. |
+| `spec-test-file-size-decomposition.md` | Completed record | Use as GH375/PR407 decomposition history; current file sizes and aggregate tests are authoritative. |
 | `w20-rust-only-production-path-snapshot.md` | Snapshot or signal report | Treat as evidence for W-20 runtime drift decisions, not backlog. |
 
 ## Reading Rules
