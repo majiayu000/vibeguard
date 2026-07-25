@@ -51,7 +51,7 @@ GH-686
 3. **比较口径是逐文件差分，不是在拼装文本上重放剔除。** 这是第三轮审查纠正的架构点：
    `load_rules`（`eval/run_eval.py:38-68`）给每个文件加 `# {stem}` 头、用 `\n\n---\n\n`
    拼接。在拼装文本上以 `(?=^## )` 为界重放剔除，对"候选是所在文件最后一节"的规则会越过
-   文件边界吃到下一个文件——全仓约 28/124 条规则处于这个位置（含 10 个单规则文件，
+   文件边界吃到下一个文件——全仓当前 127 条定义中有 18 条处于这个位置（含 10 个单规则文件，
    如 `rules/claude-rules/common/evidence-provenance.md` 的 W-21）。
 
    因此断言直接比较**临时树与真实树**：
@@ -64,9 +64,13 @@ GH-686
    误报成"规则无效果"。core 文件的 marker 区只有约 16 条 Key Detailed Rules，所以 core
    侧剔除对多数候选本来就是 no-op —— no-op 是常态，不是异常。
 
-5. **定义计数断言**：`with_text` 中 `^## <PREFIX>-<NUM>:` 的出现次数减去 `without_text`
-   的出现次数**必须恰好等于 1**，且被删 span 内除首行外不得再出现 `^## `。
-   这条**不依赖 `strip_candidate`**，是专门用来抓"删多了"的非同源断言。
+5. **定义计数断言**：复用现有独立 canonical parser
+   `scripts/lib/vibeguard_manifest.py:35` 的 `RULE_ID_HEADING_RE` 识别定义；`with_text`
+   的定义数减去 `without_text` 的定义数**必须恰好等于 1**，且被删 span 内除首行外
+   不得再出现 `^## `。不得把 `strip_candidate` / `extract_section` 的正则拿来计数。
+   canonical parser 当前覆盖 127 条定义，包括三个非数字后缀 ID：`TASTE-ANSI`、
+   `TASTE-ASYNC-UNWRAP`、`TASTE-PANIC-MSG`。这条**不依赖剔除逻辑**，是专门用来抓
+   "删多了"的非同源断言。
 
    删多了是唯一会制造**假 pass** 的失效模式：若剔除正则贪婪（`.*\Z` with DOTALL，或
    lookahead 写错），候选之后的若干小节会被一起吃掉。此时在场、非平凡、差集（两侧用同一个
@@ -97,11 +101,14 @@ GH-686
 都与本门冲突，所以**不复用 `run_eval` 顶层函数**。配对运行器复用的是它的下层组件：
 
 - `load_rules` / `build_system_prompt` / `sha256_text` / `file_digest` / `sample_set_digest`
-- `evaluate_sample`（逐样本调用与打分）
+- `evaluate_sample`（仅用于目标轴的逐样本调用与 structured-JSON 打分）
 - `load_dataset`
 
 自建评测循环，自算通过率。`run_eval.py` 不做任何修改，"不改 `run_eval.py`"的承诺
-因此成立，但代价要写明：本门与单次评测路径共享组件、不共享指标实现。
+因此成立，但代价要写明：本门与单次评测路径共享组件、不共享指标实现。非目标轴不得
+复用 `build_system_prompt` / `evaluate_sample` 的 code-review JSON 输出契约；否则 pairwise
+judge 比较的仍是 detection / false-positive 回答，不是普通任务质量。它使用同一 producer
+模型与规则文本构造普通任务响应，再交给独立 judge 比较。
 
 ### 3. 运行次数
 
@@ -119,18 +126,31 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 
 - 目标样本：`rule == <candidate>` 的**精确**匹配。**不得复用 `filter_samples`**，它是
   前缀匹配且强制混入 `NONE` 样本，两者都会污染目标轴。
-- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。
+- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入与
+  明确的质量 rubric；它不复用只支持 tp/fp 的现有 dataset schema。
 
 ### 5. 两条证据轴与判定
 
 | 轴 | 判定 |
 | --- | --- |
 | 目标场景改善 | `pass_rate(A1) - pass_rate(B1) > min_target_delta`（**严格大于**） |
-| 非目标不回归 | `pass_rate(B2) - pass_rate(A2) <= max_non_target_drop` |
+| 非目标不回归 | 盲化 pairwise judge 对 A2/B2 逐样本换序复核；`quality_delta = (with_wins - without_wins) / requested_samples >= -max_non_target_drop` |
 
 目标轴用严格大于：`>= 0.0` 会让一条毫无可测效果的规则通过，那正是弱门冒充强门。
 
 整体判定 = 两轴合取。任一轴 `inconclusive` → 整体 `inconclusive`。
+
+非目标 judge 只看到任务、rubric 与标为 A/B 的两份输出，不得看到候选规则 ID 或
+with/without 标签。每个样本调用两次 judge，第二次交换 A/B 位置；映射回 with/without
+后，两次结果必须一致为 `with_win`、`without_win` 或 `tie`。不一致记为 `conflict`，
+非目标轴直接 `inconclusive`，不得择一、投票或静默丢弃。报告记录 producer model ID、
+judge model ID、judge prompt digest、两次原始响应与映射结果。
+
+真实运行必须显式提供 `--judge-model`，并通过现有 model baseline 解析为审计用 ID；不得
+静默复用 producer model。judge 输出使用独立的严格 JSON 契约
+`{"winner":"A"|"B"|"tie","reason":"..."}`，缺字段、越界 winner、解析失败或 API 失败都
+按 B-007 计为 skipped/judge failure，而不是猜测 winner。dry-run 只解析并打印 producer /
+judge 模型身份与 judge prompt digest，不调用模型。
 
 ### 6. 跳过样本与可比性
 
@@ -151,7 +171,7 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
   "max_non_target_drop": 0.0,
   "max_skip_rate": 0.1,
   "max_skip_delta": 0.05,
-  "max_cross_refs": 3,
+  "max_cross_refs": 4,
   "calibrated": false
 }
 ```
@@ -185,18 +205,20 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 - **D3（标定实验）→ 已定：先落地方向性门。**
   `calibrated: false` 强制 `inconclusive` 之后，未标定的门不会产生误导性的 `pass`，
   标定实验可以独立进行。
-- **D2（打分方式）→ 仍需维护者裁定。** 见下。
+- **D2（打分方式）→ 已定：混合打分。** 目标轴复用 structured-JSON grader；非目标轴
+  使用盲化、换序复核的 pairwise judge。
 
-## D2 为什么是真问题
+## D2 裁定与理由
 
 `eval/dataset.py:105-118` 强制 `type ∈ {tp,fp}`，且 `fp` 样本必须
 `rule="NONE"` + `expected_action="allow"`；现有 grader 只产出 detection rate 与
 false-positive rate。也就是说复用既有 grader 时，非目标轴实际度量的是**误报漂移**，
 不是 product.md 说的"普通编码任务的质量没有下降"。
 
-两条路：把非目标轴的口径收敛为"误报率不上升"（复用现有 grader，便宜且确定），
-或引入 pairwise judge 才能测"质量"（更贵、更接近 issue 原意）。这决定数据集形态和
-打分实现，必须先定。
+因此不把一个 scorer 强行套到两条轴：目标轴继续用现有 structured-JSON grader，
+保持对候选规则 detection 的既有语义；非目标轴使用 pairwise judge 比较普通任务质量，
+保持 issue 的原始产品目标。pairwise judge 必须盲化条件标签、交换 A/B 位置复核并保存
+完整审计证据；换序冲突 fail closed 为 `inconclusive`。
 
 ## Product-to-Test Mapping
 
@@ -214,6 +236,9 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
+| B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
+| B-014 | 标定流程的长度相近 placebo | `bash tests/test_paired_eval.sh` |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、judge 审计字段完整） |
 
 ## 数据流
 
@@ -239,7 +264,8 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
         |   分母 = 请求样本数; 跳过率与跳过率差超阈值 -> inconclusive
         v
    目标轴:   pass(A1) - pass(B1) >  min_target_delta
-   非目标轴: pass(B2) - pass(A2) <= max_non_target_drop
+   非目标轴: (with_wins - without_wins) / requested_samples >= -max_non_target_drop
+              A/B 换序结论冲突 -> inconclusive
         |
         v
    整体 = 合取; 任一 inconclusive -> inconclusive; calibrated=false -> inconclusive
@@ -248,7 +274,8 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 
 ## 风险与权衡
 
-- **成本**：4 次模型运行，且有采样噪声。因此是按需的规则 PR 门，不进默认 CI。
+- **成本**：4 次 producer 模型运行，外加每个非目标样本两次换序 judge 调用，且有采样
+  噪声。因此是按需的规则 PR 门，不进默认 CI。
 - **与单次评测路径共享组件而非共享指标**：`run_eval.py` 零修改，但两条路径的指标口径
   会不同（本门把跳过样本留在分母）。这是有意的，必须在实现中注释说明，否则后来者会
   以为其中一处是 bug。

@@ -34,8 +34,8 @@ complexity: large
 - 提供配对（with / without 候选规则）运行能力，复用既有的 model-backed 路径。
 - 规则通过门需要**同时**满足两条证据轴：
   - **目标场景改善**：这条规则存在的理由所对应的行为，确实发生了改变。
-  - **非目标不回归**：一组与该规则无关的固定任务没有变差。具体口径取决于 D2：复用
-    现有 grader 时它是"误报率不上升"，引入 pairwise judge 时才是"质量没有下降"。
+  - **非目标不回归**：一组与该规则无关的固定任务没有变差。目标轴复用现有
+    structured-JSON grader；非目标轴由盲化、换序复核的 pairwise judge 比较输出质量。
 - 产出可复现的差异指标，并作为规则 PR 模板中的必需证据。
 
 ## 非目标
@@ -59,7 +59,8 @@ complexity: large
    (a) **逐文件差分**：临时规则树与真实树相比只允许一个文件不同，且该文件的差异**恰为**
    候选小节；core 文件的差异恰为该 ID 的表格行；其余文件逐字节相同。比较必须在文件层
    进行，不得在拼装后的整段文本上重放剔除——`load_rules` 用 `# {stem}` 头拼接文件，
-   在拼装文本上按 `^## ` 分界会越过文件边界，对约 28/124 条位于文件末节的规则产生假失败。
+   在拼装文本上按 `^## ` 分界会越过文件边界，对当前 127 条定义中位于文件末节的 18 条
+   规则产生假失败。
    (b) **在场**：候选定义必须真的存在。找不到时以"候选规则不存在"终止 —— 否则剔除是
    no-op，两个完全相同的运行会冒充合法对照，把"ID 写错"误报成"规则无效果"。
    (c) **定义计数**：with 与 without 的 `^## <ID>:` 定义数之差必须**恰为 1**，且被删 span
@@ -108,6 +109,11 @@ complexity: large
     跑同一份目标数据集，期望 `delta ≈ 0`。若 placebo 的 delta 与真候选同量级，说明本门
     测到的是上下文长度效应而非规则语义，`min_target_delta` 必须定在 placebo delta 的
     分布之上，否则整个门在测噪声。
+15. B-015: 目标轴必须复用现有 structured-JSON grader；非目标轴必须用不知道哪份输出来自
+    with/without 的 pairwise judge，且每个样本将 A/B 位置互换后再判一次。两次判定映射回
+    with/without 后不一致时，该样本标记为 judge conflict，非目标轴为 `inconclusive`，
+    不得择一或平均后继续。报告必须记录 producer model ID、judge model ID、judge prompt
+    digest、两次原始判定及映射后的 `with_win` / `without_win` / `tie` / `conflict`。
 
 ## 验收标准
 
@@ -116,6 +122,8 @@ complexity: large
       整文件删除、no-op 剔除、贪婪多删一节均必须被拒。
 - [ ] 输入身份不一致时以非零退出码终止并说明哪一项不一致。
 - [ ] 目标轴与非目标轴分别报告，整体判定为两者的合取。
+- [ ] 非目标轴使用盲化、换序复核的 pairwise judge；位置偏差冲突 fail closed 为
+      `inconclusive`，且 judge 身份与原始判定可审计。
 - [ ] 任一轴样本量不足、跳过率超阈值、或阈值未标定时报告 `inconclusive`。
 - [ ] 产出判定的真实运行中，`inconclusive` 与不通过均以非零退出码结束（dry-run 不产出
       判定，正常完成退出 0，见 B-008）。
@@ -127,29 +135,28 @@ complexity: large
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
 | 空/缺失输入 | covered: B-004；两组样本都为空时终止 |
-| 错误与失败路径 | covered: B-002, B-007；输入漂移终止，跳过样本可见 |
+| 错误与失败路径 | covered: B-002, B-007, B-015；输入漂移终止，跳过样本可见，judge 换序冲突不降级为有效分数 |
 | 授权/权限 | covered: B-008；无密钥时 dry-run 仍可用，真实运行明确报缺密钥 |
 | 并发/竞态 | N/A — 四次运行串行，无共享可写状态 |
 | 重试/幂等 | covered: B-002；同一输入身份可复现，摘要用于比对 |
 | 非法状态转换 | covered: B-005；单轴通过不得升格为整体通过 |
 | 兼容/迁移 | covered: B-001；共享 `run_eval` 的下层组件，不改单次运行语义 |
 | 降级/回退 | covered: B-006, B-010, B-011；样本不足与未标定都是 `inconclusive` 而非 `pass`，且非零退出 |
-| 证据与审计完整性 | covered: B-002, B-003, B-012；四条断言同时封住删漏与删多两个方向，交叉引用残留计入判定 |
+| 证据与审计完整性 | covered: B-002, B-003, B-012, B-015；四条断言同时封住删漏与删多两个方向，交叉引用残留与 judge 原始判定均可审计 |
 | 取消/中断 | covered: B-007；中断导致的未完成样本按跳过计入 |
 
-## 开放问题
+## 前置决策
 
-初版把三个问题都推给维护者。核对代码后，其中两个 spec 自己就能定：
+初版把三个问题都推给维护者。核对代码并取得维护者裁定后，三项均已确定：
 
 - **非目标任务集从哪来 → 已定：必须新建。** `eval/datasets/v1.jsonl` 只有 4 条
   `NONE` 样本，而非目标轴需要的下限是 30。从 v1 划分在算术上不成立。
 - **样本量标定 → 已定：先落地方向性门。** `calibrated: false` 强制 `inconclusive`
   之后，未标定的门不会产生误导性的 `pass`，标定实验可以独立进行。
-
-**仍需维护者裁定：打分方式。** `eval/dataset.py:105-118` 强制 `fp` 样本必须
-`rule="NONE"` + `expected_action="allow"`，现有 grader 只产出 detection rate 与
-false-positive rate。复用它时非目标轴度量的是**误报漂移**，不是 issue 说的"质量
-没有下降"。要测"质量"必须引入 pairwise judge。这决定数据集形态和打分实现。
+- **打分方式 → 已定：混合打分。** 目标轴复用 structured-JSON grader；非目标轴使用
+  盲化、换序复核的 pairwise judge。`eval/dataset.py:105-118` 的现有 schema 只表达
+  detection / false-positive 任务，不能冒充普通任务质量度量；新 non-target 数据集必须
+  携带供 judge 使用的任务与质量 rubric。
 
 ## 发布说明
 
