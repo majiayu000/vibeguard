@@ -48,17 +48,33 @@ GH-686
      不允许整文件删除——`rules/claude-rules/common/coding-style.md` 一个文件里有 24 条
      `## U-` 规则，整文件删除会连带移除 23 条无关规则，直接违反 B-001。
    - core 文件：复制到临时文件，删除该 ID 的表格行。
-3. **在场断言（B-003a）**：`with_text` 必须真的包含候选规则的定义。找不到就以
-   "候选规则不存在"终止。没有这条，剔除是 no-op 时 `strip(A) == A == B`，一对完全
-   相同的运行会冒充合法对照，把"ID 写错/规则不在树里"误报成"规则无效果"。
-   core 文件的 marker 区只有约 16 条 Key Detailed Rules，所以 core 侧剔除对多数候选
-   本来就是 no-op —— no-op 是常态，不是异常。
-4. **非平凡断言（B-003b）**：`len(with_text) > len(without_text)`，且被删 span 必须以
-   `## <ID>:` 起始。
-5. **差集断言（B-003c）**：`with_text` 按同样规则剔除候选定义之后，必须与
-   `without_text` **逐字节相等**。这条同时证明了"候选被移除"和"其他什么都没变"。
-6. **定义位点 token 断言**：`without_text` 中不得出现候选的**定义位点**
-   （`## <ID>:` 小节标题、core 表格行）。
+3. **比较口径是逐文件差分，不是在拼装文本上重放剔除。** 这是第三轮审查纠正的架构点：
+   `load_rules`（`eval/run_eval.py:38-68`）给每个文件加 `# {stem}` 头、用 `\n\n---\n\n`
+   拼接。在拼装文本上以 `(?=^## )` 为界重放剔除，对"候选是所在文件最后一节"的规则会越过
+   文件边界吃到下一个文件——全仓约 28/124 条规则处于这个位置（含 10 个单规则文件，
+   如 `rules/claude-rules/common/evidence-provenance.md` 的 W-21）。
+
+   因此断言直接比较**临时树与真实树**：
+   - 只允许一个规则文件不同，且该文件的差异**恰为**候选小节；
+   - core 文件的差异**恰为**该 ID 的表格行；
+   - 其余文件逐字节相同。
+
+4. **在场断言**：候选定义必须真的存在于真实树中。找不到就以"候选规则不存在"终止。
+   没有这条，剔除是 no-op 时两个完全相同的运行会冒充合法对照，把"ID 写错/规则不在树里"
+   误报成"规则无效果"。core 文件的 marker 区只有约 16 条 Key Detailed Rules，所以 core
+   侧剔除对多数候选本来就是 no-op —— no-op 是常态，不是异常。
+
+5. **定义计数断言**：`with_text` 中 `^## <PREFIX>-<NUM>:` 的出现次数减去 `without_text`
+   的出现次数**必须恰好等于 1**，且被删 span 内除首行外不得再出现 `^## `。
+   这条**不依赖 `strip_candidate`**，是专门用来抓"删多了"的非同源断言。
+
+   删多了是唯一会制造**假 pass** 的失效模式：若剔除正则贪婪（`.*\Z` with DOTALL，或
+   lookahead 写错），候选之后的若干小节会被一起吃掉。此时在场、非平凡、差集（两侧用同一个
+   剔除逻辑，同样删多了）、定义位点四条断言**全部通过**，而 without 少了候选之外的规则，
+   目标轴 delta 被系统性放大，一条无效规则更容易越过"严格大于"。
+
+6. **定义位点 token 断言**：`without_text` 中不得出现候选的定义位点
+   （`## <ID>:` 小节标题、core 表格行）。这条抓的是"删漏了"。
 
 **断言范围为什么不是全文（B-012）**：规则之间存在跨文件交叉引用。实测全仓 127 条规则
 定义中，**19 条**被其它规则文件的正文引用，例如 `U-32` 出现在
@@ -67,8 +83,13 @@ GH-686
 其中就包括 `U-32`，也就是本 issue 用来论证自身动机的那条规则。
 
 这些交叉引用**无法消除**：删掉它们会改动其它规则的正文，直接违反 B-001 的"其余规则
-完全一致"。因此它们是已知残留，必须在报告中逐条列出（`文件:行号`）并计入结果的
-caveat —— 显式声明，不能装作不存在。
+完全一致"。它们的偏置方向是保守的（without 仍向模型提示该 ID 存在，压缩而非放大 delta），
+但**残留多到一定程度对照就不成立**。因此：逐条列出 `文件:行号`，并在数量超过
+`max_cross_refs` 时判 `inconclusive` —— 只写进 caveat 不影响判定，等于"记录即免责"，
+会把"对照被严重污染"与"对照干净"输出成同一个 `pass`。
+
+同理，单规则文件剔除后 `load_rules` 仍会产出一个 `# {stem}` 空标题块，without 文本里
+留着"此处曾有一条规则"的痕迹。该残留一并在报告中标注。
 
 ### 2. 与 `run_eval` 的集成方式
 
@@ -130,6 +151,7 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
   "max_non_target_drop": 0.0,
   "max_skip_rate": 0.1,
   "max_skip_delta": 0.05,
+  "max_cross_refs": 3,
   "calibrated": false
 }
 ```
@@ -137,7 +159,7 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 `calibrated: false` 时整体判定**强制降级为 `inconclusive`，永不输出 `pass`**。
 只打一行 warning 是不够的——那样未标定的门仍会被下游当作已标定的门引用。
 
-当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键。`max_skip_rate` 与
+当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。`max_skip_rate` 与
 `max_skip_delta` 同样是新拍的数字。标定其中一项就把整个文件翻成 `true`，会顺带把仍
 未标定的其余阈值洗白 —— 若将来分项标定，改为逐键标注。
 
@@ -146,7 +168,7 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 
 ### 8. 离线 dry-run
 
-不调用模型，输出：四次运行的规则摘要与在场/非平凡/差集三条断言的结果、交叉引用残留
+不调用模型，输出：四次运行的规则摘要与逐文件差分/在场/计数/定义位点全部断言的结果、交叉引用残留
 清单、数据集与样本集摘要、目标/非目标样本划分与数量、解析后的模型 ID、阈值是否已标定。
 
 **dry-run 不产出判定**，因此不受"未标定强制 inconclusive"与"inconclusive 非零退出"
@@ -182,7 +204,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
 | B-002 | 按轴配对的摘要相等断言 | `bash tests/test_paired_eval.sh` |
-| B-003 | 在场 + 非平凡 + 差集 + 定义位点 token | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 文件仍含候选时终止；no-op 剔除必须被拒） |
+| B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通） |
 | B-004 | 精确匹配的目标/非目标划分 | `bash tests/test_paired_eval.sh` |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
 | B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
@@ -191,7 +213,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
-| B-012 | 交叉引用残留逐条列出 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留） |
+| B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 
 ## 数据流
 
@@ -202,11 +224,12 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
         +-- without: <tmp 规则树, 剔除该 ## <ID>: 小节>
                    + <tmp core 文件, 剔除该 ID 表格行>                       --> text_B
         |
-        |   断言 1: text_A 含候选定义        (否则"候选不存在"终止)
-        |   断言 2: len(text_A) > len(text_B)  (剔除非平凡)
-        |   断言 3: strip_candidate(text_A) == text_B   (逐字节)
-        |   断言 4: text_B 不含候选的定义位点  (非全文 token)
-        |   报告:   其它规则对该 ID 的交叉引用清单 (已知残留)
+        |   断言 1: 逐文件差分 — 仅一个规则文件不同, 差异恰为候选小节
+        |             + core 文件差异恰为该 ID 表格行, 其余逐字节相同
+        |   断言 2: 候选定义确实存在于真实树 (否则"候选不存在"终止)
+        |   断言 3: 定义计数差 == 1, 删除 span 内无第二个 ^##  (抓"删多了", 非同源)
+        |   断言 4: text_B 不含候选的定义位点                  (抓"删漏了")
+        |   报告:   交叉引用清单 + 空壳文件; 超 max_cross_refs -> inconclusive
         v
    同一模型 ID
         |
