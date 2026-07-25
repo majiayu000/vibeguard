@@ -141,6 +141,11 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-generated-rule-docs.sh
 
+      - name: Evidence provenance rule contract (W-21)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_evidence_provenance_rule.sh
+
       - name: Validate hook behavior docs
         if: runner.os != 'Windows'
         shell: bash
