@@ -408,6 +408,35 @@ If the change affects detection quality or scoring, also run `bash tests/run_pre
 - [ ] Has scope-appropriate regression coverage
 - [ ] Rule docs and user-facing docs stay in sync with the implementation
 
+### Triage Feedback Loop
+
+A rule's enforcement stage is supposed to move on real usage data: experimental
+rules graduate to `warn`, and noisy rules get demoted. Those transitions read
+`data/triage.jsonl`, which nothing writes automatically — **if you never record
+a verdict, no rule ever changes stage.** `python3 scripts/precision-tracker.py`
+prints a `NO FEEDBACK DATA` banner while the channel is empty.
+
+Record a verdict whenever you decide what a guard finding actually was:
+
+```bash
+# You judged a finding directly.
+python3 scripts/precision-tracker.py --record tp|fp|acceptable RULE-ID --context "why"
+
+# You are filing a false-positive report; record the verdict in the same step.
+python3 scripts/report-false-positive.py <EVENT-ID> --rule RULE-ID --record-triage fp
+```
+
+Verdicts: `tp` the finding was real, `fp` it was wrong, `acceptable` it was
+technically right but not worth acting on. Both commands print any lifecycle
+transition they trigger; `python3 scripts/precision-tracker.py` shows the
+current scorecard.
+
+Both files the tracker writes — the triage log and the scorecard it recomputes,
+seeded from `data/rule-scorecard.seed.json` — stay local and are not
+committed. Do not batch-backfill them from event history: only a human can tell
+a true positive from a false one, so generated verdicts would be fabricated
+feedback.
+
 ---
 
 ## Code of Conduct

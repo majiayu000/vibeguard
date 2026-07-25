@@ -6,9 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PRECISION_TRACKER = SCRIPT_DIR / "precision-tracker.py"
+TRIAGE_VERDICTS = ("fp", "tp", "acceptable")
+TRIAGE_RULE_ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*")
 
 
 SECRET_KEY_PATTERN = (
@@ -139,7 +146,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
-def render_markdown(payload: dict[str, str]) -> str:
+def render_markdown(payload: dict[str, str], recorded_verdict: str | None = None) -> str:
     lines = [
         "# False positive report",
         "",
@@ -157,8 +164,19 @@ def render_markdown(payload: dict[str, str]) -> str:
         "",
         "## Lifecycle routing",
         "",
-        "Record the triage verdict with `python3 scripts/precision-tracker.py --record fp <RULE-ID> --context <NOTE>` after confirming this is a false positive.",
     ]
+    if recorded_verdict:
+        # Do not also tell the reader to record it: someone pasting this report
+        # into an issue would follow the instruction and double-count the
+        # verdict, corrupting the precision counters.
+        lines.append(
+            f"Triage verdict `{recorded_verdict}` already recorded for "
+            f"`{payload['rule_id']}`. Do not record it again."
+        )
+    else:
+        lines.append(
+            "Record the triage verdict with `python3 scripts/precision-tracker.py --record fp <RULE-ID> --context <NOTE>` after confirming this is a false positive."
+        )
     return "\n".join(lines)
 
 
@@ -181,17 +199,105 @@ def parse_report_args(argv: list[str]) -> argparse.Namespace:
         default="markdown",
         help="Output format.",
     )
+    parser.add_argument(
+        "--record-triage",
+        choices=list(TRIAGE_VERDICTS),
+        help=(
+            "Record this verdict in the precision triage log while generating the "
+            "report, instead of printing an instruction to do it later."
+        ),
+    )
+    parser.add_argument(
+        "--triage-file",
+        help="Override the triage.jsonl path passed to precision-tracker.py.",
+    )
+    parser.add_argument(
+        "--scorecard-file",
+        help="Override the rule-scorecard.json path passed to precision-tracker.py.",
+    )
     return parser.parse_args(argv)
+
+
+def record_triage_verdict(verdict: str, payload: dict[str, str], args: argparse.Namespace) -> int:
+    """Delegate to precision-tracker.py so triage and scorecard stay consistent.
+
+    Reimplementing the append here would duplicate the scorecard write lock and
+    the "bad triage lines block the write" protection, and the two copies would
+    drift.
+    """
+    rule = payload.get("rule_id", "")
+    if not rule or rule == "unknown":
+        print(
+            "ERROR: --record-triage needs a rule id; pass --rule <RULE-ID>. "
+            "No verdict was recorded.",
+            file=sys.stderr,
+        )
+        return 2
+    # The rule id can come straight out of an event log. A junk value would be
+    # written into the lifecycle ledger permanently, so reject anything that is
+    # not shaped like a rule id. Kept broader than RULE_ID_PATTERN because the
+    # scorecard also tracks word-form ids such as CHURN, STUB and LARGE-EDIT.
+    if not TRIAGE_RULE_ID_RE.fullmatch(rule):
+        print(
+            f"ERROR: {rule!r} is not a valid rule id; pass --rule <RULE-ID>. "
+            "No verdict was recorded.",
+            file=sys.stderr,
+        )
+        return 2
+
+    known = [
+        payload.get(key, "")
+        for key in ("code", "path")
+        if payload.get(key, "unknown") != "unknown"
+    ]
+    # `--context=<value>`: the separate-argument form makes argparse reject a
+    # context that happens to start with a dash.
+    context = " ".join(known) or payload["event_id"]
+    command = [
+        sys.executable,
+        str(PRECISION_TRACKER),
+        "--record",
+        verdict,
+        rule,
+        f"--context={context}",
+    ]
+    if args.triage_file:
+        command += [f"--triage-file={args.triage_file}"]
+    if args.scorecard_file:
+        command += [f"--scorecard-file={args.scorecard_file}"]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        print(
+            f"ERROR: recording the {verdict} verdict for {rule} failed; "
+            "no triage record backs this report.",
+            file=sys.stderr,
+        )
+        return result.returncode
+    # Keep stdout to the report alone: appending the tracker's chatter after a
+    # `--format json` document would make it unparseable.
+    sys.stderr.write(result.stdout)
+    return 0
 
 
 def main(argv: list[str]) -> int:
     args = parse_report_args(argv)
     payload = build_payload(args)
+    # Record before rendering so the report can state what actually happened
+    # rather than instructing the reader to repeat it.
+    record_status = 0
+    if args.record_triage:
+        record_status = record_triage_verdict(args.record_triage, payload, args)
+    recorded = args.record_triage if record_status == 0 else None
     if args.format == "json":
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        # Only add the key when recording, so the document is byte-identical to
+        # the previous behavior when --record-triage is absent (B-005).
+        document = {**payload, "recorded_verdict": recorded} if recorded else payload
+        print(json.dumps(document, indent=2, sort_keys=True))
     else:
-        print(render_markdown(payload))
-    return 0
+        print(render_markdown(payload, recorded_verdict=recorded))
+    return record_status
 
 
 if __name__ == "__main__":
