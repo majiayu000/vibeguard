@@ -91,6 +91,7 @@ Severity labels describe the agent/reviewer contract. They do not, by themselves
 | W-18 | Evaluations must validate path, not only output | Strict | Output-only evaluations miss systemic failures. |
 | W-19 | AGENTS.md / CLAUDE.md sustainable size and pairing | Strict | Agent-instruction documents (`CLAUDE.md`, `AGENTS.md`) lose effectiveness when they grow past sustainable size, accumulate unpaired prohi... |
 | W-20 | Long tasks must pin runtime, tools, and rules | Strict | Long-running agent tasks must freeze the execution surface at the start of the task so a mid-flight runtime, tool, or rule change cannot... |
+| W-21 | Evidence must be provably executed, not merely cited | Strict | A long-context session can fabricate an experiment it never ran and then reason confidently from that fabricated observation. |
 | W-30 | Harness audits must measure boundary, fidelity, and stability | Strict | Agent harness evaluation must audit the trajectory, not only final task completion. |
 | W-37 | Agent learning must draw from successful and failed trajectories | Strict | An agent memory or experience layer that feeds future inference must learn from both successful and failed trajectories. |
 | W-38 | Tool-need recognition and tool-call execution are separate metrics | Strict | Tool-use evals must distinguish whether an agent recognized that a tool was needed from whether it actually called the tool. |

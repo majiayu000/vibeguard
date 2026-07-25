@@ -6,13 +6,15 @@
 **Compact guidance:** No fixes without root cause: reproduce first, then form one hypothesis, then fix.
 Every bug fix must identify the root cause before changing code. Do not make blind "let's try this" patches.
 
-**Four-phase debugging protocol**:
+**Debugging protocol**:
+0. **Channel trust check** — before naming any mechanism, confirm the observation signals themselves are trustworthy. If tool outputs look self-contradictory (the same file shows different content, line numbers drift, output repeats or looks garbled), the FIRST hypothesis must be "my own reading or context is degraded", verified through an out-of-session channel — exit codes, file hashes, the on-disk session transcript, or git — before hypothesizing that the filesystem, harness, or hooks are broken. See W-21.
 1. **Root-cause investigation** — read the error message, reproduce consistently, inspect recent changes, trace the data flow
 2. **Pattern analysis** — find a working reference implementation and compare it line by line
 3. **Hypothesis validation** — form one hypothesis, run the smallest test that can prove or disprove it, then switch hypotheses if needed
 4. **Implement the fix** — write the reproduction test first, apply one fix, verify it passes, then check for regressions
 
 **Mechanical checks**:
+- Step 0 comes before step 1: a bug fix that accuses the environment must first rule out degraded reading through an out-of-session channel (W-21).
 - The first step in a bug fix must be reproducing the problem, either by running a command or writing a test, not guessing from static reading alone.
 - If you cannot reproduce it, first confirm whether there is an environment difference instead of assuming it "should" reproduce.
 - After the fix, rerun the reproduction step to verify the problem is gone.
