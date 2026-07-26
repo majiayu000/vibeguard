@@ -75,15 +75,15 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
    workflow 能原生执行的 `aarch64-apple-darwin` 与
    `x86_64-unknown-linux-musl`；另外两个 cross targets 明示 unavailable，直到有原生
    runner。**
-4. **Release policy**：官方 benchmark `inconclusive` 时，是阻断 release，还是发布
-   release 但在 README/报告明确显示 `unavailable`。两种方案都不得沿用上一版本数字
-   冒充当前 release。**Recommended proposal（未批准）：top-level 非 `valid` 阻断
-   release；失败前先上传 content-addressed、attested、不可覆盖的 candidate failure
-   evidence。**
-5. **Corpus 审核门**：每类最少正/负样本数、ground-truth reviewer 身份要求，以及
-   corpus 变更是否需要独立安全 reviewer。**Recommended proposal（未批准）：每类至少
-   5 个 positive + 5 个 matched negative；ground-truth reviewer 不得是 fixture 作者或
-   对应 detector/mapping 实现者；dangerous shell/git 另需 security reviewer。**
+4. **Release policy**：闭集取值为 `{block_release, publish_nonvalid}`。前者不创建
+   GitHub Release 或 README current row，并按 B-029 永久保存失败 manifest；后者发布
+   带 non-valid report 的 release 与同版本 non-valid README row。两种方案都不得沿用
+   上一版本数字冒充当前 release。**Recommended proposal（未批准）：选择
+   `block_release`。**
+5. **Corpus 强度**：审核独立性与 dangerous mapping 的 security review 是 B-026
+   规定的不可协商 integrity floor，不属于产品选择；这里只选择每类最少正/负样本数。
+   **Recommended proposal（未批准）：每类至少 5 个 positive + 5 个 matched
+   negative。**
 
 ## Behavior Invariants
 
@@ -133,7 +133,8 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
    使用同一状态；`unavailable`/`inconclusive` 不得显示为 `0%`、`pass` 或沿用历史数字。
 9. B-009: 效果轴必须可确定性复核。同一 verified release、official corpus、
    interception 口径与显式运行参数的确认重跑，忽略 latency、timestamp、临时路径等
-   非语义字段后，每个 case 的 decision/reason 分类、case 顺序、计数和比例必须完全一致。
+   非语义字段后，每个 case 的 decision/canonical reason code、case 顺序、计数和比例
+   必须完全一致。
    任一差异使效果轴 `inconclusive`，并列出不一致 case；不得择优选一次结果。
 10. B-010: benchmark 必须幂等且并发隔离。重复或并发运行不得修改用户项目、已安装
     payload、global/project event logs、hook 配置或前一次报告；每次运行使用独立临时
@@ -172,10 +173,18 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     release、platform、corpus version/digest 短标识、positive/negative 样本数、
     interception 口径与 rate、false-positive rate、latency P95、状态及报告链接。数字
     不得手工编辑；表格必须明确它代表哪个 release，不能把旧版本行呈现为“current”。
-18. B-018: release 报告无效、缺平台或 pipeline 中断时，README/发布页面必须显式显示
-    该 release 对应的 `unavailable`/`inconclusive` 与原因链接；不得保留前一 release
-    数字但换成新版本标签。是否阻断 release 由“待维护者确认的产品决策 4”决定，但证据
-    诚实性不因该选择改变。
+18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
+    `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
+    - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
+      release page/asset 或该 candidate 的 README current row，已有历史 row 保持原版本
+      且不得标为该 candidate；
+    - `publish_nonvalid`：发布该版本的 schema-valid non-valid report/evidence，并创建
+      同版本 README row；非 valid axis 的 metric cell 留空并显示 axis status、闭集
+      reason code 与不可变 report 链接，row 不得标 `current valid benchmark`。
+    缺失、为空或越界 policy 必须阻断，不能由 renderer/workflow 猜分支。
+    `publish_nonvalid` 的 report/evidence 任一无法达到 schema/provenance gate 时不得
+    发布残缺 release，而是以 `selected_policy: publish_nonvalid`、
+    `effective_action: block_release` 和闭集 prerequisite failure code 进入 B-029。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
     version。旧 binary 不认识新 corpus、或新 renderer 无法验证旧 report 时必须明确
     `unavailable`，不能猜字段、静默丢字段或重新解释旧 headline。兼容读取只能是显式、
@@ -183,7 +192,9 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
 20. B-020: 非官方参数、开发 corpus 或自定义 fixtures 必须在 human/JSON 每层标为
     `unofficial`，输出不得使用 official report 路径/命名，也不得被 README generator
     接受。移除参数后重跑 official corpus 是生成公开证据的唯一恢复路径。
-21. B-021: official 身份不得只信任 binary 自报的 version/tag/commit。runner 必须从
+21. B-021: official 身份必须持有 installer 已验证的 `verified-provenance`，这是安全
+    强制项而非产品 proposal；`checksum-only` 或无 attestation 的安装最多运行
+    `unofficial` 诊断。official runner 不得只信任 binary 自报的 version/tag/commit，必须从
     `current_exe` 定位并打开**本次正在执行的 binary bytes**，计算 SHA-256，并把它与
     installer 保存的 verified release identity、对应 target 的 release-manifest asset
     digest、tag/source commit 和 attestation subject 串成一致链；payload 与 installed
@@ -193,17 +204,18 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
 22. B-022: 报告必须同时给出两个不可混用的摘要：
     - `decision_digest` 是跨平台比较面，只绑定共同 release source commit、corpus/
       ground-truth/production-mapping/protocol identities、headline subset、按 case ID
-      排序的 normalized decisions/reasons 与 aggregates；排除 target-specific binary
+      排序的 normalized decisions/canonical reason codes 与 aggregates；排除
+      target-specific binary
       digest、OS/arch、latency、timestamp 和 temp path。
     - `evidence_digest` 是 platform-bound 面，绑定该平台完整 canonical report
       （计算时排除字段自身）、`decision_digest`、`current_exe`/payload/wrapper digests、
       target、axis 状态与 latency/environment evidence。
     同一 release 的 native platforms 必须比较 `decision_digest` 相等；不同平台的
     `evidence_digest` 本来应不同，禁止拿它做 cross-platform equality gate。
-23. B-023: top-level 状态必须由两个 axis 状态确定，renderer 不得重算：
-    `valid` 当且仅当 effectiveness 与 latency 都为 `valid`；preflight 在两轴开始前失败
-    且两轴均 `unavailable` 时 top-level 为 `unavailable`；其余组合（任一
-    `inconclusive`，或一轴 valid/另一轴非 valid）一律 top-level `inconclusive`。
+23. B-023: top-level 状态必须是两个 axis 状态的纯 3×3 total function，不能读取执行
+    stage 或其它隐藏状态：`valid + valid → valid`；
+    `unavailable + unavailable → unavailable`；其余七种组合一律
+    `inconclusive`。renderer 不得重算或按 preflight/已开始执行改变结果。
     README 每个 metric cell 只显示其 axis 为 `valid` 的值；否则显示空白/破折号 +
     axis 状态与 reason，同时 row status 显示 top-level。top-level 非 `valid` 不得生成
     “current valid benchmark”标识。
@@ -213,17 +225,23 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     mock wrapper、PATH fallback 或仅测 `vibeguard-runtime bench` 自身调度开销。wrapper
     缺失、digest drift 或不是当前安装 receipt 记录的文件时 latency axis
     `unavailable`。
-25. B-025: production mapping 为每个 adapter 声明闭集 raw decisions 及到
-    `{block, advisory, allow}` 的唯一映射；未知/多重/形状错误输出产生独立
-    `execution_error` case status。`execution_error` 不得进入
+25. B-025: production mapping 为每个 adapter 同时声明闭集 raw decisions、闭集 raw
+    reason codes，以及它们到 `{block, advisory, allow}` 和 canonical reason code 的唯一
+    映射。未知、多重、形状错误、缺失 reason，或用 free-text/substr/regex heuristic
+    猜 reason 的输出都产生独立 `execution_error` case status；不得把未知 reason
+    收进 `other` 或沿用 decision。`execution_error` 不得进入
     `interception_decisions`、TP/FP numerator 或任何 production decision count，但 case
     仍留在 ground-truth denominator，并使 effectiveness `inconclusive`，因此不能发布
     诊断 rate 为 headline。
 26. B-026: ground truth 与 production mapping 必须是彼此独立、各自 versioned/digested
-    的 artifacts。ground truth reviewer 不得是 fixture 作者或对应 detector/mapping
-    实现者；mapping 明确 real installed entrypoint、raw-decision schema、normalization、
-    required assets 与 mapping reviewer。mapping 变更不允许只改 corpus digest 掩盖，
-    必须提升 mapping version、生成新 digest 并触发全量确认重跑。
+    的 artifacts。以下 reviewer separation 是不可协商的 integrity floor：ground-truth
+    reviewer 不得是 fixture 作者、对应 detector 作者或 mapping 实现者；mapping reviewer
+    不得是对应 detector 作者、mapping 实现者或 fixture 作者；dangerous shell/git
+    mapping 另须一名不属于上述作者集合的 security reviewer。mapping 明确 real
+    installed entrypoint、raw-decision/reason schema、normalization、required assets 与
+    review evidence。任一 reviewer 身份缺失、重叠或无法验证均使 official corpus
+    `unavailable`；不得由产品 proposal 降低。mapping 变更必须提升 mapping version、
+    生成新 digest 并触发全量确认重跑，不能只改 corpus digest 掩盖。
 27. B-027: tracked corpus ledger 必须 append-only 地绑定
     `(corpus_version, corpus_digest, ground_truth_version/digest,
     mapping_version/digest, protocol_version/digest)`。同一个已记录或已发布的
@@ -235,13 +253,26 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     实际合并实现的 release identity/payload contract，并由无 checkout integration
     fixture 探测真实 launcher 路径/argv；不能从 spec 猜 `vibeguard` shim。对应 GH-699
     task 未完成、实现 PR 未合并或 launcher 探测失败时，B-001 保持 unavailable。
-29. B-029: 若批准“非 valid 阻断 release”，release job 在返回失败前必须先生成
-    schema-valid candidate failure report，计算 `evidence_digest`，连同 checksums、
-    candidate tag/source commit、target、workflow run/attempt 和 closed failure reason
-    打入 content-addressed bundle，上传为不可覆盖的 CI artifact并对 bundle digest
-    生成 attestation。重试创建新 attempt evidence，不覆盖旧 bundle；release asset 与
-    README current row 均不创建。下载保留期结束后，attestation/digest 与 CI run 记录仍
-    能证明当时失败，不能用“release 没产生”抹掉失败证据。
+29. B-029: 当 effective action 为 `block_release`（包括选中 `publish_nonvalid` 但其
+    mandatory evidence gate 失败）时，release job 在返回失败前必须先生成
+    schema-valid candidate failure report 与 schema-valid canonical failure manifest。
+    manifest 必须完整包含 candidate tag/source commit/target、workflow run/attempt、
+    selected policy/effective action、axis/top-level 状态、闭集 failure/reason codes、
+    report/evidence/checksum identities 与验证所需 provenance；其完整 canonical 内容
+    必须内嵌在不可覆盖、retention-independent 永久可检索的
+    attestation predicate（或语义等价的 append-only immutable ledger），不能只保存
+    artifact pointer/digest/job summary。content-addressed bundle 可作为短期下载副本；
+    即使 CI artifact retention 到期，独立验证者仍必须能从长期 predicate/ledger 恢复
+    完整 manifest 并复核内容、reason 与 digest。重试创建新 attempt evidence，不覆盖
+    旧记录；随后 job 非零退出，GitHub Release、release page/assets 与 README candidate
+    current row 均不创建。
+30. B-030: official run 在任何 latency warmup/measurement 前，必须从 verified
+    payload/receipt 把 runtime、payload、wrapper、配置与 manifest 按生产安装布局
+    materialize 到本次 temp HOME 的 byte-identical、只读 install snapshot，并逐文件重算
+    digest 与 receipt 对齐。materialization、chmod 与 digest verification 不进入 latency
+    样本；计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写
+    状态或 digest drift 使对应 axis 在零 timed sample 时 `unavailable`；不得读写真实
+    HOME 或用 checkout/mock/PATH fallback。
 
 ## 验收标准
 
@@ -254,12 +285,14 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
       ground-truth denominator 消失。
 - [ ] 同一 release 的确定性确认重跑与 native platforms 产生一致
       `decision_digest`；每个平台有绑定 actual `current_exe` 的独立 `evidence_digest`。
-- [ ] latency 通过真实 installed wrapper 子进程报 P50/P95/P99/max，并在失真环境下
-      留空、不伪造 headline。
+- [ ] latency 从 verified receipt materialize 的 byte-identical readonly 生产布局快照
+      启动真实 installed wrapper 子进程，报 P50/P95/P99/max；materialization 不计时，
+      失真环境留空且不伪造 headline。
 - [ ] dangerous fixtures 不会执行命令或读写用户项目/HOME/log；sentinel secrets 不出现
       在 human、JSON、stderr 或 release report。
-- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；阻断路径也先保存
-      content-addressed attested failure evidence；README 仅从 valid axis 显示数值。
+- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；阻断分支在不创建
+      Release/current row 前把完整 failure manifest 永久内嵌到不可覆盖 attestation/
+      ledger，继续发布分支只发布同版本 non-valid row；README 仅从 valid axis 显示数值。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 等负路径均非零退出，且不会把
       历史数字冒充当前 release。
 
@@ -267,15 +300,15 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
 
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
-| 空/缺失输入 | covered: B-002, B-003, B-007, B-015, B-021, B-024 |
+| 空/缺失输入 | covered: B-002, B-003, B-007, B-015, B-021, B-024, B-030 |
 | 错误与失败路径 | covered: B-005, B-008, B-012, B-015, B-018, B-019, B-023, B-025, B-029 |
-| 授权/权限 | covered: B-002, B-004, B-013, B-021, B-026；proposal 仍需维护者批准 |
-| 并发/竞态 | covered: B-009, B-010, B-016, B-021, B-022 |
+| 授权/权限 | covered: B-002, B-004, B-013, B-021, B-026；identity/reviewer floor 不可由 proposal 降低 |
+| 并发/竞态 | covered: B-009, B-010, B-016, B-021, B-022, B-030 |
 | 重试/幂等 | covered: B-009, B-010, B-018, B-027, B-029 |
 | 非法状态转换 | covered: B-008, B-014, B-015, B-020, B-023, B-025 |
 | 兼容/迁移 | covered: B-001, B-016, B-017, B-019, B-027, B-028 |
 | 降级/回退 | covered: B-005, B-008, B-012, B-018, B-023, B-028；不得把降级显示为 valid |
-| 证据与审计完整性 | covered: B-002, B-004, B-006, B-007, B-009, B-016, B-017, B-021, B-022, B-025, B-026, B-027, B-029 |
+| 证据与审计完整性 | covered: B-002, B-004, B-006, B-007, B-009, B-016, B-017, B-021, B-022, B-025, B-026, B-027, B-029, B-030 |
 | 取消/中断 | covered: B-014, B-018, B-029 |
 
 ## 发布说明

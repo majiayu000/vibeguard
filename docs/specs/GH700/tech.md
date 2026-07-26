@@ -41,7 +41,8 @@ GH-700
 - planned schemas：**schemas/public_benchmark_corpus.schema.json**、
   **schemas/public_benchmark_ground_truth.schema.json**、
   **schemas/public_benchmark_production_mapping.schema.json**、
-  **schemas/public_benchmark_report.schema.json** 与
+  **schemas/public_benchmark_report.schema.json**、
+  **schemas/public_benchmark_failure_manifest.schema.json** 与
   **schemas/release_identity.schema.json**；
 - Rust 实现拆到 `vibeguard-runtime/src/bench/`，`main.rs` 只注册 `bench` 命令；
 - corpus/ground truth/mapping/ledger 以构建期只读资源编进 release binary，runner 不从
@@ -66,9 +67,8 @@ official 身份。
    receipt/同 tag/source commit；
 5. build-time version/tag/commit 只作额外一致性断言，不能替代 current bytes chain。
 
-official mode 推荐要求 `verified-provenance`；当前允许的 `checksum-only` install 仍可跑
-诊断，但标 `unofficial`。这是产品决策的 Recommended proposal，spec approval 前不
-宣称已选定。
+official mode 强制要求 `verified-provenance`；当前允许的 `checksum-only` install 仍可
+跑诊断，但只能标 `unofficial`。这是 B-021 的安全 floor，不是待选产品 proposal。
 
 GH-699 是 planned public done-when dependency，不是可静默 fallback。只有其 merged
 implementation 提供 receipt、payload/bootstrap 与 actual launcher 后，GH700 integration
@@ -96,9 +96,11 @@ normalization 与 mapping reviewer。示意形状：
 
 这只是字段形状；具体 reason ID、样本数量与两个未决类别的 executor 必须由维护者审核，
 不能照示例猜。schemas 额外拒绝 duplicate JSON keys、未知字段/枚举、空 ID、绝对路径、
-`..` traversal、shell executor 与含 credential-like 字段的 fixture。ground-truth reviewer
-不得是 fixture 作者或对应 detector/mapping 实现者；dangerous mapping 额外需要 security
-review evidence。
+`..` traversal、shell executor 与含 credential-like 字段的 fixture。审核身份按 B-026
+强制分离：ground-truth reviewer 与 fixture/detector/mapping authors 独立；mapping
+reviewer 与 detector/mapping/fixture authors 独立；dangerous mapping 另有独立 security
+reviewer。schema + ledger gate 验证 reviewer IDs/roles 与 review evidence，任何重叠都在
+执行前 unavailable；样本数可以由产品选择加强，但不得降低该 floor。
 
 构建时分别 canonicalize 并计算 corpus、ground truth、production mapping、protocol 的
 SHA-256。`corpus_ledger.json` append-only 记录它们的 version→digest tuple。validator
@@ -125,10 +127,11 @@ Rust `bench` 内部建立封闭 executor registry，而不是让 corpus 提供�
 `dangerous_shell_or_git` fixture 只作为 hook stdin 分类，绝不执行 payload 中的 command。
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
 wrapper/payload guard 运行 canonical pre/post/stop path。每个 versioned adapter 只接受
-mapping 声明的 raw decision JSON/exit 闭集，并唯一转成 `{block, advisory, allow}`。
-unknown/malformed/ambiguous output 产生独立 `case_status: execution_error`，normalized
-decision 留空；它不进入 decision/headline numerator，但仍留在 ground-truth denominator
-并使 axis inconclusive。
+mapping 声明的 raw decision JSON/exit 与 raw reason-code 闭集，并把二者唯一映射为
+`{block, advisory, allow}` + canonical reason code。unknown/malformed/ambiguous/multiple
+decision 或 reason、缺失 reason，以及任何 free-text/substr/regex reason guessing 都产生
+独立 `case_status: execution_error`，normalized decision/reason 留空；它不进入
+decision/headline numerator，但仍留在 ground-truth denominator 并使 axis inconclusive。
 
 当前 production mapping：
 
@@ -159,6 +162,14 @@ runner 为每次运行创建权限收紧的专用 temp root：
 - report 只保留 normalized decision、closed error category 与 synthetic case ID；
   原始 payload、用户路径、env 和任意 child stderr 不持久化。
 
+在启动效果 case 或 latency warmup 前，materializer 只按 verified receipt/manifest 的
+闭集文件清单，把 runtime、payload、wrappers、配置与 manifest 复制到 temp HOME 下与
+生产安装完全相同的相对布局。复制后逐文件重新计算 digest/size，校验 receipt、拒绝
+symlink/hard-link/extra executable，并把 install tree 设为只读；wrapper 的 HOME 与解析
+路径只指向该 snapshot。materialization、permission tightening 与 digest verification
+全部发生在计时区间外。缺文件、布局差异、可写文件或 digest drift 时零 timed sample
+并 unavailable，绝不回退真实 HOME、checkout、mock 或 PATH。
+
 一个 interruption token 阻止启动后续 case；当前 child 被终止并回收。partial report
 写入 caller 显式路径或本次 temp 中的唯一文件，然后执行记录式 cleanup。cleanup 只允许
 删除启动时创建并验证过的精确 temp root；失败时追加 closed cleanup error，绝不扩大路径。
@@ -178,7 +189,8 @@ mode 不写 project/global event log，不读取前次报告。
 
 `decision_digest` 的 canonical payload 只包含所有 native platforms 共同的 source
 commit、corpus/ground-truth/mapping/protocol versions+digests、获批的
-`interception_decisions`、按 case ID 排序的 ground truth + normalized decision/reason
+`interception_decisions`、按 case ID 排序的 ground truth + normalized decision/
+canonical reason code
 和 aggregate counts；排除 target-specific binary/payload/wrapper digest、OS/arch、
 latency、timestamp、temp path。A/B `decision_digest` 或 case decision 不同即
 effectiveness `inconclusive`，两次证据都保留在有界报告中。release matrix 也只用
@@ -197,7 +209,8 @@ TP/FN/FP/TN、block/advisory counts 与 diagnostic rates；只有 axis `valid` �
 ### 6. Latency protocol
 
 新增 surface 名 `bench_case_e2e_ms`，避免与现有 CI `hook_e2e_ms` 混淆。每个 sample
-必须从 verified receipt/mapping 解析 actual installed wrapper，以
+必须从 B-030 已重验的 readonly production-layout snapshot 解析 actual installed
+wrapper，以
 `Command::new("bash").args([wrapper_path, fixed_hook_name])` 等参数数组方式 spawn 子进程，
 传 fixture stdin 并等待 stdout/stderr/exit 完整返回。禁止 direct Rust function、
 checkout hook、mock wrapper、PATH fallback 或只测 `bench` dispatcher。对每个 production
@@ -232,9 +245,9 @@ wrapper path/digest drift 在 sampling 前使 latency `unavailable`；sample err
 - interruption/cleanup metadata。
 
 report schema 使用 `additionalProperties: false` 保护闭集；reader 按显式 version
-dispatch。两个 axis 状态各为 `{valid, unavailable, inconclusive}`。top-level 由共享
-aggregator 唯一计算：两轴均 valid→valid；两轴在 preflight 前均 unavailable→unavailable；
-其余组合→inconclusive。旧版本映射不存在就报 unavailable，不做 duck typing。CLI
+dispatch。两个 axis 状态各为 `{valid, unavailable, inconclusive}`。top-level 是不读取
+stage 的纯 3×3 function：`valid/valid→valid`、`unavailable/unavailable→unavailable`、
+其它七种组合→inconclusive。旧版本映射不存在就报 unavailable，不做 duck typing。CLI
 top-level valid 为 0，其它状态非零；`--json` stdout 只输出 JSON，diagnostic 到 stderr
 且同样脱敏。README 每 cell 读取 axis status，不根据 top-level 猜数值。
 
@@ -247,43 +260,61 @@ top-level valid 为 0，其它状态非零；`--json` stdout 只输出 JSON，di
    再从 actual merged launcher 运行 `bench --json`；
 3. 每个平台 schema/provenance/axis gate，并仅用 `decision_digest` 做 cross-platform
    equality；`evidence_digest` 只作各平台 artifact identity；
-4. 两轴全 valid 时汇总 per-platform reports，生成 checksums，并对 report/summary
-   attestation；
-5. `publish-release` 一次性发布 binary、payload、checksums、manifest 与 benchmark
-   reports；仍保留“release 已存在则拒绝变更”。
+4. 汇总 per-platform reports 并生成 checksums；两轴全 valid 时生成 valid summary，
+   `publish_nonvalid` 时生成同版本 non-valid summary；
+5. 只有 valid 或获批 `publish_nonvalid` 分支可运行 `publish-release`，一次性发布
+   binary、payload、checksums、manifest 与对应 benchmark reports；仍保留“release 已
+   存在则拒绝变更”。
 
 不能原生执行的 cross target 显式 `unavailable`，不得用 host binary 贴目标标签。
 不同平台 effectiveness decision 应一致；差异使 release summary `inconclusive`。
 latency 永远按平台分行。
 
-Recommended proposal（未批准）选择 top-level 非 valid 阻断 release。为避免“失败即无
-证据”，matrix wrapper 捕获 bench 非零状态但暂不退出，先：
+获批 `release_policy` 必须来自闭集 `{block_release, publish_nonvalid}`；缺失/越界值直接
+阻断且不能猜。Recommended proposal（未批准）选择 `block_release`。两个分支共享
+schema/provenance gate，但发布动作闭合如下。
 
-1. 写出 schema-valid candidate failure report 与 closed failure category；
-2. 计算 `evidence_digest`，打包 report、checksums、candidate tag/source commit、target、
-   workflow run ID/attempt；
+effective action 为 `block_release` 时（包括 selected policy 是 `publish_nonvalid` 但
+mandatory non-valid report/evidence 未通过 schema/provenance gate），matrix wrapper
+捕获 bench 非零状态但暂不退出，先：
+
+1. 写出 schema-valid candidate failure report，以及包含 candidate tag/source commit、
+   target、run/attempt、selected policy/effective action、axis/top-level、closed
+   failure/reason codes、report/evidence/checksums/provenance 的 schema-valid canonical
+   failure manifest；
+2. 计算 `evidence_digest`，打包 report、manifest 与 checksums；
 3. 使用名称
    `benchmark-failure-<tag>-<target>-<evidence_digest>.tar.gz`，以 no-overwrite artifact
-   upload 保存，并对 bundle digest 生成 build-provenance attestation；
-4. 把 artifact ID/digest、attestation subject 与 reason 写入 job summary；
+   upload 保存；同时把**完整 canonical failure manifest 内容**内嵌到不可覆盖、
+   retention-independent 永久可检索的 attestation predicate（或等价 append-only
+   immutable ledger），并以 bundle digest 为 subject；只写 pointer/digest/job summary
+   不合格；
+4. 把 artifact ID/digest、attestation subject 与 closed reason code 写入 job summary；
 5. 最后返回原 benchmark failure，确保 publish-release 不运行。
 
 workflow retry 必须带新 run attempt，不能覆盖旧 bundle；bundle 即使在 retention 后不再
-可下载，attestation/digest 与 CI run record 仍提供 content identity。失败 candidate 不
-创建 GitHub Release、release asset 或 README current row。
+可下载，验证者仍能从长期 predicate/ledger 取回完整 manifest，复算 canonical digest 并
+复核具体内容/reason。失败 candidate 不创建 GitHub Release、release page/assets 或
+README candidate current row；旧 row 仅保留其原 release 身份。
 
-README 使用 marker 管理的生成区，source 只能是两轴均 valid 的已验证 release summary。
-由于当前 release asset 不允许原地变更，推荐 post-release CI 从不可变 asset 生成一个
-独立 README PR，保留 human review，不直接 push 高上下文文件。PR 同时更新英文 README
-与已配置 locale 文档。generator 对每个平台独立显示：
+`publish_nonvalid` 则必须先发布该 candidate 的 schema-valid non-valid report/evidence，
+再创建同版本 README row：每个 non-valid axis cell 为空并显示 status、closed reason code
+及 immutable report link，row top-level 非 valid 且不带 `current valid benchmark`。它不
+创建 B-029 的 blocked-candidate record，也不得把旧 release 数字贴到新 row。任一
+mandatory evidence 未通过 gate 时，此分支不得部分发布，必须记录 selected policy 后转入
+B-029 的 effective block action。
+
+README 使用 marker 管理的生成区。source 必须是该 exact release 的不可变已验证 summary：
+valid branch 消费 valid summary，`publish_nonvalid` 消费同版本 non-valid summary，
+`block_release` 不生成 candidate row。由于当前 release asset 不允许原地变更，推荐
+post-release CI 从不可变 asset 生成一个独立 README PR，保留 human review，不直接 push
+高上下文文件。PR 同时更新英文 README 与已配置 locale 文档。generator 对每个平台
+独立显示：
 
 - effectiveness valid → rate/FPR；否则 `— (effectiveness: <status>: <reason>)`；
 - latency valid → P95；否则 `— (latency: <status>: <reason>)`；
 - row status 始终为共享 top-level；
 - only top-level valid row 可带 `current valid benchmark` 标识。
-
-若维护者不批准阻断 policy，则替代方案也必须发布带 non-valid axis 状态的真实 report 后
-再生成 unavailable cells；不得复制上一 release 数字或把上一次 row 改标新版本。
 
 ## Product-to-Test Mapping
 
@@ -296,7 +327,7 @@ README 使用 marker 管理的生成区，source 只能是两轴均 valid 的已
 | B-005 production paths only | sealed executor registry | mutation test replaces each executor with unknown/test-only ID and asserts zero cases; code review confirms no case-ID detector branch |
 | B-006 closed normalized decisions and declared interception subset | versioned decision adapter + protocol config | exhaustive raw→normalized enum tests prove execution_error has no decision; missing/empty/out-of-range headline subset is rejected |
 | B-007 complete denominator and metrics | one aggregate module | table-driven TP/FN/FP/TN cases including timeout/error prove errors stay denominator but never enter numerator/counts |
-| B-008 honest statuses | axis state machines + top aggregator | exhaustive 3×3 axis matrix proves only valid+valid→valid, unavailable+unavailable preflight→unavailable, all others→inconclusive |
+| B-008 honest statuses | axis state machines + top aggregator | exhaustive axis status/error fixtures prove each axis emits only the closed status set and never renders non-valid as zero/pass |
 | B-009 deterministic confirmation | dual-run executor + `decision_digest` | injected A/B reason/decision/order drift names exact case and produces nonzero inconclusive; latency/current-exe platform identity does not alter decision digest |
 | B-010 idempotent/concurrent isolation | run context + exclusive output | two parallel process tests use disjoint roots/reports; sentinel install/repo/log files remain byte-identical |
 | B-011 end-to-end latency semantics | actual installed-wrapper subprocess sampler | spy wrapper proves every timed sample spawns wrapper, drains full IO/exit, includes startup, excludes sandbox/warmup/report |
@@ -306,18 +337,19 @@ README 使用 marker 管理的生成区，source 只能是两轴均 valid 的已
 | B-015 shared human/JSON aggregate and exits | renderers + report schema | golden semantic comparison between text/JSON/README summary; schema and exit matrix cover every axis/top-level combination |
 | B-016 staged exact release regeneration | release workflow + current-exe/report provenance gate | `bash tests/test_release_workflow.sh` plus fixture manifests prove workspace/debug/old/wrong-target binary cannot publish |
 | B-017 generated README table | report-to-doc generator | axis-status golden matrix generates numeric or blank cells exactly once; manual numeric drift fails freshness |
-| B-018 no stale-number fallback | release/README failure fixtures | missing/invalid/interrupted evidence never relabels previous values; blocking policy leaves prior row explicitly versioned, not current candidate |
+| B-018 closed release-policy branches | release/README policy fixtures | exhaustive fixtures prove block creates no Release/page/assets/current row after permanent evidence, publish_nonvalid creates only same-version non-valid evidence/row, its evidence-gate failure enters effective block, and missing/unknown policy blocks |
 | B-019 explicit schema compatibility | versioned parsers | current/legacy/unknown schema fixtures prove only declared mapping loads; unknown version nonzero unavailable |
 | B-020 unofficial isolation | CLI option policy + README ingest gate | custom/dev report carries `official:false`, uses separate path and is rejected by README generator |
-| B-021 actual current-exe identity chain | planned **vibeguard-runtime/src/bench/identity.rs** + release identity receipt | replace/tamper/symlink/PATH/argv0/metadata-race matrix proves opened current-exe bytes must match manifest+attestation+receipt; executor call counter stays zero |
+| B-021 verified current-exe identity chain | planned **vibeguard-runtime/src/bench/identity.rs** + release identity receipt | missing/checksum-only provenance is never official; replace/tamper/symlink/PATH/argv0/metadata-race matrix proves opened current-exe bytes match verified attestation+manifest+receipt before executor calls |
 | B-022 split decision/evidence digests | canonical digest builders | same decisions on two target fixtures yield equal decision digests and unequal evidence digests; changing decisions changes both; changing latency/binary digest changes only evidence |
 | B-023 axis/top-level/README total function | shared status aggregator + README renderer | exhaustive 3×3 axis golden asserts top-level and each metric cell/status/reason with no stale numeric value |
 | B-024 real wrapper subprocess E2E | mapping resolver + latency executor | installed wrapper spy records argv/stdin and child completion; direct function, checkout wrapper, PATH fallback and digest drift are rejected |
-| B-025 decision closure and execution-error exclusion | mapping adapter + aggregate | unknown/malformed/ambiguous raw outputs create no normalized decision/numerator but remain denominator and force inconclusive |
-| B-026 independent ground truth and mapping | artifact schemas + reviewer gate | fixture author=ground-truth reviewer and detector author=mapping reviewer negatives fail; mapping content change requires new mapping version/digest |
+| B-025 decision/reason closure and execution-error exclusion | mapping adapter + aggregate | exhaustive unknown/missing/multiple decision and reason fixtures plus free-text heuristic attempts create no normalized values/numerator, remain denominator and force inconclusive |
+| B-026 independent ground truth and mapping | artifact schemas + reviewer gate | every forbidden author/reviewer overlap, missing security reviewer and unverifiable review evidence fails preflight; mapping content change requires new version/digest |
 | B-027 immutable version→digest ledger | ledger validator + release contract | mutation suite changes/deletes/reorders/reuses every historical tuple and asserts build/release failure; exact tuple reuse passes |
 | B-028 planned GH699 dependency | no-clone install/launcher discovery fixture | fixture starts from merged main artifacts only, verifies linked GH699 task outputs and freezes actual launcher argv; spec-only/open-PR assets are invisible |
-| B-029 immutable blocked-release evidence | failure bundler + release DAG | forced non-valid report uploads uniquely named bundle, checksum and attestation before final job failure; retry preserves first artifact and publish/README steps stay skipped |
+| B-029 immutable blocked-release evidence | failure manifest/attestation + release DAG | forced block embeds complete schema-valid manifest in long-term predicate/ledger before failure; after deleting retained bundle fixture still recovers content/reason and verifies digest; Release/current-row sentinels stay absent |
+| B-030 readonly production-layout snapshot | install materializer + wrapper executor | byte/layout/permission/digest mutation matrix fails before timed samples; spy proves materialization is outside timer and real wrapper runs from readonly temp HOME without touching source install |
 
 ## Affected-file / test / command map
 
@@ -328,10 +360,10 @@ README 使用 marker 管理的生成区，source 只能是两轴均 valid 的已
 | --- | --- | --- |
 | CLI + module split | `vibeguard-runtime/src/main.rs`, planned **vibeguard-runtime/src/bench/mod.rs**, **model.rs**, **corpus.rs**, **identity.rs**, **mapping.rs**, **runner.rs**, **metrics.rs**, **latency.rs**, **render.rs**, **sandbox.rs** | `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench` |
 | Handle-backed SHA-256 | `vibeguard-runtime/src/setup_support.rs`, planned **vibeguard-runtime/src/bench/identity.rs** | known binary digest + replace-during-read test; no OS shell hash command |
-| Corpus truth/mapping/ledger | planned **data/public_benchmark/**, the four **schemas/public_benchmark_*.schema.json** files, **scripts/ci/validate_public_benchmark.py** | schema positives/negatives + append-only ledger mutation suite |
+| Corpus truth/mapping/ledger | planned **data/public_benchmark/**, the five **schemas/public_benchmark_*.schema.json** files, **scripts/ci/validate_public_benchmark.py** | schema positives/negatives + append-only ledger mutation suite |
 | Installed release receipt | planned **schemas/release_identity.schema.json**, `scripts/setup/runtime-install.sh`, `scripts/setup/install.sh`, `scripts/ci/generate_runtime_release_manifest.py` | install fixture recomputes current binary/payload/wrapper digests and rejects tampered receipt/assets |
 | Actual launcher | **待 GH-699 implementation merge 后由 no-clone fixture 探测并记录**；不得先写 guessed shim path | fresh HOME install invokes discovered user command and proves it reaches the same current-exe digest |
-| Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code只读/调用，不为 benchmark 复制 | subprocess spy + existing `bash tests/test_hook_perf_contract.sh` |
+| Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code materialize byte-identical readonly temp snapshot，不复制 detector | layout/digest/permission matrix + subprocess timer spy + existing `bash tests/test_hook_perf_contract.sh` |
 | Report/readme | planned **schemas/public_benchmark_report.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | 3×3 axis golden; generated marker freshness; invalid axis has no numeric cell |
 | Release/failure evidence | `.github/workflows/release.yml`, planned **scripts/ci/package_benchmark_evidence.py**, `tests/test_release_workflow.sh` | forced block uploads content-addressed attested bundle then fails; publish step absent |
 | End-to-end regressions | planned **tests/test_public_benchmark.sh**, **tests/fixtures/public_benchmark/** | official/unofficial, identity, five classes, privacy, concurrency, interruption, digests, wrapper latency and release sentinels |
@@ -342,7 +374,7 @@ Implementation completion commands:
 cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check
 cargo check --manifest-path vibeguard-runtime/Cargo.toml
 cargo test --manifest-path vibeguard-runtime/Cargo.toml
-bash "${PUBLIC_BENCHMARK_TEST:?set to planned tests/test_public_benchmark.sh}"
+bash tests/test_public_benchmark.sh
 bash tests/test_behavior_eval.sh
 bash tests/test_hook_perf_contract.sh
 bash tests/test_release_workflow.sh
@@ -353,14 +385,17 @@ bash scripts/local-contract-check.sh --quick
 
 planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exit 0，必须同时证明：
 
-- canary user repo/HOME/global+project logs/install receipt/installed wrappers 在前后 byte-identical；
+- canary user repo/HOME/global+project logs/install receipt/installed wrappers 在前后
+  byte-identical；timed wrapper 来自 byte-identical readonly temp snapshot 且其
+  materialization events 全在 timer start 前；
 - dangerous fixture 的 execution sentinel 文件始终不存在；
 - secret/path sentinels 不出现在 human stdout、stderr、JSON report、failure bundle、
   release summary 或 generated README marker；
 - report 通过 schema，`current_exe_sha256` 匹配实际执行文件，`decision_digest` 与
   `evidence_digest` 按 B-022 变化；
-- non-valid release candidate 先产生 checksum+attestation+unique artifact evidence，
-  最终 workflow 非零且 release/README publish sentinel 均不存在。
+- block_release candidate 的长期 predicate/ledger 可在删除短期 bundle 后恢复完整
+  failure manifest/reason 并复算 digest，最终 workflow 非零且 Release/current-row
+  sentinel 均不存在；publish_nonvalid fixture 则只产生同版本 non-valid report/row。
 
 ## 数据流
 
@@ -374,7 +409,7 @@ release source commit
                                                 ▼
                          preflight (digests + schemas + joins + review gates)
                  │
-       actual installed wrappers: isolated run A ── isolated run B
+ readonly production-layout snapshot wrappers: isolated run A ── isolated run B
                  │             │
                  └── semantic comparison
                               │
@@ -420,25 +455,27 @@ summary，不消费本地 stdout。
   固定有界、matrix 按 native target；具体样本数由维护者审核，不能为提速静默删分母。
 - Maintenance: ground truth 与生产 detector 可能漂移。缓解：independent ground truth、
   versioned production mapping、append-only version→digest ledger、每 release regeneration。
-- Audit retention: blocked release 没有 GitHub Release asset。缓解：退出前上传
-  content-addressed no-overwrite bundle并 attestation，job summary 保存 artifact/digest；
-  retention 到期也不把 candidate 伪装成从未执行。
+- Audit retention: blocked release 没有 GitHub Release asset。缓解：退出前把完整
+  schema-valid failure manifest 内嵌进长期不可覆盖 attestation predicate/ledger；
+  content-addressed bundle 只是短期副本，retention 到期仍可恢复内容/reason 并复核 digest。
 - Product truthfulness: invented API/swallowed exception 当前 mapping 不完整。缓解：
   spec approval 明确决策；未决时 unavailable，不写 placeholder detector。
 
 ## 测试计划
 
 - [ ] Unit tests: split corpus/truth/mapping schemas、duplicate-key/join/completeness、
-      append-only ledger、handle-backed current-exe identity、raw decision closure、
+      append-only ledger、handle-backed current-exe identity、raw decision/reason closure、
       3×3 axis aggregation、confusion matrix、两个 digest builders、quantiles、redaction、
       cancellation 与 path containment。
 - [ ] Integration tests: released-install fixture 执行五类正/负 cases；wrong
       current binary/payload/wrapper/receipt/corpus/mapping、detector error、timeout、
       environment distortion、parallel runs、interruption、legacy schema 和
-      secret/canary/execution sentinels；E2E sample 必须由 installed wrapper spy 观察到。
+      secret/canary/execution sentinels；E2E sample 必须由 readonly production-layout
+      snapshot 中的 installed wrapper spy 观察到，materialization 在 timer 外。
 - [ ] Release contract: staged native binaries各自产出 schema-valid report；matrix 比较
       decision digest 而非 evidence digest；non-valid candidate 先上传唯一 attested failure
-      bundle再失败；existing-release mutation 仍被拒绝。
+      manifest 长期 predicate/ledger 再失败；删除短期 bundle 后仍可复核；另一 policy
+      只发布同版本 non-valid evidence/row；existing-release mutation 仍被拒绝。
 - [ ] Documentation: 3×3 axis generator golden/freshness、英文与配置 locale 一致、仅 valid
       metrics 显示数字，README links 指向 immutable release evidence。
 - [ ] Existing regression:
