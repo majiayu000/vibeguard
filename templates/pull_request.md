@@ -48,6 +48,7 @@ Describe the change in 1-3 sentences.
   - Judge model ID:
   - Judge prompt digest:
   - Threshold calibration: while `calibrated: false`, attach the `inconclusive` report with both deltas, sample counts, and model evidence; do not claim `pass`.
+  - Note: CI does not machine-verify these numbers against the attached report; the reviewer must cross-check them with the linked `report.json`.
 - [ ] Exemption requested for non-prompt-injection changes only:
   - Reason:
   - Maintainer approval:
