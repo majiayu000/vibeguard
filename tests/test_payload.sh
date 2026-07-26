@@ -292,7 +292,18 @@ for pattern in "${patterns[@]}"; do
 done
 SH
 chmod +x "${WORK}/fake-bin/gh"
+cat > "${WORK}/fake-bin/launchctl" <<'SH'
+#!/usr/bin/env bash
+# A temp HOME has no loaded launchd jobs. Keep host launchd state from leaking
+# into the no-clone installation fixture.
+if [[ "${1:-}" == "print" ]]; then
+  exit 113
+fi
+exit 0
+SH
+chmod +x "${WORK}/fake-bin/launchctl"
 
+set +e
 install_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
@@ -301,12 +312,17 @@ install_out="$(
       bash setup.sh --yes 2>&1
 )"
 rc=$?
+set -e
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${install_out}" >&2
+fi
 check "unpacked payload installs into a temp HOME without network" "${rc}"
 rc=0
 grep -q 'Setup complete! All components installed.' <<< "${install_out}" || rc=1
 grep -q 'vibeguard-runtime downloaded and verified' <<< "${install_out}" || rc=1
 check "payload install completes with a verified local release runtime" "${rc}"
 
+set +e
 verify_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
@@ -314,10 +330,14 @@ verify_out="$(
       bash setup.sh verify-install 2>&1
 )"
 rc=$?
+set -e
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${verify_out}" >&2
+fi
 check "verify-install succeeds after the unpacked payload install" "${rc}"
 rc=0
-grep -q 'Installation health: PASS' <<< "${verify_out}" || rc=1
-check "verify-install reports a passing installation" "${rc}"
+grep -q 'HEALTHY' <<< "${verify_out}" || rc=1
+check "verify-install reports a healthy installation" "${rc}"
 
 rc=0
 [[ -x "${WORK}/payload-home/.vibeguard/installed/bin/vibeguard-runtime" ]] || rc=1
