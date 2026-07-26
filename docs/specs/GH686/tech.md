@@ -223,7 +223,9 @@ placebo 长度资格比较使用 `len(with_rules) - len(without_rules)` 的完�
 placebo 除 distinct 与长度门外，还必须命中维护者审核的显式语义无关 pair 映射；未映射
 组合一律拒绝，不能仅凭不同 ID 推断无关。它也复用匿名 compact 等价语义拒绝表，其残留
 交叉引用同样用 `max_cross_refs` 检查，任一不满足都在进入模型循环前拒绝。当前审核 pair
-为 `U-32 / SEC-12` 与 `U-32 / SEC-18`。安慰剂轴不得复用候选轴早先生成的基线响应；
+为 `GO-01 / SEC-07`：两者完整 prompt 删除差分别为 158/155 字符、交叉引用分别为 0/1，
+且现有目标数据集包含 `GO-01` 样本；Go 错误返回值处理与路径遍历控制语义无关。请求
+placebo 时候选必须至少选中一个目标样本，不能让空目标轴以零次调用完成。安慰剂轴不得复用候选轴早先生成的基线响应；
 它为每个样本重新生成完整规则基线与 placebo 响应，交替 arm 首发顺序并在报告保存调度。
 
 未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
@@ -232,7 +234,8 @@ placebo 除 distinct 与长度门外，还必须命中维护者审核的显式�
 ### 8. 离线 dry-run
 
 不调用模型，输出：四次运行的规则摘要与逐文件差分/在场/计数/定义位点全部断言的结果、交叉引用残留
-清单、数据集与样本集摘要、目标/非目标样本划分与数量、解析后的模型 ID、阈值是否已标定。
+清单、数据集与样本集摘要、目标/非目标样本划分、数量、选中 ID 与排除 ID、解析后的模型
+ID、阈值是否已标定。
 
 **dry-run 不产出判定**，因此不受"未标定强制 inconclusive"与"inconclusive 非零退出"
 约束，正常完成时退出 0。否则在 `calibrated: false` 阶段 dry-run 会恒定非零退出，而
@@ -274,13 +277,13 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
 | B-006 | 正整数样本量下限；空轴 → inconclusive | `bash tests/test_paired_eval.sh`（零下限被拒；空非目标轴 fail closed） |
 | B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report + 预留报告路径 | `python3 eval/test_paired_eval.py`（不可写 artifact root 零模型调用失败；空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
-| B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
+| B-008 | dry-run 无需密钥且列出选中/排除样本 ID | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
 | B-012 | 规则树与 core 的交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（定义行之外的 core 引用可见；U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
-| B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度、受 compact/交叉引用门约束且使用新鲜交替基线的 placebo | `bash tests/test_paired_eval.sh`（未审核、长度超限、交叉引用超限及 compact 语义残留均在调用前拒绝；placebo 基线/删除 arm 交替首发并记录调度） |
+| B-014 | 标定流程的显式无关 pair、非空目标样本、按完整 prompt 差值校验长度、受 compact/交叉引用门约束且使用新鲜交替基线的 placebo | `bash tests/test_paired_eval.sh`（零目标样本、未审核、长度超限、交叉引用超限及 compact 语义残留均在调用前拒绝；placebo 基线/删除 arm 交替首发并记录调度） |
 | B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、重复键 scorer/judge skipped 且 judge 原文保留、审计字段完整） |
 
 ## 数据流

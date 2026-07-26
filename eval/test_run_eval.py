@@ -45,6 +45,26 @@ class StaticClient:
 
 
 class EvalErrorAccountingTest(unittest.TestCase):
+    def test_load_rules_preserves_empty_marked_core_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules_dir = root / "rules"
+            rules_dir.mkdir()
+            core_file = root / "core.md"
+            core_file.write_text(
+                "outside-before\n"
+                "<!-- vibeguard-start -->\n"
+                "<!-- vibeguard-end -->\n"
+                "outside-after\n",
+                encoding="utf-8",
+            )
+
+            loaded = run_eval.load_rules(rules_dir, core_file)
+
+        self.assertEqual(loaded, "# VibeGuard Core Constraints\n\n")
+        self.assertNotIn("outside-before", loaded)
+        self.assertNotIn("outside-after", loaded)
+
     def test_api_error_returns_skipped_not_missed(self) -> None:
         sample = {
             "rule": "SEC-01",

@@ -50,17 +50,19 @@ def load_rules(rules_dir: Path, core_rules_file: Path | None) -> str:
     if core_rules_file and core_rules_file.exists():
         claude_md = core_rules_file.read_text(encoding="utf-8")
         in_vg = False
+        marked_block_found = False
         vg_lines = []
         for line in claude_md.split("\n"):
             if "vibeguard-start" in line:
                 in_vg = True
+                marked_block_found = True
                 continue
             if "vibeguard-end" in line:
                 in_vg = False
                 continue
             if in_vg:
                 vg_lines.append(line)
-        if vg_lines:
+        if marked_block_found:
             rules_text.append("# VibeGuard Core Constraints\n\n" + "\n".join(vg_lines))
         else:
             rules_text.append("# VibeGuard Core Constraints\n\n" + claude_md.strip())

@@ -83,11 +83,8 @@ ANONYMOUS_COMPACT_RULE_EQUIVALENTS = {
     "U-29": "L3",
 }
 APPROVED_PLACEBO_PAIRS = {
-    frozenset(("SEC-12", "U-32")): (
-        "MCP tool-description drift is unrelated to prompt rule-overload limits"
-    ),
-    frozenset(("SEC-18", "U-32")): (
-        "external-agent input scoring is unrelated to prompt rule-overload limits"
+    frozenset(("GO-01", "SEC-07")): (
+        "unchecked Go error returns are unrelated to path traversal controls"
     ),
 }
 
@@ -567,6 +564,10 @@ def _print_removal_evidence(evidence: dict[str, Any]) -> None:
     print(f"Empty-shell rule files: {shells}")
 
 
+def _sample_ids(samples: list[dict]) -> str:
+    return ", ".join(sample["id"] for sample in samples) or "none"
+
+
 def _build_parser(default_model: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="VibeGuard paired with/without rule evaluation"
@@ -628,11 +629,18 @@ def _run_dry_or_prepare(
     validate_candidate_supported(args.candidate)
     known_rule_ids = set(canonical_rule_inventory(rules_dir))
     target_samples = select_target_samples(load_dataset(target_path), args.candidate)
+    all_non_target_samples = load_non_target_dataset(non_target_path, known_rule_ids)
     non_target_samples = select_non_target_samples(
-        load_non_target_dataset(non_target_path, known_rule_ids), args.candidate
+        all_non_target_samples, args.candidate
     )
     if not target_samples and not non_target_samples:
         raise PairedEvalError("target and non-target sample sets are both empty")
+    if args.placebo_candidate and not target_samples:
+        raise PairedEvalError("placebo calibration requires at least one target sample")
+    excluded_non_target_samples = [
+        sample for sample in all_non_target_samples
+        if args.candidate.upper() in sample["excluded_rules"]
+    ]
 
     with tempfile.TemporaryDirectory(prefix="vibeguard-paired-") as tmp:
         evidence = prepare_without_rules(
@@ -687,7 +695,10 @@ def _run_dry_or_prepare(
         print(f"Candidate: {args.candidate.upper()}")
         _print_removal_evidence(evidence)
         print(f"Target samples: {len(target_samples)}")
+        print(f"Target selected sample IDs: {_sample_ids(target_samples)}")
         print(f"Non-target samples: {len(non_target_samples)}")
+        print(f"Non-target selected sample IDs: {_sample_ids(non_target_samples)}")
+        print(f"Non-target excluded sample IDs: {_sample_ids(excluded_non_target_samples)}")
         print(f"Target dataset digest: {target_with['dataset_digest']}")
         print(f"Target sample digest: {target_with['sample_set_digest']}")
         print(f"Non-target dataset digest: {non_target_with['dataset_digest']}")

@@ -335,7 +335,7 @@ class DatasetAndIdentityTest(unittest.TestCase):
             paired.validate_placebo_candidate("U-32", "U-31", 4000, 700, 0.25)
         with self.assertRaisesRegex(paired.PairedEvalError, "length ratio"):
             paired.validate_placebo_candidate("U-21", "U-16", 240, 406, 0.25)
-        paired.validate_placebo_candidate("U-32", "SEC-12", 4000, 4100, 0.25)
+        paired.validate_placebo_candidate("GO-01", "SEC-07", 158, 155, 0.25)
 
     def test_candidates_duplicated_by_anonymous_compact_rules_are_rejected(self) -> None:
         for candidate in ("U-04", "U-17", "U-23", "U-24", "U-29", "SEC-02"):

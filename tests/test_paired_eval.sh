@@ -396,31 +396,60 @@ PY
 dry_run_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
-    --candidate U-32 \
-    --placebo-candidate SEC-18 \
+    --candidate GO-01 \
+    --placebo-candidate SEC-07 \
     --dry-run \
     --artifact-root "${TMP_DIR}/runs"
 )"
 
 grep -qF "Paired runs: target-with, target-without, non-target-with, non-target-without" <<<"${dry_run_out}"
 grep -qF "Removal assertions: file_set=pass, presence=pass, definition_site=pass, file_diff=pass, definition_count=pass" <<<"${dry_run_out}"
-grep -qF "Cross references (13):" <<<"${dry_run_out}"
+grep -qF "Cross references (0):" <<<"${dry_run_out}"
 grep -qF "Empty-shell rule files:" <<<"${dry_run_out}"
-grep -qF "Target samples: 0" <<<"${dry_run_out}"
+grep -qF "Target samples: 1" <<<"${dry_run_out}"
+grep -qF "Target selected sample IDs: tp-go-01-unchecked-error-return-value-assigned-to" <<<"${dry_run_out}"
 grep -qF "Non-target samples: 32" <<<"${dry_run_out}"
+grep -qF "Non-target selected sample IDs: non-target-01, non-target-02" <<<"${dry_run_out}"
+grep -qF "Non-target excluded sample IDs: none" <<<"${dry_run_out}"
 grep -qF "Producer model:" <<<"${dry_run_out}"
 grep -qF "Judge model: not required for dry-run" <<<"${dry_run_out}"
 grep -qF "Judge prompt digest:" <<<"${dry_run_out}"
 grep -qF "Rule text characters: with=" <<<"${dry_run_out}"
-grep -qF "Placebo candidate: SEC-18" <<<"${dry_run_out}"
+grep -qF "Placebo candidate: SEC-07" <<<"${dry_run_out}"
 grep -qF "Verdict: not produced in dry-run" <<<"${dry_run_out}"
 test ! -e "${TMP_DIR}/runs"
+
+set +e
+empty_placebo_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate U-32 \
+    --placebo-candidate SEC-18 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/empty-placebo-runs" 2>&1
+)"
+empty_placebo_rc=$?
+set -e
+test "${empty_placebo_rc}" -ne 0
+grep -qF "placebo calibration requires at least one target sample" <<<"${empty_placebo_out}"
+test ! -e "${TMP_DIR}/empty-placebo-runs"
+
+excluded_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate TS-11 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/excluded-runs"
+)"
+grep -qF "Non-target samples: 31" <<<"${excluded_out}"
+grep -qF "Non-target excluded sample IDs: non-target-20" <<<"${excluded_out}"
+test ! -e "${TMP_DIR}/excluded-runs"
 
 set +e
 placebo_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
-    --candidate U-21 \
+    --candidate GO-01 \
     --placebo-candidate U-16 \
     --dry-run \
     --artifact-root "${TMP_DIR}/placebo-runs" 2>&1
@@ -432,11 +461,14 @@ grep -qF "placebo length ratio" <<<"${placebo_out}"
 test ! -e "${TMP_DIR}/placebo-runs"
 
 set +e
+sed 's/"max_cross_refs": 4/"max_cross_refs": 0/' \
+  "${REPO_DIR}/eval/paired/thresholds.json" > "${TMP_DIR}/strict-cross-refs.json"
 placebo_cross_refs_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
-    --candidate SEC-12 \
-    --placebo-candidate U-32 \
+    --candidate GO-01 \
+    --placebo-candidate SEC-07 \
+    --thresholds "${TMP_DIR}/strict-cross-refs.json" \
     --dry-run \
     --artifact-root "${TMP_DIR}/placebo-cross-ref-runs" 2>&1
 )"
