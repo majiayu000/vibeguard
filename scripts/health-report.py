@@ -396,11 +396,11 @@ def validated_block_counts(
         return None, "unavailable"
 
     raw_counts = summary["block_counts"]
-    expected_keys = {"total_blocks", "protocol_errors", "rule_interceptions"}
+    expected_keys = {"total_blocks", "protocol_errors", "non_protocol_blocks"}
     if not isinstance(raw_counts, dict) or set(raw_counts) != expected_keys:
         raise HealthReportError(
             "observe summary block_counts must contain exactly "
-            "total_blocks, protocol_errors, and rule_interceptions"
+            "total_blocks, protocol_errors, and non_protocol_blocks"
         )
 
     counts: dict[str, int] = {}
@@ -423,7 +423,7 @@ def validated_block_counts(
         )
     if (
         counts["total_blocks"]
-        != counts["protocol_errors"] + counts["rule_interceptions"]
+        != counts["protocol_errors"] + counts["non_protocol_blocks"]
     ):
         raise HealthReportError(
             "observe summary block_counts arithmetic is inconsistent"
@@ -605,7 +605,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"  - Total blocks: {block_counts['total_blocks']}")
             lines.append(f"  - Protocol errors: {block_counts['protocol_errors']}")
             lines.append(
-                f"  - Rule interceptions: {block_counts['rule_interceptions']}"
+                f"  - Non-protocol blocks: {block_counts['non_protocol_blocks']}"
             )
         else:
             lines.append("  - Block split unavailable from installed runtime.")

@@ -40,7 +40,9 @@ GH-706
   stdin、command、content、file path、parser message 或未知字符串。
 - Bash 与 Write 继续输出原有 block decision/reason；只替换持久化 detail 的
   安全结构。hook tests 用独特 secret/command/content sentinel，分别断言
-  project 与 global `events.jsonl` 中不存在这些值。
+  project 与 global `events.jsonl` 中不存在这些值。合法 Bash JSON 的空 command
+  继续走既有 no-op；Bash command 缺失/非字符串与 Write file_path
+  缺失/空/非字符串仍 fail closed。
 
 ### 2. U-16 baseline unreadable 独立分支
 
@@ -60,13 +62,15 @@ GH-706
   `vibeguard-runtime/src/observe/aggregate.rs`，升级为 event-level helper，使 reason 与 legacy
   baseline exception 在单一位置判定。
 - `ObserveAggregate` 新增共享 `block_counts`，固定键为
-  `total_blocks`、`protocol_errors`、`rule_interceptions`。遍历事件时只对
+  `total_blocks`、`protocol_errors`、`non_protocol_blocks`。遍历事件时只对
   normalized decision `block` 计数，最后断言/构造
-  `rule_interceptions = total_blocks - protocol_errors`。
+  `non_protocol_blocks = total_blocks - protocol_errors`。该补集包括 rule block、
+  baseline/circuit-breaker/runtime 等 operational block，不称为 rule hit。
 - `stats_summary.rs` 保留现有 `Interception (block)` 行，并从 aggregate 显示
   两个子计数；不得保留 renderer-local 重算。
-- `observe_summary_json` additive 输出同一个 `block_counts`，因此 summary 与
-  health JSON 自动 parity。`decision_counts` 原样保留。
+- `observe_summary_json` additive 输出同一个 `block_counts`；summary 与 health
+  在显式选择相同 source/scope/window、因而读取相同 event set 时必须 parity。
+  保留 summary 7 天、health 24 小时的既有默认窗口，`decision_counts` 原样保留。
 - `schemas/observe-output.schema.json` 新增 `block_counts` property，要求上述
   三个非负整数、`additionalProperties: false`；不把它加入顶层 `required`，
   以便 schema 仍表达 additive/旧输出兼容。
@@ -81,7 +85,8 @@ GH-706
   “unavailable from installed runtime”。结构错误或算术不一致必须 raise
   `HealthReportError`，不得 silent fallback。
 - missing log 或 `event_count == 0` 时沿用 `no_data`；status 为 `no_data`，
-  markdown 不显示 0 风险结论。新 runtime observe 自身仍返回三个 0。
+  markdown 不显示 event/block-derived 的 0 风险结论；独立 triage/scorecard
+  precision evidence 继续呈现。新 runtime observe 自身仍返回三个 0。
 - report 继续使用现有 `SCHEMA_VERSION = 1` 的 additive object，并从该 object
   同时渲染 JSON/markdown；本变更不创建 `schemas/health-*.json`。
 
@@ -94,7 +99,7 @@ GH-706
 | B-003 | diagnostic serializer + project/global persistence tests | `bash tests/hooks/test_pre_bash_guard.sh` 与 `bash tests/hooks/test_pre_write_guard.sh` 的 adversarial sentinel cases |
 | B-004 | `PreWriteCheck::U16BaselineUnreadable` + aggregate classifier | `cargo test --manifest-path vibeguard-runtime/Cargo.toml baseline_unreadable`；`bash tests/test_observe.sh` |
 | B-005 | `ObserveAggregate.block_counts` | `cargo test --manifest-path vibeguard-runtime/Cargo.toml block_counts`；`bash tests/test_observe.sh` |
-| B-006 | human renderer、summary/health JSON renderer、observe schema | `bash tests/test_observe.sh` |
+| B-006 | human renderer、summary/health JSON renderer、observe schema | `bash tests/test_observe.sh` 的相同 log/scope/all-history parity 断言 |
 | B-007 | unchanged `decision_counts` serialization | `bash tests/test_observe.sh` |
 | B-008 | `health-report.py` overview + markdown renderer | `bash tests/test_health_report.sh` |
 | B-009 | health consumer old-runtime fixture | `bash tests/test_health_report.sh` |
@@ -121,7 +126,7 @@ GH-706
   猜测，也不能满足“不派生持久化 raw payload”的边界。
 - 只在 human renderer 继续按 reason 拆分：拒绝。会继续造成 JSON 与 health
   consumer 漂移。
-- 旧 runtime 缺字段时用 `decision_counts.block` 推断全部为 rule interception：
+- 旧 runtime 缺字段时用 `decision_counts.block` 推断全部为 non-protocol block：
   拒绝。该推断无法区分 protocol error，必须显式 unavailable。
 
 ## 风险
@@ -139,11 +144,22 @@ GH-706
 - [ ] Unit tests：closed diagnostic categories、隐私 sentinel、baseline unreadable、
   legacy/new reason 分类与 block 算术。
 - [ ] Integration tests：Bash/Write 两类 hook 的 project/global 持久化；
-  observe human/summary JSON/health JSON parity 与 schema validation。
+  observe human/summary JSON/health JSON 在相同 source/scope/window 上的 parity
+  与 schema validation。
 - [ ] Consumer tests：health markdown/JSON 的 available、old-runtime unavailable、
   missing/empty no_data 与 malformed `block_counts` fail-loud。
-- [ ] Full focused verification：`cargo test --manifest-path vibeguard-runtime/Cargo.toml`、
-  `bash tests/test_observe.sh`、`bash tests/test_health_report.sh`。
+- [ ] Full focused verification：
+  `cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check`、
+  `cargo check --manifest-path vibeguard-runtime/Cargo.toml`、
+  `cargo test --manifest-path vibeguard-runtime/Cargo.toml`、
+  `bash scripts/ci/validate-hooks.sh`、
+  `bash scripts/ci/validate-hooks-manifest.sh`、
+  `bash tests/hooks/test_pre_bash_guard.sh`、
+  `bash tests/hooks/test_pre_write_guard.sh`、
+  `bash tests/test_observe.sh`、`bash tests/test_health_report.sh`、
+  `bash tests/test_manifest_contract.sh`、
+  `bash tests/test_workflow_contracts.sh`、
+  `bash scripts/local-contract-check.sh --quick`、`git diff --check`。
 
 ## 回滚方案
 

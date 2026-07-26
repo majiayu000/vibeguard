@@ -108,7 +108,7 @@ if data["duration_stats"]["slow_count"] != 3:
 expected_blocks = {
     "total_blocks": 4,
     "protocol_errors": 1,
-    "rule_interceptions": 3,
+    "non_protocol_blocks": 3,
 }
 if data.get("block_counts") != expected_blocks:
     raise SystemExit(f"unexpected block split: {data.get('block_counts')}")
@@ -126,7 +126,7 @@ data = json.load(open(sys.argv[1], encoding="utf-8"))
 if data.get("block_counts") != {
     "total_blocks": 4,
     "protocol_errors": 1,
-    "rule_interceptions": 3,
+    "non_protocol_blocks": 3,
 }:
     raise SystemExit(f"health JSON block split drifted: {data.get('block_counts')}")
 attention_statuses = {entry["status"] for entry in data["attention_states"]}
@@ -144,6 +144,19 @@ if len(elapsed_slow) != 1:
 for entry in data["diagnostics"]:
     if entry["status"] in {"pass", "skipped", "slow", "timeout", "hook_error"} and entry["model_context"]:
         raise SystemExit(f"diagnostic must not inject model context: {entry}")
+PY
+assert_cmd "summary and health JSON share block counts for the same source and all-history window" python3 - <<'PY' "${SUMMARY_JSON}" "${HEALTH_JSON}"
+import json
+import sys
+
+summary = json.load(open(sys.argv[1], encoding="utf-8"))
+health = json.load(open(sys.argv[2], encoding="utf-8"))
+if summary["source"] != health["source"]:
+    raise SystemExit(f"source selection drifted: {summary['source']} != {health['source']}")
+if summary["event_count"] != health["event_count"]:
+    raise SystemExit(f"event set drifted: {summary['event_count']} != {health['event_count']}")
+if summary["block_counts"] != health["block_counts"]:
+    raise SystemExit(f"block count parity failed: {summary['block_counts']} != {health['block_counts']}")
 PY
 
 header "session json"
@@ -168,7 +181,7 @@ human_out="$("${RUNTIME}" observe summary --days all --log-file "${EVENT_LOG}" -
 assert_contains "${human_out}" "VibeGuard Statistics (all history)" "human: summary has stats title"
 assert_contains "${human_out}" "Distributed by Hook:" "human: summary includes hook distribution"
 assert_contains "${human_out}" "Interception (block): 4 times" "human: summary preserves total block count"
-assert_contains "${human_out}" "rule interceptions: 3 times" "human: summary uses shared rule interception count"
+assert_contains "${human_out}" "non-protocol blocks: 3 times" "human: summary uses shared non-protocol block count"
 assert_contains "${human_out}" "protocol errors (malformed hook input, not rule hits): 1 times" "human: summary uses shared protocol error count"
 
 header "read-only repeatability"
@@ -184,7 +197,7 @@ EMPTY_LOG="${TMP_DIR}/empty-events.jsonl"
 : > "${EMPTY_LOG}"
 empty_json="$("${RUNTIME}" observe summary --json --days all --log-file "${EMPTY_LOG}")"
 assert_cmd "empty summary exposes zero block counts" python3 -c \
-  'import json,sys; data=json.loads(sys.argv[1]); assert data["event_count"] == 0; assert data["block_counts"] == {"total_blocks":0,"protocol_errors":0,"rule_interceptions":0}' \
+  'import json,sys; data=json.loads(sys.argv[1]); assert data["event_count"] == 0; assert data["block_counts"] == {"total_blocks":0,"protocol_errors":0,"non_protocol_blocks":0}' \
   "${empty_json}"
 
 header "missing explicit log"

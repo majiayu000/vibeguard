@@ -19,7 +19,7 @@ error，导致隐私边界和统计口径都不可信。
 
 - 保持 pre-Bash / pre-Write malformed input 的 fail-closed 行为不变，同时用安全、
   可测试的结构诊断区分输入失败形状。
-- 把全部 block 稳定拆为 `protocol_errors` 与 `rule_interceptions`，并让 human、
+- 把全部 block 稳定拆为 `protocol_errors` 与 `non_protocol_blocks`，并让 human、
   observe JSON 与 health report 使用同一口径。
 - 保持现有 `decision_counts` 兼容，并显式处理旧 runtime 与空窗口。
 
@@ -34,13 +34,16 @@ error，导致隐私边界和统计口径都不可信。
 ## Behavior Invariants
 
 1. B-001 pre-Bash / pre-Write 收到无法验证的 malformed input 时仍须 fail closed；
-   本变更不得把 empty stdin、invalid JSON、required field 缺失/空/类型错误改成
-   pass、warn 或 silent skip。
+   本变更不得把 empty stdin、invalid JSON、required field 缺失/类型错误或 Write
+   的空 `file_path` 改成 pass、warn 或 silent skip。唯一兼容例外是合法 Bash JSON
+   中字符串 `tool_input.command == ""`，它继续沿用既有 no-op，不产生 block 或
+   protocol diagnostic。
 2. B-002 protocol diagnostic 的 `category` 只能是闭集
    `empty_stdin`、`invalid_json`、`missing_required_field`；空白 stdin 归入
    `empty_stdin`，JSON 解析失败归入 `invalid_json`，JSON 合法但
-   `tool_input.command` / `tool_input.file_path` 缺失、为空或非字符串归入
-   `missing_required_field`。
+   `tool_input.command` 缺失/非字符串以及 `tool_input.file_path` 缺失/为空/非字符串
+   归入 `missing_required_field`；合法 Bash JSON 的空 command 由 B-001 的窄 no-op
+   例外处理，不归入 malformed category。
 3. B-003 持久化 diagnostic 只能包含固定键及闭集枚举/布尔/非负数值等结构元数据，
    例如 category、required-field class、input size、已归一化的 tool/event
    class；project/global event logs 均不得包含或派生保存 raw stdin、payload
@@ -50,25 +53,29 @@ error，导致隐私边界和统计口径都不可信。
    closed，但必须使用独立的 baseline-unreadable reason/category；它不是
    `protocol_errors`，且 diagnostic 不得原样持久化 file path 或读取错误文本。
 5. B-005 对任意非空统计窗口，`total_blocks = protocol_errors +
-   rule_interceptions`，三者均为非负整数；`total_blocks` 同时等于
+   non_protocol_blocks`，三者均为非负整数；`non_protocol_blocks` 包含 rule、
+   baseline unreadable、circuit-breaker 与其他非 protocol block，不表示或暗示
+   全部都是 rule hit；`total_blocks` 同时等于
    `decision_counts.block`（字段缺失时按 0）。
 6. B-006 human `observe summary` 必须保留现有总 block 行并 additive 展示
-   `protocol_errors` 与 `rule_interceptions`；`observe summary --json` 与
-   `observe health --json` 必须 additive 返回同值的 optional `block_counts`
-   对象，human 与 JSON 不得各自重算出不同结果。
+   `protocol_errors` 与 `non_protocol_blocks`；当 source、scope、window 与最终
+   event set 相同时，`observe summary --json` 与 `observe health --json` 必须
+   additive 返回同值的 optional `block_counts` 对象，human 与 JSON 不得各自
+   重算出不同结果。本变更不改变 summary 7 天与 health 24 小时的既有默认窗口。
 7. B-007 现有 `decision_counts` 的字段名、计数语义与 presence 保持兼容；
    protocol split 不得从 `decision_counts.block` 扣除事件，也不得把 protocol
    error 改写成新的 decision。
 8. B-008 health report 在收到 `block_counts` 时，markdown 与 JSON overview
    必须展示与 observe summary 相同的 `total_blocks`、`protocol_errors`、
-   `rule_interceptions`，并明确标记该 split 为 available。
+   `non_protocol_blocks`，并明确标记该 split 为 available。
 9. B-009 非空窗口使用缺少 `block_counts` 的旧 runtime 时，health report 必须在
    markdown 与 JSON 中显式标记 block split 为 `unavailable`；不得把全部 block
-   猜成 rule interception、从 reason 文本自行重算或把 unavailable 伪装成 0。
+   猜成 non-protocol block、从 reason 文本自行重算或把 unavailable 伪装成 0。
 10. B-010 event log 缺失或筛选窗口内无事件时，health report 必须保持显式
-    `no_data`，不产出风险结论；新 runtime 的空窗口 observe JSON 可返回三个 0
-    的 `block_counts`，但 health report 的 no-data 判定优先于 available/
-    unavailable。
+    `no_data`，不产出 event/block-derived 的零风险或健康结论；来自独立 triage /
+    scorecard 的 precision risk 证据仍须保留。新 runtime 的空窗口 observe JSON
+    可返回三个 0 的 `block_counts`，但 health report 的 no-data 判定优先于
+    available/unavailable。
 11. B-011 读取存量 event logs 时，既有 malformed Bash/Write reasons 仍须归入
     protocol error；PR #707 已写入、detail 表示 U-16 baseline unreadable 的
     legacy Write 事件必须从 protocol error 排除。兼容读取不得修改旧日志。
@@ -79,12 +86,14 @@ error，导致隐私边界和统计口径都不可信。
 
 - [ ] adversarial malformed payload 在 project/global logs 中均只留下闭集结构
   元数据，secret、command、content、payload head 与未知 free text 均不可见。
-- [ ] empty stdin、invalid JSON、missing/empty/non-string required field 的 Bash
-  与 Write 路径都保持 block，并得到正确 category。
+- [ ] empty stdin、invalid JSON、Bash command 缺失/非字符串以及 Write file_path
+  缺失/空/非字符串都保持 block 并得到正确 category；合法 Bash 空 command 保持
+  既有 no-op。
 - [ ] baseline unreadable 有独立 reason/category、保持 block，且不计入
   `protocol_errors`。
 - [ ] human summary、observe summary/health JSON、health-report markdown/JSON
-  在混合 fixture 上满足同一计数关系并保持 `decision_counts`。
+  在相同 source/scope/window/event set 的混合 fixture 上满足同一计数关系并保持
+  `decision_counts`。
 - [ ] 旧 runtime 非空输出显示 `unavailable`；缺失日志与空窗口显示 `no_data`。
 
 ## 边界情况清单

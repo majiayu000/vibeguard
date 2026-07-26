@@ -7,7 +7,7 @@ use crate::event_schema::{UNKNOWN, decision, field, status};
 pub(super) struct BlockCounts {
     pub(super) total_blocks: u64,
     pub(super) protocol_errors: u64,
-    pub(super) rule_interceptions: u64,
+    pub(super) non_protocol_blocks: u64,
 }
 
 pub(super) struct ObserveAggregate {
@@ -77,7 +77,7 @@ pub(super) fn aggregate_events(events: &[Value], slow_ms: u64) -> ObserveAggrega
             aggregate.durations_ms.push(duration_ms);
         }
     }
-    aggregate.block_counts.rule_interceptions =
+    aggregate.block_counts.non_protocol_blocks =
         aggregate.block_counts.total_blocks - aggregate.block_counts.protocol_errors;
     aggregate.durations_ms.sort_unstable();
     aggregate
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(aggregate.decision_counts.get("block"), Some(&5));
         assert_eq!(aggregate.block_counts.total_blocks, 5);
         assert_eq!(aggregate.block_counts.protocol_errors, 2);
-        assert_eq!(aggregate.block_counts.rule_interceptions, 3);
+        assert_eq!(aggregate.block_counts.non_protocol_blocks, 3);
     }
 
     #[test]

@@ -160,6 +160,9 @@ result=$(echo '{"tool_input":{}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Missing Bash command field fails closed"
 assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "category=missing_required_field" "Missing Bash command field logs required-field diagnostic"
 
+result=$(echo '{"tool_input":{"command":42}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Non-string Bash command field fails closed"
+
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
 unknown_tool_sentinel='VG_UNKNOWN_BASH_TOOL_706'
 result=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"bash_id":"x"}}\n' "$unknown_tool_sentinel" | bash hooks/pre-bash-guard.sh)
@@ -168,7 +171,7 @@ assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name_class=othe
 assert_not_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "$unknown_tool_sentinel" "Non-Bash tool payload does not persist unknown tool_name"
 
 result=$(echo '{"tool_input":{"command":""}}' | bash hooks/pre-bash-guard.sh)
-assert_not_contains "$result" '"decision": "block"' "Empty Bash command string remains a no-op"
+assert_not_contains "$result" '"decision": "block"' "Empty Bash command string preserves the legacy no-op compatibility exception"
 
 missing_runtime_result=$(run_pre_bash_without_runtime)
 assert_contains "$missing_runtime_result" "vibeguard-runtime not found" "Missing runtime emits explicit diagnostic"

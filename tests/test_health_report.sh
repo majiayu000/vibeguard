@@ -94,10 +94,10 @@ if [[ "$command_name" == "summary" ]]; then
       printf '%s\n' '{"event_count":2,"decision_counts":{"block":1,"pass":1},"time_range":{"first_ts":"2026-07-01T00:00:00Z","last_ts":"2026-07-01T00:00:01Z"},"attention":{"rate":0.5},"top_rule_ids":[]}'
       ;;
     bad_structure)
-      printf '%s\n' '{"event_count":2,"decision_counts":{"block":1,"pass":1},"block_counts":{"total_blocks":"1","protocol_errors":0,"rule_interceptions":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
+      printf '%s\n' '{"event_count":2,"decision_counts":{"block":1,"pass":1},"block_counts":{"total_blocks":"1","protocol_errors":0,"non_protocol_blocks":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
       ;;
     bad_arithmetic)
-      printf '%s\n' '{"event_count":2,"decision_counts":{"block":2},"block_counts":{"total_blocks":2,"protocol_errors":2,"rule_interceptions":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
+      printf '%s\n' '{"event_count":2,"decision_counts":{"block":2},"block_counts":{"total_blocks":2,"protocol_errors":2,"non_protocol_blocks":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
       ;;
     *)
       exit 9
@@ -129,7 +129,7 @@ assert_contains "$md_out" "pass=1" "markdown includes pass decision count"
 assert_contains "$md_out" "Block split: **available**" "markdown marks block split available"
 assert_contains "$md_out" "Total blocks: 1" "markdown includes total block count"
 assert_contains "$md_out" "Protocol errors: 0" "markdown includes protocol error count"
-assert_contains "$md_out" "Rule interceptions: 1" "markdown includes rule interception count"
+assert_contains "$md_out" "Non-protocol blocks: 1" "markdown includes non-protocol block count"
 
 header "json output"
 json_out="$(run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
@@ -156,6 +156,8 @@ assert_contains "$nodata_out" "NO DATA" "missing event log renders explicit no-d
 nodata_json="$(run_report --days 7 --log-file "${TMP_DIR}/does-not-exist.jsonl" --triage-file "${TRIAGE_CLEAN}" --format json)"
 assert_contains "$nodata_json" '"block_counts_status": "no_data"' "missing event log JSON prioritizes no-data state"
 assert_contains "$nodata_json" '"block_counts": null' "missing event log JSON does not report zero-risk split"
+assert_contains "$nodata_json" '"RS-03"' "no-data report retains independent precision evidence"
+assert_contains "$nodata_json" '"at_risk": true' "no-data report retains independent precision risk conclusion"
 
 EMPTY_EVENTS="${TMP_DIR}/empty-events.jsonl"
 : > "${EMPTY_EVENTS}"

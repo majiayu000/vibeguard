@@ -308,7 +308,7 @@ fn observe_summary_json(
         "block_counts": {
             "total_blocks": aggregate.block_counts.total_blocks,
             "protocol_errors": aggregate.block_counts.protocol_errors,
-            "rule_interceptions": aggregate.block_counts.rule_interceptions,
+            "non_protocol_blocks": aggregate.block_counts.non_protocol_blocks,
         },
         "hook_counts": observe_map_to_json(&aggregate.hook_counts),
         "client_distribution": observe_map_to_json(&aggregate.client_distribution),

@@ -381,6 +381,10 @@ mod tests {
             classify_input(r#"{"tool_input":{}}"#, "/repo"),
             BashDecision::Block { .. }
         ));
+        assert!(matches!(
+            classify_input(r#"{"tool_input":{"command":42}}"#, "/repo"),
+            BashDecision::Block { .. }
+        ));
         assert_eq!(
             classify_input(r#"{"tool_input":{"command":""}}"#, "/repo"),
             BashDecision::Empty

@@ -64,8 +64,8 @@ pub(super) fn render_stats_summary(
     let block_total = aggregate.block_counts.total_blocks;
     output.push_str(&format!("  Interception (block): {block_total} times\n"));
     output.push_str(&format!(
-        "    rule interceptions: {} times\n",
-        aggregate.block_counts.rule_interceptions
+        "    non-protocol blocks: {} times\n",
+        aggregate.block_counts.non_protocol_blocks
     ));
     output.push_str(&format!(
         "    protocol errors (malformed hook input, not rule hits): {} times\n",
@@ -538,7 +538,7 @@ mod tests {
         };
 
         assert!(output.contains("Interception (block): 4 times"));
-        assert!(output.contains("rule interceptions: 2 times"));
+        assert!(output.contains("non-protocol blocks: 2 times"));
         assert!(output.contains("protocol errors (malformed hook input, not rule hits): 2 times"));
     }
 }
