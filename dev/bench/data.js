@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785089628865,
+  "lastUpdate": 1785089850799,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -53414,6 +53414,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 13,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af5f9e23c803e707a91404f62cbb94262ecba79f",
+          "message": "fix: close review findings from the main audit (specs index, paired test split, gate honesty) (#697)\n\n* fix(docs): sync specs index and add drift validator\n\nIndex the 11 implemented spec directories missing from docs/specs/README.md\n(GH539-543, GH551, GH605, GH608, GH611, GH632, GH660) and add\nscripts/ci/validate-specs-index.sh so the index can no longer drift from\nthe on-disk GH<n>/ directories. Wired into CI and local-contract-check\nwith fixture-based regression tests.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* refactor(eval): split paired eval tests by domain\n\nReplace the single 800-line test_paired_eval.py (kept under the U-16\nceiling by deleting a blank line in bbc4b1a) with a real decomposition:\nremoval/dataset/judge/real-execution modules plus a shared helper.\ntest_paired_eval.py stays as the aggregate entry point so the documented\n'python3 eval/test_paired_eval.py' verify command still runs all 23\ntests.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* docs(eval): state paired gate is manual attestation\n\nCI only asserts the PR-template evidence section exists and runs the\ndeterministic unit suite; it does not run the paired eval against the\nrule diff or cross-check attested numbers against the attached report.\nSay so explicitly in the GH686 tech spec and both PR templates so the\ngate is not mistaken for an automated one.\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix: close remaining review gaps\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix: handle an empty specs index\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-07-27T01:47:08+08:00",
+          "tree_id": "7360c95ff3c2b578d147afd61ada92840f30cd57",
+          "url": "https://github.com/majiayu000/vibeguard/commit/af5f9e23c803e707a91404f62cbb94262ecba79f"
+        },
+        "date": 1785089849747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 62,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 63,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 63,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 63,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 55,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 62,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 64,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 10,
             "unit": "ms"
           }
         ]
