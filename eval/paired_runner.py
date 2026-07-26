@@ -371,7 +371,10 @@ def load_non_target_dataset(
             if not raw.strip():
                 continue
             try:
-                sample = json.loads(raw)
+                sample = json.loads(
+                    raw,
+                    object_pairs_hook=_reject_duplicate_json_keys,
+                )
             except json.JSONDecodeError as exc:
                 raise DatasetError(
                     f"{path}:{line_number}: invalid JSON: {exc.msg}"

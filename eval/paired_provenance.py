@@ -94,7 +94,6 @@ def evaluated_provenance_paths(
         ],
     )
     return [
-        rules_dir,
         *sorted(rules_dir.rglob("*.md")),
         core_file,
         target_path,

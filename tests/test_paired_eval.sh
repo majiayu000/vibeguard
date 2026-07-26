@@ -61,6 +61,7 @@ class FinalReviewRegressionTest(unittest.TestCase):
             )
         })
         self.assertTrue(expected.issubset(paths), expected - paths)
+        self.assertNotIn(paired.DEFAULT_RULES_DIR.resolve(), paths)
 
     def test_cli_pins_commit_before_local_evaluator_imports(self):
         source = (
@@ -154,6 +155,51 @@ class FinalReviewRegressionTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(paired.PairedEvalError, "duplicate"):
                 paired.load_paired_thresholds(path)
+
+    def test_duplicate_non_target_keys_are_rejected(self):
+        known_rules = set(paired.canonical_rule_inventory(paired.DEFAULT_RULES_DIR))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "non-target.jsonl"
+            path.write_text(
+                '{"id":"one","task":"t","input":"i","rubric":"r",'
+                '"excluded_rules":["U-18"],"excluded_rules":[]}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(paired.PairedEvalError, "duplicate"):
+                paired.load_non_target_dataset(path, known_rules)
+
+    def test_placebo_producer_order_is_counterbalanced(self):
+        samples = [
+            {"id": "one", "task": "t", "input": "i", "rubric": "r"},
+            {"id": "two", "task": "t", "input": "i", "rubric": "r"},
+        ]
+        calls = []
+
+        def producer(_client, _model, prompt, sample):
+            calls.append((sample["id"], prompt))
+            return {"id": sample["id"], "score": 1.0}
+
+        with patch.object(execution, "evaluate_sample", side_effect=producer):
+            _, _, stage, schedule = execution.run_paired_target_samples(
+                Mock(),
+                "producer",
+                "WITH",
+                "PLACEBO",
+                samples,
+                stage_prefix="placebo",
+            )
+        self.assertIsNone(stage)
+        self.assertIn("WITH", calls[0][1])
+        self.assertIn("PLACEBO", calls[1][1])
+        self.assertIn("PLACEBO", calls[2][1])
+        self.assertIn("WITH", calls[3][1])
+        self.assertEqual(
+            schedule,
+            [
+                {"id": "one", "first_arm": "with"},
+                {"id": "two", "first_arm": "without"},
+            ],
+        )
 
     def test_non_target_producer_order_is_counterbalanced(self):
         samples = [

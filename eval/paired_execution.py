@@ -134,6 +134,8 @@ def run_paired_target_samples(
     with_rules: str,
     without_rules: str,
     samples: list[dict],
+    *,
+    stage_prefix: str = "target",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None, list[dict[str, str]]]:
     prompts = {
         "with": build_system_prompt(with_rules),
@@ -147,7 +149,7 @@ def run_paired_target_samples(
         schedule.append({"id": sample["id"], "first_arm": first_arm})
         sample_results: dict[str, dict[str, Any]] = {}
         for arm in arms:
-            stage = f"target_{arm}"
+            stage = f"{stage_prefix}_{arm}"
             try:
                 sample_results[arm] = evaluate_sample(
                     client, model, prompts[arm], sample
@@ -157,13 +159,15 @@ def run_paired_target_samples(
                 for missing_arm in ("with", "without"):
                     sample_results.setdefault(
                         missing_arm,
-                        _interrupted_target_result(sample, f"target_{missing_arm}"),
+                        _interrupted_target_result(
+                            sample, f"{stage_prefix}_{missing_arm}"
+                        ),
                     )
                 for result_arm in ("with", "without"):
                     results[result_arm].append(sample_results[result_arm])
                     results[result_arm].extend(
                         _interrupted_target_result(
-                            remaining, f"target_{result_arm}"
+                            remaining, f"{stage_prefix}_{result_arm}"
                         )
                         for remaining in samples[index + 1:]
                     )
@@ -444,29 +448,45 @@ def execute_real_run(
     placebo_report = None
     if placebo:
         if interruption_stage:
+            placebo_schedule: list[dict[str, str]] = []
+            placebo_baseline_results = [
+                _interrupted_target_result(sample, "placebo_with")
+                for sample in target_samples
+            ]
             placebo_results = [
-                _interrupted_target_result(sample, "placebo")
+                _interrupted_target_result(sample, "placebo_without")
                 for sample in target_samples
             ]
         else:
-            placebo_results, interrupted = run_target_samples(
+            (
+                placebo_baseline_results,
+                placebo_results,
+                placebo_interruption,
+                placebo_schedule,
+            ) = run_paired_target_samples(
                 client,
                 producer_model,
+                with_rules,
                 placebo["rules"],
                 target_samples,
-                stage="placebo",
+                stage_prefix="placebo",
             )
-            if interrupted:
-                interruption_stage = "placebo"
+            if placebo_interruption:
+                interruption_stage = placebo_interruption
         placebo_axis = compute_target_axis(
-            target_with_results, placebo_results, len(target_samples), thresholds
+            placebo_baseline_results,
+            placebo_results,
+            len(target_samples),
+            thresholds,
         )
         placebo_report = {
             "candidate": placebo["candidate"],
             "identity_without": placebo["identity"],
             "rule_text_characters_without": len(placebo["rules"]),
             "rule_text_character_delta": len(with_rules) - len(placebo["rules"]),
+            "producer_schedule": placebo_schedule,
             "target_axis": placebo_axis,
+            "baseline_results": placebo_baseline_results,
             "without_results": placebo_results,
             "removal": serializable_removal_evidence(placebo["evidence"]),
         }
