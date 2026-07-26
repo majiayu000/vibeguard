@@ -1,6 +1,6 @@
 # Spec: Make Learn a first-class signal inbox
 
-- Status: Draft
+- Status: Implemented
 - Date: 2026-06-25
 - Owner: @majiayu000
 - Readiness: plan_first

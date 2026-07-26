@@ -1,6 +1,6 @@
 # Spec: Decompose oversized test and runtime support files
 
-- Status: Draft
+- Status: Implemented
 - Date: 2026-06-04
 - Owner: @majiayu000
 - Issue: https://github.com/majiayu000/vibeguard/issues/375

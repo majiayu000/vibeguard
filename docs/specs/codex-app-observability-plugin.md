@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft implementation for the repo-local VibeGuard Codex plugin.
+Implemented reference for the repo-local VibeGuard Codex plugin (GH-423, PR #424).
 
 ## Problem
 
