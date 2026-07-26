@@ -10,6 +10,7 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 python3 -m py_compile "${REPO_DIR}/eval/run_paired_eval.py"
 python3 "${REPO_DIR}/eval/test_paired_eval.py"
 PYTHONPATH="${REPO_DIR}/eval" python3 - <<'PY'
+import json
 import sys
 import tempfile
 import types
@@ -22,6 +23,35 @@ import run_paired_eval as paired
 
 
 class FinalReviewRegressionTest(unittest.TestCase):
+    def test_empty_non_target_axis_is_inconclusive(self):
+        thresholds = {
+            "min_non_target_samples": 0,
+            "max_non_target_drop": 0.0,
+            "max_skip_rate": 0.1,
+            "max_skip_delta": 0.05,
+        }
+        axis = paired.compute_non_target_axis([], 0, thresholds)
+        self.assertEqual(axis["verdict"], "inconclusive")
+        self.assertIn("empty", " ".join(axis["reasons"]))
+
+    def test_zero_minimum_sample_threshold_is_rejected(self):
+        thresholds = {
+            "min_target_samples": 5,
+            "min_non_target_samples": 0,
+            "min_target_delta": 0.0,
+            "max_non_target_drop": 0.0,
+            "max_skip_rate": 0.1,
+            "max_skip_delta": 0.05,
+            "max_cross_refs": 4,
+            "max_placebo_length_ratio": 0.25,
+            "calibrated": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "thresholds.json"
+            path.write_text(json.dumps(thresholds), encoding="utf-8")
+            with self.assertRaisesRegex(paired.PairedEvalError, "min_non_target_samples"):
+                paired.load_paired_thresholds(path)
+
     def test_sec10_excludes_the_log_message_control(self):
         known_rules = set(paired.canonical_rule_inventory(paired.DEFAULT_RULES_DIR))
         samples = paired.load_non_target_dataset(
@@ -74,7 +104,7 @@ dry_run_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
     --candidate U-32 \
-    --placebo-candidate SEC-12 \
+    --placebo-candidate SEC-18 \
     --dry-run \
     --artifact-root "${TMP_DIR}/runs"
 )"
@@ -89,7 +119,7 @@ grep -qF "Producer model:" <<<"${dry_run_out}"
 grep -qF "Judge model: not required for dry-run" <<<"${dry_run_out}"
 grep -qF "Judge prompt digest:" <<<"${dry_run_out}"
 grep -qF "Rule text characters: with=" <<<"${dry_run_out}"
-grep -qF "Placebo candidate: SEC-12" <<<"${dry_run_out}"
+grep -qF "Placebo candidate: SEC-18" <<<"${dry_run_out}"
 grep -qF "Verdict: not produced in dry-run" <<<"${dry_run_out}"
 test ! -e "${TMP_DIR}/runs"
 
@@ -107,6 +137,21 @@ set -e
 test "${placebo_rc}" -ne 0
 grep -qF "placebo length ratio" <<<"${placebo_out}"
 test ! -e "${TMP_DIR}/placebo-runs"
+
+set +e
+placebo_cross_refs_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate SEC-12 \
+    --placebo-candidate U-32 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/placebo-cross-ref-runs" 2>&1
+)"
+placebo_cross_refs_rc=$?
+set -e
+test "${placebo_cross_refs_rc}" -ne 0
+grep -qF "placebo cross references exceed max_cross_refs" <<<"${placebo_cross_refs_out}"
+test ! -e "${TMP_DIR}/placebo-cross-ref-runs"
 
 set +e
 compact_out="$(

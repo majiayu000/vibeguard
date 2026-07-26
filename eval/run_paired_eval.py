@@ -434,10 +434,15 @@ def load_paired_thresholds(path: Path) -> dict[str, Any]:
         )
     if not isinstance(thresholds["calibrated"], bool):
         raise PairedEvalError("threshold calibrated must be boolean")
-    for key in ("min_target_samples", "min_non_target_samples", "max_cross_refs"):
+    for key in ("min_target_samples", "min_non_target_samples"):
         value = thresholds[key]
-        if type(value) is not int or value < 0:
-            raise PairedEvalError(f"threshold {key} must be a non-negative integer")
+        if type(value) is not int or value <= 0:
+            raise PairedEvalError(f"threshold {key} must be a positive integer")
+    value = thresholds["max_cross_refs"]
+    if type(value) is not int or value < 0:
+        raise PairedEvalError(
+            "threshold max_cross_refs must be a non-negative integer"
+        )
     ratio_keys = THRESHOLD_KEYS - {
         "calibrated",
         "min_target_samples",
@@ -593,6 +598,12 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
                 len(with_rules) - len(placebo_rules),
                 thresholds["max_placebo_length_ratio"],
             )
+            if cross_reference_limit_exceeded(
+                placebo, int(thresholds["max_cross_refs"])
+            ):
+                raise PairedEvalError(
+                    "placebo cross references exceed max_cross_refs"
+                )
 
         print(
             "Paired runs: target-with, target-without, "

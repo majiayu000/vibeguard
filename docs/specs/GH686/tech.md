@@ -202,13 +202,14 @@ judge 模型身份与 judge prompt digest，不调用模型。
 
 当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。
 `max_skip_rate`、`max_skip_delta` 与 `max_placebo_length_ratio` 同样是新拍的数字。所有
-比例阈值必须是 0–1 的有限数，样本量与引用上限必须是非负整数；JSON `NaN` 不得静默
-绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
+比例阈值必须是 0–1 的有限数，两个最小样本阈值必须是正整数，引用上限必须是非负整数；
+JSON `NaN` 不得静默绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
 若将来分项标定，改为逐键标注。
 
 placebo 长度资格比较使用 `len(with_rules) - len(without_rules)` 的完整 prompt 差值；
 候选和 placebo 都必须在各自原生小节及 core ID 行处理完成后再比较。只比较
 `removed_section_characters` 会漏掉 core 行，使真实上下文差超过 25% 的组合被错误接受。
+placebo 的残留交叉引用同样用 `max_cross_refs` 检查，超限时在进入模型循环前拒绝。
 
 未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
 **inconclusive 报告加两轴 delta 数值与样本量**，不是 `pass`（B-009）。
@@ -256,7 +257,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
-| B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
+| B-006 | 正整数样本量下限；空轴 → inconclusive | `bash tests/test_paired_eval.sh`（零下限被拒；空非目标轴 fail closed） |
 | B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report + 预留报告路径 | `python3 eval/test_paired_eval.py`（不可写 artifact root 零模型调用失败；空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
 | B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
@@ -264,7 +265,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
-| B-014 | 标定流程的不同规则、按完整 prompt 差值校验长度的 placebo | `bash tests/test_paired_eval.sh`（U-21/U-16 原生小节相近但完整差值超限时拒绝） |
+| B-014 | 标定流程的不同规则、按完整 prompt 差值校验长度且受交叉引用上限约束的 placebo | `bash tests/test_paired_eval.sh`（U-21/U-16 完整差值超限时拒绝；U-32 作为 placebo 时因交叉引用超限在调用前拒绝） |
 | B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
 
 ## 数据流

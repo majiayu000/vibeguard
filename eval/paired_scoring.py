@@ -207,7 +207,9 @@ def compute_non_target_axis(
         reasons.append("judge skip rate exceeds max_skip_rate")
     if conflicts:
         reasons.append(f"judge conflict on {conflicts} sample(s)")
-    if requested < thresholds["min_non_target_samples"]:
+    if requested == 0:
+        reasons.append("non-target sample set is empty")
+    elif requested < thresholds["min_non_target_samples"]:
         reasons.append("non-target sample count is below min_non_target_samples")
     with_wins = sum(1 for result in judge_results if result.get("outcome") == "with_win")
     without_wins = sum(
