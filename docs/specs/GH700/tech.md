@@ -383,7 +383,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | Actual launcher | **待 GH-699 implementation merge 后由 no-clone fixture 探测并记录**；不得先写 guessed shim path | fresh HOME install invokes discovered user command and proves it reaches the same current-exe digest |
 | Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code materialize byte-identical readonly temp snapshot，不复制 detector | layout/digest/permission matrix + subprocess timer spy + existing `bash tests/test_hook_perf_contract.sh` |
 | Report/readme | planned **schemas/public_benchmark_report.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | 3×3 axis golden; generated marker freshness; invalid axis has no numeric cell |
-| Release/failure evidence | `.github/workflows/release.yml`, planned **scripts/ci/package_benchmark_evidence.py**, `tests/test_release_workflow.sh` | forced block uploads content-addressed attested bundle then fails; publish step absent |
+| Release/failure evidence | `.github/workflows/release.yml`, planned **scripts/ci/package_benchmark_evidence.py**, **scripts/ci/publish_benchmark_failure_record.py**, **schemas/public_benchmark_failure_manifest.schema.json**, `tests/test_release_workflow.sh`, planned **tests/fixtures/public_benchmark/failure_records/** | `bash tests/test_public_benchmark.sh && bash tests/test_release_workflow.sh`: forced block writes the retention-independent full-manifest predicate/append-only ledger before failing; test deletes the short-term bundle, retrieves the permanent record by run/attempt/digest, validates the full manifest schema, recomputes `failure_manifest_digest`, checks closed reason/provenance, and proves Release/current-row publish steps absent |
 | End-to-end regressions | planned **tests/test_public_benchmark.sh**, **tests/fixtures/public_benchmark/** | official/unofficial, identity, five classes, privacy, concurrency, interruption, digests, wrapper latency and release sentinels |
 
 Implementation completion commands:
@@ -449,9 +449,19 @@ release source commit
                                    └─ non-valid summary/row ──> publish
 ```
 
-没有网络调用或用户数据输入。持久化面只有 caller 选择的本次 report 与 release CI
-artifact；temp fixtures/logs 在本次 run 内清理。README 只消费已发布、digest-matched
-summary，不消费本地 stdout。
+没有网络调用或用户数据输入。持久化面是以下闭集，不能省略 B-029 的长期记录：
+
+1. caller 显式选择的本次 local report；
+2. valid/`publish_nonvalid` release artifacts，以及 `block_release` 的短期
+   content-addressed failure bundle；
+3. `block_release` 必须写入的 retention-independent permanent attestation predicate
+   或 append-only immutable ledger；该长期记录内嵌完整 per-attempt canonical failure
+   manifest，并以 `(run_id, run_attempt, failure_manifest_digest)` 独立检索。
+
+temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三项，
+验证者仍能从 permanent predicate/ledger 恢复完整 manifest、通过 schema、复算 digest
+并核对 closed reason/provenance。README 只消费已发布、digest-matched summary，不消费
+本地 stdout 或 blocked-candidate permanent record。
 
 ## 备选方案
 
