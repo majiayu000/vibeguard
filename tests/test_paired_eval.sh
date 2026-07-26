@@ -9,6 +9,66 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 python3 -m py_compile "${REPO_DIR}/eval/run_paired_eval.py"
 python3 "${REPO_DIR}/eval/test_paired_eval.py"
+PYTHONPATH="${REPO_DIR}/eval" python3 - <<'PY'
+import sys
+import tempfile
+import types
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import paired_execution as execution
+import run_paired_eval as paired
+
+
+class FinalReviewRegressionTest(unittest.TestCase):
+    def test_sec10_excludes_the_log_message_control(self):
+        known_rules = set(paired.canonical_rule_inventory(paired.DEFAULT_RULES_DIR))
+        samples = paired.load_non_target_dataset(
+            paired.DEFAULT_NON_TARGET_DATASET, known_rules
+        )
+        selected_ids = {
+            sample["id"] for sample in paired.select_non_target_samples(samples, "SEC-10")
+        }
+        self.assertNotIn("non-target-19", selected_ids)
+
+    def test_unknown_commit_fails_before_client_creation(self):
+        anthropic_factory = Mock()
+        anthropic_module = types.SimpleNamespace(Anthropic=anthropic_factory)
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.dict(sys.modules, {"anthropic": anthropic_module}),
+            patch.object(execution, "current_commit", return_value="unknown"),
+        ):
+            with self.assertRaisesRegex(execution.PairedExecutionError, "commit"):
+                execution.execute_real_run(
+                    producer_model="producer",
+                    judge_model="judge",
+                    candidate="U-01",
+                    with_rules="with",
+                    without_rules="without",
+                    target_samples=[],
+                    non_target_samples=[],
+                    identities={},
+                    thresholds={
+                        "min_target_samples": 5,
+                        "min_non_target_samples": 30,
+                        "min_target_delta": 0.0,
+                        "max_non_target_drop": 0.0,
+                        "max_skip_rate": 0.1,
+                        "max_skip_delta": 0.05,
+                        "max_cross_refs": 4,
+                        "calibrated": True,
+                    },
+                    removal_evidence={},
+                    cross_refs_exceeded=False,
+                    artifact_root=Path(tmp),
+                )
+        anthropic_factory.assert_not_called()
+
+
+unittest.main()
+PY
 
 dry_run_out="$(
   cd "${REPO_DIR}"

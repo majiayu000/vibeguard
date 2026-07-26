@@ -297,6 +297,10 @@ def execute_real_run(
     placebo: dict[str, Any] | None = None,
 ) -> int:
     evaluated_commit = current_commit(short=False)
+    if evaluated_commit == "unknown":
+        raise PairedExecutionError(
+            "cannot resolve evaluated commit; paired evidence requires a Git commit"
+        )
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
         import anthropic

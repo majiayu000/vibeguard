@@ -127,7 +127,8 @@ judge 比较的仍是 detection / false-positive 回答，不是普通任务质�
 B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_set_digest`，A2/B2 共用
 另一个；四次运行共用同一个解析后的模型 ID；A 与 B 的 `rule_digest` 必须不等。
 评测 commit SHA 与开始时间在进入模型循环前读取一次并固定；报告和 run 目录均使用这份
-值，结束时不得重新读取 HEAD。
+值，结束时不得重新读取 HEAD。commit 无法解析时必须在创建模型客户端之前 fail closed，
+不得开始付费调用。
 
 ### 4. 目标样本与非目标样本
 
@@ -251,7 +252,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 + 运行前固定 commit | `python3 eval/test_paired_eval.py`（报告 commit 不受运行中 HEAD 变化影响） |
+| B-002 | 按轴配对的摘要相等断言 + 运行前固定 commit | `bash tests/test_paired_eval.sh`（报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
