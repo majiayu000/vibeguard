@@ -161,6 +161,19 @@ assert len(sample_digest(samples)) == 64
 assert {sample["platform"] for sample in samples} >= {"claude", "codex"}
 ' "${REPO_DIR}/eval"
 
+header "paired prompt-rule PR evidence"
+pull_request_template="$(cat "${REPO_DIR}/templates/pull_request.md")"
+assert_contains "${pull_request_template}" "## Paired Prompt-Rule Evaluation" "PR template has a paired-eval evidence section"
+assert_contains "${pull_request_template}" "Target delta and sample count:" "paired evidence records target delta and sample count"
+assert_contains "${pull_request_template}" "Non-target delta and sample count:" "paired evidence records non-target delta and sample count"
+assert_contains "${pull_request_template}" "Producer model ID:" "paired evidence records producer model identity"
+assert_contains "${pull_request_template}" "Judge model ID:" "paired evidence records judge model identity"
+assert_contains "${pull_request_template}" "Judge prompt digest:" "paired evidence records judge prompt digest"
+assert_contains "${pull_request_template}" '`calibrated: false`' "uncalibrated evidence contract requires an inconclusive report"
+assert_contains "${pull_request_template}" "non-prompt-injection changes only" "paired-eval exemption is limited by change type"
+assert_contains "${pull_request_template}" "Maintainer approval:" "paired-eval exemption requires maintainer approval evidence"
+assert_cmd "paired eval deterministic regression suite passes" bash "${REPO_DIR}/tests/test_paired_eval.sh"
+
 echo
 echo "=============================="
 printf "Total: %d  Pass: \033[32m%d\033[0m  Fail: \033[31m%d\033[0m\n" "$TOTAL" "$PASS" "$FAIL"
