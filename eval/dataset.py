@@ -35,6 +35,19 @@ class DatasetError(ValueError):
     """Raised when an eval dataset is malformed."""
 
 
+class DuplicateJsonKeyError(ValueError):
+    """Raised when a JSON object repeats a key."""
+
+
+def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise DuplicateJsonKeyError(f"duplicate JSON key: {key}")
+        payload[key] = value
+    return payload
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -67,7 +80,14 @@ def load_dataset(path: Path | str = DEFAULT_DATASET_PATH) -> list[dict[str, Any]
             if not line:
                 continue
             try:
-                record = json.loads(line)
+                record = json.loads(
+                    line,
+                    object_pairs_hook=reject_duplicate_json_keys,
+                )
+            except DuplicateJsonKeyError as exc:
+                raise DatasetError(
+                    f"{dataset_path}:{line_number}: {exc}"
+                ) from exc
             except json.JSONDecodeError as exc:
                 raise DatasetError(
                     f"{dataset_path}:{line_number}: invalid JSON: {exc.msg}"

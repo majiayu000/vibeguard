@@ -181,6 +181,10 @@ class EvalErrorAccountingTest(unittest.TestCase):
 
         with self.assertRaises(run_eval.ScorerParseError):
             run_eval.parse_scorer_output("[SEC-01]: free-form legacy answer")
+        with self.assertRaisesRegex(run_eval.ScorerParseError, "duplicate JSON key"):
+            run_eval.parse_scorer_output(
+                '{"detected":true,"detected":false,"rule_ids":[]}'
+            )
 
     def test_non_json_model_reply_is_skipped(self) -> None:
         sample = {

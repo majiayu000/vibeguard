@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from dataset import DuplicateJsonKeyError, reject_duplicate_json_keys
+
 CONFIDENCE_SCORES = {
     "low": 0.33,
     "medium": 0.66,
@@ -27,7 +29,12 @@ def parse_confidence(reply: str) -> str | None:
 def parse_scorer_output(reply: str) -> dict[str, Any]:
     payload = _extract_json_object(reply)
     try:
-        parsed = json.loads(payload)
+        parsed = json.loads(
+            payload,
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
+    except DuplicateJsonKeyError as exc:
+        raise ScorerParseError(f"invalid JSON scorer output: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ScorerParseError(f"invalid JSON scorer output: {exc.msg}") from exc
 

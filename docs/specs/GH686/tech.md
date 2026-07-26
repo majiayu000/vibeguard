@@ -18,6 +18,7 @@ GH-686
 | 规则注入的**两个**来源 | `eval/run_eval.py:38`、`:225` | `load_rules(rules_dir, core_rules_file)` 先 `rglob` 规则目录，**再无条件拼上** `core_rules_file` | 决定性事实：只换 `--rules-dir` 不能移除候选规则 |
 | core 规则文件默认值 | `eval/run_eval.py:35` | `DEFAULT_CORE_RULES_FILE = claude-md/vibeguard-rules.md` | 该文件以**表格行**重复规则正文（`claude-md/vibeguard-rules.md:69` 是 U-16 那一行） |
 | 输入身份 | `eval/run_eval.py:227`、`:228`、`:230` | `rule_digest`、`dataset_digest`、`filtered_sample_digest` | B-002 的审计基础已存在 |
+| 输入提交归属 | `eval/run_paired_eval.py`、`eval/paired_provenance.py` | 入口先固定 commit；真实运行前后验证规则、core、数据集、阈值、模型基线与本地依赖闭包均由该 commit 跟踪且干净 | 防止把 worktree 内容或已加载旧模块错误归到 `HEAD` |
 | 模型解析 | `eval/run_eval.py:231` | `baseline.resolve(args.model)` | 两次运行必须解析到同一 ID |
 | 样本筛选 | `eval/run_eval.py:189` `filter_samples` | **前缀**匹配（`startswith`）**并强制附带** `rule == "NONE"` 的样本 | 不能用它做目标样本划分，会前缀误命中并混入 NONE |
 | 跳过样本 | `eval/run_eval.py:315-321` | `skipped_count > EVAL_MAX_API_FAILURES`（默认 0）→ `sys.exit(2)` | 作为库调用会直接打死配对运行器 |
@@ -54,6 +55,9 @@ GH-686
    文件边界吃到下一个文件——全仓当前 127 条定义中有 18 条处于这个位置（含 10 个单规则文件，
    如 `rules/claude-rules/common/evidence-provenance.md` 的 W-21）。
 
+   文件内候选 span 以 canonical `RULE_ID_HEADING_RE` 的下一条规则定义为边界，不以任意
+   `^## ` 为边界；否则 W-11 fenced 示例中的 `## Facts` 会被误当成下一条规则。
+
    因此断言直接比较**临时树与真实树**：
    - 只允许一个规则文件不同，且该文件的差异**恰为**候选小节；
    - core 文件的差异**恰为**该 ID 的表格行；
@@ -66,8 +70,9 @@ GH-686
 
 5. **定义计数断言**：复用现有独立 canonical parser
    `scripts/lib/vibeguard_manifest.py:35` 的 `RULE_ID_HEADING_RE` 识别定义；`with_text`
-   的定义数减去 `without_text` 的定义数**必须恰好等于 1**，且被删 span 内除首行外
-   不得再出现 `^## `。不得把 `strip_candidate` / `extract_section` 的正则拿来计数。
+   的定义数减去 `without_text` 的定义数**必须恰好等于 1**，且被删 span 内除首个候选
+   标题外不得再出现第二条 canonical 规则定义；普通 Markdown `##` 标题属于规则正文。
+   不得把 `strip_candidate` / `extract_section` 的结果本身拿来计数。
    canonical parser 当前覆盖 127 条定义，包括三个非数字后缀 ID：`TASTE-ANSI`、
    `TASTE-ASYNC-UNWRAP`、`TASTE-PANIC-MSG`。这条**不依赖剔除逻辑**，是专门用来抓
    "删多了"的非同源断言。
@@ -80,17 +85,18 @@ GH-686
 6. **定义位点 token 断言**：`without_text` 中不得出现候选的定义位点
    （`## <ID>:` 小节标题、core 表格行）。这条抓的是"删漏了"。
 
-**断言范围为什么不是全文（B-012）**：规则之间存在跨文件交叉引用。实测全仓 127 条规则
-定义中，**19 条**被其它规则文件的正文引用，例如 `U-32` 出现在
-`rules/claude-rules/common/security.md:121`、`:178`、`:202`。小节级剔除后这些引用仍在
-`without_text` 里，一条 `\b<ID>\b` 全文断言会让门对这 19 条规则**无条件终止** ——
-其中就包括 `U-32`，也就是本 issue 用来论证自身动机的那条规则。
+**断言范围为什么不是全文（B-012）**：规则之间存在跨文件交叉引用。按当前 `main`
+实测全仓 127 条规则定义中，**30 条**被其它规则文件的正文引用。`U-32` 的候选小节外
+引用现为 13 处（规格起草时记录的 4 处已因后续规则内容增长而过时）。小节级剔除后这些
+引用仍在 `without_text` 里，一条 `\b<ID>\b` 全文断言会让门对这 30 条规则**无条件
+终止**——其中就包括 `U-32`，也就是本 issue 用来论证自身动机的那条规则。
 
 这些交叉引用**无法消除**：删掉它们会改动其它规则的正文，直接违反 B-001 的"其余规则
 完全一致"。它们的偏置方向是保守的（without 仍向模型提示该 ID 存在，压缩而非放大 delta），
-但**残留多到一定程度对照就不成立**。因此：逐条列出 `文件:行号`，并在数量超过
-`max_cross_refs` 时判 `inconclusive` —— 只写进 caveat 不影响判定，等于"记录即免责"，
-会把"对照被严重污染"与"对照干净"输出成同一个 `pass`。
+但**残留多到一定程度对照就不成立**。因此：逐条列出真实规则树中的 `文件:行号`，并在
+数量超过 `max_cross_refs` 时判 `inconclusive` —— 只写进 caveat 不影响判定，等于
+"记录即免责"，会把"对照被严重污染"与"对照干净"输出成同一个 `pass`。默认阈值仍为
+4，不因 U-32 当前已有 13 处引用而放宽；U-32 应据此得到 `inconclusive`。
 
 同理，单规则文件剔除后 `load_rules` 仍会产出一个 `# {stem}` 空标题块，without 文本里
 留着"此处曾有一条规则"的痕迹。该残留一并在报告中标注。
@@ -121,13 +127,26 @@ judge 比较的仍是 detection / false-positive 回答，不是普通任务质�
 
 B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_set_digest`，A2/B2 共用
 另一个；四次运行共用同一个解析后的模型 ID；A 与 B 的 `rule_digest` 必须不等。
+评测 commit SHA 在入口导入任何仓库内评估器模块前固定；规则树（含全部 Markdown）、
+core、目标/非目标数据集、阈值文件、模型基线，以及从入口与外部清单模块按 Python
+import 关系递归推导的本地依赖闭包必须全部位于仓内、由该 commit 跟踪且无
+staged/unstaged/untracked 变化。完成输入准备后、进入模型循环前再次验证 commit 与这些
+路径仍一致；每个文件还要以带 `--path` 的 `git hash-object` 经 Git text filter 对比固定
+commit 的 blob，既不能依赖会被 assume-unchanged/skip-worktree 隐藏的 porcelain 状态，
+也不能把合法 CRLF checkout 当成漂移。报告和 run 目录均
+使用这份固定值，结束时不得重新读取 HEAD。commit 无法解析或输入无法归属时必须在创建
+模型客户端之前 fail closed，不得开始付费调用。dry-run 不产出证据，可读取本地未提交
+输入用于检查。
 
 ### 4. 目标样本与非目标样本
 
 - 目标样本：`rule == <candidate>` 的**精确**匹配。**不得复用 `filter_samples`**，它是
   前缀匹配且强制混入 `NONE` 样本，两者都会污染目标轴。
-- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入与
-  明确的质量 rubric；它不复用只支持 tp/fp 的现有 dataset schema。
+- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入、
+  明确的质量 rubric 与 `excluded_rules`；若候选 ID 在该列表中，本次运行排除该样本，
+  防止候选相关任务被误算为非目标副作用。`excluded_rules` 除格式校验外还必须属于当前
+  `--rules-dir` 的 canonical inventory；未知 ID fail closed。它不复用只支持 tp/fp 的
+  现有 dataset schema。
 
 ### 5. 两条证据轴与判定
 
@@ -145,6 +164,7 @@ with/without 标签。每个样本调用两次 judge，第二次交换 A/B 位�
 后，两次结果必须一致为 `with_win`、`without_win` 或 `tie`。不一致记为 `conflict`，
 非目标轴直接 `inconclusive`，不得择一、投票或静默丢弃。报告记录 producer model ID、
 judge model ID、judge prompt digest、两次原始响应与映射结果。
+每次 judge 调用在 JSON 解析前先把 raw text 追加到结果；解析失败仍需保留该付费响应。
 
 真实运行必须显式提供 `--judge-model`，并通过现有 model baseline 解析为审计用 ID；不得
 静默复用 producer model。judge 输出使用独立的严格 JSON 契约
@@ -158,6 +178,14 @@ judge 模型身份与 judge prompt digest，不调用模型。
 - 任一次运行的跳过率超过 `max_skip_rate` → `inconclusive`。
 - with 与 without 的跳过率之差超过 `max_skip_delta` → `inconclusive`：跳过率偏差会
   直接主导 delta，输入身份相等不等于产出可比。
+- 每条模型调用边界单独捕获 `KeyboardInterrupt`。一旦中断，不再发起新的 producer /
+  judge / placebo 请求；当前及后续槽位填入带 stage 的 skipped 记录，已完成响应原样保留，
+  最终报告写入 `interrupted: true` 与 `interruption_stage`，整体强制
+  `inconclusive` 并非零退出。
+- producer 返回空字符串或纯空白时按 skipped 记录，不得发送给 pairwise judge。
+- Anthropic client 创建后、首个模型调用前，用已固定 commit 预留唯一 run 目录并写入
+  `status: running` 的 `report.json`，同时验证目录和文件可写；预留失败抛
+  `PairedExecutionError`，模型调用数必须为 0。运行结束覆盖同一路径的完整报告。
 
 ### 7. 阈值与标定
 
@@ -172,6 +200,7 @@ judge 模型身份与 judge prompt digest，不调用模型。
   "max_skip_rate": 0.1,
   "max_skip_delta": 0.05,
   "max_cross_refs": 4,
+  "max_placebo_length_ratio": 0.25,
   "calibrated": false
 }
 ```
@@ -179,9 +208,23 @@ judge 模型身份与 judge prompt digest，不调用模型。
 `calibrated: false` 时整体判定**强制降级为 `inconclusive`，永不输出 `pass`**。
 只打一行 warning 是不够的——那样未标定的门仍会被下游当作已标定的门引用。
 
-当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。`max_skip_rate` 与
-`max_skip_delta` 同样是新拍的数字。标定其中一项就把整个文件翻成 `true`，会顺带把仍
-未标定的其余阈值洗白 —— 若将来分项标定，改为逐键标注。
+当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。
+JSON 解析必须拒绝重复键，不得让后值静默覆盖已审核阈值或 `calibrated` 状态。
+模型基线、目标与非目标 JSONL 样本都必须拒绝对象内重复键，避免模型 ID、`rule`、
+`input`、`excluded_rules` 等字段被后值覆盖。
+`max_skip_rate`、`max_skip_delta` 与 `max_placebo_length_ratio` 同样是新拍的数字。所有
+比例阈值必须是 0–1 的有限数，两个最小样本阈值必须是正整数，引用上限必须是非负整数；
+JSON `NaN` 不得静默绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
+若将来分项标定，改为逐键标注。
+
+placebo 长度资格比较使用 `len(with_rules) - len(without_rules)` 的完整 prompt 差值；
+候选和 placebo 都必须在各自原生小节及 core ID 行处理完成后再比较。只比较
+`removed_section_characters` 会漏掉 core 行，使真实上下文差超过 25% 的组合被错误接受。
+placebo 除 distinct 与长度门外，还必须命中维护者审核的显式语义无关 pair 映射；未映射
+组合一律拒绝，不能仅凭不同 ID 推断无关。它也复用匿名 compact 等价语义拒绝表，其残留
+交叉引用同样用 `max_cross_refs` 检查，任一不满足都在进入模型循环前拒绝。当前审核 pair
+为 `U-32 / SEC-12` 与 `U-32 / SEC-18`。安慰剂轴不得复用候选轴早先生成的基线响应；
+它为每个样本重新生成完整规则基线与 placebo 响应，交替 arm 首发顺序并在报告保存调度。
 
 未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
 **inconclusive 报告加两轴 delta 数值与样本量**，不是 `pass`（B-009）。
@@ -225,20 +268,20 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 | `bash tests/test_paired_eval.sh` |
-| B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通） |
-| B-004 | 精确匹配的目标/非目标划分 | `bash tests/test_paired_eval.sh` |
+| B-002 | 按轴配对的摘要相等断言 + 本地模块导入前固定 commit + 前后两次 Git 归属及 blob 验证（含评估器依赖闭包与模型基线） | `bash tests/test_paired_eval.sh`（dirty、assume-unchanged、符号链接及规则 Markdown 集合删除被拒；只纳入实际消费的规则 Markdown，忽略 `.DS_Store` 等非输入文件；传递依赖与模型基线在固定清单内；启动固定先于本地模块导入；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
+| B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
+| B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory；两类样本对象无重复键 | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 与目标/非目标重复键在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
-| B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
-| B-007 | 分母口径 + 跳过率与跳过率差 | `python3 eval/test_paired_eval.py` |
+| B-006 | 正整数样本量下限；空轴 → inconclusive | `bash tests/test_paired_eval.sh`（零下限被拒；空非目标轴 fail closed） |
+| B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report + 预留报告路径 | `python3 eval/test_paired_eval.py`（不可写 artifact root 零模型调用失败；空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
 | B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
-| B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
+| B-012 | 规则树与 core 的交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（定义行之外的 core 引用可见；U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
-| B-014 | 标定流程的长度相近 placebo | `bash tests/test_paired_eval.sh` |
-| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、judge 审计字段完整） |
+| B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度、受 compact/交叉引用门约束且使用新鲜交替基线的 placebo | `bash tests/test_paired_eval.sh`（未审核、长度超限、交叉引用超限及 compact 语义残留均在调用前拒绝；placebo 基线/删除 arm 交替首发并记录调度） |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、重复键 scorer/judge skipped 且 judge 原文保留、审计字段完整） |
 
 ## 数据流
 
@@ -252,7 +295,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
         |   断言 1: 逐文件差分 — 仅一个规则文件不同, 差异恰为候选小节
         |             + core 文件差异恰为该 ID 表格行, 其余逐字节相同
         |   断言 2: 候选定义确实存在于真实树 (否则"候选不存在"终止)
-        |   断言 3: 定义计数差 == 1, 删除 span 内无第二个 ^##  (抓"删多了", 非同源)
+        |   断言 3: 定义计数差 == 1, 删除 span 内无第二条 canonical 规则定义
         |   断言 4: text_B 不含候选的定义位点                  (抓"删漏了")
         |   报告:   交叉引用清单 + 空壳文件; 超 max_cross_refs -> inconclusive
         v

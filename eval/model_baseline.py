@@ -12,6 +12,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
+from dataset import DuplicateJsonKeyError, reject_duplicate_json_keys
+
 DEFAULT_BASELINE_PATH = Path(__file__).with_name("model_baseline.json")
 EXPECTED_ALIASES = frozenset({"haiku", "sonnet", "opus"})
 EXPECTED_SCHEMA_VERSION = 1
@@ -103,9 +105,14 @@ def load_model_baseline(
     as_of: date | None = None,
 ) -> ModelBaseline:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
     except OSError as error:
         raise ModelBaselineError(f"cannot read model baseline {path}: {error}") from error
+    except DuplicateJsonKeyError as error:
+        raise ModelBaselineError(f"model baseline is invalid JSON: {error}") from error
     except json.JSONDecodeError as error:
         raise ModelBaselineError(f"model baseline is invalid JSON: {error.msg}") from error
 
