@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785079098077,
+  "lastUpdate": 1785089628865,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -53210,6 +53210,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 14,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c4538675a1a5ef734f99b8d383ac537a0a186cd7",
+          "message": "fix(hooks): make malformed-input fail-closed blocks diagnosable (#707)\n\n434 of 671 recent blocks are malformed-input fail-closed events logged\nwith an empty detail, so the recurring daily burst cannot be attributed\nto a host or payload shape. Log a shape diagnostic (empty stdin /\ninvalid JSON with head sample / JSON ok but required field missing,\nincluding the real tool_name) on the pre-bash and pre-write malformed\npaths, and split protocol errors from rule interceptions in observe\nsummary stats so interception counts stay meaningful.\n\nConstraint: fail-closed posture is intentionally unchanged until the\nproduction payload shape is captured in the wild; this change only adds\nobservability and locks current behavior with tests.\nRejected: passing through payloads that declare a non-target tool_name |\npremature before live evidence identifies the actual failing shape (W-01)\nConfidence: high\nScope-risk: narrow\nTested: cargo test (23 suites), test_pre_bash_guard.sh 48/48,\ntest_pre_write_guard.sh 77/77, test_behavior_eval.sh 16/16, cargo fmt\nNot-tested: live capture of the offending host payload (needs snapshot\nreinstall and next recurrence)\nRelated: #706\n\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>",
+          "timestamp": "2026-07-27T01:47:11+08:00",
+          "tree_id": "d59cc05a85197f7f41a6d7d6fe710db13736add5",
+          "url": "https://github.com/majiayu000/vibeguard/commit/c4538675a1a5ef734f99b8d383ac537a0a186cd7"
+        },
+        "date": 1785089627257,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 82,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 83,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 83,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 83,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 84,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 86,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 88,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 33,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 31,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 32,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 86,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 86,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 86,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 87,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 89,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 89,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 13,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 13,
             "unit": "ms"
           }
         ]
