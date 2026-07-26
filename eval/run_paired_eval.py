@@ -65,6 +65,14 @@ THRESHOLD_KEYS = {
     "max_placebo_length_ratio",
     "calibrated",
 }
+ANONYMOUS_COMPACT_RULE_EQUIVALENTS = {
+    "SEC-02": "L7",
+    "U-04": "L5",
+    "U-17": "L3",
+    "U-23": "L3",
+    "U-24": "L2",
+    "U-29": "L3",
+}
 
 
 class PairedEvalError(ValueError):
@@ -455,6 +463,15 @@ def validate_placebo_candidate(
         )
 
 
+def validate_candidate_supported(candidate: str) -> None:
+    compact_layer = ANONYMOUS_COMPACT_RULE_EQUIVALENTS.get(candidate.upper())
+    if compact_layer:
+        raise PairedEvalError(
+            f"candidate {candidate.upper()} is unsupported because anonymous compact "
+            f"{compact_layer} retains equivalent semantics in the without prompt"
+        )
+
+
 def assert_paired_identity(with_identity: dict[str, str], without_identity: dict[str, str]) -> None:
     for field in ("model", "dataset_digest", "sample_set_digest"):
         if with_identity[field] != without_identity[field]:
@@ -518,6 +535,7 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     target_path = Path(args.target_dataset).resolve()
     non_target_path = Path(args.non_target_dataset).resolve()
     thresholds = load_paired_thresholds(Path(args.thresholds).resolve())
+    validate_candidate_supported(args.candidate)
     target_samples = select_target_samples(load_dataset(target_path), args.candidate)
     non_target_samples = select_non_target_samples(
         load_non_target_dataset(non_target_path), args.candidate
@@ -543,6 +561,7 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
         assert_paired_identity(non_target_with, non_target_without)
 
         placebo = None
+        placebo_rules = None
         if args.placebo_candidate:
             if args.placebo_candidate.upper() == args.candidate.upper():
                 raise PairedEvalError(
@@ -554,11 +573,12 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
                 args.placebo_candidate,
                 Path(tmp) / "placebo",
             )
+            placebo_rules = load_rules(placebo["rules_dir"], placebo["core_file"])
             validate_placebo_candidate(
                 args.candidate,
                 args.placebo_candidate,
-                evidence["removed_section_characters"],
-                placebo["removed_section_characters"],
+                len(with_rules) - len(without_rules),
+                len(with_rules) - len(placebo_rules),
                 thresholds["max_placebo_length_ratio"],
             )
 
@@ -593,9 +613,9 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
         if placebo:
             print(f"Placebo candidate: {args.placebo_candidate.upper()}")
             print(
-                "Placebo removed characters: "
-                f"{placebo['removed_section_characters']} "
-                f"(candidate={evidence['removed_section_characters']})"
+                "Placebo rule text character delta: "
+                f"{len(with_rules) - len(placebo_rules)} "
+                f"(candidate={len(with_rules) - len(without_rules)})"
             )
         else:
             print("Placebo candidate: not supplied; required for threshold calibration")
@@ -606,7 +626,6 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
 
         placebo_payload = None
         if placebo:
-            placebo_rules = load_rules(placebo["rules_dir"], placebo["core_file"])
             placebo_identity = _identity(
                 producer_model, placebo_rules, target_path, target_samples
             )

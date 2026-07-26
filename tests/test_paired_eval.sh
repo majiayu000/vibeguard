@@ -34,6 +34,35 @@ grep -qF "Verdict: not produced in dry-run" <<<"${dry_run_out}"
 test ! -e "${TMP_DIR}/runs"
 
 set +e
+placebo_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate U-21 \
+    --placebo-candidate U-16 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/placebo-runs" 2>&1
+)"
+placebo_rc=$?
+set -e
+test "${placebo_rc}" -ne 0
+grep -qF "placebo length ratio" <<<"${placebo_out}"
+test ! -e "${TMP_DIR}/placebo-runs"
+
+set +e
+compact_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate U-04 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/compact-runs" 2>&1
+)"
+compact_rc=$?
+set -e
+test "${compact_rc}" -ne 0
+grep -qF "anonymous compact L5" <<<"${compact_out}"
+test ! -e "${TMP_DIR}/compact-runs"
+
+set +e
 real_out="$(
   cd "${REPO_DIR}"
   python3 eval/run_paired_eval.py \

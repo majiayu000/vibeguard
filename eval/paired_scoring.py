@@ -90,6 +90,18 @@ def judge_pair(
             )
             raw = response.content[0].text
             parsed = parse_pairwise_judge(raw)
+        except KeyboardInterrupt:
+            return {
+                "id": sample["id"],
+                "skipped": True,
+                "interrupted": True,
+                "error": "evaluation interrupted during non_target_judge",
+                "outcome": "skipped",
+                "raw_judge_responses": raw_responses,
+                "parsed_judge_verdicts": parsed_verdicts,
+                "mapped_outcomes": mapped,
+                "latency_seconds": round(time.time() - started, 3),
+            }
         except Exception as exc:
             return {
                 "id": sample["id"],

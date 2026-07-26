@@ -64,14 +64,66 @@ def evaluate_non_target_sample(
     }
 
 
+def _interrupted_target_result(sample: dict, stage: str) -> dict[str, Any]:
+    return {
+        "id": sample.get("id"),
+        "rule": sample.get("rule"),
+        "skipped": True,
+        "error": f"evaluation interrupted during {stage}",
+        "response": "",
+        "raw_response": "",
+        "description": sample.get("description", ""),
+        "latency_seconds": 0.0,
+    }
+
+
+def _interrupted_non_target_result(
+    sample: dict[str, str], stage: str
+) -> dict[str, Any]:
+    return {
+        "id": sample["id"],
+        "skipped": True,
+        "error": f"evaluation interrupted during {stage}",
+        "response": "",
+        "latency_seconds": 0.0,
+    }
+
+
+def _interrupted_judge_result(
+    sample: dict[str, str], stage: str
+) -> dict[str, Any]:
+    return {
+        "id": sample["id"],
+        "skipped": True,
+        "error": f"evaluation interrupted during {stage}",
+        "outcome": "skipped",
+        "raw_judge_responses": [],
+        "parsed_judge_verdicts": [],
+        "mapped_outcomes": [],
+        "latency_seconds": 0.0,
+    }
+
+
 def run_target_samples(
     client,
     model: str,
     rules: str,
     samples: list[dict],
-) -> list[dict[str, Any]]:
+    *,
+    stage: str,
+) -> tuple[list[dict[str, Any]], bool]:
     prompt = build_system_prompt(rules)
-    return [evaluate_sample(client, model, prompt, sample) for sample in samples]
+    results: list[dict[str, Any]] = []
+    for index, sample in enumerate(samples):
+        try:
+            results.append(evaluate_sample(client, model, prompt, sample))
+        except KeyboardInterrupt:
+            results.extend(
+                _interrupted_target_result(remaining, stage)
+                for remaining in samples[index:]
+            )
+            return results, True
+    return results, False
 
 
 def run_non_target_samples(
@@ -81,21 +133,60 @@ def run_non_target_samples(
     with_rules: str,
     without_rules: str,
     samples: list[dict[str, str]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    str | None,
+]:
     with_prompt = build_non_target_system_prompt(with_rules)
     without_prompt = build_non_target_system_prompt(without_rules)
-    with_results = [
-        evaluate_non_target_sample(client, producer_model, with_prompt, sample)
-        for sample in samples
-    ]
-    without_results = [
-        evaluate_non_target_sample(client, producer_model, without_prompt, sample)
-        for sample in samples
-    ]
+    with_results: list[dict[str, Any]] = []
+    for index, sample in enumerate(samples):
+        try:
+            with_results.append(
+                evaluate_non_target_sample(
+                    client, producer_model, with_prompt, sample
+                )
+            )
+        except KeyboardInterrupt:
+            with_results.extend(
+                _interrupted_non_target_result(remaining, "non_target_with")
+                for remaining in samples[index:]
+            )
+            without_results = [
+                _interrupted_non_target_result(sample, "non_target_without")
+                for sample in samples
+            ]
+            judge_results = [
+                _interrupted_judge_result(sample, "non_target_judge")
+                for sample in samples
+            ]
+            return with_results, without_results, judge_results, "non_target_with"
+
+    without_results: list[dict[str, Any]] = []
+    for index, sample in enumerate(samples):
+        try:
+            without_results.append(
+                evaluate_non_target_sample(
+                    client, producer_model, without_prompt, sample
+                )
+            )
+        except KeyboardInterrupt:
+            without_results.extend(
+                _interrupted_non_target_result(remaining, "non_target_without")
+                for remaining in samples[index:]
+            )
+            judge_results = [
+                _interrupted_judge_result(sample, "non_target_judge")
+                for sample in samples
+            ]
+            return with_results, without_results, judge_results, "non_target_without"
+
     judge_results: list[dict[str, Any]] = []
-    for sample, with_result, without_result in zip(
+    for index, (sample, with_result, without_result) in enumerate(zip(
         samples, with_results, without_results
-    ):
+    )):
         if with_result.get("skipped") or without_result.get("skipped"):
             errors = [
                 result.get("error", "producer skipped")
@@ -111,8 +202,8 @@ def run_non_target_samples(
                 "mapped_outcomes": [],
             })
             continue
-        judge_results.append(
-            judge_pair(
+        try:
+            judge_result = judge_pair(
                 client,
                 judge_model,
                 sample,
@@ -120,8 +211,20 @@ def run_non_target_samples(
                 without_result["response"],
                 system_prompt=build_judge_prompt(),
             )
-        )
-    return with_results, without_results, judge_results
+            judge_results.append(judge_result)
+            if judge_result.get("interrupted"):
+                judge_results.extend(
+                    _interrupted_judge_result(remaining, "non_target_judge")
+                    for remaining in samples[index + 1:]
+                )
+                return with_results, without_results, judge_results, "non_target_judge"
+        except KeyboardInterrupt:
+            judge_results.extend(
+                _interrupted_judge_result(remaining, "non_target_judge")
+                for remaining in samples[index:]
+            )
+            return with_results, without_results, judge_results, "non_target_judge"
+    return with_results, without_results, judge_results, None
 
 
 def serializable_removal_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -170,26 +273,59 @@ def execute_real_run(
     except Exception as exc:
         raise PairedExecutionError(f"Anthropic client unavailable: {exc}") from exc
 
-    target_with_results = run_target_samples(
-        client, producer_model, with_rules, target_samples
+    target_with_results, interrupted = run_target_samples(
+        client,
+        producer_model,
+        with_rules,
+        target_samples,
+        stage="target_with",
     )
-    target_without_results = run_target_samples(
-        client, producer_model, without_rules, target_samples
-    )
+    interruption_stage = "target_with" if interrupted else None
+    if interruption_stage:
+        target_without_results = [
+            _interrupted_target_result(sample, "target_without")
+            for sample in target_samples
+        ]
+    else:
+        target_without_results, interrupted = run_target_samples(
+            client,
+            producer_model,
+            without_rules,
+            target_samples,
+            stage="target_without",
+        )
+        if interrupted:
+            interruption_stage = "target_without"
     target_axis = compute_target_axis(
         target_with_results,
         target_without_results,
         len(target_samples),
         thresholds,
     )
-    non_with, non_without, judge_results = run_non_target_samples(
-        client,
-        producer_model,
-        judge_model,
-        with_rules,
-        without_rules,
-        non_target_samples,
-    )
+    if interruption_stage:
+        non_with = [
+            _interrupted_non_target_result(sample, "non_target_with")
+            for sample in non_target_samples
+        ]
+        non_without = [
+            _interrupted_non_target_result(sample, "non_target_without")
+            for sample in non_target_samples
+        ]
+        judge_results = [
+            _interrupted_judge_result(sample, "non_target_judge")
+            for sample in non_target_samples
+        ]
+    else:
+        non_with, non_without, judge_results, interruption_stage = (
+            run_non_target_samples(
+                client,
+                producer_model,
+                judge_model,
+                with_rules,
+                without_rules,
+                non_target_samples,
+            )
+        )
     non_target_axis = compute_non_target_axis(
         judge_results,
         len(non_target_samples),
@@ -199,15 +335,23 @@ def execute_real_run(
             1 for result in non_without if result.get("skipped")
         ),
     )
-    overall = compute_overall_verdict(
-        target_axis, non_target_axis, thresholds, cross_refs_exceeded
-    )
-
     placebo_report = None
     if placebo:
-        placebo_results = run_target_samples(
-            client, producer_model, placebo["rules"], target_samples
-        )
+        if interruption_stage:
+            placebo_results = [
+                _interrupted_target_result(sample, "placebo")
+                for sample in target_samples
+            ]
+        else:
+            placebo_results, interrupted = run_target_samples(
+                client,
+                producer_model,
+                placebo["rules"],
+                target_samples,
+                stage="placebo",
+            )
+            if interrupted:
+                interruption_stage = "placebo"
         placebo_axis = compute_target_axis(
             target_with_results, placebo_results, len(target_samples), thresholds
         )
@@ -221,6 +365,15 @@ def execute_real_run(
             "removal": serializable_removal_evidence(placebo["evidence"]),
         }
 
+    overall = compute_overall_verdict(
+        target_axis, non_target_axis, thresholds, cross_refs_exceeded
+    )
+    if interruption_stage:
+        overall["verdict"] = "inconclusive"
+        overall["reasons"].append(
+            f"evaluation interrupted during {interruption_stage}"
+        )
+
     report = {
         "schema_version": 1,
         "kind": "paired_model",
@@ -230,6 +383,8 @@ def execute_real_run(
         "producer_model": producer_model,
         "judge_model": judge_model,
         "judge_prompt_digest": sha256_text(build_judge_prompt()),
+        "interrupted": interruption_stage is not None,
+        "interruption_stage": interruption_stage,
         "thresholds": thresholds,
         "identities": identities,
         "rule_text_characters": {
