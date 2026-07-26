@@ -49,6 +49,8 @@ def evaluate_non_target_sample(
             messages=[{"role": "user", "content": user_message}],
         )
         reply = response.content[0].text
+        if not isinstance(reply, str) or not reply.strip():
+            raise ValueError("producer returned an empty response")
     except Exception as exc:
         return {
             "id": sample["id"],

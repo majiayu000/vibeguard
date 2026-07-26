@@ -133,7 +133,9 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
   前缀匹配且强制混入 `NONE` 样本，两者都会污染目标轴。
 - 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入、
   明确的质量 rubric 与 `excluded_rules`；若候选 ID 在该列表中，本次运行排除该样本，
-  防止候选相关任务被误算为非目标副作用。它不复用只支持 tp/fp 的现有 dataset schema。
+  防止候选相关任务被误算为非目标副作用。`excluded_rules` 除格式校验外还必须属于当前
+  `--rules-dir` 的 canonical inventory；未知 ID fail closed。它不复用只支持 tp/fp 的
+  现有 dataset schema。
 
 ### 5. 两条证据轴与判定
 
@@ -168,6 +170,7 @@ judge 模型身份与 judge prompt digest，不调用模型。
   judge / placebo 请求；当前及后续槽位填入带 stage 的 skipped 记录，已完成响应原样保留，
   最终报告写入 `interrupted: true` 与 `interruption_stage`，整体强制
   `inconclusive` 并非零退出。
+- producer 返回空字符串或纯空白时按 skipped 记录，不得发送给 pairwise judge。
 
 ### 7. 阈值与标定
 
@@ -244,10 +247,10 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
 | B-002 | 按轴配对的摘要相等断言 | `bash tests/test_paired_eval.sh` |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
-| B-004 | 精确匹配的目标/非目标划分 | `bash tests/test_paired_eval.sh` |
+| B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
 | B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
-| B-007 | 分母口径 + 跳过率与跳过率差 + 中断 partial report | `python3 eval/test_paired_eval.py`（Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
+| B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report | `python3 eval/test_paired_eval.py`（空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
 | B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |

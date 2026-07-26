@@ -335,9 +335,12 @@ def cross_reference_limit_exceeded(evidence: dict[str, Any], maximum: int) -> bo
     return len(evidence["cross_references"]) > maximum
 
 
-def load_non_target_dataset(path: Path) -> list[dict[str, str]]:
+def load_non_target_dataset(
+    path: Path, known_rule_ids: set[str]
+) -> list[dict[str, str]]:
     if not path.exists():
         raise DatasetError(f"Non-target dataset not found: {path}")
+    known_rules = {rule_id.upper() for rule_id in known_rule_ids}
     samples: list[dict[str, str]] = []
     seen_ids: set[str] = set()
     with path.open(encoding="utf-8") as handle:
@@ -389,6 +392,14 @@ def load_non_target_dataset(path: Path) -> list[dict[str, str]]:
             normalized["excluded_rules"] = sorted({
                 rule_id.strip().upper() for rule_id in excluded_rules
             })
+            unknown_rules = sorted(
+                set(normalized["excluded_rules"]) - known_rules
+            )
+            if unknown_rules:
+                raise DatasetError(
+                    f"{path}:{line_number}: unknown excluded rule ID(s): "
+                    + ", ".join(unknown_rules)
+                )
             if normalized["id"] in seen_ids:
                 raise DatasetError(
                     f"{path}:{line_number}: duplicate sample id {normalized['id']!r}"
@@ -536,9 +547,10 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     non_target_path = Path(args.non_target_dataset).resolve()
     thresholds = load_paired_thresholds(Path(args.thresholds).resolve())
     validate_candidate_supported(args.candidate)
+    known_rule_ids = set(canonical_rule_inventory(rules_dir))
     target_samples = select_target_samples(load_dataset(target_path), args.candidate)
     non_target_samples = select_non_target_samples(
-        load_non_target_dataset(non_target_path), args.candidate
+        load_non_target_dataset(non_target_path, known_rule_ids), args.candidate
     )
     if not target_samples and not non_target_samples:
         raise PairedEvalError("target and non-target sample sets are both empty")

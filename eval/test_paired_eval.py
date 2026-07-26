@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paired_execution as execution  # noqa: E402
 import run_paired_eval as paired  # noqa: E402
-from dataset import load_dataset  # noqa: E402
+from dataset import DatasetError, load_dataset  # noqa: E402
 
 
 def sequence_client(replies: list[str]) -> Mock:
@@ -251,7 +251,10 @@ class DatasetAndIdentityTest(unittest.TestCase):
         self.assertEqual({sample["rule"] for sample in target}, {"SEC-01"})
         self.assertNotIn("NONE", {sample["rule"] for sample in target})
 
-        non_target = paired.load_non_target_dataset(paired.DEFAULT_NON_TARGET_DATASET)
+        known_rules = set(paired.canonical_rule_inventory(paired.DEFAULT_RULES_DIR))
+        non_target = paired.load_non_target_dataset(
+            paired.DEFAULT_NON_TARGET_DATASET, known_rules
+        )
         self.assertGreaterEqual(len(non_target), 30)
         self.assertTrue(all({"id", "task", "input", "rubric"} <= sample.keys() for sample in non_target))
         self.assertTrue(all("rule" not in sample and "type" not in sample for sample in non_target))
@@ -263,6 +266,23 @@ class DatasetAndIdentityTest(unittest.TestCase):
         u21_samples = paired.select_non_target_samples(non_target, "U-21")
         self.assertNotIn("non-target-08", {sample["id"] for sample in u21_samples})
         self.assertGreaterEqual(len(u21_samples), 30)
+
+    def test_non_target_dataset_rejects_unknown_excluded_rule_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "non-target.jsonl"
+            path.write_text(
+                json.dumps({
+                    "id": "n1",
+                    "task": "Answer",
+                    "input": "x",
+                    "rubric": "Be correct",
+                    "excluded_rules": ["U-211"],
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(DatasetError, "unknown excluded rule"):
+                paired.load_non_target_dataset(path, {"U-21"})
 
     def test_paired_identity_rejects_any_non_rule_drift(self) -> None:
         base = {
@@ -467,6 +487,22 @@ class RealExecutionTest(unittest.TestCase):
         self.assertIn("ordinary task", request["system"])
         self.assertNotIn('"detected"', request["system"])
         self.assertEqual(request["messages"][0]["content"], "Task: Explain a value\n\nInput:\n42")
+
+    def test_non_target_producer_treats_empty_reply_as_skipped(self) -> None:
+        result = execution.evaluate_non_target_sample(
+            sequence_client(["   "]),
+            "producer-model",
+            execution.build_non_target_system_prompt("loaded rules"),
+            {
+                "id": "n1",
+                "task": "Answer",
+                "input": "x",
+                "rubric": "Be correct",
+            },
+        )
+
+        self.assertTrue(result["skipped"])
+        self.assertIn("empty", result["error"])
 
     def test_real_uncalibrated_run_writes_auditable_report_and_fails_closed(self) -> None:
         target_samples = [
