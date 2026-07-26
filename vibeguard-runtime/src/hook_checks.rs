@@ -11,6 +11,7 @@ use crate::hook_checks_history::{
     build_fast_warning_output, post_edit_history_signals, post_edit_history_warnings,
 };
 use crate::hook_checks_scan::{SameNameScan, find_project_dir, scan_same_name_duplicate};
+use crate::hook_input_diag::malformed_input_diagnostic;
 use crate::u16_baseline::{
     U16BaselineDecision, edit_advisory_context, evaluate_u16_baseline, legacy_debt_context,
     u16_advisory_limit,
@@ -21,7 +22,9 @@ type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PreWriteCheck {
-    Malformed,
+    Malformed {
+        detail: String,
+    },
     Exists {
         file_path: String,
     },
@@ -86,14 +89,20 @@ pub(crate) fn evaluate_pre_write_input(
     warn_limit: usize,
 ) -> PreWriteCheck {
     let Ok(data) = serde_json::from_str::<serde_json::Value>(input) else {
-        return PreWriteCheck::Malformed;
+        return PreWriteCheck::Malformed {
+            detail: malformed_input_diagnostic(input, "tool_input.file_path"),
+        };
     };
 
     let Some(file_path) = nested_str(&data, "tool_input.file_path") else {
-        return PreWriteCheck::Malformed;
+        return PreWriteCheck::Malformed {
+            detail: malformed_input_diagnostic(input, "tool_input.file_path"),
+        };
     };
     if file_path.is_empty() {
-        return PreWriteCheck::Malformed;
+        return PreWriteCheck::Malformed {
+            detail: malformed_input_diagnostic(input, "tool_input.file_path"),
+        };
     }
 
     if is_test_infra_path(&file_path) {
@@ -109,7 +118,11 @@ pub(crate) fn evaluate_pre_write_input(
         let old_line_count = if existed_before {
             match read_lossy_file(&file_path) {
                 Ok(old_content) => count_lines(&old_content),
-                Err(_) => return PreWriteCheck::Malformed,
+                Err(_) => {
+                    return PreWriteCheck::Malformed {
+                        detail: format!("existing file unreadable for U-16 baseline: {file_path}"),
+                    };
+                }
             }
         } else {
             0
@@ -168,7 +181,7 @@ pub(crate) fn evaluate_pre_write_input(
 
 fn print_pre_write_check(check: &PreWriteCheck) {
     match check {
-        PreWriteCheck::Malformed => {
+        PreWriteCheck::Malformed { .. } => {
             println!("MALFORMED");
         }
         PreWriteCheck::Exists { file_path } => {

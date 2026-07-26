@@ -143,9 +143,22 @@ assert_not_contains "$result" '"decision": "block"' "release vitest --run"
 result=$(printf '{"tool_input":' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Malformed Bash hook JSON fails closed"
 assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "invalid Bash hook input JSON; fail-closed" "Malformed Bash hook JSON writes parse warning"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "invalid JSON" "Malformed Bash hook JSON logs shape diagnostic"
 
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+result=$(printf '' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Empty Bash hook stdin fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "empty hook stdin" "Empty Bash hook stdin logs empty-stdin diagnostic"
+
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
 result=$(echo '{"tool_input":{}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Missing Bash command field fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_input.command missing" "Missing Bash command field logs required-field diagnostic"
+
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+result=$(echo '{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}' | bash hooks/pre-bash-guard.sh)
+assert_contains "$result" '"decision": "block"' "Non-Bash tool payload without command fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name=BashOutput" "Non-Bash tool payload logs originating tool_name"
 
 result=$(echo '{"tool_input":{"command":""}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Empty Bash command string remains a no-op"

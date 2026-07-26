@@ -201,14 +201,14 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
     let check = evaluate_pre_write_input(input, base_limit, warn_limit);
 
     match &check {
-        PreWriteCheck::Malformed => {
+        PreWriteCheck::Malformed { detail } => {
             append_hook_event(
                 ctx,
                 HookKind::PreWrite,
                 decision::BLOCK,
                 status::BLOCK,
                 "Malformed hook input",
-                "",
+                detail,
                 elapsed_ms(start),
             )?;
             print_pretty_decision("block", MALFORMED_PRE_WRITE_REASON);

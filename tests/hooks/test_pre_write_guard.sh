@@ -41,6 +41,16 @@ result=$(printf '%s' '{"tool_input":{}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Write hook payload missing file_path fails closed"
 assert_contains "$result" "malformed PreToolUse(Write)" "Missing Write file_path explains validation failure"
 
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+result=$(printf '' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "Empty Write hook stdin fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "empty hook stdin" "Empty Write hook stdin logs empty-stdin diagnostic"
+
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+result=$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"NotebookEdit","tool_input":{"notebook_path":"a.ipynb"}}' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "Non-Write tool payload without file_path fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name=NotebookEdit" "Non-Write tool payload logs originating tool_name"
+
 result=$(printf '%s' '{"tool_input":{"content":"fn main() {}"}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Write hook payload with content but no file_path fails closed"
 assert_contains "$result" "malformed PreToolUse(Write)" "Missing Write file_path with content explains validation failure"
