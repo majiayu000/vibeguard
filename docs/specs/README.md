@@ -6,7 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
-| `GH686/` | Draft | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence |
+| `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |
 | `GH675/` | Implemented reference | Manual precision-triage capture, empty-channel visibility, and the documented feedback loop |
 | `GH671/` | Implemented reference | Baseline-aware U-16 enforcement for legacy oversized files plus staged/CI changed-file checks |
