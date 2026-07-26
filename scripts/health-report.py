@@ -385,6 +385,52 @@ def _observed_rule_ids(summary: dict[str, Any] | None) -> set[str]:
     return ids
 
 
+def validated_block_counts(
+    summary: dict[str, Any] | None,
+    decision_counts: dict[str, Any],
+    no_data: bool,
+) -> tuple[dict[str, int] | None, str]:
+    if no_data:
+        return None, "no_data"
+    if summary is None or "block_counts" not in summary:
+        return None, "unavailable"
+
+    raw_counts = summary["block_counts"]
+    expected_keys = {"total_blocks", "protocol_errors", "non_protocol_blocks"}
+    if not isinstance(raw_counts, dict) or set(raw_counts) != expected_keys:
+        raise HealthReportError(
+            "observe summary block_counts must contain exactly "
+            "total_blocks, protocol_errors, and non_protocol_blocks"
+        )
+
+    counts: dict[str, int] = {}
+    for key in sorted(expected_keys):
+        value = raw_counts[key]
+        if type(value) is not int or value < 0:
+            raise HealthReportError(
+                f"observe summary block_counts.{key} must be a non-negative integer"
+            )
+        counts[key] = value
+
+    decision_blocks = decision_counts.get("block", 0)
+    if type(decision_blocks) is not int or decision_blocks < 0:
+        raise HealthReportError(
+            "observe summary decision_counts.block must be a non-negative integer"
+        )
+    if counts["total_blocks"] != decision_blocks:
+        raise HealthReportError(
+            "observe summary block_counts.total_blocks must equal decision_counts.block"
+        )
+    if (
+        counts["total_blocks"]
+        != counts["protocol_errors"] + counts["non_protocol_blocks"]
+    ):
+        raise HealthReportError(
+            "observe summary block_counts arithmetic is inconsistent"
+        )
+    return counts, "available"
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     runtime = resolve_runtime()
     triage_path = Path(args.triage_file)
@@ -419,6 +465,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     event_count = int(summary.get("event_count", 0)) if summary else 0
     no_data = summary is None or event_count == 0
     decision_counts = dict(summary.get("decision_counts", {})) if summary else {}
+    block_counts, block_counts_status = validated_block_counts(
+        summary, decision_counts, no_data
+    )
     time_range = summary.get("time_range", {}) if summary else {}
     attention = summary.get("attention", {}) if summary else {}
     overview = {
@@ -427,6 +476,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "no_data": no_data,
         "total_triggers": event_count,
         "decision_distribution": decision_counts,
+        "block_counts": block_counts,
+        "block_counts_status": block_counts_status,
         "attention_rate": attention.get("rate"),
         "first_ts": time_range.get("first_ts") or None,
         "last_ts": time_range.get("last_ts") or None,
@@ -547,6 +598,17 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- Decision distribution: {dist_str}")
         else:
             lines.append("- Decision distribution: (none)")
+        block_counts_status = overview["block_counts_status"]
+        lines.append(f"- Block split: **{block_counts_status}**")
+        if block_counts_status == "available":
+            block_counts = overview["block_counts"]
+            lines.append(f"  - Total blocks: {block_counts['total_blocks']}")
+            lines.append(f"  - Protocol errors: {block_counts['protocol_errors']}")
+            lines.append(
+                f"  - Non-protocol blocks: {block_counts['non_protocol_blocks']}"
+            )
+        else:
+            lines.append("  - Block split unavailable from installed runtime.")
         lines.append(f"- Attention rate: {overview['attention_rate']}")
         lines.append(f"- Range: {overview['first_ts']} .. {overview['last_ts']}")
     lines.append("")

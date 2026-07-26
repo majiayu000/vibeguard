@@ -1,30 +1,54 @@
 use serde_json::Value;
 
-use crate::hook_checks_common::{nested_str, truncate_chars};
-
-const MALFORMED_DIAG_HEAD_CHARS: usize = 80;
+use crate::hook_checks_common::nested_str;
 
 /// Distinguish the three fail-closed input shapes (empty stdin, invalid JSON,
 /// well-formed JSON missing the required field) so block events in
 /// events.jsonl are diagnosable without the original payload.
 pub(crate) fn malformed_input_diagnostic(input: &str, required_field: &str) -> String {
-    if input.trim().is_empty() {
-        return format!("empty hook stdin ({} bytes)", input.len());
+    let required_field = required_field_class(required_field);
+    let (category, tool_name_class, hook_event_name_class) = if input.trim().is_empty() {
+        ("empty_stdin", "absent_or_invalid", "absent_or_invalid")
+    } else if let Ok(data) = serde_json::from_str::<Value>(input) {
+        (
+            "missing_required_field",
+            tool_name_class(&data),
+            hook_event_name_class(&data),
+        )
+    } else {
+        ("invalid_json", "absent_or_invalid", "absent_or_invalid")
+    };
+    format!(
+        "category={category} required_field={required_field} input_size={} tool_name_class={tool_name_class} hook_event_name_class={hook_event_name_class}",
+        input.len()
+    )
+}
+
+fn required_field_class(required_field: &str) -> &'static str {
+    match required_field {
+        "tool_input.command" => "command",
+        "tool_input.file_path" => "file_path",
+        _ => "other",
     }
-    match serde_json::from_str::<Value>(input) {
-        Err(err) => format!(
-            "invalid JSON ({} chars; {err}); head={}",
-            input.chars().count(),
-            truncate_chars(input.trim_start(), MALFORMED_DIAG_HEAD_CHARS)
-        ),
-        Ok(data) => {
-            let tool_name =
-                nested_str(&data, "tool_name").unwrap_or_else(|| "<absent>".to_string());
-            let event_name =
-                nested_str(&data, "hook_event_name").unwrap_or_else(|| "<absent>".to_string());
-            format!(
-                "JSON ok but {required_field} missing, empty, or not a string; tool_name={tool_name} hook_event_name={event_name}"
-            )
-        }
+}
+
+fn tool_name_class(data: &Value) -> &'static str {
+    match nested_str(data, "tool_name").as_deref() {
+        Some("Bash") => "bash",
+        Some("Write") => "write",
+        Some("Edit") => "edit",
+        Some("Read") => "read",
+        Some(_) => "other",
+        None => "absent_or_invalid",
+    }
+}
+
+fn hook_event_name_class(data: &Value) -> &'static str {
+    match nested_str(data, "hook_event_name").as_deref() {
+        Some("PreToolUse") => "pre_tool_use",
+        Some("PostToolUse") => "post_tool_use",
+        Some("Stop") => "stop",
+        Some(_) => "other",
+        None => "absent_or_invalid",
     }
 }

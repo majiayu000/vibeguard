@@ -213,6 +213,18 @@ fn run_pre_write(ctx: &RuntimeContext, input: &str, start: Instant) -> Result {
             )?;
             print_pretty_decision("block", MALFORMED_PRE_WRITE_REASON);
         }
+        PreWriteCheck::U16BaselineUnreadable { detail } => {
+            append_hook_event(
+                ctx,
+                HookKind::PreWrite,
+                decision::BLOCK,
+                status::BLOCK,
+                "U-16 baseline unreadable; fail-closed",
+                detail,
+                elapsed_ms(start),
+            )?;
+            print_pretty_decision("block", U16_BASELINE_UNREADABLE_REASON);
+        }
         PreWriteCheck::Exists { .. } | PreWriteCheck::Allow { .. } => {
             pass_and_exit(ctx, start)?;
         }
@@ -564,6 +576,7 @@ fn count_unheeded_source_new_reminders(ctx: &RuntimeContext) -> Result<u64> {
 }
 
 const MALFORMED_PRE_WRITE_REASON: &str = "VIBEGUARD interception: malformed PreToolUse(Write) hook input. The write request could not be validated, so it was blocked instead of being treated as a safe skip.";
+const U16_BASELINE_UNREADABLE_REASON: &str = "VIBEGUARD interception: the existing source file could not be read for the U-16 baseline, so the write was blocked instead of being evaluated with incomplete evidence.";
 const W12_PRE_WRITE_REASON: &str = "[W-12] [block] [this-edit] OBSERVATION: writing to test infrastructure file blocked (conftest.py/jest.config/pytest.ini/.coveragerc/babel.config)\nFIX: Fix the production code that is failing — do not manipulate test framework configuration";
 const L1_BLOCK_REASON: &str = "VIBEGUARD [L1] [block] [this-edit] OBSERVATION: new source file creation blocked — search not performed before write\nSCOPE: search required before retry — use Grep for functions/classes/structs, Glob for same-named files\nACTION: REVIEW";
 
