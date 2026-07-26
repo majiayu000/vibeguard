@@ -207,7 +207,7 @@ GH-701 已完成。
     重新见证时，README/task/implementation/closure gate 均 blocked。
 31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable
     decision record，并由离线 gate 验证每项选择、维护者 actor、
-    `author_association`、immutable source URL/node、candidate head 与时间；
+    `author_association`、immutable source URL/node、approved spec head 与时间；
     推荐文本、实现者自填 JSON、缺失/过期/错误 head 的记录均不算批准。route 与
     task-plan gate 必须重新消费该 gate 的 allowed result 及 record digest，不能
     依赖人工口头说明或复用另一 HEAD 的结果。
@@ -223,6 +223,23 @@ GH-701 已完成。
     `fix_id` 关联。oversize 原文及其 content-derived digest 不得进入
     response/log/proof；schema-valid oversize-primary
     fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
+34. B-034 decision collector/gate 尚未存在于受保护 main 时，只允许一次
+    `bootstrap_once` tranche。该 tranche 必须先通过现有 SpecRail 人类
+    product/tech approval 与 `ready_to_implement` gate，再生成覆盖全部 B-ID 的
+    task plan；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
+    H-001–H-004 decision gate。bootstrap PR 的实现 diff 只能包含 decision/witness
+    schemas、只读 collector、离线 gate 及最小 route/task wiring、受保护 main
+    workflow 和这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、
+    setup、README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final
+    review 与 merge gate，且只有 merge 到 main 后才能收集可信 decisions。
+35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md 原始
+    bytes SHA-256、tech.md 原始 bytes SHA-256 与 canonical decision-input
+    SHA-256。后续 task/implementation HEAD 只有在 approved spec head 是其 ancestor、
+    两份 spec bytes digest 完全相同且重新计算的 decision-input digest 完全相同
+    时才能继承批准；task/code/test 的非 decision-sensitive descendant commit 可以
+    继续。任一 spec byte、H-001–H-004 option/约束、issue acceptance snapshot、
+    proof protocol/release、branch expectation 或 collector trust identity 改变，
+    旧 decision 立即失效并必须由维护者重新收集/批准。
 
 ## 验收标准
 
@@ -249,21 +266,27 @@ GH-701 已完成。
   当前 HEAD 的 gate result，implementer 自填 evidence 被拒绝。
 - [ ] oversize primary fix fixture 保持 block 并返回有界 closed fallback，原文
   不出现在 response、双日志或 proof。
+- [ ] bootstrap tasks 只能由现有 `spec_approval + ready_to_implement` route 生成并
+  执行一次，bootstrap PR diff allowlist、base-commit gate、CI、human review 与
+  merge gate 均通过；merge 前所有普通 implementation tasks 保持 blocked。
+- [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
+  digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
+  schema-valid fixture 要求重新收集维护者批准。
 
 ## 边界情况清单
 
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
-| 空/缺失输入 | covered: B-004, B-008, B-009, B-019, B-022, B-027, B-028, B-030, B-031, B-032 |
-| 错误与失败路径 | covered: B-007, B-008, B-011, B-015, B-017, B-020, B-024, B-025, B-028, B-030, B-031, B-032, B-033 |
-| 授权/权限 | covered: B-010, B-011, B-013, B-025, B-028, B-029, B-030, B-031, B-032 |
+| 空/缺失输入 | covered: B-004, B-008, B-009, B-019, B-022, B-027, B-028, B-030, B-031, B-032, B-034, B-035 |
+| 错误与失败路径 | covered: B-007, B-008, B-011, B-015, B-017, B-020, B-024, B-025, B-028, B-030, B-031, B-032, B-033, B-034, B-035 |
+| 授权/权限 | covered: B-010, B-011, B-013, B-025, B-028, B-029, B-030, B-031, B-032, B-034, B-035 |
 | 并发/竞态 | covered: B-012, B-021, B-025, B-026 |
-| 重试/幂等 | covered: B-010, B-016, B-021, B-026 |
-| 非法状态转换 | covered: B-011, B-015, B-016, B-017, B-024, B-025, B-026, B-029, B-030, B-031, B-032 |
+| 重试/幂等 | covered: B-010, B-016, B-021, B-026, B-034, B-035 |
+| 非法状态转换 | covered: B-011, B-015, B-016, B-017, B-024, B-025, B-026, B-029, B-030, B-031, B-032, B-034, B-035 |
 | 兼容/迁移 | covered: B-004, B-014, B-015, B-022, B-023 |
-| 降级/回退 | covered: B-003, B-007, B-008, B-011, B-018, B-024, B-026, B-030, B-033 |
-| 证据与审计完整性 | covered: B-001, B-002, B-003, B-006, B-017, B-018, B-020, B-021, B-027, B-028, B-029, B-030, B-031, B-032, B-033 |
-| 取消/中断 | covered: B-016, B-025, B-026 |
+| 降级/回退 | covered: B-003, B-007, B-008, B-011, B-018, B-024, B-026, B-030, B-033, B-034, B-035 |
+| 证据与审计完整性 | covered: B-001, B-002, B-003, B-006, B-017, B-018, B-020, B-021, B-027, B-028, B-029, B-030, B-031, B-032, B-033, B-034, B-035 |
+| 取消/中断 | covered: B-016, B-025, B-026, B-034 |
 
 ## 发布说明
 
