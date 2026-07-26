@@ -15,7 +15,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-MANIFEST="${REPO_DIR}/scripts/release/payload-manifest.txt"
+MANIFEST_PATH="scripts/release/payload-manifest.txt"
 MARKER_NAME=".vibeguard-payload"
 
 VERSION=""
@@ -48,8 +48,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -f "${MANIFEST}" ]]; then
-  err "payload manifest not found: ${MANIFEST}"
+if ! git -C "${REPO_DIR}" cat-file -e "${GIT_REF}:${MANIFEST_PATH}" 2>/dev/null; then
+  err "payload manifest not found at ${GIT_REF}: ${MANIFEST_PATH}"
   exit 1
 fi
 
@@ -64,17 +64,21 @@ case "${VERSION}" in
   v*) VERSION="${VERSION#v}" ;;
 esac
 
-# Collect manifest entries.
+# Collect, normalize, and sort manifest entries from the selected ref. The
+# working-tree manifest must never influence a ref-pinned build.
 manifest_entries=()
 while IFS= read -r line; do
   line="${line%%#*}"
   line="$(printf '%s' "${line}" | tr -d '[:space:]')"
   [[ -z "${line}" ]] && continue
   manifest_entries+=("${line}")
-done < "${MANIFEST}"
+done < <(
+  git -C "${REPO_DIR}" show "${GIT_REF}:${MANIFEST_PATH}" \
+    | LC_ALL=C sort -u
+)
 
 if [[ ${#manifest_entries[@]} -eq 0 ]]; then
-  err "payload manifest is empty: ${MANIFEST}"
+  err "payload manifest is empty at ${GIT_REF}: ${MANIFEST_PATH}"
   exit 1
 fi
 
@@ -90,24 +94,24 @@ if [[ "${missing}" -ne 0 ]]; then
   exit 1
 fi
 
-STAGING="$(mktemp -d "${TMPDIR:-/tmp}/vibeguard-payload_XXXXXX")"
-cleanup() { rm -rf "${STAGING}" 2>/dev/null || true; }
-trap cleanup EXIT
-
-# Export the manifest subset of the tracked tree; never the working directory.
-git -C "${REPO_DIR}" archive "${GIT_REF}" -- "${manifest_entries[@]}" | tar -x -C "${STAGING}"
-
-manifest_sha256="$(shasum -a 256 "${MANIFEST}" | awk '{print $1}')"
-git_commit="$(git -C "${REPO_DIR}" rev-parse --short "${GIT_REF}")"
-{
+manifest_sha256="$(
+  git -C "${REPO_DIR}" show "${GIT_REF}:${MANIFEST_PATH}" \
+    | shasum -a 256 \
+    | awk '{print $1}'
+)"
+git_commit="$(git -C "${REPO_DIR}" rev-parse "${GIT_REF}^{commit}")"
+marker_content="$(
   printf 'version=%s\n' "${VERSION}"
   printf 'manifest_sha256=%s\n' "${manifest_sha256}"
   printf 'git_commit=%s\n' "${git_commit}"
-} > "${STAGING}/${MARKER_NAME}"
+)"
 
 # The payload must carry a runtime VERSION that matches its own version, so a
 # payload install always downloads the release binary it was published with.
-payload_runtime_version="$(tr -d '[:space:]' < "${STAGING}/vibeguard-runtime/VERSION")"
+payload_runtime_version="$(
+  git -C "${REPO_DIR}" show "${GIT_REF}:vibeguard-runtime/VERSION" \
+    | tr -d '[:space:]'
+)"
 if [[ "${payload_runtime_version}" != "${VERSION}" ]]; then
   err "payload version ${VERSION} does not match vibeguard-runtime/VERSION (${payload_runtime_version}) at ${GIT_REF}"
   exit 1
@@ -115,7 +119,17 @@ fi
 
 mkdir -p "${OUTPUT_DIR}"
 ARCHIVE="${OUTPUT_DIR}/vibeguard-payload-${VERSION}.tar.gz"
-tar -czf "${ARCHIVE}" -C "${STAGING}" .
+
+# git archive gives tracked entries stable ordering/modes/timestamps for a
+# fixed commit. The marker is virtual so it receives the same deterministic
+# archive metadata, and gzip -n suppresses filename/timestamp headers. Avoid
+# GNU-only tar flags so release builds remain portable to macOS.
+git -C "${REPO_DIR}" archive \
+  --format=tar \
+  --add-virtual-file="${MARKER_NAME}:${marker_content}" \
+  "${GIT_REF}" \
+  -- "${manifest_entries[@]}" \
+  | gzip -n > "${ARCHIVE}"
 
 file_count="$(tar -tzf "${ARCHIVE}" | grep -cv '/$')"
 printf 'payload: %s (%s files, version %s, commit %s)\n' \

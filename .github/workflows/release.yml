@@ -191,12 +191,12 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           bash scripts/release/build-payload.sh --version "${TAG_NAME#v}" --output dist
-          tar -tzf "dist/vibeguard-payload-${TAG_NAME#v}.tar.gz" | grep -qx './.vibeguard-payload'
+          tar -tzf "dist/vibeguard-payload-${TAG_NAME#v}.tar.gz" | sed 's#^\./##' | grep -qx '.vibeguard-payload'
 
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum vibeguard-runtime-* vibeguard-payload-* | sort -k2 > SHA256SUMS
+          sha256sum vibeguard-runtime-* vibeguard-payload-*.tar.gz | sort -k2,2 > SHA256SUMS
           cat SHA256SUMS
 
       - name: Generate runtime release manifest
