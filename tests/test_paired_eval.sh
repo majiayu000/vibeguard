@@ -14,7 +14,7 @@ dry_run_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
     --candidate U-32 \
-    --placebo-candidate U-31 \
+    --placebo-candidate SEC-12 \
     --dry-run \
     --artifact-root "${TMP_DIR}/runs"
 )"
@@ -24,12 +24,12 @@ grep -qF "Removal assertions: file_set=pass, presence=pass, definition_site=pass
 grep -qF "Cross references (13):" <<<"${dry_run_out}"
 grep -qF "Empty-shell rule files:" <<<"${dry_run_out}"
 grep -qF "Target samples: 0" <<<"${dry_run_out}"
-grep -qF "Non-target samples: 30" <<<"${dry_run_out}"
+grep -qF "Non-target samples: 32" <<<"${dry_run_out}"
 grep -qF "Producer model:" <<<"${dry_run_out}"
 grep -qF "Judge model: not required for dry-run" <<<"${dry_run_out}"
 grep -qF "Judge prompt digest:" <<<"${dry_run_out}"
 grep -qF "Rule text characters: with=" <<<"${dry_run_out}"
-grep -qF "Placebo candidate: U-31" <<<"${dry_run_out}"
+grep -qF "Placebo candidate: SEC-12" <<<"${dry_run_out}"
 grep -qF "Verdict: not produced in dry-run" <<<"${dry_run_out}"
 test ! -e "${TMP_DIR}/runs"
 

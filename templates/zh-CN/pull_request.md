@@ -36,6 +36,22 @@
 - [ ] Manual proof:
 - [ ] 用户可见变更附 screenshots 或 logs:
 
+## 配对 Prompt 规则评测
+
+- [ ] 本 PR 未新增或修改 prompt 注入的原生规则。
+- [ ] 本 PR 新增或修改了 prompt 注入的原生规则，并已附配对评测报告：
+  - 候选规则 ID：
+  - 报告或 artifact 链接：
+  - 目标轴 delta 与样本量：
+  - 非目标轴 delta 与样本量：
+  - Producer model ID：
+  - Judge model ID：
+  - Judge prompt digest：
+  - 阈值标定：`calibrated: false` 时附包含两轴 delta、样本量和模型证据的 `inconclusive` 报告，不得声称 `pass`。
+- [ ] 仅为非 prompt 注入类变更申请豁免：
+  - 理由：
+  - 维护者批准：
+
 ## Release Notes
 
 - [ ] 需要 changelog 或 release note。

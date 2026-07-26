@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import shutil
 import sys
@@ -48,8 +49,11 @@ DEFAULT_TARGET_DATASET = REPO_ROOT / "eval" / "datasets" / "v1.jsonl"
 DEFAULT_NON_TARGET_DATASET = REPO_ROOT / "eval" / "paired" / "non_target_v1.jsonl"
 DEFAULT_THRESHOLDS = REPO_ROOT / "eval" / "paired" / "thresholds.json"
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "eval" / "paired" / "runs"
-GENERIC_HEADING_RE = re.compile(r"^##\s+", re.MULTILINE)
-NON_TARGET_FIELDS = {"id", "task", "input", "rubric"}
+NON_TARGET_STRING_FIELDS = {"id", "task", "input", "rubric"}
+NON_TARGET_FIELDS = NON_TARGET_STRING_FIELDS | {"excluded_rules"}
+RULE_ID_TOKEN_RE = re.compile(
+    r"^(?:RS|GO|TS|PY|U|SEC|W|TASTE)-[A-Za-z0-9-]+$"
+)
 THRESHOLD_KEYS = {
     "min_target_samples",
     "min_non_target_samples",
@@ -58,6 +62,7 @@ THRESHOLD_KEYS = {
     "max_skip_rate",
     "max_skip_delta",
     "max_cross_refs",
+    "max_placebo_length_ratio",
     "calibrated",
 }
 
@@ -90,7 +95,7 @@ def extract_candidate_section(content: bytes, candidate: str) -> bytes:
             f"found {len(matches)}"
         )
     start = matches[0].start()
-    next_heading = GENERIC_HEADING_RE.search(text, matches[0].end())
+    next_heading = RULE_ID_HEADING_RE.search(text, matches[0].end())
     end = next_heading.start() if next_heading else len(text)
     return text[start:end].encode("utf-8")
 
@@ -251,7 +256,7 @@ def audit_removal(
     first_line_end = removed_text.find("\n")
     remainder = removed_text[first_line_end + 1:] if first_line_end >= 0 else ""
     checks["definition_count"] = (
-        definition_delta == 1 and GENERIC_HEADING_RE.search(remainder) is None
+        definition_delta == 1 and RULE_ID_HEADING_RE.search(remainder) is None
     )
 
     failed = [name for name, passed in checks.items() if not passed]
@@ -352,14 +357,30 @@ def load_non_target_dataset(path: Path) -> list[dict[str, str]]:
                 )
             if any(
                 not isinstance(sample[field], str) or not sample[field].strip()
-                for field in NON_TARGET_FIELDS
+                for field in NON_TARGET_STRING_FIELDS
             ):
                 raise DatasetError(
                     f"{path}:{line_number}: id, task, input, and rubric must be non-empty strings"
                 )
+            excluded_rules = sample["excluded_rules"]
+            if (
+                not isinstance(excluded_rules, list)
+                or not all(
+                    isinstance(rule_id, str)
+                    and RULE_ID_TOKEN_RE.fullmatch(rule_id.strip())
+                    for rule_id in excluded_rules
+                )
+            ):
+                raise DatasetError(
+                    f"{path}:{line_number}: excluded_rules must be a list of rule IDs"
+                )
             normalized = {
-                field: sample[field].strip() for field in sorted(NON_TARGET_FIELDS)
+                field: sample[field].strip()
+                for field in sorted(NON_TARGET_STRING_FIELDS)
             }
+            normalized["excluded_rules"] = sorted({
+                rule_id.strip().upper() for rule_id in excluded_rules
+            })
             if normalized["id"] in seen_ids:
                 raise DatasetError(
                     f"{path}:{line_number}: duplicate sample id {normalized['id']!r}"
@@ -375,6 +396,14 @@ def select_target_samples(samples: list[dict], candidate: str) -> list[dict]:
     return [sample for sample in samples if sample["rule"].upper() == candidate.upper()]
 
 
+def select_non_target_samples(samples: list[dict], candidate: str) -> list[dict]:
+    candidate_id = candidate.upper()
+    return [
+        sample for sample in samples
+        if candidate_id not in sample["excluded_rules"]
+    ]
+
+
 def load_paired_thresholds(path: Path) -> dict[str, Any]:
     try:
         thresholds = json.loads(path.read_text(encoding="utf-8"))
@@ -386,14 +415,44 @@ def load_paired_thresholds(path: Path) -> dict[str, Any]:
         )
     if not isinstance(thresholds["calibrated"], bool):
         raise PairedEvalError("threshold calibrated must be boolean")
-    for key in THRESHOLD_KEYS - {"calibrated"}:
-        if not isinstance(thresholds[key], (int, float)) or isinstance(
-            thresholds[key], bool
+    for key in ("min_target_samples", "min_non_target_samples", "max_cross_refs"):
+        value = thresholds[key]
+        if type(value) is not int or value < 0:
+            raise PairedEvalError(f"threshold {key} must be a non-negative integer")
+    ratio_keys = THRESHOLD_KEYS - {
+        "calibrated",
+        "min_target_samples",
+        "min_non_target_samples",
+        "max_cross_refs",
+    }
+    for key in ratio_keys:
+        value = thresholds[key]
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or not 0 <= value <= 1
         ):
-            raise PairedEvalError(f"threshold {key} must be numeric")
-        if thresholds[key] < 0:
-            raise PairedEvalError(f"threshold {key} must be non-negative")
+            raise PairedEvalError(f"threshold {key} must be finite and between 0 and 1")
     return thresholds
+
+
+def validate_placebo_candidate(
+    candidate: str,
+    placebo_candidate: str,
+    candidate_characters: int,
+    placebo_characters: int,
+    maximum_length_ratio: float,
+) -> None:
+    if candidate.upper() == placebo_candidate.upper():
+        raise PairedEvalError("placebo candidate must differ from the candidate rule")
+    denominator = max(candidate_characters, 1)
+    length_ratio = abs(candidate_characters - placebo_characters) / denominator
+    if length_ratio > maximum_length_ratio:
+        raise PairedEvalError(
+            f"placebo length ratio {length_ratio:.3f} exceeds "
+            f"max_placebo_length_ratio={maximum_length_ratio}"
+        )
 
 
 def assert_paired_identity(with_identity: dict[str, str], without_identity: dict[str, str]) -> None:
@@ -460,7 +519,9 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     non_target_path = Path(args.non_target_dataset).resolve()
     thresholds = load_paired_thresholds(Path(args.thresholds).resolve())
     target_samples = select_target_samples(load_dataset(target_path), args.candidate)
-    non_target_samples = load_non_target_dataset(non_target_path)
+    non_target_samples = select_non_target_samples(
+        load_non_target_dataset(non_target_path), args.candidate
+    )
     if not target_samples and not non_target_samples:
         raise PairedEvalError("target and non-target sample sets are both empty")
 
@@ -483,11 +544,22 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
 
         placebo = None
         if args.placebo_candidate:
+            if args.placebo_candidate.upper() == args.candidate.upper():
+                raise PairedEvalError(
+                    "placebo candidate must differ from the candidate rule"
+                )
             placebo = prepare_without_rules(
                 rules_dir,
                 core_file,
                 args.placebo_candidate,
                 Path(tmp) / "placebo",
+            )
+            validate_placebo_candidate(
+                args.candidate,
+                args.placebo_candidate,
+                evidence["removed_section_characters"],
+                placebo["removed_section_characters"],
+                thresholds["max_placebo_length_ratio"],
             )
 
         print(

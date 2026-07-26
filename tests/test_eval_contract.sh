@@ -163,7 +163,9 @@ assert {sample["platform"] for sample in samples} >= {"claude", "codex"}
 
 header "paired prompt-rule PR evidence"
 pull_request_template="$(cat "${REPO_DIR}/templates/pull_request.md")"
+localized_pull_request_template="$(cat "${REPO_DIR}/templates/zh-CN/pull_request.md")"
 assert_contains "${pull_request_template}" "## Paired Prompt-Rule Evaluation" "PR template has a paired-eval evidence section"
+assert_contains "${localized_pull_request_template}" "## 配对 Prompt 规则评测" "default-locale PR template has a paired-eval evidence section"
 assert_contains "${pull_request_template}" "Target delta and sample count:" "paired evidence records target delta and sample count"
 assert_contains "${pull_request_template}" "Non-target delta and sample count:" "paired evidence records non-target delta and sample count"
 assert_contains "${pull_request_template}" "Producer model ID:" "paired evidence records producer model identity"
@@ -172,6 +174,7 @@ assert_contains "${pull_request_template}" "Judge prompt digest:" "paired eviden
 assert_contains "${pull_request_template}" '`calibrated: false`' "uncalibrated evidence contract requires an inconclusive report"
 assert_contains "${pull_request_template}" "non-prompt-injection changes only" "paired-eval exemption is limited by change type"
 assert_contains "${pull_request_template}" "Maintainer approval:" "paired-eval exemption requires maintainer approval evidence"
+assert_contains "${localized_pull_request_template}" "维护者批准：" "default-locale exemption requires maintainer approval evidence"
 assert_cmd "paired eval deterministic regression suite passes" bash "${REPO_DIR}/tests/test_paired_eval.sh"
 
 echo

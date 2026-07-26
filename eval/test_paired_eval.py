@@ -228,6 +228,22 @@ class RepositoryRemovalTest(unittest.TestCase):
         fixture["cross_references"].append("fixture.md:5")
         self.assertTrue(paired.cross_reference_limit_exceeded(fixture, 4))
 
+    def test_w11_literal_markdown_headings_are_removed_with_the_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = paired.prepare_without_rules(
+                paired.DEFAULT_RULES_DIR,
+                paired.DEFAULT_CORE_RULES_FILE,
+                "W-11",
+                Path(tmp) / "candidate",
+            )
+            without = (
+                evidence["rules_dir"] / "common" / "fact-inference-separation.md"
+            ).read_text(encoding="utf-8")
+
+        self.assertNotIn("## Facts", without)
+        self.assertNotIn("## Inferences", without)
+        self.assertEqual(evidence["failed_assertions"], [])
+
 
 class DatasetAndIdentityTest(unittest.TestCase):
     def test_target_partition_is_exact_and_non_target_schema_is_independent(self) -> None:
@@ -239,6 +255,11 @@ class DatasetAndIdentityTest(unittest.TestCase):
         self.assertGreaterEqual(len(non_target), 30)
         self.assertTrue(all({"id", "task", "input", "rubric"} <= sample.keys() for sample in non_target))
         self.assertTrue(all("rule" not in sample and "type" not in sample for sample in non_target))
+        self.assertTrue(all("excluded_rules" in sample for sample in non_target))
+
+        u15_samples = paired.select_non_target_samples(non_target, "U-15")
+        self.assertNotIn("non-target-23", {sample["id"] for sample in u15_samples})
+        self.assertGreaterEqual(len(u15_samples), 30)
 
     def test_paired_identity_rejects_any_non_rule_drift(self) -> None:
         base = {
@@ -257,6 +278,39 @@ class DatasetAndIdentityTest(unittest.TestCase):
                 paired.assert_paired_identity(base, changed)
         with self.assertRaisesRegex(paired.PairedEvalError, "rule_digest"):
             paired.assert_paired_identity(base, {**without, "rule_digest": "with"})
+
+    def test_thresholds_reject_non_finite_and_out_of_domain_values(self) -> None:
+        base = {
+            "min_target_samples": 5,
+            "min_non_target_samples": 30,
+            "min_target_delta": 0.0,
+            "max_non_target_drop": 0.0,
+            "max_skip_rate": 0.1,
+            "max_skip_delta": 0.05,
+            "max_cross_refs": 4,
+            "max_placebo_length_ratio": 0.25,
+            "calibrated": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "thresholds.json"
+            for key, value in (
+                ("max_skip_rate", float("nan")),
+                ("max_skip_delta", 1.1),
+                ("min_target_samples", 1.5),
+            ):
+                with self.subTest(key=key, value=value):
+                    path.write_text(
+                        json.dumps({**base, key: value}), encoding="utf-8"
+                    )
+                    with self.assertRaisesRegex(paired.PairedEvalError, key):
+                        paired.load_paired_thresholds(path)
+
+    def test_placebo_must_be_distinct_and_similar_length(self) -> None:
+        with self.assertRaisesRegex(paired.PairedEvalError, "must differ"):
+            paired.validate_placebo_candidate("U-32", "U-32", 4000, 4000, 0.25)
+        with self.assertRaisesRegex(paired.PairedEvalError, "length ratio"):
+            paired.validate_placebo_candidate("U-32", "U-31", 4000, 700, 0.25)
+        paired.validate_placebo_candidate("U-32", "SEC-12", 4000, 4100, 0.25)
 
 
 class JudgeAndVerdictTest(unittest.TestCase):

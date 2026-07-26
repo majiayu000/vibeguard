@@ -54,6 +54,9 @@ GH-686
    文件边界吃到下一个文件——全仓当前 127 条定义中有 18 条处于这个位置（含 10 个单规则文件，
    如 `rules/claude-rules/common/evidence-provenance.md` 的 W-21）。
 
+   文件内候选 span 以 canonical `RULE_ID_HEADING_RE` 的下一条规则定义为边界，不以任意
+   `^## ` 为边界；否则 W-11 fenced 示例中的 `## Facts` 会被误当成下一条规则。
+
    因此断言直接比较**临时树与真实树**：
    - 只允许一个规则文件不同，且该文件的差异**恰为**候选小节；
    - core 文件的差异**恰为**该 ID 的表格行；
@@ -66,8 +69,9 @@ GH-686
 
 5. **定义计数断言**：复用现有独立 canonical parser
    `scripts/lib/vibeguard_manifest.py:35` 的 `RULE_ID_HEADING_RE` 识别定义；`with_text`
-   的定义数减去 `without_text` 的定义数**必须恰好等于 1**，且被删 span 内除首行外
-   不得再出现 `^## `。不得把 `strip_candidate` / `extract_section` 的正则拿来计数。
+   的定义数减去 `without_text` 的定义数**必须恰好等于 1**，且被删 span 内除首个候选
+   标题外不得再出现第二条 canonical 规则定义；普通 Markdown `##` 标题属于规则正文。
+   不得把 `strip_candidate` / `extract_section` 的结果本身拿来计数。
    canonical parser 当前覆盖 127 条定义，包括三个非数字后缀 ID：`TASTE-ANSI`、
    `TASTE-ASYNC-UNWRAP`、`TASTE-PANIC-MSG`。这条**不依赖剔除逻辑**，是专门用来抓
    "删多了"的非同源断言。
@@ -127,8 +131,9 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 
 - 目标样本：`rule == <candidate>` 的**精确**匹配。**不得复用 `filter_samples`**，它是
   前缀匹配且强制混入 `NONE` 样本，两者都会污染目标轴。
-- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入与
-  明确的质量 rubric；它不复用只支持 tp/fp 的现有 dataset schema。
+- 非目标样本：来自独立的 `non-target` 数据集（见 D1 结论）。每条包含普通任务输入、
+  明确的质量 rubric 与 `excluded_rules`；若候选 ID 在该列表中，本次运行排除该样本，
+  防止候选相关任务被误算为非目标副作用。它不复用只支持 tp/fp 的现有 dataset schema。
 
 ### 5. 两条证据轴与判定
 
@@ -173,6 +178,7 @@ judge 模型身份与 judge prompt digest，不调用模型。
   "max_skip_rate": 0.1,
   "max_skip_delta": 0.05,
   "max_cross_refs": 4,
+  "max_placebo_length_ratio": 0.25,
   "calibrated": false
 }
 ```
@@ -180,9 +186,11 @@ judge 模型身份与 judge prompt digest，不调用模型。
 `calibrated: false` 时整体判定**强制降级为 `inconclusive`，永不输出 `pass`**。
 只打一行 warning 是不够的——那样未标定的门仍会被下游当作已标定的门引用。
 
-当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。`max_skip_rate` 与
-`max_skip_delta` 同样是新拍的数字。标定其中一项就把整个文件翻成 `true`，会顺带把仍
-未标定的其余阈值洗白 —— 若将来分项标定，改为逐键标注。
+当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。
+`max_skip_rate`、`max_skip_delta` 与 `max_placebo_length_ratio` 同样是新拍的数字。所有
+比例阈值必须是 0–1 的有限数，样本量与引用上限必须是非负整数；JSON `NaN` 不得静默
+绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
+若将来分项标定，改为逐键标注。
 
 未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
 **inconclusive 报告加两轴 delta 数值与样本量**，不是 `pass`（B-009）。
@@ -238,7 +246,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
-| B-014 | 标定流程的长度相近 placebo | `bash tests/test_paired_eval.sh` |
+| B-014 | 标定流程的不同规则、长度差比例合格 placebo | `bash tests/test_paired_eval.sh` |
 | B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、judge 审计字段完整） |
 
 ## 数据流
@@ -253,7 +261,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
         |   断言 1: 逐文件差分 — 仅一个规则文件不同, 差异恰为候选小节
         |             + core 文件差异恰为该 ID 表格行, 其余逐字节相同
         |   断言 2: 候选定义确实存在于真实树 (否则"候选不存在"终止)
-        |   断言 3: 定义计数差 == 1, 删除 span 内无第二个 ^##  (抓"删多了", 非同源)
+        |   断言 3: 定义计数差 == 1, 删除 span 内无第二条 canonical 规则定义
         |   断言 4: text_B 不含候选的定义位点                  (抓"删漏了")
         |   报告:   交叉引用清单 + 空壳文件; 超 max_cross_refs -> inconclusive
         v
