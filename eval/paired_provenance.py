@@ -2,12 +2,107 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
 
 class PairedProvenanceError(ValueError):
     """Raised when evaluated inputs cannot be attributed to one commit."""
+
+
+def _module_candidates(module: str, roots: list[Path]) -> list[Path]:
+    relative = Path(*module.split("."))
+    return [
+        candidate
+        for root in roots
+        for candidate in (
+            root / relative.with_suffix(".py"),
+            root / relative / "__init__.py",
+        )
+        if candidate.is_file()
+    ]
+
+
+def local_python_dependency_paths(
+    entry_paths: list[Path],
+    *,
+    module_roots: list[Path],
+) -> list[Path]:
+    """Return the recursive repository-local Python import closure."""
+    roots = [root.resolve() for root in module_roots]
+    pending = [path.resolve() for path in entry_paths]
+    dependencies: set[Path] = set()
+    while pending:
+        source_path = pending.pop()
+        if source_path in dependencies:
+            continue
+        dependencies.add(source_path)
+        try:
+            tree = ast.parse(
+                source_path.read_text(encoding="utf-8"),
+                filename=str(source_path),
+            )
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            raise PairedProvenanceError(
+                f"cannot inspect evaluator dependency {source_path}: {exc}"
+            ) from exc
+
+        discovered: list[Path] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    discovered.extend(_module_candidates(alias.name, roots))
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    relative_root = source_path.parent
+                    for _ in range(node.level - 1):
+                        relative_root = relative_root.parent
+                    if node.module:
+                        discovered.extend(
+                            _module_candidates(node.module, [relative_root])
+                        )
+                    else:
+                        for alias in node.names:
+                            discovered.extend(
+                                _module_candidates(alias.name, [relative_root])
+                            )
+                elif node.module:
+                    discovered.extend(_module_candidates(node.module, roots))
+        pending.extend(discovered)
+    return sorted(dependencies)
+
+
+def evaluated_provenance_paths(
+    *,
+    rules_dir: Path,
+    core_file: Path,
+    target_path: Path,
+    non_target_path: Path,
+    thresholds_path: Path,
+) -> list[Path]:
+    """Return every repository input that can affect a paired-eval verdict."""
+    repo_root = Path(__file__).resolve().parents[1]
+    implementation_paths = local_python_dependency_paths(
+        [
+            repo_root / "eval" / "run_paired_eval.py",
+            repo_root / "scripts" / "lib" / "vibeguard_manifest.py",
+        ],
+        module_roots=[
+            repo_root / "eval",
+            repo_root / "scripts" / "lib",
+        ],
+    )
+    return [
+        rules_dir,
+        *sorted(rules_dir.rglob("*.md")),
+        core_file,
+        target_path,
+        non_target_path,
+        thresholds_path,
+        repo_root / "eval" / "model_baseline.json",
+        *implementation_paths,
+    ]
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str:

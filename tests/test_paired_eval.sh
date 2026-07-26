@@ -44,16 +44,31 @@ class FinalReviewRegressionTest(unittest.TestCase):
                 "model_baseline.py",
                 "paired_execution.py",
                 "paired_provenance.py",
+                "paired_runner.py",
                 "paired_scoring.py",
                 "run_eval.py",
                 "run_paired_eval.py",
+                "sample_ids.py",
                 "scoring.py",
             )
         }
-        expected.add(
-            paired.REPO_ROOT / "scripts" / "lib" / "vibeguard_manifest.py"
-        )
+        expected.update({
+            paired.REPO_ROOT / "scripts" / "lib" / name
+            for name in (
+                "hooks_manifest.py",
+                "project_schema_contract.py",
+                "vibeguard_manifest.py",
+            )
+        })
         self.assertTrue(expected.issubset(paths), expected - paths)
+
+    def test_cli_pins_commit_before_local_evaluator_imports(self):
+        source = (
+            paired.REPO_ROOT / "eval" / "run_paired_eval.py"
+        ).read_text(encoding="utf-8")
+        capture_index = source.index("_capture_startup_commit(REPO_ROOT)")
+        first_local_import_index = source.index("from paired_runner import")
+        self.assertLess(capture_index, first_local_import_index)
 
     def test_evaluated_inputs_must_match_the_pinned_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
