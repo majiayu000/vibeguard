@@ -42,14 +42,26 @@ assert_contains "$result" '"decision": "block"' "Write hook payload missing file
 assert_contains "$result" "malformed PreToolUse(Write)" "Missing Write file_path explains validation failure"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
-result=$(printf '' | bash hooks/pre-write-guard.sh)
-assert_contains "$result" '"decision": "block"' "Empty Write hook stdin fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "empty hook stdin" "Empty Write hook stdin logs empty-stdin diagnostic"
+write_privacy_sentinel='VG_WRITE_SECRET_706_token'
+result=$(printf '{"tool_input":{"content":"%s"}}' "$write_privacy_sentinel" | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "Write payload missing file_path fails closed with adversarial content"
+write_global_log="$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")"
+write_project_log="$(find "$VIBEGUARD_LOG_DIR/projects" -name events.jsonl -type f -exec cat {} +)"
+assert_contains "$write_global_log" "category=missing_required_field" "Malformed Write global log uses closed category"
+assert_not_contains "$write_global_log" "$write_privacy_sentinel" "Malformed Write global log excludes content secret"
+assert_not_contains "$write_project_log" "$write_privacy_sentinel" "Malformed Write project log excludes content secret"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
-result=$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"NotebookEdit","tool_input":{"notebook_path":"a.ipynb"}}' | bash hooks/pre-write-guard.sh)
+result=$(printf '' | bash hooks/pre-write-guard.sh)
+assert_contains "$result" '"decision": "block"' "Empty Write hook stdin fails closed"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "category=empty_stdin" "Empty Write hook stdin logs empty-stdin diagnostic"
+
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+unknown_write_tool_sentinel='VG_UNKNOWN_WRITE_TOOL_706'
+result=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"notebook_path":"a.ipynb"}}' "$unknown_write_tool_sentinel" | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Non-Write tool payload without file_path fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name=NotebookEdit" "Non-Write tool payload logs originating tool_name"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name_class=other" "Non-Write tool payload normalizes originating tool_name"
+assert_not_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "$unknown_write_tool_sentinel" "Non-Write tool payload does not persist unknown tool_name"
 
 result=$(printf '%s' '{"tool_input":{"content":"fn main() {}"}}' | bash hooks/pre-write-guard.sh)
 assert_contains "$result" '"decision": "block"' "Write hook payload with content but no file_path fails closed"
@@ -131,6 +143,23 @@ result=$(echo '{"tool_input":{"file_path":"/tmp/vg_nonexist_myconfig.json"}}' | 
 assert_not_contains "$result" "W-12" "W-12: Normal config.json does not trigger test infrastructure protection"
 
 header "pre-write-guard.sh — U-16 legacy baseline"
+
+u16_unreadable_dir="${VIBEGUARD_LOG_DIR}/VG_PRIVATE_BASELINE_PATH_706.rs"
+mkdir -p "$u16_unreadable_dir"
+> "$VIBEGUARD_LOG_DIR/events.jsonl"
+result=$(python3 - <<'PY' "${u16_unreadable_dir}" | bash hooks/pre-write-guard.sh
+import json
+import sys
+
+print(json.dumps({"tool_input": {"file_path": sys.argv[1], "content": "fn replacement() {}\n"}}))
+PY
+)
+assert_contains "$result" '"decision": "block"' "U-16: unreadable baseline fails closed"
+assert_contains "$result" "existing source file could not be read for the U-16 baseline" "U-16: unreadable baseline has distinct user reason"
+u16_unreadable_log="$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")"
+assert_contains "$u16_unreadable_log" "U-16 baseline unreadable; fail-closed" "U-16: unreadable baseline has distinct event reason"
+assert_contains "$u16_unreadable_log" "category=u16_baseline_unreadable" "U-16: unreadable baseline has fixed diagnostic category"
+assert_not_contains "$u16_unreadable_log" "$u16_unreadable_dir" "U-16: unreadable baseline log excludes file path"
 
 u16_legacy_file="${VIBEGUARD_LOG_DIR}/u16_write_legacy.ts"
 python3 - <<'PY' "${u16_legacy_file}"

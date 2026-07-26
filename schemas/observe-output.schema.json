@@ -43,6 +43,16 @@
     },
     "event_count": { "type": "integer", "minimum": 0 },
     "decision_counts": { "$ref": "#/$defs/count_map" },
+    "block_counts": {
+      "type": "object",
+      "required": ["total_blocks", "protocol_errors", "non_protocol_blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "total_blocks": { "type": "integer", "minimum": 0 },
+        "protocol_errors": { "type": "integer", "minimum": 0 },
+        "non_protocol_blocks": { "type": "integer", "minimum": 0 }
+      }
+    },
     "hook_counts": { "$ref": "#/$defs/count_map" },
     "client_distribution": { "$ref": "#/$defs/count_map" },
     "attention": {

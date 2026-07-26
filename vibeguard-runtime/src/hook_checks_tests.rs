@@ -161,13 +161,52 @@ fn malformed_pre_write_inputs_carry_shape_diagnostics() {
         PreWriteCheck::Malformed { detail } => detail,
         other => panic!("expected Malformed, got {other:?}"),
     };
-    assert!(detail("").starts_with("empty hook stdin"));
-    assert!(detail("{not json").starts_with("invalid JSON"));
+    assert_eq!(
+        detail(""),
+        "category=empty_stdin required_field=file_path input_size=0 tool_name_class=absent_or_invalid hook_event_name_class=absent_or_invalid"
+    );
+    assert_eq!(
+        detail("{not json"),
+        "category=invalid_json required_field=file_path input_size=9 tool_name_class=absent_or_invalid hook_event_name_class=absent_or_invalid"
+    );
     let missing = detail(
         r#"{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}"#,
     );
-    assert!(missing.contains("tool_input.file_path missing, empty, or not a string"));
-    assert!(missing.contains("tool_name=BashOutput"));
+    assert!(
+        missing.starts_with("category=missing_required_field required_field=file_path input_size=")
+    );
+    assert!(missing.contains("tool_name_class=other"));
+    assert!(missing.contains("hook_event_name_class=pre_tool_use"));
+    assert!(!missing.contains("BashOutput"));
     let empty_path = detail(r#"{"tool_name":"Write","tool_input":{"file_path":""}}"#);
-    assert!(empty_path.contains("tool_input.file_path missing, empty, or not a string"));
+    assert!(
+        empty_path
+            .starts_with("category=missing_required_field required_field=file_path input_size=")
+    );
+    assert!(empty_path.contains("tool_name_class=write"));
+}
+
+#[test]
+fn baseline_unreadable_is_not_malformed_and_does_not_expose_path() -> TestResult {
+    let root = temp_project("baseline_unreadable");
+    let unreadable = root.join("private-baseline.rs");
+    fs::create_dir_all(&unreadable)?;
+    let input = serde_json::json!({
+        "tool_input": {
+            "file_path": unreadable,
+            "content": "fn replacement() {}\n"
+        }
+    })
+    .to_string();
+
+    let result = evaluate_pre_write_input(&input, 800, 400);
+    assert_eq!(
+        result,
+        PreWriteCheck::U16BaselineUnreadable {
+            detail: "category=u16_baseline_unreadable".to_string()
+        }
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
 }

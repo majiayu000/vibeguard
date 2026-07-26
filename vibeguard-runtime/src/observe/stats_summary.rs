@@ -61,22 +61,16 @@ pub(super) fn render_stats_summary(
         "Total triggers: {} times\n",
         aggregate.event_count
     ));
-    let block_total = observe_decision_count(aggregate, decision::BLOCK);
-    let protocol_error_blocks: u64 = block_reasons
-        .iter()
-        .filter(|(reason, _)| is_protocol_error_reason(reason))
-        .map(|(_, count)| *count)
-        .sum();
+    let block_total = aggregate.block_counts.total_blocks;
     output.push_str(&format!("  Interception (block): {block_total} times\n"));
-    if protocol_error_blocks > 0 {
-        output.push_str(&format!(
-            "    rule interceptions: {} times\n",
-            block_total.saturating_sub(protocol_error_blocks)
-        ));
-        output.push_str(&format!(
-            "    protocol errors (malformed hook input, not rule hits): {protocol_error_blocks} times\n"
-        ));
-    }
+    output.push_str(&format!(
+        "    non-protocol blocks: {} times\n",
+        aggregate.block_counts.non_protocol_blocks
+    ));
+    output.push_str(&format!(
+        "    protocol errors (malformed hook input, not rule hits): {} times\n",
+        aggregate.block_counts.protocol_errors
+    ));
     output.push_str(&format!(
         "  Warning: {} times\n",
         observe_decision_count(aggregate, decision::WARN)
@@ -332,13 +326,6 @@ fn append_problem_sessions(output: &mut String, sessions: &BTreeMap<String, Vec<
     }
 }
 
-/// Fail-closed reasons emitted when hook stdin could not be consumed at all.
-/// These are infrastructure failures, not rule hits, and are surfaced
-/// separately so interception counts stay meaningful.
-fn is_protocol_error_reason(reason: &str) -> bool {
-    reason == "invalid Bash hook input JSON; fail-closed" || reason == "Malformed hook input"
-}
-
 fn stats_count_by_matching<F>(
     events: &[Value],
     decision_value: &str,
@@ -516,6 +503,16 @@ mod tests {
             json!({
                 "ts": "2026-06-05T20:02:00Z",
                 "session": "session-a",
+                "hook": "pre-write-guard",
+                "tool": "Write",
+                "decision": "block",
+                "reason": "Malformed hook input",
+                "detail": "existing file unreadable for U-16 baseline: /private/source.rs",
+                "cli": "claude"
+            }),
+            json!({
+                "ts": "2026-06-05T20:03:00Z",
+                "session": "session-a",
                 "hook": "post-edit-guard",
                 "tool": "Edit",
                 "decision": "block",
@@ -540,8 +537,8 @@ mod tests {
             Err(error) => panic!("stats summary should render: {error}"),
         };
 
-        assert!(output.contains("Interception (block): 3 times"));
-        assert!(output.contains("rule interceptions: 1 times"));
+        assert!(output.contains("Interception (block): 4 times"));
+        assert!(output.contains("non-protocol blocks: 2 times"));
         assert!(output.contains("protocol errors (malformed hook input, not rule hits): 2 times"));
     }
 }
