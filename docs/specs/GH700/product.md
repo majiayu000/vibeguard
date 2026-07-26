@@ -22,11 +22,13 @@ GH-700 的目标命令是 `vibeguard bench`：用户从 GH-699 规划的已校�
 出发，不 clone 仓库、不安装 Rust、不依赖未发布源码，即可重放与该 release 绑定的
 官方 corpus，并得到 interception rate、false-positive rate 与 hook latency。
 
-当前事实（2026-07-27）是：GH-699 的 spec/tasks 已合并，但 issue 仍 open；payload
-T1/T2 的实现 PR #711 尚未合并，bootstrap 与 brew/npm launcher 仍只是
-`SP699-T3`–`SP699-T6` 的计划。`vibeguard` 因此还不是当前 main 上可核实的真实
-launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-clone 安装合并并被
-探测前，不能声称 B-001 的官方入口已经存在。
+当前事实（2026-07-27）是：GH-699 的 spec/tasks 已合并且 issue 仍 open；payload
+`SP699-T1/T2` 的实现 PR #711 已于 2026-07-26T22:02:07Z 合并到 main
+`6bf4ddc3f43744581eac9666712ee80964611740`。`SP699-T3` bootstrap、`SP699-T4`
+no-clone native release smoke 与 `SP699-T5/T6` brew/npm launchers 仍 pending，
+`vibeguard` 因此还不是当前 main 上可核实的真实 launcher。GH-700 可以消费已合并的
+payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测前，不能声称 B-001
+的官方入口已经存在。
 
 ## 目标
 
@@ -70,11 +72,12 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
    inventory production detector，不能用“不存在文件”改名顶替；swallowed exception
    将现有 AST 逻辑抽成无 pytest 依赖、production 与测试共用的 released guard。两条
    production mapping 未合并前，五类完整性门保持 unavailable。**
-3. **公开平台集合**：哪些 release targets 必须有独立行；不同 OS/架构的延迟不得
-   静默平均成一个 headline。**Recommended proposal（未批准）：v1 先要求 release
-   workflow 能原生执行的 `aarch64-apple-darwin` 与
-   `x86_64-unknown-linux-musl`；另外两个 cross targets 明示 unavailable，直到有原生
-   runner。**
+3. **公开平台集合**：获批 protocol 的 `required_platforms` 指定哪些 release targets
+   参与 release summary gate；非 required targets 只展示，不影响 gate。不同 OS/架构的
+   延迟不得静默平均。**Recommended proposal（未批准）：v1 的 required set 先取
+   `aarch64-apple-darwin` 与 `x86_64-unknown-linux-musl`；另外两个 targets 可显示
+   unavailable，但不阻断。若选择四 target required set，则四个平台都必须有 native
+   runner，cross-compiled smoke 不能替代。**
 4. **Release policy**：闭集取值为 `{block_release, publish_nonvalid}`。前者不创建
    GitHub Release 或 README current row，并按 B-029 永久保存失败 manifest；后者发布
    带 non-valid report 的 release 与同版本 non-valid README row。两种方案都不得沿用
@@ -94,9 +97,10 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
    dirty checkout 或自定义二进制同样不得成为 README/release headline 证据。
 2. B-002: 每次官方运行必须在执行首个 case 前固定并输出至少以下 provenance：
    runtime version、release tag、target triple、build source commit、corpus schema
-   version、corpus ID/version/digest、release payload manifest digest，以及本次实际
-   使用的 production surfaces 摘要。任一必填值缺失、为空、越界或互相不匹配时，结果
-   为 `unavailable` 且零 case 执行；不得用 `unknown` 生成 headline。
+   version、corpus ID/version/digest、approved protocol version/digest 及其
+   `required_platforms`、release payload manifest digest，以及本次实际使用的 production
+   surfaces 摘要。任一必填值缺失、为空、越界或互相不匹配时，结果为 `unavailable` 且
+   零 case 执行；不得用 `unknown` 生成 headline。
 3. B-003: 官方 corpus 必须包含五个闭集 failure classes
    `{invented_api, duplicate_module, swallowed_exception,
    dangerous_shell_or_git, unverified_done_claim}`。每类必须同时有至少一条 positive
@@ -165,10 +169,10 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     类别。`valid` 退出 0；`unavailable`、`inconclusive`、schema/corpus error 与
     interruption 均非零退出。无数据用空值/空白加状态表达，不得伪造零值。
 16. B-016: 每个 release 的官方报告必须由 release CI 使用“将要发布的准确 binary +
-    同 tag payload”重新运行，而不是使用 workspace debug binary、Python eval 汇总、
-    上一 release artifact 或手工输入。报告必须与 binary/payload/corpus digests
-    相互校验，并作为不可变、可下载、带摘要的 release evidence 保存；跨 target 报告
-    不得冒充实际未运行的平台。
+   同 tag payload”重新运行，而不是使用 workspace debug binary、Python eval 汇总、
+   上一 release artifact 或手工输入。报告必须与 binary/payload/corpus digests
+   相互校验，并作为不可变、可下载、带摘要的 release evidence 保存；summary gate 只
+   消费 B-031 的 required set，跨 target 报告不得冒充实际未运行的平台。
 17. B-017: README benchmark 表必须从 B-016 的机器可读 release report 生成，至少显示
     release、platform、corpus version/digest 短标识、positive/negative 样本数、
     interception 口径与 rate、false-positive rate、latency P95、状态及报告链接。数字
@@ -203,15 +207,18 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     digest/attestation mismatch 在零 case 时 `unavailable`。
 22. B-022: 报告必须同时给出两个不可混用的摘要：
     - `decision_digest` 是跨平台比较面，只绑定共同 release source commit、corpus/
-      ground-truth/production-mapping/protocol identities、headline subset、按 case ID
+      ground-truth/production-mapping/protocol identities、approved
+      `required_platforms`、headline subset、按 case ID
       排序的 normalized decisions/canonical reason codes 与 aggregates；排除
       target-specific binary
       digest、OS/arch、latency、timestamp 和 temp path。
     - `evidence_digest` 是 platform-bound 面，绑定该平台完整 canonical report
       （计算时排除字段自身）、`decision_digest`、`current_exe`/payload/wrapper digests、
-      target、axis 状态与 latency/environment evidence。
-    同一 release 的 native platforms 必须比较 `decision_digest` 相等；不同平台的
-    `evidence_digest` 本来应不同，禁止拿它做 cross-platform equality gate。
+      target、该 target 是否 required、完整 `required_platforms`、axis 状态与
+      latency/environment evidence。
+    同一 release 的 required native platforms 必须比较 `decision_digest` 相等；非
+    required reports 不进入该 equality gate。不同平台的 `evidence_digest` 本来应不同，
+    禁止拿它做 cross-platform equality gate。
 23. B-023: top-level 状态必须是两个 axis 状态的纯 3×3 total function，不能读取执行
     stage 或其它隐藏状态：`valid + valid → valid`；
     `unavailable + unavailable → unavailable`；其余七种组合一律
@@ -248,11 +255,13 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     corpus version 对应不同任一 digest 时，build/release 都必须失败；删除、重排历史
     identity 或复用旧 version 同样失败。新 release 可以继续使用已记录 tuple，但不能
     改写它。
-28. B-028: GH-699 是 **planned dependency**：已合并的 `SP699-T1`–`SP699-T7` tasks
-    只定义接口，不证明 payload/bootstrap/launcher 已实现。GH-700 official gate 必须读取
-    实际合并实现的 release identity/payload contract，并由无 checkout integration
-    fixture 探测真实 launcher 路径/argv；不能从 spec 猜 `vibeguard` shim。对应 GH-699
-    task 未完成、实现 PR 未合并或 launcher 探测失败时，B-001 保持 unavailable。
+28. B-028: GH-699 是 **partially implemented dependency**：PR #711 已合并
+    `SP699-T1/T2` 的 payload artifact 与 payload-mode setup，GH-700 必须消费 main 上该
+    实际 contract，不能仍称其未合并；但 `SP699-T3` bootstrap、`T4` no-clone native
+    release smoke 与 `T5/T6` launchers 仍 pending。official gate 必须由无 checkout
+    integration fixture 探测未来合并的真实 launcher path/argv，不能从 spec 或 payload
+    setup 猜 `vibeguard` shim。T3–T6 未完成、actual launcher 未合并或 no-clone smoke
+    未通过时，B-001 保持 unavailable。
 29. B-029: 当 effective action 为 `block_release`（包括选中 `publish_nonvalid` 但其
     mandatory evidence gate 失败）时，release job 在返回失败前必须先生成
     schema-valid candidate failure report 与 schema-valid canonical failure manifest。
@@ -263,9 +272,12 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     attestation predicate（或语义等价的 append-only immutable ledger），不能只保存
     artifact pointer/digest/job summary。content-addressed bundle 可作为短期下载副本；
     即使 CI artifact retention 到期，独立验证者仍必须能从长期 predicate/ledger 恢复
-    完整 manifest 并复核内容、reason 与 digest。重试创建新 attempt evidence，不覆盖
-    旧记录；随后 job 非零退出，GitHub Release、release page/assets 与 README candidate
-    current row 均不创建。
+    完整 manifest 并复核内容、reason 与 digest。`failure_manifest_digest` 的 canonical
+    输入必须包含 `run_id` 与 `run_attempt`；bundle、attestation predicate/ledger identity
+    必须同时包含 `(run_id, run_attempt, failure_manifest_digest)`。即使 report/evidence
+    bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
+    job 非零退出，GitHub Release、release page/assets 与 README candidate current row
+    均不创建。
 30. B-030: official run 在任何 latency warmup/measurement 前，必须从 verified
     payload/receipt 把 runtime、payload、wrapper、配置与 manifest 按生产安装布局
     materialize 到本次 temp HOME 的 byte-identical、只读 install snapshot，并逐文件重算
@@ -273,6 +285,15 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
     样本；计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写
     状态或 digest drift 使对应 axis 在零 timed sample 时 `unavailable`；不得读写真实
     HOME 或用 checkout/mock/PATH fallback。
+31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
+    `required_platforms`，且每项属于 release target 闭集。release summary 只聚合该 set：
+    每个 required target 都必须由对应 native runner 产生 schema/provenance-valid report，
+    且 required reports 的 `decision_digest` 一致；缺任一 required native report 或任一
+    required target 非 `valid` 时 summary 非 valid 并进入获批 release policy。非 required
+    target 可生成独立 display-only row；其 `unavailable`/缺 native runner 不得阻断
+    summary，也不得替代 required target。若获批 set 含四个平台，则四个平台都必须有
+    native runner；host/cross-compiled execution 不算覆盖。required set 缺失、空、重复、
+    未排序、含未知 target 或与 report/digests 不一致时 preflight `unavailable`。
 
 ## 验收标准
 
@@ -283,8 +304,10 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
 - [ ] 报告公开 provenance、完整 confusion matrix、block/advisory 分项、每类分项与
       `interception_decisions`；execution_error 不进 decision/numerator，但 case 不从
       ground-truth denominator 消失。
-- [ ] 同一 release 的确定性确认重跑与 native platforms 产生一致
+- [ ] 同一 release 的确定性确认重跑与 required native platforms 产生一致
       `decision_digest`；每个平台有绑定 actual `current_exe` 的独立 `evidence_digest`。
+- [ ] approved protocol 的 `required_platforms` 同时进入 protocol、decision/evidence
+      digests；summary 只 gate required native reports，非 required unavailable 仅展示。
 - [ ] latency 从 verified receipt materialize 的 byte-identical readonly 生产布局快照
       启动真实 installed wrapper 子进程，报 P50/P95/P99/max；materialization 不计时，
       失真环境留空且不伪造 headline。
@@ -300,24 +323,25 @@ launcher。GH-700 可以先定义 runtime 内核，但在实际 launcher 与 no-
 
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
-| 空/缺失输入 | covered: B-002, B-003, B-007, B-015, B-021, B-024, B-030 |
-| 错误与失败路径 | covered: B-005, B-008, B-012, B-015, B-018, B-019, B-023, B-025, B-029 |
+| 空/缺失输入 | covered: B-002, B-003, B-007, B-015, B-021, B-024, B-030, B-031 |
+| 错误与失败路径 | covered: B-005, B-008, B-012, B-015, B-018, B-019, B-023, B-025, B-029, B-031 |
 | 授权/权限 | covered: B-002, B-004, B-013, B-021, B-026；identity/reviewer floor 不可由 proposal 降低 |
 | 并发/竞态 | covered: B-009, B-010, B-016, B-021, B-022, B-030 |
 | 重试/幂等 | covered: B-009, B-010, B-018, B-027, B-029 |
 | 非法状态转换 | covered: B-008, B-014, B-015, B-020, B-023, B-025 |
-| 兼容/迁移 | covered: B-001, B-016, B-017, B-019, B-027, B-028 |
-| 降级/回退 | covered: B-005, B-008, B-012, B-018, B-023, B-028；不得把降级显示为 valid |
-| 证据与审计完整性 | covered: B-002, B-004, B-006, B-007, B-009, B-016, B-017, B-021, B-022, B-025, B-026, B-027, B-029, B-030 |
+| 兼容/迁移 | covered: B-001, B-016, B-017, B-019, B-027, B-028, B-031 |
+| 降级/回退 | covered: B-005, B-008, B-012, B-018, B-023, B-028, B-031；不得把降级显示为 valid |
+| 证据与审计完整性 | covered: B-002, B-004, B-006, B-007, B-009, B-016, B-017, B-021, B-022, B-025, B-026, B-027, B-029, B-030, B-031 |
 | 取消/中断 | covered: B-014, B-018, B-029 |
 
 ## 发布说明
 
-GH-700 的 public done-when 依赖 GH-699 的**计划实现**：PR #708 已合并 spec/tasks，
-不等于 `SP699-T1`–`SP699-T7` 已完成。release binary、payload、bootstrap 和 actual
-launcher 必须在实现合并后形成同 tag、可校验的 released install，并由 GH-700
-integration fixture 读取真实 receipt/launcher contract，`vibeguard bench` 才能声称
-“一条命令从 release 复现”。此前只能报告 `unofficial`/`unavailable`。
+GH-700 的 public done-when 依赖 GH-699 的剩余实现：PR #711 已合并 `SP699-T1/T2`
+payload contract，但 `T3` bootstrap、`T4` no-clone native smoke、`T5/T6` actual
+launchers 仍 pending。release binary、payload、bootstrap 与 actual launcher 必须形成
+同 tag、可校验的 released install，并由 GH-700 integration fixture 读取真实
+receipt/launcher contract，`vibeguard bench` 才能声称“一条命令从 release 复现”。
+此前只能报告 `unofficial`/`unavailable`。
 
 README 首次切换到生成表格时必须清楚区分既有的 40-sample model-backed
 rule-detection benchmark 与本 spec 的 deterministic released-production benchmark；
