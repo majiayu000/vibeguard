@@ -63,6 +63,9 @@ not json
 {"ts":"2026-06-01T00:00:06Z","session":"s1","hook":"post-build-check","tool":"PostToolUse","status":"timeout","reason":"post-build-check timeout after 30s","detail":"cargo test","duration_ms":30000,"client":"codex"}
 {"ts":"2026-06-01T00:00:07Z","session":"s1","hook":"codex-wrapper","event":"PostToolUse","status":"hook_error","reason":"missing-runner","detail":"wrapper unavailable","duration_ms":1,"client":"codex"}
 {"ts":"2026-06-01T00:00:08Z","session":"s1","hook":"post-tool-use","tool":"PostToolUse","decision":"pass","reason":"","detail":"elapsed-only slow","elapsed_ms":2600,"client":"codex"}
+{"ts":"2026-06-01T00:00:09Z","session":"s3","hook":"pre-bash-guard","tool":"Bash","decision":"block","reason":"invalid Bash hook input JSON; fail-closed","detail":"category=invalid_json","duration_ms":2,"client":"claude"}
+{"ts":"2026-06-01T00:00:10Z","session":"s3","hook":"pre-write-guard","tool":"Write","decision":"block","reason":"Malformed hook input","detail":"existing file unreadable for U-16 baseline: /private/source.rs","duration_ms":2,"client":"claude"}
+{"ts":"2026-06-01T00:00:11Z","session":"s3","hook":"pre-write-guard","tool":"Write","decision":"block","reason":"U-16 baseline unreadable; fail-closed","detail":"category=u16_baseline_unreadable","duration_ms":2,"client":"claude"}
 JSONL
 
 header "summary json"
@@ -91,7 +94,7 @@ import json
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
-if data["event_count"] != 8:
+if data["event_count"] != 11:
     raise SystemExit(f"malformed JSONL should be skipped, got {data['event_count']}")
 if data["decision_counts"].get("pass") != 4:
     raise SystemExit(f"unexpected pass count: {data['decision_counts']}")
@@ -102,6 +105,15 @@ if {"U-16", "SEC-13"} - rules:
     raise SystemExit(f"missing rule ids: {rules}")
 if data["duration_stats"]["slow_count"] != 3:
     raise SystemExit(f"unexpected slow count: {data['duration_stats']}")
+expected_blocks = {
+    "total_blocks": 4,
+    "protocol_errors": 1,
+    "rule_interceptions": 3,
+}
+if data.get("block_counts") != expected_blocks:
+    raise SystemExit(f"unexpected block split: {data.get('block_counts')}")
+if data["decision_counts"].get("block") != expected_blocks["total_blocks"]:
+    raise SystemExit(f"decision/block split mismatch: {data}")
 PY
 
 header "health json"
@@ -111,6 +123,12 @@ import json
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
+if data.get("block_counts") != {
+    "total_blocks": 4,
+    "protocol_errors": 1,
+    "rule_interceptions": 3,
+}:
+    raise SystemExit(f"health JSON block split drifted: {data.get('block_counts')}")
 attention_statuses = {entry["status"] for entry in data["attention_states"]}
 if attention_statuses != {"warn", "block"}:
     raise SystemExit(f"unexpected attention statuses: {attention_statuses}")
@@ -149,6 +167,25 @@ header "human output"
 human_out="$("${RUNTIME}" observe summary --days all --log-file "${EVENT_LOG}" --slow-ms 2000 2>&1)"
 assert_contains "${human_out}" "VibeGuard Statistics (all history)" "human: summary has stats title"
 assert_contains "${human_out}" "Distributed by Hook:" "human: summary includes hook distribution"
+assert_contains "${human_out}" "Interception (block): 4 times" "human: summary preserves total block count"
+assert_contains "${human_out}" "rule interceptions: 3 times" "human: summary uses shared rule interception count"
+assert_contains "${human_out}" "protocol errors (malformed hook input, not rule hits): 1 times" "human: summary uses shared protocol error count"
+
+header "read-only repeatability"
+before_hash="$(shasum -a 256 "${EVENT_LOG}" | awk '{print $1}')"
+repeat_one="$("${RUNTIME}" observe summary --json --days all --log-file "${EVENT_LOG}" --slow-ms 2000)"
+repeat_two="$("${RUNTIME}" observe summary --json --days all --log-file "${EVENT_LOG}" --slow-ms 2000)"
+after_hash="$(shasum -a 256 "${EVENT_LOG}" | awk '{print $1}')"
+assert_cmd "repeated summary output is deterministic" test "${repeat_one}" = "${repeat_two}"
+assert_cmd "repeated summary does not append or rewrite events" test "${before_hash}" = "${after_hash}"
+
+header "empty window block counts"
+EMPTY_LOG="${TMP_DIR}/empty-events.jsonl"
+: > "${EMPTY_LOG}"
+empty_json="$("${RUNTIME}" observe summary --json --days all --log-file "${EMPTY_LOG}")"
+assert_cmd "empty summary exposes zero block counts" python3 -c \
+  'import json,sys; data=json.loads(sys.argv[1]); assert data["event_count"] == 0; assert data["block_counts"] == {"total_blocks":0,"protocol_errors":0,"rule_interceptions":0}' \
+  "${empty_json}"
 
 header "missing explicit log"
 missing_log="${TMP_DIR}/missing-events.jsonl"

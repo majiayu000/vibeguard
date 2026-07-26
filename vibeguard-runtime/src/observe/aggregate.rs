@@ -3,10 +3,18 @@ use std::collections::BTreeMap;
 
 use crate::event_schema::{UNKNOWN, decision, field, status};
 
+#[derive(Default)]
+pub(super) struct BlockCounts {
+    pub(super) total_blocks: u64,
+    pub(super) protocol_errors: u64,
+    pub(super) rule_interceptions: u64,
+}
+
 pub(super) struct ObserveAggregate {
     pub(super) event_count: usize,
     pub(super) attention_count: usize,
     pub(super) decision_counts: BTreeMap<String, u64>,
+    pub(super) block_counts: BlockCounts,
     pub(super) hook_counts: BTreeMap<String, u64>,
     pub(super) client_distribution: BTreeMap<String, u64>,
     pub(super) rule_ids: BTreeMap<String, u64>,
@@ -21,6 +29,7 @@ pub(super) fn aggregate_events(events: &[Value], slow_ms: u64) -> ObserveAggrega
         event_count: events.len(),
         attention_count: 0,
         decision_counts: BTreeMap::new(),
+        block_counts: BlockCounts::default(),
         hook_counts: BTreeMap::new(),
         client_distribution: BTreeMap::new(),
         rule_ids: BTreeMap::new(),
@@ -38,10 +47,14 @@ pub(super) fn aggregate_events(events: &[Value], slow_ms: u64) -> ObserveAggrega
         if !ts.is_empty() {
             aggregate.last_ts = ts;
         }
-        observe_increment(
-            &mut aggregate.decision_counts,
-            observe_non_empty_or(observe_normalized_decision(event), UNKNOWN),
-        );
+        let normalized_decision = observe_non_empty_or(observe_normalized_decision(event), UNKNOWN);
+        observe_increment(&mut aggregate.decision_counts, normalized_decision.clone());
+        if normalized_decision == decision::BLOCK {
+            aggregate.block_counts.total_blocks += 1;
+            if observe_is_protocol_error_block(event) {
+                aggregate.block_counts.protocol_errors += 1;
+            }
+        }
         observe_increment(
             &mut aggregate.hook_counts,
             observe_non_empty_or(observe_string_field(event, field::HOOK), UNKNOWN),
@@ -64,8 +77,22 @@ pub(super) fn aggregate_events(events: &[Value], slow_ms: u64) -> ObserveAggrega
             aggregate.durations_ms.push(duration_ms);
         }
     }
+    aggregate.block_counts.rule_interceptions =
+        aggregate.block_counts.total_blocks - aggregate.block_counts.protocol_errors;
     aggregate.durations_ms.sort_unstable();
     aggregate
+}
+
+fn observe_is_protocol_error_block(event: &Value) -> bool {
+    let reason = observe_string_field(event, field::REASON);
+    if reason == "invalid Bash hook input JSON; fail-closed" {
+        return true;
+    }
+    if reason != "Malformed hook input" {
+        return false;
+    }
+    let detail = observe_string_field(event, field::DETAIL);
+    !detail.starts_with("existing file unreadable for U-16 baseline:")
 }
 
 pub(super) fn observe_event_json(event: &Value, slow_ms: u64) -> Value {
@@ -290,6 +317,44 @@ mod tests {
         assert_eq!(aggregate.decision_counts.get("timeout"), Some(&1));
         assert_eq!(aggregate.rule_ids.get("U-16"), Some(&1));
         assert_eq!(aggregate.client_distribution.get("codex"), Some(&2));
+    }
+
+    #[test]
+    fn legacy_block_classification_and_block_counts_are_consistent() {
+        let events = vec![
+            json!({
+                "decision": "block",
+                "reason": "invalid Bash hook input JSON; fail-closed",
+                "detail": "category=invalid_json"
+            }),
+            json!({
+                "decision": "block",
+                "reason": "Malformed hook input",
+                "detail": "category=missing_required_field"
+            }),
+            json!({
+                "decision": "block",
+                "reason": "Malformed hook input",
+                "detail": "existing file unreadable for U-16 baseline: /private/source.rs"
+            }),
+            json!({
+                "decision": "block",
+                "reason": "U-16 baseline unreadable; fail-closed",
+                "detail": "category=u16_baseline_unreadable"
+            }),
+            json!({
+                "decision": "block",
+                "reason": "SEC-13 high-context risk"
+            }),
+            json!({"decision": "pass"}),
+        ];
+
+        let aggregate = aggregate_events(&events, 2_000);
+
+        assert_eq!(aggregate.decision_counts.get("block"), Some(&5));
+        assert_eq!(aggregate.block_counts.total_blocks, 5);
+        assert_eq!(aggregate.block_counts.protocol_errors, 2);
+        assert_eq!(aggregate.block_counts.rule_interceptions, 3);
     }
 
     #[test]
