@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785089850799,
+  "lastUpdate": 1785097603297,
   "repoUrl": "https://github.com/majiayu000/vibeguard",
   "entries": {
     "Hook Latency (P95)": [
@@ -53618,6 +53618,210 @@ window.BENCHMARK_DATA = {
           {
             "name": "e2e learn 5000 P99",
             "value": 10,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1835304752@qq.com",
+            "name": "lif",
+            "username": "majiayu000"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a685f8a0b85ce86d202b4b5d5d073920089bd4ac",
+          "message": "fix: harden malformed-input diagnostics and block counts (#710)\n\n* fix(hooks): make malformed-input fail-closed blocks diagnosable\n\n434 of 671 recent blocks are malformed-input fail-closed events logged\nwith an empty detail, so the recurring daily burst cannot be attributed\nto a host or payload shape. Log a shape diagnostic (empty stdin /\ninvalid JSON with head sample / JSON ok but required field missing,\nincluding the real tool_name) on the pre-bash and pre-write malformed\npaths, and split protocol errors from rule interceptions in observe\nsummary stats so interception counts stay meaningful.\n\nConstraint: fail-closed posture is intentionally unchanged until the\nproduction payload shape is captured in the wild; this change only adds\nobservability and locks current behavior with tests.\nRejected: passing through payloads that declare a non-target tool_name |\npremature before live evidence identifies the actual failing shape (W-01)\nConfidence: high\nScope-risk: narrow\nTested: cargo test (23 suites), test_pre_bash_guard.sh 48/48,\ntest_pre_write_guard.sh 77/77, test_behavior_eval.sh 16/16, cargo fmt\nNot-tested: live capture of the offending host payload (needs snapshot\nreinstall and next recurrence)\nRelated: #706\n\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\n\n* docs(spec): define GH706 diagnostic contract\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* docs(spec): plan GH706 implementation tasks\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(hooks): redact malformed input diagnostics\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* feat(observe): add shared block count split\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* feat(health): report block split availability\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* docs(spec): record GH706 implementation progress\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n* fix(observe): clarify non-protocol block contract\n\nSigned-off-by: majiayu000 <1835304752@qq.com>\n\n---------\n\nSigned-off-by: VibeGuard Agent <1835304752@qq.com>\nSigned-off-by: majiayu000 <1835304752@qq.com>",
+          "timestamp": "2026-07-27T03:57:29+08:00",
+          "tree_id": "afd033f413a24777dc1b156d8dcd1012e895e9a1",
+          "url": "https://github.com/majiayu000/vibeguard/commit/a685f8a0b85ce86d202b4b5d5d073920089bd4ac"
+        },
+        "date": 1785097602185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "e2e pre-edit P50",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P95",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-edit P99",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P50",
+            "value": 65,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P95",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-write P99",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P50",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P95",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e pre-bash P99",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P50",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P95",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 100 P99",
+            "value": 68,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P50",
+            "value": 72,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P95",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 100 P99",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P50",
+            "value": 61,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P95",
+            "value": 61,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-build fake P99",
+            "value": 61,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P50",
+            "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P95",
+            "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex pre-bash P99",
+            "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P50",
+            "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P95",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e codex post-edit 100 P99",
+            "value": 28,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P50",
+            "value": 74,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P95",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-edit 5000 P99",
+            "value": 75,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P50",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P95",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e post-write 5000 P99",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P50",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e stop 5000 P99",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P50",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P95",
+            "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "e2e learn 5000 P99",
+            "value": 12,
             "unit": "ms"
           }
         ]
