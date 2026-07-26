@@ -295,8 +295,9 @@ def execute_real_run(
     cross_refs_exceeded: bool,
     artifact_root: Path,
     placebo: dict[str, Any] | None = None,
+    evaluated_commit: str | None = None,
 ) -> int:
-    evaluated_commit = current_commit(short=False)
+    evaluated_commit = evaluated_commit or current_commit(short=False)
     if evaluated_commit == "unknown":
         raise PairedExecutionError(
             "cannot resolve evaluated commit; paired evidence requires a Git commit"

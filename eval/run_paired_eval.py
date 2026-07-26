@@ -22,6 +22,7 @@ from dataset import (
 )
 from model_baseline import ModelBaselineError, load_model_baseline
 from paired_execution import PairedExecutionError, execute_real_run
+from paired_provenance import PairedProvenanceError, pin_evaluated_inputs
 from paired_scoring import (
     PairwiseJudgeError,
     build_judge_prompt,
@@ -550,7 +551,21 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     core_file = Path(args.core_rules_file).resolve()
     target_path = Path(args.target_dataset).resolve()
     non_target_path = Path(args.non_target_dataset).resolve()
-    thresholds = load_paired_thresholds(Path(args.thresholds).resolve())
+    thresholds_path = Path(args.thresholds).resolve()
+    evaluated_input_paths = [
+        rules_dir,
+        *sorted(rules_dir.rglob("*.md")),
+        core_file,
+        target_path,
+        non_target_path,
+        thresholds_path,
+    ]
+    evaluated_commit = None
+    if not args.dry_run:
+        evaluated_commit = pin_evaluated_inputs(
+            evaluated_input_paths, repo_root=REPO_ROOT
+        )
+    thresholds = load_paired_thresholds(thresholds_path)
     validate_candidate_supported(args.candidate)
     known_rule_ids = set(canonical_rule_inventory(rules_dir))
     target_samples = select_target_samples(load_dataset(target_path), args.candidate)
@@ -659,6 +674,11 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
                 "identity": placebo_identity,
                 "evidence": placebo,
             }
+        pin_evaluated_inputs(
+            evaluated_input_paths,
+            expected_commit=evaluated_commit,
+            repo_root=REPO_ROOT,
+        )
         return execute_real_run(
             producer_model=producer_model,
             judge_model=judge_model,
@@ -680,6 +700,7 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
             ),
             artifact_root=Path(args.artifact_root).resolve(),
             placebo=placebo_payload,
+            evaluated_commit=evaluated_commit,
         )
 
 
@@ -693,6 +714,7 @@ def main() -> int:
         ModelBaselineError,
         PairedEvalError,
         PairedExecutionError,
+        PairedProvenanceError,
     ) as exc:
         print(f"Paired eval error: {exc}", file=sys.stderr)
         return 2

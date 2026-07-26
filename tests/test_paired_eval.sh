@@ -11,6 +11,7 @@ python3 -m py_compile "${REPO_DIR}/eval/run_paired_eval.py"
 python3 "${REPO_DIR}/eval/test_paired_eval.py"
 PYTHONPATH="${REPO_DIR}/eval" python3 - <<'PY'
 import json
+import subprocess
 import sys
 import tempfile
 import types
@@ -23,6 +24,38 @@ import run_paired_eval as paired
 
 
 class FinalReviewRegressionTest(unittest.TestCase):
+    def test_evaluated_inputs_must_match_the_pinned_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            input_path = repo / "rules.md"
+            input_path.write_text("committed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "rules.md"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=VibeGuard Test",
+                    "-c",
+                    "user.email=test@example.com",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+            )
+            pinned = paired.pin_evaluated_inputs([input_path], repo_root=repo)
+            self.assertEqual(len(pinned), 40)
+            input_path.write_text("dirty\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                paired.PairedProvenanceError, "uncommitted"
+            ):
+                paired.pin_evaluated_inputs(
+                    [input_path], expected_commit=pinned, repo_root=repo
+                )
+
     def test_empty_non_target_axis_is_inconclusive(self):
         thresholds = {
             "min_non_target_samples": 0,

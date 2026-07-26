@@ -18,6 +18,7 @@ GH-686
 | 规则注入的**两个**来源 | `eval/run_eval.py:38`、`:225` | `load_rules(rules_dir, core_rules_file)` 先 `rglob` 规则目录，**再无条件拼上** `core_rules_file` | 决定性事实：只换 `--rules-dir` 不能移除候选规则 |
 | core 规则文件默认值 | `eval/run_eval.py:35` | `DEFAULT_CORE_RULES_FILE = claude-md/vibeguard-rules.md` | 该文件以**表格行**重复规则正文（`claude-md/vibeguard-rules.md:69` 是 U-16 那一行） |
 | 输入身份 | `eval/run_eval.py:227`、`:228`、`:230` | `rule_digest`、`dataset_digest`、`filtered_sample_digest` | B-002 的审计基础已存在 |
+| 输入提交归属 | `eval/paired_provenance.py` | 真实运行前后验证规则、core、数据集和阈值均由同一 commit 跟踪且干净 | 防止把 worktree 内容错误归到 `HEAD` |
 | 模型解析 | `eval/run_eval.py:231` | `baseline.resolve(args.model)` | 两次运行必须解析到同一 ID |
 | 样本筛选 | `eval/run_eval.py:189` `filter_samples` | **前缀**匹配（`startswith`）**并强制附带** `rule == "NONE"` 的样本 | 不能用它做目标样本划分，会前缀误命中并混入 NONE |
 | 跳过样本 | `eval/run_eval.py:315-321` | `skipped_count > EVAL_MAX_API_FAILURES`（默认 0）→ `sys.exit(2)` | 作为库调用会直接打死配对运行器 |
@@ -126,9 +127,12 @@ judge 比较的仍是 detection / false-positive 回答，不是普通任务质�
 
 B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_set_digest`，A2/B2 共用
 另一个；四次运行共用同一个解析后的模型 ID；A 与 B 的 `rule_digest` 必须不等。
-评测 commit SHA 与开始时间在进入模型循环前读取一次并固定；报告和 run 目录均使用这份
-值，结束时不得重新读取 HEAD。commit 无法解析时必须在创建模型客户端之前 fail closed，
-不得开始付费调用。
+评测 commit SHA 在读取评测输入前固定；规则树（含全部 Markdown）、core、目标/非目标
+数据集和阈值文件必须全部位于仓内、由该 commit 跟踪且无 staged/unstaged/untracked
+变化。完成输入准备后、进入模型循环前再次验证 commit 与这些路径仍一致。报告和 run
+目录均使用这份固定值，结束时不得重新读取 HEAD。commit 无法解析或输入无法归属时必须
+在创建模型客户端之前 fail closed，不得开始付费调用。dry-run 不产出证据，可读取本地
+未提交输入用于检查。
 
 ### 4. 目标样本与非目标样本
 
@@ -253,7 +257,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 + 运行前固定 commit | `bash tests/test_paired_eval.sh`（报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
+| B-002 | 按轴配对的摘要相等断言 + 输入读取前固定 commit + 前后两次 Git 归属验证 | `bash tests/test_paired_eval.sh`（dirty 输入被拒；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
