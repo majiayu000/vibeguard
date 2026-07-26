@@ -18,6 +18,7 @@ mod hook_checks_history;
 mod hook_checks_scan;
 mod hook_checks_write;
 mod hook_checks_write_scan;
+mod hook_input_diag;
 mod hook_orchestrator;
 mod hook_orchestrator_context;
 mod hook_orchestrator_learn;

@@ -60,7 +60,7 @@ behavior_out="$(
     --artifact-root "${TMP_DIR}/runs"
 )"
 assert_contains "${behavior_out}" "Behavior gate: pass" "default behavior gate passes thresholds"
-assert_contains "${behavior_out}" "claude=7/7" "behavior report includes Claude platform slice"
+assert_contains "${behavior_out}" "claude=9/9" "behavior report includes Claude platform slice"
 assert_contains "${behavior_out}" "codex=7/7" "behavior report includes Codex platform slice"
 assert_contains "${behavior_out}" "Result saved:" "behavior eval writes immutable run artifact"
 assert_cmd "behavior eval writes summary index" test -s "${TMP_DIR}/runs/index.jsonl"

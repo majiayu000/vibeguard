@@ -61,10 +61,22 @@ pub(super) fn render_stats_summary(
         "Total triggers: {} times\n",
         aggregate.event_count
     ));
-    output.push_str(&format!(
-        "  Interception (block): {} times\n",
-        observe_decision_count(aggregate, decision::BLOCK)
-    ));
+    let block_total = observe_decision_count(aggregate, decision::BLOCK);
+    let protocol_error_blocks: u64 = block_reasons
+        .iter()
+        .filter(|(reason, _)| is_protocol_error_reason(reason))
+        .map(|(_, count)| *count)
+        .sum();
+    output.push_str(&format!("  Interception (block): {block_total} times\n"));
+    if protocol_error_blocks > 0 {
+        output.push_str(&format!(
+            "    rule interceptions: {} times\n",
+            block_total.saturating_sub(protocol_error_blocks)
+        ));
+        output.push_str(&format!(
+            "    protocol errors (malformed hook input, not rule hits): {protocol_error_blocks} times\n"
+        ));
+    }
     output.push_str(&format!(
         "  Warning: {} times\n",
         observe_decision_count(aggregate, decision::WARN)
@@ -320,6 +332,13 @@ fn append_problem_sessions(output: &mut String, sessions: &BTreeMap<String, Vec<
     }
 }
 
+/// Fail-closed reasons emitted when hook stdin could not be consumed at all.
+/// These are infrastructure failures, not rule hits, and are surfaced
+/// separately so interception counts stay meaningful.
+fn is_protocol_error_reason(reason: &str) -> bool {
+    reason == "invalid Bash hook input JSON; fail-closed" || reason == "Malformed hook input"
+}
+
 fn stats_count_by_matching<F>(
     events: &[Value],
     decision_value: &str,
@@ -469,5 +488,60 @@ mod tests {
         assert!(output.contains("Average triggers per session: 2.0 times"));
         assert!(output.contains("Deterministic node estimated savings: ~2K tokens"));
         assert!(output.contains("session-b: 2 issues / 2 triggers"));
+    }
+
+    #[test]
+    fn stats_summary_splits_protocol_error_blocks_from_rule_blocks() {
+        let events = vec![
+            json!({
+                "ts": "2026-06-05T20:00:00Z",
+                "session": "session-a",
+                "hook": "pre-bash-guard",
+                "tool": "Bash",
+                "decision": "block",
+                "reason": "invalid Bash hook input JSON; fail-closed",
+                "detail": "empty hook stdin (0 bytes)",
+                "cli": "claude"
+            }),
+            json!({
+                "ts": "2026-06-05T20:01:00Z",
+                "session": "session-a",
+                "hook": "pre-write-guard",
+                "tool": "Write",
+                "decision": "block",
+                "reason": "Malformed hook input",
+                "detail": "invalid JSON (1 chars; EOF while parsing an object at line 1 column 1); head={",
+                "cli": "claude"
+            }),
+            json!({
+                "ts": "2026-06-05T20:02:00Z",
+                "session": "session-a",
+                "hook": "post-edit-guard",
+                "tool": "Edit",
+                "decision": "block",
+                "reason": "U-16 block",
+                "detail": "src/lib.rs",
+                "cli": "claude"
+            }),
+        ];
+        let options = match parse_observe_args(&args(&["summary", "--days", "all"])) {
+            Ok(options) => options,
+            Err(error) => panic!("stats summary options should parse: {error}"),
+        };
+        let log_events = LogEvents {
+            events,
+            log_path: "events.jsonl".to_string(),
+            source_exists: true,
+        };
+        let aggregate = aggregate_events(&log_events.events, 2_000);
+
+        let output = match render_stats_summary(&options, &log_events, &aggregate) {
+            Ok(output) => output,
+            Err(error) => panic!("stats summary should render: {error}"),
+        };
+
+        assert!(output.contains("Interception (block): 3 times"));
+        assert!(output.contains("rule interceptions: 1 times"));
+        assert!(output.contains("protocol errors (malformed hook input, not rule hits): 2 times"));
     }
 }

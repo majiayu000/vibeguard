@@ -154,3 +154,20 @@ fn post_edit_log_detail_preserves_delta_metadata() {
         "src/lib.rs||delta=-4"
     );
 }
+
+#[test]
+fn malformed_pre_write_inputs_carry_shape_diagnostics() {
+    let detail = |input: &str| match evaluate_pre_write_input(input, 800, 400) {
+        PreWriteCheck::Malformed { detail } => detail,
+        other => panic!("expected Malformed, got {other:?}"),
+    };
+    assert!(detail("").starts_with("empty hook stdin"));
+    assert!(detail("{not json").starts_with("invalid JSON"));
+    let missing = detail(
+        r#"{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}"#,
+    );
+    assert!(missing.contains("tool_input.file_path missing, empty, or not a string"));
+    assert!(missing.contains("tool_name=BashOutput"));
+    let empty_path = detail(r#"{"tool_name":"Write","tool_input":{"file_path":""}}"#);
+    assert!(empty_path.contains("tool_input.file_path missing, empty, or not a string"));
+}

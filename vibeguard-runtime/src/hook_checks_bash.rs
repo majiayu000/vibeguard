@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::io::{self, Read};
 
 use crate::hook_checks_common::{nested_str, truncate_chars};
+use crate::hook_input_diag::malformed_input_diagnostic;
 use crate::pkg_rewrite::rewrite_command;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -146,10 +147,10 @@ pub(crate) fn evaluate_pre_bash_input(input: &str, vibeguard_root: &str) -> Bash
 
 fn classify_input(input: &str, vibeguard_root: &str) -> BashDecision {
     let Ok(data) = serde_json::from_str::<Value>(input) else {
-        return invalid_input_block();
+        return invalid_input_block(malformed_input_diagnostic(input, "tool_input.command"));
     };
     let Some(command) = nested_str(&data, "tool_input.command") else {
-        return invalid_input_block();
+        return invalid_input_block(malformed_input_diagnostic(input, "tool_input.command"));
     };
     if command.is_empty() {
         return BashDecision::Empty;
@@ -158,10 +159,10 @@ fn classify_input(input: &str, vibeguard_root: &str) -> BashDecision {
     classify_command(&command, vibeguard_root)
 }
 
-fn invalid_input_block() -> BashDecision {
+fn invalid_input_block(detail: String) -> BashDecision {
     BashDecision::Block {
         log_reason: INVALID_INPUT_LOG_REASON.to_string(),
-        detail: String::new(),
+        detail,
         output: native_output(json!({
             "decision": "block",
             "reason": INVALID_INPUT_REASON,
@@ -384,6 +385,30 @@ mod tests {
             classify_input(r#"{"tool_input":{"command":""}}"#, "/repo"),
             BashDecision::Empty
         );
+    }
+
+    fn block_detail(input: &str) -> String {
+        match classify_input(input, "/repo") {
+            BashDecision::Block { detail, .. } => detail,
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_input_blocks_carry_shape_diagnostics() {
+        assert!(block_detail("").starts_with("empty hook stdin"));
+        assert!(block_detail("   \n").starts_with("empty hook stdin"));
+
+        let invalid = block_detail(r#"{"tool_input":"#);
+        assert!(invalid.starts_with("invalid JSON"));
+        assert!(invalid.contains(r#"head={"tool_input":"#));
+
+        let other_tool = block_detail(
+            r#"{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}"#,
+        );
+        assert!(other_tool.contains("tool_input.command missing, empty, or not a string"));
+        assert!(other_tool.contains("tool_name=BashOutput"));
+        assert!(other_tool.contains("hook_event_name=PreToolUse"));
     }
 
     #[test]
