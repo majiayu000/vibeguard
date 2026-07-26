@@ -20,7 +20,11 @@ from dataset import (
     sample_set_digest,
     sha256_text,
 )
-from model_baseline import ModelBaselineError, load_model_baseline
+from model_baseline import (
+    DEFAULT_BASELINE_PATH,
+    ModelBaselineError,
+    load_model_baseline,
+)
 from paired_execution import PairedExecutionError, execute_real_run
 from paired_provenance import PairedProvenanceError, pin_evaluated_inputs
 from paired_scoring import (
@@ -50,6 +54,18 @@ DEFAULT_TARGET_DATASET = REPO_ROOT / "eval" / "datasets" / "v1.jsonl"
 DEFAULT_NON_TARGET_DATASET = REPO_ROOT / "eval" / "paired" / "non_target_v1.jsonl"
 DEFAULT_THRESHOLDS = REPO_ROOT / "eval" / "paired" / "thresholds.json"
 DEFAULT_ARTIFACT_ROOT = REPO_ROOT / "eval" / "paired" / "runs"
+EVALUATOR_IMPLEMENTATION_PATHS = (
+    REPO_ROOT / "eval" / "artifacts.py",
+    REPO_ROOT / "eval" / "dataset.py",
+    REPO_ROOT / "eval" / "model_baseline.py",
+    REPO_ROOT / "eval" / "paired_execution.py",
+    REPO_ROOT / "eval" / "paired_provenance.py",
+    REPO_ROOT / "eval" / "paired_scoring.py",
+    REPO_ROOT / "eval" / "run_eval.py",
+    REPO_ROOT / "eval" / "run_paired_eval.py",
+    REPO_ROOT / "eval" / "scoring.py",
+    REPO_ROOT / "scripts" / "lib" / "vibeguard_manifest.py",
+)
 NON_TARGET_STRING_FIELDS = {"id", "task", "input", "rubric"}
 NON_TARGET_FIELDS = NON_TARGET_STRING_FIELDS | {"excluded_rules"}
 RULE_ID_TOKEN_RE = re.compile(
@@ -541,6 +557,27 @@ def _build_parser(default_model: str) -> argparse.ArgumentParser:
     return parser
 
 
+def _evaluated_provenance_paths(
+    *,
+    rules_dir: Path,
+    core_file: Path,
+    target_path: Path,
+    non_target_path: Path,
+    thresholds_path: Path,
+) -> list[Path]:
+    """Return every repository input that can affect a paired-eval verdict."""
+    return [
+        rules_dir,
+        *sorted(rules_dir.rglob("*.md")),
+        core_file,
+        target_path,
+        non_target_path,
+        thresholds_path,
+        DEFAULT_BASELINE_PATH.resolve(),
+        *EVALUATOR_IMPLEMENTATION_PATHS,
+    ]
+
+
 def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     baseline = load_model_baseline()
     producer_model = baseline.resolve(args.model)
@@ -552,14 +589,13 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
     target_path = Path(args.target_dataset).resolve()
     non_target_path = Path(args.non_target_dataset).resolve()
     thresholds_path = Path(args.thresholds).resolve()
-    evaluated_input_paths = [
-        rules_dir,
-        *sorted(rules_dir.rglob("*.md")),
-        core_file,
-        target_path,
-        non_target_path,
-        thresholds_path,
-    ]
+    evaluated_input_paths = _evaluated_provenance_paths(
+        rules_dir=rules_dir,
+        core_file=core_file,
+        target_path=target_path,
+        non_target_path=non_target_path,
+        thresholds_path=thresholds_path,
+    )
     evaluated_commit = None
     if not args.dry_run:
         evaluated_commit = pin_evaluated_inputs(

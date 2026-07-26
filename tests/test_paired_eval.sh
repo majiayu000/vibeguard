@@ -24,6 +24,37 @@ import run_paired_eval as paired
 
 
 class FinalReviewRegressionTest(unittest.TestCase):
+    def test_paired_runner_pins_implementation_and_model_baseline(self):
+        paths = {
+            path.resolve()
+            for path in paired._evaluated_provenance_paths(
+                rules_dir=paired.DEFAULT_RULES_DIR,
+                core_file=paired.DEFAULT_CORE_RULES_FILE,
+                target_path=paired.DEFAULT_TARGET_DATASET,
+                non_target_path=paired.DEFAULT_NON_TARGET_DATASET,
+                thresholds_path=paired.DEFAULT_THRESHOLDS,
+            )
+        }
+        expected = {
+            paired.REPO_ROOT / "eval" / name
+            for name in (
+                "artifacts.py",
+                "dataset.py",
+                "model_baseline.json",
+                "model_baseline.py",
+                "paired_execution.py",
+                "paired_provenance.py",
+                "paired_scoring.py",
+                "run_eval.py",
+                "run_paired_eval.py",
+                "scoring.py",
+            )
+        }
+        expected.add(
+            paired.REPO_ROOT / "scripts" / "lib" / "vibeguard_manifest.py"
+        )
+        self.assertTrue(expected.issubset(paths), expected - paths)
+
     def test_evaluated_inputs_must_match_the_pinned_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
