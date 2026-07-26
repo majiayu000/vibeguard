@@ -17,9 +17,11 @@ bash ~/vibeguard/setup.sh verify-install
 ```
 
 Open a new Claude Code or Codex session after install — protection is active
-from the first prompt. On supported macOS/Linux targets the install is
-Python-free and uses a checksum-verified prebuilt runtime binary; full install
-details live in [Installation](#installation) and [Quickstart](docs/how/quickstart.md).
+from the first prompt. On supported macOS/Linux targets the production install/check/clean path is
+Python-free and uses a checksum-verified prebuilt runtime binary.
+Python still supports evals, docs generation, developer tools, and optional
+language-specific guard packs. Full install details live in [Installation](#installation)
+and [Quickstart](docs/how/quickstart.md).
 
 **What it intercepts:**
 
