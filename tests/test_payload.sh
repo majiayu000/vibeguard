@@ -109,8 +109,8 @@ check "conflicting injected tar.umask values produce identical archives" "${rc}"
 
 rc=0
 for umask_archive in "${UMASK_0002_ARCHIVE}" "${UMASK_0022_ARCHIVE}"; do
-  setup_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == "setup.sh" { print $1; exit }')"
-  marker_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == ".vibeguard-payload" { print $1; exit }')"
+  setup_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == "setup.sh" { mode = $1 } END { print mode }')"
+  marker_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == ".vibeguard-payload" { mode = $1 } END { print mode }')"
   [[ "${setup_mode}" == "-rwxr-xr-x" ]] || rc=1
   [[ "${marker_mode}" == "-rw-r--r--" ]] || rc=1
 done
