@@ -142,9 +142,9 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
     with/without 后不一致时，该样本标记为 judge conflict，非目标轴为 `inconclusive`，
     不得择一或平均后继续。报告必须记录 producer model ID、judge model ID、judge prompt
     digest、两次原始判定及映射后的 `with_win` / `without_win` / `tie` / `conflict`；
-    judge 返回 malformed JSON 或重复键时也必须先保存付费原文，再把该样本记为 skipped，
-    不得以后值覆盖后继续计分。目标与非目标 producer 都必须按样本交替 with/without
-    首发顺序，并在报告记录调度，不能让 arm 标签与请求时间完全相关。
+    目标 scorer 或 judge 返回 malformed JSON 或重复键时必须把样本记为 skipped，且 judge
+    付费原文必须保存，不得以后值覆盖后继续计分。目标与非目标 producer 都必须按样本交替
+    with/without 首发顺序，并在报告记录调度，不能让 arm 标签与请求时间完全相关。
 
 ## 验收标准
 

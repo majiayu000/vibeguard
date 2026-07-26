@@ -210,8 +210,8 @@ judge 模型身份与 judge prompt digest，不调用模型。
 
 当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。
 JSON 解析必须拒绝重复键，不得让后值静默覆盖已审核阈值或 `calibrated` 状态。
-目标与非目标 JSONL 样本都必须拒绝对象内重复键，避免 `rule`、`input`、
-`excluded_rules` 等字段被后值覆盖。
+模型基线、目标与非目标 JSONL 样本都必须拒绝对象内重复键，避免模型 ID、`rule`、
+`input`、`excluded_rules` 等字段被后值覆盖。
 `max_skip_rate`、`max_skip_delta` 与 `max_placebo_length_ratio` 同样是新拍的数字。所有
 比例阈值必须是 0–1 的有限数，两个最小样本阈值必须是正整数，引用上限必须是非负整数；
 JSON `NaN` 不得静默绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
@@ -281,7 +281,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-012 | 规则树与 core 的交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（定义行之外的 core 引用可见；U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
 | B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度、受 compact/交叉引用门约束且使用新鲜交替基线的 placebo | `bash tests/test_paired_eval.sh`（未审核、长度超限、交叉引用超限及 compact 语义残留均在调用前拒绝；placebo 基线/删除 arm 交替首发并记录调度） |
-| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、重复键 judge 原文保留并 skipped、审计字段完整） |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、重复键 scorer/judge skipped 且 judge 原文保留、审计字段完整） |
 
 ## 数据流
 

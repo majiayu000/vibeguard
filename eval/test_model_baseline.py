@@ -76,6 +76,22 @@ class ModelBaselineTest(unittest.TestCase):
         extra["evergreen"] = True
         self.assert_invalid(extra, "extra=\\['evergreen'\\]")
 
+    def test_duplicate_json_keys_are_rejected(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        path = Path(temporary.name) / "baseline.json"
+        text = DEFAULT_BASELINE_PATH.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                '"schema_version": 1,',
+                '"schema_version": 1, "schema_version": 1,',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ModelBaselineError, "duplicate JSON key"):
+            load_model_baseline(path, as_of=VERIFIED_AT)
+
     def test_schema_and_freshness_are_exact_integers(self) -> None:
         for field, value, expected in (
             ("schema_version", True, "schema_version must be integer 1"),
