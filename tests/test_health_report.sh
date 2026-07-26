@@ -81,6 +81,34 @@ JSONL
 EMPTY_ADOPT="${TMP_DIR}/adoptions.jsonl"
 : > "${EMPTY_ADOPT}"
 
+FAKE_RUNTIME="${TMP_DIR}/fake-runtime"
+cat > "${FAKE_RUNTIME}" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${2:-}"
+mode="${FAKE_BLOCK_MODE:-legacy}"
+if [[ "$command_name" == "summary" ]]; then
+  case "$mode" in
+    legacy)
+      printf '%s\n' '{"event_count":2,"decision_counts":{"block":1,"pass":1},"time_range":{"first_ts":"2026-07-01T00:00:00Z","last_ts":"2026-07-01T00:00:01Z"},"attention":{"rate":0.5},"top_rule_ids":[]}'
+      ;;
+    bad_structure)
+      printf '%s\n' '{"event_count":2,"decision_counts":{"block":1,"pass":1},"block_counts":{"total_blocks":"1","protocol_errors":0,"rule_interceptions":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
+      ;;
+    bad_arithmetic)
+      printf '%s\n' '{"event_count":2,"decision_counts":{"block":2},"block_counts":{"total_blocks":2,"protocol_errors":2,"rule_interceptions":1},"time_range":{},"attention":{},"top_rule_ids":[]}'
+      ;;
+    *)
+      exit 9
+      ;;
+  esac
+else
+  printf '%s\n' '{"event_count":0,"decision_counts":{},"attention_states":[],"diagnostics":[]}'
+fi
+SH
+chmod +x "${FAKE_RUNTIME}"
+
 run_report() {
   python3 "${SCRIPT}" \
     --scorecard-file "${SCORECARD}" \
@@ -98,6 +126,10 @@ header "decision distribution present"
 assert_contains "$md_out" "block=1" "markdown includes block decision count"
 assert_contains "$md_out" "warn=1" "markdown includes warn decision count"
 assert_contains "$md_out" "pass=1" "markdown includes pass decision count"
+assert_contains "$md_out" "Block split: **available**" "markdown marks block split available"
+assert_contains "$md_out" "Total blocks: 1" "markdown includes total block count"
+assert_contains "$md_out" "Protocol errors: 0" "markdown includes protocol error count"
+assert_contains "$md_out" "Rule interceptions: 1" "markdown includes rule interception count"
 
 header "json output"
 json_out="$(run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
@@ -107,10 +139,43 @@ for key in schema_version window_days scope generated_ts data_sources overview \
   assert_contains "$json_out" "\"${key}\"" "json schema has ${key}"
 done
 assert_contains "$json_out" "\"decision_distribution\"" "json overview carries decision distribution"
+assert_contains "$json_out" '"block_counts_status": "available"' "json marks block split available"
+assert_contains "$json_out" '"total_blocks": 1' "json overview carries total block count"
+
+header "legacy runtime block split unavailable"
+legacy_md="$(VIBEGUARD_RUNTIME="${FAKE_RUNTIME}" FAKE_BLOCK_MODE=legacy run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format markdown)"
+assert_contains "$legacy_md" "Block split: **unavailable**" "legacy runtime markdown marks split unavailable"
+assert_contains "$legacy_md" "unavailable from installed runtime" "legacy runtime markdown explains unavailable split"
+legacy_json="$(VIBEGUARD_RUNTIME="${FAKE_RUNTIME}" FAKE_BLOCK_MODE=legacy run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
+assert_contains "$legacy_json" '"block_counts_status": "unavailable"' "legacy runtime JSON marks split unavailable"
+assert_contains "$legacy_json" '"block_counts": null' "legacy runtime JSON does not guess split"
 
 header "no-data visible state (missing log)"
 nodata_out="$(run_report --days 7 --log-file "${TMP_DIR}/does-not-exist.jsonl" --triage-file "${TRIAGE_CLEAN}" --format markdown)"
 assert_contains "$nodata_out" "NO DATA" "missing event log renders explicit no-data state"
+nodata_json="$(run_report --days 7 --log-file "${TMP_DIR}/does-not-exist.jsonl" --triage-file "${TRIAGE_CLEAN}" --format json)"
+assert_contains "$nodata_json" '"block_counts_status": "no_data"' "missing event log JSON prioritizes no-data state"
+assert_contains "$nodata_json" '"block_counts": null' "missing event log JSON does not report zero-risk split"
+
+EMPTY_EVENTS="${TMP_DIR}/empty-events.jsonl"
+: > "${EMPTY_EVENTS}"
+empty_json="$(run_report --days 7 --log-file "${EMPTY_EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
+assert_contains "$empty_json" '"block_counts_status": "no_data"' "empty event window JSON prioritizes no-data state"
+
+header "malformed block counts fail loudly"
+for bad_mode in bad_structure bad_arithmetic; do
+  TOTAL=$((TOTAL + 1))
+  if bad_out="$(VIBEGUARD_RUNTIME="${FAKE_RUNTIME}" FAKE_BLOCK_MODE="${bad_mode}" run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json 2>&1)"; then
+    red "${bad_mode} block counts must exit non-zero"
+    FAIL=$((FAIL + 1))
+  elif grep -qiF "block_counts" <<< "$bad_out"; then
+    green "${bad_mode} block counts fail loudly"
+    PASS=$((PASS + 1))
+  else
+    red "${bad_mode} block counts failed without a clear block_counts error (got: $bad_out)"
+    FAIL=$((FAIL + 1))
+  fi
+done
 
 header "malformed triage fails loudly"
 TOTAL=$((TOTAL + 1))
@@ -139,6 +204,28 @@ assert_contains "$downgrade_out" "RS-03" "untriggered scorecard rule listed as d
 header "scope stays explicit (global)"
 global_out="$(run_report --scope global --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format markdown)"
 assert_contains "$global_out" "Scope: **global**" "global scope reported explicitly"
+
+header "read-only repeatability"
+before_hash="$(shasum -a 256 "${EVENTS}" | awk '{print $1}')"
+repeat_one="$(run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
+repeat_two="$(run_report --days 30 --log-file "${EVENTS}" --triage-file "${TRIAGE_CLEAN}" --format json)"
+after_hash="$(shasum -a 256 "${EVENTS}" | awk '{print $1}')"
+TOTAL=$((TOTAL + 1))
+if python3 -c 'import json,sys; a=json.loads(sys.argv[1]); b=json.loads(sys.argv[2]); a.pop("generated_ts",None); b.pop("generated_ts",None); raise SystemExit(a != b)' "$repeat_one" "$repeat_two"; then
+  green "repeated health reports are semantically deterministic"
+  PASS=$((PASS + 1))
+else
+  red "repeated health reports drift beyond generated timestamp"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [[ "$before_hash" == "$after_hash" ]]; then
+  green "health report does not append or rewrite event logs"
+  PASS=$((PASS + 1))
+else
+  red "health report changed the event log"
+  FAIL=$((FAIL + 1))
+fi
 
 # --- Summary ---------------------------------------------------------------
 printf '\n\033[1m=== Summary ===\033[0m\n'
