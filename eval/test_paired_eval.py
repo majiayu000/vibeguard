@@ -14,10 +14,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_paired_dataset import DatasetAndIdentityTest  # noqa: E402,F401
-from test_paired_judge import JudgeAndVerdictTest  # noqa: E402,F401
-from test_paired_real_execution import RealExecutionTest  # noqa: E402,F401
-from test_paired_removal import RemovalFixture, RepositoryRemovalTest  # noqa: E402,F401
-
 if __name__ == "__main__":
+    from test_paired_dataset import DatasetAndIdentityTest  # noqa: E402,F401
+    from test_paired_judge import JudgeAndVerdictTest  # noqa: E402,F401
+    from test_paired_real_execution import RealExecutionTest  # noqa: E402,F401
+    from test_paired_removal import (  # noqa: E402,F401
+        RemovalFixture,
+        RepositoryRemovalTest,
+    )
+
     unittest.main()
