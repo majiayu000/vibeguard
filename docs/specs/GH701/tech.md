@@ -106,11 +106,24 @@ path/format、runtime pin、真实 CLI fixture 命令和 stop conditions。缺�
 `bootstrap_once` 的关闭哨兵不是 feature-branch marker：offline scope gate 只读
 检查 GitHub evidence 给出的 protected default-branch HEAD，要求该 tree 同时含
 decision/witness 两份 schema、collector、attestation verifier、decision gate 与
-protected workflow，且 workflow identity/schema version 与本 spec 相符。一旦该
-完整路径组存在，任何第二个 bootstrap diff 都 blocked；若路径组部分存在或 digest
-不一致则进入 `needs_human` 修复态，也不得重开宽泛 bootstrap。当前 spec PR 必须
-先 merge，tasks/bootstrap PR 才能开始，所以 bootstrap 不会把 product/tech 与
-control-plane implementation 混入同一次人类批准。
+protected workflow，**以及 mandatory `checks/route_gate.py` /
+`checks/check_workflow.py` wiring**。protected-main workflow 在 merge 后生成
+artifacts/evidence/GH701/bootstrap-completion.json 与 detached
+artifacts/evidence/GH701/bootstrap-completion.intoto.jsonl；completion contract
+使用 decision schema 的 `$defs.bootstrap_completion`，固定
+`bootstrap_contract_version: 1`、default-branch head、上述完整 sorted path set、
+每个 main-tree blob SHA-256、route gate 的 GH701 post-bootstrap decision-gate
+调用契约与 task validator 的 decision/head/digest binding 契约。
+
+offline scope gate 先验证 completion attestation 的 protected workflow identity，
+再逐项重算当前 main tree blob digests 和 wiring contract。只有 path set 完整、
+contract version/behavior 匹配且所有 digests 相等时状态才是 `closed`，随后任何
+第二个 bootstrap diff 都 blocked。schema-valid negative fixtures 必须覆盖缺失
+`checks/route_gate.py` wiring、缺失 `checks/check_workflow.py` wiring、任一 wiring
+contract/version/blob digest 漂移与 path 部分存在；这些结果一律为
+`partial/needs_human`，绝不能 closed，也不得重开宽泛 bootstrap。当前 spec PR
+必须先 merge，tasks/bootstrap PR 才能开始，所以 bootstrap 不会把 product/tech
+与 control-plane implementation 混入同一次人类批准。
 
 decision contract 的 planned fixed surfaces 为：
 
@@ -125,7 +138,7 @@ decision contract 的 planned fixed surfaces 为：
 record 对 H-001–H-004 各保存 closed `decision_id`/`selected_option`，以及 GitHub
 `actor_login`、`author_association`（只接受 OWNER/MEMBER）、immutable
 `source_node_id`、canonical `source_url`、`source_created_at`、
-`approved_head_sha` 和 selection-specific fields。collector 只接受 PR/issue 编号，
+`approved_spec_head_sha` 和 selection-specific fields。collector 只接受 PR/issue 编号，
 从 GitHub API 只读查询 structured maintainer decisions；actor、association、
 node/URL/head/time/option 均不得由 argv、环境变量或现有 artifact 注入。collector
 必须运行在受保护 default-branch workflow，以 GitHub artifact attestation 对
@@ -416,7 +429,7 @@ current HEAD ancestor；`inputs_digest` 覆盖同一 producer/config/fixture all
   latency/zero-sample/digest mismatch。
 
 README renderer 在读取 GH-699/GH-700 evidence 前必须执行 H-004 decision gate，
-并把 `decision_record_sha256`、`attestation_sha256`、`approved_head_sha` 与
+并把 `decision_record_sha256`、`attestation_sha256`、`approved_spec_head_sha` 与
 `selected_option` 写入 generated marker。`strict_four` 输出恰好四块：PR #705
 定位、PR #705 demo、GH-699 one-command、GH-700 benchmark；当前 clone 安装与
 拦截清单移到首屏之后。`preserve_pr705_extras` 则只允许额外输出 H-004 所绑定

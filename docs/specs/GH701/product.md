@@ -231,7 +231,10 @@ GH-701 已完成。
     schemas、只读 collector、离线 gate 及最小 route/task wiring、受保护 main
     workflow 和这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、
     setup、README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final
-    review 与 merge gate，且只有 merge 到 main 后才能收集可信 decisions。
+    review 与 merge gate，且只有 merge 到 main、attested completion sentinel
+    同时验证 `checks/route_gate.py`/`checks/check_workflow.py` mandatory wiring 与
+    全部 expected contract/blob digests 后才能收集可信 decisions；任一 wiring
+    缺失或漂移只能是 `partial/needs_human`，绝不能标为 closed。
 35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md 原始
     bytes SHA-256、tech.md 原始 bytes SHA-256 与 canonical decision-input
     SHA-256。后续 task/implementation HEAD 只有在 approved spec head 是其 ancestor、
