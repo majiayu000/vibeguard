@@ -187,6 +187,21 @@ grep -qF "placebo cross references exceed max_cross_refs" <<<"${placebo_cross_re
 test ! -e "${TMP_DIR}/placebo-cross-ref-runs"
 
 set +e
+compact_placebo_out="$(
+  cd "${REPO_DIR}"
+  env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \
+    --candidate RS-10 \
+    --placebo-candidate SEC-02 \
+    --dry-run \
+    --artifact-root "${TMP_DIR}/compact-placebo-runs" 2>&1
+)"
+compact_placebo_rc=$?
+set -e
+test "${compact_placebo_rc}" -ne 0
+grep -qF "anonymous compact L7" <<<"${compact_placebo_out}"
+test ! -e "${TMP_DIR}/compact-placebo-runs"
+
+set +e
 compact_out="$(
   cd "${REPO_DIR}"
   env -u ANTHROPIC_API_KEY python3 eval/run_paired_eval.py \

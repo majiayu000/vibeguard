@@ -595,6 +595,7 @@ def _run_dry_or_prepare(args: argparse.Namespace) -> int:
         placebo = None
         placebo_rules = None
         if args.placebo_candidate:
+            validate_candidate_supported(args.placebo_candidate)
             if args.placebo_candidate.upper() == args.candidate.upper():
                 raise PairedEvalError(
                     "placebo candidate must differ from the candidate rule"
