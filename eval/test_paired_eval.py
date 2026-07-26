@@ -436,7 +436,7 @@ class JudgeAndVerdictTest(unittest.TestCase):
 
     def test_malformed_judge_response_is_preserved_for_audit(self) -> None:
         result = paired.judge_pair(
-            sequence_client(["not-json"]),
+            sequence_client(['{"winner":"A","winner":"B","reason":"duplicate"}']),
             "judge-model",
             {"id": "n1", "task": "answer", "input": "x", "rubric": "correct"},
             "with output",
@@ -444,8 +444,8 @@ class JudgeAndVerdictTest(unittest.TestCase):
         )
 
         self.assertTrue(result["skipped"])
-        self.assertEqual(result["raw_judge_responses"], ["not-json"])
-        self.assertIn("invalid pairwise judge JSON", result["error"])
+        self.assertEqual(result["raw_judge_responses"], ['{"winner":"A","winner":"B","reason":"duplicate"}'])
+        self.assertIn("duplicate pairwise judge JSON key", result["error"])
 
     def test_requested_sample_count_remains_the_denominator(self) -> None:
         with_results = [{"detected": True}] * 4 + [{"skipped": True}]

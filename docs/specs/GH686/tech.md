@@ -280,7 +280,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
 | B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度、受 compact/交叉引用门约束且使用新鲜交替基线的 placebo | `bash tests/test_paired_eval.sh`（未审核、长度超限、交叉引用超限及 compact 语义残留均在调用前拒绝；placebo 基线/删除 arm 交替首发并记录调度） |
-| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、重复键 judge 原文保留并 skipped、审计字段完整） |
 
 ## 数据流
 
