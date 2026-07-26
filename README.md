@@ -2,13 +2,26 @@
 
 [![CI](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/vibeguard/actions/workflows/ci.yml)
 
-**Stop Claude Code and Codex from making the same expensive mistakes twice.**
+**The firewall between AI coding agents and your codebase.**
 
-![VibeGuard project card](docs/assets/readme-card.png)
+Native rules + real-time hooks + static guards that stop **Claude Code** and
+**Codex CLI** from shipping hallucinated, duplicated, or unverified changes —
+before they land.
 
-[Chinese Docs](docs/README_CN.md) · [Quickstart](docs/how/quickstart.md) · [Team Rollout](docs/how/team-rollout.md) · [Troubleshooting](docs/how/troubleshooting.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
+![VibeGuard demo](docs/assets/demo.gif)
 
-VibeGuard adds **native rules + real-time hooks + static guards** to catch what AI coding agents get wrong — **before it reaches your codebase**:
+```bash
+git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
+bash ~/vibeguard/setup.sh --yes
+bash ~/vibeguard/setup.sh verify-install
+```
+
+Open a new Claude Code or Codex session after install — protection is active
+from the first prompt. On supported macOS/Linux targets the install is
+Python-free and uses a checksum-verified prebuilt runtime binary; full install
+details live in [Installation](#installation) and [Quickstart](docs/how/quickstart.md).
+
+**What it intercepts:**
 
 - Duplicate files and reinvented modules
 - Invented APIs, fake libraries, and hardcoded placeholder values
@@ -18,7 +31,10 @@ VibeGuard adds **native rules + real-time hooks + static guards** to catch what 
 - Silent exception swallowing and `Any`-type abuse
 - AI-slop patterns flagged on every commit
 
-Works with **Claude Code** and **Codex CLI**.
+**Every interception returns a fix instruction**, not just a failure — so the
+agent can self-correct.
+
+[Chinese Docs](docs/README_CN.md) · [Quickstart](docs/how/quickstart.md) · [Team Rollout](docs/how/team-rollout.md) · [Troubleshooting](docs/how/troubleshooting.md) · [Rule Reference](docs/rule-reference.md) · [Contributing](CONTRIBUTING.md)
 
 ## Start Here
 
@@ -28,32 +44,10 @@ Works with **Claude Code** and **Codex CLI**.
 | **Team rollout** | You need profiles, CI policy, rollout expectations, or project bootstrap guidance | [docs/how/team-rollout.md](docs/how/team-rollout.md) |
 | **Troubleshooting** | Setup/check/status output is stale, degraded, broken, or confusing | [docs/how/troubleshooting.md](docs/how/troubleshooting.md) |
 
-Fastest local proof:
-
-```bash
-git clone https://github.com/majiayu000/vibeguard.git ~/vibeguard
-bash ~/vibeguard/setup.sh --yes
-bash ~/vibeguard/setup.sh verify-install
-```
-
-On supported macOS/Linux release targets, the production install/check/clean path is
-Python-free: setup downloads a prebuilt `vibeguard-runtime` release binary and
-verifies it with `SHA256SUMS`. When authenticated `gh` attestation verification
-is available, setup reports `verified-provenance`; otherwise it reports
-`checksum-only` instead of treating the release as provenance-verified. Rust/Cargo
-is not required by default when the checkout's pinned runtime version has
-published release assets. On unreleased `main` commits, the pinned
-`vibeguard-runtime/VERSION` can be ahead of the latest tag; if matching assets do
-not exist yet, setup falls back to a local Cargo build unless
-`--require-provenance` is set.
-Python still supports evals, docs generation, developer tools, and optional
-language-specific guard packs.
-
-Open a new Claude Code or Codex session after install. Use `bash ~/vibeguard/setup.sh doctor` for an interactive report, or `bash ~/vibeguard/setup.sh verify-install` for CI/post-install verification.
-
 ### First 5 minutes
 
-The complete first-run flow lives in [Quickstart](docs/how/quickstart.md). These commands prove the install is active before changing another project:
+These commands prove the install is active before changing another project;
+expected outputs are documented in [Quickstart](docs/how/quickstart.md):
 
 ```bash
 bash ~/vibeguard/setup.sh doctor
@@ -62,8 +56,6 @@ bash ~/vibeguard/scripts/doctors/codex-doctor.sh
 bash ~/vibeguard/setup.sh demo safe-bash
 bash ~/vibeguard/scripts/hook-health.sh 24
 ```
-
-Expected result on a fully provisioned machine: `setup.sh doctor` prints a friendly `HEALTHY` report and remains exit-code compatible for interactive use, `setup.sh verify-install` exits 0, the Codex doctor reports configured rules and hooks, `setup.sh demo safe-bash` shows a side-effect-free block transcript, and hook health shows the latest local hook events or a no-data message that points to the log path. If required install state is broken, `verify-install` returns non-zero instead of silently treating that dependency gap as healthy.
 
 To protect another repository after VibeGuard is installed:
 
@@ -77,14 +69,8 @@ The current mainline is install-verified on macOS, full-CI verified on Ubuntu an
 macOS, and smoke-contract verified on Windows.
 
 - Latest release train: `v1.1.x`; unreleased `main` may pin the next runtime version before its release tag exists
-- Interactive health report: `bash setup.sh doctor` (compatibility alias: `bash setup.sh --check`)
-- CI/post-install health gate: `bash setup.sh verify-install`
-- Expected verdict after a healthy install: `HEALTHY`
-- Claude Code and Codex install details: [Quickstart](docs/how/quickstart.md)
-- Profiles, CI rollout, and scheduler expectations: [Team Rollout](docs/how/team-rollout.md)
-- Stale install/runtime/hook diagnosis: [Troubleshooting](docs/how/troubleshooting.md)
-
-Benchmark gate: hook latency is tracked through CI's `Hook Latency (P95)` report and checked against per-hook budgets. The previous-commit ratio is useful for spotting changes, but single-run noise can move it; merge decisions should use the budget gate plus recent-main trend, not one baseline sample alone.
+- Health checks: `bash setup.sh doctor` (interactive, alias `--check`) and `bash setup.sh verify-install` (CI gate); expected verdict is `HEALTHY`
+- Hook latency is a product contract: CI tracks a `Hook Latency (P95)` report against per-hook budgets — see [Hook Latency Contract](docs/reference/hook-latency-contract.md)
 
 ## What you actually get
 
@@ -117,8 +103,6 @@ For repository layout ownership, see [Directory Map](docs/directory-map.md).
 
 ## What it looks like in practice
 
-![VibeGuard demo](docs/assets/demo.gif)
-
 Real Codex hook output:
 
 ![Codex L1 duplicate path interception](docs/assets/codex-l1-duplicate-path-blocked.png)
@@ -147,8 +131,6 @@ AI:   → tries to create auth_service.py
       → claims done without verifying
       ⚠ VibeGuard gates — run build/test before finishing
 ```
-
-**Every interception returns a fix instruction**, not just a failure — so the agent can self-correct.
 
 Re-record your own demo: see [docs/assets/README.md](docs/assets/README.md) (one command via asciinema + agg).
 
