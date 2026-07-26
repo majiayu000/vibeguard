@@ -13,7 +13,7 @@ Keep `plan/` as the workflow output directory. Historical or completed files sta
 | Active execution plan | Current multi-step work where remaining steps may still be actionable after checking linked issues and main branch | None currently |
 | Completed record | Historical execution evidence or implemented plan record; use for context, not new scope | `2026-05-01_18-56-41-vibeguard-audit-remediation.md`, `2026-06-05_22-28-rust-only-production-path.md`, `spec-96-prompt-contract-schema.md`, `spec-app-server-runtime-policy-gate.md`, `spec-codebase-audit-remediation.md`, `spec-posttool-malformed-input-fail-visible.md`, `spec-runtime-config-contract-clarity.md`, `spec-test-file-size-decomposition.md` |
 | Historical convergence plan | Older architecture plan; verify current code and newer specs before acting | `2026-04-19_00-15-39-main-architecture-convergence.md` |
-| Draft spec | Candidate work that needs issue and code-state verification before implementation | `full-english-localization-spec.md` |
+| Draft spec | Candidate work that needs issue and code-state verification before implementation | `full-english-localization-spec.md`, `2026-07-26-growth-and-architecture-roadmap.md` |
 | Snapshot or signal report | Evidence artifact for another plan or issue; do not implement directly without an owning spec | `w20-rust-only-production-path-snapshot.md`, `signal-report-legacy-vibeguard-mcp-cleanup.md` |
 
 ## File Status Index
@@ -23,6 +23,7 @@ Keep `plan/` as the workflow output directory. Historical or completed files sta
 | `2026-04-19_00-15-39-main-architecture-convergence.md` | Historical convergence plan | Use as architecture context only after checking current code and newer specs. |
 | `2026-05-01_18-56-41-vibeguard-audit-remediation.md` | Completed record | Use as audit evidence; do not reopen items without a new issue. |
 | `2026-06-05_22-28-rust-only-production-path.md` | Completed record | Use as implementation context for the Rust-only production path. |
+| `2026-07-26-growth-and-architecture-roadmap.md` | Draft spec | Verify workstream priority and open one GitHub issue per workstream before implementation. |
 | `full-english-localization-spec.md` | Draft spec | Verify current product priority and open a GitHub issue before implementation. |
 | `signal-report-legacy-vibeguard-mcp-cleanup.md` | Snapshot or signal report | Treat as evidence for another owner; do not implement directly. |
 | `spec-96-prompt-contract-schema.md` | Completed record | Use as prompt-contract history; current schema and tests are authoritative. |
