@@ -2,8 +2,8 @@
 
 ## Implementation Tasks
 
-- [ ] `SP699-T1` Owner: unassigned — payload manifest 与打包脚本:新增 `scripts/release/payload-manifest.txt` 与打包 step,产出 `vibeguard-payload-<version>.tar.gz` 并进 `SHA256SUMS` / attestation。 Done when: 本地以任意 tag 版本可复现打包,manifest 路径全部存在断言通过。 Verify: `bash scripts/local-contract-check.sh --quick`
-- [ ] `SP699-T2` Owner: unassigned — `setup.sh` payload 模式:运行根探测 + 两处白名单差异(无源码回退;checkout-only 子命令显式 not-applicable)。 Done when: 解包 payload 后 `bash setup.sh --yes` 与 `bash setup.sh verify-install` 行为与 checkout 一致。 Verify: `bash setup.sh verify-install`
+- [x] `SP699-T1` Owner: unassigned — payload manifest 与打包脚本:新增 `scripts/release/payload-manifest.txt` 与打包 step,产出 `vibeguard-payload-<version>.tar.gz` 并进 `SHA256SUMS` / attestation。 Done when: 本地以任意 tag 版本可复现打包,manifest 路径全部存在断言通过。 Verify: `bash scripts/local-contract-check.sh --quick`
+- [x] `SP699-T2` Owner: unassigned — `setup.sh` payload 模式:运行根探测 + 两处白名单差异(无源码回退;checkout-only 子命令显式 not-applicable)。 Done when: 解包 payload 后 `bash setup.sh --yes` 与 `bash setup.sh verify-install` 行为与 checkout 一致。 Verify: `bash setup.sh verify-install`
 - [ ] `SP699-T3` Owner: unassigned — bootstrap 共享内核:在 `scripts/setup/` 下新增 `bootstrap.sh`(下载 payload、校验、原子切换 dist/current、exec setup)。 Done when: 篡改 payload 或校验和时以校验错误终止且不落盘安装。 Verify: `bash tests/test_setup.sh`
 - [ ] `SP699-T4` Owner: unassigned — release workflow 集成:payload 构建、VERSION==tag 断言、macOS+Ubuntu 免 clone smoke(下载产物→安装→verify-install)。 Done when: tag 演练 run 全绿且 release 页出现 payload 资产。 Verify: `gh run view <release-run>`
 - [ ] `SP699-T5` Owner: unassigned — brew tap:`majiayu000/homebrew-vibeguard` formula + release 自动 bump。 Done when: `brew install majiayu000/vibeguard/vibeguard && vibeguard --yes` 后 `verify-install` 退出码 0。 Verify: `bash setup.sh verify-install`
