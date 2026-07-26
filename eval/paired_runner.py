@@ -17,8 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 from dataset import (
     DatasetError,
+    DuplicateJsonKeyError,
     file_digest,
     load_dataset,
+    reject_duplicate_json_keys,
     sample_set_digest,
     sha256_text,
 )
@@ -92,15 +94,6 @@ APPROVED_PLACEBO_PAIRS = {
 
 class PairedEvalError(ValueError):
     """Raised when paired-eval inputs or invariants are invalid."""
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    value: dict[str, Any] = {}
-    for key, item in pairs:
-        if key in value:
-            raise PairedEvalError(f"duplicate JSON key: {key}")
-        value[key] = item
-    return value
 
 
 def _decode(content: bytes, label: str) -> str:
@@ -193,7 +186,11 @@ def _core_candidate_rows(content: bytes, candidate: str) -> int:
     )
 
 
-def find_cross_references(rules_dir: Path, candidate: str) -> list[str]:
+def find_cross_references(
+    rules_dir: Path,
+    candidate: str,
+    core_file: Path | None = None,
+) -> list[str]:
     token = re.compile(
         rf"(?<![A-Za-z0-9-]){re.escape(candidate)}(?![A-Za-z0-9-])",
         re.IGNORECASE,
@@ -222,6 +219,14 @@ def find_cross_references(rules_dir: Path, candidate: str) -> list[str]:
                 continue
             if token.search(line):
                 references.append(f"{relative}:{line_number}")
+    if core_file is not None:
+        core_text = _decode(core_file.read_bytes(), str(core_file))
+        for line_number, line in enumerate(core_text.splitlines(), start=1):
+            match = RULE_ID_TABLE_RE.match(line)
+            if match and match.group(1).upper() == candidate.upper():
+                continue
+            if token.search(line):
+                references.append(f"{core_file.name}:{line_number}")
     return references
 
 
@@ -297,7 +302,9 @@ def audit_removal(
             name: "pass" if passed else "fail" for name, passed in checks.items()
         },
         "failed_assertions": failed,
-        "cross_references": find_cross_references(real_rules_dir, candidate),
+        "cross_references": find_cross_references(
+            real_rules_dir, candidate, real_core_file
+        ),
         "empty_shells": _empty_rule_files(without_rules_dir),
         "definition_count_with": _count_definitions(real_rules_dir),
         "definition_count_without": _count_definitions(without_rules_dir),
@@ -374,8 +381,10 @@ def load_non_target_dataset(
             try:
                 sample = json.loads(
                     raw,
-                    object_pairs_hook=_reject_duplicate_json_keys,
+                    object_pairs_hook=reject_duplicate_json_keys,
                 )
+            except DuplicateJsonKeyError as exc:
+                raise DatasetError(f"{path}:{line_number}: {exc}") from exc
             except json.JSONDecodeError as exc:
                 raise DatasetError(
                     f"{path}:{line_number}: invalid JSON: {exc.msg}"
@@ -454,9 +463,9 @@ def load_paired_thresholds(path: Path) -> dict[str, Any]:
     try:
         thresholds = json.loads(
             path.read_text(encoding="utf-8"),
-            object_pairs_hook=_reject_duplicate_json_keys,
+            object_pairs_hook=reject_duplicate_json_keys,
         )
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, DuplicateJsonKeyError) as exc:
         raise PairedEvalError(f"invalid thresholds file {path}: {exc}") from exc
     if not isinstance(thresholds, dict) or set(thresholds) != THRESHOLD_KEYS:
         raise PairedEvalError(

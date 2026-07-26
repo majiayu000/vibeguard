@@ -6,18 +6,11 @@ import json
 import time
 from typing import Any
 
+from dataset import DuplicateJsonKeyError, reject_duplicate_json_keys
+
 
 class PairwiseJudgeError(ValueError):
     """Raised when a pairwise judge response violates its JSON contract."""
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in payload:
-            raise PairwiseJudgeError(f"duplicate pairwise judge JSON key: {key}")
-        payload[key] = value
-    return payload
 
 
 def build_judge_prompt() -> str:
@@ -32,8 +25,10 @@ def parse_pairwise_judge(reply: str) -> dict[str, str]:
     try:
         payload = json.loads(
             reply.strip(),
-            object_pairs_hook=_reject_duplicate_json_keys,
+            object_pairs_hook=reject_duplicate_json_keys,
         )
+    except DuplicateJsonKeyError as exc:
+        raise PairwiseJudgeError(f"invalid pairwise judge JSON: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise PairwiseJudgeError(f"invalid pairwise judge JSON: {exc.msg}") from exc
     if not isinstance(payload, dict):

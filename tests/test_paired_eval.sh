@@ -231,8 +231,21 @@ class FinalReviewRegressionTest(unittest.TestCase):
                 '"excluded_rules":["U-18"],"excluded_rules":[]}\n',
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(paired.PairedEvalError, "duplicate"):
+            with self.assertRaisesRegex(paired.DatasetError, "duplicate"):
                 paired.load_non_target_dataset(path, known_rules)
+
+    def test_duplicate_target_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "target.jsonl"
+            record = json.loads(
+                paired.DEFAULT_TARGET_DATASET.read_text(encoding="utf-8").splitlines()[0]
+            )
+            path.write_text(
+                json.dumps(record)[:-1] + ', "rule": "SEC-01"}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(paired.DatasetError, "duplicate JSON key"):
+                paired.load_dataset(path)
 
     def test_placebo_producer_order_is_counterbalanced(self):
         samples = [

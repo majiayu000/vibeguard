@@ -46,7 +46,7 @@ class RemovalFixture(unittest.TestCase):
             b"| ID | Rule |\n"
             b"| --- | --- |\n"
             b"| U-01 | candidate core |\n"
-            b"| W-01 | other core |\n"
+            b"| W-01 | other core |\nCore note: U-01 still applies.\n"
         )
         self.section = paired.extract_candidate_section(
             (self.real / "rules.md").read_bytes(), "U-01"
@@ -99,7 +99,7 @@ class RemovalFixture(unittest.TestCase):
             "file_diff": "pass",
             "definition_count": "pass",
         })
-        self.assertEqual(evidence["cross_references"], ["other.md:3"])
+        self.assertEqual(evidence["cross_references"], ["other.md:3", "core.md:5"])
 
     def test_mutations_are_caught_by_independent_named_assertions(self) -> None:
         cases: list[tuple[str, str, callable]] = []
@@ -445,7 +445,7 @@ class JudgeAndVerdictTest(unittest.TestCase):
 
         self.assertTrue(result["skipped"])
         self.assertEqual(result["raw_judge_responses"], ['{"winner":"A","winner":"B","reason":"duplicate"}'])
-        self.assertIn("duplicate pairwise judge JSON key", result["error"])
+        self.assertIn("duplicate JSON key", result["error"])
 
     def test_requested_sample_count_remains_the_denominator(self) -> None:
         with_results = [{"detected": True}] * 4 + [{"skipped": True}]
