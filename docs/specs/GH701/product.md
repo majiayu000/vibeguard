@@ -16,10 +16,11 @@ Codex CLI，但公开叙事与安装面仍把产品呈现成“两种工具的�
 漏掉 capability 差异，或在未知 host 上显示虚假的“已保护”。
 
 PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewall 一句话
-定位、真实 demo GIF、当前支持的 clone 安装命令与拦截清单，但最终首屏要求的四块
+定位、真实 demo GIF、当前支持的 clone 安装命令与拦截清单，但四个 required blocks
 中只有“定位”和“demo”完成；“免 clone 一命令安装”和“可复现 benchmark 表”仍分别
-依赖 GH-699 与 GH-700。PR #705 也没有实现 host adapter seam 或证明第三个 host，
-不能把 partial baseline 写成整个 GH-701 已完成。
+依赖 GH-699 与 GH-700。额外内容是否继续留在首屏由 H-004 决定。PR #705 也没有
+实现 host adapter seam 或证明第三个 host，不能把 partial baseline 写成整个
+GH-701 已完成。
 
 ## 目标
 
@@ -29,9 +30,11 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
   用真实安装、真实 host event 与真实 interception 证明 seam。
 - 对未知、缺能力、版本不兼容或配置失败的 host 显式降级，绝不把“不支持”显示成
   “已保护”。
-- 保持 PR #705 已交付的 partial baseline，并让最终首屏严格由四块组成：
-  一句话定位、30 秒真实 interception demo、经 GH-699 证明的一命令安装、经
-  GH-700 证明的 benchmark 表；依赖未满足时维持当前较窄而真实的内容。
+- 保持 PR #705 已交付的 partial baseline，并按维护者批准的 H-004 呈现首屏：
+  推荐的 strict-four 模式只保留一句话定位、30 秒真实 interception demo、经
+  GH-699 证明的一命令安装、经 GH-700 证明的 benchmark 表；若维护者改选保留
+  PR #705 额外内容，必须先同步 GH-701 issue acceptance，再由同一证据 renderer
+  呈现。H-004 未选择时不得实施 README 最终布局。
 
 ## 非目标
 
@@ -49,8 +52,8 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
 
 | 范围 | 当前状态 | 本 spec 的处理 |
 | --- | --- | --- |
-| 一句话 agent-firewall 定位 | PR #705 已合并（final block 1/4） | 保持，不回退到 two-tool rule-pack 叙事 |
-| 30 秒真实 interception demo | PR #705 已合并（final block 2/4） | 保持真实 demo 与可重录来源 |
+| 一句话 agent-firewall 定位 | PR #705 已合并（required block 1/4） | 保持，不回退到 two-tool rule-pack 叙事 |
+| 30 秒真实 interception demo | PR #705 已合并（required block 2/4） | 保持真实 demo 与可重录来源 |
 | 当前 clone 安装与拦截清单 | PR #705 partial baseline | 不是最终 one-command/benchmark block，不据此宣称 GH-701 完成 |
 | 免 clone 一命令安装 | GH-699 `ready_to_implement` | 依赖交付；本 issue 不声明完成 |
 | 可复现 benchmark 表 | GH-700 `ready_to_spec` | 依赖交付；本 issue 不声明数字 |
@@ -74,6 +77,13 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
    merge PR #705（`48076210`）进入 main，且该 commit 不是 main ancestor。唯一
    备选是 `readonly_retain`，并必须同时记录唯一 owner 与 UTC expiry；不允许
    rebase、复用、继续 push、无 owner/expiry 永久保留或“稍后再决定”。
+4. **H-004 README 首屏组成 — Recommended proposal: `strict_four`**。该选择把
+   定位、demo、GH-699 one-command 与 GH-700 benchmark 作为首屏恰好四块，并把
+   PR #705 的当前 clone 安装与拦截清单移到首屏之后。互斥备选
+   `preserve_pr705_extras` 允许额外内容继续留在首屏，但维护者必须先通过同一
+   GitHub 决策来源明确更新 GH-701 issue acceptance，列出保留块及其证据要求；
+   不能只改 spec/README 后声称 acceptance 已同步。两者均未获批或同时出现时，
+   route、task planning、README renderer 与 closure gate 必须 blocked。
 
 ## Behavior Invariants
 
@@ -135,10 +145,13 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
     host evidence，至少区分 `active`、`partial`、`unsupported`、
     `incompatible`、`broken`、`not_installed`；历史日志或仅检测到可执行文件
     不能单独证明当前 protection active。
-18. B-018 在 GH-699 与 GH-700 各自完成后，首屏才可组合展示其已验证的一命令
-    安装与 released benchmark；从空环境到安装、verify 与 proof host 真实
-    interception 的维护者复核流程应在五分钟目标内完成，任一依赖缺失时必须
-    明确显示当前较窄路径而非宣称达标。
+18. B-018 在 GH-699 与 GH-700 各自完成且 H-004 有且只有一个获批选择后，首屏
+    才可组合展示其已验证的一命令安装与 released benchmark；renderer 必须消费
+    H-004 gate result：`strict_four` 输出恰好四块，
+    `preserve_pr705_extras` 只输出已同步到 GH-701 issue acceptance 且有证据的
+    命名额外块。从空环境到安装、verify 与 proof host 真实 interception 的
+    维护者复核流程应在五分钟目标内完成；任一依赖或 H-004 缺失时必须明确显示
+    当前较窄路径而非宣称达标。
 19. B-019 一个 native host event 必须归一化为有序的零到多个 canonical
     requests，而不是假设永远一对一；零项只允许来自显式 `unsupported` /
     `not_applicable` mapping，多 tool/file event 的每个可执行项都必须保留原输入
@@ -178,14 +191,38 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
     missing、schema-valid semantic mismatch、tampered digest、stale HEAD/release、
     非零 install、repo clone、占位/历史 latency benchmark 均必须由 negative
     fixtures 拒绝。
-28. B-028 第三 host proof 必须由固定 schema/path 的 fresh artifact 与 maintainer
-    witness 共同满足：artifact 精确绑定当前 candidate HEAD、native event identity、
-    redaction result、host binary SHA-256、VibeGuard runtime SHA-256、config digest
-    与 correlation IDs；超过 7×24 小时、future timestamp、head/event/digest
-    不匹配、缺 witness 或 witness 早于 event 时 gate 必须阻断。
+28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
+    独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
+    HEAD、native event identity、redaction result、host binary SHA-256、VibeGuard
+    runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
+    timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
+    必须阻断。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
     `readonly_retain + owner + UTC expiry`；任何第三状态、缺 owner/expiry、expiry
     已过仍存在或发生新 push 都阻断 GH-701 closure。
+30. B-030 H-004 必须是维护者明确选择的互斥值 `strict_four` 或
+    `preserve_pr705_extras`，推荐值 `strict_four` 本身不构成批准；后者还必须绑定
+    已更新 GH-701 issue acceptance 的 immutable node/source URL、更新时间与
+    acceptance digest。缺失、两值并存、issue 未同步或同步发生在选择之后但未
+    重新见证时，README/task/implementation/closure gate 均 blocked。
+31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable
+    decision record，并由离线 gate 验证每项选择、维护者 actor、
+    `author_association`、immutable source URL/node、candidate head 与时间；
+    推荐文本、实现者自填 JSON、缺失/过期/错误 head 的记录均不算批准。route 与
+    task-plan gate 必须重新消费该 gate 的 allowed result 及 record digest，不能
+    依赖人工口头说明或复用另一 HEAD 的结果。
+32. B-032 runtime proof 与 maintainer witness 必须是两个独立 artifact。
+    maintainer witness 只能由受保护的只读 GitHub collector 获取并带可离线验证的
+    attestation，绑定 immutable node、native event、candidate head 与见证时间；
+    implementer 不能通过 runtime proof 字段、命令参数或手写文件提供 actor、
+    association、source URL 或 witnessed time。任一 artifact 缺失、绑定不一致、
+    attestation 无效或 evidence 不新鲜时 third-host gate blocked。
+33. B-033 primary block 的 fix instruction 即使单项超过 response byte cap，也
+    不得被省略成无修复信息的响应；encoder 必须保持 `block`，返回固定、无 payload
+    的有界 closed fallback，标记 truncation/fallback 并保留原 fix 的随机
+    `fix_id` 关联。oversize 原文及其 content-derived digest 不得进入
+    response/log/proof；schema-valid oversize-primary
+    fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
 
 ## 验收标准
 
@@ -207,28 +244,33 @@ PR #705 只是首屏目标的 **partial baseline**：README 已有 agent-firewal
   crash recovery、safe rollback 与 external-drift needs-human 路径均有确定性证据。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness fixtures 全部 nonzero。
+- [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
+  protected collector attestation 和离线 gate；route/task/renderer/closure 都绑定
+  当前 HEAD 的 gate result，implementer 自填 evidence 被拒绝。
+- [ ] oversize primary fix fixture 保持 block 并返回有界 closed fallback，原文
+  不出现在 response、双日志或 proof。
 
 ## 边界情况清单
 
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
-| 空/缺失输入 | covered: B-004, B-008, B-009, B-019, B-022, B-027, B-028 |
-| 错误与失败路径 | covered: B-007, B-008, B-011, B-015, B-017, B-020, B-024, B-025, B-028 |
-| 授权/权限 | covered: B-010, B-011, B-013, B-025, B-028, B-029 |
+| 空/缺失输入 | covered: B-004, B-008, B-009, B-019, B-022, B-027, B-028, B-030, B-031, B-032 |
+| 错误与失败路径 | covered: B-007, B-008, B-011, B-015, B-017, B-020, B-024, B-025, B-028, B-030, B-031, B-032, B-033 |
+| 授权/权限 | covered: B-010, B-011, B-013, B-025, B-028, B-029, B-030, B-031, B-032 |
 | 并发/竞态 | covered: B-012, B-021, B-025, B-026 |
 | 重试/幂等 | covered: B-010, B-016, B-021, B-026 |
-| 非法状态转换 | covered: B-011, B-015, B-016, B-017, B-024, B-025, B-026, B-029 |
+| 非法状态转换 | covered: B-011, B-015, B-016, B-017, B-024, B-025, B-026, B-029, B-030, B-031, B-032 |
 | 兼容/迁移 | covered: B-004, B-014, B-015, B-022, B-023 |
-| 降级/回退 | covered: B-003, B-007, B-008, B-011, B-018, B-024, B-026 |
-| 证据与审计完整性 | covered: B-001, B-002, B-003, B-006, B-017, B-018, B-020, B-021, B-027, B-028, B-029 |
+| 降级/回退 | covered: B-003, B-007, B-008, B-011, B-018, B-024, B-026, B-030, B-033 |
+| 证据与审计完整性 | covered: B-001, B-002, B-003, B-006, B-017, B-018, B-020, B-021, B-027, B-028, B-029, B-030, B-031, B-032, B-033 |
 | 取消/中断 | covered: B-016, B-025, B-026 |
 
 ## 发布说明
 
 PR #705 是定位+demo 已完成、install+benchmark 未完成的 partial baseline，不需要
 回滚已完成两块，也不能据此关闭 GH-701。host adapter seam 与 proof host 只有在
-spec 获批且 H-001/H-002/H-003 得到明确维护者选择后才能实施；Recommended
-proposal 本身不算批准。README 的 one-command install 与 benchmark 更新分别等待
-GH-699、GH-700 的 deterministic gate。adapter 发布说明必须列出 capability
-matrix、batch aggregation、协议/version range、unsupported event、事务/clean、
-proof freshness 与隐私边界。
+spec 获批且 H-001/H-002/H-003/H-004 得到可验证的明确维护者选择后才能实施；
+Recommended proposal 本身不算批准。README 的 one-command install 与 benchmark
+更新分别等待 GH-699、GH-700 的 deterministic gate，布局严格消费 H-004 gate
+result。adapter 发布说明必须列出 capability matrix、batch aggregation、
+协议/version range、unsupported event、事务/clean、proof freshness 与隐私边界。
