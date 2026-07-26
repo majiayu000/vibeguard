@@ -163,6 +163,11 @@ jobs:
         shell: bash
         run: bash tests/test_release_workflow.sh
 
+      - name: Payload regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_payload.sh
+
       - name: Validate prompt contract
         shell: bash
         run: bash scripts/ci/validate-prompt-contract.sh --strict

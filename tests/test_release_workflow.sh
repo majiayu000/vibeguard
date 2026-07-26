@@ -143,6 +143,7 @@ assert_contains "$ci_text" "cargo install cargo-deny --version" "CI installs car
 assert_contains "$ci_text" 'cargo install cargo-llvm-cov --version "${CARGO_LLVM_COV_VERSION}" --locked' "CI installs pinned cargo-llvm-cov"
 assert_contains "$ci_text" "cargo deny --manifest-path vibeguard-runtime/Cargo.toml --locked check -c deny.toml licenses bans sources" "CI enforces Rust dependency policy"
 assert_before "$ci_text" "Validate Rust dependency policy" "Rust runtime checks" "CI validates dependency policy before runtime Cargo builds"
+assert_contains "$ci_text" $'      - name: Payload regression tests\n        if: runner.os != \'Windows\'\n        shell: bash\n        run: bash tests/test_payload.sh' "CI directly enforces payload regressions on Unix runners"
 assert_contains "$ci_text" "cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check" "CI enforces Rust formatting"
 assert_contains "$ci_text" "cargo clippy --manifest-path vibeguard-runtime/Cargo.toml --all-targets -- -D warnings" "CI treats Rust Clippy diagnostics as errors"
 assert_contains "$ci_text" "Validate U-22 coverage gate contract" "CI validates the U-22 coverage gate deterministically"
