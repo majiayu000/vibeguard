@@ -32,8 +32,8 @@ GH-700
 新增独立 public-benchmark surface，不重命名或复用 `scripts/benchmark.sh`：
 
 - canonical corpus source：`data/public_benchmark/v1.jsonl`；
-- corpus schema：`schemas/public-benchmark-corpus.schema.json`；
-- report schema：`schemas/public-benchmark-report.schema.json`；
+- planned corpus schema：**schemas/public-benchmark-corpus.schema.json**；
+- planned report schema：**schemas/public-benchmark-report.schema.json**；
 - Rust 实现拆到 `vibeguard-runtime/src/bench/`，`main.rs` 只注册 `bench` 命令；
 - corpus 以构建期只读资源编进 release binary，runner 不从 cwd 或用户可写路径寻找
   official corpus；
