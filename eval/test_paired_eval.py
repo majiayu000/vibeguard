@@ -678,7 +678,6 @@ class RealExecutionTest(unittest.TestCase):
             report["non_target_results"]["judge"][0]["mapped_outcomes"],
             ["tie", "tie"],
         )
-
     def test_keyboard_interrupt_writes_partial_report_and_stops_new_calls(self) -> None:
         target_samples = [
             {
