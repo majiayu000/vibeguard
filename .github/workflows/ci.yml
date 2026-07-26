@@ -185,6 +185,10 @@ jobs:
         shell: bash
         run: bash scripts/ci/validate-no-personal-paths.sh
 
+      - name: Validate specs index
+        shell: bash
+        run: bash scripts/ci/validate-specs-index.sh
+
       - name: Validate doc freshness
         if: runner.os != 'Windows'
         shell: bash
@@ -321,6 +325,10 @@ jobs:
       - name: No personal paths regression tests
         shell: bash
         run: bash tests/test_no_personal_paths.sh
+
+      - name: Specs index regression tests
+        shell: bash
+        run: bash tests/test_specs_index.sh
 
       - name: Guard unit tests
         shell: bash

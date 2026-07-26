@@ -12,6 +12,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH671/` | Implemented reference | Baseline-aware U-16 enforcement for legacy oversized files plus staged/CI changed-file checks |
 | `GH659/` | Implemented reference | Bound wrapper/event log growth, stale learning markers, and scheduled oversized-scan status |
 | `GH661/` | Implemented reference | Preserve wrapped-hook exit code, conventional signal decoding, and nonempty failure evidence |
+| `GH660/` | Implemented reference | Retirement of the strategic-compact skill and stale claude-md-split skill-name references |
 | `GH658/` | Implemented reference | Required work-surface classification before readiness routing |
 | `GH652/` | Implemented reference | Deterministic current-source runtime build and pinning before setup structured-report assertions |
 | `GH631/` | Implemented reference | Explicit orphan deletion, maintainer-only sgconfig discovery, and fail-visible distribution asset inventory |
@@ -20,6 +21,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH628/` | Implemented reference | Git-tracked Markdown personal-path detection and strict, scoped doc-path allowlist freshness |
 | `GH627/` | Implemented reference | Closed-map resolution of Codex namespaced hook names to canonical hook files without physical alias shells |
 | `GH626/` | Implemented reference | Canonical-source generation and freshness enforcement for the compact injected rule table |
+| `GH632/` | Implemented reference | Repository map, site version copy, and stale presentation metadata refresh |
 | `GH644/` | Implemented reference | Deterministic stdin and complete child-error evidence for runtime-policy expected-error integration tests |
 | `GH615/` | Implemented reference | Reminder-aware pre-write escalation counting, same-session Grep/Glob recovery, and actionable block guidance |
 | `GH623/` | Implemented reference | Behavior-preserving decomposition of the oversized self-application CI harness into ordered focused test domains |
@@ -27,6 +29,9 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `codex-app-observability-plugin.md` | Implemented reference | Codex App plugin packaging, dashboard generation, observability commands, and plugin privacy boundaries |
 | `GH618/` | Implemented reference | Manifest-driven compliance language scope, guard-pack reporting, and fail-visible config handling |
 | `GH614/` | Implemented reference | Bounded macOS CI timeout headroom while preserving required check names and blocking setup coverage |
+| `GH611/` | Implemented reference | Stable multi-sample hook P95 latency gate replacing the flaky 3-sample max collapse |
+| `GH608/` | Implemented reference | Correct default `VIBEGUARD_DIR` resolution for standalone compliance-check runs |
+| `GH605/` | Implemented reference | Rust test-path classifier recognition of `*_tests.rs` for RS-03 precision |
 | `GH581/` | Implemented reference | Rust coverage ratchets from a latest-head clean measurement through risk-ordered, independently reviewed tranches to the enforced 80% gate |
 | `GH588/` | Implemented reference | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
 | `GH589/` | Implemented reference | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
@@ -34,6 +39,12 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH595/` | Implemented reference | SpecRail repository adoption, configured VibeGuard overrides, offline PR/runtime gates, target-local evidence, and preserved human merge boundaries |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Implemented reference | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
+| `GH551/` | Implemented reference | Hook hot-path collapse into a single vibeguard-runtime invocation to cut fork latency |
+| `GH543/` | Implemented reference | Symmetric `--clean` removal of `~/.vibeguard` and installed git-hook symlinks |
+| `GH542/` | Implemented reference | Stale installed-snapshot drift warning after `git pull` |
+| `GH541/` | Implemented reference | Default Claude profile compact rule injection within the U-32 constraint budget |
+| `GH540/` | Implemented reference | Guard triage capture wiring so the precision scorecard accumulates real TP/FP data |
+| `GH539/` | Implemented reference | Claude wrapper fail-closed on policy/config errors, matching the Codex wrapper |
 | `install-friction-reduction.md` | Implemented reference | Prebuilt runtime binaries, release checksums, source-build fallback, and scheduler opt-in behavior |
 | `learn-first-class-signal-inbox.md` | Implemented reference | Learn signal inbox, signal classification, triage state, adoption compiler, and outcome evaluator planning |
 | `rust-only-production-path.md` | Implemented reference | Python-free production path, Rust runtime boundaries, and remaining validation expectations |
