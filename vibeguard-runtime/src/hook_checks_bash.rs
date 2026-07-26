@@ -396,19 +396,32 @@ mod tests {
 
     #[test]
     fn malformed_input_blocks_carry_shape_diagnostics() {
-        assert!(block_detail("").starts_with("empty hook stdin"));
-        assert!(block_detail("   \n").starts_with("empty hook stdin"));
+        assert_eq!(
+            block_detail(""),
+            "category=empty_stdin required_field=command input_size=0 tool_name_class=absent_or_invalid hook_event_name_class=absent_or_invalid"
+        );
+        assert_eq!(
+            block_detail("   \n"),
+            "category=empty_stdin required_field=command input_size=4 tool_name_class=absent_or_invalid hook_event_name_class=absent_or_invalid"
+        );
 
         let invalid = block_detail(r#"{"tool_input":"#);
-        assert!(invalid.starts_with("invalid JSON"));
-        assert!(invalid.contains(r#"head={"tool_input":"#));
+        assert_eq!(
+            invalid,
+            "category=invalid_json required_field=command input_size=14 tool_name_class=absent_or_invalid hook_event_name_class=absent_or_invalid"
+        );
+        assert!(!invalid.contains(r#"{"tool_input":"#));
 
         let other_tool = block_detail(
             r#"{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}"#,
         );
-        assert!(other_tool.contains("tool_input.command missing, empty, or not a string"));
-        assert!(other_tool.contains("tool_name=BashOutput"));
-        assert!(other_tool.contains("hook_event_name=PreToolUse"));
+        assert!(
+            other_tool
+                .starts_with("category=missing_required_field required_field=command input_size=")
+        );
+        assert!(other_tool.contains("tool_name_class=other"));
+        assert!(other_tool.contains("hook_event_name_class=pre_tool_use"));
+        assert!(!other_tool.contains("BashOutput"));
     }
 
     #[test]

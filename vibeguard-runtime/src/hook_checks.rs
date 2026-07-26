@@ -25,6 +25,9 @@ pub(crate) enum PreWriteCheck {
     Malformed {
         detail: String,
     },
+    U16BaselineUnreadable {
+        detail: String,
+    },
     Exists {
         file_path: String,
     },
@@ -119,8 +122,8 @@ pub(crate) fn evaluate_pre_write_input(
             match read_lossy_file(&file_path) {
                 Ok(old_content) => count_lines(&old_content),
                 Err(_) => {
-                    return PreWriteCheck::Malformed {
-                        detail: format!("existing file unreadable for U-16 baseline: {file_path}"),
+                    return PreWriteCheck::U16BaselineUnreadable {
+                        detail: "category=u16_baseline_unreadable".to_string(),
                     };
                 }
             }
@@ -183,6 +186,9 @@ fn print_pre_write_check(check: &PreWriteCheck) {
     match check {
         PreWriteCheck::Malformed { .. } => {
             println!("MALFORMED");
+        }
+        PreWriteCheck::U16BaselineUnreadable { .. } => {
+            println!("U16_BASELINE_UNREADABLE");
         }
         PreWriteCheck::Exists { file_path } => {
             println!("EXISTS");

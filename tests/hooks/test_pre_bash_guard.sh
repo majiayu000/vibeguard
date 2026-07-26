@@ -140,25 +140,32 @@ result=$(echo '{"tool_input":{"command":"vitest --run"}}' | bash hooks/pre-bash-
 assert_not_contains "$result" '"decision": "block"' "release vitest --run"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
-result=$(printf '{"tool_input":' | bash hooks/pre-bash-guard.sh)
+privacy_sentinel='VG_BASH_SECRET_706_token'
+result=$(printf '{"tool_input":"%s' "$privacy_sentinel" | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Malformed Bash hook JSON fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "invalid Bash hook input JSON; fail-closed" "Malformed Bash hook JSON writes parse warning"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "invalid JSON" "Malformed Bash hook JSON logs shape diagnostic"
+global_log="$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")"
+project_log="$(find "$VIBEGUARD_LOG_DIR/projects" -name events.jsonl -type f -exec cat {} +)"
+assert_contains "$global_log" "invalid Bash hook input JSON; fail-closed" "Malformed Bash hook JSON writes parse warning"
+assert_contains "$global_log" "category=invalid_json" "Malformed Bash hook JSON logs closed shape category"
+assert_not_contains "$global_log" "$privacy_sentinel" "Malformed Bash global log excludes payload secret"
+assert_not_contains "$project_log" "$privacy_sentinel" "Malformed Bash project log excludes payload secret"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
 result=$(printf '' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Empty Bash hook stdin fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "empty hook stdin" "Empty Bash hook stdin logs empty-stdin diagnostic"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "category=empty_stdin" "Empty Bash hook stdin logs empty-stdin diagnostic"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
 result=$(echo '{"tool_input":{}}' | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Missing Bash command field fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_input.command missing" "Missing Bash command field logs required-field diagnostic"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "category=missing_required_field" "Missing Bash command field logs required-field diagnostic"
 
 > "$VIBEGUARD_LOG_DIR/events.jsonl"
-result=$(echo '{"hook_event_name":"PreToolUse","tool_name":"BashOutput","tool_input":{"bash_id":"x"}}' | bash hooks/pre-bash-guard.sh)
+unknown_tool_sentinel='VG_UNKNOWN_BASH_TOOL_706'
+result=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s","tool_input":{"bash_id":"x"}}\n' "$unknown_tool_sentinel" | bash hooks/pre-bash-guard.sh)
 assert_contains "$result" '"decision": "block"' "Non-Bash tool payload without command fails closed"
-assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name=BashOutput" "Non-Bash tool payload logs originating tool_name"
+assert_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "tool_name_class=other" "Non-Bash tool payload normalizes originating tool_name"
+assert_not_contains "$(cat "$VIBEGUARD_LOG_DIR/events.jsonl")" "$unknown_tool_sentinel" "Non-Bash tool payload does not persist unknown tool_name"
 
 result=$(echo '{"tool_input":{"command":""}}' | bash hooks/pre-bash-guard.sh)
 assert_not_contains "$result" '"decision": "block"' "Empty Bash command string remains a no-op"
