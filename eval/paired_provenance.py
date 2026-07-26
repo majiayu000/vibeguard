@@ -173,17 +173,44 @@ def pin_evaluated_inputs(
             + "; ".join(dirty.splitlines())
         )
 
-    tracked_paths = set(
-        _run_git(root, ["ls-tree", "-r", "--name-only", commit]).splitlines()
-    )
+    files_to_compare: set[str] = set()
     for relative in relative_paths:
         directory_prefix = relative.rstrip("/") + "/"
         if directory_prefix in directories:
-            tracked = any(path.startswith(directory_prefix) for path in tracked_paths)
+            committed_files = set(
+                _run_git(
+                    root,
+                    ["ls-tree", "-r", "--name-only", commit, "--", relative],
+                ).splitlines()
+            )
+            worktree_dir = root / relative
+            worktree_files = {
+                path.relative_to(root).as_posix()
+                for path in worktree_dir.rglob("*")
+                if path.is_file()
+            }
+            if worktree_files != committed_files:
+                raise PairedProvenanceError(
+                    f"evaluated input tree differs from commit {commit}: {relative}"
+                )
+            files_to_compare.update(committed_files)
         else:
-            tracked = relative in tracked_paths
-        if not tracked:
+            files_to_compare.add(relative)
+
+    for relative in sorted(files_to_compare):
+        try:
+            committed_hash = _run_git(
+                root, ["rev-parse", f"{commit}:{relative}"]
+            ).strip()
+            worktree_hash = _run_git(
+                root, ["hash-object", "--no-filters", "--", relative]
+            ).strip()
+        except PairedProvenanceError as exc:
             raise PairedProvenanceError(
                 f"evaluated input is not present in commit {commit}: {relative}"
+            ) from exc
+        if worktree_hash != committed_hash:
+            raise PairedProvenanceError(
+                f"evaluated input differs from commit {commit}: {relative}"
             )
     return commit

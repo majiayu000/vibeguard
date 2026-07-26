@@ -101,6 +101,37 @@ class FinalReviewRegressionTest(unittest.TestCase):
                 paired.pin_evaluated_inputs(
                     [input_path], expected_commit=pinned, repo_root=repo
                 )
+            input_path.write_text("committed\n", encoding="utf-8")
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "update-index",
+                    "--assume-unchanged",
+                    "rules.md",
+                ],
+                check=True,
+            )
+            input_path.write_text("hidden dirty\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                paired.PairedProvenanceError, "differs from commit"
+            ):
+                paired.pin_evaluated_inputs(
+                    [input_path], expected_commit=pinned, repo_root=repo
+                )
+
+    def test_semantically_related_placebo_pair_is_rejected(self):
+        with self.assertRaisesRegex(
+            paired.PairedEvalError, "not explicitly approved"
+        ):
+            paired.validate_placebo_candidate(
+                "RS-03",
+                "TASTE-ASYNC-UNWRAP",
+                100,
+                100,
+                0.25,
+            )
 
     def test_empty_non_target_axis_is_inconclusive(self):
         thresholds = {

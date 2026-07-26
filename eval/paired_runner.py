@@ -79,6 +79,14 @@ ANONYMOUS_COMPACT_RULE_EQUIVALENTS = {
     "U-24": "L2",
     "U-29": "L3",
 }
+APPROVED_PLACEBO_PAIRS = {
+    frozenset(("SEC-12", "U-32")): (
+        "MCP tool-description drift is unrelated to prompt rule-overload limits"
+    ),
+    frozenset(("SEC-18", "U-32")): (
+        "external-agent input scoring is unrelated to prompt rule-overload limits"
+    ),
+}
 
 
 class PairedEvalError(ValueError):
@@ -482,6 +490,12 @@ def validate_placebo_candidate(
         raise PairedEvalError(
             f"placebo length ratio {length_ratio:.3f} exceeds "
             f"max_placebo_length_ratio={maximum_length_ratio}"
+        )
+    pair = frozenset((candidate.upper(), placebo_candidate.upper()))
+    if pair not in APPROVED_PLACEBO_PAIRS:
+        raise PairedEvalError(
+            "placebo pair is not explicitly approved as semantically unrelated: "
+            f"{candidate.upper()} / {placebo_candidate.upper()}"
         )
 
 

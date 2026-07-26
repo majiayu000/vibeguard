@@ -61,7 +61,8 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
    创建模型客户端前终止，不得产生无法绑定版本的付费证据。真实运行还必须在导入仓库内
    评估器模块前固定 commit，并在调用模型前再次确认规则树、core、两个数据集、阈值、
    模型基线与由 import 关系推导的评估器本地依赖闭包都已由该 commit 跟踪且无未提交
-   变化；仓外、untracked 或 dirty 输入只能 dry-run，不得冒充 PR 证据。
+   变化，并逐文件确认实际 worktree blob 等于该 commit blob；Git 状态隐藏标记不得绕过
+   校验。仓外、untracked 或 dirty 输入只能 dry-run，不得冒充 PR 证据。
 3. B-003: 候选规则的排除必须覆盖**全部**注入来源，并同时满足四条断言：
    (a) **逐文件差分**：临时规则树与真实树相比只允许一个文件不同，且该文件的差异**恰为**
    候选小节；core 文件的差异恰为该 ID 的表格行；其余文件逐字节相同。比较必须在文件层
@@ -128,9 +129,9 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
     长度相近的规则，跑同一份目标数据集，期望 `delta ≈ 0`。v1 以
     `max_placebo_length_ratio: 0.25` 限定相对候选长度的最大差异；长度必须按两个来源均
     剔除后的完整 `load_rules` prompt 字符差比较，不能只比较原生小节。超出即拒绝运行；
-    placebo 也必须通过匿名 compact 等价语义检查，其交叉引用残留同样受 `max_cross_refs`
-    约束，任一不满足都必须在付费调用前拒绝。若 placebo 的 delta 与真候选同量级，说明
-    本门测到的是上下文长度效应而非规则语义，
+    placebo 还必须命中维护者明确审核为语义无关的 pair 映射，并通过匿名 compact 等价
+    语义检查；其交叉引用残留同样受 `max_cross_refs` 约束，任一不满足都必须在付费调用前
+    拒绝。若 placebo 的 delta 与真候选同量级，说明本门测到的是上下文长度效应而非规则语义，
     `min_target_delta` 必须定在 placebo delta 的分布之上，否则整个门在测噪声。
 15. B-015: 目标轴必须复用现有 structured-JSON grader；非目标轴必须用不知道哪份输出来自
     with/without 的 pairwise judge，且每个样本将 A/B 位置互换后再判一次。两次判定映射回

@@ -131,9 +131,11 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 core、目标/非目标数据集、阈值文件、模型基线，以及从入口与外部清单模块按 Python
 import 关系递归推导的本地依赖闭包必须全部位于仓内、由该 commit 跟踪且无
 staged/unstaged/untracked 变化。完成输入准备后、进入模型循环前再次验证 commit 与这些
-路径仍一致。报告和 run 目录均使用这份固定值，结束时不得重新读取 HEAD。commit 无法
-解析或输入无法归属时必须在创建模型客户端之前 fail closed，不得开始付费调用。dry-run
-不产出证据，可读取本地未提交输入用于检查。
+路径仍一致；每个文件还要以 `git hash-object --no-filters` 对比固定 commit 的 blob，
+不能依赖会被 assume-unchanged/skip-worktree 隐藏的 porcelain 状态。报告和 run 目录均
+使用这份固定值，结束时不得重新读取 HEAD。commit 无法解析或输入无法归属时必须在创建
+模型客户端之前 fail closed，不得开始付费调用。dry-run 不产出证据，可读取本地未提交
+输入用于检查。
 
 ### 4. 目标样本与非目标样本
 
@@ -214,8 +216,10 @@ JSON `NaN` 不得静默绕过比较。标定其中一项就把整个文件翻成
 placebo 长度资格比较使用 `len(with_rules) - len(without_rules)` 的完整 prompt 差值；
 候选和 placebo 都必须在各自原生小节及 core ID 行处理完成后再比较。只比较
 `removed_section_characters` 会漏掉 core 行，使真实上下文差超过 25% 的组合被错误接受。
-placebo 也复用匿名 compact 等价语义拒绝表；其残留交叉引用同样用 `max_cross_refs`
-检查，任一不满足都在进入模型循环前拒绝。
+placebo 除 distinct 与长度门外，还必须命中维护者审核的显式语义无关 pair 映射；未映射
+组合一律拒绝，不能仅凭不同 ID 推断无关。它也复用匿名 compact 等价语义拒绝表，其残留
+交叉引用同样用 `max_cross_refs` 检查，任一不满足都在进入模型循环前拒绝。当前审核 pair
+为 `U-32 / SEC-12` 与 `U-32 / SEC-18`。
 
 未标定阶段本门恒定输出 `inconclusive`，因此规则 PR 在这一阶段可接受的证据形态是
 **inconclusive 报告加两轴 delta 数值与样本量**，不是 `pass`（B-009）。
@@ -259,7 +263,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 + 本地模块导入前固定 commit + 前后两次 Git 归属验证（含评估器依赖闭包与模型基线） | `bash tests/test_paired_eval.sh`（dirty 输入被拒；传递依赖与模型基线在固定清单内；启动固定先于本地模块导入；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
+| B-002 | 按轴配对的摘要相等断言 + 本地模块导入前固定 commit + 前后两次 Git 归属及 blob 验证（含评估器依赖闭包与模型基线） | `bash tests/test_paired_eval.sh`（dirty 及 assume-unchanged 输入被拒；传递依赖与模型基线在固定清单内；启动固定先于本地模块导入；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
@@ -271,7 +275,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-011 | 真实运行的 inconclusive 非零退出 | `python3 eval/test_paired_eval.py` |
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
-| B-014 | 标定流程的不同规则、按完整 prompt 差值校验长度且受 compact/交叉引用门约束的 placebo | `bash tests/test_paired_eval.sh`（U-21/U-16 完整差值超限；U-32 交叉引用超限；SEC-02 compact 语义残留，均在调用前拒绝） |
+| B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度且受 compact/交叉引用门约束的 placebo | `bash tests/test_paired_eval.sh`（RS-03/TASTE-ASYNC-UNWRAP 未审核拒绝；U-21/U-16 完整差值超限；U-32 交叉引用超限；SEC-02 compact 语义残留，均在调用前拒绝） |
 | B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
 
 ## 数据流
