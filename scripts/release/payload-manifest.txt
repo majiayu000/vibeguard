@@ -1,0 +1,23 @@
+# VibeGuard payload manifest (GH699).
+# Single source of truth for what ships inside vibeguard-payload-<version>.tar.gz.
+# One tracked path per line; a directory includes its full tracked tree.
+# Blank lines and lines starting with '#' are ignored.
+# Dev-only surfaces (docs, tests, eval, plan, site, runtime sources) stay out:
+# the payload is an installation medium, not a repository mirror.
+.claude/commands
+agents
+claude-md
+context-profiles
+guards
+hooks
+packs
+rules
+schemas
+scripts
+skills
+templates
+workflows
+setup.sh
+vibeguard-runtime/VERSION
+LICENSE
+CHANGELOG.md

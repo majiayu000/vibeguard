@@ -124,6 +124,10 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
   red "ERROR: --require-provenance cannot be combined with --build-from-source; release provenance is only available for downloaded release binaries."
   exit 1
 fi
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
+  red "ERROR: --build-from-source is not available in payload mode; payload installs use the pinned release binary only. Clone the repository for source builds."
+  exit 1
+fi
 
 case "${PROFILE}" in
   minimal|core|full|strict) ;;
@@ -209,7 +213,12 @@ stage_install_snapshot() {
   mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
   cp "${REPO_DIR}/schemas/vibeguard-runtime-config.schema.json" "${_INSTALL_TMP}/schemas/"
-  printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    payload_version="$(awk -F= '$1 == "version" { print $2; exit }' "${REPO_DIR}/.vibeguard-payload" 2>/dev/null || true)"
+    printf 'payload-%s' "${payload_version:-unknown}" > "${_INSTALL_TMP}/version"
+  else
+    printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+  fi
 
   # Runtime must be prepared before project config validation, but the staged
   # snapshot lives in TMPDIR until validation has passed.

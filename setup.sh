@@ -11,6 +11,16 @@ done
 REPO_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SETUP_DIR="${REPO_DIR}/scripts/setup"
 
+# Payload mode (GH699): an unpacked release payload carries a .vibeguard-payload
+# marker and is not a git checkout. Same code path as checkout mode except for
+# an explicit whitelist of differences (no source-build fallback, checkout-only
+# subcommands report not-applicable).
+VIBEGUARD_PAYLOAD_MODE=0
+if [[ -f "${REPO_DIR}/.vibeguard-payload" && ! -e "${REPO_DIR}/.git" ]]; then
+  VIBEGUARD_PAYLOAD_MODE=1
+fi
+export VIBEGUARD_PAYLOAD_MODE
+
 print_usage() {
   cat <<'USAGE'
 Usage: bash setup.sh [command] [options]
@@ -144,6 +154,10 @@ case "${1:-}" in
     ;;
   verify-dev-repo)
     shift || true
+    if [[ "${VIBEGUARD_PAYLOAD_MODE}" == "1" ]]; then
+      echo "ERROR: verify-dev-repo is not applicable in payload mode; payload installs are not development checkouts." >&2
+      exit 2
+    fi
     reject_no_summary_for_machine_check "verify-dev-repo" "$@"
     run_setup "check.sh" --strict --dev-repo "$@"
     ;;

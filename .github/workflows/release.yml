@@ -186,10 +186,17 @@ jobs:
           cargo metadata --locked --manifest-path "${RUNTIME_MANIFEST}" --format-version 1 \
             > dist/vibeguard-runtime-dependency-metadata.json
 
+      - name: Build payload artifact
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          bash scripts/release/build-payload.sh --version "${TAG_NAME#v}" --output dist
+          tar -tzf "dist/vibeguard-payload-${TAG_NAME#v}.tar.gz" | grep -qx './.vibeguard-payload'
+
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum vibeguard-runtime-* | sort -k2 > SHA256SUMS
+          sha256sum vibeguard-runtime-* vibeguard-payload-* | sort -k2 > SHA256SUMS
           cat SHA256SUMS
 
       - name: Generate runtime release manifest
@@ -213,6 +220,11 @@ jobs:
         with:
           subject-path: dist/vibeguard-runtime-releases.json
 
+      - name: Attest payload artifact
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/vibeguard-payload-*.tar.gz
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -223,6 +235,6 @@ jobs:
             echo "ERROR: release ${TAG_NAME} already exists; refusing to mutate release assets" >&2
             exit 1
           fi
-          gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/SHA256SUMS \
+          gh release create "${TAG_NAME}" dist/vibeguard-runtime-* dist/vibeguard-payload-* dist/SHA256SUMS \
             --title "${TAG_NAME}" \
-            --notes "VibeGuard runtime binaries, release manifest, and dependency metadata for ${TAG_NAME}."
+            --notes "VibeGuard runtime binaries, install payload, release manifest, and dependency metadata for ${TAG_NAME}."
