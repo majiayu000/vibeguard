@@ -124,7 +124,7 @@ ARCHIVE="${OUTPUT_DIR}/vibeguard-payload-${VERSION}.tar.gz"
 # fixed commit. The marker is virtual so it receives the same deterministic
 # archive metadata, and gzip -n suppresses filename/timestamp headers. Avoid
 # GNU-only tar flags so release builds remain portable to macOS.
-git -C "${REPO_DIR}" archive \
+git -c tar.umask=0022 -C "${REPO_DIR}" archive \
   --format=tar \
   --add-virtual-file="${MARKER_NAME}:${marker_content}" \
   "${GIT_REF}" \

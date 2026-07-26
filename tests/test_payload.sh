@@ -93,6 +93,29 @@ rc=0
 cmp -s "${ARCHIVE}" "${SECOND_ARCHIVE}" || rc=1
 check "two builds of the same ref are byte-for-byte identical" "${rc}"
 
+GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0=tar.umask \
+  GIT_CONFIG_VALUE_0=0002 \
+  bash "${BUILD_PAYLOAD}" --output "${WORK}/dist-umask-0002" >/dev/null
+GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0=tar.umask \
+  GIT_CONFIG_VALUE_0=0022 \
+  bash "${BUILD_PAYLOAD}" --output "${WORK}/dist-umask-0022" >/dev/null
+UMASK_0002_ARCHIVE="${WORK}/dist-umask-0002/vibeguard-payload-${VERSION}.tar.gz"
+UMASK_0022_ARCHIVE="${WORK}/dist-umask-0022/vibeguard-payload-${VERSION}.tar.gz"
+rc=0
+cmp -s "${UMASK_0002_ARCHIVE}" "${UMASK_0022_ARCHIVE}" || rc=1
+check "conflicting injected tar.umask values produce identical archives" "${rc}"
+
+rc=0
+for umask_archive in "${UMASK_0002_ARCHIVE}" "${UMASK_0022_ARCHIVE}"; do
+  setup_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == "setup.sh" { mode = $1 } END { print mode }')"
+  marker_mode="$(tar -tvzf "${umask_archive}" | awk '$NF == ".vibeguard-payload" { mode = $1 } END { print mode }')"
+  [[ "${setup_mode}" == "-rwxr-xr-x" ]] || rc=1
+  [[ "${marker_mode}" == "-rw-r--r--" ]] || rc=1
+done
+check "archive mode policy fixes setup at 0755 and marker at 0644" "${rc}"
+
 mkdir -p "${WORK}/unpacked"
 tar -xzf "${ARCHIVE}" -C "${WORK}/unpacked"
 
@@ -302,6 +325,55 @@ fi
 exit 0
 SH
 chmod +x "${WORK}/fake-bin/launchctl"
+NETWORK_SENTINEL="${WORK}/network-access-attempted"
+cat > "${WORK}/fake-bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "${VIBEGUARD_TEST_NETWORK_SENTINEL:?}"
+exit 97
+SH
+chmod +x "${WORK}/fake-bin/curl"
+cat > "${WORK}/fake-bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+# The payload fixture must not inspect or mutate host systemd state.
+exit 0
+SH
+chmod +x "${WORK}/fake-bin/systemctl"
+
+header "profile and language matrix"
+
+matrix_rc=0
+matrix_cases=0
+for profile in minimal core full strict; do
+  for language in rust python go typescript; do
+    matrix_cases=$((matrix_cases + 1))
+    matrix_home="${WORK}/matrix-home/${profile}-${language}"
+    mkdir -p "${matrix_home}"
+    set +e
+    matrix_out="$(
+      cd "${WORK}/unpacked" \
+        && HOME="${matrix_home}" \
+          PATH="${WORK}/fake-bin:${PATH}" \
+          VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
+          VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+          bash setup.sh --dry-run --profile "${profile}" --languages "${language}" 2>&1
+    )"
+    matrix_status=$?
+    set -e
+    if [[ "${matrix_status}" -ne 0 ]]; then
+      printf 'matrix failure: profile=%s language=%s\n%s\n' \
+        "${profile}" "${language}" "${matrix_out}" >&2
+      matrix_rc=1
+    fi
+    if find "${matrix_home}" \( -type f -o -type l \) -print -quit | grep -q .; then
+      printf 'matrix dry-run wrote a file to temp HOME: profile=%s language=%s\n' \
+        "${profile}" "${language}" >&2
+      matrix_rc=1
+    fi
+  done
+done
+[[ "${matrix_cases}" -eq 16 ]] || matrix_rc=1
+check "all 16 profile/language payload dry-run combinations execute safely" "${matrix_rc}"
 
 set +e
 install_out="$(
@@ -309,6 +381,7 @@ install_out="$(
     && HOME="${WORK}/payload-home" \
       PATH="${WORK}/fake-bin:${PATH}" \
       VIBEGUARD_TEST_RELEASE_DIR="${WORK}/release-assets" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash setup.sh --yes 2>&1
 )"
 rc=$?
@@ -323,10 +396,26 @@ grep -q 'vibeguard-runtime downloaded and verified' <<< "${install_out}" || rc=1
 check "payload install completes with a verified local release runtime" "${rc}"
 
 set +e
+doctor_out="$(
+  cd "${WORK}/unpacked" \
+    && HOME="${WORK}/payload-home" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash setup.sh doctor 2>&1
+)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${doctor_out}" >&2
+fi
+check "doctor executes successfully after the unpacked payload install" "${rc}"
+
+set +e
 verify_out="$(
   cd "${WORK}/unpacked" \
     && HOME="${WORK}/payload-home" \
       PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
       bash setup.sh verify-install 2>&1
 )"
 rc=$?
@@ -335,15 +424,46 @@ if [[ "${rc}" -ne 0 ]]; then
   printf '%s\n' "${verify_out}" >&2
 fi
 check "verify-install succeeds after the unpacked payload install" "${rc}"
+# verify-install intentionally permits optional WARN/INFO rows. Its exit code
+# is authoritative for required install health; the human verdict may be
+# HEALTHY or DEGRADED depending on platform integrations.
 rc=0
-grep -q 'HEALTHY' <<< "${verify_out}" || rc=1
-check "verify-install reports a healthy installation" "${rc}"
+grep -q '^Summary$' <<< "${verify_out}" || rc=1
+grep -q 'Verdict :' <<< "${verify_out}" || rc=1
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${verify_out}" >&2
+fi
+check "verify-install reports an explicit installation verdict" "${rc}"
 
 rc=0
 [[ -x "${WORK}/payload-home/.vibeguard/installed/bin/vibeguard-runtime" ]] || rc=1
 [[ -f "${WORK}/payload-home/.vibeguard/install-state.json" ]] || rc=1
 [[ -f "${WORK}/payload-home/.codex/hooks.json" ]] || rc=1
 check "payload install writes only expected assets beneath the temp HOME" "${rc}"
+
+set +e
+clean_out="$(
+  cd "${WORK}/unpacked" \
+    && HOME="${WORK}/payload-home" \
+      PATH="${WORK}/fake-bin:${PATH}" \
+      VIBEGUARD_TEST_NETWORK_SENTINEL="${NETWORK_SENTINEL}" \
+      bash setup.sh --clean --purge-data 2>&1
+)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 0 ]]; then
+  printf '%s\n' "${clean_out}" >&2
+fi
+check "clean executes successfully after payload doctor and verification" "${rc}"
+rc=0
+[[ ! -e "${WORK}/payload-home/.vibeguard/installed" ]] || rc=1
+[[ ! -e "${WORK}/payload-home/.vibeguard/install-state.json" ]] || rc=1
+[[ ! -e "${WORK}/payload-home/.vibeguard/config.json" ]] || rc=1
+check "payload clean removes installed state and purged temp-HOME data" "${rc}"
+
+rc=0
+[[ ! -e "${NETWORK_SENTINEL}" ]] || rc=1
+check "payload matrix, install, doctor, verify, and clean never invoke curl" "${rc}"
 
 echo
 echo "=============================="
