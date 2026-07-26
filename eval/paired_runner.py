@@ -93,6 +93,15 @@ class PairedEvalError(ValueError):
     """Raised when paired-eval inputs or invariants are invalid."""
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise PairedEvalError(f"duplicate JSON key: {key}")
+        value[key] = item
+    return value
+
+
 def _decode(content: bytes, label: str) -> str:
     try:
         return content.decode("utf-8")
@@ -439,7 +448,10 @@ def select_non_target_samples(samples: list[dict], candidate: str) -> list[dict]
 
 def load_paired_thresholds(path: Path) -> dict[str, Any]:
     try:
-        thresholds = json.loads(path.read_text(encoding="utf-8"))
+        thresholds = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise PairedEvalError(f"invalid thresholds file {path}: {exc}") from exc
     if not isinstance(thresholds, dict) or set(thresholds) != THRESHOLD_KEYS:

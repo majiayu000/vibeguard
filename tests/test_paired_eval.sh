@@ -74,6 +74,10 @@ class FinalReviewRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "core.autocrlf", "true"],
+                check=True,
+            )
             input_path = repo / "rules.md"
             input_path.write_text("committed\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(repo), "add", "rules.md"], check=True)
@@ -113,6 +117,13 @@ class FinalReviewRegressionTest(unittest.TestCase):
                 ],
                 check=True,
             )
+            input_path.write_bytes(b"committed\r\n")
+            self.assertEqual(
+                paired.pin_evaluated_inputs(
+                    [input_path], expected_commit=pinned, repo_root=repo
+                ),
+                pinned,
+            )
             input_path.write_text("hidden dirty\n", encoding="utf-8")
             with self.assertRaisesRegex(
                 paired.PairedProvenanceError, "differs from commit"
@@ -132,6 +143,53 @@ class FinalReviewRegressionTest(unittest.TestCase):
                 100,
                 0.25,
             )
+
+    def test_duplicate_threshold_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "thresholds.json"
+            text = paired.DEFAULT_THRESHOLDS.read_text(encoding="utf-8")
+            path.write_text(
+                text.rstrip()[:-1] + ', "calibrated": true}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(paired.PairedEvalError, "duplicate"):
+                paired.load_paired_thresholds(path)
+
+    def test_non_target_producer_order_is_counterbalanced(self):
+        samples = [
+            {"id": "one", "task": "t", "input": "i", "rubric": "r"},
+            {"id": "two", "task": "t", "input": "i", "rubric": "r"},
+        ]
+        calls = []
+
+        def producer(_client, _model, prompt, sample):
+            calls.append((sample["id"], prompt))
+            return {"id": sample["id"], "response": "ok"}
+
+        judge = {
+            "id": "judge",
+            "outcome": "tie",
+            "mapped_outcomes": ["tie", "tie"],
+            "raw_judge_responses": [],
+        }
+        with (
+            patch.object(execution, "evaluate_non_target_sample", side_effect=producer),
+            patch.object(execution, "judge_pair", return_value=judge),
+        ):
+            _, _, _, _, schedule = execution.run_non_target_samples(
+                Mock(), "producer", "judge", "WITH", "WITHOUT", samples
+            )
+        self.assertIn("WITH", calls[0][1])
+        self.assertIn("WITHOUT", calls[1][1])
+        self.assertIn("WITHOUT", calls[2][1])
+        self.assertIn("WITH", calls[3][1])
+        self.assertEqual(
+            schedule,
+            [
+                {"id": "one", "first_arm": "with"},
+                {"id": "two", "first_arm": "without"},
+            ],
+        )
 
     def test_empty_non_target_axis_is_inconclusive(self):
         thresholds = {

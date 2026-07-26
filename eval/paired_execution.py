@@ -128,6 +128,51 @@ def run_target_samples(
     return results, False
 
 
+def run_paired_target_samples(
+    client,
+    model: str,
+    with_rules: str,
+    without_rules: str,
+    samples: list[dict],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None, list[dict[str, str]]]:
+    prompts = {
+        "with": build_system_prompt(with_rules),
+        "without": build_system_prompt(without_rules),
+    }
+    results = {"with": [], "without": []}
+    schedule: list[dict[str, str]] = []
+    for index, sample in enumerate(samples):
+        first_arm = "with" if index % 2 == 0 else "without"
+        arms = (first_arm, "without" if first_arm == "with" else "with")
+        schedule.append({"id": sample["id"], "first_arm": first_arm})
+        sample_results: dict[str, dict[str, Any]] = {}
+        for arm in arms:
+            stage = f"target_{arm}"
+            try:
+                sample_results[arm] = evaluate_sample(
+                    client, model, prompts[arm], sample
+                )
+            except KeyboardInterrupt:
+                sample_results[arm] = _interrupted_target_result(sample, stage)
+                for missing_arm in ("with", "without"):
+                    sample_results.setdefault(
+                        missing_arm,
+                        _interrupted_target_result(sample, f"target_{missing_arm}"),
+                    )
+                for result_arm in ("with", "without"):
+                    results[result_arm].append(sample_results[result_arm])
+                    results[result_arm].extend(
+                        _interrupted_target_result(
+                            remaining, f"target_{result_arm}"
+                        )
+                        for remaining in samples[index + 1:]
+                    )
+                return results["with"], results["without"], stage, schedule
+        results["with"].append(sample_results["with"])
+        results["without"].append(sample_results["without"])
+    return results["with"], results["without"], None, schedule
+
+
 def run_non_target_samples(
     client,
     producer_model: str,
@@ -140,50 +185,64 @@ def run_non_target_samples(
     list[dict[str, Any]],
     list[dict[str, Any]],
     str | None,
+    list[dict[str, str]],
 ]:
     with_prompt = build_non_target_system_prompt(with_rules)
     without_prompt = build_non_target_system_prompt(without_rules)
     with_results: list[dict[str, Any]] = []
-    for index, sample in enumerate(samples):
-        try:
-            with_results.append(
-                evaluate_non_target_sample(
-                    client, producer_model, with_prompt, sample
-                )
-            )
-        except KeyboardInterrupt:
-            with_results.extend(
-                _interrupted_non_target_result(remaining, "non_target_with")
-                for remaining in samples[index:]
-            )
-            without_results = [
-                _interrupted_non_target_result(sample, "non_target_without")
-                for sample in samples
-            ]
-            judge_results = [
-                _interrupted_judge_result(sample, "non_target_judge")
-                for sample in samples
-            ]
-            return with_results, without_results, judge_results, "non_target_with"
-
     without_results: list[dict[str, Any]] = []
+    schedule: list[dict[str, str]] = []
     for index, sample in enumerate(samples):
-        try:
-            without_results.append(
-                evaluate_non_target_sample(
-                    client, producer_model, without_prompt, sample
+        first_arm = "with" if index % 2 == 0 else "without"
+        schedule.append({"id": sample["id"], "first_arm": first_arm})
+        sample_results: dict[str, dict[str, Any]] = {}
+        for arm in (first_arm, "without" if first_arm == "with" else "with"):
+            stage = f"non_target_{arm}"
+            try:
+                sample_results[arm] = evaluate_non_target_sample(
+                    client,
+                    producer_model,
+                    with_prompt if arm == "with" else without_prompt,
+                    sample,
                 )
-            )
-        except KeyboardInterrupt:
-            without_results.extend(
-                _interrupted_non_target_result(remaining, "non_target_without")
-                for remaining in samples[index:]
-            )
-            judge_results = [
-                _interrupted_judge_result(sample, "non_target_judge")
-                for sample in samples
-            ]
-            return with_results, without_results, judge_results, "non_target_without"
+            except KeyboardInterrupt:
+                sample_results[arm] = _interrupted_non_target_result(sample, stage)
+                for missing_arm in ("with", "without"):
+                    sample_results.setdefault(
+                        missing_arm,
+                        _interrupted_non_target_result(
+                            sample, f"non_target_{missing_arm}"
+                        ),
+                    )
+                with_results.append(sample_results["with"])
+                without_results.append(sample_results["without"])
+                for remaining in samples[index + 1:]:
+                    with_results.append(
+                        _interrupted_non_target_result(remaining, "non_target_with")
+                    )
+                    without_results.append(
+                        _interrupted_non_target_result(
+                            remaining, "non_target_without"
+                        )
+                    )
+                judge_results = [
+                    _interrupted_judge_result(item, "non_target_judge")
+                    for item in samples
+                ]
+                return (
+                    with_results,
+                    without_results,
+                    judge_results,
+                    stage,
+                    schedule,
+                )
+        with_results.append(sample_results["with"])
+        without_results.append(sample_results["without"])
+
+    if not samples:
+        schedule = []
+    if len(with_results) != len(without_results):
+        raise PairedExecutionError("counterbalanced producer results are misaligned")
 
     judge_results: list[dict[str, Any]] = []
     for index, (sample, with_result, without_result) in enumerate(zip(
@@ -219,14 +278,26 @@ def run_non_target_samples(
                     _interrupted_judge_result(remaining, "non_target_judge")
                     for remaining in samples[index + 1:]
                 )
-                return with_results, without_results, judge_results, "non_target_judge"
+                return (
+                    with_results,
+                    without_results,
+                    judge_results,
+                    "non_target_judge",
+                    schedule,
+                )
         except KeyboardInterrupt:
             judge_results.extend(
                 _interrupted_judge_result(remaining, "non_target_judge")
                 for remaining in samples[index:]
             )
-            return with_results, without_results, judge_results, "non_target_judge"
-    return with_results, without_results, judge_results, None
+            return (
+                with_results,
+                without_results,
+                judge_results,
+                "non_target_judge",
+                schedule,
+            )
+    return with_results, without_results, judge_results, None, schedule
 
 
 def serializable_removal_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -312,29 +383,18 @@ def execute_real_run(
         artifact_root, evaluated_commit, started_at
     )
 
-    target_with_results, interrupted = run_target_samples(
+    (
+        target_with_results,
+        target_without_results,
+        interruption_stage,
+        target_schedule,
+    ) = run_paired_target_samples(
         client,
         producer_model,
         with_rules,
+        without_rules,
         target_samples,
-        stage="target_with",
     )
-    interruption_stage = "target_with" if interrupted else None
-    if interruption_stage:
-        target_without_results = [
-            _interrupted_target_result(sample, "target_without")
-            for sample in target_samples
-        ]
-    else:
-        target_without_results, interrupted = run_target_samples(
-            client,
-            producer_model,
-            without_rules,
-            target_samples,
-            stage="target_without",
-        )
-        if interrupted:
-            interruption_stage = "target_without"
     target_axis = compute_target_axis(
         target_with_results,
         target_without_results,
@@ -342,6 +402,7 @@ def execute_real_run(
         thresholds,
     )
     if interruption_stage:
+        non_target_schedule: list[dict[str, str]] = []
         non_with = [
             _interrupted_non_target_result(sample, "non_target_with")
             for sample in non_target_samples
@@ -355,7 +416,13 @@ def execute_real_run(
             for sample in non_target_samples
         ]
     else:
-        non_with, non_without, judge_results, interruption_stage = (
+        (
+            non_with,
+            non_without,
+            judge_results,
+            interruption_stage,
+            non_target_schedule,
+        ) = (
             run_non_target_samples(
                 client,
                 producer_model,
@@ -422,6 +489,10 @@ def execute_real_run(
         "producer_model": producer_model,
         "judge_model": judge_model,
         "judge_prompt_digest": sha256_text(build_judge_prompt()),
+        "producer_schedule": {
+            "target": target_schedule,
+            "non_target": non_target_schedule,
+        },
         "interrupted": interruption_stage is not None,
         "interruption_stage": interruption_stage,
         "thresholds": thresholds,

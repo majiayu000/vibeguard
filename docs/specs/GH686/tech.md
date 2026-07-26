@@ -131,8 +131,9 @@ B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_s
 core、目标/非目标数据集、阈值文件、模型基线，以及从入口与外部清单模块按 Python
 import 关系递归推导的本地依赖闭包必须全部位于仓内、由该 commit 跟踪且无
 staged/unstaged/untracked 变化。完成输入准备后、进入模型循环前再次验证 commit 与这些
-路径仍一致；每个文件还要以 `git hash-object --no-filters` 对比固定 commit 的 blob，
-不能依赖会被 assume-unchanged/skip-worktree 隐藏的 porcelain 状态。报告和 run 目录均
+路径仍一致；每个文件还要以带 `--path` 的 `git hash-object` 经 Git text filter 对比固定
+commit 的 blob，既不能依赖会被 assume-unchanged/skip-worktree 隐藏的 porcelain 状态，
+也不能把合法 CRLF checkout 当成漂移。报告和 run 目录均
 使用这份固定值，结束时不得重新读取 HEAD。commit 无法解析或输入无法归属时必须在创建
 模型客户端之前 fail closed，不得开始付费调用。dry-run 不产出证据，可读取本地未提交
 输入用于检查。
@@ -208,6 +209,7 @@ judge 模型身份与 judge prompt digest，不调用模型。
 只打一行 warning 是不够的——那样未标定的门仍会被下游当作已标定的门引用。
 
 当前 `calibrated` 是单个布尔，覆盖文件中**全部**阈值键（新增键必须一并纳入）。
+JSON 解析必须拒绝重复键，不得让后值静默覆盖已审核阈值或 `calibrated` 状态。
 `max_skip_rate`、`max_skip_delta` 与 `max_placebo_length_ratio` 同样是新拍的数字。所有
 比例阈值必须是 0–1 的有限数，两个最小样本阈值必须是正整数，引用上限必须是非负整数；
 JSON `NaN` 不得静默绕过比较。标定其中一项就把整个文件翻成 `true`，会顺带把仍未标定的其余阈值洗白 ——
@@ -276,7 +278,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
 | B-014 | 标定流程的显式无关 pair、按完整 prompt 差值校验长度且受 compact/交叉引用门约束的 placebo | `bash tests/test_paired_eval.sh`（RS-03/TASTE-ASYNC-UNWRAP 未审核拒绝；U-21/U-16 完整差值超限；U-32 交叉引用超限；SEC-02 compact 语义残留，均在调用前拒绝） |
-| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge + producer arm 交替首发 | `bash tests/test_paired_eval.sh`（producer 调度交替且写入报告）；`python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
 
 ## 数据流
 

@@ -589,8 +589,9 @@ class RealExecutionTest(unittest.TestCase):
             "reason": "not caught",
         })
         replies = (
-            [target_with] * 5
-            + [target_without] * 5
+            [reply for index in range(5) for reply in
+             ((target_with, target_without) if index % 2 == 0
+              else (target_without, target_with))]
             + [f"with response {index}" for index in range(30)]
             + [f"without response {index}" for index in range(30)]
             + [
@@ -671,6 +672,7 @@ class RealExecutionTest(unittest.TestCase):
         self.assertEqual(report["non_target_axis"]["quality_delta"], 0.0)
         self.assertEqual(report["producer_model"], "producer-model")
         self.assertEqual(report["judge_model"], "judge-model")
+        self.assertEqual(report["producer_schedule"]["non_target"][:2], [{"id": "non-target-0", "first_arm": "with"}, {"id": "non-target-1", "first_arm": "without"}])
         self.assertEqual(len(report["judge_prompt_digest"]), 64)
         self.assertEqual(
             report["non_target_results"]["judge"][0]["mapped_outcomes"],
@@ -785,7 +787,7 @@ class RealExecutionTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertTrue(report["interrupted"])
-        self.assertEqual(report["interruption_stage"], "non_target_with")
+        self.assertEqual(report["interruption_stage"], "non_target_without")
         self.assertEqual(report["overall"]["verdict"], "inconclusive")
         self.assertEqual(report["non_target_results"]["with"][0]["response"], "paid partial")
         self.assertTrue(report["non_target_results"]["with"][1]["skipped"])

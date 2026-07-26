@@ -203,7 +203,7 @@ def pin_evaluated_inputs(
                 root, ["rev-parse", f"{commit}:{relative}"]
             ).strip()
             worktree_hash = _run_git(
-                root, ["hash-object", "--no-filters", "--", relative]
+                root, ["hash-object", f"--path={relative}", "--", relative]
             ).strip()
         except PairedProvenanceError as exc:
             raise PairedProvenanceError(

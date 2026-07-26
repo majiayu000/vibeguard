@@ -61,8 +61,9 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
    创建模型客户端前终止，不得产生无法绑定版本的付费证据。真实运行还必须在导入仓库内
    评估器模块前固定 commit，并在调用模型前再次确认规则树、core、两个数据集、阈值、
    模型基线与由 import 关系推导的评估器本地依赖闭包都已由该 commit 跟踪且无未提交
-   变化，并逐文件确认实际 worktree blob 等于该 commit blob；Git 状态隐藏标记不得绕过
-   校验。仓外、untracked 或 dirty 输入只能 dry-run，不得冒充 PR 证据。
+   变化，并逐文件经 Git text filter 确认实际 worktree 内容等于该 commit blob；Git 状态
+   隐藏标记不得绕过校验，合法 CRLF checkout 不得误报。仓外、untracked 或 dirty 输入
+   只能 dry-run，不得冒充 PR 证据。
 3. B-003: 候选规则的排除必须覆盖**全部**注入来源，并同时满足四条断言：
    (a) **逐文件差分**：临时规则树与真实树相比只允许一个文件不同，且该文件的差异**恰为**
    候选小节；core 文件的差异恰为该 ID 的表格行；其余文件逐字节相同。比较必须在文件层
@@ -138,7 +139,9 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
     with/without 后不一致时，该样本标记为 judge conflict，非目标轴为 `inconclusive`，
     不得择一或平均后继续。报告必须记录 producer model ID、judge model ID、judge prompt
     digest、两次原始判定及映射后的 `with_win` / `without_win` / `tie` / `conflict`；
-    judge 返回 malformed JSON 时也必须先保存付费原文，再把该样本记为 skipped。
+    judge 返回 malformed JSON 时也必须先保存付费原文，再把该样本记为 skipped。目标与
+    非目标 producer 都必须按样本交替 with/without 首发顺序，并在报告记录调度，不能让
+    arm 标签与请求时间完全相关。
 
 ## 验收标准
 
