@@ -1,0 +1,10 @@
+{
+  "min_target_samples": 5,
+  "min_non_target_samples": 30,
+  "min_target_delta": 0.0,
+  "max_non_target_drop": 0.0,
+  "max_skip_rate": 0.1,
+  "max_skip_delta": 0.05,
+  "max_cross_refs": 4,
+  "calibrated": false
+}
