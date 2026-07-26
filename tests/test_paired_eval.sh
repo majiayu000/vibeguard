@@ -133,6 +133,72 @@ class FinalReviewRegressionTest(unittest.TestCase):
                     [input_path], expected_commit=pinned, repo_root=repo
                 )
 
+    def test_deleted_rule_markdown_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            rules = repo / "rules"
+            rules.mkdir()
+            first = rules / "first.md"
+            second = rules / "second.md"
+            first.write_text("first\n", encoding="utf-8")
+            second.write_text("second\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "rules"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=VibeGuard Test",
+                    "-c",
+                    "user.email=test@example.com",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+            )
+            second.unlink()
+            with self.assertRaisesRegex(
+                paired.PairedProvenanceError, "Markdown set differs"
+            ):
+                paired.pin_evaluated_inputs(
+                    [first], repo_root=repo, markdown_roots=[rules]
+                )
+
+    def test_symlinked_evaluated_input_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            target = repo / "target.md"
+            target.write_text("target\n", encoding="utf-8")
+            link = repo / "rules.md"
+            link.symlink_to(target.name)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "add", "target.md", "rules.md"],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=VibeGuard Test",
+                    "-c",
+                    "user.email=test@example.com",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                check=True,
+            )
+            with self.assertRaisesRegex(
+                paired.PairedProvenanceError, "symbolic link"
+            ):
+                paired.pin_evaluated_inputs([link, target], repo_root=repo)
+
     def test_semantically_related_placebo_pair_is_rejected(self):
         with self.assertRaisesRegex(
             paired.PairedEvalError, "not explicitly approved"

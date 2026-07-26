@@ -26,6 +26,7 @@ from model_baseline import ModelBaselineError, load_model_baseline
 from paired_execution import PairedExecutionError, execute_real_run
 from paired_provenance import (
     PairedProvenanceError,
+    absolute_without_leaf_resolution,
     evaluated_provenance_paths as _evaluated_provenance_paths,
     pin_evaluated_inputs,
 )
@@ -586,11 +587,11 @@ def _run_dry_or_prepare(
     if not args.dry_run and not args.judge_model:
         raise PairedEvalError("real runs require --judge-model")
     judge_model = baseline.resolve(args.judge_model) if args.judge_model else None
-    rules_dir = Path(args.rules_dir).resolve()
-    core_file = Path(args.core_rules_file).resolve()
-    target_path = Path(args.target_dataset).resolve()
-    non_target_path = Path(args.non_target_dataset).resolve()
-    thresholds_path = Path(args.thresholds).resolve()
+    rules_dir = absolute_without_leaf_resolution(Path(args.rules_dir))
+    core_file = absolute_without_leaf_resolution(Path(args.core_rules_file))
+    target_path = absolute_without_leaf_resolution(Path(args.target_dataset))
+    non_target_path = absolute_without_leaf_resolution(Path(args.non_target_dataset))
+    thresholds_path = absolute_without_leaf_resolution(Path(args.thresholds))
     evaluated_input_paths = _evaluated_provenance_paths(
         rules_dir=rules_dir,
         core_file=core_file,
@@ -612,6 +613,7 @@ def _run_dry_or_prepare(
             evaluated_input_paths,
             expected_commit=startup_commit,
             repo_root=REPO_ROOT,
+            markdown_roots=[rules_dir],
         )
     thresholds = load_paired_thresholds(thresholds_path)
     validate_candidate_supported(args.candidate)
@@ -727,6 +729,7 @@ def _run_dry_or_prepare(
             evaluated_input_paths,
             expected_commit=evaluated_commit,
             repo_root=REPO_ROOT,
+            markdown_roots=[rules_dir],
         )
         return execute_real_run(
             producer_model=producer_model,

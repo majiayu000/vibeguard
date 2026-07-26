@@ -267,7 +267,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 + 本地模块导入前固定 commit + 前后两次 Git 归属及 blob 验证（含评估器依赖闭包与模型基线） | `bash tests/test_paired_eval.sh`（dirty 及 assume-unchanged 输入被拒；只纳入实际消费的规则 Markdown，忽略 `.DS_Store` 等非输入文件；传递依赖与模型基线在固定清单内；启动固定先于本地模块导入；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
+| B-002 | 按轴配对的摘要相等断言 + 本地模块导入前固定 commit + 前后两次 Git 归属及 blob 验证（含评估器依赖闭包与模型基线） | `bash tests/test_paired_eval.sh`（dirty、assume-unchanged、符号链接及规则 Markdown 集合删除被拒；只纳入实际消费的规则 Markdown，忽略 `.DS_Store` 等非输入文件；传递依赖与模型基线在固定清单内；启动固定先于本地模块导入；报告 commit 不受运行中 HEAD 变化影响；无法解析 commit 时零模型客户端创建） |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory；样本对象无重复键 | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 与重复键在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |

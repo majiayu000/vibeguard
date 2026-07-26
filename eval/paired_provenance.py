@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 from pathlib import Path
 
 
 class PairedProvenanceError(ValueError):
     """Raised when evaluated inputs cannot be attributed to one commit."""
+
+
+def absolute_without_leaf_resolution(path: Path) -> Path:
+    """Canonicalize parent aliases while preserving a symlink at the input path."""
+    absolute = Path(os.path.abspath(path))
+    return absolute.parent.resolve() / absolute.name
 
 
 def _module_candidates(module: str, roots: list[Path]) -> list[Path]:
@@ -130,23 +137,43 @@ def pin_evaluated_inputs(
     *,
     expected_commit: str | None = None,
     repo_root: Path,
+    markdown_roots: list[Path] | None = None,
 ) -> str:
     """Return HEAD only when every evaluated input is tracked and clean there."""
     root = repo_root.resolve()
     relative_paths: list[str] = []
     directories: set[str] = set()
     for path in input_paths:
-        resolved = path.resolve()
+        lexical = absolute_without_leaf_resolution(path)
         try:
-            relative = resolved.relative_to(root).as_posix()
+            relative = lexical.relative_to(root).as_posix()
         except ValueError as exc:
             raise PairedProvenanceError(
-                f"evaluated input is outside the repository: {resolved}"
+                f"evaluated input is outside the repository: {lexical}"
             ) from exc
+        if lexical.is_symlink():
+            raise PairedProvenanceError(
+                f"evaluated input must not be a symbolic link: {relative}"
+            )
         relative_paths.append(relative)
-        if resolved.is_dir():
+        if lexical.is_dir():
             directories.add(relative.rstrip("/") + "/")
     relative_paths = list(dict.fromkeys(relative_paths))
+
+    relative_markdown_roots: list[str] = []
+    for markdown_root in markdown_roots or []:
+        lexical_root = absolute_without_leaf_resolution(markdown_root)
+        try:
+            relative_root = lexical_root.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise PairedProvenanceError(
+                f"evaluated Markdown root is outside the repository: {lexical_root}"
+            ) from exc
+        if lexical_root.is_symlink():
+            raise PairedProvenanceError(
+                f"evaluated Markdown root must not be a symbolic link: {relative_root}"
+            )
+        relative_markdown_roots.append(relative_root)
 
     commit = _run_git(root, ["rev-parse", "HEAD"]).strip()
     if not commit:
@@ -155,6 +182,24 @@ def pin_evaluated_inputs(
         raise PairedProvenanceError(
             "evaluated commit changed while inputs were being prepared"
         )
+
+    for relative_root in relative_markdown_roots:
+        committed_markdown = {
+            path
+            for path in _run_git(
+                root,
+                ["ls-tree", "-r", "--name-only", commit, "--", relative_root],
+            ).splitlines()
+            if path.endswith(".md")
+        }
+        worktree_markdown = {
+            path.relative_to(root).as_posix()
+            for path in (root / relative_root).rglob("*.md")
+        }
+        if worktree_markdown != committed_markdown:
+            raise PairedProvenanceError(
+                f"evaluated Markdown set differs from commit {commit}: {relative_root}"
+            )
 
     dirty = _run_git(
         root,
