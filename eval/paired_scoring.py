@@ -89,6 +89,7 @@ def judge_pair(
                 }],
             )
             raw = response.content[0].text
+            raw_responses.append(raw)
             parsed = parse_pairwise_judge(raw)
         except KeyboardInterrupt:
             return {
@@ -113,7 +114,6 @@ def judge_pair(
                 "mapped_outcomes": mapped,
                 "latency_seconds": round(time.time() - started, 3),
             }
-        raw_responses.append(raw)
         parsed_verdicts.append(parsed)
         mapped.append(_mapped_winner(parsed["winner"], swapped))
     outcome = mapped[0] if mapped[0] == mapped[1] else "conflict"

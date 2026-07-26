@@ -434,6 +434,19 @@ class JudgeAndVerdictTest(unittest.TestCase):
         self.assertEqual(result["mapped_outcomes"], ["with_win"])
         self.assertEqual(client.messages.create.call_count, 2)
 
+    def test_malformed_judge_response_is_preserved_for_audit(self) -> None:
+        result = paired.judge_pair(
+            sequence_client(["not-json"]),
+            "judge-model",
+            {"id": "n1", "task": "answer", "input": "x", "rubric": "correct"},
+            "with output",
+            "without output",
+        )
+
+        self.assertTrue(result["skipped"])
+        self.assertEqual(result["raw_judge_responses"], ["not-json"])
+        self.assertIn("invalid pairwise judge JSON", result["error"])
+
     def test_requested_sample_count_remains_the_denominator(self) -> None:
         with_results = [{"detected": True}] * 4 + [{"skipped": True}]
         without_results = [{"detected": False}] * 5
@@ -503,6 +516,42 @@ class RealExecutionTest(unittest.TestCase):
 
         self.assertTrue(result["skipped"])
         self.assertIn("empty", result["error"])
+
+    def test_artifact_destination_is_reserved_before_model_calls(self) -> None:
+        client = Mock()
+        anthropic_module = types.SimpleNamespace(Anthropic=lambda: client)
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_root = Path(tmp) / "not-a-directory"
+            artifact_root.write_text("occupied", encoding="utf-8")
+            with patch.dict(sys.modules, {"anthropic": anthropic_module}):
+                with self.assertRaisesRegex(
+                    execution.PairedExecutionError, "artifact"
+                ):
+                    execution.execute_real_run(
+                        producer_model="producer-model",
+                        judge_model="judge-model",
+                        candidate="U-01",
+                        with_rules="with",
+                        without_rules="without",
+                        target_samples=[],
+                        non_target_samples=[],
+                        identities={},
+                        thresholds={
+                            "min_target_samples": 5,
+                            "min_non_target_samples": 30,
+                            "min_target_delta": 0.0,
+                            "max_non_target_drop": 0.0,
+                            "max_skip_rate": 0.1,
+                            "max_skip_delta": 0.05,
+                            "max_cross_refs": 4,
+                            "calibrated": True,
+                        },
+                        removal_evidence={},
+                        cross_refs_exceeded=False,
+                        artifact_root=artifact_root,
+                    )
+
+        self.assertEqual(client.messages.create.call_count, 0)
 
     def test_real_uncalibrated_run_writes_auditable_report_and_fails_closed(self) -> None:
         target_samples = [
@@ -583,8 +632,13 @@ class RealExecutionTest(unittest.TestCase):
             "removed_section_characters": 100,
         }
 
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(
-            sys.modules, {"anthropic": anthropic_module}
+        pinned_commit = "a" * 40
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.dict(sys.modules, {"anthropic": anthropic_module}),
+            patch.object(
+                execution, "current_commit", return_value=pinned_commit
+            ) as commit_mock,
         ):
             exit_code = execution.execute_real_run(
                 producer_model="producer-model",
@@ -609,7 +663,9 @@ class RealExecutionTest(unittest.TestCase):
             self.assertEqual(len(reports), 1)
             report = json.loads(reports[0].read_text(encoding="utf-8"))
 
+        commit_mock.assert_called_once_with(short=False)
         self.assertEqual(exit_code, 1)
+        self.assertEqual(report["commit"], pinned_commit)
         self.assertEqual(report["overall"]["verdict"], "inconclusive")
         self.assertEqual(report["target_axis"]["target_delta"], 1.0)
         self.assertEqual(report["non_target_axis"]["quality_delta"], 0.0)

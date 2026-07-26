@@ -56,7 +56,8 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
 2. B-002: 每次运行的输入身份必须可审计：分别记录 `rule_digest`、`dataset_digest`、
    `sample_set_digest` 与解析后的模型 ID。**同一轴内**的 with/without 之间，除
    `rule_digest` 外必须全部相等；模型 ID 四次运行必须一致。不相等时以错误终止而不是
-   继续比较。两轴之间的数据集摘要本就不同，不参与该断言。
+   继续比较。两轴之间的数据集摘要本就不同，不参与该断言。报告中的 commit SHA 必须在
+   首个模型调用前固定，运行中 HEAD 变化不得改写证据归属。
 3. B-003: 候选规则的排除必须覆盖**全部**注入来源，并同时满足四条断言：
    (a) **逐文件差分**：临时规则树与真实树相比只允许一个文件不同，且该文件的差异**恰为**
    候选小节；core 文件的差异恰为该 ID 的表格行；其余文件逐字节相同。比较必须在文件层
@@ -95,7 +96,8 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
    静默地从分母中消失。跳过率超过阈值、或 with 与 without 的跳过率之差超过阈值时，
    结果为 `inconclusive` —— 跳过率偏差会直接主导两轴的差值。运行中收到
    `KeyboardInterrupt` 时必须停止发起新模型请求，把当前及后续未完成样本记为 skipped，
-   保留此前已付费结果并写出带中断阶段的 partial report，非零退出。
+   保留此前已付费结果并写出带中断阶段的 partial report，非零退出。报告目录必须在首个
+   模型调用前创建并验证可写；目标不可写时不得开始付费运行。
 9. B-008: 必须提供离线 dry-run 路径：不调用模型，输出四次运行的输入身份、剔除断言
    结果与样本划分，供确定性测试与人工核对使用。**dry-run 不产出判定**，因此不受 B-010
    与 B-011 约束，正常完成时退出 0。否则未标定阶段的 dry-run 会恒定非零退出，它的
@@ -127,7 +129,8 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
     with/without 的 pairwise judge，且每个样本将 A/B 位置互换后再判一次。两次判定映射回
     with/without 后不一致时，该样本标记为 judge conflict，非目标轴为 `inconclusive`，
     不得择一或平均后继续。报告必须记录 producer model ID、judge model ID、judge prompt
-    digest、两次原始判定及映射后的 `with_win` / `without_win` / `tie` / `conflict`。
+    digest、两次原始判定及映射后的 `with_win` / `without_win` / `tie` / `conflict`；
+    judge 返回 malformed JSON 时也必须先保存付费原文，再把该样本记为 skipped。
 
 ## 验收标准
 
@@ -142,6 +145,7 @@ U-24→L2、SEC-02→L7），with/without 就不是有效对照，必须在调�
       `inconclusive`，且 judge 身份与原始判定可审计。
 - [ ] 任一轴样本量不足、跳过率超阈值、或阈值未标定时报告 `inconclusive`。
 - [ ] Ctrl-C 停止后续模型调用、保留已完成结果并写出 partial inconclusive 报告。
+- [ ] 首个模型调用前固定 commit SHA 并预留可写报告路径；不可写目标零模型调用失败。
 - [ ] 产出判定的真实运行中，`inconclusive` 与不通过均以非零退出码结束（dry-run 不产出
       判定，正常完成退出 0，见 B-008）。
 - [ ] dry-run 路径不需要 API 密钥即可运行，并被确定性测试覆盖。

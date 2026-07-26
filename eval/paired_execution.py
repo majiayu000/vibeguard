@@ -242,15 +242,42 @@ def serializable_removal_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def write_paired_report(artifact_root: Path, report: dict[str, Any]) -> Path:
-    run_dir = build_run_dir(artifact_root)
-    run_dir.mkdir(parents=True, exist_ok=False)
-    output = run_dir / "report.json"
-    output.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+def reserve_paired_report(
+    artifact_root: Path, evaluated_commit: str, started_at: str
+) -> Path:
+    try:
+        run_dir = build_run_dir(
+            artifact_root,
+            commit=evaluated_commit[:7],
+        )
+        run_dir.mkdir(parents=True, exist_ok=False)
+        output = run_dir / "report.json"
+        output.write_text(
+            json.dumps({
+                "status": "running",
+                "commit": evaluated_commit,
+                "timestamp": started_at,
+            }, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise PairedExecutionError(
+            f"cannot reserve paired eval artifact destination: {exc}"
+        ) from exc
     return output
+
+
+def write_paired_report(output: Path, report: dict[str, Any]) -> None:
+    try:
+        output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise PairedExecutionError(
+            f"cannot write paired eval report {output}: {exc}"
+        ) from exc
 
 
 def execute_real_run(
@@ -269,11 +296,16 @@ def execute_real_run(
     artifact_root: Path,
     placebo: dict[str, Any] | None = None,
 ) -> int:
+    evaluated_commit = current_commit(short=False)
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
         import anthropic
         client = anthropic.Anthropic()
     except Exception as exc:
         raise PairedExecutionError(f"Anthropic client unavailable: {exc}") from exc
+    output = reserve_paired_report(
+        artifact_root, evaluated_commit, started_at
+    )
 
     target_with_results, interrupted = run_target_samples(
         client,
@@ -380,8 +412,8 @@ def execute_real_run(
         "schema_version": 1,
         "kind": "paired_model",
         "candidate": candidate,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "commit": current_commit(short=False),
+        "timestamp": started_at,
+        "commit": evaluated_commit,
         "producer_model": producer_model,
         "judge_model": judge_model,
         "judge_prompt_digest": sha256_text(build_judge_prompt()),
@@ -409,7 +441,7 @@ def execute_real_run(
         },
         "placebo": placebo_report,
     }
-    output = write_paired_report(artifact_root, report)
+    write_paired_report(output, report)
     print(f"Target delta: {target_axis['target_delta']:.6f}")
     print(f"Non-target quality delta: {non_target_axis['quality_delta']:.6f}")
     print(f"Overall verdict: {overall['verdict']}")

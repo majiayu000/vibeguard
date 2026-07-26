@@ -126,6 +126,8 @@ judge 比较的仍是 detection / false-positive 回答，不是普通任务质�
 
 B-002 的摘要相等断言**按轴配对比较**：A1/B1 共用一个 `sample_set_digest`，A2/B2 共用
 另一个；四次运行共用同一个解析后的模型 ID；A 与 B 的 `rule_digest` 必须不等。
+评测 commit SHA 与开始时间在进入模型循环前读取一次并固定；报告和 run 目录均使用这份
+值，结束时不得重新读取 HEAD。
 
 ### 4. 目标样本与非目标样本
 
@@ -153,6 +155,7 @@ with/without 标签。每个样本调用两次 judge，第二次交换 A/B 位�
 后，两次结果必须一致为 `with_win`、`without_win` 或 `tie`。不一致记为 `conflict`，
 非目标轴直接 `inconclusive`，不得择一、投票或静默丢弃。报告记录 producer model ID、
 judge model ID、judge prompt digest、两次原始响应与映射结果。
+每次 judge 调用在 JSON 解析前先把 raw text 追加到结果；解析失败仍需保留该付费响应。
 
 真实运行必须显式提供 `--judge-model`，并通过现有 model baseline 解析为审计用 ID；不得
 静默复用 producer model。judge 输出使用独立的严格 JSON 契约
@@ -171,6 +174,9 @@ judge 模型身份与 judge prompt digest，不调用模型。
   最终报告写入 `interrupted: true` 与 `interruption_stage`，整体强制
   `inconclusive` 并非零退出。
 - producer 返回空字符串或纯空白时按 skipped 记录，不得发送给 pairwise judge。
+- Anthropic client 创建后、首个模型调用前，用已固定 commit 预留唯一 run 目录并写入
+  `status: running` 的 `report.json`，同时验证目录和文件可写；预留失败抛
+  `PairedExecutionError`，模型调用数必须为 0。运行结束覆盖同一路径的完整报告。
 
 ### 7. 阈值与标定
 
@@ -245,12 +251,12 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 | 同轴内非候选文本一致 | `bash tests/test_paired_eval.sh`（非候选规则文本逐字节一致；整文件删除必须被拒） |
-| B-002 | 按轴配对的摘要相等断言 | `bash tests/test_paired_eval.sh` |
+| B-002 | 按轴配对的摘要相等断言 + 运行前固定 commit | `python3 eval/test_paired_eval.py`（报告 commit 不受运行中 HEAD 变化影响） |
 | B-003 | 逐文件差分 + 在场 + 计数 + 定义位点 token；匿名 compact 等价语义候选拒绝表 | `bash tests/test_paired_eval.sh`（候选不存在时终止；core 仍含候选时终止；no-op 剔除被拒；**贪婪剔除多删一节必须被拒**；候选位于文件末节时必须能跑通；U-04 等已知 compact 重复在调用前拒绝） |
 | B-004 | 精确匹配的目标/非目标划分；排除 ID 属于 canonical inventory | `bash tests/test_paired_eval.sh`（未知 `excluded_rules` ID 在调用模型前失败） |
 | B-005 | 合取判定 | `python3 eval/test_paired_eval.py`（单轴通过不得整体通过） |
 | B-006 | 任一轴样本量下限 → inconclusive | `python3 eval/test_paired_eval.py` |
-| B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report | `python3 eval/test_paired_eval.py`（空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
+| B-007 | 分母口径 + 跳过率与跳过率差 + 空响应 + 中断 partial report + 预留报告路径 | `python3 eval/test_paired_eval.py`（不可写 artifact root 零模型调用失败；空白 producer 响应 skipped；Ctrl-C 后不再调用模型，已完成响应保留，未完成项 skipped） |
 | B-008 | dry-run 无需密钥 | `bash tests/test_paired_eval.sh` |
 | B-009 | `templates/pull_request.md` | `bash tests/test_eval_contract.sh` 内新增模板断言段 |
 | B-010 | `calibrated: false` 强制 inconclusive | `python3 eval/test_paired_eval.py` |
@@ -258,7 +264,7 @@ false-positive rate。也就是说复用既有 grader 时，非目标轴实际�
 | B-012 | 交叉引用残留逐条列出并计入判定 | `bash tests/test_paired_eval.sh`（U-32 这类被引用规则必须能跑完并列出残留；残留超 `max_cross_refs` 判 inconclusive） |
 | B-013 | 字符数与长度差报告 | `bash tests/test_paired_eval.sh` |
 | B-014 | 标定流程的不同规则、按完整 prompt 差值校验长度的 placebo | `bash tests/test_paired_eval.sh`（U-21/U-16 原生小节相近但完整差值超限时拒绝） |
-| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、judge 审计字段完整） |
+| B-015 | 目标 structured-JSON + 非目标盲化换序 pairwise judge | `python3 eval/test_paired_eval.py`（A/B 换序一致、冲突 inconclusive、malformed judge 原文保留、审计字段完整） |
 
 ## 数据流
 
