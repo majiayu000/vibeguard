@@ -48,6 +48,7 @@
   - Judge model ID：
   - Judge prompt digest：
   - 阈值标定：`calibrated: false` 时附包含两轴 delta、样本量和模型证据的 `inconclusive` 报告，不得声称 `pass`。
+  - 注意：CI 不会机器核验上述数字与所附报告是否一致，reviewer 需对照 `report.json` 人工核对。
 - [ ] 仅为非 prompt 注入类变更申请豁免：
   - 理由：
   - 维护者批准：
