@@ -19,7 +19,7 @@ if [[ ! -f "$INDEX_FILE" ]]; then
 fi
 
 on_disk="$(find "$SPECS_DIR" -mindepth 1 -maxdepth 1 -type d -name 'GH*' -exec basename {} \; | sort)"
-indexed="$(grep -oE '^\| `GH[0-9]+/`' "$INDEX_FILE" | grep -oE 'GH[0-9]+' | sort -u)"
+indexed="$(sed -nE 's/^\| `(GH[0-9]+)\/`.*/\1/p' "$INDEX_FILE" | sort -u)"
 
 fail=0
 

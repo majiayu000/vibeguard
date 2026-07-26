@@ -81,6 +81,25 @@ EOF
 assert_exit "unindexed spec directory fails" 1 bash "$VALIDATOR" "$UNINDEXED"
 assert_stderr_contains "unindexed failure names the directory" "docs/specs/GH101/" bash "$VALIDATOR" "$UNINDEXED"
 
+# No index rows must still report every directory missing from the index.
+NO_INDEX_ROWS="$(make_fixture no-index-rows)"
+mkdir -p "$NO_INDEX_ROWS/GH100" "$NO_INDEX_ROWS/GH101"
+cat > "$NO_INDEX_ROWS/README.md" <<'EOF'
+| Spec | Status | Use it for |
+|---|---|---|
+EOF
+assert_exit "index without GH rows fails when spec directories exist" 1 bash "$VALIDATOR" "$NO_INDEX_ROWS"
+assert_stderr_contains "empty index names first missing directory" "docs/specs/GH100/" bash "$VALIDATOR" "$NO_INDEX_ROWS"
+assert_stderr_contains "empty index names second missing directory" "docs/specs/GH101/" bash "$VALIDATOR" "$NO_INDEX_ROWS"
+
+# An empty directory set and an index without GH rows are in sync.
+EMPTY_SYNCED="$(make_fixture empty-synced)"
+cat > "$EMPTY_SYNCED/README.md" <<'EOF'
+| Spec | Status | Use it for |
+|---|---|---|
+EOF
+assert_exit "empty specs dir and index without GH rows pass" 0 bash "$VALIDATOR" "$EMPTY_SYNCED"
+
 # Index row without a directory on disk.
 DANGLING="$(make_fixture dangling)"
 mkdir -p "$DANGLING/GH100"
