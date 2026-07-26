@@ -226,6 +226,11 @@ verify_prepared_runtime_version() {
 
 prepare_runtime_from_source() {
   local fallback_reason="${1:-}"
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    red "  ERROR: payload installs cannot build the runtime from source (${fallback_reason:-source build requested})."
+    red "  The pinned release binary must download and verify; check network access, or clone the repository for source builds."
+    exit 2
+  fi
   if [[ -n "${fallback_reason}" ]]; then
     yellow "  Falling back to source build (${fallback_reason})."
   fi

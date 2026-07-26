@@ -1,0 +1,60 @@
+# VibeGuard payload manifest (GH699).
+# Single source of truth for what ships inside vibeguard-payload-<version>.tar.gz.
+# One tracked path per line; directories are limited to distribution content.
+# Blank lines and lines starting with '#' are ignored.
+# Dev-only surfaces (docs, tests, eval, plan, site, runtime sources) stay out:
+# the payload is an installation medium, not a repository mirror.
+.claude/commands
+agents
+claude-md
+context-profiles
+guards
+hooks
+packs
+rules
+schemas
+skills
+templates
+workflows
+setup.sh
+scripts/constraints/count_active_constraints.py
+scripts/doctors/codex-doctor.sh
+scripts/gc/gc-logs.sh
+scripts/gc/gc-rule-budget.sh
+scripts/gc/gc-scheduled.sh
+scripts/gc/gc-worktrees.sh
+scripts/gc/learn_digest.py
+scripts/gc/reflection_digest.py
+scripts/gc/session_metrics_cleanup.py
+scripts/hook-health.sh
+scripts/install-systemd.sh
+scripts/learn/analyze.py
+scripts/lib/file_ops.py
+scripts/lib/guard_pack_receipts.py
+scripts/lib/guard_packs.py
+scripts/lib/hook_config_model.py
+scripts/lib/hooks_manifest.py
+scripts/lib/install-state.sh
+scripts/lib/project_config.sh
+scripts/lib/runtime.sh
+scripts/lib/settings_json.py
+scripts/lib/status_report.sh
+scripts/lib/workflow_contracts.py
+scripts/project-init.sh
+scripts/setup/check.sh
+scripts/setup/clean.sh
+scripts/setup/codex-status.sh
+scripts/setup/com.vibeguard.gc.plist
+scripts/setup/guard-packs.sh
+scripts/setup/install.sh
+scripts/setup/lib.sh
+scripts/setup/runtime-install.sh
+scripts/setup/runtime_config_health.sh
+scripts/setup/targets/claude-home.sh
+scripts/setup/targets/codex-home.sh
+scripts/systemd/vibeguard-gc.service
+scripts/systemd/vibeguard-gc.timer
+scripts/release/payload-manifest.txt
+vibeguard-runtime/VERSION
+LICENSE
+CHANGELOG.md
