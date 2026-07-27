@@ -105,14 +105,14 @@ LOCK_DIR="${DIST_ROOT}/.bootstrap.lock"
 BOOTSTRAP_TMP=""
 LOCK_HELD=0
 FINAL_DIR_OWNED=0
+CURRENT_COMMITTED=0
 
 bootstrap_cleanup() {
   local status=$?
   if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
     rm -rf -- "${BOOTSTRAP_TMP}"
   fi
-  if [[ "${FINAL_DIR_OWNED}" == "1" \
-    && (! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}") ]]; then
+  if [[ "${FINAL_DIR_OWNED}" == "1" && "${CURRENT_COMMITTED}" == "0" ]]; then
     if ! rm -rf -- "${FINAL_DIR}"; then
       bootstrap_error "failed to remove newly owned distribution after bootstrap failure: ${FINAL_DIR}"
       status=1
@@ -222,6 +222,7 @@ if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" 
   bootstrap_error "atomic dist/current switch could not be verified."
   exit 1
 fi
+CURRENT_COMMITTED=1
 FINAL_DIR_OWNED=0
 
 printf 'Payload verified: checksum=%s provenance=%s\n' \

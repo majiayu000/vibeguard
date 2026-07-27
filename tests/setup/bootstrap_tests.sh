@@ -452,6 +452,58 @@ assert_cmd "successful retry preserves old version and commits exact current" ba
   "${switch_failure_home}/.vibeguard/dist/current" \
   "${BOOTSTRAP_VERSION}"
 
+dangling_failure_home="${TMP_HOME}/bootstrap-dangling-switch-failure-home"
+dangling_failure_bin="${TMP_HOME}/bootstrap-dangling-switch-failure-bin"
+mkdir -p "${dangling_failure_home}/.vibeguard/dist" "${dangling_failure_bin}"
+ln -s "${BOOTSTRAP_VERSION}" "${dangling_failure_home}/.vibeguard/dist/current"
+cat > "${dangling_failure_bin}/mv" <<SH
+#!/usr/bin/env bash
+last_arg=""
+for arg in "\$@"; do
+  last_arg="\${arg}"
+done
+if [[ "\${last_arg}" == "${dangling_failure_home}/.vibeguard/dist/current" ]]; then
+  printf 'fake dangling current switch failure\n' >&2
+  exit 1
+fi
+exec "${switch_failure_real_mv}" "\$@"
+SH
+chmod +x "${dangling_failure_bin}/mv"
+dangling_failure_rc=0
+dangling_failure_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${dangling_failure_home}" \
+    PATH="${dangling_failure_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || dangling_failure_rc=$?
+assert_cmd "failed switch from same-version dangling current exits nonzero" \
+  test "${dangling_failure_rc}" -ne 0
+assert_contains "${dangling_failure_out}" "atomic" \
+  "same-version dangling current switch failure is visible"
+assert_cmd "failed switch restores same-version current to a dangling link" bash -c \
+  'test -L "$1" && test ! -e "$1" && test "$(readlink "$1")" = "$2" && test ! -e "$3"' _ \
+  "${dangling_failure_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}" \
+  "${dangling_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+dangling_retry_rc=0
+dangling_retry_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${dangling_failure_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || dangling_retry_rc=$?
+assert_cmd "retry after same-version dangling current failure succeeds" \
+  test "${dangling_retry_rc}" -eq 0
+assert_contains "${dangling_retry_out}" "EXPECTED_FINAL_SETUP" \
+  "dangling-current retry executes the verified payload"
+assert_cmd "dangling-current retry commits the exact verified version" bash -c \
+  'test -d "$1" && test -L "$2" && test "$(readlink "$2")" = "$3"' _ \
+  "${dangling_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${dangling_failure_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}"
+
 interrupt_release="${TMP_HOME}/bootstrap-release-interrupt"
 interrupt_home="${TMP_HOME}/bootstrap-interrupt-home"
 make_hostile_bootstrap_release "${interrupt_release}" "interrupt"
