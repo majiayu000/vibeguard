@@ -126,7 +126,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     本地 retention、doctor/status、export/delete 和多 agent/session 隔离。
     **Recommended proposal（未批准）：只保留 closed reason、rule/signal/model/policy
     identities、evidence digest、latency 与 outcome；不记录 raw source、prompt、model
-    output、secret 或完整用户路径。**
+    output、secret 或完整用户路径。不新增 semantic 专用命令：安装/config/model/provider
+    eligibility 复用 public `setup.sh doctor`/`--check`，per-run human/JSON 复用 public
+    `vibeguard-runtime hook-status`。若维护者选择新命令，必须先改写并批准 H-014。**
 
 ## Behavior Invariants
 
