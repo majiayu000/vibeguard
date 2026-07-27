@@ -36,15 +36,18 @@ Draft spec PR 会必然红灯。维护者无法通过 PR 状态表达“设计�
    `product.md` 与 `tech.md`；仅当当前和基线都没有 `tasks.md` 时，
    `tasks.md` 才可缺省。
 3. B-003 Draft packet 一旦包含 `tasks.md`，必须执行与 Complete 相同的任务
-   计划结构校验；文件存在但为空、格式非法或 issue 关联错误均不得视为成功。
+   计划结构校验；路径是目录、悬空链接或其他非普通文件，或文件为空、格式非法、
+   issue 关联错误时，均不得视为成功。
 4. B-004 提供有效 `base-ref` 时，`--all-specs` 必须校验当前工作树和基线中
    `GH<number>` packet 的并集；基线已有 packet、当前整体删除时必须失败。
 5. B-005 基线 packet 已有 `tasks.md`、当前仅删除该文件时，Draft 校验必须失败，
    不得把删除解释为合法的设计阶段。
 6. B-006 无法解析 `base-ref`、无法查询基线树或 packet 路径逃逸配置根时，
-   校验必须 fail-closed，并返回非零退出码及可定位错误。
-7. B-007 GitHub workflow 只能在 Draft pull request 上选择 `draft` 并传入
-   PR base SHA；Ready pull request、push、手工触发均必须选择 `complete`。
+   校验必须 fail-closed，并返回非零退出码及可定位错误；合法非 ASCII 配置根
+   必须按 Git 原始路径识别，不能因 quoting 丢失基线证据。
+7. B-007 GitHub workflow 中所有 checkout-wide packet 检查（包括 adoption
+   smoke 内部检查）只能在 Draft pull request 上选择 `draft` 并传入 PR base
+   SHA；Ready pull request、push、手工触发均必须选择 `complete`。
 8. B-008 pull request 在 Draft 与 Ready 之间切换时必须重新执行 workflow，
    避免复用旧阶段的检查结果。
 9. B-009 `write_spec` route 必须返回单 packet 的 Draft 验证命令；

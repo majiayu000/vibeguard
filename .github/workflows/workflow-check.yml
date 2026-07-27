@@ -21,6 +21,10 @@ jobs:
     name: SpecRail workflow check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      PR_IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -33,10 +37,6 @@ jobs:
           python-version: "3.11"
 
       - name: Check SpecRail pack and spec packets
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_IS_DRAFT: ${{ github.event.pull_request.draft || false }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           check_args=(--repo . --all-specs --spec-stage complete)
           if [[ "${EVENT_NAME}" == "pull_request" && "${PR_IS_DRAFT}" == "true" ]]; then

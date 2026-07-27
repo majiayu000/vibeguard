@@ -31,8 +31,9 @@ GH-720
    - 单 packet 校验用 `git ls-tree` 判断基线是否已有 `tasks.md`；
    - `--all-specs` 额外枚举基线配置根下的直接 `GH<number>` 目录；
    - 当前与基线 packet 做去重并集后交给同一验证函数。
-5. GitHub Actions 对 Draft PR 传 `draft + base SHA`；其余事件显式使用
-   `complete`。监听 `ready_for_review` 和 `converted_to_draft`。
+5. GitHub Actions 在 job 级共享事件类型、Draft 状态和 base SHA；主 packet
+   check 与 adoption smoke 内的 checkout-wide check 都据此选择同一阶段。
+   监听 `ready_for_review` 和 `converted_to_draft`。
 6. `route_gate.py` 仅对 `write_spec` 输出 Draft 命令，其余 route 输出
    Complete 命令。
 
@@ -42,11 +43,11 @@ GH-720
 | --- | --- | --- |
 | B-001 | `check_workflow.py` 默认 stage 与 Complete 分支 | `python3 checks/check_workflow.py --repo . --all-specs`；临时缺 tasks 负例 |
 | B-002 | `validate_spec_packet()` Draft 分支 | `bash tests/test_specrail_adoption.sh` 的 product+tech-only 正例 |
-| B-003 | 复用 `validate_task_plan()` | 同一 smoke test 的非法 `tasks.md` 负例 |
+| B-003 | 非普通路径检查 + 复用 `validate_task_plan()` | 同一 smoke test 的 `tasks.md` 目录与非法内容负例 |
 | B-004 | `discover_baseline_spec_packet_dirs()` 与选择并集 | 同一 smoke test 删除完整 `GH999` 的 `--all-specs` 负例 |
 | B-005 | `git_path_exists()` | 同一 smoke test 删除基线 `tasks.md` 负例 |
-| B-006 | `git_commit()`、`git_path_exists()`、基线目录发现 | `python3 checks/check_workflow.py --repo . --all-specs --spec-stage draft --base-ref refs/does-not-exist` 返回非零 |
-| B-007 | `.github/workflows/workflow-check.yml` stage 分支 | `bash tests/test_specrail_adoption.sh` 静态合同 + GitHub PR CI |
+| B-006 | `git_commit()`、NUL-delimited `git_path_exists()` 与基线目录发现 | smoke 中的非 ASCII git 基线路径正例；无效 base-ref 命令返回非零 |
+| B-007 | workflow job env + adoption smoke 的 stage 分支 | product+tech-only 临时 packet 下用 Draft env 运行 `bash tests/test_specrail_adoption.sh` |
 | B-008 | workflow `pull_request.types` | `bash tests/test_specrail_adoption.sh` 检查两个状态事件 token |
 | B-009 | `checks/route_gate.py` | `bash tests/test_specrail_adoption.sh` 的 write_spec/implement route 断言 |
 | B-010 | 原有 validator 调用链 | `bash scripts/local-contract-check.sh --quick` |

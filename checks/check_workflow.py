@@ -271,18 +271,21 @@ def git_path_exists(repo: Path, commit: str, path: Path) -> bool:
             "ls-tree",
             "-r",
             "--name-only",
+            "-z",
             commit,
             "--",
             relative_path.as_posix(),
         ],
         check=False,
         capture_output=True,
-        text=True,
     )
     if result.returncode != 0:
-        detail = result.stderr.strip() or "unknown git ls-tree failure"
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or "unknown git ls-tree failure"
+        )
         raise SpecRailError(f"cannot inspect baseline {commit}: {detail}")
-    return relative_path.as_posix() in result.stdout.splitlines()
+    return relative_path.as_posix().encode("utf-8") in result.stdout.split(b"\0")
 
 
 def validate_spec_packet(
@@ -340,15 +343,15 @@ def validate_spec_packet(
 
     task_path = spec_dir / "tasks.md"
     if not task_path.is_file():
-        baseline_requires_tasks = (
-            spec_stage == "draft"
-            and repo is not None
+        if task_path.exists() or task_path.is_symlink():
+            errors.append(f"{task_path}: tasks.md must be a regular file")
+        elif spec_stage == "complete":
+            errors.append(f"{spec_dir}: missing tasks.md")
+        elif (
+            repo is not None
             and base_commit is not None
             and git_path_exists(repo, base_commit, task_path)
-        )
-        if spec_stage == "complete":
-            errors.append(f"{spec_dir}: missing tasks.md")
-        elif baseline_requires_tasks:
+        ):
             errors.append(
                 f"{spec_dir}: draft validation cannot remove tasks.md "
                 f"present in baseline {base_commit}"
@@ -444,25 +447,30 @@ def discover_baseline_spec_packet_dirs(
             "-r",
             "-d",
             "--name-only",
+            "-z",
             commit,
             "--",
             spec_root.as_posix(),
         ],
         check=False,
         capture_output=True,
-        text=True,
     )
     if result.returncode != 0:
-        detail = result.stderr.strip() or "unknown git ls-tree failure"
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or "unknown git ls-tree failure"
+        )
         raise SpecRailError(f"cannot inspect baseline {commit}: {detail}")
 
     packet_pattern = re.compile(
-        rf"{re.escape(spec_root.as_posix())}/GH[0-9]+"
+        re.escape(spec_root.as_posix().encode("utf-8")) + rb"/GH[0-9]+"
     )
     return sorted(
         (
-            repo / PurePosixPath(raw_path)
-            for raw_path in result.stdout.splitlines()
+            repo
+            / spec_root
+            / raw_path.rsplit(b"/", 1)[-1].decode("ascii")
+            for raw_path in result.stdout.split(b"\0")
             if packet_pattern.fullmatch(raw_path)
         ),
         key=spec_packet_sort_key,

@@ -110,7 +110,12 @@ tmp = Path(sys.argv[2]).resolve()
 sys.path.insert(0, str(repo / "checks"))
 
 import check_workflow
-from check_workflow import discover_spec_packet_dirs, validate_pack_assets
+from check_workflow import (
+    discover_baseline_spec_packet_dirs,
+    discover_spec_packet_dirs,
+    git_path_exists,
+    validate_pack_assets,
+)
 import github_review_threads
 from github_evidence_common import EvidenceError
 from pr_gate import evaluate_pr_gate
@@ -235,6 +240,47 @@ if draft_result.returncode != 0:
         f"{draft_result.stdout + draft_result.stderr}"
     )
 
+task_path = draft_packet / "tasks.md"
+task_path.mkdir()
+malformed_task_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+malformed_task_output = (
+    malformed_task_result.stdout + malformed_task_result.stderr
+)
+if (
+    malformed_task_result.returncode == 0
+    or "tasks.md must be a regular file" not in malformed_task_output
+):
+    raise SystemExit(
+        "draft validation accepted a non-file tasks.md path: "
+        f"rc={malformed_task_result.returncode}, output={malformed_task_output!r}"
+    )
+task_path.rmdir()
+
+task_path.symlink_to("missing-task-plan.md")
+dangling_task_result = subprocess.run(
+    draft_command,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+dangling_task_output = (
+    dangling_task_result.stdout + dangling_task_result.stderr
+)
+if (
+    dangling_task_result.returncode == 0
+    or "tasks.md must be a regular file" not in dangling_task_output
+):
+    raise SystemExit(
+        "draft validation accepted a dangling tasks.md symlink: "
+        f"rc={dangling_task_result.returncode}, output={dangling_task_output!r}"
+    )
+task_path.unlink()
+
 complete_result = subprocess.run(
     [*draft_command[:-1], "complete"],
     check=False,
@@ -248,7 +294,6 @@ if complete_result.returncode == 0 or "missing tasks.md" not in complete_output:
         f"rc={complete_result.returncode}, output={complete_output!r}"
     )
 
-task_path = draft_packet / "tasks.md"
 task_path.write_text("invalid task plan\n", encoding="utf-8")
 invalid_task_result = subprocess.run(
     draft_command,
@@ -302,6 +347,54 @@ base_commit = subprocess.run(
     capture_output=True,
     text=True,
 ).stdout.strip()
+
+unicode_repo = tmp / "unicode-baseline-repo"
+unicode_task = unicode_repo / "文档" / "GH999" / "tasks.md"
+unicode_task.parent.mkdir(parents=True)
+unicode_task.write_text("baseline task\n", encoding="utf-8")
+subprocess.run(["git", "-C", str(unicode_repo), "init"], check=True, capture_output=True)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "config", "user.name", "SpecRail Test"],
+    check=True,
+)
+subprocess.run(
+    [
+        "git",
+        "-C",
+        str(unicode_repo),
+        "config",
+        "user.email",
+        "specrail@example.invalid",
+    ],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "add", "文档/GH999/tasks.md"],
+    check=True,
+)
+subprocess.run(
+    ["git", "-C", str(unicode_repo), "commit", "-m", "test: unicode baseline"],
+    check=True,
+    capture_output=True,
+)
+unicode_commit = subprocess.run(
+    ["git", "-C", str(unicode_repo), "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+if not git_path_exists(unicode_repo, unicode_commit, unicode_task):
+    raise SystemExit("NUL-delimited baseline lookup lost a non-ASCII tasks.md path")
+unicode_packets = discover_baseline_spec_packet_dirs(
+    unicode_repo,
+    unicode_commit,
+    PurePosixPath("文档"),
+)
+if unicode_packets != [unicode_repo / "文档" / "GH999"]:
+    raise SystemExit(
+        f"NUL-delimited baseline packet discovery failed: {unicode_packets!r}"
+    )
+
 task_path.unlink()
 baseline_result = subprocess.run(
     [*draft_command, "--base-ref", base_commit],
@@ -602,7 +695,15 @@ if (
 PY
 
 python3 checks/check_workflow.py --repo .
-python3 checks/check_workflow.py --repo . --all-specs
+all_specs_args=(--repo . --all-specs --spec-stage complete)
+if [[ "${EVENT_NAME:-}" == "pull_request" && "${PR_IS_DRAFT:-false}" == "true" ]]; then
+  if [[ -z "${BASE_SHA:-}" ]]; then
+    echo "Draft SpecRail adoption smoke requires BASE_SHA" >&2
+    exit 1
+  fi
+  all_specs_args=(--repo . --all-specs --spec-stage draft --base-ref "${BASE_SHA}")
+fi
+python3 checks/check_workflow.py "${all_specs_args[@]}"
 python3 checks/github_pr_evidence.py --help >/dev/null
 
 python3 checks/route_gate.py \
