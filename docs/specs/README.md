@@ -6,6 +6,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
+| `GH704/` | Draft | Opt-in L2 semantic checks, named runtime W-rule deltas, structured precision evidence, and human-gated cross-session learning |
 | `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
