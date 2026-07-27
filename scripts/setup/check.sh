@@ -271,7 +271,11 @@ check_systemd_scheduled_gc() {
     fi
   fi
   if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
-    if [[ -L "${service}" || ! -f "${service}" ]]; then
+    if [[ -L "${timer}" || ! -f "${timer}" ]]; then
+      red "[BROKEN] Scheduled GC systemd timer missing or not a regular file: ${timer}"
+    elif ! awk '$0 == "Unit=vibeguard-gc.service" { count += 1 } END { exit(count == 1 ? 0 : 1) }' "${timer}"; then
+      red "[BROKEN] Scheduled GC systemd timer does not declare exactly one Unit=vibeguard-gc.service: ${timer}"
+    elif [[ -L "${service}" || ! -f "${service}" ]]; then
       red "[BROKEN] Scheduled GC systemd service missing or not a regular file: ${service}"
     elif ! actual="$(systemd_gc_script_path "${service}")"; then
       red "[BROKEN] Scheduled GC systemd service does not declare exactly one supported ExecStart: ${service}"

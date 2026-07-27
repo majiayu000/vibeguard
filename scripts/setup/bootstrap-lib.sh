@@ -433,6 +433,28 @@ bootstrap_lock_reap_legacy_directory() {
   fi
 }
 
+bootstrap_setup_args_include_help() {
+  local index=1
+  while [[ "${index}" -lt "${SETUP_ARG_COUNT}" ]]; do
+    case "${SETUP_ARGS[${index}]}" in
+      --help|-h) return 0 ;;
+    esac
+    index=$((index + 1))
+  done
+  return 1
+}
+
+bootstrap_prepend_setup_arg() {
+  local value="$1" index=0
+  local -a updated=("${value}")
+  while [[ "${index}" -lt "${SETUP_ARG_COUNT}" ]]; do
+    updated[${#updated[@]}]="${SETUP_ARGS[${index}]}"
+    index=$((index + 1))
+  done
+  SETUP_ARGS=("${updated[@]}")
+  SETUP_ARG_COUNT=$((SETUP_ARG_COUNT + 1))
+}
+
 bootstrap_transaction_write() {
   local transaction_file="$1" dist_root="$2" version="$3" payload_sha256="$4" phase="$5"
   local temporary="${dist_root}/.bootstrap-transaction-write.$$.$RANDOM"

@@ -539,6 +539,20 @@ assert_cmd "bootstrap default install supports zero forwarded arguments" \
   test "${default_no_args_rc}" -eq 0
 assert_not_contains "${default_no_args_out}" "ARGV[0]=" \
   "zero-argument setup handoff passes no synthetic argument"
+provenance_no_args_home="${TMP_HOME}/bootstrap-provenance-no-args-home"
+mkdir -p "${provenance_no_args_home}"
+provenance_no_args_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${provenance_no_args_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+    VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 \
+    VIBEGUARD_TEST_GH_AUTH_OK=1 \
+    VIBEGUARD_TEST_ATTESTATION_OK=1 \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" \
+      --require-provenance 2>&1
+)"
+assert_contains "${provenance_no_args_out}" "ARGV[0]=--require-provenance" \
+  "zero-forwarded-argument provenance install avoids empty-array expansion"
 for argv_case in \
   default \
   explicit-install \
@@ -1123,7 +1137,8 @@ clean_help_out="$(
   env "${bootstrap_base_env[@]}" \
     HOME="${clean_help_home}" \
     VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
-    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean --help 2>&1
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- \
+      --clean --purge-data --help 2>&1
 )"
 assert_contains "${clean_help_out}" "ARGV[0]=--clean" \
   "clean help executes only the verified staged help path"

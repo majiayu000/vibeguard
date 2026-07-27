@@ -729,6 +729,18 @@ systemd_stable_out="$(systemd_check_run 2>&1 || true)"
 assert_contains "${systemd_stable_out}" "[OK] Scheduled GC active via systemd" \
   "payload doctor accepts exact stable systemd target"
 
+rm -f "${systemd_check_timer}"
+systemd_missing_timer_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_missing_timer_out}" \
+  "[BROKEN] Scheduled GC systemd timer missing or not a regular file:" \
+  "payload doctor rejects an active timer missing its on-disk unit"
+printf '%s\n' '[Timer]' 'Unit=custom.service' > "${systemd_check_timer}"
+systemd_invalid_timer_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_invalid_timer_out}" \
+  "[BROKEN] Scheduled GC systemd timer does not declare exactly one Unit=vibeguard-gc.service:" \
+  "payload doctor rejects an active timer with an unintended unit target"
+printf '%s\n' '[Timer]' 'Unit=vibeguard-gc.service' > "${systemd_check_timer}"
+
 systemd_version_target="${SYSTEMD_CHECK_HOME}/.vibeguard/dist/1.2.3/scripts/gc/gc-scheduled.sh"
 printf '%s\n' '[Service]' \
   "ExecStart=/bin/bash \"${systemd_version_target}\"" \

@@ -608,7 +608,8 @@ gc_check() {
   VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_NOW_EPOCH=2000000000 bash "${REPO_DIR}/setup.sh" --check "$@"
 }
 mkdir -p "${HOME}/.config/systemd/user" "${gc_dir}"
-touch "${HOME}/.config/systemd/user/vibeguard-gc.timer"
+printf '%s\n' '[Timer]' 'Unit=vibeguard-gc.service' \
+  > "${HOME}/.config/systemd/user/vibeguard-gc.timer"
 printf '%s\n' '[Service]' \
   "ExecStart=/bin/bash \"${REPO_DIR}/scripts/gc/gc-scheduled.sh\"" \
   > "${HOME}/.config/systemd/user/vibeguard-gc.service"

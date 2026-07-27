@@ -94,9 +94,9 @@ if ! bootstrap_validate_version "${VERSION}"; then
 fi
 if [[ "${SETUP_ARGS[0]:-}" == "--clean" ]]; then
   CLEAN_REQUESTED=1
-  case "${SETUP_ARGS[1]:-}" in
-    --help|-h) CLEAN_HELP_REQUESTED=1 ;;
-  esac
+  if bootstrap_setup_args_include_help; then
+    CLEAN_HELP_REQUESTED=1
+  fi
 fi
 if [[ -z "${HOME:-}" || "${HOME}" != /* ]]; then
   bootstrap_error "HOME must be a non-empty absolute path."
@@ -570,8 +570,7 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
       # commands do not enter the install option parser.
       ;;
     *)
-      SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
-      SETUP_ARG_COUNT=$((SETUP_ARG_COUNT + 1))
+      bootstrap_prepend_setup_arg --require-provenance
       ;;
   esac
 fi
