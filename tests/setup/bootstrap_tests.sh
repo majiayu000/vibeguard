@@ -65,6 +65,41 @@ assert_cmd "bootstrap rejects floating latest" test "${latest_rc}" -eq 64
 assert_contains "${latest_out}" "invalid exact version" "floating version reports an exact-version error"
 assert_cmd "floating version creates no VibeGuard state" test ! -e "${latest_home}/.vibeguard"
 
+assert_cmd "SemVer parser accepts exact release and prerelease forms" bash -c '
+  source "$1"
+  bootstrap_validate_version "0.0.0"
+  bootstrap_validate_version "1.2.3-0"
+  bootstrap_validate_version "1.2.3-alpha.1+build.01"
+' _ "${BOOTSTRAP_LIB}"
+
+invalid_semver_index=0
+for invalid_semver in \
+  01.2.3 \
+  1.02.3 \
+  1.2.03 \
+  1.2.3-01 \
+  1.2.3-alpha..1 \
+  1.2.3-alpha. \
+  1.2.3-.alpha \
+  1.2.3+build..1 \
+  1.2.3+build. \
+  1.2.3+.build; do
+  invalid_semver_index=$((invalid_semver_index + 1))
+  invalid_semver_home="${TMP_HOME}/bootstrap-invalid-semver-${invalid_semver_index}"
+  mkdir -p "${invalid_semver_home}"
+  invalid_semver_rc=0
+  invalid_semver_out="$(
+    env "${bootstrap_base_env[@]}" HOME="${invalid_semver_home}" \
+      bash "${BOOTSTRAP}" --version "${invalid_semver}" 2>&1
+  )" || invalid_semver_rc=$?
+  assert_cmd "bootstrap rejects invalid exact SemVer ${invalid_semver}" \
+    test "${invalid_semver_rc}" -eq 64
+  assert_contains "${invalid_semver_out}" "invalid exact version" \
+    "invalid SemVer ${invalid_semver} reports the exact-version contract"
+  assert_cmd "invalid SemVer ${invalid_semver} creates zero state" \
+    test ! -e "${invalid_semver_home}/.vibeguard"
+done
+
 unknown_rc=0
 unknown_out="$(
   env "${bootstrap_base_env[@]}" HOME="${latest_home}" \

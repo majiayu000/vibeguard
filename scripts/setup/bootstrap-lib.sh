@@ -18,7 +18,33 @@ bootstrap_sha256_file() {
 
 bootstrap_validate_version() {
   local version="$1"
-  [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+  local core_and_prerelease="${version}"
+  local core prerelease="" build="" identifier
+  local -a prerelease_identifiers=()
+
+  if [[ "${core_and_prerelease}" == *+* ]]; then
+    build="${core_and_prerelease#*+}"
+    core_and_prerelease="${core_and_prerelease%%+*}"
+    [[ "${build}" != *+* ]] || return 1
+    [[ "${build}" =~ ^[0-9A-Za-z-]+([.][0-9A-Za-z-]+)*$ ]] || return 1
+  fi
+
+  if [[ "${core_and_prerelease}" == *-* ]]; then
+    core="${core_and_prerelease%%-*}"
+    prerelease="${core_and_prerelease#*-}"
+    [[ "${prerelease}" =~ ^[0-9A-Za-z-]+([.][0-9A-Za-z-]+)*$ ]] || return 1
+    IFS='.' read -r -a prerelease_identifiers <<< "${prerelease}"
+    for identifier in "${prerelease_identifiers[@]}"; do
+      if [[ "${identifier}" =~ ^[0-9]+$ \
+        && "${identifier}" == 0* && "${identifier}" != "0" ]]; then
+        return 1
+      fi
+    done
+  else
+    core="${core_and_prerelease}"
+  fi
+
+  [[ "${core}" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$ ]]
 }
 
 bootstrap_download_release_assets() {
