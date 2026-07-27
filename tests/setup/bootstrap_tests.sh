@@ -307,6 +307,24 @@ printf 'RETRY_SETUP_SUCCEEDED\\n'
 """
 elif kind == "fail":
     setup = b"#!/usr/bin/env bash\nexit 42\n"
+elif kind == "argv":
+    setup = b"""#!/usr/bin/env bash
+index=0
+for arg in "$@"; do
+  printf 'ARGV[%d]=%s\\n' "${index}" "${arg}"
+  index=$((index + 1))
+done
+"""
+elif kind == "wait":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+continue_fifo="${VIBEGUARD_TEST_SETUP_CONTINUE_FIFO:?}"
+: > "${ready}"
+IFS= read -r signal < "${continue_fifo}"
+[[ "${signal}" == "continue" ]]
+printf 'WAIT_SETUP_SUCCEEDED\\n'
+"""
 else:
     setup = b"#!/usr/bin/env bash\nexit 0\n"
 entries = {
@@ -463,6 +481,113 @@ assert_cmd "successful retry preserves old version and commits exact current" ba
   "${switch_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
   "${switch_failure_home}/.vibeguard/dist/current" \
   "${BOOTSTRAP_VERSION}"
+
+argv_release="${TMP_HOME}/bootstrap-release-argv"
+make_hostile_bootstrap_release "${argv_release}" "argv"
+for argv_case in default explicit-install doctor verify-install clean; do
+  argv_home="${TMP_HOME}/bootstrap-argv-${argv_case}-home"
+  mkdir -p "${argv_home}"
+  case "${argv_case}" in
+    default)
+      argv_setup_args=(--dry-run --yes)
+      ;;
+    explicit-install)
+      argv_setup_args=(install --dry-run --yes)
+      ;;
+    doctor)
+      argv_setup_args=(doctor --json)
+      ;;
+    verify-install)
+      argv_setup_args=(verify-install --json)
+      ;;
+    clean)
+      argv_setup_args=(--clean --purge-data)
+      ;;
+  esac
+  argv_rc=0
+  argv_out="$(
+    env "${bootstrap_base_env[@]}" \
+      HOME="${argv_home}" \
+      VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+      VIBEGUARD_TEST_ATTESTATION_AVAILABLE=1 \
+      VIBEGUARD_TEST_GH_AUTH_OK=1 \
+      VIBEGUARD_TEST_ATTESTATION_OK=1 \
+      bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" \
+        --require-provenance -- "${argv_setup_args[@]}" 2>&1
+  )" || argv_rc=$?
+  assert_cmd "provenance argv case ${argv_case} executes setup" test "${argv_rc}" -eq 0
+  case "${argv_case}" in
+    default)
+      assert_contains "${argv_out}" "ARGV[0]=--require-provenance" \
+        "default install receives provenance as its first install option"
+      assert_contains "${argv_out}" "ARGV[1]=--dry-run" \
+        "default install preserves existing option order"
+      ;;
+    explicit-install)
+      assert_contains "${argv_out}" "ARGV[0]=install" \
+        "explicit install remains the dispatcher command"
+      assert_contains "${argv_out}" "ARGV[1]=--require-provenance" \
+        "explicit install receives provenance after its command"
+      ;;
+    doctor|verify-install|clean)
+      assert_contains "${argv_out}" "ARGV[0]=${argv_setup_args[0]}" \
+        "${argv_case} remains the dispatcher command"
+      assert_not_contains "${argv_out}" "--require-provenance" \
+        "${argv_case} does not receive an install-only provenance option"
+      ;;
+  esac
+done
+
+lock_wait_release="${TMP_HOME}/bootstrap-release-lock-wait"
+lock_wait_home="${TMP_HOME}/bootstrap-lock-wait-home"
+lock_wait_ready="${TMP_HOME}/bootstrap-lock-wait.ready"
+lock_wait_fifo="${TMP_HOME}/bootstrap-lock-wait.fifo"
+lock_wait_first_out="${TMP_HOME}/bootstrap-lock-wait-first.out"
+lock_wait_first_download="${TMP_HOME}/bootstrap-lock-wait-first-download.log"
+lock_wait_second_download="${TMP_HOME}/bootstrap-lock-wait-second-download.log"
+make_hostile_bootstrap_release "${lock_wait_release}" "wait"
+mkdir -p "${lock_wait_home}"
+mkfifo "${lock_wait_fifo}"
+: > "${lock_wait_first_download}"
+: > "${lock_wait_second_download}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${lock_wait_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  VIBEGUARD_TEST_DOWNLOAD_LOG="${lock_wait_first_download}" \
+  VIBEGUARD_TEST_SETUP_READY="${lock_wait_ready}" \
+  VIBEGUARD_TEST_SETUP_CONTINUE_FIFO="${lock_wait_fifo}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >"${lock_wait_first_out}" 2>&1 &
+lock_wait_first_pid=$!
+for _lock_wait_attempt in {1..100}; do
+  [[ -e "${lock_wait_ready}" ]] && break
+  sleep 0.05
+done
+assert_cmd "first bootstrap reaches setup handshake while owning the lock" \
+  test -e "${lock_wait_ready}"
+lock_wait_second_rc=0
+lock_wait_second_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${lock_wait_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+    VIBEGUARD_TEST_DOWNLOAD_LOG="${lock_wait_second_download}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || lock_wait_second_rc=$?
+assert_cmd "concurrent bootstrap is rejected while first setup is running" \
+  test "${lock_wait_second_rc}" -eq 73
+assert_contains "${lock_wait_second_out}" "another bootstrap owns" \
+  "concurrent rejection identifies active bootstrap ownership"
+assert_cmd "rejected concurrent bootstrap performs no download" \
+  test ! -s "${lock_wait_second_download}"
+printf 'continue\n' > "${lock_wait_fifo}"
+lock_wait_first_rc=0
+wait "${lock_wait_first_pid}" || lock_wait_first_rc=$?
+assert_cmd "first bootstrap completes after deterministic setup handshake" \
+  test "${lock_wait_first_rc}" -eq 0
+assert_cmd "first bootstrap releases lock only after setup completes" \
+  test ! -e "${lock_wait_home}/.vibeguard/dist/.bootstrap.lock"
+assert_contains "$(cat "${lock_wait_first_out}")" "WAIT_SETUP_SUCCEEDED" \
+  "first setup consumed the continuation handshake"
 
 dangling_failure_home="${TMP_HOME}/bootstrap-dangling-switch-failure-home"
 dangling_failure_bin="${TMP_HOME}/bootstrap-dangling-switch-failure-bin"

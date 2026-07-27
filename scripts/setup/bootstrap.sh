@@ -287,7 +287,18 @@ printf 'Payload verified: checksum=%s provenance=%s\n' \
   "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
 
 if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
-  SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+  case "${SETUP_ARGS[0]:-}" in
+    install)
+      SETUP_ARGS=(install --require-provenance "${SETUP_ARGS[@]:1}")
+      ;;
+    doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
+      # Bootstrap already enforced payload provenance. These dispatcher
+      # commands do not enter the install option parser.
+      ;;
+    *)
+      SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+      ;;
+  esac
 fi
 setup_rc=0
 bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}" || setup_rc=$?
