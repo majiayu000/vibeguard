@@ -24,7 +24,7 @@ human decisions；以下 v2 结构用于证明这些选择可形成一致、可�
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
 | Runtime CLI registry | `vibeguard-runtime/src/main.rs:62`; `vibeguard-runtime/src/main.rs:68`; `vibeguard-runtime/src/main.rs:519` | 单一静态 `COMMANDS` 表分发 runtime 子命令；没有 `add`/pack production client | B-001 需要 released binary 可达且不依赖 Python 的入口 |
-| Checkout setup route | `setup.sh:176`; `setup.sh:184`; `setup.sh:193`; `scripts/setup/guard-packs.sh:4` | `setup.sh packs` 和 `install --pack` exec repo-relative Python helper | 当前是 dev/checkout surface，不能冒充 GH-699 actual launcher |
+| Checkout setup route | `setup.sh:176`; `setup.sh:184`; `setup.sh:193`; `scripts/setup/guard-packs.sh:5` | `setup.sh packs` 和 `install --pack` exec repo-relative Python helper | 当前是 dev/checkout surface，不能冒充 GH-699 actual launcher |
 | Pack schema v1 | `schemas/guard-pack.schema.json:5`; `schemas/guard-pack.schema.json:21`; `schemas/guard-pack.schema.json:31`; `schemas/guard-pack.schema.json:38`; `schemas/guard-pack.schema.json:88` | schema 固定 version 1，source/targets/behavior 没有 publisher、bundle、provenance、precision、dependency 或 transaction contract；target/behavior 子对象允许扩展字段 | v2 不能靠在 v1 上塞可选字段形成不受控兼容 |
 | Current pack | `packs/safe-bash/pack.yaml:2`; `packs/safe-bash/pack.yaml:8`; `packs/safe-bash/pack.yaml:10`; `packs/safe-bash/pack.yaml:154`; `packs/safe-bash/README.md:22` | `safe-bash` 是 `adoption_layer_only`，引用 repo 内 source，声明 default block；live install 只登记 receipt | B-036 需要 legacy reader 和 ownership-safe migration |
 | Manifest loader/validator | `scripts/lib/guard_packs.py:41`; `scripts/lib/guard_packs.py:90`; `scripts/lib/guard_packs.py:133`; `scripts/lib/guard_packs.py:164`; `scripts/lib/guard_packs.py:243`; `scripts/lib/guard_packs.py:305` | 只扫描 `${ROOT}/packs/<id>/pack.yaml`，source/fixture 必须在当前 repo，target 闭集硬编码 | 不能解析 external locator 或 self-contained bundle |
@@ -36,7 +36,7 @@ human decisions；以下 v2 结构用于证明这些选择可形成一致、可�
 | Host contract | `hooks/manifest.json:2`; `hooks/manifest.json:37`; `schemas/hooks-manifest.schema.json:6`; `schemas/hooks-manifest.schema.json:24`; `schemas/hooks-manifest.schema.json:61` | hooks manifest v1 每个 hook 固定 Claude/Codex 两列；没有通用 host registry | GH-701 draft 正在拥有该 generalization，GH-702 不得复制 |
 | Release payload | `scripts/release/payload-manifest.txt:1`; `scripts/release/payload-manifest.txt:13`; `scripts/release/payload-manifest.txt:32`; `scripts/release/payload-manifest.txt:48` | GH-699 payload 已包含 `packs/`、schemas 和 legacy Python helpers | 新 Rust client/authoring assets 必须进入同一 verified payload contract |
 | Existing regressions | `tests/test_guard_packs.sh:76`; `tests/test_guard_packs.sh:89`; `tests/test_guard_packs.sh:306`; `tests/test_guard_packs.sh:577`; `tests/test_precision_tracker.sh:196`; `tests/test_precision_tracker.sh:240` | 已覆盖 v1 validate/audit/receipt 和 precision lifecycle 主要路径 | 需要保留 legacy coverage，并拆出 supply-chain/transaction/policy suites |
-| GH-699 delivery status | `docs/specs/GH699/tasks.md:5`; `docs/specs/GH699/tasks.md:7`; `docs/specs/GH699/tasks.md:8`; `docs/specs/GH699/tasks.md:9` | payload T1/T2 已完成；bootstrap、no-clone smoke、brew/npm launcher 尚未完成 | official `vibeguard add` 的 public evidence 受其后续 tasks 阻断 |
+| GH-699 delivery status | `docs/specs/GH699/tasks.md:5`; `docs/specs/GH699/tasks.md:7`; `docs/specs/GH699/tasks.md:8`; `docs/specs/GH699/tasks.md:9`; `docs/specs/GH699/tasks.md:10` | payload T1/T2 已完成；bootstrap、no-clone smoke、brew/npm launcher 尚未完成 | official `vibeguard add` 的 public evidence 受其后续 tasks 阻断 |
 
 写作时 remote PR #712 head
 `1408324dcb16be5327bb3f0c681433dcf3f7cd0f` 是 GH-701 Draft，提出 versioned host
@@ -367,7 +367,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-001 released no-checkout command | Runtime registry + GH-699 actual launcher integration | fresh HOME fixture runs discovered released `vibeguard add` with `.git`, Python, Cargo and API key absent; checkout-only route reports unofficial |
 | B-002 canonical exact identity | Locator + canonical model | table test rejects every missing/empty/mismatch/floating field before fetch/write and snapshots exact identity |
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
-| B-004 closed versioned schemas | Six schemas + readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
+| B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Policy schema + offline gate | missing/double/unknown/stale/spec-drift H-001–H-009 fixtures all block publish/install/eligibility |
 | B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix distinguishes verified/unofficial/revoked with no warning-only substitution |
