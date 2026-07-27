@@ -279,3 +279,69 @@ bootstrap_atomic_replace_symlink() {
   bootstrap_error "mv lacks a verified atomic no-dereference rename mode (-T or -h)."
   return 1
 }
+
+bootstrap_lock_read_owner() {
+  local lock_dir="$1" owner_file="${1}/owner" parsed
+
+  if [[ -L "${owner_file}" ]]; then
+    bootstrap_error "lock owner metadata must be a regular file, not a symlink: ${owner_file}"
+    return 1
+  fi
+  if [[ ! -f "${owner_file}" ]]; then
+    bootstrap_error "lock owner metadata is missing: ${owner_file}"
+    return 1
+  fi
+  if ! parsed="$(awk -F= '
+    NR == 1 && NF == 2 && $1 == "pid" && $2 ~ /^[1-9][0-9]*$/ {
+      pid = $2
+      next
+    }
+    NR == 2 && NF == 2 && $1 == "nonce" && $2 ~ /^[A-Za-z0-9._-]+$/ {
+      nonce = $2
+      next
+    }
+    { bad = 1 }
+    END {
+      if (!bad && NR == 2 && pid != "" && nonce != "") {
+        print pid "\t" nonce
+        exit 0
+      }
+      exit 1
+    }
+  ' "${owner_file}")"; then
+    bootstrap_error "lock owner metadata is malformed: ${owner_file}"
+    return 1
+  fi
+  IFS=$'\t' read -r BOOTSTRAP_LOCK_READ_PID BOOTSTRAP_LOCK_READ_NONCE <<< "${parsed}"
+}
+
+bootstrap_lock_reap_exact_owner() {
+  local lock_dir="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
+  local reap_dir="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.${expected_nonce}"
+
+  if [[ -e "${reap_dir}" || -L "${reap_dir}" ]]; then
+    bootstrap_error "lock reap path already exists: ${reap_dir}"
+    return 1
+  fi
+  if ! mv -- "${lock_dir}" "${reap_dir}"; then
+    bootstrap_error "could not claim bootstrap lock for ${action}: ${lock_dir}"
+    return 1
+  fi
+  if ! bootstrap_lock_read_owner "${reap_dir}" \
+    || [[ "${BOOTSTRAP_LOCK_READ_PID}" != "${expected_pid}" ]] \
+    || [[ "${BOOTSTRAP_LOCK_READ_NONCE}" != "${expected_nonce}" ]]; then
+    bootstrap_error "lock ownership changed during ${action}; preserving foreign lock."
+    if [[ ! -e "${lock_dir}" && ! -L "${lock_dir}" ]]; then
+      if ! mv -- "${reap_dir}" "${lock_dir}"; then
+        bootstrap_error "could not restore foreign lock after ${action}: ${reap_dir}"
+      fi
+    else
+      bootstrap_error "foreign lock retained at reap path after ${action}: ${reap_dir}"
+    fi
+    return 1
+  fi
+  if ! rm -f -- "${reap_dir}/owner" || ! rmdir "${reap_dir}"; then
+    bootstrap_error "failed to remove exact bootstrap lock owner during ${action}: ${reap_dir}"
+    return 1
+  fi
+}

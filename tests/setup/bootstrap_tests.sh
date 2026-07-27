@@ -294,7 +294,7 @@ marker = (
 if kind == "interrupt":
     setup = b"#!/usr/bin/env bash\nkill -TERM $$\n"
 elif kind == "handoff":
-    setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP\\n'\n"
+    setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP path=%s\\n' \"$0\"\n"
 elif kind == "fail-once":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail
@@ -324,6 +324,13 @@ continue_fifo="${VIBEGUARD_TEST_SETUP_CONTINUE_FIFO:?}"
 IFS= read -r signal < "${continue_fifo}"
 [[ "${signal}" == "continue" ]]
 printf 'WAIT_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "foreign-owner":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+lock_dir="${VIBEGUARD_TEST_LOCK_DIR:?}"
+printf 'pid=%s\\nnonce=foreign-owner\\n' "$$" > "${lock_dir}/owner"
+exit 42
 """
 else:
     setup = b"#!/usr/bin/env bash\nexit 0\n"
@@ -399,38 +406,20 @@ assert_cmd "version mismatch creates no version or current" bash -c \
 
 handoff_release="${TMP_HOME}/bootstrap-release-handoff"
 handoff_home="${TMP_HOME}/bootstrap-handoff-home"
-handoff_bin="${TMP_HOME}/bootstrap-handoff-bin"
-handoff_real_rmdir="$(command -v rmdir)"
 make_hostile_bootstrap_release "${handoff_release}" "handoff"
-mkdir -p "${handoff_home}/.vibeguard/dist/other" "${handoff_bin}"
-cat > "${handoff_home}/.vibeguard/dist/other/setup.sh" <<'SH'
-#!/usr/bin/env bash
-printf 'WRONG_CURRENT_SETUP\n'
-SH
-chmod +x "${handoff_home}/.vibeguard/dist/other/setup.sh"
-cat > "${handoff_bin}/rmdir" <<SH
-#!/usr/bin/env bash
-if [[ "\${1:-}" == "${handoff_home}/.vibeguard/dist/.bootstrap.lock" ]]; then
-  rm -f -- "${handoff_home}/.vibeguard/dist/current"
-  ln -s other "${handoff_home}/.vibeguard/dist/current"
-fi
-exec "${handoff_real_rmdir}" "\$@"
-SH
-chmod +x "${handoff_bin}/rmdir"
+mkdir -p "${handoff_home}"
 handoff_rc=0
 handoff_out="$(
   env "${bootstrap_base_env[@]}" \
     HOME="${handoff_home}" \
-    PATH="${handoff_bin}:${PATH}" \
     VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
 )" || handoff_rc=$?
 assert_cmd "bootstrap handoff executes the verified immutable version" test "${handoff_rc}" -eq 0
 assert_contains "${handoff_out}" "EXPECTED_FINAL_SETUP" "handoff runs this bootstrap's verified setup"
-assert_not_contains "${handoff_out}" "WRONG_CURRENT_SETUP" "handoff ignores a later current-link change"
-assert_cmd "handoff fixture changes current only after lock release" bash -c \
-  'test -L "$1" && test "$(readlink "$1")" = other' _ \
-  "${handoff_home}/.vibeguard/dist/current"
+assert_contains "${handoff_out}" \
+  "path=${handoff_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/setup.sh" \
+  "handoff invokes setup from the exact verified immutable directory"
 
 switch_failure_home="${TMP_HOME}/bootstrap-switch-failure-home"
 switch_failure_bin="${TMP_HOME}/bootstrap-switch-failure-bin"
@@ -575,7 +564,7 @@ lock_wait_second_out="$(
 )" || lock_wait_second_rc=$?
 assert_cmd "concurrent bootstrap is rejected while first setup is running" \
   test "${lock_wait_second_rc}" -eq 73
-assert_contains "${lock_wait_second_out}" "another bootstrap owns" \
+assert_contains "${lock_wait_second_out}" "active bootstrap owner pid=" \
   "concurrent rejection identifies active bootstrap ownership"
 assert_cmd "rejected concurrent bootstrap performs no download" \
   test ! -s "${lock_wait_second_download}"
@@ -767,16 +756,117 @@ assert_contains "${current_file_out}" "current exists and is not a symlink" "cur
 assert_cmd "bootstrap preserves an unmanaged current file" \
   grep -qFx "unmanaged" "${current_file_home}/.vibeguard/dist/current"
 
-locked_home="${TMP_HOME}/bootstrap-locked-home"
-mkdir -p "${locked_home}/.vibeguard/dist/.bootstrap.lock"
-locked_rc=0
-locked_out="$(
+active_lock_home="${TMP_HOME}/bootstrap-active-lock-home"
+active_lock_dir="${active_lock_home}/.vibeguard/dist/.bootstrap.lock"
+mkdir -p "${active_lock_dir}"
+printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}/owner"
+active_lock_rc=0
+active_lock_out="$(
   env "${bootstrap_base_env[@]}" \
-    HOME="${locked_home}" \
+    HOME="${active_lock_home}" \
     VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
-)" || locked_rc=$?
-assert_cmd "bootstrap fails visible on concurrent lock ownership" test "${locked_rc}" -eq 73
-assert_contains "${locked_out}" "another bootstrap owns" "concurrent bootstrap names lock ownership"
-assert_cmd "lock conflict performs no download or install" \
-  test ! -e "${locked_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+)" || active_lock_rc=$?
+assert_cmd "bootstrap rejects an active lock owner" test "${active_lock_rc}" -eq 73
+assert_contains "${active_lock_out}" "active bootstrap owner pid=$$" \
+  "active lock rejection identifies its owner pid"
+assert_cmd "active lock rejection preserves exact foreign owner metadata" \
+  grep -qFx "nonce=active-owner" "${active_lock_dir}/owner"
+assert_cmd "active lock conflict performs no download or install" \
+  test ! -e "${active_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
+dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"
+mkdir -p "${dead_lock_dir}"
+(exit 0) &
+dead_lock_pid=$!
+wait "${dead_lock_pid}"
+printf 'pid=%s\nnonce=dead-owner\n' "${dead_lock_pid}" > "${dead_lock_dir}/owner"
+dead_lock_rc=0
+dead_lock_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${dead_lock_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || dead_lock_rc=$?
+assert_cmd "bootstrap reaps a dead lock owner and retries acquisition" \
+  test "${dead_lock_rc}" -eq 0
+assert_contains "${dead_lock_out}" "EXPECTED_FINAL_SETUP" \
+  "dead-owner recovery continues through verified setup"
+assert_cmd "dead-owner recovery leaves no lock or reap directory" bash -c \
+  'test ! -e "$1" && test -z "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.reap.*" -print -quit)"' _ \
+  "${dead_lock_dir}" "${dead_lock_home}/.vibeguard/dist"
+
+missing_owner_home="${TMP_HOME}/bootstrap-missing-owner-home"
+missing_owner_dir="${missing_owner_home}/.vibeguard/dist/.bootstrap.lock"
+mkdir -p "${missing_owner_dir}"
+missing_owner_rc=0
+missing_owner_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${missing_owner_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
+)" || missing_owner_rc=$?
+assert_cmd "bootstrap fails closed on missing lock owner metadata" \
+  test "${missing_owner_rc}" -eq 73
+assert_contains "${missing_owner_out}" "lock owner metadata is missing" \
+  "missing lock owner failure is explicit"
+assert_cmd "missing owner lock is never reaped" test -d "${missing_owner_dir}"
+
+malformed_owner_home="${TMP_HOME}/bootstrap-malformed-owner-home"
+malformed_owner_dir="${malformed_owner_home}/.vibeguard/dist/.bootstrap.lock"
+mkdir -p "${malformed_owner_dir}"
+printf 'pid=not-a-pid\nnonce=\n' > "${malformed_owner_dir}/owner"
+malformed_owner_rc=0
+malformed_owner_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${malformed_owner_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
+)" || malformed_owner_rc=$?
+assert_cmd "bootstrap fails closed on malformed lock owner metadata" \
+  test "${malformed_owner_rc}" -eq 73
+assert_contains "${malformed_owner_out}" "lock owner metadata is malformed" \
+  "malformed lock owner failure is explicit"
+assert_cmd "malformed owner lock is never reaped" \
+  grep -qFx "pid=not-a-pid" "${malformed_owner_dir}/owner"
+
+symlink_owner_home="${TMP_HOME}/bootstrap-symlink-owner-home"
+symlink_owner_dir="${symlink_owner_home}/.vibeguard/dist/.bootstrap.lock"
+symlink_owner_foreign="${TMP_HOME}/bootstrap-symlink-owner.foreign"
+mkdir -p "${symlink_owner_dir}"
+printf 'pid=%s\nnonce=symlink-foreign\n' "$$" > "${symlink_owner_foreign}"
+ln -s "${symlink_owner_foreign}" "${symlink_owner_dir}/owner"
+symlink_owner_rc=0
+symlink_owner_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${symlink_owner_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
+)" || symlink_owner_rc=$?
+assert_cmd "bootstrap fails closed on symlink lock owner metadata" \
+  test "${symlink_owner_rc}" -eq 73
+assert_contains "${symlink_owner_out}" "lock owner metadata must be a regular file" \
+  "symlink owner failure is explicit"
+assert_cmd "symlink owner failure preserves foreign target" \
+  grep -qFx "nonce=symlink-foreign" "${symlink_owner_foreign}"
+
+foreign_owner_release="${TMP_HOME}/bootstrap-release-foreign-owner"
+foreign_owner_home="${TMP_HOME}/bootstrap-foreign-owner-home"
+foreign_owner_lock="${foreign_owner_home}/.vibeguard/dist/.bootstrap.lock"
+make_hostile_bootstrap_release "${foreign_owner_release}" "foreign-owner"
+mkdir -p "${foreign_owner_home}"
+foreign_owner_rc=0
+foreign_owner_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${foreign_owner_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${foreign_owner_release}" \
+    VIBEGUARD_TEST_LOCK_DIR="${foreign_owner_lock}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || foreign_owner_rc=$?
+assert_cmd "foreign lock owner replacement fails bootstrap visibly" \
+  test "${foreign_owner_rc}" -ne 0
+assert_contains "${foreign_owner_out}" "lock ownership changed" \
+  "cleanup reports foreign lock ownership instead of deleting it"
+assert_cmd "cleanup never deletes a foreign lock owner" \
+  grep -qFx "nonce=foreign-owner" "${foreign_owner_lock}/owner"

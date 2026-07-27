@@ -109,6 +109,58 @@ PREVIOUS_CURRENT_PRESENT=0
 PREVIOUS_CURRENT_TARGET=""
 CURRENT_SWITCHED=0
 TRANSACTION_COMMITTED=0
+LOCK_OWNER_PID=""
+LOCK_OWNER_NONCE=""
+
+bootstrap_acquire_owner_lock() {
+  local attempt
+
+  for attempt in 1 2 3; do
+    if mkdir "${LOCK_DIR}" 2>/dev/null; then
+      LOCK_OWNER_PID="$$"
+      LOCK_OWNER_NONCE="$$-${RANDOM}-${attempt}"
+      if ! printf 'pid=%s\nnonce=%s\n' "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" \
+        > "${LOCK_DIR}/owner"; then
+        bootstrap_error "could not initialize bootstrap lock owner metadata."
+        if ! rm -f -- "${LOCK_DIR}/owner" || ! rmdir "${LOCK_DIR}"; then
+          bootstrap_error "failed to clean partially initialized bootstrap lock."
+        fi
+        return 1
+      fi
+      LOCK_HELD=1
+      return 0
+    fi
+    if [[ -L "${LOCK_DIR}" || ! -d "${LOCK_DIR}" ]]; then
+      bootstrap_error "bootstrap lock must be a real directory: ${LOCK_DIR}"
+      return 73
+    fi
+    if ! bootstrap_lock_read_owner "${LOCK_DIR}"; then
+      return 73
+    fi
+    if kill -0 "${BOOTSTRAP_LOCK_READ_PID}" 2>/dev/null; then
+      bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
+      return 73
+    fi
+    if ! bootstrap_lock_reap_exact_owner \
+      "${LOCK_DIR}" "${DIST_ROOT}" \
+      "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
+      "stale-lock recovery"; then
+      return 73
+    fi
+  done
+
+  bootstrap_error "could not acquire bootstrap lock after stale-owner recovery."
+  return 73
+}
+
+bootstrap_release_owner_lock() {
+  if ! bootstrap_lock_reap_exact_owner \
+    "${LOCK_DIR}" "${DIST_ROOT}" "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" \
+    "lock release"; then
+    return 1
+  fi
+  LOCK_HELD=0
+}
 
 bootstrap_restore_previous_current() {
   local rollback_link
@@ -167,8 +219,8 @@ bootstrap_cleanup() {
       status=1
     fi
   fi
-  if [[ "${LOCK_HELD}" == "1" && -d "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
-    if ! rmdir "${LOCK_DIR}"; then
+  if [[ "${LOCK_HELD}" == "1" ]]; then
+    if ! bootstrap_release_owner_lock; then
       bootstrap_error "failed to release bootstrap lock: ${LOCK_DIR}"
       status=1
     fi
@@ -190,11 +242,11 @@ if [[ -L "${DIST_ROOT}" || (-e "${DIST_ROOT}" && ! -d "${DIST_ROOT}") ]]; then
   exit 1
 fi
 mkdir -p "${DIST_ROOT}"
-if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-  bootstrap_error "another bootstrap owns ${LOCK_DIR}; refusing concurrent install."
-  exit 73
+lock_rc=0
+bootstrap_acquire_owner_lock || lock_rc=$?
+if [[ "${lock_rc}" -ne 0 ]]; then
+  exit "${lock_rc}"
 fi
-LOCK_HELD=1
 
 if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
   bootstrap_error "distribution version already exists; refusing to overwrite: ${FINAL_DIR}"
@@ -312,5 +364,4 @@ CURRENT_SWITCHED=0
 FINAL_DIR_OWNED=0
 rm -rf -- "${BOOTSTRAP_TMP}"
 BOOTSTRAP_TMP=""
-rmdir "${LOCK_DIR}"
-LOCK_HELD=0
+bootstrap_release_owner_lock
