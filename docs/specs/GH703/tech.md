@@ -58,8 +58,8 @@ H-003 还必须附闭集 taxonomy snapshot；H-004 必须附 window/timezone/cat
 
 ### 2. 两个独立 schema 与 versioned taxonomy
 
-新增 `schemas/weekly-value-taxonomy.schema.json`，约束
-`data/weekly-value-taxonomy.json`：
+新增未来路径 schemas/weekly-value-taxonomy.schema.json，约束未来 taxonomy
+数据路径 data/weekly-value-taxonomy.json：
 
 - `schema_version` 与 `taxonomy_version`；
 - closed categories：
@@ -71,7 +71,7 @@ H-003 还必须附闭集 taxonomy snapshot；H-004 必须附 window/timezone/cat
   unclassified/operational 路径，匹配多项直接 nonzero；
 - taxonomy file 本身的 raw-byte SHA-256 进入 summary evidence。
 
-新增 `schemas/weekly-value-summary.schema.json`。内部 local artifact 的建议
+新增未来路径 schemas/weekly-value-summary.schema.json。内部 local artifact 的建议
 envelope：
 
 ```json
@@ -113,8 +113,8 @@ envelope：
 
 ### 3. Rust `observe weekly-value` producer
 
-在 observe 模块新增 `weekly-value` 命令和独立
-`vibeguard-runtime/src/observe/weekly_value.rs`：
+在 observe 模块新增 `weekly-value` 命令和独立未来模块路径
+vibeguard-runtime/src/observe/weekly_value.rs：
 
 1. CLI 必须取得显式 `--window-start`、`--window-end`、`--timezone`、`--scope
    global`、`--taxonomy` 和 output kind；scheduler 计算窗口，runtime 重新校验
@@ -175,14 +175,18 @@ share 字段挤入现有 `additionalProperties: false` contract。
   `scripts/systemd/vibeguard-weekly-value.timer`；
 - 不复用 `com.vibeguard.health-report`，也不改写第三方/未知同名文件。
 
-状态固定在 `~/.vibeguard/weekly-value/state.json`，schema 由
-`schemas/weekly-value-state.schema.json` 约束，至少包含：
+状态固定在 `~/.vibeguard/weekly-value/state.json`，schema 由未来路径
+schemas/weekly-value-state.schema.json 约束，至少包含：
 
 - `state`: `active|disabled_by_user|unsupported_platform|broken|stale|no_data`；
 - approved consent/platform/window/taxonomy version；
 - owned job identity、expected target digest、install mode；
 - last attempt/success/window/summary digest；
 - migration source（none / legacy missing field / explicit prior value state）。
+- `recovery_reason` closed 为
+  `none|rollback_disabled|target_drift|apply_failed|probe_failed|evidence_invalid`，
+  `repair_action` closed 为 `none|manual_enable|repair_target|retry_install`；两者只
+  解释 `broken` 的恢复路径，不形成新的 lifecycle state。
 
 install/enable/disable/clean 使用
 `~/.vibeguard/weekly-value/.lifecycle.lock` 的 bounded exclusive lock。状态转换按
@@ -195,6 +199,9 @@ changes，不覆盖第三方 actor 的新内容。
 
 在 `scripts/setup/install.sh` 的安装计划和最终确认中加入 weekly value 项：
 
+- public `setup.sh` 继续作为唯一用户入口，必须把 weekly-value opt-out 与
+  provenance/setup 参数原样委托到同一 `scripts/setup/install.sh` 路径，不新增
+  平行 installer；
 - H-001 recommendation 下，受支持平台默认 plan 为 enabled，显式
   `--no-weekly-value` 记录 `disabled_by_user`；
 - `--yes` 只在输出完整 plan 后确认同一 plan，不允许环境变量静默强开；
@@ -225,8 +232,9 @@ remove。
 - 旧 install state 没有 weekly-value 字段：按 H-001 最终批准的 migration
   显式显示一次，不把字段缺失当作 consent。
 
-`scripts/release/payload-manifest.txt` 必须加入 value wrapper、installer、
-taxonomy/schema、launchd/systemd templates 和 setup runtime dependencies。
+`scripts/release/payload-manifest.txt` 必须加入 public `setup.sh`、value wrapper、
+installer、taxonomy/schema、launchd/systemd templates 和 setup runtime
+dependencies。
 `tests/test_payload.sh` 要从本地 payload fixture 完成 install → scheduler probe →
 synthetic canonical log → scheduled value summary → doctor → clean，全程禁止
 network/Python/repository checkout。GH-699 T3–T7 可以与本 spec 分 tranche，但两者
@@ -277,6 +285,7 @@ JSON：
     "scripts/setup/install.sh",
     "scripts/systemd/vibeguard-weekly-value.service",
     "scripts/systemd/vibeguard-weekly-value.timer",
+    "setup.sh",
     "tests/fixtures/weekly-value",
     "tests/setup/install_flow_tests.sh",
     "tests/setup/syntax_manifest_tests.sh",
@@ -440,10 +449,11 @@ share publish，并让 doctor 标为 broken/stale；不得回退到
 
 回滚默认调度时，在 lifecycle lock 内只卸载
 `com.vibeguard.weekly-value` / 对应 user-systemd units，将 valid state 设为
-`disabled_by_rollback` 或获批的 closed 值，并保留 history/share。现有
+`broken`、`recovery_reason=rollback_disabled`、
+`repair_action=manual_enable`，并保留 history/share。现有
 `com.vibeguard.health-report`、第三方 jobs、event logs 和手工 health report 不变。
-若 target 或 state 已被外部 actor 修改，停止自动回滚并进入 needs-human/broken，
-不得覆盖。
+若 target 或 state 已被外部 actor 修改，停止自动回滚并保持 `broken`，
+记录 `recovery_reason=target_drift`、`repair_action=repair_target`，不得覆盖。
 
 从 payload 移除 value files 前，先发布不会注册该 job 的 setup，并验证 upgrade/
 clean 能移除旧 owned job；否则旧 scheduler 会指向不存在 target。H-001 至 H-008
