@@ -16,6 +16,8 @@ SERVICE_SRC="${SCRIPT_DIR}/systemd/vibeguard-gc.service"
 TIMER_SRC="${SCRIPT_DIR}/systemd/vibeguard-gc.timer"
 SERVICE_DEST="${UNIT_DIR}/vibeguard-gc.service"
 TIMER_DEST="${UNIT_DIR}/vibeguard-gc.timer"
+SCHEDULER_RECEIPT="${HOME}/.vibeguard/scheduler-ownership"
+LAUNCHD_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
 
 red()    { echo -e "\033[31m$*\033[0m"; }
 green()  { echo -e "\033[32m$*\033[0m"; }
@@ -34,6 +36,26 @@ fi
 
 if ! command -v systemctl &>/dev/null; then
   red "ERROR: systemctl not found. Is systemd running?"
+  exit 1
+fi
+
+if [[ -e "${SCHEDULER_RECEIPT}" || -L "${SCHEDULER_RECEIPT}" ]]; then
+  if [[ -L "${SCHEDULER_RECEIPT}" || ! -f "${SCHEDULER_RECEIPT}" ]]; then
+    red "ERROR: scheduler ownership receipt must be absent or a regular non-symlink file: ${SCHEDULER_RECEIPT}"
+    exit 1
+  fi
+  if awk 'NR == 2 && $0 == "kind=launchd" { found = 1 } END { exit(found ? 0 : 1) }' \
+    "${SCHEDULER_RECEIPT}"; then
+    red "ERROR: scheduler ownership receipt kind launchd does not match Linux systemd scheduler."
+    exit 1
+  fi
+  if grep -qFx "phase=cleaning" "${SCHEDULER_RECEIPT}"; then
+    red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean before installing."
+    exit 1
+  fi
+fi
+if [[ -e "${LAUNCHD_DEST}" || -L "${LAUNCHD_DEST}" ]]; then
+  red "ERROR: wrong-platform launchd scheduler file exists; refusing to create a systemd scheduler."
   exit 1
 fi
 

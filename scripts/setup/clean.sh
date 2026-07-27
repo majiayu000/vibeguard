@@ -120,13 +120,68 @@ clean_vibeguard_home() {
   yellow "Removed VibeGuard executable wrappers"
 }
 
+clean_scheduler_receipt_parse() {
+  awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { next }
+    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
+    NR == 3 && $1 == "phase" && ($2 == "managed" || $2 == "cleaning") {
+      phase = $2; declared_phase = 1; next
+    }
+    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      phase = "managed"; first = $2; next
+    }
+    NR == 4 && declared_phase && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      first = $2; next
+    }
+    NR == 4 && !declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2; next
+    }
+    NR == 5 && declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2; next
+    }
+    { bad = 1 }
+    END {
+      launchd_ok = kind == "launchd" && first != "" && second == "" && ((!declared_phase && NR == 3) || (declared_phase && NR == 4))
+      systemd_ok = kind == "systemd" && first != "" && second != "" && ((!declared_phase && NR == 4) || (declared_phase && NR == 5))
+      if (!bad && phase != "" && (launchd_ok || systemd_ok)) {
+        print kind "\t" phase "\t" first "\t" second
+        exit 0
+      }
+      exit 1
+    }
+  ' "$1"
+}
+
+clean_scheduler_receipt_write_phase() {
+  local receipt="$1" kind="$2" phase="$3" first_sha="$4" second_sha="${5:-}"
+  local temporary parsed parsed_kind parsed_phase parsed_first parsed_second
+  temporary="$(mktemp "$(dirname "${receipt}")/.scheduler-ownership.XXXXXX")"
+  if [[ "${kind}" == "launchd" ]]; then
+    printf 'schema=1\nkind=launchd\nphase=%s\nplist_sha256=%s\n' \
+      "${phase}" "${first_sha}" > "${temporary}"
+  else
+    printf 'schema=1\nkind=systemd\nphase=%s\nservice_sha256=%s\ntimer_sha256=%s\n' \
+      "${phase}" "${first_sha}" "${second_sha}" > "${temporary}"
+  fi
+  chmod 600 "${temporary}"
+  if ! mv -f -- "${temporary}" "${receipt}"; then
+    rm -f -- "${temporary}"
+    return 1
+  fi
+  [[ -f "${receipt}" && ! -L "${receipt}" ]] || return 1
+  parsed="$(clean_scheduler_receipt_parse "${receipt}")" || return 1
+  IFS=$'\t' read -r parsed_kind parsed_phase parsed_first parsed_second <<< "${parsed}"
+  [[ "${parsed_kind}" == "${kind}" && "${parsed_phase}" == "${phase}" \
+    && "${parsed_first}" == "${first_sha}" && "${parsed_second}" == "${second_sha}" ]]
+}
+
 clean_scheduled_gc() {
   local receipt="${HOME}/.vibeguard/scheduler-ownership"
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
   local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
-  local parsed="" kind="" first_sha="" second_sha="" actual_first="" actual_second=""
-  local preserve_reason=""
+  local parsed="" kind="" phase="" first_sha="" second_sha=""
+  local actual_first="" actual_second="" preserve_reason=""
 
   if [[ ! -e "${receipt}" && ! -L "${receipt}" ]]; then
     if [[ -e "${plist}" || -L "${plist}" || -e "${service}" || -L "${service}" \
@@ -136,66 +191,78 @@ clean_scheduled_gc() {
     return 0
   fi
   if [[ -L "${receipt}" || ! -f "${receipt}" ]]; then
-    preserve_reason="scheduler ownership receipt is not a regular file"
-  elif ! parsed="$(awk -F= '
-    NR == 1 && $1 == "schema" && $2 == "1" { next }
-    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
-    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ { first = $2; next }
-    NR == 4 && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ { second = $2; next }
-    { bad = 1 }
-    END {
-      if (!bad && ((kind == "launchd" && NR == 3) || (kind == "systemd" && NR == 4))) {
-        print kind "\t" first "\t" second
-        exit 0
-      }
-      exit 1
-    }
-  ' "${receipt}")"; then
-    preserve_reason="scheduler ownership receipt is invalid"
-  else
-    IFS=$'\t' read -r kind first_sha second_sha <<< "${parsed}"
-    case "${kind}" in
-      launchd)
+    yellow "Preserved scheduler files and receipt: scheduler ownership receipt is not a regular file"
+    return 0
+  fi
+  if ! parsed="$(clean_scheduler_receipt_parse "${receipt}")"; then
+    yellow "Preserved scheduler files and receipt: scheduler ownership receipt is invalid"
+    return 0
+  fi
+  IFS=$'\t' read -r kind phase first_sha second_sha <<< "${parsed}"
+
+  case "${kind}" in
+    launchd)
+      if [[ -e "${plist}" || -L "${plist}" ]]; then
         if [[ -L "${plist}" || ! -f "${plist}" ]] \
           || ! actual_first="$(setup_runtime_sha256_file "${plist}")" \
           || [[ "${actual_first}" != "${first_sha}" ]]; then
           preserve_reason="scheduler ownership receipt does not match current launchd file"
         fi
-        ;;
-      systemd)
-        if [[ -L "${service}" || ! -f "${service}" || -L "${timer}" || ! -f "${timer}" ]] \
+      elif [[ "${phase}" == "managed" ]]; then
+        preserve_reason="scheduler ownership receipt does not match current launchd file"
+      fi
+      ;;
+    systemd)
+      if [[ -e "${service}" || -L "${service}" ]]; then
+        if [[ -L "${service}" || ! -f "${service}" ]] \
           || ! actual_first="$(setup_runtime_sha256_file "${service}")" \
-          || ! actual_second="$(setup_runtime_sha256_file "${timer}")" \
-          || [[ "${actual_first}" != "${first_sha}" || "${actual_second}" != "${second_sha}" ]]; then
+          || [[ "${actual_first}" != "${first_sha}" ]]; then
           preserve_reason="scheduler ownership receipt does not match current systemd files"
         fi
-        ;;
-    esac
+      elif [[ "${phase}" == "managed" ]]; then
+        preserve_reason="scheduler ownership receipt does not match current systemd files"
+      fi
+      if [[ -e "${timer}" || -L "${timer}" ]]; then
+        if [[ -L "${timer}" || ! -f "${timer}" ]] \
+          || ! actual_second="$(setup_runtime_sha256_file "${timer}")" \
+          || [[ "${actual_second}" != "${second_sha}" ]]; then
+          preserve_reason="scheduler ownership receipt does not match current systemd files"
+        fi
+      elif [[ "${phase}" == "managed" ]]; then
+        preserve_reason="scheduler ownership receipt does not match current systemd files"
+      fi
+      ;;
+  esac
+  if [[ -n "${preserve_reason}" ]]; then
+    yellow "Preserved scheduler files and receipt: ${preserve_reason}"
+    return 0
   fi
 
-  if [[ -n "${preserve_reason}" ]]; then
-    yellow "Preserved scheduler files: ${preserve_reason}"
-  elif [[ "${kind}" == "launchd" ]]; then
+  if [[ "${phase}" == "managed" ]]; then
+    clean_scheduler_receipt_write_phase \
+      "${receipt}" "${kind}" cleaning "${first_sha}" "${second_sha}"
+  fi
+  if [[ "${kind}" == "launchd" ]]; then
     launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
-    rm -f "${plist}"
+    [[ ! -e "${plist}" && ! -L "${plist}" ]] || rm -f -- "${plist}"
+    [[ ! -e "${plist}" && ! -L "${plist}" ]] || return 1
     yellow "Removed scheduled GC (com.vibeguard.gc)"
   else
     if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
       systemctl --user stop vibeguard-gc.timer 2>/dev/null || true
       systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
     fi
-    rm -f "${service}" "${timer}"
+    [[ ! -e "${service}" && ! -L "${service}" ]] || rm -f -- "${service}"
+    [[ ! -e "${timer}" && ! -L "${timer}" ]] || rm -f -- "${timer}"
+    [[ ! -e "${service}" && ! -L "${service}" \
+      && ! -e "${timer}" && ! -L "${timer}" ]] || return 1
     if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
       systemctl --user daemon-reload 2>/dev/null || true
     fi
     yellow "Removed scheduled GC (vibeguard-gc.timer)"
   fi
-
-  if [[ -f "${receipt}" || -L "${receipt}" ]]; then
-    rm -f "${receipt}"
-  else
-    yellow "Preserved non-file scheduler ownership receipt: ${receipt}"
-  fi
+  rm -f -- "${receipt}"
+  [[ ! -e "${receipt}" && ! -L "${receipt}" ]]
 }
 
 echo "Cleaning VibeGuard installation..."

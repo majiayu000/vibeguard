@@ -167,6 +167,12 @@ SCHEDULER_REPO_DIR="${REPO_DIR}"
 SCHEDULER_REFRESHED=0
 SCHEDULER_PRESERVE_REASON=""
 SCHEDULER_RECEIPT="${VIBEGUARD_HOME}/scheduler-ownership"
+SCHEDULER_PLATFORM="$(uname)"
+SCHEDULER_PLATFORM_KIND=""
+case "${SCHEDULER_PLATFORM}" in
+  Darwin) SCHEDULER_PLATFORM_KIND="launchd" ;;
+  Linux) SCHEDULER_PLATFORM_KIND="systemd" ;;
+esac
 if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
   SCHEDULER_REPO_DIR="${HOME}/.vibeguard/dist/current"
 fi
@@ -180,8 +186,64 @@ scheduler_files_exist() {
     || -L "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]
 }
 
+scheduler_wrong_platform_files_exist() {
+  case "$1" in
+    launchd)
+      [[ -e "${HOME}/.config/systemd/user/vibeguard-gc.service" \
+        || -L "${HOME}/.config/systemd/user/vibeguard-gc.service" \
+        || -e "${HOME}/.config/systemd/user/vibeguard-gc.timer" \
+        || -L "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]
+      ;;
+    systemd)
+      [[ -e "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" \
+        || -L "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" ]]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+scheduler_receipt_parse() {
+  awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { next }
+    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
+    NR == 3 && $1 == "phase" && ($2 == "managed" || $2 == "cleaning") {
+      phase = $2
+      declared_phase = 1
+      next
+    }
+    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      phase = "managed"
+      first = $2
+      next
+    }
+    NR == 4 && declared_phase && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      first = $2
+      next
+    }
+    NR == 4 && !declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2
+      next
+    }
+    NR == 5 && declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2
+      next
+    }
+    { bad = 1 }
+    END {
+      launchd_ok = kind == "launchd" && first != "" && second == "" && ((!declared_phase && NR == 3) || (declared_phase && NR == 4))
+      systemd_ok = kind == "systemd" && first != "" && second != "" && ((!declared_phase && NR == 4) || (declared_phase && NR == 5))
+      if (!bad && phase != "" && (launchd_ok || systemd_ok)) {
+        print kind "\t" phase "\t" first "\t" second
+        exit 0
+      }
+      exit 1
+    }
+  ' "$1"
+}
+
 scheduler_receipt_matches() {
-  local parsed kind first_sha second_sha actual_first actual_second
+  local expected_kind="${1:-${SCHEDULER_PLATFORM_KIND}}"
+  local parsed kind phase first_sha second_sha actual_first actual_second
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
   local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
@@ -194,24 +256,19 @@ scheduler_receipt_matches() {
     SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is not a regular file"
     return 1
   fi
-  if ! parsed="$(awk -F= '
-    NR == 1 && $1 == "schema" && $2 == "1" { next }
-    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
-    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ { first = $2; next }
-    NR == 4 && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ { second = $2; next }
-    { bad = 1 }
-    END {
-      if (!bad && ((kind == "launchd" && NR == 3) || (kind == "systemd" && NR == 4))) {
-        print kind "\t" first "\t" second
-        exit 0
-      }
-      exit 1
-    }
-  ' "${SCHEDULER_RECEIPT}")"; then
+  if ! parsed="$(scheduler_receipt_parse "${SCHEDULER_RECEIPT}")"; then
     SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is invalid"
     return 1
   fi
-  IFS=$'\t' read -r kind first_sha second_sha <<< "${parsed}"
+  IFS=$'\t' read -r kind phase first_sha second_sha <<< "${parsed}"
+  if [[ "${kind}" != "${expected_kind}" ]]; then
+    SCHEDULER_PRESERVE_REASON="scheduler ownership receipt kind ${kind} does not match ${SCHEDULER_PLATFORM} ${expected_kind} scheduler"
+    return 1
+  fi
+  if [[ "${phase}" != "managed" ]]; then
+    SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is in cleaning phase; rerun setup --clean"
+    return 1
+  fi
   case "${kind}" in
     launchd)
       if [[ -L "${plist}" || ! -f "${plist}" ]] \
@@ -235,16 +292,36 @@ scheduler_receipt_matches() {
   return 0
 }
 
+scheduler_receipt_preflight_for_mutation() {
+  local expected_kind="$1" parsed kind phase
+  if [[ ! -e "${SCHEDULER_RECEIPT}" && ! -L "${SCHEDULER_RECEIPT}" ]]; then
+    :
+  elif [[ -L "${SCHEDULER_RECEIPT}" || ! -f "${SCHEDULER_RECEIPT}" ]]; then
+    red "ERROR: scheduler ownership receipt must be absent or a regular non-symlink file: ${SCHEDULER_RECEIPT}"
+    return 1
+  elif parsed="$(scheduler_receipt_parse "${SCHEDULER_RECEIPT}" 2>/dev/null)"; then
+    IFS=$'\t' read -r kind phase _ <<< "${parsed}"
+    if [[ "${kind}" != "${expected_kind}" ]]; then
+      red "ERROR: scheduler ownership receipt kind ${kind} does not match ${SCHEDULER_PLATFORM} ${expected_kind} scheduler; preserving scheduler state."
+      return 1
+    fi
+    if [[ "${phase}" == "cleaning" ]]; then
+      red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean before installing."
+      return 1
+    fi
+  fi
+  if scheduler_wrong_platform_files_exist "${expected_kind}"; then
+    red "ERROR: wrong-platform scheduler files exist; preserving them and refusing to create a ${expected_kind} scheduler."
+    return 1
+  fi
+}
+
 write_scheduler_receipt() {
   local kind="$1" temporary first_sha second_sha=""
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
   local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
 
-  if [[ -L "${SCHEDULER_RECEIPT}" ]]; then
-    red "ERROR: scheduler ownership receipt must not be a symlink: ${SCHEDULER_RECEIPT}"
-    return 1
-  fi
   case "${kind}" in
     launchd)
       [[ -f "${plist}" && ! -L "${plist}" ]] || return 1
@@ -261,21 +338,33 @@ write_scheduler_receipt() {
   mkdir -p "${VIBEGUARD_HOME}"
   temporary="$(mktemp "${VIBEGUARD_HOME}/.scheduler-ownership.XXXXXX")"
   if [[ "${kind}" == "launchd" ]]; then
-    printf 'schema=1\nkind=launchd\nplist_sha256=%s\n' "${first_sha}" > "${temporary}"
+    printf 'schema=1\nkind=launchd\nphase=managed\nplist_sha256=%s\n' \
+      "${first_sha}" > "${temporary}"
   else
-    printf 'schema=1\nkind=systemd\nservice_sha256=%s\ntimer_sha256=%s\n' \
+    printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
       "${first_sha}" "${second_sha}" > "${temporary}"
   fi
   chmod 600 "${temporary}"
-  mv -f -- "${temporary}" "${SCHEDULER_RECEIPT}"
-  state_record_file "${SCHEDULER_RECEIPT}" "generated/scheduler-ownership" "copy"
+  if ! mv -f -- "${temporary}" "${SCHEDULER_RECEIPT}"; then
+    rm -f -- "${temporary}"
+    return 1
+  fi
+  scheduler_receipt_matches "${kind}" || return 1
+  state_record_file "${SCHEDULER_RECEIPT}" "generated/scheduler-ownership" "copy" \
+    || return 1
 }
 
 if [[ "${WITH_SCHEDULER}" != "1" && "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]] \
   && scheduler_files_exist; then
-  if scheduler_receipt_matches; then
-    WITH_SCHEDULER=1
-    SCHEDULER_REFRESHED=1
+  if [[ -z "${SCHEDULER_PLATFORM_KIND}" ]]; then
+    SCHEDULER_PRESERVE_REASON="scheduler platform ${SCHEDULER_PLATFORM} is unsupported"
+  elif scheduler_receipt_matches "${SCHEDULER_PLATFORM_KIND}"; then
+    if scheduler_wrong_platform_files_exist "${SCHEDULER_PLATFORM_KIND}"; then
+      SCHEDULER_PRESERVE_REASON="wrong-platform scheduler files do not match ${SCHEDULER_PLATFORM} ${SCHEDULER_PLATFORM_KIND} scheduler"
+    else
+      WITH_SCHEDULER=1
+      SCHEDULER_REFRESHED=1
+    fi
   fi
 fi
 
@@ -541,7 +630,8 @@ if [[ "${WITH_SCHEDULER}" != "1" ]]; then
     yellow "  Scheduled GC not installed by default (opt in: bash setup.sh --yes --with-scheduler)"
   fi
   echo "  On-demand GC: /vibeguard:gc or bash scripts/gc/gc-scheduled.sh"
-elif [[ "$(uname)" == "Darwin" ]]; then
+elif [[ "${SCHEDULER_PLATFORM}" == "Darwin" ]]; then
+  scheduler_receipt_preflight_for_mutation launchd || exit 1
   chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
   PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
@@ -570,7 +660,8 @@ elif [[ "$(uname)" == "Darwin" ]]; then
     red "ERROR: scheduled GC plist not found: ${PLIST_SRC}"
     exit 1
   fi
-elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+elif [[ "${SCHEDULER_PLATFORM}" == "Linux" ]] && command -v systemctl &>/dev/null; then
+  scheduler_receipt_preflight_for_mutation systemd || exit 1
   chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
   if VIBEGUARD_REPO_DIR="${SCHEDULER_REPO_DIR}" \
     bash "${REPO_DIR}/scripts/install-systemd.sh"; then

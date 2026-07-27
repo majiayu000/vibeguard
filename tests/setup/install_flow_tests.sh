@@ -436,6 +436,124 @@ dev_linked_pre_push_rc=$?
 set -e
 assert_cmd "--dev-linked pre-push executes live repo source" test "${dev_linked_pre_push_rc}" -eq 47
 assert_contains "${dev_linked_pre_push_out}" "dev linked fake pre-push executed" "--dev-linked pre-push proves live repo execution is opt-in"
+
+scheduler_receipt_guard_home="${TMP_HOME}/scheduler-receipt-guard-home"
+scheduler_receipt_guard_dir="${scheduler_receipt_guard_home}/.config/systemd/user"
+mkdir -p "${scheduler_receipt_guard_dir}" \
+  "${scheduler_receipt_guard_home}/.vibeguard/scheduler-ownership"
+printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/custom-gc' \
+  > "${scheduler_receipt_guard_dir}/vibeguard-gc.service"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' \
+  > "${scheduler_receipt_guard_dir}/vibeguard-gc.timer"
+scheduler_receipt_guard_before="$(
+  shasum -a 256 \
+    "${scheduler_receipt_guard_dir}/vibeguard-gc.service" \
+    "${scheduler_receipt_guard_dir}/vibeguard-gc.timer"
+)"
+set +e
+scheduler_receipt_guard_out="$(
+  HOME="${scheduler_receipt_guard_home}" \
+    CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1
+)"
+scheduler_receipt_guard_rc=$?
+set -e
+assert_cmd "special scheduler receipt fails explicit install before mutation" \
+  test "${scheduler_receipt_guard_rc}" -ne 0
+assert_contains "${scheduler_receipt_guard_out}" \
+  "scheduler ownership receipt must be absent or a regular non-symlink file" \
+  "special receipt failure is explicit"
+assert_cmd "receipt directory preserves scheduler files byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${scheduler_receipt_guard_dir}/vibeguard-gc.service" \
+  "${scheduler_receipt_guard_dir}/vibeguard-gc.timer" \
+  "${scheduler_receipt_guard_before}"
+assert_cmd "receipt directory leaves systemd enable state unchanged" \
+  test ! -e "${scheduler_receipt_guard_home}/.systemctl-vibeguard-gc-active"
+
+wrong_kind_home="${TMP_HOME}/scheduler-wrong-kind-home"
+wrong_kind_plist="${wrong_kind_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
+mkdir -p "$(dirname "${wrong_kind_plist}")" "${wrong_kind_home}/.vibeguard"
+printf 'custom launchd scheduler\n' > "${wrong_kind_plist}"
+printf 'schema=1\nkind=launchd\nplist_sha256=%s\n' \
+  "$(shasum -a 256 "${wrong_kind_plist}" | awk '{print $1}')" \
+  > "${wrong_kind_home}/.vibeguard/scheduler-ownership"
+wrong_kind_before="$(
+  shasum -a 256 "${wrong_kind_plist}" \
+    "${wrong_kind_home}/.vibeguard/scheduler-ownership"
+)"
+set +e
+wrong_kind_out="$(
+  HOME="${wrong_kind_home}" \
+    CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1
+)"
+wrong_kind_rc=$?
+set -e
+assert_cmd "wrong-platform regular receipt blocks explicit scheduler install" \
+  test "${wrong_kind_rc}" -ne 0
+assert_contains "${wrong_kind_out}" "does not match Linux systemd scheduler" \
+  "wrong-platform explicit install failure is actionable"
+assert_cmd "wrong-platform receipt creates no systemd scheduler" bash -c \
+  'test ! -e "$1" && test ! -e "$2"' _ \
+  "${wrong_kind_home}/.config/systemd/user/vibeguard-gc.service" \
+  "${wrong_kind_home}/.config/systemd/user/vibeguard-gc.timer"
+assert_cmd "wrong-platform regular receipt and plist remain byte-identical" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${wrong_kind_plist}" "${wrong_kind_home}/.vibeguard/scheduler-ownership" \
+  "${wrong_kind_before}"
+
+regular_receipt_home="${TMP_HOME}/scheduler-regular-receipt-home"
+mkdir -p "${regular_receipt_home}/.vibeguard"
+printf 'obsolete regular receipt\n' \
+  > "${regular_receipt_home}/.vibeguard/scheduler-ownership"
+regular_receipt_out="$(
+  HOME="${regular_receipt_home}" \
+    CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1
+)"
+assert_contains "${regular_receipt_out}" "Scheduled GC installed via systemd" \
+  "explicit install replaces an obsolete regular receipt"
+assert_cmd "regular receipt replacement is strict managed systemd state" bash -c \
+  'grep -qFx "kind=systemd" "$1" && grep -qFx "phase=managed" "$1"' _ \
+  "${regular_receipt_home}/.vibeguard/scheduler-ownership"
+
+scheduler_state_fail_home="${TMP_HOME}/scheduler-state-record-fail-home"
+scheduler_state_fail_runtime="${TMP_HOME}/scheduler-state-record-fail-runtime"
+cat > "${scheduler_state_fail_runtime}" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "setup-state-record-file" \
+  && "\${3:-}" == "${scheduler_state_fail_home}/.vibeguard/scheduler-ownership" ]]; then
+  exit 91
+fi
+exec "${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime" "\$@"
+SH
+chmod +x "${scheduler_state_fail_runtime}"
+set +e
+scheduler_state_fail_out="$(
+  HOME="${scheduler_state_fail_home}" \
+    CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    VIBEGUARD_SETUP_RUNTIME="${scheduler_state_fail_runtime}" \
+    bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1
+)"
+scheduler_state_fail_rc=$?
+set -e
+assert_cmd "scheduler receipt state-record failure propagates" \
+  test "${scheduler_state_fail_rc}" -ne 0
+assert_contains "${scheduler_state_fail_out}" \
+  "failed to record systemd scheduler ownership" \
+  "scheduler state-record failure is explicit"
+assert_not_contains "${scheduler_state_fail_out}" \
+  "Setup complete! All components installed." \
+  "scheduler state-record failure never reports setup completion"
+assert_cmd "failed state record still leaves an exact regular receipt" bash -c \
+  'test -f "$1" && test ! -L "$1" && grep -qFx "kind=systemd" "$1" && grep -qFx "phase=managed" "$1"' _ \
+  "${scheduler_state_fail_home}/.vibeguard/scheduler-ownership"
+
 scheduler_fail_home="${TMP_HOME}/scheduler-enable-fail-home"
 mkdir -p "${scheduler_fail_home}"
 set +e

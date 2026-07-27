@@ -340,7 +340,11 @@ chmod +x "${WORK}/fake-bin/curl"
 cat > "${WORK}/fake-bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 # The payload fixture must not inspect or mutate host systemd state.
-exit 0
+[[ "${1:-}" == "--user" ]] && shift
+case "${1:-}" in
+  is-active) exit 3 ;;
+  *) exit 0 ;;
+esac
 SH
 chmod +x "${WORK}/fake-bin/systemctl"
 

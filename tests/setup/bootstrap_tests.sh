@@ -1416,7 +1416,7 @@ assert_cmd "payload systemd scheduler targets stable current selection" \
   grep -qF "${scheduler_home}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh" \
   "${scheduler_service}"
 assert_cmd "payload systemd scheduler records exact ownership hashes" bash -c \
-  'grep -qFx "schema=1" "$1" && grep -qFx "kind=systemd" "$1" && grep -qE "^service_sha256=[0-9a-f]{64}$" "$1" && grep -qE "^timer_sha256=[0-9a-f]{64}$" "$1"' _ \
+  'grep -qFx "schema=1" "$1" && grep -qFx "kind=systemd" "$1" && grep -qFx "phase=managed" "$1" && grep -qE "^service_sha256=[0-9a-f]{64}$" "$1" && grep -qE "^timer_sha256=[0-9a-f]{64}$" "$1"' _ \
   "${scheduler_home}/.vibeguard/scheduler-ownership"
 sed -e "s|dist/current/scripts/gc|dist/${BOOTSTRAP_VERSION}/scripts/gc|g" \
   "${scheduler_service}" > "${scheduler_service}.old"
@@ -1440,6 +1440,29 @@ assert_contains "${scheduler_retry_out}" "Mode: refresh managed scheduler" \
 assert_cmd "managed scheduler refresh removes the old version-specific target" bash -c \
   'grep -qF "$2/dist/current/scripts/gc/gc-scheduled.sh" "$1" && ! grep -qF "$2/dist/$3/scripts/gc/gc-scheduled.sh" "$1"' _ \
   "${scheduler_service}" "${scheduler_home}/.vibeguard" "${BOOTSTRAP_VERSION}"
+
+wrong_systemd_before="$(
+  shasum -a 256 "${scheduler_service}" "${scheduler_timer}" \
+    "${scheduler_home}/.vibeguard/scheduler-ownership"
+)"
+wrong_systemd_rc=0
+wrong_systemd_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${scheduler_home}" \
+    VIBEGUARD_TEST_UNAME=Darwin \
+    VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || wrong_systemd_rc=$?
+assert_cmd "Darwin payload retry preserves a Linux scheduler HOME" \
+  test "${wrong_systemd_rc}" -eq 0
+assert_contains "${wrong_systemd_out}" "does not match Darwin launchd scheduler" \
+  "Darwin retry reports wrong-platform systemd ownership"
+assert_cmd "Darwin retry does not create launchd beside owned systemd files" \
+  test ! -e "${scheduler_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
+assert_cmd "Darwin retry preserves systemd files and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3")" = "$4"' _ \
+  "${scheduler_service}" "${scheduler_timer}" \
+  "${scheduler_home}/.vibeguard/scheduler-ownership" "${wrong_systemd_before}"
 
 printf 'Environment="CUSTOM_FLAG=preserve"\n' >> "${scheduler_service}"
 sed -e 's/OnCalendar=.*/OnCalendar=Mon *-*-* 04:30:00/' \
@@ -1505,8 +1528,33 @@ env "${bootstrap_base_env[@]}" \
 assert_cmd "payload bootstrap installs opted-in launchd scheduler" \
   test "${launchd_scheduler_rc}" -eq 0
 assert_cmd "payload launchd scheduler records exact ownership hash" bash -c \
-  'grep -qFx "schema=1" "$1" && grep -qFx "kind=launchd" "$1" && grep -qE "^plist_sha256=[0-9a-f]{64}$" "$1"' _ \
+  'grep -qFx "schema=1" "$1" && grep -qFx "kind=launchd" "$1" && grep -qFx "phase=managed" "$1" && grep -qE "^plist_sha256=[0-9a-f]{64}$" "$1"' _ \
   "${launchd_scheduler_home}/.vibeguard/scheduler-ownership"
+wrong_launchd_before="$(
+  shasum -a 256 "${launchd_scheduler_plist}" \
+    "${launchd_scheduler_home}/.vibeguard/scheduler-ownership"
+)"
+wrong_launchd_rc=0
+wrong_launchd_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${launchd_scheduler_home}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || wrong_launchd_rc=$?
+assert_cmd "Linux payload retry preserves a Darwin scheduler HOME" \
+  test "${wrong_launchd_rc}" -eq 0
+assert_contains "${wrong_launchd_out}" "does not match Linux systemd scheduler" \
+  "Linux retry reports wrong-platform launchd ownership"
+assert_cmd "Linux retry does not create systemd beside owned launchd files" bash -c \
+  'test ! -e "$1" && test ! -e "$2"' _ \
+  "${launchd_scheduler_home}/.config/systemd/user/vibeguard-gc.service" \
+  "${launchd_scheduler_home}/.config/systemd/user/vibeguard-gc.timer"
+assert_cmd "Linux retry preserves launchd file and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${launchd_scheduler_plist}" \
+  "${launchd_scheduler_home}/.vibeguard/scheduler-ownership" \
+  "${wrong_launchd_before}"
 python3 - "${launchd_scheduler_plist}" <<'PY'
 from pathlib import Path
 import sys

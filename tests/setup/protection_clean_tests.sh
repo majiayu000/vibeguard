@@ -59,9 +59,155 @@ assert_contains "${mixed_clean_out}" "scheduler ownership receipt does not match
 assert_cmd "setup --clean preserves custom scheduler Environment and schedule" bash -c \
   'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
   "${custom_scheduler_service}" "${custom_scheduler_timer}" "${custom_scheduler_before}"
-assert_cmd "setup --clean removes stale scheduler ownership receipt" \
-  test ! -e "${HOME}/.vibeguard/scheduler-ownership"
+assert_cmd "setup --clean preserves drifted scheduler ownership receipt" \
+  test -f "${HOME}/.vibeguard/scheduler-ownership"
 rm -f "${custom_scheduler_service}" "${custom_scheduler_timer}"
+rm -f "${HOME}/.vibeguard/scheduler-ownership"
+
+for scheduler_clean_point in after-phase after-first before-receipt; do
+  scheduler_clean_home="${TMP_HOME}/scheduler-clean-${scheduler_clean_point}-home"
+  scheduler_clean_bin="${TMP_HOME}/scheduler-clean-${scheduler_clean_point}-bin"
+  scheduler_clean_service="${scheduler_clean_home}/.config/systemd/user/vibeguard-gc.service"
+  scheduler_clean_timer="${scheduler_clean_home}/.config/systemd/user/vibeguard-gc.timer"
+  scheduler_clean_receipt="${scheduler_clean_home}/.vibeguard/scheduler-ownership"
+  mkdir -p "$(dirname "${scheduler_clean_service}")" \
+    "$(dirname "${scheduler_clean_receipt}")" "${scheduler_clean_bin}"
+  printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/managed-gc' \
+    > "${scheduler_clean_service}"
+  printf '%s\n' '[Timer]' 'OnCalendar=daily' > "${scheduler_clean_timer}"
+  printf 'schema=1\nkind=systemd\nservice_sha256=%s\ntimer_sha256=%s\n' \
+    "$(shasum -a 256 "${scheduler_clean_service}" | awk '{print $1}')" \
+    "$(shasum -a 256 "${scheduler_clean_timer}" | awk '{print $1}')" \
+    > "${scheduler_clean_receipt}"
+  scheduler_clean_real_mv="$(command -v mv)"
+  scheduler_clean_real_rm="$(command -v rm)"
+  case "${scheduler_clean_point}" in
+    after-phase)
+      cat > "${scheduler_clean_bin}/mv" <<SH
+#!/usr/bin/env bash
+previous=""
+last=""
+for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
+if [[ "\${last}" == "${scheduler_clean_receipt}" ]] \
+  && grep -qFx "phase=cleaning" "\${previous}" 2>/dev/null; then
+  "${scheduler_clean_real_mv}" "\$@"
+  kill -KILL "\${PPID}"
+  exit 137
+fi
+exec "${scheduler_clean_real_mv}" "\$@"
+SH
+      chmod +x "${scheduler_clean_bin}/mv"
+      ;;
+    after-first)
+      cat > "${scheduler_clean_bin}/rm" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "${scheduler_clean_service}" ]]; then
+    "${scheduler_clean_real_rm}" -f -- "${scheduler_clean_service}"
+    kill -KILL "\${PPID}"
+    exit 137
+  fi
+done
+exec "${scheduler_clean_real_rm}" "\$@"
+SH
+      chmod +x "${scheduler_clean_bin}/rm"
+      ;;
+    before-receipt)
+      cat > "${scheduler_clean_bin}/rm" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "${scheduler_clean_receipt}" ]]; then
+    kill -KILL "\${PPID}"
+    exit 137
+  fi
+done
+exec "${scheduler_clean_real_rm}" "\$@"
+SH
+      chmod +x "${scheduler_clean_bin}/rm"
+      ;;
+  esac
+  scheduler_clean_rc=0
+  HOME="${scheduler_clean_home}" \
+    PATH="${scheduler_clean_bin}:${PATH}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 \
+    || scheduler_clean_rc=$?
+  assert_cmd "scheduler clean crash ${scheduler_clean_point} exits nonzero" \
+    test "${scheduler_clean_rc}" -ne 0
+  assert_cmd "scheduler clean crash ${scheduler_clean_point} persists cleaning phase" \
+    grep -qFx "phase=cleaning" "${scheduler_clean_receipt}"
+  HOME="${scheduler_clean_home}" VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --clean >/dev/null
+  assert_cmd "scheduler clean retry ${scheduler_clean_point} removes all owned state" bash -c \
+    'test ! -e "$1" && test ! -e "$2" && test ! -e "$3"' _ \
+    "${scheduler_clean_service}" "${scheduler_clean_timer}" \
+    "${scheduler_clean_receipt}"
+done
+
+cleaning_drift_home="${TMP_HOME}/scheduler-clean-drift-home"
+cleaning_drift_timer="${cleaning_drift_home}/.config/systemd/user/vibeguard-gc.timer"
+cleaning_drift_receipt="${cleaning_drift_home}/.vibeguard/scheduler-ownership"
+mkdir -p "$(dirname "${cleaning_drift_timer}")" "$(dirname "${cleaning_drift_receipt}")"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' > "${cleaning_drift_timer}"
+cleaning_drift_original_sha="$(
+  shasum -a 256 "${cleaning_drift_timer}" | awk '{print $1}'
+)"
+printf 'schema=1\nkind=systemd\nphase=cleaning\nservice_sha256=%064d\ntimer_sha256=%s\n' \
+  0 "${cleaning_drift_original_sha}" > "${cleaning_drift_receipt}"
+printf 'Environment="CUSTOM_AFTER_CRASH=preserve"\n' >> "${cleaning_drift_timer}"
+cleaning_drift_before="$(
+  shasum -a 256 "${cleaning_drift_timer}" "${cleaning_drift_receipt}"
+)"
+cleaning_drift_out="$(
+  HOME="${cleaning_drift_home}" VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)"
+assert_contains "${cleaning_drift_out}" \
+  "scheduler ownership receipt does not match current systemd files" \
+  "cleaning retry reports drift instead of deleting remaining state"
+assert_cmd "cleaning retry preserves drifted file and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${cleaning_drift_timer}" "${cleaning_drift_receipt}" \
+  "${cleaning_drift_before}"
+
+launchd_clean_home="${TMP_HOME}/scheduler-clean-launchd-home"
+launchd_clean_bin="${TMP_HOME}/scheduler-clean-launchd-bin"
+launchd_clean_plist="${launchd_clean_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
+launchd_clean_receipt="${launchd_clean_home}/.vibeguard/scheduler-ownership"
+mkdir -p "$(dirname "${launchd_clean_plist}")" \
+  "$(dirname "${launchd_clean_receipt}")" "${launchd_clean_bin}"
+printf 'managed launchd scheduler\n' > "${launchd_clean_plist}"
+printf 'schema=1\nkind=launchd\nplist_sha256=%s\n' \
+  "$(shasum -a 256 "${launchd_clean_plist}" | awk '{print $1}')" \
+  > "${launchd_clean_receipt}"
+launchd_clean_real_rm="$(command -v rm)"
+cat > "${launchd_clean_bin}/rm" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "${launchd_clean_plist}" ]]; then
+    "${launchd_clean_real_rm}" -f -- "${launchd_clean_plist}"
+    kill -KILL "\${PPID}"
+    exit 137
+  fi
+done
+exec "${launchd_clean_real_rm}" "\$@"
+SH
+chmod +x "${launchd_clean_bin}/rm"
+launchd_clean_rc=0
+HOME="${launchd_clean_home}" PATH="${launchd_clean_bin}:${PATH}" \
+  VIBEGUARD_TEST_UNAME=Darwin \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 \
+  || launchd_clean_rc=$?
+assert_cmd "launchd clean crash after owned file deletion exits nonzero" \
+  test "${launchd_clean_rc}" -ne 0
+assert_cmd "launchd clean crash preserves cleaning receipt" \
+  grep -qFx "phase=cleaning" "${launchd_clean_receipt}"
+HOME="${launchd_clean_home}" VIBEGUARD_TEST_UNAME=Darwin \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null
+assert_cmd "launchd clean retry removes receipt after confirming absence" bash -c \
+  'test ! -e "$1" && test ! -e "$2"' _ \
+  "${launchd_clean_plist}" "${launchd_clean_receipt}"
+
 bash "${REPO_DIR}/setup.sh" --yes --profile full >/dev/null
 
 _CUSTOM_RULE="${HOME}/.claude/rules/vibeguard/common/security.md"
