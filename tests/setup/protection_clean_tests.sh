@@ -50,8 +50,14 @@ printf '%s\n' 'schema=1' 'kind=systemd' \
 custom_scheduler_before="$(
   shasum -a 256 "${custom_scheduler_service}" "${custom_scheduler_timer}"
 )"
-mixed_clean_out="$(VIBEGUARD_TEST_UNAME=Linux bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
-assert_contains "${mixed_clean_out}" "VibeGuard cleaned." "setup --clean succeeds with mixed Claude hook entry"
+mixed_clean_rc=0
+mixed_clean_out="$(
+  VIBEGUARD_TEST_UNAME=Linux bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)" || mixed_clean_rc=$?
+assert_cmd "setup --clean fails loudly when scheduler ownership drift blocks complete cleanup" \
+  test "${mixed_clean_rc}" -ne 0
+assert_not_contains "${mixed_clean_out}" "VibeGuard cleaned." \
+  "incomplete scheduler cleanup never reports global clean success"
 assert_cmd "setup --clean preserves third-party Claude hook in mixed entry" grep -q "/tmp/third-party-pre-bash.sh" "${HOME}/.claude/settings.json"
 assert_cmd "setup --clean removes VibeGuard hook from mixed entry" bash -c "! grep -q 'pre-bash-guard.sh' '${HOME}/.claude/settings.json'"
 assert_contains "${mixed_clean_out}" "scheduler ownership receipt does not match" \
@@ -158,10 +164,12 @@ printf 'Environment="CUSTOM_AFTER_CRASH=preserve"\n' >> "${cleaning_drift_timer}
 cleaning_drift_before="$(
   shasum -a 256 "${cleaning_drift_timer}" "${cleaning_drift_receipt}"
 )"
+cleaning_drift_rc=0
 cleaning_drift_out="$(
   HOME="${cleaning_drift_home}" VIBEGUARD_TEST_UNAME=Linux \
     bash "${REPO_DIR}/setup.sh" --clean 2>&1
-)"
+)" || cleaning_drift_rc=$?
+assert_cmd "cleaning retry with drift exits nonzero" test "${cleaning_drift_rc}" -ne 0
 assert_contains "${cleaning_drift_out}" \
   "scheduler ownership receipt does not match current systemd files" \
   "cleaning retry reports drift instead of deleting remaining state"
@@ -169,6 +177,47 @@ assert_cmd "cleaning retry preserves drifted file and receipt byte-for-byte" bas
   'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
   "${cleaning_drift_timer}" "${cleaning_drift_receipt}" \
   "${cleaning_drift_before}"
+
+legacy_scheduler_home="${TMP_HOME}/legacy-systemd-scheduler-home"
+legacy_scheduler_dir="${legacy_scheduler_home}/.config/systemd/user"
+legacy_scheduler_service="${legacy_scheduler_dir}/vibeguard-gc.service"
+legacy_scheduler_timer="${legacy_scheduler_dir}/vibeguard-gc.timer"
+mkdir -p "${legacy_scheduler_dir}"
+sed "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" \
+  "${REPO_DIR}/scripts/systemd/vibeguard-gc.service" > "${legacy_scheduler_service}"
+cp "${REPO_DIR}/scripts/systemd/vibeguard-gc.timer" "${legacy_scheduler_timer}"
+legacy_scheduler_out="$(
+  HOME="${legacy_scheduler_home}" VIBEGUARD_TEST_UNAME=Linux \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)"
+assert_contains "${legacy_scheduler_out}" "Removed scheduled GC" \
+  "clean recognizes and removes legacy VibeGuard scheduler files without a receipt"
+assert_cmd "legacy scheduler cleanup removes units and temporary ownership receipt" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3"' _ \
+  "${legacy_scheduler_service}" "${legacy_scheduler_timer}" \
+  "${legacy_scheduler_home}/.vibeguard/scheduler-ownership"
+
+unowned_scheduler_home="${TMP_HOME}/unowned-systemd-scheduler-home"
+unowned_scheduler_dir="${unowned_scheduler_home}/.config/systemd/user"
+mkdir -p "${unowned_scheduler_dir}"
+printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/custom-gc' \
+  > "${unowned_scheduler_dir}/vibeguard-gc.service"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' \
+  > "${unowned_scheduler_dir}/vibeguard-gc.timer"
+unowned_scheduler_before="$(
+  shasum -a 256 "${unowned_scheduler_dir}/vibeguard-gc.service" \
+    "${unowned_scheduler_dir}/vibeguard-gc.timer"
+)"
+unowned_scheduler_rc=0
+HOME="${unowned_scheduler_home}" VIBEGUARD_TEST_UNAME=Linux \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 \
+  || unowned_scheduler_rc=$?
+assert_cmd "clean refuses scheduler files whose legacy VibeGuard ownership is unproven" \
+  test "${unowned_scheduler_rc}" -ne 0
+assert_cmd "unowned legacy scheduler files remain byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${unowned_scheduler_dir}/vibeguard-gc.service" \
+  "${unowned_scheduler_dir}/vibeguard-gc.timer" "${unowned_scheduler_before}"
 
 for scheduler_edit_target in service timer; do
   scheduler_edit_home="${TMP_HOME}/scheduler-edit-${scheduler_edit_target}-home"

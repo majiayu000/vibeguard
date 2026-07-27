@@ -15,6 +15,33 @@ assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
 
+busybox_mv_bin="${TMP_HOME}/bootstrap-busybox-mv-bin"
+busybox_mv_marker="${TMP_HOME}/bootstrap-busybox-mv.marker"
+busybox_mv_root="${TMP_HOME}/bootstrap-busybox-mv-root"
+mkdir -p "${busybox_mv_bin}" "${busybox_mv_root}/old" "${busybox_mv_root}/new"
+ln -s old "${busybox_mv_root}/current"
+ln -s new "${busybox_mv_root}/next"
+cat > "${busybox_mv_bin}/mv" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "--version" ]]; then exit 1; fi
+if [[ "\${1:-}" == "-fT" && "\${2:-}" == "--" ]]; then
+  printf 'busybox-t\\n' > "${busybox_mv_marker}"
+  exec python3 -c 'import os,sys; os.replace(sys.argv[1], sys.argv[2])' "\${3}" "\${4}"
+fi
+exit 64
+SH
+chmod +x "${busybox_mv_bin}/mv"
+assert_cmd "atomic current switch probes BusyBox-compatible mv -T capability" bash -c '
+  set -euo pipefail
+  PATH="$1:$PATH"
+  source "$2"
+  bootstrap_atomic_replace_symlink "$3" "$4"
+  test "$(readlink "$4")" = new
+' _ "${busybox_mv_bin}" "${BOOTSTRAP_LIB}" \
+  "${busybox_mv_root}/next" "${busybox_mv_root}/current"
+assert_cmd "BusyBox mv capability path was exercised without a GNU version banner" \
+  grep -qFx "busybox-t" "${busybox_mv_marker}"
+
 mkdir -p "${BOOTSTRAP_RELEASE}"
 cp "${TEST_RELEASE_DIR}"/vibeguard-runtime-* "${BOOTSTRAP_RELEASE}/"
 cp "${TEST_RELEASE_DIR}/vibeguard-runtime-releases.json" "${BOOTSTRAP_RELEASE}/"
@@ -499,6 +526,19 @@ assert_cmd "successful retry preserves old version and commits exact current" ba
 
 argv_release="${TMP_HOME}/bootstrap-release-argv"
 make_hostile_bootstrap_release "${argv_release}" "argv"
+default_no_args_home="${TMP_HOME}/bootstrap-default-no-args-home"
+mkdir -p "${default_no_args_home}"
+default_no_args_rc=0
+default_no_args_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${default_no_args_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" 2>&1
+)" || default_no_args_rc=$?
+assert_cmd "bootstrap default install supports zero forwarded arguments" \
+  test "${default_no_args_rc}" -eq 0
+assert_not_contains "${default_no_args_out}" "ARGV[0]=" \
+  "zero-argument setup handoff passes no synthetic argument"
 for argv_case in \
   default \
   explicit-install \
@@ -1068,6 +1108,96 @@ for clean_attempt in 1 2; do
     "${clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
 done
 
+clean_help_home="${TMP_HOME}/bootstrap-clean-help-home"
+mkdir -p "${clean_help_home}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${clean_help_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes >/dev/null
+clean_help_before="$(
+  shasum -a 256 \
+    "${clean_help_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/.vibeguard-payload" \
+    "${clean_help_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
+)"
+clean_help_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${clean_help_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean --help 2>&1
+)"
+assert_contains "${clean_help_out}" "ARGV[0]=--clean" \
+  "clean help executes only the verified staged help path"
+assert_cmd "clean help preserves selected payload and transaction byte-for-byte" bash -c \
+  'test "$(readlink "$1")" = "$2" && test "$(shasum -a 256 "$3" "$4")" = "$5"' _ \
+  "${clean_help_home}/.vibeguard/dist/current" "${BOOTSTRAP_VERSION}" \
+  "${clean_help_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/.vibeguard-payload" \
+  "${clean_help_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${clean_help_before}"
+
+cross_clean_home="${TMP_HOME}/bootstrap-cross-version-clean-home"
+cross_clean_version="9.9.8"
+mkdir -p "${cross_clean_home}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${cross_clean_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes >/dev/null
+mv "${cross_clean_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}"
+sed -e "s/^version=.*/version=${cross_clean_version}/" \
+  "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}/.vibeguard-payload" \
+  > "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}/.vibeguard-payload.next"
+mv "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}/.vibeguard-payload.next" \
+  "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}/.vibeguard-payload"
+printf '%s\n' "${cross_clean_version}" \
+  > "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}/vibeguard-runtime/VERSION"
+mv "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}"
+sed -e "s/^version=.*/version=${cross_clean_version}/" \
+  "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}" \
+  > "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}.next"
+mv "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}.next" \
+  "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}"
+rm -f "${cross_clean_home}/.vibeguard/dist/current"
+ln -s "${cross_clean_version}" "${cross_clean_home}/.vibeguard/dist/current"
+env "${bootstrap_base_env[@]}" \
+  HOME="${cross_clean_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean >/dev/null
+assert_cmd "older launcher clean removes the verified active bootstrap payload" bash -c \
+  'test ! -e "$1" && test ! -L "$1" && test ! -e "$2" && test ! -e "$3"' _ \
+  "${cross_clean_home}/.vibeguard/dist/current" \
+  "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}" \
+  "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}"
+
+clean_cleanup_home="${TMP_HOME}/bootstrap-clean-cleanup-failure-home"
+clean_cleanup_bin="${TMP_HOME}/bootstrap-clean-cleanup-failure-bin"
+clean_cleanup_marker="${TMP_HOME}/bootstrap-clean-cleanup-failure.marker"
+clean_cleanup_real_rm="$(command -v rm)"
+mkdir -p "${clean_cleanup_home}" "${clean_cleanup_bin}"
+cat > "${clean_cleanup_bin}/rm" <<SH
+#!/usr/bin/env bash
+last=""
+for arg in "\$@"; do last="\${arg}"; done
+if [[ "\${last}" == "${clean_cleanup_home}/.vibeguard/dist/.bootstrap-${BOOTSTRAP_VERSION}."* \
+  && ! -e "${clean_cleanup_marker}" ]]; then
+  : > "${clean_cleanup_marker}"
+  exit 1
+fi
+exec "${clean_cleanup_real_rm}" "\$@"
+SH
+chmod +x "${clean_cleanup_bin}/rm"
+clean_cleanup_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${clean_cleanup_home}" \
+  PATH="${clean_cleanup_bin}:${PATH}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean \
+  >/dev/null 2>&1 || clean_cleanup_rc=$?
+assert_cmd "clean propagates fallible final cleanup instead of exiting zero" \
+  test "${clean_cleanup_rc}" -ne 0
+assert_cmd "clean cleanup failure still releases the exact bootstrap lock" \
+  test ! -e "${clean_cleanup_home}/.vibeguard/dist/.bootstrap.lock"
+
 for clean_crash_point in before-current after-current after-final; do
   clean_crash_home="${TMP_HOME}/bootstrap-clean-crash-${clean_crash_point}-home"
   clean_crash_bin="${TMP_HOME}/bootstrap-clean-crash-${clean_crash_point}-bin"
@@ -1395,6 +1525,21 @@ PY
   done
 } | LC_ALL=C sort -k2,2 > "${scheduler_release}/SHA256SUMS"
 
+direct_payload_scheduler_home="${TMP_HOME}/direct-payload-scheduler-home"
+direct_payload_scheduler_service="${direct_payload_scheduler_home}/.config/systemd/user/vibeguard-gc.service"
+mkdir -p "${direct_payload_scheduler_home}"
+direct_payload_scheduler_rc=0
+HOME="${direct_payload_scheduler_home}" \
+  VIBEGUARD_TEST_UNAME=Linux \
+  VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+  bash "${scheduler_payload_root}/setup.sh" --yes --with-scheduler \
+  >/dev/null 2>&1 || direct_payload_scheduler_rc=$?
+assert_cmd "direct unpacked payload installs opted-in scheduler without dist/current" \
+  test "${direct_payload_scheduler_rc}" -eq 0
+assert_cmd "direct payload scheduler targets its verified payload root" \
+  grep -qF "${scheduler_payload_root}/scripts/gc/gc-scheduled.sh" \
+  "${direct_payload_scheduler_service}"
+
 scheduler_home="${TMP_HOME}/bootstrap-scheduler-home"
 scheduler_unit_dir="${scheduler_home}/.config/systemd/user"
 scheduler_service="${scheduler_unit_dir}/vibeguard-gc.service"
@@ -1486,6 +1631,20 @@ assert_contains "${custom_scheduler_out}" "scheduler ownership receipt does not 
 assert_cmd "custom systemd Environment and schedule remain byte-identical" bash -c \
   'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
   "${scheduler_service}" "${scheduler_timer}" "${custom_scheduler_before}"
+custom_scheduler_clean_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${scheduler_home}" \
+  VIBEGUARD_TEST_UNAME=Linux \
+  VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean \
+  >/dev/null 2>&1 || custom_scheduler_clean_rc=$?
+assert_cmd "bootstrap clean fails when scheduler cleanup is explicitly deferred" \
+  test "${custom_scheduler_clean_rc}" -ne 0
+assert_cmd "deferred scheduler cleanup retains the active verified payload" bash -c \
+  'test -L "$1" && test -d "$2" && test "$(readlink "$1")" = "$3"' _ \
+  "${scheduler_home}/.vibeguard/dist/current" \
+  "${scheduler_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${BOOTSTRAP_VERSION}"
 
 unmanaged_scheduler_home="${TMP_HOME}/bootstrap-unmanaged-scheduler-home"
 unmanaged_scheduler_dir="${unmanaged_scheduler_home}/.config/systemd/user"

@@ -21,7 +21,9 @@ VERSION=""
 VERSION_SET=0
 REQUIRE_PROVENANCE=0
 declare -a SETUP_ARGS=()
+SETUP_ARG_COUNT=0
 CLEAN_REQUESTED=0
+CLEAN_HELP_REQUESTED=0
 
 bootstrap_usage() {
   printf '%s\n' \
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --)
       shift
       SETUP_ARGS=("$@")
+      SETUP_ARG_COUNT=$#
       break
       ;;
     *)
@@ -91,6 +94,9 @@ if ! bootstrap_validate_version "${VERSION}"; then
 fi
 if [[ "${SETUP_ARGS[0]:-}" == "--clean" ]]; then
   CLEAN_REQUESTED=1
+  case "${SETUP_ARGS[1]:-}" in
+    --help|-h) CLEAN_HELP_REQUESTED=1 ;;
+  esac
 fi
 if [[ -z "${HOME:-}" || "${HOME}" != /* ]]; then
   bootstrap_error "HOME must be a non-empty absolute path."
@@ -315,6 +321,22 @@ bootstrap_cleanup() {
   fi
   return "${status}"
 }
+
+bootstrap_run_setup_script() {
+  local setup_path="$1"
+  if [[ "${SETUP_ARG_COUNT}" -eq 0 ]]; then
+    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}"
+  else
+    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "${SETUP_ARGS[@]}"
+  fi
+}
+
+bootstrap_finish_cleanup() {
+  local cleanup_rc=0
+  trap - EXIT
+  bootstrap_cleanup || cleanup_rc=$?
+  return "${cleanup_rc}"
+}
 trap bootstrap_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -401,6 +423,14 @@ if ! tar -xzf "${ARCHIVE}" -C "${STAGE_DIR}"; then
 fi
 bootstrap_validate_extracted_payload "${STAGE_DIR}" "${VERSION}"
 
+if [[ "${CLEAN_HELP_REQUESTED}" == "1" ]]; then
+  help_rc=0
+  bootstrap_run_setup_script "${STAGE_DIR}/setup.sh" || help_rc=$?
+  [[ "${help_rc}" -eq 0 ]] || exit "${help_rc}"
+  bootstrap_finish_cleanup || exit 1
+  exit 0
+fi
+
 # Recheck conflicts after all remote input has been verified and while the
 # bootstrap lock remains held. Existing version directories are immutable.
 EXISTING_FINAL=0
@@ -454,22 +484,29 @@ elif [[ "${EXISTING_TRANSACTION}" == "1" ]]; then
 fi
 
 if [[ "${CLEAN_REQUESTED}" == "1" ]]; then
+  bootstrap_prepare_clean_selection "${DIST_ROOT}" "${CURRENT_LINK}" || exit 73
+  CLEAN_SELECTED_VERSION="${BOOTSTRAP_CLEAN_SELECTED_VERSION}"
   SETUP_STARTED=1
   bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
     "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "cleaning"
   printf 'Payload verified: checksum=%s provenance=%s\n' \
     "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
   clean_rc=0
-  PYTHONDONTWRITEBYTECODE=1 \
-    bash "${STAGE_DIR}/setup.sh" "${SETUP_ARGS[@]}" || clean_rc=$?
+  bootstrap_run_setup_script "${STAGE_DIR}/setup.sh" || clean_rc=$?
   [[ "${clean_rc}" -eq 0 ]] || exit "${clean_rc}"
-  if [[ -L "${CURRENT_LINK}" && "$(readlink "${CURRENT_LINK}")" == "${VERSION}" ]]; then
+  if [[ -n "${CLEAN_SELECTED_VERSION}" ]]; then
+    if [[ ! -L "${CURRENT_LINK}" \
+      || "$(readlink "${CURRENT_LINK}")" != "${CLEAN_SELECTED_VERSION}" ]]; then
+      bootstrap_error "active payload selection changed during clean; preserving distribution evidence."
+      exit 73
+    fi
     rm -f -- "${CURRENT_LINK}"
+    rm -rf -- "${DIST_ROOT:?}/${CLEAN_SELECTED_VERSION}"
+    rm -f -- "${DIST_ROOT}/.bootstrap-transaction-${CLEAN_SELECTED_VERSION}"
   fi
-  if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
-    rm -rf -- "${FINAL_DIR}"
-  fi
+  [[ "${CLEAN_SELECTED_VERSION}" == "${VERSION}" ]] || rm -rf -- "${FINAL_DIR}"
   rm -f -- "${TRANSACTION_FILE}"
+  bootstrap_finish_cleanup || exit 1
   exit 0
 fi
 
@@ -525,6 +562,7 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
       done
       if [[ "${setup_has_pack}" == "0" ]]; then
         SETUP_ARGS=(install --require-provenance "${SETUP_ARGS[@]:1}")
+        SETUP_ARG_COUNT=$((SETUP_ARG_COUNT + 1))
       fi
       ;;
     doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
@@ -533,6 +571,7 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
       ;;
     *)
       SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+      SETUP_ARG_COUNT=$((SETUP_ARG_COUNT + 1))
       ;;
   esac
 fi
@@ -540,8 +579,7 @@ setup_rc=0
 bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
   "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "setup"
 SETUP_STARTED=1
-PYTHONDONTWRITEBYTECODE=1 \
-  bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}" || setup_rc=$?
+bootstrap_run_setup_script "${FINAL_DIR}/setup.sh" || setup_rc=$?
 if [[ "${setup_rc}" -ne 0 ]]; then
   bootstrap_error "payload setup failed with exit status ${setup_rc}; preserving verified payload for repair."
   exit "${setup_rc}"

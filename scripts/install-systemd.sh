@@ -23,6 +23,25 @@ red()    { echo -e "\033[31m$*\033[0m"; }
 green()  { echo -e "\033[32m$*\033[0m"; }
 yellow() { echo -e "\033[33m$*\033[0m"; }
 
+scheduler_sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+scheduler_receipt_value() {
+  local key="$1"
+  awk -F= -v key="${key}" '
+    $1 == key { count += 1; value = $2 }
+    END {
+      if (count == 1 && value != "") print value
+      else exit 1
+    }
+  ' "${SCHEDULER_RECEIPT}"
+}
+
 if [[ "${REPO_DIR}" != /* || ! -d "${REPO_DIR}" ]]; then
   red "ERROR: VIBEGUARD_REPO_DIR must name an absolute VibeGuard directory."
   exit 1
@@ -61,10 +80,52 @@ fi
 
 # --- Remove mode ---
 if [[ "${1:-}" == "--remove" ]]; then
+  REMOVE_RECEIPT=0
+  if [[ -f "${SCHEDULER_RECEIPT}" && ! -L "${SCHEDULER_RECEIPT}" ]]; then
+    receipt_kind="$(scheduler_receipt_value kind)" || {
+      red "ERROR: scheduler ownership receipt is invalid; preserving scheduler state."
+      exit 1
+    }
+    [[ "${receipt_kind}" == "systemd" ]] || {
+      red "ERROR: scheduler ownership receipt kind ${receipt_kind} does not match Linux systemd scheduler."
+      exit 1
+    }
+    receipt_phase="$(scheduler_receipt_value phase 2>/dev/null || printf 'managed')"
+    [[ "${receipt_phase}" == "managed" ]] || {
+      red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean."
+      exit 1
+    }
+    service_sha="$(scheduler_receipt_value service_sha256)"
+    timer_sha="$(scheduler_receipt_value timer_sha256)"
+    [[ "${service_sha}" =~ ^[0-9a-f]{64}$ && "${timer_sha}" =~ ^[0-9a-f]{64}$ ]] || {
+      red "ERROR: scheduler ownership receipt hashes are invalid; preserving scheduler state."
+      exit 1
+    }
+    for unit_path in "${SERVICE_DEST}" "${TIMER_DEST}"; do
+      if [[ -L "${unit_path}" || (-e "${unit_path}" && ! -f "${unit_path}") ]]; then
+        red "ERROR: systemd unit must be a regular file or absent; preserving scheduler state: ${unit_path}"
+        exit 1
+      fi
+    done
+    if [[ -e "${SERVICE_DEST}" ]] \
+      && [[ "$(scheduler_sha256_file "${SERVICE_DEST}")" != "${service_sha}" ]]; then
+      red "ERROR: systemd service changed after ownership was recorded; preserving scheduler state."
+      exit 1
+    fi
+    if [[ -e "${TIMER_DEST}" ]] \
+      && [[ "$(scheduler_sha256_file "${TIMER_DEST}")" != "${timer_sha}" ]]; then
+      red "ERROR: systemd timer changed after ownership was recorded; preserving scheduler state."
+      exit 1
+    fi
+    REMOVE_RECEIPT=1
+  fi
   echo "Removing VibeGuard systemd units..."
   systemctl --user stop  vibeguard-gc.timer  2>/dev/null || true
   systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
   rm -f "${SERVICE_DEST}" "${TIMER_DEST}"
+  if [[ "${REMOVE_RECEIPT}" == "1" ]]; then
+    rm -f "${SCHEDULER_RECEIPT}"
+  fi
   systemctl --user daemon-reload 2>/dev/null || true
   green "VibeGuard systemd units removed."
   exit 0

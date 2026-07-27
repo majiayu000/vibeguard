@@ -188,6 +188,24 @@ clean_scheduler_verify_before_remove() {
   fi
 }
 
+clean_legacy_launchd_scheduler_owned() {
+  local plist="$1"
+  [[ -f "${plist}" && ! -L "${plist}" ]] \
+    && grep -qF '<string>com.vibeguard.gc</string>' "${plist}" \
+    && grep -Eq '<string>[^<]*/scripts/gc/gc-scheduled\.sh</string>' "${plist}" \
+    && grep -qF '<string>--scheduled</string>' "${plist}"
+}
+
+clean_legacy_systemd_scheduler_owned() {
+  local service="$1" timer="$2"
+  [[ -f "${service}" && ! -L "${service}" \
+    && -f "${timer}" && ! -L "${timer}" ]] \
+    && grep -qFx 'Description=VibeGuard Scheduled GC' "${service}" \
+    && grep -Eq '^ExecStart=/bin/bash ".*[/]scripts/gc/gc-scheduled\.sh"$' "${service}" \
+    && grep -qFx 'Description=VibeGuard Scheduled GC Timer' "${timer}" \
+    && grep -qFx 'Unit=vibeguard-gc.service' "${timer}"
+}
+
 clean_scheduled_gc() {
   local receipt="${HOME}/.vibeguard/scheduler-ownership"
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
@@ -197,19 +215,38 @@ clean_scheduled_gc() {
   local actual_first="" actual_second="" preserve_reason=""
 
   if [[ ! -e "${receipt}" && ! -L "${receipt}" ]]; then
-    if [[ -e "${plist}" || -L "${plist}" || -e "${service}" || -L "${service}" \
-      || -e "${timer}" || -L "${timer}" ]]; then
-      yellow "Preserved scheduler files: scheduler ownership receipt is missing"
+    if [[ ! -e "${plist}" && ! -L "${plist}" \
+      && ! -e "${service}" && ! -L "${service}" \
+      && ! -e "${timer}" && ! -L "${timer}" ]]; then
+      return 0
     fi
-    return 0
+    if [[ ! -e "${service}" && ! -L "${service}" \
+      && ! -e "${timer}" && ! -L "${timer}" ]] \
+      && clean_legacy_launchd_scheduler_owned "${plist}"; then
+      kind="launchd"
+      phase="cleaning"
+      first_sha="$(setup_runtime_sha256_file "${plist}")"
+    elif [[ ! -e "${plist}" && ! -L "${plist}" ]] \
+      && clean_legacy_systemd_scheduler_owned "${service}" "${timer}"; then
+      kind="systemd"
+      phase="cleaning"
+      first_sha="$(setup_runtime_sha256_file "${service}")"
+      second_sha="$(setup_runtime_sha256_file "${timer}")"
+    else
+      yellow "Preserved scheduler files: scheduler ownership receipt is missing"
+      return 1
+    fi
+    mkdir -p "$(dirname "${receipt}")"
+    clean_scheduler_receipt_write_phase \
+      "${receipt}" "${kind}" "${phase}" "${first_sha}" "${second_sha}"
   fi
   if [[ -L "${receipt}" || ! -f "${receipt}" ]]; then
     yellow "Preserved scheduler files and receipt: scheduler ownership receipt is not a regular file"
-    return 0
+    return 1
   fi
   if ! parsed="$(clean_scheduler_receipt_parse "${receipt}")"; then
     yellow "Preserved scheduler files and receipt: scheduler ownership receipt is invalid"
-    return 0
+    return 1
   fi
   IFS=$'\t' read -r kind phase first_sha second_sha <<< "${parsed}"
 
@@ -248,7 +285,7 @@ clean_scheduled_gc() {
   esac
   if [[ -n "${preserve_reason}" ]]; then
     yellow "Preserved scheduler files and receipt: ${preserve_reason}"
-    return 0
+    return 1
   fi
 
   if [[ "${phase}" == "managed" ]]; then

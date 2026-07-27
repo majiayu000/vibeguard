@@ -9,6 +9,38 @@ assert_cmd "launchd plist points to canonical GC script path" grep -q "__VIBEGUA
 assert_cmd "systemd service points to canonical GC script path" grep -q "__VIBEGUARD_DIR__/scripts/gc/gc-scheduled.sh" "${REPO_DIR}/scripts/systemd/vibeguard-gc.service"
 assert_cmd "systemd installer chmods canonical GC script path" grep -q 'scripts/gc/gc-scheduled.sh' "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scheduled GC installers do not reference retired root path" bash -c "! grep -q 'scripts/gc-scheduled.sh' '${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist' '${REPO_DIR}/scripts/systemd/vibeguard-gc.service' '${REPO_DIR}/scripts/install-systemd.sh'"
+
+systemd_remove_home="${TMP_HOME}/systemd-remove-receipt-home"
+systemd_remove_dir="${systemd_remove_home}/.config/systemd/user"
+systemd_remove_bin="${TMP_HOME}/systemd-remove-receipt-bin"
+systemd_remove_receipt="${systemd_remove_home}/.vibeguard/scheduler-ownership"
+mkdir -p "${systemd_remove_dir}" "${systemd_remove_bin}" "$(dirname "${systemd_remove_receipt}")"
+sed "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" \
+  "${REPO_DIR}/scripts/systemd/vibeguard-gc.service" \
+  > "${systemd_remove_dir}/vibeguard-gc.service"
+cp "${REPO_DIR}/scripts/systemd/vibeguard-gc.timer" \
+  "${systemd_remove_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${systemd_remove_dir}/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${systemd_remove_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${systemd_remove_receipt}"
+cat > "${systemd_remove_bin}/uname" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' Linux
+SH
+cat > "${systemd_remove_bin}/systemctl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "${systemd_remove_bin}/uname" "${systemd_remove_bin}/systemctl"
+assert_cmd "documented systemd remover clears matching units and ownership receipt" \
+  env HOME="${systemd_remove_home}" PATH="${systemd_remove_bin}:${PATH}" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" --remove
+assert_cmd "systemd remover leaves no stale scheduler ownership state" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3"' _ \
+  "${systemd_remove_dir}/vibeguard-gc.service" \
+  "${systemd_remove_dir}/vibeguard-gc.timer" "${systemd_remove_receipt}"
+
 assert_cmd "health report scheduled wrapper exists at canonical path" test -x "${REPO_DIR}/scripts/health-report-scheduled.sh"
 assert_cmd "health report scheduler installer exists at canonical path" test -x "${REPO_DIR}/scripts/install-health-report-scheduler.sh"
 assert_cmd "health report launchd plist points to canonical wrapper path" grep -q "__VIBEGUARD_DIR__/scripts/health-report-scheduled.sh" "${REPO_DIR}/scripts/setup/com.vibeguard.health-report.plist"

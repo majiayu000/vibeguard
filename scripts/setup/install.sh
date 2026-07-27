@@ -173,7 +173,9 @@ case "${SCHEDULER_PLATFORM}" in
   Darwin) SCHEDULER_PLATFORM_KIND="launchd" ;;
   Linux) SCHEDULER_PLATFORM_KIND="systemd" ;;
 esac
-if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" \
+  && -L "${HOME}/.vibeguard/dist/current" \
+  && -f "${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh" ]]; then
   SCHEDULER_REPO_DIR="${HOME}/.vibeguard/dist/current"
 fi
 

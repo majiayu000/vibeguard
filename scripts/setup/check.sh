@@ -210,7 +210,11 @@ check_launchd_scheduled_gc() {
   local loaded=0
 
   if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
-    expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+    if [[ -L "${HOME}/.vibeguard/dist/current" ]]; then
+      expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+    else
+      expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+    fi
   fi
 
   if active_print="$(launchctl print "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null)"; then
@@ -260,7 +264,11 @@ check_systemd_scheduled_gc() {
   local actual=""
 
   if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
-    expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+    if [[ -L "${HOME}/.vibeguard/dist/current" ]]; then
+      expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+    else
+      expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+    fi
   fi
   if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
     if [[ -L "${service}" || ! -f "${service}" ]]; then

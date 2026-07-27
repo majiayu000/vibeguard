@@ -263,12 +263,10 @@ bootstrap_validate_extracted_payload() {
 bootstrap_atomic_replace_symlink() {
   local source_link="$1" target_link="$2"
 
-  if mv --version 2>/dev/null | grep -q 'GNU coreutils'; then
-    if mv -fT -- "${source_link}" "${target_link}"; then
-      return 0
-    fi
-    bootstrap_error "GNU mv -T could not atomically replace dist/current."
-    return 1
+  # GNU and BusyBox mv support -T. Probe the operation itself so Linux
+  # implementations are not inferred from a GNU-only version banner.
+  if mv -fT -- "${source_link}" "${target_link}" 2>/dev/null; then
+    return 0
   fi
 
   # BSD mv (including macOS) uses -h to replace a destination symlink instead
@@ -278,6 +276,23 @@ bootstrap_atomic_replace_symlink() {
   fi
   bootstrap_error "mv lacks a verified atomic no-dereference rename mode (-T or -h)."
   return 1
+}
+
+bootstrap_prepare_clean_selection() {
+  local dist_root="$1" current_link="$2" selected
+  # shellcheck disable=SC2034 # Consumed by the sourcing bootstrap entrypoint.
+  BOOTSTRAP_CLEAN_SELECTED_VERSION=""
+  if [[ ! -L "${current_link}" ]]; then
+    return 0
+  fi
+  selected="$(readlink "${current_link}")" || return 1
+  if ! bootstrap_validate_version "${selected}" \
+    || [[ ! -d "${dist_root}/${selected}" || -L "${dist_root}/${selected}" ]] \
+    || ! bootstrap_validate_extracted_payload "${dist_root}/${selected}" "${selected}"; then
+    bootstrap_error "active bootstrap payload selection is not safely removable: ${selected}"
+    return 1
+  fi
+  BOOTSTRAP_CLEAN_SELECTED_VERSION="${selected}"
 }
 
 bootstrap_pid_liveness() {
