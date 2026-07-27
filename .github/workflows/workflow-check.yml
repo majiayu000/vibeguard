@@ -3,6 +3,12 @@ name: specrail-workflow-check
 on:
   workflow_dispatch:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - converted_to_draft
   push:
     branches:
       - main
@@ -27,7 +33,16 @@ jobs:
           python-version: "3.11"
 
       - name: Check SpecRail pack and spec packets
-        run: python3 checks/check_workflow.py --repo . --all-specs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          check_args=(--repo . --all-specs --spec-stage complete)
+          if [[ "${EVENT_NAME}" == "pull_request" && "${PR_IS_DRAFT}" == "true" ]]; then
+            check_args=(--repo . --all-specs --spec-stage draft --base-ref "${BASE_SHA}")
+          fi
+          python3 checks/check_workflow.py "${check_args[@]}"
 
       - name: Run SpecRail adoption smoke tests
         run: bash tests/test_specrail_adoption.sh
