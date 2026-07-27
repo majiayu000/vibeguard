@@ -266,7 +266,7 @@ bounded lock，different project/model/policy 分区。kill switch 不删除 L1 
 下列 manifest 对 **Recommended local-sidecar + TypeScript/npm reference path（仍未批准）**
 是一条完整 implementation ownership map。它不是 tasks 或实施授权。`semantic-sidecar/`
 包含 provider executable source；exact model/weights 不进入 git，其 identity/provenance
-写入 `data/semantic-model-manifest.json`，获批权重是由
+写入 planned **data/semantic-model-manifest.json**，获批权重是由
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、tests 与 docs surface 无遗漏，不表示 H-001–H-020 已批准。任一决定改变
@@ -469,7 +469,7 @@ H-020 批准。
 - [ ] Unit tests: closed schemas、identity joins、protocol parser、precedence、inventory、
       semantic weakening、W state machine、cache、scorer、eligibility 与 redaction。
 - [ ] Integration tests: Claude/Codex production hooks、real sidecar failure matrix、structured
-      projection、precision/Learn、`tests/setup/semantic_asset_install_tests.sh` 的
+      projection、precision/Learn、planned **tests/setup/semantic_asset_install_tests.sh** 的
       install/update/revoke、`tests/test_setup.sh`、payload/no-clone 和 interruption。
 - [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
       precision tracker、Learn adoption、payload、hook manifest 与 docs contracts。
