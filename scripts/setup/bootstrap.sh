@@ -137,14 +137,23 @@ bootstrap_acquire_owner_lock() {
     if ! bootstrap_lock_read_owner "${LOCK_DIR}"; then
       return 73
     fi
-    if kill -0 "${BOOTSTRAP_LOCK_READ_PID}" 2>/dev/null; then
-      bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
-      return 73
-    fi
+    bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
+    case "${BOOTSTRAP_PID_LIVENESS}" in
+      active)
+        bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
+        return 73
+        ;;
+      dead)
+        ;;
+      *)
+        bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
+        return 73
+        ;;
+    esac
     if ! bootstrap_lock_reap_exact_owner \
       "${LOCK_DIR}" "${DIST_ROOT}" \
       "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
-      "stale-lock recovery"; then
+      "stale-lock recovery" "1"; then
       return 73
     fi
   done
@@ -341,7 +350,16 @@ printf 'Payload verified: checksum=%s provenance=%s\n' \
 if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
   case "${SETUP_ARGS[0]:-}" in
     install)
-      SETUP_ARGS=(install --require-provenance "${SETUP_ARGS[@]:1}")
+      setup_has_pack=0
+      for setup_arg in "${SETUP_ARGS[@]:1}"; do
+        if [[ "${setup_arg}" == "--pack" || "${setup_arg}" == --pack=* ]]; then
+          setup_has_pack=1
+          break
+        fi
+      done
+      if [[ "${setup_has_pack}" == "0" ]]; then
+        SETUP_ARGS=(install --require-provenance "${SETUP_ARGS[@]:1}")
+      fi
       ;;
     doctor|verify-install|verify-project|verify-dev-repo|--check|--clean|--codex-status|packs|demo|--help|-h|help)
       # Bootstrap already enforced payload provenance. These dispatcher

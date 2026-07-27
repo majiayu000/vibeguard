@@ -473,7 +473,14 @@ assert_cmd "successful retry preserves old version and commits exact current" ba
 
 argv_release="${TMP_HOME}/bootstrap-release-argv"
 make_hostile_bootstrap_release "${argv_release}" "argv"
-for argv_case in default explicit-install doctor verify-install clean; do
+for argv_case in \
+  default \
+  explicit-install \
+  explicit-install-pack \
+  explicit-install-pack-equals \
+  doctor \
+  verify-install \
+  clean; do
   argv_home="${TMP_HOME}/bootstrap-argv-${argv_case}-home"
   mkdir -p "${argv_home}"
   case "${argv_case}" in
@@ -482,6 +489,12 @@ for argv_case in default explicit-install doctor verify-install clean; do
       ;;
     explicit-install)
       argv_setup_args=(install --dry-run --yes)
+      ;;
+    explicit-install-pack)
+      argv_setup_args=(install --pack core --yes)
+      ;;
+    explicit-install-pack-equals)
+      argv_setup_args=(install --yes --pack=core)
       ;;
     doctor)
       argv_setup_args=(doctor --json)
@@ -517,6 +530,20 @@ for argv_case in default explicit-install doctor verify-install clean; do
         "explicit install remains the dispatcher command"
       assert_contains "${argv_out}" "ARGV[1]=--require-provenance" \
         "explicit install receives provenance after its command"
+      ;;
+    explicit-install-pack)
+      assert_contains "${argv_out}" "ARGV[0]=install" \
+        "pack install remains the dispatcher command"
+      assert_contains "${argv_out}" "ARGV[1]=--pack" \
+        "pack install preserves its split pack option"
+      assert_not_contains "${argv_out}" "--require-provenance" \
+        "pack install does not receive install-parser provenance"
+      ;;
+    explicit-install-pack-equals)
+      assert_contains "${argv_out}" "ARGV[2]=--pack=core" \
+        "pack install preserves its equals-form pack option and order"
+      assert_not_contains "${argv_out}" "--require-provenance" \
+        "equals-form pack install does not receive install-parser provenance"
       ;;
     doctor|verify-install|clean)
       assert_contains "${argv_out}" "ARGV[0]=${argv_setup_args[0]}" \
@@ -758,6 +785,38 @@ assert_cmd "bootstrap preserves an unmanaged current file" \
 
 active_lock_home="${TMP_HOME}/bootstrap-active-lock-home"
 active_lock_dir="${active_lock_home}/.vibeguard/dist/.bootstrap.lock"
+assert_cmd "portable PID classifier treats real PID 1 as active" bash -c '
+  source "$1"
+  bootstrap_pid_liveness 1
+  test "${BOOTSTRAP_PID_LIVENESS}" = active
+' _ "${BOOTSTRAP_LIB}"
+assert_cmd "PID classifier treats kill EPERM plus strict ps match as active" bash -c '
+  source "$1"
+  kill() { return 1; }
+  ps() {
+    test "$*" = "-p 77 -o pid=" || return 2
+    printf "  77\n"
+  }
+  bootstrap_pid_liveness 77
+  test "${BOOTSTRAP_PID_LIVENESS}" = active
+' _ "${BOOTSTRAP_LIB}"
+assert_cmd "PID classifier accepts only empty ps exit 1 as definitely dead" bash -c '
+  source "$1"
+  kill() { return 1; }
+  ps() {
+    test "$*" = "-p 88 -o pid=" || return 2
+    return 1
+  }
+  bootstrap_pid_liveness 88
+  test "${BOOTSTRAP_PID_LIVENESS}" = dead
+' _ "${BOOTSTRAP_LIB}"
+assert_cmd "PID classifier keeps ps errors conservatively ambiguous" bash -c '
+  source "$1"
+  kill() { return 1; }
+  ps() { return 2; }
+  bootstrap_pid_liveness 99
+  test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
+' _ "${BOOTSTRAP_LIB}"
 mkdir -p "${active_lock_dir}"
 printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}/owner"
 active_lock_rc=0
@@ -774,6 +833,69 @@ assert_cmd "active lock rejection preserves exact foreign owner metadata" \
   grep -qFx "nonce=active-owner" "${active_lock_dir}/owner"
 assert_cmd "active lock conflict performs no download or install" \
   test ! -e "${active_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+ambiguous_lock_home="${TMP_HOME}/bootstrap-ambiguous-lock-home"
+ambiguous_lock_dir="${ambiguous_lock_home}/.vibeguard/dist/.bootstrap.lock"
+ambiguous_lock_bin="${TMP_HOME}/bootstrap-ambiguous-lock-bin"
+mkdir -p "${ambiguous_lock_dir}" "${ambiguous_lock_bin}"
+printf 'pid=99999999\nnonce=ambiguous-owner\n' > "${ambiguous_lock_dir}/owner"
+cat > "${ambiguous_lock_bin}/ps" <<'SH'
+#!/usr/bin/env bash
+exit 2
+SH
+chmod +x "${ambiguous_lock_bin}/ps"
+ambiguous_lock_rc=0
+ambiguous_lock_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${ambiguous_lock_home}" \
+    PATH="${ambiguous_lock_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || ambiguous_lock_rc=$?
+assert_cmd "bootstrap refuses a lock whose PID state cannot be proven" \
+  test "${ambiguous_lock_rc}" -eq 73
+assert_contains "${ambiguous_lock_out}" "cannot prove lock owner pid=99999999 is dead" \
+  "ambiguous PID state fails closed visibly"
+assert_cmd "ambiguous PID state preserves the exact foreign lock" \
+  grep -qFx "nonce=ambiguous-owner" "${ambiguous_lock_dir}/owner"
+assert_cmd "ambiguous PID state performs no download or install" \
+  test ! -e "${ambiguous_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+pid_reuse_home="${TMP_HOME}/bootstrap-pid-reuse-home"
+pid_reuse_dir="${pid_reuse_home}/.vibeguard/dist/.bootstrap.lock"
+pid_reuse_bin="${TMP_HOME}/bootstrap-pid-reuse-bin"
+pid_reuse_count="${TMP_HOME}/bootstrap-pid-reuse.count"
+mkdir -p "${pid_reuse_dir}" "${pid_reuse_bin}"
+printf 'pid=99999998\nnonce=pid-reuse-owner\n' > "${pid_reuse_dir}/owner"
+printf '0\n' > "${pid_reuse_count}"
+cat > "${pid_reuse_bin}/ps" <<SH
+#!/usr/bin/env bash
+count="\$(cat "${pid_reuse_count}")"
+count="\$((count + 1))"
+printf '%s\n' "\${count}" > "${pid_reuse_count}"
+if [[ "\${count}" -eq 1 ]]; then
+  exit 1
+fi
+printf '99999998\n'
+SH
+chmod +x "${pid_reuse_bin}/ps"
+pid_reuse_rc=0
+pid_reuse_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${pid_reuse_home}" \
+    PATH="${pid_reuse_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || pid_reuse_rc=$?
+assert_cmd "bootstrap rejects PID reuse detected after exact owner claim" \
+  test "${pid_reuse_rc}" -eq 73
+assert_contains "${pid_reuse_out}" "no longer proven dead" \
+  "post-claim PID reuse is fail-closed"
+assert_cmd "PID reuse restores and preserves the exact claimed lock" bash -c \
+  'test -d "$1" && grep -qFx "nonce=pid-reuse-owner" "$1/owner" && test "$(cat "$2")" -eq 2' _ \
+  "${pid_reuse_dir}" "${pid_reuse_count}"
+assert_cmd "PID reuse performs no download or install" \
+  test ! -e "${pid_reuse_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
 
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"

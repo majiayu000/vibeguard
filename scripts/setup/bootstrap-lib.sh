@@ -280,6 +280,33 @@ bootstrap_atomic_replace_symlink() {
   return 1
 }
 
+bootstrap_pid_liveness() {
+  local pid="$1" ps_output="" ps_rc=0
+  BOOTSTRAP_PID_LIVENESS="ambiguous"
+  if kill -0 "${pid}" 2>/dev/null; then
+    BOOTSTRAP_PID_LIVENESS="active"
+    return 0
+  fi
+  ps_output="$(LC_ALL=C ps -p "${pid}" -o pid= 2>/dev/null)" || ps_rc=$?
+  case "${ps_rc}" in
+    0)
+      if awk -v expected="${pid}" '
+        NF == 0 { next }
+        NF != 1 || $1 != expected { bad = 1 }
+        { seen += 1 }
+        END { exit !(seen == 1 && !bad) }
+      ' <<< "${ps_output}"; then
+        BOOTSTRAP_PID_LIVENESS="active"
+      fi
+      ;;
+    1)
+      if [[ -z "${ps_output//[[:space:]]/}" ]]; then
+        BOOTSTRAP_PID_LIVENESS="dead"
+      fi
+      ;;
+  esac
+}
+
 bootstrap_lock_read_owner() {
   local lock_dir="$1" owner_file="${1}/${2:-owner}" parsed
 
@@ -322,7 +349,7 @@ bootstrap_lock_read_owner() {
 bootstrap_lock_reap_exact_owner() {
   local lock_dir="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
   local reap_dir="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.${expected_nonce}"
-  local claimed_owner="${reap_dir}/owner.claimed"
+  local claimed_owner="${reap_dir}/owner.claimed" require_dead="${6:-0}" owner_matches=1
 
   if [[ -e "${reap_dir}" || -L "${reap_dir}" ]]; then
     bootstrap_error "lock reap path already exists: ${reap_dir}"
@@ -337,6 +364,16 @@ bootstrap_lock_reap_exact_owner() {
     || ! bootstrap_lock_read_owner "${reap_dir}" "owner.claimed" \
     || [[ "${BOOTSTRAP_LOCK_READ_PID}" != "${expected_pid}" ]] \
     || [[ "${BOOTSTRAP_LOCK_READ_NONCE}" != "${expected_nonce}" ]]; then
+    owner_matches=0
+  fi
+  if [[ "${owner_matches}" == "1" && "${require_dead}" == "1" ]]; then
+    bootstrap_pid_liveness "${expected_pid}"
+    if [[ "${BOOTSTRAP_PID_LIVENESS}" != "dead" ]]; then
+      bootstrap_error "lock owner pid=${expected_pid} is no longer proven dead during ${action}."
+      owner_matches=0
+    fi
+  fi
+  if [[ "${owner_matches}" == "0" ]]; then
     bootstrap_error "lock ownership changed during ${action}; preserving foreign lock."
     if [[ (-e "${claimed_owner}" || -L "${claimed_owner}") \
       && ! -e "${reap_dir}/owner" && ! -L "${reap_dir}/owner" ]]; then
