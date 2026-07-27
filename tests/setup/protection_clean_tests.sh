@@ -69,6 +69,10 @@ assert_cmd "setup --clean preserves drifted scheduler ownership receipt" \
   test -f "${HOME}/.vibeguard/scheduler-ownership"
 rm -f "${custom_scheduler_service}" "${custom_scheduler_timer}"
 rm -f "${HOME}/.vibeguard/scheduler-ownership"
+# The Linux test double persists active timer state outside the unit files.
+# The drift case intentionally preserves that state, so manual fixture cleanup
+# must remove its marker before later install verification.
+rm -f "${HOME}/.systemctl-vibeguard-gc-active"
 
 for scheduler_clean_point in after-phase after-first before-receipt; do
   scheduler_clean_home="${TMP_HOME}/scheduler-clean-${scheduler_clean_point}-home"
