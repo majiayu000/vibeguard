@@ -170,6 +170,97 @@ assert_cmd "cleaning retry preserves drifted file and receipt byte-for-byte" bas
   "${cleaning_drift_timer}" "${cleaning_drift_receipt}" \
   "${cleaning_drift_before}"
 
+for scheduler_edit_target in service timer; do
+  scheduler_edit_home="${TMP_HOME}/scheduler-edit-${scheduler_edit_target}-home"
+  scheduler_edit_bin="${TMP_HOME}/scheduler-edit-${scheduler_edit_target}-bin"
+  scheduler_edit_service="${scheduler_edit_home}/.config/systemd/user/vibeguard-gc.service"
+  scheduler_edit_timer="${scheduler_edit_home}/.config/systemd/user/vibeguard-gc.timer"
+  scheduler_edit_receipt="${scheduler_edit_home}/.vibeguard/scheduler-ownership"
+  mkdir -p "$(dirname "${scheduler_edit_service}")" \
+    "$(dirname "${scheduler_edit_receipt}")" "${scheduler_edit_bin}"
+  printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/managed-gc' \
+    > "${scheduler_edit_service}"
+  printf '%s\n' '[Timer]' 'OnCalendar=daily' > "${scheduler_edit_timer}"
+  printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+    "$(shasum -a 256 "${scheduler_edit_service}" | awk '{print $1}')" \
+    "$(shasum -a 256 "${scheduler_edit_timer}" | awk '{print $1}')" \
+    > "${scheduler_edit_receipt}"
+  if [[ "${scheduler_edit_target}" == "service" ]]; then
+    scheduler_edit_path="${scheduler_edit_service}"
+  else
+    scheduler_edit_path="${scheduler_edit_timer}"
+  fi
+  cat > "${scheduler_edit_bin}/systemctl" <<SH
+#!/usr/bin/env bash
+[[ "\${1:-}" == "--user" ]] && shift
+if [[ "\${1:-}" == "disable" ]]; then
+  printf 'USER_EDIT_DURING_DISABLE=preserve\\n' >> "${scheduler_edit_path}"
+fi
+exit 0
+SH
+  chmod +x "${scheduler_edit_bin}/systemctl"
+  scheduler_edit_rc=0
+  scheduler_edit_out="$(
+    HOME="${scheduler_edit_home}" \
+      PATH="${scheduler_edit_bin}:${PATH}" \
+      VIBEGUARD_TEST_UNAME=Linux \
+      bash "${REPO_DIR}/setup.sh" --clean 2>&1
+  )" || scheduler_edit_rc=$?
+  assert_cmd "systemd ${scheduler_edit_target} edit during disable fails clean" \
+    test "${scheduler_edit_rc}" -ne 0
+  assert_contains "${scheduler_edit_out}" \
+    "changed after scheduler deactivation; preserving file and cleaning receipt" \
+    "systemd ${scheduler_edit_target} concurrent edit is explicit"
+  assert_not_contains "${scheduler_edit_out}" "VibeGuard cleaned." \
+    "systemd ${scheduler_edit_target} concurrent edit never reports clean complete"
+  assert_cmd "systemd ${scheduler_edit_target} edit and cleaning receipt remain" bash -c \
+    'grep -qF "USER_EDIT_DURING_DISABLE=preserve" "$1" && grep -qFx "phase=cleaning" "$2"' _ \
+    "${scheduler_edit_path}" "${scheduler_edit_receipt}"
+  if [[ "${scheduler_edit_target}" == "service" ]]; then
+    assert_cmd "service drift stops before timer deletion" \
+      test -f "${scheduler_edit_timer}"
+  else
+    assert_cmd "timer drift after service deletion preserves timer" bash -c \
+      'test ! -e "$1" && test -f "$2"' _ \
+      "${scheduler_edit_service}" "${scheduler_edit_timer}"
+  fi
+done
+
+launchd_edit_home="${TMP_HOME}/scheduler-edit-launchd-home"
+launchd_edit_bin="${TMP_HOME}/scheduler-edit-launchd-bin"
+launchd_edit_plist="${launchd_edit_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
+launchd_edit_receipt="${launchd_edit_home}/.vibeguard/scheduler-ownership"
+mkdir -p "$(dirname "${launchd_edit_plist}")" \
+  "$(dirname "${launchd_edit_receipt}")" "${launchd_edit_bin}"
+printf 'managed launchd scheduler\n' > "${launchd_edit_plist}"
+printf 'schema=1\nkind=launchd\nphase=managed\nplist_sha256=%s\n' \
+  "$(shasum -a 256 "${launchd_edit_plist}" | awk '{print $1}')" \
+  > "${launchd_edit_receipt}"
+cat > "${launchd_edit_bin}/launchctl" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "bootout" ]]; then
+  printf 'USER_EDIT_DURING_BOOTOUT=preserve\\n' >> "${launchd_edit_plist}"
+fi
+exit 0
+SH
+chmod +x "${launchd_edit_bin}/launchctl"
+launchd_edit_rc=0
+launchd_edit_out="$(
+  HOME="${launchd_edit_home}" PATH="${launchd_edit_bin}:${PATH}" \
+    VIBEGUARD_TEST_UNAME=Darwin \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)" || launchd_edit_rc=$?
+assert_cmd "launchd plist edit during bootout fails clean" \
+  test "${launchd_edit_rc}" -ne 0
+assert_contains "${launchd_edit_out}" \
+  "changed after scheduler deactivation; preserving file and cleaning receipt" \
+  "launchd concurrent edit is explicit"
+assert_not_contains "${launchd_edit_out}" "VibeGuard cleaned." \
+  "launchd concurrent edit never reports clean complete"
+assert_cmd "launchd concurrent edit and cleaning receipt remain" bash -c \
+  'grep -qF "USER_EDIT_DURING_BOOTOUT=preserve" "$1" && grep -qFx "phase=cleaning" "$2"' _ \
+  "${launchd_edit_plist}" "${launchd_edit_receipt}"
+
 launchd_clean_home="${TMP_HOME}/scheduler-clean-launchd-home"
 launchd_clean_bin="${TMP_HOME}/scheduler-clean-launchd-bin"
 launchd_clean_plist="${launchd_clean_home}/Library/LaunchAgents/com.vibeguard.gc.plist"

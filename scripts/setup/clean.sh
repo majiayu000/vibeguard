@@ -175,6 +175,19 @@ clean_scheduler_receipt_write_phase() {
     && "${parsed_first}" == "${first_sha}" && "${parsed_second}" == "${second_sha}" ]]
 }
 
+clean_scheduler_verify_before_remove() {
+  local path="$1" expected_sha="$2" label="$3" actual_sha
+  if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+    return 0
+  fi
+  if [[ -L "${path}" || ! -f "${path}" ]] \
+    || ! actual_sha="$(setup_runtime_sha256_file "${path}")" \
+    || [[ "${actual_sha}" != "${expected_sha}" ]]; then
+    red "ERROR: scheduled GC ${label} changed after scheduler deactivation; preserving file and cleaning receipt: ${path}"
+    return 1
+  fi
+}
+
 clean_scheduled_gc() {
   local receipt="${HOME}/.vibeguard/scheduler-ownership"
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
@@ -244,6 +257,8 @@ clean_scheduled_gc() {
   fi
   if [[ "${kind}" == "launchd" ]]; then
     launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+    clean_scheduler_verify_before_remove \
+      "${plist}" "${first_sha}" "launchd plist" || return 1
     [[ ! -e "${plist}" && ! -L "${plist}" ]] || rm -f -- "${plist}"
     [[ ! -e "${plist}" && ! -L "${plist}" ]] || return 1
     yellow "Removed scheduled GC (com.vibeguard.gc)"
@@ -252,7 +267,11 @@ clean_scheduled_gc() {
       systemctl --user stop vibeguard-gc.timer 2>/dev/null || true
       systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
     fi
+    clean_scheduler_verify_before_remove \
+      "${service}" "${first_sha}" "systemd service" || return 1
     [[ ! -e "${service}" && ! -L "${service}" ]] || rm -f -- "${service}"
+    clean_scheduler_verify_before_remove \
+      "${timer}" "${second_sha}" "systemd timer" || return 1
     [[ ! -e "${timer}" && ! -L "${timer}" ]] || rm -f -- "${timer}"
     [[ ! -e "${service}" && ! -L "${service}" \
       && ! -e "${timer}" && ! -L "${timer}" ]] || return 1
