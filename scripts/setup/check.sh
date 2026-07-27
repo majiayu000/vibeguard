@@ -239,6 +239,10 @@ check_launchd_scheduled_gc() {
   local active_print=""
   local loaded=0
 
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+  fi
+
   if active_print="$(launchctl print "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null)"; then
     loaded=1
     active_actual="$(launchd_gc_script_path_from_print <<< "${active_print}" 2>/dev/null || true)"

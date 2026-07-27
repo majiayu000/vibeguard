@@ -163,6 +163,41 @@ if [[ -n "$LANGUAGES" ]]; then
   IFS=',' read -ra LANG_FILTER <<< "$LANGUAGES"
 fi
 
+SCHEDULER_REPO_DIR="${REPO_DIR}"
+SCHEDULER_REFRESHED=0
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+  SCHEDULER_REPO_DIR="${HOME}/.vibeguard/dist/current"
+fi
+
+managed_launchd_scheduler_exists() {
+  local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  [[ -f "${plist}" && ! -L "${plist}" ]] \
+    && grep -qF '<string>com.vibeguard.gc</string>' "${plist}" \
+    && grep -qF '/scripts/gc/gc-scheduled.sh</string>' "${plist}" \
+    && grep -qF '/.vibeguard/gc-launchd.log</string>' "${plist}"
+}
+
+managed_systemd_scheduler_exists() {
+  local unit_dir="${HOME}/.config/systemd/user"
+  local service="${unit_dir}/vibeguard-gc.service"
+  local timer="${unit_dir}/vibeguard-gc.timer"
+  [[ -f "${service}" && ! -L "${service}" && -f "${timer}" && ! -L "${timer}" ]] \
+    && grep -qFx 'Description=VibeGuard Scheduled GC' "${service}" \
+    && grep -qF '/scripts/gc/gc-scheduled.sh"' "${service}" \
+    && grep -qFx 'Description=VibeGuard Scheduled GC Timer' "${timer}" \
+    && grep -qFx 'Unit=vibeguard-gc.service' "${timer}"
+}
+
+if [[ "${WITH_SCHEDULER}" != "1" && "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+  if [[ "$(uname)" == "Darwin" ]] && managed_launchd_scheduler_exists; then
+    WITH_SCHEDULER=1
+    SCHEDULER_REFRESHED=1
+  elif [[ "$(uname)" == "Linux" ]] && managed_systemd_scheduler_exists; then
+    WITH_SCHEDULER=1
+    SCHEDULER_REFRESHED=1
+  fi
+fi
+
 # Check if a language is in the filter (empty filter = install all)
 lang_selected() {
   local lang="$1"
@@ -272,7 +307,11 @@ if [[ -n "${RUNTIME_VERSION_OVERRIDE}" ]]; then
   echo "Runtime version override: ${RUNTIME_VERSION_OVERRIDE}"
 fi
 if [[ "${WITH_SCHEDULER}" == "1" ]]; then
-  echo "Mode: with-scheduler (install launchd/systemd scheduled GC)"
+  if [[ "${SCHEDULER_REFRESHED}" == "1" ]]; then
+    echo "Mode: refresh managed scheduler (preserve scheduler across payload updates)"
+  else
+    echo "Mode: with-scheduler (install launchd/systemd scheduled GC)"
+  fi
 fi
 if [[ "${DEV_LINKED}" == "1" ]]; then
   echo "Mode: dev-linked repo (execution uses live repository paths)"
@@ -418,7 +457,7 @@ if [[ "${WITH_SCHEDULER}" != "1" ]]; then
   yellow "  Scheduled GC not installed by default (opt in: bash setup.sh --yes --with-scheduler)"
   echo "  On-demand GC: /vibeguard:gc or bash scripts/gc/gc-scheduled.sh"
 elif [[ "$(uname)" == "Darwin" ]]; then
-  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+  chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
   PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   if [[ -f "${PLIST_SRC}" ]]; then
@@ -426,7 +465,7 @@ elif [[ "$(uname)" == "Darwin" ]]; then
     # Uninstall the old one first (ignore errors)
     launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
     # Replace placeholders and install
-    sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
+    sed -e "s|__VIBEGUARD_DIR__|${SCHEDULER_REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
       "${PLIST_SRC}" > "${PLIST_DEST}"
     if launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null; then
       green "  Scheduled GC installed via launchd (every Sunday 3:00 AM)"
@@ -439,8 +478,9 @@ elif [[ "$(uname)" == "Darwin" ]]; then
     exit 1
   fi
 elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-  chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
-  if bash "${REPO_DIR}/scripts/install-systemd.sh"; then
+  chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
+  if VIBEGUARD_REPO_DIR="${SCHEDULER_REPO_DIR}" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh"; then
     green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)"
   else
     red "ERROR: Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"

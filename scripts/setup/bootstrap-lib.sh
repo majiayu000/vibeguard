@@ -304,19 +304,11 @@ bootstrap_pid_liveness() {
   fi
 }
 
-bootstrap_lock_read_owner() {
-  local lock_dir="$1" owner_file="${1}/${2:-owner}" parsed
+bootstrap_lock_parse_owner_file() {
+  local owner_file="$1" parsed
 
-  if [[ -L "${lock_dir}" || ! -d "${lock_dir}" ]]; then
-    bootstrap_error "bootstrap lock must be a real directory: ${lock_dir}"
-    return 1
-  fi
-  if [[ -L "${owner_file}" ]]; then
-    bootstrap_error "lock owner metadata must be a regular file, not a symlink: ${owner_file}"
-    return 1
-  fi
-  if [[ ! -f "${owner_file}" ]]; then
-    bootstrap_error "lock owner metadata is missing: ${owner_file}"
+  if [[ -L "${owner_file}" || ! -f "${owner_file}" ]]; then
+    bootstrap_error "lock owner metadata must be a regular file: ${owner_file}"
     return 1
   fi
   if ! parsed="$(awk -F= '
@@ -344,21 +336,19 @@ bootstrap_lock_read_owner() {
 }
 
 bootstrap_lock_reap_exact_owner() {
-  local lock_dir="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
-  local reap_dir="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.${expected_nonce}"
-  local claimed_owner="${reap_dir}/owner.claimed" require_dead="${6:-0}" owner_matches=1
+  local lock_file="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
+  local claimed="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.${expected_nonce}"
+  local require_dead="${6:-0}" owner_matches=1
 
-  if [[ -e "${reap_dir}" || -L "${reap_dir}" ]]; then
-    bootstrap_error "lock reap path already exists: ${reap_dir}"
+  if [[ -e "${claimed}" || -L "${claimed}" ]]; then
+    bootstrap_error "lock reap path already exists: ${claimed}"
     return 1
   fi
-  if ! mv -- "${lock_dir}" "${reap_dir}"; then
-    bootstrap_error "could not claim bootstrap lock for ${action}: ${lock_dir}"
+  if ! mv -- "${lock_file}" "${claimed}"; then
+    bootstrap_error "could not claim bootstrap lock for ${action}: ${lock_file}"
     return 1
   fi
-  if [[ -e "${claimed_owner}" || -L "${claimed_owner}" ]] \
-    || ! mv -- "${reap_dir}/owner" "${claimed_owner}" \
-    || ! bootstrap_lock_read_owner "${reap_dir}" "owner.claimed" \
+  if ! bootstrap_lock_parse_owner_file "${claimed}" \
     || [[ "${BOOTSTRAP_LOCK_READ_PID}" != "${expected_pid}" ]] \
     || [[ "${BOOTSTRAP_LOCK_READ_NONCE}" != "${expected_nonce}" ]]; then
     owner_matches=0
@@ -372,22 +362,96 @@ bootstrap_lock_reap_exact_owner() {
   fi
   if [[ "${owner_matches}" == "0" ]]; then
     bootstrap_error "lock ownership changed during ${action}; preserving foreign lock."
-    if [[ (-e "${claimed_owner}" || -L "${claimed_owner}") \
-      && ! -e "${reap_dir}/owner" && ! -L "${reap_dir}/owner" ]]; then
-      mv -- "${claimed_owner}" "${reap_dir}/owner" || \
-        bootstrap_error "could not restore claimed owner metadata after ${action}."
-    fi
-    if [[ ! -e "${lock_dir}" && ! -L "${lock_dir}" ]]; then
-      if ! mv -- "${reap_dir}" "${lock_dir}"; then
-        bootstrap_error "could not restore foreign lock after ${action}: ${reap_dir}"
+    if [[ ! -e "${lock_file}" && ! -L "${lock_file}" ]]; then
+      if ! mv -- "${claimed}" "${lock_file}"; then
+        bootstrap_error "could not restore foreign lock after ${action}: ${claimed}"
       fi
     else
-      bootstrap_error "foreign lock retained at reap path after ${action}: ${reap_dir}"
+      bootstrap_error "foreign lock retained at reap path after ${action}: ${claimed}"
     fi
     return 1
   fi
-  if ! rm -f -- "${claimed_owner}" || ! rmdir "${reap_dir}"; then
-    bootstrap_error "failed to remove exact bootstrap lock owner during ${action}: ${reap_dir}"
+  if ! rm -f -- "${claimed}"; then
+    bootstrap_error "failed to remove exact bootstrap lock owner during ${action}: ${claimed}"
     return 1
   fi
+}
+
+bootstrap_lock_reap_legacy_directory() {
+  local lock_dir="$1" dist_root="$2" action="$3"
+  local claimed="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.legacy"
+
+  if [[ -L "${lock_dir}" || ! -d "${lock_dir}" ]]; then
+    bootstrap_error "legacy bootstrap lock must be a real directory: ${lock_dir}"
+    return 1
+  fi
+  if find "${lock_dir}" -mindepth 1 -maxdepth 1 ! -name owner -print | grep -q .; then
+    bootstrap_error "legacy bootstrap lock contains unexpected entries; preserving ${lock_dir}."
+    return 1
+  fi
+  if [[ -e "${claimed}" || -L "${claimed}" ]] || ! mv -- "${lock_dir}" "${claimed}"; then
+    bootstrap_error "could not claim legacy bootstrap lock for ${action}: ${lock_dir}"
+    return 1
+  fi
+  if [[ -e "${lock_dir}" || -L "${lock_dir}" ]]; then
+    bootstrap_error "legacy lock ownership changed during ${action}; preserving ${claimed}."
+    return 1
+  fi
+  if ! rm -rf -- "${claimed}"; then
+    bootstrap_error "failed to remove legacy bootstrap lock during ${action}: ${claimed}"
+    return 1
+  fi
+}
+
+bootstrap_transaction_write() {
+  local transaction_file="$1" dist_root="$2" version="$3" payload_sha256="$4" phase="$5"
+  local temporary="${dist_root}/.bootstrap-transaction-write.$$.$RANDOM"
+
+  case "${phase}" in
+    prepared|setup|committed) ;;
+    *) bootstrap_error "invalid bootstrap transaction phase: ${phase}"; return 1 ;;
+  esac
+  if [[ ${#payload_sha256} -ne 64 || "${payload_sha256}" == *[!0-9a-f]* ]]; then
+    bootstrap_error "invalid bootstrap transaction payload checksum."
+    return 1
+  fi
+  if [[ -e "${temporary}" || -L "${temporary}" ]]; then
+    bootstrap_error "bootstrap transaction temporary path exists: ${temporary}"
+    return 1
+  fi
+  if ! printf 'version=%s\npayload_sha256=%s\nphase=%s\n' \
+    "${version}" "${payload_sha256}" "${phase}" > "${temporary}" \
+    || ! mv -f -- "${temporary}" "${transaction_file}"; then
+    rm -f -- "${temporary}" 2>/dev/null || true
+    bootstrap_error "failed to persist bootstrap transaction: ${transaction_file}"
+    return 1
+  fi
+}
+
+bootstrap_transaction_read() {
+  local transaction_file="$1" parsed
+
+  if [[ -L "${transaction_file}" || ! -f "${transaction_file}" ]]; then
+    bootstrap_error "bootstrap transaction must be a regular file: ${transaction_file}"
+    return 1
+  fi
+  if ! parsed="$(awk -F= '
+    NR == 1 && NF == 2 && $1 == "version" && $2 != "" { version = $2; next }
+    NR == 2 && NF == 2 && $1 == "payload_sha256" && $2 ~ /^[0-9a-f]{64}$/ { sha = $2; next }
+    NR == 3 && NF == 2 && $1 == "phase" && $2 ~ /^(prepared|setup|committed)$/ { phase = $2; next }
+    { bad = 1 }
+    END {
+      if (!bad && NR == 3 && version != "" && sha != "" && phase != "") {
+        print version "\t" sha "\t" phase
+        exit 0
+      }
+      exit 1
+    }
+  ' "${transaction_file}")"; then
+    bootstrap_error "bootstrap transaction metadata is malformed: ${transaction_file}"
+    return 1
+  fi
+  # shellcheck disable=SC2034 # Consumed by the sourcing bootstrap entrypoint.
+  IFS=$'\t' read -r BOOTSTRAP_TRANSACTION_VERSION \
+    BOOTSTRAP_TRANSACTION_SHA256 BOOTSTRAP_TRANSACTION_PHASE <<< "${parsed}"
 }

@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_DIR="${VIBEGUARD_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 UNIT_DIR="${HOME}/.config/systemd/user"
 SERVICE_SRC="${SCRIPT_DIR}/systemd/vibeguard-gc.service"
@@ -20,6 +20,11 @@ TIMER_DEST="${UNIT_DIR}/vibeguard-gc.timer"
 red()    { echo -e "\033[31m$*\033[0m"; }
 green()  { echo -e "\033[32m$*\033[0m"; }
 yellow() { echo -e "\033[33m$*\033[0m"; }
+
+if [[ "${REPO_DIR}" != /* || ! -d "${REPO_DIR}" ]]; then
+  red "ERROR: VIBEGUARD_REPO_DIR must name an absolute VibeGuard directory."
+  exit 1
+fi
 
 # --- Guards ---
 if [[ "$(uname)" != "Linux" ]]; then

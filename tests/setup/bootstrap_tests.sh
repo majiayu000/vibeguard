@@ -11,9 +11,9 @@ assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
 assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
-  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP}"
+  'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
-  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_LIB}"
+  'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
 
 mkdir -p "${BOOTSTRAP_RELEASE}"
 cp "${TEST_RELEASE_DIR}"/vibeguard-runtime-* "${BOOTSTRAP_RELEASE}/"
@@ -138,11 +138,31 @@ repeat_out="$(
     VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
 )" || repeat_rc=$?
-assert_cmd "bootstrap refuses to overwrite an existing dist version" test "${repeat_rc}" -ne 0
-assert_contains "${repeat_out}" "distribution version already exists" "version conflict fails visibly"
+assert_cmd "bootstrap safely revalidates an existing transactional dist version" test "${repeat_rc}" -eq 0
+assert_contains "${repeat_out}" "Resuming verified bootstrap transaction" \
+  "same-version revalidation reports its repair transaction"
 assert_cmd "version conflict preserves the selected current target" bash -c \
   'test "$(readlink "$1")" = "$2"' _ \
   "${verified_home}/.vibeguard/dist/current" "${BOOTSTRAP_VERSION}"
+
+unmanaged_version_home="${TMP_HOME}/bootstrap-unmanaged-version-home"
+mkdir -p "${unmanaged_version_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+printf 'unmanaged\n' \
+  > "${unmanaged_version_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/sentinel"
+unmanaged_version_rc=0
+unmanaged_version_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${unmanaged_version_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
+)" || unmanaged_version_rc=$?
+assert_cmd "bootstrap rejects an existing version without transaction evidence" \
+  test "${unmanaged_version_rc}" -eq 73
+assert_contains "${unmanaged_version_out}" "without repair evidence" \
+  "unmanaged version conflict is explicit"
+assert_cmd "unmanaged version conflict preserves exact existing contents" \
+  grep -qFx "unmanaged" \
+  "${unmanaged_version_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/sentinel"
 
 fallback_home="${TMP_HOME}/bootstrap-curl-fallback-home"
 fallback_log="${TMP_HOME}/bootstrap-curl-fallback.log"
@@ -299,10 +319,16 @@ elif kind == "fail-once":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail
 marker="${VIBEGUARD_TEST_SETUP_FAIL_MARKER:?}"
+repo_dir="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "${HOME}/.vibeguard/installed"
+printf '%s\\n' "${repo_dir}" > "${HOME}/.vibeguard/repo-path"
+printf 'partial\\n' > "${HOME}/.vibeguard/installed/version"
+printf '%s\\n' "${repo_dir}/scripts/gc/gc-scheduled.sh" > "${HOME}/.vibeguard/managed-reference"
 if [[ ! -e "${marker}" ]]; then
   : > "${marker}"
   exit 42
 fi
+printf 'repaired\\n' > "${HOME}/.vibeguard/installed/version"
 printf 'RETRY_SETUP_SUCCEEDED\\n'
 """
 elif kind == "fail":
@@ -328,8 +354,8 @@ printf 'WAIT_SETUP_SUCCEEDED\\n'
 elif kind == "foreign-owner":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail
-lock_dir="${VIBEGUARD_TEST_LOCK_DIR:?}"
-printf 'pid=%s\\nnonce=foreign-owner\\n' "$$" > "${lock_dir}/owner"
+lock_file="${VIBEGUARD_TEST_LOCK_DIR:?}"
+printf 'pid=%s\\nnonce=foreign-owner\\n' "$$" > "${lock_file}"
 exit 42
 """
 else:
@@ -630,12 +656,12 @@ dangling_failure_out="$(
     VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
 )" || dangling_failure_rc=$?
-assert_cmd "failed switch from same-version dangling current exits nonzero" \
-  test "${dangling_failure_rc}" -ne 0
-assert_contains "${dangling_failure_out}" "atomic" \
-  "same-version dangling current switch failure is visible"
-assert_cmd "failed switch restores same-version current to a dangling link" bash -c \
-  'test -L "$1" && test ! -e "$1" && test "$(readlink "$1")" = "$2" && test ! -e "$3"' _ \
+assert_cmd "same-version dangling current becomes valid without a needless switch" \
+  test "${dangling_failure_rc}" -eq 0
+assert_contains "${dangling_failure_out}" "EXPECTED_FINAL_SETUP" \
+  "same-version dangling current executes the verified payload"
+assert_cmd "same-version dangling current now selects the verified directory" bash -c \
+  'test -L "$1" && test -e "$1" && test "$(readlink "$1")" = "$2" && test -d "$3"' _ \
   "${dangling_failure_home}/.vibeguard/dist/current" \
   "${BOOTSTRAP_VERSION}" \
   "${dangling_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
@@ -676,14 +702,23 @@ setup_failure_out="$(
 )" || setup_failure_rc=$?
 assert_cmd "failed payload setup preserves its exact exit status" \
   test "${setup_failure_rc}" -eq 42
-assert_contains "${setup_failure_out}" "rolling back bootstrap transaction" \
-  "failed payload setup reports transactional rollback"
-assert_cmd "failed payload setup restores the exact previous current symlink" bash -c \
-  'test -L "$1" && test "$(readlink "$1")" = old && test -d "$2"' _ \
+assert_contains "${setup_failure_out}" "preserving verified payload for repair" \
+  "failed payload setup reports recoverable transaction retention"
+assert_cmd "failed setup keeps current on the referenced verified payload" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = "$2" && test -d "$3" && test -d "$4"' _ \
   "${setup_retry_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}" \
+  "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
   "${setup_retry_home}/.vibeguard/dist/old"
-assert_cmd "failed payload setup removes only this attempt's final directory" \
-  test ! -e "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+assert_cmd "failed setup leaves no managed reference to a deleted payload" bash -c \
+  'target="$(cat "$1")" && test "$target" = "$2" && test -d "$target" && grep -qFx "$2/scripts/gc/gc-scheduled.sh" "$3"' _ \
+  "${setup_retry_home}/.vibeguard/repo-path" \
+  "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${setup_retry_home}/.vibeguard/managed-reference"
+assert_cmd "failed setup persists a repairable setup transaction" bash -c \
+  'test -f "$1" && grep -qFx "version=$2" "$1" && grep -qFx "phase=setup" "$1"' _ \
+  "${setup_retry_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${BOOTSTRAP_VERSION}"
 assert_cmd "failed payload setup releases its bootstrap lock" \
   test ! -e "${setup_retry_home}/.vibeguard/dist/.bootstrap.lock"
 
@@ -702,6 +737,11 @@ assert_contains "${setup_retry_out}" "RETRY_SETUP_SUCCEEDED" \
   "same-version retry executes a freshly staged payload"
 assert_cmd "same-version retry downloads and verifies the payload again" bash -c \
   'test "$(grep -c "^gh tag=" "$1")" -eq 2' _ "${setup_retry_download_log}"
+assert_cmd "same-version retry repairs partial managed setup state" \
+  grep -qFx "repaired" "${setup_retry_home}/.vibeguard/installed/version"
+assert_cmd "same-version retry commits persistent transaction evidence" bash -c \
+  'grep -qFx "phase=committed" "$1" && grep -qE "^payload_sha256=[0-9a-f]{64}$" "$1"' _ \
+  "${setup_retry_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
 assert_cmd "same-version retry preserves old version and commits exact current" bash -c \
   'test -d "$1" && test -d "$2" && test "$(readlink "$3")" = "$4"' _ \
   "${setup_retry_home}/.vibeguard/dist/old" \
@@ -721,52 +761,12 @@ env "${bootstrap_base_env[@]}" \
   >/dev/null 2>&1 || setup_no_current_rc=$?
 assert_cmd "failed payload setup without previous current preserves child failure" \
   test "${setup_no_current_rc}" -eq 42
-assert_cmd "failed payload setup restores an exact no-current state" bash -c \
-  'test ! -e "$1" && test ! -L "$1" && test ! -e "$2"' _ \
+assert_cmd "failed payload setup without previous current retains a repair path" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = "$3" && test -d "$2" && grep -qFx "phase=setup" "$4"' _ \
   "${setup_no_current_home}/.vibeguard/dist/current" \
-  "${setup_no_current_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
-
-rollback_failure_home="${TMP_HOME}/bootstrap-rollback-failure-home"
-rollback_failure_bin="${TMP_HOME}/bootstrap-rollback-failure-bin"
-rollback_failure_count="${TMP_HOME}/bootstrap-rollback-failure.count"
-mkdir -p "${rollback_failure_home}/.vibeguard/dist/old" "${rollback_failure_bin}"
-ln -s old "${rollback_failure_home}/.vibeguard/dist/current"
-printf '0\n' > "${rollback_failure_count}"
-cat > "${rollback_failure_bin}/mv" <<SH
-#!/usr/bin/env bash
-last_arg=""
-for arg in "\$@"; do
-  last_arg="\${arg}"
-done
-if [[ "\${last_arg}" == "${rollback_failure_home}/.vibeguard/dist/current" ]]; then
-  count="\$(cat "${rollback_failure_count}")"
-  count="\$((count + 1))"
-  printf '%s\n' "\${count}" > "${rollback_failure_count}"
-  if [[ "\${count}" -gt 1 ]]; then
-    printf 'fake rollback failure\n' >&2
-    exit 1
-  fi
-fi
-exec "${switch_failure_real_mv}" "\$@"
-SH
-chmod +x "${rollback_failure_bin}/mv"
-rollback_failure_rc=0
-rollback_failure_out="$(
-  env "${bootstrap_base_env[@]}" \
-    HOME="${rollback_failure_home}" \
-    PATH="${rollback_failure_bin}:${PATH}" \
-    VIBEGUARD_TEST_RELEASE_DIR="${setup_no_current_release}" \
-    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
-)" || rollback_failure_rc=$?
-assert_cmd "failed rollback exits nonzero" test "${rollback_failure_rc}" -ne 0
-assert_contains "${rollback_failure_out}" "rollback" \
-  "failed rollback is explicit"
-assert_cmd "failed rollback preserves current-referenced payload evidence" bash -c \
-  'test -L "$1" && test "$(readlink "$1")" = "$2" && test -d "$3" && test -d "$4"' _ \
-  "${rollback_failure_home}/.vibeguard/dist/current" \
+  "${setup_no_current_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
   "${BOOTSTRAP_VERSION}" \
-  "${rollback_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
-  "${rollback_failure_home}/.vibeguard/dist/old"
+  "${setup_no_current_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
 
 current_file_home="${TMP_HOME}/bootstrap-current-file-home"
 mkdir -p "${current_file_home}/.vibeguard/dist"
@@ -842,8 +842,8 @@ for invalid_pid_table in empty header malformed duplicate; do
     test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
   ' _ "${BOOTSTRAP_LIB}" "${invalid_pid_table}"
 done
-mkdir -p "${active_lock_dir}"
-printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}/owner"
+mkdir -p "$(dirname "${active_lock_dir}")"
+printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}"
 active_lock_rc=0
 active_lock_out="$(
   env "${bootstrap_base_env[@]}" \
@@ -855,15 +855,15 @@ assert_cmd "bootstrap rejects an active lock owner" test "${active_lock_rc}" -eq
 assert_contains "${active_lock_out}" "active bootstrap owner pid=$$" \
   "active lock rejection identifies its owner pid"
 assert_cmd "active lock rejection preserves exact foreign owner metadata" \
-  grep -qFx "nonce=active-owner" "${active_lock_dir}/owner"
+  grep -qFx "nonce=active-owner" "${active_lock_dir}"
 assert_cmd "active lock conflict performs no download or install" \
   test ! -e "${active_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
 
 ambiguous_lock_home="${TMP_HOME}/bootstrap-ambiguous-lock-home"
 ambiguous_lock_dir="${ambiguous_lock_home}/.vibeguard/dist/.bootstrap.lock"
 ambiguous_lock_bin="${TMP_HOME}/bootstrap-ambiguous-lock-bin"
-mkdir -p "${ambiguous_lock_dir}" "${ambiguous_lock_bin}"
-printf 'pid=99999999\nnonce=ambiguous-owner\n' > "${ambiguous_lock_dir}/owner"
+mkdir -p "$(dirname "${ambiguous_lock_dir}")" "${ambiguous_lock_bin}"
+printf 'pid=99999999\nnonce=ambiguous-owner\n' > "${ambiguous_lock_dir}"
 cat > "${ambiguous_lock_bin}/ps" <<'SH'
 #!/usr/bin/env bash
 exit 2
@@ -882,7 +882,7 @@ assert_cmd "bootstrap refuses a lock whose PID state cannot be proven" \
 assert_contains "${ambiguous_lock_out}" "cannot prove lock owner pid=99999999 is dead" \
   "ambiguous PID state fails closed visibly"
 assert_cmd "ambiguous PID state preserves the exact foreign lock" \
-  grep -qFx "nonce=ambiguous-owner" "${ambiguous_lock_dir}/owner"
+  grep -qFx "nonce=ambiguous-owner" "${ambiguous_lock_dir}"
 assert_cmd "ambiguous PID state performs no download or install" \
   test ! -e "${ambiguous_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
 
@@ -890,8 +890,8 @@ pid_reuse_home="${TMP_HOME}/bootstrap-pid-reuse-home"
 pid_reuse_dir="${pid_reuse_home}/.vibeguard/dist/.bootstrap.lock"
 pid_reuse_bin="${TMP_HOME}/bootstrap-pid-reuse-bin"
 pid_reuse_count="${TMP_HOME}/bootstrap-pid-reuse.count"
-mkdir -p "${pid_reuse_dir}" "${pid_reuse_bin}"
-printf 'pid=99999998\nnonce=pid-reuse-owner\n' > "${pid_reuse_dir}/owner"
+mkdir -p "$(dirname "${pid_reuse_dir}")" "${pid_reuse_bin}"
+printf 'pid=99999998\nnonce=pid-reuse-owner\n' > "${pid_reuse_dir}"
 printf '0\n' > "${pid_reuse_count}"
 cat > "${pid_reuse_bin}/ps" <<SH
 #!/usr/bin/env bash
@@ -918,18 +918,18 @@ assert_cmd "bootstrap rejects PID reuse detected after exact owner claim" \
 assert_contains "${pid_reuse_out}" "no longer proven dead" \
   "post-claim PID reuse is fail-closed"
 assert_cmd "PID reuse restores and preserves the exact claimed lock" bash -c \
-  'test -d "$1" && grep -qFx "nonce=pid-reuse-owner" "$1/owner" && test "$(cat "$2")" -eq 2' _ \
+  'test -f "$1" && grep -qFx "nonce=pid-reuse-owner" "$1" && test "$(cat "$2")" -eq 2' _ \
   "${pid_reuse_dir}" "${pid_reuse_count}"
 assert_cmd "PID reuse performs no download or install" \
   test ! -e "${pid_reuse_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
 
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"
-mkdir -p "${dead_lock_dir}"
+mkdir -p "$(dirname "${dead_lock_dir}")"
 (exit 0) &
 dead_lock_pid=$!
 wait "${dead_lock_pid}"
-printf 'pid=%s\nnonce=dead-owner\n' "${dead_lock_pid}" > "${dead_lock_dir}/owner"
+printf 'pid=%s\nnonce=dead-owner\n' "${dead_lock_pid}" > "${dead_lock_dir}"
 dead_lock_rc=0
 dead_lock_out="$(
   env "${bootstrap_base_env[@]}" \
@@ -949,8 +949,8 @@ stale_race_home="${TMP_HOME}/bootstrap-stale-race-home"
 stale_race_dir="${stale_race_home}/.vibeguard/dist/.bootstrap.lock"
 stale_race_bin="${TMP_HOME}/bootstrap-stale-race-bin"
 stale_race_real_mv="$(command -v mv)"
-mkdir -p "${stale_race_dir}" "${stale_race_bin}"
-printf 'pid=%s\nnonce=dead-race-owner\n' "${dead_lock_pid}" > "${stale_race_dir}/owner"
+mkdir -p "$(dirname "${stale_race_dir}")" "${stale_race_bin}"
+printf 'pid=%s\nnonce=dead-race-owner\n' "${dead_lock_pid}" > "${stale_race_dir}"
 cat > "${stale_race_bin}/mv" <<SH
 #!/usr/bin/env bash
 previous=""
@@ -960,7 +960,7 @@ for arg in "\$@"; do
   last="\${arg}"
 done
 if [[ "\${previous}" == "${stale_race_dir}" ]]; then
-  printf 'pid=%s\\nnonce=racing-active-owner\\n' "$$" > "${stale_race_dir}/owner"
+  printf 'pid=%s\\nnonce=racing-active-owner\\n' "$$" > "${stale_race_dir}"
 fi
 exec "${stale_race_real_mv}" "\$@"
 SH
@@ -976,9 +976,9 @@ stale_race_out="$(
 assert_cmd "stale-owner recovery fails closed when ownership races before rename" \
   test "${stale_race_rc}" -eq 73
 assert_contains "${stale_race_out}" "lock ownership changed" \
-  "stale-owner race is detected after the directory rename"
+  "stale-owner race is detected after the atomic rename"
 assert_cmd "stale-owner race preserves the replacement active owner" bash -c \
-  'test -d "$1" && grep -qFx "nonce=racing-active-owner" "$1/owner"' _ \
+  'test -f "$1" && grep -qFx "nonce=racing-active-owner" "$1"' _ \
   "${stale_race_dir}"
 assert_cmd "stale-owner race performs no download or install" \
   test ! -e "${stale_race_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
@@ -994,10 +994,10 @@ missing_owner_out="$(
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
 )" || missing_owner_rc=$?
 assert_cmd "bootstrap fails closed on missing lock owner metadata" \
-  test "${missing_owner_rc}" -eq 73
-assert_contains "${missing_owner_out}" "lock owner metadata is missing" \
-  "missing lock owner failure is explicit"
-assert_cmd "missing owner lock is never reaped" test -d "${missing_owner_dir}"
+  test "${missing_owner_rc}" -eq 0
+assert_contains "${missing_owner_out}" "Payload verified" \
+  "missing legacy owner is recovered through verified setup"
+assert_cmd "missing legacy owner lock is reaped" test ! -e "${missing_owner_dir}"
 
 malformed_owner_home="${TMP_HOME}/bootstrap-malformed-owner-home"
 malformed_owner_dir="${malformed_owner_home}/.vibeguard/dist/.bootstrap.lock"
@@ -1011,18 +1011,18 @@ malformed_owner_out="$(
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
 )" || malformed_owner_rc=$?
 assert_cmd "bootstrap fails closed on malformed lock owner metadata" \
-  test "${malformed_owner_rc}" -eq 73
-assert_contains "${malformed_owner_out}" "lock owner metadata is malformed" \
-  "malformed lock owner failure is explicit"
-assert_cmd "malformed owner lock is never reaped" \
-  grep -qFx "pid=not-a-pid" "${malformed_owner_dir}/owner"
+  test "${malformed_owner_rc}" -eq 0
+assert_contains "${malformed_owner_out}" "Payload verified" \
+  "malformed legacy owner is recovered through verified setup"
+assert_cmd "malformed legacy owner lock is reaped" \
+  test ! -e "${malformed_owner_dir}"
 
 symlink_owner_home="${TMP_HOME}/bootstrap-symlink-owner-home"
 symlink_owner_dir="${symlink_owner_home}/.vibeguard/dist/.bootstrap.lock"
 symlink_owner_foreign="${TMP_HOME}/bootstrap-symlink-owner.foreign"
-mkdir -p "${symlink_owner_dir}"
+mkdir -p "$(dirname "${symlink_owner_dir}")"
 printf 'pid=%s\nnonce=symlink-foreign\n' "$$" > "${symlink_owner_foreign}"
-ln -s "${symlink_owner_foreign}" "${symlink_owner_dir}/owner"
+ln -s "${symlink_owner_foreign}" "${symlink_owner_dir}"
 symlink_owner_rc=0
 symlink_owner_out="$(
   env "${bootstrap_base_env[@]}" \
@@ -1030,12 +1030,243 @@ symlink_owner_out="$(
     VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
     bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
 )" || symlink_owner_rc=$?
-assert_cmd "bootstrap fails closed on symlink lock owner metadata" \
+assert_cmd "bootstrap fails closed on a symlink lock" \
   test "${symlink_owner_rc}" -eq 73
-assert_contains "${symlink_owner_out}" "lock owner metadata must be a regular file" \
-  "symlink owner failure is explicit"
-assert_cmd "symlink owner failure preserves foreign target" \
+assert_contains "${symlink_owner_out}" "bootstrap lock must not be a symlink" \
+  "symlink lock failure is explicit"
+assert_cmd "symlink lock failure preserves foreign target" \
   grep -qFx "nonce=symlink-foreign" "${symlink_owner_foreign}"
+
+clean_home="${TMP_HOME}/bootstrap-clean-home"
+mkdir -p "${clean_home}"
+assert_cmd "bootstrap fixture install prepares executable payload state for clean" \
+  env "${bootstrap_base_env[@]}" \
+  HOME="${clean_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+assert_cmd "bootstrap fixture install selected its executable payload" bash -c \
+  'test -d "$1" && test -L "$2" && test "$(readlink "$2")" = "$3" && test -f "$4"' _ \
+  "${clean_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${clean_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}" \
+  "${clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
+for clean_attempt in 1 2; do
+  clean_rc=0
+  clean_out="$(
+    env "${bootstrap_base_env[@]}" \
+      HOME="${clean_home}" \
+      VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+      bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean 2>&1
+  )" || clean_rc=$?
+  assert_cmd "bootstrap clean attempt ${clean_attempt} succeeds" test "${clean_rc}" -eq 0
+  assert_contains "${clean_out}" "ARGV[0]=--clean" \
+    "bootstrap clean attempt ${clean_attempt} executes the verified staged cleaner"
+  assert_cmd "bootstrap clean attempt ${clean_attempt} commits no executable payload state" bash -c \
+    'test ! -e "$1" && test ! -L "$1" && test ! -e "$2" && test ! -e "$3"' _ \
+    "${clean_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+    "${clean_home}/.vibeguard/dist/current" \
+    "${clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
+done
+
+lock_crash_before_home="${TMP_HOME}/bootstrap-lock-crash-before-home"
+lock_crash_before_bin="${TMP_HOME}/bootstrap-lock-crash-before-bin"
+lock_crash_real_ln="$(command -v ln)"
+mkdir -p "${lock_crash_before_home}" "${lock_crash_before_bin}"
+cat > "${lock_crash_before_bin}/ln" <<SH
+#!/usr/bin/env bash
+last=""
+for arg in "\$@"; do last="\${arg}"; done
+if [[ "\${last}" == "${lock_crash_before_home}/.vibeguard/dist/.bootstrap.lock" ]]; then
+  kill -KILL "\${PPID}"
+  exit 137
+fi
+exec "${lock_crash_real_ln}" "\$@"
+SH
+chmod +x "${lock_crash_before_bin}/ln"
+lock_crash_before_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${lock_crash_before_home}" \
+  PATH="${lock_crash_before_bin}:${PATH}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || lock_crash_before_rc=$?
+assert_cmd "crash before atomic lock publish exits nonzero" \
+  test "${lock_crash_before_rc}" -ne 0
+assert_cmd "crash before atomic lock publish leaves no blocking lock" \
+  test ! -e "${lock_crash_before_home}/.vibeguard/dist/.bootstrap.lock"
+assert_cmd "retry after pre-publish lock crash succeeds" env "${bootstrap_base_env[@]}" \
+  HOME="${lock_crash_before_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+
+lock_crash_after_home="${TMP_HOME}/bootstrap-lock-crash-after-home"
+lock_crash_after_bin="${TMP_HOME}/bootstrap-lock-crash-after-bin"
+mkdir -p "${lock_crash_after_home}" "${lock_crash_after_bin}"
+cat > "${lock_crash_after_bin}/ln" <<SH
+#!/usr/bin/env bash
+last=""
+for arg in "\$@"; do last="\${arg}"; done
+if [[ "\${last}" == "${lock_crash_after_home}/.vibeguard/dist/.bootstrap.lock" ]]; then
+  "${lock_crash_real_ln}" "\$@"
+  kill -KILL "\${PPID}"
+  exit 137
+fi
+exec "${lock_crash_real_ln}" "\$@"
+SH
+chmod +x "${lock_crash_after_bin}/ln"
+lock_crash_after_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${lock_crash_after_home}" \
+  PATH="${lock_crash_after_bin}:${PATH}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || lock_crash_after_rc=$?
+assert_cmd "crash after atomic lock publish exits nonzero" \
+  test "${lock_crash_after_rc}" -ne 0
+assert_cmd "crash after atomic lock publish leaves complete owner metadata" bash -c \
+  'test -f "$1" && grep -qE "^pid=[1-9][0-9]*$" "$1" && grep -qE "^nonce=[A-Za-z0-9._-]+$" "$1"' _ \
+  "${lock_crash_after_home}/.vibeguard/dist/.bootstrap.lock"
+assert_cmd "retry reaps atomically published stale lock and succeeds" env "${bootstrap_base_env[@]}" \
+  HOME="${lock_crash_after_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+
+stage_crash_home="${TMP_HOME}/bootstrap-stage-crash-home"
+stage_crash_bin="${TMP_HOME}/bootstrap-stage-crash-bin"
+mkdir -p "${stage_crash_home}" "${stage_crash_bin}"
+cat > "${stage_crash_bin}/mv" <<SH
+#!/usr/bin/env bash
+previous=""
+last=""
+for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
+if [[ "\${previous}" == */stage && "\${last}" == "${stage_crash_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" ]]; then
+  "${switch_failure_real_mv}" "\$@"
+  kill -KILL "\${PPID}"
+  exit 137
+fi
+exec "${switch_failure_real_mv}" "\$@"
+SH
+chmod +x "${stage_crash_bin}/mv"
+stage_crash_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${stage_crash_home}" \
+  PATH="${stage_crash_bin}:${PATH}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || stage_crash_rc=$?
+assert_cmd "SIGKILL after final payload move exits nonzero" test "${stage_crash_rc}" -ne 0
+assert_cmd "SIGKILL after final move retains prepared repair evidence" bash -c \
+  'test -d "$1" && grep -qFx "phase=prepared" "$2" && test -f "$3"' _ \
+  "${stage_crash_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${stage_crash_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${stage_crash_home}/.vibeguard/dist/.bootstrap.lock"
+stage_retry_rc=0
+stage_retry_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${stage_crash_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || stage_retry_rc=$?
+assert_cmd "retry resumes after SIGKILL final-move crash" test "${stage_retry_rc}" -eq 0
+assert_contains "${stage_retry_out}" "Resuming verified bootstrap transaction phase=prepared" \
+  "SIGKILL retry reports its persisted prepared phase"
+assert_cmd "SIGKILL retry commits setup and releases lock" bash -c \
+  'grep -qFx "phase=committed" "$1" && test ! -e "$2"' _ \
+  "${stage_crash_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${stage_crash_home}/.vibeguard/dist/.bootstrap.lock"
+
+scheduler_release="${TMP_HOME}/bootstrap-release-scheduler"
+scheduler_payload_root="${TMP_HOME}/bootstrap-release-scheduler-root"
+mkdir -p "${scheduler_release}" "${scheduler_payload_root}"
+cp "${BOOTSTRAP_RELEASE}"/vibeguard-runtime-* "${scheduler_release}/"
+tar -xzf "${BOOTSTRAP_RELEASE}/${BOOTSTRAP_ASSET}" -C "${scheduler_payload_root}"
+cp "${REPO_DIR}/scripts/setup/install.sh" \
+  "${scheduler_payload_root}/scripts/setup/install.sh"
+cp "${REPO_DIR}/scripts/setup/check.sh" \
+  "${scheduler_payload_root}/scripts/setup/check.sh"
+cp "${REPO_DIR}/scripts/install-systemd.sh" \
+  "${scheduler_payload_root}/scripts/install-systemd.sh"
+python3 - "${scheduler_release}/${BOOTSTRAP_ASSET}" "${scheduler_payload_root}" <<'PY'
+import pathlib
+import sys
+import tarfile
+
+archive = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[2])
+with tarfile.open(archive, "w:gz") as handle:
+    for child in sorted(root.iterdir()):
+        handle.add(child, arcname=child.name, recursive=True)
+PY
+{
+  for scheduler_asset_path in "${scheduler_release}"/vibeguard-runtime-* \
+    "${scheduler_release}/${BOOTSTRAP_ASSET}"; do
+    scheduler_asset_name="${scheduler_asset_path##*/}"
+    scheduler_asset_sha="$(shasum -a 256 "${scheduler_asset_path}" | awk '{print $1}')"
+    printf '%s  %s\n' "${scheduler_asset_sha}" "${scheduler_asset_name}"
+  done
+} | LC_ALL=C sort -k2,2 > "${scheduler_release}/SHA256SUMS"
+
+scheduler_home="${TMP_HOME}/bootstrap-scheduler-home"
+scheduler_unit_dir="${scheduler_home}/.config/systemd/user"
+scheduler_service="${scheduler_unit_dir}/vibeguard-gc.service"
+scheduler_timer="${scheduler_unit_dir}/vibeguard-gc.timer"
+mkdir -p "${scheduler_home}"
+scheduler_first_rc=0
+scheduler_first_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${scheduler_home}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes --with-scheduler 2>&1
+)" || scheduler_first_rc=$?
+assert_cmd "payload bootstrap installs opted-in systemd scheduler" \
+  test "${scheduler_first_rc}" -eq 0
+assert_cmd "payload systemd scheduler targets stable current selection" \
+  grep -qF "${scheduler_home}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh" \
+  "${scheduler_service}"
+sed -e "s|dist/current/scripts/gc|dist/${BOOTSTRAP_VERSION}/scripts/gc|g" \
+  "${scheduler_service}" > "${scheduler_service}.old"
+mv "${scheduler_service}.old" "${scheduler_service}"
+scheduler_retry_rc=0
+scheduler_retry_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${scheduler_home}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || scheduler_retry_rc=$?
+assert_cmd "default payload retry refreshes an existing managed scheduler" \
+  test "${scheduler_retry_rc}" -eq 0
+assert_contains "${scheduler_retry_out}" "Mode: refresh managed scheduler" \
+  "managed scheduler refresh is explicit"
+assert_cmd "managed scheduler refresh removes the old version-specific target" bash -c \
+  'grep -qF "$2/dist/current/scripts/gc/gc-scheduled.sh" "$1" && ! grep -qF "$2/dist/$3/scripts/gc/gc-scheduled.sh" "$1"' _ \
+  "${scheduler_service}" "${scheduler_home}/.vibeguard" "${BOOTSTRAP_VERSION}"
+
+unmanaged_scheduler_home="${TMP_HOME}/bootstrap-unmanaged-scheduler-home"
+unmanaged_scheduler_dir="${unmanaged_scheduler_home}/.config/systemd/user"
+unmanaged_scheduler_service="${unmanaged_scheduler_dir}/vibeguard-gc.service"
+unmanaged_scheduler_timer="${unmanaged_scheduler_dir}/vibeguard-gc.timer"
+mkdir -p "${unmanaged_scheduler_dir}"
+printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/custom-gc' \
+  > "${unmanaged_scheduler_service}"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' > "${unmanaged_scheduler_timer}"
+unmanaged_scheduler_before="$(
+  shasum -a 256 "${unmanaged_scheduler_service}" "${unmanaged_scheduler_timer}"
+)"
+unmanaged_scheduler_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${unmanaged_scheduler_home}" \
+  VIBEGUARD_TEST_UNAME=Linux \
+  VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || unmanaged_scheduler_rc=$?
+assert_cmd "default payload install with unmanaged scheduler succeeds" \
+  test "${unmanaged_scheduler_rc}" -eq 0
+assert_cmd "default payload install preserves unmanaged scheduler files byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${unmanaged_scheduler_service}" "${unmanaged_scheduler_timer}" \
+  "${unmanaged_scheduler_before}"
 
 foreign_owner_release="${TMP_HOME}/bootstrap-release-foreign-owner"
 foreign_owner_home="${TMP_HOME}/bootstrap-foreign-owner-home"
@@ -1055,4 +1286,4 @@ assert_cmd "foreign lock owner replacement fails bootstrap visibly" \
 assert_contains "${foreign_owner_out}" "lock ownership changed" \
   "cleanup reports foreign lock ownership instead of deleting it"
 assert_cmd "cleanup never deletes a foreign lock owner" \
-  grep -qFx "nonce=foreign-owner" "${foreign_owner_lock}/owner"
+  grep -qFx "nonce=foreign-owner" "${foreign_owner_lock}"

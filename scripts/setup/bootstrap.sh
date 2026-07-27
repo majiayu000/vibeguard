@@ -102,9 +102,13 @@ DIST_ROOT="${VIBEGUARD_HOME}/dist"
 FINAL_DIR="${DIST_ROOT}/${VERSION}"
 CURRENT_LINK="${DIST_ROOT}/current"
 LOCK_DIR="${DIST_ROOT}/.bootstrap.lock"
+TRANSACTION_FILE="${DIST_ROOT}/.bootstrap-transaction-${VERSION}"
 BOOTSTRAP_TMP=""
+LOCK_OWNER_TMP=""
 LOCK_HELD=0
 FINAL_DIR_OWNED=0
+TRANSACTION_OWNED=0
+SETUP_STARTED=0
 PREVIOUS_CURRENT_PRESENT=0
 PREVIOUS_CURRENT_TARGET=""
 CURRENT_SWITCHED=0
@@ -112,50 +116,104 @@ TRANSACTION_COMMITTED=0
 LOCK_OWNER_PID=""
 LOCK_OWNER_NONCE=""
 
+bootstrap_reap_existing_lock() {
+  local legacy_owner
+
+  if [[ -L "${LOCK_DIR}" ]]; then
+    bootstrap_error "bootstrap lock must not be a symlink: ${LOCK_DIR}"
+    return 73
+  fi
+  if [[ -d "${LOCK_DIR}" ]]; then
+    legacy_owner="${LOCK_DIR}/owner"
+    if [[ -f "${legacy_owner}" && ! -L "${legacy_owner}" ]] \
+      && bootstrap_lock_parse_owner_file "${legacy_owner}"; then
+      bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
+      case "${BOOTSTRAP_PID_LIVENESS}" in
+        active)
+          bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
+          return 73
+          ;;
+        ambiguous)
+          bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
+          return 73
+          ;;
+      esac
+    fi
+    bootstrap_lock_reap_legacy_directory \
+      "${LOCK_DIR}" "${DIST_ROOT}" "legacy-lock recovery" || return 73
+    return 0
+  fi
+  if [[ ! -f "${LOCK_DIR}" ]] || ! bootstrap_lock_parse_owner_file "${LOCK_DIR}"; then
+    return 73
+  fi
+  bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
+  case "${BOOTSTRAP_PID_LIVENESS}" in
+    active)
+      bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
+      return 73
+      ;;
+    dead) ;;
+    *)
+      bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
+      return 73
+      ;;
+  esac
+  bootstrap_lock_reap_exact_owner \
+    "${LOCK_DIR}" "${DIST_ROOT}" \
+    "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
+    "stale-lock recovery" "1" || return 73
+}
+
 bootstrap_acquire_owner_lock() {
-  local attempt
+  local attempt lock_rc nested_owner
 
   for attempt in 1 2 3; do
-    if mkdir "${LOCK_DIR}" 2>/dev/null; then
-      LOCK_OWNER_PID="$$"
-      LOCK_OWNER_NONCE="$$-${RANDOM}-${attempt}"
-      if ! printf 'pid=%s\nnonce=%s\n' "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" \
-        > "${LOCK_DIR}/owner"; then
-        bootstrap_error "could not initialize bootstrap lock owner metadata."
-        if ! rm -f -- "${LOCK_DIR}/owner" || ! rmdir "${LOCK_DIR}"; then
-          bootstrap_error "failed to clean partially initialized bootstrap lock."
-        fi
-        return 1
+    if [[ -e "${LOCK_DIR}" || -L "${LOCK_DIR}" ]]; then
+      lock_rc=0
+      bootstrap_reap_existing_lock || lock_rc=$?
+      [[ "${lock_rc}" -eq 0 ]] || return "${lock_rc}"
+      continue
+    fi
+
+    LOCK_OWNER_PID="$$"
+    LOCK_OWNER_NONCE="$$-${RANDOM}-${attempt}"
+    LOCK_OWNER_TMP="${DIST_ROOT}/.bootstrap.lock.owner.${LOCK_OWNER_NONCE}"
+    if [[ -e "${LOCK_OWNER_TMP}" || -L "${LOCK_OWNER_TMP}" ]]; then
+      bootstrap_error "bootstrap lock owner temporary path exists: ${LOCK_OWNER_TMP}"
+      return 1
+    fi
+    if ! printf 'pid=%s\nnonce=%s\n' "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" \
+      > "${LOCK_OWNER_TMP}"; then
+      bootstrap_error "could not initialize bootstrap lock owner metadata."
+      return 1
+    fi
+    if ln "${LOCK_OWNER_TMP}" "${LOCK_DIR}" 2>/dev/null; then
+      if [[ ! -L "${LOCK_DIR}" && -f "${LOCK_DIR}" \
+        && "${LOCK_DIR}" -ef "${LOCK_OWNER_TMP}" ]]; then
+        rm -f -- "${LOCK_OWNER_TMP}"
+        LOCK_OWNER_TMP=""
+        LOCK_HELD=1
+        return 0
       fi
-      LOCK_HELD=1
-      return 0
-    fi
-    if [[ -L "${LOCK_DIR}" || ! -d "${LOCK_DIR}" ]]; then
-      bootstrap_error "bootstrap lock must be a real directory: ${LOCK_DIR}"
+      nested_owner="${LOCK_DIR}/${LOCK_OWNER_TMP##*/}"
+      if [[ -d "${LOCK_DIR}" && -f "${nested_owner}" \
+        && "${nested_owner}" -ef "${LOCK_OWNER_TMP}" ]]; then
+        rm -f -- "${nested_owner}"
+      fi
+      rm -f -- "${LOCK_OWNER_TMP}"
+      LOCK_OWNER_TMP=""
+      bootstrap_error "bootstrap lock path changed type during atomic publish."
       return 73
     fi
-    if ! bootstrap_lock_read_owner "${LOCK_DIR}"; then
-      return 73
+    rm -f -- "${LOCK_OWNER_TMP}"
+    LOCK_OWNER_TMP=""
+    if [[ ! -e "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
+      bootstrap_error "atomic bootstrap lock publish failed without a competing owner."
+      return 1
     fi
-    bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
-    case "${BOOTSTRAP_PID_LIVENESS}" in
-      active)
-        bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
-        return 73
-        ;;
-      dead)
-        ;;
-      *)
-        bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
-        return 73
-        ;;
-    esac
-    if ! bootstrap_lock_reap_exact_owner \
-      "${LOCK_DIR}" "${DIST_ROOT}" \
-      "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
-      "stale-lock recovery" "1"; then
-      return 73
-    fi
+    lock_rc=0
+    bootstrap_reap_existing_lock || lock_rc=$?
+    [[ "${lock_rc}" -eq 0 ]] || return "${lock_rc}"
   done
 
   bootstrap_error "could not acquire bootstrap lock after stale-owner recovery."
@@ -207,20 +265,33 @@ bootstrap_restore_previous_current() {
 
 bootstrap_cleanup() {
   local status=$?
-  if [[ "${TRANSACTION_COMMITTED}" == "0" && "${CURRENT_SWITCHED}" == "1" ]]; then
+  if [[ -n "${LOCK_OWNER_TMP}" ]]; then
+    rm -f -- "${LOCK_OWNER_TMP}" 2>/dev/null || status=1
+  fi
+  if [[ "${SETUP_STARTED}" == "0" && "${TRANSACTION_COMMITTED}" == "0" \
+    && "${CURRENT_SWITCHED}" == "1" ]]; then
     if ! bootstrap_restore_previous_current; then
       status=1
     fi
   fi
-  if [[ "${FINAL_DIR_OWNED}" == "1" && "${TRANSACTION_COMMITTED}" == "0" \
+  if [[ "${FINAL_DIR_OWNED}" == "1" && "${SETUP_STARTED}" == "0" \
+    && "${TRANSACTION_COMMITTED}" == "0" \
     && "${CURRENT_SWITCHED}" == "0" ]]; then
     if ! rm -rf -- "${FINAL_DIR}"; then
       bootstrap_error "failed to remove newly owned distribution after bootstrap failure: ${FINAL_DIR}"
       status=1
     fi
-  elif [[ "${FINAL_DIR_OWNED}" == "1" && "${TRANSACTION_COMMITTED}" == "0" ]]; then
+  elif [[ "${FINAL_DIR_OWNED}" == "1" && "${SETUP_STARTED}" == "0" \
+    && "${TRANSACTION_COMMITTED}" == "0" ]]; then
     bootstrap_error "rollback incomplete; retaining current-referenced distribution evidence: ${FINAL_DIR}"
     status=1
+  fi
+  if [[ "${TRANSACTION_OWNED}" == "1" && "${SETUP_STARTED}" == "0" \
+    && "${TRANSACTION_COMMITTED}" == "0" ]]; then
+    if ! rm -f -- "${TRANSACTION_FILE}"; then
+      bootstrap_error "failed to remove uncommitted bootstrap transaction: ${TRANSACTION_FILE}"
+      status=1
+    fi
   fi
   if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
     if ! rm -rf -- "${BOOTSTRAP_TMP}"; then
@@ -257,12 +328,18 @@ if [[ "${lock_rc}" -ne 0 ]]; then
   exit "${lock_rc}"
 fi
 
-if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
-  bootstrap_error "distribution version already exists; refusing to overwrite: ${FINAL_DIR}"
-  exit 73
-fi
 if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
   bootstrap_error "dist/current exists and is not a symlink; refusing to overwrite it."
+  exit 73
+fi
+if [[ -e "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]]; then
+  if ! bootstrap_transaction_read "${TRANSACTION_FILE}" \
+    || [[ "${BOOTSTRAP_TRANSACTION_VERSION}" != "${VERSION}" ]]; then
+    bootstrap_error "existing distribution has no valid repair transaction: ${FINAL_DIR}"
+    exit 73
+  fi
+elif [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+  bootstrap_error "distribution version already exists without repair evidence: ${FINAL_DIR}"
   exit 73
 fi
 
@@ -313,9 +390,58 @@ bootstrap_validate_extracted_payload "${STAGE_DIR}" "${VERSION}"
 
 # Recheck conflicts after all remote input has been verified and while the
 # bootstrap lock remains held. Existing version directories are immutable.
+EXISTING_FINAL=0
 if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
-  bootstrap_error "distribution version appeared during bootstrap; refusing to overwrite: ${FINAL_DIR}"
+  if [[ ! -f "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]] \
+    || ! bootstrap_transaction_read "${TRANSACTION_FILE}" \
+    || [[ "${BOOTSTRAP_TRANSACTION_VERSION}" != "${VERSION}" ]] \
+    || [[ "${BOOTSTRAP_TRANSACTION_SHA256}" != "${BOOTSTRAP_PAYLOAD_SHA256}" ]]; then
+    bootstrap_error "existing distribution transaction does not match the verified payload: ${FINAL_DIR}"
+    exit 73
+  fi
+  if [[ ! -d "${FINAL_DIR}" || -L "${FINAL_DIR}" ]] \
+    || ! bootstrap_validate_extracted_payload "${FINAL_DIR}" "${VERSION}"; then
+    bootstrap_error "existing distribution failed payload validation: ${FINAL_DIR}"
+    exit 73
+  fi
+  payload_difference=""
+  if ! payload_difference="$(diff -qr "${STAGE_DIR}" "${FINAL_DIR}" 2>&1)"; then
+    bootstrap_error "existing distribution contents differ from the verified payload: ${FINAL_DIR}"
+    bootstrap_error "${payload_difference%%$'\n'*}"
+    exit 73
+  fi
+  EXISTING_FINAL=1
+elif [[ -e "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]]; then
+  bootstrap_error "bootstrap transaction exists without its distribution: ${TRANSACTION_FILE}"
   exit 73
+fi
+
+if [[ "${SETUP_ARGS[0]:-}" == "--clean" ]]; then
+  printf 'Payload verified: checksum=%s provenance=%s\n' \
+    "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
+  clean_rc=0
+  PYTHONDONTWRITEBYTECODE=1 \
+    bash "${STAGE_DIR}/setup.sh" "${SETUP_ARGS[@]}" || clean_rc=$?
+  [[ "${clean_rc}" -eq 0 ]] || exit "${clean_rc}"
+  if [[ "${EXISTING_FINAL}" == "1" ]]; then
+    if [[ -L "${CURRENT_LINK}" && "$(readlink "${CURRENT_LINK}")" == "${VERSION}" ]]; then
+      rm -f -- "${CURRENT_LINK}"
+    fi
+    rm -rf -- "${FINAL_DIR}"
+    rm -f -- "${TRANSACTION_FILE}"
+  fi
+  exit 0
+fi
+
+if [[ "${EXISTING_FINAL}" == "1" ]]; then
+  printf 'Resuming verified bootstrap transaction phase=%s.\n' \
+    "${BOOTSTRAP_TRANSACTION_PHASE}"
+else
+  bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
+    "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "prepared"
+  TRANSACTION_OWNED=1
+  mv "${STAGE_DIR}" "${FINAL_DIR}"
+  FINAL_DIR_OWNED=1
 fi
 if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
   bootstrap_error "dist/current became a non-symlink; refusing to overwrite it."
@@ -329,20 +455,20 @@ if [[ -L "${CURRENT_LINK}" ]]; then
   PREVIOUS_CURRENT_PRESENT=1
 fi
 
-mv "${STAGE_DIR}" "${FINAL_DIR}"
-FINAL_DIR_OWNED=1
-CURRENT_TMP="${BOOTSTRAP_TMP}/current-link"
-if [[ -e "${CURRENT_TMP}" || -L "${CURRENT_TMP}" ]]; then
-  bootstrap_error "temporary current-link path already exists: ${CURRENT_TMP}"
-  exit 73
-fi
-ln -s "${VERSION}" "${CURRENT_TMP}"
-bootstrap_atomic_replace_symlink "${CURRENT_TMP}" "${CURRENT_LINK}"
 if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" ]]; then
-  bootstrap_error "atomic dist/current switch could not be verified."
-  exit 1
+  CURRENT_TMP="${BOOTSTRAP_TMP}/current-link"
+  if [[ -e "${CURRENT_TMP}" || -L "${CURRENT_TMP}" ]]; then
+    bootstrap_error "temporary current-link path already exists: ${CURRENT_TMP}"
+    exit 73
+  fi
+  ln -s "${VERSION}" "${CURRENT_TMP}"
+  bootstrap_atomic_replace_symlink "${CURRENT_TMP}" "${CURRENT_LINK}"
+  if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" ]]; then
+    bootstrap_error "atomic dist/current switch could not be verified."
+    exit 1
+  fi
+  CURRENT_SWITCHED=1
 fi
-CURRENT_SWITCHED=1
 
 printf 'Payload verified: checksum=%s provenance=%s\n' \
   "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
@@ -371,15 +497,22 @@ if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
   esac
 fi
 setup_rc=0
-bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}" || setup_rc=$?
+bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
+  "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "setup"
+SETUP_STARTED=1
+PYTHONDONTWRITEBYTECODE=1 \
+  bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}" || setup_rc=$?
 if [[ "${setup_rc}" -ne 0 ]]; then
-  bootstrap_error "payload setup failed with exit status ${setup_rc}; rolling back bootstrap transaction."
+  bootstrap_error "payload setup failed with exit status ${setup_rc}; preserving verified payload for repair."
   exit "${setup_rc}"
 fi
 
+bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
+  "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "committed"
 TRANSACTION_COMMITTED=1
 CURRENT_SWITCHED=0
 FINAL_DIR_OWNED=0
+TRANSACTION_OWNED=0
 rm -rf -- "${BOOTSTRAP_TMP}"
 BOOTSTRAP_TMP=""
 bootstrap_release_owner_lock
