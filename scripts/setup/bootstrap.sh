@@ -104,11 +104,19 @@ CURRENT_LINK="${DIST_ROOT}/current"
 LOCK_DIR="${DIST_ROOT}/.bootstrap.lock"
 BOOTSTRAP_TMP=""
 LOCK_HELD=0
+FINAL_DIR_OWNED=0
 
 bootstrap_cleanup() {
   local status=$?
   if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
     rm -rf -- "${BOOTSTRAP_TMP}"
+  fi
+  if [[ "${FINAL_DIR_OWNED}" == "1" \
+    && (! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}") ]]; then
+    if ! rm -rf -- "${FINAL_DIR}"; then
+      bootstrap_error "failed to remove newly owned distribution after bootstrap failure: ${FINAL_DIR}"
+      status=1
+    fi
   fi
   if [[ "${LOCK_HELD}" == "1" && -d "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
     rmdir "${LOCK_DIR}" 2>/dev/null || true
@@ -202,6 +210,7 @@ if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
 fi
 
 mv "${STAGE_DIR}" "${FINAL_DIR}"
+FINAL_DIR_OWNED=1
 CURRENT_TMP="${BOOTSTRAP_TMP}/current-link"
 if [[ -e "${CURRENT_TMP}" || -L "${CURRENT_TMP}" ]]; then
   bootstrap_error "temporary current-link path already exists: ${CURRENT_TMP}"
@@ -213,6 +222,7 @@ if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" 
   bootstrap_error "atomic dist/current switch could not be verified."
   exit 1
 fi
+FINAL_DIR_OWNED=0
 
 printf 'Payload verified: checksum=%s provenance=%s\n' \
   "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"

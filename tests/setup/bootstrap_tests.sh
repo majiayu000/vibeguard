@@ -367,6 +367,56 @@ assert_cmd "handoff fixture changes current only after lock release" bash -c \
   'test -L "$1" && test "$(readlink "$1")" = other' _ \
   "${handoff_home}/.vibeguard/dist/current"
 
+switch_failure_home="${TMP_HOME}/bootstrap-switch-failure-home"
+switch_failure_bin="${TMP_HOME}/bootstrap-switch-failure-bin"
+switch_failure_real_mv="$(command -v mv)"
+mkdir -p "${switch_failure_home}/.vibeguard/dist/old" "${switch_failure_bin}"
+ln -s old "${switch_failure_home}/.vibeguard/dist/current"
+cat > "${switch_failure_bin}/mv" <<SH
+#!/usr/bin/env bash
+last_arg=""
+for arg in "\$@"; do
+  last_arg="\${arg}"
+done
+if [[ "\${last_arg}" == "${switch_failure_home}/.vibeguard/dist/current" ]]; then
+  printf 'fake current switch failure\n' >&2
+  exit 1
+fi
+exec "${switch_failure_real_mv}" "\$@"
+SH
+chmod +x "${switch_failure_bin}/mv"
+switch_failure_rc=0
+switch_failure_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${switch_failure_home}" \
+    PATH="${switch_failure_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || switch_failure_rc=$?
+assert_cmd "failed current helper exits nonzero" test "${switch_failure_rc}" -ne 0
+assert_contains "${switch_failure_out}" "atomic" "failed current helper is visible"
+assert_cmd "failed current helper removes only the newly owned final directory" bash -c \
+  'test "$(readlink "$1")" = old && test -d "$2" && test ! -e "$3"' _ \
+  "${switch_failure_home}/.vibeguard/dist/current" \
+  "${switch_failure_home}/.vibeguard/dist/old" \
+  "${switch_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+switch_retry_rc=0
+switch_retry_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${switch_failure_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || switch_retry_rc=$?
+assert_cmd "retry after current helper failure succeeds" test "${switch_retry_rc}" -eq 0
+assert_contains "${switch_retry_out}" "EXPECTED_FINAL_SETUP" "retry executes the verified payload"
+assert_cmd "successful retry preserves old version and commits exact current" bash -c \
+  'test -d "$1" && test -d "$2" && test "$(readlink "$3")" = "$4"' _ \
+  "${switch_failure_home}/.vibeguard/dist/old" \
+  "${switch_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${switch_failure_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}"
+
 interrupt_release="${TMP_HOME}/bootstrap-release-interrupt"
 interrupt_home="${TMP_HOME}/bootstrap-interrupt-home"
 make_hostile_bootstrap_release "${interrupt_release}" "interrupt"
