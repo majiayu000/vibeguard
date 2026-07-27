@@ -459,6 +459,9 @@ gc_check() {
 }
 mkdir -p "${HOME}/.config/systemd/user" "${gc_dir}"
 touch "${HOME}/.config/systemd/user/vibeguard-gc.timer"
+printf '%s\n' '[Service]' \
+  "ExecStart=/bin/bash \"${REPO_DIR}/scripts/gc/gc-scheduled.sh\"" \
+  > "${HOME}/.config/systemd/user/vibeguard-gc.service"
 rm -f "${HOME}/.systemctl-vibeguard-gc-active" "${gc_success}" "${gc_attempt}" "${gc_dir}/gc-systemd.log" "${gc_dir}/gc-cron.log"
 gc_inactive_out="$(gc_check)"
 assert_not_contains "${gc_inactive_out}" "Scheduled GC execution freshness" "inactive systemd timer does not run freshness"

@@ -35,10 +35,33 @@ else:
     raise SystemExit(1)
 settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
-mixed_clean_out="$(bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
+custom_scheduler_dir="${HOME}/.config/systemd/user"
+custom_scheduler_service="${custom_scheduler_dir}/vibeguard-gc.service"
+custom_scheduler_timer="${custom_scheduler_dir}/vibeguard-gc.timer"
+mkdir -p "${custom_scheduler_dir}"
+printf '%s\n' '[Service]' 'Environment="CUSTOM_FLAG=preserve"' \
+  'ExecStart=/usr/local/bin/custom-gc' > "${custom_scheduler_service}"
+printf '%s\n' '[Timer]' 'OnCalendar=Mon *-*-* 04:30:00' \
+  > "${custom_scheduler_timer}"
+printf '%s\n' 'schema=1' 'kind=systemd' \
+  'service_sha256=0000000000000000000000000000000000000000000000000000000000000000' \
+  'timer_sha256=0000000000000000000000000000000000000000000000000000000000000000' \
+  > "${HOME}/.vibeguard/scheduler-ownership"
+custom_scheduler_before="$(
+  shasum -a 256 "${custom_scheduler_service}" "${custom_scheduler_timer}"
+)"
+mixed_clean_out="$(VIBEGUARD_TEST_UNAME=Linux bash "${REPO_DIR}/setup.sh" --clean 2>&1)"
 assert_contains "${mixed_clean_out}" "VibeGuard cleaned." "setup --clean succeeds with mixed Claude hook entry"
 assert_cmd "setup --clean preserves third-party Claude hook in mixed entry" grep -q "/tmp/third-party-pre-bash.sh" "${HOME}/.claude/settings.json"
 assert_cmd "setup --clean removes VibeGuard hook from mixed entry" bash -c "! grep -q 'pre-bash-guard.sh' '${HOME}/.claude/settings.json'"
+assert_contains "${mixed_clean_out}" "scheduler ownership receipt does not match" \
+  "setup --clean reports drifted scheduler as unmanaged"
+assert_cmd "setup --clean preserves custom scheduler Environment and schedule" bash -c \
+  'test "$(shasum -a 256 "$1" "$2")" = "$3"' _ \
+  "${custom_scheduler_service}" "${custom_scheduler_timer}" "${custom_scheduler_before}"
+assert_cmd "setup --clean removes stale scheduler ownership receipt" \
+  test ! -e "${HOME}/.vibeguard/scheduler-ownership"
+rm -f "${custom_scheduler_service}" "${custom_scheduler_timer}"
 bash "${REPO_DIR}/setup.sh" --yes --profile full >/dev/null
 
 _CUSTOM_RULE="${HOME}/.claude/rules/vibeguard/common/security.md"

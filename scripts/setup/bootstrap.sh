@@ -21,6 +21,7 @@ VERSION=""
 VERSION_SET=0
 REQUIRE_PROVENANCE=0
 declare -a SETUP_ARGS=()
+CLEAN_REQUESTED=0
 
 bootstrap_usage() {
   printf '%s\n' \
@@ -88,6 +89,9 @@ if ! bootstrap_validate_version "${VERSION}"; then
   bootstrap_error "invalid exact version: ${VERSION} (expected X.Y.Z or an exact semver prerelease)."
   exit 64
 fi
+if [[ "${SETUP_ARGS[0]:-}" == "--clean" ]]; then
+  CLEAN_REQUESTED=1
+fi
 if [[ -z "${HOME:-}" || "${HOME}" != /* ]]; then
   bootstrap_error "HOME must be a non-empty absolute path."
   exit 1
@@ -125,22 +129,26 @@ bootstrap_reap_existing_lock() {
   fi
   if [[ -d "${LOCK_DIR}" ]]; then
     legacy_owner="${LOCK_DIR}/owner"
-    if [[ -f "${legacy_owner}" && ! -L "${legacy_owner}" ]] \
-      && bootstrap_lock_parse_owner_file "${legacy_owner}"; then
-      bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
-      case "${BOOTSTRAP_PID_LIVENESS}" in
-        active)
-          bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
-          return 73
-          ;;
-        ambiguous)
-          bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
-          return 73
-          ;;
-      esac
+    if ! bootstrap_lock_parse_owner_file "${legacy_owner}"; then
+      bootstrap_error "legacy lock inactivity cannot be proven; preserving ${LOCK_DIR}."
+      return 73
     fi
+    bootstrap_pid_liveness "${BOOTSTRAP_LOCK_READ_PID}"
+    case "${BOOTSTRAP_PID_LIVENESS}" in
+      active)
+        bootstrap_error "active bootstrap owner pid=${BOOTSTRAP_LOCK_READ_PID} holds ${LOCK_DIR}."
+        return 73
+        ;;
+      dead) ;;
+      *)
+        bootstrap_error "cannot prove lock owner pid=${BOOTSTRAP_LOCK_READ_PID} is dead; preserving ${LOCK_DIR}."
+        return 73
+        ;;
+    esac
     bootstrap_lock_reap_legacy_directory \
-      "${LOCK_DIR}" "${DIST_ROOT}" "legacy-lock recovery" || return 73
+      "${LOCK_DIR}" "${DIST_ROOT}" \
+      "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
+      "legacy-lock recovery" || return 73
     return 0
   fi
   if [[ ! -f "${LOCK_DIR}" ]] || ! bootstrap_lock_parse_owner_file "${LOCK_DIR}"; then
@@ -338,6 +346,11 @@ if [[ -e "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]]; then
     bootstrap_error "existing distribution has no valid repair transaction: ${FINAL_DIR}"
     exit 73
   fi
+  if [[ "${BOOTSTRAP_TRANSACTION_PHASE}" == "cleaning" \
+    && "${CLEAN_REQUESTED}" != "1" ]]; then
+    bootstrap_error "bootstrap clean transaction is incomplete; rerun the same --clean command."
+    exit 73
+  fi
 elif [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
   bootstrap_error "distribution version already exists without repair evidence: ${FINAL_DIR}"
   exit 73
@@ -391,12 +404,20 @@ bootstrap_validate_extracted_payload "${STAGE_DIR}" "${VERSION}"
 # Recheck conflicts after all remote input has been verified and while the
 # bootstrap lock remains held. Existing version directories are immutable.
 EXISTING_FINAL=0
-if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+EXISTING_TRANSACTION=0
+if [[ -e "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]]; then
   if [[ ! -f "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]] \
     || ! bootstrap_transaction_read "${TRANSACTION_FILE}" \
     || [[ "${BOOTSTRAP_TRANSACTION_VERSION}" != "${VERSION}" ]] \
     || [[ "${BOOTSTRAP_TRANSACTION_SHA256}" != "${BOOTSTRAP_PAYLOAD_SHA256}" ]]; then
     bootstrap_error "existing distribution transaction does not match the verified payload: ${FINAL_DIR}"
+    exit 73
+  fi
+  EXISTING_TRANSACTION=1
+fi
+if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+  if [[ "${EXISTING_TRANSACTION}" != "1" ]]; then
+    bootstrap_error "existing distribution has no verified transaction: ${FINAL_DIR}"
     exit 73
   fi
   if [[ ! -d "${FINAL_DIR}" || -L "${FINAL_DIR}" ]] \
@@ -411,25 +432,44 @@ if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
     exit 73
   fi
   EXISTING_FINAL=1
-elif [[ -e "${TRANSACTION_FILE}" || -L "${TRANSACTION_FILE}" ]]; then
-  bootstrap_error "bootstrap transaction exists without its distribution: ${TRANSACTION_FILE}"
-  exit 73
+elif [[ "${EXISTING_TRANSACTION}" == "1" ]]; then
+  case "${BOOTSTRAP_TRANSACTION_PHASE}" in
+    prepared)
+      if [[ "${CLEAN_REQUESTED}" != "1" ]]; then
+        mv "${STAGE_DIR}" "${FINAL_DIR}"
+        EXISTING_FINAL=1
+      fi
+      ;;
+    cleaning)
+      [[ "${CLEAN_REQUESTED}" == "1" ]] || {
+        bootstrap_error "bootstrap clean transaction is incomplete; rerun --clean."
+        exit 73
+      }
+      ;;
+    setup|committed)
+      bootstrap_error "${BOOTSTRAP_TRANSACTION_PHASE} transaction exists without its distribution: ${TRANSACTION_FILE}"
+      exit 73
+      ;;
+  esac
 fi
 
-if [[ "${SETUP_ARGS[0]:-}" == "--clean" ]]; then
+if [[ "${CLEAN_REQUESTED}" == "1" ]]; then
+  SETUP_STARTED=1
+  bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
+    "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "cleaning"
   printf 'Payload verified: checksum=%s provenance=%s\n' \
     "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
   clean_rc=0
   PYTHONDONTWRITEBYTECODE=1 \
     bash "${STAGE_DIR}/setup.sh" "${SETUP_ARGS[@]}" || clean_rc=$?
   [[ "${clean_rc}" -eq 0 ]] || exit "${clean_rc}"
-  if [[ "${EXISTING_FINAL}" == "1" ]]; then
-    if [[ -L "${CURRENT_LINK}" && "$(readlink "${CURRENT_LINK}")" == "${VERSION}" ]]; then
-      rm -f -- "${CURRENT_LINK}"
-    fi
-    rm -rf -- "${FINAL_DIR}"
-    rm -f -- "${TRANSACTION_FILE}"
+  if [[ -L "${CURRENT_LINK}" && "$(readlink "${CURRENT_LINK}")" == "${VERSION}" ]]; then
+    rm -f -- "${CURRENT_LINK}"
   fi
+  if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+    rm -rf -- "${FINAL_DIR}"
+  fi
+  rm -f -- "${TRANSACTION_FILE}"
   exit 0
 fi
 

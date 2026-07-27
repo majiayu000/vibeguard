@@ -378,8 +378,9 @@ bootstrap_lock_reap_exact_owner() {
 }
 
 bootstrap_lock_reap_legacy_directory() {
-  local lock_dir="$1" dist_root="$2" action="$3"
+  local lock_dir="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
   local claimed="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.legacy"
+  local owner_matches=1
 
   if [[ -L "${lock_dir}" || ! -d "${lock_dir}" ]]; then
     bootstrap_error "legacy bootstrap lock must be a real directory: ${lock_dir}"
@@ -393,11 +394,25 @@ bootstrap_lock_reap_legacy_directory() {
     bootstrap_error "could not claim legacy bootstrap lock for ${action}: ${lock_dir}"
     return 1
   fi
-  if [[ -e "${lock_dir}" || -L "${lock_dir}" ]]; then
-    bootstrap_error "legacy lock ownership changed during ${action}; preserving ${claimed}."
+  if ! bootstrap_lock_parse_owner_file "${claimed}/owner" \
+    || [[ "${BOOTSTRAP_LOCK_READ_PID}" != "${expected_pid}" ]] \
+    || [[ "${BOOTSTRAP_LOCK_READ_NONCE}" != "${expected_nonce}" ]]; then
+    owner_matches=0
+  else
+    bootstrap_pid_liveness "${expected_pid}"
+    [[ "${BOOTSTRAP_PID_LIVENESS}" == "dead" ]] || owner_matches=0
+  fi
+  if [[ "${owner_matches}" == "0" || -e "${lock_dir}" || -L "${lock_dir}" ]]; then
+    bootstrap_error "legacy lock ownership changed or is no longer proven dead during ${action}."
+    if [[ ! -e "${lock_dir}" && ! -L "${lock_dir}" ]]; then
+      mv -- "${claimed}" "${lock_dir}" || \
+        bootstrap_error "could not restore legacy lock after ${action}: ${claimed}"
+    else
+      bootstrap_error "legacy lock retained at reap path after ${action}: ${claimed}"
+    fi
     return 1
   fi
-  if ! rm -rf -- "${claimed}"; then
+  if ! rm -f -- "${claimed}/owner" || ! rmdir "${claimed}"; then
     bootstrap_error "failed to remove legacy bootstrap lock during ${action}: ${claimed}"
     return 1
   fi
@@ -408,7 +423,7 @@ bootstrap_transaction_write() {
   local temporary="${dist_root}/.bootstrap-transaction-write.$$.$RANDOM"
 
   case "${phase}" in
-    prepared|setup|committed) ;;
+    prepared|setup|committed|cleaning) ;;
     *) bootstrap_error "invalid bootstrap transaction phase: ${phase}"; return 1 ;;
   esac
   if [[ ${#payload_sha256} -ne 64 || "${payload_sha256}" == *[!0-9a-f]* ]]; then
@@ -438,7 +453,7 @@ bootstrap_transaction_read() {
   if ! parsed="$(awk -F= '
     NR == 1 && NF == 2 && $1 == "version" && $2 != "" { version = $2; next }
     NR == 2 && NF == 2 && $1 == "payload_sha256" && $2 ~ /^[0-9a-f]{64}$/ { sha = $2; next }
-    NR == 3 && NF == 2 && $1 == "phase" && $2 ~ /^(prepared|setup|committed)$/ { phase = $2; next }
+    NR == 3 && NF == 2 && $1 == "phase" && $2 ~ /^(prepared|setup|committed|cleaning)$/ { phase = $2; next }
     { bad = 1 }
     END {
       if (!bad && NR == 3 && version != "" && sha != "" && phase != "") {

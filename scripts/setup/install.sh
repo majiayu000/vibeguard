@@ -165,34 +165,115 @@ fi
 
 SCHEDULER_REPO_DIR="${REPO_DIR}"
 SCHEDULER_REFRESHED=0
+SCHEDULER_PRESERVE_REASON=""
+SCHEDULER_RECEIPT="${VIBEGUARD_HOME}/scheduler-ownership"
 if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
   SCHEDULER_REPO_DIR="${HOME}/.vibeguard/dist/current"
 fi
 
-managed_launchd_scheduler_exists() {
+scheduler_files_exist() {
+  [[ -e "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" \
+    || -L "${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist" \
+    || -e "${HOME}/.config/systemd/user/vibeguard-gc.service" \
+    || -L "${HOME}/.config/systemd/user/vibeguard-gc.service" \
+    || -e "${HOME}/.config/systemd/user/vibeguard-gc.timer" \
+    || -L "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]
+}
+
+scheduler_receipt_matches() {
+  local parsed kind first_sha second_sha actual_first actual_second
   local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
-  [[ -f "${plist}" && ! -L "${plist}" ]] \
-    && grep -qF '<string>com.vibeguard.gc</string>' "${plist}" \
-    && grep -qF '/scripts/gc/gc-scheduled.sh</string>' "${plist}" \
-    && grep -qF '/.vibeguard/gc-launchd.log</string>' "${plist}"
+  local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
+  local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
+
+  if [[ ! -e "${SCHEDULER_RECEIPT}" && ! -L "${SCHEDULER_RECEIPT}" ]]; then
+    SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is missing"
+    return 1
+  fi
+  if [[ -L "${SCHEDULER_RECEIPT}" || ! -f "${SCHEDULER_RECEIPT}" ]]; then
+    SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is not a regular file"
+    return 1
+  fi
+  if ! parsed="$(awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { next }
+    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
+    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ { first = $2; next }
+    NR == 4 && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ { second = $2; next }
+    { bad = 1 }
+    END {
+      if (!bad && ((kind == "launchd" && NR == 3) || (kind == "systemd" && NR == 4))) {
+        print kind "\t" first "\t" second
+        exit 0
+      }
+      exit 1
+    }
+  ' "${SCHEDULER_RECEIPT}")"; then
+    SCHEDULER_PRESERVE_REASON="scheduler ownership receipt is invalid"
+    return 1
+  fi
+  IFS=$'\t' read -r kind first_sha second_sha <<< "${parsed}"
+  case "${kind}" in
+    launchd)
+      if [[ -L "${plist}" || ! -f "${plist}" ]] \
+        || ! actual_first="$(setup_runtime_sha256_file "${plist}")" \
+        || [[ "${actual_first}" != "${first_sha}" ]]; then
+        SCHEDULER_PRESERVE_REASON="scheduler ownership receipt does not match current launchd file"
+        return 1
+      fi
+      ;;
+    systemd)
+      if [[ -L "${service}" || ! -f "${service}" \
+        || -L "${timer}" || ! -f "${timer}" ]] \
+        || ! actual_first="$(setup_runtime_sha256_file "${service}")" \
+        || ! actual_second="$(setup_runtime_sha256_file "${timer}")" \
+        || [[ "${actual_first}" != "${first_sha}" || "${actual_second}" != "${second_sha}" ]]; then
+        SCHEDULER_PRESERVE_REASON="scheduler ownership receipt does not match current systemd files"
+        return 1
+      fi
+      ;;
+  esac
+  return 0
 }
 
-managed_systemd_scheduler_exists() {
-  local unit_dir="${HOME}/.config/systemd/user"
-  local service="${unit_dir}/vibeguard-gc.service"
-  local timer="${unit_dir}/vibeguard-gc.timer"
-  [[ -f "${service}" && ! -L "${service}" && -f "${timer}" && ! -L "${timer}" ]] \
-    && grep -qFx 'Description=VibeGuard Scheduled GC' "${service}" \
-    && grep -qF '/scripts/gc/gc-scheduled.sh"' "${service}" \
-    && grep -qFx 'Description=VibeGuard Scheduled GC Timer' "${timer}" \
-    && grep -qFx 'Unit=vibeguard-gc.service' "${timer}"
+write_scheduler_receipt() {
+  local kind="$1" temporary first_sha second_sha=""
+  local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
+  local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
+
+  if [[ -L "${SCHEDULER_RECEIPT}" ]]; then
+    red "ERROR: scheduler ownership receipt must not be a symlink: ${SCHEDULER_RECEIPT}"
+    return 1
+  fi
+  case "${kind}" in
+    launchd)
+      [[ -f "${plist}" && ! -L "${plist}" ]] || return 1
+      first_sha="$(setup_runtime_sha256_file "${plist}")" || return 1
+      ;;
+    systemd)
+      [[ -f "${service}" && ! -L "${service}" \
+        && -f "${timer}" && ! -L "${timer}" ]] || return 1
+      first_sha="$(setup_runtime_sha256_file "${service}")" || return 1
+      second_sha="$(setup_runtime_sha256_file "${timer}")" || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  mkdir -p "${VIBEGUARD_HOME}"
+  temporary="$(mktemp "${VIBEGUARD_HOME}/.scheduler-ownership.XXXXXX")"
+  if [[ "${kind}" == "launchd" ]]; then
+    printf 'schema=1\nkind=launchd\nplist_sha256=%s\n' "${first_sha}" > "${temporary}"
+  else
+    printf 'schema=1\nkind=systemd\nservice_sha256=%s\ntimer_sha256=%s\n' \
+      "${first_sha}" "${second_sha}" > "${temporary}"
+  fi
+  chmod 600 "${temporary}"
+  mv -f -- "${temporary}" "${SCHEDULER_RECEIPT}"
+  state_record_file "${SCHEDULER_RECEIPT}" "generated/scheduler-ownership" "copy"
 }
 
-if [[ "${WITH_SCHEDULER}" != "1" && "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
-  if [[ "$(uname)" == "Darwin" ]] && managed_launchd_scheduler_exists; then
-    WITH_SCHEDULER=1
-    SCHEDULER_REFRESHED=1
-  elif [[ "$(uname)" == "Linux" ]] && managed_systemd_scheduler_exists; then
+if [[ "${WITH_SCHEDULER}" != "1" && "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]] \
+  && scheduler_files_exist; then
+  if scheduler_receipt_matches; then
     WITH_SCHEDULER=1
     SCHEDULER_REFRESHED=1
   fi
@@ -454,13 +535,21 @@ configure_claude_home_runtime
 # 9.5. Scheduled GC is opt-in. Default setup must not create launchd/systemd jobs.
 echo "Step 9.5: Scheduled GC"
 if [[ "${WITH_SCHEDULER}" != "1" ]]; then
-  yellow "  Scheduled GC not installed by default (opt in: bash setup.sh --yes --with-scheduler)"
+  if [[ -n "${SCHEDULER_PRESERVE_REASON}" ]]; then
+    yellow "  ${SCHEDULER_PRESERVE_REASON}; preserving scheduler files (replace explicitly: bash setup.sh --yes --with-scheduler)"
+  else
+    yellow "  Scheduled GC not installed by default (opt in: bash setup.sh --yes --with-scheduler)"
+  fi
   echo "  On-demand GC: /vibeguard:gc or bash scripts/gc/gc-scheduled.sh"
 elif [[ "$(uname)" == "Darwin" ]]; then
   chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
   PLIST_SRC="${SCRIPT_DIR}/com.vibeguard.gc.plist"
   PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
   if [[ -f "${PLIST_SRC}" ]]; then
+    if [[ -L "${PLIST_DEST}" || (-e "${PLIST_DEST}" && ! -f "${PLIST_DEST}") ]]; then
+      red "ERROR: scheduled GC plist destination must be a regular file or absent: ${PLIST_DEST}"
+      exit 1
+    fi
     mkdir -p "${HOME}/Library/LaunchAgents"
     # Uninstall the old one first (ignore errors)
     launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
@@ -468,6 +557,10 @@ elif [[ "$(uname)" == "Darwin" ]]; then
     sed -e "s|__VIBEGUARD_DIR__|${SCHEDULER_REPO_DIR}|g" -e "s|__HOME__|${HOME}|g" \
       "${PLIST_SRC}" > "${PLIST_DEST}"
     if launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}" 2>/dev/null; then
+      write_scheduler_receipt launchd || {
+        red "ERROR: failed to record launchd scheduler ownership."
+        exit 1
+      }
       green "  Scheduled GC installed via launchd (every Sunday 3:00 AM)"
     else
       red "ERROR: Scheduled GC plist installed but bootstrap failed (try: launchctl load ${PLIST_DEST})"
@@ -481,6 +574,10 @@ elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
   chmod +x "${SCHEDULER_REPO_DIR}/scripts/gc/gc-scheduled.sh"
   if VIBEGUARD_REPO_DIR="${SCHEDULER_REPO_DIR}" \
     bash "${REPO_DIR}/scripts/install-systemd.sh"; then
+    write_scheduler_receipt systemd || {
+      red "ERROR: failed to record systemd scheduler ownership."
+      exit 1
+    }
     green "  Scheduled GC installed via systemd (every Sunday 3:00 AM)"
   else
     red "ERROR: Scheduled GC systemd install failed (run: bash scripts/install-systemd.sh)"

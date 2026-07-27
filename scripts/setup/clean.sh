@@ -120,6 +120,84 @@ clean_vibeguard_home() {
   yellow "Removed VibeGuard executable wrappers"
 }
 
+clean_scheduled_gc() {
+  local receipt="${HOME}/.vibeguard/scheduler-ownership"
+  local plist="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
+  local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
+  local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
+  local parsed="" kind="" first_sha="" second_sha="" actual_first="" actual_second=""
+  local preserve_reason=""
+
+  if [[ ! -e "${receipt}" && ! -L "${receipt}" ]]; then
+    if [[ -e "${plist}" || -L "${plist}" || -e "${service}" || -L "${service}" \
+      || -e "${timer}" || -L "${timer}" ]]; then
+      yellow "Preserved scheduler files: scheduler ownership receipt is missing"
+    fi
+    return 0
+  fi
+  if [[ -L "${receipt}" || ! -f "${receipt}" ]]; then
+    preserve_reason="scheduler ownership receipt is not a regular file"
+  elif ! parsed="$(awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { next }
+    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
+    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ { first = $2; next }
+    NR == 4 && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ { second = $2; next }
+    { bad = 1 }
+    END {
+      if (!bad && ((kind == "launchd" && NR == 3) || (kind == "systemd" && NR == 4))) {
+        print kind "\t" first "\t" second
+        exit 0
+      }
+      exit 1
+    }
+  ' "${receipt}")"; then
+    preserve_reason="scheduler ownership receipt is invalid"
+  else
+    IFS=$'\t' read -r kind first_sha second_sha <<< "${parsed}"
+    case "${kind}" in
+      launchd)
+        if [[ -L "${plist}" || ! -f "${plist}" ]] \
+          || ! actual_first="$(setup_runtime_sha256_file "${plist}")" \
+          || [[ "${actual_first}" != "${first_sha}" ]]; then
+          preserve_reason="scheduler ownership receipt does not match current launchd file"
+        fi
+        ;;
+      systemd)
+        if [[ -L "${service}" || ! -f "${service}" || -L "${timer}" || ! -f "${timer}" ]] \
+          || ! actual_first="$(setup_runtime_sha256_file "${service}")" \
+          || ! actual_second="$(setup_runtime_sha256_file "${timer}")" \
+          || [[ "${actual_first}" != "${first_sha}" || "${actual_second}" != "${second_sha}" ]]; then
+          preserve_reason="scheduler ownership receipt does not match current systemd files"
+        fi
+        ;;
+    esac
+  fi
+
+  if [[ -n "${preserve_reason}" ]]; then
+    yellow "Preserved scheduler files: ${preserve_reason}"
+  elif [[ "${kind}" == "launchd" ]]; then
+    launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+    rm -f "${plist}"
+    yellow "Removed scheduled GC (com.vibeguard.gc)"
+  else
+    if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+      systemctl --user stop vibeguard-gc.timer 2>/dev/null || true
+      systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
+    fi
+    rm -f "${service}" "${timer}"
+    if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
+      systemctl --user daemon-reload 2>/dev/null || true
+    fi
+    yellow "Removed scheduled GC (vibeguard-gc.timer)"
+  fi
+
+  if [[ -f "${receipt}" || -L "${receipt}" ]]; then
+    rm -f "${receipt}"
+  else
+    yellow "Preserved non-file scheduler ownership receipt: ${receipt}"
+  fi
+}
+
 echo "Cleaning VibeGuard installation..."
 
 ensure_setup_runtime_available >/dev/null 2>&1 || true
@@ -129,24 +207,7 @@ clean_tracked_project_git_hooks
 clean_claude_home_installation
 clean_codex_home_installation
 clean_vibeguard_home
-
-# Unload scheduled GC
-PLIST_DEST="${HOME}/Library/LaunchAgents/com.vibeguard.gc.plist"
-if [[ -f "${PLIST_DEST}" ]]; then
-  launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
-  rm -f "${PLIST_DEST}"
-  yellow "Removed scheduled GC (com.vibeguard.gc)"
-fi
-
-# Unload scheduled GC (Linux systemd)
-if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-  systemctl --user stop vibeguard-gc.timer 2>/dev/null || true
-  systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
-  rm -f "${HOME}/.config/systemd/user/vibeguard-gc.service" \
-        "${HOME}/.config/systemd/user/vibeguard-gc.timer"
-  systemctl --user daemon-reload 2>/dev/null || true
-  yellow "Removed scheduled GC (vibeguard-gc.timer)"
-fi
+clean_scheduled_gc
 
 # Remove install state
 state_clean

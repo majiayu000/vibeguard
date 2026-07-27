@@ -22,6 +22,7 @@ BROKEN_HOME=""
 PROJECT_HOOK_HOME=""
 PROJECT_HOOK_REPO=""
 STALE_RUNTIME_DIR=""
+SYSTEMD_CHECK_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -47,6 +48,9 @@ cleanup() {
   fi
   if [[ -n "${STALE_RUNTIME_DIR}" ]]; then
     rm -rf "${STALE_RUNTIME_DIR}"
+  fi
+  if [[ -n "${SYSTEMD_CHECK_HOME}" ]]; then
+    rm -rf "${SYSTEMD_CHECK_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -683,6 +687,73 @@ assert_contains "$timeout_helper_out" "repair=add timeout or consult hook owner"
 
 timeout_check_out="$(HOME="${TIMEOUT_HOOK_HOME}" bash "${SETUP_SCRIPT}" --check 2>&1 || true)"
 assert_contains "$timeout_check_out" "[WARN] unmanaged Codex hook without timeout" "setup --check: surfaces unmanaged hook without timeout"
+
+# --- Payload systemd target validation ---
+header "payload systemd scheduler target validation"
+SYSTEMD_CHECK_HOME="$(mktemp -d)"
+systemd_check_bin="${SYSTEMD_CHECK_HOME}/bin"
+systemd_check_service="${SYSTEMD_CHECK_HOME}/.config/systemd/user/vibeguard-gc.service"
+systemd_check_timer="${SYSTEMD_CHECK_HOME}/.config/systemd/user/vibeguard-gc.timer"
+systemd_check_expected="${SYSTEMD_CHECK_HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+mkdir -p "${systemd_check_bin}" "$(dirname "${systemd_check_service}")" \
+  "$(dirname "${systemd_check_expected}")"
+printf '#!/usr/bin/env bash\nexit 0\n' > "${systemd_check_expected}"
+chmod +x "${systemd_check_expected}"
+printf '%s\n' '[Timer]' 'Unit=vibeguard-gc.service' > "${systemd_check_timer}"
+cat > "${systemd_check_bin}/uname" <<'SH'
+#!/usr/bin/env bash
+printf 'Linux\n'
+SH
+cat > "${systemd_check_bin}/systemctl" <<'SH'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--user" ]] && shift
+case "${1:-}" in
+  is-active) exit 0 ;;
+  *) exit 0 ;;
+esac
+SH
+chmod +x "${systemd_check_bin}/uname" "${systemd_check_bin}/systemctl"
+systemd_check_run() {
+  env HOME="${SYSTEMD_CHECK_HOME}" \
+    PATH="${systemd_check_bin}:${PATH}" \
+    VIBEGUARD_PAYLOAD_MODE=1 \
+    VIBEGUARD_REPO_DIR="${REPO_DIR}" \
+    bash "${CHECK_SCRIPT}" "$@"
+}
+printf '%s\n' '[Service]' \
+  "ExecStart=/bin/bash \"${systemd_check_expected}\"" \
+  > "${systemd_check_service}"
+systemd_stable_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_stable_out}" "[OK] Scheduled GC active via systemd" \
+  "payload doctor accepts exact stable systemd target"
+
+systemd_version_target="${SYSTEMD_CHECK_HOME}/.vibeguard/dist/1.2.3/scripts/gc/gc-scheduled.sh"
+printf '%s\n' '[Service]' \
+  "ExecStart=/bin/bash \"${systemd_version_target}\"" \
+  > "${systemd_check_service}"
+systemd_version_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_version_out}" "[BROKEN] Scheduled GC systemd target drift:" \
+  "payload doctor rejects version-specific systemd target"
+assert_not_contains "${systemd_version_out}" "[OK] Scheduled GC active via systemd" \
+  "version-specific systemd target is never reported healthy"
+
+printf '%s\n' '[Service]' \
+  'ExecStart=/bin/bash "/usr/local/bin/custom-gc-scheduled.sh"' \
+  > "${systemd_check_service}"
+systemd_custom_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_custom_out}" "[BROKEN] Scheduled GC systemd target drift:" \
+  "payload doctor rejects custom systemd target"
+systemd_custom_json="$(systemd_check_run --json 2>&1 || true)"
+assert_json_path "${systemd_custom_json}" \
+  'any(e["level"] == "BROKEN" and "systemd target drift" in e["message"] for e in d["events"])' \
+  "True" "payload JSON doctor reports the same broken custom target"
+
+rm -f "${systemd_check_service}"
+systemd_missing_out="$(systemd_check_run 2>&1 || true)"
+assert_contains "${systemd_missing_out}" "[BROKEN] Scheduled GC systemd service missing" \
+  "payload doctor rejects active timer with missing service"
+assert_not_contains "${systemd_missing_out}" "[OK] Scheduled GC active via systemd" \
+  "missing systemd service is never reported healthy"
 
 # --- Backwards-compat exit code contract ---
 header "exit code contract"

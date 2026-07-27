@@ -58,6 +58,13 @@ fi
 
 mkdir -p "${UNIT_DIR}"
 
+for unit_dest in "${SERVICE_DEST}" "${TIMER_DEST}"; do
+  if [[ -L "${unit_dest}" || (-e "${unit_dest}" && ! -f "${unit_dest}") ]]; then
+    red "ERROR: systemd unit destination must be a regular file or absent: ${unit_dest}"
+    exit 1
+  fi
+done
+
 # Escape values for use as sed replacement strings (|, &, and \ are metacharacters)
 _escape_sed() { printf '%s\n' "$1" | sed 's/[\\&|]/\\&/g'; }
 ESCAPED_REPO_DIR="$(_escape_sed "${REPO_DIR}")"

@@ -129,36 +129,6 @@ check_installed_languages() {
   printf '%s\n' "${detected}" | tr -d '[:space:]'
 }
 
-launchd_gc_script_path() {
-  local plist="$1"
-  [[ -f "${plist}" ]] || return 1
-  awk '
-    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
-    in_args && /<\/array>/ { exit }
-    in_args && /gc-scheduled\.sh/ {
-      line = $0
-      sub(/^.*<string>/, "", line)
-      sub(/<\/string>.*$/, "", line)
-      print line
-      exit
-    }
-  ' "${plist}"
-}
-
-launchd_gc_script_path_from_print() {
-  awk '
-    /^[[:space:]]*arguments = \{/ { in_args = 1; next }
-    in_args && /^[[:space:]]*\}/ { exit }
-    in_args && /gc-scheduled\.sh/ {
-      line = $0
-      sub(/^[[:space:]]*/, "", line)
-      sub(/[[:space:]]*$/, "", line)
-      print line
-      exit
-    }
-  '
-}
-
 gc_last_actionable_failure() {
   local log_file="$1"
   [[ -f "${log_file}" && -r "${log_file}" ]] || return 1
@@ -278,6 +248,35 @@ check_launchd_scheduled_gc() {
     else
       yellow "[WARN] Scheduled GC plist exists but not loaded"
     fi
+  else
+    yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
+  fi
+}
+
+check_systemd_scheduled_gc() {
+  local service="${HOME}/.config/systemd/user/vibeguard-gc.service"
+  local timer="${HOME}/.config/systemd/user/vibeguard-gc.timer"
+  local expected="${REPO_DIR}/scripts/gc/gc-scheduled.sh"
+  local actual=""
+
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    expected="${HOME}/.vibeguard/dist/current/scripts/gc/gc-scheduled.sh"
+  fi
+  if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
+    if [[ -L "${service}" || ! -f "${service}" ]]; then
+      red "[BROKEN] Scheduled GC systemd service missing or not a regular file: ${service}"
+    elif ! actual="$(systemd_gc_script_path "${service}")"; then
+      red "[BROKEN] Scheduled GC systemd service does not declare exactly one supported ExecStart: ${service}"
+    elif [[ "${actual}" != "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC systemd target drift: ${actual} (expected: ${expected}; rerun: bash setup.sh --yes --with-scheduler)"
+    elif [[ ! -x "${expected}" ]]; then
+      red "[BROKEN] Scheduled GC systemd target missing or not executable: ${expected}"
+    else
+      green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
+      check_scheduled_gc_freshness systemd
+    fi
+  elif [[ -f "${timer}" ]]; then
+    yellow "[WARN] Scheduled GC unit exists but timer not active"
   else
     yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
   fi
@@ -604,14 +603,7 @@ run_legacy_checks() {
   if [[ "$(uname)" == "Darwin" ]]; then
     check_launchd_scheduled_gc
   elif [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-    if systemctl --user is-active vibeguard-gc.timer &>/dev/null; then
-      green "[OK] Scheduled GC active via systemd (vibeguard-gc.timer)"
-      check_scheduled_gc_freshness systemd
-    elif [[ -f "${HOME}/.config/systemd/user/vibeguard-gc.timer" ]]; then
-      yellow "[WARN] Scheduled GC unit exists but timer not active"
-    else
-      yellow "[INFO] Scheduled GC not installed (optional, opt in: bash setup.sh --yes --with-scheduler)"
-    fi
+    check_systemd_scheduled_gc
   fi
 
   check_codex_home_installation
