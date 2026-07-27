@@ -41,6 +41,8 @@ scripts/lib/settings_json.py
 scripts/lib/status_report.sh
 scripts/lib/workflow_contracts.py
 scripts/project-init.sh
+scripts/setup/bootstrap-lib.sh
+scripts/setup/bootstrap.sh
 scripts/setup/check.sh
 scripts/setup/clean.sh
 scripts/setup/codex-status.sh

@@ -779,6 +779,7 @@ assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
 
 for setup_test in \
   "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh" \
+  "${REPO_DIR}/tests/setup/bootstrap_tests.sh" \
   "${REPO_DIR}/tests/setup/runtime_install_tests.sh" \
   "${REPO_DIR}/tests/setup/install_flow_tests.sh" \
   "${REPO_DIR}/tests/setup/protection_clean_tests.sh" \

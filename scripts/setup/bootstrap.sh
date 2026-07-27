@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# Install one exact VibeGuard payload release without a repository clone.
+#
+# Usage:
+#   bash bootstrap.sh --version X.Y.Z [--require-provenance] [-- SETUP_ARGS...]
+
+set -euo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOOTSTRAP_LIB="${SCRIPT_DIR}/bootstrap-lib.sh"
+if [[ ! -f "${BOOTSTRAP_LIB}" ]]; then
+  printf 'ERROR: missing bootstrap helper: %s\n' "${BOOTSTRAP_LIB}" >&2
+  exit 1
+fi
+# shellcheck source=scripts/setup/bootstrap-lib.sh
+source "${BOOTSTRAP_LIB}"
+
+RELEASE_REPO="majiayu000/vibeguard"
+VERSION=""
+VERSION_SET=0
+REQUIRE_PROVENANCE=0
+declare -a SETUP_ARGS=()
+
+bootstrap_usage() {
+  printf '%s\n' \
+    "Usage: bash bootstrap.sh --version X.Y.Z [--require-provenance] [-- SETUP_ARGS...]" \
+    "" \
+    "Downloads an exact VibeGuard payload release, verifies it, and runs its setup.sh." \
+    "Remote content is never piped into a shell."
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      [[ $# -ge 2 ]] || {
+        bootstrap_error "--version requires an exact X.Y.Z value."
+        exit 64
+      }
+      [[ "${VERSION_SET}" == "0" ]] || {
+        bootstrap_error "--version may be provided only once."
+        exit 64
+      }
+      VERSION="${2#v}"
+      VERSION_SET=1
+      shift 2
+      ;;
+    --version=*)
+      [[ "${VERSION_SET}" == "0" ]] || {
+        bootstrap_error "--version may be provided only once."
+        exit 64
+      }
+      VERSION="${1#*=}"
+      VERSION="${VERSION#v}"
+      VERSION_SET=1
+      shift
+      ;;
+    --require-provenance)
+      [[ "${REQUIRE_PROVENANCE}" == "0" ]] || {
+        bootstrap_error "--require-provenance may be provided only once."
+        exit 64
+      }
+      REQUIRE_PROVENANCE=1
+      shift
+      ;;
+    --help|-h)
+      bootstrap_usage
+      exit 0
+      ;;
+    --)
+      shift
+      SETUP_ARGS=("$@")
+      break
+      ;;
+    *)
+      bootstrap_error "unknown bootstrap argument: $1"
+      bootstrap_usage >&2
+      exit 64
+      ;;
+  esac
+done
+
+if [[ "${VERSION_SET}" != "1" || -z "${VERSION}" ]]; then
+  bootstrap_error "--version is required; latest and floating release selection are forbidden."
+  exit 64
+fi
+if ! bootstrap_validate_version "${VERSION}"; then
+  bootstrap_error "invalid exact version: ${VERSION} (expected X.Y.Z or an exact semver prerelease)."
+  exit 64
+fi
+if [[ -z "${HOME:-}" || "${HOME}" != /* ]]; then
+  bootstrap_error "HOME must be a non-empty absolute path."
+  exit 1
+fi
+if ! command -v tar >/dev/null 2>&1; then
+  bootstrap_error "tar is required to inspect and extract the payload."
+  exit 1
+fi
+
+VIBEGUARD_HOME="${HOME}/.vibeguard"
+DIST_ROOT="${VIBEGUARD_HOME}/dist"
+FINAL_DIR="${DIST_ROOT}/${VERSION}"
+CURRENT_LINK="${DIST_ROOT}/current"
+LOCK_DIR="${DIST_ROOT}/.bootstrap.lock"
+BOOTSTRAP_TMP=""
+LOCK_HELD=0
+
+bootstrap_cleanup() {
+  local status=$?
+  if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
+    rm -rf -- "${BOOTSTRAP_TMP}"
+  fi
+  if [[ "${LOCK_HELD}" == "1" && -d "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
+    rmdir "${LOCK_DIR}" 2>/dev/null || true
+  fi
+  return "${status}"
+}
+trap bootstrap_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+if [[ -L "${VIBEGUARD_HOME}" || (-e "${VIBEGUARD_HOME}" && ! -d "${VIBEGUARD_HOME}") ]]; then
+  bootstrap_error "${VIBEGUARD_HOME} must be a real directory, not a link or file."
+  exit 1
+fi
+mkdir -p "${VIBEGUARD_HOME}"
+if [[ -L "${DIST_ROOT}" || (-e "${DIST_ROOT}" && ! -d "${DIST_ROOT}") ]]; then
+  bootstrap_error "${DIST_ROOT} must be a real directory, not a link or file."
+  exit 1
+fi
+mkdir -p "${DIST_ROOT}"
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+  bootstrap_error "another bootstrap owns ${LOCK_DIR}; refusing concurrent install."
+  exit 73
+fi
+LOCK_HELD=1
+
+if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+  bootstrap_error "distribution version already exists; refusing to overwrite: ${FINAL_DIR}"
+  exit 73
+fi
+if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
+  bootstrap_error "dist/current exists and is not a symlink; refusing to overwrite it."
+  exit 73
+fi
+
+BOOTSTRAP_TMP="$(mktemp -d "${DIST_ROOT}/.bootstrap-${VERSION}.XXXXXX")"
+DOWNLOAD_ROOT="${BOOTSTRAP_TMP}/download"
+STAGE_DIR="${BOOTSTRAP_TMP}/stage"
+NAMES_FILE="${BOOTSTRAP_TMP}/archive-names"
+TYPES_FILE="${BOOTSTRAP_TMP}/archive-types"
+mkdir -p "${DOWNLOAD_ROOT}" "${STAGE_DIR}"
+
+TAG="v${VERSION}"
+ASSET="vibeguard-payload-${VERSION}.tar.gz"
+printf 'Downloading %s from %s@%s...\n' "${ASSET}" "${RELEASE_REPO}" "${TAG}"
+DOWNLOAD_DIR="$(
+  bootstrap_download_release_assets \
+    "${RELEASE_REPO}" "${TAG}" "${ASSET}" "${DOWNLOAD_ROOT}"
+)"
+ARCHIVE="${DOWNLOAD_DIR}/${ASSET}"
+SUMS="${DOWNLOAD_DIR}/SHA256SUMS"
+
+bootstrap_verify_checksum "${ARCHIVE}" "${SUMS}" "${ASSET}"
+provenance_rc=0
+bootstrap_verify_release_provenance "${ARCHIVE}" "${RELEASE_REPO}" "${TAG}" \
+  || provenance_rc=$?
+case "${provenance_rc}" in
+  0)
+    ;;
+  2)
+    if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+      bootstrap_error "payload provenance is required but unavailable for ${ASSET}."
+      bootstrap_error "${BOOTSTRAP_PROVENANCE_REASON:-verifier unavailable}"
+      exit 1
+    fi
+    ;;
+  *)
+    bootstrap_error "payload provenance verification failed for ${ASSET}."
+    bootstrap_error "${BOOTSTRAP_PROVENANCE_REASON:-unknown provenance failure}"
+    exit 1
+    ;;
+esac
+
+bootstrap_validate_archive_listing "${ARCHIVE}" "${NAMES_FILE}" "${TYPES_FILE}"
+if ! tar -xzf "${ARCHIVE}" -C "${STAGE_DIR}"; then
+  bootstrap_error "payload extraction failed."
+  exit 1
+fi
+bootstrap_validate_extracted_payload "${STAGE_DIR}" "${VERSION}"
+
+# Recheck conflicts after all remote input has been verified and while the
+# bootstrap lock remains held. Existing version directories are immutable.
+if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
+  bootstrap_error "distribution version appeared during bootstrap; refusing to overwrite: ${FINAL_DIR}"
+  exit 73
+fi
+if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
+  bootstrap_error "dist/current became a non-symlink; refusing to overwrite it."
+  exit 73
+fi
+
+mv "${STAGE_DIR}" "${FINAL_DIR}"
+CURRENT_TMP="${BOOTSTRAP_TMP}/current-link"
+if [[ -e "${CURRENT_TMP}" || -L "${CURRENT_TMP}" ]]; then
+  bootstrap_error "temporary current-link path already exists: ${CURRENT_TMP}"
+  exit 73
+fi
+ln -s "${VERSION}" "${CURRENT_TMP}"
+bootstrap_atomic_replace_symlink "${CURRENT_TMP}" "${CURRENT_LINK}"
+if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" ]]; then
+  bootstrap_error "atomic dist/current switch could not be verified."
+  exit 1
+fi
+
+printf 'Payload verified: checksum=%s provenance=%s\n' \
+  "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
+
+# Remove download/staging material and release the lock before replacing this
+# process with the payload setup entrypoint.
+rm -rf -- "${BOOTSTRAP_TMP}"
+BOOTSTRAP_TMP=""
+rmdir "${LOCK_DIR}"
+LOCK_HELD=0
+
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+fi
+exec bash "${CURRENT_LINK}/setup.sh" "${SETUP_ARGS[@]}"
