@@ -790,33 +790,58 @@ assert_cmd "portable PID classifier treats real PID 1 as active" bash -c '
   bootstrap_pid_liveness 1
   test "${BOOTSTRAP_PID_LIVENESS}" = active
 ' _ "${BOOTSTRAP_LIB}"
-assert_cmd "PID classifier treats kill EPERM plus strict ps match as active" bash -c '
+assert_cmd "PID classifier treats kill EPERM plus full ps membership as active" bash -c '
   source "$1"
   kill() { return 1; }
   ps() {
-    test "$*" = "-p 77 -o pid=" || return 2
-    printf "  77\n"
+    test "$*" = "-A -o pid=" || return 2
+    printf "  1\n  77\n"
   }
   bootstrap_pid_liveness 77
   test "${BOOTSTRAP_PID_LIVENESS}" = active
 ' _ "${BOOTSTRAP_LIB}"
-assert_cmd "PID classifier accepts only empty ps exit 1 as definitely dead" bash -c '
+assert_cmd "PID classifier proves absence from a complete ps table as dead" bash -c '
   source "$1"
   kill() { return 1; }
   ps() {
-    test "$*" = "-p 88 -o pid=" || return 2
-    return 1
+    test "$*" = "-A -o pid=" || return 2
+    printf "1\n77\n"
   }
   bootstrap_pid_liveness 88
   test "${BOOTSTRAP_PID_LIVENESS}" = dead
 ' _ "${BOOTSTRAP_LIB}"
-assert_cmd "PID classifier keeps ps errors conservatively ambiguous" bash -c '
+assert_cmd "PID classifier keeps empty ps exit 1 conservatively ambiguous" bash -c '
+  source "$1"
+  kill() { return 1; }
+  ps() { return 1; }
+  bootstrap_pid_liveness 99
+  test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
+' _ "${BOOTSTRAP_LIB}"
+assert_cmd "PID classifier keeps empty ps exit 2 conservatively ambiguous" bash -c '
   source "$1"
   kill() { return 1; }
   ps() { return 2; }
   bootstrap_pid_liveness 99
   test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
 ' _ "${BOOTSTRAP_LIB}"
+for invalid_pid_table in empty header malformed duplicate; do
+  assert_cmd "PID classifier rejects ${invalid_pid_table} full ps table" bash -c '
+    source "$1"
+    table_kind="$2"
+    kill() { return 1; }
+    ps() {
+      test "$*" = "-A -o pid=" || return 2
+      case "${table_kind}" in
+        empty) printf "" ;;
+        header) printf "PID\n1\n" ;;
+        malformed) printf "1 two\n" ;;
+        duplicate) printf "1\n1\n" ;;
+      esac
+    }
+    bootstrap_pid_liveness 99
+    test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
+  ' _ "${BOOTSTRAP_LIB}" "${invalid_pid_table}"
+done
 mkdir -p "${active_lock_dir}"
 printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}/owner"
 active_lock_rc=0
@@ -874,9 +899,10 @@ count="\$(cat "${pid_reuse_count}")"
 count="\$((count + 1))"
 printf '%s\n' "\${count}" > "${pid_reuse_count}"
 if [[ "\${count}" -eq 1 ]]; then
-  exit 1
+  printf '1\\n2\\n'
+  exit 0
 fi
-printf '99999998\n'
+printf '1\\n99999998\\n'
 SH
 chmod +x "${pid_reuse_bin}/ps"
 pid_reuse_rc=0

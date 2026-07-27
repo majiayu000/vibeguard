@@ -281,30 +281,27 @@ bootstrap_atomic_replace_symlink() {
 }
 
 bootstrap_pid_liveness() {
-  local pid="$1" ps_output="" ps_rc=0
+  local pid="$1" ps_output="" pid_state
   BOOTSTRAP_PID_LIVENESS="ambiguous"
   if kill -0 "${pid}" 2>/dev/null; then
     BOOTSTRAP_PID_LIVENESS="active"
     return 0
   fi
-  ps_output="$(LC_ALL=C ps -p "${pid}" -o pid= 2>/dev/null)" || ps_rc=$?
-  case "${ps_rc}" in
-    0)
-      if awk -v expected="${pid}" '
-        NF == 0 { next }
-        NF != 1 || $1 != expected { bad = 1 }
-        { seen += 1 }
-        END { exit !(seen == 1 && !bad) }
-      ' <<< "${ps_output}"; then
-        BOOTSTRAP_PID_LIVENESS="active"
-      fi
-      ;;
-    1)
-      if [[ -z "${ps_output//[[:space:]]/}" ]]; then
-        BOOTSTRAP_PID_LIVENESS="dead"
-      fi
-      ;;
-  esac
+  if ! ps_output="$(LC_ALL=C ps -A -o pid= 2>/dev/null)"; then
+    return 0
+  fi
+  if pid_state="$(awk -v expected="${pid}" '
+    NF != 1 || $1 !~ /^[1-9][0-9]*$/ { bad = 1; next }
+    seen[$1]++ { bad = 1 }
+    $1 == expected { found = 1 }
+    { count += 1 }
+    END {
+      if (bad || count == 0) exit 1
+      print found ? "active" : "dead"
+    }
+  ' <<< "${ps_output}")"; then
+    BOOTSTRAP_PID_LIVENESS="${pid_state}"
+  fi
 }
 
 bootstrap_lock_read_owner() {
