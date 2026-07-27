@@ -256,11 +256,12 @@ marker = (
     f"manifest_sha256={hashlib.sha256(manifest).hexdigest()}\n"
     f"git_commit={'a' * 40}\n"
 ).encode()
-setup = (
-    b"#!/usr/bin/env bash\nkill -TERM $$\n"
-    if kind == "interrupt"
-    else b"#!/usr/bin/env bash\nexit 0\n"
-)
+if kind == "interrupt":
+    setup = b"#!/usr/bin/env bash\nkill -TERM $$\n"
+elif kind == "handoff":
+    setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP\\n'\n"
+else:
+    setup = b"#!/usr/bin/env bash\nexit 0\n"
 entries = {
     ".vibeguard-payload": (marker, 0o644),
     "scripts/release/payload-manifest.txt": (manifest, 0o644),
@@ -330,6 +331,41 @@ assert_cmd "version mismatch creates no version or current" bash -c \
   'test ! -e "$1" && test ! -L "$1" && test ! -e "$2"' _ \
   "${version_mismatch_home}/.vibeguard/dist/current" \
   "${version_mismatch_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+handoff_release="${TMP_HOME}/bootstrap-release-handoff"
+handoff_home="${TMP_HOME}/bootstrap-handoff-home"
+handoff_bin="${TMP_HOME}/bootstrap-handoff-bin"
+handoff_real_rmdir="$(command -v rmdir)"
+make_hostile_bootstrap_release "${handoff_release}" "handoff"
+mkdir -p "${handoff_home}/.vibeguard/dist/other" "${handoff_bin}"
+cat > "${handoff_home}/.vibeguard/dist/other/setup.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'WRONG_CURRENT_SETUP\n'
+SH
+chmod +x "${handoff_home}/.vibeguard/dist/other/setup.sh"
+cat > "${handoff_bin}/rmdir" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "${handoff_home}/.vibeguard/dist/.bootstrap.lock" ]]; then
+  rm -f -- "${handoff_home}/.vibeguard/dist/current"
+  ln -s other "${handoff_home}/.vibeguard/dist/current"
+fi
+exec "${handoff_real_rmdir}" "\$@"
+SH
+chmod +x "${handoff_bin}/rmdir"
+handoff_rc=0
+handoff_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${handoff_home}" \
+    PATH="${handoff_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || handoff_rc=$?
+assert_cmd "bootstrap handoff executes the verified immutable version" test "${handoff_rc}" -eq 0
+assert_contains "${handoff_out}" "EXPECTED_FINAL_SETUP" "handoff runs this bootstrap's verified setup"
+assert_not_contains "${handoff_out}" "WRONG_CURRENT_SETUP" "handoff ignores a later current-link change"
+assert_cmd "handoff fixture changes current only after lock release" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = other' _ \
+  "${handoff_home}/.vibeguard/dist/current"
 
 interrupt_release="${TMP_HOME}/bootstrap-release-interrupt"
 interrupt_home="${TMP_HOME}/bootstrap-interrupt-home"

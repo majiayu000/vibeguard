@@ -227,4 +227,4 @@ LOCK_HELD=0
 if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
   SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
 fi
-exec bash "${CURRENT_LINK}/setup.sh" "${SETUP_ARGS[@]}"
+exec bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}"
