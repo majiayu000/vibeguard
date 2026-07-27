@@ -797,6 +797,44 @@ assert_cmd "dead-owner recovery leaves no lock or reap directory" bash -c \
   'test ! -e "$1" && test -z "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.reap.*" -print -quit)"' _ \
   "${dead_lock_dir}" "${dead_lock_home}/.vibeguard/dist"
 
+stale_race_home="${TMP_HOME}/bootstrap-stale-race-home"
+stale_race_dir="${stale_race_home}/.vibeguard/dist/.bootstrap.lock"
+stale_race_bin="${TMP_HOME}/bootstrap-stale-race-bin"
+stale_race_real_mv="$(command -v mv)"
+mkdir -p "${stale_race_dir}" "${stale_race_bin}"
+printf 'pid=%s\nnonce=dead-race-owner\n' "${dead_lock_pid}" > "${stale_race_dir}/owner"
+cat > "${stale_race_bin}/mv" <<SH
+#!/usr/bin/env bash
+previous=""
+last=""
+for arg in "\$@"; do
+  previous="\${last}"
+  last="\${arg}"
+done
+if [[ "\${previous}" == "${stale_race_dir}" ]]; then
+  printf 'pid=%s\\nnonce=racing-active-owner\\n' "$$" > "${stale_race_dir}/owner"
+fi
+exec "${stale_race_real_mv}" "\$@"
+SH
+chmod +x "${stale_race_bin}/mv"
+stale_race_rc=0
+stale_race_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${stale_race_home}" \
+    PATH="${stale_race_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes 2>&1
+)" || stale_race_rc=$?
+assert_cmd "stale-owner recovery fails closed when ownership races before rename" \
+  test "${stale_race_rc}" -eq 73
+assert_contains "${stale_race_out}" "lock ownership changed" \
+  "stale-owner race is detected after the directory rename"
+assert_cmd "stale-owner race preserves the replacement active owner" bash -c \
+  'test -d "$1" && grep -qFx "nonce=racing-active-owner" "$1/owner"' _ \
+  "${stale_race_dir}"
+assert_cmd "stale-owner race performs no download or install" \
+  test ! -e "${stale_race_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
 missing_owner_home="${TMP_HOME}/bootstrap-missing-owner-home"
 missing_owner_dir="${missing_owner_home}/.vibeguard/dist/.bootstrap.lock"
 mkdir -p "${missing_owner_dir}"

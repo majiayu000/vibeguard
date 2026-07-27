@@ -281,8 +281,12 @@ bootstrap_atomic_replace_symlink() {
 }
 
 bootstrap_lock_read_owner() {
-  local lock_dir="$1" owner_file="${1}/owner" parsed
+  local lock_dir="$1" owner_file="${1}/${2:-owner}" parsed
 
+  if [[ -L "${lock_dir}" || ! -d "${lock_dir}" ]]; then
+    bootstrap_error "bootstrap lock must be a real directory: ${lock_dir}"
+    return 1
+  fi
   if [[ -L "${owner_file}" ]]; then
     bootstrap_error "lock owner metadata must be a regular file, not a symlink: ${owner_file}"
     return 1
@@ -318,6 +322,7 @@ bootstrap_lock_read_owner() {
 bootstrap_lock_reap_exact_owner() {
   local lock_dir="$1" dist_root="$2" expected_pid="$3" expected_nonce="$4" action="$5"
   local reap_dir="${dist_root}/.bootstrap.lock.reap.$$.$RANDOM.${expected_nonce}"
+  local claimed_owner="${reap_dir}/owner.claimed"
 
   if [[ -e "${reap_dir}" || -L "${reap_dir}" ]]; then
     bootstrap_error "lock reap path already exists: ${reap_dir}"
@@ -327,10 +332,17 @@ bootstrap_lock_reap_exact_owner() {
     bootstrap_error "could not claim bootstrap lock for ${action}: ${lock_dir}"
     return 1
   fi
-  if ! bootstrap_lock_read_owner "${reap_dir}" \
+  if [[ -e "${claimed_owner}" || -L "${claimed_owner}" ]] \
+    || ! mv -- "${reap_dir}/owner" "${claimed_owner}" \
+    || ! bootstrap_lock_read_owner "${reap_dir}" "owner.claimed" \
     || [[ "${BOOTSTRAP_LOCK_READ_PID}" != "${expected_pid}" ]] \
     || [[ "${BOOTSTRAP_LOCK_READ_NONCE}" != "${expected_nonce}" ]]; then
     bootstrap_error "lock ownership changed during ${action}; preserving foreign lock."
+    if [[ (-e "${claimed_owner}" || -L "${claimed_owner}") \
+      && ! -e "${reap_dir}/owner" && ! -L "${reap_dir}/owner" ]]; then
+      mv -- "${claimed_owner}" "${reap_dir}/owner" || \
+        bootstrap_error "could not restore claimed owner metadata after ${action}."
+    fi
     if [[ ! -e "${lock_dir}" && ! -L "${lock_dir}" ]]; then
       if ! mv -- "${reap_dir}" "${lock_dir}"; then
         bootstrap_error "could not restore foreign lock after ${action}: ${reap_dir}"
@@ -340,7 +352,7 @@ bootstrap_lock_reap_exact_owner() {
     fi
     return 1
   fi
-  if ! rm -f -- "${reap_dir}/owner" || ! rmdir "${reap_dir}"; then
+  if ! rm -f -- "${claimed_owner}" || ! rmdir "${reap_dir}"; then
     bootstrap_error "failed to remove exact bootstrap lock owner during ${action}: ${reap_dir}"
     return 1
   fi
