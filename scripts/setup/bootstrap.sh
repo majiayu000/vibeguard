@@ -105,21 +105,73 @@ LOCK_DIR="${DIST_ROOT}/.bootstrap.lock"
 BOOTSTRAP_TMP=""
 LOCK_HELD=0
 FINAL_DIR_OWNED=0
-CURRENT_COMMITTED=0
+PREVIOUS_CURRENT_PRESENT=0
+PREVIOUS_CURRENT_TARGET=""
+CURRENT_SWITCHED=0
+TRANSACTION_COMMITTED=0
+
+bootstrap_restore_previous_current() {
+  local rollback_link
+
+  [[ "${CURRENT_SWITCHED}" == "1" ]] || return 0
+  if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" ]]; then
+    bootstrap_error "current changed unexpectedly; refusing unsafe bootstrap rollback."
+    return 1
+  fi
+
+  if [[ "${PREVIOUS_CURRENT_PRESENT}" == "1" ]]; then
+    rollback_link="${BOOTSTRAP_TMP}/previous-current-link"
+    if [[ -e "${rollback_link}" || -L "${rollback_link}" ]]; then
+      bootstrap_error "bootstrap rollback link path already exists: ${rollback_link}"
+      return 1
+    fi
+    if ! ln -s -- "${PREVIOUS_CURRENT_TARGET}" "${rollback_link}" \
+      || ! bootstrap_atomic_replace_symlink "${rollback_link}" "${CURRENT_LINK}" \
+      || [[ ! -L "${CURRENT_LINK}" ]] \
+      || [[ "$(readlink "${CURRENT_LINK}")" != "${PREVIOUS_CURRENT_TARGET}" ]]; then
+      bootstrap_error "failed to roll back dist/current to its previous symlink target."
+      return 1
+    fi
+  else
+    if ! rm -f -- "${CURRENT_LINK}" \
+      || [[ -e "${CURRENT_LINK}" || -L "${CURRENT_LINK}" ]]; then
+      bootstrap_error "failed to roll back dist/current to its previous absent state."
+      return 1
+    fi
+  fi
+
+  CURRENT_SWITCHED=0
+  return 0
+}
 
 bootstrap_cleanup() {
   local status=$?
-  if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
-    rm -rf -- "${BOOTSTRAP_TMP}"
+  if [[ "${TRANSACTION_COMMITTED}" == "0" && "${CURRENT_SWITCHED}" == "1" ]]; then
+    if ! bootstrap_restore_previous_current; then
+      status=1
+    fi
   fi
-  if [[ "${FINAL_DIR_OWNED}" == "1" && "${CURRENT_COMMITTED}" == "0" ]]; then
+  if [[ "${FINAL_DIR_OWNED}" == "1" && "${TRANSACTION_COMMITTED}" == "0" \
+    && "${CURRENT_SWITCHED}" == "0" ]]; then
     if ! rm -rf -- "${FINAL_DIR}"; then
       bootstrap_error "failed to remove newly owned distribution after bootstrap failure: ${FINAL_DIR}"
       status=1
     fi
+  elif [[ "${FINAL_DIR_OWNED}" == "1" && "${TRANSACTION_COMMITTED}" == "0" ]]; then
+    bootstrap_error "rollback incomplete; retaining current-referenced distribution evidence: ${FINAL_DIR}"
+    status=1
+  fi
+  if [[ -n "${BOOTSTRAP_TMP}" && "${BOOTSTRAP_TMP}" == "${DIST_ROOT}/.bootstrap-${VERSION}."* ]]; then
+    if ! rm -rf -- "${BOOTSTRAP_TMP}"; then
+      bootstrap_error "failed to remove bootstrap temporary directory: ${BOOTSTRAP_TMP}"
+      status=1
+    fi
   fi
   if [[ "${LOCK_HELD}" == "1" && -d "${LOCK_DIR}" && ! -L "${LOCK_DIR}" ]]; then
-    rmdir "${LOCK_DIR}" 2>/dev/null || true
+    if ! rmdir "${LOCK_DIR}"; then
+      bootstrap_error "failed to release bootstrap lock: ${LOCK_DIR}"
+      status=1
+    fi
   fi
   return "${status}"
 }
@@ -208,6 +260,13 @@ if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
   bootstrap_error "dist/current became a non-symlink; refusing to overwrite it."
   exit 73
 fi
+if [[ -L "${CURRENT_LINK}" ]]; then
+  if ! PREVIOUS_CURRENT_TARGET="$(readlink "${CURRENT_LINK}")"; then
+    bootstrap_error "could not read the previous dist/current symlink target."
+    exit 1
+  fi
+  PREVIOUS_CURRENT_PRESENT=1
+fi
 
 mv "${STAGE_DIR}" "${FINAL_DIR}"
 FINAL_DIR_OWNED=1
@@ -222,20 +281,25 @@ if [[ ! -L "${CURRENT_LINK}" || "$(readlink "${CURRENT_LINK}")" != "${VERSION}" 
   bootstrap_error "atomic dist/current switch could not be verified."
   exit 1
 fi
-CURRENT_COMMITTED=1
-FINAL_DIR_OWNED=0
+CURRENT_SWITCHED=1
 
 printf 'Payload verified: checksum=%s provenance=%s\n' \
   "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
 
-# Remove download/staging material and release the lock before replacing this
-# process with the payload setup entrypoint.
+if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
+  SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
+fi
+setup_rc=0
+bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}" || setup_rc=$?
+if [[ "${setup_rc}" -ne 0 ]]; then
+  bootstrap_error "payload setup failed with exit status ${setup_rc}; rolling back bootstrap transaction."
+  exit "${setup_rc}"
+fi
+
+TRANSACTION_COMMITTED=1
+CURRENT_SWITCHED=0
+FINAL_DIR_OWNED=0
 rm -rf -- "${BOOTSTRAP_TMP}"
 BOOTSTRAP_TMP=""
 rmdir "${LOCK_DIR}"
 LOCK_HELD=0
-
-if [[ "${REQUIRE_PROVENANCE}" == "1" ]]; then
-  SETUP_ARGS=(--require-provenance "${SETUP_ARGS[@]}")
-fi
-exec bash "${FINAL_DIR}/setup.sh" "${SETUP_ARGS[@]}"

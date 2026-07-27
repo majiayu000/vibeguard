@@ -295,6 +295,18 @@ if kind == "interrupt":
     setup = b"#!/usr/bin/env bash\nkill -TERM $$\n"
 elif kind == "handoff":
     setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP\\n'\n"
+elif kind == "fail-once":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+marker="${VIBEGUARD_TEST_SETUP_FAIL_MARKER:?}"
+if [[ ! -e "${marker}" ]]; then
+  : > "${marker}"
+  exit 42
+fi
+printf 'RETRY_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "fail":
+    setup = b"#!/usr/bin/env bash\nexit 42\n"
 else:
     setup = b"#!/usr/bin/env bash\nexit 0\n"
 entries = {
@@ -504,24 +516,116 @@ assert_cmd "dangling-current retry commits the exact verified version" bash -c \
   "${dangling_failure_home}/.vibeguard/dist/current" \
   "${BOOTSTRAP_VERSION}"
 
-interrupt_release="${TMP_HOME}/bootstrap-release-interrupt"
-interrupt_home="${TMP_HOME}/bootstrap-interrupt-home"
-make_hostile_bootstrap_release "${interrupt_release}" "interrupt"
-mkdir -p "${interrupt_home}"
-interrupt_rc=0
-env "${bootstrap_base_env[@]}" \
-  HOME="${interrupt_home}" \
-  VIBEGUARD_TEST_RELEASE_DIR="${interrupt_release}" \
-  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
-  >/dev/null 2>&1 || interrupt_rc=$?
-assert_cmd "interrupted payload setup exits nonzero" test "${interrupt_rc}" -ne 0
-assert_cmd "interrupted setup cannot publish an active installed snapshot" \
-  test ! -e "${interrupt_home}/.vibeguard/installed"
-assert_cmd "interrupted setup leaves only the verified immutable dist selected" bash -c \
-  'test -d "$1" && test -L "$2" && test "$(readlink "$2")" = "$3"' _ \
-  "${interrupt_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
-  "${interrupt_home}/.vibeguard/dist/current" \
+setup_retry_release="${TMP_HOME}/bootstrap-release-setup-retry"
+setup_retry_home="${TMP_HOME}/bootstrap-setup-retry-home"
+setup_retry_marker="${TMP_HOME}/bootstrap-setup-retry.marker"
+setup_retry_download_log="${TMP_HOME}/bootstrap-setup-retry-download.log"
+make_hostile_bootstrap_release "${setup_retry_release}" "fail-once"
+mkdir -p "${setup_retry_home}/.vibeguard/dist/old"
+ln -s old "${setup_retry_home}/.vibeguard/dist/current"
+: > "${setup_retry_download_log}"
+setup_failure_rc=0
+setup_failure_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${setup_retry_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${setup_retry_release}" \
+    VIBEGUARD_TEST_DOWNLOAD_LOG="${setup_retry_download_log}" \
+    VIBEGUARD_TEST_SETUP_FAIL_MARKER="${setup_retry_marker}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || setup_failure_rc=$?
+assert_cmd "failed payload setup preserves its exact exit status" \
+  test "${setup_failure_rc}" -eq 42
+assert_contains "${setup_failure_out}" "rolling back bootstrap transaction" \
+  "failed payload setup reports transactional rollback"
+assert_cmd "failed payload setup restores the exact previous current symlink" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = old && test -d "$2"' _ \
+  "${setup_retry_home}/.vibeguard/dist/current" \
+  "${setup_retry_home}/.vibeguard/dist/old"
+assert_cmd "failed payload setup removes only this attempt's final directory" \
+  test ! -e "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+assert_cmd "failed payload setup releases its bootstrap lock" \
+  test ! -e "${setup_retry_home}/.vibeguard/dist/.bootstrap.lock"
+
+setup_retry_rc=0
+setup_retry_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${setup_retry_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${setup_retry_release}" \
+    VIBEGUARD_TEST_DOWNLOAD_LOG="${setup_retry_download_log}" \
+    VIBEGUARD_TEST_SETUP_FAIL_MARKER="${setup_retry_marker}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || setup_retry_rc=$?
+assert_cmd "same exact version retries completely after setup failure" \
+  test "${setup_retry_rc}" -eq 0
+assert_contains "${setup_retry_out}" "RETRY_SETUP_SUCCEEDED" \
+  "same-version retry executes a freshly staged payload"
+assert_cmd "same-version retry downloads and verifies the payload again" bash -c \
+  'test "$(grep -c "^gh tag=" "$1")" -eq 2' _ "${setup_retry_download_log}"
+assert_cmd "same-version retry preserves old version and commits exact current" bash -c \
+  'test -d "$1" && test -d "$2" && test "$(readlink "$3")" = "$4"' _ \
+  "${setup_retry_home}/.vibeguard/dist/old" \
+  "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${setup_retry_home}/.vibeguard/dist/current" \
   "${BOOTSTRAP_VERSION}"
+
+setup_no_current_release="${TMP_HOME}/bootstrap-release-setup-no-current"
+setup_no_current_home="${TMP_HOME}/bootstrap-setup-no-current-home"
+make_hostile_bootstrap_release "${setup_no_current_release}" "fail"
+mkdir -p "${setup_no_current_home}"
+setup_no_current_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${setup_no_current_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${setup_no_current_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || setup_no_current_rc=$?
+assert_cmd "failed payload setup without previous current preserves child failure" \
+  test "${setup_no_current_rc}" -eq 42
+assert_cmd "failed payload setup restores an exact no-current state" bash -c \
+  'test ! -e "$1" && test ! -L "$1" && test ! -e "$2"' _ \
+  "${setup_no_current_home}/.vibeguard/dist/current" \
+  "${setup_no_current_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+rollback_failure_home="${TMP_HOME}/bootstrap-rollback-failure-home"
+rollback_failure_bin="${TMP_HOME}/bootstrap-rollback-failure-bin"
+rollback_failure_count="${TMP_HOME}/bootstrap-rollback-failure.count"
+mkdir -p "${rollback_failure_home}/.vibeguard/dist/old" "${rollback_failure_bin}"
+ln -s old "${rollback_failure_home}/.vibeguard/dist/current"
+printf '0\n' > "${rollback_failure_count}"
+cat > "${rollback_failure_bin}/mv" <<SH
+#!/usr/bin/env bash
+last_arg=""
+for arg in "\$@"; do
+  last_arg="\${arg}"
+done
+if [[ "\${last_arg}" == "${rollback_failure_home}/.vibeguard/dist/current" ]]; then
+  count="\$(cat "${rollback_failure_count}")"
+  count="\$((count + 1))"
+  printf '%s\n' "\${count}" > "${rollback_failure_count}"
+  if [[ "\${count}" -gt 1 ]]; then
+    printf 'fake rollback failure\n' >&2
+    exit 1
+  fi
+fi
+exec "${switch_failure_real_mv}" "\$@"
+SH
+chmod +x "${rollback_failure_bin}/mv"
+rollback_failure_rc=0
+rollback_failure_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${rollback_failure_home}" \
+    PATH="${rollback_failure_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${setup_no_current_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || rollback_failure_rc=$?
+assert_cmd "failed rollback exits nonzero" test "${rollback_failure_rc}" -ne 0
+assert_contains "${rollback_failure_out}" "rollback" \
+  "failed rollback is explicit"
+assert_cmd "failed rollback preserves current-referenced payload evidence" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = "$2" && test -d "$3" && test -d "$4"' _ \
+  "${rollback_failure_home}/.vibeguard/dist/current" \
+  "${BOOTSTRAP_VERSION}" \
+  "${rollback_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${rollback_failure_home}/.vibeguard/dist/old"
 
 current_file_home="${TMP_HOME}/bootstrap-current-file-home"
 mkdir -p "${current_file_home}/.vibeguard/dist"
