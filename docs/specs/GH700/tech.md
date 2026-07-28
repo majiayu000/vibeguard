@@ -225,11 +225,13 @@ symlink/hard-link/extra executable，并把 install tree 设为只读；wrapper 
 一个 interruption token 阻止启动后续 case。每个 case 在 Unix 建立独立 session/process
 group，在 Windows 放入启用 kill-on-close 的 Job Object；timeout/cancel 先向整个树发送
 graceful termination，超时后强制终止，并等待 group/job 中所有 wrapper、shell、runtime
-descendant 确认退出。只有完整进程树已退出后，partial report 才写入 caller 显式路径或
-本次 temp 中的唯一文件，然后执行记录式 cleanup。无法确认全树退出时保留 temp root、
-记录 closed cleanup/process-tree error 并非零退出，不能在后代仍可能写入时删除。
-cleanup 只允许删除启动时创建并验证过的精确 temp root；失败时追加 closed cleanup
-error，绝不扩大路径。
+descendant 确认退出。只有完整进程树已退出后才执行记录式 cleanup；cleanup 只允许删除
+启动时创建并验证过的精确 temp root，所有 cleanup 结果先进入内存中的 closed terminal
+record。cleanup 成功或失败均在其结束后，才把包含最终 terminal record 的 partial report
+一次性封口到 caller 显式路径；未提供 caller 路径时使用与待清理 temp root 分离的
+attempt-bound durable report root。无法确认全树退出时保留 temp root、记录 closed
+cleanup/process-tree error 后再封口并非零退出，不能在后代仍可能写入时删除。cleanup
+失败同样必须在封口前追加 closed cleanup error，绝不扩大路径或覆盖已存在输出。
 
 并发运行使用随机 run ID + exclusive-create output；已存在 output 非覆盖报错。official
 mode 不写 project/global event log，不读取前次报告。
@@ -366,8 +368,10 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    digest 一致时生成 valid summary，否则生成 non-valid candidate summary；非 required
    reports 作为 display-only 附件，不改变 summary status；
 5. 只有 valid 或获批 `publish_nonvalid` 分支可运行 `publish-release`，一次性发布
-   binary、payload、checksums、manifest 与对应 benchmark reports；仍保留“release 已
-   存在则拒绝变更”。
+   binary、payload、checksums、manifest 与对应 benchmark reports。已 published 的同 tag
+   release 一律拒绝变更；已存在 private draft 只有在 draft ID、attempt、tag/source、
+   asset digests 与已验签 `publish_intent` 完全匹配时，才允许继续同一 draft 的幂等
+   publish/recovery，任何无关或不匹配 draft 仍 fail closed。
 
 publication 使用 attempt-scoped two-phase draft：
 
@@ -395,7 +399,11 @@ platform × surface 独立展示，不聚合为单一 P95。publication、README
 schema/provenance gate，但发布动作闭合如下。
 
 effective action 为 `block_release` 时（包括 selected policy 是 `publish_nonvalid` 但
-mandatory non-valid report/evidence 未通过 schema/provenance gate），matrix wrapper
+mandatory non-valid report/evidence 未通过 schema/provenance gate），failure-manifest
+schema 是闭集 union：单 target 失败使用 `target_failure`；required reports 各自有效但
+decision 不一致、缺输入或 aggregation 失败使用 `release_aggregation_failure`，后者绑定
+canonical failed summary/preimage、`summary_digest`、完整 required-platform set、每个
+target 的 report/evidence/checksum identity 与闭集 aggregation reason。matrix wrapper
 对可恢复的 bench/job failure 捕获非零状态但暂不退出，先：
 
 1. 写出 schema-valid candidate failure report，以及包含 candidate tag/source commit、
@@ -423,10 +431,13 @@ predicate。bundle 即使在 retention 后不再可下载，验证者仍能从�
 candidate 不创建 GitHub Release、release page/assets 或 README candidate current row；
 旧 row 仅保留其原 release 身份。
 
-hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设只读
-source + 最小 attestation 写权限的 completion reconciler，由 release workflow 的终态
-事件触发，并用 `(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)`
-查询预发布阶段已 attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
+hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
+completion reconciler，由 release workflow 的终态事件触发。其 source 只读、attestation
+store 可追加，并通过 protected environment 取得 narrowly scoped `contents: write`；
+该权限只允许对 staged identity 精确绑定的 private draft 执行删除，或在已验签
+`publish_intent` 后完成/验证同一 draft，不得创建或改写其他 tag/release。reconciler 用
+`(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)` 查询预发布阶段已
+attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
 normal-path attempt record 不存在，reconciler 生成 failure-manifest schema 的
 `pipeline_interrupted` 分支：report/evidence/checksum identity 为显式 null，
 `missing_evidence` 为闭集，保留 staged provenance、selected/effective policy、
@@ -485,7 +496,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-011 end-to-end latency semantics | fresh-per-sample state + nearest-rank-v1 per-surface sampler | history/log-growth fixture proves warmup and measurements never share state; n=1/2/3/20/21 goldens distinguish ceil-rank from floor; every scheduled wrapper sample drains full IO |
 | B-012 distorted latency honesty | environment baseline + axis status | bad clock, zero runs, spawn distortion and sample error all blank headline latency without inventing zero; effectiveness axis remains independently evaluated |
 | B-013 synthetic sandbox/privacy | identity-only HOME reader + sandbox/env builder + redactor | allowlist fixture permits only verified receipt-enumerated files; directory enumeration/symlink/other HOME reads and all writes fail; dangerous-command sentinel remains untouched and secret/path/env sentinel is absent |
-| B-014 interruption and bounded cleanup | process group/session/Job Object + terminal-outcome override + cleanup ledger | descendant fixture proves full tree exits; clean cancellation after both axes valid and all tree/report/schema/cleanup failures still force final inconclusive/nonzero |
+| B-014 interruption and bounded cleanup | process group/session/Job Object + terminal-outcome override + cleanup ledger | descendant fixture proves full tree exits; cleanup-before-seal fixture proves the immutable partial report contains the final cleanup result; clean cancellation after both axes valid and all tree/report/schema/cleanup failures still force final inconclusive/nonzero |
 | B-015 shared human/JSON aggregate and exits | renderers + strict report schema | semantic golden and 3×3×terminal-ok/error matrix cover persisted/failed-report paths, exits and blank headlines without renderer recomputation |
 | B-016 staged exact release regeneration | strict summary + attempt draft/publish-intent commit | input/self-digest mutations cannot publish; all assets verify in private draft before intent; cancellation before/after intent/commit converges without public partial assets |
 | B-017 generated README table | verified-summary-to-doc generator | protocol surface matrix produces one fixed P95/status column/subrow per surface with no reduction; manual numeric/column drift fails freshness |
@@ -500,7 +511,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-026 independent ground truth and mapping | attested maintainer roster + signed review-record schema | fake distinct IDs sharing key/subject, unrostered role, bad signature/digest/commit and forbidden overlaps all fail before execution |
 | B-027 immutable version→digest ledger | prior-release attestation trust anchor + ledger validator | mutation suite rewrites checkout ledger and asserts mismatch against verified prior root/length/prefix; missing/wrong-lineage anchor fails; approved genesis and exact tuple reuse pass |
 | B-028 partial GH699 dependency | no-clone discovery + distribution launcher dispatch smoke | main fixture accepts merged payload but remains unavailable until actual launcher exists and each manifest-declared launcher forwards bench argv/IO/exit without setup/init |
-| B-029 immutable per-attempt blocked-release evidence | lease/watermark + two-phase draft reconciler | pre-intent cancel removes private draft and records interruption; post-intent cancel resumes exactly one complete release; post-commit verifies intent; public partial state is rejected |
+| B-029 immutable per-attempt blocked-release evidence | lease/watermark + two-phase draft reconciler | target and release-aggregation manifest branches preserve exact failed inputs; pre-intent cancel uses protected exact-draft authority to delete and record; post-intent cancel resumes exactly one intent-matching release despite the same-tag draft guard; mismatched/published release is rejected; post-commit verifies intent; public partial state is rejected |
 | B-030 readonly production-layout snapshot | signed-manifest handle reader + canonical-config materializer + wrapper executor | user config mutation cannot change official output; only signed canonical config is copied, materialization is outside timer, and no later source access occurs |
 | B-031 approved required-platform summary gate | protocol + strict summary preimage/detached attestation | delete-self-field JCS golden is unique; placeholder/self/attestation-in-preimage and omitted/replaced inputs fail; only exact required evidence affects summary |
 

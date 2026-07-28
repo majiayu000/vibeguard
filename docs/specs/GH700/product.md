@@ -227,9 +227,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     发布残缺 release，而是以 `selected_policy: publish_nonvalid`、
     `effective_action: block_release` 和闭集 prerequisite failure code 进入 B-029。
     可恢复失败由当前 release workflow 在退出前写 B-029 证据；job/workflow
-    hard-cancel、runner loss 或 timeout 由独立、最小权限的 completion reconciler 在
-    workflow 终态后按同一 candidate/run/attempt 身份补写 interruption record。两条路径
-    都必须先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
+    hard-cancel、runner loss 或 timeout 由独立 completion reconciler 在 workflow 终态后
+    按同一 candidate/run/attempt 身份补写 interruption record。它除只读 source 与
+    attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
+    mutation 权限：仅可删除无 intent 的对应 private draft，或按已验签
+    `publish_intent` 完成/验证同一 draft；不得创建或改写其他 tag/release。两条路径都必须
+    先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
     发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
     先上传到非公开 draft 并完整重验；持 candidate lease、watermark current 后写不可变
     `publish_intent` attestation，最后以唯一 draft→published 状态切换作为 commit point。
@@ -339,7 +342,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 29. B-029: 当 effective action 为 `block_release`（包括选中 `publish_nonvalid` 但其
     mandatory evidence gate 失败）时，可恢复失败路径必须在 release job 返回失败前生成
     schema-valid candidate failure report 与 schema-valid canonical failure manifest。
-    manifest 必须完整包含 candidate tag/source commit/target、workflow run/attempt、
+    manifest 必须是闭集 target-scoped 或 release-scoped 分支。target-scoped 分支完整包含
+    candidate tag/source commit/target、workflow run/attempt、
     selected policy/effective action、axis/top-level 状态、闭集 failure/reason codes、
     report/evidence/checksum identities 与验证所需 provenance；其完整 canonical 内容
     必须内嵌在不可覆盖、retention-independent 永久可检索的
@@ -352,7 +356,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
     job 非零退出，GitHub Release、release page/assets 与 README candidate current row
     均不创建。对于 hard-cancel、runner loss 或 workflow timeout，独立 completion
-    reconciler 必须在终态事件后创建 schema 的 `pipeline_interrupted` 分支：包含同一
+    required-platform 输入各自通过但 decision 不一致、缺输入或 aggregation 失败时，
+    release-scoped 分支必须绑定 canonical failed summary/preimage、`summary_digest`、
+    完整 required-platform set、逐 target report/evidence/checksum identity 与闭集
+    aggregation reason，不能降格成单一 target record。对于 hard-cancel、runner loss
+    或 workflow timeout，独立 completion reconciler 必须在终态事件后创建 schema 的
+    `pipeline_interrupted` 分支：包含同一
     candidate/run/attempt、staged provenance、selected/effective policy、interruption
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
     report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
@@ -410,10 +419,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       bundle/signed manifest 授权的 no-follow 只读身份通道，用户 config、allowlist 外读取和
       全部写入均被拒；sentinel secrets 不出现在任何输出。
 - [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前、hard
-      cancel/runner loss 由外部 completion reconciler，在不创建 Release/current row 的
-      前提下把 attempt manifest 永久内嵌到不可覆盖 attestation/ledger；candidate lease +
-      reconciliation watermark 阻止任何 unreconciled prior attempt 之后的 rerun/publish；
-      继续发布分支只发布同版本 non-valid row。
+      cancel/runner loss 由 environment-protected completion reconciler，把 target 或
+      release-scoped attempt manifest 永久内嵌到不可覆盖 attestation/ledger；它的
+      Release 写权限仅能删除无 intent 的对应 private draft，或按验签 intent 完成同一
+      draft，不能改写其他 release/current row；candidate lease + reconciliation watermark
+      阻止任何 unreconciled prior attempt 之后的 rerun/publish；继续发布分支只发布同版本
+      non-valid row。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
 
