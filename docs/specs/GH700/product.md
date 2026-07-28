@@ -123,7 +123,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    与整体 headline 必须 `unavailable`；不得以“测试通过”代替产品能力。
 6. B-006: 成功完成 production adapter 解析的 case，其 normalized decision 必须来自
    闭集 `{block, advisory, allow}`，并保留 versioned mapping 允许的原始 production
-   decision 与 rule/reason 标识。`execution_error`/timeout 是独立 case status，不是
+   decision 与 rule/reason 标识。mapping 可以声明一个闭集
+   `no_interception_success` raw variant：仅当 production 入口成功退出、明确没有 decision
+   payload 且没有 raw reason 时，映射为 `allow` + canonical `no_interception`；这不是
+   缺失字段 fallback。除该显式 variant 外，缺失 decision/reason 仍是
+   `execution_error`。`execution_error`/timeout 是独立 case status，不是
    production decision，也永远不在 headline subset 中。报告必须声明
    `interception_decisions` 是 decision 闭集的哪个非空子集；该口径由“产品决策 1”
    批准。缺失或改变口径的报告之间不得直接比较。
@@ -302,9 +306,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `unavailable`。
 25. B-025: production mapping 为每个 adapter 同时声明闭集 raw decisions、闭集 raw
     reason codes，以及它们到 `{block, advisory, allow}` 和 canonical reason code 的唯一
-    映射。未知、多重、形状错误、缺失 reason，或用 free-text/substr/regex heuristic
-    猜 reason 的输出都产生独立 `execution_error` case status；不得把未知 reason
-    收进 `other` 或沿用 decision。`execution_error` 不得进入
+    映射。mapping-declared `no_interception_success` 是唯一允许 raw reason 缺席的正常
+    variant：success exit + no decision payload + absent reason 必须精确映射为
+    `allow/no_interception`。其它未知、多重、形状错误、缺失 decision/reason，或用
+    free-text/substr/regex heuristic 猜 reason 的输出都产生独立 `execution_error` case
+    status；不得把未知 reason 收进 `other` 或沿用 decision。`execution_error` 不得进入
     `interception_decisions`、TP/FP numerator 或任何 production decision count，但 case
     仍留在 ground-truth denominator，并使 effectiveness `inconclusive`，因此不能发布
     诊断 rate 为 headline。
@@ -388,8 +394,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     且 required reports 的 `decision_digest` 一致；缺任一 required native report 或任一
     required target 非 `valid` 时 summary 非 valid 并进入获批 release policy。非 required
     target 可生成独立 display-only row；其 `unavailable`/缺 native runner 不得阻断
-    summary，也不得替代 required target。summary schema 必须逐项绑定 required set 与
-    exact `(target, evidence_digest, report_checksum)` 输入。`summary_digest` 的唯一
+    summary，也不得替代 required target。summary schema 必须包含最终展示的全部 reports，
+    为每项绑定 `required` boolean 与 exact
+    `(target, evidence_digest, report_checksum)`；只有 required subset 参与 validity 与
+    decision-equality aggregation，display-only 输入仍进入签名 summary preimage，README
+    不得读取未绑定附件。`summary_digest` 的唯一
     preimage 是完整 summary object 删除 `summary_digest` 字段后的 JCS bytes；detached
     attestation 绑定该 digest，不进入 preimage。遗漏/重复/替换 input、自包含 placeholder 或
     aggregation result 不匹配都不可发布。若获批 set 含四个平台，则四个平台都必须有

@@ -38,7 +38,8 @@ GH-700
 - 独立 ground truth：`data/public_benchmark/ground_truth/v1.jsonl`；
 - versioned production mapping：**data/public_benchmark/production_mapping/v1.json**；
 - append-only identity ledger：**data/public_benchmark/corpus_ledger.json**；
-- planned schemas：**schemas/public_benchmark_corpus.schema.json**、
+- planned schemas：**schemas/public_benchmark_protocol.schema.json**、
+  **schemas/public_benchmark_corpus.schema.json**、
   **schemas/public_benchmark_ground_truth.schema.json**、
   **schemas/public_benchmark_production_mapping.schema.json**、
   **schemas/public_benchmark_report.schema.json**、
@@ -178,9 +179,12 @@ Rust `bench` 内部建立封闭 executor registry，而不是让 corpus 提供�
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
 wrapper/payload guard 运行 canonical pre/post/stop path。每个 versioned adapter 只接受
 mapping 声明的 raw decision JSON/exit 与 raw reason-code 闭集，并把二者唯一映射为
-`{block, advisory, allow}` + canonical reason code。unknown/malformed/ambiguous/multiple
-decision 或 reason、缺失 reason，以及任何 free-text/substr/regex reason guessing 都产生
-独立 `case_status: execution_error`，normalized decision/reason 留空；它不进入
+`{block, advisory, allow}` + canonical reason code。mapping 可声明唯一
+`no_interception_success` raw variant：production entrypoint success exit、无 decision
+payload、raw reason absent 的组合精确映射为 `allow` + `no_interception`；不得把其它
+缺失字段解释成该 variant。unknown/malformed/ambiguous/multiple decision 或 reason、
+其它缺失 decision/reason，以及任何 free-text/substr/regex reason guessing 都产生独立
+`case_status: execution_error`，normalized decision/reason 留空；它不进入
 decision/headline numerator，但仍留在 ground-truth denominator 并使 axis inconclusive。
 
 当前 production mapping：
@@ -255,6 +259,13 @@ UTF-8 RFC 8785 JCS bytes，不附加 BOM 或尾随换行，最后 SHA-256。Rust
 validator 与 release packaging 必须通过同一组包含 key order、escaping、Unicode、
 safe-integer 两端及各自越界 ±1、空值和 forbidden float 的 golden/reject vectors；
 profile 未识别或跨实现 bytes/digest 不一致时 fail closed。
+
+JSONL 仅是 corpus/ground-truth 的传输格式，不直接作为 digest bytes。validator 必须逐行
+解析并按 schema 拒绝空记录/duplicate ID/unknown field，再按 UTF-8 case ID 升序排列
+records；canonical digest preimage 是这个有序 records 列表构成的单一 JCS array。禁止
+哈希原始换行文本、逐行 JCS 直接拼接或保留输入行序；Rust/Python golden 必须覆盖 CRLF、
+尾随换行、输入乱序、escaping 与 duplicate-case framing，并得到同一 array bytes/digest
+或同一具名拒绝。
 
 `decision_digest` 的 canonical payload 只包含所有 native platforms 共同的 source
 commit、corpus/ground-truth/mapping/protocol versions+digests、获批的
@@ -358,15 +369,17 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
 3. 每个平台 schema/provenance/axis gate；release summary 只选择 approved
    `required_platforms` 的 native reports 并比较其 `decision_digest`，`evidence_digest`
    只作各平台 artifact identity；
-4. 仅聚合 required set 并生成 checksums；按 target canonical 排序构建 strict
-   `public_benchmark_summary`，逐项绑定 exact
+4. 对全部最终展示的 reports 生成 checksums；按 target canonical 排序构建 strict
+   `public_benchmark_summary`，逐项绑定 `required` boolean 与 exact
    `(target, evidence_digest, report_sha256, checksum)`、完整 required set、decision
-   equality、per-surface latency/status 与 aggregation result。`summary_digest` preimage
+   equality、per-surface latency/status 与 aggregation result。只有 required subset
+   参与 validity/decision equality；display-only reports 同样进入 summary object 和签名
+   preimage，但不改变 summary status。`summary_digest` preimage
    唯一为删除 `summary_digest` 字段后的完整 summary object 的 JCS bytes；detached
    release-workflow attestation 绑定结果，不进入 preimage。required reports 全 valid 且
    decision
-   digest 一致时生成 valid summary，否则生成 non-valid candidate summary；非 required
-   reports 作为 display-only 附件，不改变 summary status；
+   digest 一致时生成 valid summary，否则生成 non-valid candidate summary；README 只能
+   展示该验签 summary 内绑定的 required 或 display-only report，不能读取游离附件；
 5. 只有 valid 或获批 `publish_nonvalid` 分支可运行 `publish-release`，一次性发布
    binary、payload、checksums、manifest 与对应 benchmark reports。已 published 的同 tag
    release 一律拒绝变更；已存在 private draft 只有在 draft ID、attempt、tag/source、
@@ -488,7 +501,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-003 five classes with both polarities | corpus schema + completeness validator | corpus mutation tests remove each class/positive/negative side one at a time and assert preflight failure |
 | B-004 reviewed immutable ground truth | separate fixture/ground-truth/mapping parsers | duplicate-key/ID, orphan joins, unknown enum, conflicting label, non-independent review and changed-content-same-version fixtures are rejected |
 | B-005 production paths only | sealed executor registry | mutation test replaces each executor with unknown/test-only ID and asserts zero cases; code review confirms no case-ID detector branch |
-| B-006 closed normalized decisions and declared interception subset | versioned decision adapter + strict case-evidence schema | exhaustive raw decision/reason/rule-id→normalized enum tests prove closed raw fields are retained, free text is dropped, execution_error has no normalized decision, and invalid headline subset is rejected |
+| B-006 closed normalized decisions and declared interception subset | versioned decision adapter + strict case-evidence schema | exhaustive raw decision/reason/rule-id→normalized enum tests include successful no-payload/no-reason→allow/no_interception, prove other missing fields fail, retain closed raw fields, drop free text, and reject invalid headline subsets |
 | B-007 complete denominator and metrics | one aggregate module | table-driven TP/FN/FP/TN/positive_error/negative_error cases prove both closure equations, errors stay denominator without entering production-decision counts, and nonzero errors suppress headline |
 | B-008 honest statuses | axis state machines + top aggregator | exhaustive axis status/error fixtures prove each axis emits only the closed status set and never renders non-valid as zero/pass |
 | B-009 deterministic confirmation | per-case initial-state materializer + dual-run executor + `decision_digest` | history-sensitive hook fixture proves every A/B case gets the same fresh digested state and previous cases cannot influence it; injected drift remains inconclusive |
@@ -504,16 +517,16 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-019 explicit schema compatibility | versioned parsers | current/legacy/unknown schema fixtures prove only declared mapping loads; unknown version nonzero unavailable |
 | B-020 unofficial isolation | CLI option policy + README ingest gate | custom/dev report carries `official:false`, uses separate path and is rejected by README generator |
 | B-021 verified current-exe identity chain | offline bundle + handle-bound exec/mapped-image handshake | start modified image then replace pathname with signed binary still fails; Unix inherited exec fd/Windows deny-write handle binds executing image to signed manifest |
-| B-022 split decision/evidence digests | safe-integer RFC 8785 JCS canonical builders | Rust/Python golden/reject vectors cover ±9007199254740991 and out-of-range ±1, big decimal strings, config/state/schedule identities and split digest behavior |
+| B-022 split decision/evidence digests | safe-integer RFC 8785 JCS canonical builders | Rust/Python golden/reject vectors cover ±9007199254740991 and out-of-range ±1, big decimal strings, case-ID-sorted JSONL→JCS-array framing, config/state/schedule identities and split digest behavior |
 | B-023 axis candidate + terminal override | shared status aggregator + renderer | exhaustive 3×3×`terminal_ok|terminal_error` golden proves terminal failure always yields inconclusive/nonzero/blank headline while error-free candidate remains pure |
 | B-024 real wrapper subprocess E2E | mapping resolver + latency executor | installed wrapper spy records argv/stdin and child completion; direct function, checkout wrapper, PATH fallback and digest drift are rejected |
-| B-025 decision/reason closure and execution-error exclusion | mapping adapter + aggregate | exhaustive unknown/missing/multiple decision and reason fixtures plus free-text heuristic attempts create no normalized values/numerator, remain denominator and force inconclusive |
+| B-025 decision/reason closure and execution-error exclusion | mapping adapter + aggregate | explicit no_interception success maps to allow without a raw reason; every other unknown/missing/multiple decision/reason fixture and free-text heuristic attempt creates no normalized value/numerator, remains denominator and forces inconclusive |
 | B-026 independent ground truth and mapping | attested maintainer roster + signed review-record schema | fake distinct IDs sharing key/subject, unrostered role, bad signature/digest/commit and forbidden overlaps all fail before execution |
 | B-027 immutable version→digest ledger | prior-release attestation trust anchor + ledger validator | mutation suite rewrites checkout ledger and asserts mismatch against verified prior root/length/prefix; missing/wrong-lineage anchor fails; approved genesis and exact tuple reuse pass |
 | B-028 partial GH699 dependency | no-clone discovery + distribution launcher dispatch smoke | main fixture accepts merged payload but remains unavailable until actual launcher exists and each manifest-declared launcher forwards bench argv/IO/exit without setup/init |
 | B-029 immutable per-attempt blocked-release evidence | lease/watermark + two-phase draft reconciler | target and release-aggregation manifest branches preserve exact failed inputs; pre-intent cancel uses protected exact-draft authority to delete and record; post-intent cancel resumes exactly one intent-matching release despite the same-tag draft guard; mismatched/published release is rejected; post-commit verifies intent; public partial state is rejected |
 | B-030 readonly production-layout snapshot | signed-manifest handle reader + canonical-config materializer + wrapper executor | user config mutation cannot change official output; only signed canonical config is copied, materialization is outside timer, and no later source access occurs |
-| B-031 approved required-platform summary gate | protocol + strict summary preimage/detached attestation | delete-self-field JCS golden is unique; placeholder/self/attestation-in-preimage and omitted/replaced inputs fail; only exact required evidence affects summary |
+| B-031 approved required-platform summary gate | protocol + strict summary preimage/detached attestation | delete-self-field JCS golden is unique; placeholder/self/attestation-in-preimage and omitted/replaced required or displayed inputs fail; all displayed reports are signed while only exact required evidence affects validity |
 
 ## Affected-file / test / command map
 
@@ -524,11 +537,11 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | --- | --- | --- |
 | CLI + module split | `vibeguard-runtime/src/main.rs`, planned **vibeguard-runtime/src/bench/mod.rs**, **model.rs**, **corpus.rs**, **identity.rs**, **mapping.rs**, **runner.rs**, **metrics.rs**, **latency.rs**, **render.rs**, **sandbox.rs** | `cargo test --manifest-path vibeguard-runtime/Cargo.toml bench` |
 | Handle-backed SHA-256 | `vibeguard-runtime/src/setup_support.rs`, planned **vibeguard-runtime/src/bench/identity.rs** | known binary digest + replace-during-read test; no OS shell hash command |
-| Corpus truth/mapping/ledger/reviews | planned **data/public_benchmark/**, the seven **schemas/public_benchmark_*.schema.json** files, **scripts/ci/validate_public_benchmark.py** | schema/schedule/state positives/negatives + signed reviewer roster/records + prior-attestation/genesis ledger mutation suite |
+| Protocol/corpus truth/mapping/ledger/reviews | planned **data/public_benchmark/**, the eight **schemas/public_benchmark_*.schema.json** files including **schemas/public_benchmark_protocol.schema.json**, **scripts/ci/validate_public_benchmark.py** | protocol schema ownership; case-ID-sorted JSONL→JCS-array framing goldens; schema/schedule/state positives/negatives + signed reviewer roster/records + prior-attestation/genesis ledger mutation suite |
 | Installed release identity | planned **schemas/release_identity.schema.json**, persisted attestation bundle + signed manifest, `scripts/setup/runtime-install.sh`, `scripts/setup/install.sh`, `scripts/ci/generate_runtime_release_manifest.py` | offline trust-root/issuer/workflow/subject verification plus recomputed binary/payload/wrapper/canonical-config digests rejects tampered receipt/assets |
 | Actual launcher | GH-699 merge 后探测真实 manifest-declared paths；GH-700 owns Homebrew/npm `bench` dispatch changes at those anchors | fresh HOME per-launcher smoke proves argv/stdin/stdout/stderr/exit forwarding to same current-exe and proves bootstrap/setup/init sentinels absent |
 | Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code materialize byte-identical readonly temp snapshot，不复制 detector | layout/digest/permission matrix + subprocess timer spy + existing `bash tests/test_hook_perf_contract.sh` |
-| Report/readme | planned **schemas/public_benchmark_report.schema.json**, **schemas/public_benchmark_summary.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | 3×3×terminal golden; exact input-bound attested summary; per-surface marker freshness; invalid axis has no numeric cell |
+| Report/readme | planned **schemas/public_benchmark_report.schema.json**, **schemas/public_benchmark_summary.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | 3×3×terminal golden; required and display-only reports are exact-input-bound in the attested summary while only required inputs affect validity; per-surface marker freshness; invalid axis has no numeric cell |
 | Release/failure evidence | `.github/workflows/release.yml`, planned **.github/workflows/benchmark-failure-reconcile.yml**, **scripts/ci/package_benchmark_evidence.py**, **scripts/ci/publish_benchmark_failure_record.py**, **schemas/public_benchmark_failure_manifest.schema.json**, `tests/test_release_workflow.sh`, planned **tests/fixtures/public_benchmark/failure_records/** | recoverable/hard-cancel records share candidate lease; pending reconciliation blocks rerun/publish; watermark/idempotency/conflict tests and deleted-bundle recovery prove publish ordering |
 | End-to-end regressions | planned **tests/test_public_benchmark.sh**, **tests/fixtures/public_benchmark/** | official/unofficial, identity, five classes, privacy, concurrency, interruption, digests, wrapper latency and release sentinels |
 
