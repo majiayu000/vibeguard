@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -75,6 +76,7 @@ REQUIRED_FILE_GLOBS = [
 ]
 
 VALID_AUTH_MODES = ("auto", "review")
+VALID_SPEC_STAGES = ("complete", "draft")
 
 REQUIRED_TOKENS = {
     "workflow.yaml": [
@@ -243,8 +245,62 @@ def validate_auth_mode(config: object) -> list[str]:
     return errors
 
 
-def validate_spec_packet(spec_dir: Path) -> list[str]:
+def git_commit(repo: Path, ref: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    commit = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9a-fA-F]{40,64}", commit):
+        raise SpecRailError(f"invalid --base-ref commit: {ref}")
+    return commit
+
+
+def git_path_exists(repo: Path, commit: str, path: Path) -> bool:
+    try:
+        relative_path = path.relative_to(repo)
+    except ValueError as exc:
+        raise SpecRailError(f"baseline path escapes repository: {path}") from exc
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            commit,
+            "--",
+            relative_path.as_posix(),
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or "unknown git ls-tree failure"
+        )
+        raise SpecRailError(f"cannot inspect baseline {commit}: {detail}")
+    return relative_path.as_posix().encode("utf-8") in result.stdout.split(b"\0")
+
+
+def validate_spec_packet(
+    spec_dir: Path,
+    *,
+    spec_stage: str = "complete",
+    repo: Path | None = None,
+    base_commit: str | None = None,
+) -> list[str]:
     errors: list[str] = []
+    if spec_stage not in VALID_SPEC_STAGES:
+        raise SpecRailError(
+            f"invalid spec stage {spec_stage!r}; expected one of "
+            + ", ".join(VALID_SPEC_STAGES)
+        )
     if not spec_dir.exists():
         return [f"spec packet does not exist: {spec_dir}"]
     if not spec_dir.is_dir():
@@ -287,7 +343,19 @@ def validate_spec_packet(spec_dir: Path) -> list[str]:
 
     task_path = spec_dir / "tasks.md"
     if not task_path.is_file():
-        errors.append(f"{spec_dir}: missing tasks.md")
+        if task_path.exists() or task_path.is_symlink():
+            errors.append(f"{task_path}: tasks.md must be a regular file")
+        elif spec_stage == "complete":
+            errors.append(f"{spec_dir}: missing tasks.md")
+        elif (
+            repo is not None
+            and base_commit is not None
+            and git_path_exists(repo, base_commit, task_path)
+        ):
+            errors.append(
+                f"{spec_dir}: draft validation cannot remove tasks.md "
+                f"present in baseline {base_commit}"
+            )
     else:
         resolved_task_path = resolve_path(
             task_path,
@@ -365,18 +433,71 @@ def discover_spec_packet_dirs(
     return sorted(spec_dirs, key=spec_packet_sort_key)
 
 
+def discover_baseline_spec_packet_dirs(
+    repo: Path,
+    commit: str,
+    spec_root: PurePosixPath,
+) -> list[Path]:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "ls-tree",
+            "-r",
+            "-d",
+            "--name-only",
+            "-z",
+            commit,
+            "--",
+            spec_root.as_posix(),
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or "unknown git ls-tree failure"
+        )
+        raise SpecRailError(f"cannot inspect baseline {commit}: {detail}")
+
+    packet_pattern = re.compile(
+        re.escape(spec_root.as_posix().encode("utf-8")) + rb"/GH[0-9]+"
+    )
+    return sorted(
+        (
+            repo
+            / spec_root
+            / raw_path.rsplit(b"/", 1)[-1].decode("ascii")
+            for raw_path in result.stdout.split(b"\0")
+            if packet_pattern.fullmatch(raw_path)
+        ),
+        key=spec_packet_sort_key,
+    )
+
+
 def select_spec_packet_dirs(
     repo: Path,
     raw_spec_dirs: list[str],
     *,
     all_specs: bool,
     spec_root: PurePosixPath | None = None,
+    base_commit: str | None = None,
 ) -> list[Path]:
     spec_dirs: list[Path] = []
     configured_root = spec_root if spec_root is not None else PurePosixPath("specs")
     resolved_root = resolve_spec_packet_root(repo, configured_root)
     if all_specs:
         spec_dirs.extend(discover_spec_packet_dirs(repo, configured_root))
+        if base_commit is not None:
+            spec_dirs.extend(
+                discover_baseline_spec_packet_dirs(
+                    repo,
+                    base_commit,
+                    configured_root,
+                )
+            )
     for raw_spec_dir in raw_spec_dirs:
         resolved_spec_dir = resolve_repo_path(
             repo,
@@ -453,6 +574,22 @@ def main() -> int:
         action="store_true",
         help="Validate every configured GH<number> spec packet under the repo",
     )
+    parser.add_argument(
+        "--spec-stage",
+        choices=VALID_SPEC_STAGES,
+        default="complete",
+        help=(
+            "Spec packet stage: complete requires tasks.md; draft allows it to "
+            "be absent but validates it when present"
+        ),
+    )
+    parser.add_argument(
+        "--base-ref",
+        help=(
+            "Optional Git baseline used in draft mode to reject removal of an "
+            "existing tasks.md"
+        ),
+    )
     args = parser.parse_args()
 
     errors: list[str] = []
@@ -464,6 +601,7 @@ def main() -> int:
             configured_spec_paths["spec_packet"]
         ).parent
         validate_spec_packet_root(repo, configured_spec_root)
+        base_commit = git_commit(repo, args.base_ref) if args.base_ref else None
         errors.extend(validate_required_files(repo))
         errors.extend(validate_required_file_globs(repo))
         errors.extend(validate_tokens(repo))
@@ -479,8 +617,16 @@ def main() -> int:
             args.spec_dir,
             all_specs=args.all_specs,
             spec_root=configured_spec_root,
+            base_commit=base_commit,
         ):
-            errors.extend(validate_spec_packet(spec_dir))
+            errors.extend(
+                validate_spec_packet(
+                    spec_dir,
+                    spec_stage=args.spec_stage,
+                    repo=repo,
+                    base_commit=base_commit,
+                )
+            )
     except SpecRailError as exc:
         errors.append(str(exc))
 

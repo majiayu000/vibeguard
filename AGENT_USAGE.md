@@ -136,11 +136,28 @@ python3 checks/check_workflow.py --repo .
 python3 checks/check_workflow.py --repo . --all-specs
 ```
 
+The default packet stage is `complete`, which requires `product.md`, `tech.md`,
+and `tasks.md`. While a spec PR is still a GitHub Draft, validate its
+product/tech-only packet explicitly:
+
+```sh
+python3 checks/check_workflow.py \
+  --repo . \
+  --spec-dir docs/specs/GH<issue-number> \
+  --spec-stage draft
+```
+
+Draft mode still validates `tasks.md` when it exists. In CI, pass the PR base
+commit with `--base-ref`; the validator then rejects deletion of a `tasks.md`
+that already exists in the baseline. Ready PRs and `main` keep the default
+complete-stage requirement.
+
 `--all-specs` discovers packets from `workflow.yaml`'s
 `artifacts.spec_packet` template. The issue evidence adapter and route gate
 render their spec paths from the same artifact configuration. For a single
-packet, run the exact configured command returned by `route_gate.py` in
-`verification_commands`.
+packet, run the exact stage-specific configured command returned by
+`route_gate.py` in `verification_commands`: `write_spec` returns Draft
+validation, while implementation and later routes return Complete validation.
 
 9. Before reporting a PR as merge-ready, collect PR evidence and run:
 

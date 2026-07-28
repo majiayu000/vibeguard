@@ -40,6 +40,7 @@ VibeGuard keeps runtime and installable source directories at the repository roo
 | `scripts/gc/` | Scheduled and on-demand cleanup, digest, and maintenance helpers. |
 | `scripts/learn/` | Learning analysis, adoption, and trajectory helpers used by the learning workflow. |
 | `scripts/metrics/` | Metrics collection and Prometheus-format export helpers. |
+| `scripts/release/` | Release payload manifest and deterministic payload packaging helper. |
 | `scripts/verify/` | Local verification and freshness checks. |
 | `scripts/systemd/` | Linux user-service templates for scheduled VibeGuard maintenance. |
 | `.github/` | GitHub Actions workflows, issue templates, and PR template. |
