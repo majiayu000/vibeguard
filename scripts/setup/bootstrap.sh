@@ -461,6 +461,8 @@ if [[ -e "${FINAL_DIR}" || -L "${FINAL_DIR}" ]]; then
     bootstrap_error "${payload_difference%%$'\n'*}"
     exit 73
   fi
+  bootstrap_payload_entry_modes_match \
+    "${STAGE_DIR}" "${FINAL_DIR}" "${BOOTSTRAP_TMP}" || exit 73
   EXISTING_FINAL=1
 elif [[ "${EXISTING_TRANSACTION}" == "1" ]]; then
   case "${BOOTSTRAP_TRANSACTION_PHASE}" in
@@ -484,28 +486,18 @@ elif [[ "${EXISTING_TRANSACTION}" == "1" ]]; then
 fi
 
 if [[ "${CLEAN_REQUESTED}" == "1" ]]; then
-  bootstrap_prepare_clean_selection "${DIST_ROOT}" "${CURRENT_LINK}" || exit 73
-  CLEAN_SELECTED_VERSION="${BOOTSTRAP_CLEAN_SELECTED_VERSION}"
+  bootstrap_prepare_clean_plan "${DIST_ROOT}" "${CURRENT_LINK}" || exit 73
   SETUP_STARTED=1
-  bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
-    "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "cleaning"
+  if [[ "${EXISTING_TRANSACTION}" == "1" ]]; then
+    bootstrap_transaction_write "${TRANSACTION_FILE}" "${DIST_ROOT}" \
+      "${VERSION}" "${BOOTSTRAP_PAYLOAD_SHA256}" "cleaning"
+  fi
   printf 'Payload verified: checksum=%s provenance=%s\n' \
     "${BOOTSTRAP_PAYLOAD_SHA256}" "${BOOTSTRAP_PROVENANCE_STATUS}"
   clean_rc=0
   bootstrap_run_setup_script "${STAGE_DIR}/setup.sh" || clean_rc=$?
   [[ "${clean_rc}" -eq 0 ]] || exit "${clean_rc}"
-  if [[ -n "${CLEAN_SELECTED_VERSION}" ]]; then
-    if [[ ! -L "${CURRENT_LINK}" \
-      || "$(readlink "${CURRENT_LINK}")" != "${CLEAN_SELECTED_VERSION}" ]]; then
-      bootstrap_error "active payload selection changed during clean; preserving distribution evidence."
-      exit 73
-    fi
-    rm -f -- "${CURRENT_LINK}"
-    rm -rf -- "${DIST_ROOT:?}/${CLEAN_SELECTED_VERSION}"
-    rm -f -- "${DIST_ROOT}/.bootstrap-transaction-${CLEAN_SELECTED_VERSION}"
-  fi
-  [[ "${CLEAN_SELECTED_VERSION}" == "${VERSION}" ]] || rm -rf -- "${FINAL_DIR}"
-  rm -f -- "${TRANSACTION_FILE}"
+  bootstrap_apply_clean_plan "${DIST_ROOT}" "${CURRENT_LINK}" || exit 73
   bootstrap_finish_cleanup || exit 1
   exit 0
 fi

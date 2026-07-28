@@ -620,11 +620,12 @@ run_legacy_checks() {
 
   check_codex_home_installation
 
-  # Check repository git hooks used by VibeGuard's own development workflow.
   echo
   echo "Repository Git Hooks"
   echo "------------------------------"
-  if _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    yellow "[INFO] Repository git hooks not checked (payload mode)"
+  elif _vg_hook_dir="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
     _check_repo_git_hook "pre-commit" "${HOME}/.vibeguard/pre-commit"
     _check_repo_git_hook "pre-push" "${HOME}/.vibeguard/pre-push"
   else

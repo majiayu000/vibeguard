@@ -172,6 +172,46 @@ assert_cmd "version conflict preserves the selected current target" bash -c \
   'test "$(readlink "$1")" = "$2"' _ \
   "${verified_home}/.vibeguard/dist/current" "${BOOTSTRAP_VERSION}"
 
+payload_ancestor="${TMP_HOME}/bootstrap-payload-ancestor"
+payload_ancestor_home="${payload_ancestor}/user-home"
+payload_ancestor_root="${payload_ancestor}/payload"
+payload_ancestor_pre_commit_target="${payload_ancestor}/preserve-pre-commit"
+payload_ancestor_pre_push_target="${payload_ancestor}/preserve-pre-push"
+mkdir -p "${payload_ancestor_home}" "${payload_ancestor_root}"
+git init -q "${payload_ancestor}"
+tar -xzf "${BOOTSTRAP_RELEASE}/${BOOTSTRAP_ASSET}" -C "${payload_ancestor_root}"
+cp "${REPO_DIR}/scripts/setup/install.sh" \
+  "${payload_ancestor_root}/scripts/setup/install.sh"
+cp "${REPO_DIR}/scripts/setup/check.sh" \
+  "${payload_ancestor_root}/scripts/setup/check.sh"
+printf 'preserve pre-commit\n' > "${payload_ancestor_pre_commit_target}"
+printf 'preserve pre-push\n' > "${payload_ancestor_pre_push_target}"
+ln -s "${payload_ancestor_pre_commit_target}" \
+  "${payload_ancestor}/.git/hooks/pre-commit"
+ln -s "${payload_ancestor_pre_push_target}" \
+  "${payload_ancestor}/.git/hooks/pre-push"
+payload_ancestor_rc=0
+payload_ancestor_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${payload_ancestor_home}" \
+    VIBEGUARD_TEST_UNAME=Linux \
+    VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+    bash "${payload_ancestor_root}/setup.sh" --yes 2>&1
+)" || payload_ancestor_rc=$?
+assert_cmd "payload install inside an ancestor checkout succeeds without adopting it" \
+  test "${payload_ancestor_rc}" -eq 0
+assert_contains "${payload_ancestor_out}" "SKIP repo git hooks (payload mode)" \
+  "payload install reports that repository hooks are not applicable"
+assert_cmd "payload install preserves ancestor repository hooks byte-for-byte" bash -c \
+  'test -L "$1" && test "$(readlink "$1")" = "$2" && test -L "$3" && test "$(readlink "$3")" = "$4"' _ \
+  "${payload_ancestor}/.git/hooks/pre-commit" \
+  "${payload_ancestor_pre_commit_target}" \
+  "${payload_ancestor}/.git/hooks/pre-push" \
+  "${payload_ancestor_pre_push_target}"
+assert_cmd "payload install records no ancestor project-hook ownership" bash -c \
+  '! grep -qF "$1" "$2"' _ "${payload_ancestor}/.git/hooks" \
+  "${payload_ancestor_home}/.vibeguard/install-state.json"
+
 unmanaged_version_home="${TMP_HOME}/bootstrap-unmanaged-version-home"
 mkdir -p "${unmanaged_version_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
 printf 'unmanaged\n' \
@@ -776,6 +816,23 @@ assert_cmd "failed setup persists a repairable setup transaction" bash -c \
 assert_cmd "failed payload setup releases its bootstrap lock" \
   test ! -e "${setup_retry_home}/.vibeguard/dist/.bootstrap.lock"
 
+chmod +x "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/.vibeguard-payload"
+mode_drift_rc=0
+mode_drift_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${setup_retry_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${setup_retry_release}" \
+    VIBEGUARD_TEST_DOWNLOAD_LOG="${setup_retry_download_log}" \
+    VIBEGUARD_TEST_SETUP_FAIL_MARKER="${setup_retry_marker}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || mode_drift_rc=$?
+assert_cmd "same-version retry rejects retained payload permission drift" \
+  test "${mode_drift_rc}" -eq 73
+assert_contains "${mode_drift_out}" \
+  "permissions or entry types differ from the verified payload" \
+  "retained payload permission drift fails before setup"
+chmod -x "${setup_retry_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/.vibeguard-payload"
+
 setup_retry_rc=0
 setup_retry_out="$(
   env "${bootstrap_base_env[@]}" \
@@ -790,7 +847,7 @@ assert_cmd "same exact version retries completely after setup failure" \
 assert_contains "${setup_retry_out}" "RETRY_SETUP_SUCCEEDED" \
   "same-version retry executes a freshly staged payload"
 assert_cmd "same-version retry downloads and verifies the payload again" bash -c \
-  'test "$(grep -c "^gh tag=" "$1")" -eq 2' _ "${setup_retry_download_log}"
+  'test "$(grep -c "^gh tag=" "$1")" -eq 3' _ "${setup_retry_download_log}"
 assert_cmd "same-version retry repairs partial managed setup state" \
   grep -qFx "repaired" "${setup_retry_home}/.vibeguard/installed/version"
 assert_cmd "same-version retry commits persistent transaction evidence" bash -c \
@@ -1183,6 +1240,48 @@ assert_cmd "older launcher clean removes the verified active bootstrap payload" 
   "${cross_clean_home}/.vibeguard/dist/current" \
   "${cross_clean_home}/.vibeguard/dist/${cross_clean_version}" \
   "${cross_clean_home}/.vibeguard/dist/.bootstrap-transaction-${cross_clean_version}"
+
+history_clean_home="${TMP_HOME}/bootstrap-history-clean-home"
+history_clean_version="9.9.7"
+history_unmanaged_version="9.9.6"
+mkdir -p "${history_clean_home}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${history_clean_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes >/dev/null
+cp -R "${history_clean_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${history_clean_home}/.vibeguard/dist/${history_clean_version}"
+sed -e "s/^version=.*/version=${history_clean_version}/" \
+  "${history_clean_home}/.vibeguard/dist/${history_clean_version}/.vibeguard-payload" \
+  > "${history_clean_home}/.vibeguard/dist/${history_clean_version}/.vibeguard-payload.next"
+mv "${history_clean_home}/.vibeguard/dist/${history_clean_version}/.vibeguard-payload.next" \
+  "${history_clean_home}/.vibeguard/dist/${history_clean_version}/.vibeguard-payload"
+printf '%s\n' "${history_clean_version}" \
+  > "${history_clean_home}/.vibeguard/dist/${history_clean_version}/vibeguard-runtime/VERSION"
+sed -e "s/^version=.*/version=${history_clean_version}/" \
+  "${history_clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  > "${history_clean_home}/.vibeguard/dist/.bootstrap-transaction-${history_clean_version}"
+mkdir -p "${history_clean_home}/.vibeguard/dist/${history_unmanaged_version}"
+printf 'unmanaged\n' \
+  > "${history_clean_home}/.vibeguard/dist/${history_unmanaged_version}/sentinel"
+history_clean_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${history_clean_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${argv_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean 2>&1
+)"
+assert_cmd "bootstrap clean removes every transaction-owned payload version" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3" && test ! -e "$4"' _ \
+  "${history_clean_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${history_clean_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}" \
+  "${history_clean_home}/.vibeguard/dist/${history_clean_version}" \
+  "${history_clean_home}/.vibeguard/dist/.bootstrap-transaction-${history_clean_version}"
+assert_contains "${history_clean_out}" \
+  "Preserving unowned distribution directory: ${history_unmanaged_version}" \
+  "bootstrap clean reports unowned historical payload preservation"
+assert_cmd "bootstrap clean preserves an unowned semver directory" \
+  grep -qFx "unmanaged" \
+  "${history_clean_home}/.vibeguard/dist/${history_unmanaged_version}/sentinel"
 
 clean_cleanup_home="${TMP_HOME}/bootstrap-clean-cleanup-failure-home"
 clean_cleanup_bin="${TMP_HOME}/bootstrap-clean-cleanup-failure-bin"

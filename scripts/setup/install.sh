@@ -752,19 +752,19 @@ install_repo_git_hook() {
   state_record_project_hook "${REPO_DIR}" "${hook_path}" "${hook_name}"
   green "  ${hook_name} hook installed to vibeguard repo"
 }
-
-# Automatically install to VibeGuard's own repository. Use git's hook path so
-# linked worktrees and non-standard git dirs are handled correctly.
-VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || true)"
-if [[ -n "${VG_GIT_HOOKS}" ]]; then
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+  yellow "  SKIP repo git hooks (payload mode)"
+elif VG_GIT_TOP="$(git -C "${REPO_DIR}" rev-parse --show-toplevel 2>/dev/null)" \
+  && VG_REPO_PHYSICAL="$(cd "${REPO_DIR}" && pwd -P)" \
+  && [[ "${VG_GIT_TOP}" == "${VG_REPO_PHYSICAL}" ]] \
+  && VG_GIT_HOOKS="$(git -C "${REPO_DIR}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
   mkdir -p "${VG_GIT_HOOKS}"
   install_repo_git_hook "pre-commit" "${PRE_COMMIT_WRAPPER}"
   install_repo_git_hook "pre-push" "${PRE_PUSH_WRAPPER}"
 else
-  yellow "  SKIP repo git hooks (not a git repository)"
+  yellow "  SKIP repo git hooks (not an exact git repository root)"
 fi
 echo
-
 inject_claude_home_rules
 inject_codex_home_rules
 
