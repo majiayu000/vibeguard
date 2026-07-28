@@ -162,9 +162,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     config/policy/logging 与 detector 开销。直接调用 Rust function 或 checkout hook 的
     数值只能标 `core_us`/`unofficial`，不得成为 E2E headline。corpus sandbox 准备、
     warmup 与报告渲染不得混入。versioned/digested protocol 必须为每个 surface 固定有序
-    case IDs、每个 ID 的 warmup/measurement repetition 与完整执行顺序；runner 不能自行
-    选择 workload。每个 surface 必须独立公开 schedule identity、正整数 warmup 次数、
-    measurement runs、P50/P95/P99/max、样本数和 OS/arch。
+    case IDs、每个 ID 的 warmup/measurement repetition、完整执行顺序、
+    `fresh_per_sample` state policy/initial-state identity 与 percentile estimator
+    `nearest_rank_v1`；runner 不能自行选择 workload。每个 warmup/measurement sample 都从
+    canonical initial state 创建新 HOME/log/history/session，warmup 不把 state 带入
+    measurement。raw duration 使用整数纳秒排序，Pq 固定取
+    `ceil(q*n/100)-1` 的 zero-based sample（q=50/95/99，无插值），display ms 仅由该整数
+    确定性格式化。每个 surface 必须独立公开 schedule/state/estimator identity、正整数
+    warmup、runs、P50/P95/P99/max、样本数和 OS/arch。
 12. B-012: latency 运行必须先测量并公开环境基线。时钟不可用、样本执行错误、run 数
     非正、环境基线超过已发布协议阈值，或分位数/样本数不自洽时，latency 轴为
     `inconclusive` 且 headline latency 留空；效果轴只有在其自身满足 B-008/B-009 时才可
@@ -185,10 +190,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     kill-on-close Job Object）中。收到取消/中断后停止启动新 case，终止并等待完整
     wrapper/shell/runtime 后代进程树退出后，才尽力写出带 `status: inconclusive`、已完成
     case IDs 与 interruption stage 的 partial report并清理，最终非零退出；无法确认进程树
-    已退出时不得清理或声称完成。process-tree termination、report write/schema validation
-    或 cleanup 任一 terminal step 失败时，B-023 的 `terminal_error` override 必须使最终
-    top-level `inconclusive`、headline 留空且非零退出，即使两个 axis candidate 都已
-    `valid`。partial report 不能更新 README 或 release headline。
+    已退出时不得清理或声称完成。任何已接收的 interruption/cancellation（即使清理成功），
+    以及 process-tree termination、report write/schema validation 或 cleanup 任一 terminal
+    failure，都必须触发 B-023 的 closed terminal override，使最终 top-level
+    `inconclusive`、headline 留空且非零退出，即使两个 axis candidate 都已 `valid`。
+    partial report 不能更新 README 或 release headline。
 15. B-015: human 与 `--json` 输出必须由同一份聚合结果渲染。JSON 使用版本化 schema，
     包含 B-002、B-006–B-012 所需证据和每 case 结果；human 摘要不得隐藏 JSON 中的错误
     类别。`valid` 退出 0；`unavailable`、`inconclusive`、schema/corpus error 与
@@ -224,6 +230,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     hard-cancel、runner loss 或 timeout 由独立、最小权限的 completion reconciler 在
     workflow 终态后按同一 candidate/run/attempt 身份补写 interruption record。两条路径
     都必须先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
+    发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
+    先上传到非公开 draft 并完整重验；持 candidate lease、watermark current 后写不可变
+    `publish_intent` attestation，最后以唯一 draft→published 状态切换作为 commit point。
+    commit 前取消由 reconciler 删除 draft并记录 interruption；intent 后取消由 reconciler
+    幂等完成/验证同一已准备 draft；commit 后只允许验证该 intent 绑定的完整 public release，
+    不存在公开 partial-assets 合法状态。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
     version。旧 binary 不认识新 corpus、或新 renderer 无法验证旧 report 时必须明确
     `unavailable`，不能猜字段、静默丢字段或重新解释旧 headline。兼容读取只能是显式、
@@ -233,14 +245,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     接受。移除参数后重跑 official corpus 是生成公开证据的唯一恢复路径。
 21. B-021: official 身份必须持有 installer 已验证的 `verified-provenance`，这是安全
     强制项而非产品 proposal；`checksum-only` 或无 attestation 的安装最多运行
-    `unofficial` 诊断。official runner 不得只信任 binary 自报的 version/tag/commit，必须从
-    `current_exe` 定位并打开**本次正在执行的 binary bytes**，计算 SHA-256，并把它与
+    `unofficial` 诊断。official runner 不得只信任 binary 自报的 version/tag/commit 或
+    `current_exe` pathname。verified distribution launcher 必须先打开 signed-manifest
+    binary handle，并在 Unix 用 `fexecve`/`execveat` 等 handle-bound exec 启动且把只读
+    identity fd 传给 child；Windows 必须用 deny-write/delete 的 executable handle 启动并
+    持有到 child 完成 identity handshake。平台不能证明 mapped image 来自该 verified
+    handle 时 official unavailable。child 从 inherited binding handle 计算 SHA-256，并把它与
     installer 保存并供离线复验的签名 attestation bundle、pinned trust-root set/version、
     对应 target 的 release-manifest asset digest、tag/source commit 和 attestation subject
     串成一致链；bundle 必须绑定签名 release manifest，manifest 再闭集绑定 runtime、
     payload、wrapper、canonical benchmark config 与 protocol identities。receipt 只提供
     本地 path/handle mapping，不能自证 issuer/workflow/subject/digests。`argv[0]`、`PATH`、
-    cwd 邻居 binary、
+    cwd 邻居 binary、启动后把 pathname 替换回合法 binary、
     build-time 自报字段或仅“版本相同”都不能建立 official 身份。任何打开/读取/稳定性/
     digest/attestation mismatch 在零 case 时 `unavailable`。
 22. B-022: 报告必须同时给出两个不可混用的摘要：
@@ -266,11 +282,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 23. B-023: `axis_candidate_status` 必须是两个 axis 状态的纯 3×3 total function，不读取
     stage 或其它隐藏状态：`valid + valid → valid`；
     `unavailable + unavailable → unavailable`；其余七种组合一律
-    `inconclusive`。最终 top-level 再且仅再应用一个 closed `terminal_error` override：
-    terminal errors 为空时等于 candidate；存在
-    `{process_tree_unconfirmed, report_write_failed, report_schema_invalid,
+    `inconclusive`。最终 top-level 再且仅再应用一个 closed `terminal_outcome` override：
+    outcome 为 `completed` 时等于 candidate；存在
+    `{interrupted, process_tree_unconfirmed, report_write_failed, report_schema_invalid,
     cleanup_failed}` 任一项时一律 `inconclusive`、headline 留空、非零退出。renderer
-    不得重算；完整状态/exit matrix 是 3×3×`{terminal_ok, terminal_error}`。
+    不得重算；完整状态/exit matrix 是 3×3×
+    `{completed, interrupted_or_terminal_failure}`，包含“两轴已完成后 clean cancel”。
     README 每个 metric cell 只显示其 axis 为 `valid` 的值；否则显示空白/破折号 +
     axis 状态与 reason，同时 row status 显示 top-level。top-level 非 `valid` 不得生成
     “current valid benchmark”标识。
@@ -294,7 +311,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     不得是对应 detector 作者、mapping 实现者或 fixture 作者；dangerous shell/git
     mapping 另须一名不属于上述作者集合的 security reviewer。mapping 明确 real
     installed entrypoint、raw-decision/reason schema、normalization、required assets 与
-    review evidence。任一 reviewer 身份缺失、重叠或无法验证均使 official corpus
+    review evidence。reviewer 身份/role 必须来自 maintainer-controlled、signed/attested
+    roster；每条 review record 必须由 roster 中对应 identity 签名并绑定 artifact digest、
+    role、decision、source commit。自报字符串 ID 或同一 key/identity 的多个别名不算独立。
+    任一 roster/record 签名缺失、身份重叠或无法验证均使 official corpus
     `unavailable`；不得由产品 proposal 降低。mapping 变更必须提升 mapping version、
     生成新 digest 并触发全量确认重跑，不能只改 corpus digest 掩盖。
 27. B-027: tracked corpus ledger 必须 append-only 地绑定
@@ -360,8 +380,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     required target 非 `valid` 时 summary 非 valid 并进入获批 release policy。非 required
     target 可生成独立 display-only row；其 `unavailable`/缺 native runner 不得阻断
     summary，也不得替代 required target。summary schema 必须逐项绑定 required set 与
-    exact `(target, evidence_digest, report_checksum)` 输入，计算 canonical
-    `summary_digest` 并验证 release-workflow attestation；遗漏/重复/替换 input 或
+    exact `(target, evidence_digest, report_checksum)` 输入。`summary_digest` 的唯一
+    preimage 是完整 summary object 删除 `summary_digest` 字段后的 JCS bytes；detached
+    attestation 绑定该 digest，不进入 preimage。遗漏/重复/替换 input、自包含 placeholder 或
     aggregation result 不匹配都不可发布。若获批 set 含四个平台，则四个平台都必须有
     native runner；host/cross-compiled execution 不算覆盖。required set 缺失、空、重复、
     未排序、含未知 target 或与 report/digests 不一致时 preflight `unavailable`。
