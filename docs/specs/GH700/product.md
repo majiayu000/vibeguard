@@ -125,9 +125,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 7. B-007: 指标必须使用完整 ground truth 分母：
    `interception_rate = 被选定 interception_decisions 命中的 positive / positive_total`；
    `false_positive_rate = 被选定 interception_decisions 命中的 negative /
-   negative_total`。同时公开 TP、FN、FP、TN、block count、advisory count 与每个 failure
-   class 的分项。零分母、整数关系不自洽、百分比非有限值或不在 0–100 时结果为
-   `inconclusive`；不得把 `execution_error`、timeout 或 skipped case 从分母移除。
+   negative_total`。同时公开 TP、FN、FP、TN、`positive_error`、`negative_error`、
+   block count、advisory count 与每个 failure class 的分项；仅有 production decision 的
+   case 才进入 TP/FN/FP/TN，且必须满足
+   `positive_total = TP + FN + positive_error`、
+   `negative_total = FP + TN + negative_error`。`execution_error`、timeout 或 skipped
+   case 进入对应 error bucket，保留在总分母但不伪造成 production decision；任一 error
+   bucket 非零时 effectiveness 为 `inconclusive`，diagnostic rate 不得成为 headline。
+   零分母、整数关系不自洽、百分比非有限值或不在 0–100 时同样 `inconclusive`。
 8. B-008: effectiveness 与 latency 两个 axis 各自使用同一个状态闭集并 fail closed：
    - `unavailable`：执行前缺 release/corpus/payload/权限/生产入口等前提；
    - `inconclusive`：执行已开始，但出现 case error、timeout、环境失真、结果不确定或
@@ -157,13 +162,20 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     单独为 `valid`。不同平台行不得平均，单次最快值不得代替分位数。
 13. B-013: 所有 fixtures 必须是随 corpus 发布的合成内容，并在隔离临时目录运行。
     dangerous shell/git 字符串只允许送入 classifier，绝不执行；benchmark 不访问网络、
-    用户 repository、真实 HOME、凭据、剪贴板或既有日志，不继承无关环境变量。报告不得
-    包含环境变量值、用户路径、fixture 原始 payload、密钥形态文本或未脱敏 stderr。
-    无法建立这些边界时必须在首个 case 前 `unavailable`。
+    用户 repository、凭据、剪贴板或既有日志，不继承无关环境变量。唯一允许的真实 HOME
+    读取是 official preflight 的身份专用只读通道：先以 no-follow、owner/mode、regular-file
+    和 verified-provenance 校验打开固定 receipt，再且仅再打开 receipt 闭集列出的 installed
+    runtime/payload/wrapper/config/manifest 文件；不得枚举目录、跟随链接、读取任意其它
+    HOME 数据或写入真实 HOME。校验后的 handles/bytes 只能 materialize 到临时只读 snapshot，
+    case/warmup/measurement 全程只使用该 snapshot。报告不得包含环境变量值、用户路径、
+    fixture 原始 payload、密钥形态文本或未脱敏 stderr。无法建立这些边界时必须在首个
+    case 前 `unavailable`。
 14. B-014: 正常结束与异常结束都必须清理 benchmark 自己创建的临时状态；清理不得越过
-    记录的专用临时根。收到取消/中断后停止启动新 case，尽力写出带
-    `status: inconclusive`、已完成 case IDs 与 interruption stage 的 partial report，
-    非零退出；partial report 不能更新 README 或 release headline。
+    记录的专用临时根。每个 case 必须运行在独立 process group/session（Windows 为
+    kill-on-close Job Object）中。收到取消/中断后停止启动新 case，终止并等待完整
+    wrapper/shell/runtime 后代进程树退出后，才尽力写出带 `status: inconclusive`、已完成
+    case IDs 与 interruption stage 的 partial report并清理，最终非零退出；无法确认进程树
+    已退出时不得清理或声称完成。partial report 不能更新 README 或 release headline。
 15. B-015: human 与 `--json` 输出必须由同一份聚合结果渲染。JSON 使用版本化 schema，
     包含 B-002、B-006–B-012 所需证据和每 case 结果；human 摘要不得隐藏 JSON 中的错误
     类别。`valid` 退出 0；`unavailable`、`inconclusive`、schema/corpus error 与
@@ -189,6 +201,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `publish_nonvalid` 的 report/evidence 任一无法达到 schema/provenance gate 时不得
     发布残缺 release，而是以 `selected_policy: publish_nonvalid`、
     `effective_action: block_release` 和闭集 prerequisite failure code 进入 B-029。
+    可恢复失败由当前 release workflow 在退出前写 B-029 证据；job/workflow
+    hard-cancel、runner loss 或 timeout 由独立、最小权限的 completion reconciler 在
+    workflow 终态后按同一 candidate/run/attempt 身份补写 interruption record。两条路径
+    都必须先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
 19. B-019: 官方 report schema 与 corpus schema 的不兼容变更必须提升各自 schema
     version。旧 binary 不认识新 corpus、或新 renderer 无法验证旧 report 时必须明确
     `unavailable`，不能猜字段、静默丢字段或重新解释旧 headline。兼容读取只能是显式、
@@ -218,7 +234,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       latency/environment evidence。
     同一 release 的 required native platforms 必须比较 `decision_digest` 相等；非
     required reports 不进入该 equality gate。不同平台的 `evidence_digest` 本来应不同，
-    禁止拿它做 cross-platform equality gate。
+    禁止拿它做 cross-platform equality gate。所有 corpus/evidence/decision/failure
+    digest 必须声明同一个 versioned canonical-byte profile：UTF-8 RFC 8785 JCS、拒绝
+    duplicate keys、只允许整数数值（比例以 numerator/denominator + display string 表示）、
+    不包含尾随换行，然后对精确 bytes 做 SHA-256；Rust/Python/shell 消费者必须共享
+    golden vectors，未识别 profile 或任一 byte/digest 不一致均 fail closed。
 23. B-023: top-level 状态必须是两个 axis 状态的纯 3×3 total function，不能读取执行
     stage 或其它隐藏状态：`valid + valid → valid`；
     `unavailable + unavailable → unavailable`；其余七种组合一律
@@ -253,8 +273,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `(corpus_version, corpus_digest, ground_truth_version/digest,
     mapping_version/digest, protocol_version/digest)`。同一个已记录或已发布的
     corpus version 对应不同任一 digest 时，build/release 都必须失败；删除、重排历史
-    identity 或复用旧 version 同样失败。新 release 可以继续使用已记录 tuple，但不能
-    改写它。
+    identity 或复用旧 version 同样失败。validator 必须把当前 prefix 与“上一已发布
+    benchmark release”的 attested ledger root/length/full-prefix identity 比较；该 trust
+    anchor 必须经 verified-provenance 验证并绑定同 repo、发布 workflow 与 lineage，不能
+    来自当前 checkout。首个 official benchmark release 需要一次明确批准、带 attestation
+    的 genesis root。prior anchor 缺失、获取失败、身份不匹配或 prefix 无法复算时
+    build/release fail closed；新 release 可以继续使用已记录 tuple，但不能改写它。
 28. B-028: GH-699 是 **partially implemented dependency**：PR #711 已合并
     `SP699-T1/T2` 的 payload artifact 与 payload-mode setup，GH-700 必须消费 main 上该
     实际 contract，不能仍称其未合并；但 `SP699-T3` bootstrap、`T4` no-clone native
@@ -263,7 +287,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     setup 猜 `vibeguard` shim。T3–T6 未完成、actual launcher 未合并或 no-clone smoke
     未通过时，B-001 保持 unavailable。
 29. B-029: 当 effective action 为 `block_release`（包括选中 `publish_nonvalid` 但其
-    mandatory evidence gate 失败）时，release job 在返回失败前必须先生成
+    mandatory evidence gate 失败）时，可恢复失败路径必须在 release job 返回失败前生成
     schema-valid candidate failure report 与 schema-valid canonical failure manifest。
     manifest 必须完整包含 candidate tag/source commit/target、workflow run/attempt、
     selected policy/effective action、axis/top-level 状态、闭集 failure/reason codes、
@@ -277,14 +301,22 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     必须同时包含 `(run_id, run_attempt, failure_manifest_digest)`。即使 report/evidence
     bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
     job 非零退出，GitHub Release、release page/assets 与 README candidate current row
-    均不创建。
-30. B-030: official run 在任何 latency warmup/measurement 前，必须从 verified
-    payload/receipt 把 runtime、payload、wrapper、配置与 manifest 按生产安装布局
+    均不创建。对于 hard-cancel、runner loss 或 workflow timeout，独立 completion
+    reconciler 必须在终态事件后创建 schema 的 `pipeline_interrupted` 分支：包含同一
+    candidate/run/attempt、staged provenance、selected/effective policy、interruption
+    conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
+    report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
+    计算 attempt-bound digest 并永久 attestation/append，且重复 delivery 必须幂等、
+    已有不同内容必须冲突失败。若 normal path record 已存在则只验证不覆盖。
+30. B-030: official run 在任何 latency warmup/measurement 前，必须通过 B-013
+    身份专用只读通道，从 verified payload/receipt 的已打开、已校验 handles/bytes 把
+    runtime、payload、wrapper、配置与 manifest 按生产安装布局
     materialize 到本次 temp HOME 的 byte-identical、只读 install snapshot，并逐文件重算
     digest 与 receipt 对齐。materialization、chmod 与 digest verification 不进入 latency
     样本；计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写
-    状态或 digest drift 使对应 axis 在零 timed sample 时 `unavailable`；不得读写真实
-    HOME 或用 checkout/mock/PATH fallback。
+    状态或 digest drift 使对应 axis 在零 timed sample 时 `unavailable`；身份通道关闭后
+    case/warmup/measurement 不得再读真实 HOME，任何阶段都不得写真实 HOME 或使用
+    checkout/mock/PATH fallback。
 31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
     `required_platforms`，且每项属于 release target 闭集。release summary 只聚合该 set：
     每个 required target 都必须由对应 native runner 产生 schema/provenance-valid report，
@@ -301,9 +333,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       产出同源 human + JSON 报告。
 - [ ] 官方 corpus 的五类 failure classes 均有 reviewed positive 与 matched clean
       control；缺类/缺侧/未知 production surface 时 fail closed。
-- [ ] 报告公开 provenance、完整 confusion matrix、block/advisory 分项、每类分项与
-      `interception_decisions`；execution_error 不进 decision/numerator，但 case 不从
-      ground-truth denominator 消失。
+- [ ] 报告公开 provenance、TP/FN/FP/TN + positive/negative error buckets、两条 denominator
+      closure equation、block/advisory 分项、每类分项与 `interception_decisions`；
+      execution_error 不进 production decision/numerator，但 case 不从 ground-truth
+      denominator 消失。
 - [ ] 同一 release 的确定性确认重跑与 required native platforms 产生一致
       `decision_digest`；每个平台有绑定 actual `current_exe` 的独立 `evidence_digest`。
 - [ ] approved protocol 的 `required_platforms` 同时进入 protocol、decision/evidence
@@ -311,11 +344,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 - [ ] latency 从 verified receipt materialize 的 byte-identical readonly 生产布局快照
       启动真实 installed wrapper 子进程，报 P50/P95/P99/max；materialization 不计时，
       失真环境留空且不伪造 headline。
-- [ ] dangerous fixtures 不会执行命令或读写用户项目/HOME/log；sentinel secrets 不出现
-      在 human、JSON、stderr 或 release report。
-- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；阻断分支在不创建
-      Release/current row 前把完整 failure manifest 永久内嵌到不可覆盖 attestation/
-      ledger，继续发布分支只发布同版本 non-valid row；README 仅从 valid axis 显示数值。
+- [ ] dangerous fixtures 不会执行命令或读写用户项目/log；真实 HOME 只有 verified
+      receipt + receipt-enumerated files 的 no-follow 只读身份通道，allowlist 外读取和全部
+      写入均被拒；sentinel secrets 不出现在 human、JSON、stderr 或 release report。
+- [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前、hard
+      cancel/runner loss 由外部 completion reconciler，在不创建 Release/current row 的
+      前提下把 attempt manifest 永久内嵌到不可覆盖 attestation/ledger；继续发布分支只
+      发布同版本 non-valid row；README 仅从 valid axis 显示数值。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 等负路径均非零退出，且不会把
       历史数字冒充当前 release。
 
