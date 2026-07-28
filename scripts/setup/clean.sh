@@ -188,6 +188,64 @@ clean_scheduler_verify_before_remove() {
   fi
 }
 
+clean_launchd_scheduler_deactivate() {
+  local label="gui/$(id -u)/com.vibeguard.gc"
+  [[ "$(uname)" == "Darwin" ]] || return 0
+  if ! command -v launchctl >/dev/null 2>&1; then
+    red "ERROR: cannot deactivate scheduled GC: launchctl is unavailable; preserving launchd plist and cleaning receipt"
+    return 1
+  fi
+  if launchctl print "${label}" >/dev/null 2>&1; then
+    if ! launchctl bootout "${label}" >/dev/null 2>&1; then
+      red "ERROR: failed to deactivate scheduled GC launchd job; preserving launchd plist and cleaning receipt"
+      return 1
+    fi
+    if launchctl print "${label}" >/dev/null 2>&1; then
+      red "ERROR: scheduled GC launchd job remains loaded after bootout; preserving launchd plist and cleaning receipt"
+      return 1
+    fi
+  fi
+}
+
+clean_systemd_scheduler_deactivate() {
+  local active_state="" active_rc=0 enabled_state="" enabled_rc=0
+  [[ "$(uname)" == "Linux" ]] || return 0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    red "ERROR: cannot deactivate scheduled GC: systemctl is unavailable; preserving systemd units and cleaning receipt"
+    return 1
+  fi
+  if ! systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1; then
+    red "ERROR: failed to stop scheduled GC systemd timer; preserving systemd units and cleaning receipt"
+    return 1
+  fi
+  active_state="$(
+    LC_ALL=C systemctl --user is-active vibeguard-gc.timer 2>/dev/null
+  )" || active_rc=$?
+  case "${active_state}" in
+    inactive|failed|unknown)
+      ;;
+    *)
+      red "ERROR: scheduled GC systemd timer is not proven inactive after stop (state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      return 1
+      ;;
+  esac
+  if ! systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1; then
+    red "ERROR: failed to disable scheduled GC systemd timer; preserving systemd units and cleaning receipt"
+    return 1
+  fi
+  enabled_state="$(
+    LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null
+  )" || enabled_rc=$?
+  case "${enabled_state}" in
+    disabled|masked)
+      ;;
+    *)
+      red "ERROR: scheduled GC systemd timer is not proven disabled (state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
+      return 1
+      ;;
+  esac
+}
+
 clean_legacy_launchd_scheduler_owned() {
   local plist="$1"
   [[ -f "${plist}" && ! -L "${plist}" ]] \
@@ -293,17 +351,14 @@ clean_scheduled_gc() {
       "${receipt}" "${kind}" cleaning "${first_sha}" "${second_sha}"
   fi
   if [[ "${kind}" == "launchd" ]]; then
-    launchctl bootout "gui/$(id -u)/com.vibeguard.gc" 2>/dev/null || true
+    clean_launchd_scheduler_deactivate || return 1
     clean_scheduler_verify_before_remove \
       "${plist}" "${first_sha}" "launchd plist" || return 1
     [[ ! -e "${plist}" && ! -L "${plist}" ]] || rm -f -- "${plist}"
     [[ ! -e "${plist}" && ! -L "${plist}" ]] || return 1
     yellow "Removed scheduled GC (com.vibeguard.gc)"
   else
-    if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-      systemctl --user stop vibeguard-gc.timer 2>/dev/null || true
-      systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
-    fi
+    clean_systemd_scheduler_deactivate || return 1
     clean_scheduler_verify_before_remove \
       "${service}" "${first_sha}" "systemd service" || return 1
     [[ ! -e "${service}" && ! -L "${service}" ]] || rm -f -- "${service}"
@@ -312,8 +367,11 @@ clean_scheduled_gc() {
     [[ ! -e "${timer}" && ! -L "${timer}" ]] || rm -f -- "${timer}"
     [[ ! -e "${service}" && ! -L "${service}" \
       && ! -e "${timer}" && ! -L "${timer}" ]] || return 1
-    if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null; then
-      systemctl --user daemon-reload 2>/dev/null || true
+    if [[ "$(uname)" == "Linux" ]]; then
+      if ! systemctl --user daemon-reload >/dev/null 2>&1; then
+        red "ERROR: failed to reload systemd after scheduled GC removal; preserving cleaning receipt"
+        return 1
+      fi
     fi
     yellow "Removed scheduled GC (vibeguard-gc.timer)"
   fi
