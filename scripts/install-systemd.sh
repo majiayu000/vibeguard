@@ -42,6 +42,31 @@ scheduler_receipt_value() {
   ' "${SCHEDULER_RECEIPT}"
 }
 
+scheduler_verify_deactivated() {
+  local stop_rc=0 active_state="" active_rc=0
+  local disable_rc=0 enabled_state="" enabled_rc=0
+  systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1 || stop_rc=$?
+  active_state="$(LC_ALL=C systemctl --user is-active vibeguard-gc.timer 2>/dev/null)" \
+    || active_rc=$?
+  case "${active_state}" in
+    inactive|failed|unknown) ;;
+    *)
+      red "ERROR: vibeguard-gc.timer is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving units and receipt."
+      return 1
+      ;;
+  esac
+  systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1 || disable_rc=$?
+  enabled_state="$(LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null)" \
+    || enabled_rc=$?
+  case "${enabled_state}" in
+    disabled|masked|not-found) ;;
+    *)
+      red "ERROR: vibeguard-gc.timer is not proven disabled (disable_rc=${disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving units and receipt."
+      return 1
+      ;;
+  esac
+}
+
 if [[ "${REPO_DIR}" != /* || ! -d "${REPO_DIR}" ]]; then
   red "ERROR: VIBEGUARD_REPO_DIR must name an absolute VibeGuard directory."
   exit 1
@@ -120,13 +145,53 @@ if [[ "${1:-}" == "--remove" ]]; then
     REMOVE_RECEIPT=1
   fi
   echo "Removing VibeGuard systemd units..."
-  systemctl --user stop  vibeguard-gc.timer  2>/dev/null || true
-  systemctl --user disable vibeguard-gc.timer 2>/dev/null || true
-  rm -f "${SERVICE_DEST}" "${TIMER_DEST}"
+  scheduler_verify_deactivated || exit 1
+  REMOVE_BACKUP_DIR=""
+  if [[ -e "${SERVICE_DEST}" || -e "${TIMER_DEST}" ]]; then
+    REMOVE_BACKUP_DIR="$(mktemp -d "${UNIT_DIR}/.vibeguard-systemd-remove.XXXXXX")"
+    if [[ -e "${SERVICE_DEST}" ]] \
+      && ! mv -- "${SERVICE_DEST}" "${REMOVE_BACKUP_DIR}/vibeguard-gc.service"; then
+      rmdir "${REMOVE_BACKUP_DIR}" 2>/dev/null || true
+      red "ERROR: failed to stage systemd service removal; preserved units and receipt."
+      exit 1
+    fi
+    if [[ -e "${TIMER_DEST}" ]] \
+      && ! mv -- "${TIMER_DEST}" "${REMOVE_BACKUP_DIR}/vibeguard-gc.timer"; then
+      restore_rc=0
+      [[ ! -e "${REMOVE_BACKUP_DIR}/vibeguard-gc.service" ]] \
+        || mv -- "${REMOVE_BACKUP_DIR}/vibeguard-gc.service" "${SERVICE_DEST}" \
+        || restore_rc=$?
+      rmdir "${REMOVE_BACKUP_DIR}" 2>/dev/null || true
+      if [[ "${restore_rc}" -ne 0 ]]; then
+        red "ERROR: failed to stage systemd timer removal and service restoration was incomplete; receipt preserved, inspect ${REMOVE_BACKUP_DIR}."
+        exit 1
+      fi
+      red "ERROR: failed to stage systemd timer removal; restored units and preserved receipt."
+      exit 1
+    fi
+  fi
+  if ! systemctl --user daemon-reload >/dev/null 2>&1; then
+    if [[ -n "${REMOVE_BACKUP_DIR}" ]]; then
+      restore_rc=0
+      [[ ! -e "${REMOVE_BACKUP_DIR}/vibeguard-gc.service" ]] \
+        || mv -- "${REMOVE_BACKUP_DIR}/vibeguard-gc.service" "${SERVICE_DEST}" \
+        || restore_rc=$?
+      [[ ! -e "${REMOVE_BACKUP_DIR}/vibeguard-gc.timer" ]] \
+        || mv -- "${REMOVE_BACKUP_DIR}/vibeguard-gc.timer" "${TIMER_DEST}" \
+        || restore_rc=$?
+      rmdir "${REMOVE_BACKUP_DIR}" 2>/dev/null || true
+      if [[ "${restore_rc}" -ne 0 ]]; then
+        red "ERROR: systemd daemon reload failed and unit restoration was incomplete; receipt preserved, inspect ${REMOVE_BACKUP_DIR}."
+        exit 1
+      fi
+    fi
+    red "ERROR: systemd daemon reload failed; restored units and preserved receipt."
+    exit 1
+  fi
+  [[ -z "${REMOVE_BACKUP_DIR}" ]] || rm -rf -- "${REMOVE_BACKUP_DIR}"
   if [[ "${REMOVE_RECEIPT}" == "1" ]]; then
     rm -f "${SCHEDULER_RECEIPT}"
   fi
-  systemctl --user daemon-reload 2>/dev/null || true
   green "VibeGuard systemd units removed."
   exit 0
 fi

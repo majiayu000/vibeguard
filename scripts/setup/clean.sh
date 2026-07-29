@@ -208,16 +208,14 @@ clean_launchd_scheduler_deactivate() {
 }
 
 clean_systemd_scheduler_deactivate() {
-  local active_state="" active_rc=0 enabled_state="" enabled_rc=0
+  local stop_rc=0 active_state="" active_rc=0
+  local disable_rc=0 enabled_state="" enabled_rc=0
   [[ "$(uname)" == "Linux" ]] || return 0
   if ! command -v systemctl >/dev/null 2>&1; then
     red "ERROR: cannot deactivate scheduled GC: systemctl is unavailable; preserving systemd units and cleaning receipt"
     return 1
   fi
-  if ! systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1; then
-    red "ERROR: failed to stop scheduled GC systemd timer; preserving systemd units and cleaning receipt"
-    return 1
-  fi
+  systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1 || stop_rc=$?
   active_state="$(
     LC_ALL=C systemctl --user is-active vibeguard-gc.timer 2>/dev/null
   )" || active_rc=$?
@@ -225,22 +223,27 @@ clean_systemd_scheduler_deactivate() {
     inactive|failed|unknown)
       ;;
     *)
-      red "ERROR: scheduled GC systemd timer is not proven inactive after stop (state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      if [[ "${stop_rc}" -ne 0 ]]; then
+        red "ERROR: failed to stop scheduled GC systemd timer; timer is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      else
+        red "ERROR: scheduled GC systemd timer is not proven inactive after stop (state=${active_state:-empty}, rc=${active_rc}); preserving systemd units and cleaning receipt"
+      fi
       return 1
       ;;
   esac
-  if ! systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1; then
-    red "ERROR: failed to disable scheduled GC systemd timer; preserving systemd units and cleaning receipt"
-    return 1
-  fi
+  systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1 || disable_rc=$?
   enabled_state="$(
     LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null
   )" || enabled_rc=$?
   case "${enabled_state}" in
-    disabled|masked)
+    disabled|masked|not-found)
       ;;
     *)
-      red "ERROR: scheduled GC systemd timer is not proven disabled (state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
+      if [[ "${disable_rc}" -ne 0 ]]; then
+        red "ERROR: failed to disable scheduled GC systemd timer; timer is not proven disabled (disable_rc=${disable_rc}, state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
+      else
+        red "ERROR: scheduled GC systemd timer is not proven disabled (state=${enabled_state:-empty}, rc=${enabled_rc}); preserving systemd units and cleaning receipt"
+      fi
       return 1
       ;;
   esac

@@ -46,12 +46,36 @@ bootstrap_payload_entry_modes_match() {
   fi
 }
 
+bootstrap_reap_transaction_write_temporaries() {
+  local dist_root="$1" entries entry
+  if ! entries="$(
+    find "${dist_root}" -mindepth 1 -maxdepth 1 \
+      -name '.bootstrap-transaction-write.*' -print | LC_ALL=C sort
+  )"; then
+    bootstrap_error "could not enumerate bootstrap transaction write temporaries."
+    return 1
+  fi
+  while IFS= read -r entry; do
+    [[ -n "${entry}" ]] || continue
+    if [[ -L "${entry}" || ! -f "${entry}" ]]; then
+      bootstrap_error "bootstrap transaction write temporary is not a regular file: ${entry}"
+      return 1
+    fi
+    if ! rm -f -- "${entry}" \
+      || [[ -e "${entry}" || -L "${entry}" ]]; then
+      bootstrap_error "could not remove bootstrap transaction write temporary: ${entry}"
+      return 1
+    fi
+  done <<< "${entries}"
+}
+
 bootstrap_prepare_clean_plan() {
   local dist_root="$1" current_link="$2"
   local entries entry name version final_dir all_entries found index
   BOOTSTRAP_CLEAN_OWNED_VERSIONS=()
   BOOTSTRAP_CLEAN_OWNED_VERSION_COUNT=0
   bootstrap_prepare_clean_selection "${dist_root}" "${current_link}" || return 1
+  bootstrap_reap_transaction_write_temporaries "${dist_root}" || return 1
 
   if ! entries="$(
     find "${dist_root}" -mindepth 1 -maxdepth 1 \
@@ -65,8 +89,8 @@ bootstrap_prepare_clean_plan() {
     name="${entry##*/}"
     version="${name#.bootstrap-transaction-}"
     final_dir="${dist_root}/${version}"
-    if ! bootstrap_validate_version "${version}" \
-      || [[ -L "${entry}" || ! -f "${entry}" ]] \
+    bootstrap_validate_version "${version}" || continue
+    if [[ -L "${entry}" || ! -f "${entry}" ]] \
       || ! bootstrap_transaction_read "${entry}" \
       || [[ "${BOOTSTRAP_TRANSACTION_VERSION}" != "${version}" ]]; then
       bootstrap_error "bootstrap cleanup ownership evidence is invalid: ${entry}"
