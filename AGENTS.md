@@ -14,7 +14,9 @@ VibeGuard is an anti-hallucination rules, hooks, runtime, installer, and workflo
 4. Read `docs/specs/README.md` before treating a spec as pending work.
 5. Read `plan/README.md` before treating files under `plan/` as active backlog.
 6. For runtime, hook, setup, or workflow changes, read the closest scoped `CLAUDE.md` in that subtree.
-7. For GitHub issue or PR work, read `AGENT_USAGE.md`, `workflow.yaml`, `states.yaml`, `labels.yaml`, and `skills/specrail-workflow/SKILL.md`.
+7. For GitHub issue or PR work, read `AGENT_USAGE.md`, search live remote
+   state, and use an isolated worktree for changes. Load SpecRail files only
+   when the user explicitly requests SpecRail tooling.
 
 ## Core Rules
 
@@ -46,12 +48,30 @@ the surface locally.
 
 `plan_first` handoffs must always carry `mode`, `artifacts`, `runtime_pinning_snapshot`, `verification_owner`, `stop_conditions`, and `lane_map`; use `None` or a minimal value when a field does not otherwise apply.
 
-## SpecRail Adoption
+## GitHub Queue And Review
 
-- SpecRail packets use `docs/specs/GH<number>/`; do not create a second `specs/` root.
-- Persisted `automation_policy.auth_mode` remains `review`. An explicit `implx auto` invocation is transient authorization for that run only.
-- Automation authorization never bypasses `checks/pr_gate.py`, `checks/runtime_ledger_gate.py`, CI, review-thread, or merge-state evidence.
-- The adopted source commit and consumer overrides are recorded in `AGENT_USAGE.md`.
+- Search live issues, PRs, branches, and review threads before creating
+  competing work.
+- Keep remote truth separate from local worktree state. Use isolated worktrees
+  based on the current remote base for writable lanes.
+- Use native `threads` when explicitly requested or when the selected queue
+  workflow requires independent lanes. Give writable lanes disjoint ownership.
+- Merge-readiness evidence must include the current head SHA, required CI,
+  independent review, unresolved review-thread state, and merge state.
+- Never merge, change repository permissions, force push, or publish private
+  security details without the required human authorization.
+
+## Optional SpecRail Tooling
+
+- SpecRail checks, configs, templates, schemas, packets, and skills are offline
+  reference tools. They do not auto-activate and are not repository
+  authorization gates.
+- Use SpecRail only when the user explicitly requests it. Its packets remain
+  under `docs/specs/GH<number>/`; do not create a second `specs/` root.
+- The adopted source commit, optional commands, and consumer overrides are
+  recorded in `AGENT_USAGE.md`.
+- Optional SpecRail output never replaces live GitHub, CI, review-thread, or
+  merge-state evidence.
 
 ## Repository Map
 
@@ -67,13 +87,13 @@ the surface locally.
 - `docs/specs/`: maintainer specs with status index.
 - `plan/`: workflow output and historical execution plans; not all files are active backlog.
 
-## Spec And Plan Gate
+## Spec And Plan Context
 
-| Situation | Required context |
+| Situation | Start with |
 |---|---|
-| New user-facing behavior or policy semantics | Add or update a spec under `docs/specs/` or `plan/` first |
 | Work on existing spec | Check `docs/specs/README.md` for status and linked issue state |
 | Work on existing plan | Check `plan/README.md` for active, draft, historical, or snapshot status |
+| New multi-step or policy work | Use `plan/` when the routing decision is `plan_first` |
 | Rust-only production path | Start with `docs/specs/rust-only-production-path.md` and `plan/2026-06-05_22-28-rust-only-production-path.md` |
 | Codex plugin or dashboard | Start with `docs/specs/codex-app-observability-plugin.md` and `plugins/vibeguard/README.md` |
 | Install friction, release binaries, scheduler defaults | Start with `docs/specs/install-friction-reduction.md` |

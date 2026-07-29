@@ -1,79 +1,86 @@
 # Agent Usage
 
-SpecRail is primarily for code agents, not for human project management. Humans
-own policy and final gates; agents use this repository to decide how to triage,
-write specs, prepare PRs, review, and report handoffs without inventing process.
+VibeGuard repository work starts from the current request, live repository
+state, and the routing contract in `AGENTS.md`. SpecRail is optional offline
+tooling in this repository. Use it only when explicitly requested; it does not
+authorize implementation, approval, merge, release, or any other remote write.
 
-## VibeGuard Adoption Pin
+## Default Repository Flow
 
-VibeGuard adopted this pack from `majiayu000/specrail` commit
+1. Check `git status --short --branch` and confirm the repository root.
+2. Search existing issues, pull requests, branches, specs, plans, and code
+   before creating new work.
+3. Classify the work surface and readiness with
+   `workflows/references/routing-contract.md`.
+4. For writable GitHub work, refresh live remote state and use an isolated
+   worktree based on the current remote base.
+5. Implement only the requested scope and run fresh verification for the
+   changed surface.
+6. Before reporting merge readiness, verify the current PR head SHA, required
+   CI, independent review, unresolved review threads, merge state, and linked
+   issue scope.
+7. Merge, release, permission changes, force pushes, and publication of private
+   security details require explicit human authorization.
+
+Repository-local plans and specs remain useful context. Read
+`docs/specs/README.md` and `plan/README.md` before treating a file as active
+work; implemented and historical records are not a live backlog.
+
+## GitHub Queue Work
+
+Use live GitHub state rather than labels or local branches remembered from an
+earlier run. Map every open issue to existing PR coverage before creating a new
+branch. Prefer updating a safe existing covering PR over opening competing
+work.
+
+Keep these facts separate:
+
+- remote issue and PR state
+- current PR head SHA and CI rollup
+- unresolved and outdated review-thread state
+- mergeability and base-branch freshness
+- local branch, worktree, dirty-file, and unpushed-commit state
+
+Use native `threads` when the user explicitly requests threads or when the
+selected queue workflow requires independent lanes. Writable lanes need
+disjoint ownership. Reviewers remain read-only, and a worker's self-review does
+not replace independent review when that is required.
+
+## Optional SpecRail Tooling
+
+The adopted SpecRail pack is retained for explicit offline use. It is not
+automatically invoked by PR or push workflows, does not auto-activate for
+complex work, and is not a prerequisite for ordinary issue, implementation,
+review, or merge-readiness work.
+
+When the user explicitly requests SpecRail, load the relevant optional assets:
+
+1. `workflow.yaml`
+2. `states.yaml`
+3. `labels.yaml`
+4. the relevant file under `templates/` or `templates/<locale>/`
+5. `skills/specrail-workflow/SKILL.md`
+6. `skills-lock.json`
+
+The YAML files, schemas, templates, skills, and `docs/specs/GH<number>/`
+packets describe the optional workflow. Their state labels and evaluator
+decisions are advisory local evidence; they do not replace the repository's
+generic routing decision or live GitHub and CI evidence.
+
+### VibeGuard Adoption Pin
+
+VibeGuard adopted the offline pack from `majiayu000/specrail` commit
 `7de16e4780d903607b40220a9edb7a08fe222c78` on 2026-07-14. Consumer-specific
 overrides keep spec packets under `docs/specs/GH<number>`, set the default
 locale to `zh-CN`, align imported skills with VibeGuard's required skill
 sections, and replace source-only example paths with target-local evidence.
-VibeGuard's own README, LICENSE, and CHANGELOG remain authoritative.
+VibeGuard's own README, LICENSE, CHANGELOG, root instructions, and ordinary CI
+remain authoritative.
 
-## What The Agent Should Load
+### Local Skill Installation
 
-When a repository adopts SpecRail, the agent should read these files before
-creating issues, specs, PRs, or reviews:
-
-1. `AGENTS.md`
-2. `workflow.yaml`
-3. `states.yaml`
-4. `labels.yaml`
-5. the relevant template under `templates/` or `templates/<locale>/`
-6. `skills/specrail-workflow/SKILL.md` when available
-7. `skills-lock.json` when the repository carries repo-distributed skills
-
-If the consumer repository has no `AGENTS.md`, ask the maintainer to add a short
-entrypoint or proceed from `AGENT_USAGE.md` only for the current task while
-reporting that the repo is missing its agent entrypoint. Do not treat a missing
-`AGENTS.md` as permission to skip `workflow.yaml`, `states.yaml`, `labels.yaml`,
-or the relevant templates.
-
-The skill is an execution guide. The YAML files and templates are the workflow
-contract. The agent should not treat the skill as final authority when it
-conflicts with repository policy or human instructions.
-
-Optional integration documents under `integrations/` are loaded only when the
-task needs that execution model. They do not replace the core SpecRail contract.
-
-For setup, installation, update, verification, or adoption requests, load
-`skills/specrail-install/SKILL.md` first. Treat it as the agent-facing setup
-entrypoint; command-line installers are deterministic helpers, not the primary
-interface a human must memorize.
-
-## Autonomous SpecRail Mode
-
-Agents should switch complex work into SpecRail mode even when a repository has
-not adopted the full pack. Good triggers include product-facing changes,
-architecture changes, cross-module work, public API changes, workflow-policy
-changes, PR merge-readiness checks, CI diagnosis with unclear ownership, or
-ambiguous requests whose done-when is not yet testable.
-
-SpecRail mode means the work is actually structured as a SpecRail flow: search
-first, select the route, produce or request durable product/tech/task artifacts
-before broad implementation, preserve human gates, and run deterministic
-verification. Do not treat SpecRail as a loose checklist or a note in the final
-answer.
-
-If a repository has not adopted the pack, use that repository's existing
-specs/plan/docs location to carry the route, spec, task plan, and verification
-evidence. Do not silently copy the SpecRail pack into a repository, install
-local skills, create remote issues or PRs, add labels, approve, merge, or bypass
-maintainers unless the user explicitly asks for that action.
-
-For small mechanical fixes, test-only changes, doc-only corrections, or
-approved-spec work, direct implementation is still appropriate.
-
-## Optional Local Skill Installation
-
-Repository adoption does not require installing SpecRail skills into `$HOME`.
-Agents must not run a local skill install with `--apply` unless a human
-explicitly requests local Codex skill installation.
-
-When local installation is explicitly requested, preview first:
+Repository contents do not authorize writing SpecRail skills into `$HOME`.
+Only when local installation is explicitly requested, preview first:
 
 ```sh
 python3 tools/install_codex_skills.py --repo .
@@ -85,250 +92,110 @@ Apply only after that explicit request:
 python3 tools/install_codex_skills.py --repo . --apply
 ```
 
-The installer validates `skills-lock.json`, writes only the locked skill
-directories, and targets `$CODEX_HOME/skills` or `~/.codex/skills`. A running
-agent session may need to restart before the installed skills are discoverable.
+The installer validates `skills-lock.json`, writes only locked skill
+directories, and targets `$CODEX_HOME/skills` or `~/.codex/skills`.
 
-## Basic Agent Flow
+### Offline Validation
 
-1. Search existing issues and PRs before creating new work.
-2. Identify the route:
-   - `triage_issue`
-   - `write_spec`
-   - `implement`
-   - `review_pr`
-   - `fix_ci`
-   - `draft_release_note`
-3. Default to `write_spec` before `implement` for product-facing,
-   architecture, cross-module, public API, workflow-policy, or ambiguous
-   behavior changes.
-4. Choose direct `implement` only when an approved spec already exists, the
-   change is small and mechanical, or the user explicitly asks to skip spec
-   creation.
-5. Confirm the current state from durable repo state when possible.
-6. Create or update the required artifact. For spec artifacts, use the
-   configured `artifacts.product_spec`, `artifacts.tech_spec`, and
-   `artifacts.task_plan` paths from `workflow.yaml`:
-   - issue
-   - configured product, tech, and task spec paths
-   - PR body
-   - review result
-   - handoff
-7. Run the local evaluator before taking the route action:
-
-```sh
-python3 checks/github_issue_evidence.py --repo . --github-repo OWNER/REPO --issue <issue-number> --json > issue-evidence.json
-python3 checks/github_duplicate_evidence.py --github-repo OWNER/REPO --issue <issue-number> --json > duplicate-work-evidence.json
-python3 checks/route_gate.py --repo . --route write_spec --issue <issue-number> --evidence issue-evidence.json --json
-python3 checks/route_gate.py --repo . --route write_spec --issue <issue-number> --state ready_to_spec --json
-python3 checks/route_gate.py --repo . --route implement --issue <issue-number> --state ready_to_implement --duplicate-evidence duplicate-work-evidence.json --json
-```
-
-The duplicate-work adapter is read-only. It collects open PR and remote branch
-evidence; `checks/duplicate_work_gate.py` and `route_gate.py` evaluate that
-evidence offline so duplicate implementation work is blocked before a new PR is
-opened.
-
-8. Run deterministic checks before claiming completion:
+The optional pack validator can check the retained configs, assets, and spec
+packets:
 
 ```sh
 python3 checks/check_workflow.py --repo .
-python3 checks/check_workflow.py --repo . --all-specs
-```
-
-The default packet stage is `complete`, which requires `product.md`, `tech.md`,
-and `tasks.md`. While a spec PR is still a GitHub Draft, validate its
-product/tech-only packet explicitly:
-
-```sh
+python3 checks/check_workflow.py --repo . --all-specs --spec-stage complete
 python3 checks/check_workflow.py \
   --repo . \
   --spec-dir docs/specs/GH<issue-number> \
   --spec-stage draft
 ```
 
-Draft mode still validates `tasks.md` when it exists. In CI, pass the PR base
-commit with `--base-ref`; the validator then rejects deletion of a `tasks.md`
-that already exists in the baseline. Ready PRs and `main` keep the default
-complete-stage requirement.
+Draft mode validates `tasks.md` when present. With an explicit `--base-ref`, it
+also detects removal of a baseline task plan. These are offline integrity
+checks for an explicitly selected SpecRail flow, not automatic repository
+gates.
 
-`--all-specs` discovers packets from `workflow.yaml`'s
-`artifacts.spec_packet` template. The issue evidence adapter and route gate
-render their spec paths from the same artifact configuration. For a single
-packet, run the exact stage-specific configured command returned by
-`route_gate.py` in `verification_commands`: `write_spec` returns Draft
-validation, while implementation and later routes return Complete validation.
-
-9. Before reporting a PR as merge-ready, collect PR evidence and run:
+The optional read-only evidence adapters and offline evaluators remain
+available:
 
 ```sh
-python3 checks/github_pr_evidence.py \
+python3 checks/github_issue_evidence.py \
+  --repo . \
   --github-repo OWNER/REPO \
-  --pr <pr-number> \
-  --review-source independent_lane \
-  --json > pr-evidence.json
-python3 checks/pr_gate.py --repo . --evidence <evidence.json> --json
-```
-
-For a partial implementation slice whose body contains a standalone
-`Refs #<issue-number>` directive, bind the intended issue explicitly:
-
-```sh
-python3 checks/github_pr_evidence.py \
-  --github-repo OWNER/REPO \
-  --pr <pr-number> \
   --issue <issue-number> \
+  --json
+
+python3 checks/github_duplicate_evidence.py \
+  --github-repo OWNER/REPO \
+  --issue <issue-number> \
+  --json
+
+python3 checks/route_gate.py \
+  --repo . \
+  --route implement \
+  --issue <issue-number> \
+  --state ready_to_implement \
+  --json
+
+python3 checks/github_pr_evidence.py \
+  --github-repo OWNER/REPO \
+  --pr <pr-number> \
   --review-source independent_lane \
-  --json > pr-evidence.json
+  --json
+
+python3 checks/pr_gate.py \
+  --repo . \
+  --evidence <evidence.json> \
+  --json
 ```
 
-The adapter verifies that target against the live same-repository issue and
-requires it to remain open. Other bounded closing references may coexist and
-are retained in `issue_reference.closing_issue_numbers`; they do not redirect
-the explicitly selected `linked_issue`. A verified `partial` relation satisfies
-only the PR gate's linked-work requirement. It does not prove final-slice
-completion and does not authorize issue closure.
+The adapters do not write GitHub state. Evaluator results such as `allowed`,
+`warn`, `needs_human`, or `blocked` describe only the supplied offline
+evidence. They do not authorize a remote action and are not required for the
+default repository flow.
 
-The GitHub adapter is read-only and only reshapes `gh` output. The PR gate is
-offline. GitHub or `threads` may collect evidence such as PR head SHA, CI
-status, review threads, review source, lane failures, merge state, and linked
-issue references. Resolver role mapping comes from explicit lane-roster evidence
-such as `--resolver-role-map`; the adapter must not infer it from GitHub alone.
-The gate only evaluates that evidence and never merges or writes remote state.
-Self-review evidence must use `--review-source self_review` plus
-self-review authorization fields recorded after the lane failure.
-
-For long agent runs, maintain an optional local runtime checkpoint before
-handoff or compaction:
+For an explicitly selected long SpecRail run, an optional local checkpoint can
+preserve handoff evidence:
 
 ```sh
-python3 checks/runtime_ledger_gate.py --checkpoint .specrail/runtime/current.json --json
+python3 checks/runtime_ledger_gate.py \
+  --checkpoint .specrail/runtime/current.json \
+  --json
 ```
 
-Use the checkpoint to preserve tranche scope, context budget, output-firewall
-settings, verification evidence paths, blockers, and resume prompts. Do not use
-it as a replacement for GitHub issues, PRs, labels, reviews, branches, or
-SpecRail spec packets.
+The checkpoint does not replace issues, PRs, reviews, branches, CI, or native
+thread state.
 
-Issue evidence includes `state_source` and `state_trusted`. Label-derived state
-is trusted readiness evidence. Body-hint state is useful context, but it is not
-a maintainer readiness label and human-gated routes must not treat it as direct
-permission.
-
-10. Before treating an agent review artifact as publishable evidence, validate
-    it against the diff:
+An explicitly requested advisory review artifact can be validated against a
+diff:
 
 ```sh
-python3 checks/review_json_gate.py --repo . --review artifacts/review/pr-<pr-number>.json --diff <patch> --json
+python3 checks/review_json_gate.py \
+  --repo . \
+  --review artifacts/review/pr-<pr-number>.json \
+  --diff <patch> \
+  --json
 ```
 
-The review gate validates advisory review JSON and inline diff locations. It
-does not approve, merge, or publish GitHub reviews. Review artifact bodies must
-include `## Summary` and `## Verdict`; inline comments may use paired
-`start_line` / `start_side` ranges, and suggestions must be non-empty RIGHT-side
-comments.
-
-If `write_spec` is selected and no GitHub issue number is available, the agent
-should search for an existing issue first. If none exists and GitHub workflow is
-in scope, create or request a linked issue before writing the numbered spec
-packet. A missing issue number is not permission to skip spec creation.
-
-## Optional Threads Integration
-
-If the task is a GitHub issue or PR queue, needs disjoint parallel lanes, or
-requires review-thread, CI, merge-gate, or closure-audit handling, load
-`skills/specrail-implement-queue/SKILL.md` after SpecRail preflight. SpecRail still owns policy,
-locale, required artifacts, and human gates. Threads owns lane orchestration,
-remote queue truth, and closure audit.
-
-For GitHub PR review or merge work, native reviewer or merge-reviewer dispatch
-is required when native subagent capability is available. Record
-`thread_dispatch_gate` and native thread evidence before claiming full threads
-execution or merge readiness.
-
-For long queues, keep the parent thread thin: write raw logs to artifacts, read
-only short summaries or tails, and checkpoint before continuing in a fresh
-parent thread.
-
-If no threads skill or native subagent capability is available, continue with
-the normal single-agent SpecRail flow only after recording the fallback and
-reporting that no native threads were launched.
+This validation does not publish, approve, or merge a GitHub review.
 
 ## Locale Behavior
 
-Use human-facing text in the selected locale. If the user writes Chinese or the
-selected locale is `zh-CN`, write these in Chinese:
+Use human-facing text in the user's requested language. If no language is
+specified, follow the user's current language. For an explicitly selected
+SpecRail flow, `presentation.default_locale` in `workflow.yaml` is the next
+fallback.
 
-- issue bodies
-- product specs
-- tech specs
-- PR bodies
-- review summaries
-- handoffs
-- error explanations
+Do not translate stable machine-facing identifiers, paths, commands, CLI flags,
+JSON keys, schema fields, state IDs, or action IDs.
 
-Do not translate stable machine-facing identifiers:
+## Preserved Human Boundaries
 
-- action IDs such as `write_spec`
-- state IDs such as `ready_to_spec`
-- decision values such as `needs_human`
-- artifact IDs such as `product_spec`
-- paths such as `docs/specs/GH539/product.md`
-- commands and CLI flags
-- JSON keys and schema field names
+Agents may inspect, draft, implement within assigned scope, review, and
+diagnose. They must not:
 
-Use this locale selection order:
-
-1. explicit user request
-2. user's current language
-3. `presentation.default_locale` in `workflow.yaml`
-4. `presentation.fallback_locale`
-
-## What Exists Today
-
-SpecRail currently provides:
-
-- state and label conventions
-- issue/spec/PR templates
-- `zh-CN` templates
-- localized message files
-- an optional threads integration design
-- a Codex-compatible `specrail-workflow` router skill and focused route skills
-- a Codex-compatible `specrail-install` setup skill for agent-facing installs
-- `skills-lock.json` for repo-distributed SpecRail skills
-- a deterministic pack validator
-- a read-only GitHub issue evidence adapter
-- a read-only GitHub PR evidence adapter
-- a read-only duplicate-work evidence adapter and offline implementation
-  duplicate-work gate
-- an advisory review JSON gate
-- an optional runtime checkpoint gate for long agent-run handoffs
-- a local evaluator that returns `allowed`, `warn`, `needs_human`, or `blocked`
-- an adoption matrix and fixture for real repo pilot evidence:
-  `docs/ADOPTION_MATRIX.md` and `examples/adoptions/matrix.json`
-- gate benchmark fixtures under `examples/fixtures/`
-
-This is enough for an agent to follow the process more consistently than raw
-README instructions.
-
-## What Does Not Exist Yet
-
-SpecRail does not yet provide:
-
-- automatic issue label checks
-- automatic template rendering commands
-- automatic merge or final approval
-
-Until those exist, agents should treat `checks/route_gate.py` as a local gate and
-must report what they verified rather than claiming live GitHub workflow state
-from assumptions.
-
-## Human Gates
-
-Agents may draft, propose, review, and diagnose. Agents must not:
-
-- provide final approval
-- merge without explicit authorization
+- provide final human approval
+- merge or release without explicit authorization
 - publish private security details
-- change repository permissions
-- bypass readiness labels or other human gates
+- change repository permissions without explicit authorization
+- bypass required ordinary CI or unresolved review-thread evidence
+- treat optional SpecRail output as permission for a remote write
