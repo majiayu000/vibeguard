@@ -1,9 +1,9 @@
 # Agent Usage
 
 VibeGuard repository work starts from the current request, live repository
-state, and the routing contract in `AGENTS.md`. SpecRail is optional offline
-tooling in this repository. Use it only when explicitly requested; it does not
-authorize implementation, approval, merge, release, or any other remote write.
+state, and the routing contract in `AGENTS.md`. SpecRail is optional tooling in
+this repository. Use it only when explicitly requested; it does not authorize
+implementation, approval, merge, release, or any other remote write.
 
 ## Default Repository Flow
 
@@ -48,10 +48,10 @@ not replace independent review when that is required.
 
 ## Optional SpecRail Tooling
 
-The adopted SpecRail pack is retained for explicit offline use. It is not
-automatically invoked by PR or push workflows, does not auto-activate for
-complex work, and is not a prerequisite for ordinary issue, implementation,
-review, or merge-readiness work.
+The adopted SpecRail pack and its evidence adapters are retained for explicit
+optional use. They are not automatically invoked by PR or push workflows, do
+not auto-activate for complex work, and are not prerequisites for ordinary
+issue, implementation, review, or merge-readiness work.
 
 When the user explicitly requests SpecRail, load the relevant optional assets:
 
@@ -62,10 +62,10 @@ When the user explicitly requests SpecRail, load the relevant optional assets:
 5. `skills/specrail-workflow/SKILL.md`
 6. `skills-lock.json`
 
-The YAML files, schemas, templates, skills, and `docs/specs/GH<number>/`
-packets describe the optional workflow. Their state labels and evaluator
-decisions are advisory local evidence; they do not replace the repository's
-generic routing decision or live GitHub and CI evidence.
+The local evaluators, YAML files, schemas, templates, skills, and
+`docs/specs/GH<number>/` packets are optional offline tools. Their state labels
+and evaluator decisions are advisory local evidence; they do not replace the
+repository's generic routing decision or live GitHub and CI evidence.
 
 ### VibeGuard Adoption Pin
 
@@ -114,8 +114,12 @@ also detects removal of a baseline task plan. These are offline integrity
 checks for an explicitly selected SpecRail flow, not automatic repository
 gates.
 
-The optional read-only evidence adapters and offline evaluators remain
-available:
+### Read-Only Live GitHub Evidence
+
+The optional `github_issue_evidence.py`, `github_duplicate_evidence.py`, and
+`github_pr_evidence.py` adapters invoke `gh`. They require network access and an
+authenticated `gh` session. They collect and normalize live evidence without
+writing GitHub state:
 
 ```sh
 python3 checks/github_issue_evidence.py \
@@ -129,17 +133,27 @@ python3 checks/github_duplicate_evidence.py \
   --issue <issue-number> \
   --json
 
+python3 checks/github_pr_evidence.py \
+  --github-repo OWNER/REPO \
+  --pr <pr-number> \
+  --review-source independent_lane \
+  --json
+```
+
+Neither successful collection nor its output authorizes a remote mutation.
+These adapters do not auto-activate.
+
+### Offline Evaluators
+
+The optional local evaluators consume repository files or previously collected
+evidence without contacting GitHub:
+
+```sh
 python3 checks/route_gate.py \
   --repo . \
   --route implement \
   --issue <issue-number> \
   --state ready_to_implement \
-  --json
-
-python3 checks/github_pr_evidence.py \
-  --github-repo OWNER/REPO \
-  --pr <pr-number> \
-  --review-source independent_lane \
   --json
 
 python3 checks/pr_gate.py \
@@ -148,10 +162,9 @@ python3 checks/pr_gate.py \
   --json
 ```
 
-The adapters do not write GitHub state. Evaluator results such as `allowed`,
-`warn`, `needs_human`, or `blocked` describe only the supplied offline
-evidence. They do not authorize a remote action and are not required for the
-default repository flow.
+Evaluator results such as `allowed`, `warn`, `needs_human`, or `blocked`
+describe only the supplied offline evidence. The evaluators do not
+auto-activate, authorize a remote action, or replace required live evidence.
 
 For an explicitly selected long SpecRail run, an optional local checkpoint can
 preserve handoff evidence:

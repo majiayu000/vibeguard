@@ -63,9 +63,12 @@ the surface locally.
 
 ## Optional SpecRail Tooling
 
-- SpecRail checks, configs, templates, schemas, packets, and skills are offline
-  reference tools. They do not auto-activate and are not repository
-  authorization gates.
+- Local SpecRail evaluators, configs, templates, schemas, packets, and skills
+  are optional offline tools.
+- `github_issue_evidence.py`, `github_duplicate_evidence.py`, and
+  `github_pr_evidence.py` are optional read-only live adapters. They require
+  network access and an authenticated `gh` session.
+- Neither optional class auto-activates or authorizes remote mutations.
 - Use SpecRail only when the user explicitly requests it. Its packets remain
   under `docs/specs/GH<number>/`; do not create a second `specs/` root.
 - The adopted source commit, optional commands, and consumer overrides are
