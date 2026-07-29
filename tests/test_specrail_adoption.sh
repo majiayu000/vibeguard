@@ -60,18 +60,18 @@ if automation_policy.get("auth_mode") != "review":
     raise SystemExit("workflow.yaml: persisted auth_mode must remain review")
 
 workflow_dir = repo / ".github" / "workflows"
-if (workflow_dir / "workflow-check.yml").exists():
-    raise SystemExit("workflow-check.yml: automatic SpecRail workflow still exists")
-
-workflow_texts = {path.name: path.read_text(encoding="utf-8")
-                  for path in sorted(workflow_dir.glob("*.yml"))}
+removed = [name for name in ("workflow-check.yml", "workflow-check.yaml") if (workflow_dir / name).exists()]
+if removed:
+    raise SystemExit(f"{', '.join(removed)}: automatic SpecRail workflow still exists")
+workflow_paths = sorted({*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")})
+workflow_texts = {path.name: path.read_text(encoding="utf-8") for path in workflow_paths}
 for workflow_name, workflow_text in workflow_texts.items():
     for forbidden in ["checks/check_workflow.py", "checks/route_gate.py",
-                      "checks/pr_gate.py", "checks/runtime_ledger_gate.py",
+                      "checks/duplicate_work_gate.py", "checks/pr_gate.py",
+                      "checks/review_json_gate.py", "checks/runtime_ledger_gate.py",
                       "tests/test_specrail_adoption.sh"]:
         if forbidden in workflow_text:
             raise SystemExit(f"{workflow_name}: automatic SpecRail invocation remains: {forbidden}")
-
 ci_text = workflow_texts.get("ci.yml", "")
 for token in ["CI (${{ matrix.os }})", "CI (windows-latest)",
               'diff_range="${BASE_SHA}...${HEAD_SHA}"',
