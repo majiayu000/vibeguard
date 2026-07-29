@@ -33,6 +33,59 @@ assert_cmd "receipt directory preserves scheduler files byte-for-byte" bash -c \
 assert_cmd "receipt directory leaves systemd enable state unchanged" \
   test ! -e "${scheduler_receipt_guard_home}/.systemctl-vibeguard-gc-active"
 
+malformed_receipt_home="${TMP_HOME}/scheduler-malformed-receipt-home"
+malformed_receipt_plist="${malformed_receipt_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
+malformed_receipt_path="${malformed_receipt_home}/.vibeguard/scheduler-ownership"
+malformed_receipt_bin="${TMP_HOME}/scheduler-malformed-receipt-bin"
+malformed_receipt_launchctl_log="${TMP_HOME}/scheduler-malformed-receipt-launchctl.log"
+malformed_receipt_launchctl_delegate="$(command -v launchctl)"
+mkdir -p "$(dirname "${malformed_receipt_plist}")" \
+  "$(dirname "${malformed_receipt_path}")" "${malformed_receipt_bin}"
+sed -e "s|__VIBEGUARD_DIR__|${REPO_DIR}|g" \
+  -e "s|__HOME__|${malformed_receipt_home}|g" \
+  "${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist" > "${malformed_receipt_plist}"
+printf 'schema=1\nkind=launchd\nphase=managed\n' > "${malformed_receipt_path}"
+touch "${malformed_receipt_home}/.launchctl-vibeguard-loaded"
+printf '%s\n' "${REPO_DIR}/scripts/gc/gc-scheduled.sh" \
+  > "${malformed_receipt_home}/.launchctl-vibeguard-target"
+printf '%s\n' "${malformed_receipt_plist}" \
+  > "${malformed_receipt_home}/.launchctl-vibeguard-plist"
+malformed_receipt_before="$(
+  shasum -a 256 "${malformed_receipt_plist}" "${malformed_receipt_path}" \
+    "${malformed_receipt_home}/.launchctl-vibeguard-loaded" \
+    "${malformed_receipt_home}/.launchctl-vibeguard-target" \
+    "${malformed_receipt_home}/.launchctl-vibeguard-plist"
+)"
+cat > "${malformed_receipt_bin}/launchctl" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${malformed_receipt_launchctl_log}"
+exec "${malformed_receipt_launchctl_delegate}" "\$@"
+SH
+chmod +x "${malformed_receipt_bin}/launchctl"
+set +e
+malformed_receipt_out="$(
+  HOME="${malformed_receipt_home}" \
+    PATH="${malformed_receipt_bin}:${PATH}" \
+    CARGO_TARGET_DIR="${CUSTOM_CARGO_TARGET_DIR}" \
+    VIBEGUARD_TEST_UNAME=Darwin \
+    bash "${REPO_DIR}/setup.sh" --yes --with-scheduler 2>&1
+)"
+malformed_receipt_rc=$?
+set -e
+assert_cmd "malformed regular receipt blocks explicit scheduler refresh" \
+  test "${malformed_receipt_rc}" -ne 0
+assert_contains "${malformed_receipt_out}" "scheduler ownership receipt is invalid" \
+  "malformed receipt failure is explicit"
+assert_cmd "malformed receipt preserves plist, receipt, and loaded job state" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3" "$4" "$5")" = "$6"' _ \
+  "${malformed_receipt_plist}" "${malformed_receipt_path}" \
+  "${malformed_receipt_home}/.launchctl-vibeguard-loaded" \
+  "${malformed_receipt_home}/.launchctl-vibeguard-target" \
+  "${malformed_receipt_home}/.launchctl-vibeguard-plist" \
+  "${malformed_receipt_before}"
+assert_cmd "malformed receipt performs no launchctl bootout or bootstrap" \
+  test ! -s "${malformed_receipt_launchctl_log}"
+
 wrong_kind_home="${TMP_HOME}/scheduler-wrong-kind-home"
 wrong_kind_plist="${wrong_kind_home}/Library/LaunchAgents/com.vibeguard.gc.plist"
 mkdir -p "$(dirname "${wrong_kind_plist}")" "${wrong_kind_home}/.vibeguard"

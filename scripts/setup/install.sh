@@ -297,6 +297,8 @@ scheduler_receipt_preflight_for_mutation() {
       red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean before installing."
       return 1
     fi
+  elif scheduler_files_exist; then
+    red "ERROR: scheduler ownership receipt is invalid; preserving scheduler state."; return 1
   fi
   if scheduler_wrong_platform_files_exist "${expected_kind}"; then
     red "ERROR: wrong-platform scheduler files exist; preserving them and refusing to create a ${expected_kind} scheduler."
@@ -583,7 +585,6 @@ else
   yellow "  AUTO_RUN_AGENT_DIR not set (optional, needed for auto-optimize Phase 4)"
 fi
 echo
-
 
 configure_claude_home_runtime
 
