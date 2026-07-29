@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Focused smoke tests for VibeGuard's adopted SpecRail pack.
+# Focused smoke tests for VibeGuard's optional offline SpecRail tooling.
 
 set -euo pipefail
 
@@ -9,18 +9,9 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 cd "${REPO_DIR}"
 
-required_checks=(
-  checks/github_pr_evidence.py
-  checks/github_review_threads.py
-  checks/pr_gate.py
-  checks/runtime_ledger_gate.py
-  checks/check_workflow.py
-)
-
-required_locale_files=(
-  locales/en-US/messages.yaml
-  locales/zh-CN/messages.yaml
-)
+required_checks=(checks/github_pr_evidence.py checks/github_review_threads.py
+  checks/pr_gate.py checks/runtime_ledger_gate.py checks/check_workflow.py)
+required_locale_files=(locales/en-US/messages.yaml locales/zh-CN/messages.yaml)
 
 for check_path in "${required_checks[@]}"; do
   test -f "${check_path}"
@@ -46,6 +37,16 @@ from specrail_lib import artifact_templates, load_pack, resolve_repo_path
 usage_text = (repo / "AGENT_USAGE.md").read_text(encoding="utf-8")
 if expected_pin not in usage_text:
     raise SystemExit(f"AGENT_USAGE.md: missing SpecRail adoption pin {expected_pin}")
+normalized_usage_text = " ".join(usage_text.split())
+for token in ["SpecRail is optional", "only when explicitly requested", "does not authorize"]:
+    if token not in normalized_usage_text:
+        raise SystemExit(f"AGENT_USAGE.md: missing optional-tooling policy {token!r}")
+
+agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+if "## Optional SpecRail Tooling" not in agents_text:
+    raise SystemExit("AGENTS.md: missing optional SpecRail tooling boundary")
+if "## SpecRail Adoption" in agents_text:
+    raise SystemExit("AGENTS.md: mandatory SpecRail adoption section remains")
 
 config = load_pack(repo)
 artifacts = artifact_templates(config)
@@ -58,22 +59,26 @@ automation_policy = config.workflow.get("automation_policy", {})
 if automation_policy.get("auth_mode") != "review":
     raise SystemExit("workflow.yaml: persisted auth_mode must remain review")
 
-workflow_check_text = (
-    repo / ".github" / "workflows" / "workflow-check.yml"
-).read_text(encoding="utf-8")
-for token in [
-    "fetch-depth: 0",
-    "ready_for_review",
-    "converted_to_draft",
-    "--spec-stage draft",
-    "--spec-stage complete",
-    "--base-ref",
-    'diff_range="${BASE_SHA}...${HEAD_SHA}"',
-    'diff_range="${BASE_SHA}..${HEAD_SHA}"',
-    'git diff --check "${diff_range}"',
-]:
-    if token not in workflow_check_text:
-        raise SystemExit(f"workflow-check.yml: missing committed diff check token {token}")
+workflow_dir = repo / ".github" / "workflows"
+removed = [name for name in ("workflow-check.yml", "workflow-check.yaml") if (workflow_dir / name).exists()]
+if removed:
+    raise SystemExit(f"{', '.join(removed)}: automatic SpecRail workflow still exists")
+workflow_paths = sorted({*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")})
+workflow_texts = {path.name: path.read_text(encoding="utf-8") for path in workflow_paths}
+for workflow_name, workflow_text in workflow_texts.items():
+    for forbidden in ["checks/check_workflow.py", "checks/route_gate.py",
+                      "checks/duplicate_work_gate.py", "checks/pr_gate.py",
+                      "checks/review_json_gate.py", "checks/runtime_ledger_gate.py",
+                      "tests/test_specrail_adoption.sh"]:
+        if forbidden in workflow_text:
+            raise SystemExit(f"{workflow_name}: automatic SpecRail invocation remains: {forbidden}")
+ci_text = workflow_texts.get("ci.yml", "")
+for token in ["CI (${{ matrix.os }})", "CI (windows-latest)",
+              'diff_range="${BASE_SHA}...${HEAD_SHA}"',
+              'diff_range="${BASE_SHA}..${HEAD_SHA}"',
+              'git diff --check "${diff_range}"']:
+    if token not in ci_text:
+        raise SystemExit(f"ci.yml: missing ordinary CI contract token {token}")
 
 matrix_path = repo / "examples" / "adoptions" / "matrix.json"
 matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
@@ -695,23 +700,10 @@ if (
 PY
 
 python3 checks/check_workflow.py --repo .
-all_specs_args=(--repo . --all-specs --spec-stage complete)
-if [[ "${EVENT_NAME:-}" == "pull_request" && "${PR_IS_DRAFT:-false}" == "true" ]]; then
-  if [[ -z "${BASE_SHA:-}" ]]; then
-    echo "Draft SpecRail adoption smoke requires BASE_SHA" >&2
-    exit 1
-  fi
-  all_specs_args=(--repo . --all-specs --spec-stage draft --base-ref "${BASE_SHA}")
-fi
-python3 checks/check_workflow.py "${all_specs_args[@]}"
+python3 checks/check_workflow.py --repo . --all-specs --spec-stage complete
 python3 checks/github_pr_evidence.py --help >/dev/null
-
-python3 checks/route_gate.py \
-  --repo . \
-  --route implement \
-  --issue 539 \
-  --state ready_to_implement \
-  --artifact product_spec=README.md \
+python3 checks/route_gate.py --repo . --route implement --issue 539 \
+  --state ready_to_implement --artifact product_spec=README.md \
   --json > "${TMP_DIR}/configured-artifact-gate.json"
 
 python3 - "${TMP_DIR}/configured-artifact-gate.json" <<'PY'
@@ -734,15 +726,13 @@ if not any(
     raise SystemExit(f"{path.name}: configured path mismatch reason missing")
 PY
 
-python3 checks/pr_gate.py \
-  --repo . \
-  --evidence examples/fixtures/pr-clean-authorized.json \
-  --mode required \
+python3 checks/pr_gate.py --repo . \
+  --evidence examples/fixtures/pr-clean-authorized.json --mode required \
   --json > "${TMP_DIR}/pr-gate.json"
 
 python3 checks/runtime_ledger_gate.py \
-  --checkpoint examples/fixtures/runtime-budget-exhausted-handoff.json \
-  --json > "${TMP_DIR}/runtime-ledger-gate.json"
+  --checkpoint examples/fixtures/runtime-budget-exhausted-handoff.json --json \
+  > "${TMP_DIR}/runtime-ledger-gate.json"
 
 assert_not_allowed() {
   local output_path="$1"
@@ -764,13 +754,8 @@ PY
 }
 
 missing_auth_output="${TMP_DIR}/pr-missing-human-auth.json"
-assert_not_allowed \
-  "${missing_auth_output}" \
-  python3 checks/pr_gate.py \
-    --repo . \
-    --evidence examples/fixtures/pr-missing-human-auth.json \
-    --mode required \
-    --json
+assert_not_allowed "${missing_auth_output}" python3 checks/pr_gate.py --repo . \
+  --evidence examples/fixtures/pr-missing-human-auth.json --mode required --json
 
 python3 - "${missing_auth_output}" <<'PY'
 import json
@@ -789,18 +774,16 @@ for fixture in \
   examples/fixtures/pr-pending-ci.json \
   examples/fixtures/pr-unresolved-thread.json; do
   output_path="${TMP_DIR}/$(basename "${fixture}")"
-  assert_not_allowed \
-    "${output_path}" \
-    python3 checks/pr_gate.py --repo . --evidence "${fixture}" --mode required --json
+  assert_not_allowed "${output_path}" python3 checks/pr_gate.py --repo . \
+    --evidence "${fixture}" --mode required --json
 done
 
 for fixture in \
   examples/fixtures/runtime-lane-failure-unreported.json \
   examples/fixtures/runtime-full-queue-false-complete-needs-spec.json; do
   output_path="${TMP_DIR}/$(basename "${fixture}")"
-  assert_not_allowed \
-    "${output_path}" \
-    python3 checks/runtime_ledger_gate.py --checkpoint "${fixture}" --json
+  assert_not_allowed "${output_path}" python3 checks/runtime_ledger_gate.py \
+    --checkpoint "${fixture}" --json
 done
 
 python3 - "${TMP_DIR}/pr-gate.json" "${TMP_DIR}/runtime-ledger-gate.json" <<'PY'
@@ -814,5 +797,4 @@ for raw_path in sys.argv[1:]:
     if payload.get("decision") != "allowed":
         raise SystemExit(f"{path.name}: expected allowed, got {payload!r}")
 PY
-
-echo "SpecRail adoption smoke passed"
+echo "Optional SpecRail tooling smoke passed"
