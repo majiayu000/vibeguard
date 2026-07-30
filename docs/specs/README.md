@@ -6,11 +6,11 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
-| `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
 | `GH703/` | Draft | Privacy-safe default weekly value summaries, taxonomy accounting, scheduler lifecycle, and explicit share exports |
 | `GH720/` | Historical optional-tooling reference | Former automatic stage-aware packet validation, retained for explicitly invoked offline SpecRail checks |
 | `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
 | `GH700/` | Draft | Public reproducible effectiveness benchmarks with provenance, ground truth, precision, and latency contracts |
+| `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |
