@@ -192,10 +192,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     dangerous shell/git 字符串只允许送入 classifier，绝不执行；benchmark 不访问网络、
     用户 repository、凭据、剪贴板或既有日志，不继承无关环境变量。唯一允许的真实 HOME
     读取是 official preflight 的身份专用只读通道：先以 no-follow、owner/mode、regular-file
-    和 verified-provenance 校验打开固定 receipt，再且仅再打开 receipt 闭集列出的 installed
-    runtime/payload/wrapper/manifest 与 protocol-owned canonical benchmark config 文件；
-    用户可变 `config.json`/tuning 不在 allowlist，不得枚举目录、跟随链接、读取任意其它
-    HOME 数据或写入真实 HOME。校验后的 handles/bytes 只能 materialize 到临时只读 snapshot，
+    和 verified-provenance 校验打开固定 receipt，再且仅再按一个 protocol-digested
+    attestation bundle/signed manifest 并完成 trust bootstrap，再且仅再按 manifest 绑定的
+    protocol-digested `production_asset_registry` 打开 installed payload/wrappers、
+    canonical benchmark config、environment-baseline workload、interpreters 与 mapped
+    production paths 传递闭包内全部 external executables。manifest 绑定 registry digest，
+    production mapping 只引用 registry logical ID，receipt 只映射本地 path/handle；三者均
+    不得另行声明 identity。用户可变 `config.json`/tuning 不在 allowlist，不得枚举目录、
+    跟随链接、读取任意其它 HOME 数据或写入真实 HOME。校验后的 handles/bytes 只能
+    materialize 到临时只读 snapshot，
     case/warmup/measurement 全程只使用该 snapshot。报告不得包含环境变量值、用户路径、
     fixture 原始 payload、密钥形态文本或未脱敏 stderr。无法建立这些边界时必须在首个
     case 前 `unavailable`。
@@ -227,11 +232,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    publication commit 前必须先合并一个仅移除旧 row `current valid benchmark` 标识的、
-    human-reviewed marker PR，并由 publish gate 对 default-branch blob digest 与“没有
-    current marker”做 freshness 重验。release commit 后再以独立 human-reviewed PR
-    添加新 row/current marker；该 PR 停滞或拒绝期间允许没有 current marker，但绝不允许
-    旧版本继续显示为 current。
+    只有 top-level `valid` publication 才在 commit 前合并一个仅移除旧 row
+    `current valid benchmark` 标识的 human-reviewed marker PR，并由 publish gate 对
+    default-branch blob digest 与“没有 current marker”做 freshness 重验；commit 后再以
+    独立 human-reviewed PR 添加新 row/current marker。该 PR 停滞或拒绝期间允许没有 current
+    marker，但绝不允许旧版本继续显示为 current。`publish_nonvalid` 不进入去旧/current
+    创建状态机：其新 row 永不带 current marker，已有 latest-valid row 可继续标
+    `current valid benchmark`。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
     `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
     - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
@@ -239,7 +246,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       且不得标为该 candidate；
     - `publish_nonvalid`：发布该版本的 schema-valid non-valid report/evidence，并创建
       同版本 README row；非 valid axis 的 metric cell 留空并显示 axis status、闭集
-      reason code 与不可变 report 链接，row 不得标 `current valid benchmark`。
+      reason code 与不可变 report 链接，row 永不得标 `current valid benchmark`，也不删除
+      已有 latest-valid row 的该标识。
     缺失、为空或越界 policy 必须阻断，不能由 renderer/workflow 猜分支。
     `publish_nonvalid` 的 report/evidence 任一无法达到 schema/provenance gate 时不得
     发布残缺 release，而是以 `selected_policy: publish_nonvalid`、
@@ -420,21 +428,26 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `pipeline_interrupted_pre_attestation` 分支：只从受信的 `workflow_run` 终态事件与
     Actions API 复验得到 `(repo, workflow_id, run_id, run_attempt, head_sha, event,
     conclusion)`，把 candidate tag、policy、staged provenance 和 evidence identities
-    显式置 null，并列出 closed missing fields/stage。该 server-authenticated early identity
-    本身就是 watermark 可枚举的永久 attempt identity；不得读取 workflow 提供的自由文本或
-    因 pre-attestation 缺失而跳过该 attempt。
-    所有 release attempts、reconciler 与 publish gate 必须共享 candidate-scoped serialized
-    lease（禁止 cancel-in-progress）和 attested reconciliation watermark；新 attempt 与
-    publish 在持锁状态下必须枚举同 candidate 的全部既有 terminal attempts，并证明每个
+    显式置 null，并列出 closed missing fields/stage。canonical JCS tuple 必须派生
+    source-lineage key 与包含 run/attempt 的无碰撞 early-attempt key；终态事件在
+    source-lineage lease 下路由/永久记录。后续 staged candidate 出现时必须按 canonical
+    key 顺序同时持有 early/candidate leases，append attested binding 并把 early digest
+    union 进 candidate watermark；原 run 永无 staged identity 时，同 authenticated source
+    lineage 的后续 candidate 也必须接管全部 unbound early records。tuple/digest 冲突或
+    归属歧义均 fail closed；不得读取 workflow 自由文本或跳过该 attempt。
+    所有 release attempts、reconciler 与 publish gate 必须共享 candidate/source-lineage
+    路由的 serialized lease（禁止 cancel-in-progress）和合并后的 attested reconciliation
+    watermark；新 attempt 与 publish 在持锁状态下必须枚举同 candidate/source lineage 的
+    全部既有 terminal attempts，并证明每个
     failed/cancelled/timed_out attempt（包括 pre-attestation interruption）都已有唯一永久
     record。存在未 reconciled attempt、
     terminal-run 列表/永久 store 不可用或 watermark 不一致时 fail closed，不能先发布后补写。
 30. B-030: official run 在任何 latency warmup/measurement 前，必须通过 B-013
-    身份专用只读通道，从 verified payload/receipt 的已打开、已校验 handles/bytes 把
-    runtime、payload、wrapper、protocol-owned canonical benchmark config、manifest、
-    protocol-declared interpreter、environment-baseline workload 及 mapped production
-    paths 传递闭包内所有 declared external executables 按生产安装布局 materialize 到本次
-    temp HOME 的
+    身份专用只读通道，从 receipt 映射的已打开、已校验 handles/bytes，把已验签 manifest
+    及 launcher 已验证的 runtime handle、单一 `production_asset_registry` 的 payload/
+    wrappers/canonical config/baseline workload/interpreters/transitive external executables
+    按生产安装布局
+    materialize 到本次 temp HOME 的
     byte-identical、只读 install snapshot，并逐文件重算 digest 与 receipt/manifest/protocol
     identity 对齐。materialization、chmod 与 digest verification 不进入 latency 样本；
     计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写状态或
@@ -480,15 +493,16 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       signed manifest materialize 的 readonly 生产布局启动真实 wrapper，逐 surface 报
       P50/P95/P99/max；README 保持独立列/子行，不做静默 reduction。
 - [ ] dangerous fixtures 不会执行命令或读写用户项目/log；真实 HOME 只有 offline-verified
-      bundle/signed manifest 授权的 no-follow 只读身份通道，用户 config、allowlist 外读取和
-      全部写入均被拒；sentinel secrets 不出现在任何输出。
+      bundle/signed manifest + 单一 digested production-asset registry 授权的 no-follow
+      只读身份通道，baseline/interpreters/transitive executables 缺项、用户 config、
+      registry 外读取和全部写入均被拒；sentinel secrets 不出现在任何输出。
 - [ ] release CI 用准确 staged artifacts 重新生成不可变报告；可恢复阻断在退出前、hard
       cancel/runner loss 由 environment-protected completion reconciler，把 target 或
       release-scoped attempt manifest 永久内嵌到不可覆盖 attestation/ledger；它的
       Release 写权限仅能删除无 intent 的对应 private draft，或按验签 intent 完成同一
-      draft，不能改写其他 release/current row；candidate lease + reconciliation watermark
-      阻止任何 unreconciled prior attempt 之后的 rerun/publish；继续发布分支只发布同版本
-      non-valid row。
+      draft，不能改写其他 release/current row；candidate/source-lineage 双路由 lease +
+      merged reconciliation watermark 阻止任何 unreconciled prior attempt 后的
+      rerun/publish；publish_nonvalid 只发布无 current 的同版本 row并保留 latest-valid marker。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
 
