@@ -33,7 +33,7 @@ workstream anchor 不属于该 main tree，单独固定到可检出的完整 PR 
 | Latency | `tests/bench_hook_latency.sh:1-67,360-458,460-506`; `tests/test_hook_perf_contract.sh:1-28`; `docs/reference/hook-latency-contract.md:5-23,27-47` | canonical runner 执行真实 direct/wrapper hook，记录 P50/P95/P99/max、budget 与 confirmation；contract test 固定 runner/gate 语义 | cold/warm L2 必须成为这个 runner 的具名 fixtures，并由 contract test 固定，不能只改 wrapper 或另造 microbench |
 | Doctor/status | `setup.sh:24-36,115-175`; `scripts/setup/check.sh:1-23,34-41,745-790`; `scripts/setup/runtime_config_health.sh:1-36`; `scripts/lib/status_report.sh:1-28,120-158,195-280`; `vibeguard-runtime/src/main.rs:168-173`; `vibeguard-runtime/src/hook_status.rs:1-90,428-459`; `vibeguard-runtime/src/hook_status_render.rs:7-39,159-209`; `schemas/hook-status.schema.json:1-82` | `doctor`/`--check` 是 public install/config health route；`hook-status` 已提供 per-run human/JSON 和 closed schema | H-014 推荐复用这两个 route；B-035 需要把 semantic state/identities 接入同一 canonical event/status renderer，而不是只在 hook 文本中显示 |
 | GH-700 (separate PR evidence) | PR #713 merged source head `215a45157b1e7de94fcd813c745f8ac70e047072`, `docs/specs/GH700/product.md:65-74,104-118` | Spec 明确真正的 dependency/API inventory detector 尚不存在，benchmark 禁止 test-only detector | GH-704 生产 detector 是 GH-700 后续消费依赖；spec merge 不是实现或 precision 批准 |
-| GH-702 (separate PR evidence) | Open PR #716 head `89fe7a7766896756deef7247d5f1efb3b440e26b`, `docs/specs/GH702/product.md:69-73,92-110,236-245,272-277` | pack executable/capability、precision/default、network/offline 仍是未批准 H 决策；current invariants 继续要求 per-rule eligibility、显式 feedback export 与 stale/offline 降级 | GH-704 只交付 sealed Core；不得提前批准 pack 暴露或第二套 policy |
+| GH-702 (separate PR evidence) | Open PR #716 head `8f74fd8a62905df16ff9289fd28b163ecee2ce83`, `docs/specs/GH702/product.md:69-73,94-112,297-310,343-348` | pack executable/capability、precision/default、network/offline 仍是未批准 H 决策；current invariants 继续要求 per-rule eligibility、显式 feedback export 与 stale/offline 降级 | GH-704 只交付 sealed Core；不得提前批准 pack 暴露或第二套 policy |
 
 ## 技术决策门（全部未批准）
 
@@ -99,10 +99,15 @@ root 的 `.vibeguard.json`：planned `semantic_defense` object 只接受 require
 `enabled`，且 `additionalProperties: false`。key 缺失或 `enabled: false` 均为 off；
 `enabled: true` 只是请求 eligibility，仍必须通过上述 approval/policy/model 等全部 join。
 `~/.vibeguard/config.json`、普通 env、README、pack 与相邻 project 都不能启用；获批的
-global kill switch 只能把 true 降为 off。`schemas/vibeguard-project.schema.json`、
-`project_config.rs` 的 typed field/closed allowlist 与 semantic config join 必须同源；
-unknown/type mismatch 在 provider 启动前 fail visible。同一 HOME 下 opt-in project 与
-无 key project 的双 fixture 必须证明后者零 provider/cache/metric activity。
+global kill switch 只能把 true 降为 off。现有 `VIBEGUARD_PROJECT_CONFIG` path override
+仍可服务通用 config validation/test，但不得成为 semantic enable source：semantic join
+必须从当前 `cwd` 求 canonical git root，并只接受该 root 下 exact `.vibeguard.json` 的
+typed value；override 指向 sibling/external opt-in file 时保持 off。任何
+`VIBEGUARD_SEMANTIC_DEFENSE*` enable env 同样无效且不能作为隐式默认。
+`schemas/vibeguard-project.schema.json`、`project_config.rs` 的 typed field/closed allowlist
+与 semantic config join 必须同源；unknown/type mismatch 在 provider 启动前 fail visible。
+同一 HOME 下 opt-in project 与无 key project 的双 fixture，以及 external path/env enable
+negative fixtures，必须证明非当前 canonical project 零 provider/cache/metric activity。
 
 ### 2. Recommended Core module boundary
 
@@ -457,7 +462,7 @@ Complete-path cross-check：
 | --- | --- | --- |
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm installed-hook fixtures exactly once；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
-| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；missing/false/true/unknown/type mismatch and same-HOME two-project matrix prove only explicit current-project true requests eligibility，while global config/env can only disable |
+| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；missing/false/true/unknown/type mismatch、same-HOME two-project matrix、`VIBEGUARD_PROJECT_CONFIG` external opt-in path 和 semantic enable env negatives prove only current git-root config true requests eligibility，while global config/env can only disable |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
@@ -475,7 +480,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 approval gate | project config + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact` 与 `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`；missing/false/unknown/type mismatch、同 HOME 两 project、global enable attempt、stale H-001–H-020 全部断言非当前 opt-in project 零 provider call |
+| B-001 approval gate | project config + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact`、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in` 与 `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in_env_rejection`；missing/false/unknown/type mismatch、同 HOME 两 project、user-global enable、`VIBEGUARD_PROJECT_CONFIG` 指向 sibling/external true config、任意 semantic enable env、stale H-001–H-020 全部断言非当前 canonical opt-in project 零 provider/cache/metrics activity |
 | B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`；覆盖 project key missing/false 和 kill switch，再跑 `bash tests/test_hook_perf_contract.sh`，child/network/cache canary 均为空 |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
