@@ -113,6 +113,29 @@ if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" && -z "${RUNTIME_VERSION_OVERRIDE
   red "ERROR: --runtime-version requires a non-empty value (e.g. v1.2.3)"
   exit 1
 fi
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+  payload_version="$(
+    awk -F= '$1 == "version" { print $2; exit }' \
+      "${REPO_DIR}/.vibeguard-payload" 2>/dev/null \
+      | tr -d '[:space:]'
+  )"
+  payload_version="${payload_version#v}"
+  if [[ -z "${payload_version}" ]]; then
+    red "ERROR: payload marker does not declare a version; refusing an unpinned install."
+    exit 1
+  fi
+  if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
+    normalized_runtime_override="${RUNTIME_VERSION_OVERRIDE#v}"
+    if [[ "${normalized_runtime_override}" != "${payload_version}" ]]; then
+      red "ERROR: runtime version override ${RUNTIME_VERSION_OVERRIDE} does not match payload version ${payload_version}; payload installs cannot select a different runtime release."
+      exit 1
+    fi
+  fi
+  if [[ "${DEV_LINKED}" == "1" ]]; then
+    red "ERROR: --dev-linked is not available in payload mode; payload installs must use the durable installed snapshot."
+    exit 1
+  fi
+fi
 if [[ "${RUNTIME_VERSION_OVERRIDE_SET}" == "1" ]]; then
   export VIBEGUARD_SETUP_RUNTIME_VERSION="${RUNTIME_VERSION_OVERRIDE}"
 fi
@@ -122,6 +145,10 @@ case "${REQUIRE_PROVENANCE}" in
 esac
 if [[ "${REQUIRE_PROVENANCE}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
   red "ERROR: --require-provenance cannot be combined with --build-from-source; release provenance is only available for downloaded release binaries."
+  exit 1
+fi
+if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" && "${BUILD_FROM_SOURCE}" == "1" ]]; then
+  red "ERROR: --build-from-source is not available in payload mode; payload installs use the pinned release binary only. Clone the repository for source builds."
   exit 1
 fi
 
@@ -209,7 +236,12 @@ stage_install_snapshot() {
   mkdir -p "${_INSTALL_TMP}/schemas"
   cp "${REPO_DIR}/schemas/vibeguard-project.schema.json" "${_INSTALL_TMP}/schemas/"
   cp "${REPO_DIR}/schemas/vibeguard-runtime-config.schema.json" "${_INSTALL_TMP}/schemas/"
-  printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+  if [[ "${VIBEGUARD_PAYLOAD_MODE:-0}" == "1" ]]; then
+    payload_version="$(awk -F= '$1 == "version" { print $2; exit }' "${REPO_DIR}/.vibeguard-payload" 2>/dev/null || true)"
+    printf 'payload-%s' "${payload_version:-unknown}" > "${_INSTALL_TMP}/version"
+  else
+    printf '%s' "$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')" > "${_INSTALL_TMP}/version"
+  fi
 
   # Runtime must be prepared before project config validation, but the staged
   # snapshot lives in TMPDIR until validation has passed.

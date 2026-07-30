@@ -44,6 +44,20 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@vibeguard.test"
 
+      - name: Validate changed-file whitespace
+        if: runner.os == 'Linux'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          case "${EVENT_NAME}" in
+            pull_request) diff_range="${BASE_SHA}...${HEAD_SHA}" ;;
+            push) diff_range="${BASE_SHA}..${HEAD_SHA}" ;;
+            *) diff_range="HEAD^..HEAD" ;;
+          esac
+          git diff --check "${diff_range}"
+
       - name: Setup Node
         uses: actions/setup-node@v6.4.0
         with:
@@ -162,6 +176,11 @@ jobs:
       - name: Validate release workflow contract
         shell: bash
         run: bash tests/test_release_workflow.sh
+
+      - name: Payload regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/test_payload.sh
 
       - name: Validate prompt contract
         shell: bash
