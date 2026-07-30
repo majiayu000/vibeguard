@@ -24,6 +24,10 @@
 
 STATE_VERSION=1
 STATE_FILE="${HOME}/.vibeguard/install-state.json"
+# Snapshot of the inventory from the previous install. state_init resets
+# STATE_FILE, so without this the installer cannot tell "never installed" from
+# "installed by VibeGuard and since deleted by the user" (GH719).
+STATE_PREVIOUS_FILE="${HOME}/.vibeguard/install-state.previous.json"
 INSTALL_STATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 state_runtime_path() {
@@ -70,6 +74,12 @@ state_runtime() {
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}"
+  # Preserve the outgoing inventory before it is reset (see STATE_PREVIOUS_FILE).
+  if [[ -f "$STATE_FILE" ]]; then
+    cp -f "$STATE_FILE" "$STATE_PREVIOUS_FILE" 2>/dev/null || rm -f "$STATE_PREVIOUS_FILE"
+  else
+    rm -f "$STATE_PREVIOUS_FILE"
+  fi
   state_runtime setup-state-init "$STATE_FILE" "$profile" "$languages"
 }
 
@@ -119,6 +129,18 @@ state_list() {
   state_runtime setup-state-list "$STATE_FILE"
 }
 
+# True when the path itself, or anything under it, was installed by VibeGuard —
+# either in this run or in the install whose inventory state_init preserved.
+state_is_tracked_path() {
+  local path="$1" state_source tracked
+  for state_source in "$STATE_PREVIOUS_FILE" "$STATE_FILE"; do
+    [[ -f "$state_source" ]] || continue
+    tracked="$(state_runtime setup-state-list-tracked-under "$state_source" "$path" 2>/dev/null)" || continue
+    [[ -n "${tracked//[[:space:]]/}" ]] && return 0
+  done
+  return 1
+}
+
 state_list_tracked_symlinks_under() {
   local dest_dir="$1"
   [[ -f "$STATE_FILE" ]] || return 0
@@ -134,5 +156,5 @@ state_list_project_hooks() {
 
 # Remove state file (used by clean.sh)
 state_clean() {
-  rm -f "$STATE_FILE"
+  rm -f "$STATE_FILE" "$STATE_PREVIOUS_FILE"
 }

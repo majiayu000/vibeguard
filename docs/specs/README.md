@@ -12,6 +12,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH701/` | Draft | Versioned host-adapter seam, real third-host proof, and dependency-gated agent-firewall positioning |
 | `GH700/` | Draft | Public reproducible effectiveness benchmarks with provenance, ground truth, precision, and latency contracts |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
+| `GH719/` | Draft | Persistent per-skill opt-out for managed Codex/Claude skill copies, with reported rather than silent restores |
 | `GH704/` | Draft | Opt-in L2 semantic checks, named runtime W-rule deltas, structured precision evidence, and human-gated cross-session learning |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |

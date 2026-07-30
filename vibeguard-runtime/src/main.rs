@@ -312,6 +312,11 @@ static COMMANDS: &[Command] = &[
         handler: runtime_config::runtime_config_get_str,
     },
     Command {
+        name: "runtime-config-get-list",
+        usage: "<env-name> <json-path>  — read a string array from runtime config, one entry per line",
+        handler: runtime_config::runtime_config_get_list,
+    },
+    Command {
         name: "wrapper-env",
         usage: "[cli]  — precompute hook wrapper log and session environment",
         handler: wrapper_env::run,
@@ -455,6 +460,11 @@ static COMMANDS: &[Command] = &[
         name: "setup-state-list-symlinks-under",
         usage: "<state-file> <dest-dir>  — list tracked symlinks under a directory",
         handler: setup_install_state::list_tracked_symlinks_under,
+    },
+    Command {
+        name: "setup-state-list-tracked-under",
+        usage: "<state-file> <dest-dir>  — list tracked paths of any type under a directory",
+        handler: setup_install_state::list_tracked_under,
     },
     Command {
         name: "setup-state-list-project-hooks",

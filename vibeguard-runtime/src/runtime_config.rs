@@ -56,6 +56,53 @@ pub fn runtime_config_get_str(args: &[String]) -> HandlerResult {
     Ok(())
 }
 
+/// Print one entry per line for a declared string-array field.
+///
+/// The whole config is validated before any value is read, so a malformed file
+/// exits non-zero here instead of degrading into an empty list — an empty list
+/// would silently reverse an explicit user opt-out (GH719).
+pub fn runtime_config_get_list(args: &[String]) -> HandlerResult {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime runtime-config-get-list <env-name> <json-path>".into(),
+        );
+    }
+
+    for entry in resolve_runtime_config_list(&args[0], &args[1])? {
+        println!("{entry}");
+    }
+    Ok(())
+}
+
+fn resolve_runtime_config_list(
+    env_name: &str,
+    json_path: &str,
+) -> Result<Vec<String>, RuntimeConfigError> {
+    let config = loaded_runtime_config()?;
+    if let Some(raw) = std::env::var(env_name).ok().filter(|v| !v.is_empty()) {
+        return Ok(raw
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_string)
+            .collect());
+    }
+
+    let Some(items) = config
+        .and_then(|value| value_at_path(value, json_path))
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+
+    Ok(items
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect())
+}
+
 pub(crate) fn runtime_config_int_value(
     env_name: &str,
     json_path: &str,
