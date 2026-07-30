@@ -50,6 +50,8 @@ grep -qx 'vibeguard-runtime/VERSION' "${MANIFEST}" || rc=1
 grep -qx 'hooks' "${MANIFEST}" || rc=1
 grep -qx 'rules' "${MANIFEST}" || rc=1
 grep -qx 'scripts/setup/install.sh' "${MANIFEST}" || rc=1
+grep -qx 'scripts/setup/bootstrap.sh' "${MANIFEST}" || rc=1
+grep -qx 'scripts/setup/bootstrap-lib.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/lib/install-state.sh' "${MANIFEST}" || rc=1
 grep -qx 'scripts/release/payload-manifest.txt' "${MANIFEST}" || rc=1
 check "manifest keeps the install-critical entries" "${rc}"
@@ -146,6 +148,8 @@ for required in \
   vibeguard-runtime/VERSION \
   hooks/run-hook.sh \
   rules \
+  scripts/setup/bootstrap.sh \
+  scripts/setup/bootstrap-lib.sh \
   scripts/setup/install.sh \
   scripts/lib/install-state.sh \
   scripts/release/payload-manifest.txt; do
@@ -336,7 +340,11 @@ chmod +x "${WORK}/fake-bin/curl"
 cat > "${WORK}/fake-bin/systemctl" <<'SH'
 #!/usr/bin/env bash
 # The payload fixture must not inspect or mutate host systemd state.
-exit 0
+[[ "${1:-}" == "--user" ]] && shift
+case "${1:-}" in
+  is-active) exit 3 ;;
+  *) exit 0 ;;
+esac
 SH
 chmod +x "${WORK}/fake-bin/systemctl"
 
