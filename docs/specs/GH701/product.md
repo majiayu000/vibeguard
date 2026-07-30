@@ -84,7 +84,8 @@ GH-701 已完成。
    `preserve_pr705_extras` 允许额外内容继续留在首屏，但维护者必须先通过同一
    GitHub 决策来源明确更新 GH-701 issue acceptance，列出保留块及其证据要求；
    不能只改 spec/README 后声称 acceptance 已同步。两者均未获批或同时出现时，
-   route、task planning、README renderer 与 closure gate 必须 blocked。
+   route、README renderer 与 closure gate 必须 blocked；task planning 仅可生成
+   B-034 的一次性 fail-closed bootstrap allowlist tranche。
 
 ## Behavior Invariants
 
@@ -193,16 +194,14 @@ GH-701 已完成。
 25. B-025 host config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
-    digest 漂移必须停止而不是覆盖并发更改。普通 macOS/Linux 文件使用可实现的
-    `claim_and_install`：durable journal 后以平台 exclusive-rename/no-replace
-    原语把 pathname 原子 claim 到 transaction backup，随后在 no-follow handle
-    上验证 expected identity+digest，再用 no-replace 原子安装 candidate。claim
-    到不匹配对象不得删除其 bytes；target 空闲时原样恢复，已被外部重建时保留
-    backup 并进入 `broken/needs_human`。host storage API 只有真实提供 versioned
-    CAS 时才可改用 `conditional_replace`；普通 rename、advisory lock 或 mtime
-    check 不得冒充 CAS。两类 capability 都缺失时 plan 前 fail closed。恢复必须
-    根据 target/backup/candidate 实际 digest 和 journal phase 判定，不能丢弃
-    已 claim 的外部内容或把未记录 `applied` 当成未执行。
+    digest 漂移必须停止而不是覆盖并发更改。自动写入仅支持 host storage API
+    提供的 versioned CAS/lease：同一服务端 linearization point 验证 version，
+    lease 排斥旧/新 writer，再 commit candidate；journal 记录 transaction/version/
+    lease token 并通过 API 查询恢复。普通 macOS/Linux JSON 文件、rename、
+    advisory lock、mtime 或 exclusive claim 都不能排除延迟 old-FD write，不得
+    冒充该 capability；只能输出 exact-diff 的 manual proposal、零磁盘 mutation，
+    状态保持 `partial/needs_human`，不能产出 active/proof。获批 proof host 若无
+    该 API 必须重新选择，不得实现不可达的自动 install 契约。
 26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
@@ -229,9 +228,11 @@ GH-701 已完成。
     获批的 host_id/option、host release、protocol snapshot、native blocking
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
     registry integrity 或 signed release manifest 得到独立 approved digest，并由
-    受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量，
-    绑定 session nonce、进程身份与 executable digest/signature；gate-time 路径
-    重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
+    受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量。
+    native binary 绑定 session nonce、进程身份与 executable digest/signature；
+    interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
+    manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
+    gate-time 路径重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
     event ID/free text 不得持久化。另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
     `readonly_retain + owner + UTC expiry + active no-bypass update restriction`；
@@ -279,9 +280,10 @@ GH-701 已完成。
     SpecRail packet/evaluator 都不是前置条件或授权来源。task plan 必须覆盖全部
     B-ID；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
     H-001–H-004 decision gate。bootstrap PR 的实现 diff 只能包含 decision/witness
-    schemas、只读 collector、attestation/offline gate、受保护 main workflow 和
-    这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、setup、
-    README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final review
+    schemas、只读 collector、全部 decision/proof/README authorization gates 及
+    schemas、README renderer、受保护 main workflows 和这些表面的 tests/fixtures；
+    所有下游 gate 在 decisions 缺失时必须 fail closed。不得改 host adapter、
+    runtime/manifest、setup、README 或生成 active/完成 claim。该 PR 仍须正常 CI、human final review
     与 merge gate；只有 merge 到 main、attested completion sentinel 验证完整
     protected workflow、collector/schema/gate path set 与全部 contract/blob
     digests 后才能收集可信 decisions，任一缺失或漂移只能是
@@ -316,10 +318,10 @@ GH-701 已完成。
   event logs 可由 batch/request IDs 双向关联。
 - [ ] manifest v2、v1 compatibility/deprecation、non-host entries 与完整 unknown
   matrix 有 schema-valid positive/negative fixtures。
-- [ ] config transaction 的 lock contention、TOCTOU drift、最后 observation 后且
-  conditional replace linearization 前的外部改写、缺 CAS capability、每个 phase
-  failure、crash recovery、safe rollback 与 external-drift needs-human 路径均有
-  确定性零覆盖证据。
+- [ ] config transaction 的 versioned CAS/lease、lock contention、TOCTOU drift、
+  每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；
+  普通文件/rename/exclusive-claim 与 delayed old-FD fixtures 必须零写入并保持
+  partial，不能产出 active/proof。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
