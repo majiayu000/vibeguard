@@ -47,9 +47,10 @@ benchmark 与 existing precision score portal 分开，GH-702 不依赖其完成
 
 ### 1. Decision gate 与 artifact identity
 
-在任何 v2 official publish/install 开始前，离线 gate 读取唯一 decision artifact：
+policy reader 使用同一 closed schema，但按操作读取 role-specific artifacts：
 
 ```text
+policy_role = publication | evaluation
 gh702_policy_version
 product_spec_digest
 tech_spec_digest
@@ -59,9 +60,15 @@ approved_at
 expires_at
 ```
 
-gate 拒绝 missing/duplicate/unknown selection、spec digest drift、过期批准或非 maintainer
-identity。实现只消费选择，不从 Recommended proposal、环境变量或 CLI 猜值。H-003/H-006/
-H-007/H-008/H-009 属于 security/default-policy decisions，批准证据还要满足仓库既有
+build/publish gate 要求一个 current `publication` artifact，在操作时间未过期并匹配它绑定
+的 spec bytes；signed publish attestation 记录 publication time 与 digest。install/audit
+验证 embedded publication artifact 的签名/digest，以及它在该 signed publication time
+曾有效，但不要求它在当前时间未过期或匹配 current spec。install/audit/eligibility 另要求
+唯一 current `evaluation` artifact 未过期并匹配 current spec。任一操作拒绝其适用 role 的
+missing/duplicate/unknown selection、spec digest drift、过期批准或非 maintainer identity；
+publication artifact 后续 expiry/current-spec drift 本身不阻断 install，也不要求 republish。
+实现只消费选择，不从 Recommended proposal、环境变量或 CLI 猜值。H-003/H-006/H-007/
+H-008/H-009 属于 security/default-policy decisions，批准证据还要满足仓库既有
 `security_decision` human gate。
 
 同一 closed policy schema 按 role 产出两个不可混同的 identity：
@@ -151,7 +158,9 @@ official online flow：
 1. bounded 获取 signed index snapshot 和 separately signed registry-event evidence，
    验证 trust root、namespace ownership、各自 identity/freshness 和 rollback/freeze
    protection；
-2. 选择 exact version，拒绝同 version 多 digest；
+2. 选择 exact version；仅当完整
+   `(normalized publisher, normalized pack name, exact version)` 相同却出现多
+   bundle/index-entry digest 时拒绝，不跨 pack name 比较；
 3. 获取 bundle 到 transaction staging，边流式下载边 enforce byte/time limits 和 SHA-256；
 4. 验证 release attestation subject == canonical bundle digest；
 5. 在解压前解析 outer metadata，再用安全 extractor逐 entry验证 path/type/size/link；
@@ -280,8 +289,10 @@ same-content retry 先取得新的 normalized evaluation time，重算 freshness
 eligibility identity，再比较 receipt/active/store/publication-policy/evaluation-policy/
 index-entry/provenance/registry-event/compatibility/precision-evidence/evaluation/
 eligibility digests；只有全等才 no-op。跨越任一 freshness/expiry/revocation
-时间边界必须 re-audit，即使 bundle 和 policy bytes 未变。version 相同但 bundle/index-entry
-digest 不同视为 registry immutability violation。update 新旧 store并存直到 commit；
+时间边界必须 re-audit，即使 bundle 和 policy bytes 未变。official 完整
+`(publisher, pack, exact version)` 三元组相同但 bundle/index-entry digest 不同才是
+registry immutability violation；local 使用完整 canonical identity/storage key，不做
+partial version 比较。update 新旧 store并存直到 commit；
 失败保持旧 active。remove 先验证 drift，只删独占 owned entries，用户/其他 pack canary
 保持 byte-identical。
 
@@ -486,7 +497,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
 | B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
-| B-006 approved decision gate | Role-separated policy schema + offline gate | missing/double/unknown/stale/spec-drift fixtures block；publication/evaluation roles cannot substitute；evaluation-policy rotation re-audits old immutable artifacts without republish |
+| B-006 approved decision gate | Role-separated policy schema + offline gate | invalid-at-publication blocks publish；valid signed publication later expiry/spec drift does not block install；missing/stale/current-spec-drift evaluation blocks；rotation re-audits without republish |
 | B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × live current/cached-current/live-revoked/cached-revoked/unknown；fresh absence proof remains current，known revoke remains revoked，missing/mismatch/expired absence proof becomes unknown |
 | B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust/revocation, capabilities, per-rule reasons, persistent writes, bounded staging/network, cleanup, rollback and receipt before bounded confirmation |
 | B-009 closed capabilities | Manifest join + capability resolver | unknown/undeclared/multi-mapped/free-text/extra-payload fixtures fail before executor or host mutation |

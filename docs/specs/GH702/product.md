@@ -140,9 +140,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    policy artifacts，并绑定 H-001–H-009 的选择。发布时的 immutable
    `publication_policy_digest` 与每次 install/audit 使用的 current
    `evaluation_policy_digest` 是不同 role/identity；它们可以在发布当时引用同一 policy
-   bytes，但不得用一个字段混同。选择缺失、双选、过期或与当前 spec bytes 不匹配时，
-   publish、official install 与 default-block eligibility 均为 blocked；recommendation
-   本身不是批准证据。
+   bytes，但不得用一个字段混同。build/publish 时 publication policy 必须在该操作时间有效
+   且匹配其绑定 spec；install/audit 时必须验证它在 signed publication time 曾有效，但其
+   后续 expiry 或相对 current spec drift 只是历史 provenance，不能单独要求 republish。
+   install/audit/default-block 只要求 current evaluation policy 未过期且匹配 current spec。
+   对各自 role 的选择缺失、双选或无效时对应操作 blocked；recommendation 本身不是批准证据。
 7. B-007: 输出必须在每一层分别展示 provenance trust
    `{verified, unofficial}` 与 revocation freshness
    `{current, revoked, unknown}`，不得把二者折叠成一个互相排斥的 enum。local bundle、
@@ -240,8 +242,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     provenance/registry-event/compatibility/precision evidence identities 和 normalized
     evaluation/eligibility digests 全等时，add 才是 idempotent no-op 并返回同一
     receipt identity；跨越 evidence/revocation/policy 时间边界必须 re-audit，不能被 digest
-    comparator 跳过。相同 version 不同 bundle/index-entry digest 必须视为 immutable
-    identity violation，而不是 update。
+    comparator 跳过。official
+    `(publisher namespace, pack name, exact version)` 三元组相同而 bundle/index-entry digest
+    不同时必须视为 immutable identity violation，而不是 update；local 只按完整 canonical
+    local identity/storage key 比较，不得用 partial version key。
 22. B-022: update 必须显示 from/to exact identities 与 decision/ownership diff，重新执行
     provenance、capability、compatibility、precision 和 transaction gates；失败保持旧版本
     active。不得原地改写 version store 或复用旧 evidence 冒充新版本。
