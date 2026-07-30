@@ -388,8 +388,18 @@ if ! systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
   exit 1
 fi
 
-new_service_sha="$(scheduler_sha256_file "${SERVICE_DEST}")"
-new_timer_sha="$(scheduler_sha256_file "${TIMER_DEST}")"
+new_service_sha=""
+new_timer_sha=""
+if ! new_service_sha="$(scheduler_sha256_file "${SERVICE_DEST}")" \
+  || ! new_timer_sha="$(scheduler_sha256_file "${TIMER_DEST}")"; then
+  if ! scheduler_restore_install_transaction; then
+    red "ERROR: failed to hash installed systemd units and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+    exit 1
+  fi
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: failed to hash installed systemd units; restored the previous scheduler state."
+  exit 1
+fi
 if ! scheduler_receipt_write "${new_service_sha}" "${new_timer_sha}"; then
   if ! scheduler_restore_install_transaction; then
     red "ERROR: scheduler ownership recording failed and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
