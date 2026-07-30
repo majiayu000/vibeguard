@@ -33,15 +33,16 @@ human decisions；以下 v2 结构用于证明这些选择可形成一致、可�
 | Atomic primitive | `scripts/lib/file_ops.py:25`; `scripts/lib/file_ops.py:47`; `scripts/lib/file_ops.py:51` | 已有 same-directory fsync + replace 和 SHA-256 helper | 可复用语义；production Rust client 需提供等价原子/摘要实现 |
 | Local precision lifecycle | `scripts/precision-tracker.py:18`; `scripts/precision-tracker.py:42`; `scripts/precision-tracker.py:49`; `scripts/precision-tracker.py:52`; `scripts/precision-tracker.py:56`; `scripts/precision-tracker.py:273`; `scripts/precision-tracker.py:296` | repo-local triage/scorecard 用 70%/20、90%/50/30d、80% demotion thresholds 迁移 rule stage | 可作为 curated evidence 输入，不是 pack author 可自授的 official eligibility |
 | Aggregate CI precision | `scripts/ci/validate-precision-thresholds.sh:5`; `scripts/ci/validate-precision-thresholds.sh:23`; `scripts/ci/validate-precision-thresholds.sh:64`; `scripts/ci/validate-precision-thresholds.sh:73` | 全 corpus aggregate precision/recall/F1 默认各 75% | 与 per-rule pack default gate 不同，必须分 type/schema/name |
-| Host contract | `hooks/manifest.json:2`; `hooks/manifest.json:37`; `schemas/hooks-manifest.schema.json:6`; `schemas/hooks-manifest.schema.json:24`; `schemas/hooks-manifest.schema.json:61` | hooks manifest v1 每个 hook 固定 Claude/Codex 两列；没有通用 host registry | GH-701 draft 正在拥有该 generalization，GH-702 不得复制 |
+| Host contract | `hooks/manifest.json:2`; `hooks/manifest.json:37`; `schemas/hooks-manifest.schema.json:6`; `schemas/hooks-manifest.schema.json:24`; `schemas/hooks-manifest.schema.json:61` | hooks manifest v1 每个 hook 固定 Claude/Codex 两列；没有通用 host registry | GH-701 Draft spec 已合入 main，但 decisions、registry implementation 与 native proof 尚未交付；GH-702 不得复制或提前消费 |
 | Release payload | `scripts/release/payload-manifest.txt:1`; `scripts/release/payload-manifest.txt:13`; `scripts/release/payload-manifest.txt:32`; `scripts/release/payload-manifest.txt:48` | GH-699 payload 已包含 `packs/`、schemas 和 legacy Python helpers | 新 Rust client/authoring assets 必须进入同一 verified payload contract |
 | Existing regressions | `tests/test_guard_packs.sh:76`; `tests/test_guard_packs.sh:89`; `tests/test_guard_packs.sh:306`; `tests/test_guard_packs.sh:577`; `tests/test_precision_tracker.sh:196`; `tests/test_precision_tracker.sh:240` | 已覆盖 v1 validate/audit/receipt 和 precision lifecycle 主要路径 | 需要保留 legacy coverage，并拆出 supply-chain/transaction/policy suites |
 | GH-699 delivery status | `docs/specs/GH699/tasks.md:5`; `docs/specs/GH699/tasks.md:7`; `docs/specs/GH699/tasks.md:8`; `docs/specs/GH699/tasks.md:9`; `docs/specs/GH699/tasks.md:10` | payload T1/T2 已完成；bootstrap、no-clone smoke、brew/npm launcher 尚未完成 | official `vibeguard add` 的 public evidence 受其后续 tasks 阻断 |
 
-写作时 remote PR #712 head
-`1408324dcb16be5327bb3f0c681433dcf3f7cd0f` 是 GH-701 Draft，提出 versioned host
-registry；它尚未合并，不能当作当前 code contract。GH-700 Draft 则明确把 public
-benchmark 与 existing precision score portal 分开，GH-702 不依赖其完成。
+main `6e4224c9af742a3a6959eb2dc189418d510d1663` 已合并 PR #712 的 GH-701 Draft
+product/tech specs，提出 versioned host registry；GH-701 自身仍要求 H-001–H-004 decisions、
+manifest v2/registry implementation 和 fixed third-host native-proof gate，故 merged Draft
+不能当作可消费的 current runtime contract。GH-700 Draft 则明确把 public benchmark 与
+existing precision score portal 分开，GH-702 不依赖其完成。
 
 ## 设计方案
 
@@ -188,8 +189,10 @@ capability registry 把 ID 映射到已随 verified VibeGuard release 安装的 
 adapter，并声明 protocol range、supported decision types 和所需 host features。
 
 H-005 推荐 fixed Claude/Codex v1 时，resolver 读取现有安装 audit 的目标能力，但 pack
-schema 仍只保存抽象 ID。若 GH-701 registry 合并，adapter 改为消费其 canonical
-`host_id + capability` view；不复制 `claude`/`codex` config fields。unknown host、
+schema 仍只保存抽象 ID。只有 GH-701 decisions 获批、manifest v2/registry implementation
+合入 main 且 compatibility/native-proof gates 通过，adapter 才改为消费其 canonical
+`host_id + capability` view；merged Draft spec alone 不满足此 gate。不复制
+`claude`/`codex` config fields。unknown host、
 unknown capability、known-incompatible protocol、unsupported event、missing Core asset
 有不同 closed reason，均在 plan 前结束。这些 compatibility failures 是不可由 local
 override 提升的 terminal ceilings；只有 trust/revocation/compatibility/policy 全部允许、
@@ -398,8 +401,10 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 - **GH-699**：T3–T6 合并后，由 integration fixture探测 actual released launcher/path/
   argv。GH-702 不猜 shim 名或另造 bootstrap；payload manifest加入所有 production client
   资产。
-- **GH-701**：只消费其最终 approved host registry；若其 schema/ID 与本 Draft冲突，
-  implementation stop。fixed-host v1 不支持第三 host。
+- **GH-701**：只在 decisions allowed、manifest v2/registry implementation 已合入且
+  compatibility/native-proof gates allowed 后消费其 canonical registry；merged Draft
+  spec 不算 availability。若其最终 schema/ID 与本 Draft冲突，implementation stop。
+  fixed-host v1 不支持第三 host。
 - **GH-700**：无实施依赖；其 report schema/digest不可用作 per-rule precision evidence。
 
 ### 10. Planned affected files
@@ -529,7 +534,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-035 yank/revoke actions | Registry event + audit transaction | yank/revoke action references exact signed event evidence digest；yank blocks new install；revoke degrades existing；write failure produces needs_repair |
 | B-036 legacy safe-bash migration | v1 reader + migration planner | current v1 regressions pass; migration never claims Core file ownership and failure leaves registration receipt usable |
 | B-037 GH-699 dependency | Payload/release integration | `bash tests/test_payload.sh && bash tests/test_release_workflow.sh`; only discovered actual launcher/no-clone native smoke satisfies official |
-| B-038 GH-701 interface boundary | Host adapter compatibility layer | contract test accepts approved registry IDs or fixed Claude/Codex policy and rejects second registry/third-host active claim |
+| B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status aggregate/renderers | golden output shows both policy identities plus installed/empty/invalid/incompatible/revoked/needs_repair fields and exit codes |

@@ -87,8 +87,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 5. **H-005 — v1 host scope**：是否等待 GH-701 host registry。
    **Recommended proposal（未批准）**：v1 产品支持仅限现有 Claude Code/Codex
    installed targets，pack 只声明抽象 capability IDs，不复制 host config 形状；若
-   GH-701 的 versioned host registry 先获批并合并，则以其 host/capability IDs 为唯一
-   source。第三 host 不能由 GH-702 自造第二套 registry。
+   GH-701 的 decisions 获批、versioned host registry implementation 合入 main，且其
+   compatibility/native-proof gates 通过后，才以其 host/capability IDs 为唯一 source；
+   只合并 Draft spec 不构成 registry availability。此前保持获批的固定 Claude/Codex
+   scope。第三 host 不能由 GH-702 自造第二套 registry。
 6. **H-006 — Precision evidence 与 floor**：谁能出具证据、公式、样本量和新鲜度。
    **Recommended proposal（未批准）**：default-block eligibility 按 rule 计算
    `precision = TP / (TP + FP)`；只接受绑定 exact rule bytes、独立 review、公开 fixture
@@ -321,9 +323,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 37. B-037: GH-699 是 official command/distribution 依赖：payload/bootstrap/actual launcher
     必须真实包含并调用 pack client，no-clone native smoke 通过后才能满足 B-001。
     checkout-only `setup.sh packs` 或 spec 中猜的 shim 不能替代 released evidence。
-38. B-038: GH-701 若先批准 versioned host registry，GH-702 必须消费其 host/capability
-    identity；若 v1 选择固定 Claude/Codex scope，则第三 host 必须显示 unsupported，不能
-    在 pack schema 内复制另一套 host registry。两份合同冲突时停止实施并回到 spec review。
+38. B-038: 只有 GH-701 decisions 获批、versioned registry implementation 合入 main 且
+    compatibility/native-proof gates 通过，GH-702 才必须消费其 host/capability identity；
+    merged Draft spec 本身不开放该路径。此前或 v1 选择固定 Claude/Codex scope 时，第三
+    host 必须显示 unsupported，不能在 pack schema 内复制另一套 host registry。两份合同
+    冲突时停止实施并回到 spec review。
 39. B-039: GH-700 不是 pack publish/install 的 hard dependency，且 public benchmark、
     aggregate CI precision 与本 spec per-rule eligibility 必须使用不同 type/schema/name；
     renderer 不得把其中一个数值冒充另一个 gate 的 evidence。
@@ -386,5 +390,7 @@ unofficial local pack 与 revoked pack 分开说明，并记录 H-001–H-009 �
 
 公开 `vibeguard add` 前必须同时具备：GH-699 actual released launcher/no-clone evidence、
 获批 supplier/security policy、至少一个不在 VibeGuard 仓库内 author 的 end-to-end pack
-fixture，以及真实 update/remove/revocation演练。GH-701 未合并时只能承诺获批的固定 host
-scope；GH-700 未完成不阻断 pack 功能，但不得发布混淆的 precision/benchmark claim。
+   fixture，以及真实 update/remove/revocation演练。GH-701 仅有 merged Draft spec、尚未
+   取得 decisions + registry implementation + compatibility/native-proof evidence 时，只能
+   承诺获批的固定 host scope；GH-700 未完成不阻断 pack 功能，但不得发布混淆的
+   precision/benchmark claim。
