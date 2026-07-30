@@ -61,6 +61,20 @@ snapshot。required set 非空、去重并 canonical 排序；每个平台 repor
 本 target 的 `required` boolean。protocol 未获批或任一 config/state/schedule/set 非法时
 official preflight unavailable，不允许 runner/workflow 临时选择 workload 或用户设置。
 
+同一 protocol 还拥有两组不可由 runner 默认的 closed inputs：
+
+- `executor_limits` 按 executor ID 固定正整数 `timeout_ms`、
+  `termination_grace_ms`、`stdout_max_bytes` 与 `stderr_max_bytes`；
+- `interpreter_identities` 按 target + executor ID 固定 Bash/Python 等 interpreter 的
+  kind、来源闭集 `{release_payload, authenticated_host}`、asset/path ID、size、SHA-256
+  与 version identity。release payload 来源必须由 signed manifest 闭集绑定；
+  authenticated host 来源只允许 protocol 指定的精确路径，由 trusted preflight
+  no-follow 打开、校验 bytes 后 materialize。
+
+两组对象都进入 protocol canonical bytes/digest 与 report provenance；缺字段、重复
+executor、非正 limit、未知 interpreter/source、digest/version mismatch、PATH 解析或
+环境 override 都在零 case 时令 official unavailable。
+
 installer 必须把已验证身份写成 versioned
 `~/.vibeguard/installed/release-identity.json` receipt。它至少保存 release repo/tag/
 source commit/target、runtime asset name/size/SHA-256、runtime release manifest digest、
@@ -76,28 +90,34 @@ payload、wrappers、canonical benchmark config 与 protocol digests。receipt �
 真实 HOME 只通过一个身份专用的 preflight reader 访问。reader 以 no-follow 打开固定
 receipt，要求 regular file、当前用户 ownership、非 group/world writable、canonical
 parent 与 expected schema；离线验证 persisted attestation bundle + signed manifest 后，
-只按 receipt 的闭集相对路径逐个 no-follow 打开 runtime/payload/wrapper/manifest 与
-protocol-owned canonical benchmark config，不读取用户可变 config，不枚举目录、不接受绝对路径/
-`..`/hard-link/symlink，也不开放任意读取 API。每个 handle 在 hash 前后重验 metadata，
-materializer 只消费这些已验证 handles/bytes。snapshot 完成即关闭身份通道；executor、
+只按 receipt/manifest/protocol 的闭集 identity 逐个 no-follow 打开 runtime/payload/
+wrapper/manifest、protocol-owned canonical benchmark config 与 protocol-declared
+interpreter，不读取用户可变 config，不枚举目录、不接受未声明绝对路径/`..`/hard-link/
+symlink，也不开放任意读取 API。每个 handle 在 hash 前后重验 metadata，materializer
+只消费这些已验证 handles/bytes。snapshot 完成即关闭身份通道；executor、
 warmup 和 timed sample 不再访问真实 HOME，所有真实 HOME 路径必须从 report/redacted
 diagnostic 中移除。receipt 或 allowlist 任一身份/权限/类型/路径检查失败时零 case
 `unavailable`。
 
 `bench` 身份 preflight 的顺序是：
 
-1. verified distribution launcher 先按 signed manifest no-follow 打开 binary。Unix 必须用
-   `fexecve`/`execveat(AT_EMPTY_PATH)` 等从同一 handle exec，并传入只读 duplicate identity
-   fd；Windows 用 deny-write/delete executable handle 启动并持有至 child handshake。
-   不支持 mapped-image/handle binding 的平台 official unavailable；
-2. child 只从 inherited binding handle 流式计算 SHA-256并比较前后 metadata；`current_exe`
-   pathname 只作 diagnostic，不建立身份。start-then-replace pathname race 必须 fail closed；
-3. 离线验证 persisted attestation bundle 到 pinned trust root，并验证签名 release
-   manifest 的 repo/issuer/workflow/tag/source/subject；
-4. digest/size/path 必须匹配 signed manifest 的 target asset；payload、embedded inputs、
-   canonical benchmark config 与 actual installed wrapper bytes 各自重算 digest，全部匹配
-   manifest/同 tag/source commit，receipt 仅提供本地 path mapping；
-5. build-time version/tag/commit 只作额外一致性断言，不能替代 current bytes chain。
+1. 分发链先提供独立受信的最小 native launcher；它必须由待执行 runtime 之外的
+   platform/package provenance 认证。shell script、receipt 或 child 自报不能充当 trust root；
+2. trusted launcher 在执行 runtime 前离线验证 persisted attestation bundle 到 pinned
+   trust root，并验证 signed release manifest 的 repo/issuer/workflow/tag/source/subject；
+3. launcher 按 signed manifest no-follow 打开 target runtime，流式计算 size/SHA-256并
+   比较 hash 前后 metadata；只有与 manifest target asset 完全匹配后，Unix 才能从同一
+   handle `fexecve`/`execveat(AT_EMPTY_PATH)` 并传入只读 duplicate identity fd，Windows
+   才能从 deny-write/delete executable handle 启动并持有至 child handshake。不支持
+   trusted-launcher 或 mapped-image/handle binding 的平台 official unavailable；
+4. child 从 inherited binding handle 再算 SHA-256并比较前后 metadata，只作 defense in
+   depth；`current_exe` pathname 只作 diagnostic，不建立首次信任。start-then-replace
+   pathname race 必须 fail closed；
+5. payload、embedded inputs、canonical benchmark config、actual installed wrapper 与
+   protocol-declared interpreter bytes 各自重算 digest/size，全部匹配 manifest/protocol/
+   同 tag/source commit；receipt 仅提供本地 path mapping；
+6. build-time version/tag/commit 只作额外一致性断言，不能替代 launcher 在 exec 前建立的
+   current-bytes chain。
 
 official mode 强制要求 `verified-provenance`；当前允许的 `checksum-only` install 仍可
 跑诊断，但只能标 `unofficial`。这是 B-021 的安全 floor，不是待选产品 proposal。
@@ -175,6 +195,13 @@ Rust `bench` 内部建立封闭 executor registry，而不是让 corpus 提供�
   `sh -c`/字符串拼接；
 - 不提供 `command`、`shell`、任意 path 或 plugin executor。
 
+registry 的每个 executor ID 必须精确关联 protocol-owned `executor_limits` 与
+`interpreter_identities`。需要 Bash/Python 的 executor 只能从 readonly snapshot 中启动
+preflight 已验证的精确 interpreter 路径/handle；禁止 `Command::new("bash")`、
+`Command::new("python")`、`/usr/bin/env` 或任何 PATH lookup。实际 interpreter
+size/SHA-256/version identity 与四个 limits 进入 report provenance；缺失或不匹配时不得
+启动 case。
+
 `dangerous_shell_or_git` fixture 只作为 hook stdin 分类，绝不执行 payload 中的 command。
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
 wrapper/payload guard 运行 canonical pre/post/stop path。每个 versioned adapter 只接受
@@ -212,15 +239,18 @@ runner 为每次运行创建权限收紧的专用 temp root：
   `VIBEGUARD_*` overrides；
 - fixture 路径全部在 canonicalized temp root 下，拒绝 symlink、hard-link escape、
   absolute path 与 traversal；
-- payload executors 关闭 stdin 继承，设置 timeout，stdout/stderr 有大小上限；
+- payload executors 关闭 stdin 继承，严格应用 protocol 对该 executor ID 绑定的
+  `timeout_ms`、`termination_grace_ms`、`stdout_max_bytes` 与 `stderr_max_bytes`；
+  runner 不得提供隐式默认值或环境 override，cap overflow/timeout 产生闭集
+  `execution_error` 并触发完整进程树终止；
 - report 保留 mapping schema 允许的 closed raw production decision、raw reason code、
   rule/reason identifier、normalized decision/canonical reason、closed error category 与
   synthetic case ID；free text、原始 payload、用户路径、env 和任意 child stderr 不持久化。
 
 在启动效果 case 或 latency warmup 前，materializer 只按 verified signed manifest 的
-闭集文件清单，把 runtime、payload、wrappers、protocol-owned canonical benchmark config
-与 manifest 复制到 temp HOME 下与
-生产安装完全相同的相对布局。复制后逐文件重新计算 digest/size，校验 receipt、拒绝
+闭集文件清单，把 runtime、payload、wrappers、protocol-owned canonical benchmark config、
+manifest 与 protocol-declared interpreters 复制到 temp HOME 下与生产安装完全相同的相对
+布局。复制后逐文件重新计算 digest/size，校验 receipt/manifest/protocol identity、拒绝
 symlink/hard-link/extra executable，并把 install tree 设为只读；wrapper 的 HOME 与解析
 路径只指向该 snapshot。materialization、permission tightening 与 digest verification
 全部发生在计时区间外。缺文件、布局差异、可写文件或 digest drift 时零 timed sample
@@ -299,10 +329,11 @@ headline。human、JSON、README 不得各自重算。
 新增 surface 名 `bench_case_e2e_ms`，避免与现有 CI `hook_e2e_ms` 混淆。每个 sample
 必须从 B-030 已重验的 readonly production-layout snapshot 解析 actual installed
 wrapper，以
-`Command::new("bash").args([wrapper_path, fixed_hook_name])` 等参数数组方式 spawn 子进程，
-传 fixture stdin 并等待 stdout/stderr/exit 完整返回。禁止 direct Rust function、
-checkout hook、mock wrapper、PATH fallback 或只测 `bench` dispatcher。对每个 production
-surface：
+protocol-declared、preflight verified、readonly-snapshot interpreter 的精确路径/handle，
+以参数数组 `[wrapper_path, fixed_hook_name]` spawn 子进程，传 fixture stdin，并在绑定的
+timeout/output caps 内等待 stdout/stderr/exit 完整返回。禁止 host PATH interpreter、
+direct Rust function、checkout hook、mock wrapper、PATH fallback 或只测 `bench`
+dispatcher。对每个 production surface：
 
 - 先运行固定的 process/spawn baseline 与 clock sanity check；
 - ordered case IDs、每个 ID 的 warmup/measurement repetition 与完整 interleaving 顺序从
@@ -318,7 +349,8 @@ surface：
   materialization/report render；
 - 输出 schedule/state/estimator identity、P50/P95/P99/max、runs、platform、
   runtime/payload identity 和 baseline；
-- environment threshold 沿用已发布 protocol 字段，不从用户环境或 README 读取。
+- environment threshold、executor timeout/termination grace/stdout cap/stderr cap 与
+  interpreter identity 沿用已发布 protocol 字段，不从用户环境、PATH 或 README 读取。
 
 效果 A/B run 与 latency sample batch 分开，避免 confirmation 次数意外改变效果分母。
 wrapper path/digest drift 在 sampling 前使 latency `unavailable`；sample error/distortion
@@ -334,7 +366,8 @@ pass budget。
 
 - `schema_version`, `canonicalization_version`, `official`, top-level `status`,
   `failure_categories`；
-- actual current-exe/release-manifest/payload/wrapper/corpus provenance；
+- actual current-exe/release-manifest/payload/wrapper/corpus provenance，以及
+  protocol-bound executor limits/interpreter identity；
 - `interception_decisions`、production-mapping identity、protocol digest、
   `required_platforms` 与本 target 的 `required` boolean；
 - effectiveness axis status、A/B + cross-platform `decision_digest`、
@@ -497,7 +530,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 released one-command official mode | runtime CLI + manifest-declared Homebrew/npm launcher dispatch | no-clone fixtures prove every supported installed launcher transparently forwards `bench` argv/stdin/stdout/stderr/exit without entering bootstrap/setup/init; missing/non-forwarding launcher is unavailable |
-| B-002 complete matched provenance before execution | signed manifest/bundle + protocol config/schedule preflight | negative matrix for current-exe, tag, commit, target, canonical benchmark config, initial-state/schedules, protocol/required-platforms, corpus/payload/wrapper digest asserts unavailable and zero executor calls |
+| B-002 complete matched provenance before execution | signed manifest/bundle + protocol config/schedule/limits/interpreter preflight | negative matrix for current-exe, tag, commit, target, canonical benchmark config, initial-state/schedules, executor limits, interpreter identities, protocol/required-platforms, corpus/payload/wrapper digest asserts unavailable and zero executor calls |
 | B-003 five classes with both polarities | corpus schema + completeness validator | corpus mutation tests remove each class/positive/negative side one at a time and assert preflight failure |
 | B-004 reviewed immutable ground truth | separate fixture/ground-truth/mapping parsers | duplicate-key/ID, orphan joins, unknown enum, conflicting label, non-independent review and changed-content-same-version fixtures are rejected |
 | B-005 production paths only | sealed executor registry | mutation test replaces each executor with unknown/test-only ID and asserts zero cases; code review confirms no case-ID detector branch |
@@ -506,7 +539,7 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-008 honest statuses | axis state machines + top aggregator | exhaustive axis status/error fixtures prove each axis emits only the closed status set and never renders non-valid as zero/pass |
 | B-009 deterministic confirmation | per-case initial-state materializer + dual-run executor + `decision_digest` | history-sensitive hook fixture proves every A/B case gets the same fresh digested state and previous cases cannot influence it; injected drift remains inconclusive |
 | B-010 idempotent/concurrent isolation | run context + exclusive output | two parallel process tests use disjoint roots/reports; sentinel install/repo/log files remain byte-identical |
-| B-011 end-to-end latency semantics | fresh-per-sample state + nearest-rank-v1 per-surface sampler | history/log-growth fixture proves warmup and measurements never share state; n=1/2/3/20/21 goldens distinguish ceil-rank from floor; every scheduled wrapper sample drains full IO |
+| B-011 end-to-end latency semantics | fresh-per-sample state + nearest-rank-v1 per-surface sampler | history/log-growth fixture proves warmup and measurements never share state; n=1/2/3/20/21 goldens distinguish ceil-rank from floor; every scheduled wrapper sample uses protocol-bound limits/interpreter and drains full IO |
 | B-012 distorted latency honesty | environment baseline + axis status | bad clock, zero runs, spawn distortion and sample error all blank headline latency without inventing zero; effectiveness axis remains independently evaluated |
 | B-013 synthetic sandbox/privacy | identity-only HOME reader + sandbox/env builder + redactor | allowlist fixture permits only verified receipt-enumerated files; directory enumeration/symlink/other HOME reads and all writes fail; dangerous-command sentinel remains untouched and secret/path/env sentinel is absent |
 | B-014 interruption and bounded cleanup | process group/session/Job Object + terminal-outcome override + cleanup ledger | descendant fixture proves full tree exits; cleanup-before-seal fixture proves the immutable partial report contains the final cleanup result; clean cancellation after both axes valid and all tree/report/schema/cleanup failures still force final inconclusive/nonzero |
@@ -516,10 +549,10 @@ post-release CI 从不可变 asset 生成一个独立 README PR，保留 human r
 | B-018 closed release-policy branches | release/README policy fixtures + completion reconciler | exhaustive fixtures prove recoverable block and hard-cancel both create permanent attempt evidence without Release/page/assets/current row; publish_nonvalid creates only same-version non-valid evidence/row; evidence-gate and unknown-policy failures block |
 | B-019 explicit schema compatibility | versioned parsers | current/legacy/unknown schema fixtures prove only declared mapping loads; unknown version nonzero unavailable |
 | B-020 unofficial isolation | CLI option policy + README ingest gate | custom/dev report carries `official:false`, uses separate path and is rejected by README generator |
-| B-021 verified current-exe identity chain | offline bundle + handle-bound exec/mapped-image handshake | start modified image then replace pathname with signed binary still fails; Unix inherited exec fd/Windows deny-write handle binds executing image to signed manifest |
+| B-021 verified current-exe identity chain | independently trusted native launcher + offline bundle + handle-bound exec/mapped-image handshake | launcher verifies manifest and runtime handle digest before exec; start modified image then replace pathname with signed binary still fails; Unix inherited exec fd/Windows deny-write handle binds executing image to signed manifest |
 | B-022 split decision/evidence digests | safe-integer RFC 8785 JCS canonical builders | Rust/Python golden/reject vectors cover ±9007199254740991 and out-of-range ±1, big decimal strings, case-ID-sorted JSONL→JCS-array framing, config/state/schedule identities and split digest behavior |
 | B-023 axis candidate + terminal override | shared status aggregator + renderer | exhaustive 3×3×`terminal_ok|terminal_error` golden proves terminal failure always yields inconclusive/nonzero/blank headline while error-free candidate remains pure |
-| B-024 real wrapper subprocess E2E | mapping resolver + latency executor | installed wrapper spy records argv/stdin and child completion; direct function, checkout wrapper, PATH fallback and digest drift are rejected |
+| B-024 real wrapper subprocess E2E | mapping resolver + protocol-bound interpreter/limits + latency executor | installed wrapper spy records verified interpreter identity, limits, argv/stdin and child completion; direct function, checkout wrapper, host PATH interpreter, default-limit drift and digest drift are rejected |
 | B-025 decision/reason closure and execution-error exclusion | mapping adapter + aggregate | explicit no_interception success maps to allow without a raw reason; every other unknown/missing/multiple decision/reason fixture and free-text heuristic attempt creates no normalized value/numerator, remains denominator and forces inconclusive |
 | B-026 independent ground truth and mapping | attested maintainer roster + signed review-record schema | fake distinct IDs sharing key/subject, unrostered role, bad signature/digest/commit and forbidden overlaps all fail before execution |
 | B-027 immutable version→digest ledger | prior-release attestation trust anchor + ledger validator | mutation suite rewrites checkout ledger and asserts mismatch against verified prior root/length/prefix; missing/wrong-lineage anchor fails; approved genesis and exact tuple reuse pass |

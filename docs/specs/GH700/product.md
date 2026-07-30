@@ -57,12 +57,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 （未批准）**，只供维护者选择；写入 proposal 不等于批准。在 spec approval 时必须逐项
 确认或改写，否则对应 headline 保持 `unavailable`，不得由实现者默认：
 
-1. **Interception 口径**：headline 只统计 `block/deny`，还是统计
+1. **H-001 — Interception 口径**：headline 只统计 `block/deny`，还是统计
    `block/deny + warn/review`。无论选择哪一种，报告都必须同时公开 block rate 与
    advisory rate，不能只展示合并后的最好数字。**Recommended proposal（未批准）：
    headline 只统计 normalized `block`；`advisory` 单列，绝不进入 interception/FP
    numerator。**
-2. **两个类别的生产语义**：
+2. **H-002 — 两个类别的生产语义**：
    - “invented APIs”是指当前 hook 可证明的不存在路径/不存在编辑目标，还是依赖/API
      inventory 验证；后者目前没有已核实的 released deterministic production surface。
    - “swallowed exceptions”当前锚点是 Python guard 的 pytest-shaped checker；需确认
@@ -72,18 +72,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    inventory production detector，不能用“不存在文件”改名顶替；swallowed exception
    将现有 AST 逻辑抽成无 pytest 依赖、production 与测试共用的 released guard。两条
    production mapping 未合并前，五类完整性门保持 unavailable。**
-3. **公开平台集合**：获批 protocol 的 `required_platforms` 指定哪些 release targets
+3. **H-003 — 公开平台集合**：获批 protocol 的 `required_platforms` 指定哪些 release targets
    参与 release summary gate；非 required targets 只展示，不影响 gate。不同 OS/架构的
    延迟不得静默平均。**Recommended proposal（未批准）：v1 的 required set 先取
    `aarch64-apple-darwin` 与 `x86_64-unknown-linux-musl`；另外两个 targets 可显示
    unavailable，但不阻断。若选择四 target required set，则四个平台都必须有 native
    runner，cross-compiled smoke 不能替代。**
-4. **Release policy**：闭集取值为 `{block_release, publish_nonvalid}`。前者不创建
+4. **H-004 — Release policy**：闭集取值为 `{block_release, publish_nonvalid}`。前者不创建
    GitHub Release 或 README current row，并按 B-029 永久保存失败 manifest；后者发布
    带 non-valid report 的 release 与同版本 non-valid README row。两种方案都不得沿用
    上一版本数字冒充当前 release。**Recommended proposal（未批准）：选择
    `block_release`。**
-5. **Corpus 强度**：审核独立性与 dangerous mapping 的 security review 是 B-026
+5. **H-005 — Corpus 强度**：审核独立性与 dangerous mapping 的 security review 是 B-026
    规定的不可协商 integrity floor，不属于产品选择；这里只选择每类最少正/负样本数。
    **Recommended proposal（未批准）：每类至少 5 个 positive + 5 个 matched
    negative。**
@@ -102,10 +102,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    runtime version、release tag、target triple、build source commit、corpus schema
    version、corpus ID/version/digest、approved protocol version/digest 及其
    `required_platforms`、protocol-owned canonical benchmark config identity、per-surface
-   latency workload schedule identity、release payload manifest digest，以及本次实际
-   使用的 production surfaces 摘要。official 模式忽略用户可变 config/tuning；任一必填值
+   latency workload schedule identity、每个 executor 的 timeout/termination-grace/
+   stdout-cap/stderr-cap、每个 shell/Python interpreter 的 protocol-bound identity、
+   release payload manifest digest，以及本次实际使用的 production surfaces 摘要。
+   official 模式忽略用户可变 config/tuning/PATH 与 executor limit overrides；任一必填值
    缺失、为空、越界或互相不匹配时，结果为 `unavailable` 且零 case 执行；不得用
-   `unknown` 生成 headline。
+   `unknown` 或实现默认值生成 headline。
 3. B-003: 官方 corpus 必须包含五个闭集 failure classes
    `{invented_api, duplicate_module, swallowed_exception,
    dangerous_shell_or_git, unverified_done_claim}`。每类必须同时有至少一条 positive
@@ -129,7 +131,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    缺失字段 fallback。除该显式 variant 外，缺失 decision/reason 仍是
    `execution_error`。`execution_error`/timeout 是独立 case status，不是
    production decision，也永远不在 headline subset 中。报告必须声明
-   `interception_decisions` 是 decision 闭集的哪个非空子集；该口径由“产品决策 1”
+   `interception_decisions` 是 decision 闭集的哪个非空子集；该口径由 H-001
    批准。缺失或改变口径的报告之间不得直接比较。
 7. B-007: 指标必须使用完整 ground truth 分母：
    `interception_rate = 被选定 interception_decisions 命中的 positive / positive_total`；
@@ -253,19 +255,23 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 21. B-021: official 身份必须持有 installer 已验证的 `verified-provenance`，这是安全
     强制项而非产品 proposal；`checksum-only` 或无 attestation 的安装最多运行
     `unofficial` 诊断。official runner 不得只信任 binary 自报的 version/tag/commit 或
-    `current_exe` pathname。verified distribution launcher 必须先打开 signed-manifest
-    binary handle，并在 Unix 用 `fexecve`/`execveat` 等 handle-bound exec 启动且把只读
-    identity fd 传给 child；Windows 必须用 deny-write/delete 的 executable handle 启动并
-    持有到 child 完成 identity handshake。平台不能证明 mapped image 来自该 verified
-    handle 时 official unavailable。child 从 inherited binding handle 计算 SHA-256，并把它与
-    installer 保存并供离线复验的签名 attestation bundle、pinned trust-root set/version、
-    对应 target 的 release-manifest asset digest、tag/source commit 和 attestation subject
-    串成一致链；bundle 必须绑定签名 release manifest，manifest 再闭集绑定 runtime、
-    payload、wrapper、canonical benchmark config 与 protocol identities。receipt 只提供
-    本地 path/handle mapping，不能自证 issuer/workflow/subject/digests。`argv[0]`、`PATH`、
-    cwd 邻居 binary、启动后把 pathname 替换回合法 binary、
-    build-time 自报字段或仅“版本相同”都不能建立 official 身份。任何打开/读取/稳定性/
-    digest/attestation mismatch 在零 case 时 `unavailable`。
+    `current_exe` pathname。official mode 的 distribution entrypoint 必须是独立受信的
+    最小 native launcher；仅由待执行 child、shell script 或 receipt 自证的 launcher 不算
+    trust root。该 launcher 必须在任何 runtime bytes 执行前离线验证 persisted
+    attestation bundle、pinned trust-root set/version 与 signed release manifest，再
+    no-follow 打开 target runtime handle、校验前后 metadata，并把 handle 的 size/SHA-256
+    与 manifest 中对应 target asset 比较。全部通过后，Unix 才能用
+    `fexecve`/`execveat` 等执行同一 handle 并传入只读 identity fd；Windows 才能从
+    deny-write/delete executable handle 启动并持有到 child 完成 identity handshake。
+    平台或分发链不能独立认证 launcher、或不能证明 mapped image 来自已校验 handle 时
+    official unavailable。child 必须从 inherited binding handle 再算 SHA-256并复验
+    manifest chain，作为 defense in depth，不能成为首次信任判定。manifest 闭集绑定
+    runtime、payload、wrapper、canonical benchmark config、protocol 与 interpreter
+    identities；receipt 只提供本地 path/handle mapping，不能自证
+    issuer/workflow/subject/digests。`argv[0]`、`PATH`、cwd 邻居 binary、启动后把 pathname
+    替换回合法 binary、build-time 自报字段或仅“版本相同”都不能建立 official 身份。任何
+    launcher trust、打开/读取/稳定性/digest/attestation mismatch 在零 case 时
+    `unavailable`。
 22. B-022: 报告必须同时给出两个不可混用的摘要：
     - `decision_digest` 是跨平台比较面，只绑定共同 release source commit、corpus/
       ground-truth/production-mapping/protocol identities、approved
@@ -300,10 +306,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     “current valid benchmark”标识。
 24. B-024: E2E latency executor 必须从 verified install receipt/production mapping
     解析 actual installed Claude/Codex wrapper，并用参数数组启动子进程、传入 fixture
-    stdin、等待完整输出与退出。它必须拒绝 checkout path、直接 runtime function、
-    mock wrapper、PATH fallback 或仅测 `vibeguard-runtime bench` 自身调度开销。wrapper
-    缺失、digest drift 或不是当前安装 receipt 记录的文件时 latency axis
-    `unavailable`。
+    stdin、等待完整输出与退出。每个 executor 的正整数 timeout、termination grace、
+    stdout cap 与 stderr cap，以及 Bash/Python 等 interpreter 的 target、来源、size、
+    SHA-256 和 version identity，必须是 approved protocol 的必填、canonical、digest-bound
+    输入；runner 不得采用实现默认值、环境变量或 PATH 解析。interpreter 必须是 signed
+    release payload 内的 manifest-bound asset，或是 protocol 明确允许且由 preflight
+    no-follow 打开、校验 bytes 后 materialize 的 host asset；两者都从 readonly snapshot
+    中的已验证精确路径/handle 启动，并在 report provenance 中记录实际 identity。缺失、
+    mismatch、cap overflow 或 timeout 必须得到闭集 error 状态，不能因实现差异产生另一
+    production decision。executor 必须拒绝 checkout path、直接 runtime function、
+    mock wrapper、PATH fallback 或仅测 `vibeguard-runtime bench` 自身调度开销。wrapper/
+    interpreter 缺失、digest drift 或不是 protocol/receipt/manifest 记录的文件时 latency
+    axis `unavailable`。
 25. B-025: production mapping 为每个 adapter 同时声明闭集 raw decisions、闭集 raw
     reason codes，以及它们到 `{block, advisory, allow}` 和 canonical reason code 的唯一
     映射。mapping-declared `no_interception_success` 是唯一允许 raw reason 缺席的正常
@@ -361,12 +375,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     必须同时包含 `(run_id, run_attempt, failure_manifest_digest)`。即使 report/evidence
     bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
     job 非零退出，GitHub Release、release page/assets 与 README candidate current row
-    均不创建。对于 hard-cancel、runner loss 或 workflow timeout，独立 completion
+    均不创建。
+
     required-platform 输入各自通过但 decision 不一致、缺输入或 aggregation 失败时，
     release-scoped 分支必须绑定 canonical failed summary/preimage、`summary_digest`、
     完整 required-platform set、逐 target report/evidence/checksum identity 与闭集
-    aggregation reason，不能降格成单一 target record。对于 hard-cancel、runner loss
-    或 workflow timeout，独立 completion reconciler 必须在终态事件后创建 schema 的
+    aggregation reason，不能降格成单一 target record。
+
+    对于 hard-cancel、runner loss 或 workflow timeout，独立 completion reconciler 必须在
+    终态事件后创建 schema 的
     `pipeline_interrupted` 分支：包含同一
     candidate/run/attempt、staged provenance、selected/effective policy、interruption
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
@@ -380,12 +397,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     terminal-run 列表/永久 store 不可用或 watermark 不一致时 fail closed，不能先发布后补写。
 30. B-030: official run 在任何 latency warmup/measurement 前，必须通过 B-013
     身份专用只读通道，从 verified payload/receipt 的已打开、已校验 handles/bytes 把
-    runtime、payload、wrapper、protocol-owned canonical benchmark config 与 manifest 按
-    生产安装布局
-    materialize 到本次 temp HOME 的 byte-identical、只读 install snapshot，并逐文件重算
-    digest 与 receipt 对齐。materialization、chmod 与 digest verification 不进入 latency
-    样本；计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写
-    状态或 digest drift 使对应 axis 在零 timed sample 时 `unavailable`；身份通道关闭后
+    runtime、payload、wrapper、protocol-owned canonical benchmark config、manifest 与
+    protocol-declared interpreter 按生产安装布局 materialize 到本次 temp HOME 的
+    byte-identical、只读 install snapshot，并逐文件重算 digest 与 receipt/manifest/protocol
+    identity 对齐。materialization、chmod 与 digest verification 不进入 latency 样本；
+    计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写状态或
+    digest drift 使对应 axis 在零 timed sample 时 `unavailable`；身份通道关闭后
     case/warmup/measurement 不得再读真实 HOME，任何阶段都不得写真实 HOME 或使用
     checkout/mock/PATH fallback。
 31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
