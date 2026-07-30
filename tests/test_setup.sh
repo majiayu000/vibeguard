@@ -501,51 +501,50 @@ SH
 chmod +x "${TMP_HOME}/bin/launchctl"
 cat > "${TMP_HOME}/bin/systemctl" <<'SH'
 #!/usr/bin/env bash
-state="${HOME}/.systemctl-vibeguard-gc-active"
-if [[ "${1:-}" == "--user" ]]; then
-  shift
-fi
+active_state="${HOME}/.systemctl-vibeguard-gc-active"
+enabled_state="${HOME}/.systemctl-vibeguard-gc-enabled"
+[[ "${1:-}" == "--user" ]] && shift
 case "${1:-}" in
-  daemon-reload)
-    exit 0
-    ;;
+  daemon-reload) exit 0 ;;
   enable)
-    if [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]]; then
-      if [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]]; then
-        exit 1
-      fi
-      touch "$state"
-    fi
-    exit 0
+    [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]] || exit 0
+    [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]] && exit 1
+    touch "$active_state" "$enabled_state"
     ;;
   start)
-    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
-      touch "$state"
-    fi
-    exit 0
+    [[ "${2:-}" == "vibeguard-gc.timer" ]] && touch "$active_state"
     ;;
-  stop|disable)
-    rm -f "$state"
-    exit 0
+  stop)
+    [[ "${VIBEGUARD_TEST_SYSTEMD_STOP_FAIL:-0}" == "1" ]] && exit 1
+    [[ "${VIBEGUARD_TEST_SYSTEMD_STILL_ACTIVE:-0}" == "1" ]] || rm -f "$active_state"
+    ;;
+  disable)
+    [[ "${VIBEGUARD_TEST_SYSTEMD_DISABLE_FAIL:-0}" == "1" ]] && exit 1
+    [[ "${VIBEGUARD_TEST_SYSTEMD_STILL_ENABLED:-0}" == "1" ]] || rm -f "$enabled_state"
     ;;
   is-active)
-    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
-    exit 3
+    if [[ "${2:-}" == "vibeguard-gc.timer" && -f "$active_state" ]]; then
+      printf 'active\n'; exit 0
+    fi
+    printf 'inactive\n'; exit 3
+    ;;
+  is-enabled)
+    if [[ "${2:-}" == "vibeguard-gc.timer" && -f "$enabled_state" ]]; then
+      printf 'enabled\n'; exit 0
+    fi
+    printf 'disabled\n'; exit 1
     ;;
   status)
-    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$state" ]] && exit 0
+    [[ "${2:-}" == "vibeguard-gc.timer" && -f "$active_state" ]] && exit 0
     exit 3
     ;;
   list-timers)
-    if [[ -f "$state" ]]; then
+    if [[ -f "$active_state" ]]; then
       printf 'NEXT LEFT LAST PASSED UNIT ACTIVATES\n'
       printf 'Sun 03:00 - - - vibeguard-gc.timer vibeguard-gc.service\n'
     fi
-    exit 0
     ;;
-  *)
-    exit 0
-    ;;
+  *) exit 0 ;;
 esac
 SH
 chmod +x "${TMP_HOME}/bin/systemctl"
@@ -779,6 +778,7 @@ assert_cmd "quiet runtime download rejects manifest size mismatch" bash -c '
 
 for setup_test in \
   "${REPO_DIR}/tests/setup/syntax_manifest_tests.sh" \
+  "${REPO_DIR}/tests/setup/bootstrap_tests.sh" \
   "${REPO_DIR}/tests/setup/runtime_install_tests.sh" \
   "${REPO_DIR}/tests/setup/install_flow_tests.sh" \
   "${REPO_DIR}/tests/setup/protection_clean_tests.sh" \
