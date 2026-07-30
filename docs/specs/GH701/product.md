@@ -159,8 +159,11 @@ GH-701 已完成。
     core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
     batch fail-closed，禁止截断或部分执行。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
-    `block > escalate > gate > correction > warn > complete > pass` 产生唯一 host
-    response；`block`、`escalate`、`gate` 任一存在时都不得执行 correction。
+    `hook_error > block > escalate > gate > correction > warn > complete > pass`
+    产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
+    必须先规范化为 fail-closed `hook_error` decision，不能丢弃、降级或留给
+    aggregator 猜测。`hook_error`、`block`、`escalate`、`gate` 任一存在时都不得
+    执行 correction。
     `complete` 是已完成的非 enforcement 结果，必须显式聚合但不得覆盖 warning、
     confirmation 或 blocking 结果。多个 block 全部进入日志，primary block
     取输入顺序最早者，去重后的 fix instructions 按输入顺序有界合并，不能只记录
@@ -184,10 +187,15 @@ GH-701 已完成。
 25. B-025 host config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
-    digest 漂移必须停止而不是覆盖并发更改。每次 atomic rename 前必须先 durable
-    写入 `applying` journal（base/candidate digest、target、step），恢复时以 target
-    的实际 digest 判定是否已 apply，不能把尚未记录 `applied` 的 rename 当成
-    pre-apply 丢弃。
+    digest 漂移必须停止而不是覆盖并发更改。plan 必须先证明目标支持真正原子的
+    `conditional_replace(expected_base_identity, candidate)`；该原语在同一个
+    kernel/host linearization point 校验 no-follow target 的 presence、file identity
+    与 bytes digest，并且仅在全匹配时替换。单独 read/compare 后再 rename、advisory
+    lock 或 mtime check 都不算 CAS；缺少该原语必须在 snapshot/journal/target
+    mutation 前 fail closed。调用前必须 durable 写入 `applying` journal；CAS
+    mismatch 不得改 target，必须保留外部更改并进入 `broken/needs_human`。恢复时
+    以 target 的实际 digest 判定是否已 apply，不能把尚未记录 `applied` 的 rename
+    当成 pre-apply 丢弃。
 26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
@@ -200,15 +208,21 @@ GH-701 已完成。
     denominator 不得作为未经认证的自报事实。missing、schema-valid semantic
     mismatch、tampered/unsigned payload、错误 workflow/ref/producer invocation、
     stale HEAD/release、非零 install、repo clone、占位/历史 latency benchmark
-    均必须由 negative fixtures 拒绝。
+    均必须由 negative fixtures 拒绝。GH-700 的唯一 benchmark authority 是其
+    committed GitHub Release 所绑定并验签的 `public_benchmark_summary`、对应
+    report checksums 与 `publish_intent`；GH-701 不得另跑一次 `vibeguard bench`
+    或建立平行的 README benchmark payload。
 28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
     独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
     HEAD、native event identity、redaction result、host binary SHA-256、VibeGuard
     runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
     timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
     必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
-    获批的 host_id/option、host release、protocol snapshot 与 native blocking
-    event；另一个第三 host 的有效 proof 不能替代获批选择。
+    获批的 host_id/option、host release、protocol snapshot、native blocking
+    event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
+    registry integrity 或 signed release manifest 得到独立 approved digest，再以
+    no-follow 打开的实际 executable bytes 复算匹配；binary 自报 release/SHA 或
+    pathname 不能建立 provenance。另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
     `readonly_retain + owner + UTC expiry`；任何第三状态、缺 owner/expiry、expiry
     已过仍存在或发生新 push 都阻断 GH-701 closure。
@@ -231,8 +245,12 @@ GH-701 已完成。
     maintainer witness 只能由受保护的只读 GitHub collector 获取并带可离线验证的
     attestation，绑定 immutable node、native event、candidate head 与见证时间；
     implementer 不能通过 runtime proof 字段、命令参数或手写文件提供 actor、
-    association、source URL 或 witnessed time。任一 artifact 缺失、绑定不一致、
-    attestation 无效或 evidence 不新鲜时 third-host gate blocked。
+    association、source URL 或 witnessed time。witness record 必须绑定 source
+    body digest、`updated_at`、单调 collection generation 与 revocation state；
+    每次允许 proof 前，当前 protected run 必须重新读取该
+    `observed_native_block` source，确认 node 仍存在、body/digest/time 未变且没有
+    后续 revoke/superseding witness。任一 artifact 缺失、source 已编辑/删除/撤销、
+    绑定不一致、attestation 无效或 evidence 不新鲜时 third-host gate blocked。
 33. B-033 primary block 的 fix instruction 即使单项超过 response byte cap，也
     不得被省略成无修复信息的响应；encoder 必须保持 `block`，返回固定、无 payload
     的有界 closed fallback，标记 truncation/fallback 并保留原 fix 的随机
@@ -260,7 +278,12 @@ GH-701 已完成。
     时才能继承批准；task/code/test 的非 decision-sensitive descendant commit 可以
     继续。任一 spec byte、H-001–H-004 option/约束、issue acceptance snapshot、
     proof protocol/release、branch expectation 或 collector trust identity 改变，
-    旧 decision 立即失效并必须由维护者重新收集/批准。
+    旧 decision 立即失效并必须由维护者重新收集/批准。已关闭的 bootstrap 不能因
+    trust-path 修复而重开；修改 collector/schema/gate/workflow 必须走受保护 main
+    发起的 `trust_rotation`：独立维护者批准精确 candidate HEAD、旧/新 path digests、
+    diff digest、scope 与 expiry，protected-main collector 直接读取 candidate bytes
+    并签发 attestation。candidate 自身 workflow、实现者 JSON 或宽泛 path approval
+    均不能授权轮换；merge 后必须重建 completion sentinel 并重新收集 decisions。
 
 ## 验收标准
 
@@ -278,13 +301,16 @@ GH-701 已完成。
   event logs 可由 batch/request IDs 双向关联。
 - [ ] manifest v2、v1 compatibility/deprecation、non-host entries 与完整 unknown
   matrix 有 schema-valid positive/negative fixtures。
-- [ ] config transaction 的 lock contention、TOCTOU drift、每个 phase failure、
-  crash recovery、safe rollback 与 external-drift needs-human 路径均有确定性证据。
+- [ ] config transaction 的 lock contention、TOCTOU drift、最后 observation 后且
+  conditional replace linearization 前的外部改写、缺 CAS capability、每个 phase
+  failure、crash recovery、safe rollback 与 external-drift needs-human 路径均有
+  确定性零覆盖证据。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
-  protected collector attestation 和离线 gate；route/task/renderer/closure 都绑定
-  当前 HEAD 的 gate result，implementer 自填 evidence 被拒绝。
+  protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
+  在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
+  HEAD 的 gate result，implementer 自填 evidence 被拒绝。
 - [ ] oversize primary fix fixture 保持 block 并返回有界 closed fallback，原文
   不出现在 response、双日志或 proof。
 - [ ] bootstrap tasks 只能在 ordinary `plan_first` handoff、维护者 GitHub spec
@@ -293,7 +319,8 @@ GH-701 已完成。
   授权；merge 前所有普通 implementation tasks 保持 blocked。
 - [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
   digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
-  schema-valid fixture 要求重新收集维护者批准。
+  schema-valid fixture 要求重新收集维护者批准；精确、限时、protected-main
+  `trust_rotation` 是修改 trust paths 的唯一通路。
 
 ## 边界情况清单
 
