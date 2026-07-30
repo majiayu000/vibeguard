@@ -7,6 +7,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | Spec | Status | Use it for |
 |---|---|---|
 | `GH702/` | Draft | Published third-party guard-pack contracts, transactional lifecycle, supply-chain trust, and precision-gated defaults |
+| `GH720/` | Historical optional-tooling reference | Former automatic stage-aware packet validation, retained for explicitly invoked offline SpecRail checks |
 | `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
@@ -39,7 +40,7 @@ This directory holds maintainer-facing specs. Most files here are implementation
 | `GH588/` | Implemented reference | Scheduled GC execution freshness, platform-correct wrapper/internal log evidence, and preserved setup-check mode semantics |
 | `GH589/` | Implemented reference | Repo-scoped code-slop self-scan precision for Rust CLI stdout and line-scoped detector pattern sources |
 | `GH590/` | Implemented reference | Directed session-pair W-14 cooldown, fail-open bounded history, schema-valid suppression telemetry, and runtime config distribution |
-| `GH595/` | Implemented reference | SpecRail repository adoption, configured VibeGuard overrides, offline PR/runtime gates, target-local evidence, and preserved human merge boundaries |
+| `GH595/` | Historical optional-tooling reference | Original SpecRail adoption and offline gate design, retained as reference rather than repository authorization |
 | `GH556/` | Implemented reference | Weekly health report for rule trigger counts, precision risk, unclassified backlog, idle asset detection, and opt-in scheduling |
 | `GH566/` | Implemented reference | Codex unmanaged stale `PreToolUse` hook detection, explicit repair, and setup-test fixture isolation |
 | `GH551/` | Implemented reference | Hook hot-path collapse into a single vibeguard-runtime invocation to cut fork latency |
