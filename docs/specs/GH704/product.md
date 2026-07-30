@@ -83,8 +83,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    update 管理动作可下载获批签名资产，feedback 只本地导出。**
 6. **H-006 — latency 与资源预算（未批准）**：trigger、cold/warm P50/P95/P99/max、
    `core_us` 与 `hook_e2e_ms`、timeout、OOM、并发、队列、缓存和现有 hook SLA 是否调整。
-   **Recommended proposal（未批准）：不放宽现有 hook E2E SLA；异步 post-edit
-   advisory 首先证明预算，未获批准前不进入同步 block path。**
+   **Recommended proposal（未批准）：不放宽现有 hook E2E SLA；首阶段使用同步
+   post-edit advisory，当前 hook invocation 在 hard timeout 内等待结果并在同一次响应中
+   返回 advisory，不创建后台队列或延迟投递。未证明 path-specific E2E 预算前保持
+   disabled，未获单独批准前不进入同步 block path。**
 7. **H-007 — failure semantics（未批准）**：timeout、model unavailable、malformed/
    unknown output、inventory 缺失、cache stale、event append failure 分别是 allow、
    advisory、block 还是 feature unavailable。**Recommended proposal（未批准）：
@@ -111,7 +113,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 11. **H-011 — host 与 trigger 范围（未批准）**：Claude/Codex parity、unsupported
     host、PreToolUse/PostToolUse/Stop、同步或异步、取消/中断语义。
     **Recommended proposal（未批准）：先走已有 Claude/Codex post-edit adapter 的同一
-    canonical Rust path；unsupported host 明确 unavailable。**
+    canonical Rust path，并同步等待 bounded provider 后在当前 PostToolUse response 返回
+    advisory；不启动 detached worker、daemon 或跨 hook delivery。unsupported host 明确
+    unavailable。**
 12. **H-012 — cross-session learning（未批准）**：candidate stable ID、去重、project
     scope、retention、correction label、人工 adopt/verify、precision feedback 与删除。
     **Recommended proposal（未批准）：扩展现有 Signal Inbox → Adoption Compiler →

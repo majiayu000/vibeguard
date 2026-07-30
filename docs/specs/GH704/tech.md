@@ -94,6 +94,16 @@ closed config
 `unavailable/error`。普通 env getter 不得覆盖 model digest、provider、network、
 precision floor 或 block eligibility；只有 H-001 明确列出的降级/kill-switch env 可生效。
 
+H-001 Recommended project opt-in（仍未批准）的唯一 enable surface 是当前 repository
+root 的 `.vibeguard.json`：planned `semantic_defense` object 只接受 required boolean
+`enabled`，且 `additionalProperties: false`。key 缺失或 `enabled: false` 均为 off；
+`enabled: true` 只是请求 eligibility，仍必须通过上述 approval/policy/model 等全部 join。
+`~/.vibeguard/config.json`、普通 env、README、pack 与相邻 project 都不能启用；获批的
+global kill switch 只能把 true 降为 off。`schemas/vibeguard-project.schema.json`、
+`project_config.rs` 的 typed field/closed allowlist 与 semantic config join 必须同源；
+unknown/type mismatch 在 provider 启动前 fail visible。同一 HOME 下 opt-in project 与
+无 key project 的双 fixture 必须证明后者零 provider/cache/metric activity。
+
 ### 2. Recommended Core module boundary
 
 未批准的参考模块：
@@ -144,6 +154,14 @@ L1 总是先独立得出结果。L2 只有在全 gate eligible 时运行；off/u
 L2 result/status、approved severity、failure mode 和 eligibility；未知组合拒绝而不是
 fallback。L2 block eligibility 还要求同一 event 的 finalized receipt；pending/replay
 状态只能显示为 degraded/error，不能阻止既有 L1 block 返回。
+
+H-006/H-011 Recommended 首阶段明确是 synchronous advisory：post-edit handler 在当前
+hook invocation 内执行 bounded provider request、投影并返回 advisory，hard timeout/
+cancel 后立即回收 child 并返回可见 unavailable/error。没有 detached worker、daemon、
+durable inference queue 或 later-hook delivery；因此 canonical installed-hook latency
+fixture 必须包含 provider wait 与当前 response rendering。若维护者改选 async，必须先
+新增 queue/delivery/recovery contract 并改写 H-006/H-011、manifest 与测试，不得在 tasks
+中局部实现。
 
 ### 4. Invented API production detector
 
@@ -285,8 +303,9 @@ fixture IDs 固定为 `semantic-defense-direct-cold-cache`、
 `semantic-defense-direct-warm-cache`、`semantic-defense-codex-wrapper-cold-cache` 与
 `semantic-defense-codex-wrapper-warm-cache`。每个 fixture 只测量一个真实 installed
 hook path 的完整 config/provider/logging/cleanup 路径，不得把 direct 与 wrapper 合并
-计时；cold fixture 从空 session-scoped cache/未启动 provider state 开始，warm fixture
-只复用同一 project/session/input/model/protocol/policy identity 的合法 cache。
+计时；每次结果都包含 synchronous provider wait 和同一次 hook response，不能在 provider
+完成前停止计时。cold fixture 从空 session-scoped cache/未启动 provider state 开始，
+warm fixture 只复用同一 project/session/input/model/protocol/policy identity 的合法 cache。
 `tests/test_hook_perf_contract.sh` 必须断言四个 ID 在 runner、
 `docs/reference/hook-latency-contract.md` budget table、CI/result output contract 中各恰好
 登记一次，并固定 cache 前提、H-006 批准后的 P95 budget、confirmation、CI wiring 与
@@ -317,7 +336,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 91 条唯一 repo paths：53 条 existing、38 条 planned。
+H-001–H-020 已批准。当前共 95 条唯一 repo paths：57 条 existing、38 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -331,6 +350,7 @@ H-001–H-020 已批准。当前共 91 条唯一 repo paths：53 条 existing、
     "vibeguard-runtime/Cargo.toml",
     "vibeguard-runtime/Cargo.lock",
     "vibeguard-runtime/src/main.rs",
+    "vibeguard-runtime/src/project_config.rs",
     "vibeguard-runtime/src/runtime_config.rs",
     "vibeguard-runtime/src/runtime_config_validation.rs",
     "vibeguard-runtime/src/event_schema.rs",
@@ -354,6 +374,8 @@ H-001–H-020 已批准。当前共 91 条唯一 repo paths：53 条 existing、
     "vibeguard-runtime/src/semantic_defense/runtime_signal.rs",
     "vibeguard-runtime/src/semantic_defense/cache.rs",
     "vibeguard-runtime/src/semantic_defense/metrics.rs",
+    "vibeguard-runtime/tests/project_config_cli.rs",
+    "schemas/vibeguard-project.schema.json",
     "schemas/vibeguard-runtime-config.schema.json",
     "schemas/event-log.schema.json",
     "schemas/session-metrics.schema.json",
@@ -407,6 +429,7 @@ H-001–H-020 已批准。当前共 91 条唯一 repo paths：53 条 existing、
     "tests/test_setup.sh",
     "tests/test_setup_check.sh",
     "tests/test_hook_status.sh",
+    "tests/test_workflow_contracts.sh",
     "tests/bench_hook_latency.sh",
     "tests/test_hook_perf_contract.sh",
     ".github/workflows/ci.yml",
@@ -434,9 +457,11 @@ Complete-path cross-check：
 | --- | --- | --- |
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm installed-hook fixtures exactly once；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
+| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；missing/false/true/unknown/type mismatch and same-HOME two-project matrix prove only explicit current-project true requests eligibility，while global config/env can only disable |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
+| Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
 
 ## Product-to-Test Mapping
@@ -450,8 +475,8 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 approval gate | config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`；missing/empty/stale H-001–H-020 全部断言零 provider call |
-| B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`；再跑 `bash tests/test_hook_perf_contract.sh`，child/network/cache canary 均为空 |
+| B-001 approval gate | project config + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact` 与 `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`；missing/false/unknown/type mismatch、同 HOME 两 project、global enable attempt、stale H-001–H-020 全部断言非当前 opt-in project 零 provider call |
+| B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`；覆盖 project key missing/false 和 kill switch，再跑 `bash tests/test_hook_perf_contract.sh`，child/network/cache canary 均为空 |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
 | B-005 exact model identity | identity/provenance + release contract | `bash tests/hooks/test_semantic_defense.sh model_identity_provenance`、`bash tests/setup/semantic_asset_install_tests.sh provenance` 与 `bash tests/test_release_workflow.sh`；逐字段 removal/digest/platform/license/protocol mismatch，并证明每个 same-tag semantic asset 的 checksum、attestation、dependency metadata、target matrix 与 install provenance |
@@ -459,7 +484,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-007 input privacy | request builder/redactor | `bash tests/hooks/test_semantic_defense.sh input_privacy_redaction`；比较 request/log golden 并扫描 secret/path canary |
 | B-008 network policy | provider/install boundary | `bash tests/hooks/test_semantic_defense.sh runtime_network_and_fallback` 与 `bash tests/setup/semantic_asset_install_tests.sh explicit_network_only` |
 | B-009 bounded execution | provider/cache | `bash tests/hooks/test_semantic_defense.sh timeout_oom_crash_cancel`；逐项断言 child reaped、无后续 request、bounded root clean |
-| B-010 latency evidence | canonical hook runner + metrics contract | `bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression` 必须各执行一次 `semantic-defense-direct-cold-cache`、`semantic-defense-direct-warm-cache`、`semantic-defense-codex-wrapper-cold-cache` 与 `semantic-defense-codex-wrapper-warm-cache` installed-hook fixture；`bash tests/test_hook_perf_contract.sh` 固定四个 exact IDs 在 runner/budget table/CI/result contract 中各一次，并验证 path/cache/approved-budget/confirmation wiring；`bash tests/hooks/test_semantic_defense.sh latency_evidence_shape` 校验 path-specific identity-bound result |
+| B-010 latency evidence | synchronous canonical hook runner + metrics contract | `bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression` 必须各执行一次 `semantic-defense-direct-cold-cache`、`semantic-defense-direct-warm-cache`、`semantic-defense-codex-wrapper-cold-cache` 与 `semantic-defense-codex-wrapper-warm-cache` installed-hook fixture；`bash tests/test_hook_perf_contract.sh` 固定四个 exact IDs 在 runner/budget table/CI/result contract 中各一次，并验证 path/cache/approved-budget/confirmation wiring；`bash tests/hooks/test_semantic_defense.sh synchronous_advisory_delivery` 证明 provider 完成前不返回、advisory 在同一次 response 且无后台 queue/later delivery；`latency_evidence_shape` 校验 path-specific identity-bound result |
 | B-011 cache identity | cache module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::cache::tests::identity_invalidation_and_isolation -- --exact`；同 project/session 并发去重，不同 project 或 session 即使 exact input 相同也必须 cache miss 且不能读取对方 result |
 | B-012 API scope | TypeScript/npm inventory resolver | `bash tests/hooks/test_semantic_defense.sh typescript_npm_inventory_scope`；覆盖 supported/unknown/generated/dynamic/feature/version/missing inventory |
 | B-013 production-only API detector | Core handler + GH-700 adapter | `python3 eval/test_semantic_eval.py production_entrypoint_only`；拒绝 test-only/case-ID/path-existence mapping |
@@ -478,7 +503,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
 | B-027 fail-visible writes | event/projection writer | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`；分别在 pending fsync 后、每个 consumer write 前后、finalized receipt fsync 前注入 write error 与 process crash，cold restart/next-run reconciliation 后断言无缺失、无重复且 L1 block 保留 |
 | B-028 single projection | canonical event projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`；比较 pending event、三个 consumer applied receipt 与 finalized receipt 的 event/signal identity，legacy 必须 untracked |
-| B-029 candidate identity | Learn analyzer | `bash tests/test_learn_adoption.sh semantic_candidate_identity`；multi-session replay 后 ID/count/window/privacy 精确相等 |
+| B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |
 | B-032 outcome verification | Learn outcome evaluator | `bash tests/test_learn_adoption.sh semantic_candidate_outcomes`；fresh/absent/regressed 与 raw-source export canary |
@@ -551,8 +576,9 @@ H-020 批准。
       projection、precision/Learn、planned **tests/setup/semantic_asset_install_tests.sh** 的
       install/update/revoke、`tests/test_setup.sh`、payload/no-clone 和 interruption。
 - [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
-      precision tracker、Learn adoption、observability legacy/current fixtures、release asset
-      checksums/attestations/metadata、payload、hook manifest 与 docs contracts。
+      project opt-in schema/parser/isolation、precision tracker、Learn schema/adoption、
+      observability legacy/current fixtures、release asset checksums/attestations/metadata、
+      payload、hook manifest 与 docs contracts。
 - [ ] Performance tests: cold/warm core 和 installed hook P50/P95/P99/max、large diff/
       inventory、parallel sessions、timeout/cancel；cold/warm L2 必须通过
       `tests/bench_hook_latency.sh` canonical runner 和 `tests/test_hook_perf_contract.sh`
@@ -573,6 +599,7 @@ H-020 批准。
       `bash tests/test_hook_status.sh`;
       `bash tests/test_observability_schemas.sh`;
       `bash tests/test_release_workflow.sh`;
+      `bash tests/test_workflow_contracts.sh`;
       `bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression`;
       `bash tests/test_hook_perf_contract.sh`;
       `bash tests/test_manifest_contract.sh`;
