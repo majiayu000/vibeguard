@@ -19,5 +19,6 @@
   "write_escalate_threshold": 5,
   "learn": {
     "metrics_tail_bytes": 5242880
-  }
+  },
+  "disabled_skills": []
 }
