@@ -173,8 +173,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     case IDs、每个 ID 的 warmup/measurement repetition、完整执行顺序、
     `fresh_per_sample` state policy/initial-state identity 与 percentile estimator
     `nearest_rank_v1`；runner 不能自行选择 workload。environment baseline 也必须在同一
-    protocol 中按 target 固定 manifest-bound no-op executable identity、argv/stdin/env、
-    warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
+    protocol 中按 target 引用 `production_asset_registry` 的 no-op workload logical ID；
+    executable identity 与 exec/argv contract 只来自该 registry entry，protocol 另行固定
+    stdin/env、warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
     estimator 与 inclusive threshold comparison；不能采用 runner 内建或 host PATH
     workload。每个 warmup/measurement sample 都从
     canonical initial state 创建新 HOME/log/history/session，warmup 不把 state 带入
@@ -285,9 +286,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     deny-write/delete executable handle 启动并持有到 child 完成 identity handshake。
     平台或分发链不能独立认证 launcher、或不能证明 mapped image 来自已校验 handle 时
     official unavailable。child 必须从 inherited binding handle 再算 SHA-256并复验
-    manifest chain，作为 defense in depth，不能成为首次信任判定。manifest 闭集绑定
-    runtime、payload、wrapper、canonical benchmark config、protocol 与 interpreter
-    identities；receipt 只提供本地 path/handle mapping，不能自证
+    manifest chain，作为 defense in depth，不能成为首次信任判定。manifest 只直接绑定
+    target runtime asset identity，并绑定 approved protocol digest 与
+    `production_asset_registry` digest；payload、wrapper、canonical benchmark config、
+    baseline workload、interpreter 与 transitive executable identity/exec/argv contract
+    只由该 registry 声明。receipt 只提供 registry logical ID 到本地 path/handle 的 mapping，
+    不能自证
     issuer/workflow/subject/digests。`argv[0]`、`PATH`、cwd 邻居 binary、启动后把 pathname
     替换回合法 binary、build-time 自报字段或仅“版本相同”都不能建立 official 身份。任何
     launcher trust、打开/读取/稳定性/digest/attestation mismatch 在零 case 时
@@ -327,22 +331,24 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
 24. B-024: E2E latency executor 必须从 verified install receipt/production mapping
     解析 actual installed Claude/Codex wrapper，并用参数数组启动子进程、传入 fixture
     stdin、等待完整输出与退出。每个 executor 的正整数 timeout、termination grace、
-    stdout cap 与 stderr cap，以及 Bash/Python 等 interpreter 的 target、来源、size、
-    SHA-256 和 version identity，必须是 approved protocol 的必填、canonical、digest-bound
-    输入；runner 不得采用实现默认值、环境变量或 PATH 解析。interpreter 必须是 signed
-    release payload 内的 manifest-bound asset，或是 protocol 明确允许且由 preflight
-    no-follow 打开、校验 bytes 后 materialize 的 host asset；两者都从 readonly snapshot
-    中的已验证精确路径/handle 启动，并在 report provenance 中记录实际 identity。每个
-    mapped production path 的传递闭包内其它 external executable（例如 `git`）也必须由
-    production mapping 声明逻辑 ID/argv contract，并按 target 在 protocol/manifest 中绑定
-    source、size、SHA-256 与 version identity；runner 只能通过 readonly snapshot 的精确
+    stdout cap 与 stderr cap 必须是 approved protocol 的必填、canonical、digest-bound
+    输入；Bash/Python 等 interpreter 的 target、来源、size、SHA-256、version identity
+    与 exec/argv contract 必须只来自该 protocol 绑定的
+    `production_asset_registry` entry。runner 不得采用实现默认值、环境变量或 PATH 解析。
+    interpreter 可以是 authenticated release payload asset，或是 registry 明确允许且由
+    preflight no-follow 打开、校验 bytes 后 materialize 的 authenticated host asset；
+    两者都从 readonly snapshot 中的已验证精确路径/handle 启动，并在 report provenance
+    中记录实际 identity。每个 mapped production path 的传递闭包内其它 external
+    executable（例如 `git`）也必须由 production mapping 只引用 registry logical ID 与
+    adapter semantics；source、size、SHA-256、version identity 与 exec/argv contract
+    只在对应 registry entry 声明。runner 只能通过 readonly snapshot 的精确
     path/handle 或只含这些资产的 minimal PATH 启动。实现也可消除 subprocess dependency，
     但 ambient PATH、未声明 child exec 或“命令失败后按 PASS 继续”均不可成为 official
     行为。缺失、
     mismatch、cap overflow 或 timeout 必须得到闭集 error 状态，不能因实现差异产生另一
     production decision。executor 必须拒绝 checkout path、直接 runtime function、
     mock wrapper、PATH fallback 或仅测 `vibeguard-runtime bench` 自身调度开销。wrapper/
-    executable 缺失、digest drift 或不是 protocol/receipt/manifest 记录的文件时 latency
+    executable 缺失、digest drift 或不是 protocol-bound registry/receipt 记录的文件时 latency
     axis `unavailable`。
 25. B-025: production mapping 为每个 adapter 同时声明闭集 raw decisions、闭集 raw
     reason codes，以及它们到 `{block, advisory, allow}` 和 canonical reason code 的唯一

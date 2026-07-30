@@ -67,8 +67,10 @@ caps；后者按 target + logical ID 闭集登记 payload、wrappers、canonical
 config、environment-baseline workload、interpreters 与每条 mapped production path
 传递闭包内全部 external executables，并固定 kind、来源
 `{release_payload, authenticated_host}`、asset/path ID、size、SHA-256、version、exec/argv
-contract。signed manifest 只绑定 registry digest/发布资产，production mapping 只引用
-logical ID，receipt 只映射本地 path/handle，不得复制或覆盖 identity。registry/limits 都
+contract。signed manifest 只直接声明并绑定 target runtime asset identity，同时绑定
+approved protocol digest 与 registry digest；其它资产 identity/exec/argv contract
+只由 registry 声明。production mapping 只保存 adapter semantics 并引用 logical ID，
+receipt 只映射 logical ID 到本地 path/handle，不得复制或覆盖 identity。registry/limits 都
 进入 protocol canonical bytes/digest 与 report provenance；缺项、重复 ID、非正 limit、
 未知 kind/source、digest/version/exec-closure mismatch、ambient PATH 或环境 override 均在
 零 case 时令 official unavailable。
@@ -191,7 +193,8 @@ Rust `bench` 内部建立封闭 executor registry，而不是让 corpus 提供�
 
 - `installed_wrapper`：仅解析 verified receipt + mapping 中登记的实际 installed
   `run-hook.sh` / `run-hook-codex.sh`，使用参数数组 spawn；
-- `payload_guard`：只允许 manifest 中预注册的固定脚本 ID，使用参数数组执行，不经
+- `payload_guard`：只允许 `production_asset_registry` 中预注册的固定脚本 logical ID，
+  使用 registry-owned exec/argv contract 以参数数组执行，不经
   `sh -c`/字符串拼接；
 - 不提供 `command`、`shell`、任意 path 或 plugin executor。
 
@@ -342,7 +345,8 @@ direct Rust function、checkout hook、mock wrapper、PATH fallback 或只测 `b
 dispatcher。对每个 production surface：
 
 - 先运行 protocol-owned environment baseline 与 clock sanity check。protocol 按 target
-  完整绑定 manifest asset 中 no-op workload 的 executable identity、argv/stdin/env、
+  引用 `production_asset_registry` 中 no-op workload logical ID；executable identity 与
+  exec/argv contract 只来自该 registry entry，protocol 另行绑定 stdin/env、
   warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
   integer-ns raw samples、estimator ID、`threshold_ns` 与 inclusive comparison
   `baseline_stat_ns <= threshold_ns`；runner 默认 workload/host PATH 不得参与；
