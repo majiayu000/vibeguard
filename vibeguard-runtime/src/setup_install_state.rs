@@ -253,7 +253,8 @@ pub fn list_tracked_symlinks_under(args: &[String]) -> SetupResult<()> {
 pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
     if args.len() != 2 {
         return Err(
-            "Usage: vibeguard-runtime setup-state-list-tracked-under <state-file> <dest-dir>".into(),
+            "Usage: vibeguard-runtime setup-state-list-tracked-under <state-file> <dest-dir>"
+                .into(),
         );
     }
     let state_file = Path::new(&args[0]);

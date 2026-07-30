@@ -116,9 +116,7 @@ const RUNTIME_CONFIG_FIELDS: &[RuntimeConfigField] = &[
     },
     RuntimeConfigField {
         path: "disabled_skills",
-        kind: FieldKind::StringArray {
-            maximum_items: 256,
-        },
+        kind: FieldKind::StringArray { maximum_items: 256 },
     },
 ];
 
