@@ -17,7 +17,7 @@ header(){ printf '\n\033[1m=== %s ===\033[0m\n' "$1"; }
 assert_contains() {
   local output="$1" expected="$2" desc="$3"
   TOTAL=$((TOTAL + 1))
-  if echo "$output" | grep -qF "$expected"; then
+  if grep -qF -- "$expected" <<< "$output"; then
     green "$desc"
     PASS=$((PASS + 1))
   else
@@ -29,7 +29,7 @@ assert_contains() {
 assert_not_contains() {
   local output="$1" unexpected="$2" desc="$3"
   TOTAL=$((TOTAL + 1))
-  if echo "$output" | grep -qF "$unexpected"; then
+  if grep -qF -- "$unexpected" <<< "$output"; then
     red "$desc (expected NOT to contain: $unexpected)"
     FAIL=$((FAIL + 1))
   else
@@ -83,7 +83,7 @@ header "install-pre-commit-hook.sh: uses git rev-parse --git-path hooks (not har
 # Verify the script text does not hardcode .git/hooks
 SCRIPT_CONTENT="$(cat scripts/install-pre-commit-hook.sh)"
 TOTAL=$((TOTAL + 1))
-if echo "$SCRIPT_CONTENT" | grep -qF 'git rev-parse --git-path hooks'; then
+if grep -qF -- 'git rev-parse --git-path hooks' <<< "$SCRIPT_CONTENT"; then
   green "installer uses git rev-parse --git-path hooks"
   PASS=$((PASS + 1))
 else
@@ -92,7 +92,7 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-if echo "$SCRIPT_CONTENT" | grep -qF '\.git/hooks'; then
+if grep -qF -- '\.git/hooks' <<< "$SCRIPT_CONTENT"; then
   red "installer still hardcodes .git/hooks path"
   FAIL=$((FAIL + 1))
 else

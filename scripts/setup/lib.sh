@@ -713,3 +713,57 @@ safe_symlink() {
   fi
   ln -sfn "${src}" "${dst}"
 }
+
+launchd_gc_script_path() {
+  local plist="$1"
+  [[ -f "${plist}" ]] || return 1
+  awk '
+    /<key>ProgramArguments<\/key>/ { in_args = 1; next }
+    in_args && /<\/array>/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^.*<string>/, "", line)
+      sub(/<\/string>.*$/, "", line)
+      print line
+      exit
+    }
+  ' "${plist}"
+}
+
+launchd_gc_script_path_from_print() {
+  awk '
+    /^[[:space:]]*arguments = \{/ { in_args = 1; next }
+    in_args && /^[[:space:]]*\}/ { exit }
+    in_args && /gc-scheduled\.sh/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      sub(/[[:space:]]*$/, "", line)
+      print line
+      exit
+    }
+  '
+}
+
+systemd_gc_script_path() {
+  local service="$1"
+  [[ -f "${service}" && ! -L "${service}" ]] || return 1
+  awk '
+    /^ExecStart=/ {
+      count++
+      if ($0 ~ /^ExecStart=\/bin\/bash "[^"]+"$/) {
+        path = $0
+        sub(/^ExecStart=\/bin\/bash "/, "", path)
+        sub(/"$/, "", path)
+      } else {
+        invalid = 1
+      }
+    }
+    END {
+      if (count == 1 && !invalid && path != "") {
+        print path
+        exit 0
+      }
+      exit 1
+    }
+  ' "${service}"
+}
