@@ -73,9 +73,15 @@ eligibility、transaction plan、receipt 与 audit。这样 H 选择改变时，
 Recommended v1 shape（未批准）包含六种互相独立、各自 versioned/digested 的 artifacts：
 
 1. **Index snapshot/entry**：`publisher/name/version → bundle_digest`，并绑定 namespace
-   ownership、publish attestation、yank/revoke state、runtime/schema ranges。
-2. **Bundle manifest**：canonical identity、closed capabilities、targets/profiles、
-   dependencies/conflicts、assets、rules、requested decisions 和 policy digest。
+   ownership、publish attestation、yank/revoke state、runtime/schema ranges；resolver
+   对 canonical entry bytes 计算 index entry digest，并把结果放入 resolution/receipt
+   envelope，entry 本身不嵌入该派生 digest。
+2. **Bundle manifest**：只保存构建前可确定的 embedded identity
+   （publisher/name/exact version/schema/policy/content-root digest）、closed
+   capabilities、targets/profiles、dependencies/conflicts、assets、rules 和 requested
+   decisions。最终 bundle digest 与 index entry digest 属于 resolution/receipt envelope，
+   不嵌回 manifest；canonical resolved identity 是 embedded identity 与这两个派生 digest
+   的 join，避免 digest 自引用。
 3. **Precision evidence**：逐 rule 绑定 rule/capability/fixture/reviewer/count/window，
    不允许只给 pack average。
 4. **Policy**：H-001–H-009 的获批取值、thresholds、issuers、offline/revocation action。
@@ -129,9 +135,12 @@ proxy、certificate 和 credential行为由 H-001/H-003 policy 闭集限定；UR
 不得进入 shell。index/bundle size、文件数、单文件、总展开大小、compression ratio、
 redirect count 和 timeout 都有已发布上限。
 
-offline cache 以 index snapshot digest + exact bundle digest 存储。只有 H-008 policy
-认可且未超过 freshness/revocation window 的 cache 可用于 verified install；否则只可
-explain cached metadata或 fail closed，不能自动转 unofficial。
+offline cache 以 index snapshot digest + exact bundle digest 存储。provenance trust
+`{verified, unofficial}` 与 revocation status `{current, revoked, unknown}` 分开保存和
+render。只有 H-008 policy 认可且未超过 freshness/revocation window 的 cache 可用于
+verified + current install；无法刷新时保留历史 provenance，但 revocation status 必须是
+unknown，否则只可 explain cached metadata或 fail closed，不能自动转 unofficial，也不能
+谎报 current。
 
 ### 5. Capability 与 host compatibility
 
@@ -157,34 +166,51 @@ Recommended H-004 layout（未批准）：
 ```text
 ~/.vibeguard/guard-packs/
   store/sha256/<bundle_digest>/        readonly verified content
-  active/<publisher>/<pack>/<target>   atomic pointer/identity file
-  receipts/<publisher>/<pack>/<target>.json
+  committed/<transaction_id>/         immutable receipt + active identity generation
+  active/<publisher>/<pack>/<target>/<profile>  atomic committed-generation pointer
+  receipts/<publisher>/<pack>/<target>/<profile>.json  derived/read-only view
   transactions/<transaction_id>/
     plan.json
     journal.json
     before/
     staged/
   locks/<target>.lock
-  overrides/<publisher>/<pack>/<target>.json
+  overrides/<publisher>/<pack>/<target>/<profile>.json
 ```
 
 每个 mutation 在 target lock 下运行：
 
 ```text
-discover → plan → confirm → lock → recover-old → stage → verify
-         → snapshot-owned-state → apply → audit → write receipt → switch active → commit
-                                                       └ failure → rollback → audit restored
+lock → recover-old → validate-current-generation
+     → discover → bounded-fetch/stage/verify → plan → confirm
+     → reserve/snapshot-owned-state → apply → audit
+     → build+fsync committed generation → atomic active-pointer switch (= commit)
+                                      └ failure before switch → rollback → audit restored
 ```
 
-plan 使用 compare-and-swap 前提：每个将修改的 file/config entry 同时记录 owner 与
-observed before digest。apply 前再检查，避免 plan 后 TOCTOU。config 修改使用结构化
-reader/writer 和现有 target ownership语义，不做 string append；shared dependencies
-需要引用集合，最后一个 owner remove 才可删除。
+`recover-old` 必须在 discovery/plan 前完成：旧 journal 造成的 partial state 不得参与新
+plan。bounded fetch/staging 只写本 transaction 私有临时目录，不能进入 persistent store、
+host/config、receipt、override 或 active surface；plan 展示 staging boundary/digests，
+拒绝、取消、验证失败或 rollback 后必须验证清理。
 
-journal 每完成一步原子 append/replace closed state；receipt 只有 audit 成功后可写，
-active pointer 最后切换。interrupt 后下次 mutation 先 recover unfinished journal。
-rollback 只依据 journal，不扫描 HOME。rollback 失败保留 before/staged/journal 并返回
-`needs_repair`，禁止删除诊断证据或继续装另一版本。
+plan 使用 compare-and-swap 前提：每个将修改的 file/config entry 同时记录 owner 与
+observed before digest。fresh install 对 unowned path 建立 transaction-scoped provisional
+reservation，绑定 transaction ID、expected-absent/current digest 和 planned after
+digest；它只在 target lock 内有效，不构成 receipt ownership，apply 前必须再次 CAS，
+失败/取消随 rollback 清除。update/remove 仍只接受 committed receipt ownership。config
+修改使用结构化 reader/writer 和现有 target ownership语义，不做 string append；shared
+dependencies 需要引用集合，最后一个 owner remove 才可删除。
+
+journal 每完成一步原子 append/replace closed state。audit 成功后先在
+`committed/<transaction_id>/` 写入并 fsync 完整 receipt、active identity、policy/
+eligibility digests 和 commit marker，再以一次 atomic pointer replacement 暴露整个
+generation；该 replacement 本身就是 durable commit boundary。runtime 必须先解析 pointer，
+再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
+staged state 或未提交 generation。pointer switch 后只允许 journal finalization/临时清理，
+这些失败不撤销已提交语义，而由下次 recovery 幂等完成。interrupt 后下次 mutation 必须先
+取得 target lock 并 recover unfinished journal。rollback 只依据 journal，不扫描 HOME；
+rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
+另一版本。
 
 same identity retry 比较 receipt/active/store/policy digests，全等即 no-op；version 相同但
 digest 不同视为 registry immutability violation。update 新旧 store并存直到 commit；
@@ -199,9 +225,11 @@ digest 不同视为 registry immutability violation。update 新旧 store并存�
 requested_decision
 rule_digest
 capability_digest
-trust_state
+provenance_trust
+revocation_status
 precision_evidence | null
 approved_policy
+evaluation_time
 local_override | null
 ```
 
@@ -213,16 +241,23 @@ official_default = block | warn | off
 effective_local_decision = block | warn | off
 reason_codes[]
 eligibility_digest
+override_status = applied | suspended | rejected | null
 ```
 
 计算顺序固定：
 
-1. 验证 trust、policy、rule/capability/fixture/reviewer bindings；
-2. 验证 TP/FP/acceptable/unclassified counts、window/freshness；
+1. 验证 provenance trust、revocation status、policy 与
+   rule/capability/fixture/reviewer bindings；
+2. 只相对显式、policy-normalized `evaluation_time` 验证
+   TP/FP/acceptable/unclassified counts、window/freshness；函数内部不得读取 wall clock，
+   evaluation time 进入 eligibility digest；
 3. 按 H-006 公式计算 eligibility；
 4. evidence 缺失/invalid/不足/过期/低 floor → `warn_only`；
 5. 达标只得到 `block_eligible`，再结合 requested decision/host capability；
-6. 最后应用独立 local override，并保留 official result。
+6. 应用独立 local override，并保留 official result；
+7. 最后施加 revocation terminal ceiling：`revoked` 必须 suspend/reject 任何促进到 block
+   的 override，effective decision 按 H-008 只能降为 warn/off；`unknown` 按明确 offline
+   policy 处理，不能被 override 伪装成 current。
 
 不能从 pack average、GH-700 benchmark、aggregate CI precision 或 author 自报值填充
 per-rule evidence。现有 `precision-tracker.py` 可导出 curated candidate，但需经新 schema、
@@ -231,9 +266,10 @@ reviewer/fixture ledger 和 issuer签名后才成为 official evidence。`accept
 samples语义同时又用另一分母。
 
 status/audit 每条 rule 同时显示 requested、official eligibility/default、local effective、
-precision value/null、counts、age、policy/issuer 和全部 reason。rule/policy/evidence/trust
-变化产生新 eligibility digest并触发 audit；active block 失去 eligibility 时按 H-008 action
-事务降级，失败进入 `needs_repair`。
+override status、precision value/null、counts、age、evaluation time、policy/issuer、
+provenance trust、revocation status 和全部 reason。rule/policy/evidence/provenance/
+revocation/evaluation-time 变化产生新 eligibility digest并触发 audit；active block 失去
+eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
 ### 8. Registry governance、publish 与 revocation
 
@@ -365,35 +401,35 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 released no-checkout command | Runtime registry + GH-699 actual launcher integration | fresh HOME fixture runs discovered released `vibeguard add` with `.git`, Python, Cargo and API key absent; checkout-only route reports unofficial |
-| B-002 canonical exact identity | Locator + canonical model | table test rejects every missing/empty/mismatch/floating field before fetch/write and snapshots exact identity |
+| B-002 canonical exact identity | Locator + embedded/resolved identity model | table test rejects every missing/empty/mismatch/floating field，并证明 manifest 不嵌 derived bundle/index-entry digest、resolved envelope 无自引用 |
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
 | B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Policy schema + offline gate | missing/double/unknown/stale/spec-drift H-001–H-009 fixtures all block publish/install/eligibility |
-| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix distinguishes verified/unofficial/revoked with no warning-only substitution |
-| B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust, capabilities, per-rule reasons, writes, conflicts, network, rollback and receipt before confirmation |
+| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × revocation current/revoked/unknown，不用 warning 文本替代字段 |
+| B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust/revocation, capabilities, per-rule reasons, persistent writes, bounded staging/network, cleanup, rollback and receipt before confirmation |
 | B-009 closed capabilities | Manifest join + capability resolver | unknown/undeclared/multi-mapped/free-text/extra-payload fixtures fail before executor or host mutation |
 | B-010 safe archive containment | Streaming archive extractor | absolute/traversal/device/link/case collision/duplicate/size/ratio corpus leaves staging boundary canary untouched |
 | B-011 complete provenance chain | Index + trust verifier | checksum-only, self-report, wrong namespace/subject/digest and valid full-chain fixtures prove verified is all-or-nothing |
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/stale-cache/revocation-unknown matrix asserts fail-closed or exact approved cached status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal | positive transition trace is exact; illegal/partial-active transition fixtures fail schema/gate |
+| B-015 transaction state machine | Transaction journal + committed generation | crash before/after atomic pointer switch proves receipt/active 同时可见，runtime拒绝 orphan/uncommitted generation |
 | B-016 scoped rollback/repair | Transaction rollback | injected failure at every stage restores before digests; rollback failure retains evidence and reports needs_repair |
-| B-017 interruption recovery | Journal recovery | kill after every mutation boundary, rerun, and assert no premature active pointer plus deterministic recovery |
+| B-017 interruption recovery | Journal recovery | partial state fixture asserts lock + recovery precedes discovery/plan; kill after every mutation boundary proves deterministic recovery |
 | B-018 complete committed receipt | Receipt schema/writer | field-removal/digest-mismatch corpus cannot commit; valid receipt binds every required identity/write/audit |
-| B-019 ownership preservation | Planner + structured config adapters | user/other-pack canaries, before-digest drift and ambiguous shared entry all block or remain byte-identical |
+| B-019 ownership preservation | Planner + reservation + structured config adapters | fresh unowned reservation commits ownership；conflict/drift/cancel clears reservation and preserves user/other-pack canaries |
 | B-020 dependency graph | Dependency resolver | missing/cycle/conflict/range/multi-digest/undeclared recursion fixtures zero-apply; valid graph commits one transaction set |
 | B-021 idempotent retry | Identity + receipt comparator | same identity retry is no-op with same receipt; same version/different digest is immutable violation |
 | B-022 safe update | Update transaction | from/to diff golden; failure at each gate keeps old active/store bytes; success never mutates old store |
 | B-023 ownership-safe remove | Remove/repair flow | shared refcount, exclusive file, missing/corrupt receipt and drift fixtures prove no HOME scanning or foreign delete |
 | B-024 concurrency isolation | Per-target lock + transaction IDs | parallel same-target mutations yield one bounded winner; different-target run has disjoint journal/staging and deterministic state |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
-| B-026 honest precision calculation | Eligibility pure function | exhaustive count/denominator/future/expiry/reviewer matrix checks approved formula and invalid evidence |
+| B-026 honest precision calculation | Eligibility pure function | fixed evaluation-time snapshots cross freshness/expiry boundary deterministically；count/denominator/future/reviewer negatives remain invalid |
 | B-027 policy-owned thresholds | Policy loader + eligibility digest | env/CLI/README/author threshold attempts do not change result; policy change changes digest and recomputes |
 | B-028 insufficient evidence degrades | Eligibility + renderer | missing/invalid/low-sample/stale/below-floor rows produce warn/off, null precision + reason, never block/0%/old value |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
-| B-030 isolated local override | Override schema/applicator | demotion, approved explicit promotion, missing confirmation and cross-user/registry mutation negatives |
+| B-030 isolated local override | Override schema/applicator | demotion, approved explicit promotion, missing confirmation, cross-user mutation，以及 revoked + existing block override 被 suspended/rejected |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
 | B-032 evidence drift re-audit | Audit + eligibility identity | mutate rule/policy/evidence/capability/trust one at a time; digest changes and active ineligible block degrades or needs_repair |
 | B-033 opt-in private feedback | Export renderer/redactor | default install/runtime packet capture is empty; export field golden is redacted; cancel-before-send makes zero network calls |
@@ -417,14 +453,14 @@ author source root
                            └─ publish immutable object ──> signed index event
 
 vibeguard add <locator>
-  └─ approved policy + locator
-       └─ index snapshot/revocation ──> exact identity
-            └─ bounded bundle fetch ──> streamed digest/attestation
-                 └─ safe staging extraction
-                      └─ schema/join/capability/precision preflight
-                           └─ immutable plan + explicit confirmation
-                                └─ target lock + transaction journal
-                                     ├─ apply/audit/receipt/active commit
+  └─ target lock + recover unfinished journal + validate committed generation
+       └─ approved policy + locator
+            └─ index snapshot/revocation ──> exact resolved identity
+                 └─ bounded bundle fetch ──> streamed digest/attestation
+                      └─ transaction-private safe staging extraction
+                           └─ schema/join/capability/precision preflight
+                                └─ immutable plan + explicit confirmation
+                                     ├─ reserve/apply/audit/atomic committed-state switch
                                      └─ rollback/recovery/needs_repair
 
 runtime hook

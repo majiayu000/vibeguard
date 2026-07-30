@@ -79,9 +79,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    被 core/README/registry 计作 verified。
 4. **H-004 — 安装、更新与回滚模型**：内容存储和 config ownership 如何提交。
    **Recommended proposal（未批准）**：每个 exact version 存入 content-addressed、
-   readonly store；按 `discover → plan → lock → stage → verify → apply → audit →
-   commit/rollback` 执行，以 receipt 记录每个 owned file/config entry 的 before/after
-   digest。active pointer 只在 audit 成功后原子切换。
+   readonly store；按 `lock/recover-old → discover/stage/verify → plan/confirm →
+   reserve/snapshot → apply/audit → atomic committed-state switch/rollback` 执行，以
+   receipt 记录每个 owned file/config entry 的 before/after digest。receipt 与 active
+   identity 必须先组成 immutable committed-state generation，再以一次原子指针切换共同
+   生效；不存在“active 已切换、transaction 尚未 commit”的中间状态。
 5. **H-005 — v1 host scope**：是否等待 GH-701 host registry。
    **Recommended proposal（未批准）**：v1 产品支持仅限现有 Claude Code/Codex
    installed targets，pack 只声明抽象 capability IDs，不复制 host config 形状；若
@@ -130,13 +132,20 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    policy artifact，并绑定 H-001–H-009 的选择。选择缺失、双选、过期或与当前 spec bytes
    不匹配时，publish、official install 与 default-block eligibility 均为 blocked；
    recommendation 本身不是批准证据。
-7. B-007: 输出必须在每一层区分 `{verified, unofficial, revoked}` trust state。local
-   bundle、author-only precision 或离线无法刷新 revocation 的结果不得显示 verified；
-   renderer/receipt 不能用 warning 文本掩盖 trust state。
-8. B-008: 在任何写入或确认前，`explain`/install plan 必须展示 canonical identity、
-   source/trust、requested target/profile、capabilities、规则数、每条 effective default
-   decision 及 precision reason、exact files/config entries、conflicts、network calls、
-   rollback plan 和 receipt path。无数据以空值 + closed reason 显示，不伪造零值。
+7. B-007: 输出必须在每一层分别展示 provenance trust
+   `{verified, unofficial}` 与 revocation freshness
+   `{current, revoked, unknown}`，不得把二者折叠成一个互相排斥的 enum。local bundle、
+   author-only precision 不得显示 provenance verified；离线无法刷新时必须显示
+   `revocation_status = unknown`，不能谎报 current/verified，也不能用 warning 文本隐藏。
+8. B-008: 在确认以及任何 persistent store、receipt、active、override、host/config 或
+   其他用户拥有路径写入前，`explain`/install plan 必须展示 canonical identity、
+   source/trust/revocation freshness、requested target/profile、capabilities、规则数、
+   每条 effective default decision 及 precision reason、exact files/config entries、
+   conflicts、network calls、rollback plan 和 receipt path。为得到该计划而进行的 bounded
+   下载和安全解压只能写 transaction-private 临时目录：必须在计划中列出其边界和摘要，
+   不得执行内容，不得被 runtime/host读取，拒绝/取消/失败时必须验证清理。旧 unfinished
+   transaction 的 recovery 属于 B-017 的前置修复，不得混入或跳过新计划。无数据以空值
+   + closed reason 显示，不伪造零值。
 9. B-009: bundle 只能使用获批 H-002 capability 闭集；manifest 必须逐项声明 capability、
    asset digest 与对应 rule IDs。未声明、多重映射、未知 capability 或 payload 实际内容
    超出声明时，在执行/安装前拒绝；不能用 free-text command 猜 executor。
@@ -160,21 +169,30 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     opt-in，并进入 plan/receipt/audit。未声明访问按 policy failure 可见阻断，不能降级 pass。
 15. B-015: non-dry-run 生命周期必须按获批 H-004 transaction 顺序执行，并在同一
     transaction ID 下保存 immutable plan、staged digest set、before snapshot、audit
-    result 与 commit/rollback status。active state 只能从 verified staged 状态经成功 audit
-    转入，禁止 partial active。
+    result 与 commit/rollback status。receipt 与 active identity 只能从 verified staged
+    状态经成功 audit 组成一个 immutable committed-state generation，并由一次原子 pointer
+    switch 共同生效；该 switch 本身就是 durable commit boundary，runtime 只消费完整、
+    digest-valid 的 committed generation，禁止 partial active。
 16. B-016: stage、verify、host apply、audit 或 receipt commit 任一步失败时，系统必须只
     回滚本 transaction 已记录的 owned changes并恢复精确 before state；rollback 自身失败
     必须 nonzero、保留 recovery evidence 并进入 `needs_repair`，不得声称 installed。
-17. B-017: 取消、中断、超时或进程崩溃后不得留下新的 active pointer。下一次运行必须先
-    识别 unfinished transaction，按 immutable journal 完成 rollback/recovery，不能把旧
-    staging 或 partial receipt 当作成功安装。
+17. B-017: 取消、中断、超时或进程崩溃后不得留下未提交的新 active pointer。下一次任何
+    mutation 必须先取得对应 target lock，识别 unfinished transaction，并按 immutable
+    journal 完成 rollback/recovery；只有 recovery 完成并重新验证 committed generation
+    后才可进行新 transaction 的 discovery、staging、planning 或 confirmation，不能用
+    partial state 计算计划，也不能把旧 staging 或 partial receipt 当作成功安装。
 18. B-018: committed receipt 必须绑定 canonical identity、trust/provenance chain、
     policy/precision evidence digests、target/profile/capabilities、所有 owned files 和
     config entries 的 before/after digests、transaction ID、audit evidence 与 effective
     decisions。缺任一必填证据时不得 commit。
-19. B-019: pack install/update/remove 只能修改 receipt 精确拥有且 before digest 仍匹配的
-    files/config entries；用户或其他 pack 拥有的内容必须 preserved。ownership 冲突、
-    drift 或 ambiguous shared entry 在 plan 阶段阻断，不能 last-writer-wins。
+19. B-019: update/remove 只能修改 committed receipt 精确拥有且 before digest 仍匹配的
+    files/config entries。fresh install 对当前 unowned path 必须在 target lock 下建立
+    transaction-scoped provisional ownership reservation，记录 expected-absent/current
+    digest、planned after digest 和 transaction ID，并在 apply 前 compare-and-swap；
+    reservation 不等于 committed ownership，失败/取消必须随 rollback 清除，只有 B-015
+    atomic commit 才转成 receipt ownership。用户或其他 pack 拥有的内容必须 preserved；
+    ownership 冲突、drift 或 ambiguous shared entry 在 plan 阶段阻断，不能
+    last-writer-wins。
 20. B-020: dependencies/conflicts 必须是 exact、acyclic、version-range-valid 的 closed
     graph，并在 plan 中解析为同一 transaction set。missing、cycle、冲突或同一
     namespace/version 对应不同 digest 时零 apply；不得递归获取 undeclared dependency。
@@ -194,9 +212,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     pack identity、detector/capability identity、ground-truth/fixture set、TP/FP/
     acceptable/unclassified counts、reviewer evidence、sample window 与 generated/expires
     timestamps；pack-level平均值不能替代低精度单条规则。
-26. B-026: eligibility 计算只能使用获批 H-006 的公式和 classified sample 定义；
-    unclassified/acceptable 如何进入样本门必须由 policy 显式给出。除零、负数、计数不
-    自洽、未来 timestamp、过期或 reviewer 不独立均使 evidence invalid，不能修正后继续。
+26. B-026: eligibility 计算只能使用获批 H-006 的公式和 classified sample 定义，并把
+    policy-normalized `evaluation_time`/clock snapshot 作为显式输入和 eligibility digest
+    的组成部分；不得在纯函数内部隐式读取 wall clock。unclassified/acceptable 如何进入
+    样本门必须由 policy 显式给出。除零、负数、计数不自洽、相对 evaluation time 的未来
+    timestamp、过期或 reviewer 不独立均使 evidence invalid，不能修正后继续。
 27. B-027: precision floor、minimum samples、freshness、no-FP window 与 evidence issuer
     必须来自 approved policy digest，而不是 pack author、环境变量、README 或 install
     command 临时覆盖。不同 policy 下的 eligibility 必须可重算并显示 policy identity。
@@ -210,7 +230,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 30. B-030: 用户 override 必须逐 rule、可审计且和 official eligibility 分离。降级
     eligible block 可以直接生效；把 ineligible rule 升为 local block 只有在获批 H-007
     允许并经显式风险确认时生效，receipt/status 必须标 `local_override`，不能回写
-    registry/precision evidence 或改变其他用户的 default。
+    registry/precision evidence 或改变其他用户的 default。`revocation_status = revoked`
+    是不可提升的终态 ceiling：任何既有 block override 必须 suspended/rejected，effective
+    decision 只能按 H-008 降为 warn/off。
 31. B-031: core-curated packs 与 community packs 使用同一 per-rule precision eligibility
     计算和 no-data降级语义；curated badge、仓库内置或 high severity 都不能绕过 floor。
     两者的 publisher/trust来源可以不同，但差异必须由 H-003/H-008 policy 明示。
@@ -248,9 +270,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason，并以 nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
     空 pack 列表是成功且显示为空，不是错误或伪造内置 pack。
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
-    不得读取网络或删除用户状态；audit 必须诚实显示 stale/offline evidence。只有获批
-    policy 仍允许的 cached verified identity 可继续原 effective decision，过期或
-    revocation-unknown 时按 policy 降级，不能把 availability failure 当 verified success。
+    不得读取网络或删除用户状态；audit 必须诚实保留 provenance trust 并单独显示
+    `revocation_status = unknown`、cache age 与 stale/offline evidence。只有获批 policy
+    仍允许且在 revocation window 内的 cached verified identity 可继续原 effective
+    decision；过期或 revocation unknown 时按 policy 降级，不能把 availability failure
+    当成 revocation current 或 verified success。
 
 ## 验收标准
 
