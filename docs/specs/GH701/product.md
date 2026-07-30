@@ -155,12 +155,16 @@ GH-701 已完成。
 19. B-019 一个 native host event 必须归一化为有序的零到多个 canonical
     requests，而不是假设永远一对一；零项只允许来自显式 `unsupported` /
     `not_applicable` mapping，多 tool/file event 的每个可执行项都必须保留原输入
-    顺序并被 core 独立判定。
+    顺序并被 core 独立判定。每个 batch 最多 64 个 requests；decoder 必须在任何
+    core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
+    batch fail-closed，禁止截断或部分执行。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
-    `block > correction > escalate > gate > warn > pass` 产生唯一 host response；
-    任意 block 存在时不得执行 correction。多个 block 全部进入日志，primary block
+    `block > escalate > gate > correction > warn > complete > pass` 产生唯一 host
+    response；`block`、`escalate`、`gate` 任一存在时都不得执行 correction。
+    `complete` 是已完成的非 enforcement 结果，必须显式聚合但不得覆盖 warning、
+    confirmation 或 blocking 结果。多个 block 全部进入日志，primary block
     取输入顺序最早者，去重后的 fix instructions 按输入顺序有界合并，不能只记录
-    最后一个或让 pass 覆盖 block。
+    最后一个或让 pass/complete 覆盖 enforcement。
 21. B-021 每个 canonical request、decision、fix instruction、host response 与
     event-log row 必须共享不可复用的 `batch_id`、`request_id` 与有序 index；
     缺失、重复、跨 batch 引用或 primary response 无对应 log evidence 时 proof
@@ -180,23 +184,31 @@ GH-701 已完成。
 25. B-025 host config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
-    digest 漂移必须停止而不是覆盖并发更改。
+    digest 漂移必须停止而不是覆盖并发更改。每次 atomic rename 前必须先 durable
+    写入 `applying` journal（base/candidate digest、target、step），恢复时以 target
+    的实际 digest 判定是否已 apply，不能把尚未记录 `applied` 的 rename 当成
+    pre-apply 丢弃。
 26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
     保留外部更改并进入 `broken/needs_human`，不得用旧 snapshot 覆盖未知新内容。
 27. B-027 GH-699 install claim 与 GH-700 benchmark claim 必须分别有固定 schema、
     固定 evidence path 与同一个离线 README-claim validator；validator 绑定 claim
-    类型、issue、release、source HEAD、输入/输出 digest 与 README rendered value。
-    missing、schema-valid semantic mismatch、tampered digest、stale HEAD/release、
-    非零 install、repo clone、占位/历史 latency benchmark 均必须由 negative
-    fixtures 拒绝。
+    类型、issue、release、source HEAD、exact producer SHA/argv、输入/输出 digest、
+    protected-CI run identity、detached artifact attestation 与 README rendered
+    value；claim payload 的 exit code、clone marker、sample count 或 numerator /
+    denominator 不得作为未经认证的自报事实。missing、schema-valid semantic
+    mismatch、tampered/unsigned payload、错误 workflow/ref/producer invocation、
+    stale HEAD/release、非零 install、repo clone、占位/历史 latency benchmark
+    均必须由 negative fixtures 拒绝。
 28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
     独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
     HEAD、native event identity、redaction result、host binary SHA-256、VibeGuard
     runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
     timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
-    必须阻断。
+    必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
+    获批的 host_id/option、host release、protocol snapshot 与 native blocking
+    event；另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
     `readonly_retain + owner + UTC expiry`；任何第三状态、缺 owner/expiry、expiry
     已过仍存在或发生新 push 都阻断 GH-701 closure。
@@ -206,11 +218,15 @@ GH-701 已完成。
     acceptance digest。缺失、两值并存、issue 未同步或同步发生在选择之后但未
     重新见证时，README/task/implementation/closure gate 均 blocked。
 31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable
-    decision record，并由离线 gate 验证每项选择、维护者 actor、
-    `author_association`、immutable source URL/node、approved spec head 与时间；
-    推荐文本、实现者自填 JSON、缺失/过期/错误 head 的记录均不算批准。route 与
-    task-plan gate 必须重新消费该 gate 的 allowed result 及 record digest，不能
-    依赖人工口头说明或复用另一 HEAD 的结果。
+    decision record。受保护 collector 每次授权前必须重新读取 live GitHub source，
+    确认原 node 仍存在、内容/updated_at 未变、没有更新的同 decision 或显式
+    revocation，并生成 fresh collection generation；随后离线 gate 验证每项选择、
+    维护者 actor、`author_association`、immutable source URL/node、approved spec
+    head 与时间。只有当前受保护 CI run 的 live-source check 与对应 attestation
+    同时有效才可 `allowed`。推荐文本、实现者自填 JSON、已编辑/删除/撤销 source、
+    较旧 generation、缺失/过期/错误 head 的记录均不算批准。普通 routing、
+    task plan、renderer 与 closure 必须重新消费当前 gate result 及 record digest，
+    不能依赖人工口头说明、本地离线 preview 或复用另一 HEAD/较早 run 的结果。
 32. B-032 runtime proof 与 maintainer witness 必须是两个独立 artifact。
     maintainer witness 只能由受保护的只读 GitHub collector 获取并带可离线验证的
     attestation，绑定 immutable node、native event、candidate head 与见证时间；
@@ -224,17 +240,19 @@ GH-701 已完成。
     response/log/proof；schema-valid oversize-primary
     fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
 34. B-034 decision collector/gate 尚未存在于受保护 main 时，只允许一次
-    `bootstrap_once` tranche。该 tranche 必须先通过现有 SpecRail 人类
-    product/tech approval 与 `ready_to_implement` gate，再生成覆盖全部 B-ID 的
-    task plan；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
+    `bootstrap_once` tranche。该 tranche 只由 ordinary repository routing 的
+    `plan_first` handoff、维护者对 product/tech 的明确 GitHub review、live
+    duplicate-work search、当前 PR CI 与 human merge review 授权；任何可选
+    SpecRail packet/evaluator 都不是前置条件或授权来源。task plan 必须覆盖全部
+    B-ID；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
     H-001–H-004 decision gate。bootstrap PR 的实现 diff 只能包含 decision/witness
-    schemas、只读 collector、离线 gate 及最小 route/task wiring、受保护 main
-    workflow 和这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、
-    setup、README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final
-    review 与 merge gate，且只有 merge 到 main、attested completion sentinel
-    同时验证 `checks/route_gate.py`/`checks/check_workflow.py` mandatory wiring 与
-    全部 expected contract/blob digests 后才能收集可信 decisions；任一 wiring
-    缺失或漂移只能是 `partial/needs_human`，绝不能标为 closed。
+    schemas、只读 collector、attestation/offline gate、受保护 main workflow 和
+    这些表面的 tests/fixtures；不得改 host adapter、runtime/manifest、setup、
+    README 或生成任何 active/完成 claim。该 PR 仍须正常 CI、human final review
+    与 merge gate；只有 merge 到 main、attested completion sentinel 验证完整
+    protected workflow、collector/schema/gate path set 与全部 contract/blob
+    digests 后才能收集可信 decisions，任一缺失或漂移只能是
+    `partial/needs_human`，绝不能标为 closed。
 35. B-035 decision record 必须同时绑定 `approved_spec_head_sha`、product.md 原始
     bytes SHA-256、tech.md 原始 bytes SHA-256 与 canonical decision-input
     SHA-256。后续 task/implementation HEAD 只有在 approved spec head 是其 ancestor、
@@ -269,9 +287,10 @@ GH-701 已完成。
   当前 HEAD 的 gate result，implementer 自填 evidence 被拒绝。
 - [ ] oversize primary fix fixture 保持 block 并返回有界 closed fallback，原文
   不出现在 response、双日志或 proof。
-- [ ] bootstrap tasks 只能由现有 `spec_approval + ready_to_implement` route 生成并
-  执行一次，bootstrap PR diff allowlist、base-commit gate、CI、human review 与
-  merge gate 均通过；merge 前所有普通 implementation tasks 保持 blocked。
+- [ ] bootstrap tasks 只能在 ordinary `plan_first` handoff、维护者 GitHub spec
+  approval 与 live duplicate-work search 后生成并执行一次；bootstrap PR diff
+  allowlist、CI、human review 与 merge gate 均通过，且可选 SpecRail 输出不参与
+  授权；merge 前所有普通 implementation tasks 保持 blocked。
 - [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
   digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
   schema-valid fixture 要求重新收集维护者批准。
