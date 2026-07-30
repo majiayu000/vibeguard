@@ -70,25 +70,42 @@ eligibility、transaction plan、receipt 与 audit。这样 H 选择改变时，
 
 ### 2. v2 artifacts 与 closed schemas
 
-Recommended v1 shape（未批准）包含六种互相独立、各自 versioned/digested 的 artifacts：
+Recommended v1 shape（未批准）包含七种互相独立、各自 versioned/digested 的 artifacts：
 
 1. **Index snapshot/entry**：`publisher/name/version → bundle_digest`，并绑定 namespace
-   ownership、publish attestation、yank/revoke state、runtime/schema ranges；resolver
-   对 canonical entry bytes 计算 index entry digest，并把结果放入 resolution/receipt
-   envelope，entry 本身不嵌入该派生 digest。
+   ownership、publish attestation、runtime/schema ranges；resolver 对 canonical entry
+   bytes 计算 index entry digest，并把结果放入 resolution/receipt envelope，entry 本身
+   不嵌入该派生 digest，也不包含会随时间变化的 yank/revoke state。
 2. **Bundle manifest**：只保存构建前可确定的 embedded identity
    （publisher/name/exact version/schema/policy/content-root digest）、closed
    capabilities、targets/profiles、dependencies/conflicts、assets、rules 和 requested
-   decisions。最终 bundle digest 与 index entry digest 属于 resolution/receipt envelope，
-   不嵌回 manifest；canonical resolved identity 是 embedded identity 与这两个派生 digest
-   的 join，避免 digest 自引用。
-3. **Precision evidence**：逐 rule 绑定 rule/capability/fixture/reviewer/count/window，
+   decisions。最终 bundle digest、index entry digest 与 registry-event evidence digest
+   属于 resolution/receipt envelope，不嵌回 manifest；canonical official identity 是
+   embedded identity 与这三个派生 digest 的 join，避免 digest 自引用。
+3. **Registry-event evidence**：yank/revoke/namespace transfer 是 separately signed、
+   append-only events；canonical event/evidence bytes 有独立 digest，绑定 immutable entry
+   identity、event sequence/snapshot、issued/fresh-until times，不改写 entry bytes/digest。
+4. **Precision evidence**：逐 rule 绑定 rule/capability/fixture/reviewer/count/window，
    不允许只给 pack average。
-4. **Policy**：H-001–H-009 的获批取值、thresholds、issuers、offline/revocation action。
-5. **Transaction journal/receipt**：plan、before/staged/after digests、owned entries、
+5. **Policy**：H-001–H-009 的获批取值、thresholds、issuers、offline/revocation action。
+6. **Transaction journal/receipt**：plan、before/staged/after digests、owned entries、
    audit、commit/rollback/recovery。
-6. **Local override**：和 official receipt 分离，逐 rule 保存用户 action、confirmation、
+7. **Local override**：和 official receipt 分离，逐 rule 保存用户 action、confirmation、
    policy/eligibility identity，不得修改 official artifacts。
+
+resolved identity 是 closed discriminated union：
+
+```text
+official_registry:
+  publisher/name/exact_version/schema/bundle_digest/index_entry_digest
+  registry_event_evidence_digest/policy_digest
+local_file:
+  pack_id/exact_version/bundle_digest/canonical_locator_digest/schema/policy_digest
+```
+
+`local_file` 的 publisher/index/event fields 必须 absent，不能为满足 official schema
+伪造空字符串或 synthetic index digest。official/local 两类的 `source_kind` 与必填集合进入
+receipt、plan 与 status；任何 floating locator 只可用于选择，不能成为 committed identity。
 
 所有 JSON 使用 `additionalProperties: false`、closed enum、stable snake_case keys 和
 显式 schema dispatch。canonicalization 必须拒绝 duplicate JSON/YAML keys、非 UTF-8、
@@ -122,8 +139,9 @@ golden canonical fixtures，任何 parse/decision 差异使 CI 失败。
 resolver 先把 H-001 允许的 locator 解析为 source kind，再得到 canonical exact identity。
 official online flow：
 
-1. bounded 获取 signed index snapshot，验证 trust root、namespace ownership、snapshot
-   freshness 和 rollback/freeze protection；
+1. bounded 获取 signed index snapshot 和 separately signed registry-event evidence，
+   验证 trust root、namespace ownership、各自 identity/freshness 和 rollback/freeze
+   protection；
 2. 选择 exact version，拒绝同 version 多 digest；
 3. 获取 bundle 到 transaction staging，边流式下载边 enforce byte/time limits 和 SHA-256；
 4. 验证 release attestation subject == canonical bundle digest；
@@ -135,12 +153,13 @@ proxy、certificate 和 credential行为由 H-001/H-003 policy 闭集限定；UR
 不得进入 shell。index/bundle size、文件数、单文件、总展开大小、compression ratio、
 redirect count 和 timeout 都有已发布上限。
 
-offline cache 以 index snapshot digest + exact bundle digest 存储。provenance trust
-`{verified, unofficial}` 与 revocation status `{current, revoked, unknown}` 分开保存和
-render。只有 H-008 policy 认可且未超过 freshness/revocation window 的 cache 可用于
-verified + current install；无法刷新时保留历史 provenance，但 revocation status 必须是
-unknown，否则只可 explain cached metadata或 fail closed，不能自动转 unofficial，也不能
-谎报 current。
+offline cache 分别以 index snapshot digest、exact bundle digest 和 signed
+registry-event evidence digest 存储。provenance trust `{verified, unofficial}` 与
+revocation status `{current, revoked, unknown}` 分开保存和 render。identity-matched、
+签名有效且未超过获批 revocation freshness window 的 exact event cache 即使刷新失败也
+保持 `current`，并显示 cache source/age/fresh-until；cache 缺失、malformed、identity
+mismatch 或超过 window 才变为 `unknown` 并按 policy fail closed/degrade。不得自动转
+unofficial、把过期 cache 谎报 current，或把仍有效 cache 错报 unknown。
 
 ### 5. Capability 与 host compatibility
 
@@ -152,7 +171,9 @@ H-005 推荐 fixed Claude/Codex v1 时，resolver 读取现有安装 audit 的�
 schema 仍只保存抽象 ID。若 GH-701 registry 合并，adapter 改为消费其 canonical
 `host_id + capability` view；不复制 `claude`/`codex` config fields。unknown host、
 unknown capability、known-incompatible protocol、unsupported event、missing Core asset
-有不同 closed reason，均在 plan 前结束。
+有不同 closed reason，均在 plan 前结束。这些 compatibility failures 是不可由 local
+override 提升的 terminal ceilings；只有 trust/revocation/compatibility/policy 全部允许、
+且 ineligibility 仅来自 precision evidence 时，H-007 才可授权 local promotion。
 
 H-002 若批准 executable 扩展而不是推荐方案，本 tech spec 不足：必须回到 spec review，
 补 executable signing、sandbox、syscall/filesystem/network/secret policy、resource
@@ -166,53 +187,73 @@ Recommended H-004 layout（未批准）：
 ```text
 ~/.vibeguard/guard-packs/
   store/sha256/<bundle_digest>/        readonly verified content
-  committed/<transaction_id>/         immutable receipt + active identity generation
-  active/<publisher>/<pack>/<target>/<profile>  atomic committed-generation pointer
+  committed/<transaction_id>/         immutable dependency-set generation
+  active/sets/<installation_scope_id>  one atomic dependency-set generation pointer
   receipts/<publisher>/<pack>/<target>/<profile>.json  derived/read-only view
   transactions/<transaction_id>/
     plan.json
     journal.json
     before/
     staged/
-  locks/<target>.lock
+  locks/ownership.lock
+  locks/targets/<target>.lock
   overrides/<publisher>/<pack>/<target>/<profile>.json
 ```
 
-每个 mutation 在 target lock 下运行：
+每个 mutation 使用 canonical lock order：先取得 HOME-wide `ownership.lock`，再按 normalized
+target ID 排序取得全部 target locks；unlock 反序。HOME-wide lock 保护 shared store refs、
+dependency ownership、reservation 与 generation pointer，target locks 保护 host/config。
+不同 target 的 discovery/private staging/confirmation 可并行，但 shared mutation/commit
+critical section 必须序列化。流程分为三个 lock epoch，exclusive lock 不跨越网络 fetch
+或 interactive confirmation：
 
 ```text
-lock → recover-old → validate-current-generation
-     → discover → bounded-fetch/stage/verify → plan → confirm
-     → reserve/snapshot-owned-state → apply → audit
-     → build+fsync committed generation → atomic active-pointer switch (= commit)
-                                      └ failure before switch → rollback → audit restored
+lock-A → recover-old → validate-current-generation → snapshot base → unlock
+       → discover → bounded-fetch/stage/verify
+lock-B → recover/revalidate base → build immutable plan+digests → unlock
+       → bounded-deadline confirm
+lock-C → recover + CAS revalidate generation/ownership/evidence/evaluation/plan
+       → reserve/snapshot-owned-state → apply → audit
+       → build+fsync dependency-set generation → one atomic set-pointer switch (= commit)
+                                                └ failure before switch → rollback
 ```
 
 `recover-old` 必须在 discovery/plan 前完成：旧 journal 造成的 partial state 不得参与新
 plan。bounded fetch/staging 只写本 transaction 私有临时目录，不能进入 persistent store、
 host/config、receipt、override 或 active surface；plan 展示 staging boundary/digests，
-拒绝、取消、验证失败或 rollback 后必须验证清理。
+拒绝、取消、确认 timeout、验证失败或 rollback 后必须验证清理。confirmation deadline
+来自 approved policy；lock-C 重新计算 policy-normalized evaluation time 与 eligibility
+identity。base generation、ownership、registry-event evidence、compatibility、policy、
+evaluation/eligibility 或 plan digest 任一 drift，必须废弃旧确认并重新 plan/confirm。
 
 plan 使用 compare-and-swap 前提：每个将修改的 file/config entry 同时记录 owner 与
 observed before digest。fresh install 对 unowned path 建立 transaction-scoped provisional
 reservation，绑定 transaction ID、expected-absent/current digest 和 planned after
-digest；它只在 target lock 内有效，不构成 receipt ownership，apply 前必须再次 CAS，
-失败/取消随 rollback 清除。update/remove 仍只接受 committed receipt ownership。config
-修改使用结构化 reader/writer 和现有 target ownership语义，不做 string append；shared
+ digest；它只在 ownership/target locks 内有效，不构成 receipt ownership，apply 前必须再次 CAS，
+失败/取消随 rollback 清除。update/remove 仍只接受 committed receipt ownership，且当前
+owned bytes/config state 必须匹配 receipt `after` digest；receipt `before` digest 是
+rollback/remove restoration target，不是当前 ownership comparator。config 修改使用结构化
+reader/writer 和现有 target ownership语义，不做 string append；shared
 dependencies 需要引用集合，最后一个 owner remove 才可删除。
 
 journal 每完成一步原子 append/replace closed state。audit 成功后先在
-`committed/<transaction_id>/` 写入并 fsync 完整 receipt、active identity、policy/
-eligibility digests 和 commit marker，再以一次 atomic pointer replacement 暴露整个
-generation；该 replacement 本身就是 durable commit boundary。runtime 必须先解析 pointer，
+`committed/<transaction_id>/` 写入并 fsync 全部 resolved dependency receipts、active
+identities、shared ownership refs、policy/eligibility digests 和 commit marker，再以一次
+installation-scope atomic pointer replacement 暴露整个 dependency-set generation；不得
+为每个 pack 依次切换 pointer。该 replacement 本身就是 durable commit boundary。runtime
+必须先解析 set pointer，
 再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
 staged state 或未提交 generation。pointer switch 后只允许 journal finalization/临时清理，
 这些失败不撤销已提交语义，而由下次 recovery 幂等完成。interrupt 后下次 mutation 必须先
-取得 target lock 并 recover unfinished journal。rollback 只依据 journal，不扫描 HOME；
+按 canonical order 取得 ownership/target locks 并 recover unfinished journal。rollback
+只依据 journal，不扫描 HOME；
 rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
 另一版本。
 
-same identity retry 比较 receipt/active/store/policy digests，全等即 no-op；version 相同但
+same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
+eligibility identity，再比较 receipt/active/store/policy/index-entry/registry-event/
+evaluation/eligibility digests；只有全等才 no-op。跨越任一 freshness/expiry/revocation
+时间边界必须 re-audit，即使 bundle 和 policy bytes 未变。version 相同但 bundle/index-entry
 digest 不同视为 registry immutability violation。update 新旧 store并存直到 commit；
 失败保持旧 active。remove 先验证 drift，只删独占 owned entries，用户/其他 pack canary
 保持 byte-identical。
@@ -227,6 +268,7 @@ rule_digest
 capability_digest
 provenance_trust
 revocation_status
+compatibility_status
 precision_evidence | null
 approved_policy
 evaluation_time
@@ -254,9 +296,11 @@ override_status = applied | suspended | rejected | null
 3. 按 H-006 公式计算 eligibility；
 4. evidence 缺失/invalid/不足/过期/低 floor → `warn_only`；
 5. 达标只得到 `block_eligible`，再结合 requested decision/host capability；
-6. 应用独立 local override，并保留 official result；
-7. 最后施加 revocation terminal ceiling：`revoked` 必须 suspend/reject 任何促进到 block
-   的 override，effective decision 按 H-008 只能降为 warn/off；`unknown` 按明确 offline
+6. 应用独立 local override，并保留 official result；promotion 只可针对 evidence-only
+   ineligibility；
+7. 最后施加 terminal ceilings：`revoked`、unknown/incompatible host、unsupported
+   capability、missing Core 必须 suspend/reject 任何促进到 block 的 override，effective
+   decision 按 approved policy 只能降为 warn/off；`unknown` revocation 按明确 offline
    policy 处理，不能被 override 伪装成 current。
 
 不能从 pack average、GH-700 benchmark、aggregate CI precision 或 author 自报值填充
@@ -267,9 +311,10 @@ samples语义同时又用另一分母。
 
 status/audit 每条 rule 同时显示 requested、official eligibility/default、local effective、
 override status、precision value/null、counts、age、evaluation time、policy/issuer、
-provenance trust、revocation status 和全部 reason。rule/policy/evidence/provenance/
-revocation/evaluation-time 变化产生新 eligibility digest并触发 audit；active block 失去
-eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
+provenance trust、revocation status、compatibility status 和全部 reason。rule/policy/evidence/provenance/
+registry-event/compatibility/normalized evaluation-time 变化产生新 eligibility digest并
+触发 audit；这包括只跨越 freshness/expiry/revocation window、其他 bytes 均未变化的情况。
+active block 失去 eligibility 时按 H-008 action 事务降级，失败进入 `needs_repair`。
 
 ### 8. Registry governance、publish 与 revocation
 
@@ -289,8 +334,10 @@ contract，并运行 fixtures/capability/precision checks。`publish` 先验证 
 authorization 和 version absence，再上传 immutable bundle/attestation，最后以
 compare-and-swap追加 index entry；任一步失败不产生可 resolve 的半 entry。
 
-yank/revoke/namespace transfer 是独立 signed events，不改写旧 entry。client 保存所见
-event identity。revoke online audit 按 H-008 policy生成降级 transaction；不能安全应用时
+yank/revoke/namespace transfer 是独立 signed events，不改写旧 entry。client 保存 canonical
+event/evidence digest、签名链、sequence 与 freshness，resolved identity/receipt/audit 引用
+该 digest而不是把 event state 折入 index entry digest。revoke online audit 按 H-008
+policy生成降级 transaction；不能安全应用时
 显示 `needs_repair` 并阻止新激活。runtime hot path 不联网，使用 committed local
 eligibility；网络刷新只发生在 add/update/audit 等显式管理动作。
 
@@ -401,47 +448,47 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 released no-checkout command | Runtime registry + GH-699 actual launcher integration | fresh HOME fixture runs discovered released `vibeguard add` with `.git`, Python, Cargo and API key absent; checkout-only route reports unofficial |
-| B-002 canonical exact identity | Locator + embedded/resolved identity model | table test rejects every missing/empty/mismatch/floating field，并证明 manifest 不嵌 derived bundle/index-entry digest、resolved envelope 无自引用 |
+| B-002 canonical exact identity | Locator + discriminated embedded/resolved identity model | table test rejects every missing/empty/mismatch/floating field；official fixture requires immutable entry + event evidence digests，local-file fixture requires locator + bundle digests and rejects fabricated index fields |
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
 | B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Policy schema + offline gate | missing/double/unknown/stale/spec-drift H-001–H-009 fixtures all block publish/install/eligibility |
-| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × revocation current/revoked/unknown，不用 warning 文本替代字段 |
-| B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust/revocation, capabilities, per-rule reasons, persistent writes, bounded staging/network, cleanup, rollback and receipt before confirmation |
+| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × live current/cached-current/revoked/unknown；fresh exact cache remains current while missing/mismatch/expired becomes unknown |
+| B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust/revocation, capabilities, per-rule reasons, persistent writes, bounded staging/network, cleanup, rollback and receipt before bounded confirmation |
 | B-009 closed capabilities | Manifest join + capability resolver | unknown/undeclared/multi-mapped/free-text/extra-payload fixtures fail before executor or host mutation |
 | B-010 safe archive containment | Streaming archive extractor | absolute/traversal/device/link/case collision/duplicate/size/ratio corpus leaves staging boundary canary untouched |
-| B-011 complete provenance chain | Index + trust verifier | checksum-only, self-report, wrong namespace/subject/digest and valid full-chain fixtures prove verified is all-or-nothing |
-| B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/stale-cache/revocation-unknown matrix asserts fail-closed or exact approved cached status |
-| B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses |
+| B-011 complete provenance chain | Index + trust verifier | checksum-only, self-report, wrong namespace/subject/digest and valid full-chain fixtures prove verified is all-or-nothing；event-only mutation never changes immutable entry digest |
+| B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-cache/expired-cache/identity-mismatch matrix asserts fail-closed or exact cached-current/unknown status |
+| B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal + committed generation | crash before/after atomic pointer switch proves receipt/active 同时可见，runtime拒绝 orphan/uncommitted generation |
+| B-015 transaction state machine | Transaction journal + dependency-set generation | crash before/after the one installation-scope pointer switch proves every dependency receipt/active identity 同时可见，runtime拒绝 graph subset/orphan/uncommitted generation |
 | B-016 scoped rollback/repair | Transaction rollback | injected failure at every stage restores before digests; rollback failure retains evidence and reports needs_repair |
-| B-017 interruption recovery | Journal recovery | partial state fixture asserts lock + recovery precedes discovery/plan; kill after every mutation boundary proves deterministic recovery |
+| B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
 | B-018 complete committed receipt | Receipt schema/writer | field-removal/digest-mismatch corpus cannot commit; valid receipt binds every required identity/write/audit |
-| B-019 ownership preservation | Planner + reservation + structured config adapters | fresh unowned reservation commits ownership；conflict/drift/cancel clears reservation and preserves user/other-pack canaries |
-| B-020 dependency graph | Dependency resolver | missing/cycle/conflict/range/multi-digest/undeclared recursion fixtures zero-apply; valid graph commits one transaction set |
-| B-021 idempotent retry | Identity + receipt comparator | same identity retry is no-op with same receipt; same version/different digest is immutable violation |
+| B-019 ownership preservation | Planner + reservation + structured config adapters | update/remove succeeds only when current state matches receipt after digest；matching before but not after is drift；fresh conflict/cancel preserves canaries |
+| B-020 dependency graph | Dependency resolver + set generation | missing/cycle/conflict/range/multi-digest/undeclared recursion fixtures zero-apply；crash matrix never exposes a graph subset；valid graph uses one pointer commit |
+| B-021 idempotent retry | Identity + receipt comparator | exact evaluation/eligibility identity retry is no-op；same bytes across a freshness/expiry boundary re-audits；same version/different bundle or entry digest is immutable violation |
 | B-022 safe update | Update transaction | from/to diff golden; failure at each gate keeps old active/store bytes; success never mutates old store |
 | B-023 ownership-safe remove | Remove/repair flow | shared refcount, exclusive file, missing/corrupt receipt and drift fixtures prove no HOME scanning or foreign delete |
-| B-024 concurrency isolation | Per-target lock + transaction IDs | parallel same-target mutations yield one bounded winner; different-target run has disjoint journal/staging and deterministic state |
+| B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | fixed evaluation-time snapshots cross freshness/expiry boundary deterministically；count/denominator/future/reviewer negatives remain invalid |
 | B-027 policy-owned thresholds | Policy loader + eligibility digest | env/CLI/README/author threshold attempts do not change result; policy change changes digest and recomputes |
 | B-028 insufficient evidence degrades | Eligibility + renderer | missing/invalid/low-sample/stale/below-floor rows produce warn/off, null precision + reason, never block/0%/old value |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
-| B-030 isolated local override | Override schema/applicator | demotion, approved explicit promotion, missing confirmation, cross-user mutation，以及 revoked + existing block override 被 suspended/rejected |
+| B-030 isolated local override | Override schema/applicator | demotion and evidence-only approved promotion work；missing confirmation/cross-user mutation/revoked/unknown host/incompatible protocol/unsupported capability/missing Core promotions are suspended/rejected |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |
-| B-032 evidence drift re-audit | Audit + eligibility identity | mutate rule/policy/evidence/capability/trust one at a time; digest changes and active ineligible block degrades or needs_repair |
+| B-032 evidence drift re-audit | Audit + eligibility identity | mutate rule/policy/evidence/capability/trust/event/compatibility or only cross an evaluation-time boundary；digest changes and active ineligible block degrades or needs_repair |
 | B-033 opt-in private feedback | Export renderer/redactor | default install/runtime packet capture is empty; export field golden is redacted; cancel-before-send makes zero network calls |
-| B-034 immutable registry history | Index validator | duplicate namespace/version, overwrite/delete/reorder/transfer-without-event fixtures fail; historical receipt remains explainable |
-| B-035 yank/revoke actions | Registry event + audit transaction | yank blocks new install; revoke blocks activation/degrades existing; injected write failure produces needs_repair, not warning-only block |
+| B-034 immutable registry history | Index + registry-event validators | duplicate namespace/version, entry overwrite/delete/reorder and transfer-without-event fixtures fail；valid yank/revoke changes only event evidence digest；historical receipt remains explainable |
+| B-035 yank/revoke actions | Registry event + audit transaction | yank/revoke action references exact signed event evidence digest；yank blocks new install；revoke degrades existing；write failure produces needs_repair |
 | B-036 legacy safe-bash migration | v1 reader + migration planner | current v1 regressions pass; migration never claims Core file ownership and failure leaves registration receipt usable |
 | B-037 GH-699 dependency | Payload/release integration | `bash tests/test_payload.sh && bash tests/test_release_workflow.sh`; only discovered actual launcher/no-clone native smoke satisfies official |
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | contract test accepts approved registry IDs or fixed Claude/Codex policy and rejects second registry/third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds match digest; validation/upload/attestation/index-CAS failure never creates resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status aggregate/renderers | exhaustive installed/empty/invalid/incompatible/revoked/needs_repair golden checks fields and exit codes |
-| B-042 offline runtime stability | Committed local eligibility + audit policy | block network, preserve runtime decision/store, show stale audit; expired/revocation-unknown follows exact degradation policy |
+| B-042 offline runtime stability | Committed local eligibility + audit policy | block network and preserve runtime/store；fresh exact event cache remains current；missing/malformed/mismatched/expired event cache becomes unknown and follows exact degradation policy |
 
 ## 数据流
 
@@ -450,17 +497,19 @@ author source root
   └─ validate/build ──> canonical bundle + per-rule evidence
                            │
                            ├─ verify namespace/provenance
-                           └─ publish immutable object ──> signed index event
+                           └─ publish immutable object ──> immutable index entry
+                                                        + signed registry events
 
 vibeguard add <locator>
-  └─ target lock + recover unfinished journal + validate committed generation
+  └─ ordered ownership/target locks + recover + snapshot committed generation
        └─ approved policy + locator
-            └─ index snapshot/revocation ──> exact resolved identity
+            └─ index snapshot + registry-event evidence ──> exact resolved identity
                  └─ bounded bundle fetch ──> streamed digest/attestation
                       └─ transaction-private safe staging extraction
                            └─ schema/join/capability/precision preflight
-                                └─ immutable plan + explicit confirmation
-                                     ├─ reserve/apply/audit/atomic committed-state switch
+                                └─ immutable plan → unlock → bounded confirmation
+                                     ├─ reacquire + CAS → reserve/apply/audit
+                                     │                    └─ one dependency-set pointer switch
                                      └─ rollback/recovery/needs_repair
 
 runtime hook
@@ -468,7 +517,7 @@ runtime hook
        └─ no registry/network/telemetry access
 ```
 
-持久化面是 closed set：content-addressed verified store、index/revocation cache、
+持久化面是 closed set：content-addressed verified store、index/registry-event caches、
 transaction journals/before snapshots、committed receipts/active identities、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
