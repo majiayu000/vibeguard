@@ -31,15 +31,43 @@ scheduler_sha256_file() {
   fi
 }
 
-scheduler_receipt_value() {
-  local key="$1"
-  awk -F= -v key="${key}" '
-    $1 == key { count += 1; value = $2 }
-    END {
-      if (count == 1 && value != "") print value
-      else exit 1
+scheduler_receipt_parse() {
+  awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { next }
+    NR == 2 && $1 == "kind" && ($2 == "launchd" || $2 == "systemd") { kind = $2; next }
+    NR == 3 && $1 == "phase" && ($2 == "managed" || $2 == "cleaning") {
+      phase = $2
+      declared_phase = 1
+      next
     }
-  ' "${SCHEDULER_RECEIPT}"
+    NR == 3 && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      phase = "managed"
+      first = $2
+      next
+    }
+    NR == 4 && declared_phase && ((kind == "launchd" && $1 == "plist_sha256") || (kind == "systemd" && $1 == "service_sha256")) && $2 ~ /^[0-9a-f]{64}$/ {
+      first = $2
+      next
+    }
+    NR == 4 && !declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2
+      next
+    }
+    NR == 5 && declared_phase && kind == "systemd" && $1 == "timer_sha256" && $2 ~ /^[0-9a-f]{64}$/ {
+      second = $2
+      next
+    }
+    { bad = 1 }
+    END {
+      launchd_ok = kind == "launchd" && first != "" && second == "" && ((!declared_phase && NR == 3) || (declared_phase && NR == 4))
+      systemd_ok = kind == "systemd" && first != "" && second != "" && ((!declared_phase && NR == 4) || (declared_phase && NR == 5))
+      if (!bad && phase != "" && (launchd_ok || systemd_ok)) {
+        print kind "\t" phase "\t" first "\t" second
+        exit 0
+      }
+      exit 1
+    }
+  ' "$1"
 }
 
 scheduler_verify_deactivated() {
@@ -83,18 +111,27 @@ if ! command -v systemctl &>/dev/null; then
   exit 1
 fi
 
+SCHEDULER_RECEIPT_PARSED=""
 if [[ -e "${SCHEDULER_RECEIPT}" || -L "${SCHEDULER_RECEIPT}" ]]; then
   if [[ -L "${SCHEDULER_RECEIPT}" || ! -f "${SCHEDULER_RECEIPT}" ]]; then
     red "ERROR: scheduler ownership receipt must be absent or a regular non-symlink file: ${SCHEDULER_RECEIPT}"
     exit 1
   fi
-  if awk 'NR == 2 && $0 == "kind=launchd" { found = 1 } END { exit(found ? 0 : 1) }' \
-    "${SCHEDULER_RECEIPT}"; then
-    red "ERROR: scheduler ownership receipt kind launchd does not match Linux systemd scheduler."
-    exit 1
-  fi
-  if grep -qFx "phase=cleaning" "${SCHEDULER_RECEIPT}"; then
-    red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean before installing."
+  if SCHEDULER_RECEIPT_PARSED="$(scheduler_receipt_parse "${SCHEDULER_RECEIPT}" 2>/dev/null)"; then
+    IFS=$'\t' read -r receipt_kind receipt_phase _ \
+      <<< "${SCHEDULER_RECEIPT_PARSED}"
+    if [[ "${receipt_kind}" != "systemd" ]]; then
+      red "ERROR: scheduler ownership receipt kind ${receipt_kind} does not match Linux systemd scheduler."
+      exit 1
+    fi
+    if [[ "${receipt_phase}" != "managed" ]]; then
+      red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean before installing."
+      exit 1
+    fi
+  elif [[ "${1:-}" == "--remove" \
+    || -e "${SERVICE_DEST}" || -L "${SERVICE_DEST}" \
+    || -e "${TIMER_DEST}" || -L "${TIMER_DEST}" ]]; then
+    red "ERROR: scheduler ownership receipt is invalid; preserving scheduler state."
     exit 1
   fi
 fi
@@ -107,25 +144,8 @@ fi
 if [[ "${1:-}" == "--remove" ]]; then
   REMOVE_RECEIPT=0
   if [[ -f "${SCHEDULER_RECEIPT}" && ! -L "${SCHEDULER_RECEIPT}" ]]; then
-    receipt_kind="$(scheduler_receipt_value kind)" || {
-      red "ERROR: scheduler ownership receipt is invalid; preserving scheduler state."
-      exit 1
-    }
-    [[ "${receipt_kind}" == "systemd" ]] || {
-      red "ERROR: scheduler ownership receipt kind ${receipt_kind} does not match Linux systemd scheduler."
-      exit 1
-    }
-    receipt_phase="$(scheduler_receipt_value phase 2>/dev/null || printf 'managed')"
-    [[ "${receipt_phase}" == "managed" ]] || {
-      red "ERROR: scheduler ownership receipt is in cleaning phase; rerun setup --clean."
-      exit 1
-    }
-    service_sha="$(scheduler_receipt_value service_sha256)"
-    timer_sha="$(scheduler_receipt_value timer_sha256)"
-    [[ "${service_sha}" =~ ^[0-9a-f]{64}$ && "${timer_sha}" =~ ^[0-9a-f]{64}$ ]] || {
-      red "ERROR: scheduler ownership receipt hashes are invalid; preserving scheduler state."
-      exit 1
-    }
+    IFS=$'\t' read -r _ _ service_sha timer_sha \
+      <<< "${SCHEDULER_RECEIPT_PARSED}"
     for unit_path in "${SERVICE_DEST}" "${TIMER_DEST}"; do
       if [[ -L "${unit_path}" || (-e "${unit_path}" && ! -f "${unit_path}") ]]; then
         red "ERROR: systemd unit must be a regular file or absent; preserving scheduler state: ${unit_path}"
@@ -197,6 +217,29 @@ if [[ "${1:-}" == "--remove" ]]; then
 fi
 
 # --- Install mode ---
+if [[ -n "${SCHEDULER_RECEIPT_PARSED}" ]]; then
+  IFS=$'\t' read -r _ _ service_sha timer_sha \
+    <<< "${SCHEDULER_RECEIPT_PARSED}"
+  if [[ -L "${SERVICE_DEST}" || ! -f "${SERVICE_DEST}" \
+    || -L "${TIMER_DEST}" || ! -f "${TIMER_DEST}" ]]; then
+    red "ERROR: scheduler ownership receipt does not match current systemd files; preserving scheduler state."
+    exit 1
+  fi
+  actual_service_sha="$(scheduler_sha256_file "${SERVICE_DEST}")" || {
+    red "ERROR: failed to hash current systemd service; preserving scheduler state."
+    exit 1
+  }
+  actual_timer_sha="$(scheduler_sha256_file "${TIMER_DEST}")" || {
+    red "ERROR: failed to hash current systemd timer; preserving scheduler state."
+    exit 1
+  }
+  if [[ "${actual_service_sha}" != "${service_sha}" \
+    || "${actual_timer_sha}" != "${timer_sha}" ]]; then
+    red "ERROR: scheduler ownership receipt does not match current systemd files; preserving scheduler state."
+    exit 1
+  fi
+fi
+
 echo "Installing VibeGuard systemd user units..."
 
 if [[ ! -f "${SERVICE_SRC}" ]] || [[ ! -f "${TIMER_SRC}" ]]; then

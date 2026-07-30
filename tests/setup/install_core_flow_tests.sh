@@ -10,6 +10,133 @@ assert_cmd "systemd service points to canonical GC script path" grep -q "__VIBEG
 assert_cmd "systemd installer chmods canonical GC script path" grep -q 'scripts/gc/gc-scheduled.sh' "${REPO_DIR}/scripts/install-systemd.sh"
 assert_cmd "scheduled GC installers do not reference retired root path" bash -c "! grep -q 'scripts/gc-scheduled.sh' '${REPO_DIR}/scripts/setup/com.vibeguard.gc.plist' '${REPO_DIR}/scripts/systemd/vibeguard-gc.service' '${REPO_DIR}/scripts/install-systemd.sh'"
 
+standalone_systemd_bin="${TMP_HOME}/standalone-systemd-bin"
+mkdir -p "${standalone_systemd_bin}"
+cat > "${standalone_systemd_bin}/uname" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' Linux
+SH
+cat > "${standalone_systemd_bin}/systemctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${VIBEGUARD_TEST_SYSTEMCTL_LOG}"
+exit 0
+SH
+chmod +x "${standalone_systemd_bin}/uname" "${standalone_systemd_bin}/systemctl"
+
+standalone_fresh_home="${TMP_HOME}/standalone-systemd-fresh-home"
+standalone_fresh_log="${TMP_HOME}/standalone-systemd-fresh-systemctl.log"
+mkdir -p "${standalone_fresh_home}"
+: > "${standalone_fresh_log}"
+assert_cmd "documented systemd installer preserves fresh-install behavior" \
+  env HOME="${standalone_fresh_home}" \
+  PATH="${standalone_systemd_bin}:${PATH}" \
+  VIBEGUARD_TEST_SYSTEMCTL_LOG="${standalone_fresh_log}" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh"
+assert_cmd "fresh standalone install writes both systemd units" bash -c \
+  'test -f "$1" && test -f "$2"' _ \
+  "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.service" \
+  "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.timer"
+
+standalone_fresh_receipt="${standalone_fresh_home}/.vibeguard/scheduler-ownership"
+mkdir -p "$(dirname "${standalone_fresh_receipt}")"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${standalone_fresh_home}/.config/systemd/user/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${standalone_fresh_receipt}"
+: > "${standalone_fresh_log}"
+assert_cmd "documented systemd installer preserves valid-owned refresh behavior" \
+  env HOME="${standalone_fresh_home}" \
+  PATH="${standalone_systemd_bin}:${PATH}" \
+  VIBEGUARD_TEST_SYSTEMCTL_LOG="${standalone_fresh_log}" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh"
+assert_cmd "valid-owned standalone refresh still invokes systemd" \
+  test -s "${standalone_fresh_log}"
+
+standalone_malformed_home="${TMP_HOME}/standalone-systemd-malformed-home"
+standalone_malformed_dir="${standalone_malformed_home}/.config/systemd/user"
+standalone_malformed_receipt="${standalone_malformed_home}/.vibeguard/scheduler-ownership"
+standalone_malformed_loaded="${standalone_malformed_home}/.systemctl-vibeguard-gc-active"
+standalone_malformed_log="${TMP_HOME}/standalone-systemd-malformed-systemctl.log"
+mkdir -p "${standalone_malformed_dir}" "$(dirname "${standalone_malformed_receipt}")"
+printf 'custom service\n' > "${standalone_malformed_dir}/vibeguard-gc.service"
+printf 'custom timer\n' > "${standalone_malformed_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=invalid\ntimer_sha256=invalid\n' \
+  > "${standalone_malformed_receipt}"
+touch "${standalone_malformed_loaded}"
+: > "${standalone_malformed_log}"
+standalone_malformed_before="$(
+  shasum -a 256 \
+    "${standalone_malformed_dir}/vibeguard-gc.service" \
+    "${standalone_malformed_dir}/vibeguard-gc.timer" \
+    "${standalone_malformed_receipt}" "${standalone_malformed_loaded}"
+)"
+set +e
+standalone_malformed_out="$(
+  HOME="${standalone_malformed_home}" \
+    PATH="${standalone_systemd_bin}:${PATH}" \
+    VIBEGUARD_TEST_SYSTEMCTL_LOG="${standalone_malformed_log}" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" 2>&1
+)"
+standalone_malformed_rc=$?
+set -e
+assert_cmd "standalone systemd install rejects a malformed ownership receipt" \
+  test "${standalone_malformed_rc}" -ne 0
+assert_contains "${standalone_malformed_out}" \
+  "scheduler ownership receipt is invalid" \
+  "standalone malformed receipt failure is explicit"
+assert_cmd "malformed receipt preserves units, receipt, and loaded state" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3" "$4")" = "$5"' _ \
+  "${standalone_malformed_dir}/vibeguard-gc.service" \
+  "${standalone_malformed_dir}/vibeguard-gc.timer" \
+  "${standalone_malformed_receipt}" "${standalone_malformed_loaded}" \
+  "${standalone_malformed_before}"
+assert_cmd "malformed receipt performs no systemctl mutation" \
+  test ! -s "${standalone_malformed_log}"
+
+standalone_drift_home="${TMP_HOME}/standalone-systemd-drift-home"
+standalone_drift_dir="${standalone_drift_home}/.config/systemd/user"
+standalone_drift_receipt="${standalone_drift_home}/.vibeguard/scheduler-ownership"
+standalone_drift_loaded="${standalone_drift_home}/.systemctl-vibeguard-gc-active"
+standalone_drift_log="${TMP_HOME}/standalone-systemd-drift-systemctl.log"
+mkdir -p "${standalone_drift_dir}" "$(dirname "${standalone_drift_receipt}")"
+printf 'owned service\n' > "${standalone_drift_dir}/vibeguard-gc.service"
+printf 'owned timer\n' > "${standalone_drift_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${standalone_drift_dir}/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${standalone_drift_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${standalone_drift_receipt}"
+printf 'local drift\n' >> "${standalone_drift_dir}/vibeguard-gc.service"
+touch "${standalone_drift_loaded}"
+: > "${standalone_drift_log}"
+standalone_drift_before="$(
+  shasum -a 256 \
+    "${standalone_drift_dir}/vibeguard-gc.service" \
+    "${standalone_drift_dir}/vibeguard-gc.timer" \
+    "${standalone_drift_receipt}" "${standalone_drift_loaded}"
+)"
+set +e
+standalone_drift_out="$(
+  HOME="${standalone_drift_home}" \
+    PATH="${standalone_systemd_bin}:${PATH}" \
+    VIBEGUARD_TEST_SYSTEMCTL_LOG="${standalone_drift_log}" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" 2>&1
+)"
+standalone_drift_rc=$?
+set -e
+assert_cmd "standalone systemd install rejects unit hash drift" \
+  test "${standalone_drift_rc}" -ne 0
+assert_contains "${standalone_drift_out}" \
+  "scheduler ownership receipt does not match current systemd files" \
+  "standalone unit hash drift failure is explicit"
+assert_cmd "unit hash drift preserves units, receipt, and loaded state" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3" "$4")" = "$5"' _ \
+  "${standalone_drift_dir}/vibeguard-gc.service" \
+  "${standalone_drift_dir}/vibeguard-gc.timer" \
+  "${standalone_drift_receipt}" "${standalone_drift_loaded}" \
+  "${standalone_drift_before}"
+assert_cmd "unit hash drift performs no systemctl mutation" \
+  test ! -s "${standalone_drift_log}"
+
 systemd_remove_home="${TMP_HOME}/systemd-remove-receipt-home"
 systemd_remove_dir="${systemd_remove_home}/.config/systemd/user"
 systemd_remove_bin="${TMP_HOME}/systemd-remove-receipt-bin"
