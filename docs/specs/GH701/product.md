@@ -71,7 +71,8 @@ GH-701 已完成。
    opencode，Cursor CLI 只有取得等价 native blocking evidence 后才可选择。
 2. **H-002 安装触发 — Recommended proposal: 专用 `--host gemini` opt-in**。
    discovery 始终只读，只有用户明确给出 host 参数并确认 diff 才写配置；“检测到
-   executable 自动写入”是互斥备选，不得与 opt-in 同时生效。
+   executable”互斥备选也只能生成 proposal，必须经过相同的 exact-diff 确认后
+   才能写入，不得与 opt-in 同时生效。
 3. **H-003 stale branch — Recommended proposal: delete after approval**。远端
    `docs/gh701-readme-first-screen` 当前指向 `c77253b4`，其有效内容已通过 squash
    merge PR #705（`48076210`）进入 main，且该 commit 不是 main ancestor。唯一
@@ -131,13 +132,16 @@ GH-701 已完成。
     event 被归属为另一个 host，也不得覆盖第三方配置。
 13. B-013 新 adapter 的默认数据流保持 local-first：不新增网络上报、远端执行、
     analytics 或 secret 读取；host 配置写入只发生在用户确认的目标与 VibeGuard
-    owned entry 内，并遵守 host 自身权限边界。
+    owned entry 内，并遵守 host 自身权限边界。auto-detect 只能提出候选 target，
+    不能把 executable 存在视为确认；每个 target 都必须展示并确认 exact diff。
 14. B-014 已支持的 Claude Code 与 Codex CLI 安装、profile、capability、
     fail-closed、第三方 hook preservation、doctor/verify-install 与 clean 语义
     必须保持；generalize manifest 或 adapter registry 不得改变它们的有效配置。
 15. B-015 adapter 与 core 的 compatibility 必须由 host adapter contract
     version、host protocol/version range 与 VibeGuard runtime version 显式判定；
-    不兼容组合必须 fail visible，不能尝试 best-effort 转换后报告成功。
+    每个 host registry entry 必须声明可接受的 runtime version/ABI range，并在
+    配置写入或 core 执行前验证；不兼容组合必须 fail visible，不能尝试
+    best-effort 转换后报告成功。
 16. B-016 用户中断安装或 adapter update 后重试时，系统必须从已验证的旧状态或
     明确的 incomplete 状态继续；不得复用未验证的 temporary config、伪造成功
     evidence 或产生重复 event registration。
@@ -157,7 +161,9 @@ GH-701 已完成。
     `not_applicable` mapping，多 tool/file event 的每个可执行项都必须保留原输入
     顺序并被 core 独立判定。每个 batch 最多 64 个 requests；decoder 必须在任何
     core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
-    batch fail-closed，禁止截断或部分执行。
+    batch fail-closed，禁止截断或部分执行。host entry 还必须声明同步 response
+    deadline；adapter 为 encode 保留固定时间，以剩余总预算约束每项 core 调用，
+    到期的当前项及所有未执行项都生成闭集 `hook_error` 后及时返回 fail-closed。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
     `hook_error > block > escalate > gate > correction > warn > complete > pass`
     产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
@@ -187,15 +193,16 @@ GH-701 已完成。
 25. B-025 host config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
-    digest 漂移必须停止而不是覆盖并发更改。plan 必须先证明目标支持真正原子的
-    `conditional_replace(expected_base_identity, candidate)`；该原语在同一个
-    kernel/host linearization point 校验 no-follow target 的 presence、file identity
-    与 bytes digest，并且仅在全匹配时替换。单独 read/compare 后再 rename、advisory
-    lock 或 mtime check 都不算 CAS；缺少该原语必须在 snapshot/journal/target
-    mutation 前 fail closed。调用前必须 durable 写入 `applying` journal；CAS
-    mismatch 不得改 target，必须保留外部更改并进入 `broken/needs_human`。恢复时
-    以 target 的实际 digest 判定是否已 apply，不能把尚未记录 `applied` 的 rename
-    当成 pre-apply 丢弃。
+    digest 漂移必须停止而不是覆盖并发更改。普通 macOS/Linux 文件使用可实现的
+    `claim_and_install`：durable journal 后以平台 exclusive-rename/no-replace
+    原语把 pathname 原子 claim 到 transaction backup，随后在 no-follow handle
+    上验证 expected identity+digest，再用 no-replace 原子安装 candidate。claim
+    到不匹配对象不得删除其 bytes；target 空闲时原样恢复，已被外部重建时保留
+    backup 并进入 `broken/needs_human`。host storage API 只有真实提供 versioned
+    CAS 时才可改用 `conditional_replace`；普通 rename、advisory lock 或 mtime
+    check 不得冒充 CAS。两类 capability 都缺失时 plan 前 fail closed。恢复必须
+    根据 target/backup/candidate 实际 digest 和 journal phase 判定，不能丢弃
+    已 claim 的外部内容或把未记录 `applied` 当成未执行。
 26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
@@ -214,23 +221,30 @@ GH-701 已完成。
     或建立平行的 README benchmark payload。
 28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
     独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
-    HEAD、native event identity、redaction result、host binary SHA-256、VibeGuard
+    HEAD、VibeGuard 生成的 event correlation ID、redaction result、host binary
+    SHA-256、VibeGuard
     runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
     timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
     必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
     获批的 host_id/option、host release、protocol snapshot、native blocking
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
-    registry integrity 或 signed release manifest 得到独立 approved digest，再以
-    no-follow 打开的实际 executable bytes 复算匹配；binary 自报 release/SHA 或
-    pathname 不能建立 provenance。另一个第三 host 的有效 proof 不能替代获批选择。
+    registry integrity 或 signed release manifest 得到独立 approved digest，并由
+    受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量，
+    绑定 session nonce、进程身份与 executable digest/signature；gate-time 路径
+    重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
+    event ID/free text 不得持久化。另一个第三 host 的有效 proof 不能替代获批选择。
 29. B-029 stale branch 最终状态只能是 `deleted`，或
-    `readonly_retain + owner + UTC expiry`；任何第三状态、缺 owner/expiry、expiry
-    已过仍存在或发生新 push 都阻断 GH-701 closure。
+    `readonly_retain + owner + UTC expiry + active no-bypass update restriction`；
+    protected collector 必须从 GitHub ruleset/protection API live 验证规则覆盖
+    exact branch、禁止 update 且 bypass actor 为空，并绑定 rule ID/digest。仅
+    `ls-remote`、任何第三状态、缺字段、expiry 已过或发生新 push 都阻断 closure。
 30. B-030 H-004 必须是维护者明确选择的互斥值 `strict_four` 或
     `preserve_pr705_extras`，推荐值 `strict_four` 本身不构成批准；后者还必须绑定
     已更新 GH-701 issue acceptance 的 immutable node/source URL、更新时间与
-    acceptance digest。缺失、两值并存、issue 未同步或同步发生在选择之后但未
-    重新见证时，README/task/implementation/closure gate 均 blocked。
+    acceptance digest。H-004 缺失时唯一例外是生成只含 `bootstrap_once`
+    allowlist 的 task tranche；README/host tasks 仍 blocked。两值并存、issue 未
+    同步或同步发生在选择之后但未重新见证时，README/implementation/closure
+    gate 均 blocked。
 31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable
     decision record。受保护 collector 每次授权前必须重新读取 live GitHub source，
     确认原 node 仍存在、内容/updated_at 未变、没有更新的同 decision 或显式
@@ -253,8 +267,9 @@ GH-701 已完成。
     绑定不一致、attestation 无效或 evidence 不新鲜时 third-host gate blocked。
 33. B-033 primary block 的 fix instruction 即使单项超过 response byte cap，也
     不得被省略成无修复信息的响应；encoder 必须保持 `block`，返回固定、无 payload
-    的有界 closed fallback，标记 truncation/fallback 并保留原 fix 的随机
-    `fix_id` 关联。oversize 原文及其 content-derived digest 不得进入
+    的有界 closed fallback 并标记 truncation/fallback；原 fix 存在但 oversize
+    或编码失败时保留其随机 `fix_id`，原 fix 缺失时生成新的 CSPRNG
+    `fallback_fix_id`。oversize 原文及其 content-derived digest 不得进入
     response/log/proof；schema-valid oversize-primary
     fixture 必须证明 pass/correction/空 fix 均不会替代该 closed fallback。
 34. B-034 decision collector/gate 尚未存在于受保护 main 时，只允许一次
