@@ -156,10 +156,12 @@ redirect count 和 timeout 都有已发布上限。
 offline cache 分别以 index snapshot digest、exact bundle digest 和 signed
 registry-event evidence digest 存储。provenance trust `{verified, unofficial}` 与
 revocation status `{current, revoked, unknown}` 分开保存和 render。identity-matched、
-签名有效且未超过获批 revocation freshness window 的 exact event cache 即使刷新失败也
-保持 `current`，并显示 cache source/age/fresh-until；cache 缺失、malformed、identity
-mismatch 或超过 window 才变为 `unknown` 并按 policy fail closed/degrade。不得自动转
-unofficial、把过期 cache 谎报 current，或把仍有效 cache 错报 unknown。
+签名有效的 exact event cache 必须保留其结论：包含 applicable revoke event 时始终为
+`revoked`；只有未超过获批 revocation freshness window、且证明截至 fresh-until 没有
+applicable revoke 的 snapshot 才是 `current`。cache 缺失、malformed、identity mismatch
+或过期的 non-revocation proof 才变为 `unknown` 并按 policy fail closed/degrade；已确认
+revoke 不因 cache age 变为 unknown/current。所有 cache 显示 source/age/fresh-until，
+不得自动转 unofficial、把过期 absence proof 谎报 current，或把仍有效 cache 错报 unknown。
 
 ### 5. Capability 与 host compatibility
 
@@ -453,12 +455,12 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-004 closed versioned schemas | Pack manifest schema + nine planned artifact/policy schemas; Rust production reader and Python authoring/legacy readers | duplicate-key/unknown-field/enum/semver/range/rule-ID corpus fails in both Rust and Python readers |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Policy schema + offline gate | missing/double/unknown/stale/spec-drift H-001–H-009 fixtures all block publish/install/eligibility |
-| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × live current/cached-current/revoked/unknown；fresh exact cache remains current while missing/mismatch/expired becomes unknown |
+| B-007 visible trust states | Model + renderers + receipt | golden human/JSON/receipt matrix 交叉覆盖 provenance verified/unofficial × live current/cached-current/live-revoked/cached-revoked/unknown；fresh absence proof remains current，known revoke remains revoked，missing/mismatch/expired absence proof becomes unknown |
 | B-008 complete pre-write plan | Planner + shared renderer | golden plan asserts identity, trust/revocation, capabilities, per-rule reasons, persistent writes, bounded staging/network, cleanup, rollback and receipt before bounded confirmation |
 | B-009 closed capabilities | Manifest join + capability resolver | unknown/undeclared/multi-mapped/free-text/extra-payload fixtures fail before executor or host mutation |
 | B-010 safe archive containment | Streaming archive extractor | absolute/traversal/device/link/case collision/duplicate/size/ratio corpus leaves staging boundary canary untouched |
 | B-011 complete provenance chain | Index + trust verifier | checksum-only, self-report, wrong namespace/subject/digest and valid full-chain fixtures prove verified is all-or-nothing；event-only mutation never changes immutable entry digest |
-| B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-cache/expired-cache/identity-mismatch matrix asserts fail-closed or exact cached-current/unknown status |
+| B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
 | B-015 transaction state machine | Transaction journal + dependency-set generation | crash before/after the one installation-scope pointer switch proves every dependency receipt/active identity 同时可见，runtime拒绝 graph subset/orphan/uncommitted generation |
@@ -488,7 +490,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds match digest; validation/upload/attestation/index-CAS failure never creates resolvable partial entry |
 | B-041 truthful list/status/audit | Shared status aggregate/renderers | exhaustive installed/empty/invalid/incompatible/revoked/needs_repair golden checks fields and exit codes |
-| B-042 offline runtime stability | Committed local eligibility + audit policy | block network and preserve runtime/store；fresh exact event cache remains current；missing/malformed/mismatched/expired event cache becomes unknown and follows exact degradation policy |
+| B-042 offline runtime stability | Committed local eligibility + audit policy | block network and preserve runtime/store；fresh absence proof remains current；cached/expired-known revoke remains revoked；missing/malformed/mismatched/expired absence proof becomes unknown |
 
 ## 数据流
 
@@ -501,16 +503,14 @@ author source root
                                                         + signed registry events
 
 vibeguard add <locator>
-  └─ ordered ownership/target locks + recover + snapshot committed generation
-       └─ approved policy + locator
-            └─ index snapshot + registry-event evidence ──> exact resolved identity
-                 └─ bounded bundle fetch ──> streamed digest/attestation
-                      └─ transaction-private safe staging extraction
-                           └─ schema/join/capability/precision preflight
-                                └─ immutable plan → unlock → bounded confirmation
-                                     ├─ reacquire + CAS → reserve/apply/audit
-                                     │                    └─ one dependency-set pointer switch
-                                     └─ rollback/recovery/needs_repair
+  ├─ lock-A: ordered ownership/target locks → recover + snapshot generation → unlock
+  ├─ approved policy + locator
+  │    └─ index + event evidence → bundle fetch → private staging/preflight
+  ├─ lock-B: recover + revalidate base → immutable plan/digests → unlock
+  ├─ bounded confirmation (no exclusive mutation lock held)
+  └─ lock-C: reacquire ordered locks + CAS generation/ownership/evidence/time/plan
+       ├─ reserve/apply/audit → one dependency-set pointer switch
+       └─ rollback/recovery/needs_repair
 
 runtime hook
   └─ committed local capability + effective decision

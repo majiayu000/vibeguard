@@ -142,9 +142,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    `{current, revoked, unknown}`，不得把二者折叠成一个互相排斥的 enum。local bundle、
    author-only precision 不得显示 provenance verified。一个 identity-matched、签名有效且
    age 仍在获批 revocation freshness window 内的 exact cached registry-event snapshot
-   可以显示 `revocation_status = current`，同时必须显示 cache source/age；缺失、malformed、
-   identity mismatch 或超过该 window 才必须显示 `unknown`。不能因刷新失败就谎报新鲜，
-   也不能把仍有效的 cache 错报 unknown，或用 warning 文本隐藏状态。
+   必须保留其签名结论：包含 applicable revoke event 时始终为 `revoked`；只有签名 snapshot
+   证明截至其 freshness horizon 没有 applicable revoke 时才是 `current`。缺失、malformed、
+   identity mismatch，或证明“未 revoke”的 snapshot 超过该 window 时才是 `unknown`；
+   已确认的 revoke 不因 cache age 过期而恢复为 unknown/current。不能因刷新失败就谎报
+   新鲜，也不能把仍有效的 cache 错报 unknown，或用 warning 文本隐藏状态。
 8. B-008: 在确认以及任何 persistent store、receipt、active、override、host/config 或
    其他用户拥有路径写入前，`explain`/install plan 必须展示 canonical identity、
    source/trust/revocation freshness、requested target/profile、capabilities、规则数、
@@ -169,9 +171,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 12. B-012: index/attestation/revocation 读取失败、超时、响应 malformed 或身份不匹配时，
     online official add 必须 fail closed。offline 行为只可按获批 H-001/H-003/H-008 policy
     使用 identity-matched、签名有效且仍在各自有效期内的 exact verified index、bundle 与
-    registry-event caches，并必须显示各自 cache age/evidence digest；仍在 revocation
-    freshness window 内的 event cache 保持 `current`，超过该 window 才变为 `unknown`。
-    不得静默跳过 revocation。
+    registry-event caches，并必须显示各自 cache age/evidence digest。fresh cached
+    non-revocation snapshot 可保持 `current`，cached applicable revoke 始终保持 `revoked`；
+    只有缺失/invalid/mismatched 或过期的 non-revocation proof 才变为 `unknown`。不得静默
+    跳过 revocation。
 13. B-013: target/profile/capability compatibility 必须在 plan 前由一个 versioned contract
     确定。unknown host、known host + incompatible protocol、unsupported capability 与
     missing installed Core 分别给出 closed status，均不得冒充 active；不得用
@@ -312,10 +315,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
     不得读取网络或删除用户状态；audit 必须诚实保留 provenance trust 并单独显示
     revocation status、cache source/age 与 offline evidence。identity-matched、签名有效且
-    仍在获批 revocation freshness window 内的 exact cached registry-event evidence 保持
-    `revocation_status = current`，可按 policy 继续原 effective decision；cache 缺失、
-    malformed、identity mismatch 或超过 window 时才是 `unknown` 并按 policy 降级。不能
-    把 availability failure 当成新的 current 证据，也不能把仍有效 cache 错报 unknown。
+    exact cached registry-event evidence 的签名结论：fresh non-revocation proof 保持
+    `current`，applicable revoke event 无论 cache age 都保持 `revoked` 并执行 ceiling；
+    cache 缺失、malformed、identity mismatch 或 non-revocation proof 超过 window 时才是
+    `unknown` 并按 policy 降级。不能把 availability failure 当成新的 current 证据，也
+    不能把仍有效 cache 错报 unknown，或让已知 revoke 因过期恢复。
 
 ## 验收标准
 
