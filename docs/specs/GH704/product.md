@@ -161,13 +161,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 9. B-009: 每个 inference 必须有 hard timeout、可取消的 child/service call、bounded
    input/output、memory/concurrency/queue 上限和独立 request ID。timeout/OOM/cancel/
    crash 后不得遗留进程、锁、临时原文或继续启动新请求。
-10. B-010: cold/warm `core_us` 与每个真实 installed hook 的 `hook_e2e_ms` 必须分开
-    测量 P50/P95/P99/max、样本数、platform、model identity 与 cache state。未达到
-    H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
+10. B-010: cold/warm `core_us` 与每个真实 installed hook path（至少 direct 与
+    Codex wrapper）的 `hook_e2e_ms` 必须作为独立 fixture/result 分开测量 P50/P95/P99/
+    max、样本数、platform、model identity 与 cache state；不得把两个 installed path
+    合并计时或共用一个结果。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
 11. B-011: cache key 必须绑定 exact input digest、dependency inventory digest、
-    detector/model/protocol/policy identity 与项目 scope；source/dependency/model/
-    policy 改变必须失效。并发相同请求至多产生一个权威结果；不同 project/session 不得
-    互相读取。
+    detector/model/protocol/policy identity、项目 scope 与 `session_id`；source/dependency/
+    model/policy/project/session 改变必须失效。仅同一 project + session 内的并发相同请求
+    至多产生一个权威结果；不同 project 或 session 不得互相读取或复用。
 12. B-012: invented API 检查只允许对 H-009 获批的 language/package-manager/version/
     feature 范围下、由 production dependency inventory 证明的 symbol 作结论。dynamic/
     generated/conditional/ambiguous 或 inventory 缺失必须返回 closed `unknown/
@@ -220,14 +221,17 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 26. B-026: W-rule state machine 的 window、threshold、reset、cooldown、suppression 与
     retry 必须由获批 policy 唯一决定。相同 ordered evidence 重放结果幂等；并发追加不得
     双重 escalation 或跨 agent 污染。
-27. B-027: runtime event append、precision projection 或 audit write 失败必须 fail
-    visible；没有成功持久化的 structured evidence 不得声称 GH-704 L2/新增 W-rule 的
-    tracked precision、Learn candidate 或 block eligibility。既有 L1 block 必须按
-    B-003 保留，不能因 L2 audit 失败而被撤销；日志失败也不得删除用户数据或扫描 HOME
-    恢复。
+27. B-027: runtime event append、precision projection 或 audit write 失败及其间任一
+    process crash 必须 fail visible；canonical event 必须先以 durable `pending`
+    状态落盘，startup/next-run reconciliation 重放所有没有 finalized receipt 的 event，
+    各 consumer 按 event/signal ID 幂等，全部成功并持久化 receipt 后才可声称 GH-704
+    L2/新增 W-rule 的 tracked precision、Learn candidate 或 block eligibility。既有
+    L1 block 必须按 B-003 保留，不能因 L2 audit 失败而被撤销；日志失败也不得删除用户
+    数据或扫描 HOME 恢复。
 28. B-028: runtime、precision tracker、session metrics 与 Learn 必须消费同一 canonical
-    structured rule/signal identity；不得同时保留 Rust structured path 与 shell
-    free-text projection 两个权威事实源。
+    structured rule/signal event stream；pending event、consumer receipt 与 finalized
+    receipt 都绑定同一 event/signal identity，不得同时保留 Rust structured path 与
+    shell free-text projection 两个权威事实源。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
     stable、deduplicated `defense_gap` candidate，并携带原始 evidence digest、recurrence
     counts、time window、privacy class 与建议 action；显示 candidate 本身只读。
