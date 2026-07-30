@@ -102,9 +102,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    runtime version、release tag、target triple、build source commit、corpus schema
    version、corpus ID/version/digest、approved protocol version/digest 及其
    `required_platforms`、protocol-owned canonical benchmark config identity、per-surface
-   latency workload schedule identity、每个 executor 的 timeout/termination-grace/
-   stdout-cap/stderr-cap、每个 shell/Python interpreter 的 protocol-bound identity、
-   release payload manifest digest，以及本次实际使用的 production surfaces 摘要。
+   latency workload schedule identity、environment-baseline workload/schedule/estimator/
+   threshold identity、每个 executor 的 timeout/termination-grace/stdout-cap/stderr-cap、
+   每个 interpreter 及 production path 传递闭包内其它 external executable 的
+   protocol-bound identity、release payload manifest digest，以及本次实际使用的
+   production surfaces 摘要。
    official 模式忽略用户可变 config/tuning/PATH 与 executor limit overrides；任一必填值
    缺失、为空、越界或互相不匹配时，结果为 `unavailable` 且零 case 执行；不得用
    `unknown` 或实现默认值生成 headline。
@@ -170,14 +172,20 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     warmup 与报告渲染不得混入。versioned/digested protocol 必须为每个 surface 固定有序
     case IDs、每个 ID 的 warmup/measurement repetition、完整执行顺序、
     `fresh_per_sample` state policy/initial-state identity 与 percentile estimator
-    `nearest_rank_v1`；runner 不能自行选择 workload。每个 warmup/measurement sample 都从
+    `nearest_rank_v1`；runner 不能自行选择 workload。environment baseline 也必须在同一
+    protocol 中按 target 固定 manifest-bound no-op executable identity、argv/stdin/env、
+    warmup/measurement counts、完整 interleaving、spawn-to-complete 单调时钟边界、
+    estimator 与 inclusive threshold comparison；不能采用 runner 内建或 host PATH
+    workload。每个 warmup/measurement sample 都从
     canonical initial state 创建新 HOME/log/history/session，warmup 不把 state 带入
     measurement。raw duration 使用整数纳秒排序，Pq 固定取
     `ceil(q*n/100)-1` 的 zero-based sample（q=50/95/99，无插值），display ms 仅由该整数
     确定性格式化。每个 surface 必须独立公开 schedule/state/estimator identity、正整数
     warmup、runs、P50/P95/P99/max、样本数和 OS/arch。
-12. B-012: latency 运行必须先测量并公开环境基线。时钟不可用、样本执行错误、run 数
-    非正、环境基线超过已发布协议阈值，或分位数/样本数不自洽时，latency 轴为
+12. B-012: latency 运行必须先测量并公开环境基线。baseline 的 raw integer-ns samples、
+    schedule/estimator/workload identities 与比较结果必须进入 report provenance；
+    `baseline_stat_ns <= threshold_ns` 才通过，阈值本身通过。时钟不可用、样本执行错误、
+    run 数非正、环境基线超过已发布协议阈值，或分位数/样本数不自洽时，latency 轴为
     `inconclusive` 且 headline latency 留空；效果轴只有在其自身满足 B-008/B-009 时才可
     单独为 `valid`。不同平台行不得平均，单次最快值不得代替分位数。
 13. B-013: 所有 fixtures 必须是随 corpus 发布的合成内容，并在隔离临时目录运行。
@@ -218,8 +226,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     release、platform、corpus version/digest 短标识、positive/negative 样本数、
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
-    顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release，
-    不能把旧版本行呈现为“current”。
+    顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
+    publication commit 前必须先合并一个仅移除旧 row `current valid benchmark` 标识的、
+    human-reviewed marker PR，并由 publish gate 对 default-branch blob digest 与“没有
+    current marker”做 freshness 重验。release commit 后再以独立 human-reviewed PR
+    添加新 row/current marker；该 PR 停滞或拒绝期间允许没有 current marker，但绝不允许
+    旧版本继续显示为 current。
 18. B-018: release 报告无效、缺平台或 pipeline 中断时必须按获批的闭集
     `release_policy` 唯一分支，且不得保留前一 release 数字但换成新版本标签：
     - `block_release`：按 B-029 保存永久失败证据后阻断；不创建 GitHub Release、
@@ -312,11 +324,17 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     输入；runner 不得采用实现默认值、环境变量或 PATH 解析。interpreter 必须是 signed
     release payload 内的 manifest-bound asset，或是 protocol 明确允许且由 preflight
     no-follow 打开、校验 bytes 后 materialize 的 host asset；两者都从 readonly snapshot
-    中的已验证精确路径/handle 启动，并在 report provenance 中记录实际 identity。缺失、
+    中的已验证精确路径/handle 启动，并在 report provenance 中记录实际 identity。每个
+    mapped production path 的传递闭包内其它 external executable（例如 `git`）也必须由
+    production mapping 声明逻辑 ID/argv contract，并按 target 在 protocol/manifest 中绑定
+    source、size、SHA-256 与 version identity；runner 只能通过 readonly snapshot 的精确
+    path/handle 或只含这些资产的 minimal PATH 启动。实现也可消除 subprocess dependency，
+    但 ambient PATH、未声明 child exec 或“命令失败后按 PASS 继续”均不可成为 official
+    行为。缺失、
     mismatch、cap overflow 或 timeout 必须得到闭集 error 状态，不能因实现差异产生另一
     production decision。executor 必须拒绝 checkout path、直接 runtime function、
     mock wrapper、PATH fallback 或仅测 `vibeguard-runtime bench` 自身调度开销。wrapper/
-    interpreter 缺失、digest drift 或不是 protocol/receipt/manifest 记录的文件时 latency
+    executable 缺失、digest drift 或不是 protocol/receipt/manifest 记录的文件时 latency
     axis `unavailable`。
 25. B-025: production mapping 为每个 adapter 同时声明闭集 raw decisions、闭集 raw
     reason codes，以及它们到 `{block, advisory, allow}` 和 canonical reason code 的唯一
@@ -344,12 +362,16 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `(corpus_version, corpus_digest, ground_truth_version/digest,
     mapping_version/digest, protocol_version/digest)`。同一个已记录或已发布的
     corpus version 对应不同任一 digest 时，build/release 都必须失败；删除、重排历史
-    identity 或复用旧 version 同样失败。validator 必须把当前 prefix 与“上一已发布
-    benchmark release”的 attested ledger root/length/full-prefix identity 比较；该 trust
-    anchor 必须经 verified-provenance 验证并绑定同 repo、发布 workflow 与 lineage，不能
-    来自当前 checkout。首个 official benchmark release 需要一次明确批准、带 attestation
-    的 genesis root。prior anchor 缺失、获取失败、身份不匹配或 prefix 无法复算时
-    build/release fail closed；新 release 可以继续使用已记录 tuple，但不能改写它。
+    identity 或复用旧 version 同样失败。validator 的 trusted frontier 必须从“上一已发布
+    benchmark release”的 attested ledger root/length/full-prefix identity 开始，再按顺序
+    消费其后所有同 repo/source-lineage、permanent blocked-attempt records 中 attested 的
+    ledger root/length/full-prefix identity；每个新 identity 必须以前一个 frontier 为
+    prefix，最终以最长已验证 frontier 约束当前 checkout。blocked candidate 已记录的 suffix
+    因而不可在 retry 中重写；相同 tuple 可复用，内容变化必须 append 新 version。所有 trust
+    anchors 必须经 verified-provenance 验证，不能来自当前 checkout。首个 official
+    benchmark release 需要一次明确批准、带 attestation 的 genesis root。published 或
+    blocked anchor 缺失、永久 store 获取失败、身份/顺序不匹配或 prefix 无法复算时
+    build/release fail closed。
 28. B-028: GH-699 是 **partially implemented dependency**：PR #711 已合并
     `SP699-T1/T2` 的 payload artifact 与 payload-mode setup，GH-700 必须消费 main 上该
     实际 contract，不能仍称其未合并；但 `SP699-T3` bootstrap、`T4` no-clone native
@@ -378,9 +400,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     均不创建。
 
     required-platform 输入各自通过但 decision 不一致、缺输入或 aggregation 失败时，
-    release-scoped 分支必须绑定 canonical failed summary/preimage、`summary_digest`、
-    完整 required-platform set、逐 target report/evidence/checksum identity 与闭集
-    aggregation reason，不能降格成单一 target record。
+    release-scoped 分支必须绑定 canonical failed-summary preimage/digest、完整
+    required-platform set 与闭集 aggregation reason。每个 required target 都有一个闭集
+    discriminated input：`present` 必须携带非空 report/evidence/checksum identity；
+    `missing` 必须将这三项显式置 null 并携带 closed `missing_reason`，禁止伪造 identity。
+    只有 strict summary 已成功构造时才携带非空 `summary_digest`；缺输入导致无法构造时
+    `summary_digest` 显式为 null，canonical failed-summary digest 仍覆盖全部 target slots。
+    此分支不能降格成单一 target record。
 
     对于 hard-cancel、runner loss 或 workflow timeout，独立 completion reconciler 必须在
     终态事件后创建 schema 的
@@ -389,22 +415,34 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
     report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
     计算 attempt-bound digest 并永久 attestation/append，且重复 delivery 必须幂等、
-    已有不同内容必须冲突失败。若 normal path record 已存在则只验证不覆盖。
+    已有不同内容必须冲突失败。若 normal path record 已存在则只验证不覆盖。若终止发生在
+    staged identity 首次 attestation 之前，reconciler 必须改用闭集
+    `pipeline_interrupted_pre_attestation` 分支：只从受信的 `workflow_run` 终态事件与
+    Actions API 复验得到 `(repo, workflow_id, run_id, run_attempt, head_sha, event,
+    conclusion)`，把 candidate tag、policy、staged provenance 和 evidence identities
+    显式置 null，并列出 closed missing fields/stage。该 server-authenticated early identity
+    本身就是 watermark 可枚举的永久 attempt identity；不得读取 workflow 提供的自由文本或
+    因 pre-attestation 缺失而跳过该 attempt。
     所有 release attempts、reconciler 与 publish gate 必须共享 candidate-scoped serialized
     lease（禁止 cancel-in-progress）和 attested reconciliation watermark；新 attempt 与
     publish 在持锁状态下必须枚举同 candidate 的全部既有 terminal attempts，并证明每个
-    failed/cancelled/timed_out attempt 都已有唯一永久 record。存在未 reconciled attempt、
+    failed/cancelled/timed_out attempt（包括 pre-attestation interruption）都已有唯一永久
+    record。存在未 reconciled attempt、
     terminal-run 列表/永久 store 不可用或 watermark 不一致时 fail closed，不能先发布后补写。
 30. B-030: official run 在任何 latency warmup/measurement 前，必须通过 B-013
     身份专用只读通道，从 verified payload/receipt 的已打开、已校验 handles/bytes 把
-    runtime、payload、wrapper、protocol-owned canonical benchmark config、manifest 与
-    protocol-declared interpreter 按生产安装布局 materialize 到本次 temp HOME 的
+    runtime、payload、wrapper、protocol-owned canonical benchmark config、manifest、
+    protocol-declared interpreter、environment-baseline workload 及 mapped production
+    paths 传递闭包内所有 declared external executables 按生产安装布局 materialize 到本次
+    temp HOME 的
     byte-identical、只读 install snapshot，并逐文件重算 digest 与 receipt/manifest/protocol
     identity 对齐。materialization、chmod 与 digest verification 不进入 latency 样本；
     计时区间必须从该 snapshot 启动真实 wrapper 子进程。缺文件、布局差异、可写状态或
     digest drift 使对应 axis 在零 timed sample 时 `unavailable`；身份通道关闭后
     case/warmup/measurement 不得再读真实 HOME，任何阶段都不得写真实 HOME 或使用
-    checkout/mock/PATH fallback。
+    checkout/mock/ambient-PATH fallback。preflight 必须用 static inventory 加受控
+    child-exec audit 证明没有 undeclared executable；发现未声明 exec 时在零 case/timed
+    sample 前 `unavailable`。
 31. B-031: approved、versioned/digested protocol 必须携带非空、去重、canonical 排序的
     `required_platforms`，且每项属于 release target 闭集。release summary 只聚合该 set：
     每个 required target 都必须由对应 native runner 产生 schema/provenance-valid report，
