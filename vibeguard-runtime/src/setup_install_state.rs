@@ -245,6 +245,49 @@ pub fn list_tracked_symlinks_under(args: &[String]) -> SetupResult<()> {
     Ok(())
 }
 
+/// Print every tracked path at or under `dest-dir`, regardless of install type.
+///
+/// Managed skill copies are recorded file-by-file, so "did VibeGuard ever
+/// install this skill?" is answered by whether any tracked path lives under the
+/// skill directory (GH719).
+pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
+    if args.len() != 2 {
+        return Err(
+            "Usage: vibeguard-runtime setup-state-list-tracked-under <state-file> <dest-dir>".into(),
+        );
+    }
+    let state_file = Path::new(&args[0]);
+    if !state_file.exists() {
+        return Ok(());
+    }
+    let state = match read_state(state_file) {
+        Ok(state) => state,
+        Err(_) => return Ok(()),
+    };
+    if state
+        .get("version")
+        .and_then(Value::as_i64)
+        .unwrap_or(STATE_VERSION)
+        != STATE_VERSION
+    {
+        eprintln!("WARN: unsupported install-state version; skipping tracked path lookup");
+        return Ok(());
+    }
+    let dest_dir = setup_absolute_path(&expand_home(&args[1]));
+    let files = state
+        .get("files")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for dest in files.keys() {
+        let expanded = setup_absolute_path(&expand_home(dest));
+        if expanded == dest_dir || expanded.starts_with(&dest_dir) {
+            println!("{}", expanded.display());
+        }
+    }
+    Ok(())
+}
+
 pub fn list_project_hooks(args: &[String]) -> SetupResult<()> {
     if args.len() != 1 {
         return Err("Usage: vibeguard-runtime setup-state-list-project-hooks <state-file>".into());

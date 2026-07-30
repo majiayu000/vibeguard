@@ -158,9 +158,18 @@ check_codex_home_installation() {
 
   local link skill_links source_path skill
   skill_links="$(manifest_skill_links_checked "~/.codex/skills/")" || return 1
+  disabled_skills >/dev/null || return 1
   while IFS=$'\t' read -r source_path skill; do
     [[ -n "${source_path}" && -n "${skill}" ]] || continue
     link="${CODEX_DIR}/skills/${skill}"
+    if skill_is_disabled "${skill}"; then
+      if [[ -e "${link}" || -L "${link}" ]]; then
+        yellow "[DISABLED] ${skill} skill disabled in ~/.vibeguard/config.json but still present; re-run setup.sh to remove it"
+      else
+        green "[DISABLED] ${skill} skill disabled in ~/.vibeguard/config.json"
+      fi
+      continue
+    fi
     if [[ -d "${link}" && ! -L "${link}" ]]; then
       if diff -qr "$(_codex_source_path "${source_path}")" "${link}" >/dev/null 2>&1; then
         green "[OK] ${skill} skill copied to ~/.codex/skills/"

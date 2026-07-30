@@ -30,6 +30,7 @@ pub enum RuntimeConfigDecision {
 enum FieldKind {
     Integer { minimum: u64, maximum: u64 },
     StringEnum { allowed: &'static [&'static str] },
+    StringArray { maximum_items: usize },
     Version,
 }
 
@@ -111,6 +112,12 @@ const RUNTIME_CONFIG_FIELDS: &[RuntimeConfigField] = &[
         kind: FieldKind::Integer {
             minimum: 1,
             maximum: 268_435_456,
+        },
+    },
+    RuntimeConfigField {
+        path: "disabled_skills",
+        kind: FieldKind::StringArray {
+            maximum_items: 256,
         },
     },
 ];
@@ -313,6 +320,38 @@ fn validate_field(
                     &format!("allowed={}", allowed.join("|")),
                     CONFIG_PARSE_ERROR,
                 ));
+            }
+        }
+        FieldKind::StringArray { maximum_items } => {
+            let items = value.as_array().ok_or_else(|| {
+                config_error(
+                    file_path,
+                    display_path,
+                    "config_type_error",
+                    "type=array",
+                    CONFIG_PARSE_ERROR,
+                )
+            })?;
+            if items.len() > maximum_items {
+                return Err(config_error(
+                    file_path,
+                    display_path,
+                    "config_range_error",
+                    &format!("array_max_items={maximum_items}"),
+                    CONFIG_PARSE_ERROR,
+                ));
+            }
+            for (index, item) in items.iter().enumerate() {
+                let is_nonempty_string = item.as_str().is_some_and(|text| !text.trim().is_empty());
+                if !is_nonempty_string {
+                    return Err(config_error(
+                        file_path,
+                        &format!("{display_path}[{index}]"),
+                        "config_type_error",
+                        "type=nonempty_string",
+                        CONFIG_PARSE_ERROR,
+                    ));
+                }
             }
         }
         FieldKind::Version => {
