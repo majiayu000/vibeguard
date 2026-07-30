@@ -118,12 +118,15 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 2. B-002: 每次 resolve 必须产生带 `source_kind` 判别器的唯一 canonical identity。
    `official_registry` identity 至少绑定 publisher namespace、pack ID、exact semantic
    version、manifest schema version、bundle digest、immutable index entry digest、
-   separately signed registry-event evidence digest 与 approved policy digest；
+   separately signed registry-event evidence digest 与 immutable
+   `publication_policy_digest`；
    `local_file` identity 必须绑定 embedded pack ID、exact semantic version、exact bundle
-   digest、canonical locator digest、manifest schema version 与 approved policy digest，
+   digest、canonical locator digest、manifest schema version 与 immutable
+   `publication_policy_digest`，
    并按 closed schema 将 registry/index/event 字段设为 absent，而不是伪造 entry。该
    source kind 的任一必填字段缺失、为空、越界或互相不一致时，在下载/写入前 nonzero
-   退出；floating locator 不得成为 receipt identity。
+   退出；floating locator 不得成为 receipt identity。install resolution envelope 另行绑定
+   current `evaluation_policy_digest`，不把它写回 immutable artifact identity。
 3. B-003: 外部作者必须能在独立仓库中 author、validate、publish 一个自包含 pack，并让
    fresh verified install 添加它；流程不得要求向 VibeGuard 仓库提交 pack 文件、修改
    core manifest 或获得本仓库 write access。
@@ -133,10 +136,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 5. B-005: `pack` 缺失、空 locator、未知 namespace/name/version、空 bundle、zero-rule
    bundle、digest mismatch 或 index 指向不存在对象时，不得创建 store、receipt、
    active pointer 或 host config 修改。
-6. B-006: 所有 official product/security choices 必须来自一个获批、versioned/digested
-   policy artifact，并绑定 H-001–H-009 的选择。选择缺失、双选、过期或与当前 spec bytes
-   不匹配时，publish、official install 与 default-block eligibility 均为 blocked；
-   recommendation 本身不是批准证据。
+6. B-006: 所有 official product/security choices 必须来自获批、versioned/digested
+   policy artifacts，并绑定 H-001–H-009 的选择。发布时的 immutable
+   `publication_policy_digest` 与每次 install/audit 使用的 current
+   `evaluation_policy_digest` 是不同 role/identity；它们可以在发布当时引用同一 policy
+   bytes，但不得用一个字段混同。选择缺失、双选、过期或与当前 spec bytes 不匹配时，
+   publish、official install 与 default-block eligibility 均为 blocked；recommendation
+   本身不是批准证据。
 7. B-007: 输出必须在每一层分别展示 provenance trust
    `{verified, unofficial}` 与 revocation freshness
    `{current, revoked, unknown}`，不得把二者折叠成一个互相排斥的 enum。local bundle、
@@ -204,9 +210,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     eligibility digests 做 CAS revalidation，drift 时废弃确认并重新 plan/confirm。不能用
     partial state 计算计划，也不能把旧 staging 或 partial receipt 当作成功安装。
 18. B-018: committed receipt 必须绑定 canonical identity、trust/provenance chain、
-    policy/precision evidence digests、target/profile/capabilities、所有 owned files 和
-    config entries 的 before/after digests、transaction ID、audit evidence 与 effective
-    decisions。缺任一必填证据时不得 commit。
+    publication/evaluation policy digests、precision/provenance/registry-event/
+    compatibility evidence digests、source storage key、target/profile/capabilities、所有
+    owned files 和 config entries 的 before/after digests、transaction ID、audit evidence
+    与 effective decisions。source storage key 必须是 closed discriminated union：
+    official 使用 normalized publisher + pack；local 使用完整 canonical local identity 的
+    digest，不得要求/伪造 publisher sentinel，也不得把 raw local path 放进持久化路径。
+    缺任一必填证据时不得 commit。
 19. B-019: update/remove 只能修改 committed receipt 精确拥有且当前 bytes/config state
     仍匹配 receipt `after` digest 的 files/config entries；receipt `before` digest 只作为
     rollback/remove 的恢复目标，不能用来证明当前 ownership 未漂移。fresh install 对当前
@@ -219,14 +229,16 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     last-writer-wins。
 20. B-020: dependencies/conflicts 必须是 exact、acyclic、version-range-valid 的 closed
     graph，并在 plan 中解析为同一 transaction set。missing、cycle、冲突或同一
-    namespace/version 对应不同 digest 时零 apply；不得递归获取 undeclared dependency。
+    publisher namespace + pack name + exact version 对应不同 digest 时零 apply；不同 pack
+    name 即使 publisher/version 相同也不得互相冲突；不得递归获取 undeclared dependency。
     全部 dependency receipts、shared ownership refs 与 active identities 必须进入同一
     B-015 generation 并通过一个 installation-scope pointer 原子提交，不得观察到只激活
     graph 子集的中间状态。
 21. B-021: retry 必须先取得新的 policy-normalized evaluation time，重新计算所有
     time-dependent freshness/eligibility 与 normalized evaluation identity。只有 canonical
-    identity、policy、target/profile、committed digest set、registry-event evidence 和
-    normalized evaluation/eligibility digests 全等时，add 才是 idempotent no-op 并返回同一
+    identity、publication/evaluation policy、target/profile、committed digest set、
+    provenance/registry-event/compatibility/precision evidence identities 和 normalized
+    evaluation/eligibility digests 全等时，add 才是 idempotent no-op 并返回同一
     receipt identity；跨越 evidence/revocation/policy 时间边界必须 re-audit，不能被 digest
     comparator 跳过。相同 version 不同 bundle/index-entry digest 必须视为 immutable
     identity violation，而不是 update。
@@ -248,12 +260,17 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     timestamps；pack-level平均值不能替代低精度单条规则。
 26. B-026: eligibility 计算只能使用获批 H-006 的公式和 classified sample 定义，并把
     policy-normalized `evaluation_time`/clock snapshot 作为显式输入和 eligibility digest
-    的组成部分；不得在纯函数内部隐式读取 wall clock。unclassified/acceptable 如何进入
-    样本门必须由 policy 显式给出。除零、负数、计数不自洽、相对 evaluation time 的未来
-    timestamp、过期或 reviewer 不独立均使 evidence invalid，不能修正后继续。
+    的组成部分；还必须把 provenance evidence、registry-event evidence、compatibility
+    contract、precision evidence 与 current evaluation policy 的 exact binding digests
+    作为输入和 digest 组成部分，不能只传 collapsed status。不得在纯函数内部隐式读取
+    wall clock。unclassified/acceptable 如何进入样本门必须由 policy 显式给出。除零、
+    负数、计数不自洽、相对 evaluation time 的未来 timestamp、过期或 reviewer 不独立均
+    使 evidence invalid，不能修正后继续。
 27. B-027: precision floor、minimum samples、freshness、no-FP window 与 evidence issuer
-    必须来自 approved policy digest，而不是 pack author、环境变量、README 或 install
-    command 临时覆盖。不同 policy 下的 eligibility 必须可重算并显示 policy identity。
+    必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
+    README、install command 或 artifact-embedded publication policy 临时覆盖。policy
+    更新必须在不改写 bundle/index identity 的前提下重算 eligibility；status 同时显示
+    publication policy 与 current evaluation policy identities。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
@@ -274,12 +291,14 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 31. B-031: core-curated packs 与 community packs 使用同一 per-rule precision eligibility
     计算和 no-data降级语义；curated badge、仓库内置或 high severity 都不能绕过 floor。
     两者的 publisher/trust来源可以不同，但差异必须由 H-003/H-008 policy 明示。
-32. B-032: precision evidence、policy、rule bytes、capability mapping、publisher trust、
-    registry-event evidence、compatibility 或 normalized evaluation time 任一变化（包括
-    仅跨越 freshness/expiry/revocation window）都必须生成新 eligibility identity/digest
-    并触发 re-audit；旧 evidence 不得绑定新 bytes，same-content retry 也不得跳过时间边界。
-    若 active block 不再 eligible，下一次 audit 必须 fail visible 并按获批 policy 降级，
-    而不是继续静默 block。
+32. B-032: precision evidence digest、current evaluation policy digest、rule bytes、
+    capability mapping、provenance evidence digest、registry-event evidence digest、
+    compatibility contract digest 或 normalized evaluation time 任一变化（包括 collapsed
+    status 未变，或仅跨越 freshness/expiry/revocation window）都必须生成新 eligibility
+    identity/digest 并触发 re-audit；publication policy 与 immutable artifact identity
+    保持不变，旧 evidence 不得绑定新 bytes，same-content retry 也不得跳过。若 active block
+    不再 eligible，下一次 audit 必须 fail visible 并按获批 evaluation policy 降级，而不是
+    继续静默 block。
 33. B-033: 默认不得自动上传 event logs、源代码、用户路径、HOME、fixture payload、
     secrets 或 local triage。任何 feedback export 必须显式触发、先显示字段清单并脱敏，
     生成本地 artifact；发送/发布是另一个需确认动作，取消后零网络。
@@ -306,11 +325,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     renderer 不得把其中一个数值冒充另一个 gate 的 evidence。
 40. B-040: author publish 流程必须在上传前本地完成 schema、path/capability、
     compatibility、fixture、precision-evidence 和 reproducible-bundle validation；相同
-    source + policy 重建必须得到相同 canonical bundle digest。validation 失败不得留下
+    source + publication policy 重建必须得到相同 canonical bundle digest。validation 失败不得留下
     official index entry 或半发布 version。
 41. B-041: `list`/`status`/`audit` 必须为每个 installed pack 展示 exact version/digest、
     trust、target、transaction/receipt health、revocation/cache age、每条 effective decision
-    与 precision reason，并以 nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
+    与 precision reason，以及 publication/current evaluation policy identities，并以
+    nonzero 区分 `{invalid, incompatible, revoked, needs_repair}`；
     空 pack 列表是成功且显示为空，不是错误或伪造内置 pack。
 42. B-042: registry/network 暂时不可用时，已安装、receipt-valid pack 的 runtime enforcement
     不得读取网络或删除用户状态；audit 必须诚实保留 provenance trust 并单独显示
