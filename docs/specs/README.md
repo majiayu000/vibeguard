@@ -6,12 +6,12 @@ This directory holds maintainer-facing specs. Most files here are implementation
 
 | Spec | Status | Use it for |
 |---|---|---|
-| `GH704/` | Draft | Opt-in L2 semantic checks, named runtime W-rule deltas, structured precision evidence, and human-gated cross-session learning |
 | `GH703/` | Draft | Privacy-safe default weekly value summaries, taxonomy accounting, scheduler lifecycle, and explicit share exports |
 | `GH720/` | Historical optional-tooling reference | Former automatic stage-aware packet validation, retained for explicitly invoked offline SpecRail checks |
 | `GH699/` | Draft | Clone-free installation through verified release payloads and Homebrew/npm entry points |
 | `GH700/` | Draft | Public reproducible effectiveness benchmarks with provenance, ground truth, precision, and latency contracts |
 | `GH706/` | Draft | Privacy-safe malformed-input diagnostics and shared protocol-error versus rule-interception block counts |
+| `GH704/` | Draft | Opt-in L2 semantic checks, named runtime W-rule deltas, structured precision evidence, and human-gated cross-session learning |
 | `GH686/` | Implemented reference | Paired with/without evaluation for prompt-injected rule target improvement and non-target regression evidence (#686 / PR #696) |
 | `GH687/` | Implemented reference | W-21 evidence-provenance rule plus the W-01 channel-trust step 0 |
 | `GH675/` | Implemented reference | Manual precision-triage capture, empty-channel visibility, and the documented feedback loop |
