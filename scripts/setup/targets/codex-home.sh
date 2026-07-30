@@ -489,27 +489,29 @@ check_codex_agents_hygiene() {
 }
 
 clean_codex_home_installation() {
+  local agents_md_result="NOT_FOUND"
+  local hooks_cleanup_result="SKIP"
+
   if [[ -f "${CODEX_DIR}/AGENTS.md" ]]; then
-    local agents_md_result
-    agents_md_result=$(setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null || echo "ERROR")
+    agents_md_result="$(
+      setup_runtime setup-md-remove "${CODEX_DIR}/AGENTS.md" 2>/dev/null
+    )" || agents_md_result="ERROR"
     case "${agents_md_result}" in
       REMOVED) yellow "Removed VibeGuard rules from ~/.codex/AGENTS.md" ;;
       NOT_FOUND) yellow "No VibeGuard rules found in ~/.codex/AGENTS.md" ;;
-      *) red "Failed to clean ~/.codex/AGENTS.md" ;;
+      *)
+        red "Failed to clean ~/.codex/AGENTS.md"
+        return 1
+        ;;
     esac
   fi
 
-  local skill_links source_path skill
-  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
-  while IFS=$'\t' read -r source_path skill; do
-    [[ -n "${source_path}" && -n "${skill}" ]] || continue
-    rm -rf "${CODEX_DIR}/skills/${skill}"
-  done <<< "${skill_links}"
-  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
-
-  # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks)
-  local hooks_cleanup_result
-  hooks_cleanup_result=$(setup_runtime setup-codex-hooks-remove "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null || echo "ERROR")
+  # Remove only VibeGuard-managed entries from hooks.json (do not delete third-party hooks).
+  # This high-context edit must succeed before wrappers or recovery payloads disappear.
+  hooks_cleanup_result="$(
+    setup_runtime setup-codex-hooks-remove \
+      "${REPO_DIR}" "${CODEX_DIR}/hooks.json" 2>/dev/null
+  )" || hooks_cleanup_result="ERROR"
   case "${hooks_cleanup_result}" in
     CHANGED)
       yellow "Removed VibeGuard hook entries from ~/.codex/hooks.json"
@@ -519,8 +521,17 @@ clean_codex_home_installation() {
       ;;
     *)
       red "Failed to clean VibeGuard entries in ~/.codex/hooks.json"
+      return 1
       ;;
   esac
+
+  local skill_links source_path skill
+  skill_links="$(manifest_skill_links_for_cleanup "~/.codex/skills/")"
+  while IFS=$'\t' read -r source_path skill; do
+    [[ -n "${source_path}" && -n "${skill}" ]] || continue
+    rm -rf "${CODEX_DIR}/skills/${skill}"
+  done <<< "${skill_links}"
+  cleanup_retired_manifest_skill_links "~/.codex/skills/" "${CODEX_DIR}/skills"
 
   rm -f "${HOME}/.vibeguard/run-hook-codex.sh"
   rm -f "${HOME}/.vibeguard/_lib/codex_diag.sh"

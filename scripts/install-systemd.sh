@@ -70,19 +70,55 @@ scheduler_receipt_parse() {
   ' "$1"
 }
 
-scheduler_verify_deactivated() {
+scheduler_receipt_write() {
+  local service_sha="$1" timer_sha="$2"
+  local receipt_dir temporary parsed kind phase parsed_service parsed_timer
+  receipt_dir="$(dirname "${SCHEDULER_RECEIPT}")"
+  if [[ -L "${receipt_dir}" || (-e "${receipt_dir}" && ! -d "${receipt_dir}") ]]; then
+    return 1
+  fi
+  mkdir -p "${receipt_dir}"
+  temporary="$(mktemp "${receipt_dir}/.scheduler-ownership.XXXXXX")"
+  if ! printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+    "${service_sha}" "${timer_sha}" > "${temporary}"; then
+    rm -f -- "${temporary}"
+    return 1
+  fi
+  chmod 600 "${temporary}"
+  if ! mv -f -- "${temporary}" "${SCHEDULER_RECEIPT}"; then
+    rm -f -- "${temporary}"
+    return 1
+  fi
+  parsed="$(scheduler_receipt_parse "${SCHEDULER_RECEIPT}")" || return 1
+  IFS=$'\t' read -r kind phase parsed_service parsed_timer <<< "${parsed}"
+  [[ "${kind}" == "systemd" && "${phase}" == "managed" \
+    && "${parsed_service}" == "${service_sha}" \
+    && "${parsed_timer}" == "${timer_sha}" ]]
+}
+
+scheduler_stop_and_verify_unit() {
+  local unit="$1" label="$2"
   local stop_rc=0 active_state="" active_rc=0
-  local disable_rc=0 enabled_state="" enabled_rc=0
-  systemctl --user stop vibeguard-gc.timer >/dev/null 2>&1 || stop_rc=$?
-  active_state="$(LC_ALL=C systemctl --user is-active vibeguard-gc.timer 2>/dev/null)" \
+  systemctl --user stop "${unit}" >/dev/null 2>&1 || stop_rc=$?
+  active_state="$(LC_ALL=C systemctl --user is-active "${unit}" 2>/dev/null)" \
     || active_rc=$?
   case "${active_state}" in
-    inactive|failed|unknown) ;;
+    inactive|failed|unknown)
+      return 0
+      ;;
     *)
-      red "ERROR: vibeguard-gc.timer is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving units and receipt."
+      red "ERROR: ${label} is not proven inactive (stop_rc=${stop_rc}, state=${active_state:-empty}, rc=${active_rc}); preserving units and receipt."
       return 1
       ;;
   esac
+}
+
+scheduler_verify_deactivated() {
+  local disable_rc=0 enabled_state="" enabled_rc=0
+  scheduler_stop_and_verify_unit \
+    vibeguard-gc.timer "vibeguard-gc.timer" || return 1
+  scheduler_stop_and_verify_unit \
+    vibeguard-gc.service "vibeguard-gc.service" || return 1
   systemctl --user disable vibeguard-gc.timer >/dev/null 2>&1 || disable_rc=$?
   enabled_state="$(LC_ALL=C systemctl --user is-enabled vibeguard-gc.timer 2>/dev/null)" \
     || enabled_rc=$?
@@ -238,6 +274,10 @@ if [[ -n "${SCHEDULER_RECEIPT_PARSED}" ]]; then
     red "ERROR: scheduler ownership receipt does not match current systemd files; preserving scheduler state."
     exit 1
   fi
+elif [[ -e "${SERVICE_DEST}" || -L "${SERVICE_DEST}" \
+  || -e "${TIMER_DEST}" || -L "${TIMER_DEST}" ]]; then
+  red "ERROR: existing systemd units have no valid ownership receipt; preserving scheduler state."
+  exit 1
 fi
 
 echo "Installing VibeGuard systemd user units..."
@@ -247,6 +287,10 @@ if [[ ! -f "${SERVICE_SRC}" ]] || [[ ! -f "${TIMER_SRC}" ]]; then
   exit 1
 fi
 
+if [[ -L "${UNIT_DIR}" || (-e "${UNIT_DIR}" && ! -d "${UNIT_DIR}") ]]; then
+  red "ERROR: systemd user unit directory must be a real directory: ${UNIT_DIR}"
+  exit 1
+fi
 mkdir -p "${UNIT_DIR}"
 
 for unit_dest in "${SERVICE_DEST}" "${TIMER_DEST}"; do
@@ -256,35 +300,107 @@ for unit_dest in "${SERVICE_DEST}" "${TIMER_DEST}"; do
   fi
 done
 
-# Escape values for use as sed replacement strings (|, &, and \ are metacharacters)
+# Escape values for use as sed replacement strings (|, &, and \ are metacharacters).
 _escape_sed() { printf '%s\n' "$1" | sed 's/[\\&|]/\\&/g'; }
 ESCAPED_REPO_DIR="$(_escape_sed "${REPO_DIR}")"
 ESCAPED_HOME="$(_escape_sed "${HOME}")"
 
-# Substitute placeholders and write unit files
-sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
+# Render the complete replacement before deactivating or mutating managed state.
+INSTALL_WORK_DIR="$(mktemp -d "${UNIT_DIR}/.vibeguard-systemd-install.XXXXXX")"
+STAGED_SERVICE="${INSTALL_WORK_DIR}/vibeguard-gc.service.staged"
+STAGED_TIMER="${INSTALL_WORK_DIR}/vibeguard-gc.timer.staged"
+if ! sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
     -e "s|__HOME__|${ESCAPED_HOME}|g" \
-    "${SERVICE_SRC}" > "${SERVICE_DEST}"
-
-sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
+    "${SERVICE_SRC}" > "${STAGED_SERVICE}" \
+  || ! sed -e "s|__VIBEGUARD_DIR__|${ESCAPED_REPO_DIR}|g" \
     -e "s|__HOME__|${ESCAPED_HOME}|g" \
-    "${TIMER_SRC}" > "${TIMER_DEST}"
-
-green "  Unit files written to ${UNIT_DIR}/"
+    "${TIMER_SRC}" > "${STAGED_TIMER}"; then
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: failed to stage systemd units; scheduler state was not changed."
+  exit 1
+fi
+chmod 644 "${STAGED_SERVICE}" "${STAGED_TIMER}"
 
 # Make GC script executable
 chmod +x "${REPO_DIR}/scripts/gc/gc-scheduled.sh"
 
-# Reload and enable
-systemctl --user daemon-reload
+INSTALL_REFRESH=0
+if [[ -n "${SCHEDULER_RECEIPT_PARSED}" ]]; then
+  INSTALL_REFRESH=1
+  cp -p -- "${SERVICE_DEST}" "${INSTALL_WORK_DIR}/vibeguard-gc.service.backup"
+  cp -p -- "${TIMER_DEST}" "${INSTALL_WORK_DIR}/vibeguard-gc.timer.backup"
+  cp -p -- "${SCHEDULER_RECEIPT}" \
+    "${INSTALL_WORK_DIR}/scheduler-ownership.backup"
+fi
 
-if systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
-  green "  vibeguard-gc.timer enabled and started (every Sunday 3:00 AM)"
+scheduler_restore_install_transaction() {
+  local restore_rc=0
+  scheduler_verify_deactivated || restore_rc=1
+  if [[ "${INSTALL_REFRESH}" == "1" ]]; then
+    cp -p -- "${INSTALL_WORK_DIR}/vibeguard-gc.service.backup" \
+      "${SERVICE_DEST}" || restore_rc=1
+    cp -p -- "${INSTALL_WORK_DIR}/vibeguard-gc.timer.backup" \
+      "${TIMER_DEST}" || restore_rc=1
+    cp -p -- "${INSTALL_WORK_DIR}/scheduler-ownership.backup" \
+      "${SCHEDULER_RECEIPT}" || restore_rc=1
+  else
+    rm -f -- "${SERVICE_DEST}" "${TIMER_DEST}" "${SCHEDULER_RECEIPT}" \
+      || restore_rc=1
+  fi
+  systemctl --user daemon-reload >/dev/null 2>&1 || restore_rc=1
+  if [[ "${INSTALL_REFRESH}" == "1" ]]; then
+    systemctl --user enable --now vibeguard-gc.timer >/dev/null 2>&1 \
+      || restore_rc=1
+  fi
+  return "${restore_rc}"
+}
+
+if [[ "${INSTALL_REFRESH}" == "1" ]] \
+  && cmp -s "${STAGED_SERVICE}" "${SERVICE_DEST}" \
+  && cmp -s "${STAGED_TIMER}" "${TIMER_DEST}"; then
+  :
+elif [[ "${INSTALL_REFRESH}" == "1" ]] \
+  && ! scheduler_verify_deactivated; then
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  exit 1
 else
-  red "ERROR: Timer installed but could not be started automatically."
-  red "Run manually: systemctl --user enable --now vibeguard-gc.timer"
+  if ! mv -f -- "${STAGED_SERVICE}" "${SERVICE_DEST}" \
+    || ! mv -f -- "${STAGED_TIMER}" "${TIMER_DEST}" \
+    || ! systemctl --user daemon-reload >/dev/null 2>&1; then
+    if ! scheduler_restore_install_transaction; then
+      red "ERROR: failed to install systemd units and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+      exit 1
+    fi
+    rm -rf -- "${INSTALL_WORK_DIR}"
+    red "ERROR: failed to install systemd units; restored the previous scheduler state."
+    exit 1
+  fi
+  green "  Unit files written to ${UNIT_DIR}/"
+fi
+
+if ! systemctl --user enable --now vibeguard-gc.timer 2>/dev/null; then
+  if ! scheduler_restore_install_transaction; then
+    red "ERROR: timer activation failed and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+    exit 1
+  fi
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: Timer could not be started; restored the previous scheduler state."
   exit 1
 fi
+
+new_service_sha="$(scheduler_sha256_file "${SERVICE_DEST}")"
+new_timer_sha="$(scheduler_sha256_file "${TIMER_DEST}")"
+if ! scheduler_receipt_write "${new_service_sha}" "${new_timer_sha}"; then
+  if ! scheduler_restore_install_transaction; then
+    red "ERROR: scheduler ownership recording failed and rollback was incomplete; inspect ${INSTALL_WORK_DIR}."
+    exit 1
+  fi
+  rm -rf -- "${INSTALL_WORK_DIR}"
+  red "ERROR: failed to record scheduler ownership; restored the previous scheduler state."
+  exit 1
+fi
+rm -rf -- "${INSTALL_WORK_DIR}"
+green "  vibeguard-gc.timer enabled and started (every Sunday 3:00 AM)"
 
 # Show timer status
 echo
