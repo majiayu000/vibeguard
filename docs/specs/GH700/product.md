@@ -274,6 +274,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `mutation_nonce_digest`与 opaque `mutation_nonce_capsule_id`/`broker_delivery_id`；raw
     mutation nonce只走 authenticated secret channel，schema/goldens逐 kind拒绝 raw、可逆编码及
     secret-bearing request/history bytes。product/tech/tasks不得复制 alias或弱化该 contract。
+    authority 每个 local successor必须在 repository-global pending gate内，把 snapshot、recovery manifest与
+    WAL以 authenticated encryption写入独立 Object-Lock backup并强读确认，再取得 class-correct anchor quorum、
+    完成 DynamoDB conditional CAS/read-back，之后才可返回 receipt或允许 broker write；ack loss只能恢复同一
+    request/backup versions，pending期间禁止下一 local commit。routine heartbeat/publication/ledger/time advance只由
+    bounded least-privilege online quorum签名，不能占用或接触 maintainer keys；bootstrap/restore/governance/
+    emergency继续要求 offline privileged threshold。key expiry或 current threshold loss只可走 bootstrap-pinned
+    break-glass threshold、完整 audit、restore-grade backup/rollback proof与更高 external anchor epoch的新 root cutover；
+    不得改写 history、回退 frontier/time、绕过 anchor或由单一 admin恢复。
     所有 generated PR及 replacement 统一使用
     `record_kind=generated_pr_planned → record_kind=generated_pr_bound`，两者 payload 的 `pr_kind ∈
     {decurrent, rollback, new_current, nonvalid_row, invalidate_current}`。planned 必须早于首次 head-ref/commit/PR
@@ -311,7 +319,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `(repo_node_id, candidate, run_id, run_attempt, owner_generation)` 外没有 active owner；
     current authorization fence只取 committed store envelope；history从 manifest-pinned first frontier
     重放，证明此前只有 terminal non-valid/no-publication与经 bootstrap root/roster/threshold验证且不改变
-    publication state的 phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`；在 intent 前持久化绑定 history frontier 的
+    publication state的 phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,trust_emergency_root_cutover}`；在 intent 前持久化绑定 history frontier 的
     zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）或
     `post_invalidation_zero`（每个 surface均零 marker，history证明最后一次 current-valid
     publication 已由 terminal `invalidate_current` receipt失效；其后 suffix closed union只允许 terminal
@@ -319,7 +327,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `publication_terminal_no_publication`+exhaustive negative discovery结束的 authenticated
     no-publication owner successor chain（takeover exact 为 `publication_owner_taken_over`），以及经独立
     governance domain/fence/threshold验证且不改变 publication owner/phase/liveness 的 phase-neutral
-    `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`，不得有 current restoration或其它 owner。
+    `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,trust_emergency_root_cutover}`，不得有 current restoration或其它 owner。
     在 intent 前 append fresh `post_invalidation_zero_receipt`，绑定 current frontier、
     invalidation-receipt digest、exact owner与所有 current surface blobs，且不制造 no-op
     de-current PR）。仅有历史 valid而无 exact terminal invalidation及 fresh zero receipt仍 blocked。
