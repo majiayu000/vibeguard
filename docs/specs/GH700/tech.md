@@ -451,11 +451,11 @@ publication 使用 attempt-scoped draft 与一个统一 durable state machine：
    request envelope携 current fence/lease/actor；store先查事务 unique index：same op+digest返回原 receipt，不同 digest冲突；absent才原子验 current owner-generation/fence/predecessor并签发绑定 actual fence与 successor 的 envelope/receipt。
    ack-loss：committed op接受原 receipt及 suffix；uncommitted old fence失败，同 generation续租后用 same intent+new fence重授权；advanced head禁止 rebase并按 takeover/terminal恢复或 new predecessor/generation/slot重规划；index/receipt冲突、fork/截断→blocked。
    versioned union覆盖 claim/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal；generation/fence永不复用，deterministic fold+完整 frontier拒绝 ABA。
-3. 首次 Release API/PR mutation前 append `owner_claimed`，绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、fence与 claim nonce；create response后、upload前 append
+3. 首次 Release API/PR mutation前 append `owner_claimed`，intent绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、owner_generation与 claim nonce；actual fence只来自 committed store envelope；create response后、upload前 append
    exact release-node `draft_bound`，重验 manifest后 CAS `prepared`。response loss只按 nonce+repo/tag/source查找：唯一 match先 higher-fence bind；仅 authenticated exhaustive negative receipt可 terminal。
    stale/ordinary zero保持 owner重试；分页/权限不全、rate-limit/5xx、歧义/mismatch或无 negative-proof
    API → `draft_recovery_blocked`；deadline不得推断未创建，无 durable claim禁止 draft mutation。
-4. 四种 generated PR及 replacement都须在首次 ref/commit/PR mutation前 append `generated_pr_planned(kind)`，绑定 repo_node_id/candidate/owner/fence/kind、base ref+OID、head repo+ref、expected tree+OID、patch、受保护 nonce、ruleset、server-auth creator App+installation identity与 replacement chain，response后 bind PR/review/queue。
+4. 四种 generated PR及 replacement都须在首次 ref/commit/PR mutation前 append `generated_pr_planned(kind)`，intent绑定 repo_node_id/candidate/owner_generation/kind、base ref+OID、head repo+ref、expected tree+OID、patch、受保护 nonce、ruleset、server-auth creator App+installation identity与 replacement chain；actual fence只来自 store envelope，response后 bind PR/review/queue。
    response loss完整分页查询全部 PR states+ref：唯一 active match重验 latest frontier后 CAS bound；merged按 kind恢复；closed先 revoke；stale zero保留 owner且不得重发；仅 PR+ref线性化 exhaustive-negative证明 absence；不完整/歧义按 kind blocked。
 5. `rollover_one` 的 decurrent plan受 latest-frontier owner gate约束，merge后 append SHA/blob receipt；
    `genesis_zero`由 history证明零 marker、无历史 eligible valid publication/其它 owner后 append receipt；

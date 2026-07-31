@@ -244,7 +244,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     summary、policy 与 exact human-reviewed README patches 后，且在首次 Release API mutation、
     generated PR、marker/Release/README 动作前，必须在受认证、retention-independent、
     append-only `publication_history` 中 fenced-CAS append durable `owner_claimed`，绑定
-    server-authenticated `repo_node_id`/workflow/run/attempt/ref、candidate/tag/source、fence、
+    server-authenticated `repo_node_id`/workflow/run/attempt/ref、candidate/tag/source、永不复用的
+    `owner_generation`、
     summary/policy/asset-manifest/base/review/marker-plan digest、deadline/heartbeat 与
     `draft_claim_nonce_digest`。它不需要 draft ID但立即成为 active owner。只有该 owner 可携
     claim nonce 创建 exact private draft；服务端返回后、任何 asset upload 前必须 append
@@ -286,7 +287,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     所有 generated PR及 replacement 统一使用
     `generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
     {decurrent, rollback, new_current, nonvalid_row}`。planned 必须早于首次 head-ref/commit/PR
-    mutation，绑定 repo/owner/fence/kind/candidate、base ref/OID、head repo/ref、expected
+    mutation，绑定 repo/owner_generation/kind/candidate、base ref/OID、head repo/ref、expected
     tree/OID、patch/nonce/ruleset digest、受信 App/installation identity及 replacement chain；
     nonce 必须进入受保护 deterministic ref/commit/check identity，不能只放可编辑 PR metadata。
     create/bind response loss须完整分页枚举 draft/open/closed/merged/queued PR与 head ref并核对完整
@@ -299,11 +300,13 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     stale check/review与 ruleset bypass均由 latest-frontier merge gate拒绝。
     valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row；
     以 `generated_pr_planned(decurrent)` 创建并 bind PR node/head/base/review/queue identity。
-    required merge gate 每次按最新 signed history frontier 验证 owner/fence/PR/head/base，
+    required merge gate 每次按最新 signed history frontier 验证 intent 的 owner_generation、
+    committed store envelope 的 actual fence及 PR/head/base，
     合并后在 intent 前持久化 merge SHA/前后 blob digest receipt）或
     `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
     publication，且除本次 exact current prepared owner
-    `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；history 证明
+    `(repo_node_id, candidate, run_id, run_attempt, owner_generation)` 外没有 active owner；
+    current authorization fence只取 committed store envelope；history 证明
     此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
     zero-marker receipt，不制造 no-op PR）。corpus ledger 只证明 artifact identities，
     不参与 publication 判定。
