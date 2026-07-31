@@ -464,11 +464,22 @@ lease/fence、authenticated governance actor及 threshold approval，因此 prio
 no active owner时仍可轮换，active owner期间也不伪造 takeover或改变其 phase/liveness。
 `trust_emergency_root_cutover`同样 phase-neutral，但只接受前述 frozen break-glass authorization、exact anchored
 predecessor与 privileged anchor class，普通 governance/routine signer/fence不能生成或批准它。
-immutable rotation payload绑定 repo/purpose/current→next epoch、old/new key或bundle/cert/
-approval digests，stable `rotation_id=H(repo,purpose,current_epoch,next_epoch,kind,payload_digest,
-approval_digest)` 不含 predecessor/fence。store先查永久 `(repo_node_id,rotation_id)`：same
-payload/approval返原 receipt，异值冲突；absent才验 governance domain/fence/actor/threshold/
-current epoch/exact predecessor并 append。stable approval/canonical payload不含 predecessor；每次 append的
+rotation 构造顺序唯一且无环。三种 normal kind 的 `rotation_core` 分别 exact 为
+`trust_leaf_rotated:{current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest}`、
+`trust_root_rotated:{current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,
+old_threshold_signature_digest,new_threshold_signature_digest}` 及
+`trust_key_revoked:{current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,
+replacement_key_or_bundle_digest_or_null}`。先计算 `rotation_core_digest=SHA256(JCS(rotation_core))`；detached
+normal approval exact 签 `SHA256(JCS({v:"GH700:normal-rotation-approval:v1",repo_node_id,purpose,
+record_kind,rotation_core_digest}))` 并产生 `approval_digest`；再计算
+`rotation_id=SHA256(JCS({v:"GH700:rotation-id:v1",repo_node_id,purpose,record_kind,
+rotation_core_digest,approval_digest}))`。emergency kind 以其 final payload 去掉
+`{rotation_id,recovery_threshold_signature_digest,rotation_cutover_certificate_digest}` 作 `rotation_core`，将前述
+detached break-glass approval envelope digest 作 `approval_digest`，使用同一 rotation-ID 式。最后才以 core+
+rotation ID+approval digest+cutover certificate digest 构造 closed record payload；任何 derived field 都禁止
+进入自己的 core/preimage。rotation ID/approval 不含 predecessor/fence。store先查永久
+`(repo_node_id,rotation_id)`：same core/approval 已提交则返原 receipt，异值冲突；absent才验 governance
+domain/fence/actor/threshold/current epoch/exact predecessor并 append。每次 append的
 `rotation_cutover_certificate` 另绑定 rotation ID/approval digest、exact predecessor、successor ordinal与
 next epoch，但绝不含 successor root/full-prefix/receipt digest。publication suffix抢先时保留相同 rotation
 ID/payload/approval并为 new predecessor/op重签 cutover certificate；store用 pre-state trust验证后 append，
