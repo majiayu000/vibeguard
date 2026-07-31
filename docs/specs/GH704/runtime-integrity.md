@@ -122,8 +122,14 @@ crash 按 slot/generation 幂等恢复，full 时在 barrier 前 visible backpre
 lease → source project lock 调用**同一 coordinator recovery**：receipts complete 则补 barrier/
 queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-bound ready/abort receipt
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
-ready，或在 abort tombstone/reclaim 的同一 root transition 释放 frozen-lag token。未知/损坏 entry fail visible 且禁止覆盖；requested
-off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
+ready，或在 abort tombstone/reclaim 的同一 root transition 释放 frozen-lag token。未知/损坏 entry fail visible 且禁止覆盖。
+source route 若在 ready/abort receipt 前由 closed identity/owner/ACL proof 证明永久删除、替换或不可达，
+dispatcher 必须用 admission 时预留的 frozen-lag token 在同一 global root CAS 将 live registration
+转为 `unreachable_registration_ref {source,event,expected_barrier,projection_prepared_digest,
+source_route_identity,canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}`，
+发布 query-scoped admin lag stub 并释放 live registry slot；transient/证据不全仍保留 live slot + visible lag。
+该 ref 只可由新 exact route bounded rebind，或下述 source-bound terminal discard proof 退休，不能 age-delete。
+requested off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
 requested_config_identity, requested_config_digest, cursor}`：它立即禁止新 L2/shared admission，但还不是 effective
 off。释放 project lock 后仍持 delivery lease，再取 global registration lease，将旧
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
@@ -254,12 +260,20 @@ append/fsync 与 durable applied/tail commit 完成**：
    与 saved request 完全相等，再取 project lock 提交 effective off epoch。若已变回 enabled，
    原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/admin refs 并
    bounded rebind 全部 off-frozen/off-receipt canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
-   以新 epoch/request 从 cursor zero 重启 off-preparing；invalid/unreadable 则保持 pending/error。
+   必须先提交 `off_supersede_pending {old_admin_set_digest,new_epoch,new_request_digest,cursor}`，再以
+   policy-bound pass 对每个旧 ref + stub 做同一 global-root CAS，原子 adopt/retag 到 new request且保留
+   token/query scope/recovery locator；只有 `admin_adoption_complete` 覆盖旧 set digest 后才以新 cursor
+   zero 重启 off-preparing。closed supersession 也必须携带 source-bound terminal discard proof，不能只改
+   request digest；invalid/unreadable 则保持 pending/error。
    stale request 不得提交 effective off。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
    oldest age，禁止新 L2 但不伪称 off，后续 bounded pass 续传；因而 effective off
-   永不占 shared live registry/outbox/completed-index capacity。effective-off terminal cleanup 只按
-   admin root oldest-first cursor，在 approved retention watermark 已越过 ref query scope且 matching off
-   epoch/config 复核成功后，以 policy-bound batch/byte/time 原子 tombstone ref + delete stub + release token；
+   永不占 shared live registry/outbox/completed-index capacity。effective-off cleanup 只按 admin root
+   oldest-first cursor；retention watermark/query-scope expiry 仅使 ref eligible，绝不构成 deletion proof。
+   每个未 ack ref 必须先由 re-enable/approved maintenance 重取 completed/outbox capacity并完成 matching
+   rebind→`project_acknowledged`→`retirement_pending`，或由 approved maintenance 在 exclusive delivery
+   lease → project lock 下写/fsync source-bound `projection_terminal_discarded {event,barrier,ref_digest,
+   query_scope_digest,policy_digest}` 并返回 digest acknowledgement；随后 global CAS 验证该 ack，才可
+   原子 tombstone ref + delete stub + release token。无 source terminal proof 时永久保留 ref/locator/token；
    re-enable 则先以同样 bounds 重取 completed/outbox capacity再 rebind。crash 保留 matching ref/stub 并
    向前恢复；任一 missing/mismatch/timeout 保持 visible admin lag，禁止 scan 或假 cleanup。每个 pass 只外层持 exclusive delivery；
    project lock 在任一 global lease 前释放，registry 在 sequencer/receipt I/O 前释放，
@@ -309,7 +323,8 @@ directory。primary/alternate staged copies 都 inert；global stub 的 `root_ki
 只有任一 candidate entry durable 后，
 global root 才 atomically reclaim live outbox、释放 global
 completed-index token、消费 quarantine token并发布 bounded `quarantine_lag_stub {source,event,
-barrier,root_kind,root_id,entry_digest}`。两者都失败是 runtime quarantine storage unavailable，保持
+barrier,root_kind,root_id,entry_digest,canonical_event_timestamp,retention_bucket,global_offset,
+query_scope_digest}`。scope 字段必须从 exact intent/ref 复制并进入 stub digest；两者都失败是 runtime quarantine storage unavailable，保持
 outbox pending/error，不伪称隔离；alternate 可用时 broken source 永不占 shared live slot。root 前 crash 忽略/回收 staged orphan且 outbox 仍 live；root
 后 stub 保证 lag 全局可枚举。shared allocator/outbox validation 不读取 per-source root；其后损坏只把
 该 source 标记 `needs_repair`，不能阻止其他 source 的 root advance。
@@ -317,7 +332,8 @@ source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarant
 一个 global root transition 中同时取得 completed-index token 与 shared live-outbox slot，任一不足则
 保持 quarantine/stub 不变并只标记该 source `rebind_backpressure`。双容量均成功时仍保留原
 quarantine token/entry/stub，并将 stub CAS 为 `rebind_inflight {new_route_digest,outbox_id}` 后恢复
-live outbox/keyed-slot/receipt-delivered/project-ack transaction。若 new route 再次 proven permanent，
+live outbox/keyed-slot/receipt-delivered/project-ack transaction；所有 rebind/retirement states 必须原样
+携带 timestamp/bucket/global offset/query-scope metadata。若 new route 再次 proven permanent，
 同一 token/逻辑 slot 必须以 reservation 时预留的 scratch generation/bytes 做 copy-on-write in-place
 replacement：先 fsync replacement，再由单一 global root CAS 同时 repoint stub、释放刚取得的
 completed/outbox capacity并使旧 generation inert；source root 即使只有一条且已满也不需第二 entry/token。
@@ -330,7 +346,8 @@ valid-transition mismatch。未经 rebind 不得伪称 completed。token 缺失/
 quarantine permission/delete/replace、primary-fsync→alternate-publication crash、nonchosen orphan cleanup、
 post-commit per-source corruption、cross-source isolation、completed+outbox atomic reacquire/floor-minus-one、
 rebound-route replacement（含 one-entry-full/floor-minus-one）、retirement-before-token-reuse 每阶段、
-receipt-delivered-route-quarantine、source-off-completed-capacity-handoff、off-terminal-cleanup、
+receipt-delivered-route-quarantine、source-off-completed-capacity-handoff、off-terminal-proof、
+off-request-admin-adoption、pre-barrier-unreachable-isolation、quarantine-lag-query-scope、
 project-marker/global-ack crash（含 outbox reclaimed + dormant source + exact route resolution）、normal reuse、
 full/mismatch 与 rebind。frozen ref bounded rebind 时同一 root 将 ref 还原为 reserved token + live
 registration；正常 claim 再释放，禁止泄漏或重复分配。
@@ -358,7 +375,7 @@ locator 与其 token 必须 pin 并计 capacity/backpressure，或先原子转�
 freshness overflow 必须 unavailable + empty，禁止回退扫描。reader 先读取 committed global
 metadata root generation + 其引用的四个 checksummed subgenerations +
 allocator tail/watermark，再按 query identity/window 有界枚举全部 in-scope state，生成稳定
-ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen registry、off-receipt admin、reservation、outbox 与
+ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen/unreachable registry、off-receipt admin、reservation、outbox 与
 route-quarantine lag）；每个 frozen/admin ref 的 timestamp/bucket/global lag 或 projection offset/query-scope
 metadata 必须 digest-bound 并用于 window inclusion，缺失或冲突即 proof unavailable，
 其中 successful refs 只来自 completed index 的 project-acknowledged state，最后重读 root + 四个 subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
