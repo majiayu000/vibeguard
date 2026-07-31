@@ -3,6 +3,7 @@
 header "GH719 persistent Codex skill opt-out"
 gh719_home="${TMP_HOME}/gh719-home"
 gh719_config="${gh719_home}/.vibeguard/config.json"
+gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 mkdir -p "${gh719_home}"
 
 gh719_lock_home="${TMP_HOME}/gh719-lock-home"
@@ -79,8 +80,24 @@ assert_cmd "stale reclaimer never acquires over a changed owner generation" test
 assert_cmd "active owner survives a delayed stale reclaim" test \
   -e "${gh719_lock_race_control}/active_released"
 
+gh719_clean_lock_home="${TMP_HOME}/gh719-clean-lock-home"
+mkdir -p "${gh719_clean_lock_home}/.vibeguard/setup.lock"
+printf 'pid=%s\nnonce=active-clean-fixture\n' "$$" \
+  > "${gh719_clean_lock_home}/.vibeguard/setup.lock/owner"
+printf 'must-survive\n' > "${gh719_clean_lock_home}/.vibeguard/run-hook.sh"
+gh719_clean_lock_rc=0
+gh719_clean_lock_out="$(
+  HOME="${gh719_clean_lock_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" \
+    bash "${REPO_DIR}/setup.sh" --clean 2>&1
+)" || gh719_clean_lock_rc=$?
+assert_cmd "clean is blocked by the active setup lifecycle lock" test \
+  "${gh719_clean_lock_rc}" -ne 0
+assert_contains "${gh719_clean_lock_out}" "another VibeGuard setup is active" \
+  "clean reports the conflicting setup lifecycle owner"
+assert_cmd "blocked clean preserves install assets" test \
+  -e "${gh719_clean_lock_home}/.vibeguard/run-hook.sh"
+
 gh719_state_home="${TMP_HOME}/gh719-state-home"
-gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 mkdir -p "${gh719_state_home}/.vibeguard"
 printf '%s\n' '{"version":1,"files":{}}' > "${gh719_state_home}/.vibeguard/install-state.json"
 printf '%s\n' "sentinel" > "${gh719_state_home}/snapshot-target"

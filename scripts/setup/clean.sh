@@ -27,6 +27,11 @@ USAGE
   esac
 done
 
+cleanup_clean_lifecycle() {
+  setup_runtime_bootstrap_cleanup
+  setup_lock_release || true
+}
+
 clean_abs_path() {
   local path="$1" base_dir="${2:-}" path_dir path_base
   if [[ "${path}" != /* ]]; then
@@ -399,6 +404,10 @@ if ! ensure_setup_runtime_available >/dev/null 2>&1; then
   red "ERROR: vibeguard-runtime is required to safely remove managed high-context files"
   exit 1
 fi
+if ! setup_lock_acquire; then
+  exit 1
+fi
+trap cleanup_clean_lifecycle EXIT
 
 clean_repo_git_hooks
 clean_tracked_project_git_hooks
@@ -411,4 +420,5 @@ clean_scheduled_gc
 state_clean
 yellow "Removed install state"
 
+setup_lock_release
 green "VibeGuard cleaned."
