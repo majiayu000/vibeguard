@@ -230,12 +230,13 @@ GH-701 已完成。
     target 必须仍是同一 identity。byte-identical
     inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
     或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有
-    planned/activating/active/consumed generation。所有 writer/consumer 以同一 per-target
+    planned/activating/publishing/completed/consumed generation。所有 writer/consumer 以同一 per-target
     state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
-    fsync activating bundle，最终 watcher barrier/read 零 mutation 后再 fsync active_commit；
-    只有随后 CAS pointer 才可暴露 active。consumer 在锁内对 pointer-read 后 watcher
-    barrier、target revalidation 与 pointer re-read 全部通过才能使用。stale/concurrent CAS、
-    publish-race mutation 或 orphan 均不能冒充 active 或消费旧 receipt。
+    fsync activating bundle 和 publish_intent；首次 CAS pointer 仅成为 non-active
+    publishing。post-CAS barrier/read 零 mutation 后 fsync 的 publish_completion 才是
+    completion point；consumer 只接受 exact pointer/intent/completion triple，再做新 watcher
+    barrier、target revalidation 与 pointer re-read。crash 后缺 completion 的 publishing
+    必须 durable invalidate + fresh probe；mutation-restore 不能完成旧 generation。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -412,8 +413,8 @@ GH-701 已完成。
   额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
-  metadata 重验通过后才 restored/not-installed；per-target serialized expected-pointer CAS、
-  final watcher barrier→active_commit 与 crash-before/after recovery 必须确定性；只有 verified
+  metadata 重验通过后才 restored/not-installed；per-target CAS、publishing pointer、post-CAS
+  watcher barrier、durable completion/tombstone 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并

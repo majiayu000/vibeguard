@@ -631,7 +631,7 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 held identities、zero-mutation watcher、per-target lock、expected generation+digest pointer CAS、activating→final observation→active_commit recovery；concurrent/stale CAS、publish-race mutation、orphan/torn pointer、inode/parent swap 均 blocked；appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 held identities、per-target CAS、publishing pointer + post-CAS barrier + durable completion marker；crash/mutation-restore 在 pointer/barrier/completion/tombstone 各窗口、stale CAS、orphan marker、inode/parent swap 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
@@ -739,9 +739,8 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 held identities、per-target lock、expected-generation/digest CAS、final
-  watcher barrier→active_commit crash recovery/supersession，以及 concurrent stale writer、
-  publish-race mutation、orphan/torn pointer、inode/parent swap/old-FD/gap negatives。
+  verified-file 覆盖 per-target CAS、publishing→post-CAS barrier→durable completion recovery，
+  以及各 fsync crash、mutation-restore、stale writer、orphan marker、inode/parent swap/gap negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
