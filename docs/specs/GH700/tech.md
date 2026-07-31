@@ -449,19 +449,19 @@ publication 使用 attempt-scoped draft 与一个统一 durable state machine：
 1. actors 只按 source/candidate → ledger lease → publication lease → branch CAS；禁止反向；等待 review 可释放短 lease，但 active durable owner仍阻断新 candidate。
 2. frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；length-zero genesis仅在 store 无 head时初始化，prior-release frontier只作下界。reader取得签名 latest
    head并精确重放；append原子 CAS完整 expected frontier+fence，store复算/签发 successor。
-   versioned closed union以 `jcs-rfc8785-v1` 覆盖 claim/binding/prepared/de-current plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal，绑定 owner、prior phase/
+   versioned closed union以 `jcs-rfc8785-v1` 覆盖 claim/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal，绑定 owner、prior phase/
    frontier、expected/new fence、payload与 issuer identity；deterministic fold拒绝缺失/截断/fork/非法 transition/过期 fence。
 3. 首次 Release API/PR mutation前 append `owner_claimed`，绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、fence与 claim nonce；create response后、upload前 append
    exact release-node `draft_bound`，重验 manifest后 CAS `prepared`。response loss只按 nonce+repo/tag/source查找：唯一 match先 higher-fence bind；仅 authenticated exhaustive negative receipt可 terminal。
    stale/ordinary zero保持 owner重试；分页/权限不全、rate-limit/5xx、歧义/mismatch或无 negative-proof
    API → `draft_recovery_blocked`；deadline不得推断未创建，无 durable claim禁止 draft mutation。
-4. `rollover_one` 创建 PR前 append `valid_decurrent_pr_pending(planned)`绑定 patch/marker/base/deterministic head/ruleset，创建后 bind PR/head/base/review/queue identity。required merge-time
-   owner gate匹配 latest signed frontier/fence/exact PR；merge后 append SHA/blob receipt。
-   `genesis_zero`由 history证明零 marker、无历史 eligible valid publication及无其它 active owner，
-   再 append frontier-bound receipt；corpus ledger只证明 artifact identities。
-5. pending de-current取消先 higher-fence CAS cancel-pending，撤销旧 gate、dequeue、close PR、compare-delete head；revocation receipt证明 closed/unmerged、queue/head absent、base/marker unchanged、
-   ruleset无 bypass。已 merge→rollback；无法证明→`decurrent_pr_recovery_blocked`。pending reject/close/stall/drift replacement须先 revoke receipt，再用新 fence/head/PR fresh review；
-   original/replacement同时授权、late merge、reopen/ref ABA均被 latest-frontier gate拒绝。
+4. 四种 generated PR及 replacement都须在首次 ref/commit/PR mutation前 append `generated_pr_planned(kind)`，绑定 repo_node_id/candidate/owner/fence/kind、base ref+OID、head repo+ref、expected tree+OID、patch、受保护 nonce、ruleset、server-auth creator App+installation identity与 replacement chain，response后 bind PR/review/queue。
+   response loss完整分页查询全部 PR states+ref：唯一 active match重验 latest frontier后 CAS bound；merged按 kind恢复；closed先 revoke；stale zero保留 owner且不得重发；仅 PR+ref线性化 exhaustive-negative证明 absence；不完整/歧义按 kind blocked。
+5. `rollover_one` 的 decurrent plan受 latest-frontier owner gate约束，merge后 append SHA/blob receipt；
+   `genesis_zero`由 history证明零 marker、无历史 eligible valid publication/其它 owner后 append receipt；
+   corpus ledger只证明 artifact identities。pending取消须 higher-fence revoke gate/queue/PR/head并证明
+   closed/unmerged、head/queue absent、base/marker unchanged、ruleset无 bypass；merged→rollback，
+   不能证明→decurrent blocked；replacement用新 nonce/fence/head/PR重审，late bind/merge/reopen/ABA拒绝。
 6. valid receipt/nonvalid prepared都先 CAS `intent_written`，它是两类 Release commit state唯一 predecessor。merged de-current的 pre-intent取消→rollback；rollback/new-current/nonvalid-row
    失败由 higher-fence exact reviewed replacement恢复，无批准则分别进入 rollback/marker/
    nonvalid-row blocked。claim/draft cleanup、pending-PR revocation+delete、rollback+delete或
@@ -673,8 +673,8 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
 - valid fixture 覆盖 pre-draft claim/draft binding、genesis self-owner/other-owner 与 rollover；
   pending de-current cancel取得不可再 merge receipt，commit/owner-update crash可恢复。
-- draft/de-current/rollback/new-current/nonvalid-row 的歧义、reject/close/stall/crash都产生
-  exact reviewed replacement或 durable recovery-blocked；未 terminal 前拒绝下一 candidate。
+- draft与四种 generated PR 的 create/bind response-loss、stale-zero/分页/歧义/各 state match、
+  reject/close/stall/crash都恢复 exact resource或 durable blocked；未 terminal 前拒绝下一 candidate。
 
 ## 数据流
 
@@ -770,9 +770,9 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
       environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
       E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
 - [ ] Release contract: native reports/strict summary；`repo_node_id` exact-ref identity、唯一
-      source/candidate→ledger→publication→CAS 顺序、pre-mutation claim/draft binding、pending
-      de-current revocation gate阻止并发/deadlock/orphan/late merge；genesis/rollover/rollback/
-      new-current/nonvalid-row takeover及六类 recovery-blocked 均受测试。
+      source/candidate→ledger→publication→CAS 顺序、pre-mutation claim/draft binding、四种 PR
+      planned/bound discovery及 de-current revocation gate阻止 orphan/late merge；genesis/rollover/
+      rollback/new-current/nonvalid-row takeover及六类 recovery-blocked 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
       freshness；仅 valid metrics 显示数字，links 指向 immutable release evidence。
 - [ ] Existing regression:

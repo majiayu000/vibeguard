@@ -258,14 +258,27 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
     复算并签发 successor frontier。record schema 是 versioned closed discriminated union，
     canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim、draft binding、prepared、
-    de-current plan/binding/revocation、receipt、intent、commit、takeover、六类 recovery-blocked、
+    generated-PR plan/binding/revocation、receipt、intent、commit、takeover、六类 recovery-blocked、
     `recovered_publication` 与 terminal；每项绑定 owner key、prior phase/frontier、
     expected/new fence、payload digest 与受信 issuer/workflow/subject，deterministic fold
     唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
     fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
+    所有 generated PR及 replacement 统一使用
+    `generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
+    {decurrent, rollback, new_current, nonvalid_row}`。planned 必须早于首次 head-ref/commit/PR
+    mutation，绑定 repo/owner/fence/kind/candidate、base ref/OID、head repo/ref、expected
+    tree/OID、patch/nonce/ruleset digest、受信 App/installation identity及 replacement chain；
+    nonce 必须进入受保护 deterministic ref/commit/check identity，不能只放可编辑 PR metadata。
+    create/bind response loss须完整分页枚举 draft/open/closed/merged/queued PR与 head ref并核对完整
+    tuple：唯一 active match在重读 latest signed frontier/fence/ruleset后 CAS bound；唯一 merged
+    match按 kind进入 receipt/rollback/marker/row恢复；closed match先 revoke再 replacement。
+    ordinary/stale zero保留 owner且不得重发 non-idempotent create；仅同一线性化快照覆盖 PR+ref
+    的 authenticated exhaustive negative receipt可证明不存在。多匹配、tuple/creator不符、
+    分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入
+    decurrent/rollback/marker/nonvalid-row recovery-blocked。旧 fence late bind、reopen/ref ABA、
+    stale check/review与 ruleset bypass均由 latest-frontier merge gate拒绝。
     valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row；
-    创建 PR 前 append `valid_decurrent_pr_pending(planned)` 绑定 owner/fence、patch/marker/base、
-    deterministic head ref与 ruleset；创建后 bind PR node/head/base/review/queue identity。
+    以 `generated_pr_planned(decurrent)` 创建并 bind PR node/head/base/review/queue identity。
     required merge gate 每次按最新 signed history frontier 验证 owner/fence/PR/head/base，
     合并后在 intent 前持久化 merge SHA/前后 blob digest receipt）或
     `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
@@ -285,10 +298,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     unmerged、queue absent、head absent、default branch/marker 未变、ruleset 无 bypass，才可删
     draft并 terminal；竞争中已 merge则转 `valid_rollback_pending`。pending PR rejected/closed/
     stalled/branch-drift 但 candidate 继续时，必须先 higher-fence revoke旧 gate/queue/PR/head并
-    取得 receipt，再以新 fence/head/PR回到 planned/bound并 fresh review；original/replacement
+    取得 receipt，再以新 fence/head/PR/nonce回到 planned/bound并 fresh review；original/replacement
     不能同时获 merge authorization。任一证明失败进入 `decurrent_pr_recovery_blocked`。
     de-current 已 merge且 intent 前取消只允许恢复 receipt 绑定旧
-    marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时或 owner 消失时，
+    marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时、response loss或 owner 消失时，
     reconciler/scheduled audit 以更高 fence supersede并创建同 candidate、同 exact patch 的
     human-reviewed replacement；无获批 replacement 则 attest 对应
     `rollback_recovery_blocked`/`marker_recovery_blocked`，active owner 继续阻断后续
@@ -297,7 +310,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `publication_history`，不能因 owner terminal 而删除。
     `publish_nonvalid` 也必须从 prepared owner 先 CAS 至 `intent_written`，且只有该状态可
     推进 `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
-    human-reviewed unmarked row。其 PR 的 reject/close/timeout/crash 使用同一 higher-fence
+    human-reviewed unmarked row。其 PR 的 reject/close/timeout/response-loss/crash 使用同一 higher-fence
     replacement/review 机制；无获批 replacement 为 `nonvalid_row_recovery_blocked`，不能
     留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
     intent 后 exact draft 缺失/不匹配且没有 matching public Release 时只能 attest
