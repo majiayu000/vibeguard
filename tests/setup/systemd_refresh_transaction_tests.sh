@@ -77,11 +77,27 @@ cat > "${post_activation_hash_bin}/systemctl" <<'SH'
 #!/usr/bin/env bash
 [[ "${1:-}" == "--user" ]] && shift
 case "${1:-}" in
-  daemon-reload|list-timers)
+  daemon-reload)
+    if [[ "${VIBEGUARD_TEST_SYSTEMD_DAEMON_RELOAD_FAIL_ONCE:-0}" == "1" \
+      && ! -e "${VIBEGUARD_TEST_SYSTEMD_DAEMON_RELOAD_FAIL_MARKER}" ]]; then
+      touch "${VIBEGUARD_TEST_SYSTEMD_DAEMON_RELOAD_FAIL_MARKER}"
+      exit 91
+    fi
+    exit 0
+    ;;
+  list-timers)
     exit 0
     ;;
   enable)
+    if [[ "${2:-}" == "--runtime" ]]; then
+      touch "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}"
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
+      exit 0
+    fi
     touch "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
+    if [[ -n "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME:-}" ]]; then
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}"
+    fi
     if [[ "${2:-}" == "--now" ]]; then
       touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}" \
         "${VIBEGUARD_TEST_HASH_ACTIVATED}"
@@ -91,15 +107,24 @@ case "${1:-}" in
   start)
     if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
       touch "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}"
+    elif [[ "${2:-}" == "vibeguard-gc.service" ]]; then
+      touch "${VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE}"
     fi
     exit 0
     ;;
   stop)
-    rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}"
+    if [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ACTIVE}"
+    elif [[ "${2:-}" == "vibeguard-gc.service" ]]; then
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE}"
+    fi
     exit 0
     ;;
   disable)
     rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED}"
+    if [[ -n "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME:-}" ]]; then
+      rm -f -- "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}"
+    fi
     exit 0
     ;;
   is-active)
@@ -108,10 +133,20 @@ case "${1:-}" in
       printf 'active\n'
       exit 0
     fi
+    if [[ "${2:-}" == "vibeguard-gc.service" \
+      && -e "${VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE}" ]]; then
+      printf 'active\n'
+      exit 0
+    fi
     printf 'inactive\n'
     exit 3
     ;;
   is-enabled)
+    if [[ -n "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME:-}" \
+      && -e "${VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME}" ]]; then
+      printf 'enabled-runtime\n'
+      exit 0
+    fi
     if [[ -e "${VIBEGUARD_TEST_SYSTEMD_ENABLED}" ]]; then
       printf 'enabled\n'
       exit 0
@@ -259,3 +294,100 @@ assert_cmd "inactive disabled refresh restores units and receipt byte-for-byte" 
 assert_cmd "inactive disabled refresh does not activate or enable timer" bash -c \
   'test ! -e "$1" && test ! -e "$2"' _ \
   "${refresh_hash_active}" "${refresh_hash_enabled}"
+
+runtime_refresh_home="${TMP_HOME}/standalone-systemd-runtime-refresh-home"
+runtime_refresh_service="${runtime_refresh_home}/.config/systemd/user/vibeguard-gc.service"
+runtime_refresh_timer="${runtime_refresh_home}/.config/systemd/user/vibeguard-gc.timer"
+runtime_refresh_receipt="${runtime_refresh_home}/.vibeguard/scheduler-ownership"
+runtime_refresh_active="${runtime_refresh_home}/.systemctl-vibeguard-gc-active"
+runtime_refresh_service_active="${runtime_refresh_home}/.systemctl-vibeguard-gc-service-active"
+runtime_refresh_enabled="${runtime_refresh_home}/.systemctl-vibeguard-gc-enabled"
+runtime_refresh_enabled_runtime="${runtime_refresh_home}/.systemctl-vibeguard-gc-enabled-runtime"
+runtime_refresh_activated="${runtime_refresh_home}/.systemctl-vibeguard-gc-activated"
+mkdir -p "${runtime_refresh_home}"
+env HOME="${runtime_refresh_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${runtime_refresh_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${runtime_refresh_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${runtime_refresh_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${runtime_refresh_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${runtime_refresh_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${runtime_refresh_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+rm -f -- "${runtime_refresh_enabled}" "${runtime_refresh_activated}"
+touch "${runtime_refresh_enabled_runtime}"
+runtime_refresh_before="$(
+  shasum -a 256 \
+    "${runtime_refresh_service}" "${runtime_refresh_timer}" \
+    "${runtime_refresh_receipt}"
+)"
+runtime_refresh_rc=0
+runtime_refresh_out="$(
+  env HOME="${runtime_refresh_home}" "${post_activation_hash_env[@]}" \
+    VIBEGUARD_REPO_DIR="${standalone_alt_repo}" \
+    VIBEGUARD_TEST_SYSTEMD_ACTIVE="${runtime_refresh_active}" \
+    VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${runtime_refresh_service_active}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED="${runtime_refresh_enabled}" \
+    VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${runtime_refresh_enabled_runtime}" \
+    VIBEGUARD_TEST_HASH_ACTIVATED="${runtime_refresh_activated}" \
+    VIBEGUARD_TEST_HASH_FAIL_PATH="${runtime_refresh_timer}" \
+    bash "${REPO_DIR}/scripts/install-systemd.sh" 2>&1
+)" || runtime_refresh_rc=$?
+assert_cmd "runtime-enabled refresh reaches the intentional hash failure" \
+  grep -qF "failed to hash installed systemd units" <<< "${runtime_refresh_out}"
+assert_cmd "runtime-enabled refresh hash failure returns nonzero" \
+  test "${runtime_refresh_rc}" -ne 0
+assert_cmd "runtime-enabled refresh restores units and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3")" = "$4"' _ \
+  "${runtime_refresh_service}" "${runtime_refresh_timer}" \
+  "${runtime_refresh_receipt}" "${runtime_refresh_before}"
+assert_cmd "runtime-enabled refresh restores runtime enablement exactly" bash -c \
+  'test -e "$1" && test ! -e "$2"' _ \
+  "${runtime_refresh_enabled_runtime}" "${runtime_refresh_enabled}"
+
+remove_rollback_home="${TMP_HOME}/standalone-systemd-remove-rollback-home"
+remove_rollback_service="${remove_rollback_home}/.config/systemd/user/vibeguard-gc.service"
+remove_rollback_timer="${remove_rollback_home}/.config/systemd/user/vibeguard-gc.timer"
+remove_rollback_receipt="${remove_rollback_home}/.vibeguard/scheduler-ownership"
+remove_rollback_active="${remove_rollback_home}/.systemctl-vibeguard-gc-active"
+remove_rollback_service_active="${remove_rollback_home}/.systemctl-vibeguard-gc-service-active"
+remove_rollback_enabled="${remove_rollback_home}/.systemctl-vibeguard-gc-enabled"
+remove_rollback_enabled_runtime="${remove_rollback_home}/.systemctl-vibeguard-gc-enabled-runtime"
+remove_rollback_activated="${remove_rollback_home}/.systemctl-vibeguard-gc-activated"
+remove_rollback_reload_marker="${remove_rollback_home}/.systemctl-daemon-reload-failed"
+mkdir -p "${remove_rollback_home}"
+env HOME="${remove_rollback_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${remove_rollback_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${remove_rollback_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${remove_rollback_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${remove_rollback_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${remove_rollback_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${remove_rollback_home}/not-this-run" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" >/dev/null
+touch "${remove_rollback_service_active}"
+remove_rollback_before="$(
+  shasum -a 256 \
+    "${remove_rollback_service}" "${remove_rollback_timer}" \
+    "${remove_rollback_receipt}"
+)"
+remove_rollback_rc=0
+env HOME="${remove_rollback_home}" "${post_activation_hash_env[@]}" \
+  VIBEGUARD_TEST_SYSTEMD_ACTIVE="${remove_rollback_active}" \
+  VIBEGUARD_TEST_SYSTEMD_SERVICE_ACTIVE="${remove_rollback_service_active}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED="${remove_rollback_enabled}" \
+  VIBEGUARD_TEST_SYSTEMD_ENABLED_RUNTIME="${remove_rollback_enabled_runtime}" \
+  VIBEGUARD_TEST_HASH_ACTIVATED="${remove_rollback_activated}" \
+  VIBEGUARD_TEST_HASH_FAIL_PATH="${remove_rollback_home}/not-this-run" \
+  VIBEGUARD_TEST_SYSTEMD_DAEMON_RELOAD_FAIL_ONCE=1 \
+  VIBEGUARD_TEST_SYSTEMD_DAEMON_RELOAD_FAIL_MARKER="${remove_rollback_reload_marker}" \
+  bash "${REPO_DIR}/scripts/install-systemd.sh" --remove >/dev/null 2>&1 \
+  || remove_rollback_rc=$?
+assert_cmd "remove daemon-reload failure returns nonzero" \
+  test "${remove_rollback_rc}" -ne 0
+assert_cmd "remove rollback restores units and receipt byte-for-byte" bash -c \
+  'test "$(shasum -a 256 "$1" "$2" "$3")" = "$4"' _ \
+  "${remove_rollback_service}" "${remove_rollback_timer}" \
+  "${remove_rollback_receipt}" "${remove_rollback_before}"
+assert_cmd "remove rollback restores timer, service, and enablement state" bash -c \
+  'test -e "$1" && test -e "$2" && test -e "$3"' _ \
+  "${remove_rollback_active}" "${remove_rollback_service_active}" \
+  "${remove_rollback_enabled}"

@@ -94,3 +94,49 @@ assert_cmd "Codex hooks helper failure preserves hooks, wrapper, and recovery pa
   "${hooks_cleanup_failure_home}/.codex/hooks.json" \
   "${hooks_cleanup_failure_home}/.vibeguard/run-hook-codex.sh" \
   "${hooks_cleanup_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/payload"
+
+rm_cleanup_failure_home="${TMP_HOME}/rm-cleanup-failure-home"
+rm_cleanup_failure_bin="${TMP_HOME}/rm-cleanup-failure-bin"
+rm_cleanup_failure_runtime="${TMP_HOME}/rm-cleanup-failure-runtime"
+rm_cleanup_failure_skill="${rm_cleanup_failure_home}/.codex/skills/vibeguard"
+rm_cleanup_real="$(command -v rm)"
+mkdir -p "${rm_cleanup_failure_home}/.vibeguard/_lib" \
+  "${rm_cleanup_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${rm_cleanup_failure_skill}" "${rm_cleanup_failure_bin}"
+printf 'managed skill\n' > "${rm_cleanup_failure_skill}/SKILL.md"
+printf '#!/usr/bin/env bash\n' \
+  > "${rm_cleanup_failure_home}/.vibeguard/run-hook-codex.sh"
+printf '#!/usr/bin/env bash\n' \
+  > "${rm_cleanup_failure_home}/.vibeguard/_lib/codex_diag.sh"
+printf 'verified payload\n' \
+  > "${rm_cleanup_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/payload"
+cat > "${rm_cleanup_failure_runtime}" <<SH
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "setup-codex-hooks-remove" ]]; then
+  printf 'SKIP\n'
+  exit 0
+fi
+exec "${cleanup_real_runtime}" "\$@"
+SH
+cat > "${rm_cleanup_failure_bin}/rm" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "${rm_cleanup_failure_skill}" ]]; then
+    exit 44
+  fi
+done
+exec "${rm_cleanup_real}" "\$@"
+SH
+chmod +x "${rm_cleanup_failure_runtime}" "${rm_cleanup_failure_bin}/rm"
+rm_cleanup_failure_rc=0
+HOME="${rm_cleanup_failure_home}" \
+  PATH="${rm_cleanup_failure_bin}:${PATH}" \
+  VIBEGUARD_SETUP_RUNTIME="${rm_cleanup_failure_runtime}" \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null 2>&1 \
+  || rm_cleanup_failure_rc=$?
+assert_cmd "managed skill removal failure aborts clean" \
+  test "${rm_cleanup_failure_rc}" -ne 0
+assert_cmd "managed skill removal failure preserves skill and recovery payload" bash -c \
+  'test -f "$1" && test -f "$2"' _ \
+  "${rm_cleanup_failure_skill}/SKILL.md" \
+  "${rm_cleanup_failure_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}/payload"

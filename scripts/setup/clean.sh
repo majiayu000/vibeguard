@@ -400,8 +400,8 @@ fi
 
 clean_repo_git_hooks
 clean_tracked_project_git_hooks
-clean_claude_home_installation || exit 1
-clean_codex_home_installation || exit 1
+clean_claude_home_installation
+clean_codex_home_installation
 clean_vibeguard_home
 clean_scheduled_gc
 
