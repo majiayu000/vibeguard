@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# HOME-scoped setup lifecycle lock.
+
+_VG_SETUP_LOCK_DIR=""
+_VG_SETUP_LOCK_OWNER=""
+
+setup_lock_acquire() {
+  local lock_parent="${HOME}/.vibeguard"
+  local lock_dir="${lock_parent}/setup.lock"
+  local owner_file="${lock_dir}/owner"
+  local owner_pid="" owner_nonce="" line
+
+  if [[ -L "${lock_parent}" || (-e "${lock_parent}" && ! -d "${lock_parent}") ]]; then
+    red "ERROR: setup lock parent must be a regular directory or absent: ${lock_parent}"
+    return 1
+  fi
+  mkdir -p "${lock_parent}" || return 1
+  if [[ -L "${lock_dir}" || (-e "${lock_dir}" && ! -d "${lock_dir}") ]]; then
+    red "ERROR: setup lock path must be a directory or absent: ${lock_dir}"
+    return 1
+  fi
+
+  if ! mkdir "${lock_dir}" 2>/dev/null; then
+    if [[ -L "${owner_file}" || ! -f "${owner_file}" ]]; then
+      red "ERROR: setup lock is malformed: ${lock_dir}"
+      return 1
+    fi
+    while IFS= read -r line; do
+      case "${line}" in
+        pid=*) owner_pid="${line#pid=}" ;;
+        nonce=*) owner_nonce="${line#nonce=}" ;;
+        *) red "ERROR: setup lock owner metadata is malformed"; return 1 ;;
+      esac
+    done < "${owner_file}"
+    if [[ ! "${owner_pid}" =~ ^[0-9]+$ || -z "${owner_nonce}" ]]; then
+      red "ERROR: setup lock owner metadata is incomplete"
+      return 1
+    fi
+    if kill -0 "${owner_pid}" 2>/dev/null; then
+      red "ERROR: another VibeGuard setup is active (pid ${owner_pid})"
+      return 1
+    fi
+    if ! rm -f -- "${owner_file}" || ! rmdir -- "${lock_dir}"; then
+      red "ERROR: stale setup lock contains unexpected data: ${lock_dir}"
+      return 1
+    fi
+    mkdir "${lock_dir}" || return 1
+    yellow "  Reclaimed stale VibeGuard setup lock (pid ${owner_pid})"
+  fi
+
+  _VG_SETUP_LOCK_DIR="${lock_dir}"
+  _VG_SETUP_LOCK_OWNER="pid=$$
+nonce=$$-$(date +%s)-${RANDOM:-0}"
+  if ! printf '%s\n' "${_VG_SETUP_LOCK_OWNER}" > "${owner_file}"; then
+    rmdir -- "${lock_dir}" 2>/dev/null || true
+    _VG_SETUP_LOCK_DIR=""
+    _VG_SETUP_LOCK_OWNER=""
+    return 1
+  fi
+}
+
+setup_lock_release() {
+  local owner_file current_owner
+  [[ -n "${_VG_SETUP_LOCK_DIR}" ]] || return 0
+  owner_file="${_VG_SETUP_LOCK_DIR}/owner"
+  if [[ -L "${owner_file}" || ! -f "${owner_file}" ]]; then
+    red "ERROR: refusing to release setup lock with invalid owner file"
+    return 1
+  fi
+  current_owner="$(cat "${owner_file}")" || return 1
+  if [[ "${current_owner}" != "${_VG_SETUP_LOCK_OWNER}" ]]; then
+    red "ERROR: refusing to release setup lock owned by another process"
+    return 1
+  fi
+  rm -f -- "${owner_file}" || return 1
+  rmdir -- "${_VG_SETUP_LOCK_DIR}" || return 1
+  _VG_SETUP_LOCK_DIR=""
+  _VG_SETUP_LOCK_OWNER=""
+}

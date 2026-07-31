@@ -1,6 +1,6 @@
 use crate::HandlerResult;
 use crate::runtime_config_validation::{
-    RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file,
+    RuntimeConfigDecision, RuntimeConfigError, classify_runtime_config_file, is_skill_name,
     nonnegative_json_integer,
 };
 use serde_json::Value;
@@ -79,13 +79,24 @@ fn resolve_runtime_config_list(
     json_path: &str,
 ) -> Result<Vec<String>, RuntimeConfigError> {
     let config = loaded_runtime_config()?;
-    if let Some(raw) = std::env::var(env_name).ok().filter(|v| !v.is_empty()) {
-        return Ok(raw
-            .split(',')
-            .map(str::trim)
-            .filter(|entry| !entry.is_empty())
-            .map(str::to_string)
-            .collect());
+    if let Ok(raw) = std::env::var(env_name) {
+        if raw.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut entries = Vec::new();
+        for entry in raw.split(',') {
+            let entry = entry.trim();
+            if !is_skill_name(entry) {
+                return Err(RuntimeConfigError {
+                    message: format!(
+                        "VibeGuard runtime config invalid: environment override {env_name}: path={json_path} category=config_value_error expected=comma_separated_skill_names"
+                    ),
+                    exit_code: 20,
+                });
+            }
+            entries.push(entry.to_string());
+        }
+        return Ok(entries);
     }
 
     let Some(items) = config
@@ -99,7 +110,6 @@ fn resolve_runtime_config_list(
         .iter()
         .filter_map(Value::as_str)
         .map(|entry| entry.trim().to_string())
-        .filter(|entry| !entry.is_empty())
         .collect())
 }
 

@@ -53,6 +53,8 @@ scripts/setup/install.sh
 scripts/setup/lib.sh
 scripts/setup/runtime-install.sh
 scripts/setup/runtime_config_health.sh
+scripts/setup/setup-lock.sh
+scripts/setup/workflow-skills.sh
 scripts/setup/targets/claude-home.sh
 scripts/setup/targets/codex-home.sh
 scripts/systemd/vibeguard-gc.service

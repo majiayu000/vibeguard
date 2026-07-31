@@ -99,6 +99,11 @@ fn runtime_config_inventory_matches_schema_and_template() {
                     "{} item minLength",
                     field.path
                 );
+                assert_eq!(
+                    schema_field["items"]["pattern"], "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+                    "{} item pattern",
+                    field.path
+                );
             }
             FieldKind::Version => {
                 assert_eq!(schema_field["type"], "integer", "version type");
@@ -123,6 +128,14 @@ fn runtime_config_semantics_reject_unknown_type_enum_range_and_version() {
         (json!({"disabled_skills": "plan-flow"}), "config_type_error"),
         (json!({"disabled_skills": [1]}), "config_type_error"),
         (json!({"disabled_skills": [" "]}), "config_type_error"),
+        (
+            json!({"disabled_skills": ["plan-flow\nfixflow"]}),
+            "config_value_error",
+        ),
+        (
+            json!({"disabled_skills": ["../plan-flow"]}),
+            "config_value_error",
+        ),
         (json!({"version": 2}), "config_version_error"),
     ] {
         let error = validate_runtime_config_value(Path::new("config.json"), &value)

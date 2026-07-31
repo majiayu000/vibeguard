@@ -32,6 +32,8 @@ VibeGuard 把 Codex workflow skills（`plan-flow`、`fixflow`、`optflow`、
   （issue 列出的方案二），而不是把 workflow skills 改成 opt-in（方案一）。
 - 不引入新的 CLI 子命令来管理禁用列表；用户配置文件即是唯一来源。
 - 不改变非托管的、用户自有的 skill 目录的任何行为。
+- 不把 Codex 的退出意图扩展到 Claude。相同名称的 Claude skill 继续按 Claude manifest
+  安装；`disabled_skills` 只控制 `~/.codex/skills/` 下的托管副本。
 
 ## 用户可见行为
 
@@ -54,8 +56,20 @@ VibeGuard 把 Codex workflow skills（`plan-flow`、`fixflow`、`optflow`、
 | 从列表中移除名字后重跑安装 | skill 重新安装 |
 | `disabled_skills` 格式非法 | 安装与 `--check` 失败并报出带 JSON 路径的类型错误 |
 
+只有 install-state 的 source/type/checksum 与当前目录逐文件一致，且目录没有额外文件、
+symlink、特殊文件或空的用户目录时，安装器才可把它认定为托管副本并删除。ownership
+无法证明、state 损坏或删除失败时必须保留目录、非零退出，且不得输出 `REMOVED`。
+
 `VIBEGUARD_DISABLED_SKILLS`（逗号分隔）可临时覆盖该列表，遵循用户配置既有的
-「环境变量 > JSON 配置 > 内置默认」优先级。
+「环境变量 > JSON 配置 > 内置默认」优先级。显式空值表示本次临时启用全部 skill；
+消息必须区分临时环境变量覆盖与持久配置。名称闭集为
+`^[A-Za-z0-9][A-Za-z0-9._-]*$`。
+
+安装器在解析并验证退出列表之前不得替换 installed snapshot、install-state 或任何
+Claude/Codex 托管 skill。bootstrap 可以先在 distribution 目录完成已验证 payload 的
+staging/current 切换，但 child setup 的上述 active-install mutation 仍受该 preflight
+边界约束。preflight 到 install-state 与两个 target mutation 结束之间必须持有同一
+HOME-scoped lifecycle lock。
 
 ## 完成条件
 
@@ -65,3 +79,5 @@ VibeGuard 把 Codex workflow skills（`plan-flow`、`fixflow`、`optflow`、
 - 重新启用是显式的。
 - 存在覆盖「删除/禁用 → 重装 → 仍保持禁用」的 setup 回归测试。
 - 托管 Codex skill 副本的行为与来源归属有文档说明。
+- 无法证明 ownership、损坏 state、并发 setup 与 removal 失败均 fail-visible，且不删除
+  用户内容。

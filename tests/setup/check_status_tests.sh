@@ -273,6 +273,15 @@ assert_contains "$info_summary" "HEALTHY"      "info: verdict still HEALTHY"
 info_rc="$(run_with_buffer "$info_buf" 'status_exit_code')"
 assert_eq "$info_rc" "0" "info: exit code 0"
 
+# [DISABLED] is an intentional, neutral state that remains visible in summaries
+# and JSON without appearing in quiet-mode problem output.
+disabled_buf=$'[OK] base\n[DISABLED] plan-flow skill disabled in ~/.vibeguard/config.json\n'
+disabled_summary="$(run_with_buffer "$disabled_buf" 'status_print_summary')"
+assert_contains "$disabled_summary" "DISABLED: 1" "disabled: count"
+assert_contains "$disabled_summary" "HEALTHY" "disabled: verdict still HEALTHY"
+disabled_rc="$(run_with_buffer "$disabled_buf" 'status_exit_code')"
+assert_eq "$disabled_rc" "0" "disabled: exit code 0"
+
 # --- Quiet-mode problem filter ---
 header "status_report quiet filter"
 quiet_out="$(run_with_buffer "$broken_buf" 'status_print_summary --quiet')"
@@ -288,6 +297,8 @@ assert_contains "$quiet_drift" "[DRIFT]"           "quiet+drift: includes DRIFT 
 # Healthy + quiet → no Problems block.
 quiet_healthy="$(run_with_buffer "$healthy_buf" 'status_print_summary --quiet')"
 assert_not_contains "$quiet_healthy" "Problems"    "quiet+healthy: no Problems block"
+quiet_disabled="$(run_with_buffer "$disabled_buf" 'status_print_summary --quiet')"
+assert_not_contains "$quiet_disabled" "Problems" "quiet+disabled: no Problems block"
 
 # --- JSON shape ---
 header "status_report JSON output"
@@ -307,6 +318,10 @@ drift_json="$(run_with_buffer "$drift_buf" 'status_emit_json')"
 assert_json_path "$drift_json" 'd["counts"]["drift"]' "1" "json: drift count"
 assert_json_path "$drift_json" 'd["verdict"]' "broken" "json: drift verdict"
 assert_json_path "$drift_json" 'd["events"][1]["level"]' "DRIFT" "json: drift event level"
+disabled_json="$(run_with_buffer "$disabled_buf" 'status_emit_json')"
+assert_json_path "$disabled_json" 'd["counts"]["disabled"]' "1" "json: disabled count"
+assert_json_path "$disabled_json" 'd["verdict"]' "healthy" "json: disabled verdict"
+assert_json_path "$disabled_json" 'd["events"][1]["level"]' "DISABLED" "json: disabled event level"
 
 # JSON must be parseable.
 TOTAL=$((TOTAL + 1))

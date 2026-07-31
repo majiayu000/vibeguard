@@ -467,6 +467,11 @@ static COMMANDS: &[Command] = &[
         handler: setup_install_state::list_tracked_under,
     },
     Command {
+        name: "setup-state-verify-managed-tree",
+        usage: "<state-file> <dest-dir> <source-prefix>  — verify exact managed-tree ownership",
+        handler: setup_install_state::verify_managed_tree,
+    },
+    Command {
         name: "setup-state-list-project-hooks",
         usage: "<state-file>  — list tracked project git hooks",
         handler: setup_install_state::list_project_hooks,

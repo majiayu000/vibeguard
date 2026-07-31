@@ -59,7 +59,11 @@ state_runtime_path() {
 
 state_runtime_supports() {
   local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
-  "${runtime}" setup-state-list-symlinks-under "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1
+  "${runtime}" setup-state-list-symlinks-under \
+    "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
+  local probe_out
+  probe_out="$("${runtime}" setup-state-verify-managed-tree 2>&1 || true)"
+  ! printf '%s\n' "${probe_out}" | grep -q "Unknown command"
 }
 
 state_runtime() {
@@ -73,12 +77,37 @@ state_runtime() {
 
 # Initialize or load state
 state_init() {
-  local profile="${1:-core}" languages="${2:-}"
+  local profile="${1:-core}" languages="${2:-}" state_path snapshot_tmp=""
+  for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
+    if [[ -L "$state_path" || (-e "$state_path" && ! -f "$state_path") ]]; then
+      printf 'ERROR: install-state path must be a regular file or absent: %s\n' "$state_path" >&2
+      return 1
+    fi
+    if [[ -f "$state_path" ]] \
+      && ! state_runtime setup-state-list-tracked-under "$state_path" "${HOME}/.codex/skills" >/dev/null; then
+      printf 'ERROR: refusing to mutate malformed install-state: %s\n' "$state_path" >&2
+      return 1
+    fi
+  done
+
   # Preserve the outgoing inventory before it is reset (see STATE_PREVIOUS_FILE).
   if [[ -f "$STATE_FILE" ]]; then
-    cp -f "$STATE_FILE" "$STATE_PREVIOUS_FILE" 2>/dev/null || rm -f "$STATE_PREVIOUS_FILE"
+    snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || return 1
+    if ! cp -p -- "$STATE_FILE" "$snapshot_tmp"; then
+      rm -f -- "$snapshot_tmp"
+      printf 'ERROR: failed to stage previous install-state snapshot\n' >&2
+      return 1
+    fi
+    if ! mv -f -- "$snapshot_tmp" "$STATE_PREVIOUS_FILE"; then
+      rm -f -- "$snapshot_tmp"
+      printf 'ERROR: failed to publish previous install-state snapshot\n' >&2
+      return 1
+    fi
   else
-    rm -f "$STATE_PREVIOUS_FILE"
+    if ! rm -f -- "$STATE_PREVIOUS_FILE"; then
+      printf 'ERROR: failed to clear previous install-state snapshot\n' >&2
+      return 1
+    fi
   fi
   state_runtime setup-state-init "$STATE_FILE" "$profile" "$languages"
 }
@@ -135,10 +164,29 @@ state_is_tracked_path() {
   local path="$1" state_source tracked
   for state_source in "$STATE_PREVIOUS_FILE" "$STATE_FILE"; do
     [[ -f "$state_source" ]] || continue
-    tracked="$(state_runtime setup-state-list-tracked-under "$state_source" "$path" 2>/dev/null)" || continue
+    if ! tracked="$(state_runtime setup-state-list-tracked-under "$state_source" "$path")"; then
+      printf 'ERROR: failed to read install-state ownership: %s\n' "$state_source" >&2
+      return 2
+    fi
     [[ -n "${tracked//[[:space:]]/}" ]] && return 0
   done
   return 1
+}
+
+state_managed_tree_owned() {
+  local path="$1" source_prefix="$2" state_source decision found=1
+  for state_source in "$STATE_PREVIOUS_FILE" "$STATE_FILE"; do
+    [[ -f "$state_source" ]] || continue
+    if ! decision="$(state_runtime setup-state-verify-managed-tree \
+      "$state_source" "$path" "$source_prefix")"; then
+      printf 'ERROR: failed to verify install-state ownership: %s\n' "$state_source" >&2
+      return 2
+    fi
+    if [[ "$decision" == "OWNED" ]]; then
+      found=0
+    fi
+  done
+  return "$found"
 }
 
 state_list_tracked_symlinks_under() {

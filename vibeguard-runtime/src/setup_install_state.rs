@@ -1,5 +1,6 @@
 use crate::setup_support::{SetupResult, home_dir, sha256_file, write_json_atomic};
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -261,19 +262,8 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
     if !state_file.exists() {
         return Ok(());
     }
-    let state = match read_state(state_file) {
-        Ok(state) => state,
-        Err(_) => return Ok(()),
-    };
-    if state
-        .get("version")
-        .and_then(Value::as_i64)
-        .unwrap_or(STATE_VERSION)
-        != STATE_VERSION
-    {
-        eprintln!("WARN: unsupported install-state version; skipping tracked path lookup");
-        return Ok(());
-    }
+    let state = read_state(state_file)?;
+    ensure_state_version(&state)?;
     let dest_dir = setup_absolute_path(&expand_home(&args[1]));
     let files = state
         .get("files")
@@ -284,6 +274,121 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
         let expanded = setup_absolute_path(&expand_home(dest));
         if expanded == dest_dir || expanded.starts_with(&dest_dir) {
             println!("{}", expanded.display());
+        }
+    }
+    Ok(())
+}
+
+pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
+    if args.len() != 3 {
+        return Err(
+            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix>"
+                .into(),
+        );
+    }
+    let state_file = Path::new(&args[0]);
+    if !state_file.exists() {
+        println!("UNOWNED:no_state");
+        return Ok(());
+    }
+    let state = read_state(state_file)?;
+    ensure_state_version(&state)?;
+    let dest_dir = setup_absolute_path(&expand_home(&args[1]));
+    let source_prefix = args[2].trim_end_matches('/');
+    match std::fs::symlink_metadata(&dest_dir) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => {
+            println!("UNOWNED:path_type");
+            return Ok(());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            println!("UNOWNED:missing");
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    let files = state
+        .get("files")
+        .and_then(Value::as_object)
+        .ok_or("install-state files must be an object")?;
+    let tracked = files
+        .iter()
+        .filter_map(|(dest, info)| {
+            let expanded = setup_absolute_path(&expand_home(dest));
+            (expanded.starts_with(&dest_dir)).then_some((expanded, info))
+        })
+        .collect::<BTreeMap<_, _>>();
+    if tracked.is_empty() {
+        println!("UNOWNED:not_tracked");
+        return Ok(());
+    }
+
+    let mut leaves = BTreeSet::new();
+    let mut directories = BTreeSet::new();
+    collect_managed_tree_paths(&dest_dir, &mut leaves, &mut directories)?;
+    for leaf in &leaves {
+        let Some(info) = tracked.get(leaf) else {
+            println!("UNOWNED:untracked_path");
+            return Ok(());
+        };
+        if info.get("type").and_then(Value::as_str) != Some("copy") {
+            println!("UNOWNED:install_type");
+            return Ok(());
+        }
+        let expected_source = info.get("source").and_then(Value::as_str).unwrap_or("");
+        if expected_source != source_prefix
+            && !expected_source.starts_with(&format!("{source_prefix}/"))
+        {
+            println!("UNOWNED:source_mismatch");
+            return Ok(());
+        }
+        let Some(expected_checksum) = info.get("checksum").and_then(Value::as_str) else {
+            println!("UNOWNED:missing_checksum");
+            return Ok(());
+        };
+        let actual_checksum = format!("sha256:{}", sha256_file(leaf)?);
+        if actual_checksum != expected_checksum {
+            println!("UNOWNED:checksum_mismatch");
+            return Ok(());
+        }
+    }
+    if tracked.keys().any(|path| !leaves.contains(path)) {
+        println!("UNOWNED:missing_tracked_path");
+        return Ok(());
+    }
+    if directories
+        .iter()
+        .any(|directory| !leaves.iter().any(|leaf| leaf.starts_with(directory)))
+    {
+        println!("UNOWNED:untracked_path");
+        return Ok(());
+    }
+    println!("OWNED");
+    Ok(())
+}
+
+fn collect_managed_tree_paths(
+    directory: &Path,
+    leaves: &mut BTreeSet<PathBuf>,
+    directories: &mut BTreeSet<PathBuf>,
+) -> SetupResult<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
+            return Err(format!(
+                "managed tree contains unsupported path type: {}",
+                path.display()
+            )
+            .into());
+        }
+        if metadata.is_dir() {
+            directories.insert(path.clone());
+            collect_managed_tree_paths(&path, leaves, directories)?;
+        } else {
+            leaves.insert(path);
         }
     }
     Ok(())
