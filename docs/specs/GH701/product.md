@@ -140,7 +140,8 @@ GH-701 已完成。
     必须保持；generalize manifest 或 adapter registry 不得改变它们的有效配置。
     两者现有 JSON target 继续使用已验证的 atomic owned-entry merge/clean 兼容
     lifecycle，不追溯要求 host storage API；B-025 的新 shared lifecycle 只用于
-    proof host/新增 v2 host，registry 必须显式选择二者而不能把旧 host 降级为 manual。
+    proof host/新增 v2 host，并按 capability 显式选择 versioned 或 verified-file
+    lifecycle，不能把旧 host 降级为 manual。
 15. B-015 adapter 与 core 的 compatibility 必须由 host adapter contract
     version、host protocol/version range 与 VibeGuard runtime version 显式判定；
     每个 host registry entry 必须声明可接受的 runtime version/ABI range，并在
@@ -196,7 +197,7 @@ GH-701 已完成。
     error；discovery 遇到未知 executable 为 `unsupported` 且零写入；known host
     + unknown protocol 为 `incompatible`；blocking adapter runtime 收到未知
     event/payload 为 fail-closed。四类不得互相降级成 pass/active。
-25. B-025 proof host/新增 v2 host 的 config 更新必须遵守
+25. B-025 proof host/新增 v2 host 的自动 config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
     digest 漂移必须停止而不是覆盖并发更改。自动写入仅支持 host storage API
@@ -204,11 +205,18 @@ GH-701 已完成。
     lease 排斥旧/新 writer，再 commit candidate；journal 记录 transaction/version/
     lease token 并通过 API 查询恢复。普通 macOS/Linux JSON 文件、rename、
     advisory lock、mtime 或 exclusive claim 都不能排除延迟 old-FD write，不得
-    冒充该 capability；只能输出 exact-diff 的 manual proposal、零磁盘 mutation，
-    状态保持 `partial/needs_human`，不能产出 active/proof。获批 proof host 若无
-    该 API 必须重新选择，不得实现不可达的自动 install 契约。Claude/Codex 现有
-    JSON target 依 B-014 走显式 compatibility lifecycle，不得被本条静默改成 manual。
-26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
+    冒充该 capability。file-backed proof/new host 可显式选择
+    `verified_file_setup_v1`：VibeGuard 只输出绑定 base/candidate digest、preserved
+    entries、mode/owner 与 canonical no-follow target 的 exact diff，零磁盘 mutation；
+    用户确认 target 后亲自应用该 diff。verifier 必须在 bounded native probe 前后
+    重开目标并 exact-match candidate bytes/semantic ownership/mode/owner，随后把
+    plan digest、确认、两次 config digest 与 probe 绑定到 manual-verified evidence；
+    只有该 evidence 可产出 active/proof。额外编辑、symlink/path swap、任一重读
+    drift 或 old-FD late write 都保持 `partial/needs_human`。获批 proof host 若既无
+    versioned API 又不能完成 verified-file contract 才必须重新选择。Claude/Codex
+    现有 JSON target 依 B-014 走 compatibility lifecycle，不得被静默改成 manual。
+26. B-026 versioned automatic branch 的同一 config 并发 writer 必须由 bounded
+    lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
     transaction；普通失败与崩溃恢复都只有在 lease token 仍归属本 transaction、
     API current version 精确等于 apply 返回的 version 且 digest 等于 candidate 时
@@ -237,6 +245,12 @@ GH-701 已完成。
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
     registry integrity 或 signed release manifest 得到独立 approved digest，并由
     受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量。
+    candidate 必须运行在 credential-free execution job/VM：没有 `GITHUB_TOKEN`、
+    OIDC request、Actions runtime/artifact 或 attestation token，也不能读取
+    supervisor state/output/handoff。独立 protected attestation job 永不执行或加载
+    candidate code，只接收 orchestrator 从隔离边界导出的 immutable digest manifest，
+    重哈希全部 subjects 后才以 OIDC identity 签名；job/VM identity、handoff digest
+    或重哈希任一不匹配都阻断。
     supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
     head、event/nonce/process/distribution digests 与 redaction inventory digest
@@ -333,10 +347,12 @@ GH-701 已完成。
   matrix 有 schema-valid positive/negative fixtures。
 - [ ] config transaction 的 versioned CAS/lease、lock contention、TOCTOU drift、
   每个 phase failure、API-based crash recovery/safe rollback 均有确定性证据；
-  普通文件/rename/exclusive-claim 与 delayed old-FD fixtures 必须零写入并保持
-  partial，不能产出 active/proof。
+  普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
+  只有用户应用 exact diff、probe 前后 digest/ownership 相同且 native probe 成功才
+  active/proof，任一额外编辑、path swap 或 late write 都保持 partial。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
-  tampered、stale、wrong-head/event/digest/witness fixtures 全部 nonzero。
+  tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
+  signing job 执行 candidate 或 handoff 重哈希不符 fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
