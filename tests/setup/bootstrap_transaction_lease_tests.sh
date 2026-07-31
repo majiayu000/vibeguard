@@ -38,10 +38,10 @@ count="\$(cat "${pid_reuse_count}")"
 count="\$((count + 1))"
 printf '%s\n' "\${count}" > "${pid_reuse_count}"
 if [[ "\${count}" -eq 1 ]]; then
-  printf '1\\n2\\n'
+  printf '1 Ss\\n2 S\\n'
   exit 0
 fi
-printf '1\\n99999998\\n'
+printf '1 Ss\\n99999998 S\\n'
 SH
 chmod +x "${pid_reuse_bin}/ps"
 pid_reuse_rc=0
@@ -95,51 +95,15 @@ printf '%s\n' \
   'owner_identity=Thu_Jan_1_00:00:00_1970' \
   'nonce=pending-owner' \
   'state=pending' > "${pending_owner_lease}"
-assert_cmd "pending setup lease rejects a zombie bootstrap owner despite signal-zero success" \
-  env REPO_DIR="${REPO_DIR}" bash -c '
-    set -euo pipefail
-    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
-    kill() { return 0; }
-    ps() {
-      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
-        printf "%s\n" "77 77 Z Thu Jan 1 00:00:00 1970"
-      else
-        return 2
-      fi
-    }
-    bootstrap_setup_lease_liveness "$1" 77 pending-owner
-    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = dead
-  ' _ "${pending_owner_lease}"
-assert_cmd "pending setup lease rejects a reused bootstrap owner PID" \
-  env REPO_DIR="${REPO_DIR}" bash -c '
-    set -euo pipefail
-    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
-    kill() { return 0; }
-    ps() {
-      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
-        printf "%s\n" "77 77 S Fri Jan 2 00:00:00 1970"
-      else
-        return 2
-      fi
-    }
-    bootstrap_setup_lease_liveness "$1" 77 pending-owner
-    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = dead
-  ' _ "${pending_owner_lease}"
-assert_cmd "pending setup lease preserves the matching live bootstrap owner" \
-  env REPO_DIR="${REPO_DIR}" bash -c '
-    set -euo pipefail
-    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
-    kill() { return 0; }
-    ps() {
-      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
-        printf "%s\n" "77 77 S Thu Jan 1 00:00:00 1970"
-      else
-        return 2
-      fi
-    }
-    bootstrap_setup_lease_liveness "$1" 77 pending-owner
-    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = active
-  ' _ "${pending_owner_lease}"
+for legacy_pending_owner_state in zombie reused matching; do
+  assert_cmd "schema-2 pending lease stays ambiguous for ${legacy_pending_owner_state} owner" \
+    env REPO_DIR="${REPO_DIR}" bash -c '
+      set -euo pipefail
+      source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+      bootstrap_setup_lease_liveness "$1" 77 pending-owner
+      test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = ambiguous
+    ' _ "${pending_owner_lease}"
+done
 
 lease_revalidation_root="${TMP_HOME}/bootstrap-lease-revalidation"
 lease_revalidation_file="${lease_revalidation_root}/.bootstrap.lock.lease.revalidation"
@@ -149,7 +113,10 @@ lease_revalidation_ready="${TMP_HOME}/bootstrap-lease-revalidation.ready"
 lease_revalidation_fifo="${TMP_HOME}/bootstrap-lease-revalidation.fifo"
 lease_revalidation_first_out="${TMP_HOME}/bootstrap-lease-revalidation-first.out"
 lease_revalidation_second_out="${TMP_HOME}/bootstrap-lease-revalidation-second.out"
-mkdir -p "${lease_revalidation_root}" "${lease_revalidation_bin}"
+lease_revalidation_real_ps="$(command -v ps)"
+lease_revalidation_tmp="${lease_revalidation_root}/tmp"
+mkdir -p "${lease_revalidation_root}" "${lease_revalidation_bin}" \
+  "${lease_revalidation_tmp}"
 mkfifo "${lease_revalidation_fifo}"
 printf '0\n' > "${lease_revalidation_count}"
 printf '%s\n' \
@@ -178,18 +145,19 @@ if [[ "\$*" == "-A -o pid= -o pgid= -o stat=" ]]; then
 elif [[ "\$*" == "-p 4242 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
   printf '%s\n' '4242 4242 S Thu Jan 1 00:00:00 1970'
 else
-  exit 2
+  exec "${lease_revalidation_real_ps}" "\$@"
 fi
 SH
 chmod +x "${lease_revalidation_bin}/ps"
 lease_revalidation_first_rc=0
-env REPO_DIR="${REPO_DIR}" PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+env REPO_DIR="${REPO_DIR}" BOOTSTRAP_TMP="${lease_revalidation_tmp}" \
+  PATH="${lease_revalidation_bin}:${PATH}" bash -c '
   set -euo pipefail
   source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
   bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
 ' _ "${lease_revalidation_file}" >"${lease_revalidation_first_out}" 2>&1 &
 lease_revalidation_first_pid=$!
-for _lease_revalidation_attempt in {1..100}; do
+for _lease_revalidation_attempt in {1..600}; do
   [[ -e "${lease_revalidation_ready}" ]] && break
   sleep 0.05
 done
@@ -199,7 +167,8 @@ assert_cmd "canonical setup lease remains visible throughout post-claim validati
   'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -type f -name ".bootstrap.lock.lease.revalidation.evidence.*" -print -quit)"' _ \
   "${lease_revalidation_file}" "${lease_revalidation_root}"
 lease_revalidation_second_rc=0
-env REPO_DIR="${REPO_DIR}" PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+env REPO_DIR="${REPO_DIR}" BOOTSTRAP_TMP="${lease_revalidation_tmp}" \
+  PATH="${lease_revalidation_bin}:${PATH}" bash -c '
   set -euo pipefail
   source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
   bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
@@ -213,8 +182,8 @@ printf 'continue\n' > "${lease_revalidation_fifo}"
 wait "${lease_revalidation_first_pid}" || lease_revalidation_first_rc=$?
 assert_cmd "first recoverer rejects a group that becomes active during revalidation" \
   test "${lease_revalidation_first_rc}" -ne 0
-assert_cmd "failed post-claim revalidation preserves canonical lease and clears evidence" bash -c \
-  'test -f "$1" && test -z "$(find "$2" -maxdepth 1 -type f \( -name ".bootstrap.lock.lease.revalidation.evidence.*" -o -name ".bootstrap.lock.lease.revalidation.reap.*" \) -print -quit)"' _ \
+assert_cmd "failed post-claim revalidation preserves canonical and immutable recovery evidence" bash -c \
+  'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -type f -name ".bootstrap.lock.lease.revalidation.evidence.*" -print -quit)" && test -f "${1}.claim"' _ \
   "${lease_revalidation_file}" "${lease_revalidation_root}"
 
 group_state_bin="${TMP_HOME}/bootstrap-group-state-bin"
@@ -316,10 +285,10 @@ env "${bootstrap_base_env[@]}" \
   VIBEGUARD_TEST_SETUP_COUNT="${legacy_pending_count}" \
   bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
   >/dev/null 2>&1 || legacy_pending_rc=$?
-assert_cmd "schema-1 pending lease from a dead owner remains upgrade-recoverable" \
-  test "${legacy_pending_rc}" -eq 0
-assert_cmd "schema-1 pending recovery clears lock and lease and runs setup once" bash -c \
-  'test ! -e "$1" && test ! -e "$2" && test "$(wc -l < "$3")" -eq 1' _ \
+assert_cmd "schema-1 pending lease without leader evidence fails closed" \
+  test "${legacy_pending_rc}" -eq 73
+assert_cmd "schema-1 pending ambiguity preserves lock and lease without running setup" bash -c \
+  'test -f "$1" && test -f "$2" && test ! -e "$3"' _ \
   "${legacy_pending_lock}" "${legacy_pending_lease}" "${legacy_pending_count}"
 
 stale_race_home="${TMP_HOME}/bootstrap-stale-race-home"

@@ -2,27 +2,37 @@ gate_failure_home="${TMP_HOME}/bootstrap-gate-failure-home"
 gate_failure_bin="${TMP_HOME}/bootstrap-gate-failure-bin"
 gate_failure_marker="${TMP_HOME}/bootstrap-gate-failure.leader"
 gate_failure_real_mv="$(command -v mv)"
+gate_failure_real_ln="$(command -v ln)"
 mkdir -p "${gate_failure_home}" "${gate_failure_bin}"
 cat > "${gate_failure_bin}/mv" <<SH
 #!/usr/bin/env bash
 previous="" last=""
 for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
-if [[ "\${VIBEGUARD_TEST_CLEAR_FAIL:-0}" == "1" \
-  && "\${previous}" == */.bootstrap.lock.lease.* && "\${last}" == *.reap.* ]]; then
-  exit 73
-fi
 if [[ "\${last}" == */.bootstrap.lock.lease.* ]] \
   && grep -qFx 'state=active' "\${previous}" 2>/dev/null; then
-  "${gate_failure_real_mv}" "\$@"
-  awk -F= '\$1 == "leader_pid" { print \$2 }' "\${last}" > "${gate_failure_marker}"
-  work_dir="\$(find "${gate_failure_home}/.vibeguard/dist" -maxdepth 1 \
-    -type d -name '.bootstrap-*.*' -print -quit)"
-  mkdir -p "\${work_dir}/setup-lease-start"
-  exit 0
+  if "${gate_failure_real_mv}" "\$@"; then
+    awk -F= '\$1 == "leader_pid" { print \$2 }' "\${last}" > "${gate_failure_marker}"
+    work_dir="\$(find "${gate_failure_home}/.vibeguard/dist" -maxdepth 1 \
+      -type d -name '.bootstrap-*.*' -print -quit)"
+    mkdir -p "\${work_dir}/setup-lease-start"
+    exit 0
+  fi
+  exit 1
 fi
 exec "${gate_failure_real_mv}" "\$@"
 SH
 chmod +x "${gate_failure_bin}/mv"
+cat > "${gate_failure_bin}/ln" <<SH
+#!/usr/bin/env bash
+last=""
+for arg in "\$@"; do last="\${arg}"; done
+if [[ "\${VIBEGUARD_TEST_CLEAR_FAIL:-0}" == "1" \
+  && "\${last}" == *.reap.* ]]; then
+  exit 73
+fi
+exec "${gate_failure_real_ln}" "\$@"
+SH
+chmod +x "${gate_failure_bin}/ln"
 gate_failure_rc=0
 gate_failure_out="$(
   env "${bootstrap_base_env[@]}" \
@@ -238,18 +248,28 @@ assert_cmd "PID classifier treats kill EPERM plus full ps membership as active" 
   source "$1"
   kill() { return 1; }
   ps() {
-    test "$*" = "-A -o pid=" || return 2
-    printf "  1\n  77\n"
+    test "$*" = "-A -o pid= -o stat=" || return 2
+    printf "  1 Ss\n  77 S+\n"
   }
   bootstrap_pid_liveness 77
   test "${BOOTSTRAP_PID_LIVENESS}" = active
+' _ "${BOOTSTRAP_LIB}"
+assert_cmd "PID classifier treats signal-visible zombies as dead" bash -c '
+  source "$1"
+  kill() { return 0; }
+  ps() {
+    test "$*" = "-A -o pid= -o stat=" || return 2
+    printf "  1 Ss\n  77 Z+\n"
+  }
+  bootstrap_pid_liveness 77
+  test "${BOOTSTRAP_PID_LIVENESS}" = dead
 ' _ "${BOOTSTRAP_LIB}"
 assert_cmd "PID classifier proves absence from a complete ps table as dead" bash -c '
   source "$1"
   kill() { return 1; }
   ps() {
-    test "$*" = "-A -o pid=" || return 2
-    printf "1\n77\n"
+    test "$*" = "-A -o pid= -o stat=" || return 2
+    printf "1 Ss\n77 S\n"
   }
   bootstrap_pid_liveness 88
   test "${BOOTSTRAP_PID_LIVENESS}" = dead
@@ -274,18 +294,59 @@ for invalid_pid_table in empty header malformed duplicate; do
     table_kind="$2"
     kill() { return 1; }
     ps() {
-      test "$*" = "-A -o pid=" || return 2
+      test "$*" = "-A -o pid= -o stat=" || return 2
       case "${table_kind}" in
         empty) printf "" ;;
-        header) printf "PID\n1\n" ;;
-        malformed) printf "1 two\n" ;;
-        duplicate) printf "1\n1\n" ;;
+        header) printf "PID STAT\n1 Ss\n" ;;
+        malformed) printf "1 Ss extra\n" ;;
+        duplicate) printf "1 Ss\n1 S\n" ;;
       esac
     }
     bootstrap_pid_liveness 99
     test "${BOOTSTRAP_PID_LIVENESS}" = ambiguous
   ' _ "${BOOTSTRAP_LIB}" "${invalid_pid_table}"
 done
+
+zombie_lock_home="${TMP_HOME}/bootstrap-zombie-lock-home"
+zombie_lock_dir="${zombie_lock_home}/.vibeguard/dist/.bootstrap.lock"
+zombie_ready="${TMP_HOME}/bootstrap-zombie-owner.ready"
+python3 - "${zombie_ready}" <<'PY' &
+import os
+from pathlib import Path
+import sys
+import time
+
+child = os.fork()
+if child == 0:
+    os._exit(0)
+Path(sys.argv[1]).write_text(str(child), encoding="utf-8")
+time.sleep(120)
+PY
+zombie_parent_pid=$!
+for _zombie_ready_attempt in {1..100}; do
+  [[ -s "${zombie_ready}" ]] && break
+  sleep 0.02
+done
+zombie_owner_pid="$(cat "${zombie_ready}" 2>/dev/null || true)"
+for _zombie_state_attempt in {1..100}; do
+  [[ "$(ps -p "${zombie_owner_pid:-0}" -o stat= 2>/dev/null)" == Z* ]] && break
+  sleep 0.02
+done
+mkdir -p "$(dirname "${zombie_lock_dir}")"
+printf 'pid=%s\nnonce=zombie-owner\n' "${zombie_owner_pid}" > "${zombie_lock_dir}"
+zombie_lock_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${zombie_lock_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${BOOTSTRAP_RELEASE}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --dry-run --yes \
+  >/dev/null 2>&1 || zombie_lock_rc=$?
+kill "${zombie_parent_pid}" 2>/dev/null || true
+wait "${zombie_parent_pid}" 2>/dev/null || true
+assert_cmd "bootstrap recovers a stale lock whose signal-visible owner is zombie" \
+  test "${zombie_lock_rc}" -eq 0
+assert_cmd "zombie-owner recovery removes the exact stale lock" \
+  test ! -e "${zombie_lock_dir}"
+
 mkdir -p "$(dirname "${active_lock_dir}")"
 printf 'pid=%s\nnonce=active-owner\n' "$$" > "${active_lock_dir}"
 active_lock_rc=0

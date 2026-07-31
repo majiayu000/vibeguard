@@ -2,17 +2,9 @@
 # Bounded setup process-group cancellation and fail-closed escalation.
 
 bootstrap_setup_target_is_inactive() {
-  local leader_pid="$1" pgid="$2" leader_liveness="ambiguous"
+  local leader_pid="$1" pgid="$2"
   bootstrap_process_group_liveness "${pgid}"
-  bootstrap_pid_liveness "${leader_pid}"
-  if [[ "${BOOTSTRAP_PID_LIVENESS}" == "dead" ]]; then
-    leader_liveness="dead"
-  elif [[ "${BOOTSTRAP_PID_LIVENESS}" == "active" ]] \
-    && bootstrap_process_snapshot "${leader_pid}"; then
-    [[ "${BOOTSTRAP_PROCESS_STATE}" == Z* ]] \
-      && leader_liveness="dead" || leader_liveness="active"
-  fi
-  [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "dead" && "${leader_liveness}" == "dead" ]]
+  [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "dead" ]]
 }
 
 bootstrap_setup_target_wait_inactive() {
@@ -24,8 +16,26 @@ bootstrap_setup_target_wait_inactive() {
   return 1
 }
 
+bootstrap_setup_target_ownership() {
+  local leader_pid="$1" pgid="$2" expected_identity="$3"
+  BOOTSTRAP_SETUP_TARGET_OWNERSHIP="ambiguous"
+  bootstrap_process_group_liveness "${pgid}"
+  if [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "dead" ]]; then
+    BOOTSTRAP_SETUP_TARGET_OWNERSHIP="inactive"
+    return 0
+  fi
+  [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" == "active" ]] || return 0
+  bootstrap_process_identity_is_strong "${expected_identity}" || return 0
+  bootstrap_process_snapshot "${leader_pid}" || return 0
+  if [[ "${BOOTSTRAP_PROCESS_IDENTITY_STRENGTH}" == "strong" \
+    && "${BOOTSTRAP_PROCESS_IDENTITY}" == "${expected_identity}" \
+    && "${BOOTSTRAP_PROCESS_PGID}" == "${pgid}" ]]; then
+    BOOTSTRAP_SETUP_TARGET_OWNERSHIP="owned"
+  fi
+}
+
 bootstrap_setup_group_terminate() {
-  local leader_pid="$1" pgid="$2" initial_signal="${3:-TERM}"
+  local leader_pid="$1" pgid="$2" expected_identity="$3" initial_signal="${4:-TERM}"
   if [[ ! "${leader_pid}" =~ ^[1-9][0-9]*$ \
     || ! "${pgid}" =~ ^[1-9][0-9]*$ || "${leader_pid}" != "${pgid}" ]] \
     || [[ "${initial_signal}" != "INT" && "${initial_signal}" != "TERM" \
@@ -34,13 +44,55 @@ bootstrap_setup_group_terminate() {
     bootstrap_error "refusing to terminate an invalid setup process-group target."
     return 73
   fi
-  kill -s "${initial_signal}" -- "-${pgid}" 2>/dev/null \
-    || kill -s "${initial_signal}" "${leader_pid}" 2>/dev/null || true
-  kill -s CONT -- "-${pgid}" 2>/dev/null || true
+  bootstrap_setup_target_ownership "${leader_pid}" "${pgid}" "${expected_identity}"
+  if [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" == "inactive" ]]; then
+    return 0
+  elif [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" != "owned" ]]; then
+    BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+    bootstrap_error "setup process-group ownership is ambiguous; refusing to signal it."
+    return 73
+  fi
+  if ! kill -s CONT -- "-${pgid}" 2>/dev/null; then
+    BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+    bootstrap_error "could not resume the owned setup process group before termination."
+    return 73
+  fi
+  bootstrap_setup_target_ownership "${leader_pid}" "${pgid}" "${expected_identity}"
+  if [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" == "inactive" ]]; then
+    return 0
+  elif [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" != "owned" ]]; then
+    BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+    bootstrap_error "setup process-group ownership changed after CONT; preserving evidence."
+    return 73
+  fi
+  if ! kill -s "${initial_signal}" -- "-${pgid}" 2>/dev/null; then
+    bootstrap_setup_target_ownership "${leader_pid}" "${pgid}" "${expected_identity}"
+    if [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" == "inactive" ]]; then
+      return 0
+    fi
+    BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+    bootstrap_error "could not signal the owned setup process group; preserving evidence."
+    return 73
+  fi
   if ! bootstrap_setup_target_wait_inactive "${leader_pid}" "${pgid}" 40; then
     bootstrap_error "setup process group ignored ${initial_signal}; escalating to KILL."
-    kill -s KILL -- "-${pgid}" 2>/dev/null || true
-    kill -s KILL "${leader_pid}" 2>/dev/null || true
+    bootstrap_setup_target_ownership "${leader_pid}" "${pgid}" "${expected_identity}"
+    if [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" == "inactive" ]]; then
+      return 0
+    elif [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" != "owned" ]]; then
+      BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+      bootstrap_error "setup process-group ownership changed before KILL; preserving evidence."
+      return 73
+    fi
+    if ! kill -s KILL -- "-${pgid}" 2>/dev/null; then
+      bootstrap_setup_target_ownership "${leader_pid}" "${pgid}" "${expected_identity}"
+      if [[ "${BOOTSTRAP_SETUP_TARGET_OWNERSHIP}" == "inactive" ]]; then
+        return 0
+      fi
+      BOOTSTRAP_SETUP_TERMINATION_FAILED=1
+      bootstrap_error "could not KILL the owned setup process group; preserving evidence."
+      return 73
+    fi
     if ! bootstrap_setup_target_wait_inactive "${leader_pid}" "${pgid}" 100; then
       BOOTSTRAP_SETUP_TERMINATION_FAILED=1
       bootstrap_error "could not prove the setup process group terminated after KILL."
@@ -76,7 +128,8 @@ bootstrap_cancel_setup() {
     bootstrap_process_identity_liveness "${leader_pid}" "${leader_identity}"
     if [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == "active" \
       && "${BOOTSTRAP_PROCESS_PGID}" == "${pgid}" ]]; then
-      bootstrap_setup_group_terminate "${leader_pid}" "${pgid}" "${signal}" || exit 73
+      bootstrap_setup_group_terminate \
+        "${leader_pid}" "${pgid}" "${leader_identity}" "${signal}" || exit 73
     elif [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == "dead" ]]; then
       bootstrap_process_group_liveness "${pgid}"
       if [[ "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" != "dead" ]]; then

@@ -43,8 +43,9 @@ env REPO_DIR="${REPO_DIR}" TERMINATION_UNIT_LOG="${termination_unit_log}" \
     BOOTSTRAP_SETUP_TERMINATION_FAILED=0
     kill() { printf "%s\n" "$*" >> "${TERMINATION_UNIT_LOG}"; return 0; }
     wait() { : > "${TERMINATION_UNIT_WAIT}"; return 0; }
+    bootstrap_setup_target_ownership() { BOOTSTRAP_SETUP_TARGET_OWNERSHIP=owned; }
     bootstrap_setup_target_wait_inactive() { return 1; }
-    bootstrap_setup_group_terminate 4242 4242 TERM
+    bootstrap_setup_group_terminate 4242 4242 darwin-v1:1700000000:000123 TERM
   ' >/dev/null 2>&1 || termination_unit_rc=$?
 assert_cmd "unproven KILL escalation returns 73, records failure, and never enters wait" \
   env REPO_DIR="${REPO_DIR}" TERMINATION_UNIT_LOG="${termination_unit_log}" \
@@ -54,18 +55,91 @@ assert_cmd "unproven KILL escalation returns 73, records failure, and never ente
       BOOTSTRAP_SETUP_TERMINATION_FAILED=0
       kill() { printf "%s\n" "$*" >> "${TERMINATION_UNIT_LOG}"; return 0; }
       wait() { : > "${TERMINATION_UNIT_WAIT}"; return 0; }
+      bootstrap_setup_target_ownership() { BOOTSTRAP_SETUP_TARGET_OWNERSHIP=owned; }
       bootstrap_setup_target_wait_inactive() { return 1; }
       rc=0
-      bootstrap_setup_group_terminate 4242 4242 TERM >/dev/null 2>&1 || rc=$?
+      bootstrap_setup_group_terminate \
+        4242 4242 darwin-v1:1700000000:000123 TERM >/dev/null 2>&1 || rc=$?
       test "${rc}" -eq 73
       test "${BOOTSTRAP_SETUP_TERMINATION_FAILED}" -eq 1
       test ! -e "${TERMINATION_UNIT_WAIT}"
+      grep -qFx -- "-s CONT -- -4242" "${TERMINATION_UNIT_LOG}"
       grep -qFx -- "-s TERM -- -4242" "${TERMINATION_UNIT_LOG}"
       grep -qFx -- "-s KILL -- -4242" "${TERMINATION_UNIT_LOG}"
-      grep -qFx -- "-s KILL 4242" "${TERMINATION_UNIT_LOG}"
+      ! grep -qE -- "(^| )4242$" "${TERMINATION_UNIT_LOG}"
     '
 assert_cmd "unproven termination helper exits with its fail-closed status" \
   test "${termination_unit_rc}" -eq 73
+
+termination_reuse_log="${TMP_HOME}/bootstrap-termination-reuse.log"
+assert_cmd "identity change during grace period blocks KILL escalation" \
+  env REPO_DIR="${REPO_DIR}" TERMINATION_REUSE_LOG="${termination_reuse_log}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    ownership_checks=0
+    kill() { printf "%s\n" "$*" >> "${TERMINATION_REUSE_LOG}"; return 0; }
+    bootstrap_setup_target_wait_inactive() { return 1; }
+    bootstrap_setup_target_ownership() {
+      ownership_checks=$((ownership_checks + 1))
+      [[ "${ownership_checks}" -le 2 ]] \
+        && BOOTSTRAP_SETUP_TARGET_OWNERSHIP=owned \
+        || BOOTSTRAP_SETUP_TARGET_OWNERSHIP=ambiguous
+    }
+    rc=0
+    bootstrap_setup_group_terminate \
+      4242 4242 darwin-v1:1700000000:000123 TERM >/dev/null 2>&1 || rc=$?
+    test "${rc}" -eq 73
+    grep -qFx -- "-s CONT -- -4242" "${TERMINATION_REUSE_LOG}"
+    grep -qFx -- "-s TERM -- -4242" "${TERMINATION_REUSE_LOG}"
+    ! grep -q -- "-s KILL" "${TERMINATION_REUSE_LOG}"
+  '
+
+termination_cont_reuse_log="${TMP_HOME}/bootstrap-termination-cont-reuse.log"
+assert_cmd "identity change after CONT blocks every termination signal" \
+  env REPO_DIR="${REPO_DIR}" TERMINATION_CONT_REUSE_LOG="${termination_cont_reuse_log}" \
+  bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    ownership_checks=0
+    kill() { printf "%s\n" "$*" >> "${TERMINATION_CONT_REUSE_LOG}"; return 0; }
+    bootstrap_setup_target_ownership() {
+      ownership_checks=$((ownership_checks + 1))
+      [[ "${ownership_checks}" -eq 1 ]] \
+        && BOOTSTRAP_SETUP_TARGET_OWNERSHIP=owned \
+        || BOOTSTRAP_SETUP_TARGET_OWNERSHIP=ambiguous
+    }
+    rc=0
+    bootstrap_setup_group_terminate \
+      4242 4242 darwin-v1:1700000000:000123 TERM >/dev/null 2>&1 || rc=$?
+    test "${rc}" -eq 73
+    test "$(wc -l < "${TERMINATION_CONT_REUSE_LOG}")" -eq 1
+    grep -qFx -- "-s CONT -- -4242" "${TERMINATION_CONT_REUSE_LOG}"
+  '
+
+termination_signal_failure_log="${TMP_HOME}/bootstrap-termination-signal-failure.log"
+assert_cmd "group-signal failure never falls back to a reused leader PID" \
+  env REPO_DIR="${REPO_DIR}" TERMINATION_SIGNAL_FAILURE_LOG="${termination_signal_failure_log}" \
+  bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    ownership_checks=0
+    kill() {
+      printf "%s\n" "$*" >> "${TERMINATION_SIGNAL_FAILURE_LOG}"
+      [[ "$*" == "-s TERM -- -4242" ]] && return 1
+      return 0
+    }
+    bootstrap_setup_target_ownership() {
+      ownership_checks=$((ownership_checks + 1))
+      [[ "${ownership_checks}" -le 2 ]] \
+        && BOOTSTRAP_SETUP_TARGET_OWNERSHIP=owned \
+        || BOOTSTRAP_SETUP_TARGET_OWNERSHIP=ambiguous
+    }
+    rc=0
+    bootstrap_setup_group_terminate \
+      4242 4242 darwin-v1:1700000000:000123 TERM >/dev/null 2>&1 || rc=$?
+    test "${rc}" -eq 73
+    ! grep -qE -- "(^| )4242$" "${TERMINATION_SIGNAL_FAILURE_LOG}"
+  '
 
 unproven_release="${TMP_HOME}/bootstrap-release-unproven-termination"
 unproven_home="${TMP_HOME}/bootstrap-unproven-termination-home"
@@ -131,7 +205,14 @@ assert_cmd "termination hard stop preserves lock, lease, payload, and worktree" 
 ' _ "${unproven_home}/.vibeguard/dist/.bootstrap.lock" \
   "${unproven_home}/.vibeguard/dist" \
   "${unproven_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
-assert_cmd "KILL escalation leaves no non-zombie member in the setup group" bash -c '
-  "$1" -A -o pid= -o pgid= -o stat= | awk -v expected="$2" \
-    '\''NF == 3 && $2 == expected && $3 !~ /^Z/ { live = 1 } END { exit live }'\''
+kill -KILL -- "-${unproven_pgid}" 2>/dev/null || true
+assert_cmd "test cleanup leaves no non-zombie member in the preserved setup group" bash -c '
+  for _attempt in {1..100}; do
+    if "$1" -A -o pid= -o pgid= -o stat= | awk -v expected="$2" \
+      '\''NF == 3 && $2 == expected && $3 !~ /^Z/ { live = 1 } END { exit live }'\''; then
+      exit 0
+    fi
+    sleep 0.02
+  done
+  exit 1
 ' _ "${unproven_real_ps}" "${unproven_pgid}"

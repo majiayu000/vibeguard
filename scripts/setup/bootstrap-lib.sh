@@ -278,6 +278,16 @@ bootstrap_atomic_replace_symlink() {
   return 1
 }
 
+bootstrap_hard_link_no_follow() {
+  local source_file="$1" target_file="$2"
+  if ln -T -- "${source_file}" "${target_file}" 2>/dev/null; then
+    return 0
+  fi
+  # BSD ln (including macOS) uses -h to reject a destination symlink to a
+  # directory rather than treating that symlink as a directory operand.
+  ln -h -- "${source_file}" "${target_file}" 2>/dev/null
+}
+
 bootstrap_prepare_clean_selection() {
   local dist_root="$1" current_link="$2" selected
   # shellcheck disable=SC2034 # Consumed by the sourcing bootstrap entrypoint.
@@ -298,21 +308,20 @@ bootstrap_prepare_clean_selection() {
 bootstrap_pid_liveness() {
   local pid="$1" ps_output="" pid_state
   BOOTSTRAP_PID_LIVENESS="ambiguous"
-  if kill -0 "${pid}" 2>/dev/null; then
-    BOOTSTRAP_PID_LIVENESS="active"
-    return 0
-  fi
-  if ! ps_output="$(LC_ALL=C ps -A -o pid= 2>/dev/null)"; then
+  if ! ps_output="$(LC_ALL=C ps -A -o pid= -o stat= 2>/dev/null)"; then
     return 0
   fi
   if pid_state="$(awk -v expected="${pid}" '
-    NF != 1 || $1 !~ /^[1-9][0-9]*$/ { bad = 1; next }
+    NF != 2 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[A-Za-z?<+]+$/ {
+      bad = 1
+      next
+    }
     seen[$1]++ { bad = 1 }
-    $1 == expected { found = 1 }
+    $1 == expected { found = 1; state = $2 }
     { count += 1 }
     END {
       if (bad || count == 0) exit 1
-      print found ? "active" : "dead"
+      print found && state !~ /^Z/ ? "active" : "dead"
     }
   ' <<< "${ps_output}")"; then
     BOOTSTRAP_PID_LIVENESS="${pid_state}"
@@ -508,7 +517,17 @@ bootstrap_transaction_read() {
     BOOTSTRAP_TRANSACTION_SHA256 BOOTSTRAP_TRANSACTION_PHASE <<< "${parsed}"
 }
 
-BOOTSTRAP_PROCESS_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_process.sh"
+BOOTSTRAP_SETUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOOTSTRAP_IDENTITY_LIB="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_birth_token.jxa"
+if [[ ! -f "${BOOTSTRAP_IDENTITY_LIB}" || ! -f "${BOOTSTRAP_BIRTH_TOKEN_JXA}" ]]; then
+  bootstrap_error "missing bootstrap process identity helpers."
+  return 1
+fi
+# shellcheck source=scripts/setup/bootstrap_identity.sh
+source "${BOOTSTRAP_IDENTITY_LIB}"
+
+BOOTSTRAP_PROCESS_LIB="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_process.sh"
 if [[ ! -f "${BOOTSTRAP_PROCESS_LIB}" ]]; then
   bootstrap_error "missing bootstrap process helper: ${BOOTSTRAP_PROCESS_LIB}"
   return 1
@@ -523,6 +542,14 @@ if [[ ! -f "${BOOTSTRAP_TERMINATION_LIB}" ]]; then
 fi
 # shellcheck source=scripts/setup/bootstrap_termination.sh
 source "${BOOTSTRAP_TERMINATION_LIB}"
+
+BOOTSTRAP_LEASE_RETIREMENT_LIB="${BOOTSTRAP_SETUP_LIB_DIR}/bootstrap_lease_retirement.sh"
+if [[ ! -f "${BOOTSTRAP_LEASE_RETIREMENT_LIB}" ]]; then
+  bootstrap_error "missing bootstrap lease retirement helper: ${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
+  return 1
+fi
+# shellcheck source=scripts/setup/bootstrap_lease_retirement.sh
+source "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
 
 BOOTSTRAP_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_state.sh"
 if [[ ! -f "${BOOTSTRAP_STATE_LIB}" ]]; then

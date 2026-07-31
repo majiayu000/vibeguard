@@ -2,6 +2,9 @@ header "pinned payload bootstrap"
 
 BOOTSTRAP="${REPO_DIR}/scripts/setup/bootstrap.sh"
 BOOTSTRAP_LIB="${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+BOOTSTRAP_IDENTITY_LIB="${REPO_DIR}/scripts/setup/bootstrap_identity.sh"
+BOOTSTRAP_BIRTH_TOKEN_JXA="${REPO_DIR}/scripts/setup/bootstrap_birth_token.jxa"
+BOOTSTRAP_LEASE_RETIREMENT_LIB="${REPO_DIR}/scripts/setup/bootstrap_lease_retirement.sh"
 BOOTSTRAP_PROCESS_LIB="${REPO_DIR}/scripts/setup/bootstrap_process.sh"
 BOOTSTRAP_TERMINATION_LIB="${REPO_DIR}/scripts/setup/bootstrap_termination.sh"
 BOOTSTRAP_STATE_LIB="${REPO_DIR}/scripts/setup/bootstrap_state.sh"
@@ -11,11 +14,17 @@ BOOTSTRAP_RELEASE="${TMP_HOME}/bootstrap-release-good"
 
 assert_cmd "bootstrap entrypoint exists and is executable" test -x "${BOOTSTRAP}"
 assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper exists" test -f "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap Darwin birth-token helper exists" test -f "${BOOTSTRAP_BIRTH_TOKEN_JXA}"
+assert_cmd "bootstrap lease retirement helper exists" test -f "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
 assert_cmd "bootstrap process helper exists" test -f "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap termination helper exists" test -f "${BOOTSTRAP_TERMINATION_LIB}"
 assert_cmd "bootstrap state helper exists" test -f "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper syntax is correct" bash -n "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap lease retirement helper syntax is correct" \
+  bash -n "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
 assert_cmd "bootstrap process helper syntax is correct" bash -n "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap termination helper syntax is correct" bash -n "${BOOTSTRAP_TERMINATION_LIB}"
 assert_cmd "bootstrap state helper syntax is correct" bash -n "${BOOTSTRAP_STATE_LIB}"
@@ -23,6 +32,10 @@ assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap identity helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_IDENTITY_LIB}"
+assert_cmd "bootstrap lease retirement helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_LEASE_RETIREMENT_LIB}"
 assert_cmd "bootstrap process helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap termination helper stays below focused limit" bash -c \
