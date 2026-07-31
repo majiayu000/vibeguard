@@ -4,6 +4,18 @@
 _VG_SETUP_LOCK_DIR=""
 _VG_SETUP_LOCK_OWNER=""
 
+cleanup_install_lifecycle() {
+  cleanup_install_temps
+  setup_lock_release || true
+}
+
+setup_preflight_and_lock() {
+  stage_install_snapshot
+  disabled_skills >/dev/null || return 1
+  setup_lock_acquire || return 1
+  trap cleanup_install_lifecycle EXIT
+}
+
 setup_lock_acquire() {
   local lock_parent="${HOME}/.vibeguard"
   local lock_dir="${lock_parent}/setup.lock"

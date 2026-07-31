@@ -405,10 +405,6 @@ cleanup_install_temps() {
     rm -rf "${_INSTALL_FINAL_TMP}" 2>/dev/null || true
   fi
 }
-cleanup_install_lifecycle() {
-  cleanup_install_temps
-  setup_lock_release || true
-}
 stage_install_snapshot() {
   if [[ -n "${_INSTALL_TMP}" ]]; then
     return 0
@@ -485,13 +481,8 @@ if [[ "${VIBEGUARD_SETUP_DRY_RUN}" == "1" ]]; then
   yellow "Dry run complete. No files were written by setup.sh --dry-run."
   exit 0
 fi
-# The release/runtime payload may be staged before this point, but no managed
-# install tree or install-state inventory is mutated until the opt-out config
-# has been validated and the HOME-scoped lifecycle lock is held.
-stage_install_snapshot
-disabled_skills >/dev/null || exit 1
-setup_lock_acquire || exit 1
-trap cleanup_install_lifecycle EXIT
+# Staging may precede this gate; active install mutation may not.
+setup_preflight_and_lock || exit 1
 # 1. Make sure the directory exists
 echo "Step 1: Prepare directories"
 mkdir -p "${CLAUDE_DIR}"
@@ -802,11 +793,7 @@ echo "  VIBEGUARD_DISABLED_HOOKS=hook1,hook2           Disable project hooks"
 echo "  VIBEGUARD_GC_*                                 Project GC thresholds; see schemas/vibeguard-project.schema.json"
 echo
 echo "User runtime tuning (~/.vibeguard/config.json or env vars):"
-echo "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode"
-echo "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits"
-echo "  VIBEGUARD_DISABLED_SKILLS=plan-flow,fixflow     Temporary Codex managed-skill override"
+printf '%s\n' "  VIBEGUARD_WRITE_MODE=warn|block                New-source write guard mode" "  VG_U16_WARN_LIMIT / VG_U16_LIMIT               U-16 advisory and hard limits" "  VIBEGUARD_DISABLED_SKILLS=plan-flow,fixflow     Temporary Codex managed-skill override"
 echo
-echo "Git Hooks:"
-echo "Automatically installed to VibeGuard repository (pre-commit + pre-push)"
-echo "Other projects: bash scripts/project-init.sh <project_dir>"
+printf '%s\n' "Git Hooks:" "Automatically installed to VibeGuard repository (pre-commit + pre-push)" "Other projects: bash scripts/project-init.sh <project_dir>"
 setup_lock_release

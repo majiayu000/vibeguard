@@ -23,12 +23,13 @@ assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
 
 gh719_state_home="${TMP_HOME}/gh719-state-home"
+gh719_runtime="${REPO_DIR}/vibeguard-runtime/target/debug/vibeguard-runtime"
 mkdir -p "${gh719_state_home}/.vibeguard"
 printf '%s\n' '{"version":1,"files":{}}' > "${gh719_state_home}/.vibeguard/install-state.json"
 printf '%s\n' "sentinel" > "${gh719_state_home}/snapshot-target"
 ln -s "${gh719_state_home}/snapshot-target" \
   "${gh719_state_home}/.vibeguard/install-state.previous.json"
-if HOME="${gh719_state_home}" VIBEGUARD_SETUP_RUNTIME="${CURRENT_SETUP_RUNTIME}" bash -c \
+if HOME="${gh719_state_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
   'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}" >/dev/null 2>&1; then
   red "symlinked previous install-state unexpectedly succeeded"
   FAIL=$((FAIL + 1))
