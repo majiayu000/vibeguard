@@ -268,8 +268,7 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
     let files = state
         .get("files")
         .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+        .ok_or("install-state files must be an object")?;
     for dest in files.keys() {
         let expanded = setup_absolute_path(&expand_home(dest));
         if expanded == dest_dir || expanded.starts_with(&dest_dir) {

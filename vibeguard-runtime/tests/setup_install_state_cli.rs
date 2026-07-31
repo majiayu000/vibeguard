@@ -659,6 +659,28 @@ fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
         &state,
         &json!({
             "version": 1,
+            "files": []
+        }),
+    );
+    let invalid_files = run(
+        &root,
+        &[
+            "setup-state-list-tracked-under",
+            &path_text(&state),
+            &path_text(&skill),
+        ],
+    );
+    assert_output(
+        &invalid_files,
+        1,
+        "",
+        "vibeguard-runtime error: install-state files must be an object\n",
+    );
+
+    write_json(
+        &state,
+        &json!({
+            "version": 1,
             "files": {
                 path_text(&managed_file): {
                     "source": "skills/plan-flow/SKILL.md",

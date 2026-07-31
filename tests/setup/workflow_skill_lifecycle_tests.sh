@@ -159,6 +159,29 @@ assert_cmd "malformed state preserves active wrapper" test \
 mv "${gh719_home}/.vibeguard/install-state.valid.json" \
   "${gh719_home}/.vibeguard/install-state.json"
 
+printf '%s\n' '{"version":1,"files":[]}' \
+  > "${gh719_home}/.vibeguard/install-state.json"
+gh719_non_object_state_hash="$(
+  shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}'
+)"
+if gh719_non_object_state_out="$(gh719_setup 2>&1)"; then
+  red "non-object install-state files unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  TOTAL=$((TOTAL + 1))
+else
+  green "non-object install-state files fail setup preflight"
+  PASS=$((PASS + 1))
+  TOTAL=$((TOTAL + 1))
+fi
+assert_contains "${gh719_non_object_state_out}" \
+  "refusing to mutate malformed install-state" \
+  "non-object install-state files failure is visible"
+assert_cmd "non-object install-state files are not overwritten" test \
+  "$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')" = \
+  "${gh719_non_object_state_hash}"
+mv "${gh719_home}/.vibeguard/install-state.valid.json" \
+  "${gh719_home}/.vibeguard/install-state.json"
+
 rm -rf "${gh719_home}/.codex/skills/plan-flow"
 gh719_restore_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_restore_out}" "RESTORING plan-flow" "reinstall reports restoring a deleted managed skill"
