@@ -172,8 +172,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     taxonomy、job ownership、opt-out、doctor/clean 和 summary 语义；payload 缺少
     任一运行依赖时 install 必须在注册 scheduler 前失败。
 32. B-032 host coverage 只由 H-008 和 canonical event contract 决定。未知、
-    incompatible、无法归一化或没有 canonical event identity 的 host evidence
-    必须排除并显示 coverage gap，不能归属到任一已支持 host。
+    incompatible、无法归一化或 legacy/v1 evidence 没有 canonical event identity
+    必须排除并显示 coverage gap，不能归属到任一已支持 host；schema-v2 缺失 required
+    `event_id` 是 schema-invalid 的 terminal `event_identity_missing`，必须 nonzero/no-publish，
+    不能改写成 coverage-gap 或 published partial downgrade。
 33. B-033 每个 current/shareable artifact 必须绑定 window、scope、coverage status、
     data status、closed status reason、taxonomy version、producer version、source event-set digest 与自身
     `summary_digest`；该 digest 必须遵循 B-039 的稳定内容投影。tampered、stale、
@@ -214,9 +216,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     classification contract version/digest；status 只证明 typed producer contract，不得提前
     声称当前 taxonomy 接受该 mapping。GH-703
     自己拥有这个最小 producer/schema 合同，不依赖 GH-704 获批或实现。缺失、未知、
-    不一致或由 free text 反推的 identity 不得进入 value headline，并以 tech 明确映射的
-    `unknown_host`、`incompatible_host`、`unclassified_event`、`event_identity_missing` 或
-    `event_identity_conflict` closed reason 使 coverage 可见降级。
+    不一致或由 free text 反推的 identity 不得进入 value headline；unknown/incompatible host、
+    unclassified/conflicting identity 按 tech 的 closed reason 使 coverage 可见降级，schema-v2
+    缺失 required identity 则以 terminal `event_identity_missing` fail visible 且不发布新 artifact。
     reader 只有在 producer registry 同时 exact-match `classification_contract_version` 与
     `classification_contract_digest` 后才可接受 typed identity；版本相同但 digest 未知/篡改以及
     typed rule/reason 对当前 taxonomy 零匹配都必须固定降级为 `unclassified_event`，不得归入
@@ -248,7 +250,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 41. B-041 summary generation、publish 和 retention 必须与 disable/clean/upgrade 使用
     同一有界 lock/lease 顺序；writer/GC 的 source-log critical lock 只允许捕获 immutable snapshot
     generation、handles 与 ledger identity，archive hashing/verification 必须在释放该 lock 后异步、有界执行，
-    再重验 ledger generation。每次 enable/disable/clean 以及任何改变 wrapper/runtime/
+    再重验 ledger generation；该 recheck 必须证明 captured immutable generation/prefix 仍是当前
+    append-only generation 的 ancestor，capture 后追加到 live tail 不构成 drift，但 rewrite、truncate、
+    rotate、retire 或 identity 改变必须产生 `snapshot_changed`。每次 enable/disable/clean 以及任何改变 wrapper/runtime/
     taxonomy/schema 或 generator inputs 的 upgrade 必须推进 durable monotonic lifecycle
     generation；generator 在等待 lock 前捕获 generation token，取得 lock 后及 publish 前都须
     复核 matching enabled generation。disable/clean 只有在阻止新 generation 且旧 generation
@@ -283,8 +287,10 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   只能证明自身 epoch 连续覆盖的 window，后续 enable 在首个完整 window 前保持 partial；
   caller 已启动后的 coverage failure 不改变其 guard decision/exit semantics，且 reservation 通过官方 hook P95 gates。
 - [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
-  unknown/incompatible host、unclassified v2、missing/conflicting event identity 各映射确定的 closed reason；
-  free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
+  unknown/incompatible host、unclassified v2、legacy missing/conflicting event identity 各映射确定的
+  published closed reason；schema-v2 缺失 required `event_id` 是 terminal `event_identity_missing`，必须
+  nonzero/no-publish，不得进入 published closed-reason 或 partial downgrade；free-text-only 行为降级可见，
+  且不要求 GH-704 先批准或实现。
 - [ ] 同一 window 的重试在 GC/compaction、archive enumeration、renderer 和生成时间变化后仍保持同一
   `summary_digest`；真实新 event 或 coverage/data/status-reason/producer-version 变化改变 digest。
 - [ ] shareable Markdown/JSON 逐字段符合 allowlist，`generated_at` 是否出现严格服从 H-005；

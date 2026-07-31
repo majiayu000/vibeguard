@@ -125,19 +125,23 @@ envelope：
 `data_status` closed 为 `ok`、`no_data`、`partial_coverage`；`status_reason` closed 为
 `complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
 writer_coverage_unavailable|archive_missing|archive_tombstoned|
-event_identity_conflict|event_identity_missing|incompatible_host|unknown_host|
+event_identity_conflict|incompatible_host|unknown_host|
 unclassified_event|legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
 `archive_corrupt` 是 generator/state 的 closed terminal diagnostic，不是 summary schema
-可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。
+可发布 `status_reason`；命中时必须 nonzero、保留旧 current 并标 stale。`event_identity_missing` 同样
+是 schema-invalid 的 generator terminal diagnostic，不是可发布 `status_reason`；命中时必须 nonzero、
+不提交新 history/current/share generation，并保留旧 current 标 stale。
 producer 必须先完成 candidate fact collection，再从所有适用的 partial reasons 按固定高到低顺序
 `ledger_corrupt > writer_coverage_unavailable > ledger_gap > source_missing >
-archive_missing > archive_tombstoned > event_identity_conflict > event_identity_missing >
+archive_missing > archive_tombstoned > event_identity_conflict >
 incompatible_host > unknown_host > unclassified_event > legacy_evidence > snapshot_changed > budget_exceeded`
 选择唯一 `status_reason`；扫描/枚举/错误发现顺序不得改变选择。`complete_empty` 或
 `complete_nonempty` 只在 candidate set 没有任何 partial reason 且 coverage complete 时选择。
 映射固定为 unknown host → `unknown_host`、known host/incompatible contract → `incompatible_host`、
-v2 `unclassified` → `unclassified_event`、v2 identity 缺失 → `event_identity_missing`、同一 `event_id`
-对应不同 canonical tuple → `event_identity_conflict`；只有缺 v2 identity 的真实 v1 row 才是 `legacy_evidence`。
+v2 `unclassified` → `unclassified_event`、同一 `event_id` 对应不同 canonical tuple →
+`event_identity_conflict`。schema-v2 row 缺少 required `event_id` 直接触发 terminal
+`event_identity_missing`，不进入 candidate partial mapping、不能发布新 artifact；只有缺 v2 identity
+的真实 v1 row 才是 `legacy_evidence`。
 `no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
 任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须严格使用 H-004 获批的
@@ -162,8 +166,10 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    preflight、manual authority、ledger/compaction、immutable source generation 与 async bounded
    archive verification 必须完整实现
    [`coverage_snapshot_contract.md`](coverage_snapshot_contract.md)。`<log>.lock.d` 只保护短暂的
-   generation/handle capture 与 post-verify generation recheck；archive hashing 不得在 writer/GC
-   critical lock 内执行。retained archive corruption 按该合同 terminal nonzero/no-publish；
+   generation/handle capture 与 post-verify generation recheck；该 recheck 必须证明 captured immutable
+   generation/prefix 仍是当前 append-only generation 的 ancestor，capture 后的 live-tail append 可接受；
+   rewrite、truncate、rotate、retire 或 identity change 必须是 `snapshot_changed`。archive hashing 不得在
+   writer/GC critical lock 内执行。retained archive corruption 按该合同 terminal nonzero/no-publish；
    普通 sleep/reboot 只有在缺可信 fence 或 boundary proof 时才形成 coverage gap。
 3. `schemas/event-log.schema.json` 增加 closed schema v2。Rust、shell 与 Python authorized-discard canonical
    writer 在首次 append 前必须持久化 `event_id`、`classification_status`、nullable
@@ -184,8 +190,9 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    无法成为 complete。typed field/CSPRNG/append 失败必须进入第 2 步 durable gap protocol。
 4. `event_id` 在 writer 边界由 OS CSPRNG 生成，形状为 `VG-EVT-` 加 32 位大写
    hex；同一已持久化 row 在 GC、gzip archive 与 compaction 中 byte-stable 保留。
-   重读/复制按 `event_id` 去重，真实新 attempt 即使内容相同也生成新 ID。legacy v1、
-   缺 ID 或冲突 ID 都不得用 path/archive/offset/content 补造；窗口 coverage 降级。
+   重读/复制按 `event_id` 去重，真实新 attempt 即使内容相同也生成新 ID。legacy v1 缺 ID 或冲突 ID
+   都不得用 path/archive/offset/content 补造；legacy 缺 ID 使窗口 coverage 降级。schema-v2 缺 ID
+   是上述 terminal `event_identity_missing`，不得以 partial artifact 掩盖 schema-invalid input。
 5. schema v2 只按 closed typed mapping 分类：protocol branch 在 writer 当场持久化
    `reason_code=protocol_invalid_json|protocol_missing_field|protocol_invalid_shape|protocol_other`
    等由 event schema 固定的 code，weekly producer 只有在 producer registry 同时 exact-match
@@ -354,9 +361,11 @@ freshness。`verify-install` 在 H-001 recommendation 和支持
 不得伪装 active。
 
 unsupported 平台的 doctor 必须显示 coverage contract 的 exact manual command sequence：
-`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`generate` 只查询该 epoch
-完整覆盖的 window，`stop` quiesce 并封闭 epoch。它不安装 scheduler、不改 `scheduler_state`，
-也不得把 start 前的 interval 报 complete。
+`manual-authority start` 创建独立 epoch，`status` 验证 provider/heartbeat，`generate` 接受任一通过
+CLI 语法、边界与 budget 校验的显式 window；该 epoch 完整覆盖的 window 才能返回 `complete`，start
+前、跨未覆盖区间或 stop 后结束的合法 window 返回无 headline 的 `partial_coverage`（terminal evidence
+仍 nonzero/no-publish）。`stop` quiesce 并封闭 epoch。它不安装 scheduler、不改 `scheduler_state`，
+也不得拒绝合法历史 window 或把 start 前的 interval 报 complete。
 
 `scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
 durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
@@ -571,7 +580,7 @@ JSON：
 | B-002 default install produces scheduled summary after one install confirmation | setup plan + value scheduler integration | `bash tests/test_setup.sh` fresh macOS/Linux fixtures assert summary + cadence/jitter/expiry/provider disclosure, one confirmation, active job and next-window artifact |
 | B-003 narrow GH-556 supersession | surface dispatch in wrapper/installer | `bash tests/test_health_report_scheduler.sh` asserts standalone health remains opt-in/default-health while setup invokes explicit value surface |
 | B-004 opt-out creates no job | setup option + weekly state | `bash tests/test_setup.sh` asserts `--no-weekly-value`, no manager/authority/slot, no per-event coverage diagnostic and `disabled_by_user`; later enable starts a new partial epoch |
-| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/generate/stop；manual epoch never claims earlier coverage |
+| B-005 unsupported platform fail-visible | platform resolver + manual authority | `bash tests/test_setup.sh` Windows/unknown fixture asserts no fallback job/scheduled authority、`unsupported_platform` and executable manual start/status/generate/stop；a valid earlier/uncovered window returns headline-free partial while only continuously covered windows may be complete |
 | B-006 one owned identity and third-party preservation | installer upsert/remove | `bash tests/test_health_report_scheduler.sh` repeated install plus third-party launchd/systemd fixtures |
 | B-007 registration failure rollback | lifecycle snapshot/probe/rollback | `bash tests/test_setup.sh` launchd/systemd write/load/probe failure matrix; setup completion absent and owned before-state restored |
 | B-008 exact half-open window metadata | weekly-value CLI parser and wrapper window calculator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_window`; shell fixtures cover timezone/DST boundary |
@@ -598,7 +607,7 @@ JSON：
 | B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` preserves third-party jobs/history/exports by default and deletes owned reports only with approved purge |
 | B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
-| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible/missing-identity evidence to exact closed reasons and excludes it with a coverage gap |
+| B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` maps unknown/incompatible and legacy missing-identity evidence to exact published closed reasons and excludes it with a coverage gap；schema-v2 missing required `event_id` is terminal `event_identity_missing`, nonzero/no-publish, and never a published closed reason |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
 | B-035 closed live+archive snapshot | coverage contract + installed launchers/authorized-discard + fenced authority + async reader | trusted sleep/boot fences distinguish unavailable time from gaps；all three parents prove slot-before-work；manual/scheduled epochs stay separate；large-archive+GC contention latency uses exact wrappers/IPC/fsync |
@@ -620,7 +629,9 @@ JSON：
    `--surface value`。
 4. wrapper 按 coverage contract 验证 scheduled/manual authority、trusted availability fence、attempt chain
    与 ledger/spool；在短 source lock 内捕获 immutable generation/handles，释放后 async bounded hash，
-   再重验 generation。archive corrupt terminal nonzero/no-publish；missing/snapshot drift 降级。
+   再按 captured-prefix ancestor 合同重验 generation；archive corrupt terminal nonzero/no-publish；
+   `archive_missing`、`archive_tombstoned`、`snapshot_changed` 或 `budget_exceeded` 才能按合同降级，
+   schema-v2 `event_identity_missing` 始终 terminal/no-publish。
 5. Rust `observe weekly-value` 按 event ID +完整 canonical tuple 排序/去重，并以 event v2 的 exact typed
    decision/rule/reason/contract version+digest 做 closed protocol mapping；versioned taxonomy
    再分其余 rule/operational categories。GH-706 free-text classifier 只供 legacy display，

@@ -25,9 +25,11 @@ Authority mode closed 为 `scheduled|manual`：
   逐事件 coverage diagnostic；unsupported 平台必须展示 exact
   `vibeguard-runtime observe weekly-value manual-authority start|status|generate|stop`
   命令序列；`generate` 还必须携带第 3 节 CLI 的 exact window/timezone/scope/taxonomy 参数；
-- manual `generate` 只接受该 manual epoch 连续覆盖的 half-open window。早于
-  `manual_enabled_at`、跨越未覆盖区间或在 stop 后结束的 window 必须
-  `partial_coverage`，不能由一次 on-demand scan 补造 complete 历史。
+- manual `generate` 接受任一通过第 3 节 CLI 语法、边界与 budget 校验的显式 half-open
+  window，但只有被该 manual epoch 连续覆盖的 window 才能返回 `complete`。早于
+  `manual_enabled_at`、跨越未覆盖区间或在 stop 后结束的合法 window 必须生成无 headline 的
+  `partial_coverage`；schema/corruption 等 terminal evidence 仍 nonzero/no-publish。命令不得拒绝合法的
+  历史 window，也不能由一次 on-demand scan 补造 complete 历史。
 
 任一 mode 的 epoch 都绑定 exact installed snapshot digest、authority provider identity、
 批准的 cadence/jitter/expiry 和 lifecycle generation。mode、epoch 或 snapshot digest 不同的
@@ -89,9 +91,13 @@ open/spawned slot、boot identity/monotonic ordering 连续且 clock uncertainty
 把 fence 两侧已覆盖的 available intervals 拼接，而不是要求 unavailable interval 有 heartbeat。
 
 缺 suspend-begin/boot proof、provider 不受信、clock rollback/uncertainty、未确认 launcher、open slot
-或边界与 window 相交时，必须从
-`min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)` 到 recovery checkpoint 记录 gap。
-因此正常 sleep/reboot 不必自动降级，而 coverage evidence 真正缺失时仍不可伪造 complete。
+或边界与 window 相交时，必须从 recovery gap anchor 到 recovery checkpoint 记录 gap。anchor 定义为
+`min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)`，其中不存在的
+`earliest_unacknowledged_claim_at` 按正无穷处理，而不是被省略或当作 epoch 起点；若没有 trusted
+heartbeat，则使用该 authority epoch 的 admission lower bound；若两者都不存在，则从 epoch start
+记录 conservative gap。这样在 host running 但没有 pending claim 时仍会以最后 heartbeat（或明确的
+epoch lower bound）封住 idle interval，正常 sleep/reboot 不必自动降级，而 coverage evidence 真正
+缺失时仍不可伪造 complete。
 
 ## 4. Ledger、compaction 与 coverage truth
 
@@ -105,6 +111,12 @@ live rows；retention 删除前先 commit tombstone/watermark。成功 reservati
 tail 后才能折叠。closed gap 仅在完全早于 retention + maximum catch-up 最早查询 window 后 compact，
 且 watermark、gap digest 与 sequence range 永久保留；open gap 不 compact。
 
+retention 在选择任何 candidate 前，必须在同一 lifecycle lock 内 no-follow 解析并 pin
+`current-generation.json` 的 pointer identity/digest 及其 target generation/file identity。pin 住的 target
+以及验证该 pointer 所需的 receipt 不能进入 tombstone/retire 集合，直到 pointer 已被同一合同的 atomic
+expected-identity commit 前进或明确移除；pointer 缺失、foreign/malformed、identity 重验变化或 capability
+不足时必须保留 current/candidate、停止 retention 并 fail visible。
+
 authority journal 按 cadence bucket compact。完全 closed bucket 记录 first/last sequence、count 与
 event-tail/root digest；含 pending/unacknowledged/gap 的 bucket 固化成覆盖整个 bucket 的 conservative
 gap。新 generation fsync 后引用 prior root，再 atomic swap 并保留两代；current bucket 不 compact。
@@ -113,8 +125,11 @@ hard bound 为
 heartbeat_expiry_seconds) / heartbeat_cadence_seconds) + 3`。超限必须 partial/error，禁止丢 proof。
 
 complete window 要求：所有 available intervals 有连续、未过期 heartbeat；所有 host-unavailable
-interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个 reservation 已 commit row 或
-closed gap；source snapshot 有效。连续 proof + 空 reservation/event set 才是 complete-empty。
+interval 有第 3 节 trusted fence；authority/attempt sequence 连续；每个与 queried window 相交的
+reservation 都有 matching committed row。任何相交的 open、pending 或 closed gap 都必须产生
+`partial_coverage`；closed gap 只有在完全位于 queried window 之外、并已满足 compaction watermark 时
+才能作为历史压缩 proof，不能代替 window 内的 committed row。source snapshot 有效。连续 proof +
+空 reservation/event set 才是 complete-empty。
 
 ## 5. Immutable source generation 与 lock budget
 
@@ -126,11 +141,14 @@ writer/GC 的 `<log>.lock.d` 是短 critical lock，不是 archive hashing lock�
    lengths 与 approved budgets；GC 对已发布 archive 禁止 in-place mutation，只能发布新 generation；
 3. 在释放 `<log>.lock.d` 后由 bounded async verifier 读取 handles 的 snapshot length、计算 digest 并
    parse；writer、hook 与 GC 此时可继续取得 critical lock；
-4. verification 完成后重新取得短 lock，重验 ledger root/generation、entry state、tombstone 与 live tail，
-   然后释放；变化产生 `snapshot_changed`，不得把混合 generation 当 complete。
+4. verification 完成后重新取得短 lock，重验 captured immutable generation、entry identity/length、
+   tombstone 与 captured live-prefix witness，然后释放。重验必须证明 captured prefix 仍是当前
+   append-only generation 的 ancestor；capture 之后追加到 live tail 的新记录不构成变化，但 prefix 被
+   rewrite、truncate、rotate/retire、identity 改变或无法证明 ancestor 时产生 `snapshot_changed`，不得
+   把混合 generation 当 complete。
 
-verifier 同时受 H-004 的 file/byte/elapsed budgets 约束；timeout/short read/identity change/
-post-verify ledger drift 都 fail visible。retained archive unreadable、gzip/row parse 失败或 digest mismatch
+verifier 同时受 H-004 的 file/byte/elapsed budgets 约束；timeout/short read/identity change，以及除已
+证明 captured prefix ancestor 的 live-tail append 外的 post-verify ledger drift，都 fail visible。retained archive unreadable、gzip/row parse 失败或 digest mismatch
 是 terminal `archive_corrupt`：generator nonzero，不提交新 history/current/share generation，旧 current
 标 stale。`archive_missing|archive_tombstoned|snapshot_changed|budget_exceeded` 可按 closed precedence
 形成无 headline 的 `partial_coverage` artifact；`archive_corrupt` 不在可发布 summary reason enum 中。
@@ -166,12 +184,18 @@ current-generation.json
 producer 从同一 verified object 渲染 JSON/Markdown；`generation.json` 绑定 window、generation ID、
 两个 renderer 的 restricted relative path、length/digest、`summary_digest` 与 ownership receipt identity。
 发布顺序固定为 temp generation directory → 写两种 renderer/manifest → flush/fsync files → schema/digest
-verify → fsync generation directory/parent → append+fsync ownership receipt → 以一次 same-directory atomic
-replace 提交 `current-generation.json` commit marker → fsync parent → success state。
+verify → fsync generation directory/parent → append+fsync ownership receipt → 在 lifecycle lock 内重新
+no-follow capture 当前 pointer 的 expected identity（不存在时为 explicit absent state），再以 backend
+提供的 atomic expected-identity/no-overwrite commit 提交 `current-generation.json` marker → fsync parent
+→ success state。若当前 pointer 在 capture 后被替换、变成 symlink/foreign output，或 backend 不能证明
+expected-identity commit，必须保留旧 pointer、nonzero/stale，不得退回 pathname-only replace。
 
 consumer 只读取并验证 `current-generation.json` 指向的 immutable generation；不得分别追踪
 `current.json`/`current.md`，也不得读取 orphan/partial generation。任一 renderer、manifest、receipt 或
-pointer commit 失败都保留旧 pointer、nonzero/stale，且新 generation 在 recovery 后按 receipt 安全回收。
+pointer commit 失败都保留旧 pointer、nonzero/stale。receipt 只证明 ownership，不单独授予删除权：在
+默认 `no_auto_delete` backend 上，失败 generation 必须保留为 orphan/candidate 并在达到 hard cap 前
+停止新增 history；只有 B-042 `capability_attested` backend 能以同一 attested identity claim/retire
+安全回收，不能从 receipt 或 pathname 单独推断可删除。
 share export 同样只从 pointer 指向的 verified object 产生 H-005 allowlist projection。
 
 ## 8. Focused verification
@@ -182,4 +206,6 @@ share export 同样只从 pointer 指向的 verified object 产生 H-005 allowli
 - large archive async hashing 与 GC/writer contention 下的 exact installed wrapper P95 gate；
 - archive corrupt terminal non-publish、missing/tombstone/snapshot-change partial 分支；
 - zero taxonomy match、version-match/digest-mismatch 与 duplicate-ID tuple permutation；
-- JSON-only、Markdown-only、manifest、receipt、pointer 各 crash barrier，consumer 永不看到 mixed generation。
+- JSON-only、Markdown-only、manifest、receipt、pointer 各 crash barrier，consumer 永不看到 mixed generation；
+  pointer replacement race、current-target retention pin、receipt-only orphan recovery 与 captured-prefix
+  append/rotation fixture 必须分别证明 fail-closed 或保持旧 current。
