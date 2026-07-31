@@ -119,9 +119,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择
     closed backend kind 与 conformance profile，或明确该平台不允许 official block；不得从
     recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
-    决定 backend/service owner、initial provision 权限与 user/Core/device identity、IPC endpoint 的
+    决定 backend/service owner、independent authenticated per-leaf authority conformance、initial
+    provision 权限与 user/Core/device identity、IPC endpoint 的
     server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
     reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
+    target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
     evidence retention 和旧 receipts 处置。每个 claimed platform 与每个 anchor-enabled Claude/Codex
     installed hook 还必须填写带单位的 `hook_e2e_p50_ms`、`hook_e2e_p95_ms`、
@@ -340,9 +342,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
-    user principal、anchor schema 与 policy leaf identity，并与独立 `core_monotonic_anchor_v1`
-    backend 当前 counter/root/leaf digest exact 相等；旧 user-state snapshot 即使 coherent 也因
-    external root 不回退而失配。旧 pointer replay 即使 digest 再次
+    user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
+    `core_monotonic_anchor_v1` backend 当前 leaf counter/digest/attestation exact 相等；同 root 的
+    unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
+    不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
     pointer switch 完成；若使用等价 CAS，必须在 installation floor/external anchor 推进前完成
@@ -372,9 +375,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
-    high-water/`clock_epoch`/sequence 每次推进都须以相同 external root 的 installation leaf
-    CAS 为 authority，本地 runtime-state 只是 authenticated mirror；backend 缺失、不可验证或
-    restore 后 counter/root/leaf 任一不等必须 `runtime_guard_unavailable`，不得执行旧 block。
+    high-water/`clock_epoch`/sequence 每次推进都须以 external root 内独立 authenticated time leaf
+    CAS 为 authority，本地 runtime-state 只是 mirror；其他 leaf 合法推进不影响本 leaf equality，
+    但 backend 缺失/不可验证或 restore 后本 leaf counter/digest/attestation 不等必须
+    `runtime_guard_unavailable`，不得执行旧 block。每个 CAS target 必须由 Core service 从 authenticated
+    operation 重构、逐 leaf 验证并以 H-010 approved authorizer 签名；客户端 hash 不具有授权效力。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
     trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
     递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一
@@ -452,7 +457,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
     publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
     digest/generation/validity-evidence identity、policy generation floor、active installation
-    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/leaf/counter、source-applicable `override_valid_until`、
+    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/per-leaf authority/counter、source-applicable `override_valid_until`、
     trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须

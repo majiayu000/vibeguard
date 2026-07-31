@@ -21,8 +21,8 @@ human decisions；以下 v2 结构用于证明这些选择可形成一致、可�
 
 ## Codebase Context
 
-以下锚点均在基线
-`05ea122083e6bc4cc0b9fd3e2c168e576e8f431c` 的当前 worktree 中经 Read/grep 核实。
+以下锚点在当前 PR base/origin/main `ce5bada07bda1ae72b5488fcf08be8982185a115` 经 Read/grep
+核实；GH-699 delivery history 另以实现 commits 与 ancestry 校验，不把后续 T3 归给旧基线。
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
@@ -39,7 +39,7 @@ human decisions；以下 v2 结构用于证明这些选择可形成一致、可�
 | Host contract | `hooks/manifest.json:2`; `hooks/manifest.json:37`; `schemas/hooks-manifest.schema.json:6`; `schemas/hooks-manifest.schema.json:24`; `schemas/hooks-manifest.schema.json:61` | hooks manifest v1 每个 hook 固定 Claude/Codex 两列；没有通用 host registry | GH-701 Draft spec 已合入 main，但 decisions、registry implementation 与 native proof 尚未交付；GH-702 不得复制或提前消费 |
 | Release payload | `scripts/release/payload-manifest.txt:1`; `scripts/release/payload-manifest.txt:13`; `scripts/release/payload-manifest.txt:32`; `scripts/release/payload-manifest.txt:48` | GH-699 payload 已包含 `packs/`、schemas 和 legacy Python helpers | 新 Rust client/authoring assets 必须进入同一 verified payload contract |
 | Existing regressions | `tests/test_guard_packs.sh:76`; `tests/test_guard_packs.sh:89`; `tests/test_guard_packs.sh:306`; `tests/test_guard_packs.sh:577`; `tests/test_precision_tracker.sh:196`; `tests/test_precision_tracker.sh:240` | 已覆盖 v1 validate/audit/receipt 和 precision lifecycle 主要路径 | 需要保留 legacy coverage，并拆出 supply-chain/transaction/policy suites |
-| GH-699 delivery status | `docs/specs/GH699/tasks.md:5`; `docs/specs/GH699/tasks.md:7`; `docs/specs/GH699/tasks.md:8`; `docs/specs/GH699/tasks.md:9`; `docs/specs/GH699/tasks.md:10` | payload/setup/bootstrap T1–T3 已完成；no-clone release smoke、brew/npm launcher T4–T6 尚未完成 | official `vibeguard add` 的 public evidence 只受 remaining T4–T6 阻断，不重复 T3 |
+| GH-699 delivery status | current `docs/specs/GH699/tasks.md`; commits `6bf4ddc3f43744581eac9666712ee80964611740`, `05ea122083e6bc4cc0b9fd3e2c168e576e8f431c`, `da8780afe134b87a2b6f4369cb60083596861a7d` | T1/T2 landed at `6bf4ddc3` and portability gates at `05ea1220`; T3 bootstrap landed later at `da8780af`; all are ancestors of verified base `ce5bada0`；T4–T7 remain open | public evidence still needs no-clone release/package-manager work；never claim T3 existed at `05ea1220` |
 
 main `6e4224c9af742a3a6959eb2dc189418d510d1663` 已合并 PR #712 的 GH-701 Draft
 product/tech specs，提出 versioned host registry；GH-701 自身仍要求 H-001–H-004 decisions、
@@ -511,7 +511,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 - **safe-bash v1**：legacy reader继续 validate/explain/audit/remove。migration 先把旧
   receipt标为 registration-only，读取现有 Core audit建立 non-owned baseline，再安装 v2
   bundle；绝不声称旧 receipt拥有 Core files。
-- **GH-699**：T1–T3 已完成；只等待 T4–T6 后，由 integration fixture探测 actual released
+- **GH-699**：T1/T2=`6bf4ddc3`、portability=`05ea1220`、later T3=`da8780af`；待 T4–T7 后由 fixture 探测 released
   launcher/path/argv。GH-702 不重复 bootstrap、不猜 shim 名或另造 bootstrap；payload
   manifest加入所有 production client资产。
 - **GH-701**：只在 decisions allowed、manifest v2/registry implementation 已合入且
@@ -549,8 +549,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
     "schemas/guard-pack-receipt.schema.json", "schemas/guard-pack-transaction.schema.json",
     "schemas/guard-pack-override.schema.json", "schemas/guard-pack-runtime-state.schema.json",
     "schemas/guard-pack-feedback.schema.json",
-    "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json",
-    "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json",
+    "schemas/guard-pack-anchor-intent.schema.json", "schemas/guard-pack-anchor-commit.schema.json", "schemas/guard-pack-anchor-mirror.schema.json", "schemas/guard-pack-anchor-ipc.schema.json", "schemas/guard-pack-anchor-authorization.schema.json",
+    "schemas/guard-pack-h010-decision.schema.json", "schemas/guard-pack-anchor-perf-budget.schema.json", "schemas/guard-pack-anchor-perf-batch.schema.json", "schemas/guard-pack-anchor-perf-result.schema.json",
     "packs/safe-bash/pack.yaml", "packs/safe-bash/README.md",
     "scripts/lib/guard_packs.py",
     "scripts/lib/guard_pack_manifest.py",
@@ -600,7 +600,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | Capability/host | planned **guard_pack/capability.rs**; consume approved GH-701 registry when available | Claude/Codex/unknown/incompatible/unsupported fixture matrix |
 | Transaction/receipt | planned **guard_pack/transaction.rs**, receipt/transaction schemas | crash-at-every-stage, concurrent lock, drift, rollback, recovery and canary tests |
 | Precision/runtime policy | planned **guard_pack/precision.rs**, **runtime_guard**, precision/policy/override/runtime-state schemas, `scripts/precision-tracker.py` | exhaustive eligibility truth table + binding/freshness/override/policy-rotation/clock-rollback negatives |
-| Monotonic anchor | planned **guard_pack/anchor/** + four anchor schemas；exact IPC/backend/service/provision/mirror/recovery owners in supporting contract | non-self-referential JCS mirror/phase crash suite；H-010 platform/IPC/lifecycle；all-budget installed Claude/Codex latency gate |
+| Monotonic anchor | planned **guard_pack/anchor/** + anchor authorization/H-010/perf schemas；exact owners in supporting contract | per-leaf concurrency、authorized target、JCS phase crash、identity mutation、installed Claude/Codex all-budget gate |
 | Author publish | planned **scripts/lib/guard_pack_manifest.py**, **guard_pack_publish.py**, **scripts/ci/validate-guard-pack-publish.py** | two-build digest equality; half-publish/index-CAS/revoke/yank fixtures |
 | Legacy migration | `scripts/lib/guard_packs.py`, `scripts/lib/guard_pack_receipts.py`, `packs/safe-bash/` | existing 623-case shell surface remains green plus migration ownership sentinels |
 | Release distribution | `scripts/release/payload-manifest.txt`, `scripts/setup/guard-packs.sh`, `setup.sh`, `tests/test_payload.sh`, `tests/test_release_workflow.sh` | GH-699 actual no-clone launcher invokes Rust client; payload tamper fails closed |
@@ -613,7 +613,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-001 released no-checkout command | Runtime registry + GH-699 actual launcher integration | fresh HOME fixture runs discovered released `vibeguard add` with `.git`, Python, Cargo and API key absent; checkout-only route reports unofficial |
 | B-002 canonical exact identity | Locator + discriminated embedded/resolved identity model | table rejects missing/empty/mismatch/floating fields；official requires immutable entry/event/publication-policy digests；local requires locator/bundle/publication-policy digests and rejects registry fields |
 | B-003 external author independence | Author CLI + external-repo fixture | fixture root outside VibeGuard builds/publishes/installs while `git diff` of VibeGuard source stays empty |
-| B-004 closed versioned schemas | Pack/artifact/policy schemas + anchor intent/commit/mirror/IPC quartet；Rust production and Python authoring/legacy readers | duplicate/unknown/empty/cross-record identity corpus fails consistently |
+| B-004 closed versioned schemas | Pack/artifact/policy + anchor authorization/H-010/budget/batch/result schemas；Rust production and Python authoring/legacy readers | duplicate/unknown/empty/every-identity mutation corpus fails consistently |
 | B-005 zero-side-effect invalid input | Resolver/preflight | missing/empty/unknown/tampered/zero-rule fixtures assert store/receipt/active/config canaries absent |
 | B-006 approved decision gate | Role-separated policy schema + offline gate | invalid-at-publication blocks publish；valid signed publication later expiry/spec drift does not block install；missing/stale/current-spec-drift evaluation blocks；rotation re-audits without republish |
 | B-007 visible trust states | Source-kind model + renderers + receipt | official matrix covers current/revoked/unknown and requires event digest；local matrix requires unofficial + not_applicable and rejects present/synthetic event fields |
@@ -624,7 +624,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction + anchor supporting contract | immutable mirrors + intent-bound phase digest chain survive lost CAS response；exact target reconstructs equal phases and rolls forward，other root needs_repair |
+| B-015 transaction state machine | Transaction + anchor supporting contract | authorized immutable target survives lost response；unrelated leaf/aggregate-root observation still rolls forward，only same-leaf divergence needs_repair |
 | B-016 scoped rollback/repair | Transaction rollback/recovery | pre-floor restores before digests；post-floor every applied/host/config CAS match rolls forward；any drift preserves state/evidence and needs_repair |
 | B-017 interruption recovery | Transaction + anchor recovery | crash every local/external/barrier stage and mutate applied/host/config；exact target resumes, mismatch needs_repair, never false receipt or permanent proven-target unavailable |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
@@ -636,7 +636,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Policy journal + external anchor CAS | pre-CAS intent/fence and barrier bind exact authority；rotation/reinstall/backend identity drift cannot reuse old decision；post-floor drift rolls forward suspended |
+| B-027 policy-owned thresholds | Policy journal + per-leaf anchor CAS | Core-reconstructed signed target authorization + intent/fence/barrier bind exact authority；rotation/identity drift cannot reuse old decision；post-floor drift rolls forward suspended |
 | B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every hook advances high-water via authenticated IPC/external CAS；lost-response target resumes；expiry/policy drift latches audit_required；rollback cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -646,7 +646,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-034 immutable registry history | Index + registry-event validators | duplicate publisher+pack+version, entry overwrite/delete/reorder and transfer-without-event fixtures fail；valid yank/revoke changes only event evidence digest；historical receipt remains explainable |
 | B-035 yank/revoke actions | Registry event + audit transaction | yank/revoke action references exact signed event evidence digest；yank blocks new install；revoke degrades existing；write failure produces needs_repair |
 | B-036 legacy safe-bash migration | v1 reader + migration planner | current v1 regressions pass; migration never claims Core file ownership and failure leaves registration receipt usable |
-| B-037 GH-699 dependency | Payload/release integration | T1–T3 fixtures remain green and bootstrap is not reimplemented；only remaining T4–T6 actual launcher/no-clone/package-manager evidence satisfies official |
+| B-037 GH-699 dependency | Payload/release integration | `6bf4ddc3` T1/T2 + later `da8780af` T3 fixtures remain green；remaining T4–T7 release/package-manager/docs evidence satisfies official |
 | B-038 GH-701 interface boundary | Host adapter compatibility layer | merged-Draft-only fixture stays fixed Claude/Codex；only decisions + merged implementation + compatibility/native proof accepts registry IDs；reject second registry/early third-host active claim |
 | B-039 GH-700 metric separation | Schema/type/name guards | fixtures cannot load public benchmark or aggregate CI result as per-rule pack evidence; docs render distinct labels |
 | B-040 reproducible atomic publish | Author build/publish client | two clean builds under the same publication policy match digest；evaluation-policy rotation does not rebuild；publish failures never create resolvable partial entry |
