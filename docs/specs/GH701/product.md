@@ -230,10 +230,12 @@ GH-701 已完成。
     target 必须仍是同一 identity。byte-identical
     inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
     或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有
-    planned/activating/active/consumed generation；probe 后先 fsync immutable activating
-    receipt+evidence bundle，再以单一 atomic current-generation pointer 作为 activation
-    linearization point。重试必须确定性恢复 pointed generation；unpointed orphan 必须
-    fresh identities+watcher+probe 后才能重新提交，不能冒充 active 或消费旧 receipt。
+    planned/activating/active/consumed generation。所有 writer/consumer 以同一 per-target
+    state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
+    fsync activating bundle，最终 watcher barrier/read 零 mutation 后再 fsync active_commit；
+    只有随后 CAS pointer 才可暴露 active。consumer 在锁内对 pointer-read 后 watcher
+    barrier、target revalidation 与 pointer re-read 全部通过才能使用。stale/concurrent CAS、
+    publish-race mutation 或 orphan 均不能冒充 active 或消费旧 receipt。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -291,8 +293,10 @@ GH-701 已完成。
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
     head、event/nonce/process/distribution digests 与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
-    H-001 closed selection 还必须批准 security provider kind/version 与 containment/
-    executable-memory policy digests。native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
+    H-001 closed selection 还必须批准 security provider kind/version、containment/
+    executable-memory policy digests，以及 relocation manifest digest/signing identity；
+    gate 必须把 signer trust chain/provenance exact-match approved distribution。
+    native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
     containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
     injection 环境，并以 target-side policy 双向阻断 `ptrace`、`/proc/<pid>/mem`、
     `process_vm_writev`、Mach task/VM write 与 Windows cross-process memory write，
@@ -408,8 +412,8 @@ GH-701 已完成。
   额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
-  metadata 重验通过后才 restored/not-installed；activating bundle/current pointer 的
-  crash-before/after recovery 必须确定性，active receipt 跨成功安装保持 durable，只有 verified
+  metadata 重验通过后才 restored/not-installed；per-target serialized expected-pointer CAS、
+  final watcher barrier→active_commit 与 crash-before/after recovery 必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
@@ -419,7 +423,8 @@ GH-701 已完成。
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
   supervisor injection/sink/scan 缺失或泄漏，以及 containment setsid/double-fork/broker/
   breakaway、inbound/outbound process-memory write、private-COW exec、bad relocation/page
-  mismatch、patch-then-restore、RWX、load-unload、trace gap/unknown loaded-code 均 nonzero。
+  mismatch、self/implementer-signed relocation、patch-then-restore、RWX、load-unload、
+  trace gap/unknown loaded-code 均 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前

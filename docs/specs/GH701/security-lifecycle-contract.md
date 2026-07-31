@@ -94,9 +94,12 @@ first instruction through candidate kill/reap.
 3. W^X is mandatory. Anonymous executable pages, RWX mappings, and executable
    transitions from any candidate-writable or private-COW mapping are denied. Before
    resume, the trusted loader derives an expected page root from exact approved backing
-   bytes, file offset/length, and a closed signed relocation manifest. The manifest
-   names every relocation type/site/value; unknown, writable-text, runtime-selected,
-   or candidate-provided relocation is forbidden. Each executable map/transition must
+   bytes, file offset/length, and the relocation manifest whose raw digest and signing
+   identity/certificate chain are pinned by H-001 to the approved distribution
+   provenance. The proof gate verifies that signature, trust root/transparency or
+   registry evidence, and exact digest; self/implementer-signed manifests are rejected.
+   The manifest names every relocation type/site/value; unknown, writable-text,
+   runtime-selected, or candidate-provided relocation is forbidden. Each map/transition must
    exact-match those relocation-normalized expected bytes before execution, and an
    approved executable page can never subsequently become writable.
 4. The append-only ledger records every executable map/protection/load/unload event,
@@ -159,21 +162,42 @@ apply operation, failure-reverse operation, clean operation, preserved entries, 
 all operation digests. Raw bytes and diffs remain local and never enter logs or proof
 artifacts.
 
-An existing active receipt cannot be overwritten by a planned update. Probe success
-creates an immutable `activating` bundle containing the receipt, zero-mutation watcher
-epoch, probe result, and evidence payload, then fsyncs the bundle and state directory.
-One atomic, fsynced current-generation pointer swap is the activation linearization
-point: before it the previous generation remains authoritative; after it the pointed
-bundle is logically `active` and evidence binds its exact digest. The bundle remains
-durable for the full lifetime of that active evidence.
+Every install, verify, recovery, clean, and runtime evidence consumer takes the same
+kernel-held exclusive per-target state lock before reading generation state. The lock
+inode is stable in the 0700 state directory and cannot be replaced; crash releases it.
+Under that lock, a writer snapshots the current pointer as expected generation+digest
+(or expected absence). Any publish/consume operation is a compare-and-swap that first
+re-reads and exact-matches that expected pair; mismatch rejects the stale operation and
+cannot consume either receipt. Atomic replacement without this comparison is invalid.
 
-Recovery enumerates immutable bundles and the current pointer before doing new work.
+An existing active receipt cannot be overwritten by a planned update. Probe success
+creates and fsyncs an immutable `activating` bundle containing the receipt, probe result,
+and watcher epoch so far, but no pointer exposes it as active. With the watcher still
+running, the verifier drains it through a platform barrier after the probe, requires
+zero mutation/loss, and performs the final held-handle/no-follow observation. It then
+writes and fsyncs a second immutable `active_commit` record binding the activating
+digest, final watcher root/barrier, final read, and evidence payload. Only afterward may
+the writer CAS the current pointer from the expected generation+digest to this exact
+active-commit digest and fsync the directory. This CAS is the activation linearization
+point; failure leaves the new generation unexposed and the prior pointer unchanged.
+
+Pointer presence alone never authorizes use. While holding the same target lock, every
+consumer reads the pointer, drains the watcher past a barrier taken after that read,
+revalidates held parent/target identity and bytes, and re-reads the unchanged pointer.
+Any mutation, gap, target drift, or pointer change rejects the generation before host
+use/proof. The publisher performs the same post-CAS barrier before releasing its lock;
+an event during publication CASes that exact new pointer to a durable invalid tombstone
+and fsyncs it before lock release. Because every consumer takes the same lock, the
+intermediate pointer is never acceptable evidence. The bundles remain durable for the
+full lifetime of accepted evidence.
+
+Recovery takes the target lock and enumerates immutable bundles and the current pointer.
 An unpointed `activating` bundle is never assumed active or consumed: retry must open
 new held identities, run a fresh zero-mutation watcher epoch and native probe, and
 either create/commit a new generation or retain the orphan with `needs_human` and the
 exact user reverse. If the pointer names the bundle, recovery treats activation as
 committed but still revalidates identity/digest before use. Missing, torn, duplicate,
-or conflicting pointers/bundles are `needs_human`; no evidence is published and the
+or conflicting pointers/bundles/CAS expectations are `needs_human`; no evidence is published and the
 prior receipt is not consumed. Supersession uses the same pointer swap, so a crash
 before it leaves old evidence authoritative and a crash after it selects only the new
 generation.
@@ -208,8 +232,9 @@ drifted receipts must remain available with only path+digest shown to the user.
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
 install/failure deletion/clean deletion, active receipt retention, and safe update
 supersession, plus crash recovery immediately before/after bundle fsync and pointer
-swap. Negative fixtures cover early receipt deletion, missing/torn/duplicate pointer
-or generation, orphan activation reuse without fresh probe, candidate/receipt drift,
+CAS. Negative fixtures cover concurrent installers/recovery/clean, stale expected
+generation/digest, early receipt deletion, missing/torn/duplicate pointer or generation,
+orphan activation reuse without fresh probe, mutation before/during/after publish, candidate/receipt drift,
 temporary same-inode write-and-restore, byte-identical target replacement, parent
 swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.

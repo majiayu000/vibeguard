@@ -218,7 +218,9 @@ acceptance snapshot rules 与 collector trust identity：
         "security_provider_kind",
         "security_provider_version",
         "containment_policy_sha256",
-        "executable_memory_policy_sha256"
+        "executable_memory_policy_sha256",
+        "relocation_manifest_sha256",
+        "relocation_signing_identity"
       ]
     },
     "H-002": {
@@ -629,10 +631,10 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present/absent base、held identities、zero-mutation watcher、planned/activating/active/consumed bundle+pointer recovery；temporary write-restore、inode/parent swap、orphan/torn pointer、recreate/late-write/gap 均 needs-human；normative appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 held identities、zero-mutation watcher、per-target lock、expected generation+digest pointer CAS、activating→final observation→active_commit recovery；concurrent/stale CAS、publish-race mutation、orphan/torn pointer、inode/parent swap 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy binding、continuous loader + relocation-normalized page equality；inbound/outbound memory writes、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；normative appendix §2 |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
@@ -737,9 +739,9 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 present/absent、held identities、zero-mutation watcher、activating bundle/
-  pointer crash recovery/supersession，以及 temporary write-restore、inode/parent swap、orphan/
-  torn pointer、partial delete/recreate/old-FD/gap negatives；target write 全由用户执行。
+  verified-file 覆盖 held identities、per-target lock、expected-generation/digest CAS、final
+  watcher barrier→active_commit crash recovery/supersession，以及 concurrent stale writer、
+  publish-race mutation、orphan/torn pointer、inode/parent swap/old-FD/gap negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
@@ -749,7 +751,7 @@ config/payload/log content。
   execution VM credential absence、job separation、signing job no-candidate-code、
   authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
   injection/sink/secret/nonzero/sink drift、broker escape/nonempty boundary/late output、
-  inbound/outbound memory write、private-COW exec/bad relocation/page mismatch、trace gap/load-unload、
+  inbound/outbound write、private-COW exec/self-signed relocation/page mismatch、trace gap/load-unload、
   preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。
 - [ ] Bootstrap tests：ordinary `plan_first` handoff、维护者 GitHub spec approval +
