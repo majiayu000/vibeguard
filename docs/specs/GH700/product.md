@@ -313,8 +313,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）或
     `post_invalidation_zero`（每个 surface均零 marker，history证明最后一次 current-valid
     publication 已由 terminal `invalidate_current` receipt失效；其后 suffix closed union只允许 terminal
-    non-valid publications、本次 exact current prepared owner及经独立 governance domain/fence/threshold
-    验证且不改变 publication owner/phase/liveness 的 phase-neutral
+    non-valid publications、本次 exact current prepared owner、同 candidate且以 store-signed
+    `publication_terminal_no_publication`+exhaustive negative discovery结束的 authenticated
+    no-publication owner successor chain（takeover exact 为 `publication_owner_taken_over`），以及经独立
+    governance domain/fence/threshold验证且不改变 publication owner/phase/liveness 的 phase-neutral
     `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`，不得有 current restoration或其它 owner。
     在 intent 前 append fresh `post_invalidation_zero_receipt`，绑定 current frontier、
     invalidation-receipt digest、exact owner与所有 current surface blobs，且不制造 no-op

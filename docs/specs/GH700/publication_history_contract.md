@@ -202,10 +202,16 @@ rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,
 invalidation_recovery_blocked,release_recovery_blocked}`、`recovered_publication`与 terminal；非法
 transition/fence/owner、缺失、截断、fork、过期 fence或 checkout anchor均 fail closed。
 `post_invalidation_zero` 的 invalidation suffix fold是 exact closed union：terminal non-valid
-publication、current prepared owner及已验签的 phase-neutral
-`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`。governance record必须经独立 governance
-domain/fence/threshold及上述 trust cutover验证，且 fold后 current publication仍 absent、publication
-owner/phase/liveness不变；任何其它 record、current restoration或其它 owner均拒绝。
+publication、current prepared owner、下述 authenticated terminal no-publication attempt chain及已验签的
+phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`。no-publication chain从同
+candidate的 `owner_claimed` 开始，可含 exact-predecessor `publication_owner_taken_over` successor、
+heartbeat、private-draft/asset cleanup及其 closed mutation slots，且必须以 store-signed
+`publication_terminal_no_publication` 结束；terminal receipt须绑定整条 generation/slot chain、
+exhaustive Release/draft/PR/current-marker negative discovery、exact draft deletion及无 pending/blocked/
+in-flight mutation。缺 terminal/negative receipt、wrong candidate/predecessor/fence、forged takeover、
+`publish_intent`、public Release、current restoration或其它 owner均拒绝。governance record必须经独立
+governance domain/fence/threshold及上述 trust cutover验证，且 fold后 publication owner/phase/
+liveness不变；closed union外 record均拒绝。
 
 ## Owner liveness
 
