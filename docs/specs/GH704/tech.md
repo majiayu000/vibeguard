@@ -13,10 +13,10 @@ Status: Draft；本文件只描述 **Recommended proposal（未批准）** 的�
 
 ## Codebase Context
 
-下表前 12 个 codebase anchor 均在本 corrective branch 的 current base
+下表 14 个 codebase anchor 均在本 corrective branch 的 current base
 `origin/main@1bf5018ec2de4d28e080f1f56be79d4d9e4f8120` 读取。最后两个相邻
-workstream anchor 不属于该 main tree，单独固定到可检出的完整 PR head SHA；不得把它们
-解释为 main-baseline 文件：
+workstream row 额外记录已合并 PR 的完整 source-head SHA，作为来源 provenance；两个
+source head 都是该 current main 的祖先，不是替代 baseline。
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
