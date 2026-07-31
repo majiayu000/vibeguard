@@ -446,12 +446,12 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    post-intent：matching public Release→verify+README；否则 matching intent-bound draft→
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
-1. actors 只按 source/candidate → ledger lease → publication lease → branch CAS；禁止反向；等待 review 可释放短 lease，但 active durable owner仍阻断新 candidate。
+1. actors 只按 source/candidate → ledger lease → publication lease → branch CAS；禁止反向；等待 review 可释放短 lease，但须以 store-auth heartbeat续活 active owner并阻断新 candidate。
 2. frontier 为 `(repo_node_id, history_length, history_root, full_prefix_digest)`；immutable intent的 op ID绑定 repo/owner-generation/run/slot/predecessor/kind/payload但不含 mutable authorization fence；retry复用 same JCS bytes/digest。
-   request envelope携 current fence/lease/actor；store先查事务 unique index：same op+digest返回原 receipt，不同 digest冲突；absent才原子验 current owner-generation/fence/predecessor并签发绑定 actual fence与 successor 的 envelope/receipt。
+   request envelope携 current fence/lease/actor；store先查事务 unique index：same op+digest返回原 receipt，不同 digest冲突；absent才原子验 current owner-generation/fence/predecessor并签发 actual fence+successor envelope；首次 claim特例仅在 exact fold无 active owner、current lease/fence/run-plan有效且 generation未用时原子创建，active owner只可 takeover。
    ack-loss：committed op接受原 receipt及 suffix；uncommitted old fence失败，同 generation续租后用 same intent+new fence重授权；advanced head禁止 rebase并按 takeover/terminal恢复或 new predecessor/generation/slot重规划；index/receipt冲突、fork/截断→blocked。
-   versioned union覆盖 claim/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal；generation/fence永不复用，deterministic fold+完整 frontier拒绝 ABA。
-3. 首次 Release API/PR mutation前 append `owner_claimed`，intent绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、owner_generation与 claim nonce；actual fence只来自 committed store envelope；create response后、upload前 append
+   versioned union覆盖 claim/heartbeat-renewal/binding/prepared/generated-PR plan|binding|revocation/receipt/intent/commit/takeover/六类 blocked/recovered/terminal；generation/fence永不复用，deterministic fold+完整 frontier拒绝 ABA。
+3. 首次 Release API/PR mutation前 append `owner_claimed`，intent绑定 server-auth repo/workflow/run/ref、candidate/tag/source、plan digests、owner_generation、liveness-policy与 claim nonce；actual fence/accepted-at/lease-expiry只来自 committed store envelope。等待人工 review须以 current generation/fence append stable sequence+policy heartbeat，store按有界 TTL/cadence/max-extension算 expiry；fold不信 client clock/job presence；expiry后 higher-fence takeover与 heartbeat按 exact-frontier CAS竞态，先提交者胜，ack-loss按 op receipt恢复。create response后、upload前 append
    exact release-node `draft_bound`，重验 manifest后 CAS `prepared`。response loss只按 nonce+repo/tag/source查找：唯一 match先 higher-fence bind；仅 authenticated exhaustive negative receipt可 terminal。
    stale/ordinary zero保持 owner重试；分页/权限不全、rate-limit/5xx、歧义/mismatch或无 negative-proof
    API → `draft_recovery_blocked`；deadline不得推断未创建，无 durable claim禁止 draft mutation。
@@ -528,8 +528,8 @@ intent-bound draft则发布并完成 README；两者 append `recovered_publicati
    `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
    它只能 takeover 已存在 claim：唯一 claim-nonce draft先 bind再删；pending de-current
    先撤销 gate/queue/PR/head并验 revocation receipt；`valid_rollback_pending` 恢复旧 marker再删；
-   post-intent 严格按上述三分支；valid-marker/nonvalid-row pending 在 deadline/heartbeat/
-   rejection 后以更高 fence接管并重建 exact reviewed replacement，不伪报 sentinels absent。它按
+   post-intent 按上述三分支；valid-marker/nonvalid-row rejection 可由 current generation重取 lease/fence恢复；new-generation 接管只能在 latest claim/heartbeat envelope 的 store-auth expiry
+   后以 higher-fence exact-frontier CAS重建 exact reviewed replacement，不因 deadline/job absence抢占。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
 attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂等；相同 identity
 已有不同 bytes 时冲突失败且报警，绝不覆盖。normal-path record 已存在时只重验并退出。

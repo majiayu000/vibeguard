@@ -246,7 +246,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     append-only `publication_history` 中 fenced-CAS append durable `owner_claimed`，绑定
     server-authenticated `repo_node_id`/workflow/run/attempt/ref、candidate/tag/source、永不复用的
     `owner_generation`、
-    summary/policy/asset-manifest/base/review/marker-plan digest、deadline/heartbeat 与
+    summary/policy/asset-manifest/base/review/marker-plan digest、`liveness_policy_digest` 与
     `draft_claim_nonce_digest`。它不需要 draft ID但立即成为 active owner。只有该 owner 可携
     claim nonce 创建 exact private draft；服务端返回后、任何 asset upload 前必须 append
     `draft_bound`（release node ID/tag/target/source/claim digest），全部上传并重验后才 CAS
@@ -271,6 +271,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     append并签发 envelope/receipt，绑定 actual accepted fence、intent/store-envelope digest、
     predecessor/successor与 issuer/key version。stale fence对新 mutation失败，但已提交 old op
     只能取回原 receipt。
+    `owner_claimed` 是唯一的 absent-owner 创建 transition：其 intent声明 fresh、全局永不复用的
+    `owner_generation`，store仅在 exact predecessor fold 证明 length-zero/no owner 或 prior
+    owner terminal、repository publication lease/current fence有效、server-auth run/candidate/
+    frozen-plan tuple与 predecessor frontier匹配时，才在同一事务创建 generation、append并签发
+    committed envelope；已有 active owner必须走 takeover，不能再 claim。并发 claim只能一个
+    成功；stale lease/fence、复用 generation或错误 predecessor均拒绝。
     ack不确定时重放 signed latest prefix：已提交 exact op接受 receipt及合法 suffix fold；未提交
     old fence失败，同 owner generation取得新 fence后以相同 intent重新授权；head advanced禁止
     rebase，按 takeover/terminal suffix恢复，仍需 transition则从新 predecessor/new generation
@@ -278,12 +284,25 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     接受 receipt再 fold suffix。same ID异 digest/重复、receipt/index/envelope不一致、
     incompatible successor、fork/截断/不完整 replay或 fence/generation复用均 blocked；完整
     frontier防 ABA。该规则覆盖所有 record kinds。record schema 是 versioned closed discriminated union，
-    canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim、draft binding、prepared、
+    canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim/heartbeat、draft binding、prepared、
     generated-PR plan/binding/revocation、receipt、intent、commit、takeover、六类 recovery-blocked、
     `recovered_publication` 与 terminal；intent绑定 owner generation、prior phase/frontier与
     payload，store envelope绑定 actual expected/new fence及受信 issuer，deterministic fold
     唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
     fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
+    长时间等待人工 review 以 durable `owner_heartbeat` renewal record续活：immutable
+    intent只绑定 stable owner generation、单调 heartbeat sequence/transition slot与
+    `liveness_policy_digest`，不得绑定 client timestamp/deadline或 authorization fence；
+    `owner_claimed` 与 `owner_heartbeat` 的 store-signed committed envelope均按获批且有上限的
+    TTL/cadence/max-extension policy写入 server-authenticated `accepted_at`、
+    `lease_expires_at`、actual fence、owner generation与 heartbeat sequence。只有尚未
+    terminal 的 current generation持 current fence且在 store
+    认证 expiry 前可 append；fold只从最新 claim/heartbeat committed envelope导出 liveness，
+    不信任客户端时钟、job presence或自报 deadline。重复 heartbeat按同一 operation的
+    idempotency规则取回 receipt，异 digest/sequence冲突拒绝。takeover仅可在 store-auth expiry
+    后用 higher-fence exact-frontier CAS：heartbeat先提交则 takeover predecessor/fence失败并
+    重读，takeover先提交则旧 generation/fence heartbeat失败；ack丢失仍按 signed receipt恢复。
+    heartbeat append失败时 owner保持 active直至 store expiry，不能因 worker/job消失推断过期。
     所有 generated PR及 replacement 统一使用
     `generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
     {decurrent, rollback, new_current, nonvalid_row}`。planned 必须早于首次 head-ref/commit/PR
@@ -324,9 +343,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     取得 receipt，再以新 fence/head/PR/nonce回到 planned/bound并 fresh review；original/replacement
     不能同时获 merge authorization。任一证明失败进入 `decurrent_pr_recovery_blocked`。
     de-current 已 merge且 intent 前取消只允许恢复 receipt 绑定旧
-    marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时、response loss或 owner 消失时，
-    reconciler/scheduled audit 以更高 fence supersede并创建同 candidate、同 exact patch 的
-    human-reviewed replacement；无获批 replacement 则 attest 对应
+    marker 的 reviewed PR。rollback/new-current PR closed、rejected、超时或 response loss时，
+    当前 generation可在重取 lease/current fence后恢复同 candidate、同 exact patch 的
+    human-reviewed replacement；worker/owner消失本身不授权 supersede。任何 new-generation
+    reconciler/scheduled-audit takeover都必须等 latest claim/heartbeat committed-envelope 的
+    store-auth `lease_expires_at`，再以 higher-fence exact-frontier CAS接管；无获批 replacement 则 attest 对应
     `rollback_recovery_blocked`/`marker_recovery_blocked`，active owner 继续阻断后续
     publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，
     ownership 才 terminal；所有 receipt、fenced transition 与 terminal record 均保留在
