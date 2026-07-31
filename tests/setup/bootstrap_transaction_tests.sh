@@ -49,6 +49,132 @@ assert_cmd "first bootstrap releases lock only after setup completes" \
 assert_contains "$(cat "${lock_wait_first_out}")" "WAIT_SETUP_SUCCEEDED" \
   "first setup consumed the continuation handshake"
 
+orphan_setup_home="${TMP_HOME}/bootstrap-orphan-setup-home"
+orphan_setup_ready="${TMP_HOME}/bootstrap-orphan-setup.ready"
+orphan_setup_fifo="${TMP_HOME}/bootstrap-orphan-setup.fifo"
+orphan_setup_first_out="${TMP_HOME}/bootstrap-orphan-setup-first.out"
+orphan_setup_retry_out="${TMP_HOME}/bootstrap-orphan-setup-retry.out"
+mkdir -p "${orphan_setup_home}"
+mkfifo "${orphan_setup_fifo}"
+env "${bootstrap_base_env[@]}" \
+  HOME="${orphan_setup_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  VIBEGUARD_TEST_SETUP_READY="${orphan_setup_ready}" \
+  VIBEGUARD_TEST_SETUP_CONTINUE_FIFO="${orphan_setup_fifo}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >"${orphan_setup_first_out}" 2>&1 &
+orphan_setup_parent_pid=$!
+for _orphan_setup_attempt in {1..100}; do
+  [[ -s "${orphan_setup_ready}" ]] && break
+  sleep 0.05
+done
+orphan_setup_pid="$(cat "${orphan_setup_ready}" 2>/dev/null || true)"
+assert_cmd "bootstrap publishes the setup child handshake before parent crash" bash -c \
+  'test "$1" -gt 1 && kill -0 "$1"' _ "${orphan_setup_pid:-0}"
+kill -KILL "${orphan_setup_parent_pid}"
+wait "${orphan_setup_parent_pid}" 2>/dev/null || true
+assert_cmd "setup child remains active after bootstrap parent SIGKILL" \
+  kill -0 "${orphan_setup_pid}"
+
+orphan_setup_retry_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${orphan_setup_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${lock_wait_release}" \
+  VIBEGUARD_TEST_SETUP_READY="${orphan_setup_ready}" \
+  VIBEGUARD_TEST_SETUP_CONTINUE_FIFO="${orphan_setup_fifo}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >"${orphan_setup_retry_out}" 2>&1 &
+orphan_setup_retry_pid=$!
+for _orphan_retry_attempt in {1..100}; do
+  kill -0 "${orphan_setup_retry_pid}" 2>/dev/null || break
+  sleep 0.05
+done
+if kill -0 "${orphan_setup_retry_pid}" 2>/dev/null; then
+  orphan_setup_retry_child="$(cat "${orphan_setup_ready}" 2>/dev/null || true)"
+  kill -KILL "${orphan_setup_retry_pid}" 2>/dev/null || true
+  wait "${orphan_setup_retry_pid}" 2>/dev/null || true
+  kill -TERM "${orphan_setup_retry_child}" 2>/dev/null || true
+  orphan_setup_retry_rc=124
+else
+  wait "${orphan_setup_retry_pid}" || orphan_setup_retry_rc=$?
+fi
+assert_cmd "retry fails closed while orphaned setup child is active" \
+  test "${orphan_setup_retry_rc}" -eq 73
+assert_contains "$(cat "${orphan_setup_retry_out}")" "setup process group" \
+  "retry identifies the active setup lease"
+assert_cmd "active setup retry preserves lock, payload, and transaction" bash -c \
+  'test -f "$1" && test -d "$2" && grep -qFx "phase=setup" "$3"' _ \
+  "${orphan_setup_home}/.vibeguard/dist/.bootstrap.lock" \
+  "${orphan_setup_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${orphan_setup_home}/.vibeguard/dist/.bootstrap-transaction-${BOOTSTRAP_VERSION}"
+printf 'continue\n' > "${orphan_setup_fifo}"
+for _orphan_child_attempt in {1..100}; do
+  kill -0 "${orphan_setup_pid}" 2>/dev/null || break
+  sleep 0.05
+done
+assert_cmd "orphaned setup child finishes without its killed parent" \
+  bash -c '! kill -0 "$1" 2>/dev/null' _ "${orphan_setup_pid}"
+
+gate_failure_home="${TMP_HOME}/bootstrap-gate-failure-home"
+gate_failure_bin="${TMP_HOME}/bootstrap-gate-failure-bin"
+gate_failure_marker="${TMP_HOME}/bootstrap-gate-failure.leader"
+gate_failure_real_mv="$(command -v mv)"
+mkdir -p "${gate_failure_home}" "${gate_failure_bin}"
+cat > "${gate_failure_bin}/mv" <<SH
+#!/usr/bin/env bash
+previous="" last=""
+for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
+if [[ "\${VIBEGUARD_TEST_CLEAR_FAIL:-0}" == "1" \
+  && "\${previous}" == */.bootstrap.lock.lease.* && "\${last}" == *.reap.* ]]; then
+  exit 73
+fi
+if [[ "\${last}" == */.bootstrap.lock.lease.* ]] \
+  && grep -qFx 'state=active' "\${previous}" 2>/dev/null; then
+  "${gate_failure_real_mv}" "\$@"
+  awk -F= '\$1 == "leader_pid" { print \$2 }' "\${last}" > "${gate_failure_marker}"
+  work_dir="\$(find "${gate_failure_home}/.vibeguard/dist" -maxdepth 1 \
+    -type d -name '.bootstrap-*.*' -print -quit)"
+  mkdir -p "\${work_dir}/setup-lease-start"
+  exit 0
+fi
+exec "${gate_failure_real_mv}" "\$@"
+SH
+chmod +x "${gate_failure_bin}/mv"
+gate_failure_rc=0
+gate_failure_out="$(
+  env "${bootstrap_base_env[@]}" \
+    HOME="${gate_failure_home}" \
+    PATH="${gate_failure_bin}:${PATH}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || gate_failure_rc=$?
+assert_cmd "setup gate publication failure returns a bounded error" \
+  test "${gate_failure_rc}" -ne 0
+assert_contains "${gate_failure_out}" "could not publish the setup process-group gate" \
+  "setup gate publication failure is visible"
+gate_failure_leader="$(cat "${gate_failure_marker}")"
+assert_cmd "gate failure terminates and reaps the isolated setup leader" \
+  bash -c '! kill -0 "$1" 2>/dev/null' _ "${gate_failure_leader}"
+assert_cmd "gate failure releases lock and lease after safe child teardown" bash -c \
+  'test ! -e "$1" && test -z "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.lease.*" -print -quit)"' _ \
+  "${gate_failure_home}/.vibeguard/dist/.bootstrap.lock" \
+  "${gate_failure_home}/.vibeguard/dist"
+clear_failure_rc=0
+clear_failure_out="$(
+  env "${bootstrap_base_env[@]}" HOME="${gate_failure_home}" \
+    PATH="${gate_failure_bin}:${PATH}" VIBEGUARD_TEST_CLEAR_FAIL=1 \
+    VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+    bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes 2>&1
+)" || clear_failure_rc=$?
+assert_cmd "lease-clear failure remains fail-closed after setup leader teardown" \
+  test "${clear_failure_rc}" -ne 0
+assert_contains "${clear_failure_out}" "active setup lease prevents unsafe bootstrap cleanup" \
+  "lease-clear failure is visible during EXIT cleanup"
+assert_cmd "lease-clear failure preserves owner lock, lease, and work evidence" bash -c \
+  'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.lease.*" -print -quit)" && test -n "$(find "$2" -maxdepth 1 -type d -name ".bootstrap-*.*" -print -quit)"' _ \
+  "${gate_failure_home}/.vibeguard/dist/.bootstrap.lock" \
+  "${gate_failure_home}/.vibeguard/dist"
+
 dangling_failure_home="${TMP_HOME}/bootstrap-dangling-switch-failure-home"
 dangling_failure_bin="${TMP_HOME}/bootstrap-dangling-switch-failure-bin"
 mkdir -p "${dangling_failure_home}/.vibeguard/dist" "${dangling_failure_bin}"
@@ -357,6 +483,26 @@ assert_cmd "PID reuse restores and preserves the exact claimed lock" bash -c \
   "${pid_reuse_dir}" "${pid_reuse_count}"
 assert_cmd "PID reuse performs no download or install" \
   test ! -e "${pid_reuse_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
+
+lease_reuse_root="${TMP_HOME}/bootstrap-lease-reuse"
+lease_reuse_file="${lease_reuse_root}/.bootstrap.lock.lease.lease-reuse"
+mkdir -p "${lease_reuse_root}"
+lease_reuse_pgid="$(ps -p $$ -o pgid= | tr -d '[:space:]')"
+printf '%s\n' \
+  'schema=1' \
+  "owner_pid=$$" \
+  'nonce=lease-reuse' \
+  'state=active' \
+  "leader_pid=$$" \
+  "process_group=${lease_reuse_pgid}" \
+  'leader_identity=Thu_Jan_1_00:00:00_1970' > "${lease_reuse_file}"
+lease_reuse_rc=0
+bootstrap_setup_lease_clear_inactive \
+  "${lease_reuse_file}" "$$" lease-reuse >/dev/null 2>&1 || lease_reuse_rc=$?
+assert_cmd "setup lease rejects a live process group with reused leader identity" \
+  test "${lease_reuse_rc}" -ne 0
+assert_cmd "setup lease PID-reuse ambiguity preserves exact lease evidence" \
+  test -f "${lease_reuse_file}"
 
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"

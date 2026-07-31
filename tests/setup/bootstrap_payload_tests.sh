@@ -2,18 +2,23 @@ header "pinned payload bootstrap"
 
 BOOTSTRAP="${REPO_DIR}/scripts/setup/bootstrap.sh"
 BOOTSTRAP_LIB="${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+BOOTSTRAP_STATE_LIB="${REPO_DIR}/scripts/setup/bootstrap_state.sh"
 BOOTSTRAP_VERSION="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 BOOTSTRAP_ASSET="vibeguard-payload-${BOOTSTRAP_VERSION}.tar.gz"
 BOOTSTRAP_RELEASE="${TMP_HOME}/bootstrap-release-good"
 
 assert_cmd "bootstrap entrypoint exists and is executable" test -x "${BOOTSTRAP}"
 assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap state helper exists" test -f "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap state helper syntax is correct" bash -n "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap state helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_STATE_LIB}"
 
 busybox_mv_bin="${TMP_HOME}/bootstrap-busybox-mv-bin"
 busybox_mv_marker="${TMP_HOME}/bootstrap-busybox-mv.marker"
@@ -382,6 +387,12 @@ if kind == "interrupt":
     setup = b"#!/usr/bin/env bash\nkill -TERM $$\n"
 elif kind == "handoff":
     setup = b"#!/usr/bin/env bash\nprintf 'EXPECTED_FINAL_SETUP path=%s\\n' \"$0\"\n"
+elif kind == "counted-handoff":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'setup\\n' >> "${VIBEGUARD_TEST_SETUP_COUNT:?}"
+printf 'COUNTED_SETUP_SUCCEEDED\\n'
+"""
 elif kind == "fail-once":
     setup = b"""#!/usr/bin/env bash
 set -euo pipefail
@@ -413,7 +424,7 @@ elif kind == "wait":
 set -euo pipefail
 ready="${VIBEGUARD_TEST_SETUP_READY:?}"
 continue_fifo="${VIBEGUARD_TEST_SETUP_CONTINUE_FIFO:?}"
-: > "${ready}"
+printf '%s\\n' "$$" > "${ready}"
 IFS= read -r signal < "${continue_fifo}"
 [[ "${signal}" == "continue" ]]
 printf 'WAIT_SETUP_SUCCEEDED\\n'

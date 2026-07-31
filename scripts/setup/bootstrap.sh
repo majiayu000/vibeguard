@@ -125,7 +125,8 @@ CURRENT_SWITCHED=0
 TRANSACTION_COMMITTED=0
 LOCK_OWNER_PID=""
 LOCK_OWNER_NONCE=""
-
+BOOTSTRAP_SETUP_LEASE_FILE=""
+BOOTSTRAP_SETUP_LEASE_HELD=0
 bootstrap_reap_existing_lock() {
   local legacy_owner
 
@@ -172,6 +173,9 @@ bootstrap_reap_existing_lock() {
       return 73
       ;;
   esac
+  bootstrap_setup_lease_clear_inactive \
+    "${DIST_ROOT}/.bootstrap.lock.lease.${BOOTSTRAP_LOCK_READ_NONCE}" \
+    "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" || return 73
   bootstrap_lock_reap_exact_owner \
     "${LOCK_DIR}" "${DIST_ROOT}" \
     "${BOOTSTRAP_LOCK_READ_PID}" "${BOOTSTRAP_LOCK_READ_NONCE}" \
@@ -279,6 +283,15 @@ bootstrap_restore_previous_current() {
 
 bootstrap_cleanup() {
   local status=$?
+  if [[ "${BOOTSTRAP_SETUP_LEASE_HELD}" == "1" ]]; then
+    if ! bootstrap_setup_lease_clear_inactive "${BOOTSTRAP_SETUP_LEASE_FILE}" \
+      "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}"; then
+      bootstrap_error "active setup lease prevents unsafe bootstrap cleanup."
+      return 1
+    fi
+    BOOTSTRAP_SETUP_LEASE_HELD=0
+    BOOTSTRAP_SETUP_LEASE_FILE=""
+  fi
   if [[ -n "${LOCK_OWNER_TMP}" ]]; then
     rm -f -- "${LOCK_OWNER_TMP}" 2>/dev/null || status=1
   fi
@@ -323,12 +336,8 @@ bootstrap_cleanup() {
 }
 
 bootstrap_run_setup_script() {
-  local setup_path="$1"
-  if [[ "${SETUP_ARG_COUNT}" -eq 0 ]]; then
-    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}"
-  else
-    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "${SETUP_ARGS[@]}"
-  fi
+  bootstrap_run_setup_with_lease "$1" "${DIST_ROOT}" \
+    "${LOCK_OWNER_PID}" "${LOCK_OWNER_NONCE}" "${SETUP_ARGS[@]}"
 }
 
 bootstrap_finish_cleanup() {

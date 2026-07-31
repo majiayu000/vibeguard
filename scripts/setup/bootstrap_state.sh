@@ -1,6 +1,160 @@
 #!/usr/bin/env bash
 # Bootstrap payload integrity comparison and transaction-owned cleanup helpers.
-
+bootstrap_process_snapshot() {
+  local expected_pid="$1" snapshot parsed
+  BOOTSTRAP_PROCESS_PGID="" BOOTSTRAP_PROCESS_IDENTITY=""
+  snapshot="$(LC_ALL=C ps -p "${expected_pid}" -o pid= -o pgid= -o lstart= 2>/dev/null)" || return 1
+  parsed="$(awk -v expected="${expected_pid}" '
+    NF == 7 && $1 == expected && $1 ~ /^[1-9][0-9]*$/ && $2 ~ /^[1-9][0-9]*$/ {
+      if ($3 !~ /^[A-Z][a-z][a-z]$/ || $4 !~ /^[A-Z][a-z][a-z]$/ ||
+          $5 !~ /^[0-9][0-9]?$/ || $6 !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ ||
+          $7 !~ /^[0-9][0-9][0-9][0-9]$/) bad = 1
+      count += 1
+      pgid = $2
+      identity = $3 "_" $4 "_" $5 "_" $6 "_" $7
+      next
+    }
+    NF { bad = 1 }
+    END {
+      if (!bad && count == 1) print pgid "\t" identity
+      else exit 1
+    }
+  ' <<< "${snapshot}")" || return 1
+  IFS=$'\t' read -r BOOTSTRAP_PROCESS_PGID BOOTSTRAP_PROCESS_IDENTITY <<< "${parsed}"
+}
+bootstrap_process_group_liveness() {
+  local expected_pgid="$1" table state
+  BOOTSTRAP_PROCESS_GROUP_LIVENESS="ambiguous"
+  table="$(LC_ALL=C ps -A -o pid= -o pgid= 2>/dev/null)" || return 0
+  if state="$(awk -v expected="${expected_pgid}" '
+    NF != 2 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[1-9][0-9]*$/ { bad = 1; next }
+    seen[$1]++ { bad = 1 }
+    $2 == expected { found = 1 }
+    { count += 1 }
+    END {
+      if (bad || count == 0) exit 1
+      print found ? "active" : "dead"
+    }
+  ' <<< "${table}")"; then
+    BOOTSTRAP_PROCESS_GROUP_LIVENESS="${state}"
+  fi
+}
+bootstrap_setup_lease_read() {
+  local lease_file="$1" parsed
+  [[ ! -L "${lease_file}" && -f "${lease_file}" ]] || {
+    bootstrap_error "setup lease must be a regular file: ${lease_file}"; return 1; }
+  parsed="$(awk -F= '
+    NR == 1 && $1 == "schema" && $2 == "1" { schema = $2; next }
+    NR == 2 && $1 == "owner_pid" && $2 ~ /^[1-9][0-9]*$/ { owner = $2; next }
+    NR == 3 && $1 == "nonce" && $2 ~ /^[A-Za-z0-9._-]+$/ { nonce = $2; next }
+    NR == 4 && $1 == "state" && ($2 == "pending" || $2 == "active") { state = $2; next }
+    NR == 5 && state == "active" && $1 == "leader_pid" && $2 ~ /^[1-9][0-9]*$/ { leader = $2; next }
+    NR == 6 && state == "active" && $1 == "process_group" && $2 ~ /^[1-9][0-9]*$/ { pgid = $2; next }
+    NR == 7 && state == "active" && $1 == "leader_identity" && $2 ~ /^[A-Za-z0-9_:.-]+$/ { identity = $2; next }
+    { bad = 1 }
+    END {
+      if (!bad && schema == 1 && owner != "" && nonce != "" &&
+          ((state == "pending" && NR == 4) ||
+           (state == "active" && NR == 7 && leader != "" && pgid != "" && identity != ""))) {
+        print owner "\t" nonce "\t" state "\t" leader "\t" pgid "\t" identity
+      } else exit 1
+    }
+  ' "${lease_file}")" || {
+    bootstrap_error "setup lease metadata is malformed: ${lease_file}"; return 1; }
+  IFS=$'\t' read -r BOOTSTRAP_LEASE_OWNER_PID BOOTSTRAP_LEASE_NONCE \
+    BOOTSTRAP_LEASE_STATE BOOTSTRAP_LEASE_LEADER_PID BOOTSTRAP_LEASE_PGID \
+    BOOTSTRAP_LEASE_LEADER_IDENTITY <<< "${parsed}"
+}
+bootstrap_setup_lease_write() {
+  local lease_file="$1" owner_pid="$2" nonce="$3" state="$4"
+  local leader_pid="${5:-}" pgid="${6:-}" identity="${7:-}" temporary="${lease_file}.write.$$.$RANDOM"
+  [[ ! -e "${temporary}" && ! -L "${temporary}" ]] || return 1
+  if [[ "${state}" == "pending" ]]; then
+    [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]] || return 1
+    printf 'schema=1\nowner_pid=%s\nnonce=%s\nstate=pending\n' \
+      "${owner_pid}" "${nonce}" > "${temporary}" || return 1
+  elif [[ "${state}" == "active" ]]; then
+    printf 'schema=1\nowner_pid=%s\nnonce=%s\nstate=active\nleader_pid=%s\nprocess_group=%s\nleader_identity=%s\n' \
+      "${owner_pid}" "${nonce}" "${leader_pid}" "${pgid}" "${identity}" \
+      > "${temporary}" || return 1
+  else return 1
+  fi
+  if ! mv -f -- "${temporary}" "${lease_file}"; then
+    rm -f -- "${temporary}"; return 1
+  fi
+}
+bootstrap_setup_lease_clear_inactive() {
+  local lease_file="$1" owner_pid="$2" nonce="$3"
+  local claimed="${lease_file}.reap.$$.$RANDOM" lease_status="ambiguous"
+  [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]] && return 0
+  if [[ -e "${claimed}" || -L "${claimed}" ]] || ! mv -- "${lease_file}" "${claimed}"; then
+    bootstrap_error "could not claim setup lease for liveness verification: ${lease_file}"
+    return 1
+  fi
+  if bootstrap_setup_lease_read "${claimed}" \
+    && [[ "${BOOTSTRAP_LEASE_OWNER_PID}" == "${owner_pid}" ]] \
+    && [[ "${BOOTSTRAP_LEASE_NONCE}" == "${nonce}" ]]; then
+    if [[ "${BOOTSTRAP_LEASE_STATE}" == "active" ]]; then
+      bootstrap_process_group_liveness "${BOOTSTRAP_LEASE_PGID}"
+      lease_status="${BOOTSTRAP_PROCESS_GROUP_LIVENESS}"
+      if [[ "${lease_status}" == "active" ]] \
+        && bootstrap_process_snapshot "${BOOTSTRAP_LEASE_LEADER_PID}" \
+        && [[ "${BOOTSTRAP_PROCESS_PGID}" == "${BOOTSTRAP_LEASE_PGID}" ]] \
+        && [[ "${BOOTSTRAP_PROCESS_IDENTITY}" == "${BOOTSTRAP_LEASE_LEADER_IDENTITY}" ]]; then
+        lease_status="active"
+      elif [[ "${lease_status}" == "active" ]]; then
+        lease_status="ambiguous"
+      fi
+    else lease_status="dead"
+    fi
+  fi
+  if [[ "${lease_status}" != "dead" ]]; then
+    bootstrap_error "setup process group is ${lease_status}; preserving its lock and worktree."
+    if [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]]; then
+      mv -- "${claimed}" "${lease_file}" || \
+        bootstrap_error "could not restore setup lease after liveness verification: ${claimed}"
+    fi
+    return 1
+  fi
+  rm -f -- "${claimed}" || return 1
+}
+bootstrap_run_setup_with_lease() {
+  local setup_path="$1" dist_root="$2" owner_pid="$3" nonce="$4"; shift 4
+  local lease_file="${dist_root}/.bootstrap.lock.lease.${nonce}"
+  local gate_file="${BOOTSTRAP_TMP}/setup-lease-start" leader_pid setup_rc=0 monitor_enabled=0
+  bootstrap_setup_lease_write "${lease_file}" "${owner_pid}" "${nonce}" pending || return 1
+  BOOTSTRAP_SETUP_LEASE_FILE="${lease_file}" BOOTSTRAP_SETUP_LEASE_HELD=1
+  [[ $- == *m* ]] && monitor_enabled=1; set -m
+  (
+    while [[ ! -f "${gate_file}" ]]; do
+      kill -0 "${owner_pid}" 2>/dev/null || exit 125
+      sleep 0.02
+    done
+    PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "$@"
+  ) &
+  leader_pid=$!; [[ "${monitor_enabled}" == "1" ]] || set +m
+  if ! bootstrap_process_snapshot "${leader_pid}" \
+    || [[ "${BOOTSTRAP_PROCESS_PGID}" != "${leader_pid}" ]]; then
+    kill "${leader_pid}" 2>/dev/null || true
+    wait "${leader_pid}" 2>/dev/null || true
+    bootstrap_error "could not establish an isolated setup process group."; return 1
+  fi
+  if ! bootstrap_setup_lease_write "${lease_file}" "${owner_pid}" "${nonce}" active \
+      "${leader_pid}" "${BOOTSTRAP_PROCESS_PGID}" "${BOOTSTRAP_PROCESS_IDENTITY}" \
+    || ! : > "${gate_file}"; then
+    bootstrap_error "could not publish the setup process-group gate."; \
+      kill -TERM -- "-${leader_pid}" 2>/dev/null || kill "${leader_pid}" 2>/dev/null || true
+    wait "${leader_pid}" 2>/dev/null || true
+    if bootstrap_setup_lease_clear_inactive "${lease_file}" "${owner_pid}" "${nonce}"; then
+      BOOTSTRAP_SETUP_LEASE_HELD=0 BOOTSTRAP_SETUP_LEASE_FILE=""
+    fi
+    return 1
+  fi
+  wait "${leader_pid}" || setup_rc=$?
+  bootstrap_setup_lease_clear_inactive "${lease_file}" "${owner_pid}" "${nonce}" || return 73
+  BOOTSTRAP_SETUP_LEASE_HELD=0 BOOTSTRAP_SETUP_LEASE_FILE=""
+  return "${setup_rc}"
+}
 bootstrap_write_payload_entry_modes() {
   local root="$1" output="$2"
   if ! : > "${output}"; then
@@ -32,7 +186,6 @@ bootstrap_write_payload_entry_modes() {
     return 1
   fi
 }
-
 bootstrap_payload_entry_modes_match() {
   local staged_root="$1" retained_root="$2" work_root="$3"
   local staged_map="${work_root}/staged-entry-modes"
@@ -45,7 +198,6 @@ bootstrap_payload_entry_modes_match() {
     return 1
   fi
 }
-
 bootstrap_reap_transaction_write_temporaries() {
   local dist_root="$1" entries entry
   if ! entries="$(
@@ -110,7 +262,6 @@ bootstrap_reap_orphaned_work_directories() {
     fi
   done <<< "${entries}"
 }
-
 bootstrap_prepare_clean_plan() {
   local dist_root="$1" current_link="$2"
   local entries entry name version final_dir all_entries found index
@@ -196,7 +347,6 @@ bootstrap_prepare_clean_plan() {
     fi
   done <<< "${all_entries}"
 }
-
 bootstrap_apply_clean_plan() {
   local dist_root="$1" current_link="$2"
   local index=0 version final_dir transaction_file payload_sha256
