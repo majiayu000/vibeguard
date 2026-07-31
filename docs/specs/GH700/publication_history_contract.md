@@ -9,7 +9,7 @@ owner-liveness 概念边界。引用方可以通过链接或行为场景引用�
 ## Concrete durable authority
 
 唯一 production backend 是 `publication_authority_sqlite_v1`，由计划中的
-`vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs}` 与
+`vibeguard-runtime/src/publication_authority/{mod.rs,store.rs,broker.rs,recovery.rs,restore_anchor.rs,backup_store.rs,anchor_signer.rs,governance_recovery.rs}` 与
 `vibeguard-runtime/src/main.rs` 的 `publication-authority serve|recover` 命令实现；publication
 client、workflow、benchmark code 均不得另建 store、直接打开数据库或以内存/mock/checkout/
 Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
@@ -17,7 +17,8 @@ checkout、Release artifact与 owner lifecycle 的 durable volume；signed deplo
 closed planned **schemas/publication_authority_deployment.schema.json** 固定
 `{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,
 publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,
-trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,restore_anchor_service}`；
+trust_bundle_digest,blocked_attempt_ledger,trusted_time_service,bootstrap_governance,break_glass_governance,
+restore_anchor_service,restore_backup_service,anchor_signing_policy}`；
 backend必须 exact 为 `publication_authority_sqlite_v1`。
 `client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的两个 required objects，不是 union、
 alias或 fallback。`client_api` exact 为 `{endpoint,transport,api_version,
@@ -52,8 +53,10 @@ authority-owned durable persistence是 exact closed inventory：signed deploymen
 migration/governance receipts；SQLite database/WAL/checkpoint及 history/blocked-attempt/operation/rotation/
 slot/owner/fence unique indexes；完整 attempt manifest/record/binding/watermark、RFC3161 token proof capsules与
 time high water；capsule ciphertext metadata与 KMS retained-key/version/retention references；broker outbox、
-delivery/send-once audit与 completed receipts；external restore anchor/epoch/two frontiers、snapshot/WAL digests及
-restore/recovery receipts。其外 cache/temp/log不得参与恢复或授权，inventory内任一缺失/不一致均 blocked。
+delivery/send-once audit与 completed receipts；external restore anchor/epoch/two frontiers、每个 encrypted
+snapshot/manifest/WAL immutable backup object/version/AEAD header/retained wrapped key、backup confirmation、
+online-quorum signature及 restore/recovery/break-glass receipts。其外 cache/temp/log不得参与恢复或授权，
+inventory内任一缺失/不一致均 blocked。
 
 唯一 bootstrap owner 是 SP700-T3 的 publication-authority store/deployment single writer，经计划中的
 **.github/workflows/publication-authority-deploy.yml** 调用
@@ -61,7 +64,7 @@ restore/recovery receipts。其外 cache/temp/log不得参与恢复或授权，i
 length-zero genesis/trust bundle并签发 bootstrap receipt，已存在时必须 byte/digest-match或拒绝。
 唯一 crash/restore authority 是同一 protected service的 `recover` 命令，在 exclusive process lock下
 replay WAL、校验 `integrity_check`、全量重放 signed history/unique indexes/outbox/capsule metadata并
-重新签发 exact-head recovery receipt。唯一 production external backend/service是
+重新签发 exact-head recovery receipt。唯一 production external anchor backend/service是
 `publication_restore_anchor_dynamodb_v1`：独立 maintainer-governance AWS account/region中的单一
 DynamoDB table，以 strongly-consistent `GetItem` 和 `TransactWriteItems`保存不可变
 `EPOCH#<restore_epoch>` rows及唯一 mutable `HEAD` row；transaction须同时以
@@ -83,17 +86,61 @@ role ARN/session policy digest并禁 static/ambient credentials；该 role没有
 backup/restore、KMS administration或 policy mutation权限，authority SQLite/KMS account亦无 anchor admin。
 `resource_identity` digest上述 table/KMS identity，任何 endpoint/trust/auth/resource/bootstrap drift拒绝。
 
+唯一 production recovery-byte backend是独立 backup-governance AWS account的
+`publication_restore_backup_s3_object_lock_v1`。`restore_backup_service` exact 为
+`{backend,endpoint,transport,api_version,resource_identity,writer_auth_policy_digest,recovery_auth_policy_digest,
+retention_class,minimum_retention_seconds,encryption_contract}`；manifest钉住 account/region/bucket ARN+name+
+creation time、versioning/Object-Lock enabled、独立 KMS key ARN/key ID与 public-CA/server identity，禁 ambient
+endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：每个 version以 Compliance mode至少
+100年且开启 legal hold，无 lifecycle/overwrite/delete；governance须在不足10年剩余窗口前 threshold批准延长，
+否则 authority non-ready。writer的短期 OIDC→STS role只能 `PutObject`、`GetObjectVersion`、读 retention/hold，
+不能 delete、overwrite version、解除 hold、改 lifecycle/KMS；protected recovery role只在 threshold-approved
+restore中读 exact versions并调用 pinned KMS decrypt，authority routine role不能解密或管理 bucket/key。
+
+每个 committed successor生成 exact `backup_set_ref={backup_id,resource_identity,snapshot_object_key,
+snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
+manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,kms_key_version,
+wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status,confirmation_digest}`。SQLite snapshot、
+recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
+`aes_256_gcm_siv_v1` authenticated encryption；immutable object header保留 nonce、wrapped data-key bytes、tag和
+`AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
+prior_anchor_digest})`，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
+ciphertext/header digest并确认 retention+legal hold，任何对象未确认都不能签 anchor或释放 receipt。
+
 anchor exact payload为 `{authority_id,authority_identity_digest,policy_epoch,repo_node_id,anchor_schema_version,restore_epoch,
 latest_frontier,blocked_attempt_ledger_frontier,time_high_water,time_proof_digest,snapshot_digest,wal_digest,
-prior_anchor_digest,anchor_request_id}`，其中两个 frontier
-含 exact `full_prefix_digest`；payload由 governance threshold签名。每个 committed history/attempt/time successor须在释放成功
-receipt或允许 broker write前，以 prior digest+epoch作为 conditional CAS推进 anchor。ack丢失只可
+backup_resource_identity,backup_set_ref,backup_set_ref_digest,transition_class,prior_anchor_digest,anchor_request_id}`，其中两个 frontier
+含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
+`backup_set_ref_digest=SHA256(JCS(backup_set_ref))`，snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
+`anchor_signing_policy` exact 为 `{routine_policy,privileged_policy}`。routine class仅
+`{publication,blocked_attempt,trusted_time,owner_heartbeat}`，由至少3个不同管理域/account的 pinned
+KMS-backed online signer服务取 distinct threshold>=2；每个 signer manifest固定 endpoint/mTLS server identity、
+non-exportable key ARN+version、allowed class/repo/authority/schema、prior→next epoch only policy与5分钟 client
+credential TTL。signer各自 strong-read HEAD，验证 exact prior、successor/backup confirmation及无 schema/policy/root
+变化后只签 domain-separated `routine_anchor_advance_v1` digest；它不能写 DynamoDB/S3、签 bootstrap/restore/
+governance/emergency或取得 maintainer key。OIDC→mTLS credential绑定 workload/environment/request digest且单次使用；
+key启用/轮换/撤销需 privileged threshold批准、manifest epoch提升、old+new quorum overlap receipt及历史 public key永久
+保留，expired/revoked key不得签新请求。privileged class仅 `{bootstrap,migration,restore,governance,
+emergency_root_cutover}`，继续要求独立 maintainer或 break-glass threshold离线批准；两类 signature不可互换。
+每个 committed history/attempt/time successor须在释放成功 receipt或允许 broker write前，以 prior digest+epoch作为
+conditional CAS推进 anchor。ack丢失只可
 strong-read同 epoch row+HEAD并 byte/digest-match同 request ID确认，不得重写；并发/stale CAS只能一胜，
 loser重读后若不是其 exact payload即 blocked。authority DB commit后/anchor CAS前 crash可在独占恢复中
 以 committed successor重试同 CAS，但 broker仍禁写；anchor CAS后/本地 receipt前 crash只可按上述
 read-confirm补 receipt。任何成功 receipt必须携 DynamoDB transaction request digest、signed payload、
-epoch row/HEAD exact digest与 strong-read confirmation，形成 DB committed frontier→signed anchor payload→
-conditional transaction→service response/read-back→authority receipt 的端到端 CAS proof。
+epoch row/HEAD exact digest与 strong-read confirmation，形成 DB committed frontier→encrypted backup confirmation→
+class-correct quorum signature→conditional transaction→service response/read-back→authority receipt 的端到端 CAS proof。
+
+所有 successor共用 repository-global durable `anchor_commit_gate`，不得只依赖已释放的 SQLite write lock。
+在 gate fence下，首个 transaction append successor并写唯一 `db_committed_anchor_pending` row，固定 prior anchor、
+exact payload/request ID、backup ID和签名 class后 commit+fsync；该 pending未完成时所有其它 successor transaction
+在写 DB前拒绝。gate跨 snapshot/WAL/manifest加密上传、exact-version确认、quorum签名、DynamoDB CAS/read-confirm
+保持逻辑独占，但不跨网络持有 SQLite transaction。CAS确认后第二个 transaction才写 immutable
+`anchor_confirmed` proof/成功 receipt、清 pending并 fsync，然后释放 gate；client receipt与 broker write此前均禁止。
+crash recovery只可 higher-fence接管同一 pending row，复用 byte-identical payload/request/backup versions/signatures：
+未发 CAS则发送一次，response/ack丢失则 strong-read exact epoch+HEAD确认，已确认但本地未记账则补写同 confirmation；
+任何 non-match、无法证明未发送或 backup/signature drift均保持 pending并使 authority blocked，禁止 rollback/truncate、
+生成下一 successor或返回“可能成功”。
 
 唯一 bootstrap/migration/restore implementation owner是 SP700-T3：计划中的
 **.github/workflows/publication-restore-anchor-deploy.yml** 与
@@ -102,18 +149,22 @@ conditional transaction→service response/read-back→authority receipt 的端�
 bootstrap；migration只可 append higher schema epoch且不得改写旧 epoch。snapshot+WAL restore须先
 strong-read production HEAD，以更大 `restore_epoch`获 threshold批准，证明 restored history与 blocked-attempt
 prefix均不少于且 exact包含 anchored two frontiers/full-prefix、restored time high water不低于 anchor，完成
-replay/recovery receipt后 CAS新 anchor；T3执行，独立
+从 HEAD绑定的 exact `backup_set_ref`强读三个 immutable versions、验证 bucket/KMS identity、Object Lock/hold、
+AEAD header/tag/AAD及 ciphertext/plaintext digests后才解密并 replay；recovery manifest必须逐项证明 DB/WAL/schema/
+indexes/outbox/capsules/time/history/ledger与 anchor一致。完成 replay/recovery receipt后，以新的 encrypted backup set
+和 privileged restore approval CAS新 anchor；T3执行，独立
 maintainer governance持 approval/admin role，二者不得互换。missing/stale/equal-or-lower epoch、older/
 forked prefix、wrong table/service identity、CAS conflict、unprovable ack或 KMS不可解封均拒绝。T10只消费
 认证 client API，不拥有 authority/anchor backend、write/admin credential或 bootstrap/migration/recovery authority。
 
 端到端证明必须在真实 durable-volume fixture对每个 transaction boundary注入 kill/power-loss、并发
 claim/slot/delivery、WAL/checkpoint失败、disk-full、KMS unavailable、runner/checkout删除、owner
-terminal与 signed snapshot+WAL restore；重启后只允许 exact committed state或未提交状态，绝无
+terminal与 authenticated encrypted snapshot+manifest+WAL restore；重启后只允许 exact committed state或未提交状态，绝无
 双 owner、双 send、丢 leaf/index/capsule/outbox或 unsigned frontier。anchor integration fixture须对真实
-DynamoDB隔离 non-production-account test table验证 concurrent
-single-winner、stale prior/epoch、ack loss read-confirm、DB-commit↔anchor-CAS两侧 crash、wrong table ID/
-credential/trust、PITR新表替换、bootstrap replay与 signed restore；mock/in-memory结果不能作为通过证据。
+DynamoDB隔离 non-production-account test table及 Object-Lock test bucket验证 concurrent single-winner、stale prior/
+epoch、pending-gate serialization、ack loss read-confirm、DB-commit↔backup↔anchor-CAS每侧 crash、wrong table/
+bucket/version/KMS/credential/trust、missing/tampered ciphertext/tag/AAD/manifest/WAL、PITR新表替换、bootstrap replay、
+routine signer loss/rotation/revocation与 privileged signed restore；mock/in-memory结果不能作为通过证据。
 
 ## Concrete blocked-attempt ledger
 
@@ -214,9 +265,31 @@ genesis/trust state，再以 DynamoDB epoch-zero conditional transaction锚定 f
 frontier及 initial time high water；两侧任一已存在只可 byte/digest match，不能重置。bootstrap receipt exact
 绑定 manifest/root/roster/threshold/signer set、first frontier、trust epoch、time proof与 anchor transaction。
 
-first history record的 predecessor必须是 first frontier并由 initial trusted leaf签名；其后
-`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}` 可在首次 eligible valid publication之前按独立
-governance lease/fence/threshold追加。`genesis_zero` fold把这些验签、phase-neutral且 publication-state-neutral
+deployment manifest同时必须有独立 `break_glass_governance={recovery_root_digest,recovery_roster_digest,
+recovery_threshold,recovery_signer_key_ids,allowed_causes,minimum_audit_delay_seconds,recovery_policy_digest}`。
+recovery root/roster在 authority/history/anchor/backup/routine-signer accounts之外，由至少3名 cold offline
+signer组成且 threshold>=2；key/approval不能与 routine online quorum或 current trust bundle复用，allowed causes只含
+`{active_leaf_expired,active_root_expired,current_threshold_unavailable,current_threshold_revoked}`。bootstrap
+approval同时签该 exact recovery contract；缺失、阈值不足、同管理域或未经 bootstrap root验签即 publication unavailable。
+
+当 normal leaf/root rotation因 active key过期/撤销或 current threshold不可达而不可能满足 pre-state trust时，唯一
+恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
+DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
+fork、pending anchor或 backup缺失时不得开始。经过 manifest delay后，distinct recovery threshold signer对
+`{repo_node_id,cause,evidence_digest,current_anchor_digest,current_frontier,current_trust_epoch,new_bundle_digest,
+next_trust_epoch,recovery_incident_id,audit_log_digest}`做 domain-separated offline approval；new bundle须有全新 root、
+满足正常 threshold的 signer roster、单调 next epoch与 release-identity attestation。special envelope只接受该
+bootstrap-pinned recovery chain，不要求已失效 old key；它 append exact-predecessor emergency record，再将新的 encrypted
+backup、完整 break-glass audit和 privileged `emergency_root_cutover` signature CAS到更高 external anchor epoch。
+anchor确认前 old state仍 active且零 write/receipt；确认后只从 anchored successor启用 new root。approval、incident/
+cause证据、参与 signer、trusted-time proof、backup/anchor request/read-back与 cutover receipt永久保留且可独立审计；
+不能改写旧 history、降低 time/frontier、重置 bootstrap或跳过 external anchor。recovery roster本身不足 threshold时
+系统保持 blocked，只能通过另一个已 bootstrap-pinned recovery threshold，绝无单人/admin/manual DB bypass。
+
+first history record的 predecessor必须是 first frontier并由 initial trusted leaf签名，或按上述 special envelope
+执行 exact emergency cutover；其后 `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,
+trust_emergency_root_cutover}` 可在首次 eligible valid publication之前按各自 normal/emergency authorization追加。
+前三者使用独立 governance lease/fence/threshold。`genesis_zero` fold把这些验签、phase-neutral且 publication-state-neutral
 的 records与 terminal non-valid/no-publication records一并忽略，只要求从 first frontier到本次 exact prepared
 owner之间从未出现 eligible valid publication/current marker restoration；它们不使 genesis失效。bootstrap
 root/roster不能由 history rotation替换；rotation只按 current trust chain推进，recovery必须从 manifest-pinned
@@ -321,7 +394,7 @@ digest不符或 KMS不可用均进入 `draft_recovery_blocked`，不得生成新
 ## Generated PR、documentation 与 publication states
 
 所有 generated PR及 replacement统一使用
-`generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
+`record_kind=generated_pr_planned → record_kind=generated_pr_bound`，两者 payload的 `pr_kind ∈
 {decurrent,rollback,new_current,nonvalid_row,invalidate_current}`。planned必须早于首次
 head-ref/commit/PR mutation，绑定 repo/owner generation/kind/candidate、base ref/OID、head
 repo/ref、expected tree/OID、patch/nonce/ruleset digest、trusted App/installation identity及
@@ -350,7 +423,7 @@ valid documentation plan是 exact closed union：
 
 - `rollover_one`：CAS证明每个 required surface恰有一个 eligible current valid row/marker，所有
   surface绑定同一 current release/version/summary identity且无 missing/duplicate/extra marker/
-  locale drift；以 `generated_pr_planned(decurrent)` 创建并 bind一次原子更新全部 surfaces的
+  locale drift；以 `record_kind=generated_pr_planned, pr_kind=decurrent` 创建并 bind一次原子更新全部 surfaces的
   PR identity。merge gate按 latest signed frontier验证 owner generation、committed envelope
   actual fence及 PR/head/base；合并后、publication intent前持久化 merge SHA与 before/after blob
   digest receipt。
@@ -365,7 +438,7 @@ valid documentation plan是 exact closed union：
 
 mixed zero/one、跨 surface version/summary不一致、缺 surface、闭集外 current marker、历史 valid却
 缺 exact terminal invalidation/fresh zero receipt及其它 zero-marker state均 fail closed。
-`publish_intent`须绑定对应 plan receipt与已 human-approved的 exact new-current patch/review/base
+`intent_written`须绑定对应 plan receipt与已 human-approved的 exact new-current patch/review/base
 digest；base/CAS变化即重审。valid ownership以 fenced CAS推进
 `valid_zero_marker → intent_written → release_committed_valid_marker_pending`。Release commit后
 worker消失时，reconciler只从 existing prepared owner+intent+public sentinel幂等补齐。
@@ -380,7 +453,7 @@ planned/bound与 review；original/replacement不能同时获 merge authorizatio
 `decurrent_pr_recovery_blocked`。已 merge且 intent前取消只允许恢复 receipt绑定旧 marker的
 reviewed rollback PR；rollback/new-current PR失败或 response loss时，current generation可在重取
 lease/fence后恢复 same-candidate/exact-patch human-reviewed replacement。新 generation takeover
-只能在 store-auth expiry后 higher-fence exact-frontier CAS；无获批 replacement时进入相应
+只能在 trusted-proof-derived store-auth expiry后 higher-fence exact-frontier CAS；无获批 replacement时进入相应
 recovery-blocked record并保留 owner。只有 rollback+draft cleanup或 new-current merge完成才 terminal。
 
 `publish_nonvalid`也必须从 prepared owner先 CAS至 `intent_written`，且只有该状态可推进
@@ -425,12 +498,15 @@ next_trust_epoch}`，其中 successor length exact 为 predecessor length+1；�
 延后签名。root bundle rotation必须 old+new threshold共同签名，绑定 previous bundle digest与同一 cutover
 与独立 governance attestation，history/store 不得自授权；历史 bundle/cert/key保留以验证
 旧 receipt。unknown/self-signed/wrong repo或purpose、epoch rollback/fork/gap、algorithm
-downgrade、expired/revoked或缺 rotation chain 均 fail closed。
+downgrade、expired/revoked或缺 rotation chain 均 fail closed；唯一例外是按 bootstrap-pinned
+break-glass chain验证且完成 external anchor确认的 `trust_emergency_root_cutover` special envelope。
 history append authorization 是 closed union：publication transition须 current owner
 generation/publication lease/fence；`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`
 是 phase-neutral governance transition，不含 owner generation，使用独立 repository-governance
 lease/fence、authenticated governance actor及 threshold approval，因此 prior owner terminal/
 no active owner时仍可轮换，active owner期间也不伪造 takeover或改变其 phase/liveness。
+`trust_emergency_root_cutover`同样 phase-neutral，但只接受前述 frozen break-glass authorization、exact anchored
+predecessor与 privileged anchor class，普通 governance/routine signer/fence不能生成或批准它。
 immutable rotation payload绑定 repo/purpose/current→next epoch、old/new key或bundle/cert/
 approval digests，stable `rotation_id=H(repo,purpose,current_epoch,next_epoch,kind,payload_digest,
 approval_digest)` 不含 predecessor/fence。store先查永久 `(repo_node_id,rotation_id)`：same
@@ -479,7 +555,7 @@ record schema是 versioned closed union。每条 history leaf exact top-level ob
 authorization fence/lease/actor只在 append envelope，committed receipt只在 envelope inventory，不得塞入
 immutable leaf。唯一 discriminator是 `record_kind`；`kind`/`type`/`record_type`/alias/unknown均拒绝。
 frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_digest}`，canonical digest使用
-`jcs-rfc8785-v1`。exact union只有下表 37 kinds；payload列是 closed required field set，missing/extra field
+`jcs-rfc8785-v1`。exact union只有下表 38 kinds；payload列是 closed required field set，missing/extra field
 一律 schema-invalid，nullable字段仅在显式写 `*_or_null` 时允许 canonical null。
 
 | `record_kind` | exact `payload` fields |
@@ -521,6 +597,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `trust_leaf_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_root_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,old_threshold_signature_digest,new_threshold_signature_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_key_revoked` | `{rotation_id,current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,replacement_key_or_bundle_digest_or_null,approval_digest,rotation_cutover_certificate_digest}` |
+| `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
 
 closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
@@ -539,10 +616,11 @@ fence/owner、缺失/截断/fork、过期 fence、checkout anchor或表外 kind�
 只以 `publication_terminal_no_publication` 结束；invalidation只以 planned→bound→merged→
 `invalidate_current_merged_receipt`→`record_kind=publication_terminal, terminal_kind=invalidation_completed`结束。
 recovery pending只可到 bound/not-applied/compensation/对应 blocked；八 blocked kinds均保留 owner且非 terminal。
-三种 governance kinds可插入任一 frontier但只改变 trust state。任何未列 edge或跳过 predecessor均拒绝。
+四种 governance kinds可插入任一 frontier但只改变 trust state；emergency kind另须满足 special authorization。
+任何未列 edge或跳过 predecessor均拒绝。
 `post_invalidation_zero` 的 invalidation suffix fold是 exact closed union：terminal non-valid
 publication、current prepared owner、下述 authenticated terminal no-publication attempt chain及已验签的
-phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`。no-publication chain从同
+phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked,trust_emergency_root_cutover}`。no-publication chain从同
 candidate的 `owner_claimed` 开始，可含 exact-predecessor `publication_owner_taken_over` successor、
 heartbeat、private-draft/asset cleanup及其 closed mutation slots，且必须以 store-signed
 `publication_terminal_no_publication` 结束；terminal receipt须绑定整条 generation/slot chain、
