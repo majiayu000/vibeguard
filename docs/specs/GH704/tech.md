@@ -14,7 +14,7 @@ Status: Draft；本文件只描述 **Recommended proposal（未批准）** 的�
 ## Codebase Context
 
 下表 14 个 codebase anchor 均在本 corrective branch 的 current base
-`origin/main@1bf5018ec2de4d28e080f1f56be79d4d9e4f8120` 读取。最后两个相邻
+`origin/main@73efc221892e52be2de134493ccd312561cd17ec` 读取。最后两个相邻
 workstream row 额外记录已合并 PR 的完整 source-head SHA，作为来源 provenance；两个
 source head 都是该 current main 的祖先，不是替代 baseline。
 
@@ -48,9 +48,10 @@ product/tech 和 planned-changes manifest，再写 tasks。
     无 shell、无 inherited secret env、无 daemon。**
 16. **H-016 — state/cache/locking（未批准）**：cache root、ownership、atomic write、
     lock 粒度、TTL/size、crash recovery 与 cleanup。**Recommended proposal（未批准）：
-    project-hash + session ID + policy/model digest 分区的 content-addressed cache，
-    per-key lock、atomic replace；只存 result/evidence digest，不存 raw source，不允许
-    cross-session reuse。**
+    project identity + trusted session identity + policy/model + exact sidecar artifact identity
+    分区的 content-addressed cache，per-key lock、atomic replace；只存 result/evidence
+    digest，不存 raw source，不允许 cross-session reuse。trusted session 只来自 OS/runtime
+    ownership boundary；inherited env/payload 只作 matching echo。**
 17. **H-017 — event/schema migration（未批准）**：event-log version bump、旧 reader、
     dual write/read、free-text precision projection 退役与 corrupt history policy。
     **Recommended proposal（未批准）：新增 typed optional `rule_signal` object 并提升
@@ -75,7 +76,8 @@ product/tech 和 planned-changes manifest，再写 tasks。
 ### 1. Approval gate 与 canonical policy
 
 实现入口先加载一个 closed `semantic-defense-policy`。policy 必须绑定 H-001–H-020 的
-批准记录/digest、config schema version、model/provider/protocol identities、允许的
+批准记录/digest、config schema version、model/provider/protocol identities、实际 sidecar
+artifact identity、trusted session/Git executable identities、允许的
 checks/W-rules、host/trigger、privacy/network、latency、precision、failure semantics
 和 rollout stage。
 
@@ -84,7 +86,7 @@ checks/W-rules、host/trigger、privacy/network、latency、precision、failure 
 ```text
 closed config
   → approval/policy digest join
-  → provider/model/release provenance
+  → trusted session/Git + provider/model/sidecar release provenance
   → host/trigger + privacy/network eligibility
   → detector/W-rule + latency/precision eligibility
   → effective off/advisory/block
@@ -92,7 +94,9 @@ closed config
 
 任何 join 缺失、空值、未知、冲突或 drift 都在模型执行前产生 structured
 `unavailable/error`。普通 env getter 不得覆盖 model digest、provider、network、
-precision floor 或 block eligibility；只有 H-001 明确列出的降级/kill-switch env 可生效。
+precision floor、session/cache partition、sidecar artifact 或 block eligibility；只有 H-001
+明确列出的降级/kill-switch env 可生效。完整 identity 和 recovery 子协议见
+[`runtime-integrity.md`](runtime-integrity.md)，该文件是这些字段与状态边的规范性来源。
 
 H-001 Recommended project opt-in（仍未批准）的唯一 enable surface 是当前 hook payload
 所指 repository root 的 `.vibeguard.json`：planned `semantic_defense` object 只接受 required boolean
@@ -108,7 +112,10 @@ workspace.current_dir` 选择 cwd。被选值必须是 non-empty absolute path�
 `git_root_for(absolute_payload_cwd)` 从 canonicalized payload directory 求 git root；该
 helper 的 child environment 必须从 closed allowlist 重建，删除所有 inherited `GIT_*`
 变量（包括 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、object/config/ceiling/discovery
-overrides）以及 `PWD`/`CDPATH`，且只能用参数数组执行 `git -C <payload> rev-parse`，再只
+overrides）以及 `PATH`/`PWD`/`CDPATH`，且只能从 installer/release receipt 取得 absolute、
+no-follow、digest-bound Git executable capability，用参数数组执行
+`<verified-git> -C <payload> rev-parse`；禁止 basename/shell/PATH lookup，并在 verify/exec
+边界保持 executable file identity。再只
 接受 canonicalized returned root 等于 canonical payload cwd 或为其 component-aware
 ancestor；symlink-resolved payload 不在 returned root 内，或 repo-local gitdir/
 `core.worktree` 把 root 重定向到 sibling/external path 时返回 `unavailable/error`，不能
@@ -132,8 +139,10 @@ pre/post file-change hook 的 top-level `cwd`；只给 child `Command::current_d
 payload absolute cwd B、process cwd A + payload `.`、四个 payload 字段 absolute A/B
 precedence、missing cwd × ambient key missing/false/true、invalid payload cwd、
 `GIT_DIR` + `GIT_WORK_TREE` 重定向到 opted-in B、external path/env enable negative fixtures，
-repo-local gitdir + `core.worktree=B`、config symlink/reparse/rename-race、app-server
-trusted-thread-cwd fixtures，必须证明只有 ancestry-bound payload project 可请求 eligibility，其余路径零 provider/cache/metric activity。
+repo-local gitdir + `core.worktree=B`、hostile PATH fake Git、verified Git replacement/revoke、
+config symlink/reparse/rename-race、app-server trusted-thread-cwd fixtures，必须证明只有
+release-owned Git + ancestry-bound payload project 可请求 eligibility，其余路径零
+provider/cache/metric activity。
 
 ### 2. Recommended Core module boundary
 
@@ -310,65 +319,20 @@ offset 的 bounded record 并比较 event ID + digest，匹配则补 marker，�
 - precision：exact identity 的 outcome/evidence record；
 - Learn：project-scoped `defense_gap` candidate input。
 
-`runtime_signal` coordinator 在 project lock 下是唯一 group-state writer；consumer 只能写
-group data/receipt。closed graph 是 `prepared → journaled → staged → commit_prepared →
-activating[bitmap] → all_activated → projection_prepared → projection_queued → done →
-projection_done`，以及 barrier 前 `* → abort_prepared → aborted`。禁止跳转/回退/第二 state machine；每条 transition 含 previous digest，group digest 覆盖 schema/event/pending/decision/ordered stage+expected activation-receipt digests。
+group commit、barrier visibility、bounded recovery admission 与 global append 的规范性状态机
+在 [`runtime-integrity.md`](runtime-integrity.md)。摘要不另建第二份协议：唯一 coordinator
+推进 `prepared → journaled → staged → commit_prepared → activating[bitmap] → all_activated →
+projection_prepared → projection_queued → done → projection_done`；barrier 前可 durable abort，
+barrier 后只向前恢复；所有 reader join 同一 `all_activated` digest。reconcile policy 必须先
+通过 `reconcile_io_max_bytes >= max_atomic_recovery_bytes(schema_version)` admission，且每个
+oldest-first item 开始前的 remaining budget 足以完成一个最大 atomic state edge。
 
-三个 consumer 以 `(group,event,consumer,digest)` 幂等写不可见 `staged` version。
-`commit_prepared` durable 保存完整 barrier body/digest 与 expected journal offset；每次 provisional activation 仍不可见，并提交 checksummed bitmap + receipt digest。partial activation 只可 exact-key 补齐；若已 `abort_prepared`，幂等撤销整个 group 后写 `aborted`。barrier 后不得回滚。
-
-全部 activation receipt 匹配后，才在 prepared offset append/fsync canonical
-`all_activated` barrier 并提交同名 transition；crash 只读 exact offset+digest。decision、
-任一 consumer、status/aggregate/precision/Learn **都不能单独可见**：所有 reader 必须把
-自身 group/version join 同一 barrier digest；无 barrier 返回 pre-final 状态且数据为空。
-
-barrier 后先 durable `projection_prepared {queue_key,expected_queue_offset,
-bounded_derived_body,barrier_digest,record_digest}`，才可 exact-offset append/fsync queue 并
-写 `projection_queued`；crash 只能补 append/marker。queue 后才 `done`，global receipt 后才 `projection_done`。queue metadata 使用两个 checksummed generations，只保存 committed
-head/tail cursor、pending count 与 oldest timestamp；每条 WAL record 有 closed maximum
-length。startup 与每次 hook 在启动新 provider前只读取 fixed-size metadata header，再从
-head cursor oldest-first 处理，直到 policy 中 H-006/H-007 已批准的正整数
-`reconcile_batch_max`、`reconcile_deadline_ms` 或 `reconcile_io_max_bytes` 任一先到；
-deadline/byte counter 从首次 lock attempt 以及 open/stat/header/WAL parse 与
-expected-offset journal read 就开始，
-不得先反序列化完整 index，也不得扫描完整 journal、其它 project 或 HOME。缺少合法
-limits、两个 metadata generation 均 corrupt、record length/offset/digest 非法、consumer
-unavailable 或 batch 后仍有 pending 时，本次状态为 `needs_repair/
-reconciliation_backlog/unavailable`；可证明时输出 pending count 与 oldest age，损坏时
-对应值为空并标明原因。所有这些状态都保留 durable WAL/L1 decision，且不启动 provider、
-不追加新的 GH-704 pending event。仅当 effective flag 仍 enabled 且 kill switch 未生效，
-后续 hook 才尝试 bounded batch，使正常 backlog 可排空而不让同步路径无界增长；off/kill
-switch 在任何 WAL/journal open 前 short-circuit，冻结 backlog 且零 consumer/metrics/
-precision/Learn write。冻结 backlog 只能由 H-016/H-007 另行批准并显式调用的 maintenance
-drain 处理；重新 enable 时先 bounded reconciliation，排空前不启动新 L2。corrupt 状态
-不得自动删除、猜测或 full-scan rebuild，只能由
-`setup.sh doctor`/`--check` 指出项目、损坏 generation/reason 与 H-016 批准的显式人工
-repair 要求，在该决定批准前保持 L2 disabled。重放不得重复计数、candidate 或 escalation；
-crash 可发生在每个 transition、stage、activation、barrier、queue append/marker 的前后；
-每一点都必须证明 barrier 前所有 reader/aggregate/precision/Learn 为空、无重复计数，
-并在 bounded I/O 内幂等补齐/回滚或明确 `needs_repair`。
-
-既有 L1 project/global dual logging 行为不属于 GH-704 migration，保持原合同。GH-704
-typed pending/group/barrier record 禁止独立 dual append；project `all_activated` barrier
-才可进入 global derived projector。derived record 必须绑定 source project hash、event
-ID、barrier digest 和 projection schema version。global projector 使用有 size/load/
-record-length 上限的 sharded keyed identity index；先以 exact identity key 写入/fsync
-`projection_prepared {digest, expected_global_offset}`，再在该 offset append/fsync global
-derived record，随后原子提交 `projection_applied`，最后写 project-scoped projection
-receipt。所有 shard 共享一个 deadline-bounded global append allocator；它用 nonblocking
-stale-safe lock/CAS 在 checksummed allocator WAL+metadata 中原子保留唯一
-`{reservation_id,identity_key,expected_offset,barrier_digest,bounded_derived_body,new_tail}`，提交 reservation 后才
-允许 per-key `projection_prepared`，因此跨 project/key/shard 不会复用 offset。reservation
-后/index prepared 前的 crash 直接从 allocator WAL 的 bounded body 重建 exact key work item。project
-`projection_queued` fsync 与 global append 之间失败时报告 `projection_lag`；
-global append 后、index applied 或 project receipt 前失败时，只查 exact key 和 expected
-offset + digest 后补 marker/receipt，禁止扫描 global log、重复 append 或猜测。index
-full/corrupt/lookup 超界时保持 lag + 空值，等待显式 repair；global
-status/aggregate 不得从 mirror 推断 L2 eligibility，只能 join canonical barrier digest，
-未同步时返回 lag + 空值。global projection 不是 project finalization consumer，不能
-反写或改变 canonical decision。legacy free-text event 可以显示为 `legacy_untracked`，
-但禁止正则猜 rule identity 后进入 block precision。
+global projector 使用唯一 deadline-bound append sequencer；同一 lease 从 offset reservation
+持续到 exact-offset append/fsync、`projection_applied` 和 allocator tail commit，earlier
+reservation 未 applied 时禁止 later append。reservation 携带 bounded body，crash 只按
+earliest reservation + exact key/offset/digest 补 append/marker/receipt，禁止 per-key 乱序、
+扫描 global log、跳洞或猜测。projection lag 保持空 global data，不能反写 canonical project
+decision。既有 L1 dual logging 不变；legacy free text 只可显示为 `legacy_untracked`。
 
 Learn 扩展现有 schema，新增一个 closed semantic-defense signal type和 typed source
 identity；stable ID 使用 project + rule/signal/evidence class，不使用可变 reason 文本。
@@ -403,13 +367,20 @@ identity equality。若维护者选择新 semantic 命令，先改写 H-014 与�
 
 Recommended local-sidecar path（未批准）使用参数数组和 closed stdio protocol；child
 环境 allowlist 不含 token/proxy/HOME secrets，cwd 指向专用 temp root，禁止网络和任意
-filesystem traversal。stderr 先分类/redact，再进入 bounded diagnostic。
+filesystem traversal。sidecar 必须从 verified executable capability 启动，实际 artifact 的
+version/digest/target/protocol/manifest/attestation/revoke identity 与 approval、request/result、
+cache、precision、status 使用同一 digest；任一 drift 在 exec 前失效。stderr 先分类/redact，
+再进入 bounded diagnostic。
 
 request 在 deadline/cancel 时终止 child 并回收；cache/journal 只在记录的 dedicated root
 下 atomic write/cleanup。cache value 不含 raw source/prompt/output。cache identity 和
-storage partition 都包含 project hash + session ID + input/model/protocol/policy digests；
-仅同一 project/session 的并发同 key 使用 bounded lock，不同 session 即使输入相同也不能
-读写同一 result。kill switch 不删除 L1 state，关闭后不再启动任何 L2 request。
+storage partition 都包含 project identity + trusted session identity + input/inventory/model/
+protocol/policy/sidecar-artifact digests。trusted session 只能来自 OS-authenticated runtime
+boundary 或 app-server owned `SessionState` capability；inherited `VIBEGUARD_SESSION_ID`/
+payload 只作 matching echo，冲突在 cache/provider/state 前失败。仅同一 project/session 的
+并发同 key 使用 bounded lock，不同 session 即使输入相同也不能读写同一 result；没有 trusted
+session source 时整个 L2 `unavailable`，禁止 uncached fallback。kill switch 不删除 L1 state，
+关闭后不再启动任何 L2 request。
 
 独立 `core_us` 证据由 planned **tests/bench_semantic_core.sh** 驱动 planned
 **vibeguard-runtime/benches/semantic_defense_core_us.rs** 的同进程 harness，并 import
@@ -422,13 +393,14 @@ startup、hook wrapper、stdio/config discovery、event projection、sidecar pro
 执行。initial 与 confirmation batch 的每一个 cold sample 都必须在计时边界外删除并
 重建其 exact project/session cache root、重置 provider-start state，随后断言 cache/provider
 state 为空才开始计时；不能只在 fixture 或 batch 开头清空一次。每一个 warm sample 都在
-计时边界外预先写入同一 exact input/inventory/detector/model/protocol/policy/project/
-session identity 的合法 cache，并断言 warm hit 前提后才计时。reset/prewarm/assertion
+计时边界外预先写入同一 exact input/inventory/detector/model/protocol/policy/sidecar-artifact/
+project/trusted-session identity 的合法 cache，并断言 warm hit 前提后才计时。reset/prewarm/assertion
 任一失败使 runner nonzero。两者使用同一 sealed provider-result fixture，使差值只归因于
 core cache path。
 
 core runner 必须输出 versioned JSON，逐 fixture 记录 `surface=core_us`、exact fixture ID、
-P50/P95/P99/max、runs、platform、cache state、detector/model/protocol/policy identities、
+P50/P95/P99/max、runs、platform、cache state、detector/model/protocol/policy/sidecar-artifact/
+trusted-session identities、
 approved budget、initial/confirmation batches 与 decision。H-006 批准前 budget 为空且不得
 作为 promotion evidence；批准后缺 budget/identity、零样本或字段不匹配必须 nonzero。
 healthy initial P95 breach 只允许用同 identity/workload 的 fixture-local confirmation
@@ -480,7 +452,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 108 条唯一 repo paths：67 条 existing、41 条 planned。
+H-001–H-020 已批准。当前共 109 条唯一 repo paths：68 条 existing、41 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -506,6 +478,7 @@ H-001–H-020 已批准。当前共 108 条唯一 repo paths：67 条 existing�
     "vibeguard-runtime/src/event_schema.rs",
     "vibeguard-runtime/src/hook_orchestrator.rs",
     "vibeguard-runtime/src/hook_orchestrator_context.rs",
+    "vibeguard-runtime/src/hook_orchestrator_post_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs",
     "vibeguard-runtime/src/hook_orchestrator_stop.rs",
     "vibeguard-runtime/src/session_metrics/signals.rs",
@@ -603,6 +576,7 @@ H-001–H-020 已批准。当前共 108 条唯一 repo paths：67 条 existing�
   "spec_refs": [
     "docs/specs/GH704/product.md",
     "docs/specs/GH704/tech.md",
+    "docs/specs/GH704/runtime-integrity.md",
     "docs/specs/GH704/tasks.md"
   ]
 }
@@ -615,14 +589,14 @@ Complete-path cross-check：
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；every initial/confirmation cold sample resets and proves empty cache/provider state outside timing, every warm sample prewarms and proves exact-identity hit；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；every cold sample independently resets cache/provider-start state and every warm sample proves prewarm outside timing；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
-| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/git_root.rs`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/src/codex_app_server_file_changes.rs`; `vibeguard-runtime/src/codex_app_server_hooks.rs`; `vibeguard-runtime/src/codex_app_server_strategies_tests.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; planned **tests/hooks/test_semantic_defense.sh** | app-server injects trusted thread cwd；sanitized ancestry-bound Git root and descriptor no-follow config read reject env/gitdir/worktree/config-link redirects；missing cwd off/L1 parity，invalid cwd fail visible |
-| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh` | one durable group state machine；all readers join `all_activated` barrier；partial activation completes/rolls back idempotently；write-ahead barrier/queue intents close every crash boundary；global allocator reservation carries recoverable body；off freezes backlog；pre-barrier failures render from bounded WAL/queue |
+| Project-scoped opt-in + trusted execution identity | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/git_root.rs`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/src/codex_app_server_file_changes.rs`; `vibeguard-runtime/src/codex_app_server_hooks.rs`; `vibeguard-runtime/src/codex_app_server_strategies_tests.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/{config,identity,cache,provider}.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`; planned **tests/hooks/test_semantic_defense.sh** | app-server-owned session capability；env session only matches；absolute receipt-bound Git rejects PATH/replacement；sidecar artifact identity joins eligibility/cache/evidence；no-follow ancestry config；missing cwd off/L1 parity，invalid/conflicting identity fail visible |
+| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh`; `docs/specs/GH704/runtime-integrity.md` | one durable group state machine；all readers join `all_activated` barrier；partial activation completes/rolls back；I/O cap admits one maximum atomic edge；global sequencer holds reservation through ordered append/applied/tail；off freezes backlog；pre-barrier failures render from bounded WAL/queue |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
 | Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `tests/test_manifest_contract.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` reports runtime/sidecar separately at ≥80% lines；closed inventory assigns 100% line+branch to `vibeguard-runtime/src/{git_root,project_config,codex_app_server_file_changes,codex_app_server_hooks,hook_orchestrator_context,hook_orchestrator,event_schema}.rs`、runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs` and sidecar `{protocol,sandbox}.rs`；gate rejects missing totals、zero denominators、missed conditional/short-circuit arms、duplicate/unknown/missing paths、malformed reports、aggregate masking、normalization misses、unclassified modules or any file below either floor；independent mandatory-set/contract and B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028 matrices map every branch ID |
+| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `tests/test_manifest_contract.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` reports runtime/sidecar separately at ≥80% lines；closed inventory assigns 100% line+branch to `vibeguard-runtime/src/{git_root,project_config,codex_app_server_file_changes,codex_app_server_hooks,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,event_schema}.rs`、runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs` and sidecar `{protocol,sandbox}.rs`；gate rejects missing totals、zero denominators、missed conditional/short-circuit arms、duplicate/unknown/missing paths、malformed reports、aggregate masking、normalization misses、unclassified modules or any file below either floor；independent mandatory-set/contract and B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028 matrices map every branch ID |
 
 ## Product-to-Test Mapping
 
@@ -635,17 +609,17 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、project config CLI、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_cwd_is_authoritative`、`git_environment_cannot_redirect_project` 与 `project_scoped_opt_in_env_rejection`；missing cwd × ambient key 必须 off/L1 parity；app-server trusted thread cwd 必须出现在 canonical payload；process/payload mismatch、field precedence、same-HOME projects、Git env/gitdir/worktree redirect、config symlink/reparse/rename race、external config/env 与 stale approvals 都错误可见且零 provider/cache/metrics |
+| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、project config CLI、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_cwd_is_authoritative`、`git_environment_cannot_redirect_project` 与 `project_scoped_opt_in_env_rejection`；missing cwd × ambient key 必须 off/L1 parity；app-server trusted thread cwd 必须出现在 canonical payload；process/payload mismatch、field precedence、same-HOME projects、Git env/gitdir/worktree redirect、hostile PATH fake Git、verified executable replace/revoke、config symlink/reparse/rename race、external config/env 与 stale approvals 都错误可见且零 provider/cache/metrics |
 | B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity` 与 `bash tests/hooks/test_runtime_rule_signals.sh disable_freezes_pending_backlog`；覆盖 missing cwd、project key missing/false、kill switch + pending WAL，断言 hook 不打开/重放 L2 state、consumer/metrics/precision/Learn canary 全空、L1 output parity；再跑 `bash tests/test_hook_perf_contract.sh` |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
-| B-005 exact model identity | identity/provenance + release contract | `bash tests/hooks/test_semantic_defense.sh model_identity_provenance`、`bash tests/setup/semantic_asset_install_tests.sh provenance` 与 `bash tests/test_release_workflow.sh`；逐字段 removal/digest/platform/license/protocol mismatch，并证明每个 same-tag semantic asset 的 checksum、attestation、dependency metadata、target matrix 与 install provenance |
+| B-005 exact model + sidecar identity | identity/provenance + release contract | `bash tests/hooks/test_semantic_defense.sh model_identity_provenance`、`sidecar_artifact_identity_invalidation`、`bash tests/setup/semantic_asset_install_tests.sh provenance` 与 `bash tests/test_release_workflow.sh`；逐字段 removal/digest/platform/license/protocol mismatch；sidecar byte/version/target/manifest/attestation/revoke 任一变化同时使 approval/eligibility、cache、precision 与 status evidence 失效；每个 same-tag asset 证明 checksum、attestation、dependency metadata、target matrix 与 install provenance |
 | B-006 untrusted output | protocol/provider sandbox | `bash tests/hooks/test_semantic_defense.sh untrusted_provider_output`；malformed/extra/injection/tool/oversize fixture 的 mutation canary 不变 |
 | B-007 input privacy | request builder/redactor | `bash tests/hooks/test_semantic_defense.sh input_privacy_redaction`；比较 request/log golden 并扫描 secret/path canary |
 | B-008 network policy | provider/install boundary | `bash tests/hooks/test_semantic_defense.sh runtime_network_and_fallback` 与 `bash tests/setup/semantic_asset_install_tests.sh explicit_network_only` |
 | B-009 bounded execution | provider/cache | `bash tests/hooks/test_semantic_defense.sh timeout_oom_crash_cancel`；逐项断言 child reaped、无后续 request、bounded root clean |
 | B-010 latency evidence | synchronous canonical core + installed-hook runners and metrics contract | `bash tests/bench_semantic_core.sh --runs=30 --confirmation-runs=30 --fail-on-regression` 必须各执行一次 `semantic-defense-core-cold-cache`、`semantic-defense-core-warm-cache`，以 `core_us` versioned result 固定 production entrypoint、timing boundary、cache state、identity、P50/P95/P99/max、approved budget 与 confirmation；`bash tests/bench_hook_latency.sh --runs=3 --confirmation-runs=3 --fail-on-regression` 必须各执行一次 `semantic-defense-direct-cold-cache`、`semantic-defense-direct-warm-cache`、`semantic-defense-codex-wrapper-cold-cache` 与 `semantic-defense-codex-wrapper-warm-cache` installed-hook fixture；两个 runner 的 initial/confirmation batch 都必须逐 sample 记录 timing 外的 cold reset-empty 或 warm prewarm-hit evidence，任一 reset/prewarm/canary 失败 nonzero；`bash tests/test_hook_perf_contract.sh` 对两类 surface 的六个 exact IDs、compile-only smoke、budget table、CI/result contract、per-sample cache/provider reset、identity/confirmation wiring 做 exact-count 检查，缺任一类证据或互相替代均失败；`bash tests/hooks/test_semantic_defense.sh synchronous_advisory_delivery` 证明 provider 完成前不返回、advisory 在同一次 response 且无后台 queue/later delivery；`latency_evidence_shape` 校验 path-specific identity-bound result |
-| B-011 cache identity | cache module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::cache::tests::identity_invalidation_and_isolation -- --exact`；同 project/session 并发去重，不同 project 或 session 即使 exact input 相同也必须 cache miss 且不能读取对方 result |
+| B-011 cache identity | cache + trusted session handoff | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::cache::tests::identity_invalidation_and_isolation -- --exact` 与 `bash tests/hooks/test_semantic_defense.sh trusted_session_identity`；同 project/trusted-session 并发去重；inherited env spoof、payload echo conflict、app-server session rotation、missing trusted source 与 sidecar identity drift 都在 lookup/provider 前 miss/fail，且不能读取另一 project/session result |
 | B-012 API scope | TypeScript/npm inventory resolver | `bash tests/hooks/test_semantic_defense.sh typescript_npm_inventory_scope`；覆盖 supported/unknown/generated/dynamic/feature/version/missing inventory |
 | B-013 production-only API detector | Core handler + GH-700 adapter | `python3 eval/test_semantic_eval.py production_entrypoint_only`；拒绝 test-only/case-ID/path-existence mapping |
 | B-014 deterministic W-12 baseline | test-weakening join | `bash tests/unit/test_sec11_review_guards.sh` 与 `bash tests/hooks/test_semantic_defense.sh w12_baseline_identity` |
@@ -661,8 +635,8 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-024 W-12 attribution | W-12 reducer | `bash tests/hooks/test_runtime_rule_signals.sh w12_signal_attribution`；三种 signal kind 与去重 precedence |
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
-| B-027 fail-visible group commit | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog` 与 `bounded_project_lock`；遍历每个 closed transition、consumer stage/activation、barrier append/marker、queue prepare/append/marker 的 before/after crash，负例断言 barrier 前 decision/aggregate/precision/Learn 全空；partial activation exact-digest 补齐或 durable abort+rollback，永不重复；pre-WAL volatile error、lock/stale/caps/corruption/kill-switch 保持可见且 bounded/L1 |
-| B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery` 与 `cross_project_offset_reservation`；唯一 state owner/digest graph 和 `all_activated` barrier join；queue write-ahead prepare 带 expected offset/body/digest，allocator reservation 自带 bounded body；crash 在 queue/global reservation/prepare/append/applied/receipt 后 exact-key 恢复，并发 shards offsets 唯一且无 scan/duplicate/hole |
+| B-027 fail-visible group commit | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog`、`atomic_recovery_io_floor` 与 `bounded_project_lock`；遍历每个 closed transition、consumer stage/activation、barrier append/marker、queue prepare/append/marker 的 before/after crash，负例断言 barrier 前 decision/aggregate/precision/Learn 全空；partial activation exact-digest 补齐或 durable abort+rollback；每个 edge 的 floor 累计其全部 mandatory read/write records，`floor-1` admission 拒绝，exact floor 完成最大 atomic edge，remaining budget 不足则零新 transition；pre-WAL error、lock/stale/corruption/kill-switch 保持 visible/bounded/L1 |
+| B-028 single authority + serialized derived projection | canonical project journal + global append sequencer | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery` 与 `cross_project_offset_reservation`；唯一 state owner/digest graph 和 `all_activated` barrier join；queue write-ahead prepare 带 expected offset/body/digest；sequencer lease 从 reservation 持有到 append/fsync + applied + tail commit，earlier 未 applied 时 later 不得 append；每个 crash 点按 earliest exact key/offset/digest 恢复，并发 project/key/shard offsets 唯一、严格有序且无 scan/duplicate/hole |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |

@@ -145,7 +145,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    非目录、无法 canonicalize/求 git root 时必须在首个 provider/cache/metrics 动作前
    返回可见 `unavailable/error`，不得相对 ambient cwd 解析。求 git root 必须清除所有
    inherited `GIT_*` repository/config-selection variables，不能被 `GIT_DIR`/
-   `GIT_WORK_TREE` 等重定向。Git 返回的 canonical root 还必须是 canonical payload cwd
+   `GIT_WORK_TREE` 等重定向。Git 必须从 installer/release-owned 的 absolute、no-follow、
+   digest/receipt-bound executable capability 执行；禁止 basename、shell 或 inherited `PATH`
+   选择 executable，verify/exec 间 identity 改变必须拒绝。Git 返回的 canonical root 还必须是 canonical payload cwd
    自身或其 component-aware ancestor；repo-local gitdir/`core.worktree` 把 root 指到
    payload ancestry 外时拒绝。四个 payload cwd 字段全部缺失表示不存在合法 enable source，
    必须直接保持 off 和 L1 输出 parity，不能读取 ambient project 或生成 L2 error。
@@ -161,8 +163,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    schema。缺失、空值、未知字段/枚举、duplicate key、越界、floating model alias 或
    identity mismatch 必须在首个 inference 前 fail visible，且零模型执行。
 5. B-005: production model identity 必须绑定 provider kind、exact model/weights
-   version、digest、license/provenance、runtime protocol、policy digest 与适用
-   platform。任何字段不可用时状态为空值加 `unavailable`，不得写 `latest`、`unknown`
+   version、digest、license/provenance、runtime protocol、policy digest、适用 platform 与
+   实际 sidecar artifact 的 exact version/digest/target/manifest/attestation/revoke identity。
+   任何字段不可用时状态为空值加 `unavailable`，不得写 `latest`、`unknown`
    或沿用旧身份。
 6. B-006: 模型/sidecar 输出是不可信输入，只能通过 closed result schema 返回
    `{check_id, outcome, confidence/evidence fields, reason_code, identity digests}`；模型
@@ -188,9 +191,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     命中前提。任一 reset/prewarm/assertion 失败必须使 runner nonzero，不能把后续样本
     伪报为 cold/warm。未达到 H-006 或现有 hook SLA 时相关 rollout 状态不得提升。
 11. B-011: cache key 必须绑定 exact input digest、dependency inventory digest、
-    detector/model/protocol/policy identity、项目 scope 与 `session_id`；source/dependency/
-    model/policy/project/session 改变必须失效。仅同一 project + session 内的并发相同请求
-    至多产生一个权威结果；不同 project 或 session 不得互相读取或复用。
+    detector/model/protocol/policy identity、sidecar artifact identity、项目 scope 与
+    trusted session identity；source/dependency/model/policy/sidecar/project/session 改变必须
+    失效。trusted session 只能来自 OS-authenticated runtime ownership boundary 或 app-server
+    owned `SessionState` capability；inherited `VIBEGUARD_SESSION_ID`/payload 只可作 matching
+    echo，不能选择 cache partition，冲突须在 cache/provider/state 前 fail visible。仅同一
+    project + trusted session 内的并发相同请求至多产生一个权威结果；不同 project 或
+    session 不得互相读取或复用。host 无 trusted session source 时整个 L2 在 cache/provider/
+    state 前 `unavailable`，禁止以 uncached mode 或随机 per-invocation identity 继续执行。
 12. B-012: invented API 检查只允许对 H-009 获批的 language/package-manager/version/
     feature 范围下、由 production dependency inventory 证明的 symbol 作结论。dynamic/
     generated/conditional/ambiguous 或 inventory 缺失必须返回 closed `unknown/
@@ -255,7 +263,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     不得留下未索引 pending 或重复 event。reconciliation 只能通过 fixed-header、
     cursor/length-bounded 的 project queue/WAL，按 oldest first 在 H-006/H-007 批准且
     policy-bound 的正整数 `reconcile_batch_max`、`reconcile_deadline_ms` 与
-    `reconcile_io_max_bytes` 三重上限内重放；上限覆盖 open/stat、index parse、journal
+    `reconcile_io_max_bytes` 三重上限内重放；I/O cap 必须至少等于按 schema 对所有 legal
+    transition 计算的 `max_atomic_recovery_bytes`：对该 edge 所有必需 record reads 与全部
+    WAL/journal/queue/marker/metadata/consumer/receipt writes 求和，再在 edges 间取最大值；
+    低于 floor 在 provider/cache/journal 前拒绝。每条 work item
+    开始前还必须证明 remaining budget 足以完成其 exact worst-case atomic edge。上限覆盖 open/stat、index parse、journal
     offset read、consumer 与 receipt write，禁止在同步 hook 前加载完整 index、扫描完整
     journal、其它 project 或 HOME。缺少合法上限、index/WAL 损坏、consumer 不可用或
     batch 后仍有 backlog 时必须显示 `needs_repair/reconciliation_backlog/unavailable`、
@@ -282,11 +294,13 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
     project WAL 在 queue append 前先 durable `projection_prepared`，保存 expected queue offset 与 bounded
     derived body/digest；exact-offset append/fsync 后才写 `projection_queued` 并允许
-    semantic `done`。global worker 必须先由跨 project/shard 的唯一 deadline-bounded
-    allocator 原子 reservation offset，且 reservation 自身携带 bounded body；再以该 offset/
-    digest 写 bounded keyed `projection_prepared`、append/fsync、applied state 与 project
-    receipt。projection receipt 前不得丢弃。恢复只按 exact key/offset/digest 判断，禁止
-    扫描 project/global log。
+    semantic `done`。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
+    append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
+    append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
+    applied 时禁止 later offset append。reservation 自身携带 bounded body，再以该 offset/
+    digest 写 keyed `projection_prepared` 与 project receipt；receipt 前不得丢弃。恢复只按
+    earliest reservation + exact key/offset/digest 判断，禁止扫描 project/global log、跳洞
+    或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -333,7 +347,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
       以及 payload cwd 缺失/relative/非法、`GIT_DIR` + `GIT_WORK_TREE` 指向另一 opted-in
       project、repo-local gitdir + external `core.worktree`、redirected `.vibeguard.json`
-      fixtures，证明只有 no-follow、ancestry-bound payload project 可以请求 opt-in；
+      hostile inherited PATH fake Git、verified Git replacement/revocation fixtures，证明只有
+      release-owned absolute executable 与 no-follow、ancestry-bound payload project 可以请求 opt-in；
       Codex app-server 必须把 trusted thread cwd 写入 canonical payload，而不是只设 child
       process cwd；cwd 全缺失保持 off/L1 parity，其它错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
@@ -347,8 +362,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
       单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
-      partial activation 可幂等补齐/回滚，durable projection prepare/queue/allocator 不
-      丢失 payload 或重用 offset，free-text/global mirror 不再是权威路径。
+      partial activation 可幂等补齐/回滚，reconcile cap 的最小合法值能完成最大 atomic
+      record，durable projection prepare/queue/sequencer 不丢失 payload、不重用 offset 且
+      serialized append 无洞，free-text/global mirror 不再是权威路径。
+- [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
+      cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
+      使 approval/eligibility、cache、precision 与 status evidence 失效。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
@@ -356,6 +375,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final
       reducer/orchestration、inventory 及 adapter verdict、semantic test-weakening verdict、
       runtime W-rule state machine、metrics eligibility、project config/context/event identity、
+      actual `hook_orchestrator_post_edit.rs` delivery owner、
       project cache/journal recovery，以及 protocol/provider/sandbox 的所有 decision、
       isolation、durability 分支达到 100% line 与 branch/condition coverage。独立 closed
       critical-file inventory 与合同测试必须拒绝遗漏、未知或新增但未分类的关键模块；
