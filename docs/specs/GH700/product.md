@@ -288,17 +288,42 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     normal/recovery Release 写使用同一 closed slot machine，`kind∈{draft_create,draft_update,
     draft_delete,asset_upload,asset_delete,publish}`。远程调用前须 fenced-CAS append
     `release_mutation_planned(kind,slot)`，绑定 repo/tag identity/owner generation/kind/slot/
-    transition op/predecessor、protected one-time mutation nonce、trusted App/installation、
-    exact pre-state/request bytes/expected post-state digests及 kind-specific完整 tuple：create
-    绑定 claim nonce/tag/source/draft metadata；update绑定 release node与 full pre/post metadata；
+    predecessor/stable mutation slot ID/plan-core digest、protected one-time mutation nonce
+    digest、trusted App/installation、
+    exact pre-state/canonical non-secret request template/expected post-state digests及
+    kind-specific完整 tuple：create绑定 claim nonce digest+capsule identity/tag/source/draft
+    metadata；update绑定 release node与 full pre/post metadata；
     upload绑定 canonical manifest entry/name/label/content-type/size/SHA-256；asset/draft delete绑定
     exact node/full preimage与 expected absence；publish绑定 release node、exact asset set、
-    draft→published/make-latest policy。mutable fence/lease只在 authorization envelope。
+    draft→published/make-latest policy。history中的 `request_commitment` 只对 non-secret template、
+    mutation nonce digest/capsule identity及 draft-create专用 claim nonce digest/capsule identity做
+    JCS hash。构造顺序固定且无环：先冻结不含 nonce/capsule/commitment/ciphertext/final payload
+    digest/operation ID的 non-secret plan core；再计算 `plan_core_digest`及
+    `mutation_slot_id=H(v,repo_node_id,owner_generation,kind,slot,predecessor,plan_core_digest)`，
+    选择 opaque capsule ID。每个 proposed slot须由 store/HSM CSPRNG签发 fresh mutation nonce
+    并计算 typed digest
+    `H(JCS({v:"GH700:release-mutation-nonce:v1",repo_node_id,owner_generation,kind,slot,
+    mutation_slot_id,nonce_b64u}))`；随后计算 request commitment并以
+    `(repo,owner,kind,slot,mutation_slot_id,request_commitment)` 作 capsule AAD/index，最后把
+    ciphertext digest/KMS version纳入 final plan payload，计算 payload digest及 generic
+    transition operation ID。capsule持久化与 planned append在同一事务完成。same operation
+    replay只能返回原 plan/capsule，跨 slot/kind/owner/slot-ID/operation替换拒绝。raw
+    claim/mutation nonce不在
+    template、commitment preimage、intent、history、日志或 receipt中，只能在 authorize后经
+    authenticated secret channel解封并交给 broker构造 wire request。mutable fence/lease只在
+    authorization envelope。
     只有 planned state可经 environment-protected sole broker调用；pre-call guard authorization
     绑定 current tag/ruleset、owner、actual fence/frontier、plan digest与 broker delivery ID，
-    但不证明 remote commit。normal response后重取 server state，只有 postcheck通过才 append
-    `release_mutation_bound`与 completed guard receipt，绑定 request、response/resource IDs、
-    pre/post tag+ruleset tuples、owner/fence/frontier。
+    broker须按 plan解封 exact mutation capsule及 draft-create的 exact claim capsule、重算各 typed
+    digest、plan-core/slot-ID/final payload/operation derivation，并证明 canonical template对每个
+    declared secret恰有一个 typed placeholder且无其它
+    placeholder；只允许替换这些位置并使用 plan-pinned endpoint/method。signed send-once audit
+    绑定 plan/request commitment、capsule IDs+ciphertext digests、endpoint/method、slot/delivery
+    ID与 delivery outcome，不含 raw secret；restart/takeover复用 same capsule/delivery，store/
+    broker拒绝 same slot/delivery第二次 send。该 audit不证明 remote commit。normal response后
+    重取 server state，只有 postcheck通过才 append
+    `release_mutation_bound`与 completed guard receipt，绑定 request commitment、broker delivery、
+    response/resource IDs、pre/post tag+ruleset tuples、owner/fence/frontier。
     send/response/postcheck/bind任一不确定时禁止重发，先进入 `release_mutation_recovery_pending`，
     重取 lease/fence/frontier并按 immutable plan完整分页枚举 Release/all states/assets及 broker
     outbox/delivery/audit：唯一 exact post-state、正确 tag/source/App/delivery且无 extra时以 fresh
