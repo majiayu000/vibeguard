@@ -203,7 +203,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     命名 plan 解析出的全部 pack/dependency receipts、ownership 与 active identities，并由
     一个 installation-scope pointer 的一次原子 switch 共同生效，禁止逐 pack pointer
     依次切换。该 switch 本身就是 durable commit boundary，runtime 只消费完整、
-    digest-valid 的 dependency-set generation，禁止 partial active。
+    digest-valid 的 dependency-set generation，禁止 partial active。pointer 必须携带 monotonic
+    installation generation；已 fsync 的 transaction journal 先记录目标 pointer/state，再推进
+    独立 durable generation floor，最后 switch。runtime 拒绝低于 floor 的旧 pointer replay；
+    floor 与 switch 间崩溃按 journal 幂等完成，不能降低 floor 或猜测目标 generation。
 16. B-016: stage、verify、host apply、audit 或 receipt commit 任一步失败时，系统必须只
     回滚本 transaction 已记录的 owned changes并恢复精确 before state；rollback 自身失败
     必须 nonzero、保留 recovery evidence 并进入 `needs_repair`，不得声称 installed。
@@ -292,8 +295,10 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`，必须
     拒绝本次操作并非零返回，不能通过 fallback 放行。两者都不能等旧 horizon 到期。status
     同时显示 publication、committed evaluation 与 authoritative active evaluation policy
-    identities。每次 policy activation 还必须在 Core-owned policy lock 下先原子推进并 fsync
-    durable monotonic `policy_generation_floor`，再切换带 generation 的 authoritative pointer；
+    identities。每次 policy activation 还必须在 Core-owned policy lock 下先写入并 fsync closed
+    pending intent，绑定目标 policy digest、validity evidence 及前后 generation，再原子推进并
+    fsync durable monotonic `policy_generation_floor`，最后切换 authoritative pointer；崩溃恢复
+    只能验证该 intent 后幂等完成 switch，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
@@ -310,7 +315,8 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
     installation-scope pointer 选择；runtime 必须先取得 installation runtime-state lock，再在
     锁内读取 current pointer、派生 state path，并在 CAS/执行前重验 pointer identity 未变，
-    禁止使用取锁前缓存的 generation。新 state 在 pointer switch 前不可影响旧 generation。
+    同时验证 pointer 的 monotonic installation generation 不低于独立 floor，禁止使用取锁前
+    缓存或被 replay 的旧 generation。新 state 在 pointer switch 前不可影响旧 generation。
     management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次

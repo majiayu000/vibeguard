@@ -215,6 +215,7 @@ Recommended H-004 layout（未批准）：
   store/sha256/<bundle_digest>/        readonly verified content
   committed/<transaction_id>/         immutable dependency-set generation
   active/sets/<installation_scope_id>  one atomic dependency-set generation pointer
+  active/floors/<installation_scope_id>.json  durable installation-generation floor
   receipts/<source_storage_key>/<target>/<profile>.json  derived/read-only view
   transactions/<transaction_id>/
     plan.json
@@ -227,6 +228,7 @@ Recommended H-004 layout（未批准）：
   locks/runtime-state/<installation_scope_id>.lock
   policy/active-evaluation.json          Core-owned authoritative local policy pointer
   policy/evaluation-generation-floor.json  durable anti-replay floor
+  policy/activation-journal.json         closed recoverable pending intent
   runtime-state/<installation_scope_id>/<active_generation_digest>.json
   overrides/<source_storage_key>/<target>/<profile>.json
 ```
@@ -239,12 +241,13 @@ locator，也不得使用缺省 publisher、空字符串或可能与 official na
 receipt/override schema 保存 source kind、canonical identity 与 storage key，读取时重算并
 拒绝 mismatch。
 
-上述 HOME layout 中的 active policy entry 只保存已获批 evaluation policy 的 digest、
-monotonic generation 与 validity evidence；pack/environment/CLI/publication artifact 均不能
-改写。policy activation 在 policy lock 下先 CAS+fsync 独立 generation floor，再 atomic switch
-pointer；crash 在两步之间只会使旧 pointer 低于 floor 而 fail closed，recovery 完成 switch，
-不得降低 floor。runtime 同时验证 pointer generation `>= floor`，故旧 pointer replay 即使
-digest 匹配也无效。每个 active generation 有独立 closed、Core-owned runtime-state entry，
+上述 active policy entry 只保存已获批 policy digest、monotonic generation 与 validity
+evidence。activation 在 policy lock 下先原子写入并 fsync closed journal，绑定目标 pointer、
+validity evidence、previous/target generation；再 CAS+fsync floor、atomic switch pointer，最后
+标记完成。crash recovery 只按 digest-valid journal 幂等完成；缺失/损坏 intent 不得猜目标，
+保持 fail closed。runtime 验证 pointer generation `>= floor`，旧 replay 即使 digest 匹配也
+无效。pack/environment/CLI/publication artifact 均不能改写。每个 active generation 有独立
+closed、Core-owned runtime-state entry，
 绑定 generation/policy digest、`clock_epoch`、单调 sequence 与 `last_trusted_runtime_time`；
 active set pointer 同时选择 generation 和对应 state。runtime 必须先取得专用 bounded lock，
 再在锁内读取 current pointer、由该 snapshot 派生 state path，并在 CAS 与执行前重验 pointer
@@ -304,13 +307,17 @@ journal 每完成一步原子 append/replace closed state。audit 成功后先�
 `committed/<transaction_id>/` 写入并 fsync 全部 resolved dependency receipts、active
 identities、shared ownership refs、publication/evaluation policy、provenance/
 compatibility/precision evidence、source-applicable revocation binding、eligibility
-digests、`decision_valid_until`、expiry fallback/reason 和 commit marker，再以一次
-installation-scope atomic pointer replacement 暴露整个 dependency-set generation；不得
+digests、`decision_valid_until`、expiry fallback/reason 和 commit marker，并在 journal 记录
+目标 monotonic installation generation、pointer/state digests；再推进并 fsync 独立
+installation-generation floor，最后以一次 installation-scope atomic pointer replacement
+暴露整个 dependency-set generation；不得
 为每个 pack 依次切换 pointer。该 replacement 本身就是 durable commit boundary。runtime
 必须先解析 set pointer，
 再验证 target/profile、commit marker 与 generation digest，绝不读取 orphan receipt、
 staged state 或未提交 generation。pointer switch 后只允许 journal finalization/临时清理，
-这些失败不撤销已提交语义，而由下次 recovery 幂等完成。interrupt 后下次 mutation 必须先
+这些失败不撤销已提交语义，而由下次 recovery 幂等完成。floor 与 switch 间 crash 使旧
+pointer 低于 floor 并 fail closed；recovery 只按 journal 完成目标 switch，floor 永不降低。
+interrupt 后下次 mutation 必须先
 按 canonical order 取得 ownership/target locks 并 recover unfinished journal。rollback
 只依据 journal，不扫描 HOME；
 rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
@@ -323,7 +330,8 @@ policy pointer/floor 与 committed policy identity，再取得 installation runt
 fallback。runtime 同样只能在其锁内读取/revalidate current pointer，因此旧 generation runtime
 不可能在 snapshot 后再推进。初值继承同 epoch
 `max(existing_high_water, evaluation_time)`，单次 pointer replacement 同时选择新 generation/
-state；switch 前 crash 仍选择旧 state，switch 后两者同时可见。policy/floor mismatch 或 state
+state；runtime 还验证 pointer installation generation 不低于独立 active floor。switch 前
+crash 由 journal/floor fail-closed recovery，switch 后两者同时可见。policy/floor mismatch 或 state
 初始化失败均在 switch 前 rollback，不得预先改绑旧 state。
 
 same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
@@ -441,8 +449,9 @@ runtime hot path 每次 enforcement 先读取 authoritative policy pointer 与�
 semantic fallback 并派生 `policy_changed + audit_required`。pointer/floor 缺失或 malformed，
 或 pointer generation 低于 floor（旧 pointer replay）时则是 `runtime_guard_unavailable`，必须
 保守拒绝并非零返回；不可将不可读 authority 当成新 policy。两类都不等旧 horizon。
-随后取得 per-installation lock，在锁内读取 active set pointer、派生 generation-scoped state
-path，并在 CAS/执行前重验 current pointer identity，再验证
+随后取得 per-installation lock，在锁内读取 active set pointer 与独立 installation-generation
+floor、派生 generation-scoped state path，并在 CAS/执行前重验 current pointer identity 且其
+monotonic generation `>= floor`，再验证
 `evaluation_time <= runtime_time < decision_valid_until` 及
 `runtime_time >= last_trusted_runtime_time`；即使 runtime time 仍在 validity interval 内，只要
 小于 durable high-water 就是 rollback。只有先原子 CAS 提升/保持 high-water 成功才执行
@@ -603,7 +612,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-012 online/offline failure semantics | Locator/cache/revocation policy | timeout/malformed/redirect/fresh-absence/expired-absence/cached-revoked/expired-known-revoke/identity-mismatch matrix asserts exact current/revoked/unknown status |
 | B-013 target compatibility | Capability/host resolver | unknown host, incompatible protocol, unsupported capability, missing Core and valid Claude/Codex fixtures produce distinct closed statuses and cannot be promoted by override |
 | B-014 runtime privacy/capability | Sealed capability registry + sandbox boundary | network/credential/path/log access sentinels and child-env capture prove undeclared access never runs or persists |
-| B-015 transaction state machine | Transaction journal + dependency-set generation | crash before/after the one installation-scope pointer switch proves every dependency receipt/active identity 同时可见，runtime拒绝 graph subset/orphan/uncommitted generation |
+| B-015 transaction state machine | Transaction journal + dependency-set generation/floor | crash before/after floor and pointer switch recovers exact intent；old pointer replay cannot restore a superseded generation |
 | B-016 scoped rollback/repair | Transaction rollback | injected failure at every stage restores before digests; rollback failure retains evidence and reports needs_repair |
 | B-017 interruption recovery | Journal recovery + confirmation epochs | partial state fixture asserts ordered locks + recovery precede discovery/plan；confirmation timeout holds no lock；post-confirm generation/evidence/time drift forces re-plan/re-confirm |
 | B-018 complete committed receipt | Receipt schema/writer + source storage key | official receipt requires event digest；local requires not_applicable + absent event；all block receipts bind committed policy and finite decision/override horizons/fallback；local round-trip needs no publisher sentinel |
@@ -615,7 +624,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Role-separated loader + active-policy pointer/floor | concurrent activation cannot cross management's policy-lock/CAS commit window；valid newer digest mismatch falls back；missing/malformed authority or pointer replay below floor conservatively denies |
+| B-027 policy-owned thresholds | Role-separated loader + active-policy journal/pointer/floor | crash before/after intent, floor and pointer switch recovers exact policy；concurrent activation cannot cross management commit；replay/unavailable state denies |
 | B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | runtime reads/revalidates active pointer under lock；concurrent runtime cannot advance or execute old state across management switch；same-epoch high-water never decreases；guard failure denies/nonzero |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
@@ -664,8 +673,9 @@ runtime hook
 ```
 
 持久化面是 closed set：content-addressed verified store、index/registry-event caches、
-transaction journals/before snapshots、committed receipts/active identities、authoritative local
-evaluation-policy pointer、durable evaluation-policy generation floor、trusted-time runtime state、local overrides
+transaction journals/before snapshots、committed receipts/active identities、durable installation-generation
+floors、authoritative local evaluation-policy pointer/activation journal、durable evaluation-policy
+generation floor、trusted-time runtime state、local overrides
 和用户显式生成的 feedback export。临时下载与 staging 在 commit/rollback 后清理；
 `needs_repair` evidence 在成功 recovery 前保留。任何 temp 路径、raw response、credential、
 用户代码或 event payload 不进入 receipt/status。
