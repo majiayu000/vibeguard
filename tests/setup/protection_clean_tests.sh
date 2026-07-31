@@ -76,12 +76,14 @@ rm -f "${HOME}/.systemctl-vibeguard-gc-active"
 rm -f "${HOME}/.systemctl-vibeguard-gc-enabled"
 
 for scheduler_deactivate_case in \
-  stop_failure active_after_stop disable_failure enabled_after_disable; do
+  stop_failure active_after_stop service_stop_failure \
+  service_active_after_stop disable_failure enabled_after_disable; do
   scheduler_deactivate_home="${TMP_HOME}/scheduler-deactivate-${scheduler_deactivate_case}-home"
   scheduler_deactivate_dir="${scheduler_deactivate_home}/.config/systemd/user"
   scheduler_deactivate_service="${scheduler_deactivate_dir}/vibeguard-gc.service"
   scheduler_deactivate_timer="${scheduler_deactivate_dir}/vibeguard-gc.timer"
   scheduler_deactivate_receipt="${scheduler_deactivate_home}/.vibeguard/scheduler-ownership"
+  scheduler_deactivate_service_active="${scheduler_deactivate_home}/.systemctl-vibeguard-gc-service-active"
   mkdir -p "${scheduler_deactivate_dir}" "$(dirname "${scheduler_deactivate_receipt}")"
   printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/managed-gc' \
     > "${scheduler_deactivate_service}"
@@ -101,6 +103,16 @@ for scheduler_deactivate_case in \
     active_after_stop)
       scheduler_deactivate_env+=(VIBEGUARD_TEST_SYSTEMD_STILL_ACTIVE=1)
       scheduler_deactivate_error="is not proven inactive after stop"
+      ;;
+    service_stop_failure)
+      touch "${scheduler_deactivate_service_active}"
+      scheduler_deactivate_env+=(VIBEGUARD_TEST_SYSTEMD_SERVICE_STOP_FAIL=1)
+      scheduler_deactivate_error="failed to stop scheduled GC systemd service"
+      ;;
+    service_active_after_stop)
+      touch "${scheduler_deactivate_service_active}"
+      scheduler_deactivate_env+=(VIBEGUARD_TEST_SYSTEMD_SERVICE_STILL_ACTIVE=1)
+      scheduler_deactivate_error="systemd service is not proven inactive after stop"
       ;;
     disable_failure)
       scheduler_deactivate_env+=(VIBEGUARD_TEST_SYSTEMD_DISABLE_FAIL=1)
@@ -127,6 +139,12 @@ for scheduler_deactivate_case in \
     'test -f "$1" && test -f "$2" && grep -qFx "phase=cleaning" "$3"' _ \
     "${scheduler_deactivate_service}" "${scheduler_deactivate_timer}" \
     "${scheduler_deactivate_receipt}"
+  case "${scheduler_deactivate_case}" in
+    service_stop_failure|service_active_after_stop)
+      assert_cmd "systemd ${scheduler_deactivate_case} preserves active service evidence" \
+        test -f "${scheduler_deactivate_service_active}"
+      ;;
+  esac
 done
 
 scheduler_deactivate_success_home="${TMP_HOME}/scheduler-deactivate-success-home"
@@ -143,16 +161,43 @@ printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%
   "$(shasum -a 256 "${scheduler_deactivate_success_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
   > "${scheduler_deactivate_success_receipt}"
 touch "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-active"
+touch "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-service-active"
 touch "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-enabled"
 HOME="${scheduler_deactivate_success_home}" VIBEGUARD_TEST_UNAME=Linux \
   bash "${REPO_DIR}/setup.sh" --clean >/dev/null
 assert_cmd "systemd clean removes files only after inactive and disabled postconditions" bash -c \
-  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3" && test ! -e "$4" && test ! -e "$5"' _ \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3" && test ! -e "$4" && test ! -e "$5" && test ! -e "$6"' _ \
   "${scheduler_deactivate_success_dir}/vibeguard-gc.service" \
   "${scheduler_deactivate_success_dir}/vibeguard-gc.timer" \
   "${scheduler_deactivate_success_receipt}" \
   "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-active" \
+  "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-service-active" \
   "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-enabled"
+
+runtime_clean_home="${TMP_HOME}/scheduler-runtime-clean-home"
+runtime_clean_dir="${runtime_clean_home}/.config/systemd/user"
+runtime_clean_receipt="${runtime_clean_home}/.vibeguard/scheduler-ownership"
+runtime_clean_enabled="${runtime_clean_home}/.systemctl-vibeguard-gc-enabled-runtime"
+mkdir -p "${runtime_clean_dir}" "$(dirname "${runtime_clean_receipt}")"
+printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/managed-gc' \
+  > "${runtime_clean_dir}/vibeguard-gc.service"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' \
+  > "${runtime_clean_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${runtime_clean_dir}/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${runtime_clean_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${runtime_clean_receipt}"
+touch "${runtime_clean_home}/.systemctl-vibeguard-gc-active" \
+  "${runtime_clean_home}/.systemctl-vibeguard-gc-service-active" \
+  "${runtime_clean_enabled}"
+HOME="${runtime_clean_home}" VIBEGUARD_TEST_UNAME=Linux \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null
+assert_cmd "systemd clean removes runtime-enabled timer state and owned files" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3" \
+    && test ! -e "$4"' _ \
+  "${runtime_clean_dir}/vibeguard-gc.service" \
+  "${runtime_clean_dir}/vibeguard-gc.timer" \
+  "${runtime_clean_receipt}" "${runtime_clean_enabled}"
 
 bootstrap_deactivate_home="${TMP_HOME}/bootstrap-scheduler-deactivate-home"
 env "${bootstrap_base_env[@]}" HOME="${bootstrap_deactivate_home}" \
@@ -500,6 +545,8 @@ HOME="${launchd_clean_home}" VIBEGUARD_TEST_UNAME=Darwin \
 assert_cmd "launchd clean retry removes receipt after confirming absence" bash -c \
   'test ! -e "$1" && test ! -e "$2"' _ \
   "${launchd_clean_plist}" "${launchd_clean_receipt}"
+
+source "${REPO_DIR}/tests/setup/cleanup_failure_tests.sh"
 
 bash "${REPO_DIR}/setup.sh" --yes --profile full >/dev/null
 

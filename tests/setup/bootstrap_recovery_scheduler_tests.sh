@@ -200,6 +200,61 @@ assert_cmd "retry reaps atomically published stale lock and succeeds" env "${boo
   VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
   bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
 
+orphan_work_home="${TMP_HOME}/bootstrap-orphan-work-home"
+orphan_work_dir="${orphan_work_home}/.vibeguard/dist/.bootstrap-${BOOTSTRAP_VERSION}.ABC123"
+mkdir -p "${orphan_work_dir}"
+printf 'stale partial download\n' > "${orphan_work_dir}/partial"
+assert_cmd "normal retry reaps canonical orphaned bootstrap work directory" \
+  env "${bootstrap_base_env[@]}" \
+  HOME="${orphan_work_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes
+assert_cmd "normal retry leaves no orphaned bootstrap work directory" \
+  test ! -e "${orphan_work_dir}"
+orphan_clean_dir="${orphan_work_home}/.vibeguard/dist/.bootstrap-${BOOTSTRAP_VERSION}.XYZ789"
+mkdir -p "${orphan_clean_dir}"
+assert_cmd "clean retry also reaps canonical orphaned bootstrap work directory" \
+  env "${bootstrap_base_env[@]}" \
+  HOME="${orphan_work_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --clean
+assert_cmd "clean retry removes orphaned work and managed payload" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -L "$3"' _ \
+  "${orphan_clean_dir}" \
+  "${orphan_work_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}" \
+  "${orphan_work_home}/.vibeguard/dist/current"
+
+ambiguous_work_home="${TMP_HOME}/bootstrap-ambiguous-work-home"
+ambiguous_work_dir="${ambiguous_work_home}/.vibeguard/dist/.bootstrap-${BOOTSTRAP_VERSION}.bad-nonce"
+mkdir -p "${ambiguous_work_dir}"
+ambiguous_work_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${ambiguous_work_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || ambiguous_work_rc=$?
+assert_cmd "ambiguous bootstrap work ownership fails closed" \
+  test "${ambiguous_work_rc}" -eq 73
+assert_cmd "ambiguous bootstrap work path is preserved for inspection" \
+  test -d "${ambiguous_work_dir}"
+
+symlink_work_home="${TMP_HOME}/bootstrap-symlink-work-home"
+symlink_work_target="${TMP_HOME}/bootstrap-symlink-work-target"
+symlink_work_path="${symlink_work_home}/.vibeguard/dist/.bootstrap-${BOOTSTRAP_VERSION}.DEF456"
+mkdir -p "$(dirname "${symlink_work_path}")" "${symlink_work_target}"
+ln -s "${symlink_work_target}" "${symlink_work_path}"
+symlink_work_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${symlink_work_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${handoff_release}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || symlink_work_rc=$?
+assert_cmd "symlink bootstrap work path fails closed" \
+  test "${symlink_work_rc}" -eq 73
+assert_cmd "symlink bootstrap work path and target are preserved" bash -c \
+  'test -L "$1" && test -d "$2"' _ \
+  "${symlink_work_path}" "${symlink_work_target}"
+
 prepared_crash_home="${TMP_HOME}/bootstrap-prepared-crash-home"
 prepared_crash_bin="${TMP_HOME}/bootstrap-prepared-crash-bin"
 prepared_crash_marker="${TMP_HOME}/bootstrap-prepared-crash.marker"
