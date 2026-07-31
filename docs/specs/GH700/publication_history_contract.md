@@ -14,11 +14,22 @@ client、workflow、benchmark code 均不得另建 store、直接打开数据库
 Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
 checkout、Release artifact与 owner lifecycle 的 durable volume；signed deployment manifest的
 closed planned **schemas/publication_authority_deployment.schema.json** 固定
-`{authority_id,backend,publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,
-retention_policy_digest,trust_bundle_digest}`；backend必须 exact 为 `publication_authority_sqlite_v1`，
-store path是唯一 absolute canonical SQLite file且必须位于该 volume，禁止默认路径、相对路径或
-临时目录。KMS key/ciphertext retention policy同样由 manifest钉住，credential只从 environment
-secret provider取得。
+`{authority_id,backend,api_location,transport,api_version,server_identity_bundle_digest,
+client_auth_policy_digest,publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,
+retention_policy_digest,trust_bundle_digest,restore_anchor_identity}`；backend必须 exact 为
+`publication_authority_sqlite_v1`，`api_version` exact 为 `GH700:publication-authority-api:v1`。
+`api_location` 是 closed union：remote client只接受 `{kind:"https_endpoint",endpoint}`，endpoint
+须为 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment；colocated
+bootstrap/recover只接受 `{kind:"unix_socket",socket_path}`，socket须为 manifest-pinned absolute path。
+pairing exact 为 `https_endpoint↔tls13_mtls_http2_jcs_v1`、`unix_socket↔unix_peercred_jcs_v1`，
+交叉组合 schema-invalid。server bundle由
+authority外的 release-identity root锚定 exact service ID/issuer/SPKI；client policy闭合 repo/workflow/
+environment/ref/run/actor、cert issuer、role与允许 method，并要求每 request绑定 API version、frontier、
+operation/request digest及 anti-replay nonce。unknown endpoint/socket、ambient discovery/proxy/DNS trust、
+redirect、wrong transport/version/server/client identity或 policy drift均拒绝。store path是唯一 absolute
+canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径。KMS policy由 manifest钉住；
+reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
+environment secret provider，client绝不接收、转发或记录它。
 
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable
 `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
@@ -27,6 +38,11 @@ capsule ciphertext metadata、broker outbox/delivery/send-once audit与 complete
 事务中验证和提交；任何 lock/busy timeout、WAL/fsync/checkpoint、disk-full或 KMS error都使
 authority non-ready并 fail closed，不得返回成功 receipt。首次 database/WAL/lock 创建与 migration
 commit后还须 fsync file及 parent directory；禁止 destructive migration、truncate或 silent rebuild。
+authority-owned durable persistence是 exact closed inventory：signed deployment manifest与 bootstrap/
+migration receipts；SQLite database/WAL/checkpoint及 history/operation/rotation/slot/owner/fence unique
+indexes；capsule ciphertext metadata与 KMS retained-key/version/retention references；broker outbox、
+delivery/send-once audit与 completed receipts；external restore anchor/epoch、snapshot/WAL digests及
+restore/recovery receipts。其外 cache/temp/log不得参与恢复或授权，inventory内任一缺失/不一致均 blocked。
 
 唯一 bootstrap owner 是 SP700-T3 的 publication-authority store/deployment single writer，经计划中的
 **.github/workflows/publication-authority-deploy.yml** 调用
@@ -34,8 +50,15 @@ commit后还须 fsync file及 parent directory；禁止 destructive migration、
 length-zero genesis/trust bundle并签发 bootstrap receipt，已存在时必须 byte/digest-match或拒绝。
 唯一 crash/restore authority 是同一 protected service的 `recover` 命令，在 exclusive process lock下
 replay WAL、校验 `integrity_check`、全量重放 signed history/unique indexes/outbox/capsule metadata并
-重新签发 exact-head recovery receipt；snapshot+WAL restore还须 governance threshold批准、单调
-restore epoch及 KMS可解封证明。T10只消费认证 API，不拥有 backend或 recovery authority。
+重新签发 exact-head recovery receipt。rollback-resistant external `publication_restore_anchor_v1` 位于
+SQLite volume/snapshot/WAL/KMS account之外的 maintainer-governance append-only store，exact payload为
+`{authority_id,repo_node_id,restore_epoch,latest_frontier,snapshot_digest,wal_digest}`，其中
+`latest_frontier`含 exact `full_prefix_digest`；每个 committed successor须在释放成功 receipt或允许
+broker write前以 threshold-signed CAS推进 anchor。snapshot+WAL restore必须读取 external latest anchor，
+以更大 `restore_epoch`获 governance threshold批准，证明 restored prefix不少于且 exact包含 anchored
+frontier/full-prefix，完成 replay后写 recovery receipt并 CAS新 anchor；missing/stale/rollback/forked
+anchor、较小/equal epoch、prefix落后/冲突或 KMS不可解封均拒绝。T10只消费认证 API，不拥有 backend、
+write credential或 recovery authority。
 
 端到端证明必须在真实 durable-volume fixture对每个 transaction boundary注入 kill/power-loss、并发
 claim/slot/delivery、WAL/checkpoint失败、disk-full、KMS unavailable、runner/checkout删除、owner
@@ -104,9 +127,11 @@ discovery/postcheck receipt恢复 bound；exact pre-state加 authenticated exhau
 且 broker证明 request quiescent/not-in-flight时 append `release_mutation_not_applied`，之后才可
 新 slot；zero但仍 in-flight不得重发。partial/conflicting/multiple state只能先 append
 `compensation_planned`，其远程补偿本身也是新 planned/guarded/bound slot，完整证明恢复
-pre-state且无 extra后才 `compensated`。不可逆或不可证明的 publish/update/delete、权限/分页/
-audit不全、rate-limit/5xx、tag move/delete/recreate、peel/source/ruleset/bypass drift均进入
-`release_mutation_recovery_blocked`并保留 owner；takeover只能引用旧 plan并 fresh authorize。
+pre-state且无 extra后才 `compensated`。blocked-kind precedence唯一为：`mutation_kind=draft_create`
+的 permission/pagination/audit/rate-limit/5xx或任何不可证明 outcome只进入 `draft_recovery_blocked`，
+此时 `release_mutation_recovery_blocked` schema-invalid；generic blocked kind仅适用于
+`{draft_update,draft_delete,asset_upload,asset_delete,publish}` 的不可逆/不可证明 outcome、tag move/
+delete/recreate、peel/source/ruleset/bypass drift，并保留 owner。takeover只能引用旧 plan并 fresh authorize。
 `draft_bound`/`prepared`/publish/cleanup/terminal/`recovered_publication` 只能在所有 predecessor
 slots进入 closed terminal set `{bound,not_applied,compensated}` 后推进；每个 not-applied须携
 exact-pre-state+exhaustive-negative+broker-quiescence receipt，每个 intended phase effect须由
@@ -146,9 +171,10 @@ attestation锚定 exact bundle digest、repo/purpose与 length-zero genesis fron
 都拒绝。bundle 本身绑定
 `repo_node_id`、purpose、allowed algorithms、root key IDs、threshold 与单调 epoch，禁止
 TOFU、checkout anchor 或网络自报 root。committed envelope 绑定 bundle digest、leaf key/
-epoch 与 certificate-chain digest；leaf rotation 由 trusted root 授权并绑定 old/new key、
-activation frontier 与递增 epoch，新 key 不得提前、旧 key 不得延后签名。root bundle
-rotation 必须 old+new threshold共同签名，绑定 previous bundle digest、activation frontier
+epoch 与 certificate-chain digest；leaf rotation 由 trusted root 授权并绑定 old/new key与无环
+`rotation_cutover={activation_predecessor_frontier,activation_successor_history_length,
+next_trust_epoch}`，其中 successor length exact 为 predecessor length+1；新 key不得提前、旧 key不得
+延后签名。root bundle rotation必须 old+new threshold共同签名，绑定 previous bundle digest与同一 cutover
 与独立 governance attestation，history/store 不得自授权；历史 bundle/cert/key保留以验证
 旧 receipt。unknown/self-signed/wrong repo或purpose、epoch rollback/fork/gap、algorithm
 downgrade、expired/revoked或缺 rotation chain 均 fail closed。
@@ -161,9 +187,12 @@ immutable rotation payload绑定 repo/purpose/current→next epoch、old/new key
 approval digests，stable `rotation_id=H(repo,purpose,current_epoch,next_epoch,kind,payload_digest,
 approval_digest)` 不含 predecessor/fence。store先查永久 `(repo_node_id,rotation_id)`：same
 payload/approval返原 receipt，异值冲突；absent才验 governance domain/fence/actor/threshold/
-current epoch/exact predecessor并 append。publication suffix抢先时以相同 rotation ID/payload/
-approval、new predecessor/op重规划；rotation由 pre-state trust验证，activation固定为其 successor
-frontier，之后只接受 new trust。governance suffix只改变 trust epoch/state；active publication
+current epoch/exact predecessor并 append。stable approval/canonical payload不含 predecessor；每次 append的
+`rotation_cutover_certificate` 另绑定 rotation ID/approval digest、exact predecessor、successor ordinal与
+next epoch，但绝不含 successor root/full-prefix/receipt digest。publication suffix抢先时保留相同 rotation
+ID/payload/approval并为 new predecessor/op重签 cutover certificate；store用 pre-state trust验证后 append，
+复算 actual successor并核对 ordinal，在 receipt中绑定 actual successor frontier。new trust只接受以该
+actual successor为 predecessor的后续 record。governance suffix只改变 trust epoch/state；active publication
 owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
 复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
