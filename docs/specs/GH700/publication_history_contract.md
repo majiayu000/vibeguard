@@ -42,13 +42,11 @@ canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径�
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
 
-`client_api` method discriminator 是 closed union `{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,
-append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
-plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,
-list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。每个 request exact envelope 为 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
+`client_api` method discriminator 是 closed union `{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
+plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。每个 request exact envelope 为 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
 request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,
 operation_request_digest,body}`，`operation_request_digest` 是删除自身后整个 envelope 的 JCS SHA-256。
-publication method 的 exact body/success receipt 如下（blocked-attempt 五个 method 的 body/receipt 取下文 ledger closed schemas）：
+全部 method 的 exact body/success receipt 如下：
 
 | method | exact request `body` | exact success `result` |
 | --- | --- | --- |
@@ -63,13 +61,15 @@ publication method 的 exact body/success receipt 如下（blocked-attempt 五�
 | `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
 | `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
 | `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+| `append_blocked_attempt` | `{attempt_record,attempt_subject_key,ledger_append_authorization}` | `{attempt_record_receipt,blocked_attempt_frontier_receipt}` |
+| `bind_blocked_attempt` | `{source_attempt_record_digests,publication_history_operation_id,publication_history_frontier,recovered_outcome_digest,ledger_append_authorization}` | `{binding_record_receipt,blocked_attempt_frontier_receipt}` |
+| `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_digest}` |
+| `commit_reconciliation_watermark` | `{source_identity_key,candidate_identity_or_null,watermark_record_digests,expected_prior_watermark_digest_or_null,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
+| `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
 
-response 是 closed union：success exact `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,request_digest,
-response_nonce,result}`；error exact 为相同公共字段加 `{error:{code,retry_class,evidence_digest_or_null}}`而且无 `result`。`code` exact 为
-`{invalid_request,unauthenticated,unauthorized,wrong_authority,policy_drift,method_not_allowed,stale_frontier,
-stale_fence,lease_expired,operation_conflict,dependency_unavailable,outcome_uncertain,authority_non_ready,
-internal_durability_failure}`，`retry_class` exact 为 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。`outcome_uncertain` 只能配 `same_request_read_confirm_only`；unknown method/code/
-field、method/body/result 错配、null-not-declared 或 error 与 result 并存均拒绝，不得 fallback 到另一 method。
+response是 closed union：success exact `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,operation_request_digest,response_nonce,result}`；error exact为相同公共字段加 `{error:{code,retry_class,evidence_digest_or_null}}`且无 `result`，两者的 `operation_request_digest`必须 byte-equal request字段。
+`code` exact为 `{invalid_request,unauthenticated,unauthorized,wrong_authority,policy_drift,method_not_allowed,stale_frontier,stale_fence,lease_expired,operation_conflict,dependency_unavailable,outcome_uncertain,authority_non_ready,internal_durability_failure}`，`retry_class` exact为 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。
+`outcome_uncertain`只配 `same_request_read_confirm_only`；unknown method/code/field、method/body/result错配、null-not-declared或 error/result并存均拒绝，不得 fallback。
 
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
