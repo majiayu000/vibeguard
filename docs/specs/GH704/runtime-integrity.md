@@ -107,13 +107,23 @@ decision、ordered stage receipts 与 expected activation receipts。三个 cons
 完整 barrier body/digest 与 expected journal offset；partial activation 只按 exact key/digest
 补齐，或在 durable `abort_prepared` 后回滚整个 group。barrier 后只允许向前恢复。
 
-全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时先把 inert
-`projection_prepared {source_route, queue_key, bounded_derived_body, barrier_digest,
-record_digest, eligibility_epoch}` 写入 runtime-owned bounded global source registry 并 fsync；
-global worker 必须在 exact source route 证明 matching `all_activated` 前保持它不可执行。随后才
-append/fsync canonical barrier，并提交引用该 registration 的 `projection_queued`；queue + barrier +
-registration durable 后才 `done`。因此 crash 若无 barrier 则 global 无可见数据，若已有 barrier
-则任何 project worker 都可从 bounded registry 恢复，不依赖 source 再启动或扫描。decision、
+全部 activation receipts 匹配后，coordinator 在仍持有 project lock 时取得 deadline-bounded
+global registration lease，在 checksummed fixed-capacity generations 中 reserve unique slot，写入并
+fsync inert `projection_prepared {source_route, queue_key, bounded_derived_body, barrier_digest,
+record_digest, eligibility_epoch}`，再原子提交 generation；project→registration 是唯一锁序，
+global worker 不反向持 registry lease 取得 project lock。随后才 append/fsync canonical barrier，
+提交引用 slot 的 `projection_queued`，barrier + registration durable 后才 `done`。worker 在 exact
+source route 证明 matching barrier 前保持 entry inert；并发 project publication、reserve/commit
+crash 按 slot/generation 幂等恢复，full 时在 barrier 前 visible backpressure，禁止覆盖/丢 entry。
+
+若 crash/abort 留下无 barrier registration，dispatcher 先释放 registry lease，再按 shared delivery
+lease → source project lock 调用**同一 coordinator recovery**：receipts complete 则补 barrier/
+queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-bound ready/abort receipt
+后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
+ready 或 checksummed tombstone/reclaim。未知/损坏/off epoch 保持 pending lag，只有 rebind/approved
+maintenance 可处理。worker 自身从不写 project journal。这样无 global→project lock inversion，
+dormant source 可完成或回收 orphan，重复 fault 不会耗尽 registry，且
+global view 仍只在 barrier 后可见。decision、
 consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
 下消费 durable receipt slot 并提交 `projection_done`。
 
@@ -218,6 +228,6 @@ retry/duplicate，并证明每个已接受 patch 恰好一次完成或具名 una
 - sidecar byte/version/target/protocol/manifest/attestation/revoke 的 eligibility + cache + evidence
   invalidation；
 - approval/decline/failed apply 零 semantic activity，thread-cap backpressure 与 completion exactly once；
-- every group edge、pre-barrier global registration、off-epoch defer/rebind、outbox/receipt fsync crash；
+- every group edge、concurrent registration/orphan recover+tombstone、off-epoch defer、receipt crash；
 - every maximum record 的 recovery floor、dormant-project receipt recovery，以及 concurrent
   projects/shards 严格 offset append order。

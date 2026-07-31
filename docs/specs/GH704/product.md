@@ -240,8 +240,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 20. B-020: runtime W-rule signal 必须使用 closed、versioned schema，至少含 stable
     `rule_id`、`signal_id`、project/session/event identity、detector/model/policy
     identity（适用时）、evidence digest、window、decision、status 与 closed reason；
-    禁止从 free-text reason 正则猜 rule identity。weekly reflection 等所有 shipped consumer
-    必须显式解析 typed kinds/identity；不得继续 substring-classify string 后静默漏计。
+    禁止从 free-text reason 正则猜 rule identity。weekly reflection、false-positive report/
+    triage 等所有 shipped consumer 必须显式解析 typed barrier/kinds/identity；pre-barrier/aborted
+    semantic event 不得生成 report 或写 precision，禁止 substring-classify 后静默漏计。
 21. B-021: GH-704 只把 H-010 批准的具名 W-rule delta 计入“新增”。每条必须列出现有
     baseline、exact new signal、输入证据、window/state transition、severity 和
     verification corpus；已有 advisory/block 或仅改 reason 文案不计数。
@@ -302,8 +303,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
     projection，绑定 source event ID/barrier digest 与 durable projection receipt。
     全部 activation receipts 匹配后、`all_activated` 前，project coordinator 必须先在 bounded
-    global source registry durable 注册 inert route/body/barrier digest/eligibility epoch；worker 只在
-    exact barrier durable 后执行。barrier + registration 后才写 `projection_queued` 并允许
+    global source registry 的 unique slot durable 注册 inert route/body/barrier/eligibility；publication
+    由 deadline-bounded lease + checksummed generations 跨 project 串行，worker 只在 exact barrier
+    durable 后执行。orphan 由同一 source coordinator 完成 barrier/abort，再用 digest receipt CAS
+    ready/tombstone/reclaim；禁止 global→project lock inversion、覆盖或永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
@@ -314,7 +317,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
     `receipt_applied`/reclaim；它不得写 project journal。只有 source coordinator/approved maintenance
-    route 在同一 project lock 下消费 slot 后可写 `projection_done`。恢复只按 earliest reservation 或 receipt
+    route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
@@ -390,10 +393,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
       单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
       partial activation 可幂等补齐/回滚，reconcile cap 的最小合法值能完成最大 atomic
-      record，durable projection prepare/queue/sequencer 不丢失 payload、不重用 offset 且
-      serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
+      record，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
+      prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
-      free-text/global mirror 不再是权威路径。
+      false-positive report/triage 只接受 finalized typed identity；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
