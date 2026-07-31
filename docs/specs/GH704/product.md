@@ -262,31 +262,31 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     pending count 与 oldest age（损坏时不可证明的字段为空），停止 provider 并停止追加
     新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
     repair 完成；禁止自动删除、猜测或无界 rebuild。
-    L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等写入不可见
-    `staged` record；任何 reader/aggregate/Learn 在 canonical finalization 前都必须拒绝
-    staged mutation。全部 stage 成功后，必须先写入并提交包含 finalized body/digest +
-    expected offset 的
-    `finalize_prepared` WAL record，才可 append/fsync finalized receipt，再写 durable
-    `finalized` transition；随后按 finalized digest 幂等 activate consumer 并写 activation
-    receipts，全部 activation 完成才可 `done`/release eligible decision。恢复只读 expected
-    offset 判定补 append/marker/activation。
-    完成前不得声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn candidate 或 block
-    eligibility；日志失败不得删除用户数据或无界扫描恢复。
+    L1 仍运行且既有 L1 block 保留。projector 必须拥有单一 durable group-commit state
+    machine；三个 consumer 只能按 group/event/digest 写不可见 staged/provisional version。
+    closed transition 是 `prepared → journaled → staged → commit_prepared → activating →
+    all_activated → projection_prepared → projection_queued → done → projection_done`；
+    barrier 前允许 durable abort + 幂等 rollback，barrier 后只允许向前恢复。canonical
+    outcome、任一 consumer activation、precision、Learn 与 aggregate 单独都不可见；
+    **所有 reader 只 join 同一 `all_activated` barrier digest**。barrier 绑定 decision、
+    ordered stage/activation receipts、schema/identity 与前序 digest；partial activation
+    必须按 exact key/digest 幂等补齐或回滚。每一 transition/consumer 的 before/after
+    crash 都必须有“不可见且不计数”的负例。完成前不得声称 tracked precision、Learn
+    candidate 或 block eligibility；日志失败不得删除用户数据或无界扫描恢复。
 28. B-028: runtime、precision tracker、session metrics 与 Learn 必须消费同一 canonical
-    **project-scoped typed journal**；它是 GH-704 semantic pending/applied/finalized
-    record 的唯一权威事实源。pending event、consumer receipt 与 finalized receipt 都
-    绑定同一 event/signal identity，不得同时保留 Rust structured path、global mirror
+    **project-scoped typed journal**；它是 GH-704 semantic pending/group-commit/
+    `all_activated` record 的唯一权威事实源。pending、consumer receipt 与 barrier 都
+    绑定同一 event/signal/group digest，不得同时保留 Rust structured path、global mirror
     或 shell free-text projection 作为第二权威源。既有 L1 dual logging 行为不变；
-    GH-704 global event/status 只允许从已 finalized project record 做 idempotent derived
-    projection，绑定 source event ID/finalized digest 与 durable projection receipt。
-    global projector 必须先在 bounded keyed identity index 写入含 expected global offset/
-    digest 的 durable prepared state；跨 project/shard 的唯一 global allocator 必须先用
-    deadline-bounded reservation 原子分配 offset 并留下可恢复 intent，append/fsync 后再
-    提交 applied state 与 project projection receipt。project WAL 只有在 durable
-    `projection_queued` intent 落盘后才可完成 semantic `done`；该 item 必须保存 bounded
-    finalized/derived body，或其 exact project-journal offset + length + digest，并贯穿
-    allocator recovery；projection receipt 前不得丢弃。恢复只按 exact key/offset/digest
-    判断，禁止扫描 global log。
+    GH-704 global event/status 只允许从 `all_activated` barrier 做 idempotent derived
+    projection，绑定 source event ID/barrier digest 与 durable projection receipt。
+    project WAL 在 queue append 前先 durable `projection_prepared`，保存 expected queue offset 与 bounded
+    derived body/digest；exact-offset append/fsync 后才写 `projection_queued` 并允许
+    semantic `done`。global worker 必须先由跨 project/shard 的唯一 deadline-bounded
+    allocator 原子 reservation offset，且 reservation 自身携带 bounded body；再以该 offset/
+    digest 写 bounded keyed `projection_prepared`、append/fsync、applied state 与 project
+    receipt。projection receipt 前不得丢弃。恢复只按 exact key/offset/digest 判断，禁止
+    扫描 project/global log。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -312,11 +312,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
     或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
-    finalized record 渲染；已持久化但尚未 finalized 的 failure 从 bounded WAL/queue
+    `all_activated` barrier 渲染，且所有 consumer reader/aggregate 必须 join 同一 barrier
+    digest；已持久化但 barrier 前的 failure 从 bounded WAL/queue
     渲染。lock/WAL open/initial prepare 之前的 failure，以 typed in-memory error 作为仅限
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
-    storage health。两类 failure 都不能进入 precision/Learn。global/aggregate view 若尚未投影同一 finalized digest，必须显示
+    storage health。两类 failure 都不能进入 precision/Learn。global/aggregate view 若尚未投影同一 barrier digest，必须显示
     `projection_lag` 和空数据，不能沿用旧 mirror 结果。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
@@ -331,9 +332,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       consumer/metrics/precision/Learn write，只有显式 maintenance route 可 drain。
 - [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
       以及 payload cwd 缺失/relative/非法、`GIT_DIR` + `GIT_WORK_TREE` 指向另一 opted-in
-      project、repo-local gitdir + `core.worktree` 指出 payload ancestry 外的 fixtures，
-      证明只有 sanitized、ancestry-bound payload project 可以请求 opt-in；cwd 全缺失保持
-      off/L1 parity，其它错误路径零 provider/cache/metrics。
+      project、repo-local gitdir + external `core.worktree`、redirected `.vibeguard.json`
+      fixtures，证明只有 no-follow、ancestry-bound payload project 可以请求 opt-in；
+      Codex app-server 必须把 trusted thread cwd 写入 canonical payload，而不是只设 child
+      process cwd；cwd 全缺失保持 off/L1 parity，其它错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。
@@ -344,8 +346,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] canonical structured `rule_id/signal_id/evidence_digest` 从 runtime 唯一投影到
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
-      durable projection queue/allocator 不丢失或重用 offset，free-text/global mirror
-      不再是权威路径。
+      单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
+      partial activation 可幂等补齐/回滚，durable projection prepare/queue/allocator 不
+      丢失 payload 或重用 offset，free-text/global mirror 不再是权威路径。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
