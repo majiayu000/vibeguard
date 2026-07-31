@@ -618,7 +618,9 @@ run_legacy_checks() {
     check_systemd_scheduled_gc
   fi
 
-  check_codex_home_installation
+  if ! check_codex_home_installation; then
+    red "[FAIL] Codex home installation check failed (invalid disabled_skills or manifest/runtime error)"
+  fi
 
   echo
   echo "Repository Git Hooks"

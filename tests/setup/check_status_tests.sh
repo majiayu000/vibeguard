@@ -23,6 +23,7 @@ PROJECT_HOOK_HOME=""
 PROJECT_HOOK_REPO=""
 STALE_RUNTIME_DIR=""
 SYSTEMD_CHECK_HOME=""
+INVALID_DISABLED_SKILLS_HOME=""
 
 cleanup() {
   if [[ -n "${AWK_PORTABILITY_FIXTURE}" ]]; then
@@ -51,6 +52,9 @@ cleanup() {
   fi
   if [[ -n "${SYSTEMD_CHECK_HOME}" ]]; then
     rm -rf "${SYSTEMD_CHECK_HOME}"
+  fi
+  if [[ -n "${INVALID_DISABLED_SKILLS_HOME}" ]]; then
+    rm -rf "${INVALID_DISABLED_SKILLS_HOME}"
   fi
 }
 trap cleanup EXIT
@@ -457,3 +461,28 @@ else
 fi
 assert_json_path "$json_full_out" 'd["schema_version"]' "1" "json end-to-end: schema_version=1"
 assert_json_path "$json_full_out" 'd["verdict"] in ("healthy","degraded","broken")' "True" "json end-to-end: verdict in expected set"
+
+INVALID_DISABLED_SKILLS_HOME="$(mktemp -d)"
+invalid_disabled_json_rc=0
+invalid_disabled_json="$(
+  HOME="${INVALID_DISABLED_SKILLS_HOME}" \
+    VIBEGUARD_DISABLED_SKILLS='plan-flow,,fixflow' \
+    bash "${SETUP_SCRIPT}" --check --json 2>/dev/null
+)" || invalid_disabled_json_rc=$?
+assert_eq "${invalid_disabled_json_rc}" "2" \
+  "invalid disabled-skills override: JSON check exits broken"
+assert_json_path "${invalid_disabled_json}" \
+  'any("Codex home installation check failed" in event["message"] for event in d["events"])' \
+  "True" "invalid disabled-skills override: JSON exposes a FAIL event"
+
+invalid_disabled_verify_rc=0
+invalid_disabled_verify_out="$(
+  HOME="${INVALID_DISABLED_SKILLS_HOME}" \
+    VIBEGUARD_DISABLED_SKILLS='plan-flow,,fixflow' \
+    bash "${SETUP_SCRIPT}" verify-install 2>&1
+)" || invalid_disabled_verify_rc=$?
+assert_eq "${invalid_disabled_verify_rc}" "2" \
+  "invalid disabled-skills override: verify-install exits broken"
+assert_contains "${invalid_disabled_verify_out}" \
+  "[FAIL] Codex home installation check failed" \
+  "invalid disabled-skills override: verify-install exposes the failure"
