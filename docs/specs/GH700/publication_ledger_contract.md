@@ -38,14 +38,32 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
 
 `time_bound_intent` exact 为 `{record_kind,execution_identity,client_payload_core,predecessor_frontier}`；
-`execution_identity` exact 为 `{run_id,run_attempt,transition_slot}`，三字段分别是 canonical unsigned
-64/32/64-bit JSON integer且 `run_id/run_attempt>=1`；alias、string或额外字段拒绝。method与
+`execution_identity` exact 为 `{run_id,run_attempt,transition_slot}`：`run_id`须是
+`1..9007199254740991`、`run_attempt`须是 `1..4294967295`、`transition_slot`须是
+`0..9007199254740991` 的 canonical JSON integer。负数、float、`-0`、越界值、decimal string、alias或额外字段
+均拒绝；上游 u64 identity超过 safe-integer上限时 publication为 `unavailable`，不得 lossy转换或进入 digest。method与
 `record_kind`只允许 `{claim_publication_owner:owner_claimed,renew_publication_owner:owner_heartbeat,
 takeover_publication_owner:publication_owner_taken_over}`。client计算
 `time_bound_request_id=SHA256(JCS({v:"GH700:time-bound-request:v1",repo_node_id,method,
 time_bound_intent}))`，authority须在任何 nonce issuance前从 wire bytes重算。request envelope的
 `expected_publication_frontier_or_null`必须 non-null且 byte-equal
 `time_bound_intent.predecessor_frontier`；任一 null/mismatch报 `invalid_request`。
+
+`secret_channel_binding` exact 为
+`{schema_version:"GH700:secret-channel-binding:v1",channel_kind:"authority_mtls_exporter_v1",authority_id,
+repo_node_id,method,secret_channel_request_core_digest,peer_identity_digest,server_identity_digest,
+tls_exporter_context_digest,tls_exporter_keying_material_digest,secret_slot_ids}`。先从 request envelope删除
+`operation_request_digest`，并从 body删除 `secret_channel_binding`，得到 exact
+`secret_channel_request_core`；core不得保留占位 null，digest exact 为
+`SHA256(JCS({v:"GH700:secret-channel-request-core:v1",request:secret_channel_request_core}))`。
+TLS exporter label exact `EXPORTER-GH700-secret-channel-v1`，context bytes是
+`JCS({v:"GH700:secret-channel-exporter-context:v1",authority_id,repo_node_id,method,
+secret_channel_request_core_digest,peer_identity_digest,server_identity_digest})`，两个 exporter digest分别是
+context bytes与 exact 32-byte exporter output的 SHA-256。peer/server identity须从当前 verified mTLS session与 manifest
+重算，不能信任 wire。claim的 `secret_slot_ids` exact 为 `["draft_claim_nonce"]`，plan Release mutation exact 为
+`["mutation_nonce"]`；其它 method禁止该字段。binding只授权同一 session返回对应 opaque capsule，不含 raw secret；
+same binding/same request幂等恢复，跨 method/request/session/peer/server重放或 non-mTLS/empty exporter在 nonce
+issuance前报 `unauthenticated`。最终 `operation_request_digest`才覆盖含完整 binding的 envelope。
 
 `publication_lease_authorization` exact 为
 `{lease_scope,lease_token_digest,publication_fence,authenticated_actor_digest,authorization_policy_digest,
@@ -138,6 +156,14 @@ generated_pr_delivery_state}`；same ID/same plan只返原 receipt，same ID/dif
 ID作唯一 key；首次 authenticated send后任何重放只可 read-confirm，不得以新 ID再次 create。missing index、
 caller-chosen ID、plan mismatch、第二次 send或 index/outbox/audit不一致均 `operation_conflict`并保留 owner；
 `recover_generated_pr`必须从 `planned_operation_id`反查同一 index/ID，不能建立 replacement delivery identity。
+
+`deliver_generated_pr.delivery_state` exact closed union为 `{bound,recovery_required}`。
+`bound`要求 `transition_receipt_or_null` non-null且 exact 为 anchored `generated_pr_bound`；
+`recovery_required`要求 literal null，只能在 send-once audit已 durable且 authenticated send可能生效、但唯一 exact
+PR/ref尚不能 read-confirm并提交 bound successor时返回。两种 state的 `send_once_audit_digest`都须 non-null并绑定同一
+plan/delivery ID；replay只返原 state/result，`recovery_required`后只可调用 `recover_generated_pr`，不得再次 deliver。
+若可能 send却连 send-once audit都不能 durable证明，返回 `outcome_uncertain` error而非 success。unknown state、
+wrong nullability、bound未 anchor或 recovery-required夹带 receipt均 schema-invalid。
 
 `deliver_release_mutation.delivery_state` exact closed union为 `{bound,recovery_pending}`。
 `bound`要求 singular `transition_receipt` exact 为 `release_mutation_bound`；`recovery_pending`要求 exact 为
@@ -263,9 +289,11 @@ from<until；root/authority/process/response key须 byte-equal manifest。
 `{schema_version:"GH700:initial-time-proof-bundle:v1",repo_node_id,quorum_policy_digest,proofs,
 trusted_lower_bound_unix_seconds,trusted_upper_bound_unix_seconds,initial_time_high_water}`；proofs按
 `(tsa_endpoint_identity_digest,token_digest)` UTF-8 bytes升序、distinct quorum且每项 exact
-`{tsa_endpoint_identity_digest,policy_oid,request_nonce_digest,token_der_b64u,token_digest,
-lower_bound_unix_seconds,upper_bound_unix_seconds}`，token digest须等于 DER bytes SHA-256且 interval/
-quorum/high-water须满足 history trusted-time contract。
+`{purpose:"bootstrap_initial_time",trusted_time_replay_identity,trusted_time_proof_request_id,
+message_imprint_sha256,tsa_endpoint_identity_digest,policy_oid,request_nonce_digest,token_der_b64u,token_digest,
+lower_bound_unix_seconds,upper_bound_unix_seconds}`，token digest须等于 DER bytes SHA-256且所有 purpose/subject/
+nonce/request/imprint/interval/quorum/high-water须按
+[authority protocol](publication_authority_protocol_contract.md#trusted-time-proof-profiles)重算。
 `initial_time_proof_bundle_digest=SHA256(JCS(initial_time_proof_bundle))`。
 
 `migration_plan` exact为

@@ -100,7 +100,9 @@ backup/restore、KMS administration或 policy mutation权限，authority SQLite/
 `{backend,endpoint,transport,api_version,resource_identity,writer_auth_policy_digest,recovery_auth_policy_digest,
 retention_class,minimum_retention_seconds,encryption_contract,data_key_wrap_contract}`；`data_key_wrap_contract`
 exact 为 `{provider:"aws_kms_v1",operation:"GenerateDataKey",key_spec:"AES_256",
-kms_key_arn,encryption_context_schema:"GH700:backup-data-key-context:v1"}`。manifest钉住 account/region/bucket ARN+name+
+kms_key_arn,kms_key_id,kms_key_version,kms_key_version_attestation,kms_key_version_attestation_digest,
+encryption_context_schema:"GH700:backup-data-key-context:v1"}`。logical `kms_key_version`是 nonzero safe integer；attestation exact为 `{schema_version:"GH700:kms-key-version-attestation:v1",attestation_core:{kms_key_arn,kms_key_id,kms_key_version,policy_epoch,prior_version_attestation_digest_or_null},threshold_signatures}`，signatures复用 manifest privileged profile并签 `SHA256(JCS({v:"GH700:kms-key-version-attestation-signature:v1",attestation_core}))`；digest须等于完整 attestation的 JCS SHA-256，轮换须 version/epoch递增且旧 attestation永久保留。
+`GenerateDataKey` response的 KeyId须 byte-equal manifest key ID，`backup_set_core.kms_key_version`只取该 verified attestation；AWS response、alias或 ambient metadata不得另造 version。manifest钉住 account/region/bucket ARN+name+
 creation time、versioning/Object-Lock enabled、独立 KMS key ARN/key ID与 public-CA/server identity，禁 ambient
 endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：每个 version以 Compliance mode至少
 100年且开启 legal hold，无 lifecycle/overwrite/delete；governance须在不足10年剩余窗口前 threshold批准延长，
@@ -152,6 +154,8 @@ key启用/轮换/撤销需 privileged threshold批准、manifest epoch提升、o
 保留，expired/revoked key不得签新请求。privileged class仅 `{bootstrap,migration,restore,governance,
 break_glass_incident_open,emergency_root_cutover}`，继续要求独立 maintainer或 break-glass threshold离线批准；两类 signature不可互换。`privileged_transition_or_null`仅在 `transition_class=break_glass_incident_open`时 non-null且 exact
 `{transition_kind:"break_glass_incident_open",recovery_incident_id,incident_open_intent_digest,trusted_time_replay_identity,trusted_time_proof_request_id,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound,prior_time_high_water,new_time_high_water,current_publication_frontier,current_blocked_attempt_frontier}`；其 proof/replay/interval/high-water/frontiers须 byte-equal protocol proof、intent及 anchor core，任何其它 transition class必须 literal null。
+`transition_class`由 authority按 successor强制唯一映射，caller不得选择：`owner_claimed`/`publication_owner_taken_over`→`trusted_time`，`owner_heartbeat`→`owner_heartbeat`，`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`→`governance`，`trust_emergency_root_cutover`→`emergency_root_cutover`，其余 history record→`publication`；blocked-attempt leaf/reconciliation/watermark→`blocked_attempt`；
+control bootstrap/migration/anchored-snapshot restore分别→`bootstrap`/`migration`/`restore`；restart replay不得创建新 class，只能恢复原 pending anchor的 frozen class；incident-open/break-glass restore cutover分别→`break_glass_incident_open`/`emergency_root_cutover`，ready无 successor。同一 successor匹配零项或多项、wire class assertion mismatch、routine/privileged signer交叉使用均在 signer request前拒绝。
 每个 committed history/attempt/time successor须在释放成功 receipt或允许 broker write前，以 prior digest+epoch作为
 conditional CAS推进 anchor。ack丢失只可
 strong-read同 epoch row+HEAD并 byte/digest-match同 request ID确认，不得重写；并发/stale CAS只能一胜，

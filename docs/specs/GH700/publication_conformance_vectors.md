@@ -221,3 +221,8 @@ environment-protection mismatch及 approval roster/class/incident substitution�
 trust revocation behavioral cases还须逐一拒绝 unknown reason、wrong replacement nullability/class、same key
 ID/version/SPKI、quorum或管理域下降、bootstrap-pinned key、inactive/already-revoked key及
 compromise/loss伪装 scheduled/superseded reason。
+同一 generator还须覆盖 bootstrap-initial-time purpose/subject、RFC3161 fractional `genTime`与
+missing/invalid accuracy、secret-channel request/session substitution、execution identity safe-integer上下界±1、
+generated-PR delivery state/receipt nullability、KMS logical-version attestation drift及
+successor→anchor-class错配；这些约束的 unknown/extra/alias/null/applicability reject与所属 contract schema
+一并生成，不得由 consumer维护本地例外。

@@ -53,14 +53,24 @@ proof request、operation ID或 final payload。
 ## Trusted-time proof profiles
 
 `trusted_time_purpose` exact closed union为
-`{owner_claim,owner_heartbeat,owner_takeover,break_glass_incident_open,break_glass_cutover}`。purpose与 subject branch
-exact mapping为前三者→`publication_transition`，其余分别→`incident_open`/`emergency_cutover`；交叉使用拒绝。
+`{bootstrap_initial_time,owner_claim,owner_heartbeat,owner_takeover,break_glass_incident_open,
+break_glass_cutover}`。purpose与 subject branch exact mapping为 bootstrap→`bootstrap_initial_time`、三个 owner
+purpose→`publication_transition`，其余分别→`incident_open`/`emergency_cutover`；交叉使用拒绝。
 `trusted_time_subject` exact tagged union为：
 
+- `bootstrap_initial_time`：`{subject_kind:"bootstrap_initial_time",authority_id,authority_identity_digest,
+  repo_node_id,policy_epoch,bootstrap_version,release_identity_root_digest,initial_trust_bundle_digest,
+  initial_trust_epoch,first_frontier,first_blocked_attempt_frontier,governance_roster_digest,
+  governance_threshold,governance_signer_key_ids,quorum_policy_digest}`；
 - `publication_transition`：`{subject_kind:"publication_transition",execution_identity,owner_generation,record_kind,predecessor_frontier,publication_payload_core_digest,time_bound_request_id}`；
 - `incident_open`：`{subject_kind:"incident_open",recovery_incident_id,incident_open_intent_digest,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier}`；
 - `emergency_cutover`：`{subject_kind:"emergency_cutover",recovery_incident_id,incident_open_receipt_digest,audit_delay_evidence_core_digest,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,next_trust_epoch,new_bundle_digest}`。
 
+bootstrap subject字段来自待批准 deployment core删除两个 proof-produced
+`bootstrap_governance.initial_time_high_water/initial_time_proof_digest`后的 exact closed projection；两个 frontier必须
+是按 history root contract重算的 length-zero full frontiers，signer IDs按 UTF-8 bytes升序 distinct，quorum policy须
+byte-equal manifest钉住的 RFC3161 policy。该 projection不含 proof/bundle/manifest/approval/control-operation digest，
+因此 proof→manifest→approval无自引用；任何 caller-supplied digest或 nonzero pre-state拒绝。
 `owner_claim/owner_heartbeat/owner_takeover`只接受对应 `{owner_claimed,owner_heartbeat,
 publication_owner_taken_over}` record kind。`execution_identity`沿用 client contract exact schema；takeover subject的
 `owner_generation`必须为 `new_owner_generation`。incident/cutover两个 current frontier均须 byte-equal strong-read HEAD。
@@ -72,13 +82,14 @@ unpadded base64url，`trusted_time_nonce_digest=SHA256(JCS({v:"GH700:trusted-tim
 repo_node_id,purpose,trusted_time_replay_identity,nonce_b64u}))`。proof request exact 为
 `trusted_time_proof_request_id=SHA256(JCS({v:"GH700:trusted-time-proof-request:v2",authority_id,repo_node_id,
 purpose,trusted_time_replay_identity,subject_digest,prior_time_high_water,trusted_time_nonce_digest}))`。
+bootstrap的 `prior_time_high_water`须 literal `0`；其它 purpose从已验证 predecessor/anchor读取，client不得提交。
 
 proof request冻结后，heartbeat/takeover才按 [history contract](publication_history_contract.md#frontiertrust-与-deterministic-fold)
-generic公式派生 operation ID；claim special operation ID已在 capsule前冻结，incident/cutover没有 history operation ID。
+generic公式派生 operation ID；claim special operation ID已在 capsule前冻结，bootstrap/incident/cutover没有 history operation ID。
 RFC3161 `messageImprint.hashAlgorithm`必须 SHA-256，`hashedMessage`必须 exact 32 bytes
 `SHA256(JCS({v:"GH700:trusted-time-message-imprint:v1",authority_id,repo_node_id,purpose,
 trusted_time_replay_identity,trusted_time_proof_request_id,subject_digest,transition_operation_id_or_null,nonce_b64u}))`；
-publication要求该字段 non-null且为刚派生的 exact ID，incident/cutover要求 literal null。TSA token的 imprint、policy OID
+publication要求该字段 non-null且为刚派生的 exact ID，bootstrap/incident/cutover要求 literal null。TSA token的 imprint、policy OID
 及 signer chain必须 byte-equal request/manifest；RFC3161 request/token nonce extension必须 absent。`trusted_time_proof_digest` exact 为
 `SHA256(JCS({v:"GH700:trusted-time-proof-capsule:v1",purpose,trusted_time_replay_identity,
 trusted_time_proof_request_id,message_imprint_sha256,ordered_token_digests,trusted_lower_bound,trusted_upper_bound}))`，
@@ -92,9 +103,20 @@ state只可 `reserved→requested→proof_frozen→anchor_confirmed`。UNIQUE `(
 trusted_time_replay_identity)`；same identity/same subject从 durable state恢复，different subject冲突。任一 nonce/request/
 message imprint/token capsule不得跨 purpose或 replay identity复用；crash/ack-loss不得生成第二 nonce或 TSA request。
 
-token验证对 distinct threshold signer的 intervals求交；无交集、accuracy超限、signer不足、imprint/purpose/replay mismatch
-或 token replay拒绝。`trusted_lower_bound`/`trusted_upper_bound`取交集边界且 lower必须 `>=prior_time_high_water`；
-accepted/new high water取 upper并随 DB successor及 external anchor持久化。host/client/GitHub time不参与授权。
+每个 token 的 DER `TSTInfo.genTime`只接受 UTC `YYYYMMDDhhmmss[.fraction]Z`；fraction为1–9位且末位非零，
+解析为 exact signed Unix nanoseconds `gen_time_ns`，leap second、offset、本地时区、超过 nanosecond精度或
+overflow拒绝。RFC3161 `accuracy`必须存在且至少一个 component nonzero：`seconds`为 nonnegative safe integer，
+`millis/micros`若存在分别须 `1..999`；`accuracy_ns=seconds*10^9+millis*10^6+micros*10^3`使用 checked integer
+arithmetic，missing accuracy不得按 zero解释。manifest exact `maximum_tsa_accuracy_ns`须为 nonnegative safe integer，
+且每个 `accuracy_ns<=maximum_tsa_accuracy_ns`。
+
+token inclusive interval exact 为 `[gen_time_ns-accuracy_ns,gen_time_ns+accuracy_ns]`；wire second bounds分别取
+mathematical floor(lower/10^9)与 ceiling(upper/10^9)，不得 truncate toward zero。token内任何
+`lower_bound_unix_seconds/upper_bound_unix_seconds`只作 assertion并须 byte-equal重算值。distinct threshold signer
+interval求交 exact 为 `trusted_lower_bound=max(token lowers)`、
+`trusted_upper_bound=min(token uppers)`；无交集、accuracy缺失/超限、signer不足、imprint/purpose/replay mismatch或
+token replay拒绝。lower必须 `>=prior_time_high_water`；accepted/new high water取 upper并随 DB successor及 external
+anchor持久化。host/client/GitHub time不参与授权。
 
 incident-open必须以 `purpose=break_glass_incident_open`先完成并锚定 receipt。cutover另取
 `purpose=break_glass_cutover`的 fresh replay identity/nonce/request/token；其
@@ -107,6 +129,13 @@ minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`；仅当 cutover
 emergency record的 anchor/frontiers必须 byte-equal；任一 pre-state drift必须新建 incident，不得复用 proof。
 
 ## Bootstrap genesis and anchor evidence
+
+`initial_time_proof_bundle`只能由同一 `bootstrap_initial_time` subject/replay identity下 frozen proof capsules构造。
+bundle的 repo/quorum、每项 endpoint/policy/nonce/request/imprint/token digest与重算 proof必须 byte-equal，bundle
+lower/upper须 byte-equal上述 interval intersection，`initial_time_high_water`须 byte-equal upper；
+`initial_time_proof_bundle_digest=SHA256(JCS(bundle))`。随后 deployment core的两个 initial-time输出必须分别
+byte-equal该 high water与 bundle digest，bootstrap approval才可签完整 manifest core；cross-bootstrap replay、
+proof后替换 manifest projection、缺 accuracy或任一 digest/interval drift均拒绝。
 
 bootstrap genesis preimage exact 为
 `bootstrap_genesis_state_preimage={v:"GH700:bootstrap-genesis-state:v1",authority_id,
