@@ -709,6 +709,137 @@ assert_cmd "setup lease rejects a live process group with reused leader identity
 assert_cmd "setup lease PID-reuse ambiguity preserves exact lease evidence" \
   test -f "${lease_reuse_file}"
 
+pending_owner_root="${TMP_HOME}/bootstrap-pending-owner-identity"
+pending_owner_lease="${pending_owner_root}/.bootstrap.lock.lease.pending-owner"
+mkdir -p "${pending_owner_root}"
+printf '%s\n' \
+  'schema=2' \
+  'owner_pid=77' \
+  'owner_identity=Thu_Jan_1_00:00:00_1970' \
+  'nonce=pending-owner' \
+  'state=pending' > "${pending_owner_lease}"
+assert_cmd "pending setup lease rejects a zombie bootstrap owner despite signal-zero success" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    kill() { return 0; }
+    ps() {
+      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
+        printf "%s\n" "77 77 Z Thu Jan 1 00:00:00 1970"
+      else
+        return 2
+      fi
+    }
+    bootstrap_setup_lease_liveness "$1" 77 pending-owner
+    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = dead
+  ' _ "${pending_owner_lease}"
+assert_cmd "pending setup lease rejects a reused bootstrap owner PID" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    kill() { return 0; }
+    ps() {
+      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
+        printf "%s\n" "77 77 S Fri Jan 2 00:00:00 1970"
+      else
+        return 2
+      fi
+    }
+    bootstrap_setup_lease_liveness "$1" 77 pending-owner
+    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = dead
+  ' _ "${pending_owner_lease}"
+assert_cmd "pending setup lease preserves the matching live bootstrap owner" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    kill() { return 0; }
+    ps() {
+      if [[ "$*" == "-p 77 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
+        printf "%s\n" "77 77 S Thu Jan 1 00:00:00 1970"
+      else
+        return 2
+      fi
+    }
+    bootstrap_setup_lease_liveness "$1" 77 pending-owner
+    test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = active
+  ' _ "${pending_owner_lease}"
+
+lease_revalidation_root="${TMP_HOME}/bootstrap-lease-revalidation"
+lease_revalidation_file="${lease_revalidation_root}/.bootstrap.lock.lease.revalidation"
+lease_revalidation_bin="${TMP_HOME}/bootstrap-lease-revalidation-bin"
+lease_revalidation_count="${TMP_HOME}/bootstrap-lease-revalidation.count"
+lease_revalidation_ready="${TMP_HOME}/bootstrap-lease-revalidation.ready"
+lease_revalidation_fifo="${TMP_HOME}/bootstrap-lease-revalidation.fifo"
+lease_revalidation_first_out="${TMP_HOME}/bootstrap-lease-revalidation-first.out"
+lease_revalidation_second_out="${TMP_HOME}/bootstrap-lease-revalidation-second.out"
+mkdir -p "${lease_revalidation_root}" "${lease_revalidation_bin}"
+mkfifo "${lease_revalidation_fifo}"
+printf '0\n' > "${lease_revalidation_count}"
+printf '%s\n' \
+  'schema=1' \
+  'owner_pid=99999997' \
+  'nonce=revalidation' \
+  'state=active' \
+  'leader_pid=4242' \
+  'process_group=4242' \
+  'leader_identity=Thu_Jan_1_00:00:00_1970' > "${lease_revalidation_file}"
+cat > "${lease_revalidation_bin}/ps" <<SH
+#!/usr/bin/env bash
+if [[ "\$*" == "-A -o pid= -o pgid= -o stat=" ]]; then
+  count="\$(cat "${lease_revalidation_count}")"
+  count="\$((count + 1))"
+  printf '%s\n' "\${count}" > "${lease_revalidation_count}"
+  if [[ "\${count}" -eq 1 ]]; then
+    printf '%s\n' '1 0 Ss'
+  elif [[ "\${count}" -eq 2 ]]; then
+    : > "${lease_revalidation_ready}"
+    IFS= read -r _continue < "${lease_revalidation_fifo}"
+    printf '%s\n' '1 0 Ss' '4242 4242 S'
+  else
+    printf '%s\n' '1 0 Ss' '4242 4242 S'
+  fi
+elif [[ "\$*" == "-p 4242 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
+  printf '%s\n' '4242 4242 S Thu Jan 1 00:00:00 1970'
+else
+  exit 2
+fi
+SH
+chmod +x "${lease_revalidation_bin}/ps"
+lease_revalidation_first_rc=0
+env REPO_DIR="${REPO_DIR}" PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+  set -euo pipefail
+  source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
+' _ "${lease_revalidation_file}" >"${lease_revalidation_first_out}" 2>&1 &
+lease_revalidation_first_pid=$!
+for _lease_revalidation_attempt in {1..100}; do
+  [[ -e "${lease_revalidation_ready}" ]] && break
+  sleep 0.05
+done
+assert_cmd "post-claim liveness pauses after hard-link evidence is established" \
+  test -e "${lease_revalidation_ready}"
+assert_cmd "canonical setup lease remains visible throughout post-claim validation" bash -c \
+  'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -type f -name ".bootstrap.lock.lease.revalidation.evidence.*" -print -quit)"' _ \
+  "${lease_revalidation_file}" "${lease_revalidation_root}"
+lease_revalidation_second_rc=0
+env REPO_DIR="${REPO_DIR}" PATH="${lease_revalidation_bin}:${PATH}" bash -c '
+  set -euo pipefail
+  source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  bootstrap_setup_lease_clear_inactive "$1" 99999997 revalidation
+' _ "${lease_revalidation_file}" >"${lease_revalidation_second_out}" 2>&1 \
+  || lease_revalidation_second_rc=$?
+assert_cmd "second recoverer fails closed while canonical lease is revalidated" \
+  test "${lease_revalidation_second_rc}" -ne 0
+assert_cmd "second recoverer preserves the canonical lease" \
+  test -f "${lease_revalidation_file}"
+printf 'continue\n' > "${lease_revalidation_fifo}"
+wait "${lease_revalidation_first_pid}" || lease_revalidation_first_rc=$?
+assert_cmd "first recoverer rejects a group that becomes active during revalidation" \
+  test "${lease_revalidation_first_rc}" -ne 0
+assert_cmd "failed post-claim revalidation preserves canonical lease and clears evidence" bash -c \
+  'test -f "$1" && test -z "$(find "$2" -maxdepth 1 -type f \( -name ".bootstrap.lock.lease.revalidation.evidence.*" -o -name ".bootstrap.lock.lease.revalidation.reap.*" \) -print -quit)"' _ \
+  "${lease_revalidation_file}" "${lease_revalidation_root}"
+
 group_state_bin="${TMP_HOME}/bootstrap-group-state-bin"
 group_state_real_ps="$(command -v ps)"
 mkdir -p "${group_state_bin}"
@@ -784,6 +915,35 @@ assert_contains "${dead_lock_out}" "EXPECTED_FINAL_SETUP" \
 assert_cmd "dead-owner recovery leaves no lock or reap directory" bash -c \
   'test ! -e "$1" && test -z "$(find "$2" -maxdepth 1 -name ".bootstrap.lock.reap.*" -print -quit)"' _ \
   "${dead_lock_dir}" "${dead_lock_home}/.vibeguard/dist"
+
+legacy_pending_home="${TMP_HOME}/bootstrap-legacy-pending-home"
+legacy_pending_root="${legacy_pending_home}/.vibeguard/dist"
+legacy_pending_lock="${legacy_pending_root}/.bootstrap.lock"
+legacy_pending_nonce="legacy-pending-owner"
+legacy_pending_lease="${legacy_pending_root}/.bootstrap.lock.lease.${legacy_pending_nonce}"
+legacy_pending_count="${TMP_HOME}/bootstrap-legacy-pending.count"
+legacy_pending_release="${TMP_HOME}/bootstrap-release-legacy-pending"
+make_hostile_bootstrap_release "${legacy_pending_release}" counted-handoff
+mkdir -p "${legacy_pending_root}"
+printf 'pid=%s\nnonce=%s\n' "${dead_lock_pid}" "${legacy_pending_nonce}" \
+  > "${legacy_pending_lock}"
+printf '%s\n' \
+  'schema=1' \
+  "owner_pid=${dead_lock_pid}" \
+  "nonce=${legacy_pending_nonce}" \
+  'state=pending' > "${legacy_pending_lease}"
+legacy_pending_rc=0
+env "${bootstrap_base_env[@]}" \
+  HOME="${legacy_pending_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${legacy_pending_release}" \
+  VIBEGUARD_TEST_SETUP_COUNT="${legacy_pending_count}" \
+  bash "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+  >/dev/null 2>&1 || legacy_pending_rc=$?
+assert_cmd "schema-1 pending lease from a dead owner remains upgrade-recoverable" \
+  test "${legacy_pending_rc}" -eq 0
+assert_cmd "schema-1 pending recovery clears lock and lease and runs setup once" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test "$(wc -l < "$3")" -eq 1' _ \
+  "${legacy_pending_lock}" "${legacy_pending_lease}" "${legacy_pending_count}"
 
 stale_race_home="${TMP_HOME}/bootstrap-stale-race-home"
 stale_race_dir="${stale_race_home}/.vibeguard/dist/.bootstrap.lock"

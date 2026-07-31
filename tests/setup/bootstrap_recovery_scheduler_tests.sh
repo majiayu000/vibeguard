@@ -358,12 +358,17 @@ pending_lease_real_ps="$(command -v ps)"
 mkdir -p "${pending_lease_home}" "${pending_lease_bin}"
 cat > "${pending_lease_bin}/ps" <<SH
 #!/usr/bin/env bash
-if [[ "\${1:-}" == "-p" && ! -e "${pending_lease_marker}" ]]; then
-  : > "${pending_lease_marker}"
+if [[ "\${1:-}" == "-p" && -f "${pending_lease_home}/.vibeguard/dist/.bootstrap.lock" \
+  && -n "\$(find "${pending_lease_home}/.vibeguard/dist" -maxdepth 1 -type f \
+    -name '.bootstrap.lock.lease.*' -print -quit 2>/dev/null)" \
+  && ! -e "${pending_lease_marker}" ]]; then
   owner_pid="\$(awk -F= '\$1 == "pid" { print \$2 }' \
     "${pending_lease_home}/.vibeguard/dist/.bootstrap.lock")"
-  kill -KILL "\${owner_pid}"
-  exit 137
+  if [[ "\${2:-}" == "\${owner_pid}" ]]; then
+    : > "${pending_lease_marker}"
+    kill -KILL "\${owner_pid}"
+    exit 137
+  fi
 fi
 exec "${pending_lease_real_ps}" "\$@"
 SH
