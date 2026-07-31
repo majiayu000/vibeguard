@@ -252,6 +252,27 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `draft_bound`（release node ID/tag/target/source/claim digest），全部上传并重验后才 CAS
     `prepared`。短 lease 可在等待 review 时释放，active owner 仍阻断其它 candidate；
     恢复时按同一顺序重取 lease并提升 fence。
+    `owner_claimed` append request须通过 authenticated secret channel另交由 store/HSM CSPRNG
+    为该 proposed generation签发的 uniform 256-bit one-time nonce；未消费的 issuance不授权任何
+    Release/PR/draft mutation。nonce跨 repo/candidate/generation全局不得复用，且不进入 JCS
+    intent、operation ID、history payload、日志或报告。store以永久 unique index拒绝复用，并在
+    同一事务验证 `draft_claim_nonce_digest = SHA256(JCS({v:
+    "GH700:draft-claim-nonce:v1", repo_node_id, owner_generation, nonce_b64u}))`及 issuance
+    attestation；schema固定字段类型/Unicode normalization，`nonce_b64u`只能是32-byte nonce的
+    unpadded base64url canonical encoding，任何替代边界/编码均拒绝。随后以 KMS/HSM封装到 retention-independent secret
+    capsule，key为 `(repo_node_id, owner_generation, transition_operation_id)`；committed
+    envelope只绑定 opaque `nonce_capsule_id`、ciphertext digest与 KMS key version。capsule与
+    对应历史解密 key须保留到整个 candidate publication ownership successor chain terminal及
+    获批的 recovery/audit retention window结束，绝不能在旧 generation被 takeover/terminal时
+    提前销毁；key rotation不能破坏 active recovery。
+    unwrap还须提交 current repository-publication lease scope/token、latest signed frontier与
+    server-authenticated actor；store必须核对 actor 的 repo/workflow/App/installation/run identity
+    是 exact current owner，或是在 store-auth expiry 后由 exact-frontier takeover record建立的
+    同 candidate successor，并验证 current fence。公开的 fence/generation/capsule ID本身都不是
+    credential，不能授权读取/解封。解封后重验 digest；restart发生在
+    claim commit后、draft create前时必须复用该 nonce；capsule缺失、越权、密文/key-version/
+    digest不符或 KMS不可用均进入 `draft_recovery_blocked`，不得生成新 nonce、重写 claim或创建
+    第二个 draft。
     canonical frontier 是 `(repo_node_id, history_length, history_root,
     full_prefix_digest)`。维护者批准的 length-zero genesis 只能在 store 尚无 head 的首次
     初始化使用；此后上一 release frontier 仅作下界，reader 必须取得 store 签名的最新单调
@@ -274,8 +295,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `owner_claimed` 是唯一的 absent-owner 创建 transition：其 intent声明 fresh、全局永不复用的
     `owner_generation`，store仅在 exact predecessor fold 证明 length-zero/no owner 或 prior
     owner terminal、repository publication lease/current fence有效、server-auth run/candidate/
-    frozen-plan tuple与 predecessor frontier匹配时，才在同一事务创建 generation、append并签发
-    committed envelope；已有 active owner必须走 takeover，不能再 claim。并发 claim只能一个
+    frozen-plan tuple、nonce capsule与 predecessor frontier匹配时，才在同一事务创建 generation、
+    secret capsule、history append及 committed envelope；已有 active owner必须走 takeover，不能再 claim。并发 claim只能一个
     成功；stale lease/fence、复用 generation或错误 predecessor均拒绝。
     ack不确定时重放 signed latest prefix：已提交 exact op接受 receipt及合法 suffix fold；未提交
     old fence失败，同 owner generation取得新 fence后以相同 intent重新授权；head advanced禁止
