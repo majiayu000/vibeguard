@@ -246,9 +246,11 @@ pointer；crash 在两步之间只会使旧 pointer 低于 floor 而 fail closed
 不得降低 floor。runtime 同时验证 pointer generation `>= floor`，故旧 pointer replay 即使
 digest 匹配也无效。每个 active generation 有独立 closed、Core-owned runtime-state entry，
 绑定 generation/policy digest、`clock_epoch`、单调 sequence 与 `last_trusted_runtime_time`；
-active set pointer 同时选择 generation 和对应 state。runtime 在专用 bounded lock 下 CAS：只有
-`runtime_time >= last_trusted_runtime_time`、generation/policy identity 仍匹配且 state 可
-原子推进时才可执行 block；否则按下述 semantic fallback/runtime-guard denial 分流。新进程
+active set pointer 同时选择 generation 和对应 state。runtime 必须先取得专用 bounded lock，
+再在锁内读取 current pointer、由该 snapshot 派生 state path，并在 CAS 与执行前重验 pointer
+identity 未变；只有 `runtime_time >= last_trusted_runtime_time`、generation/policy identity
+仍匹配且 state 可原子推进时才可执行 block。取锁前缓存的 pointer/state 不得执行；否则按
+下述 semantic fallback/runtime-guard denial 分流。新进程
 继承 durable high-water，不得以启动时间
 重置。同 epoch 的 audit 不得降低它；显式 trusted-clock reconciliation 必须验证 Core-approved
 time evidence，在 management locks 下重新 audit，递增 epoch，并将 evidence、新 generation
@@ -261,8 +263,10 @@ pack name 不同是两个合法 node；local node 使用完整 `source_storage_k
 publisher/version 或 pack/version 的部分 key。
 
 每个 mutation 使用 canonical lock order：先取得 HOME-wide `ownership.lock`，再按 normalized
-target ID 排序取得全部 target locks；unlock 反序。HOME-wide lock 保护 shared store refs、
-dependency ownership、reservation 与 generation pointer，target locks 保护 host/config。
+target ID 排序取得全部 target locks；lock-C 若提交 policy-bound generation，随后取得
+`policy.lock`，最后取得 installation runtime-state lock；unlock 反序。HOME-wide lock 保护
+shared store refs、dependency ownership、reservation 与 generation pointer，target locks
+保护 host/config，policy lock 保护最终 policy pointer/floor 校验到 commit switch 的窗口。
 不同 target 的 discovery/private staging/confirmation 可并行，但 shared mutation/commit
 critical section 必须序列化。流程分为三个 lock epoch，exclusive lock 不跨越网络 fetch
 或 interactive confirmation：
@@ -312,10 +316,12 @@ staged state 或未提交 generation。pointer switch 后只允许 journal final
 rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
 另一版本。
 
-commit 前还必须验证 authoritative policy pointer/floor 与 committed policy identity；为新
-generation 初始化 state 前，management 在既有 ownership/target locks 之后取得 installation
-runtime-state lock，并持锁跨越旧 state high-water/sequence snapshot、新 state fsync 与 active
-pointer switch；因此旧 generation runtime 不可能在 snapshot 后再推进。初值继承同 epoch
+commit 前，management 在既有 ownership/target locks 之后取得 policy lock，验证 authoritative
+policy pointer/floor 与 committed policy identity，再取得 installation runtime-state lock；两把
+锁均持有到旧 state high-water/sequence snapshot、新 state fsync 与 active pointer switch 完成。
+任何 policy drift 都必须在 switch 前 rollback 并 re-plan/re-confirm，不能提交后才依赖 runtime
+fallback。runtime 同样只能在其锁内读取/revalidate current pointer，因此旧 generation runtime
+不可能在 snapshot 后再推进。初值继承同 epoch
 `max(existing_high_water, evaluation_time)`，单次 pointer replacement 同时选择新 generation/
 state；switch 前 crash 仍选择旧 state，switch 后两者同时可见。policy/floor mismatch 或 state
 初始化失败均在 switch 前 rollback，不得预先改绑旧 state。
@@ -435,7 +441,8 @@ runtime hot path 每次 enforcement 先读取 authoritative policy pointer 与�
 semantic fallback 并派生 `policy_changed + audit_required`。pointer/floor 缺失或 malformed，
 或 pointer generation 低于 floor（旧 pointer replay）时则是 `runtime_guard_unavailable`，必须
 保守拒绝并非零返回；不可将不可读 authority 当成新 policy。两类都不等旧 horizon。
-随后从 active set pointer 派生 generation-scoped state path，在 per-installation lock 下验证
+随后取得 per-installation lock，在锁内读取 active set pointer、派生 generation-scoped state
+path，并在 CAS/执行前重验 current pointer identity，再验证
 `evaluation_time <= runtime_time < decision_valid_until` 及
 `runtime_time >= last_trusted_runtime_time`；即使 runtime time 仍在 validity interval 内，只要
 小于 durable high-water 就是 rollback。只有先原子 CAS 提升/保持 high-water 成功才执行
@@ -608,8 +615,8 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Role-separated loader + active-policy pointer/floor | valid newer digest mismatch falls back；missing/malformed authority or pointer replay below floor conservatively denies；activation crash is recoverable/fail-closed |
-| B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | stale/expiry/rollback uses fallback；concurrent runtime cannot advance old state between management snapshot and pointer switch；same-epoch high-water never decreases；reconciliation creates a new epoch；guard failure denies/nonzero |
+| B-027 policy-owned thresholds | Role-separated loader + active-policy pointer/floor | concurrent activation cannot cross management's policy-lock/CAS commit window；valid newer digest mismatch falls back；missing/malformed authority or pointer replay below floor conservatively denies |
+| B-028 insufficient evidence degrades | Eligibility + generation-scoped runtime guard + renderer | runtime reads/revalidates active pointer under lock；concurrent runtime cannot advance or execute old state across management switch；same-epoch high-water never decreases；guard failure denies/nonzero |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
 | B-031 same gate for core/community | Shared eligibility function | identical evidence inputs under curated/community publishers yield identical eligibility; badge/high severity cannot bypass |

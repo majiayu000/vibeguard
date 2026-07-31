@@ -213,8 +213,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     journal 完成 rollback/recovery；只有 recovery 完成并重新验证 committed generation
     后才可进行新 transaction 的 discovery、staging、planning 或 confirmation。interactive
     confirmation 必须有获批的 bounded deadline，等待期间不得持有 exclusive mutation
-    locks；确认后必须按同一顺序重新取锁，并对 base generation、ownership、plan/evidence/
-    eligibility digests 做 CAS revalidation，drift 时废弃确认并重新 plan/confirm。不能用
+    locks；确认后必须按同一顺序重新取锁，并对 base generation、ownership、authoritative
+    policy pointer/floor、plan/evidence/eligibility digests 做 CAS revalidation，drift 时废弃
+    确认并重新 plan/confirm。不能用
     partial state 计算计划，也不能把旧 staging 或 partial receipt 当作成功安装。
 18. B-018: committed receipt 必须绑定 canonical identity、trust/provenance chain、
     publication/evaluation policy digests、precision/provenance/compatibility evidence
@@ -295,6 +296,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     durable monotonic `policy_generation_floor`，再切换带 generation 的 authoritative pointer；
     runtime 同时验证 pointer generation 不低于该 floor。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
+    management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
+    pointer switch 完成；若使用等价 CAS，则必须在 switch 紧邻前重验并在 drift 时 rollback、
+    re-plan/re-confirm，不能提交后才让 runtime 发现 mismatch。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的
@@ -304,7 +308,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
     `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
-    installation-scope pointer 选择；新 state 在 pointer switch 前不可影响旧 generation。
+    installation-scope pointer 选择；runtime 必须先取得 installation runtime-state lock，再在
+    锁内读取 current pointer、派生 state path，并在 CAS/执行前重验 pointer identity 未变，
+    禁止使用取锁前缓存的 generation。新 state 在 pointer switch 前不可影响旧 generation。
     management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
     high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
