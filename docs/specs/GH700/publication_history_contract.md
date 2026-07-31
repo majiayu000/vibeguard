@@ -93,13 +93,16 @@ backup/restore、KMS administration或 policy mutation权限，authority SQLite/
 唯一 production recovery-byte backend是独立 backup-governance AWS account的
 `publication_restore_backup_s3_object_lock_v1`。`restore_backup_service` exact 为
 `{backend,endpoint,transport,api_version,resource_identity,writer_auth_policy_digest,recovery_auth_policy_digest,
-retention_class,minimum_retention_seconds,encryption_contract}`；manifest钉住 account/region/bucket ARN+name+
+retention_class,minimum_retention_seconds,encryption_contract,data_key_wrap_contract}`；`data_key_wrap_contract`
+exact 为 `{provider:"aws_kms_v1",operation:"GenerateDataKey",key_spec:"AES_256",
+kms_key_arn,encryption_context_schema:"GH700:backup-data-key-context:v1"}`。manifest钉住 account/region/bucket ARN+name+
 creation time、versioning/Object-Lock enabled、独立 KMS key ARN/key ID与 public-CA/server identity，禁 ambient
 endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：每个 version以 Compliance mode至少
 100年且开启 legal hold，无 lifecycle/overwrite/delete；governance须在不足10年剩余窗口前 threshold批准延长，
-否则 authority non-ready。writer的短期 OIDC→STS role只能 `PutObject`、`GetObjectVersion`、读 retention/hold，
-不能 delete、overwrite version、解除 hold、改 lifecycle/KMS；protected recovery role只在 threshold-approved
-restore中读 exact versions并调用 pinned KMS decrypt，authority routine role不能解密或管理 bucket/key。
+否则 authority non-ready。writer的短期 OIDC→STS role只允许 S3 `PutObject`/`GetObjectVersion`/读 retention/hold，
+及 exact KMS key上的 `kms:GenerateDataKey`，且 IAM/key policy以 encryption-context conditions绑定下述 exact字段；
+显式无 `kms:Decrypt`/`Encrypt`/`ReEncrypt*`/key administration、S3 delete/overwrite/解除 hold/lifecycle权限。
+protected recovery role只在 threshold-approved restore中读 exact versions并以同 context调用 pinned KMS decrypt。
 
 每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
@@ -110,10 +113,16 @@ wrapped_data_key_set_digest,aead_contract_digest,retention_until,legal_hold_stat
 retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
 `backup_set_ref={backup_set_core,backup_set_core_digest,backup_confirmation_digest}`；三者都不包含自己的 digest。SQLite snapshot、
 recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
-`aes_256_gcm_siv_v1` authenticated encryption；immutable object header保留 nonce、wrapped data-key bytes、tag和
+`aes_256_gcm_siv_v1` authenticated encryption。每个 object先构造 exact KMS context
+`{schema_version:"GH700:backup-data-key-context:v1",authority_id,repo_node_id,backup_id,object_kind,
+successor_frontiers_digest,prior_anchor_digest}`，再调用一次 `GenerateDataKey(KeyId=manifest exact ARN,
+KeySpec="AES_256",EncryptionContext=exact context)`；只接受32-byte plaintext与对应 `CiphertextBlob`，plaintext只在
+内存完成该 object加密后立即清零且绝不落盘/上传，wrapped data-key bytes exact 为 `CiphertextBlob`。immutable
+object header保留 nonce、exact KMS context、wrapped data-key bytes、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
 prior_anchor_digest})`，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
-ciphertext/header digest并确认 retention+legal hold，任何对象未确认都不能签 anchor或释放 receipt。
+ciphertext/header/wrapped-key digest并确认 retention+legal hold；wrong key ARN/spec/context、重复 data key、
+plaintext残留或任何对象未确认都不能签 anchor或释放 receipt。
 
 DB successor transaction 只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,
 repo_node_id,anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,
@@ -288,14 +297,29 @@ approval同时签该 exact recovery contract；缺失、阈值不足、同管理
 当 normal leaf/root rotation因 active key过期/撤销或 current threshold不可达而不可能满足 pre-state trust时，唯一
 恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
 DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
-fork、pending anchor或 backup缺失时不得开始。经过 manifest delay后，distinct recovery threshold signer对
+fork、pending anchor或 backup缺失时不得开始。然后构造 exact
+`incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,
+current_anchor_digest,current_frontier,current_trust_epoch,recovery_policy_digest}`；T3以 normal RFC3161 quorum生成
+incident-open proof及 interval，并 conditional anchor immutable `INCIDENT#<recovery_incident_id>` row。exact
+`incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,
+trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_epoch,anchor_transaction_digest}`，其
+`incident_open_receipt_digest=SHA256(JCS(incident_open_receipt))`；same incident same bytes幂等，异值冲突。
+
+cutover须取得另一个 fresh trusted-time proof，exact
+`audit_delay_evidence={incident_open_receipt_digest,incident_open_trusted_upper_bound,
+cutover_trusted_lower_bound,minimum_audit_delay_seconds,cutover_trusted_time_proof_digest}`，且 only-if
+`cutover_trusted_lower_bound >= incident_open_trusted_upper_bound + minimum_audit_delay_seconds`；等式允许，
+`audit_delay_evidence_digest=SHA256(JCS(audit_delay_evidence))`；interval overlap、host/client time、未 anchored
+open receipt、pre-state drift或 time-high-water rollback均拒绝。
+distinct recovery threshold signer只对含 `{incident_open_receipt_digest,audit_delay_evidence_digest}`的
 `{repo_node_id,cause,evidence_digest,current_anchor_digest,current_frontier,current_trust_epoch,new_bundle_digest,
-next_trust_epoch,recovery_incident_id,audit_log_digest}`做 domain-separated offline approval；new bundle须有全新 root、
+next_trust_epoch,recovery_incident_id,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest}`
+做 domain-separated offline approval；new bundle须有全新 root、
 满足正常 threshold的 signer roster、单调 next epoch与 release-identity attestation。special envelope只接受该
 bootstrap-pinned recovery chain，不要求已失效 old key；它 append exact-predecessor emergency record，再将新的 encrypted
 backup、完整 break-glass audit和 privileged `emergency_root_cutover` signature CAS到更高 external anchor epoch。
 anchor确认前 old state仍 active且零 write/receipt；确认后只从 anchored successor启用 new root。approval、incident/
-cause证据、参与 signer、trusted-time proof、backup/anchor request/read-back与 cutover receipt永久保留且可独立审计；
+cause证据、参与 signer、incident-open/cutover trusted-time proofs与 intervals、backup/anchor request/read-back及 cutover receipt永久保留且可独立审计；
 不能改写旧 history、降低 time/frontier、重置 bootstrap或跳过 external anchor。recovery roster本身不足 threshold时
 系统保持 blocked，只能通过另一个已 bootstrap-pinned recovery threshold，绝无单人/admin/manual DB bypass。
 
@@ -661,7 +685,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `trust_leaf_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_root_rotated` | `{rotation_id,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,old_threshold_signature_digest,new_threshold_signature_digest,approval_digest,rotation_cutover_certificate_digest}` |
 | `trust_key_revoked` | `{rotation_id,current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,replacement_key_or_bundle_digest_or_null,approval_digest,rotation_cutover_certificate_digest}` |
-| `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
+| `trust_emergency_root_cutover` | `{rotation_id,recovery_incident_id,cause,evidence_digest,current_anchor_digest,current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,recovery_roster_digest,recovery_threshold_signature_digest,audit_log_digest,incident_open_receipt_digest,audit_delay_evidence_digest,trusted_time_proof_digest,backup_set_ref_digest,rotation_cutover_certificate_digest}` |
 
 closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
