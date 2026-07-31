@@ -338,17 +338,23 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     分页/权限不全、rate-limit/5xx/timeout或无强一致 absence API，按 kind进入
     decurrent/rollback/marker/nonvalid-row recovery-blocked。旧 fence late bind、reopen/ref ABA、
     stale check/review与 ruleset bypass均由 latest-frontier merge gate拒绝。
-    valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row；
-    以 `generated_pr_planned(decurrent)` 创建并 bind PR node/head/base/review/queue identity。
+    `required_documentation_surfaces` 是 protocol批准的闭集（至少 canonical README 与配置的
+    locale document），每个 surface绑定 path/base blob OID与 renderer digest。valid plan只能是：
+    `rollover_one`（CAS 证明每个 required surface恰有一个 eligible current valid row/marker，
+    且所有 surface绑定同一 current release/version/summary identity，无缺失、重复、额外 marker
+    或 locale drift；以 `generated_pr_planned(decurrent)` 创建并 bind 一次原子更新全部
+    required surfaces 的 PR node/head/base/review/queue identity。
     required merge gate 每次按最新 signed history frontier 验证 intent 的 owner_generation、
     committed store envelope 的 actual fence及 PR/head/base，
     合并后在 intent 前持久化 merge SHA/前后 blob digest receipt）或
-    `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
+    `genesis_zero`（CAS 证明每个 required surface均为零 marker、`publication_history` 没有历史 eligible valid
     publication，且除本次 exact current prepared owner
     `(repo_node_id, candidate, run_id, run_attempt, owner_generation)` 外没有 active owner；
     current authorization fence只取 committed store envelope；history 证明
     此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
-    zero-marker receipt，不制造 no-op PR）。corpus ledger 只证明 artifact identities，
+    zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）。任一 mixed
+    zero/one、跨 surface version/summary不一致、缺 surface或闭集外 current marker均 fail closed。
+    corpus ledger 只证明 artifact identities，
     不参与 publication 判定。
     其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
     发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即

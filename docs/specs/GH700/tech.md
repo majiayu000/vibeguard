@@ -457,8 +457,8 @@ publication 使用 attempt-scoped draft 与一个统一 durable state machine：
    API → `draft_recovery_blocked`；deadline不得推断未创建，无 durable claim禁止 draft mutation。
 4. 四种 generated PR及 replacement都须在首次 ref/commit/PR mutation前 append `generated_pr_planned(kind)`，intent绑定 repo_node_id/candidate/owner_generation/kind、base ref+OID、head repo+ref、expected tree+OID、patch、受保护 nonce、ruleset、server-auth creator App+installation identity与 replacement chain；actual fence只来自 store envelope，response后 bind PR/review/queue。
    response loss完整分页查询全部 PR states+ref：唯一 active match重验 latest frontier后 CAS bound；merged按 kind恢复；closed先 revoke；stale zero保留 owner且不得重发；仅 PR+ref线性化 exhaustive-negative证明 absence；不完整/歧义按 kind blocked。
-5. `rollover_one` 的 decurrent plan受 latest-frontier owner gate约束，merge后 append SHA/blob receipt；
-   `genesis_zero`由 history证明零 marker、无历史 eligible valid publication/其它 owner后 append receipt；
+5. protocol固定 required documentation surface闭集及 path/base-blob/renderer digest；`rollover_one`须每个 surface恰一条同 release/version/summary current row，decurrent plan原子更新全部 surface并受 latest-frontier owner gate约束，merge后 append SHA/per-surface blob receipt；
+   `genesis_zero`须每个 required surface均零 marker且 history无 eligible valid publication/其它 owner后 append绑定 surface/base blobs的 receipt；mixed 0/1、跨 locale drift、缺失/重复/额外 marker均 blocked；
    corpus ledger只证明 artifact identities。pending取消须 higher-fence revoke gate/queue/PR/head并证明
    closed/unmerged、head/queue absent、base/marker unchanged、ruleset无 bypass；merged→rollback，
    不能证明→decurrent blocked；replacement用新 nonce/fence/head/PR重审，late bind/merge/reopen/ABA拒绝。
