@@ -125,8 +125,8 @@ CURRENT_SWITCHED=0
 TRANSACTION_COMMITTED=0
 LOCK_OWNER_PID=""
 LOCK_OWNER_NONCE=""
-BOOTSTRAP_SETUP_LEASE_FILE=""
-BOOTSTRAP_SETUP_LEASE_HELD=0
+BOOTSTRAP_SETUP_LEASE_FILE="" BOOTSTRAP_SETUP_LEASE_HELD=0
+BOOTSTRAP_SETUP_LEADER_PID="" BOOTSTRAP_SETUP_PGID="" BOOTSTRAP_SETUP_LAUNCHING=0 BOOTSTRAP_SETUP_PENDING_SIGNAL="" BOOTSTRAP_SETUP_PENDING_STATUS=""
 bootstrap_reap_existing_lock() {
   local legacy_owner
 
@@ -347,9 +347,9 @@ bootstrap_finish_cleanup() {
   return "${cleanup_rc}"
 }
 trap bootstrap_cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+trap 'bootstrap_cancel_setup INT 130' INT
+trap 'bootstrap_cancel_setup TERM 143' TERM
+trap 'bootstrap_cancel_setup HUP 129' HUP
 
 if [[ -L "${VIBEGUARD_HOME}" || (-e "${VIBEGUARD_HOME}" && ! -d "${VIBEGUARD_HOME}") ]]; then
   bootstrap_error "${VIBEGUARD_HOME} must be a real directory, not a link or file."

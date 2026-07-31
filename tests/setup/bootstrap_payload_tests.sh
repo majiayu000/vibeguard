@@ -2,6 +2,7 @@ header "pinned payload bootstrap"
 
 BOOTSTRAP="${REPO_DIR}/scripts/setup/bootstrap.sh"
 BOOTSTRAP_LIB="${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+BOOTSTRAP_PROCESS_LIB="${REPO_DIR}/scripts/setup/bootstrap_process.sh"
 BOOTSTRAP_STATE_LIB="${REPO_DIR}/scripts/setup/bootstrap_state.sh"
 BOOTSTRAP_VERSION="$(tr -d '[:space:]' < "${REPO_DIR}/vibeguard-runtime/VERSION")"
 BOOTSTRAP_ASSET="vibeguard-payload-${BOOTSTRAP_VERSION}.tar.gz"
@@ -9,14 +10,18 @@ BOOTSTRAP_RELEASE="${TMP_HOME}/bootstrap-release-good"
 
 assert_cmd "bootstrap entrypoint exists and is executable" test -x "${BOOTSTRAP}"
 assert_cmd "bootstrap helper exists" test -f "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap process helper exists" test -f "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap state helper exists" test -f "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint syntax is correct" bash -n "${BOOTSTRAP}"
 assert_cmd "bootstrap helper syntax is correct" bash -n "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap process helper syntax is correct" bash -n "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap state helper syntax is correct" bash -n "${BOOTSTRAP_STATE_LIB}"
 assert_cmd "bootstrap entrypoint stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP}"
 assert_cmd "bootstrap helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 600' _ "${BOOTSTRAP_LIB}"
+assert_cmd "bootstrap process helper stays below focused limit" bash -c \
+  'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_PROCESS_LIB}"
 assert_cmd "bootstrap state helper stays below focused limit" bash -c \
   'test "$(wc -l < "$1")" -lt 400' _ "${BOOTSTRAP_STATE_LIB}"
 
@@ -428,6 +433,42 @@ printf '%s\\n' "$$" > "${ready}"
 IFS= read -r signal < "${continue_fifo}"
 [[ "${signal}" == "continue" ]]
 printf 'WAIT_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "interactive":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+read -r pid pgid tpgid < <(LC_ALL=C ps -p $$ -o pid= -o pgid= -o tpgid=)
+printf 'INTERACTIVE_READY pid=%s pgid=%s tpgid=%s\\n' "${pid}" "${pgid}" "${tpgid}"
+[[ "${pid}" == "${pgid}" && "${pgid}" == "${tpgid}" ]]
+IFS= read -r answer
+[[ "${answer}" == "confirmed" ]]
+printf 'INTERACTIVE_SETUP_SUCCEEDED\\n'
+"""
+elif kind == "signal-wait":
+    setup = b"""#!/usr/bin/env bash
+set -euo pipefail
+ready="${VIBEGUARD_TEST_SETUP_READY:?}"
+marker="${VIBEGUARD_TEST_SIGNAL_MARKER:?}"
+child=""
+leader_signal() {
+  local signal="$1" status="$2"
+  trap - INT TERM HUP
+  printf 'leader:%s\\n' "${signal}" >> "${marker}"
+  [[ -z "${child}" ]] || wait "${child}" 2>/dev/null || true
+  exit "${status}"
+}
+trap 'leader_signal INT 130' INT
+trap 'leader_signal TERM 143' TERM
+trap 'leader_signal HUP 129' HUP
+(
+  trap 'printf "child:INT\\\\n" >> "${marker}"; exit 130' INT
+  trap 'printf "child:TERM\\\\n" >> "${marker}"; exit 143' TERM
+  trap 'printf "child:HUP\\\\n" >> "${marker}"; exit 129' HUP
+  while :; do sleep 1; done
+) &
+child=$!
+printf '%s %s\\n' "$$" "${child}" > "${ready}"
+wait "${child}"
 """
 elif kind == "foreign-owner":
     setup = b"""#!/usr/bin/env bash

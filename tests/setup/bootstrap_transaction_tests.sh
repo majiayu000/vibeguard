@@ -49,6 +49,128 @@ assert_cmd "first bootstrap releases lock only after setup completes" \
 assert_contains "$(cat "${lock_wait_first_out}")" "WAIT_SETUP_SUCCEEDED" \
   "first setup consumed the continuation handshake"
 
+interactive_release="${TMP_HOME}/bootstrap-release-interactive"
+interactive_home="${TMP_HOME}/bootstrap-interactive-home"
+interactive_out="${TMP_HOME}/bootstrap-interactive.out"
+make_hostile_bootstrap_release "${interactive_release}" interactive
+mkdir -p "${interactive_home}"
+interactive_rc=0
+env "${bootstrap_base_env[@]}" HOME="${interactive_home}" \
+  VIBEGUARD_TEST_RELEASE_DIR="${interactive_release}" \
+  python3 - "${BOOTSTRAP}" "${BOOTSTRAP_VERSION}" "${interactive_out}" <<'PY' \
+  || interactive_rc=$?
+import errno
+import os
+import pty
+import select
+import signal
+import sys
+import time
+
+bootstrap, version, output_path = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe("bash", ["bash", bootstrap, "--version", version, "--", "--yes"], os.environ)
+data = bytearray()
+sent = False
+status = None
+deadline = time.monotonic() + 10
+try:
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.05)
+        if ready:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError as exc:
+                if exc.errno != errno.EIO:
+                    raise
+                chunk = b""
+            data.extend(chunk)
+            if not sent and b"INTERACTIVE_READY" in data:
+                os.write(fd, b"confirmed\n")
+                sent = True
+        waited, candidate = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            status = candidate
+            break
+finally:
+    if status is None:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    with open(output_path, "wb") as output:
+        output.write(data)
+if not sent or not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+    raise SystemExit(1)
+PY
+assert_cmd "interactive bootstrap keeps isolated setup in the terminal foreground" \
+  test "${interactive_rc}" -eq 0
+assert_contains "$(cat "${interactive_out}")" "INTERACTIVE_SETUP_SUCCEEDED" \
+  "interactive setup reads and validates terminal input"
+
+signal_release="${TMP_HOME}/bootstrap-release-signal-wait"
+make_hostile_bootstrap_release "${signal_release}" signal-wait
+for cancel_signal in INT TERM HUP; do
+  case "${cancel_signal}" in
+    INT) cancel_status=130 ;;
+    TERM) cancel_status=143 ;;
+    HUP) cancel_status=129 ;;
+  esac
+  signal_home="${TMP_HOME}/bootstrap-signal-${cancel_signal}-home"
+  signal_ready="${TMP_HOME}/bootstrap-signal-${cancel_signal}.ready"
+  signal_marker="${TMP_HOME}/bootstrap-signal-${cancel_signal}.marker"
+  signal_out="${TMP_HOME}/bootstrap-signal-${cancel_signal}.out"
+  mkdir -p "${signal_home}"
+  env "${bootstrap_base_env[@]}" HOME="${signal_home}" \
+    VIBEGUARD_TEST_RELEASE_DIR="${signal_release}" \
+    VIBEGUARD_TEST_SETUP_READY="${signal_ready}" \
+    VIBEGUARD_TEST_SIGNAL_MARKER="${signal_marker}" \
+    python3 -c 'import os, signal, sys
+for name in ("SIGINT", "SIGTERM", "SIGHUP"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
+os.execvpe("bash", ["bash", *sys.argv[1:]], os.environ)' \
+      "${BOOTSTRAP}" --version "${BOOTSTRAP_VERSION}" -- --yes \
+    >"${signal_out}" 2>&1 &
+  signal_parent_pid=$!
+  for _signal_ready_attempt in {1..200}; do
+    [[ -s "${signal_ready}" ]] && break
+    sleep 0.05
+  done
+  read -r signal_leader_pid signal_child_pid < "${signal_ready}"
+  signal_leader_pgid="$(ps -p "${signal_leader_pid}" -o pgid= | tr -d '[:space:]')"
+  signal_child_pgid="$(ps -p "${signal_child_pid}" -o pgid= | tr -d '[:space:]')"
+  assert_cmd "${cancel_signal} fixture places setup leader and child in one isolated group" \
+    test "${signal_leader_pid}" = "${signal_leader_pgid}" -a \
+      "${signal_leader_pgid}" = "${signal_child_pgid}"
+  kill -s "${cancel_signal}" "${signal_parent_pid}"
+  for _signal_exit_attempt in {1..200}; do
+    kill -0 "${signal_parent_pid}" 2>/dev/null || break
+    sleep 0.05
+  done
+  signal_parent_rc=0
+  if kill -0 "${signal_parent_pid}" 2>/dev/null; then
+    kill -KILL -- "-${signal_leader_pgid}" 2>/dev/null || true
+    kill -KILL "${signal_parent_pid}" 2>/dev/null || true
+    wait "${signal_parent_pid}" 2>/dev/null || true
+    signal_parent_rc=124
+  else
+    wait "${signal_parent_pid}" || signal_parent_rc=$?
+  fi
+  assert_cmd "bootstrap exits with conventional ${cancel_signal} status after forwarding" \
+    test "${signal_parent_rc}" -eq "${cancel_status}"
+  assert_cmd "bootstrap forwards ${cancel_signal} to setup leader and child" bash -c \
+    'grep -qFx "leader:$1" "$2" && grep -qFx "child:$1" "$2"' _ \
+    "${cancel_signal}" "${signal_marker}"
+  assert_cmd "bootstrap reaps ${cancel_signal} setup group and releases lease ownership" bash -c \
+    '! kill -0 "$1" 2>/dev/null && ! kill -0 "$2" 2>/dev/null && test ! -e "$3" && test -z "$(find "$4" -maxdepth 1 -name ".bootstrap.lock.lease.*" -print -quit)"' _ \
+    "${signal_leader_pid}" "${signal_child_pid}" \
+    "${signal_home}/.vibeguard/dist/.bootstrap.lock" \
+    "${signal_home}/.vibeguard/dist"
+done
+
 orphan_setup_home="${TMP_HOME}/bootstrap-orphan-setup-home"
 orphan_setup_ready="${TMP_HOME}/bootstrap-orphan-setup.ready"
 orphan_setup_fifo="${TMP_HOME}/bootstrap-orphan-setup.fifo"
@@ -143,6 +265,9 @@ assert_cmd "dual-recovery fixture starts an isolated setup child" bash -c \
   'test "$1" -gt 1 && kill -0 "$1"' _ "${dual_recovery_setup_pid:-0}"
 kill -KILL "${dual_recovery_parent_pid}"
 wait "${dual_recovery_parent_pid}" 2>/dev/null || true
+dual_recovery_nonce="$(awk -F= '$1 == "nonce" { print $2 }' \
+  "${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock")"
+dual_recovery_lease="${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock.lease.${dual_recovery_nonce}"
 cat > "${dual_recovery_bin}/ps" <<SH
 #!/usr/bin/env bash
 if [[ "\$*" == *"pgid="* && ! -e "${dual_recovery_ps_ready}" ]]; then
@@ -175,10 +300,10 @@ assert_cmd "second stale recoverer fails closed while the setup group is active"
 assert_contains "$(cat "${dual_recovery_second_out}")" "setup process group" \
   "second stale recoverer observes the canonical active lease"
 assert_cmd "dual stale recovery preserves lock, lease, and active setup child" bash -c \
-  'test -f "$1" && test -f "$2" && kill -0 "$3"' _ \
+  'test -f "$1" && test -f "$2" && kill -0 "$3" && test -z "$(find "$4" -maxdepth 1 -name ".bootstrap.lock.lease.*.reap.*" -print -quit)"' _ \
   "${dual_recovery_home}/.vibeguard/dist/.bootstrap.lock" \
-  "$(find "${dual_recovery_home}/.vibeguard/dist" -maxdepth 1 -name '.bootstrap.lock.lease.*' -print -quit)" \
-  "${dual_recovery_setup_pid}"
+  "${dual_recovery_lease}" "${dual_recovery_setup_pid}" \
+  "${dual_recovery_home}/.vibeguard/dist"
 printf 'continue\n' > "${dual_recovery_ps_fifo}"
 wait "${dual_recovery_first_pid}" || dual_recovery_first_rc=$?
 assert_cmd "first stale recoverer also fails closed after liveness proof" \
@@ -573,12 +698,70 @@ printf '%s\n' \
   "process_group=${lease_reuse_pgid}" \
   'leader_identity=Thu_Jan_1_00:00:00_1970' > "${lease_reuse_file}"
 lease_reuse_rc=0
-bootstrap_setup_lease_clear_inactive \
-  "${lease_reuse_file}" "$$" lease-reuse >/dev/null 2>&1 || lease_reuse_rc=$?
+REPO_DIR="${REPO_DIR}" bash -c '
+  set -euo pipefail
+  source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+  bootstrap_setup_lease_clear_inactive "$1" "$2" "$3"
+' _ "${lease_reuse_file}" "$$" lease-reuse >/dev/null 2>&1 || lease_reuse_rc=$?
 assert_cmd "setup lease rejects a live process group with reused leader identity" \
   test "${lease_reuse_rc}" -ne 0
 assert_cmd "setup lease PID-reuse ambiguity preserves exact lease evidence" \
   test -f "${lease_reuse_file}"
+
+group_state_bin="${TMP_HOME}/bootstrap-group-state-bin"
+group_state_real_ps="$(command -v ps)"
+mkdir -p "${group_state_bin}"
+cat > "${group_state_bin}/ps" <<SH
+#!/usr/bin/env bash
+case "\${VIBEGUARD_TEST_GROUP_STATE:-}" in
+  pgid-zero) printf '%s\n' '1 0 Ss' '4242 4242 S+' ;;
+  zombies) printf '%s\n' '1 0 Ss' '4242 4242 Z' '4243 4242 Z+' ;;
+  mixed) printf '%s\n' '4242 4242 Z' '4243 4242 S' ;;
+  malformed) printf '%s\n' '1 0 Ss' 'broken row' ;;
+  *) exec "${group_state_real_ps}" "\$@" ;;
+esac
+SH
+chmod +x "${group_state_bin}/ps"
+assert_cmd "unrelated zero PGID does not hide a live setup group" \
+  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+    VIBEGUARD_TEST_GROUP_STATE=pgid-zero bash -c '
+      set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+      source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_liveness 4242
+      test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = active
+    '
+assert_cmd "zombie-only setup group is safely classified dead" \
+  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+    VIBEGUARD_TEST_GROUP_STATE=zombies bash -c '
+      set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+      source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_liveness 4242
+      test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = dead
+    '
+assert_cmd "live member keeps a mixed zombie setup group active" \
+  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+    VIBEGUARD_TEST_GROUP_STATE=mixed bash -c '
+      set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+      source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_liveness 4242
+      test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = active
+    '
+assert_cmd "malformed process-group evidence remains ambiguous" \
+  env REPO_DIR="${REPO_DIR}" PATH="${group_state_bin}:${PATH}" \
+    VIBEGUARD_TEST_GROUP_STATE=malformed bash -c '
+      set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+      source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+      bootstrap_process_group_liveness 4242
+      test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = ambiguous
+    '
+assert_cmd "zero expected process group is rejected as ambiguous" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail; source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    source "${REPO_DIR}/scripts/setup/bootstrap_state.sh"
+    bootstrap_process_group_liveness 0
+    test "${BOOTSTRAP_PROCESS_GROUP_LIVENESS}" = ambiguous
+  '
 
 dead_lock_home="${TMP_HOME}/bootstrap-dead-lock-home"
 dead_lock_dir="${dead_lock_home}/.vibeguard/dist/.bootstrap.lock"

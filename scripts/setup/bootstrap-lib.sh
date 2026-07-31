@@ -508,6 +508,14 @@ bootstrap_transaction_read() {
     BOOTSTRAP_TRANSACTION_SHA256 BOOTSTRAP_TRANSACTION_PHASE <<< "${parsed}"
 }
 
+BOOTSTRAP_PROCESS_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_process.sh"
+if [[ ! -f "${BOOTSTRAP_PROCESS_LIB}" ]]; then
+  bootstrap_error "missing bootstrap process helper: ${BOOTSTRAP_PROCESS_LIB}"
+  return 1
+fi
+# shellcheck source=scripts/setup/bootstrap_process.sh
+source "${BOOTSTRAP_PROCESS_LIB}"
+
 BOOTSTRAP_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bootstrap_state.sh"
 if [[ ! -f "${BOOTSTRAP_STATE_LIB}" ]]; then
   bootstrap_error "missing bootstrap state helper: ${BOOTSTRAP_STATE_LIB}"
