@@ -84,8 +84,9 @@ GH-701 已完成。
    `preserve_pr705_extras` 允许额外内容继续留在首屏，但维护者必须先通过同一
    GitHub 决策来源明确更新 GH-701 issue acceptance，列出保留块及其证据要求；
    不能只改 spec/README 后声称 acceptance 已同步。两者均未获批或同时出现时，
-   route、README renderer 与 closure gate 必须 blocked；task planning 仅可生成
-   B-034 的一次性 fail-closed bootstrap allowlist tranche。
+   task planning 仍须生成覆盖 B-001–B-035 的完整计划，但产品 tranche 必须显式
+   依赖 `gh701_decision_gate: allowed` 并保持 blocked；route、README renderer 与
+   closure gate 也必须 blocked，只有 B-034 一次性 fail-closed bootstrap tranche 可执行。
 
 ## Behavior Invariants
 
@@ -251,11 +252,23 @@ GH-701 已完成。
     candidate code，只接收 orchestrator 从隔离边界导出的 immutable digest manifest，
     重哈希全部 subjects 后才以 OIDC identity 签名；job/VM identity、handoff digest
     或重哈希任一不匹配都阻断。
+    trusted supervisor 必须为每次运行独立生成 CSPRNG secret sentinels，并按 schema
+    固定的 source class 注入 candidate；candidate 被 kill/reap 且所有 sink writer
+    冻结后，supervisor 才以 no-follow handle 读取每个 required sink 的 exact bytes，
+    对每个 sentinel 扫描零匹配并绑定 sink path/size/digest、注入 receipt、扫描算法与
+    逐 sentinel/sink 结果。secret value 不得持久化；candidate 自报、缺 injection/sink、
+    非零匹配或扫描后 sink digest 漂移都阻断。
     supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
     head、event/nonce/process/distribution digests 与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
-    native binary 绑定 session nonce、进程身份与 executable digest/signature；
+    native binary 还须拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
+    injection 环境，并在事件时枚举完整 executable mapping/image set：Linux 以
+    `/proc/<pid>/maps` 的 dev/inode/no-follow bytes，macOS 以 dyld image 与每项
+    CodeDirectory/signature 建立 loaded-code Merkle root，与 H-001 signed distribution
+    dependency closure 精确匹配；未知/匿名 executable、JIT、启动后额外 load、已删除或
+    被替换 mapping 均阻断，除非 H-001 对 JIT digest 作显式闭集批准。attestation
+    必须绑定 session nonce、进程身份、closed environment digest 与 loaded-code root；
     interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
     manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
     gate-time 路径重读、binary 自报 release/SHA 或 pathname 不能建立 provenance。native
@@ -308,7 +321,9 @@ GH-701 已完成。
     B-ID；只有 bootstrap tasks 可执行，其余 tasks 全部依赖尚未满足的
     H-001–H-004 decision gate。bootstrap PR 的实现 diff 只能包含 decision/witness
     schemas、只读 collector、全部 decision/proof/README authorization gates 及
-    schemas、README renderer、受保护 main workflows 和这些表面的 tests/fixtures；
+    schemas（含唯一 GH-700 authority **schemas/public_benchmark_summary.schema.json**）、
+    README renderer、受保护 main workflows 和这些表面的 tests/fixtures；该 schema
+    必须进入 completion sentinel 的 fixed path/digest set；
     所有下游 gate 在 decisions 缺失时必须 fail closed。不得改 host adapter、
     runtime/manifest、setup、README 或生成 active/完成 claim。该 PR 仍须正常 CI、human final review
     与 merge gate；只有 merge 到 main、attested completion sentinel 验证完整
@@ -352,7 +367,8 @@ GH-701 已完成。
   active/proof，任一额外编辑、path swap 或 late write 都保持 partial。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
-  signing job 执行 candidate 或 handoff 重哈希不符 fixtures 全部 nonzero。
+  signing job 执行 candidate、handoff 重哈希不符、supervisor injection/sink/scan
+  缺失或泄漏，以及 native injection/unknown loaded-code fixtures 全部 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、
   protected collector attestation 和离线 gate；witness source 的 edit/delete/revoke
   在当前 protected run 被重新查询并拒绝；route/task/renderer/closure 都绑定当前
@@ -361,8 +377,9 @@ GH-701 已完成。
   不出现在 response、双日志或 proof。
 - [ ] bootstrap tasks 只能在 ordinary `plan_first` handoff、维护者 GitHub spec
   approval 与 live duplicate-work search 后生成并执行一次；bootstrap PR diff
-  allowlist、CI、human review 与 merge gate 均通过，且可选 SpecRail 输出不参与
-  授权；merge 前所有普通 implementation tasks 保持 blocked。
+  allowlist（含 pinned `public_benchmark_summary` schema）、completion fixture、CI、
+  human review 与 merge gate 均通过，且可选 SpecRail 输出不参与授权；merge 前所有
+  普通 implementation tasks 保持 blocked。
 - [ ] decision gate 对 approved spec head 的 descendant 仅在 product/tech byte
   digests 与 canonical decision-input digest 均不变时 allowed；任一敏感输入变化的
   schema-valid fixture 要求重新收集维护者批准；精确、限时、protected-main

@@ -267,7 +267,7 @@ acceptance snapshot rules 与 collector trust identity：
     "checks/host_adapter_proof_gate.py", "checks/readme_claim_gate.py",
     "scripts/render_readme_claims.py", "schemas/host-adapter-proof.schema.json",
     "schemas/gh701-maintainer-decisions.schema.json", "schemas/gh701-maintainer-witness.schema.json", "schemas/gh701-proof-supervisor-attestation.schema.json",
-    "schemas/readme-claim-evidence.schema.json"
+    "schemas/readme-claim-evidence.schema.json", "schemas/public_benchmark_summary.schema.json"
   ]
 }
 ```
@@ -521,10 +521,7 @@ H-004 缺失/双选、head 或 digest 漂移时 renderer nonzero 且不写 READM
 - protected supervisor workflow：.github/workflows/gh701-proof-supervisor.yml@refs/heads/main
 - collector/gate/harness：checks/collect_gh701_maintainer_evidence.py；checks/host_adapter_proof_gate.py；tests/test_host_adapter_proof_gate.sh
 
-runtime proof 固定 schema/issue/host/release/protocol/adapter/event/HEAD/time、VibeGuard `event_correlation_id`、host/runtime/config digests、batch/request/fix/log correlation、decision summaries，以及 closed
-`redaction.inventory[]`（非 secret sentinel_id/source_class/required_sinks）、其 RFC 8785 SHA-256、完整 `matches_by_sentinel` 与 `total_matches: 0`。inventory 必须等于 schema 固定非空闭集；
-gate 重算 digest 并要求每个 ID/required sink 恰有零匹配；secret sentinel value 不进入 artifact。
-schema 禁止 maintainer identity/source/time。native event ID 只在进程内解析，不进
+runtime proof 固定 schema/issue/host/release/protocol/adapter/event/HEAD/time、VibeGuard `event_correlation_id`、host/runtime/config digests、batch/request/fix/log correlation 与 decision summaries；schema 禁止 maintainer identity/source/time。native event ID 只在进程内解析，不进
 artifact/log/response/witness；correlation ID 是不从 native/payload/digest 派生的
 独立 128-bit CSPRNG 值。
 
@@ -535,9 +532,21 @@ proof 由真实 released host session 产生，direct wrapper/runtime/demo 不�
 protected workflow 固定拆成两个 job/VM。credential-free execution job 使用
 `permissions: {}`；candidate 环境缺少 `GITHUB_TOKEN`、OIDC request、Actions
 runtime/artifact/attestation token，且 VM 不能读取 supervisor state/output/handoff。
-trusted supervisor 在 VM 外生成 nonce 与 event-time measurement：Linux 绑定 pidfd/
-start-time/exe handle；macOS 绑定 audit token/SecCode/CodeDirectory；interpreted CLI
-另绑定 interpreter/argv/no-follow entrypoint/只读 package root，禁止外部 load。
+trusted supervisor 在 VM 外生成 nonce 与 CSPRNG secret sentinels，按 schema 的非空
+闭集 `redaction.inventory[]` source class 注入 candidate。candidate kill/reap 且 sink
+writers 冻结后，supervisor no-follow 打开每个 required sink 的 exact bytes，记录
+path/size/SHA-256，以固定 byte-search 算法逐 sentinel/sink 要求零匹配，再锁定 digest；
+attestation 绑定 inventory JCS digest、source class、injection receipt、sink manifest、
+算法与逐项零匹配，永不持久化 secret value。candidate 自报、缺 injection/sink、
+非零匹配、scan 后 digest drift 或 candidate 可读 supervisor state 均阻断。
+event-time native measurement 除 pidfd/start-time/exe handle（Linux）或 audit token/
+SecCode/CodeDirectory（macOS）外，还拒绝 preload/library-path/危险 DYLD/debug/plugin/
+injection env，并捕获完整 executable set：Linux 从 `/proc/<pid>/maps` 绑定 dev/inode/
+no-follow bytes，macOS 绑定 dyld image 逐项 CodeDirectory/signature。其 Merkle root 必须
+精确等于 H-001 signed distribution dependency closure；unknown/anonymous executable、
+JIT、post-start load、deleted/replaced mapping 均阻断，除非 H-001 有 digest-bound JIT
+闭集。interpreted CLI 另绑定 interpreter/argv/no-follow entrypoint/只读 package root，
+禁止外部 load；attestation 绑定 closed-environment digest 与 loaded-code root。
 orchestrator 在隔离边界外封存 proof/measurement，只向独立 protected attestation
 job 传 content-addressed digest manifest 与 immutable receipt。该 job 才有 OIDC/
 attestations permission，禁止 checkout/load/execute candidate；它重算 JCS digest、
@@ -627,13 +636,13 @@ config/payload/log content。
 | B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease transaction positive；普通 file 自动路径零写入；用户 exact-diff apply + probe 前后 no-follow digest/ownership match 才 active，额外编辑/path swap/old-FD late write 均 partial/no proof |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | host-proof harness 验证 credential-free execution VM 与独立 OIDC attestation job、digest-only immutable handoff、process measurement 和 redaction inventory；credential/token exposure、job merge、signing job candidate execution、handoff drift 与 wrong attestation 均 nonzero |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 credential-free execution、独立 OIDC signing、digest-only handoff、supervisor-owned sentinel injection/exact sink-byte scan 与 event-time loaded-code closure；credential/token exposure、missing injection/sink、secret/nonzero match、sink drift、native injection/unknown image/JIT/post-start load/deleted mapping、job merge、candidate execution 与 handoff drift 均 nonzero |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/ruleset exact-target update-deny/no-bypass allowed；`ls-remote`-only、rule/head drift/new push/缺字段 blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
 | B-032 | protected read-only maintainer evidence collector | host-proof harness 验证 separate runtime/witness artifacts、trusted workflow attestation、node/event/head/time/proof-SHA binding；current-run source edit/delete/revoke/supersede recheck 与 generation binding；embedded、cached 或 implementer-filled witness blocked |
 | B-033 | closed primary fix fallback | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`：missing fix 生成 fresh fallback ID；4097-byte/encode failure 保留 existing fix_id；均保持 bounded block 且无 raw/digest leakage |
-| B-034 | ordinary-routing one-time bootstrap tranche | bootstrap harness 要求完整 B-ID plan、产品 tranche 均 blocked；fixed allowlist 必须含 supervisor schema/workflow，且下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/second bootstrap blocked |
+| B-034 | ordinary-routing one-time bootstrap tranche | harness 要求完整 B-ID plan、产品 tranche 均 blocked；fixed allowlist/completion fixtures 必须含 supervisor schema/workflow 与 **schemas/public_benchmark_summary.schema.json**，下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/second bootstrap blocked |
 | B-035 | approved spec/trust heads + immutable byte/JCS digest inheritance | `bash tests/test_gh701_decision_gate.sh`：unchanged-spec/trust descendant allowed；任一 non-ancestor、product byte、tech byte、JCS selection/input、acceptance/protocol/branch/trust-path byte drift fixture 全部 `needs_human`；protected-main exact-head/path/digest/expiry `trust_rotation` positive fixture 单次 allowed，self-issued/wildcard/stale/replayed rotation blocked |
 
 ## 数据流
@@ -643,12 +652,9 @@ config/payload/log content。
    `bootstrap_once` allowlist PR。该 PR 经 CI、independent human review/merge 到
    main 后，受保护 collector 才能取得 H-001–H-004 decisions；可选 SpecRail
    packet/evaluator 不参与授权。
-2. 当前 protected CI run 先重新查询 live decision source，再由 offline gate 验证
-   attestation、collection generation、revocation state、approved spec ancestry、
-   product/tech byte digests 与 JCS decision-input digest；task/implementation CI
-   allowed 后，lifecycle 才
-   读取已批准 selection 与 manifest v2 registry，只读 discover 并生成绑定 base
-   digest 的 exact plan。
+2. 当前 protected CI run 重查 live decision source；offline gate 验证 attestation、
+   generation/revocation、spec/trust ancestry、product/tech bytes 与 JCS input digest；
+   CI allowed 后 lifecycle 才读取 selection/manifest v2，只读 discover 并生成绑定 base digest 的 exact plan。
 3. plan 按 registry 选择 versioned CAS+lease transaction 或零 mutation 的 verified-file
    exact diff；后者仅在用户应用、probe 前后 digest/ownership 相同才 active，drift 均 partial。
 4. host 发送 native event；decoder 校验 host/protocol/version，产生带 batch/request
@@ -656,12 +662,11 @@ config/payload/log content。
 5. core 按 index 独立判定每个 request 并逐项写 sanitized log；执行失败先变成
    fail-closed `hook_error`，aggregator 再按固定 priority 选 primary、保留所有
    blocks、合并有界 fixes。
-6. encoder 输出唯一 host-native response；runtime proof producer 只对照 response、
-   project/global logs 与 binary/config digests 生成 runtime artifact。受保护
-   collector 另行获取 fresh GitHub maintainer witness 和 attestation；当前
-   protected run 重查 witness source 的 body/time/revocation，并把实际 host binary
-   digest 与 H-001 受信 distribution provenance 对比后，proof gate 才绑定
-   node/event/head/time/proof digest。
+6. encoder 输出唯一 response；credential-free candidate 产出 runtime artifact；外部
+   supervisor 注入 sentinels、冻结并扫描 exact sink bytes、测量 closed environment /
+   loaded-code root 后封存 digest manifest。独立 job 只签 digest；collector 另取 fresh
+   witness，当前 protected run 重查 source/revocation 并与 H-001 distribution closure
+   对比后，proof gate 才绑定 node/event/head/time/proof/supervisor digests。
 7. README-claim gate 读取 GH-699 tracked install evidence，并直接读取 GH-700 已
    committed Release 的验签 `public_benchmark_summary`、reports 与 publish intent；
    renderer 同时消费 approved H-004：strict 模式形成恰好四块，preserve 模式只加入
@@ -743,13 +748,16 @@ config/payload/log content。
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
   H-004 strict/preserve/unsynced issue matrix；decision source edit/delete/revoke/
   newer-generation matrix；separate host-proof/witness 的 H-001 provenance/head/
-  source/config/redaction matrix，以及 execution VM credential absence、job separation、
-  signing job no-candidate-code、immutable handoff receipt/digest；negative fixtures
-  先通过 schema 再被 semantic gate 拒绝。
+  source/config matrix；supervisor-owned sentinel injection 与 exact sink-byte scan；
+  execution VM credential absence、job separation、signing job no-candidate-code、
+  immutable handoff，以及 missing injection/sink、secret/nonzero match、sink drift、
+  preload/DYLD/plugin、unknown image/JIT/post-start load/deleted mapping negatives；所有
+  negative fixtures 先通过 schema 再被 semantic gate 拒绝。
 - [ ] Bootstrap tests：ordinary `plan_first` handoff、维护者 GitHub spec approval +
   live duplicate evidence、完整 tasks coverage、固定 diff allowlist、candidate
-  gate 自授权拒绝、可选工具无授权能力、main merge 前 collector untrusted、main
-  sentinel 后 second bootstrap 拒绝，以及普通 tasks 全部等待 decisions。
+  gate 自授权拒绝、pinned public-benchmark schema 与 completion fixture、可选工具无
+  授权能力、main merge 前 collector untrusted、sentinel 后 second bootstrap 拒绝，
+  以及普通 tasks 全部等待 decisions。
 - [ ] Head-binding tests：approved default-branch spec head 的 unchanged descendant
   allowed；squashed/non-ancestor PR head、product/tech 单 byte、JCS key/value、
   issue snapshot、release/protocol、branch head 与 workflow trust drift 全部要求
@@ -758,19 +766,11 @@ config/payload/log content。
 - [ ] Real host acceptance：获批 released CLI/session 的 native multi-request
   blocking event 与 fresh-home journey；模拟、direct wrapper/runtime/demo 不能
   生成 proof kind 或替代 maintainer witness。
-- [ ] Full focused verification：
-  `cargo fmt --manifest-path vibeguard-runtime/Cargo.toml -- --check`、
-  `cargo check --manifest-path vibeguard-runtime/Cargo.toml`、
-  `cargo test --manifest-path vibeguard-runtime/Cargo.toml`、
-  `bash scripts/ci/validate-hooks.sh`、
-  `bash scripts/ci/validate-hooks-manifest.sh`、
-  `bash tests/test_manifest_contract.sh`、
-  `bash tests/test_setup.sh`、
-  `bash tests/test_codex_runtime.sh`、
-  `bash tests/test_behavior_eval.sh`、
-  `bash scripts/ci/validate-doc-paths.sh`、
-  `bash scripts/ci/validate-doc-command-paths.sh`、
-  `bash scripts/local-contract-check.sh --quick`、`git diff --check`。
+- [ ] Full focused verification：runtime `cargo fmt -- --check` / `cargo check` /
+  `cargo test`（均用 `--manifest-path vibeguard-runtime/Cargo.toml`）；
+  `bash scripts/ci/validate-hooks.sh`、`bash scripts/ci/validate-hooks-manifest.sh`；`bash tests/test_manifest_contract.sh`、`test_setup.sh`、`test_codex_runtime.sh`、
+  `test_behavior_eval.sh`；doc path/command validators、local-contract quick 与
+  `git diff --check`。
 
 ## 回滚方案
 
