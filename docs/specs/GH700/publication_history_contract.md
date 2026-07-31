@@ -14,19 +14,27 @@ client、workflow、benchmark code 均不得另建 store、直接打开数据库
 Actions artifact降级。environment-protected service以单 active replica运行在独立于 runner、
 checkout、Release artifact与 owner lifecycle 的 durable volume；signed deployment manifest的
 closed planned **schemas/publication_authority_deployment.schema.json** 固定
-`{authority_id,backend,api_location,transport,api_version,server_identity_bundle_digest,
-client_auth_policy_digest,publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,
-retention_policy_digest,trust_bundle_digest,restore_anchor_identity}`；backend必须 exact 为
-`publication_authority_sqlite_v1`，`api_version` exact 为 `GH700:publication-authority-api:v1`。
-`api_location` 是 closed union：remote client只接受 `{kind:"https_endpoint",endpoint}`，endpoint
-须为 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment；colocated
-bootstrap/recover只接受 `{kind:"unix_socket",socket_path}`，socket须为 manifest-pinned absolute path。
-pairing exact 为 `https_endpoint↔tls13_mtls_http2_jcs_v1`、`unix_socket↔unix_peercred_jcs_v1`，
-交叉组合 schema-invalid。server bundle由
-authority外的 release-identity root锚定 exact service ID/issuer/SPKI；client policy闭合 repo/workflow/
-environment/ref/run/actor、cert issuer、role与允许 method，并要求每 request绑定 API version、frontier、
-operation/request digest及 anti-replay nonce。unknown endpoint/socket、ambient discovery/proxy/DNS trust、
-redirect、wrong transport/version/server/client identity或 policy drift均拒绝。store path是唯一 absolute
+`{authority_id,backend,authority_identity_digest,policy_epoch,policy_bundle_digest,client_api,control_api,
+publication_store_path,publication_store_lock_path,volume_identity,kms_key_id,retention_policy_digest,
+trust_bundle_digest,restore_anchor_service}`；backend必须 exact 为 `publication_authority_sqlite_v1`。
+`client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的两个 required objects，不是 union、
+alias或 fallback。`client_api` exact 为 `{endpoint,transport,api_version,
+server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS
+origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version
+exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,
+api_version,server_process_identity_digest,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
+Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
+`GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
+两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
+`authority_identity_digest`、strictly monotonic `policy_epoch` 与 `policy_bundle_digest`；该 bundle同时
+digest method partition、两端 auth policy及 server identities。client server bundle由 authority外的
+release-identity root锚定 exact service ID/issuer/SPKI；client auth policy闭合 repo/workflow/
+environment/ref/run/actor、cert issuer、role与允许 method；control peer policy闭合 executable digest、
+code-sign identity、uid/gid及允许 method。任一 API缺失、单边 rotation、四个 shared值不等、bundle
+内外不一致或 policy epoch回退使整个 authority non-ready；rotation必须由一份 signed manifest原子
+切换两端，旧新组合无 grace/fallback。每个 request还绑定对应 API version、frontier、operation/request
+digest及 anti-replay nonce。unknown endpoint/socket、ambient discovery/proxy/DNS trust、redirect、wrong
+transport/version/server/client/peer identity或 policy drift均拒绝。store path是唯一 absolute
 canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径。KMS policy由 manifest钉住；
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
@@ -50,20 +58,57 @@ restore/recovery receipts。其外 cache/temp/log不得参与恢复或授权，i
 length-zero genesis/trust bundle并签发 bootstrap receipt，已存在时必须 byte/digest-match或拒绝。
 唯一 crash/restore authority 是同一 protected service的 `recover` 命令，在 exclusive process lock下
 replay WAL、校验 `integrity_check`、全量重放 signed history/unique indexes/outbox/capsule metadata并
-重新签发 exact-head recovery receipt。rollback-resistant external `publication_restore_anchor_v1` 位于
-SQLite volume/snapshot/WAL/KMS account之外的 maintainer-governance append-only store，exact payload为
-`{authority_id,repo_node_id,restore_epoch,latest_frontier,snapshot_digest,wal_digest}`，其中
-`latest_frontier`含 exact `full_prefix_digest`；每个 committed successor须在释放成功 receipt或允许
-broker write前以 threshold-signed CAS推进 anchor。snapshot+WAL restore必须读取 external latest anchor，
-以更大 `restore_epoch`获 governance threshold批准，证明 restored prefix不少于且 exact包含 anchored
-frontier/full-prefix，完成 replay后写 recovery receipt并 CAS新 anchor；missing/stale/rollback/forked
-anchor、较小/equal epoch、prefix落后/冲突或 KMS不可解封均拒绝。T10只消费认证 API，不拥有 backend、
-write credential或 recovery authority。
+重新签发 exact-head recovery receipt。唯一 production external backend/service是
+`publication_restore_anchor_dynamodb_v1`：独立 maintainer-governance AWS account/region中的单一
+DynamoDB table，以 strongly-consistent `GetItem` 和 `TransactWriteItems`保存不可变
+`EPOCH#<restore_epoch>` rows及唯一 mutable `HEAD` row；transaction须同时以
+`attribute_not_exists(epoch row)` append epoch并按 expected prior anchor digest条件更新 HEAD，禁
+`PutItem` overwrite、eventual read、batch/write fallback。table开启 deletion protection、PITR与独立
+KMS key；manifest钉住 `{aws_account_id,region,table_arn,table_id,table_creation_time,kms_key_arn}`，
+restore到新表、删表重建或 resource identity drift均不得替换 production table。
+
+`restore_anchor_service` exact 为 `{backend,endpoint,transport,api_version,server_identity_bundle_digest,
+client_auth_policy_digest,credential_provider_identity,resource_identity,bootstrap_epoch,schema_version}`；backend exact
+为 `publication_restore_anchor_dynamodb_v1`，endpoint exact 为 manifest-pinned regional DynamoDB HTTPS
+endpoint且禁 redirect/proxy/ambient endpoint discovery，transport exact
+`aws_dynamodb_json_1_0_https_sigv4_v1`，API version exact
+`GH700:publication-restore-anchor-api:v1`。server trust验证 public CA bundle digest、AWS partition/
+service=`dynamodb`与 TLS hostname；client policy exact只允许 authority workload role对钉住 region/account/
+table执行 `DescribeTable`、strongly-consistent `GetItem`与上述 `TransactWriteItems`。`credential_provider_identity`只接受
+environment-protected OIDC→STS short-lived role session，绑定 repo/environment/workflow/ref/audience、
+role ARN/session policy digest并禁 static/ambient credentials；该 role没有 Create/Update/DeleteTable、
+backup/restore、KMS administration或 policy mutation权限，authority SQLite/KMS account亦无 anchor admin。
+`resource_identity` digest上述 table/KMS identity，任何 endpoint/trust/auth/resource/bootstrap drift拒绝。
+
+anchor exact payload为 `{authority_id,authority_identity_digest,policy_epoch,repo_node_id,anchor_schema_version,restore_epoch,
+latest_frontier,snapshot_digest,wal_digest,prior_anchor_digest,anchor_request_id}`，其中 `latest_frontier`
+含 exact `full_prefix_digest`；payload由 governance threshold签名。每个 committed successor须在释放成功
+receipt或允许 broker write前，以 prior digest+epoch作为 conditional CAS推进 anchor。ack丢失只可
+strong-read同 epoch row+HEAD并 byte/digest-match同 request ID确认，不得重写；并发/stale CAS只能一胜，
+loser重读后若不是其 exact payload即 blocked。authority DB commit后/anchor CAS前 crash可在独占恢复中
+以 committed successor重试同 CAS，但 broker仍禁写；anchor CAS后/本地 receipt前 crash只可按上述
+read-confirm补 receipt。任何成功 receipt必须携 DynamoDB transaction request digest、signed payload、
+epoch row/HEAD exact digest与 strong-read confirmation，形成 DB committed frontier→signed anchor payload→
+conditional transaction→service response/read-back→authority receipt 的端到端 CAS proof。
+
+唯一 bootstrap/migration/restore implementation owner是 SP700-T3：计划中的
+**.github/workflows/publication-restore-anchor-deploy.yml** 与
+**scripts/ci/bootstrap_publication_restore_anchor.py** 在 environment protection及 governance threshold
+批准后创建/核验空表、以 `restore_epoch=0` conditional transaction写 genesis并把 receipt并入 authority
+bootstrap；migration只可 append higher schema epoch且不得改写旧 epoch。snapshot+WAL restore须先
+strong-read production HEAD，以更大 `restore_epoch`获 threshold批准，证明 restored prefix不少于且
+exact包含 anchored frontier/full-prefix，完成 replay/recovery receipt后 CAS新 anchor；T3执行，独立
+maintainer governance持 approval/admin role，二者不得互换。missing/stale/equal-or-lower epoch、older/
+forked prefix、wrong table/service identity、CAS conflict、unprovable ack或 KMS不可解封均拒绝。T10只消费
+认证 client API，不拥有 authority/anchor backend、write/admin credential或 bootstrap/migration/recovery authority。
 
 端到端证明必须在真实 durable-volume fixture对每个 transaction boundary注入 kill/power-loss、并发
 claim/slot/delivery、WAL/checkpoint失败、disk-full、KMS unavailable、runner/checkout删除、owner
 terminal与 signed snapshot+WAL restore；重启后只允许 exact committed state或未提交状态，绝无
-双 owner、双 send、丢 leaf/index/capsule/outbox或 unsigned frontier。
+双 owner、双 send、丢 leaf/index/capsule/outbox或 unsigned frontier。anchor integration fixture须对真实
+DynamoDB隔离 non-production-account test table验证 concurrent
+single-winner、stale prior/epoch、ack loss read-confirm、DB-commit↔anchor-CAS两侧 crash、wrong table ID/
+credential/trust、PITR新表替换、bootstrap replay与 signed restore；mock/in-memory结果不能作为通过证据。
 
 ## Ownership 与 lock order
 
