@@ -13,9 +13,9 @@ External monotonic persistence 与 crash recovery 的 canonical contract 是
 
 ## Spec 状态与实施门
 
-本文件是 Draft design，不是 approved implementation plan。H-001–H-009 仍是未批准的
+本文件是 Draft design，不是 approved implementation plan。H-001–H-010 仍是未批准的
 human decisions；以下 v2 结构用于证明这些选择可形成一致、可测试的方案。实现前必须有
-一个 maintainer-approved decision artifact，绑定 product/tech spec digests 和九项选择。
+一个 maintainer-approved decision artifact，绑定 product/tech/supporting spec digests 和十项选择。
 若选择改变 planned paths、trust root、capability 边界、precision policy 或 host contract，
 必须先更新本 spec，再生成 `tasks.md`。
 
@@ -58,7 +58,7 @@ policy_role = publication | evaluation
 gh702_policy_version
 product_spec_digest
 tech_spec_digest
-H-001 ... H-009 selections
+H-001 ... H-010 selections
 approved_by
 approved_at
 expires_at
@@ -72,7 +72,7 @@ build/publish gate 要求一个 current `publication` artifact，在操作时间
 missing/duplicate/unknown selection、spec digest drift、过期批准或非 maintainer identity；
 publication artifact 后续 expiry/current-spec drift 本身不阻断 install，也不要求 republish。
 实现只消费选择，不从 Recommended proposal、环境变量或 CLI 猜值。H-003/H-006/H-007/
-H-008/H-009 属于 security/default-policy decisions，批准证据还要满足仓库既有
+H-008/H-009/H-010 属于 security/default-policy decisions，批准证据还要满足仓库既有
 `security_decision` human gate。
 
 同一 closed policy schema 按 role 产出两个不可混同的 identity：
@@ -107,7 +107,7 @@ Recommended v1 shape（未批准）包含七种互相独立、各自 versioned/d
 4. **Precision evidence**：逐 rule 绑定 rule/capability/fixture/reviewer/count/window，
    不允许只给 pack average。
 5. **Policy**：同一 closed schema 下 role-separated publication/evaluation artifacts；
-   H-001–H-009 的获批取值、thresholds、issuers、offline/revocation action。
+   H-001–H-010 的获批取值、thresholds、issuers、offline/revocation/anchor action。
 6. **Transaction journal/receipt**：plan、before/staged/after digests、owned entries、
    audit、commit/rollback/recovery。
 7. **Local override**：和 official receipt 分离，逐 rule 保存用户 action、confirmation、
@@ -522,7 +522,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 
 ### 10. Planned affected files
 
-以下是 Recommended v1 的完整 implementation ownership map。H-001–H-009 若改变路径或
+以下是 Recommended v1 的完整 implementation ownership map。H-001–H-010 若改变路径或
 边界，先修订本 manifest；`tasks.md` 不能凭空增加未列 surface。
 
 <!-- specrail-planned-changes -->

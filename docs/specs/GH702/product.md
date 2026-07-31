@@ -115,6 +115,17 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 9. **H-009 — Privacy 与 precision 反馈**：是否以及如何上传本地 triage。
    **Recommended proposal（未批准）**：默认零上传、运行时零网络；precision 反馈只能
    由用户显式导出脱敏 bundle 后另行提交，安装/运行失败不得静默启用 telemetry。
+10. **H-010 — Monotonic anchor backend 与生命周期**：哪些平台可用、谁 provision/认证/恢复。
+    **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择
+    closed backend kind 与 conformance profile，或明确该平台不允许 official block；不得从
+    recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
+    决定 backend/service owner、initial provision 权限与 user/Core/device identity、IPC endpoint 的
+    server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
+    reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
+    backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
+    evidence retention 和旧 receipts 处置。任何字段未选、平台无通过 conformance 的 backend、
+    reinstall/device identity 不确定或 IPC peer 无法认证时，不得 provision/reset/迁移 root，也不得
+    执行 official committed block；实现不能把 `tpm2_nv_v1` 或任何平台方案当作本 Draft 已批准。
 
 ## Behavior Invariants
 
@@ -144,7 +155,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
    bundle、digest mismatch 或 index 指向不存在对象时，不得创建 store、receipt、
    active pointer 或 host config 修改。
 6. B-006: 所有 official product/security choices 必须来自获批、versioned/digested
-   policy artifacts，并绑定 H-001–H-009 的选择。发布时的 immutable
+   policy artifacts，并绑定 H-001–H-010 的选择。发布时的 immutable
    `publication_policy_digest` 与每次 install/audit 使用的 current
    `evaluation_policy_digest` 是不同 role/identity；它们可以在发布当时引用同一 policy
    bytes，但不得用一个字段混同。build/publish 时 publication policy 必须在该操作时间有效
@@ -466,7 +477,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 - [ ] legacy `safe-bash` registration 可解释、可迁移或可卸载，不被冒充为第三方 full
       install。
 - [ ] 默认无 telemetry；feedback export 与发送是分离、显式确认的动作。
-- [ ] H-001–H-009 均有 maintainer 选择与 security review evidence，未选择时 official
+- [ ] H-001–H-010 均有 maintainer 选择与 security review evidence，未选择时 official
       publish/install/default-block gate 明确阻断。
 
 ## 边界情况清单
@@ -488,7 +499,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
 
 首次交付必须标为 pack contract v2 或其它获批的新 major identity，不得原地扩大 v1
 manifest 的语义。文档必须把 legacy Core adoption pack、verified third-party pack、
-unofficial local pack 与 revoked pack 分开说明，并记录 H-001–H-009 的最终选择。
+unofficial local pack 与 revoked pack 分开说明，并记录 H-001–H-010 的最终选择。
 
 公开 `vibeguard add` 前必须同时具备：GH-699 actual released launcher/no-clone evidence、
 获批 supplier/security policy、至少一个不在 VibeGuard 仓库内 author 的 end-to-end pack

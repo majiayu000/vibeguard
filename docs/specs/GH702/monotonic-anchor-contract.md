@@ -111,5 +111,5 @@ IPC 超时或 attestation invalid 时执行既有 conservative denial。经验�
 intent/journal，不得删除或从 previous mirror 放行。
 
 本文不规定 backend 实现、平台支持集合、provision/reinstall/device-replacement policy、IPC peer
-authentication 或 latency budget；这些必须由 product spec 的独立未批准 H decision 决定，并由
+authentication 或 latency budget；这些必须由 product spec 的未批准 H-010 决定，并由
 `tech.md` 的 manifest/verification matrix 证明后才可实现。
