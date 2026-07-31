@@ -285,15 +285,17 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `refs/tags/<name>`、ref node/OID、annotated tag object与完整 peel chain、peeled commit
     （必须等于 source）及 effective tag-protection/ruleset digest。official 候选必须已有受保护、
     不可更新/删除且无 actor/App bypass 的 tag；Release API 不得隐式创建或移动 tag。所有
-    normal/recovery Release 写使用同一 closed slot machine，`kind∈{draft_create,draft_update,
-    draft_delete,asset_upload,asset_delete,publish}`。远程调用前须 fenced-CAS append
-    `release_mutation_planned(kind,slot)`，绑定 repo/tag identity/owner generation/kind/slot/
-    transition op/predecessor、protected one-time mutation nonce、trusted App/installation、
-    exact pre-state/request bytes/expected post-state digests及 kind-specific完整 tuple：create
-    绑定 claim nonce/tag/source/draft metadata；update绑定 release node与 full pre/post metadata；
-    upload绑定 canonical manifest entry/name/label/content-type/size/SHA-256；asset/draft delete绑定
-    exact node/full preimage与 expected absence；publish绑定 release node、exact asset set、
-    draft→published/make-latest policy。mutable fence/lease只在 authorization envelope。
+    normal/recovery Release 写使用同一 closed slot machine，payload 字段 `mutation_kind∈{draft_create,
+    draft_update,draft_delete,asset_upload,asset_delete,publish}`。远程调用前须 fenced-CAS append
+    `release_mutation_planned(mutation_kind,transition_slot)`，绑定 repo/tag identity/owner generation/
+    mutation kind/slot/transition op/predecessor、protected one-time mutation nonce、trusted App/
+    installation、exact pre-state/public request-template bytes/expected post-state digests及完整 tuple。
+    `draft_create` 只绑定 `draft_claim_nonce_digest`、`nonce_capsule_id`、tag/source、public metadata与
+    `request_template_digest`，禁止 raw nonce或可逆编码；其它 `mutation_kind` 绑定完整 tuple与 exact
+    request bytes。broker仅在 guard authorization后从 authenticated secret channel解封 raw nonce，
+    内存物化 request并只回签 `effective_request_digest`、claim digest与 capsule identity；raw nonce、
+    含它的 request bytes及可逆编码不得进入 history/intent/operation ID/log/report。mutable fence/lease
+    只在 authorization envelope。
     只有 planned state可经 environment-protected sole broker调用；pre-call guard authorization
     绑定 current tag/ruleset、owner、actual fence/frontier、plan digest与 broker delivery ID，
     但不证明 remote commit。normal response后重取 server state，只有 postcheck通过才 append
@@ -371,8 +373,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `transition_operation_id = H(repo_node_id, owner_generation, run_id, run_attempt,
     transition_slot, predecessor_frontier, record_kind, payload_digest)`，不得包含 authorization
     fence；`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
-    intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、
-    exact predecessor/prior phase、kind与 payload digest，`intent_digest=SHA256(JCS(intent))`；
+    intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、exact
+    predecessor/prior phase、`record_kind` 与 payload digest，`intent_digest=SHA256(JCS(intent))`；
     retry复用同一 intent bytes/digest。append request另携当前 `authorization_fence`、lease
     scope/token与 authenticated actor。store先查同事务永久唯一索引
     `(repo_node_id, operation_id)`：同 digest已存在直接返回原 receipt且不重新验 fence/append，
@@ -393,13 +395,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     或 slot规划 new op。takeover前未提交的旧 generation intent永久失效；takeover前已提交则先
     接受 receipt再 fold suffix。same ID异 digest/重复、receipt/index/envelope不一致、
     incompatible successor、fork/截断/不完整 replay或 fence/generation复用均 blocked；完整
-    frontier防 ABA。该规则覆盖所有 record kinds。record schema 是 versioned closed discriminated union，
-    canonical digest 使用 `jcs-rfc8785-v1`，覆盖 owner claim/heartbeat、draft binding、prepared、
-    generated-PR plan/binding/revocation、receipt、intent、commit、takeover、七类 recovery-blocked、
-    `recovered_publication` 与 terminal；intent绑定 owner generation、prior phase/frontier与
-    payload，store envelope绑定 actual expected/new fence及受信 issuer，deterministic fold
-    唯一导出 active owner/phase，非法 transition/fence/owner 直接拒绝。缺失、尾部截断、
-    fork、过期 fence 或 checkout 自报 anchor 均 fail closed。
+    frontier防 ABA。record schema 是 versioned closed union，唯一 top-level discriminator 是
+    `record_kind`；`kind`/`type`/`record_type`/alias/unknown均拒绝。frontier字段唯一为
+    `{repo_node_id,history_length,history_root,full_prefix_digest}`，canonical digest使用
+    `jcs-rfc8785-v1`。union覆盖 exact owner/draft/prepared/generated-PR/receipt/intent/commit/takeover、
+    `{release_mutation_recovery_blocked,draft_recovery_blocked,decurrent_pr_recovery_blocked,
+    rollback_recovery_blocked,marker_recovery_blocked,nonvalid_row_recovery_blocked,
+    invalidation_recovery_blocked,release_recovery_blocked}`、`recovered_publication`与 terminal；非法
+    transition/fence/owner、缺失、截断、fork、过期 fence或 checkout anchor均 fail closed。
     长时间等待人工 review 以 durable `owner_heartbeat` renewal record续活：immutable
     intent只绑定 stable owner generation、单调 heartbeat sequence/transition slot与
     `liveness_policy_digest`，不得绑定 client timestamp/deadline或 authorization fence；
