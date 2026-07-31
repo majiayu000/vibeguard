@@ -218,8 +218,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     evidence 必须相互独立、versioned、digested，并同时包含 matched positive/negative
     controls。production 输出不得反推 ground truth；任一侧为空或 evidence 漂移时不得
     promotion。
-17. B-017: 每个 exact `{detector, model, protocol, policy, corpus, platform/language
-    scope}` identity 必须单独报告 TP/FP/FN/TN、classified/unclassified/error counts、
+17. B-017: 每个 exact `{detector, model, protocol, policy, sidecar_artifact, corpus,
+    platform/language scope}` identity 必须单独报告 TP/FP/FN/TN、classified/unclassified/error counts、
     precision/recall/F1 与 evidence age；零分母使用空值加状态，不能显示 0%、pass 或
     复用 aggregate/旧结果。
 18. B-018: promotion/demotion 只接受 H-008 批准的公式、floor、样本量、freshness 与
@@ -297,9 +297,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     semantic `done`。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
-    applied 时禁止 later offset append。reservation 自身携带 bounded body，再以该 offset/
-    digest 写 keyed `projection_prepared` 与 project receipt；receipt 前不得丢弃。恢复只按
-    earliest reservation + exact key/offset/digest 判断，禁止扫描 project/global log、跳洞
+    applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
+    project identity 与 independently routable receipt route/body。释放 reservation 前必须在
+    同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
+    receipt-outbox intent 原子提交；outbox worker 只按 exact registered project-state route/
+    expected receipt offset/digest 补 project receipt。恢复只按 earliest reservation 或 receipt
+    intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
@@ -336,6 +339,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
     一致的非伪造状态。rollback/kill switch 后纯 L1 路径与其原有验证必须恢复。
+37. B-037: semantic post-edit 只允许 trusted host completion event 触发。Codex
+    `applyPatchApproval`/approval request、decline 与 apply-in-progress 都不是 completion；即使
+    legacy adapter 以 `run_post_hooks=true` 调用现有 L1 hook，semantic path 也必须在 cache/
+    provider/WAL 前 short-circuit 且零 L2 state。只有 app-server 确认 edit 已成功应用、绑定
+    exact before/after change identity 后才能执行一次 L2；若 host 没有 completion callback，
+    该 host/trigger 的 L2 为 `unavailable`，禁止轮询或从 filesystem timestamp 猜完成。
 
 ## 验收标准
 
@@ -364,10 +373,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
       partial activation 可幂等补齐/回滚，reconcile cap 的最小合法值能完成最大 atomic
       record，durable projection prepare/queue/sequencer 不丢失 payload、不重用 offset 且
-      serialized append 无洞，free-text/global mirror 不再是权威路径。
+      serialized append 无洞；applied reservation 在释放前原子转入 exact-route receipt
+      outbox，dormant source project 也可无扫描补 receipt；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
+- [ ] Codex approval/decline/apply-in-progress fixtures 证明 semantic provider/cache/WAL 为零；
+      只有 exact completion-backed event 执行一次。server-owned session owner 与 completion
+      adapter 都进入 affected-file/U-22 inventory。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
@@ -375,7 +388,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final
       reducer/orchestration、inventory 及 adapter verdict、semantic test-weakening verdict、
       runtime W-rule state machine、metrics eligibility、project config/context/event identity、
-      actual `hook_orchestrator_post_edit.rs` delivery owner、
+      actual `codex_app_server_core.rs` session owner、`hook_orchestrator_post_edit.rs` delivery owner、
       project cache/journal recovery，以及 protocol/provider/sandbox 的所有 decision、
       isolation、durability 分支达到 100% line 与 branch/condition coverage。独立 closed
       critical-file inventory 与合同测试必须拒绝遗漏、未知或新增但未分类的关键模块；
@@ -389,11 +402,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 | 类别 | 判定（covered: B-xxx / N/A + 原因） |
 | --- | --- |
 | 空/缺失输入 | covered: B-004, B-005, B-012, B-015, B-017, B-025, B-035 |
-| 错误与失败路径 | covered: B-003, B-007–B-010, B-018, B-025, B-027, B-036 |
-| 授权/权限 | covered: B-001, B-006–B-008, B-018, B-019, B-031, B-034 |
+| 错误与失败路径 | covered: B-003, B-007–B-010, B-018, B-025, B-027, B-036, B-037 |
+| 授权/权限 | covered: B-001, B-006–B-008, B-018, B-019, B-031, B-034, B-037 |
 | 并发/竞态 | covered: B-009, B-011, B-026, B-036 |
 | 重试/幂等 | covered: B-011, B-026, B-029, B-036 |
-| 非法状态转换 | covered: B-001, B-018, B-019, B-021, B-026, B-031, B-032 |
+| 非法状态转换 | covered: B-001, B-018, B-019, B-021, B-026, B-031, B-032, B-037 |
 | 兼容/迁移 | covered: B-002–B-005, B-020, B-028, B-033, B-034 |
 | 降级/回退 | covered: B-003, B-007, B-018, B-019, B-025, B-035, B-036 |
 | 证据与审计完整性 | covered: B-005, B-010, B-016–B-022, B-027–B-035 |

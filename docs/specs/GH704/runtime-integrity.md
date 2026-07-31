@@ -142,24 +142,44 @@ append/fsync 与 durable applied/tail commit 完成**：
    时不准分配或 append 更晚 offset；
 2. 在 checksummed allocator WAL/metadata 原子提交
    `{reservation_id, identity_key, expected_offset, barrier_digest, bounded_derived_body,
-   record_digest, new_tail}`；
+   record_digest, source_project_identity, receipt_route, bounded_receipt_body, new_tail}`；
 3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
    append/fsync derived record；
-4. 仍在同一 lease 下提交 `projection_applied` 与 allocator committed tail，然后才释放 lease；
-5. project receipt 可在 lease 后按 exact key 补写；receipt 前 body/reservation 不得回收。
+4. `receipt_route` 必须是预先注册在 runtime-owned closed project-state directory 的 exact
+   capability，绑定 state-root ID、directory/file identity、relative receipt key、expected
+   project-receipt offset 与 digest；不能只有 project hash，也不能要求扫描 project/HOME；
+5. 仍在同一 lease 下把 `projection_applied`、allocator committed tail 与 checksummed
+   `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
+   原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
+   reservation body；
+6. receipt worker 从 outbox oldest-first 打开 exact registered route，按 expected offset/digest
+   append/fsync project receipt，再提交 `receipt_applied`，随后才允许 `projection_done` 与回收
+   outbox item。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
-则补 append，匹配 record 则补 marker/tail/receipt，不匹配则 `needs_repair`。禁止扫描 global
-log、跳过洞、重新分配 offset 或按 per-key 并发 append。allocator/index full/corrupt/timeout
-保持 `projection_lag` + 空 global data，不能反写 canonical project decision。
+则补 append，匹配 record 则补 marker/tail/outbox intent，不匹配则 `needs_repair`。crash 在
+applied 与 tail/outbox generation 之间时 reservation 仍 committed，可幂等重建；generation
+之后即使 source project 永不再运行，outbox 也独立携带 exact route/body。route inaccessible/
+identity mismatch 保持 pending lag；outbox 无法为下一最大 receipt admission 时在新 reservation
+前 backpressure。禁止扫描 global/project/HOME log、跳洞、重新分配 offset 或按 per-key 并发
+append。allocator/index/outbox full/corrupt/timeout 保持 `projection_lag` + 空 global data，不能
+反写 canonical project decision。
 
 ## 5. Ownership and proof closure
 
-实际 PostToolUse/PostEdit delivery owner
-`vibeguard-runtime/src/hook_orchestrator_post_edit.rs` 必须进入 affected-file manifest、focused
-test ownership 与 U-22 critical inventory；其 payload→trusted session/root handoff、cache/provider
-ordering、error path 和 short-circuit condition 达到 100% line + branch/condition coverage。
+实际 app-server session owner `vibeguard-runtime/src/codex_app_server_core.rs` 与
+PostToolUse/PostEdit delivery owner `vibeguard-runtime/src/hook_orchestrator_post_edit.rs` 必须进入
+affected-file manifest、focused test ownership 与 U-22 critical inventory。前者生成不可由
+client thread ID/env 重现的 server-owned capability 并覆盖 restart/rotation/spoof；后者的
+payload→trusted session/root handoff、cache/provider ordering、error path 和 short-circuit
+condition 达到 100% line + branch/condition coverage。
+
+Codex `applyPatchApproval` 是 pre-application approval event，不能触发 semantic post-edit。
+`codex_app_server_file_changes.rs` 必须把 legacy L1 post-hook request 与 semantic completion gate
+分离：approval、decline、failed/in-progress apply 全部在 semantic cache/provider/WAL 前零活动；
+只有 app-server-owned completion event 绑定已应用的 exact before/after identity 后执行一次。
+协议没有 trusted completion callback 时，该 trigger 的 L2 必须 `unavailable`，禁止轮询猜测。
 
 最小证明矩阵还必须包含：
 
@@ -167,5 +187,7 @@ ordering、error path 和 short-circuit condition 达到 100% line + branch/cond
 - inherited session spoof、app-server trusted-session conflict/rotation 与 cross-session cache isolation；
 - sidecar byte/version/target/protocol/manifest/attestation/revoke 的 eligibility + cache + evidence
   invalidation；
-- every group edge、partial activation、barrier/queue crash；
-- every maximum record 的 recovery floor，以及 concurrent projects/shards 严格 offset append order。
+- approval/decline/failed apply 零 semantic activity，以及 completion 后 exactly-once delivery；
+- every group edge、partial activation、barrier/queue/outbox crash；
+- every maximum record 的 recovery floor、dormant-project receipt recovery，以及 concurrent
+  projects/shards 严格 offset append order。
