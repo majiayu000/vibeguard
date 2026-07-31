@@ -120,9 +120,15 @@ crash 按 slot/generation 幂等恢复，full 时在 barrier 前 visible backpre
 lease → source project lock 调用**同一 coordinator recovery**：receipts complete 则补 barrier/
 queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-bound ready/abort receipt
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
-ready 或 checksummed tombstone/reclaim。未知/损坏/off epoch 保持 pending lag，只有 rebind/approved
-maintenance 可处理。worker 自身从不写 project journal。这样无 global→project lock inversion，
-dormant source 可完成或回收 orphan，重复 fault 不会耗尽 registry，且
+ready 或 checksummed tombstone/reclaim。未知/损坏 entry fail visible 且禁止覆盖；off transition
+在持有 exclusive delivery lease 时先以 exclusive delivery → project lock 提交 effective off epoch
+与 frozen source state，释放 project lock 后仍持有 delivery lease，再取 global registration lease，
+将该旧 epoch 的 pre-barrier registrations 以 digest/epoch CAS 提交为 checksummed
+`off_frozen` administrative tombstone 并回收 live slot。它不写/删 source semantic journal；
+canonical `projection_prepared`/activation receipts 保持冻结，re-enable 只能 bounded rebind
+并重新发布，或由 approved maintenance drain 处理。worker 自身从不写 project journal。
+因为该路径不同时持 project/registry locks，且 registration 仍只用 project→registry，
+不形成 lock inversion；off project 也不会用 orphan 永久耗尽 live registry capacity。
 global view 仍只在 barrier 后可见。decision、
 consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
 下消费 durable receipt slot 并提交 `projection_done`。
@@ -138,21 +144,29 @@ max_atomic_recovery_bytes(schema_version) = max over every legal recovery transi
   + sum(maximum encoded length of every WAL transition, journal/queue record,
         marker, metadata generation, consumer record and receipt T must write/fsync)
 )
+max_atomic_recovery_ms(schema_version, platform, storage_class) = max over T of (
+  approved worst-case lock/open/stat/read/write/fsync/marker/receipt duration for T
+)
 ```
 
 这是“一次可恢复原子状态边”的 worst-case **总 I/O** admission，不是挑一个最大输出、平均值，
 也不能只计算 payload。例如同一 edge 必须同时写 WAL transition 与 queue metadata 时，两者
 连同该 edge 的其它 required reads/writes 都进入求和，再与其它 edge 的总和取最大值。
-policy 只有在 `reconcile_io_max_bytes >= max_atomic_recovery_bytes` 且 batch/deadline 同为正整数时
-有效；`floor - 1` 在 provider/cache/journal 前拒绝。处理每个 oldest-first work item 前先证明
-remaining byte budget 足以完成该 item 的 exact bounded worst-case transition；不足则在开始前
-停止并报告 backlog，禁止写半条新 transition。实际 open/stat/read/write/fsync/marker/receipt
-全部计入 counter。
+policy 只有在 `reconcile_io_max_bytes >= max_atomic_recovery_bytes`、`reconcile_batch_max > 0`，
+且 `reconcile_deadline_ms >= max_atomic_recovery_ms + fixed_scheduling_guard_ms` 时有效；任一
+`floor - 1` 在 provider/cache/journal 前拒绝。处理每个 oldest-first work item 前同时证明
+remaining byte budget 与 remaining deadline 分别足以完成该 item 的 exact worst-case
+atomic edge；任一不足则在开始前停止并报告 backlog，零新写入。实际
+open/stat/read/write/fsync/marker/receipt 全部计入 byte/time counters。supported I/O backend
+必须对每个 blocking operation 强制 deadline/cancellation；timeout 后只能留在既定的
+crash-safe WAL boundary，并且 hook 返回前必须证明 operation 已取消/终止、无后台续写。
+无法证明 bounded I/O 的 backend 在开始 edge 前返回 `unavailable`，禁止侥幸启动。
 
 queue metadata 只保留两个 checksummed fixed-size generations、committed cursors、pending count
 与 oldest timestamp。startup/hook 只读 fixed header，再按 cursor oldest-first 处理；不得完整
 反序列化 index、扫描 journal、其它 project 或 HOME。测试必须覆盖每种 state edge 的最大
-record、`floor - 1` rejection、exact floor 完成一条最大 transition、剩余 budget 不足时零写入，
+record、byte/time `floor - 1` rejection、exact floors 完成一条最大 transition、剩余任一
+budget 不足时零写入、slow/hung injected I/O 取消后只留 recoverable durable boundary，
 以及 malformed length/offset/digest。
 
 ## 4. Serialized global offset append
@@ -176,10 +190,15 @@ append/fsync 与 durable applied/tail commit 完成**：
    `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
    原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
    reservation body；
-6. projector/receipt worker 处理 source intent 前取得 deadline-bounded shared delivery lease，
-   验证 exact registered eligibility/kill-switch epoch 仍 enabled；off/drift 时只 defer，该 key 不
-   阻塞其它 project/key，且不得打开 source L2 journal 或写 slot。off transition 取得 exclusive
-   lease，故其生效后不会出现晚到写；re-enable 只能由 source coordinator 显式 rebind backlog，
+6. `.vibeguard.json` 只是 requested state；runtime-owned eligibility registry 才是 effective
+   state，并绑定 observed config identity/digest + epoch。projector/receipt/source worker 处理
+   intent 前取 deadline-bounded shared delivery lease，以 no-follow 重开 config 并比较 digest。
+   若 drift，必须零 source write 释放 shared lease，再取得 writer-fair exclusive lease，
+   重读并按 exclusive delivery → project lock 原子提交 effective eligibility/off epoch；
+   writer pending 后禁止新 shared admission，不得使 off transition 饥饿。直接改 config 只有
+   经该 acknowledged transition 才生效，status/doctor 在此前显示 `opt_out_pending`。
+   effective off 只 defer matching key，不得打开 source L2 journal/写 slot；它按第 2 节
+   freeze/reclaim pre-barrier registration，re-enable 只能由 source coordinator bounded rebind，
    或由另行批准的 maintenance drain 处理；
 7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global

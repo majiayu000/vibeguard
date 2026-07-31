@@ -158,10 +158,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
    latency gate 仍按原合同运行。off/kill switch 生效时不得打开或重放既有 L2 WAL/
    journal；pending backlog 原样冻结，只能由单独批准的 maintenance drain 处理。重新
-   enable 后先 bounded reconciliation，排空前不得启动新 L2。跨项目 projector/receipt worker
-   与 source coordinator marker writer 都必须按 delivery lease → project lock 持有 matching epoch
-   直到 durable write；off 用同序 exclusive lease，生效后不得写 source slot/marker。旧 epoch
-   只能由 source coordinator 显式 rebind 或 approved maintenance drain。
+   enable 后先 bounded reconciliation，排空前不得启动新 L2。`.vibeguard.json`
+   只是 requested state，runtime-owned registry 中绑定 config digest/epoch 的记录才是
+   effective state。每个跨项目 projector/receipt worker 与 source coordinator marker writer
+   取 shared delivery lease 后必须 no-follow 重读 config；digest drift 时零写入释放 shared，
+   再用 writer-fair exclusive delivery lease → project lock 提交 acknowledged off/eligibility epoch。
+   exclusive 等待后禁止新 shared admission；未确认前显示 `opt_out_pending`。生效后
+   不得写 source slot/marker，旧 epoch 只能由 source coordinator bounded rebind 或 approved
+   maintenance drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
    被记录成 L2 pass，也不得覆盖 L1 block。
@@ -276,10 +280,13 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     `reconcile_io_max_bytes` 三重上限内重放；I/O cap 必须至少等于按 schema 对所有 legal
     transition 计算的 `max_atomic_recovery_bytes`：对该 edge 所有必需 record reads 与全部
     WAL/journal/queue/marker/metadata/consumer/receipt writes 求和，再在 edges 间取最大值；
-    低于 floor 在 provider/cache/journal 前拒绝。每条 work item
-    开始前还必须证明 remaining budget 足以完成其 exact worst-case atomic edge。上限覆盖 open/stat、index parse、journal
+    deadline 还必须至少等于按 schema/platform/storage class 对所有 legal edge 的最坏
+    lock/open/read/write/fsync/marker 时间 `max_atomic_recovery_ms` 加 fixed scheduling guard。
+    任一 byte/time `floor - 1` 在 provider/cache/journal 前拒绝。每条 work item
+    开始前还必须证明 remaining bytes 与 time 均足以完成其 exact worst-case atomic edge。上限覆盖 open/stat、index parse、journal
     offset read、consumer 与 receipt write，禁止在同步 hook 前加载完整 index、扫描完整
-    journal、其它 project 或 HOME。缺少合法上限、index/WAL 损坏、consumer 不可用或
+    journal、其它 project 或 HOME。blocking I/O 必须可 deadline-cancel/terminate，hook 返回后
+    不得后台续写；不能证明 bounded I/O 的 backend 在 edge 前 `unavailable`。缺少合法上限、index/WAL 损坏、consumer 不可用或
     batch 后仍有 backlog 时必须显示 `needs_repair/reconciliation_backlog/unavailable`、
     pending count 与 oldest age（损坏时不可证明的字段为空），停止 provider 并停止追加
     新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
@@ -306,7 +313,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     global source registry 的 unique slot durable 注册 inert route/body/barrier/eligibility；publication
     由 deadline-bounded lease + checksummed generations 跨 project 串行，worker 只在 exact barrier
     durable 后执行。orphan 由同一 source coordinator 完成 barrier/abort，再用 digest receipt CAS
-    ready/tombstone/reclaim；禁止 global→project lock inversion、覆盖或永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
+    ready/tombstone/reclaim；生效 off transition 在 exclusive delivery 下冻结 source state，释放
+    project lock 后再取 registry lease，将旧 epoch pre-barrier orphan CAS 为 checksummed
+    `off_frozen` administrative tombstone 并回收 live slot，不删 canonical backlog。禁止
+    global→project lock inversion、覆盖或以 off project 永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
@@ -351,7 +361,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
     storage health。两类 failure 都不能进入 precision/Learn。global/aggregate view 若尚未投影同一 barrier digest，必须显示
-    `projection_lag` 和空数据，不能沿用旧 mirror 结果。
+    `projection_lag` 和空数据，不能沿用旧 mirror 结果。closed observe schema
+    必须携带该 projection/finalized/barrier identity；health report 遇 lag 必须显示
+    degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
     一致的非伪造状态。rollback/kill switch 后纯 L1 路径与其原有验证必须恢复。
@@ -392,11 +404,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
       单一 group-commit 的 `all_activated` barrier 是所有 reader/aggregate 唯一可见点，
-      partial activation 可幂等补齐/回滚，reconcile cap 的最小合法值能完成最大 atomic
-      record，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
+      partial activation 可幂等补齐/回滚，reconcile byte/time cap 的最小合法值能完成最大 atomic
+      record，slow/hung I/O 可终止且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
-      false-positive report/triage 只接受 finalized typed identity；free-text/global mirror 不再是权威路径。
+      effective off 可回收旧 epoch pre-barrier live slot，direct opt-out 必须 acknowledged 且不与在途写并发；
+      false-positive report/triage 只接受 finalized typed identity，observe schema/health report 对 lag 统一显示 degraded + 空数据；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
