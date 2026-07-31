@@ -76,9 +76,10 @@ fold中 terminal generation-origin唯一派生。任一 request/payload/fold替�
 
 上述三个 request 都不是 immutable history intent。client不得提交 final intent/payload/digest/operation ID、
 TSA endpoint/policy/signer配置、takeover expiry/slot-chain evidence或任何 authority-only字段。authority验证
-auth/frontier/request后，从 signed fold读取 owner/run/lease/slot/high-water state，按 root contract派生 claim operation
-identity、nonce/proof request、RFC3161 quorum proof、final payload与 immutable intent；TSA unavailable时零
-transition且不得回退 host/client time。authority-owned preparation exact 为
+auth/frontier/request后，从 signed fold读取 owner/run/lease/slot/high-water state，并按
+[authority protocol](publication_authority_protocol_contract.md#authority-owned-time-bound-payload-cores)的 exact schema/order
+派生 claim operation→reserve/capsule→core→proof request，或 heartbeat/takeover core→proof request→operation；
+TSA unavailable时零 transition且不得回退 host/client time。authority-owned preparation exact 为
 `trusted_time_preparation={authority_id,repo_node_id,method,operation_request_digest,predecessor_frontier,
 time_bound_request_id,record_kind,owner_generation,run_id,run_attempt,transition_slot,claim_pre_nonce_core_digest_or_null,
 publication_payload_core_digest_or_null,prior_time_high_water,claim_nonce_digest_or_null,
@@ -89,10 +90,10 @@ trusted_time_proof_request_id_or_null,transition_operation_id,preparation_state,
 final_payload_digest_or_null,final_intent_digest_or_null,committed_receipt_digest_or_null,
 anchor_receipt_digest_or_null}`。claim state exact 单调为
 `claim_reserved→claim_capsule_frozen→prepared→proof_frozen→transition_committed→anchor_confirmed`；
-heartbeat/takeover从 `prepared`开始。claim须在任何 draft nonce/capsule生成前，以 operation/request/core
+heartbeat/takeover从 `prepared`开始。claim须在任何 draft nonce/capsule生成前，以 operation/request/pre-nonce
 identity写 `claim_reserved`并 FULL fsync；nonce issuance keyed by `transition_operation_id`且只允许一次，完整
 nonce/capsule bytes/digests/KMS refs原子写入并 FULL fsync成 `claim_capsule_frozen`。崩溃重试只能取回同一
-frozen capsule；之后 T3加入 fold-owned high water/evidence构造 publication core与 trusted-time nonce/proof
+frozen capsule；之后 T3按 authority protocol加入 fold-owned high water/evidence构造 publication core与 trusted-time nonce/proof
 request，并在首次 TSA I/O 前 FULL fsync成 `prepared`。所有 `*_or_null`只可按顺序 null→non-null且不得覆写，
 非 claim的全部 `claim_*_or_null`必须 literal null。TSA验证后须在 append前原子持久化完整 token proof capsule、
 final payload/intent bytes及 digests并 FULL fsync成 `proof_frozen`；commit与 anchor各自再 durable推进。
@@ -317,10 +318,17 @@ approved core digest等于含 incident字段的 recovery-manifest digest；unkno
 pre_state_digest,post_state_digest,method_result_core_digest,durable_sequence,fsync_receipt_digest,
 anchor_receipt_digest}`；sequence是 nonnegative u64且 anchor digest必须 non-null canonical digest。
 method result core是 success result删除 `control_operation_receipt`后的 exact object，其 digest为 JCS SHA-256，
-从而无自引用。`bootstrap_receipt` exact为
+从而无自引用。`bootstrap_receipt` outer wire exact为
 `{bootstrap_manifest_core_digest,bootstrap_approval_digest,release_identity_attestation_digest,
-initial_time_proof_bundle_digest,first_publication_frontier,first_blocked_attempt_frontier,
-initial_trust_epoch,initial_time_high_water,anchor_transaction_digest}`。
+initial_time_proof_bundle_digest,database_identity_digest,bootstrap_genesis_state_preimage,
+bootstrap_genesis_state_digest,bootstrap_database_commit_receipt,bootstrap_database_commit_digest,
+bootstrap_anchor_capsule,bootstrap_anchor_capsule_digest,bootstrap_anchor_transaction_digest,
+bootstrap_anchor_receipt,bootstrap_anchor_receipt_digest}`；所有 nested subobject/digest只由
+[authority protocol](publication_authority_protocol_contract.md#bootstrap-genesis-and-anchor-evidence)定义。
+`control_operation_receipt.anchor_receipt_digest`必须 byte-equal `bootstrap_anchor_receipt_digest`；同 result的
+`ready_receipt`须 byte-equal HEAD中的 frontiers/time/trust，`anchor_head_digest=bootstrap_head_row_digest`，且
+`evaluated_state_digest=jcs_sha256({v:"GH700:bootstrap-ready-state:v1",bootstrap_anchor_receipt_digest,
+publication_frontier,blocked_attempt_frontier,time_high_water,trust_epoch,anchor_head_digest})`。
 `migration_receipt` exact为
 `{migration_plan_digest,source_schema_version,target_schema_version,prior_publication_frontier,
 prior_blocked_attempt_frontier,successor_publication_frontier,successor_blocked_attempt_frontier,

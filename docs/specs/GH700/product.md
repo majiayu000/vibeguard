@@ -269,9 +269,10 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
     publication ownership、mutation-secret、append-only history、trusted time、trust/fold与 owner-liveness的
-    完整规范性 contract由 [publication_history_contract.md](publication_history_contract.md)、blocked-ledger/API
-    单一真源 [publication_ledger_contract.md](publication_ledger_contract.md)及 named-vector注册表
-    [publication_conformance_vectors.md](publication_conformance_vectors.md)共同组成；三文档全部属于
+    完整规范性 contract由 [publication_history_contract.md](publication_history_contract.md)、authority-owned
+    payload-core/trusted-time/bootstrap evidence [publication_authority_protocol_contract.md](publication_authority_protocol_contract.md)、
+    blocked-ledger/API单一真源 [publication_ledger_contract.md](publication_ledger_contract.md)及 named-vector注册表
+    [publication_conformance_vectors.md](publication_conformance_vectors.md)共同组成；四份 contract全部属于
     B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
     identifiers、secret boundary与 conformance vectors，不在调用方复制字段集合、枚举、canonical
     bytes、alias规则或局部覆盖 fail-closed 语义。

@@ -608,7 +608,7 @@ time_bound_request_id}))`；该 ID在 draft nonce/capsule签发前保留，clien
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
 transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
 trusted_time_proof_request_id_or_null}))`；non-time kind以完整 payload作 core且 request ID为 literal null，
-heartbeat/takeover以上述 authority core/request ID构造；三种 time-dependent kind在 proof后才生成 final payload/digest/intent。三种 normal governance kinds exact 为
+heartbeat/takeover以 [authority protocol](publication_authority_protocol_contract.md#authority-owned-time-bound-payload-cores)的 exact core/request ID构造；三种 time-dependent kind在 proof后才生成 final payload/digest/intent。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
