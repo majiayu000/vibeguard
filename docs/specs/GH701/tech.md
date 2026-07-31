@@ -216,7 +216,7 @@ acceptance snapshot rules 与 collector trust identity：
         "security_provider_kind", "security_provider_version",
         "containment_policy_sha256", "executable_memory_policy_sha256",
         "mutation_exclusion_provider_kind", "mutation_exclusion_provider_version",
-        "mutation_exclusion_policy_sha256",
+        "mutation_exclusion_policy_sha256", "lifecycle_journal_trust_root_sha256",
         "host_acquisition_ack_schema_sha256", "use_release_receipt_schema_sha256",
         "relocation_manifest_sha256", "relocation_signing_identity"
       ]
@@ -377,9 +377,9 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
   禁止 truncation、partial evaluation 或把未评估项当作 pass。
 - 同步 host deadline 必须大于 `RESPONSE_RESERVE_MS = 250` 加
   `CORE_TERMINATION_RESERVE_MS = 100`。每个 invocation 必须遵守 normative appendix
-  §1 的 non-escapable provider；process group 不构成 containment。timeout 只有在
-  descendant ledger closed、boundary empty、全部 reap 且无 late output 后才能编码
-  sanitized `hook_error: batch_deadline_exceeded`。
+  §1 的 non-escapable provider；process group 不构成 containment。Linux timeout 在 bounded
+  inner cleanup 后仍有 D-state task时销毁 outer VM；仅凭 closed host pipes/ledger 和 provider
+  destroy/zero-side-channel receipt 才编码 sanitized `hook_error: batch_deadline_exceeded`。
 - core 严格按 request_index 依次运行现有 `HookKind`、checks、orchestrators、
   rules 与 guards，每项产生恰好一个 decision；proof adapter 不得复制
   rm/U-16/L1 classifier。每项日志带 batch/request/index，fix instruction 也绑定
@@ -411,9 +411,8 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 - `batch_id` 在 adapter boundary 由 128-bit CSPRNG 生成且不含 payload；request_id
   固定为 batch_id 加 request_index，不能从 host-provided ID 直接复用。重试是新
   batch，并通过独立 `retry_of_batch_id` 关联，避免重复 ID 混淆旧日志。
-- decoder/encoder 只持久化 closed diagnostics；raw payload、prompt、command、
-  content、parser free text 与 secret sentinel 在 project/global logs、proof 与
-  host response diagnostic 中均不得出现。
+- decoder/encoder 只持久化 closed diagnostics；raw payload、prompt、command、content、
+  parser free text 与 high-side/secret-derived data 在 project/global logs、proof 与 response 中不得出现。
 
 ### 4. Transactional and verified host lifecycle
 
@@ -438,16 +437,16 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
    才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
-versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest
-不能替代 storage capability。`verified_file_setup_v1` 必须完整实现 normative appendix
-§3：`base_presence: present|absent`、held identities、continuous watcher、mandatory mutation
-exclusion 与 closed success planned→activating→publishing→completed→consumed + terminal aborted。present base
-由用户恢复 exact original bytes/semantics；只有 absent base 删除 target 并验证 stable absence/unregistration。
-byte-identical inode/parent swap、write attempt/gap、late write/recreate 或 identity/digest
-drift 全部 `needs_human`。manual evidence exact-bind pointer/intent/completion/release tuple；
-H-001 exact-bind provider/policy；generic abort 保留 planned，仅 verified reverse 可 planned→aborted。
-每次 host use 在 tuple read 前另取 exclusion，持有至 exact loaded-byte acquisition+post-load barrier，
-再 atomic use-release ack 解锁；consume 预写 tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
+versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest 不能替代
+storage capability。`verified_file_setup_v1` 完整实现 appendix §3：H-001-selected provider 在
+same-user trust domain 外持有 journal/signing root、sealed recovery payload、CAS/lease；本地
+0600/0700 files 仅 untrusted cache，每次授权 exact-match fresh signed snapshot。closed success
+为 planned→activating→publishing→completed→consumed + terminal aborted；present base 由用户恢复
+exact bytes/semantics，absent base 删除并验证 stable absence/unregistration。identity/digest/event
+drift 均 `needs_human`。provider/policy/journal root exact-bind H-001。publication abort 保留 sealed
+reverse、`reverse_status: pending` 且禁止 retire；仅 atomic verified reverse 可授权 retire。
+host use 在 tuple read 前另取 exclusion，至 exact loaded-byte acquisition+post-load barrier 后 atomic
+use-release；consume tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
 
 ### 5. Deterministic README claim evidence
 
@@ -526,30 +525,28 @@ H-004 缺失/双选、head 或 digest 漂移时 renderer nonzero 且不写 READM
 - protected supervisor workflow：.github/workflows/gh701-proof-supervisor.yml@refs/heads/main
 - collector/gate/harness：checks/collect_gh701_maintainer_evidence.py；checks/host_adapter_proof_gate.py；tests/test_host_adapter_proof_gate.sh
 
-runtime proof 固定 schema/issue/host/release/protocol/adapter/event/HEAD/time、VibeGuard `event_correlation_id`、host/runtime/config digests、batch/request/fix/log correlation 与 decision summaries；schema 禁止 maintainer identity/source/time。native event ID 只在进程内解析，不进
+runtime proof 固定 schema/issue/host/release/protocol/adapter/event/HEAD/time、VibeGuard `event_correlation_id`、host/runtime/config digests、batch/request/fix/log correlation 与 decision summaries；schema 禁止 maintainer identity/source/time。candidate time 不是 freshness authority。native event ID 只在进程内解析，不进
 artifact/log/response/witness；correlation ID 是不从 native/payload/digest 派生的
 独立 128-bit CSPRNG 值。
 
 proof 由真实 released host session 产生，direct wrapper/runtime/demo 不能生成
 `proof_kind: native_session`。artifact 不提交进 source commit，所以 gate 可要求
-`candidate_head_sha == git rev-parse HEAD`；proof 与 gate query 的间隔必须满足
-`0 <= age <= 7 * 24h`，future timestamp 拒绝。
+`candidate_head_sha == git rev-parse HEAD`；age 只由 protected run/supervisor event/
+attestation issuer 的 trusted time 计算，三者 max skew 300s；`0 <= age <= 7 * 24h`，future/replay 拒绝。
 protected workflow 固定拆成两个 job/VM。credential-free execution job 使用
 `permissions: {}`；candidate 环境缺少 `GITHUB_TOKEN`、OIDC request、Actions
 runtime/artifact/attestation token，且 VM 不能读取 supervisor state/output/handoff。
-trusted supervisor 在 VM 外生成 nonce 与 CSPRNG secret sentinels，按 schema 的非空
-闭集 `redaction.inventory[]` source class 注入 candidate。candidate kill/reap 且 sink
-writers 冻结后，supervisor no-follow 打开每个 required sink 的 exact bytes，记录
-path/size/SHA-256，以固定 byte-search 算法逐 sentinel/sink 要求零匹配，再锁定 digest；
-attestation 绑定 inventory JCS digest、source class、injection receipt、sink manifest、
-算法与逐项零匹配，永不持久化 secret value。candidate 自报、缺 injection/sink、
-非零匹配、scan 后 digest drift 或 candidate 可读 supervisor state 均阻断。
-native proof 必须完整实现 normative appendix §1–2：H-001-selected provider/policy、
-broker-isolated containment、continuous loader ledger、relocation-aware expected page roots，
-以及 target-side inbound/outbound process-memory denial。attestation 绑定 descendant/broker
-closure、policy/denial counters、expected/observed page and ledger roots；escape、COW divergence、
-inbound patch、event gap 或 unsupported provider 均阻断。candidate reap 后仍按本节 protected
-CAS + independently authenticated closed manifest 交付 exact subject blobs；OIDC signer
+trusted supervisor 在 VM 外实现 candidate-independent high-side boundary：unknown/free-form
+默认 secret，仅 closed digest-bound policy 的 low typed fields 经单向 channel 进入 candidate；
+secret/derived digest/encoding/substrings/length/key/opaque handle 均不可读。closed output schema
+由 supervisor canonicalize。attestation 绑定 policy、高侧 keyed commitment、candidate view、
+typed transcript、output schema 与 sink manifest。byte sentinel 仅 diagnostic；split/encoded/
+hashed/cross-sink reconstruction 由 access/noninterference proof 阻断。
+native proof 完整实现 appendix §1–2：Linux 内层 cgroup 清理有界；D-state descendant 未退出时
+protected control plane 在 deadline 内销毁无 host-writable backend 的 outer VM，并签发 destroy/
+zero-side-channel receipt。H-001 provider/policy 还绑定 continuous loader ledger、relocation page
+roots 与 inbound/outbound memory denial；escape、COW、patch、gap 或 unsupported provider 阻断。
+boundary 销毁后按 protected CAS + authenticated closed manifest 交付 subjects；OIDC signer
 先验签 manifest、逐 byte 重哈希并 exact-match inventory/version 后才签 subjects。
 
 maintainer witness 是单独 artifact，由第 1 节同一个受保护 default-branch
@@ -574,11 +571,11 @@ gate 还必须消费当前 protected CI run 的
 的 `host_id` 按 `host_id_by_option` 闭集 exact-match H-001 selected option，再逐项
 exact-match H-001 的
 `host_release`、`host_distribution_provenance`、`protocol_snapshot_sha256`、
-`native_blocking_event`、两个 host-use subject schema digests 与 candidate head。distribution provenance 是 closed
+`native_blocking_event`、lifecycle journal trust root、两个 host-use subject schema digests 与 candidate head。distribution provenance 是 closed
 union：签名 package identity + registry integrity，或 signed release manifest +
 platform asset digest；两者都绑定 issuer/subject/release/platform 与 expected
 binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证 supervisor bundle 的固定 schema/path/issuer/workflow/ref/SHA/run/subjects/predicate、
-event/nonce/process/redaction/scanned-sink、host-acquisition-ack/use-release receipt digests 绑定；native 绑定 executable，
+event/nonce/process/redaction、provider journal root/sequence/snapshot、host-acquisition-ack/use-release receipt digests 绑定；native 绑定 executable，
 两 subject 按两个 fixed trust-path schema exact bytes/digest 验证，且 `$ref` 只许同文件 fragment、零 external resolver；
 interpreted CLI 同时绑定 interpreter/argv/entrypoint/package snapshot。gate-time
 重读只检测 drift；拒绝 self-report/pathname/unsigned checksum、运行后替换或
@@ -586,8 +583,8 @@ snapshot 外代码。其他第三 host proof 不能替代获批 host。之后 ga
 schema-validate runtime proof 与 witness，再离线验证 witness
 attestation 的签名/certificate identity/workflow SHA/record digest，最后绑定
 immutable node、canonical URL、同一 event correlation、exact candidate head、runtime proof
-SHA 与时间顺序；`observed_at <= witnessed_at <= gate_time` 且两者均在 7×24 小时
-freshness window。之后再验证 host/runtime file SHA、当前 config digest、
+SHA 与时间顺序；candidate `observed_at` 仅 exact-match trusted event time（skew≤300s），
+trusted event/issuance 均在 protected gate time 的 7×24h window。之后再验证 host/runtime file SHA、当前 config digest、
 event/log/fix correlation 与 dual-log redaction。negative fixtures覆盖 missing
 witness、embedded/self-filled witness、untrusted workflow/certificate、tampered
 attestation、missing/stale decision result、wrong H-001 host/release/distribution/
@@ -615,7 +612,7 @@ config/payload/log content。
 | B-006 | separate runtime proof + trusted maintainer-evidence gate | 运行 host-adapter proof gate；受保护 collector witness 绑定真实 native event、exact HEAD、deny/fix 与 matching sanitized dual logs |
 | B-007 | capability registry + unsupported-event fixtures | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh` 的 proof-host unsupported-event fixture |
 | B-008 | unknown matrix + decode failure paths | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；`bash tests/test_setup.sh` 覆盖 unknown executable/protocol/event 四类结果 |
-| B-009 | decoder diagnostics + dual-log sentinel fixtures | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；`bash tests/test_setup.sh` 的 proof-host fixture 断言 secret sentinel 不在 project/global logs |
+| B-009 | closed diagnostics + candidate-independent confidentiality | runtime/setup fixtures 拒绝 high-side access 与 split/encoded/hashed/cross-sink reconstruction；sentinel 仅 diagnostic |
 | B-010 | transactional lifecycle upsert/clean ownership | `bash tests/test_setup.sh`；重复 transaction/clean fixture 检查 managed identity、第三方 bytes/order 与 config digest |
 | B-011 | snapshot/apply/probe/rollback | `bash tests/test_setup.sh` 的 malformed、readonly、phase-failure、probe-failure 与 external-drift fixtures |
 | B-012 | ordered locks + host-scoped state/caller identity | `bash tests/test_setup.sh`；`bash tests/hooks/test_log_timer.sh`；同 config contention、多 config reverse-order 与 multi-host fixtures |
@@ -625,16 +622,16 @@ config/payload/log content。
 | B-016 | journal crash recovery/retry | `bash tests/test_setup.sh`；每个 transaction phase kill fixture 后重试，断言 safe rollback 或 needs_human 且无 duplicate registration |
 | B-017 | check/doctor bounded probe evidence | `bash tests/test_setup.sh`；对六个 evidence state 的 fixtures 运行 check/doctor |
 | B-018 | H-004-aware README renderer + dependency gates + journey | decision gate 与 README-claim gate；`strict_four`/`preserve_pr705_extras` positive fixtures 精确渲染，未选/双选/acceptance digest mismatch nonzero；维护者在 fresh home 计时 install → verify → real-host interception |
-| B-019 | decoder batch cap/deadline + non-escapable containment | runtime tests 覆盖 64/65/unknown count、setsid/double-fork/reparent/fork-bomb、systemd/D-Bus/daemon broker、inherited external handle、nested-job/namespace escape、boundary+broker closure、无 late output；normative appendix §1 |
+| B-019 | decoder cap/deadline + destructible containment | runtime tests 覆盖 64/65/unknown count、escape/broker、D-state/inner-cgroup nonempty、bounded outer VM destroy 与零 late output；appendix §1 |
 | B-020 | deterministic complete decision aggregator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 的 all pairwise mixed decisions（含 hook_error/complete）、`HookResult.failed`/hook_error normalization、hook_error/block/escalate/gate suppress correction、multi-block、fix dedupe/cap fixtures |
 | B-021 | batch/request/log/fix correlation | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；duplicate/missing/cross-batch ID 与 missing-primary-log negative fixtures |
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 failed-probe→aborted、consume intent/commit crash recovery、N/N+1 multi-record CAS、present restore/absent delete、H-001-bound publish/abort/use release；gap/lazy-load/permanent-lock/direct/replay 均 blocked；appendix §3 |
+| B-025 | versioned transaction + protected-journal verified-file lifecycle | setup tests 覆盖 same-user mirror/IPC forgery、publication-aborted pending reverse→atomic verified retire、consume/N+1 CAS、H-001 publish/abort/use；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy/use-subject schemas、ack/release exact event binding、relocation signer/digest 与 page equality；missing/substituted subject、in/out write、private-COW、patch-restore、RWX、trace gap 均 nonzero；appendix §§2–3 |
+| B-028 | H-001-bound proof/witness and trusted time | harness 验证 confidentiality policy、trusted run/event/issuer time+300s skew、journal root/use subjects、relocation/page equality；replay/substitution/write/trace gap 均 nonzero；appendix §§2–3 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
@@ -661,10 +658,10 @@ config/payload/log content。
 5. core 按 index 独立判定每个 request 并逐项写 sanitized log；执行失败先变成
    fail-closed `hook_error`，aggregator 再按固定 priority 选 primary、保留所有
    blocks、合并有界 fixes。
-6. credential-free candidate 产出 response/proof；supervisor 扫描 sinks、连续记录 loader
-   ledger，并把 exact subject blobs+认证 manifest 封存到 protected CAS。独立 signer
-   重哈希 blobs 后签名；collector 另取 fresh witness，gate 重查 source/revocation 并与
-   H-001 closure 对比，绑定 node/event/head/time/proof/supervisor/manifest digests。
+6. credential-free candidate 只见 declassified low-side view；protected supervisor 绑定 trusted
+   time、confidentiality transcript、outer-VM closure、loader ledger 与 signed journal snapshot，
+   封存 exact subjects。signer 重哈希后签名；collector fresh witness，gate 重查 source/revocation
+   并与 H-001 closure 对比，绑定 node/event/head/time/proof/supervisor/manifest digests。
 7. README-claim gate 读取 GH-699 tracked install evidence，并直接读取 GH-700 已
    committed Release 的验签 `public_benchmark_summary`、reports 与 publish intent；
    renderer 同时消费 approved H-004：strict 模式形成恰好四块，preserve 模式只加入
@@ -699,8 +696,8 @@ config/payload/log content。
 
 ## 风险
 
-- Security：host payload 可能含 prompt、源码、命令与 token；decoder diagnostic
-  必须 closed/structured，双日志 sentinel 锁定无泄露。高上下文 config 写入需要
+- Security：host payload 可能含 prompt、源码、命令与 token；candidate-independent high-side
+  declassification boundary 是保密权威，sentinel 仅 diagnostic。高上下文 config 写入需要
   人工确认、ordered lock、digest-safe rollback；proof 记录 only digests/closed
   summaries，不记录 raw payload。
 - Compatibility：manifest v2/registry 可能破坏 Claude/Codex config generation；
@@ -739,17 +736,17 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 failed-probe→aborted、consume intent/commit crash、N/N+1 CAS、present/absent、
-  H-001 publish/abort/use release、fixed-schema ack/use subjects、owner-death 与 ancestry negatives。
+  verified-file 覆盖 same-user mirror/IPC forgery、failed/publication abort verified reverse+retire、
+  consume crash、N/N+1 CAS、present/absent、H-001 journal/publish/abort/use 与 owner-death negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
   H-004 strict/preserve/unsynced issue matrix；decision source edit/delete/revoke/
   newer-generation matrix；separate host-proof/witness 的 H-001 provenance/head/
-  source/config matrix；supervisor-owned sentinel injection 与 exact sink-byte scan；
+  source/config matrix；candidate-independent high-side policy 与 split/encoded/hashed/cross-sink leakage；
   execution VM credential absence、job separation、signing job no-candidate-code、
   authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
-  injection/sink/secret/nonzero/sink drift、broker escape/nonempty boundary/late output、
+  trusted-time skew/replay、journal-root drift、D-state outer-VM teardown、broker escape/late output、
   inbound/outbound write、private-COW exec/self-signed relocation/page mismatch、trace gap/load-unload、
   preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。

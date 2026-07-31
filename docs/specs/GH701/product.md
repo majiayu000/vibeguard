@@ -181,9 +181,12 @@ GH-701 已完成。
     candidate 也不得通过 user service manager、D-Bus、daemon socket、named pipe/RPC
     或 inherited handle 委托 boundary 外 broker 产生副作用；外部 spawn endpoint 必须
     不可达，或 broker 本身位于同一 provider ownership/termination closure。
-    到期时必须关闭输出、终止整个 boundary，并在 descendant ledger closed、boundary
-    empty 且全部 child 已 reap 后，才可为当前项及所有未执行项生成闭集
-    `hook_error` 并返回 fail-closed，禁止遗留进程或 late output/log。
+    Linux 到期时必须先关闭 host-side 输出并在有界子期限内执行 guest cgroup/subreaper
+    cleanup；若含 uninterruptible sleep 的 descendant 仍在，受保护 host control plane
+    必须在 response deadline 内销毁 per-invocation outer VM，且不等待 guest reap。
+    只有 descendant/side-effect ledger closed、host pipes closed，并取得 provider 的
+    VM destroy/zero-side-channel receipt 后，才可为当前项及所有未执行项生成闭集
+    `hook_error`；无法证明有界 outer teardown 的平台为 unsupported。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
     `hook_error > block > escalate > gate > correction > warn > complete > pass`
     产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
@@ -229,17 +232,26 @@ GH-701 已完成。
     使本 activation epoch 失效，之后相同 bytes/identity 不能恢复它。重新解析出的
     target 必须仍是同一 identity。byte-identical
     inode replacement、parent-directory swap、symlink、watcher gap/overflow、额外编辑
-    或 old-FD late write 都保持 `partial/needs_human`。0600 manual receipt 有 success
-    planned/activating/publishing/completed/consumed 与 terminal aborted。所有 writer/consumer 以同一 per-target
-    state lock 串行；publish 必须 CAS exact expected pointer generation+digest。probe 后先
-    fsync activating bundle；final pre-CAS barrier 起先取得不可旁路 OS mutation exclusion，
-    continuous watcher 下发布 publishing intent/completion。任何 write attempt/gap 都 invalidate。
-    provider atomic release-and-record 必须同时 CAS/persist literal completed pointer+receipt、
-    release receipt 和 exclusion removal；consumer 只接受该 tuple。每次 runtime/proof use
+    或 old-FD late write 都保持 `partial/needs_human`。H-001-selected lifecycle provider
+    必须位于 same-user process trust domain 外，持有用户不可读的 journal/signing root、
+    sealed recovery payload、generation/CAS 与 target lease；所有 authoritative record 都
+    签名并绑定 journal root/sequence/previous digest，0600/0700 本地文件仅为 untrusted
+    cache。provider 只接受 measured approved VibeGuard caller，并独立验证 transition；
+    无此边界的平台 unsupported。closed state 为 planned/activating/publishing/completed/
+    consumed 与 terminal aborted；publish 必须在 provider journal CAS exact expected
+    pointer generation+digest。probe 后 provider 记录 authenticated activating、publishing
+    intent/completion；final pre-CAS barrier 先取得不可旁路 OS mutation exclusion。任何
+    write attempt/gap 都 invalidate。provider atomic release-and-record 必须同时 CAS/persist
+    literal completed pointer+receipt、release receipt 和 exclusion removal；consumer 只接受
+    fresh nonce-bound provider snapshot/signature exact-match 的 tuple。每次 runtime/proof use
     在读 tuple 前必须另取 H-001-approved exclusion，持有到 host 已完整 acquisition exact
     loaded bytes、post-load watcher barrier 与 pointer CAS re-read，再 atomic use-release ack。
     ack commit 前不得 host dispatch/side effect；lazy/unattested load 禁止。所有失败/崩溃/orphan
-    必须 atomic abort-release-record 后解锁；owner-death/有界 expiry 保证 fail-closed 但不永久锁 host。
+    必须 atomic abort-release-record 后解锁；activating/publishing abort 必须留下
+    `publication_aborted + reverse_status: pending + retirement_allowed: false` 和 sealed reverse
+    payload。terminal/local tombstone 不证明回滚；只有 fresh exclusion 内 provider atomic
+    verified reverse/retirement commit 后才可退休。owner-death/有界 expiry 保证 fail-closed
+    但不永久锁 host。
     reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
     completed→consumed CAS、consume receipt 与 release 原子绑定；prewritten tx intent/commit
     区分线性化前 abort-retain 与线性化后幂等 reconcile。failed-probe verified reverse
@@ -275,10 +287,12 @@ GH-701 已完成。
 28. B-028 第三 host proof 必须由固定 schema/path 的 fresh runtime artifact 与
     独立 maintainer witness 共同满足：runtime artifact 精确绑定当前 candidate
     HEAD、VibeGuard 生成的 event correlation ID、redaction result、host binary
-    SHA-256、VibeGuard
-    runtime SHA-256、config digest 与 correlation IDs；超过 7×24 小时、future
-    timestamp、head/event/digest 不匹配、缺 witness 或 witness 早于 event 时 gate
-    必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
+    SHA-256、VibeGuard runtime SHA-256、config digest 与 correlation IDs。freshness 只从
+    protected supervisor/provider run metadata、native event monotonic-to-trusted-wall mapping
+    和 attestation issuer time 计算；三者固定最大 skew 300 秒，candidate `observed_at`
+    只能在同一 skew 内 exact-match，不能提供时间权威或刷新旧 run。超过 7×24 小时、
+    future/skew、延迟重放、head/event/digest 不匹配、缺 witness 或 witness 早于 event
+    时 gate 必须阻断。proof gate 还必须消费当前 H-001 decision result，并 exact-match
     获批的 host_id/option、host release、protocol snapshot、native blocking
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
     registry integrity 或 signed release manifest 得到独立 approved digest，并由
@@ -286,30 +300,36 @@ GH-701 已完成。
     candidate 必须运行在 credential-free execution job/VM：没有 `GITHUB_TOKEN`、
     OIDC request、Actions runtime/artifact 或 attestation token，也不能读取
     supervisor state/output/handoff。独立 protected attestation job 永不执行或加载
-    candidate code。candidate kill/reap 后，supervisor 必须把每个 subject 的 exact
+    candidate code。candidate boundary 经受保护 provider 有界销毁并关闭全部 host-side
+    channel 后，supervisor 必须把每个 subject 的 exact
     bytes 封存在 candidate 不可访问的 protected content-addressed handoff，并以独立
     supervisor workload identity 认证 closed subject manifest（role、size、digest、
     immutable object version）。signing job 只读取得 manifest 与全部 blobs，逐一重哈希
     exact bytes、拒绝 missing/extra/duplicate/substitution 后才以 OIDC identity 签名
     manifest digest 与 subjects；认证、inventory、version 或 digest 不匹配都阻断。
-    trusted supervisor 必须为每次运行独立生成 CSPRNG secret sentinels，并按 schema
-    固定的 source class 注入 candidate；candidate 被 kill/reap 且所有 sink writer
-    冻结后，supervisor 才以 no-follow handle 读取每个 required sink 的 exact bytes，
-    对每个 sentinel 扫描零匹配并绑定 sink path/size/digest、注入 receipt、扫描算法与
-    逐 sentinel/sink 结果。secret value 不得持久化；candidate 自报、缺 injection/sink、
-    非零匹配或扫描后 sink digest 漂移都阻断。
+    trusted supervisor 必须在 execution VM 外实现 candidate-independent information-flow/
+    redaction boundary：高侧解析 raw input/config/credential/payload，unknown/free-form
+    默认 secret，只允许 closed digest-bound policy 声明的 low typed fields 经单向 channel
+    进入 candidate；secret、其 digest/encoding/substrings/length/key 与 opaque handles 均
+    不可读且不得进入 closed output schema。attestation 绑定 policy digest、keyed/salted
+    high-side commitment、candidate-view digest、typed transcript root、output schema 与 sink
+    manifest。sentinel exact-byte scan 仅为 diagnostic defense-in-depth，不能证明无泄漏；
+    split/reorder/encode/compress/encrypt/hash 与 cross-field/sink reconstruction fixture 必须
+    均被 access/noninterference boundary 阻断。
     supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
-    head、event/nonce/process/distribution、host-acquisition-ack/use-release receipt digests
-    与 redaction inventory digest
+    head、event/nonce/process/distribution、host-acquisition-ack/use-release receipt digests、
+    confidentiality policy/transcript 与 provider journal root/sequence/snapshot digest
     绑定为 attested subjects，缺任一绑定都阻断。
     H-001 closed selection 还必须批准 security provider kind/version、containment/
     executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
+    lifecycle journal trust-root digest、
     固定 **schemas/gh701-host-acquisition-ack.schema.json**、
     **schemas/gh701-use-release-receipt.schema.json** raw-byte digests；两 path 必须在
     resolved trust set；`$ref` 只许同文件 fragment，external/relative/remote/dynamic refs 禁止，
-    以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match exclusion
-    selection 并把 decision-record digest 绑定所有 publish/abort/use/consume records；
+    以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match
+    exclusion/journal selection，并把 decision-record digest、provider journal root/sequence/
+    snapshot digest 绑定所有 publish/abort/use/consume records；
     gate 必须把 signer trust chain/provenance exact-match approved distribution。
     native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
     containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
@@ -317,7 +337,7 @@ GH-701 已完成。
     `process_vm_writev`、Mach task/VM write 与 Windows cross-process memory write，
     包括 boundary 外同用户进程的 inbound write。supervisor 必须在 suspended
     spawn 恢复前安装平台 loader/executable-mapping mediator，并从第一条指令直到
-    boundary empty/kill/reap 连续记录 exec、executable mmap/mprotect、image load/unload
+    boundary 被 provider 有界销毁且 host-side channel closed 连续记录 exec、executable mmap/mprotect、image load/unload
     及保护变更；同时强制 immutable backing、W^X、禁止 anonymous/RWX 或 private-COW
     writable→executable pages。每个 executable page 必须在执行前及后续检查中 exact-match
     approved backing offset 加 closed signed relocation manifest 计算出的 expected bytes/root。
@@ -436,6 +456,11 @@ GH-701 已完成。
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
   保持 needs-human。
+- [ ] verified-file authority 来自 H-001-selected protected provider journal，而不是
+  same-user 可写的 0600/0700 mirror；replace/replay/delete local cache、伪造 provider IPC、
+  stale snapshot/signature/journal root 均不得产生 completed/use/consume/retire。每个
+  publication-aborted crash window 保留 sealed reverse payload 与 retirement-disabled；
+  只有 atomic verified reverse commit 才授权退休。
 - [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
   exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
   use-release；ack/release exact bytes 必须是 manifest+attestation authenticated proof subjects，
@@ -443,8 +468,10 @@ GH-701 已完成。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、
-  supervisor injection/sink/scan 缺失或泄漏，以及 containment setsid/double-fork/broker/
-  breakaway、inbound/outbound process-memory write、private-COW exec、bad relocation/page
+  high-side boundary/declassification evidence 缺失或 split/encoded/cross-sink 泄漏，
+  trusted supervisor/run/attestation time 缺失、skew/replay，以及 containment
+  setsid/double-fork/broker/breakaway、Linux uninterruptible descendant 未经 bounded outer
+  VM destroy、inbound/outbound process-memory write、private-COW exec、bad relocation/page
   mismatch、self/implementer-signed relocation、patch-then-restore、RWX、load-unload、
   trace gap/unknown loaded-code 均 nonzero。
 - [ ] H-001–H-004 decision record 与 maintainer witness 分别通过固定 schema、

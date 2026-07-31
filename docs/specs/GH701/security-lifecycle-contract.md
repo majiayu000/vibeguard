@@ -24,15 +24,18 @@ endpoint policy, denied broker attempts, and external-process access policy. The
 runtime rejects a provider not selected by H-001 or a platform on which these
 properties cannot be proved.
 
-- Linux uses an unprivileged candidate inside a dedicated PID namespace and cgroup
-  v2 subtree plus private user, mount, IPC, and network namespaces. The namespace
+- Linux uses a provider-owned, per-invocation destructible microVM outside the candidate
+  trust domain. Inside it, an unprivileged candidate uses a dedicated PID namespace and
+  cgroup v2 subtree plus private user, mount, IPC, and network namespaces. The namespace
   init is a subreaper; a minimal private root/proc view exposes no host service-manager,
   D-Bus, container-daemon, agent, or same-user broker socket. All inherited handles
   except closed supervisor channels are removed, and socket/SCM_RIGHTS policy cannot
   acquire an external broker endpoint. The candidate lacks cgroup, namespace, mount,
   ptrace, and privilege-escalation capabilities. `setsid()` and double-fork may change
-  process relationships but cannot leave the boundary. The supervisor records
-  fork/clone/exec/exit and denied external-endpoint attempts from boundary creation.
+  process relationships but cannot leave the guest. The outer VM exposes no passthrough
+  device, host-writable mount, network, or blocking candidate-controlled host backend;
+  its control plane records create/destroy receipts and is H-001-bound. The supervisor
+  records fork/clone/exec/exit and denied external-endpoint attempts from boundary creation.
 - Windows uses a Job Object with kill-on-close, breakaway disabled, a restricted
   token without debug privilege, and completion-port accounting. Nested jobs or
   child-process policies must not enable breakaway; inherited handles and named-pipe,
@@ -50,13 +53,14 @@ broker can never be added to the trusted closure after candidate start. Any endp
 policy miss, inherited external handle, broker delegation, or unaccounted side-effect
 producer invalidates the run even when the process boundary later becomes empty.
 
-At timeout the runtime first closes candidate stdout/stderr ingestion, marks the
-result fail-closed, and asks the provider to kill the entire boundary. Linux uses
-`cgroup.kill`, waits for `cgroup.events populated=0`, and reaps through namespace
-PID 1; Windows closes/terminates the Job and waits for zero live processes; the
-macOS provider destroys the helper boundary and proves zero live lineage. Encoding
-is forbidden until the ordered event ledger has no unaccounted process, no open
-candidate output pipe, no event loss, and all reaping is complete.
+At timeout the runtime first closes candidate stdout/stderr ingestion and marks the
+result fail-closed. Linux gives inner `cgroup.kill`/subreaper cleanup a bounded
+sub-deadline; if any guest task remains—including uninterruptible sleep—the host control
+plane destroys the outer microVM by the response deadline, independently of guest reap.
+Windows closes/terminates the Job and macOS destroys its helper boundary under the same
+bounded provider contract. Encoding waits for closed host-side pipes, the ordered ledger,
+and a provider destroy/zero-side-channel receipt, but never for an uninterruptible guest
+task after VM destruction. A platform unable to prove bounded outer teardown is unsupported.
 
 Any boundary creation failure, late attachment, event gap/drop/overflow, new child
 after the kill epoch, nonempty boundary, unreaped descendant, or output after the
@@ -67,15 +71,17 @@ Required negative fixtures include `setsid`, double-fork, daemon reparenting,
 fork/exec during termination, fork bomb at the process limit, inherited output FD,
 user-systemd/D-Bus/launchd/service-manager or same-user-daemon spawn requests,
 SCM_RIGHTS/broker socket acquisition, delayed output, nested-job breakaway,
-namespace/cgroup escape, event overflow, and unreaped zombie. Each must finish within
-the outer deadline with an empty boundary and zero late output/side effects.
+namespace/cgroup escape, event overflow, unreaped zombie, uninterruptible guest I/O, and
+inner cgroup non-emptiness. Each must finish within the outer deadline with a destroyed
+outer boundary, closed side-effect channels, and zero late output; inner reap alone is
+not accepted as the bounded-termination authority.
 
 ## 2. Executable-memory integrity (B-028)
 
 The pre-resume loader ledger in `tech.md` is necessary but not sufficient: approved
 code pages must also be protected from transient patch-and-restore attacks. The
 execution boundary therefore enforces a closed executable-memory policy from the
-first instruction through candidate kill/reap.
+first instruction through provider-confirmed boundary destruction and host-channel closure.
 
 1. Neither candidate credentials nor any untrusted process outside the boundary can
    open or write candidate/supervisor memory. Linux uses a unique disposable identity,
@@ -124,6 +130,43 @@ malformed relocation, RWX, executable `mprotect`, patch-then-restore, load-then-
 anonymous executable memory, and event/denial-log loss. A fixture passes only when the
 attempted run cannot produce accepted proof.
 
+### 2.1 Candidate-independent confidentiality boundary
+
+Contiguous sentinel search is diagnostic defense-in-depth, not non-disclosure evidence.
+Before candidate start, an H-001-approved high-side supervisor outside the execution VM
+parses raw host input, configuration, credentials, and payload. It treats unknown/free-
+form fields as secret by default and applies a closed, digest-bound declassification
+policy. Only explicitly low fields cross a one-way typed channel; secret values, secret-
+derived digests, reversible encodings, substrings, lengths, keys, and sentinel bytes do
+not. Redacted fields become per-run opaque handles that have no guest lookup operation
+and are removed from output. If the selected host behavior requires raw high-side data,
+that proof mode is unsupported rather than silently exposing it.
+
+The candidate has no filesystem, memory, IPC, network, inherited handle, or broker path
+to high-side bytes or redaction keys. Its output uses a closed low-side schema; the
+supervisor ignores candidate labels, rejects opaque handles/arbitrary byte carriers, and
+independently canonicalizes every persisted subject and sink. The attestation binds the
+declassification-policy digest, a salted/keyed high-side commitment, candidate-view
+digest, typed-channel transcript root, output-schema digest, and final sink manifest.
+Byte sentinels may test the boundary but can never replace this access/noninterference
+proof. Fixtures include split, reordered, encoded, compressed, encrypted, hashed, and
+cross-field/cross-sink reconstruction attempts; candidate access to any high-side source
+or any undeclared declassification prevents proof.
+
+### 2.2 Trusted proof time
+
+Freshness derives only from the protected supervisor/provider and attestation issuer,
+never from candidate `observed_at`. The signed record binds protected run creation,
+supervisor start, native-event monotonic time plus trusted wall-clock mapping, supervisor
+finish, attestation issuance, clock-source identity, and fixed maximum skew of 300
+seconds. The gate live-reads the protected run metadata, verifies the attestation
+integrated/issuance time, requires those trusted sources to agree within the bound, and
+exact-matches candidate `observed_at` to the trusted event time within the same skew.
+The seven-day window is calculated from trusted event and issuance times to current
+protected gate time; a later witness cannot refresh an old run. Missing time authority,
+future/skewed candidate time, delayed replay, archived subjects with a fresh witness, or
+clock disagreement fails closed.
+
 ## 3. Verified-file identity and receipt state machine (B-025)
 
 ### 3.1 Identity model
@@ -155,12 +198,23 @@ epoch and revalidate identity and digest before relying on it.
 
 ### 3.2 Receipt states
 
-A 0600 receipt in a 0700 VibeGuard state directory has a unique ID, monotonically
-increasing generation, and state `planned`, `activating`, `publishing`, `completed`,
-`consumed`, or terminal `aborted`. It binds target, parent identity, base presence/identity, candidate identity/digest,
-apply operation, failure-reverse operation, clean operation, preserved entries, and
-all operation digests. Raw bytes and diffs remain local and never enter logs or proof
-artifacts.
+The H-001-selected lifecycle provider runs outside the same-user process trust domain
+and owns the authoritative append-only journal, monotonic generations, transaction CAS,
+target leases/exclusions, sealed recovery payloads, and signing key. Its trust-root digest
+is an H-001 field; arbitrary same-user processes cannot read the key/journal or invoke an
+authority-conferring transition. The provider accepts only measured approved VibeGuard
+callers and independently verifies policy, watcher, probe, identity, and transaction
+expectations. A platform without this boundary is unsupported.
+
+Each authoritative receipt has a unique ID and state `planned`, `activating`,
+`publishing`, `completed`, `consumed`, or terminal `aborted`. Canonical records bind the
+provider sequence/journal root, previous-record digest, decision digest, transaction ID,
+target/base/candidate identities, operations, evidence roots, and provider signature.
+Base bytes/diffs remain host-local only in provider-sealed recovery storage and never
+enter logs/proof. A 0600 receipt/pointer/bundle in a 0700 user state directory is merely
+an untrusted cache: it may aid display but never authorize, recover, or retire anything.
+Every read exact-matches a fresh nonce-bound provider snapshot and signature; journal
+unavailability or cache/journal mismatch fails closed with no cache fallback.
 
 The state enum is closed. The success path is
 `planned → activating → publishing → completed → consumed`; failure may transition
@@ -171,9 +225,9 @@ generic abort preserves `planned`. Retry creates a new generation rather than sk
 records are schema errors rejected by setup, check, doctor, runtime, proof, and recovery.
 
 Every install, verify, recovery, clean, and runtime evidence consumer takes the same
-kernel-held exclusive per-target state lock before reading generation state. The lock
-inode is stable in the 0700 state directory and cannot be replaced; crash releases it.
-Under that lock, a writer snapshots the current pointer as expected generation+digest
+provider-owned exclusive per-target lease before reading authoritative generation state;
+a user-directory lock is advisory defense-in-depth only. Under that lease, a writer
+snapshots the journal's current pointer as expected generation+digest
 (or expected absence). Any publish/consume operation is a compare-and-swap that first
 re-reads and exact-matches that expected pair; mismatch rejects the stale operation and
 cannot consume either receipt. Supersession is the sole multi-record form: its current-
@@ -181,8 +235,9 @@ pointer expectation is N+1 publishing while a separate immutable-receipt CAS exp
 names predecessor N completed. Atomic replacement without these comparisons is invalid.
 
 An existing completed receipt cannot be overwritten by a planned update. Probe success
-creates and fsyncs an immutable `activating` bundle containing the receipt, probe result,
-and watcher epoch so far. With the watcher still running, the verifier acquires a
+causes the provider to append an authenticated immutable `activating` record containing
+the receipt, probe result, and watcher epoch; any fsynced user-directory bundle is only
+its signed mirror. With the watcher still running, the verifier acquires a
 declared kernel-enforced `target_mutation_exclusion_v1` against the held parent/target
 identities. It denies write/truncate, writable mmap, rename/link/unlink, mount replacement,
 and metadata mutation by every process, including pre-existing descriptors/handles;
@@ -197,22 +252,23 @@ start epoch, pre-existing-writer closure, denied-attempt ledger, loss counters, 
 atomic durable release receipt. Any write attempt—even when denied—watcher/provider gap,
 identity drift, or policy loss invalidates the generation. Under the exclusion the
 verifier drains the final pre-CAS barrier, requires zero mutation/loss, performs the
-held-handle/no-follow observation, and fsyncs an immutable `publish_intent` binding those
-results and the evidence payload.
+held-handle/no-follow observation, and asks the journal to persist an authenticated
+immutable `publish_intent` binding those results and the evidence payload.
 The exclusion provider is authorization-conferring: the H-001 closed selection must
 approve its kind, version, and raw policy digest in addition to the execution provider.
 The lifecycle gate exact-matches those fields and binds the decision-record digest into
 the provider record, intent, completion, and every success/abort/use/consume release record.
 Self-selected, missing, substituted, or drifted provider/policy fields are unsupported.
 The writer may then CAS the current pointer from the expected generation+digest to the
-exact intent with state `publishing` and fsync the directory. This pointer is durable
-pending state, never completed evidence; every consumer must reject it.
+exact intent with state `publishing` in the provider journal; a local directory mirror
+may then be fsynced. This journal pointer is durable pending state, never completed
+evidence; every consumer must reject it.
 
-Still under both locks, the publisher drains a post-CAS watcher barrier and repeats
-the held-handle read. Only a clean result may create and fsync an immutable
-`publish_completion` binding the publishing pointer/intent
-digest, both barrier roots, final reads, target identities, and evidence digest. The
-completion file plus directory are fsynced while exclusion remains enforced. The
+Still under provider lease and exclusion, the publisher drains a post-CAS watcher barrier
+and repeats the held-handle read. Only a clean result may cause the provider to append an
+authenticated immutable `publish_completion` binding the publishing pointer/intent digest,
+both barrier roots, final reads, target identities, and evidence digest. Any local mirror
+is fsynced only after provider authentication and while exclusion remains enforced. The
 provider then performs one journaled atomic `release_and_record` transaction. At one
 durable linearization point it (1) CASes the exact publishing generation/digest,
 (2) persists a receipt and pointer carrying literal `state: completed`, exact ancestry,
@@ -227,18 +283,25 @@ timeout, cancellation, crash recovery, orphan intent/completion, stale CAS, or p
 error—must instead run journaled atomic `abort_release_and_record`. At one durable point
 it records a closed abort reason and provider/watcher roots, preserves any predecessor
 completed receipt, preserves any `planned` receipt, CASes an owned activating/publishing
-receipt to terminal `aborted` when its exact expectation still matches, CASes an owned publishing pointer to
-a non-state tombstone, and otherwise records stale mismatch without changing current state. It persists the exclusion
-release receipt, and removes the mandatory policy. It is idempotent by exclusion ID plus
-generation/digest. No completed evidence is produced. On owner death or bounded,
+receipt to terminal `aborted` when its exact expectation still matches, CASes an owned
+publishing pointer to a non-state tombstone, and otherwise records stale mismatch without
+changing current state. It persists the exclusion release receipt and removes the
+mandatory policy. It is idempotent by exclusion ID plus generation/digest. No completed
+evidence is produced. On owner death or bounded,
 non-renewable expiry, the provider itself executes the same `abort_release_and_record`;
 policy removal and its durable abort/release event are indivisible. If the caller-side
 abort fails, VibeGuard remains fail-closed while the provider completes that transaction
 by the deadline, so the host target cannot remain locked indefinitely.
-Consumers cannot take the target lock until a success or abort release receipt exists.
+Consumers cannot take the provider lease until a success or abort release receipt exists.
+
+Every activating/publishing abort records `abort_kind: publication_aborted`,
+`reverse_status: pending`, exact candidate/base ancestry, and `retirement_allowed: false`;
+the provider retains the sealed recovery payload. Neither the terminal state nor a local
+tombstone proves reversal, so the receipt/payload cannot be retired until the protected
+verified-reverse transaction below commits.
 
 Pointer presence alone never authorizes use. Any consumer that will cause a host to load
-or use the target—including runtime and proof—takes the target lock, starts a new watcher,
+or use the target—including runtime and proof—takes the provider lease, starts a new watcher,
 and acquires a fresh H-001-approved mandatory exclusion before its first completed-tuple
 read. It exact-matches the literal completed pointer/receipt/intent/marker/publication-
 release tuple, drains a barrier, revalidates held parent/target identity and bytes, and
@@ -246,7 +309,7 @@ re-reads the unchanged pointer while exclusion remains enforced. Inspection-only
 or doctor may report this state but cannot authorize later host use.
 
 The host must then fully acquire and parse an immutable exact-byte snapshot while the
-lock, watcher, and exclusion remain held. A trusted provider returns a durable
+lease, watcher, and exclusion remain held. A trusted provider returns a durable
 `host_acquisition_ack` binding the host process measurement, acquisition event/nonce,
 sealed handle or snapshot identity, exact loaded bytes/digest, completed tuple digest,
 and watcher/provider roots. Deferred or lazy target reads are unsupported. After that
@@ -270,12 +333,15 @@ digests are validated by fixed **schemas/gh701-host-acquisition-ack.schema.json*
 schema permits only fragment `$ref` targets inside its own pinned bytes; remote, relative,
 absolute, file, dynamic, or resolver-fetched external references are schema errors. The supervisor
 attestation exact-binds both to the same event, nonce, measured host process, completed
-tuple, watcher roots, and candidate head. The proof gate rehashes both subjects and
+tuple, provider journal trust root/sequence/snapshot digest, watcher roots, and candidate
+head. The proof gate rehashes both subjects, verifies every provider signature against the
+H-001-selected journal trust root and fresh nonce-bound snapshot, and
 exact-matches every binding before `proof_accepted`. A current config digest, self-report,
 missing/substituted subject, or ack/release from another event cannot substitute.
 
-Recovery takes the target lock and reconciles immutable bundles, pointer, completion,
-abort/tombstone, exclusion status, and success/abort release records.
+Recovery takes the provider lease and reads the authoritative journal snapshot/root,
+then reconciles signed local mirrors, completion, abort/tombstone, exclusion status, and
+success/abort release records. A local self-consistent tuple without the journal entry is forged.
 An unpointed `activating` bundle is never assumed completed or consumed: retry must open
 new held identities, run a fresh zero-mutation watcher epoch and native probe, and
 either create/commit a new generation or retain the orphan with `needs_human` and the
@@ -296,17 +362,19 @@ restores the original unmanaged clean base carried through superseding generatio
 For an absent base, both operations are an exact-target deletion instruction for the
 user, not creation of an empty file. VibeGuard never writes or deletes the host target.
 
-After the user applies a completed-receipt clean/reverse or a failed-probe receipt's
-failure-reverse, the verifier takes the target lock, starts a new loss-detecting watcher,
+After the user applies a completed-receipt clean/reverse, a failed-probe receipt's
+failure-reverse, or a publication-aborted receipt's failure-reverse, the verifier takes
+the provider lease, starts a new loss-detecting watcher,
 and acquires the H-001-approved mandatory exclusion against the restored target or absent
 directory entry before the first bounded observation.
 For absent base it uses the retained parent handle and no-follow `fstatat`/equivalent to
 require stable absence across two observations and proves host-native unregistration.
 For present base it pins the restored target, requires exact original bytes/semantics
 and stable parent/target identities across the same observations, and confirms the
-receipt-specified restored/unmanaged state. Before the final barrier it fsyncs an
-immutable transition intent containing a unique transaction ID, transition kind, exact
-starting receipt/pointer generation+digest, exclusion ID, and verification roots.
+receipt-specified restored/unmanaged state. Before the final barrier the provider appends
+an authenticated immutable transition intent containing a unique transaction ID,
+transition kind, exact starting receipt/pointer generation+digest, exclusion ID, and
+verification roots; any user-directory copy is an untrusted signed mirror only.
 
 For a completed receipt, `consume_release_and_record` drains the final watcher/provider
 barrier, repeats the held-handle identity+byte read or absence+unregistration proof,
@@ -315,26 +383,32 @@ receipt, invalidates candidate evidence, and removes the policy at one durable
 linearization point. For a native-probe failure, which never creates a completed receipt,
 `failed_reverse_release_and_record` performs the same protected final verification but
 CASes the exact `planned` failure receipt to terminal `aborted` and persists the verified
-reverse/abort commit receipt; it cannot use `consumed` or authorize host use. Only an
-exact commit may report `restored`/`not_installed` and later retire receipt data.
+reverse/abort commit receipt with `reverse_status: verified`. For publication-aborted
+receipts, atomic `aborted_reverse_release_and_record` exact-matches the authoritative
+`aborted` record with pending reverse, persists the same verified evidence and a durable
+retirement authorization, invalidates candidate evidence, and releases exclusion while
+the lifecycle state remains terminal `aborted`. Neither path can use `consumed` or
+authorize host use. Only an exact verified commit may report `restored`/`not_installed`
+and later retire sealed receipt data; the signed retirement tombstone remains.
 
 Recovery queries the provider journal by transaction ID. Before linearization, any event,
 denied attempt, gap, drift, recreation, remaining registration, stale CAS, crash, or
-timeout idempotently abort-releases and leaves the starting completed/planned receipt
+timeout idempotently abort-releases and leaves the starting completed/planned/aborted receipt
 unchanged. After linearization, the exact commit receipt is authoritative: recovery
 reconciles the durable `consumed`/`aborted` result and never runs abort or rolls it back.
 Unknown outcome remains fail-closed until the provider returns the commit or performs its
 pre-commit owner-death/expiry abort; expiry cannot overwrite a committed transaction.
 
 A superseding plan carries immediate rollback and original unmanaged clean ancestries.
-After fsyncing a transaction intent that binds both expected records, its atomic
+After the provider appends an authenticated transaction intent that binds both expected records, its atomic
 `supersede_release_and_record` is a multi-record CAS: it exact-matches the
 current N+1 publishing pointer/receipt and immutable predecessor N completed receipt,
 then at one linearization point persists N+1 as completed/current, persists N as consumed
 with exact successor ancestry, and removes the exclusion. A provider lacking multi-record
 atomicity is unsupported. A mismatch or pre-commit crash
 completes neither effect and leaves N completed; recovery uses the transaction receipt.
-Consumed/aborted receipts may later be retired; nonterminal or drifted receipts remain.
+Consumed receipts and aborted receipts carrying exact `reverse_status: verified` or
+provider-proved `rollback_required: false` may later be retired; all others remain.
 
 `completed → consumed` is the only consume transition. Its atomic CAS/release record binds the
 exact completed receipt digest, original clean ancestry/presence, verified restore or
@@ -348,14 +422,14 @@ ancestry, replay, or consuming the predecessor before successor completion is re
 
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
 install/failure deletion/clean deletion, completed receipt retention, and safe update
-supersession, plus crash recovery around intent/pointer/barrier/completion/tombstone
-fsync. Success fixtures assert atomic publishing→completed pointer+receipt+release;
+supersession, plus crash recovery around authenticated journal intent/pointer/barrier/
+completion/tombstone append and local-mirror fsync. Success fixtures assert atomic publishing→completed pointer+receipt+release;
 abort fixtures cover every phase/reason, idempotent retry, owner death/expiry, durable
 abort before release, eventual host writability, and zero completed evidence. Negative
 fixtures cover concurrent installers/recovery/clean, stale expected
 generation/digest, early receipt deletion, missing/torn/duplicate pointer or generation,
 publishing reuse, exclusion bypass/write attempt/gap, crash before release receipt,
-mutation+restore after pointer fsync, orphan completion/release, candidate/receipt drift,
+mutation+restore after journal pointer commit, orphan completion/release, candidate/receipt drift,
 temporary same-inode write-and-restore, byte-identical target replacement, parent
 swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.
@@ -372,6 +446,11 @@ pre/post-linearization consume crashes and idempotent recovery, plus a supersess
 multi-record CAS that completes N+1 and consumes N together or does neither. Proof fixtures
 also reject missing/untrusted schema paths, schema-byte drift, wrong H-001 digests, every
 non-fragment/cross-document reference, and any resolver I/O.
+Publication-abort fixtures keep sealed reverse data and retirement disabled through every
+denied/gap/stale/crash phase, then require atomic verified reverse before retirement.
+Authority fixtures let a same-user attacker replace/replay/delete every local mirror and
+call provider IPC with arbitrary payloads; no forged completed/use/consume/retire result
+is accepted without the fresh signed journal snapshot and measured approved caller.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 
@@ -380,6 +459,7 @@ reject every direct, early, replayed, or mismatched transition.
 B-019, B-025, and B-028 implementation and closure gates must consume the applicable
 records from this file as one contract. Tests that exercise only process groups,
 pathname+bytes, event-time loaded images, or present-file rollback are incomplete.
-Any implementation platform lacking a required containment, identity, watcher, or
-memory-integrity capability remains explicit `unsupported/needs_human`; it cannot
+Any implementation platform lacking required containment, confidentiality, trusted-time,
+journal-authenticity, identity, watcher, or memory-integrity capability remains explicit
+`unsupported/needs_human`; it cannot
 silently downgrade and cannot provide third-host proof.
