@@ -46,7 +46,7 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
         ),
         (
             "setup-state-verify-managed-tree",
-            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix>",
+            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix> [tracked-dest-dir]",
         ),
         (
             "setup-state-list-project-hooks",
@@ -700,6 +700,21 @@ fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
         ],
     );
     assert_output(&owned, 0, "OWNED\n", "");
+
+    let quarantined = root.join("skills/.plan-flow.vibeguard-remove");
+    fs::rename(&skill, &quarantined).expect("managed skill should be quarantined");
+    let relocated_owned = run(
+        &root,
+        &[
+            "setup-state-verify-managed-tree",
+            &path_text(&state),
+            &path_text(&quarantined),
+            "skills/plan-flow",
+            &path_text(&skill),
+        ],
+    );
+    assert_output(&relocated_owned, 0, "OWNED\n", "");
+    fs::rename(&quarantined, &skill).expect("managed skill should be restored");
 
     fs::write(skill.join("user.txt"), "custom\n").expect("custom file should be written");
     let extra_file = run(

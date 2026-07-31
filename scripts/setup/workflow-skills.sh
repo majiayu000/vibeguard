@@ -38,7 +38,7 @@ skill_is_disabled() {
 
 remove_disabled_skill() {
   local dest="$1" skill="$2" dest_dir="$3" source_path="$4"
-  local dest_parent dest_parent_abs dest_dir_abs ownership_rc
+  local dest_parent dest_parent_abs dest_dir_abs ownership_rc quarantine="" attempt
   [[ -e "${dest}" || -L "${dest}" ]] || return 0
 
   dest_parent="$(dirname "${dest}")"
@@ -64,8 +64,46 @@ remove_disabled_skill() {
     fi
     return 1
   fi
-  if ! rm -rf -- "${dest}"; then
+
+  # Move the verified tree out of its public name atomically, then verify that
+  # exact identity against the original tracked root before deleting it.
+  for attempt in {1..10}; do
+    quarantine="${dest_parent}/.${skill}.vibeguard-remove.$$-${RANDOM:-0}-${attempt}"
+    [[ ! -e "${quarantine}" && ! -L "${quarantine}" ]] || continue
+    if mv -- "${dest}" "${quarantine}"; then
+      break
+    fi
+    quarantine=""
+  done
+  if [[ -z "${quarantine}" ]]; then
+    red "  ERROR: failed to quarantine disabled skill ${skill}: ${dest}"
+    return 1
+  fi
+
+  if state_managed_tree_owned "${quarantine}" "${source_path}" "${dest}"; then
+    :
+  else
+    ownership_rc=$?
+    if [[ ! -e "${dest}" && ! -L "${dest}" ]] \
+      && mv -- "${quarantine}" "${dest}"; then
+      quarantine=""
+    fi
+    if [[ "${ownership_rc}" -eq 2 ]]; then
+      red "  ERROR: cannot reverify quarantined ownership for disabled skill ${skill}"
+    else
+      red "  ERROR: disabled skill changed during removal; preserved without deletion: ${skill}"
+    fi
+    if [[ -n "${quarantine}" ]]; then
+      red "  ERROR: concurrent replacement blocked automatic restore; preserved at ${quarantine}"
+    fi
+    return 1
+  fi
+  if ! rm -rf -- "${quarantine}"; then
     red "  ERROR: failed to remove disabled skill ${skill}: ${dest}"
+    return 1
+  fi
+  if [[ -e "${dest}" || -L "${dest}" ]]; then
+    red "  ERROR: concurrent replacement preserved at disabled skill path: ${dest}"
     return 1
   fi
   yellow "  REMOVED ${skill} (disabled via $(disabled_skills_source_label))"

@@ -180,11 +180,12 @@ state_is_tracked_path() {
 }
 
 state_managed_tree_owned() {
-  local path="$1" source_prefix="$2" state_source decision found=1
+  local path="$1" source_prefix="$2" tracked_path="${3:-$1}"
+  local state_source decision found=1
   for state_source in "$STATE_PREVIOUS_FILE" "$STATE_FILE"; do
     [[ -f "$state_source" ]] || continue
     if ! decision="$(state_runtime setup-state-verify-managed-tree \
-      "$state_source" "$path" "$source_prefix")"; then
+      "$state_source" "$path" "$source_prefix" "$tracked_path")"; then
       printf 'ERROR: failed to verify install-state ownership: %s\n' "$state_source" >&2
       return 2
     fi

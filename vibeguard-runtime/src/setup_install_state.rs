@@ -279,9 +279,9 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
 }
 
 pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 {
+    if args.len() != 3 && args.len() != 4 {
         return Err(
-            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix>"
+            "Usage: vibeguard-runtime setup-state-verify-managed-tree <state-file> <dest-dir> <source-prefix> [tracked-dest-dir]"
                 .into(),
         );
     }
@@ -293,6 +293,10 @@ pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
     let state = read_state(state_file)?;
     ensure_state_version(&state)?;
     let dest_dir = setup_absolute_path(&expand_home(&args[1]));
+    let tracked_dest_dir = args
+        .get(3)
+        .map(|tracked| setup_absolute_path(&expand_home(tracked)))
+        .unwrap_or_else(|| dest_dir.clone());
     let source_prefix = args[2].trim_end_matches('/');
     match std::fs::symlink_metadata(&dest_dir) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
@@ -315,7 +319,8 @@ pub fn verify_managed_tree(args: &[String]) -> SetupResult<()> {
         .iter()
         .filter_map(|(dest, info)| {
             let expanded = setup_absolute_path(&expand_home(dest));
-            (expanded.starts_with(&dest_dir)).then_some((expanded, info))
+            let relative = expanded.strip_prefix(&tracked_dest_dir).ok()?;
+            Some((dest_dir.join(relative), info))
         })
         .collect::<BTreeMap<_, _>>();
     if tracked.is_empty() {

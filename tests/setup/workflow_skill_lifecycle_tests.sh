@@ -97,6 +97,35 @@ assert_contains "${gh719_clean_lock_out}" "another VibeGuard setup is active" \
 assert_cmd "blocked clean preserves install assets" test \
   -e "${gh719_clean_lock_home}/.vibeguard/run-hook.sh"
 
+gh719_remove_race_home="${TMP_HOME}/gh719-remove-race-home"
+gh719_remove_race_skill="${gh719_remove_race_home}/.codex/skills/plan-flow"
+mkdir -p "${gh719_remove_race_skill}"
+printf 'managed\n' > "${gh719_remove_race_skill}/SKILL.md"
+gh719_remove_race_rc=0
+HOME="${gh719_remove_race_home}" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  source "$1/scripts/lib/install-state.sh"
+  dest="$2"
+  ownership_checks=0
+  state_managed_tree_owned() {
+    ownership_checks=$((ownership_checks + 1))
+    if [[ "${ownership_checks}" -eq 1 ]]; then
+      mv -- "${dest}" "${dest}.verified"
+      mkdir -p "${dest}"
+      printf "user-owned after verify\n" > "${dest}/custom.txt"
+      return 0
+    fi
+    return 1
+  }
+  remove_disabled_skill \
+    "${dest}" plan-flow "$(dirname "${dest}")" skills/plan-flow
+' _ "${REPO_DIR}" "${gh719_remove_race_skill}" >/dev/null 2>&1 \
+  || gh719_remove_race_rc=$?
+assert_cmd "concurrent skill replacement fails disabled removal" test \
+  "${gh719_remove_race_rc}" -ne 0
+assert_cmd "concurrent user skill replacement is preserved" test \
+  -f "${gh719_remove_race_skill}/custom.txt"
+
 gh719_state_home="${TMP_HOME}/gh719-state-home"
 mkdir -p "${gh719_state_home}/.vibeguard"
 printf '%s\n' '{"version":1,"files":{}}' > "${gh719_state_home}/.vibeguard/install-state.json"

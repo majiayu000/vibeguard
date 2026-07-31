@@ -468,7 +468,7 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-state-verify-managed-tree",
-        usage: "<state-file> <dest-dir> <source-prefix>  — verify exact managed-tree ownership",
+        usage: "<state-file> <dest-dir> <source-prefix> [tracked-dest-dir]  — verify exact managed-tree ownership",
         handler: setup_install_state::verify_managed_tree,
     },
     Command {
