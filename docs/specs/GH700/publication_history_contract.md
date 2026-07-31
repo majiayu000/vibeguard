@@ -241,9 +241,15 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-每个 time-dependent transition生成 fresh 256-bit nonce并请求每个 TSA 对
+每个 time-dependent transition 先冻结 `publication_payload_core`：它是该 kind 的 final payload 去掉所有
+proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
+并保留 known prior high water。然后生成 fresh 256-bit nonce 及 typed `nonce_digest`，计算
+`trusted_time_proof_request_id=SHA256(JCS({v:"GH700:trusted-time-proof-request:v1",authority_id,repo_node_id,
+owner_generation,run_id,run_attempt,transition_slot,predecessor_frontier,record_kind,
+publication_payload_core_digest,prior_time_high_water,nonce_digest}))`；它与 payload core 先按下述 closed derivation
+生成 `transition_operation_id`，之后才请求每个 TSA 对
 `SHA256(JCS({v:"GH700:trusted-time-proof:v1",authority_id,repo_node_id,transition_operation_id,
-predecessor_frontier,nonce_b64u}))` 签 RFC3161 token。验证 distinct threshold signer、message imprint、policy OID、
+trusted_time_proof_request_id,predecessor_frontier,nonce_b64u}))` 签 RFC3161 token。验证 distinct threshold signer、message imprint、policy OID、
 certificate chain、`gen_time`与 accuracy后，将各 interval `[gen_time-accuracy,gen_time+accuracy]` 求交；无交集、
 accuracy超限、token replay或 signer不足即拒绝。`trusted_lower_bound`取交集下界，`trusted_upper_bound`取上界；
 只有 `trusted_lower_bound >= prior_time_high_water` 才接受，`accepted_at=trusted_upper_bound` 且
@@ -474,7 +480,9 @@ owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝
 authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 38 kinds 的
 closed derivation：publication-domain 34 kinds exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
-transition_slot,predecessor_frontier,record_kind,payload_digest}))`；三种 normal governance kinds exact 为
+transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
+trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
+time-dependent kind 以上述 proof-free core/request ID 构造 operation ID，取得 proof 后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
