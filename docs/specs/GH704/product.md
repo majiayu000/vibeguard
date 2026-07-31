@@ -145,7 +145,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    非目录、无法 canonicalize/求 git root 时必须在首个 provider/cache/metrics 动作前
    返回可见 `unavailable/error`，不得相对 ambient cwd 解析。求 git root 必须清除所有
    inherited `GIT_*` repository/config-selection variables，不能被 `GIT_DIR`/
-   `GIT_WORK_TREE` 等重定向。四个 payload cwd 字段全部缺失表示不存在合法 enable source，
+   `GIT_WORK_TREE` 等重定向。Git 返回的 canonical root 还必须是 canonical payload cwd
+   自身或其 component-aware ancestor；repo-local gitdir/`core.worktree` 把 root 指到
+   payload ancestry 外时拒绝。四个 payload cwd 字段全部缺失表示不存在合法 enable source，
    必须直接保持 off 和 L1 输出 parity，不能读取 ambient project 或生成 L2 error。
 2. B-002: flag 为 off 时不得加载模型、启动 sidecar/service、建立网络、读取超出 L1
    所需的 source/dependency 数据或写 L2 cache/metrics；现有 L1 decision、输出和
@@ -274,8 +276,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     GH-704 global event/status 只允许从已 finalized project record 做 idempotent derived
     projection，绑定 source event ID/finalized digest 与 durable projection receipt。
     global projector 必须先在 bounded keyed identity index 写入含 expected global offset/
-    digest 的 durable prepared state，append/fsync 后再提交 applied state 与 project
-    projection receipt；恢复只按 exact key/offset/digest 判断，禁止扫描 global log。
+    digest 的 durable prepared state；跨 project/shard 的唯一 global allocator 必须先用
+    deadline-bounded reservation 原子分配 offset 并留下可恢复 intent，append/fsync 后再
+    提交 applied state 与 project projection receipt。project WAL 只有在 durable
+    `projection_queued` intent 落盘后才可完成 semantic `done`；projection receipt 前该
+    queue item 不得丢弃。恢复只按 exact key/offset/digest 判断，禁止扫描 global log。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -300,8 +305,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 35. B-035: human、JSON、status/doctor、event log、precision 与 Learn 输出必须对同一
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
-    或未脱敏 model output。per-run 输出必须从 canonical project finalized record
-    渲染；global/aggregate view 若尚未投影同一 finalized digest，必须显示
+    或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
+    finalized record 渲染；尚未 finalized 的 append/consumer/recovery failure 必须从同一
+    project 的 bounded WAL/queue record 渲染 `unavailable/error/backlog`，不能伪造
+    finalized decision 或进入 precision/Learn。global/aggregate view 若尚未投影同一 finalized digest，必须显示
     `projection_lag` 和空数据，不能沿用旧 mirror 结果。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
@@ -316,8 +323,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       consumer/metrics/precision/Learn write，只有显式 maintenance route 可 drain。
 - [ ] process cwd 与 absolute hook payload cwd 指向不同 project、process cwd + payload `.`
       以及 payload cwd 缺失/relative/非法、`GIT_DIR` + `GIT_WORK_TREE` 指向另一 opted-in
-      project 的 fixtures，证明只有 sanitized absolute payload-precedence project 可以请求
-      opt-in；cwd 全缺失保持 off/L1 parity，其它错误路径零 provider/cache/metrics。
+      project、repo-local gitdir + `core.worktree` 指出 payload ancestry 外的 fixtures，
+      证明只有 sanitized、ancestry-bound payload project 可以请求 opt-in；cwd 全缺失保持
+      off/L1 parity，其它错误路径零 provider/cache/metrics。
 - [ ] invented API 与 semantic test weakening 均通过真实 Core production path 的
       positive、matched negative、unknown、malformed 和 failure fixtures；没有
       benchmark-only detector。
@@ -328,7 +336,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
 - [ ] canonical structured `rule_id/signal_id/evidence_digest` 从 runtime 唯一投影到
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
-      free-text/global mirror 不再是权威路径。
+      durable projection queue/allocator 不丢失或重用 offset，free-text/global mirror
+      不再是权威路径。
 - [ ] cross-session correction 只产生 read-only `defense_gap` candidate；adopt/verify/
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的

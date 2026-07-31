@@ -109,7 +109,10 @@ workspace.current_dir` 选择 cwd。被选值必须是 non-empty absolute path�
 helper 的 child environment 必须从 closed allowlist 重建，删除所有 inherited `GIT_*`
 变量（包括 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、object/config/ceiling/discovery
 overrides）以及 `PWD`/`CDPATH`，且只能用参数数组执行 `git -C <payload> rev-parse`，再只
-接受该 root 下 exact `.vibeguard.json` 的 typed value。`hook_orchestrator` 必须在
+接受 canonicalized returned root 等于 canonical payload cwd 或为其 component-aware
+ancestor；symlink-resolved payload 不在 returned root 内，或 repo-local gitdir/
+`core.worktree` 把 root 重定向到 sibling/external path 时返回 `unavailable/error`，不能
+读取该 root 配置。通过后才接受该 root 下 exact `.vibeguard.json` 的 typed value。`hook_orchestrator` 必须在
 `RuntimeContext::collect()` 和 semantic config join
 之前解析 payload，并把这个 typed project root 传给 `evaluate_core`；ambient process
 cwd、env cwd 与后续重新读取 current directory 都不能参与 enable 判定。四个 payload cwd
@@ -126,7 +129,8 @@ external opt-in file 时保持 off。任何
 payload absolute cwd B、process cwd A + payload `.`、四个 payload 字段 absolute A/B
 precedence、missing cwd × ambient key missing/false/true、invalid payload cwd、
 `GIT_DIR` + `GIT_WORK_TREE` 重定向到 opted-in B、external path/env enable negative fixtures，
-必须证明只有 absolute payload-precedence project 可请求 eligibility，其余路径零
+repo-local gitdir + `core.worktree=B` 且 payload A 不在 B ancestry 的 fixture，必须证明
+只有 absolute ancestry-bound payload-precedence project 可请求 eligibility，其余路径零
 provider/cache/metric activity。
 
 ### 2. Recommended Core module boundary
@@ -308,7 +312,10 @@ offset 的 bounded record 并比较 event ID + digest，匹配则补 marker，�
 均成功后 projector 构造绑定 pending event ID、consumer schema/version 与 applied receipt
 digests 的 finalized body；先在 WAL 追加/提交 `finalize_prepared`（body、digest、expected
 journal offset），再在该 offset append/fsync finalized receipt，随后追加/提交
-`finalized`，最后才以 WAL `done` transition 推进 head cursor。crash 在 finalized append
+`finalized`。随后必须先追加/fsync 并提交
+`projection_queued {project_hash,event_id,finalized_digest,schema_version}` 到独立 bounded
+project projection queue，才可以 WAL `done` transition 推进 semantic head cursor；global
+projection receipt durable 后才标记 `projection_done` 并推进 projection cursor。crash 在 finalized append
 前后都只读 expected offset 的 bounded record + digest，分别补 append 或补 marker，禁止
 扫描 journal、重复 finalized receipt。queue metadata 使用两个 checksummed generations，只保存 committed
 head/tail cursor、pending count 与 oldest timestamp；每条 WAL record 有 closed maximum
@@ -341,7 +348,12 @@ ID、finalized digest 和 projection schema version。global projector 使用有
 record-length 上限的 sharded keyed identity index；先以 exact identity key 写入/fsync
 `projection_prepared {digest, expected_global_offset}`，再在该 offset append/fsync global
 derived record，随后原子提交 `projection_applied`，最后写 project-scoped projection
-receipt。project finalized fsync 与 global append 之间失败时报告 `projection_lag`；
+receipt。所有 shard 共享一个 deadline-bounded global append allocator；它用 nonblocking
+stale-safe lock/CAS 在 checksummed allocator WAL+metadata 中原子保留唯一
+`{reservation_id, identity_key, expected_offset, digest, new_tail}`，提交 reservation 后才
+允许 per-key `projection_prepared`，因此跨 project/key/shard 不会复用 offset。reservation
+后/index prepared 前的 crash 由 allocator WAL 重建 exact key work item。project
+`projection_queued` fsync 与 global append 之间失败时报告 `projection_lag`；
 global append 后、index applied 或 project receipt 前失败时，只查 exact key 和 expected
 offset + digest 后补 marker/receipt，禁止扫描 global log、重复 append 或猜测。index
 full/corrupt/lookup 超界时保持 lag + 空值，等待显式 repair；global
@@ -362,7 +374,10 @@ H-014 Recommended reference path（未批准）不新增第三个 semantic statu
   policy eligibility，`scripts/lib/status_report.sh` 保持 human/JSON 同源；
 - `vibeguard-runtime hook-status` 继续作为 per-run public status route；`HookStatusEntry`、
   human renderer、JSON renderer 与 `schemas/hook-status.schema.json` 增加同一份
-  `semantic_status`、rule/signal/model/policy identities 与 evidence digest；
+  `semantic_status`、rule/signal/model/policy identities 与 evidence digest。finalized
+  outcome 从 project journal 渲染；pre-finalization `unavailable/error/backlog` 只按 exact
+  run/event key 从 bounded WAL/queue record 渲染，并显式标记 `finalized=false`、decision
+  为空，不进入 precision/Learn；
 - event log、precision 与 Learn 只消费上述 canonical project typed event。doctor 的
   latest project status 也从该 event/status contract 读取；global derived view 只有
   finalized digest 匹配时才可显示数据，否则显示 `projection_lag`，不能从 free-text 或
@@ -586,8 +601,8 @@ Complete-path cross-check：
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
 | Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；every initial/confirmation cold sample resets and proves empty cache/provider state outside timing, every warm sample prewarms and proves exact-identity hit；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；every cold sample independently resets cache/provider-start state and every warm sample proves prewarm outside timing；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
-| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/git_root.rs`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; `tests/hooks/test_runtime_policy_json.sh`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；payload cwd must be non-empty absolute before canonicalization，closed precedence and sanitized Git-root resolution happen before ambient context collection；missing cwd short-circuits off/L1 parity，invalid cwd fails visible，process/payload mismatch、four-field precedence、same-HOME two-project、`GIT_DIR`/`GIT_WORK_TREE` redirect and external opt-in/env fixtures prove only the sanitized payload project can request eligibility |
-| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh` | nonblocking deadline-bound stale-safe project lock；write-ahead pending and finalized receipt intents close every WAL/journal crash boundary；fixed metadata + cursor/record length and policy-bound batch/deadline/I/O byte caps bound replay；off/kill switch freezes backlog before any L2 read/write；project finalized record is authoritative and global projection uses a durable bounded keyed idempotency index |
+| Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/git_root.rs`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_context.rs`; `tests/hooks/test_runtime_policy_json.sh`; planned **tests/hooks/test_semantic_defense.sh** | closed payload precedence and sanitized Git-root resolution happen before ambient context；returned root must contain canonical payload cwd，so env redirect and repo-local gitdir/`core.worktree` redirect both fail；missing cwd is off/L1 parity and present-invalid cwd fails visible |
+| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh` | deadline-bound stale-safe project lock；write-ahead pending/finalized/projection intents close every crash boundary；semantic done requires durable project projection queue，and a cross-shard global allocator atomically reserves unique offsets before keyed projection prepare；off freezes backlog；finalized outcomes render from journal while pre-finalization failures render from bounded WAL/queue |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
@@ -606,7 +621,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
-| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、`cargo test --manifest-path vibeguard-runtime/Cargo.toml --test project_config_cli project_config_validate_accepts_semantic_defense_opt_in -- --exact`、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_cwd_is_authoritative`、`git_environment_cannot_redirect_project` 与 `project_scoped_opt_in_env_rejection`，并由 `bash tests/hooks/test_runtime_policy_json.sh` 固定 adapter payload cwd precedence；missing cwd × ambient key missing/false/true 必须 off 且 L1 parity，present-invalid cwd fail visible；process cwd A + absolute payload B、四字段 precedence、same-HOME projects、`GIT_DIR`/`GIT_WORK_TREE` redirect、external config/env 与 stale H-001–H-020 全部断言只有 sanitized absolute payload project 可请求 eligibility，其余零 provider/cache/metrics activity |
+| B-001 approval gate | payload project identity + config/policy join | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::config::tests::approval_gate_matrix -- --exact`、project config CLI、`bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_cwd_is_authoritative`、`git_environment_cannot_redirect_project` 与 `project_scoped_opt_in_env_rejection`；missing cwd × ambient key matrix 必须 off/L1 parity；process/payload mismatch、field precedence、same-HOME projects、`GIT_DIR`/`GIT_WORK_TREE` redirect、repo-local gitdir + external `core.worktree`、external config/env 与 stale approvals 证明 returned root 必须包含 canonical payload，错误路径零 provider/cache/metrics |
 | B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity` 与 `bash tests/hooks/test_runtime_rule_signals.sh disable_freezes_pending_backlog`；覆盖 missing cwd、project key missing/false、kill switch + pending WAL，断言 hook 不打开/重放 L2 state、consumer/metrics/precision/Learn canary 全空、L1 output parity；再跑 `bash tests/test_hook_perf_contract.sh` |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
@@ -633,14 +648,14 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
 | B-027 fail-visible writes | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog` 与 `bounded_project_lock`；在 pending prepare/metadata/journal/journaled、每个 consumer、finalize_prepared/finalized append/finalized marker/done 的前后逐边界注入 crash，按 expected offset + digest 补 append/marker且无重复；active holder、deadline、abandoned/malformed owner、PID reuse/nonmatching nonce fixtures证明 lock bounded 且不盲删；超大 WAL、corruption、batch/deadline/I/O caps、persistent failure、disable/kill-switch backlog 证明 oldest-first、冻结/恢复、停止新 L2 与零 full journal/other-project/HOME scan |
-| B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection` 与 `derived_global_projection_recovery`；比较 project pending/applied/finalized identity，证明 legacy/global log 不成为 authority；分别在 projection prepared、global append、index applied、project receipt 前后注入失败，exact keyed index + expected offset/digest 必须补 marker/receipt且不重复 append；index full/corrupt/lookup bound 显示 `projection_lag` + 空值并保持 global mirror 无 eligibility authority |
+| B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery` 与 `cross_project_offset_reservation`；crash 在 project finalized、projection_queued、semantic done、global reservation、key prepared、global append、index applied、project receipt 任一边界后仍有 durable work item；并发不同 project/shard 必须取得不同 offsets；exact key/offset/digest 补 marker/receipt且不重复 append，index/allocator failure 显示 lag + 空值 |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |
 | B-032 outcome verification | Learn outcome evaluator | `bash tests/test_learn_adoption.sh semantic_candidate_outcomes`；fresh/absent/regressed 与 raw-source export canary |
 | B-033 GH-700 boundary | production mapping contract | `python3 eval/test_semantic_eval.py gh700_core_mapping_boundary`；拒绝 headline/paired/aggregate precision 输入 |
 | B-034 GH-702 boundary | capability/policy contract | `bash tests/hooks/test_semantic_defense.sh gh702_sealed_core_boundary`；携带 executable/model/provider 或 unapproved policy 必须失败 |
-| B-035 truthful rendering | existing public doctor + hook-status routes | `bash tests/test_setup_check.sh`、`bash tests/test_hook_status.sh` 与 `bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`；同一 canonical project finalized event 的 human/JSON/doctor/hook-status/event/precision/Learn state 与 identities 精确相等；global projection 缺失或 stale digest 时必须显示 `projection_lag` + 空值，禁止沿用 mirror data |
+| B-035 truthful rendering | existing public doctor + hook-status routes | `bash tests/test_setup_check.sh`、`bash tests/test_hook_status.sh` 与 `bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`；finalized event 的 completed outcome/identities 同源；WAL prepare/journal/consumer/recovery failures 从 exact bounded WAL/queue record 渲染 `finalized=false` + empty decision，不进入 precision/Learn；global lag 显示空值且不沿用 mirror |
 | B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
 
 ## 数据流
