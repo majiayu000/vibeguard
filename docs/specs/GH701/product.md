@@ -307,7 +307,7 @@ GH-701 已完成。
     executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
     固定 **schemas/gh701-host-acquisition-ack.schema.json**、
     **schemas/gh701-use-release-receipt.schema.json** raw-byte digests；两 path 必须在
-    resolved trust set，
+    resolved trust set；`$ref` 只许同文件 fragment，external/relative/remote/dynamic refs 禁止，
     以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match exclusion
     selection 并把 decision-record digest 绑定所有 publish/abort/use/consume records；
     gate 必须把 signer trust chain/provenance exact-match approved distribution。
@@ -429,7 +429,8 @@ GH-701 已完成。
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
   metadata 重验通过后才 restored/not-installed；fresh exclusion 下 final barrier/re-read、
   consume CAS/receipt/release 必须一个 durable transaction；pre/post commit crash 由 tx receipt
-  幂等区分。failed-probe reverse 只许 planned→aborted；supersession N/N+1 multi-record CAS。
+  幂等区分。generic abort 保留 planned，只有 verified failed-probe reverse commit 可
+  planned→aborted；supersession N/N+1 multi-record CAS。
   atomic success/abort release、owner-death/expiry 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、

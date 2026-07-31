@@ -164,8 +164,9 @@ artifacts.
 
 The state enum is closed. The success path is
 `planned → activating → publishing → completed → consumed`; failure may transition
-`planned`, `activating`, or `publishing` to terminal `aborted`, which has no outgoing
-edge. Retry creates a new generation rather than skipping a state. The literal state `active`, a direct
+`activating` or `publishing` to terminal `aborted`, which has no outgoing edge. The sole
+`planned → aborted` edge is the verified `failed_reverse_release_and_record` commit;
+generic abort preserves `planned`. Retry creates a new generation rather than skipping a state. The literal state `active`, a direct
 `activating → completed` transition, and evidence that omits publishing/completion
 records are schema errors rejected by setup, check, doctor, runtime, proof, and recovery.
 
@@ -225,8 +226,8 @@ Every non-success path after exclusion acquisition—including denied write, gap
 timeout, cancellation, crash recovery, orphan intent/completion, stale CAS, or policy
 error—must instead run journaled atomic `abort_release_and_record`. At one durable point
 it records a closed abort reason and provider/watcher roots, preserves any predecessor
-completed receipt, CASes the owned planned/activating/publishing receipt to terminal
-`aborted` when its exact expectation still matches, CASes an owned publishing pointer to
+completed receipt, preserves any `planned` receipt, CASes an owned activating/publishing
+receipt to terminal `aborted` when its exact expectation still matches, CASes an owned publishing pointer to
 a non-state tombstone, and otherwise records stale mismatch without changing current state. It persists the exclusion
 release receipt, and removes the mandatory policy. It is idempotent by exclusion ID plus
 generation/digest. No completed evidence is produced. On owner death or bounded,
@@ -265,7 +266,9 @@ For protected proof, the exact `host_acquisition_ack` and `use_release_and_recor
 receipt bytes are mandatory content-addressed handoff subjects. Their manifest roles and
 digests are validated by fixed **schemas/gh701-host-acquisition-ack.schema.json** and
 **schemas/gh701-use-release-receipt.schema.json** bytes. Both paths belong to
-`resolved_trust_paths`; H-001 exact-binds their protected-main raw-byte digests. The supervisor
+`resolved_trust_paths`; H-001 exact-binds their protected-main raw-byte digests. Each
+schema permits only fragment `$ref` targets inside its own pinned bytes; remote, relative,
+absolute, file, dynamic, or resolver-fetched external references are schema errors. The supervisor
 attestation exact-binds both to the same event, nonce, measured host process, completed
 tuple, watcher roots, and candidate head. The proof gate rehashes both subjects and
 exact-matches every binding before `proof_accepted`. A current config digest, self-report,
@@ -367,7 +370,8 @@ require atomic abort-release with the completed receipt retained.
 Transaction fixtures cover failed-probe planned→aborted without completed evidence,
 pre/post-linearization consume crashes and idempotent recovery, plus a supersession
 multi-record CAS that completes N+1 and consumes N together or does neither. Proof fixtures
-also reject missing/untrusted schema paths, schema-byte drift, and wrong H-001 digests.
+also reject missing/untrusted schema paths, schema-byte drift, wrong H-001 digests, every
+non-fragment/cross-document reference, and any resolver I/O.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 

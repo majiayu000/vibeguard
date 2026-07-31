@@ -445,7 +445,7 @@ exclusion 与 closed success planned→activating→publishing→completed→con
 由用户恢复 exact original bytes/semantics；只有 absent base 删除 target 并验证 stable absence/unregistration。
 byte-identical inode/parent swap、write attempt/gap、late write/recreate 或 identity/digest
 drift 全部 `needs_human`。manual evidence exact-bind pointer/intent/completion/release tuple；
-H-001 exact-bind exclusion provider/policy；failed-probe verified reverse atomic planned→aborted。
+H-001 exact-bind provider/policy；generic abort 保留 planned，仅 verified reverse 可 planned→aborted。
 每次 host use 在 tuple read 前另取 exclusion，持有至 exact loaded-byte acquisition+post-load barrier，
 再 atomic use-release ack 解锁；consume 预写 tx intent/commit，supersession multi-record CAS N/N+1；`active`/skip invalid。
 
@@ -579,7 +579,7 @@ union：签名 package identity + registry integrity，或 signed release manife
 platform asset digest；两者都绑定 issuer/subject/release/platform 与 expected
 binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证 supervisor bundle 的固定 schema/path/issuer/workflow/ref/SHA/run/subjects/predicate、
 event/nonce/process/redaction/scanned-sink、host-acquisition-ack/use-release receipt digests 绑定；native 绑定 executable，
-两 subject 分别按 **schemas/gh701-host-acquisition-ack.schema.json** 与 **schemas/gh701-use-release-receipt.schema.json** 的 trust-path exact bytes/digest 验证；
+两 subject 按两个 fixed trust-path schema exact bytes/digest 验证，且 `$ref` 只许同文件 fragment、零 external resolver；
 interpreted CLI 同时绑定 interpreter/argv/entrypoint/package snapshot。gate-time
 重读只检测 drift；拒绝 self-report/pathname/unsigned checksum、运行后替换或
 snapshot 外代码。其他第三 host proof 不能替代获批 host。之后 gate 分别
