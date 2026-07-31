@@ -155,25 +155,59 @@ bootstrap_setup_lease_liveness() {
   fi
 }
 
-bootstrap_setup_lease_clear_inactive() {
-  local lease_file="$1" owner_pid="$2" nonce="$3"
-  local evidence="${1}.evidence.$$.$RANDOM" retired="${1}.reap.$$.$RANDOM"
-  local marker marker_present=0
-  for marker in "${lease_file}.evidence."* "${lease_file}.reap."*; do
-    if [[ -e "${marker}" || -L "${marker}" ]]; then
-      marker_present=1
-      break
+bootstrap_setup_reap_claim_read() {
+  local claim_file="$1" target extra
+  [[ -L "${claim_file}" ]] || return 1
+  target="$(readlink "${claim_file}")" || return 1
+  IFS='|' read -r BOOTSTRAP_REAP_PID BOOTSTRAP_REAP_IDENTITY BOOTSTRAP_REAP_NONCE extra <<< "${target}"
+  [[ -z "${extra}" && "${BOOTSTRAP_REAP_PID}" =~ ^[1-9][0-9]*$ \
+    && "${BOOTSTRAP_REAP_IDENTITY}" =~ ^[A-Za-z0-9_:.-]+$ \
+    && "${BOOTSTRAP_REAP_NONCE}" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+bootstrap_setup_reap_claim_acquire() {
+  local claim_file="$1" nonce="$2" attempt stale expected
+  bootstrap_process_snapshot "$$" && [[ "${BOOTSTRAP_PROCESS_STATE}" != Z* ]] || return 1
+  expected="$$|${BOOTSTRAP_PROCESS_IDENTITY}|${nonce}"
+  for attempt in 1 2 3; do
+    if ln -s -- "${expected}" "${claim_file}" 2>/dev/null; then
+      BOOTSTRAP_REAP_CLAIM_TARGET="${expected}"; return 0
     fi
-  done
-  if [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]]; then
-    if [[ "${marker_present}" == "1" ]]; then
-      bootstrap_error "setup lease retirement evidence is present; preserving its lock and worktree."
+    bootstrap_setup_reap_claim_read "${claim_file}" || return 1
+    [[ "${BOOTSTRAP_REAP_NONCE}" == "${nonce}" ]] || return 1
+    bootstrap_process_identity_liveness "${BOOTSTRAP_REAP_PID}" "${BOOTSTRAP_REAP_IDENTITY}"
+    [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == dead ]] || return 1
+    stale="${claim_file}.stale.$$.$RANDOM"
+    mv -- "${claim_file}" "${stale}" 2>/dev/null || continue
+    if ! bootstrap_setup_reap_claim_read "${stale}" \
+      || [[ "${BOOTSTRAP_REAP_NONCE}" != "${nonce}" ]]; then
+      [[ -e "${claim_file}" || -L "${claim_file}" ]] || mv -- "${stale}" "${claim_file}"
       return 1
     fi
-    return 0
-  fi
-  if [[ "${marker_present}" == "1" ]]; then
-    bootstrap_error "setup lease revalidation is already in progress; preserving its lock and worktree."
+    bootstrap_process_identity_liveness "${BOOTSTRAP_REAP_PID}" "${BOOTSTRAP_REAP_IDENTITY}"
+    if [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" != dead ]]; then
+      [[ -e "${claim_file}" || -L "${claim_file}" ]] || mv -- "${stale}" "${claim_file}"
+      return 1
+    fi
+    rm -f -- "${stale}" || return 1
+  done
+  return 1
+}
+
+bootstrap_setup_reap_claim_release() {
+  local claim_file="$1"
+  bootstrap_setup_reap_claim_read "${claim_file}" \
+    && [[ "${BOOTSTRAP_REAP_PID}|${BOOTSTRAP_REAP_IDENTITY}|${BOOTSTRAP_REAP_NONCE}" \
+      == "${BOOTSTRAP_REAP_CLAIM_TARGET}" ]] && rm -f -- "${claim_file}"
+}
+
+bootstrap_setup_lease_clear_inactive() {
+  local lease_file="$1" owner_pid="$2" nonce="$3" claim_file="${1}.reap"
+  if [[ ! -e "${lease_file}" && ! -L "${lease_file}" ]]; then
+    [[ ! -e "${claim_file}" && ! -L "${claim_file}" ]] && return 0
+    bootstrap_setup_reap_claim_acquire "${claim_file}" "${nonce}" \
+      && { bootstrap_setup_reap_claim_release "${claim_file}"; return $?; }
+    bootstrap_error "setup lease claim exists without recoverable canonical state: ${claim_file}"
     return 1
   fi
   bootstrap_setup_lease_liveness "${lease_file}" "${owner_pid}" "${nonce}"
@@ -181,34 +215,41 @@ bootstrap_setup_lease_clear_inactive() {
     bootstrap_error "setup process group is ${BOOTSTRAP_SETUP_LEASE_LIVENESS}; preserving its lock and worktree."
     return 1
   fi
-  if [[ -e "${evidence}" || -L "${evidence}" ]] \
-    || ! ln -- "${lease_file}" "${evidence}" \
-    || [[ -L "${evidence}" || ! -f "${evidence}" || ! "${evidence}" -ef "${lease_file}" ]]; then
-    rm -f -- "${evidence}" 2>/dev/null || true
-    bootstrap_error "could not preserve inactive setup lease evidence: ${lease_file}"
+  if ! bootstrap_setup_reap_claim_acquire "${claim_file}" "${nonce}"; then
+    bootstrap_error "could not claim inactive setup lease: ${lease_file}"
     return 1
   fi
-  bootstrap_setup_lease_liveness "${evidence}" "${owner_pid}" "${nonce}"
+  bootstrap_setup_lease_liveness "${lease_file}" "${owner_pid}" "${nonce}"
   if [[ "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" != "dead" ]]; then
     bootstrap_error "setup process group changed during lease revalidation; preserving its lock and worktree."
-    rm -f -- "${evidence}" 2>/dev/null || \
-      bootstrap_error "could not remove setup lease evidence after liveness verification: ${evidence}"
+    bootstrap_setup_reap_claim_release "${claim_file}" || \
+      bootstrap_error "could not release setup lease claim: ${claim_file}"
     return 1
   fi
-  if [[ -e "${retired}" || -L "${retired}" ]] \
-    || ! mv -- "${lease_file}" "${retired}" \
-    || [[ -L "${retired}" || ! -f "${retired}" || ! "${retired}" -ef "${evidence}" ]]; then
-    bootstrap_error "could not retire the revalidated setup lease: ${lease_file}"
-    rm -f -- "${evidence}" 2>/dev/null || true
+  if ! rm -f -- "${lease_file}"; then
+    bootstrap_setup_reap_claim_release "${claim_file}" || \
+      bootstrap_error "could not release setup lease claim: ${claim_file}"
     return 1
   fi
-  rm -f -- "${retired}" "${evidence}" || return 1
+  bootstrap_setup_reap_claim_release "${claim_file}"
 }
 
 bootstrap_setup_job_is_stopped() {
   local leader_pid="$1" stopped_jobs
   stopped_jobs="$(jobs -s -p 2>/dev/null)" || return 1
   grep -qFx -- "${leader_pid}" <<< "${stopped_jobs}"
+}
+
+bootstrap_setup_gate_wait() {
+  local gate_file="$1" owner_pid="$2" owner_identity="$3" max_attempts="$4" attempt
+  for ((attempt = 0; attempt < max_attempts; attempt += 1)); do
+    [[ -f "${gate_file}" ]] && return 0
+    bootstrap_process_identity_liveness "${owner_pid}" "${owner_identity}"
+    [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == active ]] || return 125
+    sleep 0.02
+  done
+  [[ -f "${gate_file}" ]] && return 0
+  return 124
 }
 
 bootstrap_setup_tty_is_foreground() {
@@ -240,11 +281,7 @@ bootstrap_run_setup_with_lease() {
   set -m
   BOOTSTRAP_SETUP_LAUNCHING=1
   (
-    while [[ ! -f "${gate_file}" ]]; do
-      bootstrap_process_identity_liveness "${owner_pid}" "${owner_identity}"
-      [[ "${BOOTSTRAP_PROCESS_IDENTITY_LIVENESS}" == "active" ]] || exit 125
-      sleep 0.02
-    done
+    bootstrap_setup_gate_wait "${gate_file}" "${owner_pid}" "${owner_identity}" 500 || exit $?
     exec env PYTHONDONTWRITEBYTECODE=1 bash "${setup_path}" "$@"
   ) &
   leader_pid=$!

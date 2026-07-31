@@ -2,15 +2,12 @@ gate_failure_home="${TMP_HOME}/bootstrap-gate-failure-home"
 gate_failure_bin="${TMP_HOME}/bootstrap-gate-failure-bin"
 gate_failure_marker="${TMP_HOME}/bootstrap-gate-failure.leader"
 gate_failure_real_mv="$(command -v mv)"
+gate_failure_real_ln="$(command -v ln)"
 mkdir -p "${gate_failure_home}" "${gate_failure_bin}"
 cat > "${gate_failure_bin}/mv" <<SH
 #!/usr/bin/env bash
 previous="" last=""
 for arg in "\$@"; do previous="\${last}"; last="\${arg}"; done
-if [[ "\${VIBEGUARD_TEST_CLEAR_FAIL:-0}" == "1" \
-  && "\${previous}" == */.bootstrap.lock.lease.* && "\${last}" == *.reap.* ]]; then
-  exit 73
-fi
 if [[ "\${last}" == */.bootstrap.lock.lease.* ]] \
   && grep -qFx 'state=active' "\${previous}" 2>/dev/null; then
   "${gate_failure_real_mv}" "\$@"
@@ -23,6 +20,17 @@ fi
 exec "${gate_failure_real_mv}" "\$@"
 SH
 chmod +x "${gate_failure_bin}/mv"
+cat > "${gate_failure_bin}/ln" <<SH
+#!/usr/bin/env bash
+last=""
+for arg in "\$@"; do last="\${arg}"; done
+if [[ "\${VIBEGUARD_TEST_CLEAR_FAIL:-0}" == "1" \
+  && "\${last}" == */.bootstrap.lock.lease.*.reap ]]; then
+  exit 73
+fi
+exec "${gate_failure_real_ln}" "\$@"
+SH
+chmod +x "${gate_failure_bin}/ln"
 gate_failure_rc=0
 gate_failure_out="$(
   env "${bootstrap_base_env[@]}" \

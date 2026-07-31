@@ -140,6 +140,23 @@ assert_cmd "pending setup lease preserves the matching live bootstrap owner" \
     bootstrap_setup_lease_liveness "$1" 77 pending-owner
     test "${BOOTSTRAP_SETUP_LEASE_LIVENESS}" = active
   ' _ "${pending_owner_lease}"
+assert_cmd "setup gate exits when the owner identity changes" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    gate_rc=0
+    bootstrap_setup_gate_wait "$1" "$$" Reused_Jan_1_00:00:00_1970 2 || gate_rc=$?
+    test "${gate_rc}" -eq 125
+  ' _ "${pending_owner_root}/missing-gate"
+assert_cmd "setup gate wait has a deterministic attempt bound" \
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    bootstrap_process_snapshot "$$"
+    gate_rc=0
+    bootstrap_setup_gate_wait "$1" "$$" "${BOOTSTRAP_PROCESS_IDENTITY}" 2 || gate_rc=$?
+    test "${gate_rc}" -eq 124
+  ' _ "${pending_owner_root}/missing-gate"
 
 lease_revalidation_root="${TMP_HOME}/bootstrap-lease-revalidation"
 lease_revalidation_file="${lease_revalidation_root}/.bootstrap.lock.lease.revalidation"
@@ -149,6 +166,7 @@ lease_revalidation_ready="${TMP_HOME}/bootstrap-lease-revalidation.ready"
 lease_revalidation_fifo="${TMP_HOME}/bootstrap-lease-revalidation.fifo"
 lease_revalidation_first_out="${TMP_HOME}/bootstrap-lease-revalidation-first.out"
 lease_revalidation_second_out="${TMP_HOME}/bootstrap-lease-revalidation-second.out"
+lease_revalidation_real_ps="$(command -v ps)"
 mkdir -p "${lease_revalidation_root}" "${lease_revalidation_bin}"
 mkfifo "${lease_revalidation_fifo}"
 printf '0\n' > "${lease_revalidation_count}"
@@ -178,7 +196,7 @@ if [[ "\$*" == "-A -o pid= -o pgid= -o stat=" ]]; then
 elif [[ "\$*" == "-p 4242 -o pid= -o pgid= -o stat= -o lstart=" ]]; then
   printf '%s\n' '4242 4242 S Thu Jan 1 00:00:00 1970'
 else
-  exit 2
+  exec "${lease_revalidation_real_ps}" "\$@"
 fi
 SH
 chmod +x "${lease_revalidation_bin}/ps"
@@ -193,11 +211,11 @@ for _lease_revalidation_attempt in {1..100}; do
   [[ -e "${lease_revalidation_ready}" ]] && break
   sleep 0.05
 done
-assert_cmd "post-claim liveness pauses after hard-link evidence is established" \
+assert_cmd "post-claim liveness pauses after the fixed reap claim is established" \
   test -e "${lease_revalidation_ready}"
 assert_cmd "canonical setup lease remains visible throughout post-claim validation" bash -c \
-  'test -f "$1" && test -n "$(find "$2" -maxdepth 1 -type f -name ".bootstrap.lock.lease.revalidation.evidence.*" -print -quit)"' _ \
-  "${lease_revalidation_file}" "${lease_revalidation_root}"
+  'test -f "$1" && test -L "$2"' _ \
+  "${lease_revalidation_file}" "${lease_revalidation_file}.reap"
 lease_revalidation_second_rc=0
 env REPO_DIR="${REPO_DIR}" PATH="${lease_revalidation_bin}:${PATH}" bash -c '
   set -euo pipefail
@@ -213,9 +231,72 @@ printf 'continue\n' > "${lease_revalidation_fifo}"
 wait "${lease_revalidation_first_pid}" || lease_revalidation_first_rc=$?
 assert_cmd "first recoverer rejects a group that becomes active during revalidation" \
   test "${lease_revalidation_first_rc}" -ne 0
-assert_cmd "failed post-claim revalidation preserves canonical lease and clears evidence" bash -c \
-  'test -f "$1" && test -z "$(find "$2" -maxdepth 1 -type f \( -name ".bootstrap.lock.lease.revalidation.evidence.*" -o -name ".bootstrap.lock.lease.revalidation.reap.*" \) -print -quit)"' _ \
-  "${lease_revalidation_file}" "${lease_revalidation_root}"
+assert_cmd "failed post-claim revalidation preserves canonical lease and clears claim" bash -c \
+  'test -f "$1" && test ! -L "$2"' _ \
+  "${lease_revalidation_file}" "${lease_revalidation_file}.reap"
+
+lease_retirement_root="${TMP_HOME}/bootstrap-lease-retirement"
+lease_retirement_file="${lease_retirement_root}/.bootstrap.lock.lease.retirement"
+lease_retirement_bin="${TMP_HOME}/bootstrap-lease-retirement-bin"
+lease_retirement_ready="${TMP_HOME}/bootstrap-lease-retirement.ready"
+lease_retirement_fifo="${TMP_HOME}/bootstrap-lease-retirement.fifo"
+lease_retirement_real_rm="$(command -v rm)"
+mkdir -p "${lease_retirement_root}" "${lease_retirement_bin}"
+mkfifo "${lease_retirement_fifo}"
+printf '%s\n' \
+  'schema=2' \
+  'owner_pid=99999997' \
+  'owner_identity=Thu_Jan_1_00:00:00_1970' \
+  'nonce=retirement' \
+  'state=active' \
+  'leader_pid=99999996' \
+  'process_group=99999996' \
+  'leader_identity=Thu_Jan_1_00:00:00_1970' > "${lease_retirement_file}"
+cat > "${lease_retirement_bin}/rm" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "${lease_retirement_file}" ]]; then
+    : > "${lease_retirement_ready}"
+    IFS= read -r _continue < "${lease_retirement_fifo}"
+    break
+  fi
+done
+exec "${lease_retirement_real_rm}" "\$@"
+SH
+chmod +x "${lease_retirement_bin}/rm"
+lease_retirement_first_rc=0
+env REPO_DIR="${REPO_DIR}" PATH="${lease_retirement_bin}:${PATH}" bash -c '
+  set -euo pipefail
+  source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+  bootstrap_setup_lease_clear_inactive "$1" 99999997 retirement
+' _ "${lease_retirement_file}" >/dev/null 2>&1 &
+lease_retirement_first_pid=$!
+for _lease_retirement_attempt in {1..100}; do
+  [[ -e "${lease_retirement_ready}" ]] && break
+  sleep 0.02
+done
+lease_retirement_ready_seen=0
+[[ -e "${lease_retirement_ready}" ]] && lease_retirement_ready_seen=1
+assert_cmd "canonical setup lease remains visible until retirement cleanup" \
+  test "${lease_retirement_ready_seen}" -eq 1
+if [[ "${lease_retirement_ready_seen}" == "1" ]]; then
+  assert_cmd "retiring canonical lease keeps its authoritative state visible" \
+    test -f "${lease_retirement_file}"
+  lease_retirement_second_rc=0
+  env REPO_DIR="${REPO_DIR}" bash -c '
+    set -euo pipefail
+    source "${REPO_DIR}/scripts/setup/bootstrap-lib.sh"
+    bootstrap_setup_lease_clear_inactive "$1" 99999997 retirement
+  ' _ "${lease_retirement_file}" >/dev/null 2>&1 || lease_retirement_second_rc=$?
+  assert_cmd "concurrent recoverer fails closed during canonical retirement" \
+    test "${lease_retirement_second_rc}" -ne 0
+  printf 'continue\n' > "${lease_retirement_fifo}"
+fi
+wait "${lease_retirement_first_pid}" || lease_retirement_first_rc=$?
+assert_cmd "canonical retirement completes after bounded cleanup" bash -c \
+  'test "$1" -eq 0 && test ! -e "$2" && test ! -L "$3"' _ \
+  "${lease_retirement_first_rc}" "${lease_retirement_file}" \
+  "${lease_retirement_file}.reap"
 
 group_state_bin="${TMP_HOME}/bootstrap-group-state-bin"
 group_state_real_ps="$(command -v ps)"
