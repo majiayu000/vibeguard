@@ -444,21 +444,22 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    asset digests 与已验签 `publish_intent` 完全匹配时，才允许继续同一 draft 的幂等
    publish/recovery，任何无关或不匹配 draft 仍 fail closed。
 
-publication 使用 attempt-scoped two-phase draft：
-
-1. phase A 创建 attempt-bound private draft，上传/下载重验全部 assets；README row 尚不创建；
-2. valid 先取得 renewable/fenced `repository_publication_lease`；intent 前以 default-branch
-   CAS 合并 de-current PR，重验 zero marker并 append 绑定 fence/merge SHA/blob digests 的
-   `marker_transition_receipt`；`publish_nonvalid` 跳过 transition且 receipt null；
-3. 持 candidate/publication leases 重验 watermark、draft 与 receipt，才写不可覆盖
-   `publish_intent`，绑定 draft/tag/source/assets/summary/policy/final state/receipt；
-4. draft→published 是唯一 commit point；transition 前取消删 draft；transition 后 intent 前
-   先经 human-reviewed rollback恢复旧 marker再删；intent 后按 intent 幂等完成同一 draft；
-5. valid intent 先绑定 human-approved new-current patch/review/base digest；commit 后 append durable
-   `publication_ownership_record(candidate/fence/intent/release/summary/PR/head/deadline/heartbeat, phase=post_commit_marker_pending)`。PR拒绝/超时/owner消失
-   时 reconciler 以 CAS 提升 fence，验 release/intent/zero-marker 后 supersede并建同 candidate
-   replacement PR；拒绝无 replacement 则 attest `marker_recovery_blocked`，短 lease 可释放但
-   ownership 阻断下一 candidate。exact human-reviewed merge 后 ownership terminal才释放。
+publication 使用 attempt-scoped draft 与一个统一 durable state machine：
+1. actors 只按 source/candidate → `repository_ledger_lease` → `repository_publication_lease` →
+   branch CAS 短暂取锁；禁止反向。等待 review 时释放 lease，active durable owner仍阻断新 candidate。
+2. phase A 重验 private draft/summary/policy与 exact reviewed README patches；任何可见动作前
+   fenced-CAS append `publication_ownership_record(prepared)`，绑定 `repo_node_id`、candidate/run/attempt、draft/summary/policy/base/reviews/deadline。
+3. valid plan 为 `rollover_one` 或 `genesis_zero`：前者 CAS 证明一个 eligible current row并
+   merge reviewed de-current/记录 receipt；后者证明零 marker、无历史 eligible valid row/
+   active owner且 ledger 仅含 non-valid/no publication，记录 zero receipt、不建 no-op PR；
+   其它 zero-marker fail closed。
+4. valid intent 绑定 receipt/pre-approved new-current patch；nonvalid intent 绑定 unmarked-row。
+   commit 后 owner 从 `valid_zero_marker`/`intent_written` CAS 到 `release_committed_valid_marker_pending`
+   或 `release_committed_nonvalid_row_pending`；crash 由 prepared owner/intent/sentinels补齐。
+5. de-current 后 intent 前取消进入 `valid_rollback_pending`；rollback/new-current/nonvalid-row
+   PR reject/close/timeout/owner loss 由 reconciler 提升 fence并建同 candidate/exact replacement。
+   无获批 replacement attests `rollback_recovery_blocked`、`marker_recovery_blocked` 或
+   `nonvalid_row_recovery_blocked` 并继续阻断；exact rollback+delete/README merge 后才 terminal。
 
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
@@ -511,18 +512,17 @@ candidate 不创建 GitHub Release、release page/assets 或 README candidate cu
 hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
 completion reconciler，由 release workflow 的终态事件触发。其 source 只读、attestation
 store 可追加，并通过 protected environment 取得 narrowly scoped `contents: write`；
-该权限只允许删除 transition 前的精确 draft、按 intent 完成同一 draft、按 receipt 创建
-rollback PR，或按 `publication_ownership_record` supersede旧 PR并创建同 candidate 的
-new-current replacement；所有 marker PR 都须 human review/CAS，不得直接写 default branch。
-reconciler 优先用 `(repo, workflow_id, candidate tag/source commit, run_id, run_attempt)` 查询预发布阶段已
+   该权限只允许删除无可见 transition 的 prepared draft、按 intent 完成同一 draft，或按
+   durable owner supersede并创建同 candidate exact rollback/new-current/nonvalid-row replacement；
+   README PR 均须 review/CAS。reconciler 用 `(repo_node_id, workflow_id, candidate tag/source
+   commit, run_id, run_attempt)` 查询预发布阶段已
 attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
 normal-path attempt record 不存在，reconciler 生成 failure-manifest schema 的
 `pipeline_interrupted` 分支：report/evidence/checksum identity 为显式 null，
-`missing_evidence` 为闭集，保留 staged provenance、selected/effective policy、
-interruption conclusion/stage 与 publication phase。无 intent/receipt 时删 draft；有 receipt
-无 intent 时恢复旧 marker再删；有 intent 则完成/验证唯一 Release；post-commit marker
-pending 时 deadline/heartbeat/rejection 触发更高 fence takeover，先验 intent/release、
-zero-marker/ownership再建 replacement，而不是伪报 sentinels absent。它按
+   `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
+   它先物化 prepared owner：无可见动作可删 draft；`valid_rollback_pending` 恢复旧 marker再删；
+   有 intent则完成/验证唯一 Release；valid-marker/nonvalid-row pending 在 deadline/heartbeat/
+   rejection 后以更高 fence接管并重建 exact reviewed replacement，不伪报 sentinels absent。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
 attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂等；相同 identity
 已有不同 bytes 时冲突失败且报警，绝不覆盖。normal-path record 已存在时只重验并退出。
@@ -542,10 +542,10 @@ server_ref_name)` 与
 digest 相同即冲突。终态事件持 source-identity lease 后 append；API/ref 不可验证则永久
 unbound 并 fail closed，不能从 watermark 删除或信任 workflow artifact/free text。
 
-release attempt、completion reconciler、scheduled audit 与 publish gate 共享
-serialized lease，`cancel-in-progress: false`：staged identity 存在时用 candidate key，
-否则用上述 source-identity key。identity 后续出现时只在 staged candidate 的 tag/source
-与 server ref 精确匹配后，按 key digest canonical 顺序同时取得两把 lease，append
+release attempt、completion reconciler、scheduled audit 与 publish gate 共享 serialized
+lease，`cancel-in-progress: false`：staged identity 存在时用 candidate key，否则用上述
+source-identity key。identity 后续出现时只在 staged candidate 的 tag/source 与 server ref
+精确匹配后，按 key digest canonical 顺序同时取得 source/candidate leases，append
 early→candidate binding，并把 digest union 进 candidate watermark；无法证明匹配的 record
 永久 unbound，不得由同 commit 的下一个 candidate 接管。每个新 attempt 启动前及 publish
 前在持锁状态枚举同 candidate/source identity 的 terminal attempts，
@@ -553,16 +553,17 @@ early→candidate binding，并把 digest union 进 candidate watermark；无法
 唯一、内容一致的永久 record，并生成
 attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record digest set）。
 存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
-落后时 fail closed；reconciler 也按 canonical lock order 持 source/candidate、
-`repository_ledger_lease` 与 marker 路径的 `repository_publication_lease`，append 后才推进
-watermark；lease token/CAS 失效即停写；durable ownership 只允许同 candidate takeover，
-`marker_recovery_blocked` 阻断下一 publication，不能并发发布或后补 evidence。
+落后时 fail closed。所有路径都执行唯一全局顺序 source/candidate → repository ledger →
+repository publication → branch CAS；需要较早层的新操作必须全部释放后从头重取，禁止
+deadlock-prone nested reacquisition。append 后才推进 watermark；token/CAS 失效即停写；active
+ownership 只允许同 candidate takeover，任一 `*_recovery_blocked` 阻断下一 publication。
 
-`publish_nonvalid` 则必须先发布该 candidate 的 schema-valid non-valid report/evidence，
-再创建同版本 README row：每个 non-valid axis cell 为空并显示 status、closed reason code
-及 immutable report link，row top-level 非 valid 且永不带 `current valid benchmark`；
-既有 latest-valid current marker 不删除。它不创建 B-029 的 blocked-candidate record，也
-不得把旧 release 数字贴到新 row。任一
+`publish_nonvalid` 以 prepared owner + intent 发布 schema-valid non-valid report/evidence，
+再通过 owner-bound reviewed PR 创建同版本 row：non-valid axis 留空并显示 status/reason/link，
+永不带 current marker且不删已有 latest-valid marker。row merge 前保持
+`release_committed_nonvalid_row_pending`；crash/reject/close/timeout 按统一 reconciler
+replacement或 `nonvalid_row_recovery_blocked`，不能放行下一 candidate。它不创建 B-029
+blocked record，也不得把旧 release 数字贴到新 row。任一
 mandatory evidence 未通过 gate 时，此分支不得部分发布，必须记录 selected policy 后转入
 B-029 的 effective block action。
 
@@ -667,11 +668,11 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   null union，pre-attestation interruption 仍可由 server-authenticated tuple 检索，相同
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
-  publish_nonvalid fixture 则只产生同版本 non-valid report/row。
-- valid/publication fixture 在公开 Release 前证明 default branch 无 current marker，公开后
-  即使新 marker PR 未合并也不会把旧 row 标为 current。
-- publish_nonvalid fixture 不运行 de-current/new-current 动作，只添加无 marker row并保持
-  已有 latest-valid current marker。
+  publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
+- valid fixture 分别覆盖 genesis zero receipt 与 rollover de-current receipt；公开前存在
+  prepared owner，commit/owner-update crash可恢复，公开后旧 row不再标 current。
+- rollback/new-current/nonvalid-row PR 的 reject/close/stall/crash 都产生 same-candidate
+  reviewed replacement或 durable recovery-blocked；未 terminal 前下一 candidate 被拒。
 
 ## 数据流
 
@@ -698,13 +699,13 @@ release source commit
                        ├─ human renderer
                        ├─ JSON + schema gate
                        └─ required-platform summary gate
-                            ├─ valid ──> valid summary ──> de-current PR
-                            │                              └─ publish ──> new-current PR
+                            ├─ valid ──> prepared owner ──> genesis receipt / de-current PR
+                            │                              └─ publish ──> owned new-current PR
                             ├─ non-valid + block_release
                             │      └─ permanent per-attempt failure manifest
                             │            └─ job failure (no Release/current row)
                             └─ non-valid + publish_nonvalid
-                                   └─ non-valid summary ──> publish ──> unmarked row
+                                   └─ prepared owner ──> publish ──> owned unmarked row
 ```
 
 没有网络调用或用户数据输入。持久化面是以下闭集，不能省略 B-029 的长期记录：
@@ -768,10 +769,10 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
       history-sensitive per-case isolation、all-launcher forwarding、detector error、timeout、
       environment distortion、parallel runs、interruption、legacy schema 和 sentinels；
       E2E sample 必须按 fixed schedule 由 readonly snapshot wrapper spy 观察到。
-- [ ] Release contract: native reports/strict summary；candidate/source-identity、
-      repository-ledger/publication leases 与 exact-ref binding 阻止并发 marker/cancellation；failure manifest
-      retention、required/display-only mutation、valid de-current/zero-gap/new-current 与
-      publish_nonvalid preserve-current/unmarked-row 均受测试。
+- [ ] Release contract: native reports/strict summary；`repo_node_id` exact-ref identity、唯一
+      source/candidate→ledger→publication→CAS 顺序和 pre-transition durable owner 阻止并发/
+      deadlock/ownerless publish；failure retention、genesis/rollover/rollback/new-current 与
+      nonvalid-row takeover/recovery-blocked 均受测试。
 - [ ] Documentation: 3×3×terminal、per-surface latency、双 locale 与 branch-aware marker
       freshness；仅 valid metrics 显示数字，links 指向 immutable release evidence。
 - [ ] Existing regression:
