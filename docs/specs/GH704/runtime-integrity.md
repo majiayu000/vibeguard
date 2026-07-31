@@ -122,7 +122,7 @@ queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
 ready 或 checksummed tombstone/reclaim。未知/损坏 entry fail visible 且禁止覆盖；requested
 off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
-requested_config_digest, cursor}`：它立即禁止新 L2/shared admission，但还不是 effective
+requested_config_identity, requested_config_digest, cursor}`：它立即禁止新 L2/shared admission，但还不是 effective
 off。释放 project lock 后仍持 delivery lease，再取 global registration lease，将旧
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
 提交为 checksummed `off_frozen` administrative tombstone 并回收 live slot。它不写/
@@ -135,9 +135,12 @@ live registry capacity。ready worker 只能在 shared delivery lease 下先用 
 提交 `claim_prepared {claim_id, exact body/digest, reservation_digest}`，释放 registry lease 后
 才幂等 durable 创建 exact sequencer reservation，然后重新取 registry lease CAS 为
 claimed tombstone/reclaim；从不 reserve-before-claim，也不同时持 registry/sequencer leases。
-crash 留下 claim-prepared 时，recovery/off-preparing 先查 exact claim/reservation digest；
-无 reservation 可 CAS off-frozen，matching reservation 则必须先完成第 4 节的 allocator/
-outbox/receipt drain 再回收 slot，mismatch 则 `needs_repair`。
+crash 留下 claim-prepared 时先查 exact claim/reservation digest：普通 active recovery 在 matching
+effective enabled identity/epoch 下若 reservation 不存在，必须从 claim body 幂等创建 exact
+reservation，禁止转为 off-frozen；只有 matching old epoch/request digest 的 durable `off_preparing`
+才可把 absent-reservation claim CAS 为 `off_frozen`，并保留可 bounded rebind 的 canonical
+`projection_prepared`/barrier reference。matching reservation 正常前进；off-preparing 才必须先完成
+第 4 节 allocator/outbox/receipt drain 再回收 slot；digest mismatch 一律 `needs_repair`。
 global view 仍只在 barrier 后可见。decision、
 consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
 下消费 durable receipt slot 并提交 `projection_done`。
@@ -194,9 +197,12 @@ append/fsync 与 durable applied/tail commit 完成**：
 
 1. 先从 allocator WAL oldest-first 恢复最早 committed reservation；存在未 applied reservation
    时不准分配或 append 更晚 offset；
-2. 在 checksummed allocator WAL/metadata 原子提交
+2. 先证明 completed index 尚有一条 closed-max entry，再在单一 checksummed global metadata root
+   generation 中原子提交 allocator reservation 与 completed-index reserved token
    `{reservation_id, identity_key, expected_offset, barrier_digest, bounded_derived_body,
-   record_digest, source_project_identity, receipt_route, bounded_receipt_body, new_tail}`；
+   record_digest, source_project_identity, receipt_route, bounded_receipt_body, new_tail,
+   completed_index_token_id, exact_completed_ref_identity}`；capacity full 时在任何 durable write 前
+   visible backpressure；
 3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
    append/fsync derived record；
 4. `receipt_route` 必须是预先注册在 runtime-owned closed project-state directory 的 exact
@@ -206,19 +212,26 @@ append/fsync 与 durable applied/tail commit 完成**：
 5. 仍在同一 lease 下把 `projection_applied`、allocator committed tail 与 checksummed
    `receipt_prepared {route, bounded_receipt_body, source barrier/record digest}` outbox intent
    原子提交到同一 metadata generation；只有该 generation durable 后才释放 lease、回收
-   reservation body；
+   reservation body；reserved token 独立保留 exact identity 直到 receipt completion；
 6. `.vibeguard.json` 只是 requested state；runtime-owned eligibility registry 才是 effective
    state，并绑定 observed config identity/digest + epoch。projector/receipt/source worker 处理
    intent 前取 deadline-bounded shared delivery lease，以 no-follow 重开 config 并比较 digest。
    若 drift，必须零 source write 释放 shared lease，再取 writer-fair exclusive lease。
    requested off 进入第 2 节 durable `off_preparing`；其 cursor 以 policy-bound batch/byte/time
    oldest-first 多 pass：(a) freeze/reclaim pre-barrier/ready-unclaimed；(b) 对 claim-prepared
-   执行 absent-reservation abort 或 matching reservation recovery；(c) 将该 source 的每个 applied/
+   执行 absent-reservation freeze 或 matching reservation recovery；(c) 将该 source 的每个 applied/
    receipt-outbox intent 在 exclusive lease 下写 exact keyed slot，完成 file fsync + atomic
    create-if-absent + route-directory fsync，再提交 global `receipt_applied`/reclaim。该 drain
-   在 effective off 前完成，不写 project journal/`projection_done`。只有 registry、
-   reservation 与 live outbox 中该 source 均为零，才重取 project lock 原子提交
-   effective off epoch。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
+   在 effective off 前完成，不写 project journal/`projection_done`；每次 keyed slot durable 后，
+   必须在同一 metadata generation 将 token 转为 `completed_projection_index {source_project_digest,
+   event_id, barrier_digest, projection_receipt_digest, global_offset, retention_bucket}` 并提交
+   `receipt_applied`/reclaim。只有 registry、reservation 与 live outbox 中该 source 均为零，
+   才在仍持 exclusive delivery lease 时 no-follow 重开 config，复核 current file identity+digest
+   与 saved request 完全相等，再取 project lock 提交 effective off epoch。若已变回 enabled，
+   原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/completed refs 并
+   bounded rebind 全部 off-frozen canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
+   以新 epoch/request 从 cursor zero 重启 off-preparing；invalid/unreadable 则保持 pending/error。
+   stale request 不得提交 effective off。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
    oldest age，禁止新 L2 但不伪称 off，后续 bounded pass 续传；因而 effective off
    永不占 shared live registry/outbox capacity。每个 pass 只外层持 exclusive delivery；
    project lock 在任一 global lease 前释放，registry 在 sequencer/receipt I/O 前释放，
@@ -226,11 +239,21 @@ append/fsync 与 durable applied/tail commit 完成**：
    rebind/consume durable slots，或由另行批准的 maintenance drain 处理；
 7. receipt worker 从 outbox oldest-first 打开 exact route，以 no-follow temp write + file fsync +
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
-   `receipt_applied`/reclaim；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
+   `receipt_applied`/reclaim，并在同一 committed generation 将 reserved token 转为上述 completed
+   ref；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
    也必须证明 directory durability；不同 digest 才 `needs_repair`。project coordinator/approved
    maintenance route 必须按 shared delivery lease → project lock 的固定顺序取得 matching epoch，
    并持有两者直到 slot 验证与 `projection_done` fsync；off 同样按 exclusive lease → project lock，
    因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
+
+allocator、outbox 与 completed index 各有独立 subgeneration，但所有跨 index transition 只由上述
+单一 global metadata root generation 原子发布；因此 receipt completion 同时发布 completed ref、
+`receipt_applied` 与 outbox reclaim，completed ref 未 durable 时 reclaim 不可见。recovery 只接受
+root 指向且 reservation/token ID + exact ref identity 全匹配的 pair：matching pair 幂等前进；
+旧 root 外的 token-only/reservation-only torn copy 回退到前一 committed root；committed root 内
+任一缺失/错配则 `needs_repair`，禁止 append、reclaim 或重用 token。matching completed ref 可幂等
+补 receipt-applied/reclaim，且 token 不再计 capacity；每个 commit 前后 crash、full 与 mismatch
+都必须证明无 token leak、无 reservation stall、无 completed-proof gap。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record
@@ -245,19 +268,23 @@ append。allocator/index/outbox full/corrupt/timeout 保持 `projection_lag` + �
 
 ### Aggregate snapshot proof
 
-summary/health 等 multi-event/project reader 只能从 bounded registry/allocator/outbox indexes
-构造 v2 proof，禁止扫描 log。reader 先读取三个 checksummed committed generation +
+summary/health 等 multi-event/project reader 只能从 bounded registry/allocator/outbox 与
+completed-projection indexes 构造 v2 proof，禁止扫描 log。completed index 以 generation-covered
+fixed entry/byte maximum 保留 H-014 批准的 query/retention window 内全部 successful refs；GC
+只能删除已越过 retained window/watermark 的完整 bucket。过旧 query、retention gap、capacity/
+freshness overflow 必须 unavailable + empty，禁止回退扫描。reader 先读取 committed global
+metadata root generation + 其引用的四个 checksummed subgenerations +
 allocator tail/watermark，再按 query identity/window 有界枚举全部 in-scope state，生成稳定
 ordered `barrier_refs` 与 ordered `lag_refs`（包括 ready-registry、reservation 与 outbox lag），
-最后重读三个 generations/tail。前后任一变化必须在同一 deadline 内 bounded
+其中 successful refs 只来自 completed index，最后重读 root + 四个 subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
 retry；重试仍 drift 则 `projection_lag/unavailable` + 空 semantic aggregate。
 
 `barrier_set_digest = H(schema, query_identity, ordered barrier_refs, ordered lag_refs,
-registry_generation, allocator_generation/tail, outbox_generation)`；`projection_watermark` 携带
+root_generation, registry_generation, allocator_generation/tail, outbox_generation, completed_index_generation)`；`projection_watermark` 携带
 同一组 generations/tail，两者不得分别取样。任一 lag ref、ready/outbox state 遗漏/
 重排，digest 或 generation mismatch，proof 超 closed maximum，或无法证明全量集合时，
 必须 fail visible 并保持空数据；禁止 partial/synced aggregate。测试覆盖 omitted/
-reordered lag ref、ready-registry lag、outbox lag 与 scan-generation drift。
+reordered lag ref、ready-registry lag、outbox lag、completed retention/overflow 与 scan-generation drift。
 
 ## 5. Ownership and proof closure
 

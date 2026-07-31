@@ -166,7 +166,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    立即禁止新 L2/shared admission。它在 bounded 多 pass 中冻结/回收 source registry，
    完成或中止 claim-prepared，并把所有 matching reservation/outbox 完成为 fsynced
    keyed receipt slot 后回收 global live capacity；此阶段不写 project journal/marker。
-   只有 matching live registry/reservation/outbox 均为零才提交 effective off；否则保持
+   只有 matching live registry/reservation/outbox 均为零，且仍持 exclusive lease no-follow
+   重读的 config file identity+digest 与 saved request 完全相等，才提交 effective off；若已
+   enabled 则转入 durable bounded rebind，若为另一 off request 则以新 epoch/cursor 重启 drain，
+   invalid/unreadable 则保持 pending/error，任何 stale request 都不得关停。否则保持
    `opt_out_pending/error` + counts/oldest age，禁止伪称 off。生效后不得写 source
    slot/marker 且不占 shared live capacity；旧 epoch 只能 bounded rebind/drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
@@ -254,8 +257,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     v1 branch 原样保留现有 closed payload，v2 branch 必须携带 closed
     `semantic_projection {state,finalized,barrier_refs,barrier_set_digest,projection_watermark,
     lag_refs}`。每个 bounded/sorted barrier ref 绑定 source-project digest、event、barrier、
-    projection receipt 与 global offset；set digest 覆盖 query identity + ordered barrier/lag refs +
-    registry/allocator/outbox committed generations + allocator tail，watermark 携带同一组
+    projection receipt 与 global offset；成功 ref 必须由 bounded completed-projection index 在
+    H-014 批准的 retention/query window 内保留，过旧 query、retention/capacity/freshness gap
+    一律 unavailable + 空数据。set digest 覆盖 query identity + ordered barrier/lag refs +
+    committed global root + registry/allocator/outbox/completed-index subgenerations + allocator tail，watermark 携带同一组
     generations/tail。reader 在 bounded scan 前后必须重读并证明全部 generation
     不变；drift 只能 bounded retry，仍 drift 则 fail visible + 空数据。任一 in-scope lag 使整个 semantic aggregate
     `projection_lag` + 空数据，并进 lag refs，禁止 partial count。refs/lag refs 超过
@@ -390,7 +395,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     `projection_lag` 和空数据，不能沿用旧 mirror 结果。closed observe v2
     必须为每个 included event 携带 bounded ordered barrier ref，并携带 query-bound
     barrier-set digest + projection watermark；混合 barrier/mixed lag 时整个 semantic aggregate 为空。
-    omitted/reordered lag ref、ready-registry/outbox lag 或 scan-generation drift 必须使 proof 失败。
+    omitted/reordered lag ref、ready-registry/outbox lag、completed-index retention/overflow 或 scan-generation drift 必须使 proof 失败。
     health report 遇 lag 必须显示
     degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。legacy v1 只能显示
     `legacy_untracked` + 空 semantic data，不得破坏旧 payload 或伪装 v2。Codex status、
@@ -441,8 +446,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；
-      ready 先 claim 后 reserve，off-preparing 完成/中止 claim 并 drain matching outbox 后才 effective，不占 shared live capacity；
-      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate digest 承诺 query + 全量 ordered barrier/lag refs + registry/allocator/outbox 稳定 generations/watermark，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
+      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；
+      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 retained completed index + 全量 ordered barrier/lag refs + stable global root/four subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
