@@ -566,7 +566,7 @@ Complete-path cross-check：
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
 | Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` runs runtime and sidecar manifests separately at ≥80% line coverage so aggregate coverage cannot hide either crate；JSON file coverage requires 100% for runtime `semantic_defense/{config,identity,protocol,provider}.rs` and sidecar `protocol.rs`/`sandbox.rs`；contract fixtures prove two-manifest invocation, missing/malformed report, aggregate-masking and every critical-file-under-100 failure |
+| U-22 measured coverage | `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` runs runtime and sidecar manifests separately at ≥80% line coverage so aggregate coverage cannot hide either crate；JSON file coverage requires 100% for runtime `semantic_defense/{mod,config,identity,protocol,provider,inventory,test_weakening,runtime_signal,cache}.rs` and sidecar `protocol.rs`/`sandbox.rs`，including final reducer/orchestration、inventory verdict、semantic weakening verdict、W-rule transitions、project/session isolation and every WAL/cache/journal recovery branch；`tests/test_u22_coverage.sh` must reject any omitted critical module, missing/malformed report, aggregate masking, path-normalization miss or critical file below 100%，while the focused B-003/B-009/B-011–B-015/B-019/B-020/B-022–B-028 suites exercise each decision、isolation and injected-failure path before coverage is accepted |
 
 ## Product-to-Test Mapping
 
@@ -690,8 +690,11 @@ H-020 批准。
 - [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
       project opt-in schema/parser/isolation、precision tracker、Learn schema/adoption、
       observability legacy/current fixtures、release asset checksums/attestations/metadata、
-      payload、hook manifest、两 crate 独立 ≥80% line coverage、关键 security/process
-      modules 100% coverage 与 docs contracts。
+      payload、hook manifest、两 crate 独立 ≥80% line coverage；final reducer/mod、
+      inventory、test weakening、runtime signal、cache/journal recovery 与
+      config/identity/protocol/provider/sandbox 所有 decision/isolation/durability 分支
+      100% coverage，且 coverage contract 对遗漏模块、aggregate masking、path-normalization
+      和每个关键文件低于 100% 都必须失败；以及 docs contracts。
 - [ ] Performance tests: cold/warm core 和 installed hook P50/P95/P99/max、large diff/
       inventory、parallel sessions、timeout/cancel；cold/warm L2 必须分别通过
       planned **tests/bench_semantic_core.sh** core runner、`tests/bench_hook_latency.sh` installed

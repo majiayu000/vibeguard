@@ -317,6 +317,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       regressed 仍需现有 Learn 人工门。
 - [ ] GH-700/GH-702 contract tests 证明只消费已合并 Core capability/mapping，未批准的
       Draft recommendation 不会成为默认行为。
+- [ ] U-22 证据分别证明 runtime 与 sidecar 各自至少 80% line coverage；final
+      reducer/orchestration、inventory verdict、semantic test-weakening verdict、runtime
+      W-rule state machine、project cache/journal recovery，以及 config/identity/protocol/
+      provider/sandbox 的所有 decision、isolation、durability 分支达到 100%，聚合覆盖率
+      不能掩盖任何关键模块或故障路径。
 - [ ] Rust runtime、hook/manifest/workflow、eval/precision、Learn 和 latency 的 focused
       tests 及对应 broad gates fresh green。
 
