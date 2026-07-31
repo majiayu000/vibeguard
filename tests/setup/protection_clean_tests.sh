@@ -174,6 +174,31 @@ assert_cmd "systemd clean removes files only after inactive and disabled postcon
   "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-service-active" \
   "${scheduler_deactivate_success_home}/.systemctl-vibeguard-gc-enabled"
 
+runtime_clean_home="${TMP_HOME}/scheduler-runtime-clean-home"
+runtime_clean_dir="${runtime_clean_home}/.config/systemd/user"
+runtime_clean_receipt="${runtime_clean_home}/.vibeguard/scheduler-ownership"
+runtime_clean_enabled="${runtime_clean_home}/.systemctl-vibeguard-gc-enabled-runtime"
+mkdir -p "${runtime_clean_dir}" "$(dirname "${runtime_clean_receipt}")"
+printf '%s\n' '[Service]' 'ExecStart=/usr/local/bin/managed-gc' \
+  > "${runtime_clean_dir}/vibeguard-gc.service"
+printf '%s\n' '[Timer]' 'OnCalendar=daily' \
+  > "${runtime_clean_dir}/vibeguard-gc.timer"
+printf 'schema=1\nkind=systemd\nphase=managed\nservice_sha256=%s\ntimer_sha256=%s\n' \
+  "$(shasum -a 256 "${runtime_clean_dir}/vibeguard-gc.service" | awk '{print $1}')" \
+  "$(shasum -a 256 "${runtime_clean_dir}/vibeguard-gc.timer" | awk '{print $1}')" \
+  > "${runtime_clean_receipt}"
+touch "${runtime_clean_home}/.systemctl-vibeguard-gc-active" \
+  "${runtime_clean_home}/.systemctl-vibeguard-gc-service-active" \
+  "${runtime_clean_enabled}"
+HOME="${runtime_clean_home}" VIBEGUARD_TEST_UNAME=Linux \
+  bash "${REPO_DIR}/setup.sh" --clean >/dev/null
+assert_cmd "systemd clean removes runtime-enabled timer state and owned files" bash -c \
+  'test ! -e "$1" && test ! -e "$2" && test ! -e "$3" \
+    && test ! -e "$4"' _ \
+  "${runtime_clean_dir}/vibeguard-gc.service" \
+  "${runtime_clean_dir}/vibeguard-gc.timer" \
+  "${runtime_clean_receipt}" "${runtime_clean_enabled}"
+
 bootstrap_deactivate_home="${TMP_HOME}/bootstrap-scheduler-deactivate-home"
 env "${bootstrap_base_env[@]}" HOME="${bootstrap_deactivate_home}" \
   VIBEGUARD_TEST_UNAME=Linux VIBEGUARD_TEST_RELEASE_DIR="${scheduler_release}" \

@@ -2,13 +2,21 @@
 active_state="${HOME}/.systemctl-vibeguard-gc-active"
 service_active_state="${HOME}/.systemctl-vibeguard-gc-service-active"
 enabled_state="${HOME}/.systemctl-vibeguard-gc-enabled"
+runtime_enabled_state="${HOME}/.systemctl-vibeguard-gc-enabled-runtime"
 [[ "${1:-}" == "--user" ]] && shift
 case "${1:-}" in
   daemon-reload) exit 0 ;;
   enable)
-    [[ "${2:-}" == "--now" && "${3:-}" == "vibeguard-gc.timer" ]] || exit 0
     [[ "${VIBEGUARD_TEST_SYSTEMD_ENABLE_FAIL:-0}" == "1" ]] && exit 1
-    touch "$active_state" "$enabled_state"
+    if [[ "${2:-}" == "--runtime" \
+      && "${3:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$runtime_enabled_state"
+    elif [[ "${2:-}" == "--now" \
+      && "${3:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$active_state" "$enabled_state"
+    elif [[ "${2:-}" == "vibeguard-gc.timer" ]]; then
+      touch "$enabled_state"
+    fi
     ;;
   start)
     [[ "${2:-}" == "vibeguard-gc.timer" ]] && touch "$active_state"
@@ -28,7 +36,13 @@ case "${1:-}" in
     ;;
   disable)
     [[ "${VIBEGUARD_TEST_SYSTEMD_DISABLE_FAIL:-0}" == "1" ]] && exit 1
-    [[ "${VIBEGUARD_TEST_SYSTEMD_STILL_ENABLED:-0}" == "1" ]] || rm -f "$enabled_state"
+    if [[ "${2:-}" == "--runtime" ]]; then
+      [[ "${VIBEGUARD_TEST_SYSTEMD_RUNTIME_STILL_ENABLED:-0}" == "1" ]] \
+        || rm -f "$runtime_enabled_state"
+    else
+      [[ "${VIBEGUARD_TEST_SYSTEMD_STILL_ENABLED:-0}" == "1" ]] \
+        || rm -f "$enabled_state"
+    fi
     ;;
   is-active)
     if [[ "${2:-}" == "vibeguard-gc.timer" && -f "$active_state" ]]; then
@@ -40,6 +54,9 @@ case "${1:-}" in
     printf 'inactive\n'; exit 3
     ;;
   is-enabled)
+    if [[ "${2:-}" == "vibeguard-gc.timer" && -f "$runtime_enabled_state" ]]; then
+      printf 'enabled-runtime\n'; exit 0
+    fi
     if [[ "${2:-}" == "vibeguard-gc.timer" && -f "$enabled_state" ]]; then
       printf 'enabled\n'; exit 0
     fi
