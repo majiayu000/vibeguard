@@ -386,15 +386,21 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
     applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
-    project identity 与 independently routable receipt route/body。full reservation 必须在 allocator
+    project identity 与 independently routable receipt route/body，并从 live registration 复制
+    canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
+    projection offset；这些字段进入 full reservation digest。full reservation 必须在 allocator
     commit 同时原子预留 exact shared-outbox、success-history entitlements，后续 rebind/admission 不得借用；释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
-    receipt-outbox intent 原子提交并把 entitlement 转成 live intent；只有 durable reservation
+    receipt-outbox intent 原子提交并把 entitlement 转成 live intent；intent 必须闭合携带同一组
+    canonical query fields，以及 `registration_id/state_root_id/route_identity_digest` exact recovery
+    locator，reader 不得从 append position、wall clock 或 pathname 重建。只有 durable reservation
     cancellation 才可释放未转换 entitlement。outbox worker 取得 matching source delivery lease 后只按 exact route +
     content-addressed receipt key/digest 写独立 create-if-absent slot，不共享 project append offset；
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
     `receipt_applied`/reclaim，并发布保留 reservation-backed quarantine token 的
-    `receipt_delivered` lag ref；该 ref 携带 canonical timestamp/bucket/global projection offset/query scope。
+    `receipt_delivered` lag ref；该 ref 从 intent 原样复制并 digest-bind canonical timestamp/bucket/global
+    projection offset/query scope 与 `registration_id/state_root_id/route_identity_digest`，因此 outbox reclaim
+    且 source dormant 后仍能由 runtime-owned directory 精确恢复 route，不需扫描 project/HOME/global log。
     source coordinator fsync `projection_done` 后返回 digest-bound ack，global root 才把 ref 原子转入独立
     global-entry/byte-bounded、per-source-quota success-history plane 的 `project_acknowledged`，保留全部
     canonical query metadata并释放 live completed/unused token。retained success 不占 live completed
@@ -411,7 +417,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     再 CAS repoint stub，one-entry-full 时不申请第二 entry/token。retirement 必须按 global
     `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；任一 crash 向前恢复。
     未 ack recovery locator 必须 pin 或原子转入 lag index，retention GC 不得 age-delete；只有 matching
-    rebind+ack retirement 或 source-lock terminal discard proof 才可删除并释放 token。worker 不得写 project journal。只有 source coordinator/approved maintenance
+    rebind+ack retirement 或 terminal proof 才可删除并释放 token。仍存活 source 使用 source-lock terminal
+    discard proof；若 exact source root 已永久删除，initial registration 必须预留 runtime-owned deletion
+    anchor，approved maintenance 在 exclusive delivery lease 下从 retained trusted-parent capability 取得
+    stable exact-root deletion proof，写/fsync runtime tombstone，再由一个 global CAS 删除 ref/stub 并释放
+    matching admin/token entitlements，不得尝试取得已不存在的 project lock。replacement、permission/
+    transient error 或 mutation-generation drift 保持 visible lag，crash 只向前恢复且不得双重释放。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
@@ -513,7 +524,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       单一 group-commit 的 `all_activated` barrier 是 project-local canonical reader 唯一可见点；
       project enforcement/history 还需 local `projection_done`，global aggregate/status 只认 globally enumerable `project_acknowledged`，
       partial activation 可幂等补齐/回滚，live registration 与 acknowledged success ref 都具备 canonical
-      timestamp/bucket/global offset/query scope，reconcile byte/time cap 的最小合法值能完成最大 atomic
+      timestamp/bucket/global offset/query scope，reservation→receipt-prepared→receipt-delivered 全程
+      digest-bind canonical scope 与 registration/state-root/route locator，reader 不猜 timestamp/path 且 dormant
+      source 可无扫描恢复；reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；normal reservation
       在 allocator commit 原子预留 outbox + success-history entitlements，applied reservation 在释放前原子转入 exact-route keyed receipt
@@ -525,7 +538,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       约束的 query-scoped admin lag，且 shared unacknowledged completed capacity 为零，retained
       `project_acknowledged` history 已转入独立 bounded/per-source-quota success-history plane 而不占 live
       completed capacity；present config identity 或绑定 trusted parent capability、mutation fence、start/final/confirm ENOENT 的 stable absent-file identity 均可精确复核，TOCTOU/权限错误 fail visible，
-      admin ref 只有 rebind+ack 或 source-bound terminal proof 后才退休；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
+      admin ref 只有 rebind+ack、存活 source 的 source-bound terminal proof，或已删除 exact source root 的
+      runtime-owned deletion-proof tombstone 后才退休；删除路径不取不存在的 project lock，并由单一 global
+      CAS 释放 matching admin entitlement；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
       false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 success-history + live indexes + 全量 ordered barrier/lag refs + stable global root/six subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
