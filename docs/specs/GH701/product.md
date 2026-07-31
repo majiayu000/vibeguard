@@ -125,10 +125,12 @@ GH-701 已完成。
    host free text；诊断只允许闭集分类与必要的非敏感结构元数据。
 10. B-010 proof host adapter 安装必须是幂等的：重复执行产生同一语义配置，不
     重复注册 VibeGuard hook，不改变第三方 hook 的内容或相对顺序；clean/disable
-    只移除可证明由 VibeGuard 管理的条目。
+    只移除可证明由 VibeGuard 管理的条目。verified-file host 的 clean/disable
+    也只能由用户应用 plan-time、digest-bound reverse diff；VibeGuard 只验证恢复。
 11. B-011 host 配置缺失、只读、语法损坏、写入中断或 verification 失败时不得
     留下“安装完成”的部分状态；旧可用配置必须保留或恢复，失败必须可见并给出
-    修复动作。
+    修复动作。verified-file candidate probe 失败时须提供同一人工 reverse 流程；
+    未验证恢复前保持 `partial/needs_human`，不得把用户应用等同自动 rollback。
 12. B-012 同一机器同时安装多个受支持 host 时，各 host 的配置、wrapper identity
     与 health evidence 必须隔离；并发或任意顺序的重复安装不得让一个 host 的
     event 被归属为另一个 host，也不得覆盖第三方配置。
@@ -213,7 +215,14 @@ GH-701 已完成。
     重开目标并 exact-match candidate bytes/semantic ownership/mode/owner，随后把
     plan digest、确认、两次 config digest 与 probe 绑定到 manual-verified evidence；
     只有该 evidence 可产出 active/proof。额外编辑、symlink/path swap、任一重读
-    drift 或 old-FD late write 都保持 `partial/needs_human`。获批 proof host 若既无
+    drift 或 old-FD late write 都保持 `partial/needs_human`。plan 还必须把 reverse
+    diff、base bytes/mode/owner 与 base/candidate digest 封存在本地 0600 manual
+    receipt。candidate probe 失败或 clean/disable 时，只有 target 仍 exact-match
+    candidate 与原 receipt，才向用户展示该 reverse diff；用户应用后 verifier
+    no-follow 重读并 exact-match base bytes/ownership/mode/owner，确认旧状态可解析，
+    才撤销 evidence 并报告 restored/not-installed。VibeGuard 不得写 host target；
+    candidate/receipt/current 任一漂移都禁止 stale reverse、保留当前内容并
+    `needs_human`。获批 proof host 若既无
     versioned API 又不能完成 verified-file contract 才必须重新选择。Claude/Codex
     现有 JSON target 依 B-014 走 compatibility lifecycle，不得被静默改成 manual。
 26. B-026 versioned automatic branch 的同一 config 并发 writer 必须由 bounded
@@ -365,6 +374,9 @@ GH-701 已完成。
   普通文件自动路径与 delayed old-FD fixtures 必须零写入；verified-file fixture
   只有用户应用 exact diff、probe 前后 digest/ownership 相同且 native probe 成功才
   active/proof，任一额外编辑、path swap 或 late write 都保持 partial。
+- [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
+  receipt 精确匹配时提供用户应用的 reverse diff；base bytes/mode/owner 重验通过后
+  才 restored/not-installed，任一第三方 drift 都不覆盖并保持 needs-human。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、handoff 重哈希不符、supervisor injection/sink/scan

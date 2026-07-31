@@ -408,14 +408,13 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 
 ### 4. Transactional and verified host lifecycle
 
-以下 1–8 适用于 `versioned_host_storage_v1`；`verified_file_setup_v1` 走其后的人工应用分支。Claude/Codex 必须 dispatch 到 `legacy_json_compat_v1`，保持自动安装；不得用 compatibility lifecycle 生成第三 host proof。
+以下 1–8 适用于 `versioned_host_storage_v1`；`verified_file_setup_v1` 走人工分支。Claude/Codex 必须 dispatch 到 `legacy_json_compat_v1` 保持自动安装，且不得生成第三 host proof。
 
 1. `discover`：只读解析 executable/version/config/permissions，输出当前 digest；
 2. `plan`：生成 exact target/operations/preserved entries/candidate digest，并证明
    host storage API 有 versioned CAS + exclusive lease；所选 lifecycle 缺 capability
    时零 mutation、`partial/needs_human`，不得继续 snapshot；
-3. `lock`：对全部目标 config 的 canonical absolute path 排序并取得 bounded
-   exclusive locks；超时为可见失败；
+3. `lock`：按 canonical absolute path 排序取得 bounded exclusive locks；超时可见；
 4. `snapshot`：持锁后重新读取并验证 plan base digest，保存原始 bytes、mode 与
    digest，写并 fsync `pending` journal；TOCTOU drift 立即停止；
 5. `apply`：durable 写入 target/base version/candidate/lease token 与 `applying`；
@@ -430,19 +429,21 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
    才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
-versioned 崩溃恢复用 journal token 查询 lease/old/new version：candidate 已提交才
-按 API CAS rollback，base 未变则未 apply，其他 version needs-human；不得从普通文件
-digest 猜测，committed 后仅幂等 cleanup。`verified_file_setup_v1` 只执行 discover/
-plan，输出绑定 base/candidate digest、preserved entries、mode/owner 与 canonical
-no-follow target 的 exact diff，VibeGuard 零 mutation。用户确认并亲自应用后，
-verifier 在 native probe 前后 exact-match bytes/ownership/mode/owner，把 plan/
-confirmation、两次 digest 与 probe 绑定为 evidence；额外编辑、path swap、重读
-drift 或 old-FD late write 均为 `partial/needs_human`。
+versioned 崩溃恢复以 journal token 查询 lease/old/new version：candidate 已提交才 API CAS
+rollback，base 未变即未 apply，其他 version needs-human；不得从普通文件 digest 猜测，committed 后仅幂等 cleanup。`verified_file_setup_v1` 只执行 discover/plan，输出绑定 lifecycle/target、base/candidate digest、preserved entries、mode/owner 与 canonical
+no-follow target 的 apply diff，VibeGuard 对 host target 零 mutation。plan 同时在本地 0700 state 目录封存 0600 manual receipt：base bytes/mode/owner、apply/reverse diff 与
+各自 digest。用户确认并应用 apply diff 后，verifier 在 native probe 前后重开 target，
+exact-match candidate bytes/ownership/mode/owner，把 receipt/plan/confirmation、两次
+digest 与 probe 绑定为 evidence；任何 drift 均为 `partial/needs_human`。
+probe 失败或 clean/disable 时，rollback verifier 仅在 no-follow current bytes/mode/
+owner exact-match candidate 且 receipt/plan/apply/reverse digests 全部一致时展示 reverse
+diff；用户亲自应用后，再重开并 exact-match base bytes/mode/owner、解析旧配置与确认
+VibeGuard managed entry 已恢复/移除，才使 candidate evidence 失效、消费 receipt 并报告
+`restored`/`not_installed`。VibeGuard 不得自动应用 reverse；current/receipt drift、
+partial reverse、path swap 或 late write 必须保留当前内容并 `needs_human`。
 `active` 只来自 committed versioned transaction，或该 fresh manual-verified evidence。
 
-journal/snapshot 固定写到用户本地 VibeGuard state 下的 transactions/<tx_id>，
-目录 mode 0700、文件 mode 0600；snapshot bytes 不进入 stdout/stderr/event logs。
-commit 后删除，external-drift needs-human 时保留并只输出 path+digest。
+journal/snapshot/manual receipt 固定写到本地 VibeGuard state，目录 0700、文件 0600；raw bytes/diff 不进 logs，完成后删除，drift 时仅输出 path+digest。
 
 ### 5. Deterministic README claim evidence
 
@@ -633,7 +634,7 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease transaction positive；普通 file 自动路径零写入；用户 exact-diff apply + probe 前后 no-follow digest/ownership match 才 active，额外编辑/path swap/old-FD late write 均 partial/no proof |
+| B-025 | versioned transaction + verified-file lifecycle | `bash tests/test_setup.sh`：CAS+lease positive；普通 file 自动路径零写入；用户 apply + probe 前后 exact match 才 active；failed probe/clean/disable 仅在 candidate+receipt match 后输出 user-applied reverse，base 重验才 restored/not-installed；drift/partial reverse/path swap/late write 均 needs-human |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
 | B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 credential-free execution、独立 OIDC signing、digest-only handoff、supervisor-owned sentinel injection/exact sink-byte scan 与 event-time loaded-code closure；credential/token exposure、missing injection/sink、secret/nonzero match、sink drift、native injection/unknown image/JIT/post-start load/deleted mapping、job merge、candidate execution 与 handoff drift 均 nonzero |
@@ -716,8 +717,8 @@ config/payload/log content。
 - Release coordination：README 最终形态跨 GH-699/GH-700；缺任一 released
   evidence、H-004 approval 或 validator mismatch 时保持窄而真实的 partial
   baseline；不得从 README 现状猜测 strict/preserve mode。
-- Recovery：external writer 在 apply 后改 config 时不能安全自动 rollback；必须
-  保留外部内容、snapshot/digests 并 needs_human，不能用“恢复旧配置”覆盖新更改。
+- Recovery：external writer 在 apply 后改 config 时禁止 automatic/stale manual
+  rollback；保留外部内容与 receipt/digests 并 needs_human，不覆盖新更改。
 - Branch ownership：stale branch 只能 approved delete，或 owner+expiry 且 active
   exact-target/no-bypass update restriction；protected API live check 失败即停止。
 - Evidence authority：candidate 只在无 GitHub/OIDC/artifact token 的隔离 VM 执行；独立
@@ -741,8 +742,9 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  普通文件自动路径 zero mutation，verified-file 覆盖用户 exact apply、probe 前后
-  no-follow digest/ownership positive，以及额外编辑/path swap/old-FD drift negative。
+  普通文件自动路径 zero mutation；verified-file 覆盖 apply+probe、failed-probe reverse、
+  clean/disable reverse 与 base reverify positives，以及 receipt/current drift、partial
+  reverse、path swap/old-FD negatives，所有 host-target write 都由用户执行。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
@@ -766,10 +768,9 @@ config/payload/log content。
 - [ ] Real host acceptance：获批 released CLI/session 的 native multi-request
   blocking event 与 fresh-home journey；模拟、direct wrapper/runtime/demo 不能
   生成 proof kind 或替代 maintainer witness。
-- [ ] Full focused verification：runtime `cargo fmt -- --check` / `cargo check` /
-  `cargo test`（均用 `--manifest-path vibeguard-runtime/Cargo.toml`）；
-  `bash scripts/ci/validate-hooks.sh`、`bash scripts/ci/validate-hooks-manifest.sh`；`bash tests/test_manifest_contract.sh`、`test_setup.sh`、`test_codex_runtime.sh`、
-  `test_behavior_eval.sh`；doc path/command validators、local-contract quick 与
+- [ ] Full focused verification：runtime `cargo fmt -- --check` / check / test（均用
+  `--manifest-path vibeguard-runtime/Cargo.toml`）；hook/manifest validators；manifest、
+  setup、Codex runtime、behavior tests；doc path/command validators、local-contract quick、
   `git diff --check`。
 
 ## 回滚方案
@@ -787,9 +788,8 @@ positioning/demo 两个首屏块并把其余 partial-baseline 内容留在首屏
 `preserve_pr705_extras` 回滚还必须保留其绑定 issue acceptance 明确列出的额外块。
 H-004 缺失、过期或与 target HEAD/acceptance digest 不匹配时停止为
 `needs_human`，不得猜测布局或重写 README。两种模式都保留 v1 Claude/Codex read
-compatibility。proof host 出现问题时，用 lifecycle transaction 移除其 registry
-entry/wrapper/managed config，并让 check/doctor 显示
-`unsupported/not_installed`；不得删除第三方配置。若 v2 reader 影响 Claude/Codex，
+compatibility。proof host 出现问题时，versioned lifecycle 自动移除 owned config；
+verified-file lifecycle 只在 candidate/receipt 匹配时输出 user-applied reverse，base 重验后 check/doctor 才显示 `unsupported/not_installed`；不得自动写或删除第三方配置。若 v2 reader 影响 Claude/Codex，
 恢复 v1 input normalization + golden config，但 writer 继续停止生成损坏的 v2，
 并保留 privacy、journal/digest-safe rollback 与 truthful unknown matrix。
 
