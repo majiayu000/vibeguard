@@ -153,9 +153,12 @@ reservation，禁止转为 off-frozen；只有 matching old epoch/request digest
 canonical `projection_prepared`/barrier reference。matching reservation 必须先把 full digest CAS
 回 claim 再正常前进；seed/body/full digest mismatch 一律 `needs_repair`。off-preparing 才必须先完成
 第 4 节 allocator/outbox/receipt drain 再回收 slot。
-global view 仍只在 barrier 后可见。decision、
-consumer/status/aggregate/precision/Learn 仍只 join barrier；project coordinator 最后在同一 lock
-下消费 durable receipt slot 并提交 `projection_done`。
+project-local canonical decision、project-local consumer/precision/Learn 与 per-run project status
+只在 `all_activated` barrier 后可见；它们不依赖 global mirror。global status/aggregate 与所有
+enforcement/history reader 必须同时 join exact barrier 和 matching durable projection receipt/
+`projection_done`；缺后者统一为 `projection_lag` + empty/zero-use，不得把 barrier-only event 当成
+global success。project coordinator 最后在同一 lock 下消费 durable receipt slot 并提交
+`projection_done`。
 
 ## 3. Bounded recovery admission
 
@@ -276,18 +279,25 @@ platform table 只接受删除/替换 proof，或在 policy-bound attempts/horiz
 owner/ACL digest 与 worker credential capability 均稳定且每次返回同一 non-transient access-denied，
 并由 source coordinator 证明无 valid writer capability；缺任一 evidence 仍 transient。
 permanent 时先写/fsync independently checksummed per-source quarantine root 的 staged exact
-route/body/barrier/ref/rebind entry；再由一个 global root atomically reclaim live outbox、释放 global
+route/body/barrier/ref/rebind entry。若该 source root 在 publication 前 delete/replace/permission-denied，
+必须使用 reservation 时预留、与 receipt route 分离的 runtime-owned alternate quarantine vault：
+vault 内仍按 source 独立 checksum/partition，写/fsync同一 exact entry，且不读取/创建 broken source
+directory；primary 与 alternate 同 key/digest 互斥。只有 primary 或 alternate entry durable 后，
+global root 才 atomically reclaim live outbox、释放 global
 completed-index token、消费 quarantine token并发布 bounded `quarantine_lag_stub {source,event,
-barrier,per_source_root_id,entry_digest}`。root 前 crash 忽略/回收 staged orphan且 outbox 仍 live；root
+barrier,root_kind,root_id,entry_digest}`。两者都失败是 runtime quarantine storage unavailable，保持
+outbox pending/error，不伪称隔离；alternate 可用时 broken source 永不占 shared live slot。root 前 crash 忽略/回收 staged orphan且 outbox 仍 live；root
 后 stub 保证 lag 全局可枚举。shared allocator/outbox validation 不读取 per-source root；其后损坏只把
 该 source 标记 `needs_repair`，不能阻止其他 source 的 root advance。
-source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarantined intent；先原子
-重新取得 global completed-index capacity token，再恢复 live outbox/keyed slot/completed-ref transaction，
-并在同一 completion root 删除 lag stub、释放 quarantine token；capacity 不足只阻塞该 source。未经
+source coordinator 注册 new exact route/epoch 后只能 bounded rebind quarantined intent；必须先在
+一个 global root transition 中同时取得 completed-index token 与 shared live-outbox slot，任一不足则
+保持 quarantine/stub 不变并只标记该 source `rebind_backpressure`。双容量均成功才恢复 live outbox/
+keyed-slot/completed-ref transaction，并在 completion root 删除 lag stub、释放 quarantine token；未经
 rebind 不得伪称 completed。token 缺失/错配/corrupt
 均 `needs_repair` 且只 backpressure 对应 source；测试覆盖 transient/permanent 分类、delete/replace、
-quarantine permission/delete/replace、staged/root crash replay、post-commit per-source corruption、
-cross-source capacity isolation、completed-token release/reacquire、normal-path token reuse、release 前后 crash、
+quarantine permission/delete/replace、primary-write failure→alternate-vault isolation、staged/root crash
+replay、post-commit per-source corruption、cross-source capacity isolation、completed+outbox atomic
+reacquire/floor-minus-one、normal-path token reuse、release 前后 crash、
 full/mismatch 与 rebind。frozen ref bounded rebind 时同一 root 将 ref 还原为 reserved token + live
 registration；正常 claim 再释放，禁止泄漏或重复分配。
 

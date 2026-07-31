@@ -408,7 +408,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。legacy v1 只能显示
     `legacy_untracked` + 空 semantic data，不得破坏旧 payload 或伪装 v2。Codex status、
     quality grader、constraint-frequency reader 与 Rust hook/log history readers 也必须对 semantic
-    kinds join exact barrier + matching `projection_done` receipt；pre-barrier/aborted/global-lag row 不得被当成 latest success、
+    kinds join exact barrier + matching `projection_done` receipt；project-local canonical consumers 只
+    join barrier，global/enforcement/history readers 缺 projection receipt 必须 lag/empty。pre-barrier/aborted/global-lag row 不得被当成 latest success、
     grade 证据、rule hit 或后续 enforcement history。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
