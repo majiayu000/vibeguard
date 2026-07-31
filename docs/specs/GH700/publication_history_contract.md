@@ -782,15 +782,14 @@ liveness不变；closed union外 record均拒绝。
 长时间等待人工 review 以 durable `owner_heartbeat` renewal record续活：immutable
 intent只绑定 stable owner generation、单调 heartbeat sequence/transition slot与
 `liveness_policy_digest`，不得绑定 client timestamp/deadline或 authorization fence；
-`owner_claimed` 与 `owner_heartbeat` 的 store-signed committed envelope均按获批 H-006
+`owner_claimed`、`publication_owner_taken_over`与`owner_heartbeat`的 store-signed committed envelope均按获批 H-006
 写入 RFC3161 quorum-authenticated `claim_accepted_at`/`accepted_at`、`trusted_time_proof_digest`、
 prior/new time high water、`lease_expires_at`、actual fence、owner generation与 heartbeat sequence。只有尚未
 terminal 的 current generation持 current fence且在 store
-认证 expiry 前可 append；fold只从最新 claim/heartbeat committed envelope导出 liveness，
-不信任 host/client时钟、job presence或自报 deadline。`previous_accepted_at` 对 sequence 1 是 claim
-envelope的 `claim_accepted_at`，之后是前一 heartbeat的 `accepted_at`。store 只接受 prior
+认证 expiry 前可 append；fold只从建立 current generation 的 claim/takeover及其 heartbeat committed envelopes导出 liveness，
+不信任 host/client时钟、job presence或自报 deadline。`generation_origin_accepted_at` 对 claim generation取 `claim_accepted_at`、对 takeover generation取 takeover `accepted_at`；`previous_accepted_at` 对 sequence 1 取该 origin，之后取前一 heartbeat的 `accepted_at`。store 只接受 prior
 expiry 前、距 `previous_accepted_at` 至少 `min_renewal_interval_seconds` 且严格延长 expiry 的 renewal，并以
-`min(accepted_at+ttl_seconds, claim_accepted_at+max_generation_age_seconds)` 计算 expiry；
+`min(accepted_at+ttl_seconds, generation_origin_accepted_at+max_generation_age_seconds)` 计算 expiry；
 protocol scheduler按 `heartbeat_period_seconds` 请求，到 generation age cap 后禁止续租。
 重复 heartbeat按同一 operation的
 idempotency规则取回 receipt，异 digest/sequence冲突拒绝。takeover仅可在 trusted lower bound严格超过
