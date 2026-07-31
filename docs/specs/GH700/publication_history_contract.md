@@ -96,21 +96,30 @@ endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：�
 不能 delete、overwrite version、解除 hold、改 lifecycle/KMS；protected recovery role只在 threshold-approved
 restore中读 exact versions并调用 pinned KMS decrypt，authority routine role不能解密或管理 bucket/key。
 
-每个 committed successor生成 exact `backup_set_ref={backup_id,resource_identity,snapshot_object_key,
+每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
 manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,kms_key_version,
-wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status,confirmation_digest}`。SQLite snapshot、
+wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status}` 及
+`backup_set_core_digest=SHA256(JCS(backup_set_core))`。detached `backup_confirmation` exact 为
+`{backup_set_core_digest,snapshot_get_receipt_digest,manifest_get_receipt_digest,wal_get_receipt_digest,
+retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
+`backup_set_ref={backup_set_core,backup_set_core_digest,backup_confirmation_digest}`；三者都不包含自己的 digest。SQLite snapshot、
 recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
 `aes_256_gcm_siv_v1` authenticated encryption；immutable object header保留 nonce、wrapped data-key bytes、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
 prior_anchor_digest})`，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
 ciphertext/header digest并确认 retention+legal hold，任何对象未确认都不能签 anchor或释放 receipt。
 
-anchor exact payload为 `{authority_id,authority_identity_digest,policy_epoch,repo_node_id,anchor_schema_version,restore_epoch,
-latest_frontier,blocked_attempt_ledger_frontier,time_high_water,time_proof_digest,snapshot_digest,wal_digest,
-backup_resource_identity,backup_set_ref,backup_set_ref_digest,transition_class,prior_anchor_digest,anchor_request_id}`，其中两个 frontier
-含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
-`backup_set_ref_digest=SHA256(JCS(backup_set_ref))`，snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
+DB successor transaction 只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,
+repo_node_id,anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,
+time_proof_digest,transition_class,prior_anchor_digest,backup_id,anchor_plan_id}` 及
+`anchor_plan_core_digest=SHA256(JCS(anchor_plan_core))`；core 禁止包含任何 snapshot/WAL digest、object version、
+`backup_set_ref*`、confirmation、final payload/request ID。exact-version backup 确认后才构造 final anchor payload
+`{anchor_plan_core,anchor_plan_core_digest,snapshot_digest,wal_digest,backup_resource_identity,backup_set_ref,
+backup_set_ref_digest,anchor_request_id}`，其中 `backup_set_ref_digest=SHA256(JCS(backup_set_ref))`且
+`anchor_request_id=SHA256(JCS({v:"GH700:anchor-request:v1",anchor_plan_core_digest,backup_set_ref_digest}))`。
+两个 frontier 含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
+snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
 `anchor_signing_policy` exact 为 `{routine_policy,privileged_policy}`。routine class仅
 `{publication,blocked_attempt,trusted_time,owner_heartbeat}`，由至少3个不同管理域/account的 pinned
 KMS-backed online signer服务取 distinct threshold>=2；每个 signer manifest固定 endpoint/mTLS server identity、
@@ -131,12 +140,16 @@ epoch row/HEAD exact digest与 strong-read confirmation，形成 DB committed fr
 class-correct quorum signature→conditional transaction→service response/read-back→authority receipt 的端到端 CAS proof。
 
 所有 successor共用 repository-global durable `anchor_commit_gate`，不得只依赖已释放的 SQLite write lock。
-在 gate fence下，首个 transaction append successor并写唯一 `db_committed_anchor_pending` row，固定 prior anchor、
-exact payload/request ID、backup ID和签名 class后 commit+fsync；该 pending未完成时所有其它 successor transaction
+在 gate fence下，首个 transaction append successor并写唯一 `db_committed_anchor_pending` row，只固定 prior anchor、
+`anchor_plan_core`/digest、backup ID和签名 class后 commit+fsync；该 row 所在 snapshot 因而不含尚未产生的
+snapshot digest、object version、backup confirmation或 final payload。该 pending未完成时所有其它 successor transaction
 在写 DB前拒绝。gate跨 snapshot/WAL/manifest加密上传、exact-version确认、quorum签名、DynamoDB CAS/read-confirm
-保持逻辑独占，但不跨网络持有 SQLite transaction。CAS确认后第二个 transaction才写 immutable
+保持逻辑独占，但不跨网络持有 SQLite transaction。backup 确认后一个 short transaction 以
+`anchor_plan_core_digest` CAS 同一 pending row，写入 detached confirmation、final payload/request ID；任何 core/backup drift均 blocked。
+CAS确认后下一 transaction才写 immutable
 `anchor_confirmed` proof/成功 receipt、清 pending并 fsync，然后释放 gate；client receipt与 broker write此前均禁止。
-crash recovery只可 higher-fence接管同一 pending row，复用 byte-identical payload/request/backup versions/signatures：
+crash recovery只可 higher-fence接管同一 pending row；plan-only phase 只可从同一 core/backup ID 完成并固化
+detached confirmation，finalized phase 复用 byte-identical payload/request/backup versions/signatures：
 未发 CAS则发送一次，response/ack丢失则 strong-read exact epoch+HEAD确认，已确认但本地未记账则补写同 confirmation；
 任何 non-match、无法证明未发送或 backup/signature drift均保持 pending并使 authority blocked，禁止 rollback/truncate、
 生成下一 successor或返回“可能成功”。
