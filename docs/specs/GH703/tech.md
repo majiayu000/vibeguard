@@ -94,6 +94,7 @@ envelope：
     "coverage_status": "complete"
   },
   "data_status": "ok",
+  "status_reason": "complete_nonempty",
   "counts": {
     "dangerous_ops": 1,
     "invented_apis": 0,
@@ -111,9 +112,15 @@ envelope：
 }
 ```
 
-`data_status` closed 为 `ok`、`no_data`、`partial_coverage`。`counts` 在
+`data_status` closed 为 `ok`、`no_data`、`partial_coverage`；`status_reason` closed 为
+`complete_nonempty|complete_empty|source_missing|ledger_gap|ledger_corrupt|
+writer_coverage_unavailable|archive_missing|archive_corrupt|archive_tombstoned|
+legacy_evidence|snapshot_changed|budget_exceeded`，禁止 free text 或扩展值。
+`no_data` 只允许 `coverage_status=complete`、`status_reason=complete_empty` 且 event set 为空；
+任何 coverage 缺口优先产生 `partial_coverage`，即使 event set 同样为空。`counts` 在
 `no_data` 或 `partial_coverage` 时必须为 null/absent（最终形状由获批 H-004 固定），
-不能输出伪造的五个零；`ok` 又要求 complete coverage 且 `event_count > 0`。内部
+不能输出伪造的五个零；`ok` 又要求 complete coverage、`status_reason=complete_nonempty`
+且 `event_count > 0`。内部
 artifact 可带 closed evidence digests；shareable projection 使用
 同一 schema 的专用 `$defs.shareable` 或第二个 closed variant，只允许 H-005 的
 窗口、coverage、taxonomy version、headline/other counts、generated time 与
@@ -128,16 +135,26 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    global`、`--taxonomy` 和 output kind；scheduler 计算窗口，runtime 重新校验
    start < end、offset/timezone 一致和输入有界。
 2. Reader 对 canonical global log 使用 writer/GC 已有的 `<log>.lock.d` 协议，并读取
-   planned manifest 中 event-log coverage schema artifact 约束的两代 checksummed coverage ledger。
-   ledger 以 monotonic generation 记录 writer sequence/tail、pending/gap、每个 archive 的
-   stable ID/source generation/coverage interval/file identity/length/digest，以及被 retention
-   删除的 interval tombstone 和 `earliest_provable_window_start` watermark。writer 必须先在
-   独立 coverage generation 中 durable reserve attempt sequence，再生成 event ID、append+fsync
-   canonical row，最后 commit matching event ID/tail；append/CSPRNG/typed-field 失败保留 durable gap。若连 reserve/gap
-   generation 都不能 durable，value-capable hook 必须按 Draft recommendation fail closed/nonzero，
-   不得返回一个可使后续 window 声称 complete 的普通结果；该 policy 未获 H approval 前禁止实现。
+   planned manifest 中 event-log coverage schema artifact 约束的两代 checksummed coverage ledger，
+   以及与 guard result/exit channel 隔离的 durable side-channel spool。ledger 以 monotonic
+   generation 记录 writer identity/epoch、continuous checkpoint/attempt sequence、event tail、
+   pending/gap、每个 archive 的 stable ID/source generation/coverage interval/file identity/
+   length/digest，以及 retention tombstone 和 `earliest_provable_window_start` watermark。
+   writer 必须先捕获可信 `attempted_at`，并在任何 event ID/CSPRNG/classification/append 失败点
+   之前 durable reserve sequence + conservative half-open `coverage_interval`；时钟不可信时，
+   interval 从 last durable checkpoint 开始并保持 open，直到恢复时以 recovery time 封闭。
+   canonical row append+fsync 成功后才 commit matching event ID/tail；失败则保留带 interval 的 gap。
+   主 ledger 暂不可写时，writer 把同一 reserve/gap 原子写入独立 spool，后续在 lock 内按 sequence
+   reconcile。ledger 与 spool 都不可写时，writer 必须保留原 guard decision、blocking 语义和退出码，
+   同时向 stderr/closed diagnostic 发出 `coverage_recording_failed`；writer epoch 缺失/过期的
+   continuous checkpoint 本身使从 last checkpoint 到 recovery 的 window 无法证明 complete，
+   weekly producer 必须报告 `partial_coverage`，不得阻塞被 guard 判定为允许的操作。
    GC 在同一 bounded lock 内先写/fsync archive + directory，再 commit archive ledger entry，
-   最后才 rewrite/reclaim live rows；retention 删除前先 commit tombstone/watermark。ledger 以
+   最后才 rewrite/reclaim live rows；retention 删除前先 commit tombstone/watermark。成功 reservation
+   只有在 matching row 已纳入 tail 后才可折叠；gap/outage 只有在其 closed interval 完全早于
+   retention + maximum catch-up 所允许的最早查询窗口时才可 compact，并必须把
+   `coverage_unprovable_before` watermark 与 gap digest/sequence range 留在 checksummed ledger。
+   open/unbounded gap 不得 compact；任何与 watermark/tombstone 相交的查询仍是 partial。ledger 以
    policy-bounded retained entries + compacted watermark 保持 closed maximum，legacy/no-ledger epoch
    永远不能证明 complete。在同一 lock 内，reader 从 ledger 枚举 window 应存在的全部 archive/live
    generations，拒绝 symlink/非 regular file，打开只读 handle并核对 identity/length/digest 后释放锁。
@@ -174,7 +191,8 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    schema-defined canonical UTF-8 JSON（固定 key 顺序、无 insignificant
    whitespace，数值字段仅允许整数）+ SHA-256，不包含 raw
    reason/payload/content。`summary_digest` 只对 window、scope、taxonomy、exact
-   `producer_version`、producer schema、event-set digest 与 counts 的稳定内容投影使用同一 canonical encoding +
+   `producer_version`、producer schema、`window.coverage_status`、`data_status`、closed
+   `status_reason`、event-set digest 与 counts 的稳定内容投影使用同一 canonical encoding +
    SHA-256，明确排除 `generated_at`、attempt/retry time、freshness 与 renderer metadata。
 8. internal JSON、shareable JSON 与 Markdown 都从同一个已验证 object 渲染；
    Markdown 不扫描 logs 或 taxonomy。`--shareable` 只做 allowlist projection。
@@ -182,6 +200,12 @@ vibeguard-runtime/src/observe/weekly_value.rs：
 现有 `summary` / `health` / `session` 与
 `schemas/observe-output.schema.json` 保持兼容；weekly-value 用独立 schema，不把
 share 字段挤入现有 `additionalProperties: false` contract。
+实现时必须逐一审计 planned manifest 中所有搜索出的 event v1 producer/consumer：shell/Rust
+writers 与 append adapters、hook history/build/paralysis readers、observe/hook-status/session-metrics、
+health/stats/metrics/quality/constraint/learn/false-positive consumers。legacy surface 继续读取 v1；
+v2 新字段不得破坏它们，但只有 weekly-value headline 要求 v2 typed/coverage evidence。相关
+focused shell 与 Rust CLI tests 必须同时覆盖 v1 compatibility、v2 preservation 和 unknown-version
+fail-visible 行为，不能只验证新 weekly producer。
 
 ### 4. Wrapper、文件布局与 atomic publish
 
@@ -204,13 +228,19 @@ share 字段挤入现有 `additionalProperties: false` contract。
 
 每次 atomic publish 还要在独立、append-only、versioned 的
 `~/.vibeguard/weekly-value/ownership.jsonl` 中提交 owned-artifact receipt；未来路径
-weekly-value ownership schema 约束 `artifact_id`、受限相对路径、创建时 schema/version、
-artifact digest、owner nonce 与 ledger chain digest。mutable lifecycle
+weekly-value ownership schema 约束 CSPRNG `artifact_id`（同时嵌入 artifact）、受限相对路径、
+创建时 schema/version、artifact digest/length、publish 后由 no-follow opened handle 取得的
+versioned file identity（platform file ID + device/inode/birth marker）、owner nonce 与 ledger
+chain digest。mutable lifecycle
 state 只记录已提交 ledger head，不作为唯一 ownership 证据。
-历史 retention 只按 receipt 与路径绑定证明 ownership，再应用获批上限；不能要求
-artifact 通过当前 summary schema。旧 schema 或内容损坏但 receipt 完整的 owned
-artifact 仍可有界清理；receipt 损坏/矛盾时停止删除、state=`broken`，未知文件和显式
-exports 保留。receipt/state/publish 必须通过同一 pending→atomic commit 恢复协议。
+历史 retention 在 lifecycle lock 内从安全 parent directory handle 以 no-follow 打开 candidate，
+重新计算 digest/length、读取 embedded `artifact_id` 并核对 current file identity；全部与 receipt
+一致后才可 atomic rename 到 private quarantine，重开并再次核对同一 identity 后删除。路径相同但
+inode/birth marker、digest 或 artifact ID 不同，或验证期间发生 race，必须按用户替换/unknown
+保留并把 `retention_health` 降级；不能要求 artifact 通过当前 summary schema，但旧 receipt
+必须携带可验证的 identity version 才能删除。ledger chain/nonce/head 损坏或矛盾时停止全部
+自动删除并设 `retention_health=blocked`，不得改写 `scheduler_state`。receipt/state/publish
+必须通过同一 pending→atomic commit 恢复协议。
 
 ### 5. 独立 scheduler identity 与状态机
 
@@ -231,7 +261,11 @@ schemas/weekly-value-state.schema.json 约束，至少包含：
 - `scheduler_state`: `active|disabled_by_user|unsupported_platform|broken`；
 - `artifact_state`: `current|stale|missing|invalid`；
 - `data_status`: `ok|no_data|partial_coverage|null`，其中 null 只允许没有可信 completed
-  data 的 `missing|invalid` artifact 组合；三个维度分别验证，禁止彼此覆盖；
+  data 的 `missing|invalid` artifact 组合；
+- `retention_health`: `healthy|degraded|blocked|not_initialized`；`degraded` 表示 ledger chain
+  有效但存在被保留的 legacy/identity-mismatch entry，`blocked` 表示 ledger/pending/head
+  无法验证且全部自动删除暂停，`not_initialized` 只表示从未提交 ownership receipt；
+  四个维度分别验证，禁止彼此覆盖；
 - approved consent/platform/window/taxonomy version；
 - owned job identity、expected target digest、install mode；
 - last attempt/success/window/summary digest；
@@ -242,18 +276,21 @@ schemas/weekly-value-state.schema.json 约束，至少包含：
   `repair_action` closed 为 `none|manual_enable|repair_target|retry_install`；两者只
   解释 `broken` 的恢复路径，不形成新的 lifecycle state。
 
-`scheduler_state` 不限制 artifact/data pair；每个 lifecycle 值都只能与下表八个 legal pair 组合，
-因此形成 4 × 8 的 closed legal matrix，而不是由 renderer 猜测：
+`scheduler_state` 不限制其它三个维度；每个 lifecycle 值只能与下表 25 个
+artifact/data/retention combination 组合，因此形成 exact 4 × 25 closed legal matrix，
+而不是由 renderer 猜测：
 
-| `artifact_state` | legal `data_status` | 语义 |
-| --- | --- | --- |
-| `current` | `ok|no_data|partial_coverage` | current artifact 已验证，data status 来自该 artifact |
-| `stale` | `ok|no_data|partial_coverage` | 保留上一个已验证 artifact，但 freshness 不再成立 |
-| `missing` | `null` | 从未提交可验证 artifact |
-| `invalid` | `null` | current evidence 存在但不可验证，禁止沿用旧 data status |
+| `artifact_state` | legal `data_status` | legal `retention_health` | combination 数 | 语义 |
+| --- | --- | --- | ---: | --- |
+| `current` | `ok|no_data|partial_coverage` | `healthy|degraded|blocked` | 9 | current artifact 已验证；retention failure 不改变它的数据真值 |
+| `stale` | `ok|no_data|partial_coverage` | `healthy|degraded|blocked` | 9 | 保留上一个已验证 artifact，但 freshness 不再成立 |
+| `missing` | `null` | `healthy|degraded|blocked|not_initialized` | 4 | 没有可验证 current；history ledger 可独立存在或尚未初始化 |
+| `invalid` | `null` | `healthy|degraded|blocked` | 3 | current evidence 不可验证，禁止沿用旧 data status |
 
-其它 pair、unknown enum、缺任一维度均 schema-invalid + `broken` evidence；例如
-`active+current+no_data`、`disabled_by_user+stale+ok` 合法，`active+missing+ok` 非法。
+其它 combination、unknown enum、缺任一维度均 schema-invalid，并在对应维度 fail visible；
+例如 `active+current+no_data+blocked` 与 `disabled_by_user+stale+ok+degraded` 合法，
+`active+missing+ok+healthy`、`current+ok+not_initialized` 非法。retention `blocked` 绝不把
+健康 scheduler 改写为 scheduler `broken`。
 
 install/upgrade/enable/disable/clean、scheduled/manual generation、publish 与 retention
 全部使用
@@ -262,11 +299,16 @@ install/upgrade/enable/disable/clean、scheduled/manual generation、publish 与
 执行。probe 必须验证 manager 返回 active、target/arguments 正确、wrapper/runtime/
 taxonomy 都存在且 digest 匹配；文件存在不算 active。失败只回滚本次 owned
 changes，不覆盖第三方 actor 的新内容。另保留不含 report/user data 的
-`~/.vibeguard/weekly-value/lifecycle-generation.json`：每次 enable/disable/clean 在 lock 内
-monotonic CAS generation，并写 `enabled|disabled|cleaned` + owner nonce/digest；clean 不删除该 fence。
+`~/.vibeguard/weekly-value/lifecycle-generation.json`：每次 enable/disable/clean 以及
+任何改变 wrapper/runtime/taxonomy/schema/generator inputs 的 upgrade 在 lock 内 monotonic
+CAS generation，并写 lifecycle state + exact installed snapshot digest + owner nonce/digest；
+clean 不删除该 fence。input-changing upgrade 在替换任何 input 前先提交 generation N+1
+`upgrading` 以拒绝旧 token，成功后用 N+2 提交原 consent 对应的 enabled/disabled state 与
+new snapshot digest；rollback 同样用 N+2（或更高）提交 restored snapshot，禁止复用旧 generation。
 
-scheduled/manual generator 在等待 lifecycle lock 前捕获 admission 时的 exact generation token；取得 lock 后必须
-重开 fence 并验证 `state=enabled` + matching generation，publish 前再次复核，然后才能固定 source handles，并持锁完成 validate、
+scheduled/manual generator 在等待 lifecycle lock 前捕获 admission 时的 exact generation +
+installed snapshot digest token；取得 lock 后必须重开 fence 并验证 `state=enabled` + matching
+generation/snapshot，publish 前再次复核，然后才能固定 source handles，并持锁完成 validate、
 history/current publish、ownership receipt 与 success state commit。disable/clean 先取得
 同一 lock，先推进 disabled/cleaned generation 使所有既有/queued token 失效，再停止/验证 scheduler
 inactive，最后删除 owned control state；在操作开始前已启动但仍等待 lock 的 process 取得 lock 后
@@ -289,7 +331,7 @@ inactive，最后删除 owned control state；在操作开始前已启动但仍�
   可保留，但 weekly-value state 必须 rollback/broken 且可重试。
 
 `scripts/setup/check.sh` 为 value surface 增加独立 doctor/verify section，验证
-`scheduler_state`、`artifact_state`、`data_status` 三个正交维度，以及 job manager、
+`scheduler_state`、`artifact_state`、`data_status`、`retention_health` 四个正交维度，以及 job manager、
 target digest、taxonomy、last attempt/success 和 current artifact schema/digest/
 freshness。`verify-install` 在 H-001 recommendation 和支持
 平台上把 `active|disabled_by_user` 按用户选择判定；broken/stale/未记录 consent
@@ -360,6 +402,7 @@ JSON：
     "docs/how/quickstart.md",
     "docs/how/team-rollout.md",
     "docs/reference/observability-harness.md",
+    "hooks/CLAUDE.md",
     "hooks/_lib/log_json.sh",
     "hooks/_lib/log_write.sh",
     "hooks/_lib/post_edit_history.sh",
@@ -376,14 +419,24 @@ JSON：
     "schemas/weekly-value-summary.schema.json",
     "schemas/weekly-value-taxonomy.schema.json",
     "scripts/CLAUDE.md",
+    "scripts/authorized-discard.py",
+    "scripts/constraints/count_active_constraints.py",
     "scripts/gc/gc-logs.sh",
+    "scripts/gc/gc-rule-budget.sh",
     "scripts/health-report-scheduled.sh",
+    "scripts/health-report.py",
+    "scripts/hook-health.sh",
     "scripts/install-health-report-scheduler.sh",
+    "scripts/learn/analyze.py",
+    "scripts/metrics/metrics-exporter.sh",
+    "scripts/quality-grader.sh",
     "scripts/release/payload-manifest.txt",
+    "scripts/report-false-positive.py",
     "scripts/setup/check.sh",
     "scripts/setup/clean.sh",
     "scripts/setup/com.vibeguard.weekly-value.plist",
     "scripts/setup/install.sh",
+    "scripts/stats.sh",
     "scripts/systemd/vibeguard-weekly-value.service",
     "scripts/systemd/vibeguard-weekly-value.timer",
     "setup.sh",
@@ -393,17 +446,29 @@ JSON：
     "tests/hooks/test_count_active_constraints.sh",
     "tests/hooks/test_log_injection.sh",
     "tests/hooks/test_log_locking.sh",
+    "tests/hooks/test_log_timer.sh",
     "tests/hooks/test_post_build_check.sh",
     "tests/hooks/test_post_edit_churn.sh",
+    "tests/hooks/test_pre_edit_guard.sh",
     "tests/hooks/test_precommit_nested_roots.sh",
     "tests/setup/install_flow_tests.sh",
     "tests/setup/syntax_manifest_tests.sh",
+    "tests/test_authorized_discard.sh",
     "tests/test_gc_logs_concurrent.sh",
     "tests/test_gc_logs_rotation.sh",
+    "tests/test_gc_scheduled.sh",
+    "tests/test_health_report.sh",
     "tests/test_health_report_scheduler.sh",
+    "tests/test_hook_health.sh",
+    "tests/test_hook_status.sh",
+    "tests/test_learn_adoption.sh",
     "tests/test_observability_schemas.sh",
     "tests/test_observe.sh",
     "tests/test_payload.sh",
+    "tests/test_quality_grader.sh",
+    "tests/test_report_false_positive.sh",
+    "tests/test_setup.sh",
+    "tests/test_stats.sh",
     "vibeguard-runtime/Cargo.lock",
     "vibeguard-runtime/Cargo.toml",
     "vibeguard-runtime/src/event_coverage.rs",
@@ -415,7 +480,9 @@ JSON：
     "vibeguard-runtime/src/hook_checks_tests.rs",
     "vibeguard-runtime/src/hook_checks_write.rs",
     "vibeguard-runtime/src/hook_checks_write_tests.rs",
+    "vibeguard-runtime/src/hook_input_diag.rs",
     "vibeguard-runtime/src/hook_orchestrator.rs",
+    "vibeguard-runtime/src/hook_orchestrator_context.rs",
     "vibeguard-runtime/src/hook_orchestrator_learn.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs",
@@ -425,13 +492,37 @@ JSON：
     "vibeguard-runtime/src/hook_orchestrator_pre_bash.rs",
     "vibeguard-runtime/src/hook_orchestrator_pre_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_stop.rs",
+    "vibeguard-runtime/src/hook_status.rs",
+    "vibeguard-runtime/src/hook_status_render.rs",
+    "vibeguard-runtime/src/hook_status_tests.rs",
+    "vibeguard-runtime/src/lib.rs",
     "vibeguard-runtime/src/log_append.rs",
+    "vibeguard-runtime/src/log_query.rs",
+    "vibeguard-runtime/src/log_scope.rs",
     "vibeguard-runtime/src/main.rs",
     "vibeguard-runtime/src/observe/aggregate.rs",
     "vibeguard-runtime/src/observe/mod.rs",
     "vibeguard-runtime/src/observe/model.rs",
+    "vibeguard-runtime/src/observe/prometheus.rs",
     "vibeguard-runtime/src/observe/read.rs",
-    "vibeguard-runtime/src/observe/weekly_value.rs"
+    "vibeguard-runtime/src/observe/render.rs",
+    "vibeguard-runtime/src/observe/stats_summary.rs",
+    "vibeguard-runtime/src/observe/weekly_value.rs",
+    "vibeguard-runtime/src/session_metrics/engine.rs",
+    "vibeguard-runtime/src/session_metrics/mod.rs",
+    "vibeguard-runtime/src/session_metrics/signals.rs",
+    "vibeguard-runtime/src/session_metrics/tests/mod.rs",
+    "vibeguard-runtime/src/session_metrics/tests/run.rs",
+    "vibeguard-runtime/src/session_metrics/tests/time.rs",
+    "vibeguard-runtime/src/session_metrics/time.rs",
+    "vibeguard-runtime/tests/cli.rs",
+    "vibeguard-runtime/tests/cli_hook_checks.rs",
+    "vibeguard-runtime/tests/cli_hook_orchestrator.rs",
+    "vibeguard-runtime/tests/cli_hook_post_edit.rs",
+    "vibeguard-runtime/tests/cli_hook_pre_edit.rs",
+    "vibeguard-runtime/tests/cli_log_commands.rs",
+    "vibeguard-runtime/tests/hook_status_cli.rs",
+    "vibeguard-runtime/tests/observe_cli.rs"
   ],
   "spec_refs": [
     "docs/specs/GH703/product.md",
@@ -454,7 +545,7 @@ JSON：
 | B-007 registration failure rollback | lifecycle snapshot/probe/rollback | `bash tests/test_setup.sh` launchd/systemd write/load/probe failure matrix; setup completion absent and owned before-state restored |
 | B-008 exact half-open window metadata | weekly-value CLI parser and wrapper window calculator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_window`; shell fixtures cover timezone/DST boundary |
 | B-009 bounded catch-up and stable window idempotence | wrapper history/current commit + stable content projection | `bash tests/test_health_report_scheduler.sh` missed-run + repeated same-window fixture changes retry/generated times but reuses one digest-bound artifact |
-| B-010 no-data/partial coverage has no counts | weekly-value producer + summary schema | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_no_data`; both states reject numeric headline counts in Markdown/JSON |
+| B-010 no-data/partial coverage has no counts | weekly-value producer + summary schema | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_no_data`; complete empty is no-data，empty + missing archive/ledger is partial，both reject numeric headline counts |
 | B-011 corrupt evidence publishes nothing new | schema/taxonomy/state readers + atomic publisher | `bash tests/test_health_report_scheduler.sh` malformed log/taxonomy/state/current fixtures preserve old current and exit nonzero |
 | B-012 taxonomy version/category closure | taxonomy schema and loader | schema tests plus `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_taxonomy` unknown/missing/version mismatch cases |
 | B-013 one category per event | Rust exact classifier | overlapping schema-valid taxonomy fixture exits nonzero; mapping-order permutations produce same result |
@@ -468,25 +559,25 @@ JSON：
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
 | B-022 secure atomic local writes | wrapper temp/permission/symlink checks | interrupted write, mode 0600, same-dir rename, symlink/non-owned-output negative fixtures |
 | B-023 health/value surfaces independent | wrapper/installer closed surface dispatch | `bash tests/test_health_report_scheduler.sh` installs/disables each identity independently and compares outputs |
-| B-024 bounded owned retention | durable ownership receipts + value history cleanup | stale/fresh/boundary/manual-export fixtures prove only receipt-bound expired history is removed |
+| B-024 bounded owned retention | current-identity receipts + value history cleanup | stale/fresh/boundary/manual-export fixtures prove only expired entries whose opened file ID/digest/artifact ID still match are removed；same-path user replacement is preserved |
 | B-025 existing health job migration safety | migration detector | legacy launchd/cron fixtures remain byte-identical while new value state does not claim legacy consent |
 | B-026 disabled state survives upgrade | weekly-value state schema + setup migration | two-version install fixture keeps `disabled_by_user`; missing-field fixture follows approved visible migration |
 | B-027 legal transitions require probe | lifecycle transition gate | direct file injection/history-only/executable-only fixtures remain non-active; explicit enable + probe becomes active |
-| B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/disable/clean racing generator/retention yields no late publish; one actor commits and the other visibly times out/rolls back |
+| B-028 concurrent lifecycle/generation serialization | shared bounded lifecycle lock | install/upgrade/disable/clean racing generator/retention yields no late publish；upgrade success/rollback advances generation and stale actor visibly exits |
 | B-029 clean removes only owned control state | setup clean + installer remove | `bash tests/test_setup.sh` preserves third-party jobs/history/exports by default and deletes owned reports only with approved purge |
-| B-030 doctor/verify orthogonal state truth | setup check three-dimension evaluator | matrix covers lifecycle × freshness × data status, including active+no_data and active+stale, plus target/digest drift |
+| B-030 doctor/verify orthogonal state truth | setup check four-dimension evaluator | matrix covers lifecycle × freshness/data × retention health，including active+no_data+blocked-retention，plus target/digest/ownership drift |
 | B-031 checkout/payload parity | payload manifest and no-clone smoke | `bash tests/test_payload.sh` exact schema/taxonomy/count/digest parity, no Python/network/checkout |
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` current clients accepted; unknown/incompatible/missing-identity evidence excluded with coverage gap |
-| B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest; tampered evidence/window/taxonomy changes alter/reject digest |
+| B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | versioned coverage ledger + GC-compatible snapshot reader | `bash tests/test_gc_logs_rotation.sh` and concurrent fixtures cover cross-month/overflow archives, pre-scan loss, deletion tombstones/watermark, GC race, pending/gap, missing/corrupt archive and bounded scan |
-| B-036 structured classification at creation | event schema v2 + all Rust/shell writers/callers | `bash tests/test_observability_schemas.sh`, hook fixtures and Rust unit tests require contract-versioned typed fields, typed protocol codes, durable append-failure gap and reject free-text/taxonomy-at-write derivation |
+| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + GC-compatible reader | GC/concurrent fixtures cover pre-scan loss，time-bounded gap/outage，safe watermark compaction，missing/corrupt archive and ledger+spool failure；`bash tests/hooks/test_pre_edit_guard.sh` proves coverage failure never changes guard decision/exit semantics |
+| B-036 structured classification at creation | event schema v2 + all Rust/shell writers and searched v1 consumers | schema/hook/Rust CLI fixtures require contract-versioned typed fields and typed protocol codes while preserving v1 health/stats/metrics/session/history consumers；unknown schema is fail-visible |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read fixture preserves ID; copy dedupes, real retry differs, legacy/duplicate ID downgrades coverage |
 | B-038 headline publication gate | summary schema + all renderers | empty, partial and invalid evidence fixtures assert null/absent counts in internal/share/Markdown; complete nonempty evidence may contain true zero |
-| B-039 stable summary digest | canonical stable-content projection | same evidence with different generated/attempt/renderer metadata yields identical digest；exact producer version/event/taxonomy/window changes differ |
-| B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 8 scheduler × artifact/data table proves no dimension overwrites another；every omitted/extra/unknown pair fails visible |
-| B-041 generation/lifecycle exclusion | one lifecycle lock + monotonic generation tombstone + pending transaction | deterministic barriers race publish/retention against disable/clean/upgrade，包括 pre-clean queued waiter；old token zero-write exits，success is impossible before generator quiescence |
-| B-042 version-independent ownership | versioned owned-artifact receipts | old-schema and corrupt-owned fixtures remain bounded; corrupt receipt stops deletion and all unknown/manual files remain byte-identical |
+| B-039 stable summary digest | canonical stable-content projection | same evidence with different generated/attempt/renderer metadata yields identical digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
+| B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 25 scheduler × artifact/data/retention table proves no dimension overwrites another；every omitted/extra/unknown combination fails visible |
+| B-041 generation/lifecycle exclusion | one lifecycle lock + snapshot-bound generation fence + pending transaction | deterministic barriers race publish/retention against disable/clean/input-changing upgrade；pre-operation queued waiter with old generation/snapshot token exits zero-write，including upgrade success and rollback |
+| B-042 current-object ownership | versioned receipt + no-follow current identity verification | matching old identity versions may be bounded；same-path replace/in-place edit/symlink/race/corrupt ledger fixtures preserve candidate，set degraded/blocked retention health and keep scheduler truth unchanged |
 
 ## 数据流
 
@@ -496,19 +587,23 @@ JSON：
    lock 内 plan/snapshot/apply/probe/commit 独立 value job 与 state。
 3. scheduler 计算获批的 exact half-open window，并显式调用 installed wrapper 的
    `--surface value`。
-4. wrapper 在 lifecycle lock 内从 coverage ledger 打开一个封闭的 live+retained-archive source snapshot；
+4. wrapper 在 lifecycle lock 内 reconcile coverage ledger + side-channel spool，再打开一个封闭的
+   live+retained-archive source snapshot；reader 用 checkpoint、time-bounded gap 与 watermark 判断
+   coverage，空 event set 不覆盖 archive/ledger 缺口。
    reader 只接受 event schema v2 的 stable ID/typed classification evidence，legacy/
    corrupt/missing archive 使 coverage 降级且不发布 headline。
 5. Rust `observe weekly-value` 按 `event_id` 去重，并以 event v2 的 exact typed
    decision/rule/reason/contract version 做 closed protocol mapping；versioned taxonomy
    再分其余 rule/operational categories。GH-706 free-text classifier 只供 legacy display，
    producer 不解析 reason/detail，legacy evidence 不进入 headline。
-6. producer 构造一个 schema-valid internal object，并从稳定内容投影计算 evidence/
-   summary digests；generated/attempt/renderer metadata 不参与 identity。JSON、Markdown
+6. producer 构造一个 schema-valid internal object，并从包含 coverage/data/status reason 的
+   稳定内容投影计算 evidence/summary digests；generated/attempt/renderer metadata 不参与 identity。JSON、Markdown
    和后续显式 export 都从该 object 渲染。
-7. wrapper 在同目录安全写 temp、验证、atomic publish history/current，原子提交
-   ownership receipt 与 attempt/success state，再按 receipt 做 bounded retention。
-8. doctor/verify 分别读取 scheduler lifecycle、artifact freshness 与 data status，并
+7. wrapper 在同目录安全写 temp、验证、atomic publish history/current，原子提交绑定
+   current file identity/digest/artifact ID 的 ownership receipt 与 attempt/success state；retention
+   重新打开并复核 current identity 后才可 quarantine/delete。
+8. doctor/verify 分别读取 scheduler lifecycle、artifact freshness、data status 与
+   retention health，并
    重新验证 manager、target、state、taxonomy 和 current artifact；
    explicit export 只从验证后的 current object 生成 allowlisted projection，
    并写入用户指定本地新文件。
@@ -561,7 +656,7 @@ bootstrap 边界，不属于 summary producer。
 - **Performance**：周度扫描可能遇到大量 gzip archives。获批 H-004/H-007 必须固定
   file/byte/time budgets；snapshot 打开 handle 后可释放 GC lock，但 generator 仍持有
   lifecycle lock。任何超限只能 partial/failed，不能截断后声称 complete。
-- **Concurrency / data loss**：GC rotation、generator publish 与 disable/clean 可能
+- **Concurrency / data loss**：GC rotation、generator publish 与 disable/clean/upgrade 可能
   交错。source 使用既有 log lock，report lifecycle 使用单一 bounded lock，并用
   deterministic race fixtures 证明没有 missing archive 或 lifecycle 成功后的 late publish。
 - **Maintenance**：taxonomy 与 GH-700 failure classes 可能漂移。版本、digest、
@@ -571,16 +666,18 @@ bootstrap 边界，不属于 summary producer。
 
 ## 测试计划
 
-- [ ] Schema/unit：event v2、coverage ledger、taxonomy、summary、state/ownership schema；Rust
+- [ ] Schema/unit：event v2、coverage ledger/spool、taxonomy、summary、state/ownership schema；Rust
   window/category/dedupe/accounting/canonical encoding/stable digest/render tests；critical
   privacy/classification paths 100%。
-- [ ] Observe integration：Rust/shell typed writer parity、live+gzip archives、GC race、
+- [ ] Observe integration：Rust/shell typed writer parity、all searched v1 consumer compatibility、
+  hook-decision preservation on ledger+spool failure、live+gzip archives、GC race、
   legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/
   partial、old/invalid taxonomy、cross-render parity 和 sentinel。
 - [ ] Scheduler lifecycle：launchd/systemd plan/apply/probe/rollback、legacy health
-  preservation、repeat/concurrent install、missed run、generation-vs-disable/clean race、
-  receipt-based cross-version/corrupt retention、pre-clean queued generator fence、interrupt recovery。
-- [ ] Setup lifecycle：默认 plan disclosure、`--no-weekly-value`、unsupported、
+  preservation、repeat/concurrent install、missed run、generation-vs-disable/clean/upgrade race、
+  current-identity retention、same-path user replacement、pre-clean/pre-upgrade queued generator fence、
+  interrupt recovery。
+- [ ] Setup lifecycle：默认 plan disclosure、`--no-weekly-value`、unsupported、exact 4 × 25
   orthogonal-state doctor/verify matrix、clean/purge ownership。
 - [ ] Payload：无 Python/checkout/network 的 unpacked payload install → scheduled
   summary → doctor → clean；checkout/payload exact semantic parity。
