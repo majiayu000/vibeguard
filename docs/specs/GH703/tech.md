@@ -131,8 +131,9 @@ archive_missing > archive_tombstoned > legacy_evidence > snapshot_changed > budg
 且 `event_count > 0`。内部
 artifact 可带 closed evidence digests；shareable projection 使用
 同一 schema 的专用 `$defs.shareable` 或第二个 closed variant，只允许 H-005 的
-窗口、coverage、taxonomy version、headline/other counts、generated time 与
-`summary_digest`，不含 source digests 或本地身份。
+窗口、coverage、`data_status`、closed `status_reason`、taxonomy version、headline/other
+counts、generated time 与 `summary_digest`，不含 source digests 或本地身份。share renderer
+不得删去状态字段；consumer 必须能区分 complete-empty 与每种 partial reason。
 
 ### 3. Rust `observe weekly-value` producer
 
@@ -154,8 +155,9 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    length/digest，以及 retention tombstone 和 `earliest_provable_window_start` watermark。
    authority 在每个 cadence deadline 前 durable append+fsync digest-linked
    `{authority_id, authority_epoch, heartbeat_sequence, heartbeat_at, expires_at}`；下一 heartbeat
-   必须引用前一 digest，且不得把迟到 heartbeat 回填为连续。每个 canonical Rust/shell writer
-   入口在任何 event ID/CSPRNG/classification/append 工作前必须同步进入 authority，在同一 journal
+   必须引用前一 digest，且不得把迟到 heartbeat 回填为连续。每个 canonical Rust/shell/Python
+   authorized-discard writer 入口在任何 event ID/CSPRNG/classification/append 工作前必须同步进入
+   authority，在同一 journal
    durable 分配严格递增且不复用的 `{authority_epoch, attempt_sequence, attempted_at}` reservation token；
    canonical entrypoint 不得自行合成、缓存或跳过 token。writer 再把该 token 与 conservative half-open
    `coverage_interval` 写入 ledger，主 ledger 不可写时写入 spool；时钟不可信时，interval 从
@@ -167,11 +169,15 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    不能因为重试或后来 heartbeat 成功而抹去。writer 必须保留原 guard decision、blocking 语义和退出码，
    同时向 stderr/closed diagnostic 发出 `coverage_recording_failed`。
 
-   authority lock/journal/fsync、writer-to-authority handoff 或 heartbeat 任一步失败时，当前 authority
-   epoch 必须立即进入不可续租的 `invalid`，不得继续发 heartbeat/token。恢复必须创建新 epoch，并先
-   durable commit `{last_trusted_heartbeat_at, recovered_at, reason, prior_epoch}` recovery gap；若进程
-   crash/suspend/reboot 而未能记录即时 failure，15 分钟 expiry 本身使旧 epoch 失效，新进程同样从
-   最后可信 heartbeat 开始记录 recovery gap，不能续接旧链。reader 要求 digest-linked heartbeat lease
+   writer-to-authority handoff 使用独立于 journal 的 authority-owned ingress fence。launcher 必须先
+   atomic claim `{fence_generation, invocation_nonce, claimed_at, lease_expires_at}` slot；authority 只有在
+   fsync `ingress_open` 与 matching attempt reservation 后才返回短租约 acknowledgement。heartbeat
+   续租为 two-phase fence：先封闭当前 generation、禁止旧 generation 新 claim，再确认全部 claimed
+   slots 已 acknowledged/closed；任一 unacknowledged/expired slot，或 fence/journal/lock probe 失败，
+   都禁止 commit 下一 heartbeat，使旧 lease 自然 expiry。launcher 可继续原 guard decision，但
+   inaccessible journal 的旧 epoch 不能授权 complete coverage。恢复必须创建新 fenced epoch，并先
+   durable commit 从 `min(last_trusted_heartbeat_at, earliest_unacknowledged_claim_at)` 到
+   `recovered_at` 的 recovery gap；crash/suspend/reboot 同样不能续接旧链。reader 要求 digest-linked heartbeat lease
    无空洞覆盖整个查询 window、heartbeat 未过期、authority/attempt sequence 连续、每个 reservation
    都匹配 committed row 或 closed gap；连续链 + 空 reservation/event set 才证明 complete-empty，任何
    pending/gap/expiry/recovery interval 相交都必须报告 `partial_coverage`。这样 quiet window 与
@@ -181,14 +187,19 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    只有在 matching row 已纳入 tail 后才可折叠；gap/outage 只有在其 closed interval 完全早于
    retention + maximum catch-up 所允许的最早查询窗口时才可 compact，并必须把
    `coverage_unprovable_before` watermark 与 gap digest/sequence range 留在 checksummed ledger。
-   open/unbounded gap 不得 compact；任何与 watermark/tombstone 相交的查询仍是 partial。ledger 以
+   authority journal 按 cadence bucket 有界 compact：closed bucket 把 attempts 压成 first/last sequence、
+   count、event-tail/root digest 的一个 checkpoint；含任一 pending/unacknowledged/gap 的 bucket 保留一个
+   覆盖整个 bucket 的 conservative gap 与 sequence-range/root，不能变成 complete。先 fsync 新 generation，
+   引用 prior root，再 atomic swap 并保留两代；current/open bucket 不 compact。hard bound 为
+   `ceil((retention + maximum_catch_up + heartbeat_expiry) / heartbeat_cadence) + 3` 个 bucket/checkpoint
+   records，超限必须 partial/error，禁止静默丢 proof。任何与 watermark/tombstone 相交的查询仍是 partial。ledger 以
    policy-bounded retained entries + compacted watermark 保持 closed maximum，legacy/no-ledger epoch
    永远不能证明 complete。在同一 lock 内，reader 从 ledger 枚举 window 应存在的全部 archive/live
    generations，拒绝 symlink/非 regular file，打开只读 handle并核对 identity/length/digest 后释放锁。
    后续只读已打开 handle 的 snapshot length；expected entry 缺失、gap/pending/tombstone 覆盖 window、
    ledger chain/digest 不匹配、超限、短读或枚举变化都是 `partial_coverage`/error，不能仅凭当前存在
    的文件集合声称 complete。
-3. `schemas/event-log.schema.json` 增加 closed schema v2。Rust 与 shell canonical
+3. `schemas/event-log.schema.json` 增加 closed schema v2。Rust、shell 与 Python authorized-discard canonical
    writer 在首次 append 前必须持久化 `event_id`、`classification_status`、nullable
    `rule_id`、nullable `reason_code`、`classification_source`、
    `classification_contract_version` 与 `classification_contract_digest`；block/value-eligible
@@ -196,7 +207,9 @@ vibeguard-runtime/src/observe/weekly_value.rs：
    不得由 `reason`/`detail` regex、substring 或 renderer 反推。这个最小合同由
    GH-703 自己实现；GH-704 可在将来消费/扩展，但不是批准或实现前置条件。
    `classification_status` closed 为 `typed|not_applicable|unclassified`，
-   `classification_source` closed 为 `rust_decision|shell_decision`；`typed` 只要求
+   `classification_source` closed 为
+   `rust_decision|shell_decision|python_authorized_discard_decision`；Python value 只允许
+   `scripts/authorized-discard.py` 的 typed canonical boundary，不能作为任意 Python alias。`typed` 只要求
    matching producer contract 允许的非空 rule/reason identity，不绑定
    event 创建后的任何 taxonomy snapshot；当前 taxonomy eligibility 始终由第 5 步 reader 计算。
    `not_applicable` 只允许明确不进入 value taxonomy 的 event，`unclassified` 使包含它的 window
@@ -590,7 +603,7 @@ JSON：
 | B-016 full block accounting and GH-706 separation | aggregate cross-check + weekly classifier | `cargo test --manifest-path vibeguard-runtime/Cargo.toml weekly_value_accounting`; `bash tests/test_observe.sh` parity |
 | B-017 stable canonical event identity dedupe | event v2 writer + live/archive reader | copied/rotated same `event_id` counts once; two writer-created retries count twice; path/offset changes do not affect identity |
 | B-018 cross-render parity | one validated summary object + renderers | `bash tests/test_observe.sh` compares JSON/Markdown/current/share counts and digest for exact inputs |
-| B-019 share field allowlist | shareable schema projection | schema-valid key-set positive and each-extra-field negative fixture |
+| B-019 share field allowlist | shareable schema projection | schema-valid key-set requires explicit `data_status` + closed `status_reason` for no-data/partial cases, rejects either missing/null when disallowed, and rejects each extra field；digest verification binds both status fields |
 | B-020 sensitive fields absent | share privacy firewall | adversarial sentinel scan in `bash tests/test_observe.sh` and `bash tests/test_health_report_scheduler.sh` |
 | B-021 no automatic egress or clipboard | wrapper/runtime static and dynamic fixtures | `bash tests/test_payload.sh` PATH stubs fail on network/open/clipboard commands; explicit local writes still pass |
 | B-022 secure atomic local writes | wrapper temp/permission/symlink checks | interrupted write, mode 0600, same-dir rename, symlink/non-owned-output negative fixtures |
@@ -606,8 +619,8 @@ JSON：
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` current clients accepted; unknown/incompatible/missing-identity evidence excluded with coverage gap |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest；tampered coverage/data/status reason/evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + independent monotonic coverage authority + GC-compatible reader | continuous 5m heartbeat over an empty window proves no-data；dual ledger/spool loss leaves an unresolved authority attempt sequence and is partial；late/missing heartbeat、authority crash/restart、15m expiry and recovery gap are partial；H-004-selected file/byte/time budget boundaries deterministically produce complete or `budget_exceeded`；GC/concurrent fixtures cover pre-scan loss、safe watermark compaction and missing/corrupt archive；`bash tests/hooks/test_pre_edit_guard.sh` proves coverage failure never changes guard decision/exit semantics |
-| B-036 structured classification at creation | event schema v2 + all Rust/shell writers, `hook_checks_bash.rs`, and searched v1 consumers | `vibeguard-runtime/tests/cli_hook_checks.rs` and `bash tests/hooks/test_pre_bash_guard.sh` require pre-Bash typed decision reason codes before orchestrator logging；remaining schema/hook/Rust CLI fixtures preserve v1 health/stats/metrics/session/history consumers and make unknown schema fail visible |
+| B-035 closed live+archive snapshot | versioned coverage ledger + side-channel spool + fenced bounded coverage authority + GC-compatible reader | failed handoff leaves an unacknowledged ingress fence and prevents heartbeat renewal；expiry/recovery is partial；checkpoint/compaction keeps two generations, chain roots, sequences and unresolved gaps within the catch-up horizon；continuous 5m heartbeat over empty input proves no-data；dual store loss、budget boundaries、GC races and missing/corrupt archives remain covered；hook guard result/exit is unchanged |
+| B-036 structured classification at creation | event schema v2 + Rust/shell/Python authorized-discard writers, `hook_checks_bash.rs`, and searched v1 consumers | pre-Bash tests require typed reason codes；`bash tests/test_authorized_discard.sh` requires `python_authorized_discard_decision` from the typed Python boundary；remaining schema/hook/Rust CLI fixtures preserve v1 consumers and make unknown schema fail visible |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read fixture preserves ID; copy dedupes, real retry differs, legacy/duplicate ID downgrades coverage |
 | B-038 headline publication gate | summary schema + all renderers | empty, partial and invalid evidence fixtures assert null/absent counts in internal/share/Markdown; complete nonempty evidence may contain true zero |
 | B-039 stable summary digest | canonical stable-content projection + fixed status precedence | permutations of the same simultaneous failure facts select the same highest-precedence reason/digest；generated/attempt/renderer metadata changes preserve digest；exact coverage/data/status reason/producer version/event/taxonomy/window changes differ |
@@ -642,7 +655,7 @@ JSON：
 8. doctor/verify 分别读取 scheduler lifecycle、artifact freshness、data status 与
    retention health，并
    重新验证 manager、target、state、taxonomy 和 current artifact；
-   explicit export 只从验证后的 current object 生成 allowlisted projection，
+   explicit export 只从验证后的 current object 生成包含 `data_status`/`status_reason` 的 allowlisted projection，
    并写入用户指定本地新文件。
 
 自动生成与默认安装没有网络输出；GH-699 release 下载发生在其既有、单独的 verified
@@ -707,9 +720,9 @@ bootstrap 边界，不属于 summary producer。
 - [ ] Schema/unit：event v2、coverage ledger/spool/authority heartbeat+attempt chain、taxonomy、summary、state/ownership schema；Rust
   window/category/dedupe/accounting/canonical encoding/stable digest/render tests；critical
   privacy/classification paths 100%。
-- [ ] Observe integration：Rust/shell typed writer parity、all searched v1 consumer compatibility、
-  complete-empty continuous heartbeat、dual ledger/spool loss unresolved sequence、authority expiry/restart
-  recovery gap、hook-decision preservation on coverage failure、live+gzip archives、GC race、
+- [ ] Observe integration：Rust/shell/Python authorized-discard typed writer parity、all searched v1 consumer compatibility、
+  complete-empty continuous heartbeat、failed-handoff ingress fence、dual ledger/spool loss unresolved sequence、
+  authority expiry/restart recovery gap、bounded checkpoint/compaction、hook-decision preservation、live+gzip archives、GC race、
   legacy identity、mixed categories、GH-706 protocol split、unknown host、no-data/
   partial、old/invalid taxonomy、cross-render parity 和 sentinel。
 - [ ] Scheduler lifecycle：launchd/systemd heartbeat+weekly-output plan/apply/probe/rollback、legacy health

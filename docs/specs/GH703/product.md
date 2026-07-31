@@ -29,7 +29,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 | H-002 | 平台与 scheduler | `macos_launchd_linux_systemd`；同一 owned value scheduler 同时承载本地 coverage-authority heartbeat，Draft cadence/expiry 为 5/15 分钟；Windows 明确 `unsupported`，不得回退 cron 或伪报成功 | Linux 继续 `cron`；仅 macOS；不同 heartbeat cadence/expiry | 未批准 |
 | H-003 | 价值 taxonomy 与 decision 集 | `versioned_local_taxonomy`：独立、闭集、版本化；headline 只统计已批准的真实 rule `block`，与 GH-700 名称对齐但不等待其实现 | 与 GH-700 共用同一 taxonomy 并形成硬依赖；统计 `block+correction` | 未批准 |
 | H-004 | window、scope、catch-up 与 snapshot budgets | `previous_local_calendar_week_global`：用户本地时区、上一个完整周、global scope；首次不足整周标 `partial_coverage`，missed run 最多补一次；批准时还必须固定 `max_source_files`、`max_uncompressed_bytes`、`max_snapshot_elapsed_ms`，本 Draft 不替维护者填写数值 | rolling 7 days；per-project 周报；UTC calendar week；不同 bounded budget values | 未批准 |
-| H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、taxonomy version 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
+| H-005 | privacy 与 export | `allowlisted_local_export`：默认仅本地；分享文件只含闭集计数、窗口、coverage、`data_status`、`status_reason`、taxonomy version 和摘要 digest；分享必须由用户显式导出，无网络/剪贴板副作用 | 含 rule IDs 的扩展分享；显式上传集成 | 未批准 |
 | H-006 | 用户 surface | `separate_value_summary`：简洁 value summary 与完整 maintainer health report 分离，均支持 Markdown/JSON | 在完整 health report 顶部增加可分享 section；仅 Markdown | 未批准 |
 | H-007 | install/upgrade/disable/clean 生命周期 | `transactional_owned_job`：只管理 VibeGuard-owned job 与独立 coverage-authority state，失败不报告安装完成，opt-out 跨升级保留，clean 移除 job 但默认保留报告 | scheduler/authority 失败只降级为 warning；clean 默认删除报告 | 未批准 |
 | H-008 | host coverage | `canonical_log_all_supported_hosts`：统计所有能写 canonical event log 的当前受支持 host，不等待 GH-701；未知/不兼容 host 不进入 headline | 仅 Claude/Codex；等待 GH-701 adapter registry | 未批准 |
@@ -118,7 +118,9 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     current artifact 与 shareable projection 必须给出完全相同的计数和
     `summary_digest`；任何一个 renderer 不得自行重算分类。
 19. B-019 shareable projection 只能包含 H-005 批准的 allowlist 字段。字段缺失与
-    空值必须保持可区分；未在 allowlist 的字段即使为空也不得输出。
+    空值必须保持可区分；`data_status` 与 closed `status_reason` 必须显式输出，使
+    complete-empty、partial 与 invalid 可区分，并与 `summary_digest` 绑定。未在 allowlist
+    的字段即使为空也不得输出。
 20. B-020 shareable projection 不得包含或派生输出 project/repository 名称或
     hash、absolute path、host login、session/request/event ID、rule ID、
     free-text reason/detail、command、file content、prompt、token、secret 或原始
@@ -185,16 +187,21 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     必须形成明确 gap；authority heartbeat 过期、sequence 不连续或 authority 恢复为新 epoch 时，
     从最后可信 heartbeat 到 durable recovery checkpoint 的区间同样是 gap。只有 heartbeat 链完整
     覆盖整个 window、全部 attempt sequence 已闭合且 source snapshot 有效时，空 event set 才可成为
-    `no_data`；任一 gap 相交都必须为 `partial_coverage`。coverage reservation/spool/authority 失败
-    不得改变原 guard decision、blocking 语义或退出码，但必须产生 visible telemetry。
+    `no_data`；任一 gap 相交都必须为 `partial_coverage`。每个 canonical launcher 必须先通过独立
+    authority ingress fence 取得短租约和 durable acknowledgement；handoff 失败会留下未确认 fence，
+    阻止旧 epoch 续租，expiry/recovery 后只能产生 gap。authority journal 必须按最大 retention/catch-up
+    horizon 做有界、可验证 checkpoint/compaction，不能丢失未闭合 sequence 或 gap 证明。
+    coverage reservation/spool/authority 失败不得改变原 guard decision、blocking 语义或退出码，
+    但必须产生 visible telemetry。
 36. B-036 进入 value taxonomy 的事件必须在 canonical event 创建边界持久化 closed、
     schema-versioned `event_id`、`rule_id`、`reason_code`、classification status 与
     classification contract version/digest；status 只证明 typed producer contract，不得提前
     声称当前 taxonomy 接受该 mapping。GH-703
     自己拥有这个最小 producer/schema 合同，不依赖 GH-704 获批或实现。缺失、未知、
     不一致或由 free text 反推的 identity 不得进入 value headline，并使 coverage 可见降级。
-    v2 protocol evidence 同样必须是 closed typed reason code；GH-706 free-text classifier 只可
-    读取 legacy rows，且任何 legacy row 都使 coverage 降级。
+    v2 protocol evidence 同样必须是 closed typed reason code；Rust、shell 与 Python
+    `authorized-discard` canonical writers 必须使用各自真实的 closed classification source。
+    GH-706 free-text classifier 只可读取 legacy rows，且任何 legacy row 都使 coverage 降级。
 37. B-037 `event_id` 必须在事件首次持久化时生成并随记录在 live/archive/compaction 间
     byte-stable 保留；复制同一 event 仍是同一 identity，真实新 attempt 即使其余字段相同
     也必须得到新 identity。legacy row 无此 identity 时不得用 path/offset/content 猜测补齐。
@@ -248,7 +255,7 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   连续且未过期的 authority heartbeat + 空 attempt set 可证明 complete-empty；dual ledger/spool loss
   留下未闭合 authority sequence，authority expiry/restart 留下有界 recovery gap，两者都只能 partial；
   coverage side-channel/authority 失败不会改变原 guard decision/exit semantics。
-- [ ] canonical writer 在 Rust 与 shell 路径持久化 closed event/rule/reason identities；
+- [ ] canonical writer 在 Rust、shell 与 Python authorized-discard 路径持久化 closed event/rule/reason identities；
   free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
 - [ ] 同一 window 的重试在 GC/compaction、renderer 和生成时间变化后仍保持同一
   `summary_digest`；真实新 event 或 coverage/data/status-reason/producer-version 变化改变 digest。
