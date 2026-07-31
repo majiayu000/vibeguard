@@ -88,11 +88,18 @@ setup_lock_acquire() {
     yellow "  Reclaimed stale VibeGuard setup lock (pid ${owner_pid})"
   fi
 
+  local owner_nonce_value="$$-$(date +%s)-${RANDOM:-0}"
   _VG_SETUP_LOCK_DIR="${lock_dir}"
   _VG_SETUP_LOCK_OWNER="pid=$$
-nonce=$$-$(date +%s)-${RANDOM:-0}"
-  if ! printf '%s\n' "${_VG_SETUP_LOCK_OWNER}" > "${owner_file}"; then
-    rmdir -- "${lock_dir}" 2>/dev/null || true
+nonce=${owner_nonce_value}"
+  if ! setup_runtime setup-lock-publish-owner \
+    "${lock_dir}" "$$" "${owner_nonce_value}"; then
+    if ! rm -f -- "${owner_file}"; then
+      red "ERROR: failed to clean partial setup lock owner: ${owner_file}"
+    fi
+    if ! rmdir -- "${lock_dir}"; then
+      red "ERROR: failed to clean setup lock directory after owner publication failure: ${lock_dir}"
+    fi
     _VG_SETUP_LOCK_DIR=""
     _VG_SETUP_LOCK_OWNER=""
     return 1

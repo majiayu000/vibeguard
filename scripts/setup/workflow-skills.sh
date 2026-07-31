@@ -4,6 +4,12 @@
 disabled_skills_source_label() {
   if [[ -n "${VIBEGUARD_DISABLED_SKILLS+x}" ]]; then
     printf '%s\n' "temporary VIBEGUARD_DISABLED_SKILLS override"
+  elif [[ -n "${_VG_CONFIG_FILE:-}" ]]; then
+    printf '%s\n' "${_VG_CONFIG_FILE}"
+  elif [[ -n "${VIBEGUARD_CONFIG_FILE:-}" ]]; then
+    printf '%s\n' "${VIBEGUARD_CONFIG_FILE}"
+  elif [[ -n "${VIBEGUARD_LOG_DIR:-}" ]]; then
+    printf '%s\n' "${VIBEGUARD_LOG_DIR%/}/config.json"
   else
     printf '%s\n' "~/.vibeguard/config.json"
   fi
@@ -115,7 +121,7 @@ report_skill_restore() {
   declare -F state_is_tracked_path >/dev/null || return 0
   if state_is_tracked_path "${dest}"; then
     yellow "  RESTORING ${skill}: previously installed by VibeGuard and since deleted."
-    yellow "    To keep it removed, add \"${skill}\" to \"disabled_skills\" in ~/.vibeguard/config.json."
+    yellow "    To keep it removed, add \"${skill}\" to \"disabled_skills\" in $(disabled_skills_source_label)."
     return 0
   fi
   tracked_rc=$?

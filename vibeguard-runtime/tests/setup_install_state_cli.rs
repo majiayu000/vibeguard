@@ -22,7 +22,19 @@ fn setup_state_commands_reject_invalid_arity_with_exact_usage() {
     let cases = [
         (
             "setup-state-init",
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages>",
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation]",
+        ),
+        (
+            "setup-state-generation",
+            "Usage: vibeguard-runtime setup-state-generation <state-file>",
+        ),
+        (
+            "setup-state-mark-complete",
+            "Usage: vibeguard-runtime setup-state-mark-complete <state-file>",
+        ),
+        (
+            "setup-lock-publish-owner",
+            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce>",
         ),
         (
             "setup-state-record-file",
@@ -87,8 +99,17 @@ fn init_and_record_commands_persist_expected_schema() {
     assert_output(&output, 0, "", "");
     let initialized = read_json(&state);
     assert_eq!(initialized["version"], 1);
+    assert_eq!(initialized["generation"], 1);
+    assert_eq!(initialized["complete"], false);
     assert_eq!(initialized["profile"], "full");
     assert_eq!(initialized["languages"], json!(["rust", "python"]));
+
+    let generation = run(&root, &["setup-state-generation", &path_text(&state)]);
+    assert_output(&generation, 0, "INCOMPLETE\t1\n", "");
+    let completed = run(&root, &["setup-state-mark-complete", &path_text(&state)]);
+    assert_output(&completed, 0, "", "");
+    let generation = run(&root, &["setup-state-generation", &path_text(&state)]);
+    assert_output(&generation, 0, "COMPLETE\t1\n", "");
     assert_eq!(initialized["repo_dir"], "/repo/source");
     assert_eq!(initialized["files"], json!({}));
     let installed_at = initialized["installed_at"]
@@ -96,7 +117,7 @@ fn init_and_record_commands_persist_expected_schema() {
         .expect("installed_at should be a string");
     assert!(installed_at.len() >= 10);
     assert!(installed_at.chars().all(|ch| ch.is_ascii_digit()));
-    assert_eq!(initialized.as_object().unwrap().len(), 6);
+    assert_eq!(initialized.as_object().unwrap().len(), 8);
 
     let no_home_state = root.join("no-home-state.json");
     let no_home = bin()
@@ -676,6 +697,21 @@ fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
         "",
         "vibeguard-runtime error: install-state files must be an object\n",
     );
+
+    for invalid_state in [
+        r#"{"version":"1","files":{}}"#,
+        r#"{"version":1,"files":{"/managed":[]}}"#,
+        r#"{"version":1,"files":{"/managed":{"source":7,"type":"copy","checksum":"sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"}}}"#,
+        r#"{"version":1,"files":{"/managed":{"source":"skills/plan-flow/SKILL.md","type":"copy","checksum":"bad"}}}"#,
+    ] {
+        fs::write(&state, invalid_state).expect("invalid state should be written");
+        let invalid_entry = run(
+            &root,
+            &["setup-state-list-tracked-under", &state_text, &skill_text],
+        );
+        assert_eq!(invalid_entry.status.code(), Some(1));
+        assert!(invalid_entry.stdout.is_empty());
+    }
 
     write_json(
         &state,

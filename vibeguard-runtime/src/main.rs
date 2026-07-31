@@ -433,8 +433,23 @@ static COMMANDS: &[Command] = &[
     },
     Command {
         name: "setup-state-init",
-        usage: "<state-file> <profile> <languages>  — initialize install state",
+        usage: "<state-file> <profile> <languages> [generation]  — initialize install state",
         handler: setup_install_state::init,
+    },
+    Command {
+        name: "setup-state-generation",
+        usage: "<state-file>  — report install-state completion and generation",
+        handler: setup_install_state::generation,
+    },
+    Command {
+        name: "setup-state-mark-complete",
+        usage: "<state-file>  — atomically mark an install-state generation complete",
+        handler: setup_install_state::mark_complete,
+    },
+    Command {
+        name: "setup-lock-publish-owner",
+        usage: "<lock-dir> <pid> <nonce>  — durably publish setup lock ownership",
+        handler: setup_install_state::publish_lock_owner,
     },
     Command {
         name: "setup-state-record-file",

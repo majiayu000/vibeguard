@@ -93,6 +93,9 @@ setup_runtime_supports() {
     setup-codex-hooks-check-timeouts \
     setup-state-list-tracked-under \
     setup-state-verify-managed-tree \
+    setup-state-generation \
+    setup-state-mark-complete \
+    setup-lock-publish-owner \
     runtime-config-get-list \
     runtime-config-validate; do
     probe_out="$("${runtime}" "${command}" 2>&1 || true)"

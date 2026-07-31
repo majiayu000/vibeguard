@@ -61,9 +61,16 @@ state_runtime_supports() {
   local runtime="$1" probe_state="${TMPDIR:-/tmp}/vibeguard-runtime-probe.$$.json"
   "${runtime}" setup-state-list-symlinks-under \
     "${probe_state}" "${TMPDIR:-/tmp}" >/dev/null 2>&1 || return 1
-  local probe_out
-  probe_out="$("${runtime}" setup-state-verify-managed-tree 2>&1 || true)"
-  ! printf '%s\n' "${probe_out}" | grep -q "Unknown command"
+  local command probe_out
+  for command in \
+    setup-state-verify-managed-tree \
+    setup-state-generation \
+    setup-state-mark-complete; do
+    probe_out="$("${runtime}" "${command}" 2>&1 || true)"
+    if printf '%s\n' "${probe_out}" | grep -q "Unknown command"; then
+      return 1
+    fi
+  done
 }
 
 state_runtime() {
@@ -94,28 +101,66 @@ state_preflight() {
 # Initialize or load state
 state_init() {
   local profile="${1:-core}" languages="${2:-}" snapshot_tmp=""
+  local current_status="" current_generation=0 previous_status="" previous_generation=0
+  local base_generation=0 next_generation
   state_preflight || return 1
 
-  # Preserve the outgoing inventory before it is reset (see STATE_PREVIOUS_FILE).
   if [[ -f "$STATE_FILE" ]]; then
-    snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || return 1
-    if ! cp -p -- "$STATE_FILE" "$snapshot_tmp"; then
-      rm -f -- "$snapshot_tmp"
-      printf 'ERROR: failed to stage previous install-state snapshot\n' >&2
-      return 1
-    fi
-    if ! mv -f -- "$snapshot_tmp" "$STATE_PREVIOUS_FILE"; then
-      rm -f -- "$snapshot_tmp"
-      printf 'ERROR: failed to publish previous install-state snapshot\n' >&2
-      return 1
-    fi
-  else
-    if ! rm -f -- "$STATE_PREVIOUS_FILE"; then
-      printf 'ERROR: failed to clear previous install-state snapshot\n' >&2
+    IFS=$'\t' read -r current_status current_generation \
+      < <(state_runtime setup-state-generation "$STATE_FILE") || return 1
+  fi
+  if [[ -f "$STATE_PREVIOUS_FILE" ]]; then
+    IFS=$'\t' read -r previous_status previous_generation \
+      < <(state_runtime setup-state-generation "$STATE_PREVIOUS_FILE") || return 1
+    if [[ "$previous_status" != "COMPLETE" ]]; then
+      printf 'ERROR: previous install-state generation is incomplete: %s\n' \
+        "$STATE_PREVIOUS_FILE" >&2
       return 1
     fi
   fi
-  state_runtime setup-state-init "$STATE_FILE" "$profile" "$languages"
+
+  # Publish only a complete outgoing generation as the ownership snapshot.
+  # An interrupted current generation must never replace the last complete one.
+  if [[ -f "$STATE_FILE" ]]; then
+    if [[ "$current_status" == "COMPLETE" ]]; then
+      if [[ -n "$previous_status" && "$current_generation" -lt "$previous_generation" ]]; then
+        printf 'ERROR: current install-state generation is older than previous snapshot\n' >&2
+        return 1
+      fi
+      snapshot_tmp="$(mktemp "${STATE_PREVIOUS_FILE}.tmp.XXXXXX")" || return 1
+      if ! cp -p -- "$STATE_FILE" "$snapshot_tmp"; then
+        rm -f -- "$snapshot_tmp"
+        printf 'ERROR: failed to stage previous install-state snapshot\n' >&2
+        return 1
+      fi
+      if ! mv -f -- "$snapshot_tmp" "$STATE_PREVIOUS_FILE"; then
+        rm -f -- "$snapshot_tmp"
+        printf 'ERROR: failed to publish previous install-state snapshot\n' >&2
+        return 1
+      fi
+      base_generation="$current_generation"
+    elif [[ -n "$previous_status" ]]; then
+      if [[ "$current_generation" -ne $((previous_generation + 1)) ]]; then
+        printf 'ERROR: incomplete install-state generation does not follow previous snapshot\n' >&2
+        return 1
+      fi
+      base_generation="$previous_generation"
+    elif [[ "$current_generation" -eq 1 ]]; then
+      base_generation=0
+    else
+      printf 'ERROR: incomplete install-state has no matching complete snapshot\n' >&2
+      return 1
+    fi
+  elif [[ -n "$previous_status" ]]; then
+    base_generation="$previous_generation"
+  fi
+  next_generation=$((base_generation + 1))
+  state_runtime setup-state-init \
+    "$STATE_FILE" "$profile" "$languages" "$next_generation"
+}
+
+state_mark_complete() {
+  state_runtime setup-state-mark-complete "$STATE_FILE"
 }
 
 # Record a file installation

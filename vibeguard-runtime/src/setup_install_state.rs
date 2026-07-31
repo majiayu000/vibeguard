@@ -1,4 +1,6 @@
-use crate::setup_support::{SetupResult, home_dir, sha256_file, write_json_atomic};
+use crate::setup_support::{
+    SetupResult, home_dir, sha256_file, write_json_atomic, write_text_atomic,
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -7,9 +9,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const STATE_VERSION: i64 = 1;
 
 pub fn init(args: &[String]) -> SetupResult<()> {
-    if args.len() != 3 {
+    if args.len() != 3 && args.len() != 4 {
         return Err(
-            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages>".into(),
+            "Usage: vibeguard-runtime setup-state-init <state-file> <profile> <languages> [generation]"
+                .into(),
         );
     }
     let state_file = Path::new(&args[0]);
@@ -22,8 +25,18 @@ pub fn init(args: &[String]) -> SetupResult<()> {
             .map(|item| Value::String(item.to_string()))
             .collect()
     };
+    let generation = args
+        .get(3)
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(1);
+    if generation == 0 {
+        return Err("install-state generation must be a positive integer".into());
+    }
     let state = json!({
         "version": STATE_VERSION,
+        "generation": generation,
+        "complete": false,
         "installed_at": now_timestamp(),
         "profile": args[1],
         "languages": languages,
@@ -263,7 +276,7 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
         return Ok(());
     }
     let state = read_state(state_file)?;
-    ensure_state_version(&state)?;
+    validate_state_for_preflight(&state)?;
     let dest_dir = setup_absolute_path(&expand_home(&args[1]));
     let files = state
         .get("files")
@@ -274,6 +287,74 @@ pub fn list_tracked_under(args: &[String]) -> SetupResult<()> {
         if expanded == dest_dir || expanded.starts_with(&dest_dir) {
             println!("{}", expanded.display());
         }
+    }
+    Ok(())
+}
+
+pub fn generation(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-state-generation <state-file>".into());
+    }
+    let state = read_state(Path::new(&args[0]))?;
+    validate_state_for_preflight(&state)?;
+    let (complete, generation) = state_generation(&state)?;
+    println!(
+        "{}\t{generation}",
+        if complete { "COMPLETE" } else { "INCOMPLETE" }
+    );
+    Ok(())
+}
+
+pub fn mark_complete(args: &[String]) -> SetupResult<()> {
+    if args.len() != 1 {
+        return Err("Usage: vibeguard-runtime setup-state-mark-complete <state-file>".into());
+    }
+    let path = Path::new(&args[0]);
+    let mut state = read_state(path)?;
+    validate_state_for_preflight(&state)?;
+    let (_, generation) = state_generation(&state)?;
+    if generation == 0 {
+        return Err("legacy install-state must be prepared before completion".into());
+    }
+    state
+        .as_object_mut()
+        .ok_or("install-state root must be an object")?
+        .insert("complete".into(), Value::Bool(true));
+    write_json_atomic(path, &state)
+}
+
+pub fn publish_lock_owner(args: &[String]) -> SetupResult<()> {
+    if args.len() != 3 {
+        return Err(
+            "Usage: vibeguard-runtime setup-lock-publish-owner <lock-dir> <pid> <nonce>".into(),
+        );
+    }
+    if args[1].is_empty() || args[1] == "0" || !args[1].bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("setup lock pid must be a positive decimal integer".into());
+    }
+    if args[2].is_empty() || args[2].contains(['\n', '\r']) {
+        return Err("setup lock nonce must be a non-empty single line".into());
+    }
+    let lock_dir = Path::new(&args[0]);
+    let metadata = std::fs::symlink_metadata(lock_dir)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("setup lock path must be a regular directory".into());
+    }
+    let owner = lock_dir.join("owner");
+    if owner.exists() || std::fs::symlink_metadata(&owner).is_ok() {
+        return Err("setup lock owner already exists".into());
+    }
+    write_text_atomic(&owner, &format!("pid={}\nnonce={}\n", args[1], args[2]))?;
+    #[cfg(unix)]
+    if let Err(error) = std::fs::File::open(lock_dir).and_then(|file| file.sync_all()) {
+        if let Err(cleanup_error) = std::fs::remove_file(&owner)
+            && cleanup_error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(
+                format!("{error}; setup lock owner cleanup failed: {cleanup_error}").into(),
+            );
+        }
+        return Err(error.into());
     }
     Ok(())
 }
@@ -468,6 +549,88 @@ fn ensure_state_version(state: &Value) -> SetupResult<()> {
         .into());
     }
     Ok(())
+}
+
+fn validate_state_for_preflight(state: &Value) -> SetupResult<()> {
+    let version = state
+        .get("version")
+        .and_then(Value::as_i64)
+        .ok_or("install-state version must be an integer")?;
+    if version != STATE_VERSION {
+        return Err(format!(
+            "Unsupported install-state version: {version} (expected {STATE_VERSION})"
+        )
+        .into());
+    }
+    let files = state
+        .get("files")
+        .and_then(Value::as_object)
+        .ok_or("install-state files must be an object")?;
+    for (dest, raw_entry) in files {
+        if dest.is_empty() {
+            return Err("install-state destination must be non-empty".into());
+        }
+        let entry = raw_entry
+            .as_object()
+            .ok_or_else(|| format!("install-state entry must be an object: {dest}"))?;
+        let source = entry
+            .get("source")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                format!("install-state entry source must be a non-empty string: {dest}")
+            })?;
+        if source.contains(['\n', '\r']) {
+            return Err(format!("install-state entry source must be a single line: {dest}").into());
+        }
+        let install_type = entry
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("install-state entry type must be a string: {dest}"))?;
+        match install_type {
+            "copy" => {
+                let checksum = entry
+                    .get("checksum")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| format!("install-state copy checksum is required: {dest}"))?;
+                let digest = checksum.strip_prefix("sha256:").unwrap_or("");
+                if digest.len() != 64
+                    || !digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                {
+                    return Err(format!("install-state copy checksum is invalid: {dest}").into());
+                }
+            }
+            "symlink" => {
+                if entry.contains_key("checksum") {
+                    return Err(
+                        format!("install-state symlink checksum must be absent: {dest}").into(),
+                    );
+                }
+            }
+            _ => return Err(format!("install-state entry type is unsupported: {dest}").into()),
+        }
+    }
+    state_generation(state)?;
+    Ok(())
+}
+
+fn state_generation(state: &Value) -> SetupResult<(bool, u64)> {
+    match (state.get("generation"), state.get("complete")) {
+        (None, None) => Ok((true, 0)),
+        (Some(generation), Some(complete)) => {
+            let generation = generation
+                .as_u64()
+                .filter(|value| *value > 0)
+                .ok_or("install-state generation must be a positive integer")?;
+            let complete = complete
+                .as_bool()
+                .ok_or("install-state complete must be a boolean")?;
+            Ok((complete, generation))
+        }
+        _ => Err("install-state generation and complete must be declared together".into()),
+    }
 }
 
 fn repo_dir_from_home() -> String {

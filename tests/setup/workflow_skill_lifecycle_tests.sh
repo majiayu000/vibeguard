@@ -23,6 +23,29 @@ printf 'pid=99999999\nnonce=stale-fixture\n' > "${gh719_lock_home}/.vibeguard/se
 assert_cmd "stale setup lifecycle lock is reclaimed" env HOME="${gh719_lock_home}" \
   bash -c 'source "$1/scripts/setup/lib.sh"; setup_lock_acquire; setup_lock_release' _ "${REPO_DIR}"
 
+gh719_lock_publish_home="${TMP_HOME}/gh719-lock-publish-home"
+if HOME="${gh719_lock_publish_home}" bash -c '
+  source "$1/scripts/setup/lib.sh"
+  setup_runtime() {
+    if [[ "$1" == "setup-lock-publish-owner" ]]; then
+      printf "partial-owner" > "$2/owner"
+      return 1
+    fi
+    return 127
+  }
+  setup_lock_acquire
+' _ "${REPO_DIR}" >/dev/null 2>&1; then
+  red "partial setup lock owner publication unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  TOTAL=$((TOTAL + 1))
+else
+  green "partial setup lock owner publication fails visibly"
+  PASS=$((PASS + 1))
+  TOTAL=$((TOTAL + 1))
+fi
+assert_cmd "partial setup lock owner is cleaned after publication failure" test \
+  ! -e "${gh719_lock_publish_home}/.vibeguard/setup.lock"
+
 gh719_lock_race_home="${TMP_HOME}/gh719-lock-race-home"
 gh719_lock_race_control="${TMP_HOME}/gh719-lock-race-control"
 mkdir -p "${gh719_lock_race_home}/.vibeguard/setup.lock" \
@@ -144,6 +167,22 @@ else
 fi
 assert_contains "$(cat "${gh719_state_home}/snapshot-target")" "sentinel" "snapshot target is not overwritten"
 
+gh719_retry_state_home="${TMP_HOME}/gh719-retry-state-home"
+mkdir -p "${gh719_retry_state_home}/.vibeguard"
+printf '%s\n' '{"version":1,"generation":4,"complete":true,"files":{"/managed/SKILL.md":{"source":"skills/plan-flow/SKILL.md","type":"copy","checksum":"sha256:5b4bc29f140e30c01417d810e700ecc54a84a0107566d84215b42e5742ef8d96"}}}' \
+  > "${gh719_retry_state_home}/.vibeguard/install-state.previous.json"
+printf '%s\n' '{"version":1,"generation":5,"complete":false,"files":{}}' \
+  > "${gh719_retry_state_home}/.vibeguard/install-state.json"
+gh719_last_complete_hash="$(shasum -a 256 "${gh719_retry_state_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')"
+HOME="${gh719_retry_state_home}" VIBEGUARD_SETUP_RUNTIME="${gh719_runtime}" bash -c \
+  'source "$1/scripts/lib/install-state.sh"; state_init core ""' _ "${REPO_DIR}"
+assert_cmd "retry preserves the last complete ownership generation" test \
+  "$(shasum -a 256 "${gh719_retry_state_home}/.vibeguard/install-state.previous.json" | awk '{print $1}')" = \
+  "${gh719_last_complete_hash}"
+assert_cmd "retry reuses the interrupted next generation" python3 -c \
+  'import json,sys; d=json.load(open(sys.argv[1])); assert d["generation"] == 5 and d["complete"] is False' \
+  "${gh719_retry_state_home}/.vibeguard/install-state.json"
+
 gh719_set_disabled() {
   python3 - "${gh719_config}" "$@" <<'PY'
 import json, sys
@@ -160,6 +199,30 @@ gh719_setup() {
   HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 \
     bash "${REPO_DIR}/setup.sh" --yes --profile core
 }
+
+assert_cmd "disabled skill source reports _VG_CONFIG_FILE" env \
+  _VG_CONFIG_FILE=/custom/internal.json \
+  VIBEGUARD_CONFIG_FILE=/ignored/user.json \
+  VIBEGUARD_LOG_DIR=/ignored/log bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "/custom/internal.json" ]]
+  ' _ "${REPO_DIR}"
+assert_cmd "disabled skill source reports temporary list override first" env \
+  VIBEGUARD_DISABLED_SKILLS=plan-flow \
+  _VG_CONFIG_FILE=/ignored/internal.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "temporary VIBEGUARD_DISABLED_SKILLS override" ]]
+  ' _ "${REPO_DIR}"
+assert_cmd "disabled skill source reports VIBEGUARD_CONFIG_FILE" env \
+  VIBEGUARD_CONFIG_FILE=/custom/user.json bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "/custom/user.json" ]]
+  ' _ "${REPO_DIR}"
+assert_cmd "disabled skill source reports VIBEGUARD_LOG_DIR config" env \
+  VIBEGUARD_LOG_DIR=/custom/log bash -c '
+    source "$1/scripts/setup/lib.sh"
+    [[ "$(disabled_skills_source_label)" == "/custom/log/config.json" ]]
+  ' _ "${REPO_DIR}"
 
 gh719_setup >/dev/null 2>&1
 assert_cmd "workflow skill installed by default" test -d "${gh719_home}/.codex/skills/plan-flow"
