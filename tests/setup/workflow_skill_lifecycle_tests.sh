@@ -53,23 +53,29 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 }
 
-HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core >/dev/null 2>&1
+gh719_setup() {
+  HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 \
+    bash "${REPO_DIR}/setup.sh" --yes --profile core
+}
+
+gh719_setup >/dev/null 2>&1
 assert_cmd "workflow skill installed by default" test -d "${gh719_home}/.codex/skills/plan-flow"
 
 rm -rf "${gh719_home}/.codex/skills/plan-flow"
-gh719_restore_out="$(HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"
+gh719_restore_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_restore_out}" "RESTORING plan-flow" "reinstall reports restoring a deleted managed skill"
 assert_contains "${gh719_restore_out}" "disabled_skills" "restore report names the persistent opt-out"
 assert_cmd "deleted skill is restored when no opt-out is recorded" test -d "${gh719_home}/.codex/skills/plan-flow"
 
-gh719_set_disabled plan-flow
-gh719_disable_out="$(HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"
+gh719_set_disabled plan-flow auto-optimize
+gh719_disable_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_disable_out}" "REMOVED plan-flow" "reinstall removes a newly disabled skill"
 assert_cmd "disabled Codex skill is gone after reinstall" test ! -e "${gh719_home}/.codex/skills/plan-flow"
-assert_cmd "same-name Claude skill remains installed" test -e "${gh719_home}/.claude/skills/plan-flow"
+assert_cmd "same-name Claude skill remains installed" test -e "${gh719_home}/.claude/skills/auto-optimize"
+assert_cmd "same-name Codex skill is disabled" test ! -e "${gh719_home}/.codex/skills/auto-optimize"
 assert_cmd "non-disabled skills are unaffected" test -d "${gh719_home}/.codex/skills/fixflow"
 
-gh719_repeat_out="$(HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"
+gh719_repeat_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_repeat_out}" "SKIP plan-flow (disabled" "repeat reinstall skips the disabled skill"
 assert_not_contains "${gh719_repeat_out}" "RESTORING plan-flow" "repeat reinstall does not restore the disabled skill"
 assert_cmd "disabled skill stays gone across reinstalls" test ! -e "${gh719_home}/.codex/skills/plan-flow"
@@ -79,17 +85,16 @@ assert_contains "${gh719_check_out}" "[DISABLED] plan-flow" "--check reports the
 assert_not_contains "${gh719_check_out}" "[MISSING] plan-flow" "--check does not report a disabled skill as missing"
 
 gh719_set_disabled
-HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core >/dev/null 2>&1
+gh719_setup >/dev/null 2>&1
 assert_cmd "clearing the opt-out re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
 
 gh719_set_disabled plan-flow
-VIBEGUARD_DISABLED_SKILLS='' HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 \
-  bash "${REPO_DIR}/setup.sh" --yes --profile core >/dev/null 2>&1
+VIBEGUARD_DISABLED_SKILLS='' gh719_setup >/dev/null 2>&1
 assert_cmd "explicit empty environment override re-enables the skill" test -d "${gh719_home}/.codex/skills/plan-flow"
 
 printf '%s\n' '{"version":1,"disabled_skills":"plan-flow"}' > "${gh719_config}"
 gh719_before_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/install-state.json" | awk '{print $1}')"
-if gh719_malformed_out="$(HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"; then
+if gh719_malformed_out="$(gh719_setup 2>&1)"; then
   red "malformed disabled_skills unexpectedly succeeded"
   FAIL=$((FAIL + 1))
   TOTAL=$((TOTAL + 1))
@@ -107,7 +112,7 @@ printf '%s\n' '{"version":1,"disabled_skills":["plan-flow"]}' > "${gh719_config}
 mv "${gh719_home}/.codex/skills/plan-flow" "${gh719_home}/.codex/skills/plan-flow-managed"
 mkdir -p "${gh719_home}/.codex/skills/plan-flow"
 printf '%s\n' "user-owned" > "${gh719_home}/.codex/skills/plan-flow/custom.txt"
-if gh719_unowned_out="$(HOME="${gh719_home}" VIBEGUARD_TEST_CARGO_UNAVAILABLE=1 bash "${REPO_DIR}/setup.sh" --yes --profile core 2>&1)"; then
+if gh719_unowned_out="$(gh719_setup 2>&1)"; then
   red "unowned disabled skill unexpectedly succeeded"
   FAIL=$((FAIL + 1))
   TOTAL=$((TOTAL + 1))
