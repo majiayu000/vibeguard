@@ -2,6 +2,7 @@
 *.sh text eol=lf
 *.py text eol=lf
 *.bash text eol=lf
+hooks/git/pre-push text eol=lf
 
 # Normalise all text files to LF in the repo; allow checkout to be OS-native for others
 * text=auto
