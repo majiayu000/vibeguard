@@ -138,6 +138,9 @@ GH-701 已完成。
 14. B-014 已支持的 Claude Code 与 Codex CLI 安装、profile、capability、
     fail-closed、第三方 hook preservation、doctor/verify-install 与 clean 语义
     必须保持；generalize manifest 或 adapter registry 不得改变它们的有效配置。
+    两者现有 JSON target 继续使用已验证的 atomic owned-entry merge/clean 兼容
+    lifecycle，不追溯要求 host storage API；B-025 的新 shared lifecycle 只用于
+    proof host/新增 v2 host，registry 必须显式选择二者而不能把旧 host 降级为 manual。
 15. B-015 adapter 与 core 的 compatibility 必须由 host adapter contract
     version、host protocol/version range 与 VibeGuard runtime version 显式判定；
     每个 host registry entry 必须声明可接受的 runtime version/ABI range，并在
@@ -163,8 +166,10 @@ GH-701 已完成。
     顺序并被 core 独立判定。每个 batch 最多 64 个 requests；decoder 必须在任何
     core evaluation 或逐项日志之前验证完整 count，超限或无法确定 count 时整个
     batch fail-closed，禁止截断或部分执行。host entry 还必须声明同步 response
-    deadline；adapter 为 encode 保留固定时间，以剩余总预算约束每项 core 调用，
-    到期的当前项及所有未执行项都生成闭集 `hook_error` 后及时返回 fail-closed。
+    deadline；adapter 为 encode 和 termination 各保留固定时间，以剩余总预算约束
+    每项 core 调用。每项在可取消的独立 process group/job boundary 运行；到期时必须
+    终止整个 boundary 并确认全部 child 已 reap，之后才可为当前项及所有未执行项
+    生成闭集 `hook_error` 并返回 fail-closed，禁止遗留进程或 late output/log。
 20. B-020 同一 batch 的 mixed decisions 必须按固定优先级
     `hook_error > block > escalate > gate > correction > warn > complete > pass`
     产生唯一 host response；每个 core invocation 的 `failed` 或 `hook_error`
@@ -191,7 +196,7 @@ GH-701 已完成。
     error；discovery 遇到未知 executable 为 `unsupported` 且零写入；known host
     + unknown protocol 为 `incompatible`；blocking adapter runtime 收到未知
     event/payload 为 fail-closed。四类不得互相降级成 pass/active。
-25. B-025 host config 更新必须遵守
+25. B-025 proof host/新增 v2 host 的 config 更新必须遵守
     `discover → plan → lock → snapshot → apply → probe → commit/rollback`；
     任一步失败、中断或超时都不得写 committed/active evidence，plan 之后的配置
     digest 漂移必须停止而不是覆盖并发更改。自动写入仅支持 host storage API
@@ -201,11 +206,14 @@ GH-701 已完成。
     advisory lock、mtime 或 exclusive claim 都不能排除延迟 old-FD write，不得
     冒充该 capability；只能输出 exact-diff 的 manual proposal、零磁盘 mutation，
     状态保持 `partial/needs_human`，不能产出 active/proof。获批 proof host 若无
-    该 API 必须重新选择，不得实现不可达的自动 install 契约。
+    该 API 必须重新选择，不得实现不可达的自动 install 契约。Claude/Codex 现有
+    JSON target 依 B-014 走显式 compatibility lifecycle，不得被本条静默改成 manual。
 26. B-026 同一 config 的并发 writer 必须由 bounded lock 串行化；多个 config
     按 canonical path 排序取锁避免死锁。进程崩溃后下一次运行必须识别 pending
-    transaction：只有当前 digest 仍等于本次 candidate 时才自动 rollback，否则
-    保留外部更改并进入 `broken/needs_human`，不得用旧 snapshot 覆盖未知新内容。
+    transaction；普通失败与崩溃恢复都只有在 lease token 仍归属本 transaction、
+    API current version 精确等于 apply 返回的 version 且 digest 等于 candidate 时
+    才可 version-CAS rollback。任一 token/version/digest drift（包括 bytes 相同但
+    version 更新）都保留当前内容并进入 `broken/needs_human`。
 27. B-027 GH-699 install claim 与 GH-700 benchmark claim 必须分别有固定 schema、
     固定 evidence path 与同一个离线 README-claim validator；validator 绑定 claim
     类型、issue、release、source HEAD、exact producer SHA/argv、输入/输出 digest、
@@ -229,6 +237,10 @@ GH-701 已完成。
     event 与受信发行来源。host binary 必须通过 H-001 绑定的签名 package identity、
     registry integrity 或 signed release manifest 得到独立 approved digest，并由
     受信 proof supervisor 在事件发生时对 proof-producing process 做平台进程测量。
+    supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
+    protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
+    head、event/nonce/process/distribution digests 与 redaction inventory digest
+    绑定为 attested subjects，缺任一绑定都阻断。
     native binary 绑定 session nonce、进程身份与 executable digest/signature；
     interpreted CLI 还必须绑定 interpreter、canonical argv/entrypoint 与受信发行
     manifest 的只读 package snapshot/Merkle root，禁止 snapshot 外 module load。
@@ -242,8 +254,9 @@ GH-701 已完成。
 30. B-030 H-004 必须是维护者明确选择的互斥值 `strict_four` 或
     `preserve_pr705_extras`，推荐值 `strict_four` 本身不构成批准；后者还必须绑定
     已更新 GH-701 issue acceptance 的 immutable node/source URL、更新时间与
-    acceptance digest。H-004 缺失时唯一例外是生成只含 `bootstrap_once`
-    allowlist 的 task tranche；README/host tasks 仍 blocked。两值并存、issue 未
+    acceptance digest。H-004 缺失时 task plan 仍须覆盖全部 B-ID，并可预排明确标为
+    blocked、依赖 `gh701_decision_gate: allowed` 的 README/host tranches；唯一可执行
+    的内容是 `bootstrap_once` allowlist。两值并存、issue 未
     同步或同步发生在选择之后但未重新见证时，README/implementation/closure
     gate 均 blocked。
 31. B-031 H-001 至 H-004 必须来自固定路径、固定 schema 的 machine-readable

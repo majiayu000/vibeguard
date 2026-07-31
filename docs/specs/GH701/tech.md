@@ -67,10 +67,10 @@ path/format、runtime pin、真实 CLI fixture 命令和 stop conditions。缺�
    Recommended proposals 不因 spec approval 自动成为 H-001–H-004 selections。
 2. coordinator 从 live GitHub issue/PR/branch/review-thread state 做 duplicate-work
    search，并把当前 base SHA、搜索时间、冲突 PR/branch 与结论写入
-   docs/specs/GH701/tasks.md 的 bootstrap tranche。tasks 必须覆盖 B-001–B-035，
-   把 bootstrap 标为首个 `bootstrap_once` task/tranche；所有 host/README
-   implementation tasks 都声明依赖 `gh701_decision_gate: allowed`。这是 H-004 缺失
-   时唯一可生成的 task 内容，不能预排或执行产品 tranche。可选 SpecRail
+   docs/specs/GH701/tasks.md 的 bootstrap tranche。tasks 必须覆盖 B-001–B-035，把
+   bootstrap 标为首个 `bootstrap_once` task/tranche；host/README 产品 tranche 可
+   预排，但每项必须标为 `execution_state: blocked`，并依赖
+   `gh701_decision_gate: allowed`。H-004 缺失时只有 bootstrap 可执行，不禁止生成完整 blocked plan。可选 SpecRail
    packet/evaluator 可以在用户明确请求时提供本地辅助，但不得成为任务生成、
    bootstrap 授权或后续实现的前置条件，也不得替代 live GitHub/CI/review evidence。
 3. bootstrap implementation PR 可包含 tasks.md 计划 artifact；其 production/test
@@ -336,6 +336,8 @@ identity 任一不匹配均 `needs_human`，不得回退为第二次 bootstrap�
 deprecated compatibility input：只把现有 Claude/Codex 两列规范化成 v2 in-memory
 view，打印一次 bounded deprecation warning；所有 writer/generator 只输出 v2，
 v1 不得声明第三 host/active proof。GH-701 不删除 v1 reader，未来删除必须新 spec。
+Claude/Codex registry entry 固定 `lifecycle: legacy_json_compat_v1`，继续调用现有 target-specific atomic owned-entry merge/preservation/check/clean；proof host/新增
+host 固定 `lifecycle: versioned_host_storage_v1` 并走第 4 节。validator 拒绝两类 lifecycle 互换。
 
 Unknown matrix 固定为：
 
@@ -366,10 +368,9 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
   count 超限、无法确定或流式输入在第 65 项出现时，整个 batch fail-closed，零项
   进入 evaluation，且只记录 closed `batch_too_large` + capped count metadata。
   禁止 truncation、partial evaluation 或把未评估项当作 pass。
-- 同步 host deadline 必须大于 `RESPONSE_RESERVE_MS = 250` 且不超过协议上限。
-  sequential evaluation 总预算为 `deadline-reserve`；每项 timeout 取 per-hook 与
-  remaining 较小值。当前超时/未执行项均为 sanitized
-  `hook_error: batch_deadline_exceeded`，emergency encoder 在 deadline 前 fail-closed。
+- 同步 host deadline 必须大于 `RESPONSE_RESERVE_MS = 250` 加 `CORE_TERMINATION_RESERVE_MS = 100`。每个 core invocation 在独立 OS process group（Windows Job Object）运行；
+  hard timeout 取 per-hook 与 `remaining - termination - encode reserve` 较小值。timeout 时停止接收输出、terminate group，grace 到期强制 kill，并以 `waitpid`/Job completion 确认全部 child 已 reap；
+  确认前 encoder 不得返回。随后当前/未执行项均为 sanitized `hook_error: batch_deadline_exceeded`，禁止 late output、log 或后台副作用。
 - core 严格按 request_index 依次运行现有 `HookKind`、checks、orchestrators、
   rules 与 guards，每项产生恰好一个 decision；proof adapter 不得复制
   rm/U-16/L1 classifier。每项日志带 batch/request/index，fix instruction 也绑定
@@ -407,7 +408,8 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 
 ### 4. Transactional host lifecycle
 
-shared lifecycle 必须实现完整状态机：
+本节只适用于 `versioned_host_storage_v1` proof/new-host entries。Claude/Codex 必须 dispatch 到 `legacy_json_compat_v1`，保持自动安装；不得因普通 JSON 无 CAS 而降级为 manual，
+也不得用 compatibility lifecycle 生成第三 host proof。shared lifecycle 必须实现完整状态机：
 
 1. `discover`：只读解析 executable/version/config/permissions，输出当前 digest；
 2. `plan`：生成 exact target/operations/preserved entries/candidate digest，并证明
@@ -426,9 +428,8 @@ shared lifecycle 必须实现完整状态机：
    bounded native probe；
 7. `commit`：仅 probe 成功后原子写 install evidence/committed marker，再删除
    snapshot/journal 并释放 locks；
-8. `rollback`：任一 apply/probe 失败时，仅当当前 digest 等于本 transaction
-   candidate 才从 snapshot 原子恢复；若外部 actor 已改写，保留当前内容并输出
-   `broken/needs_human`、snapshot path 与 digest，禁止覆盖未知更改。
+8. `rollback`：任一 apply/probe 失败时，用 journal lease token 查询同一 API；只有 token 仍归属本 transaction、current version 精确等于 apply 返回的 version 且 digest 等于 candidate，
+   才以 version CAS 恢复 snapshot。token/version/digest 任一 drift（含 byte-identical newer version）都保留当前内容并输出 `broken/needs_human`、snapshot path/version/digest。
 
 崩溃恢复用 journal token 向同一 API 查询 lease/old/new version：candidate 已提交
 才按 API CAS rollback，base 未变则未 apply，其他 version 保留并 needs-human；
@@ -516,13 +517,16 @@ H-004 缺失/双选、head 或 digest 漂移时 renderer nonzero 且不写 READM
 - collected witness path：artifacts/evidence/GH701/maintainer-witness.json
 - witness attestation bundle：
   artifacts/evidence/GH701/maintainer-witness.intoto.jsonl
+- supervisor attestation schema：schemas/gh701-proof-supervisor-attestation.schema.json
+- supervisor bundle：artifacts/evidence/GH701/proof-supervisor.intoto.jsonl
+- protected supervisor workflow：.github/workflows/gh701-proof-supervisor.yml@refs/heads/main
 - read-only collector：checks/collect_gh701_maintainer_evidence.py
 - planned gate：checks/host_adapter_proof_gate.py
 - planned negative harness：tests/test_host_adapter_proof_gate.sh
 
-runtime proof 固定 schema/issue/第三 host、release/protocol/adapter、blocking event、
-HEAD/time、VibeGuard 生成的 `event_correlation_id`、host/runtime/config digests、
-batch/request/fix/log correlation、decision summaries 与 redaction `matches: 0`。
+runtime proof 固定 schema/issue/host/release/protocol/adapter/event/HEAD/time、VibeGuard `event_correlation_id`、host/runtime/config digests、batch/request/fix/log correlation、decision summaries，以及 closed
+`redaction.inventory[]`（非 secret sentinel_id/source_class/required_sinks）、其 RFC 8785 SHA-256、完整 `matches_by_sentinel` 与 `total_matches: 0`。inventory 必须等于 schema 固定非空闭集；
+gate 重算 digest 并要求每个 ID/required sink 恰有零匹配；secret sentinel value 不进入 artifact。
 schema 禁止 maintainer identity/source/time。native event ID 只在进程内解析，不进
 artifact/log/response/witness；correlation ID 是不从 native/payload/digest 派生的
 独立 128-bit CSPRNG 值。
@@ -536,8 +540,8 @@ native executable：Linux 绑定 pidfd/start-time/`/proc/<pid>/exe` handle diges
 macOS 绑定 audit token/SecCode requirement/CodeDirectory hash。interpreted CLI
 另绑定 interpreter digest、canonical argv、no-follow entrypoint 与只读、受信
 distribution manifest 覆盖的 package snapshot/Merkle root；sandbox 禁止 snapshot
-外 module resolution/load。attestation 绑定 workflow/nonce/process/event/
-distribution/snapshot digests；事后 path 重读仅检测 drift，不可替代该测量。
+外 module resolution/load。固定 supervisor bundle 使用 GitHub artifact attestation DSSE/in-toto statement；verifier exact-match GitHub OIDC issuer、protected workflow path、`refs/heads/main`、workflow blob SHA/run identity。
+subjects 绑定 runtime proof 与 process-measurement SHA-256；predicate 绑定 issue/candidate head、H-001 host/release、nonce/event、process/distribution/snapshot、redaction inventory 与 scanned sink digests。事后重读仅检测 drift。
 
 maintainer witness 是单独 artifact，由第 1 节同一个受保护 default-branch
 collector 从 fresh GitHub review/comment 只读生成。collector 只接受 PR/issue
@@ -564,8 +568,8 @@ exact-match H-001 的
 `native_blocking_event` 与 candidate head。distribution provenance 是 closed
 union：签名 package identity + registry integrity，或 signed release manifest +
 platform asset digest；两者都绑定 issuer/subject/release/platform 与 expected
-binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证
-supervisor attestation 绑定 event/nonce/process；native 绑定 executable，
+binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证 supervisor bundle 的固定 schema/path/issuer/workflow/ref/SHA/run/subjects/predicate、
+event/nonce/process/redaction/scanned-sink 绑定；native 绑定 executable，
 interpreted CLI 同时绑定 interpreter/argv/entrypoint/package snapshot。gate-time
 重读只检测 drift；拒绝 self-report/pathname/unsigned checksum、运行后替换或
 snapshot 外代码。其他第三 host proof 不能替代获批 host。之后 gate 分别
@@ -606,27 +610,27 @@ config/payload/log content。
 | B-011 | snapshot/apply/probe/rollback | `bash tests/test_setup.sh` 的 malformed、readonly、phase-failure、probe-failure 与 external-drift fixtures |
 | B-012 | ordered locks + host-scoped state/caller identity | `bash tests/test_setup.sh`；`bash tests/hooks/test_log_timer.sh`；同 config contention、多 config reverse-order 与 multi-host fixtures |
 | B-013 | adapter I/O/privacy review | `bash tests/test_behavior_eval.sh`；`git diff --check`；人工审查新增 adapter 无 network/telemetry/secret reader |
-| B-014 | v2 Claude/Codex compatibility consumers | `bash tests/test_setup.sh`；`bash tests/test_codex_runtime.sh`；v1/v2 golden configs semantic equivalent |
+| B-014 | v2 Claude/Codex compatibility consumers | `bash tests/test_setup.sh`；`bash tests/test_codex_runtime.sh`；v1/v2 golden configs semantic equivalent，现有 JSON auto-install/owned-entry preservation 不变，lifecycle 互换被 validator 拒绝 |
 | B-015 | registry protocol/runtime compatibility resolver | `bash tests/test_manifest_contract.sh`；version below/above/unknown negative fixtures |
 | B-016 | journal crash recovery/retry | `bash tests/test_setup.sh`；每个 transaction phase kill fixture 后重试，断言 safe rollback 或 needs_human 且无 duplicate registration |
 | B-017 | check/doctor bounded probe evidence | `bash tests/test_setup.sh`；对六个 evidence state 的 fixtures 运行 check/doctor |
 | B-018 | H-004-aware README renderer + dependency gates + journey | decision gate 与 README-claim gate；`strict_four`/`preserve_pr705_extras` positive fixtures 精确渲染，未选/双选/acceptance digest mismatch nonzero；维护者在 fresh home 计时 install → verify → real-host interception |
-| B-019 | decoder `Vec<CanonicalHookRequest>` + cap/deadline | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 的 empty/single/multi、64/65/unknown count、总预算到期/当前超时/未执行项 hook_error 与 deadline 内 emergency response fixtures |
+| B-019 | decoder `Vec<CanonicalHookRequest>` + cap/deadline | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 覆盖 64/65/unknown count、总预算到期、process-group kill/reap、无 late output/child 与 deadline 内 fail-closed response |
 | B-020 | deterministic complete decision aggregator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 的 all pairwise mixed decisions（含 hook_error/complete）、`HookResult.failed`/hook_error normalization、hook_error/block/escalate/gate suppress correction、multi-block、fix dedupe/cap fixtures |
 | B-021 | batch/request/log/fix correlation | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；duplicate/missing/cross-batch ID 与 missing-primary-log negative fixtures |
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
 | B-025 | full lifecycle + write-ahead apply journal | `bash tests/test_setup.sh`：versioned CAS+exclusive lease positive；普通 file/rename/exclusive claim 与 delayed old-FD fixtures 均零写入、partial/no proof；缺 capability pre-mutation nonzero，probe 后才 active |
-| B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version query、CAS rollback、external version drift needs_human |
+| B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | host-proof harness：native measurement 或 interpreted interpreter+argv+entrypoint+read-only package snapshot 与 live witness allowed；late read/self-report/swap/external module/wrong package root/nonce/correlation/native-ID leakage nonzero |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | host-proof harness 验证 fixed supervisor schema/path/OIDC workflow identity/subjects/predicate、process measurement、非空 sentinel inventory/digest/逐 sink 零匹配；missing/incomplete inventory、late read/self-report/swap/wrong attestation 均 nonzero |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/ruleset exact-target update-deny/no-bypass allowed；`ls-remote`-only、rule/head drift/new push/缺字段 blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
 | B-032 | protected read-only maintainer evidence collector | host-proof harness 验证 separate runtime/witness artifacts、trusted workflow attestation、node/event/head/time/proof-SHA binding；current-run source edit/delete/revoke/supersede recheck 与 generation binding；embedded、cached 或 implementer-filled witness blocked |
 | B-033 | closed primary fix fallback | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`：missing fix 生成 fresh fallback ID；4097-byte/encode failure 保留 existing fix_id；均保持 bounded block 且无 raw/digest leakage |
-| B-034 | ordinary-routing one-time bootstrap tranche | bootstrap harness 绑定 handoff/review/duplicate snapshot；完整 `resolved_trust_paths`+attestation+tests allowlist positive 且下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/self-report/second bootstrap blocked |
+| B-034 | ordinary-routing one-time bootstrap tranche | bootstrap harness 要求完整 B-ID plan、产品 tranche 均 blocked；只准执行 fixed bootstrap allowlist，且下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/self-report/second bootstrap blocked |
 | B-035 | approved spec/trust heads + immutable byte/JCS digest inheritance | `bash tests/test_gh701_decision_gate.sh`：unchanged-spec/trust descendant allowed；任一 non-ancestor、product byte、tech byte、JCS selection/input、acceptance/protocol/branch/trust-path byte drift fixture 全部 `needs_human`；protected-main exact-head/path/digest/expiry `trust_rotation` positive fixture 单次 allowed，self-issued/wildcard/stale/replayed rotation blocked |
 
 ## 数据流
