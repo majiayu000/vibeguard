@@ -312,8 +312,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     external root 不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
-    pointer switch 完成；若使用等价 CAS，则必须在 switch 紧邻前重验并在 drift 时 rollback、
-    re-plan/re-confirm，不能提交后才让 runtime 发现 mismatch。
+    pointer switch 完成；若使用等价 CAS，必须在 installation floor/external anchor 推进前完成
+    final compare-and-fence，并把 policy identity、anchor counter 与 activation fencing token 写入
+    journal，activation 在 fence 释放前不得切换。floor 后 recovery 才发现 policy drift 时不能
+    rollback：必须 journaled roll forward exact target pointer，同时先锁存
+    `policy_changed + audit_required + protection_suspended`；不得执行旧 block 或声称 healthy，fresh
+    audit 以新 generation 恢复。
 28. B-028: 某 rule 的 evidence 缺失、invalid、样本不足、过期或 precision 低于获批 floor
     时，其 official effective default 必须是 warn，绝不能 block；无数据必须显示空
     precision + closed reason，不能写 `0%` 或沿用旧证据。用户显式关闭属于 B-030 的

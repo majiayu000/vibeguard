@@ -291,9 +291,9 @@ lock-A → recover-old → validate-current-generation → snapshot base → unl
        → discover → bounded-fetch/stage/verify
 lock-B → recover/revalidate base → build immutable plan+digests → unlock
        → bounded-deadline confirm
-lock-C → recover + CAS revalidate generation/ownership/evidence/evaluation/plan
+lock-C → recover + CAS/fence revalidate generation/ownership/evidence/evaluation/plan
        → reserve/snapshot-owned-state → apply → audit
-       → build+fsync generation/journal → floor fsync (= roll-forward-only prepared)
+       → build+fsync generation/journal → final policy CAS/fence → floor fsync (= prepared)
        → one atomic set-pointer switch (= commit)
           ├─ failure before floor → rollback
           └─ failure after floor → retain evidence + retry/recover switch; never rollback
@@ -304,7 +304,7 @@ plan。bounded fetch/staging 只写本 transaction 私有临时目录，不能�
 host/config、receipt、override 或 active surface；plan 展示 staging boundary/digests，
 拒绝、取消、确认 timeout、验证失败或 rollback 后必须验证清理。confirmation deadline
 来自 approved evaluation policy；lock-C 重新计算 policy-normalized evaluation time 与 eligibility
-identity。base generation、ownership、source-security binding、compatibility、policy、
+identity。floor 前 base generation、ownership、source-security binding、compatibility、policy、
 evaluation/eligibility 或 plan digest 任一 drift，必须废弃旧确认并重新 plan/confirm。
 
 plan 使用 compare-and-swap 前提：每个将修改的 file/config entry 同时记录 owner 与
@@ -339,16 +339,16 @@ interrupt 后下次 mutation 必须先
 rollback 失败保留 before/staged/journal 并返回 `needs_repair`，禁止删除诊断证据或继续装
 另一版本。
 
-commit 前，management 在既有 ownership/target locks 之后取得 policy lock，验证 authoritative
-policy pointer/floor 与 committed policy identity，再取得 installation runtime-state lock；两把
-锁均持有到旧 state high-water/sequence snapshot、新 state fsync 与 active pointer switch 完成。
-任何 policy drift 都必须在 switch 前 rollback 并 re-plan/re-confirm，不能提交后才依赖 runtime
-fallback。runtime 同样只能在其锁内读取/revalidate current pointer，因此旧 generation runtime
-不可能在 snapshot 后再推进。初值继承同 epoch
-`max(existing_high_water, evaluation_time)`，单次 pointer replacement 同时选择新 generation/
-state；runtime 还验证 pointer installation generation 不低于独立 active floor。floor 前的
-policy/state 初始化失败 rollback；floor 后任何失败只能 fail-closed roll forward，switch 后
-generation/state 同时可见。
+commit 前，management 在 ownership/target locks 后取得 policy lock，再取 runtime-state lock；
+两锁持有到 old-state snapshot、新 state fsync 与 active pointer durable switch。等价 CAS 实现须在
+external installation anchor/floor 前取得 final compare-and-fence，journal 绑定 policy identity、
+anchor counter 与 activation token，policy activation 在 token 释放前不得切换；pre-floor drift 才
+rollback/re-plan/re-confirm。crash recovery 在 post-floor 发现 policy drift 时，append+fsync
+`policy_drift_roll_forward` transition，CAS target state/time leaf 锁存 `policy_changed +
+audit_required + protection_suspended`，再切换 exact target pointer；不得 rollback、执行旧 block 或
+声称 healthy，fresh audit 以 successor generation 恢复。runtime lock revalidation 防止旧 generation
+在 snapshot 后推进；新 state 继承同 epoch `max(existing_high_water, evaluation_time)`，pointer 同时
+选择 generation/state 并验证 external installation floor，post-floor 只可 fail-closed roll forward。
 
 same-content retry 先取得新的 normalized evaluation time，重算 freshness、revocation 与
 eligibility identity，再比较 receipt/active/store/publication-policy/evaluation-policy/
@@ -640,7 +640,7 @@ HOME、token、proxy value、raw event payload 或未脱敏 stderr。
 | B-024 concurrency isolation | HOME ownership lock + ordered target locks + transaction IDs | parallel shared-dependency/different-target mutations serialize ownership commit without deadlock；disjoint preflight/staging may parallel；lock timeout is bounded/visible |
 | B-025 per-rule evidence binding | Precision schema/join | pack-average-only, wrong rule/capability/fixture/reviewer/window and orphan evidence fixtures are rejected |
 | B-026 honest precision calculation | Eligibility pure function | discriminated source binding requires official event digest or local not_applicable/absent event；applicable digest changes produce new eligibility；time/count negatives remain invalid |
-| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | exact policy identity and external root/leaf attestation revalidate through execution；coherent restore and newer same-digest generation fall back |
+| B-027 policy-owned thresholds | Active-policy journal/pointer + authenticated policy anchor | final CAS/fence precedes installation floor；post-floor drift journal-rolls forward suspended；exact authority revalidates through execution |
 | B-028 insufficient evidence degrades | Anchored generation-scoped runtime guard | every trusted time advances externally anchored high-water；expiry/policy drift latches audit_required；clock/local-tree rollback cannot restore block |
 | B-029 block eligibility is not block | Eligibility truth table | cross-product of requested decision, trust, capability, host and evidence proves every prerequisite is necessary |
 | B-030 isolated local override | Override schema/applicator | policy-bounded horizon works only when confirmed_at <= evaluation_time < expiry；future/expired/unbounded confirmation, policy drift and terminal ceilings reject；expiry requires fresh confirmation |
