@@ -302,4 +302,3 @@ assert_cmd "active lock rejection preserves exact foreign owner metadata" \
   grep -qFx "nonce=active-owner" "${active_lock_dir}"
 assert_cmd "active lock conflict performs no download or install" \
   test ! -e "${active_lock_home}/.vibeguard/dist/${BOOTSTRAP_VERSION}"
-

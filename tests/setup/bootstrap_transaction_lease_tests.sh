@@ -413,4 +413,3 @@ assert_contains "${symlink_owner_out}" "bootstrap lock must not be a symlink" \
   "symlink lock failure is explicit"
 assert_cmd "symlink lock failure preserves foreign target" \
   grep -qFx "nonce=symlink-foreign" "${symlink_owner_foreign}"
-

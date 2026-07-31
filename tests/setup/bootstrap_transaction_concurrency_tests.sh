@@ -368,4 +368,3 @@ for _dual_recovery_child_attempt in {1..100}; do
 done
 assert_cmd "dual-recovery orphaned setup child exits after test release" \
   bash -c '! kill -0 "$1" 2>/dev/null' _ "${dual_recovery_setup_pid}"
-
