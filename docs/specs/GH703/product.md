@@ -148,7 +148,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     fail visible，不能让 lifecycle 操作报告成功后仍有旧 generator 发布 artifact。
 29. B-029 clean 只移除 VibeGuard-owned scheduler、state 和 current pointer；
     默认保留历史报告和显式 exports，只有获批 purge 动作才能删除 owned report
-    data，第三方 scheduler 永远保留。
+    data，第三方 scheduler 永远保留。为拒绝 clean 前已启动但尚未取得 lock 的 generator，
+    clean 后必须保留最小、无报告内容的 lifecycle generation tombstone；它不是 active state。
 30. B-030 doctor/verify 必须按 B-040 分别显示 scheduler lifecycle、artifact freshness
     与 report data status 的合法组合，并验证 job target、taxonomy version、最近
     attempt/success 和 current artifact；`active + no_data`、`active + stale` 等组合不能
@@ -170,11 +171,16 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 35. B-035 `complete` coverage 必须证明获批 window 内 live canonical log 与所有可能
     含该 window 事件的 retained archives 来自一个一致、封闭的 source snapshot；archive
     缺失、过期、损坏、无法读取、枚举竞态或 snapshot 无法证明时只能返回
-    `partial_coverage`/error，不能发布 complete headline。
+    `partial_coverage`/error，不能发布 complete headline。证明必须来自独立、版本化、durable
+    的 writer/GC coverage ledger：只枚举当前仍存在的文件不能证明从未丢失 archive。
 36. B-036 进入 value taxonomy 的事件必须在 canonical event 创建边界持久化 closed、
-    schema-versioned `event_id`、`rule_id`、`reason_code` 与 classification status；GH-703
+    schema-versioned `event_id`、`rule_id`、`reason_code`、classification status 与
+    classification contract version/digest；status 只证明 typed producer contract，不得提前
+    声称当前 taxonomy 接受该 mapping。GH-703
     自己拥有这个最小 producer/schema 合同，不依赖 GH-704 获批或实现。缺失、未知、
     不一致或由 free text 反推的 identity 不得进入 value headline，并使 coverage 可见降级。
+    v2 protocol evidence 同样必须是 closed typed reason code；GH-706 free-text classifier 只可
+    读取 legacy rows，且任何 legacy row 都使 coverage 降级。
 37. B-037 `event_id` 必须在事件首次持久化时生成并随记录在 live/archive/compaction 间
     byte-stable 保留；复制同一 event 仍是同一 identity，真实新 attempt 即使其余字段相同
     也必须得到新 identity。legacy row 无此 identity 时不得用 path/offset/content 猜测补齐。
@@ -182,13 +188,16 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
     public/internal/shareable headline counts 必须为空，并携带 closed reason；只有完整
     snapshot 中至少一个 schema-valid canonical event 才能发布普通数值（包括真实的 0）。
 39. B-039 `summary_digest` 只绑定稳定内容：source event-set、window、scope、taxonomy、
-    producer schema 与 counts；不得包含 `generated_at`、attempt time 或 renderer metadata。
+    exact producer version、producer schema 与 counts；不得包含 `generated_at`、attempt time 或 renderer metadata。
     同一稳定输入重试必须得到同一 digest，不同 evidence 必须得到不同 digest。
 40. B-040 scheduler lifecycle、artifact freshness 与 report data status 是三个正交的
     closed dimensions；任一维缺失、未知或非法组合均 fail visible，不能用 `no_data`/
-    `stale` 覆盖健康 active scheduler，也不能用 active 掩盖 stale/invalid artifact。
+    `stale` 覆盖健康 active scheduler，也不能用 active 掩盖 stale/invalid artifact。合法
+    artifact/data pair 必须由 tech 的 closed table 固定，不能留给 schema/renderer 自选。
 41. B-041 summary generation、publish 和 retention 必须与 disable/clean/upgrade 使用
-    同一有界 lock/lease 顺序。disable/clean 只有在阻止新 generation 且旧 generation
+    同一有界 lock/lease 顺序。每次 enable/disable/clean 必须推进 durable monotonic lifecycle
+    generation；generator 在等待 lock 前捕获 generation token，取得 lock 后及 publish 前都须
+    复核 matching enabled generation。disable/clean 只有在阻止新 generation 且旧 generation
     已完成、取消并确认无后续 publish，或明确失败回滚后才能报告成功。
 42. B-042 retention ownership 必须由独立、版本化、durable 的 owned-artifact evidence
     证明，而不能只靠 artifact 通过当前 schema。旧版本或内容损坏的已证明 owned artifact
@@ -206,7 +215,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
   scheduler load failure、target drift 和 interrupted write 全部 fail visible，
   不产生虚假的 0-risk/current artifact。
 - [ ] live log 与跨月/当月 overflow archives 在同一 snapshot 中产生相同稳定 event set；
-  archive 缺失/损坏/竞态、legacy identity 与 incomplete evidence 均不能发布数值 headline。
+  durable coverage ledger 能发现 scan 前已丢失/过期的 archive；archive 缺失/损坏/竞态、
+  writer gap、legacy identity 与 incomplete evidence 均不能发布数值 headline。
 - [ ] canonical writer 在 Rust 与 shell 路径持久化 closed event/rule/reason identities；
   free-text-only 行为降级可见，且不要求 GH-704 先批准或实现。
 - [ ] 同一 window 的重试在 GC/compaction、renderer 和生成时间变化后仍保持同一
@@ -218,7 +228,8 @@ downgrade candidates，并明确要求 scheduler 为 opt-in。GH-703 拟议把�
 - [ ] doctor/verify 对 scheduler lifecycle、artifact freshness 与 data status 的组合以及
   stale/tampered evidence 给出确定性、可操作结果。
 - [ ] generation 与 disable/clean 的 race 不产生 lifecycle 成功后的 late publish；跨
-  schema upgrade 或损坏的 owned history 仍有界，未知用户文件保持不变。
+  clean 前已启动但仍在等待 lock 的 generator 也被 generation tombstone 拒绝；跨 schema
+  upgrade 或损坏的 owned history 仍有界，未知用户文件保持不变。
 - [ ] checkout 与 GH-699 payload/package-manager entry 的真实 smoke 输出同一
   taxonomy/version/count/digest，并证明 payload 运行不依赖 repository checkout。
 

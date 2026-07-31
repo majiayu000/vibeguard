@@ -127,39 +127,54 @@ vibeguard-runtime/src/observe/weekly_value.rs：
 1. CLI 必须取得显式 `--window-start`、`--window-end`、`--timezone`、`--scope
    global`、`--taxonomy` 和 output kind；scheduler 计算窗口，runtime 重新校验
    start < end、offset/timezone 一致和输入有界。
-2. Reader 对 canonical global log 使用 writer/GC 已有的 `<log>.lock.d` 协议。
-   在同一 bounded lock 内枚举所有可能包含 window 的 retained gzip archives 与
-   live log，拒绝 symlink/非 regular file，打开只读 handle，并记录不可变的
-   file identity、长度和 digest 后释放锁；GC/retention 也必须在同一协议内操作。
-   后续只从这些已打开 handle 读取 snapshot 时记录的精确长度，任何缺失、损坏、
-   超限、短读、枚举变化或无法证明封闭性
-   都是 `partial_coverage`/error，不能退回只读 live log 后声称 complete。
+2. Reader 对 canonical global log 使用 writer/GC 已有的 `<log>.lock.d` 协议，并读取
+   planned manifest 中 event-log coverage schema artifact 约束的两代 checksummed coverage ledger。
+   ledger 以 monotonic generation 记录 writer sequence/tail、pending/gap、每个 archive 的
+   stable ID/source generation/coverage interval/file identity/length/digest，以及被 retention
+   删除的 interval tombstone 和 `earliest_provable_window_start` watermark。writer 必须先在
+   独立 coverage generation 中 durable reserve attempt sequence，再生成 event ID、append+fsync
+   canonical row，最后 commit matching event ID/tail；append/CSPRNG/typed-field 失败保留 durable gap。若连 reserve/gap
+   generation 都不能 durable，value-capable hook 必须按 Draft recommendation fail closed/nonzero，
+   不得返回一个可使后续 window 声称 complete 的普通结果；该 policy 未获 H approval 前禁止实现。
+   GC 在同一 bounded lock 内先写/fsync archive + directory，再 commit archive ledger entry，
+   最后才 rewrite/reclaim live rows；retention 删除前先 commit tombstone/watermark。ledger 以
+   policy-bounded retained entries + compacted watermark 保持 closed maximum，legacy/no-ledger epoch
+   永远不能证明 complete。在同一 lock 内，reader 从 ledger 枚举 window 应存在的全部 archive/live
+   generations，拒绝 symlink/非 regular file，打开只读 handle并核对 identity/length/digest 后释放锁。
+   后续只读已打开 handle 的 snapshot length；expected entry 缺失、gap/pending/tombstone 覆盖 window、
+   ledger chain/digest 不匹配、超限、短读或枚举变化都是 `partial_coverage`/error，不能仅凭当前存在
+   的文件集合声称 complete。
 3. `schemas/event-log.schema.json` 增加 closed schema v2。Rust 与 shell canonical
    writer 在首次 append 前必须持久化 `event_id`、`classification_status`、nullable
-   `rule_id`、nullable `reason_code` 和 `classification_source`；block/value-eligible
+   `rule_id`、nullable `reason_code`、`classification_source`、
+   `classification_contract_version` 与 `classification_contract_digest`；block/value-eligible
    event 要求显式的 rule/reason identity。值必须来自作出 decision 的 typed 分支，
    不得由 `reason`/`detail` regex、substring 或 renderer 反推。这个最小合同由
    GH-703 自己实现；GH-704 可在将来消费/扩展，但不是批准或实现前置条件。
-   `classification_status` closed 为 `classified|not_applicable|unclassified`，
-   `classification_source` closed 为 `rust_decision|shell_decision`；`classified` 要求
-   taxonomy 允许的非空 rule/reason identity，`not_applicable` 只允许明确不进入 value
-   taxonomy 的 event，`unclassified` 使包含它的 window 无法成为 complete。typed field
-   或 CSPRNG 生成失败时 writer 必须 fail visible，不能写一个看似合规的降级 row。
+   `classification_status` closed 为 `typed|not_applicable|unclassified`，
+   `classification_source` closed 为 `rust_decision|shell_decision`；`typed` 只要求
+   matching producer contract 允许的非空 rule/reason identity，不绑定
+   event 创建后的任何 taxonomy snapshot；当前 taxonomy eligibility 始终由第 5 步 reader 计算。
+   `not_applicable` 只允许明确不进入 value taxonomy 的 event，`unclassified` 使包含它的 window
+   无法成为 complete。typed field/CSPRNG/append 失败必须进入第 2 步 durable gap protocol。
 4. `event_id` 在 writer 边界由 OS CSPRNG 生成，形状为 `VG-EVT-` 加 32 位大写
    hex；同一已持久化 row 在 GC、gzip archive 与 compaction 中 byte-stable 保留。
    重读/复制按 `event_id` 去重，真实新 attempt 即使内容相同也生成新 ID。legacy v1、
    缺 ID 或冲突 ID 都不得用 path/archive/offset/content 补造；窗口 coverage 降级。
-5. 先复用 GH-706 protocol classifier；其余 block 再按 taxonomy 的 exact
-   decision/rule_id/reason_code 集分类。`non_protocol_blocks` 只做 arithmetic
-   cross-check，绝不是 value category。
+5. schema v2 只按 closed typed mapping 分类：protocol branch 在 writer 当场持久化
+   `reason_code=protocol_invalid_json|protocol_missing_field|protocol_invalid_shape|protocol_other`
+   等由 event schema 固定的 code，weekly producer 再按 exact decision/rule/reason/contract version
+   匹配 taxonomy。GH-706 `observe_is_protocol_error_block` free-text helper 仅作 legacy v1 display
+   compatibility；legacy rows 已按第 2–4 步降级 coverage，绝不能进入 headline。其余 block 同样
+   只按 typed fields 分类；`non_protocol_blocks` 只做 arithmetic cross-check，绝不是 value category。
 6. producer 验证每个 block 至多匹配一个 mapping，并校验
    `total_blocks = protocol_errors + operational_blocks + dangerous_ops +
    invented_apis + other_rule_blocks`。无法证明等式时 fail loud。
 7. `event_set_sha256` 对按 `event_id` 排序的安全 canonical tuple 做
    schema-defined canonical UTF-8 JSON（固定 key 顺序、无 insignificant
    whitespace，数值字段仅允许整数）+ SHA-256，不包含 raw
-   reason/payload/content。`summary_digest` 只对 window、scope、taxonomy/producer
-   schema、event-set digest 与 counts 的稳定内容投影使用同一 canonical encoding +
+   reason/payload/content。`summary_digest` 只对 window、scope、taxonomy、exact
+   `producer_version`、producer schema、event-set digest 与 counts 的稳定内容投影使用同一 canonical encoding +
    SHA-256，明确排除 `generated_at`、attempt/retry time、freshness 与 renderer metadata。
 8. internal JSON、shareable JSON 与 Markdown 都从同一个已验证 object 渲染；
    Markdown 不扫描 logs 或 taxonomy。`--shareable` 只做 allowlist projection。
@@ -215,8 +230,8 @@ schemas/weekly-value-state.schema.json 约束，至少包含：
 
 - `scheduler_state`: `active|disabled_by_user|unsupported_platform|broken`；
 - `artifact_state`: `current|stale|missing|invalid`；
-- `data_status`: `ok|no_data|partial_coverage|null`，其中 null 只允许尚无 attempt 的
-  closed lifecycle 组合；三个维度分别验证，禁止彼此覆盖；
+- `data_status`: `ok|no_data|partial_coverage|null`，其中 null 只允许没有可信 completed
+  data 的 `missing|invalid` artifact 组合；三个维度分别验证，禁止彼此覆盖；
 - approved consent/platform/window/taxonomy version；
 - owned job identity、expected target digest、install mode；
 - last attempt/success/window/summary digest；
@@ -227,18 +242,36 @@ schemas/weekly-value-state.schema.json 约束，至少包含：
   `repair_action` closed 为 `none|manual_enable|repair_target|retry_install`；两者只
   解释 `broken` 的恢复路径，不形成新的 lifecycle state。
 
+`scheduler_state` 不限制 artifact/data pair；每个 lifecycle 值都只能与下表八个 legal pair 组合，
+因此形成 4 × 8 的 closed legal matrix，而不是由 renderer 猜测：
+
+| `artifact_state` | legal `data_status` | 语义 |
+| --- | --- | --- |
+| `current` | `ok|no_data|partial_coverage` | current artifact 已验证，data status 来自该 artifact |
+| `stale` | `ok|no_data|partial_coverage` | 保留上一个已验证 artifact，但 freshness 不再成立 |
+| `missing` | `null` | 从未提交可验证 artifact |
+| `invalid` | `null` | current evidence 存在但不可验证，禁止沿用旧 data status |
+
+其它 pair、unknown enum、缺任一维度均 schema-invalid + `broken` evidence；例如
+`active+current+no_data`、`disabled_by_user+stale+ok` 合法，`active+missing+ok` 非法。
+
 install/upgrade/enable/disable/clean、scheduled/manual generation、publish 与 retention
 全部使用
 `~/.vibeguard/weekly-value/.lifecycle.lock` 的 bounded exclusive lock。状态转换按
 `plan → snapshot owned job/state → apply → scheduler probe → commit/rollback`
 执行。probe 必须验证 manager 返回 active、target/arguments 正确、wrapper/runtime/
 taxonomy 都存在且 digest 匹配；文件存在不算 active。失败只回滚本次 owned
-changes，不覆盖第三方 actor 的新内容。
+changes，不覆盖第三方 actor 的新内容。另保留不含 report/user data 的
+`~/.vibeguard/weekly-value/lifecycle-generation.json`：每次 enable/disable/clean 在 lock 内
+monotonic CAS generation，并写 `enabled|disabled|cleaned` + owner nonce/digest；clean 不删除该 fence。
 
-generator 在取得 lifecycle lock 后才能固定 source handles，并持锁完成 validate、
+scheduled/manual generator 在等待 lifecycle lock 前捕获 admission 时的 exact generation token；取得 lock 后必须
+重开 fence 并验证 `state=enabled` + matching generation，publish 前再次复核，然后才能固定 source handles，并持锁完成 validate、
 history/current publish、ownership receipt 与 success state commit。disable/clean 先取得
-同一 lock，阻止新 generator，再停止/验证 scheduler inactive，最后删除 owned control
-state；超时、取消不确定或 late-publish 无法排除时 nonzero 且不得报告 lifecycle 成功。
+同一 lock，先推进 disabled/cleaned generation 使所有既有/queued token 失效，再停止/验证 scheduler
+inactive，最后删除 owned control state；在操作开始前已启动但仍等待 lock 的 process 取得 lock 后
+必须因旧 token 退出且零 source/artifact write。超时、取消不确定或 late-publish 无法排除时 nonzero
+且不得报告 lifecycle 成功。tests 用 barrier 固定“generator 已启动但尚未取得 lock”这一 race。
 
 ### 6. Setup、upgrade、doctor 与 clean
 
@@ -262,8 +295,9 @@ freshness。`verify-install` 在 H-001 recommendation 和支持
 平台上把 `active|disabled_by_user` 按用户选择判定；broken/stale/未记录 consent
 不得伪装 active。
 
-`scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，停止并
-probe scheduler inactive，再只卸载 owned value job、删除 value state/current pointer，
+`scripts/setup/clean.sh` 先取得 generation/retention 共用的 lifecycle lock，推进并
+durable commit `cleaned` generation，再停止并 probe scheduler inactive；随后只卸载
+owned value job、删除 value state/current pointer（保留 generation fence），
 然后走现有 install cleanup。默认保留 history/share；现有 `--purge-data` 只有在
 H-007 获批包含 value report data 后，才按 durable ownership receipt 删除受限 owned
 paths；不能以当前 artifact schema 是否 valid 代替 ownership。clean 必须保留旧
@@ -335,6 +369,7 @@ JSON：
     "hooks/log.sh",
     "hooks/post-build-check.sh",
     "hooks/pre-commit-guard.sh",
+    "schemas/event-log-coverage.schema.json",
     "schemas/event-log.schema.json",
     "schemas/weekly-value-ownership.schema.json",
     "schemas/weekly-value-state.schema.json",
@@ -371,16 +406,27 @@ JSON：
     "tests/test_payload.sh",
     "vibeguard-runtime/Cargo.lock",
     "vibeguard-runtime/Cargo.toml",
+    "vibeguard-runtime/src/event_coverage.rs",
+    "vibeguard-runtime/src/event_coverage_tests.rs",
     "vibeguard-runtime/src/event_schema.rs",
+    "vibeguard-runtime/src/hook_checks.rs",
     "vibeguard-runtime/src/hook_checks_common.rs",
+    "vibeguard-runtime/src/hook_checks_history.rs",
+    "vibeguard-runtime/src/hook_checks_tests.rs",
+    "vibeguard-runtime/src/hook_checks_write.rs",
+    "vibeguard-runtime/src/hook_checks_write_tests.rs",
     "vibeguard-runtime/src/hook_orchestrator.rs",
     "vibeguard-runtime/src/hook_orchestrator_learn.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs",
+    "vibeguard-runtime/src/hook_orchestrator_post_edit_history_tests.rs",
+    "vibeguard-runtime/src/hook_orchestrator_post_edit_history_unit_tests.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_write.rs",
     "vibeguard-runtime/src/hook_orchestrator_pre_bash.rs",
     "vibeguard-runtime/src/hook_orchestrator_pre_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_stop.rs",
+    "vibeguard-runtime/src/log_append.rs",
+    "vibeguard-runtime/src/main.rs",
     "vibeguard-runtime/src/observe/aggregate.rs",
     "vibeguard-runtime/src/observe/mod.rs",
     "vibeguard-runtime/src/observe/model.rs",
@@ -433,13 +479,13 @@ JSON：
 | B-032 host coverage from canonical contract | event normalization coverage filter | `bash tests/test_observe.sh` current clients accepted; unknown/incompatible/missing-identity evidence excluded with coverage gap |
 | B-033 artifact evidence binding | stable content digest verifier + doctor/export | generated/attempt metadata changes preserve digest; tampered evidence/window/taxonomy changes alter/reject digest |
 | B-034 interruption recovery | pending state + atomic publish/lifecycle recovery | kill-at-each-phase fixtures followed by retry leave one owned job/current artifact and no temp/pending success claim |
-| B-035 closed live+archive snapshot | GC-compatible snapshot reader | `bash tests/test_gc_logs_rotation.sh` and concurrent fixtures cover cross-month/overflow archives, GC race, missing/corrupt archive and bounded scan |
-| B-036 structured classification at creation | event schema v2 + Rust/shell writers | `bash tests/test_observability_schemas.sh`, hook fixtures and Rust unit tests require closed typed fields and reject free-text derivation |
+| B-035 closed live+archive snapshot | versioned coverage ledger + GC-compatible snapshot reader | `bash tests/test_gc_logs_rotation.sh` and concurrent fixtures cover cross-month/overflow archives, pre-scan loss, deletion tombstones/watermark, GC race, pending/gap, missing/corrupt archive and bounded scan |
+| B-036 structured classification at creation | event schema v2 + all Rust/shell writers/callers | `bash tests/test_observability_schemas.sh`, hook fixtures and Rust unit tests require contract-versioned typed fields, typed protocol codes, durable append-failure gap and reject free-text/taxonomy-at-write derivation |
 | B-037 byte-stable event identity | writer-generated event ID + GC byte preservation | append→rotate→gzip→read fixture preserves ID; copy dedupes, real retry differs, legacy/duplicate ID downgrades coverage |
 | B-038 headline publication gate | summary schema + all renderers | empty, partial and invalid evidence fixtures assert null/absent counts in internal/share/Markdown; complete nonempty evidence may contain true zero |
-| B-039 stable summary digest | canonical stable-content projection | same evidence with different generated/attempt/renderer metadata yields identical digest; event/taxonomy/window changes differ |
-| B-040 orthogonal state dimensions | state schema + doctor/verify | exhaustive valid/invalid combination table proves no dimension overwrites another and unknown combinations fail visible |
-| B-041 generation/lifecycle exclusion | one lifecycle lock and pending transaction | deterministic barriers race publish/retention against disable/clean/upgrade; success is impossible before generator quiescence |
+| B-039 stable summary digest | canonical stable-content projection | same evidence with different generated/attempt/renderer metadata yields identical digest；exact producer version/event/taxonomy/window changes differ |
+| B-040 orthogonal state dimensions | state schema + doctor/verify | exact 4 × 8 scheduler × artifact/data table proves no dimension overwrites another；every omitted/extra/unknown pair fails visible |
+| B-041 generation/lifecycle exclusion | one lifecycle lock + monotonic generation tombstone + pending transaction | deterministic barriers race publish/retention against disable/clean/upgrade，包括 pre-clean queued waiter；old token zero-write exits，success is impossible before generator quiescence |
 | B-042 version-independent ownership | versioned owned-artifact receipts | old-schema and corrupt-owned fixtures remain bounded; corrupt receipt stops deletion and all unknown/manual files remain byte-identical |
 
 ## 数据流
@@ -450,11 +496,13 @@ JSON：
    lock 内 plan/snapshot/apply/probe/commit 独立 value job 与 state。
 3. scheduler 计算获批的 exact half-open window，并显式调用 installed wrapper 的
    `--surface value`。
-4. wrapper 在 lifecycle lock 内打开一个封闭的 live+retained-archive source snapshot；
+4. wrapper 在 lifecycle lock 内从 coverage ledger 打开一个封闭的 live+retained-archive source snapshot；
    reader 只接受 event schema v2 的 stable ID/typed classification evidence，legacy/
    corrupt/missing archive 使 coverage 降级且不发布 headline。
-5. Rust `observe weekly-value` 按 `event_id` 去重，GH-706 classifier 先分 protocol，
-   versioned taxonomy 再分 rule/operational categories；不解析 reason/detail。
+5. Rust `observe weekly-value` 按 `event_id` 去重，并以 event v2 的 exact typed
+   decision/rule/reason/contract version 做 closed protocol mapping；versioned taxonomy
+   再分其余 rule/operational categories。GH-706 free-text classifier 只供 legacy display，
+   producer 不解析 reason/detail，legacy evidence 不进入 headline。
 6. producer 构造一个 schema-valid internal object，并从稳定内容投影计算 evidence/
    summary digests；generated/attempt/renderer metadata 不参与 identity。JSON、Markdown
    和后续显式 export 都从该 object 渲染。
@@ -523,7 +571,7 @@ bootstrap 边界，不属于 summary producer。
 
 ## 测试计划
 
-- [ ] Schema/unit：event v2、taxonomy、summary、state/ownership schema；Rust
+- [ ] Schema/unit：event v2、coverage ledger、taxonomy、summary、state/ownership schema；Rust
   window/category/dedupe/accounting/canonical encoding/stable digest/render tests；critical
   privacy/classification paths 100%。
 - [ ] Observe integration：Rust/shell typed writer parity、live+gzip archives、GC race、
@@ -531,7 +579,7 @@ bootstrap 边界，不属于 summary producer。
   partial、old/invalid taxonomy、cross-render parity 和 sentinel。
 - [ ] Scheduler lifecycle：launchd/systemd plan/apply/probe/rollback、legacy health
   preservation、repeat/concurrent install、missed run、generation-vs-disable/clean race、
-  receipt-based cross-version/corrupt retention、interrupt recovery。
+  receipt-based cross-version/corrupt retention、pre-clean queued generator fence、interrupt recovery。
 - [ ] Setup lifecycle：默认 plan disclosure、`--no-weekly-value`、unsupported、
   orthogonal-state doctor/verify matrix、clean/purge ownership。
 - [ ] Payload：无 Python/checkout/network 的 unpacked payload install → scheduled
