@@ -450,17 +450,18 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与统一 durable state machine；唯一 backend、deployment/bootstrap、lock/fsync/recovery、blocked-attempt ledger、trusted-time/high-water、encrypted backup、anchor quorum、canonical schema、secret boundary、closed unions与 conformance vectors均由 [publication_history_contract.md](publication_history_contract.md) 定义，本文不复制 machine-facing identifiers：
 1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review只消费 contract的
-   owner-liveness/trusted-time protocol；host/client clock与 job absence不授权续租或 takeover。H-006
-   未获 repo release/security maintainer批准时 publication unavailable。
+   owner-liveness/trusted-time protocol；H-006 的值与 approval/roster digest未全部批准并进入 policy digest前，
+   或仅有 host/client clock与 job absence时，claim/heartbeat/takeover均 unavailable。
 2. client只调用 contract指定的 durable authority API，并按其 history/blocked-ledger successor framing、trust/fold、owner-free governance、
    idempotency、takeover、mutation/broker send-once、recovery与 terminal规则 fail closed；不得直接开 store、
    建立别名或本地重定义 schema；双 API trust、blocked ledger、broker credential、durable inventory、
-   trusted-time/high-water、encrypted Object-Lock backup、class-correct signer quorum、global pending gate、external anchor、bootstrap/normal-emergency rotation cutover与 blocked precedence也只消费该 contract。
+   trusted-time/high-water、detached backup/anchor plan core、class-correct signer quorum、global pending gate、
+   external anchor、bootstrap/normal-emergency rotation cutover与 blocked precedence也只消费该 contract。
 3. generated PR须在首次 head-ref/commit/PR mutation前按 contract的 closed identity planned/bound；response loss完整分页发现 PR/ref后按 authority推进。invalidation plan只绑定
    pre-merge事实，post-merge receipt才绑定 server返回事实；suffix只消费 contract的 closed union与 tagged cleanup evidence。
 4. protocol surface只绑定 stable identity；attempt plan绑定 mutable base与逐 surface proof，drift须重规划。
    valid plan只可为 rollover、true genesis或 contract-proven post-invalidation；restoration/其它 owner/mixed/drift/缺 receipt均 blocked。
-5. valid receipt/nonvalid prepared后才写 intent；de-current须 revoke或 rollback，failed slot须 reviewed
+5. valid/nonvalid intent分别在 publish前绑定 reviewed new-current或 unmarked-row plan；de-current须 revoke或 rollback，failed slot须 reviewed
    replacement/compensation或 blocked；仅完整 cleanup/rollback/invalidation或 Release+README effect closure可 terminal。
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若

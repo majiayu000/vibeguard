@@ -42,8 +42,36 @@ canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径�
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
 
-service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable
-`fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
+`client_api` method discriminator 是 closed union `{get_publication_head,claim_publication_owner,renew_publication_owner,takeover_publication_owner,
+append_publication_transition,plan_release_mutation,deliver_release_mutation,recover_release_mutation,
+plan_generated_pr,deliver_generated_pr,recover_generated_pr,append_blocked_attempt,bind_blocked_attempt,
+list_blocked_attempts,commit_reconciliation_watermark,get_blocked_attempt_frontier}`。每个 request exact envelope 为 `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,repo_node_id,
+request_nonce,expected_publication_frontier_or_null,expected_blocked_attempt_frontier_or_null,
+operation_request_digest,body}`，`operation_request_digest` 是删除自身后整个 envelope 的 JCS SHA-256。
+publication method 的 exact body/success receipt 如下（blocked-attempt 五个 method 的 body/receipt 取下文 ledger closed schemas）：
+
+| method | exact request `body` | exact success `result` |
+| --- | --- | --- |
+| `get_publication_head` | `{}` | `{current_head_receipt}` |
+| `claim_publication_owner` | `{intent,publication_lease_authorization,secret_channel_binding}` | `{transition_receipt,nonce_capsule_receipt}` |
+| `renew_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
+| `takeover_publication_owner` | `{intent,publication_lease_authorization,trusted_time_proof_request}` | `{transition_receipt}` |
+| `append_publication_transition` | `{intent,append_authorization}` | `{transition_receipt}` |
+| `plan_release_mutation` | `{intent,append_authorization,secret_channel_binding}` | `{planned_transition_receipt,mutation_capsule_receipt}` |
+| `deliver_release_mutation` | `{planned_operation_id,broker_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
+| `recover_release_mutation` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+| `plan_generated_pr` | `{intent,append_authorization}` | `{planned_transition_receipt}` |
+| `deliver_generated_pr` | `{planned_operation_id,generated_pr_delivery_id,delivery_authorization}` | `{delivery_state,transition_receipt_or_null,send_once_audit_digest}` |
+| `recover_generated_pr` | `{planned_operation_id,recovery_query_digest,append_authorization}` | `{recovery_state,transition_receipt}` |
+
+response 是 closed union：success exact `{api_version,method,authority_id,authority_identity_digest,policy_epoch,policy_bundle_digest,request_digest,
+response_nonce,result}`；error exact 为相同公共字段加 `{error:{code,retry_class,evidence_digest_or_null}}`而且无 `result`。`code` exact 为
+`{invalid_request,unauthenticated,unauthorized,wrong_authority,policy_drift,method_not_allowed,stale_frontier,
+stale_fence,lease_expired,operation_conflict,dependency_unavailable,outcome_uncertain,authority_non_ready,
+internal_durability_failure}`，`retry_class` exact 为 `{never,after_fresh_read,after_new_authorization,same_request_read_confirm_only}`。`outcome_uncertain` 只能配 `same_request_read_confirm_only`；unknown method/code/
+field、method/body/result 错配、null-not-declared 或 error 与 result 并存均拒绝，不得 fallback 到另一 method。
+
+service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
 capsule ciphertext metadata、broker outbox/delivery/send-once audit与 completed receipt须在一个
 事务中验证和提交；任何 lock/busy timeout、WAL/fsync/checkpoint、disk-full或 KMS error都使
@@ -97,21 +125,30 @@ endpoint/proxy/credential。retention exact `permanent_no_ttl_legal_hold_v1`：�
 不能 delete、overwrite version、解除 hold、改 lifecycle/KMS；protected recovery role只在 threshold-approved
 restore中读 exact versions并调用 pinned KMS decrypt，authority routine role不能解密或管理 bucket/key。
 
-每个 committed successor生成 exact `backup_set_ref={backup_id,resource_identity,snapshot_object_key,
+每个 committed successor先生成 exact `backup_set_core={backup_id,resource_identity,snapshot_object_key,
 snapshot_version_id,snapshot_ciphertext_digest,manifest_object_key,manifest_version_id,
 manifest_ciphertext_digest,wal_object_key,wal_version_id,wal_ciphertext_digest,kms_key_arn,kms_key_version,
-wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status,confirmation_digest}`。SQLite snapshot、
+wrapped_data_key_digest,aead_contract_digest,retention_until,legal_hold_status}` 及
+`backup_set_core_digest=SHA256(JCS(backup_set_core))`。detached `backup_confirmation` exact 为
+`{backup_set_core_digest,snapshot_get_receipt_digest,manifest_get_receipt_digest,wal_get_receipt_digest,
+retention_receipt_digest,legal_hold_receipt_digest}`，`backup_confirmation_digest=SHA256(JCS(backup_confirmation))`，
+`backup_set_ref={backup_set_core,backup_set_core_digest,backup_confirmation_digest}`；三者都不包含自己的 digest。SQLite snapshot、
 recovery manifest和 WAL（包括 canonical empty WAL）分别使用 fresh 256-bit data key与 96-bit nonce执行
 `aes_256_gcm_siv_v1` authenticated encryption；immutable object header保留 nonce、wrapped data-key bytes、tag和
 `AAD=JCS({authority_id,repo_node_id,backup_id,object_kind,successor_frontiers,time_high_water,plaintext_digest,
 prior_anchor_digest})`，三者禁止明文或 unauthenticated compression。上传后须 exact-version strong GET，重算
 ciphertext/header digest并确认 retention+legal hold，任何对象未确认都不能签 anchor或释放 receipt。
 
-anchor exact payload为 `{authority_id,authority_identity_digest,policy_epoch,repo_node_id,anchor_schema_version,restore_epoch,
-latest_frontier,blocked_attempt_ledger_frontier,time_high_water,time_proof_digest,snapshot_digest,wal_digest,
-backup_resource_identity,backup_set_ref,backup_set_ref_digest,transition_class,prior_anchor_digest,anchor_request_id}`，其中两个 frontier
-含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
-`backup_set_ref_digest=SHA256(JCS(backup_set_ref))`，snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
+DB successor transaction 只固化 exact `anchor_plan_core={authority_id,authority_identity_digest,policy_epoch,
+repo_node_id,anchor_schema_version,restore_epoch,latest_frontier,blocked_attempt_ledger_frontier,time_high_water,
+time_proof_digest,transition_class,prior_anchor_digest,backup_id,anchor_plan_id}` 及
+`anchor_plan_core_digest=SHA256(JCS(anchor_plan_core))`；core 禁止包含任何 snapshot/WAL digest、object version、
+`backup_set_ref*`、confirmation、final payload/request ID。exact-version backup 确认后才构造 final anchor payload
+`{anchor_plan_core,anchor_plan_core_digest,snapshot_digest,wal_digest,backup_resource_identity,backup_set_ref,
+backup_set_ref_digest,anchor_request_id}`，其中 `backup_set_ref_digest=SHA256(JCS(backup_set_ref))`且
+`anchor_request_id=SHA256(JCS({v:"GH700:anchor-request:v1",anchor_plan_core_digest,backup_set_ref_digest}))`。
+两个 frontier 含 exact `full_prefix_digest`；external HEAD/epoch row保留完整 object keys/version IDs/crypto+retention locator而非只留 digest，
+snapshot/WAL plaintext digests必须与该已确认 encrypted set一致。
 `anchor_signing_policy` exact 为 `{routine_policy,privileged_policy}`。routine class仅
 `{publication,blocked_attempt,trusted_time,owner_heartbeat}`，由至少3个不同管理域/account的 pinned
 KMS-backed online signer服务取 distinct threshold>=2；每个 signer manifest固定 endpoint/mTLS server identity、
@@ -132,12 +169,16 @@ epoch row/HEAD exact digest与 strong-read confirmation，形成 DB committed fr
 class-correct quorum signature→conditional transaction→service response/read-back→authority receipt 的端到端 CAS proof。
 
 所有 successor共用 repository-global durable `anchor_commit_gate`，不得只依赖已释放的 SQLite write lock。
-在 gate fence下，首个 transaction append successor并写唯一 `db_committed_anchor_pending` row，固定 prior anchor、
-exact payload/request ID、backup ID和签名 class后 commit+fsync；该 pending未完成时所有其它 successor transaction
+在 gate fence下，首个 transaction append successor并写唯一 `db_committed_anchor_pending` row，只固定 prior anchor、
+`anchor_plan_core`/digest、backup ID和签名 class后 commit+fsync；该 row 所在 snapshot 因而不含尚未产生的
+snapshot digest、object version、backup confirmation或 final payload。该 pending未完成时所有其它 successor transaction
 在写 DB前拒绝。gate跨 snapshot/WAL/manifest加密上传、exact-version确认、quorum签名、DynamoDB CAS/read-confirm
-保持逻辑独占，但不跨网络持有 SQLite transaction。CAS确认后第二个 transaction才写 immutable
+保持逻辑独占，但不跨网络持有 SQLite transaction。backup 确认后一个 short transaction 以
+`anchor_plan_core_digest` CAS 同一 pending row，写入 detached confirmation、final payload/request ID；任何 core/backup drift均 blocked。
+CAS确认后下一 transaction才写 immutable
 `anchor_confirmed` proof/成功 receipt、清 pending并 fsync，然后释放 gate；client receipt与 broker write此前均禁止。
-crash recovery只可 higher-fence接管同一 pending row，复用 byte-identical payload/request/backup versions/signatures：
+crash recovery只可 higher-fence接管同一 pending row；plan-only phase 只可从同一 core/backup ID 完成并固化
+detached confirmation，finalized phase 复用 byte-identical payload/request/backup versions/signatures：
 未发 CAS则发送一次，response/ack丢失则 strong-read exact epoch+HEAD确认，已确认但本地未记账则补写同 confirmation；
 任何 non-match、无法证明未发送或 backup/signature drift均保持 pending并使 authority blocked，禁止 rollback/truncate、
 生成下一 successor或返回“可能成功”。
@@ -229,9 +270,15 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-每个 time-dependent transition生成 fresh 256-bit nonce并请求每个 TSA 对
+每个 time-dependent transition 先冻结 `publication_payload_core`：它是该 kind 的 final payload 去掉所有
+proof-produced fields（`trusted_time_proof_digest`、trusted interval/new high water、accepted-at/expiry）后的 closed object，
+并保留 known prior high water。然后生成 fresh 256-bit nonce 及 typed `nonce_digest`，计算
+`trusted_time_proof_request_id=SHA256(JCS({v:"GH700:trusted-time-proof-request:v1",authority_id,repo_node_id,
+owner_generation,run_id,run_attempt,transition_slot,predecessor_frontier,record_kind,
+publication_payload_core_digest,prior_time_high_water,nonce_digest}))`；它与 payload core 先按下述 closed derivation
+生成 `transition_operation_id`，之后才请求每个 TSA 对
 `SHA256(JCS({v:"GH700:trusted-time-proof:v1",authority_id,repo_node_id,transition_operation_id,
-predecessor_frontier,nonce_b64u}))` 签 RFC3161 token。验证 distinct threshold signer、message imprint、policy OID、
+trusted_time_proof_request_id,predecessor_frontier,nonce_b64u}))` 签 RFC3161 token。验证 distinct threshold signer、message imprint、policy OID、
 certificate chain、`gen_time`与 accuracy后，将各 interval `[gen_time-accuracy,gen_time+accuracy]` 求交；无交集、
 accuracy超限、token replay或 signer不足即拒绝。`trusted_lower_bound`取交集下界，`trusted_upper_bound`取上界；
 只有 `trusted_lower_bound >= prior_time_high_water` 才接受，`accepted_at=trusted_upper_bound` 且
@@ -536,11 +583,22 @@ lease/fence、authenticated governance actor及 threshold approval，因此 prio
 no active owner时仍可轮换，active owner期间也不伪造 takeover或改变其 phase/liveness。
 `trust_emergency_root_cutover`同样 phase-neutral，但只接受前述 frozen break-glass authorization、exact anchored
 predecessor与 privileged anchor class，普通 governance/routine signer/fence不能生成或批准它。
-immutable rotation payload绑定 repo/purpose/current→next epoch、old/new key或bundle/cert/
-approval digests，stable `rotation_id=H(repo,purpose,current_epoch,next_epoch,kind,payload_digest,
-approval_digest)` 不含 predecessor/fence。store先查永久 `(repo_node_id,rotation_id)`：same
-payload/approval返原 receipt，异值冲突；absent才验 governance domain/fence/actor/threshold/
-current epoch/exact predecessor并 append。stable approval/canonical payload不含 predecessor；每次 append的
+rotation 构造顺序唯一且无环。三种 normal kind 的 `rotation_core` 分别 exact 为
+`trust_leaf_rotated:{current_trust_epoch,next_trust_epoch,old_leaf_key_id,new_leaf_key_id,new_leaf_certificate_digest}`、
+`trust_root_rotated:{current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,
+old_threshold_signature_digest,new_threshold_signature_digest}` 及
+`trust_key_revoked:{current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,
+replacement_key_or_bundle_digest_or_null}`。先计算 `rotation_core_digest=SHA256(JCS(rotation_core))`；detached
+normal approval exact 签 `SHA256(JCS({v:"GH700:normal-rotation-approval:v1",repo_node_id,purpose,
+record_kind,rotation_core_digest}))` 并产生 `approval_digest`；再计算
+`rotation_id=SHA256(JCS({v:"GH700:rotation-id:v1",repo_node_id,purpose,record_kind,
+rotation_core_digest,approval_digest}))`。emergency kind 以其 final payload 去掉
+`{rotation_id,recovery_threshold_signature_digest,rotation_cutover_certificate_digest}` 作 `rotation_core`，将前述
+detached break-glass approval envelope digest 作 `approval_digest`，使用同一 rotation-ID 式。最后才以 core+
+rotation ID+approval digest+cutover certificate digest 构造 closed record payload；任何 derived field 都禁止
+进入自己的 core/preimage。rotation ID/approval 不含 predecessor/fence。store先查永久
+`(repo_node_id,rotation_id)`：same core/approval 已提交则返原 receipt，异值冲突；absent才验 governance
+domain/fence/actor/threshold/current epoch/exact predecessor并 append。每次 append的
 `rotation_cutover_certificate` 另绑定 rotation ID/approval digest、exact predecessor、successor ordinal与
 next epoch，但绝不含 successor root/full-prefix/receipt digest。publication suffix抢先时保留相同 rotation
 ID/payload/approval并为 new predecessor/op重签 cutover certificate；store用 pre-state trust验证后 append，
@@ -552,7 +610,9 @@ owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝
 authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 38 kinds 的
 closed derivation：publication-domain 34 kinds exact 为
 `SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
-transition_slot,predecessor_frontier,record_kind,payload_digest}))`；三种 normal governance kinds exact 为
+transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
+trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
+time-dependent kind 以上述 proof-free core/request ID 构造 operation ID，取得 proof 后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
 `SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
 predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
 `SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
@@ -601,7 +661,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `prepared` | `{owner_generation,draft_bound_operation_id,asset_manifest_digest,checksums_digest,summary_digest,closed_slot_set_digest}` |
 | `genesis_zero_receipt` | `{owner_generation,first_frontier,verified_prefix_digest,zero_marker_surface_digest,bootstrap_receipt_digest,governance_suffix_digest}` |
 | `post_invalidation_zero_receipt` | `{owner_generation,invalidation_receipt_operation_id,invalidation_suffix_digest,zero_marker_surface_digest,terminal_chain_digest,governance_suffix_digest}` |
-| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
+| `intent_written` | `{owner_generation,intent_kind,prepared_operation_id,zero_marker_receipt_operation_id_or_null,new_current_pr_plan_digest_or_null,unmarked_row_plan_digest_or_null,summary_digest,release_manifest_digest}` |
 | `release_committed_valid_marker_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,new_current_pr_plan_digest}` |
 | `release_committed_nonvalid_row_pending` | `{owner_generation,intent_operation_id,release_node_id,published_release_digest,nonvalid_row_pr_plan_digest}` |
 | `valid_decurrent_pr_cancel_pending` | `{owner_generation,decurrent_pr_bound_operation_id,higher_fence_receipt_digest,cancel_plan_digest}` |
@@ -637,6 +697,9 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `pr_kind={decurrent,rollback,new_current,nonvalid_row,invalidate_current}`、
 `terminal_kind={published_valid,published_nonvalid,rollback_restored,invalidation_completed}`及
 `recovery_truth_branch={matching_public_release,matching_intent_bound_draft}`；`retain_owner`必须 literal `true`。
+`intent_written(intent_kind=publish_valid)` 必须在 publish slot 前将 human-reviewed exact base/patch/review
+identity 作 non-null `new_current_pr_plan_digest_or_null` 绑定，且 `unmarked_row_plan_digest_or_null`为 null；
+`publish_nonvalid` 则反之。两者同时 null/non-null 或 commit 后才首次出现 new-current plan 均 schema-invalid。
 `release_mutation_recovery_blocked.mutation_kind`只允许
 `{draft_update,draft_delete,asset_upload,asset_delete,publish}`，`draft_create`只允许
 `draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
