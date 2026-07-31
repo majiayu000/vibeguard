@@ -287,11 +287,12 @@ synthetic canonical log → scheduled value summary → doctor → clean，全�
 network/Python/repository checkout。GH-699 T3–T7 可以与本 spec 分 tranche，但两者
 若同时修改 payload/setup surface 必须串行集成，不能各自维护不同 manifest。
 
-写作时 PR #732 仍为 open（head
-`91ef1571921c9296473e8f8f52ccfa449d8da241`），其 bootstrap orphan-lease 结果仅是
-未来 implementation 的 distribution coordination 输入。开始实现前必须重新固定其
-最终 merge/result 与 payload contract；GH-703 Draft、structured event v2 和本次
-corrective 均不以 #732 合并为前提。
+2026-08-01（Asia/Shanghai）复核时 PR #732 仍为 open，head 为
+`91ef1571921c9296473e8f8f52ccfa449d8da241`，merge state 为 `CLEAN`，Ubuntu、macOS、
+Windows、Self-Application 与 Benchmark checks 均成功。该 bootstrap orphan-lease
+结果仅是未来 implementation 的 distribution coordination 输入；开始实现前仍必须
+重新固定其最终 merge/result 与 payload contract。GH-703 Draft、structured event v2
+和本次 corrective 均不以 #732 合并为前提。
 
 ### 8. Privacy/export firewall
 
