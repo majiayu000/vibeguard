@@ -242,15 +242,19 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     source/candidate、repository-ledger、repository-publication 执行 lease，再做
     default-branch CAS；禁止反向或持后序 lease 再取前序 lease。完整重验 draft、summary、
     policy 与 exact human-reviewed README patches 后，且在任何 marker/Release/README
-    可见动作前，必须 append durable `publication_ownership_record(phase=prepared)`，绑定
+    可见动作前，必须在受认证、retention-independent、append-only
+    `publication_history` 中 fenced-CAS append durable
+    `publication_ownership_record(phase=prepared)`，绑定
     `repo_node_id`、candidate/run/attempt、fence、draft/summary/policy、base digest、
     deadline/heartbeat 与闭集 marker plan。短 lease 可在等待 review 时释放，durable active
     owner 仍阻断其它 candidate；恢复时按同一顺序重取 lease并提升 fence。
     valid plan 只能是：`rollover_one`（CAS 证明恰有一个 eligible current valid row，合并
-    human-reviewed de-current PR并记录 merge SHA/前后 blob digest）或 `genesis_zero`
-    （CAS 证明零 marker、没有历史 eligible valid row，且除本次 exact current prepared owner
+    human-reviewed de-current PR并在 intent 前持久化 merge SHA/前后 blob digest receipt）或
+    `genesis_zero`（CAS 证明零 marker、`publication_history` 没有历史 eligible valid
+    publication，且除本次 exact current prepared owner
     `(repo_node_id, candidate, run_id, run_attempt, fence)` 外没有 active owner；ledger 证明此前
-    只有 non-valid/no publication，直接记录 zero-marker receipt，不制造 no-op PR）。
+    只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的 zero-marker
+    receipt，不制造 no-op PR）。
     其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
     发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即
     重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
@@ -262,7 +266,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     human-reviewed replacement；无获批 replacement 则 attest 对应
     `rollback_recovery_blocked`/`marker_recovery_blocked`，active owner 继续阻断后续
     publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，
-    ownership 才 terminal。
+    ownership 才 terminal；所有 receipt、fenced transition 与 terminal record 均保留在
+    `publication_history`，不能因 owner terminal 而删除。
     `publish_nonvalid` 也必须从 prepared owner 推进至
     `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
     human-reviewed unmarked row。其 PR 的 reject/close/timeout/crash 使用同一 higher-fence
@@ -283,13 +288,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `effective_action: block_release` 和闭集 prerequisite failure code 进入 B-029。
     可恢复失败由当前 release workflow 在退出前写 B-029 证据；job/workflow
     hard-cancel、runner loss 或 timeout 由独立 completion reconciler 在 workflow 终态后
-    按同一 candidate/run/attempt 身份补写 interruption record。它除只读 source 与
+    按同一 candidate/run/attempt 身份补写与最终状态一致的
+    `recovered_publication` 或 interruption record。它除只读 source 与
     attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
     mutation 权限：仅可删除 prepared 且尚无可见 transition/intent 的同一 draft、按已验签
     `publish_intent` 完成/验证同一 draft，或按 durable owner 创建/supersede exact
     rollback、new-current、nonvalid-row recovery PR 并等待 human review/merge；
-    不得直接写 default branch，也不得创建或改写其他 tag/release。各路径都必须
-    先证明 publish sentinels 未发生，且不能依赖已终止 job 继续执行。
+    不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
+    审计 publish sentinels；已发生的 exact intent/Release 只能幂等验证/完成，不能依赖已终止
+    job 继续执行。
     发布路径必须使用 attempt-scoped draft two-phase commit：所有 assets/checksums/summary
     先上传到非公开 draft并完整重验；然后按 B-017 唯一锁顺序和 CAS 写
     `publication_ownership_record(prepared)`。valid 选择并证明 `genesis_zero` 或
@@ -415,7 +422,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     repository-global monotonic sequence 消费该 repo 其后所有 permanent blocked-attempt
     records 中 attested 的 ledger root/length/full-prefix identity；source/candidate 只作
     provenance，绝不得过滤 frontier。每次 blocked append 与 publish validation 必须持同一
-    repository ledger lease；每个新 identity 必须以前一个 frontier 为
+    repository ledger lease，并让永久 store 以 lease monotonic fence 对
+    `(expected_sequence, expected_root)` 执行 atomic compare-and-append；过期 fence、非当前
+    prefix 或竞争 successor 必须在落盘前拒绝。每个新 identity 必须以前一个 frontier 为
     prefix，最终以最长已验证 frontier 约束当前 checkout。blocked candidate 已记录的 suffix
     因而不可在 retry 中重写；相同 tuple 可复用，内容变化必须 append 新 version。所有 trust
     anchors 必须经 verified-provenance 验证，不能来自当前 checkout。首个 official
@@ -458,9 +467,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `summary_digest` 显式为 null，canonical failed-summary digest 仍覆盖全部 target slots。
     此分支不能降格成单一 target record。
 
-    对于 hard-cancel、runner loss 或 workflow timeout，独立 completion reconciler 必须在
-    终态事件后创建 schema 的
-    `pipeline_interrupted` 分支：包含同一
+    对于 hard-cancel、runner loss 或 workflow timeout，独立 completion reconciler 必须先
+    复验 durable owner、intent 与 public sentinels。已有 intent/Release 的 attempt 必须幂等
+    完成 publication/README transition，并在 `publication_history` append 独立闭集
+    `recovered_publication` outcome；不得为它写 B-029 `block_release`/
+    `pipeline_interrupted` permanent failure record。只有无 intent 且恢复最终证明不发布
+    （包括 exact rollback+draft delete）时，才创建 schema 的 `pipeline_interrupted` 分支：包含同一
     candidate/run/attempt、staged provenance、selected/effective policy、interruption
     conclusion/stage、publish-sentinel audit，以及闭集 `missing_evidence`；此分支明确将
     report/evidence/checksum identity 置空而不伪造。reconciler 用相同 canonical profile
@@ -478,12 +490,15 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     持有 early/candidate leases 后 union 进 watermark；无法证明精确匹配的 record 永久
     保持 unbound，不得由“同 commit 的下一个 candidate”接管。tuple/digest 冲突或归属歧义
     均 fail closed；不得读取 workflow 自由文本或跳过该 attempt。
-    所有 release attempts、reconciler 与 publish gate 必须共享 candidate/source-identity
+    reconciler workflow 的显式 least-permission map 至少为 `actions: read`、
+    `contents: write`、`pull-requests: write`；protected environment 只授予该 workflow，
+    default branch 仍只能经 human-reviewed PR/CAS 修改。所有 release attempts、
+    reconciler 与 publish gate 必须共享 candidate/source-identity
     路由的 serialized lease（禁止 cancel-in-progress）、repository ledger lease和合并后的 attested reconciliation
     watermark；新 attempt 与 publish 在持锁状态下必须枚举同 candidate/source identity 的
     全部既有 terminal attempts，并证明每个
-    failed/cancelled/timed_out attempt（包括 pre-attestation interruption）都已有唯一永久
-    record。存在未 reconciled attempt、
+    failed/cancelled/timed_out attempt（包括 pre-attestation interruption）都已有唯一且
+    与终局一致的 permanent failure 或 `recovered_publication` record。存在未 reconciled attempt、
     terminal-run 列表/永久 store 不可用或 watermark 不一致时 fail closed，不能先发布后补写。
 30. B-030: official run 在任何 latency warmup/measurement 前，必须通过 B-013
     身份专用只读通道，从 receipt 映射的已打开、已校验 handles/bytes，把已验签 manifest
@@ -554,7 +569,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
       `repo_node_id` identity、candidate/source → ledger → publication 的唯一 lease 顺序、
       fenced CAS + merged watermark 阻止 prior attempt 或并发 candidate 后的 rerun/publish；
       genesis zero-marker、rollover rollback、post-commit marker 与 nonvalid row 都必须有
-      pre-transition durable owner并恢复到 terminal。
+      pre-transition durable owner、intent 前 receipt、retained authenticated publication
+      history并恢复到 terminal；reconciler 仅用显式
+      `actions: read`/`contents: write`/`pull-requests: write`。
 - [ ] unavailable/inconclusive/interrupted/legacy-schema 及 process-tree/report/schema/
       cleanup terminal errors 均非零退出、blank headline，且不会把历史数字冒充当前 release。
 

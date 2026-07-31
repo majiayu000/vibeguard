@@ -166,8 +166,9 @@ version→digest tuple。release validator 从上一已发布 benchmark release 
 verified-provenance attestation 获取 `(ledger_length, ledger_root, full_prefix_digest)`，
 再按 repository-global monotonic sequence 消费该 repo 其后全部 blocked-attempt
 predicates 携带的 ledger identities；source/candidate 只作 provenance，不能过滤 frontier。
-每次 blocked append 与 publish validation 都在同一 `repository_ledger_lease` 内分配/核对
-无间隙 sequence；每项必须以当前 frontier 为 prefix，最长已验证 frontier 才是 anchor。
+每次 blocked append/publish validation 都在同一 `repository_ledger_lease` 取 monotonic
+fence；store 仅对匹配当前 `(expected_sequence, expected_root, fence)` 的请求 atomic
+compare-and-append，过期 fence、非当前 prefix/竞争 successor 在落盘前拒绝。
 验证 repo、issuer/workflow 与 attestation subject 后逐条比较：已有 version digest 变化、
 历史项删除/重排、旧 version 复用、fork/gap 或 ledger 未覆盖 embedded inputs 都失败。
 trust anchor 不得来自当前 checkout；
@@ -416,7 +417,6 @@ release wrapper 通过闭集 diagnostic/failure manifest 表达而不伪造 vali
 3×3×`{completed, interrupted_or_terminal_failure}`。旧版本映射不存在就报 unavailable，不做 duck
 typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏。README 每 cell
 读取 axis status，不根据 top-level 猜数值。
-
 ### 8. Release regeneration 与 README
 
 调整 release DAG，使官方报告来自 staged、将要发布的 artifacts：
@@ -447,19 +447,22 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
 1. actors 只按 source/candidate → `repository_ledger_lease` → `repository_publication_lease` →
    branch CAS 短暂取锁；禁止反向。等待 review 时释放 lease，active durable owner仍阻断新 candidate。
-2. phase A 重验 private draft/summary/policy与 exact reviewed README patches；任何可见动作前
-   fenced-CAS append `publication_ownership_record(prepared)`，绑定 `repo_node_id`、candidate/run/attempt、draft/summary/policy/base/reviews/deadline。
-3. valid plan 为 `rollover_one` 或 `genesis_zero`：前者证明单 current并 merge reviewed de-current；
-   后者证明零 marker/无历史 eligible valid row，除本 record exact `(repo_node_id,candidate,run,
-   attempt,fence)` 外无 active owner，且 ledger 仅含 non-valid/no publication；其它状态 fail closed。
-4. valid intent 绑定 receipt/pre-approved new-current patch；nonvalid intent 绑定 unmarked-row。
+2. phase A 重验 draft/summary/policy/exact reviewed README patches；可见动作前在受认证、
+   retention-independent、append-only `publication_history` fenced-CAS append prepared
+   owner，绑定 repo/candidate/run/attempt/fence/draft/summary/policy/base/reviews/deadline；
+   transition/terminal 永久保留。
+3. `rollover_one` 证明单 current、merge reviewed de-current 并在 intent 前 durable append
+   merge SHA/前后 blob receipt；`genesis_zero` 证明零 marker、history 无历史 eligible valid
+   publication、除本 exact owner 外无 active owner、corpus ledger 仅含 non-valid/no
+   publication，再 append history-frontier-bound zero receipt；其它状态 fail closed。
+4. receipt durable 后 valid intent 才绑定 receipt/pre-approved new-current patch；nonvalid
+   intent 绑定 unmarked-row。
    commit 后 owner 从 `valid_zero_marker`/`intent_written` CAS 到 `release_committed_valid_marker_pending`
    或 `release_committed_nonvalid_row_pending`；crash 由 prepared owner/intent/sentinels补齐。
 5. de-current 后 intent 前取消进入 `valid_rollback_pending`；rollback/new-current/nonvalid-row
    PR reject/close/timeout/owner loss 由 reconciler 提升 fence并建同 candidate/exact replacement。
    无获批 replacement attests `rollback_recovery_blocked`、`marker_recovery_blocked` 或
    `nonvalid_row_recovery_blocked` 并继续阻断；exact rollback+delete/README merge 后才 terminal。
-
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
 approved set 含四 target 就必须配置四个 native runners。required platforms 的
@@ -470,7 +473,6 @@ platform × surface 独立展示，不聚合为单一 P95。publication、README
 获批 `release_policy` 必须来自闭集 `{block_release, publish_nonvalid}`；缺失/越界值直接
 阻断且不能猜。Recommended proposal（未批准）选择 `block_release`。两个分支共享
 schema/provenance gate，但发布动作闭合如下。
-
 effective action 为 `block_release` 时（包括 selected policy 是 `publish_nonvalid` 但
 mandatory non-valid report/evidence 未通过 schema/provenance gate），failure-manifest
 schema 是闭集 union：单 target 失败使用 `target_failure`；required reports 各自有效但
@@ -507,17 +509,19 @@ predicate。bundle 即使在 retention 后不再可下载，验证者仍能从�
 取回每个 attempt 的完整 manifest，复算 canonical digest 并复核具体内容/reason。失败
 candidate 不创建 GitHub Release、release page/assets 或 README candidate current row；
 旧 row 仅保留其原 release 身份。
-
 hard-cancel、runner loss、job/workflow timeout 不能依赖上述 wrapper 继续运行。另设
-completion reconciler，由 release workflow 的终态事件触发。其 source 只读、attestation
-store 可追加，并通过 protected environment 取得 narrowly scoped `contents: write`；
+completion reconciler，由 release workflow 终态事件触发；source 只读、attestation store
+可追加，protected environment 显式授予 `actions: read`、`contents: write`、
+`pull-requests: write`；
    该权限只允许删除无可见 transition 的 prepared draft、按 intent 完成同一 draft，或按
    durable owner supersede并创建同 candidate exact rollback/new-current/nonvalid-row replacement；
    README PR 均须 review/CAS。reconciler 用 `(repo_node_id, workflow_id, candidate tag/source
    commit, run_id, run_attempt)` 查询预发布阶段已
-attested 的 staged identity。若结论为 cancelled/timed_out/failure 且
-normal-path attempt record 不存在，reconciler 生成 failure-manifest schema 的
-`pipeline_interrupted` 分支：report/evidence/checksum identity 为显式 null，
+attested staged identity。cancelled/timed_out/failure 且无 normal record 时，先复验
+owner/intent/public sentinels：已有 intent/Release 必须完成唯一 publication/exact README，
+在 history append `recovered_publication`，不得写 B-029 interruption/block record；仅无
+intent 且恢复证明不发布（含 exact rollback+draft delete）时，才生成 `pipeline_interrupted`
+failure manifest：report/evidence/checksum identity 为显式 null，
    `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
    它先物化 prepared owner：无可见动作可删 draft；`valid_rollback_pending` 恢复旧 marker再删；
    有 intent则完成/验证唯一 Release；valid-marker/nonvalid-row pending 在 deadline/heartbeat/
@@ -527,7 +531,6 @@ attest/append 到相同永久 store。重复终态 delivery 对相同 bytes 幂�
 已有不同 bytes 时冲突失败且报警，绝不覆盖。normal-path record 已存在时只重验并退出。
 reconciler 自身失败必须由 scheduled audit 重试并保持 candidate 未发布；测试不得用
 已终止 job 的 post-step 冒充此路径。
-
 若 staged identity 尚未 attested，reconciler 进入独立闭集
 `pipeline_interrupted_pre_attestation` 分支。它只消费受信的 `workflow_run` 终态事件并
 使用 Actions API 按 server-side run ID 复验
@@ -540,7 +543,6 @@ server_ref_name)` 与
 `early_attempt_key = sha256(source_identity_key, run_id, run_attempt, event)`；tuple 不同却
 digest 相同即冲突。终态事件持 source-identity lease 后 append；API/ref 不可验证则永久
 unbound 并 fail closed，不能从 watermark 删除或信任 workflow artifact/free text。
-
 release attempt、completion reconciler、scheduled audit 与 publish gate 共享 serialized
 lease，`cancel-in-progress: false`：staged identity 存在时用 candidate key，否则用上述
 source-identity key。identity 后续出现时只在 staged candidate 的 tag/source 与 server ref
@@ -549,14 +551,13 @@ early→candidate binding，并把 digest union 进 candidate watermark；无法
 永久 unbound，不得由同 commit 的下一个 candidate 接管。每个新 attempt 启动前及 publish
 前在持锁状态枚举同 candidate/source identity 的 terminal attempts，
 要求每个先前 failed/cancelled/timed_out attempt（含 pre-attestation interruption）都有
-唯一、内容一致的永久 record，并生成
+唯一、内容一致且与终局匹配的 permanent failure 或 `recovered_publication` record，并生成
 attested reconciliation watermark（覆盖最大 terminal run/attempt 与 record digest set）。
 存在 unreconciled attempt、run listing/permanent store 不可用、不同内容冲突或 watermark
 落后时 fail closed。所有路径都执行唯一全局顺序 source/candidate → repository ledger →
 repository publication → branch CAS；需要较早层的新操作必须全部释放后从头重取，禁止
 deadlock-prone nested reacquisition。append 后才推进 watermark；token/CAS 失效即停写；active
 ownership 只允许同 candidate takeover，任一 `*_recovery_blocked` 阻断下一 publication。
-
 `publish_nonvalid` 以 prepared owner + intent 发布 schema-valid non-valid report/evidence，
 再通过 owner-bound reviewed PR 创建同版本 row：non-valid axis 留空并显示 status/reason/link，
 永不带 current marker且不删已有 latest-valid marker。row merge 前保持
@@ -706,17 +707,17 @@ release source commit
                             └─ non-valid + publish_nonvalid
                                    └─ prepared owner ──> publish ──> owned unmarked row
 ```
-
-没有网络调用或用户数据输入。持久化面是以下闭集，不能省略 B-029 的长期记录：
+没有网络调用或用户数据输入。持久化面是以下闭集：
 
 1. caller 显式选择的本次 local report；
 2. valid/`publish_nonvalid` release artifacts，以及 `block_release` 的短期
    content-addressed failure bundle；
-3. `block_release` 必须写入的 retention-independent permanent attestation predicate
-   或 append-only immutable ledger；该长期记录内嵌完整 per-attempt canonical failure
-   manifest，并以 `(run_id, run_attempt, failure_manifest_digest)` 独立检索。
-
-temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三项，
+3. `block_release` 的 retention-independent predicate/ledger，内嵌完整 per-attempt
+   manifest，以 `(run_id, run_attempt, failure_manifest_digest)` 检索；
+4. 受认证、retention-independent、append-only `publication_history`，保存 owner、receipt、
+   fenced transition、`recovered_publication` 与 terminal records。
+temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期 bundle 不得删除第三、
+四项，
 验证者仍能从 permanent predicate/ledger 恢复完整 manifest、通过 schema、复算 digest
 并核对 closed reason/provenance。README 只消费已发布、digest-matched summary，不消费
 本地 stdout 或 blocked-candidate permanent record。
