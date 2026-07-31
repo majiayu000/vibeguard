@@ -252,17 +252,18 @@ append/fsync 与 durable applied/tail commit 完成**：
 
 1. 先从 allocator WAL oldest-first 恢复最早 committed reservation；存在未 applied reservation
    时不准分配或 append 更晚 offset；
-2. 先证明 live completed index、shared live outbox、per-source route-quarantine、global
+2. 先证明 bounded derived-record append log、live completed index、shared live outbox、per-source route-quarantine、global
    administrative index，以及 independently bounded、按 source quota 隔离的 success-history plane
    各有一条 closed-max entry + bytes 容量；每个
    quarantine token 还必须从初始 admission 起独占一个 closed-max inactive replacement generation
    （固定 A/B buffer，仍只计一个 logical entry），再在单一
-   checksummed global metadata root generation 中原子提交 allocator reservation、completed-index、
+   checksummed global metadata root generation 中原子提交 allocator reservation、derived-log、completed-index、
    outbox entitlement、quarantine、global-admin 与 success-history reserved tokens
    `{reservation_id, identity_key, expected_offset, global_offset, canonical_event_timestamp,
    retention_bucket, query_scope_digest, barrier_digest, bounded_derived_body,
    record_digest, source_project_identity, receipt_route, registration_id, state_root_id,
    route_identity_digest, source_root_deletion_anchor_digest, bounded_receipt_body, new_tail,
+   derived_log_entitlement_id,derived_log_reserved_bytes,target_segment_id,
    reservation_seed_digest, reservation_digest, completed_index_token_id,
    exact_completed_ref_identity, outbox_entitlement_id, exact_outbox_identity,
    quarantine_token_id,global_admin_entitlement_id,global_admin_reserved_bytes,
@@ -272,8 +273,9 @@ append/fsync 与 durable applied/tail commit 完成**：
    root-selected reservation、outbox 或 lag/success ref 读取这些 digest-bound fields，任一缺失或与
    registration 不匹配都 `needs_repair`，不得用 append position、wall clock 或 pathname 猜测窗口；任一 capacity full 时在任何 durable write 前
    visible backpressure；
-3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
-   append/fsync derived record；
+3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset 和 allocator
+   root 选定的 `target_segment_id` append/fsync derived record，并把 exact entitlement 原子转换为
+   segment live bytes；
 4. `receipt_route` 必须是预先注册在 runtime-owned closed project-state directory 的 exact
    capability，绑定 state-root ID、directory/file identity 与 content-addressed `receipt_key =
    H(source project, event, barrier, global record digest)`；每个 key 是独立 create-if-absent slot，
@@ -397,6 +399,28 @@ append/fsync 与 durable applied/tail commit 完成**：
    释放 completed-index capacity并发布 lag stub，不依赖已回收 outbox；transient failure 保持 ref/token，
    禁止猜 pathname。只有 global ack CAS 成功才释放未使用 token。off 同样按 exclusive lease →
    project lock，因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
+
+derived-record append log 是 allocator subgeneration 内的独立 capacity ledger + checksummed segmented
+store；closed configuration 同时限制 global live entries、live bytes、segment bytes/count 与单条最大
+record bytes。reservation admission 必须在 offset/new tail 分配前为一条 closed-max record 原子预留
+`derived_log_entitlement_id/derived_log_reserved_bytes/target_segment_id`；任一 bound 满时零 offset、零
+reservation、零 append，并 visible backpressure。reservation-before-append crash 保留 entitlement；matching
+append 消费 exact reservation bytes，append-before-applied/tail crash 仍由同一 entitlement 和 record digest
+幂等前进；只有 durable reservation cancellation 可在 record 不存在时释放，禁止让 earliest reservation
+因磁盘满永久卡住全部 later offsets。
+
+每个 sealed segment 记录 `{segment_id,first_offset,last_offset,entry_count,live_bytes,segment_digest}`；allocator
+root 的 segment manifest、active tail 与 `derived_log_reclaim_watermark` 都进入 allocator generation/digest。
+记录至少 pin 到 matching reservation 已 applied、receipt intent 已 durable，且其唯一 recovery proof 已转入
+live completed/admin/quarantine 或 success-history ref；任一 reservation/outbox/receipt-delivered/admin/rebind
+locator 仍引用该 record 时禁止 reclaim。retention/compaction 只处理 `last_offset < min(query_retention_watermark,
+derived_log_reclaim_watermark)` 且没有 reader snapshot pin、lag/recovery ref 的完整 sealed segment：先写/fsync
+bounded compacted segment/retained-proof manifest，再由一个 allocator-root CAS 原子 repoint manifest、推进
+watermark并释放 entry/byte capacity，最后才 tombstone 旧 segment。CAS 前 crash 忽略新 staged copy且旧 proof
+仍权威；CAS 后只 roll-forward tombstone，禁止回退、partial segment delete、age-delete lag proof 或重用 bytes
+两次。malformed/missing segment、proof pin、watermark regression、floor-minus-one capacity 与 compaction crash
+均 `needs_repair/projection_lag` + empty global data，只 backpressure 新 reservation，不删除 canonical project
+journal；recovery 只按 root-selected segment/offset/digest，永不扫描 global/project/HOME log。
 
 allocator、outbox、live completed index 与 success-history plane 各有独立 subgeneration，但所有跨 index transition 只由上述
 单一 global metadata root generation 原子发布；因此 receipt delivery 同时发布 lag ref、

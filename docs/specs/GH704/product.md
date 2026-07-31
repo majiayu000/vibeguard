@@ -276,7 +276,8 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     offset 与 query-scope identity，并在
     H-014 批准的 retention/query window 内保留，过旧 query、retention/capacity/freshness gap
     一律 unavailable + 空数据。set digest 覆盖 query identity + ordered barrier/lag refs +
-    committed global root + registry/allocator/outbox/completed-index/global-admin subgenerations + allocator tail，watermark 携带同一组
+    committed global root + registry/allocator/outbox/completed-index/global-admin/success-history
+    subgenerations + allocator tail，watermark 携带同一组
     generations/tail。reader 在 bounded scan 前后必须重读并证明全部 generation
     不变；drift 只能 bounded retry，仍 drift 则 fail visible + 空数据。任一 in-scope lag 使整个 semantic aggregate
     `projection_lag` + 空数据，并进 lag refs，禁止 partial count。refs/lag refs 超过
@@ -385,7 +386,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
-    applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
+    applied 时禁止 later offset append。derived-record log 具有独立 closed entry/byte、segment
+    byte/count 与 max-record bounds；在分配 offset 前，reservation 必须原子预留 exact log entitlement/
+    bytes/target segment，full 时零 reservation/offset/write。reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body，并从 live registration 复制
     canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
     projection offset；这些字段进入 full reservation digest。full reservation 必须在 allocator
@@ -425,7 +428,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     transient error 或 mutation-generation drift 保持 visible lag，crash 只向前恢复且不得双重释放。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
-    或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
+    或释放 reservation 后由 per-key writer 乱序 append。sealed log segment 只有在 matching work 已把
+    recovery proof durable 转入 completed/admin/quarantine/success-history、低于 query-retention 与 derived-log
+    reclaim 双 watermark、无 reader/ref pin 时，才可通过 staged compacted manifest + 单一 allocator-root
+    CAS 原子回收；CAS 前旧 segment 权威，CAS 后只 roll-forward tombstone，禁止 partial/age delete、proof
+    丢失或 capacity double release。off-preparing 必须先用同一
     keyed-slot durability 完成 matching live outbox，再以 reservation-backed token fsync per-source
     `off_receipt_lag_ref` 并由 global CAS 发布 stub、reclaim outbox及释放 completed token；admin
     publication 失败保持 pending。shared completed index 中该 source 的 unacknowledged refs（handoff 前
@@ -528,7 +535,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       digest-bind canonical scope 与 registration/state-root/route locator，reader 不猜 timestamp/path 且 dormant
       source 可无扫描恢复；reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
-      prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；normal reservation
+      prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；derived log 在 offset
+      admission 前预留 bounded entry/byte/segment capacity，recovery proof pin 与双 watermark segment compaction
+      覆盖 full/floor-minus-one/append crash/compaction crash且不会使 earliest reservation 因容量耗尽永久阻塞；normal reservation
       在 allocator commit 原子预留 outbox + success-history entitlements，applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
       删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity，
@@ -541,7 +550,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       admin ref 只有 rebind+ack、存活 source 的 source-bound terminal proof，或已删除 exact source root 的
       runtime-owned deletion-proof tombstone 后才退休；删除路径不取不存在的 project lock，并由单一 global
       CAS 释放 matching admin entitlement；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
-      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 success-history + live indexes + 全量 ordered barrier/lag refs + stable global root/six subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
+      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 success-history + live indexes + 全量 ordered barrier/lag refs + stable global root，以及显式包含 admin-index/success-history 的六个 subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。
