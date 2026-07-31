@@ -323,8 +323,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     projection_prepared → all_activated → projection_queued → done → projection_done`；
     barrier 前允许 durable abort + 幂等 rollback，barrier 后只允许向前恢复。canonical
     outcome、任一 consumer activation、precision、Learn 与 aggregate 单独都不可见；
-    project-local canonical reader 只 join 同一 `all_activated` barrier digest；global aggregate/
-    status 与 enforcement/history reader 还必须 join matching durable projection acknowledgement，
+    project-local canonical reader 只 join 同一 `all_activated` barrier digest；project-local
+    enforcement/history 可 join matching `projection_done`，但所有 global aggregate/status/
+    enforcement/history reader 只能 join `project_acknowledged`，它是唯一 global success；
     缺少时 lag + empty/zero-use。barrier 绑定 decision、
     ordered stage/activation receipts、schema/identity 与前序 digest；partial activation
     必须按 exact key/digest 幂等补齐或回滚。每一 transition/consumer 的 before/after
@@ -364,8 +365,13 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     `receipt_applied`/reclaim；若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
     root 把 exact intent/lag/rebind key 转入 independently checksummed per-source durable quarantine，
     发布全局 lag stub并释放 shared outbox/completed capacity；closed permanent ACL-denied proof 同样
-    quarantine，corrupt source root 不得阻止 shared root advance，
-    新 route/epoch 只能 bounded rebind 后完成，不能影响其他 project 或伪称 completed。worker 不得写 project journal。只有 source coordinator/approved maintenance
+    quarantine，corrupt source root 不得阻止 shared root advance。receipt delivery 后仍保留并计入
+    quarantine token 到 `project_acknowledged`；route 永久失效时把 completed ref 原子转入该 token 的
+    quarantine。新 route/epoch 只能 bounded rebind 后完成；rebound permanent failure 必须用同 token/
+    slot 的预留 scratch generation 原子 in-place handoff，one-entry-full 时也不申请第二 entry/token。
+    ack 后先 CAS global stub 为 digest-bound `retirement_pending`，再 retire/reclaim source entry，最后
+    验证并删 stub/释放 token；任一 crash 向前恢复。未 ack recovery locator 必须 pin 或原子转入 lag
+    index，retention GC 不得删除。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
@@ -396,8 +402,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
     或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
-    `all_activated` barrier 渲染；project-local consumer join barrier，global aggregate/status 与
-    enforcement/history 还必须 join matching durable projection acknowledgement。已持久化但 barrier 前的 failure 从 bounded WAL/queue
+    `all_activated` barrier 渲染；project-local consumer join barrier，project-local enforcement/history
+    可 join `projection_done`；所有 global aggregate/status/enforcement/history 只能把 matching
+    `project_acknowledged` 当成功。已持久化但 barrier 前的 failure 从 bounded WAL/queue
     渲染。lock/WAL open/initial prepare 之前的 failure，以 typed in-memory error 作为仅限
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
@@ -409,9 +416,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     health report 遇 lag 必须显示
     degraded/lag 与空 semantic data，不得报 `ok` 或 `NO DATA`。legacy v1 只能显示
     `legacy_untracked` + 空 semantic data，不得破坏旧 payload 或伪装 v2。Codex status、
-    quality grader、constraint-frequency reader 与 Rust hook/log history readers 也必须对 semantic
-    kinds join exact barrier + matching `projection_done` receipt；project-local canonical consumers 只
-    join barrier，global/enforcement/history readers 缺 projection receipt 必须 lag/empty。pre-barrier/aborted/global-lag row 不得被当成 latest success、
+    quality grader、constraint-frequency reader 与 Rust hook/log history readers 也必须按 scope join：
+    project-local canonical consumers 只 join barrier，project-local history 可 join `projection_done`，
+    global readers 缺 `project_acknowledged` 必须 lag/empty。pre-barrier/aborted/global-lag row 不得被当成 latest success、
     grade 证据、rule hit 或后续 enforcement history。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007
@@ -453,7 +460,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       precision、metrics 和 Learn；project journal 是唯一权威，bounded reconciliation
       对超大/失败 backlog 停止新 L2 增长，global projection failure 可见且重放收敛，
       单一 group-commit 的 `all_activated` barrier 是 project-local reader 唯一可见点；global/
-      enforcement/history 还需 globally enumerable matching projection acknowledgement，
+      enforcement/history 还需 globally enumerable matching `project_acknowledged`，
       partial activation 可幂等补齐/回滚，reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；applied reservation 在释放前原子转入 exact-route keyed receipt
@@ -478,7 +485,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       actual `codex_app_server_core.rs` session owner、`hook_orchestrator_post_edit.rs` delivery owner、
       project cache/journal recovery，以及 protocol/provider/sandbox 的所有 decision、
       isolation、durability 分支达到 100% line 与 branch/condition coverage。独立 closed
-      critical-file inventory 与合同测试必须拒绝遗漏、未知或新增但未分类的关键模块；
+      critical-file inventory 中每个文件必须恰一次携带非空 exact `owner_suites`；合同测试双向
+      核对 Product-to-Test mapping/Cargo exact name/shell selector，拒绝 missing/empty/unknown/
+      duplicate、zero-match、rename drift、无 owner 的文件或无反向 critical-file 的 suite；
       聚合 line coverage 不能掩盖未执行的 conditional arm、short-circuit operand、关键
       文件或故障路径。
 - [ ] Rust runtime、hook/manifest/workflow、eval/precision、Learn 和 latency 的 focused
