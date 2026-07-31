@@ -261,12 +261,12 @@ acceptance snapshot rules 与 collector trust identity：
     "offline_preview_authorizes": false
   },
   "resolved_trust_paths": [
-    ".github/workflows/gh701-maintainer-evidence.yml", ".github/workflows/host-adapter-proof.yml",
+    ".github/workflows/gh701-maintainer-evidence.yml", ".github/workflows/gh701-proof-supervisor.yml", ".github/workflows/host-adapter-proof.yml",
     ".github/workflows/readme-claim-evidence.yml", "checks/collect_gh701_maintainer_evidence.py",
     "checks/gh701_attestation.py", "checks/gh701_decision_gate.py",
     "checks/host_adapter_proof_gate.py", "checks/readme_claim_gate.py",
     "scripts/render_readme_claims.py", "schemas/host-adapter-proof.schema.json",
-    "schemas/gh701-maintainer-decisions.schema.json", "schemas/gh701-maintainer-witness.schema.json",
+    "schemas/gh701-maintainer-decisions.schema.json", "schemas/gh701-maintainer-witness.schema.json", "schemas/gh701-proof-supervisor-attestation.schema.json",
     "schemas/readme-claim-evidence.schema.json"
   ]
 }
@@ -630,7 +630,7 @@ config/payload/log content。
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
 | B-032 | protected read-only maintainer evidence collector | host-proof harness 验证 separate runtime/witness artifacts、trusted workflow attestation、node/event/head/time/proof-SHA binding；current-run source edit/delete/revoke/supersede recheck 与 generation binding；embedded、cached 或 implementer-filled witness blocked |
 | B-033 | closed primary fix fallback | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`：missing fix 生成 fresh fallback ID；4097-byte/encode failure 保留 existing fix_id；均保持 bounded block 且无 raw/digest leakage |
-| B-034 | ordinary-routing one-time bootstrap tranche | bootstrap harness 要求完整 B-ID plan、产品 tranche 均 blocked；只准执行 fixed bootstrap allowlist，且下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/self-report/second bootstrap blocked |
+| B-034 | ordinary-routing one-time bootstrap tranche | bootstrap harness 要求完整 B-ID plan、产品 tranche 均 blocked；fixed allowlist 必须含 supervisor schema/workflow，且下游 gate 缺 decisions fail closed；host/runtime/setup/README/unlisted/second bootstrap blocked |
 | B-035 | approved spec/trust heads + immutable byte/JCS digest inheritance | `bash tests/test_gh701_decision_gate.sh`：unchanged-spec/trust descendant allowed；任一 non-ancestor、product byte、tech byte、JCS selection/input、acceptance/protocol/branch/trust-path byte drift fixture 全部 `needs_human`；protected-main exact-head/path/digest/expiry `trust_rotation` positive fixture 单次 allowed，self-issued/wildcard/stale/replayed rotation blocked |
 
 ## 数据流
