@@ -37,10 +37,10 @@ bootstrap_setup_retirement_terminal_cleanup() {
   [[ "${BOOTSTRAP_RETIRE_LEASE_PRESENT}" == "0" \
     && "${BOOTSTRAP_RETIRE_EVIDENCE_PRESENT}" == "0" \
     && "${BOOTSTRAP_RETIRE_REAP_PRESENT}" == "0" ]] || return 1
+  bootstrap_setup_retirement_dead_candidates_clear "${claim_file}" || return 1
   for marker in "${claim_file}."*; do
     [[ -e "${marker}" || -L "${marker}" ]] || continue
     [[ "${marker}" == "${terminal_file}" \
-      || "${marker}" == "${claim_file}.candidate."* \
       || "${marker}" == "${claim_file}.${BOOTSTRAP_RETIRE_CLAIM_NONCE}.evidenced" \
       || "${marker}" == "${claim_file}.${BOOTSTRAP_RETIRE_CLAIM_NONCE}.retire_intent" \
       || "${marker}" == "${claim_file}.${BOOTSTRAP_RETIRE_CLAIM_NONCE}.retired" \

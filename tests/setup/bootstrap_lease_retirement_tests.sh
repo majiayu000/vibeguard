@@ -103,8 +103,8 @@ for retirement_crash_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash 
     ' _ "${retirement_lease}" "${retirement_root}"
 done
 
-for retirement_kill_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash \
-  terminal_phase_crash; do
+for retirement_kill_stage in claim_candidate_crash ln_crash mv_crash \
+  rm_reap_crash rm_evidence_crash terminal_phase_crash; do
   kill_root="${TMP_HOME}/bootstrap-retirement-kill-${retirement_kill_stage}"
   kill_nonce="kill-${retirement_kill_stage}"
   kill_lease="${kill_root}/.bootstrap.lock.lease.${kill_nonce}"
@@ -112,8 +112,7 @@ for retirement_kill_stage in ln_crash mv_crash rm_reap_crash rm_evidence_crash \
   mkdir -p "${kill_root}/work" "${kill_bin}"
   retirement_make_lease "${kill_lease}" "${kill_nonce}"
   case "${retirement_kill_stage}" in
-    ln_crash) kill_command=ln ;;
-    mv_crash) kill_command=ln ;;
+    claim_candidate_crash|ln_crash|mv_crash) kill_command=ln ;;
     rm_reap_crash|rm_evidence_crash|terminal_phase_crash) kill_command=rm ;;
   esac
   real_kill_command="$(command -v "${kill_command}")"
@@ -124,7 +123,7 @@ last=""
 for argument in "$@"; do last="${argument}"; done
 "${REAL_RETIREMENT_TOOL:?}" "$@"
 case "${RETIREMENT_KILL_STAGE:?}:${last}" in
-  ln_crash:*.evidence.*|mv_crash:*.reap.*|rm_reap_crash:*.reap.*|rm_evidence_crash:*.evidence.*|terminal_phase_crash:*.evidenced)
+  claim_candidate_crash:*.claim|ln_crash:*.evidence.*|mv_crash:*.reap.*|rm_reap_crash:*.reap.*|rm_evidence_crash:*.evidence.*|terminal_phase_crash:*.evidenced)
     kill -KILL "${PPID}"
     ;;
 esac
