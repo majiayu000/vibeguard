@@ -19,21 +19,36 @@ escape it.
 The selected provider must expose one closed capability record containing provider
 kind/version, boundary identity, creation receipt, policy digest, initial process,
 descendant event sequence, kill receipt, emptiness proof, reap result, and event-gap
-counters. The runtime rejects an undeclared provider or a platform on which these
+counters. It also binds the inherited-handle inventory, IPC/network namespace and
+endpoint policy, denied broker attempts, and external-process access policy. The
+runtime rejects a provider not selected by H-001 or a platform on which these
 properties cannot be proved.
 
 - Linux uses an unprivileged candidate inside a dedicated PID namespace and cgroup
-  v2 subtree. The namespace init is a subreaper; the candidate lacks cgroup,
-  namespace, mount, ptrace, and privilege-escalation capabilities. `setsid()` and
-  double-fork may change process relationships but cannot leave the cgroup/PID
-  namespace. The supervisor records fork/clone/exec/exit from boundary creation.
+  v2 subtree plus private user, mount, IPC, and network namespaces. The namespace
+  init is a subreaper; a minimal private root/proc view exposes no host service-manager,
+  D-Bus, container-daemon, agent, or same-user broker socket. All inherited handles
+  except closed supervisor channels are removed, and socket/SCM_RIGHTS policy cannot
+  acquire an external broker endpoint. The candidate lacks cgroup, namespace, mount,
+  ptrace, and privilege-escalation capabilities. `setsid()` and double-fork may change
+  process relationships but cannot leave the boundary. The supervisor records
+  fork/clone/exec/exit and denied external-endpoint attempts from boundary creation.
 - Windows uses a Job Object with kill-on-close, breakaway disabled, a restricted
   token without debug privilege, and completion-port accounting. Nested jobs or
-  child-process policies must not enable breakaway.
+  child-process policies must not enable breakaway; inherited handles and named-pipe,
+  RPC, COM, service-control, and task-scheduler access are deny-by-default except for
+  exact supervisor channels.
 - macOS uses a supervisor-owned ephemeral helper VM or equivalent kernel-enforced
   containment provider with complete fork/exec/exit lineage and no candidate
-  control of the provider. If the current release cannot provide that boundary,
+control of the provider. If the current release cannot provide that boundary,
   the adapter is `unsupported`; process-group polling is not a fallback.
+
+Candidate code cannot ask a process that is outside the boundary to execute work.
+Every spawn-capable IPC/network endpoint is either unreachable or belongs to a broker
+that is itself created inside and accounted by the same provider. A pre-existing
+broker can never be added to the trusted closure after candidate start. Any endpoint
+policy miss, inherited external handle, broker delegation, or unaccounted side-effect
+producer invalidates the run even when the process boundary later becomes empty.
 
 At timeout the runtime first closes candidate stdout/stderr ingestion, marks the
 result fail-closed, and asks the provider to kill the entire boundary. Linux uses
@@ -50,9 +65,10 @@ The proof attestation binds the provider record and descendant-ledger Merkle roo
 
 Required negative fixtures include `setsid`, double-fork, daemon reparenting,
 fork/exec during termination, fork bomb at the process limit, inherited output FD,
-delayed output, nested-job breakaway, namespace/cgroup escape, event overflow, and
-unreaped zombie. Each must finish within the outer deadline with an empty boundary
-and zero late output/side effects.
+user-systemd/D-Bus/launchd/service-manager or same-user-daemon spawn requests,
+SCM_RIGHTS/broker socket acquisition, delayed output, nested-job breakaway,
+namespace/cgroup escape, event overflow, and unreaped zombie. Each must finish within
+the outer deadline with an empty boundary and zero late output/side effects.
 
 ## 2. Executable-memory integrity (B-028)
 
@@ -61,38 +77,49 @@ code pages must also be protected from transient patch-and-restore attacks. The
 execution boundary therefore enforces a closed executable-memory policy from the
 first instruction through candidate kill/reap.
 
-1. Candidate credentials and capabilities cannot open or write another process's
-   memory. Linux denies `ptrace`, `process_vm_writev`, `/proc/<pid>/mem`, debugfs,
-   perf/BPF injection, and writable procfs aliases using capability removal,
-   seccomp/LSM policy, a private restricted proc mount, and parent-death isolation.
+1. Neither candidate credentials nor any untrusted process outside the boundary can
+   open or write candidate/supervisor memory. Linux uses a unique disposable identity,
+   non-dumpable targets, private restricted proc, capability removal, seccomp, and an
+   LSM target-side policy that allows only the authenticated supervisor; it denies
+   inbound and outbound `ptrace`, `process_vm_writev`, `/proc/<pid>/mem`, debugfs, and
+   perf/BPF injection. The supervisor probes and attests denial from an independent
+   same-user process before the candidate event.
    macOS denies task ports, `task_for_pid`, Mach VM write APIs, debugger entitlements,
-   and dynamic-code exceptions. Windows removes `SeDebugPrivilege`, denies
-   PROCESS_VM_WRITE/PROCESS_VM_OPERATION/debug handles, and audits handle grants.
+   and dynamic-code exceptions in both directions. Windows removes `SeDebugPrivilege`,
+   applies target process-object ACLs that deny external VM/debug handles, and audits
+   every handle grant. A platform that cannot enforce target-side denial is unsupported.
 2. Approved distribution files and loader roots are mounted/read through immutable,
    no-follow identities. Candidate processes have no writable file descriptor or
    writable filesystem path to any approved executable backing object.
-3. W^X is mandatory. Anonymous executable pages and RWX mappings are denied.
-   `mprotect`/equivalent transitions to executable are mediated and must identify an
-   H-001-approved immutable backing object; approved executable pages cannot become
-   writable. Any denied attempt invalidates the run rather than merely logging it.
+3. W^X is mandatory. Anonymous executable pages, RWX mappings, and executable
+   transitions from any candidate-writable or private-COW mapping are denied. Before
+   resume, the trusted loader derives an expected page root from exact approved backing
+   bytes, file offset/length, and a closed signed relocation manifest. The manifest
+   names every relocation type/site/value; unknown, writable-text, runtime-selected,
+   or candidate-provided relocation is forbidden. Each executable map/transition must
+   exact-match those relocation-normalized expected bytes before execution, and an
+   approved executable page can never subsequently become writable.
 4. The append-only ledger records every executable map/protection/load/unload event,
    policy denial, handle grant, sequence number, and loss counter. Unloaded mappings
    remain in the ledger. Final maps/dyld/module state is a cross-check, not the sole
    evidence source.
-5. At the native block event and after candidate freeze, the trusted supervisor
-   hashes the executable-page view and binds its Merkle root to the backing-object
-   identities and continuous ledger. A mismatch or unreadable page fails closed.
+5. At mapping, every protection transition, the native block event, and after candidate
+   freeze, the trusted supervisor compares each executable page with its expected
+   backing+offset+relocation bytes and hashes the verified view. The page/root manifest
+   binds mapping address, backing identity, offset, relocation-manifest digest, expected
+   root, and observed root. Any COW divergence, mismatch, or unreadable page fails closed.
 
 The supervisor attestation binds containment policy/provider digest, privilege and
 mount/handle inventory, denial counters, loader ledger root, executable-page roots,
 and final snapshot. The H-001 decision must name a platform provider capable of the
 whole contract; partial enforcement is `unsupported`.
 
-Required semantic negatives include successful and denied attempts using `ptrace`,
+Required semantic negatives include inbound and outbound attempts using `ptrace`,
 `/proc/<pid>/mem`, `process_vm_writev`, Mach task/VM writes, Windows process-memory
-handles, writable backing files, RWX, executable `mprotect`, patch-then-restore,
-load-then-unload, anonymous executable memory, and event/denial-log loss. A fixture
-passes only when the attempted run cannot produce accepted proof.
+handles, writable backing files, private writable COW then executable, unapproved or
+malformed relocation, RWX, executable `mprotect`, patch-then-restore, load-then-unload,
+anonymous executable memory, and event/denial-log loss. A fixture passes only when the
+attempted run cannot produce accepted proof.
 
 ## 3. Verified-file identity and receipt state machine (B-025)
 
@@ -115,24 +142,41 @@ rename, or identity-generation change is `partial/needs_human`.
 
 A loss-detecting filesystem watcher covers the held parent/target from the first
 candidate observation until the final post-evidence observation. Write/rename/link/
-delete events, watcher overflow, or an unexplained sequence gap require a full
-no-follow re-read and invalidate activation on any mismatch. Manual evidence binds
-both identity tuples, held-handle observation digests, watcher sequence/root, and
-the pre/post/final reads. It is point-in-time evidence: check, doctor, runtime use,
-and proof collection revalidate identity and digest before relying on it.
+delete events, watcher overflow, or an unexplained sequence gap unconditionally
+invalidate that activation epoch, even if a later re-read finds identical bytes and
+identity. A no-follow re-read is diagnostic only and cannot rehabilitate the epoch.
+Manual evidence binds both identity tuples, held-handle observation digests, a
+zero-mutation watcher sequence/root, and the pre/post/final reads. It is point-in-time
+evidence: check, doctor, runtime use, and proof collection start a new zero-mutation
+epoch and revalidate identity and digest before relying on it.
 
 ### 3.2 Receipt states
 
 A 0600 receipt in a 0700 VibeGuard state directory has a unique ID, monotonically
-increasing generation, and state `planned`, `active`, or `consumed`. It binds target,
-parent identity, base presence/identity, candidate identity/digest, apply operation,
-failure-reverse operation, clean operation, preserved entries, and all operation
-digests. Raw bytes and diffs remain local and never enter logs or proof artifacts.
+increasing generation, and state `planned`, `activating`, `active`, or `consumed`. It
+binds target, parent identity, base presence/identity, candidate identity/digest,
+apply operation, failure-reverse operation, clean operation, preserved entries, and
+all operation digests. Raw bytes and diffs remain local and never enter logs or proof
+artifacts.
 
 An existing active receipt cannot be overwritten by a planned update. Probe success
-first fsyncs the candidate receipt as active, then atomically publishes evidence that
-binds its exact digest. The receipt remains durable for the full lifetime of that
-active evidence.
+creates an immutable `activating` bundle containing the receipt, zero-mutation watcher
+epoch, probe result, and evidence payload, then fsyncs the bundle and state directory.
+One atomic, fsynced current-generation pointer swap is the activation linearization
+point: before it the previous generation remains authoritative; after it the pointed
+bundle is logically `active` and evidence binds its exact digest. The bundle remains
+durable for the full lifetime of that active evidence.
+
+Recovery enumerates immutable bundles and the current pointer before doing new work.
+An unpointed `activating` bundle is never assumed active or consumed: retry must open
+new held identities, run a fresh zero-mutation watcher epoch and native probe, and
+either create/commit a new generation or retain the orphan with `needs_human` and the
+exact user reverse. If the pointer names the bundle, recovery treats activation as
+committed but still revalidates identity/digest before use. Missing, torn, duplicate,
+or conflicting pointers/bundles are `needs_human`; no evidence is published and the
+prior receipt is not consumed. Supersession uses the same pointer swap, so a crash
+before it leaves old evidence authoritative and a crash after it selects only the new
+generation.
 
 For a present base, failure-reverse restores the exact base bytes/semantics; clean
 restores the original unmanaged clean base carried through superseding generations.
@@ -163,9 +207,11 @@ drifted receipts must remain available with only path+digest shown to the user.
 
 Positive fixtures cover present-base install/failure reverse/clean, absent-base fresh
 install/failure deletion/clean deletion, active receipt retention, and safe update
-supersession. Negative fixtures cover early receipt deletion, missing or duplicate
-generation, candidate/receipt drift, byte-identical target replacement, parent swap,
-symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
+supersession, plus crash recovery immediately before/after bundle fsync and pointer
+swap. Negative fixtures cover early receipt deletion, missing/torn/duplicate pointer
+or generation, orphan activation reuse without fresh probe, candidate/receipt drift,
+temporary same-inode write-and-restore, byte-identical target replacement, parent
+swap, symlink/hard-link/mount change, watcher overflow, partial reverse/delete, target
 recreation, delayed old-FD write, and stale evidence used by runtime/proof.
 
 ## 4. Closure rule

@@ -196,7 +196,7 @@ acceptance snapshot rules 与 collector trust identity：
 <!-- gh701-decision-inputs:start -->
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "issue_number": 701,
   "decisions": {
     "H-001": {
@@ -214,7 +214,11 @@ acceptance snapshot rules 与 collector trust identity：
         "host_release",
         "host_distribution_provenance",
         "protocol_snapshot_sha256",
-        "native_blocking_event"
+        "native_blocking_event",
+        "security_provider_kind",
+        "security_provider_version",
+        "containment_policy_sha256",
+        "executable_memory_policy_sha256"
       ]
     },
     "H-002": {
@@ -436,8 +440,8 @@ encode_host_response(batch, decisions) -> Result<HostResponse, AdapterError>
 
 versioned crash recovery 仍以 journal lease/version CAS 判定 rollback；普通 file digest
 不能替代 storage capability。`verified_file_setup_v1` 必须完整实现 normative appendix
-§3：`base_presence: present|absent`、held no-follow parent/target identities、loss-detecting
-watcher 与 planned→active→consumed durable receipt。present base 用 exact reverse；absent
+§3：`base_presence: present|absent`、held no-follow parent/target identities、zero-mutation
+watcher 与 planned→activating→active→consumed bundle/pointer。present base 用 exact reverse；absent
 base 用用户执行的 exact-target deletion，并验证稳定 absence + host-native unregistration。
 byte-identical inode swap、parent swap、watcher gap、late write/recreate 或 identity/digest
 drift 全部 `needs_human`。VibeGuard 对 host target 零 mutation；active evidence exact-bind
@@ -539,11 +543,11 @@ path/size/SHA-256，以固定 byte-search 算法逐 sentinel/sink 要求零匹�
 attestation 绑定 inventory JCS digest、source class、injection receipt、sink manifest、
 算法与逐项零匹配，永不持久化 secret value。candidate 自报、缺 injection/sink、
 非零匹配、scan 后 digest drift 或 candidate 可读 supervisor state 均阻断。
-native proof 必须完整实现 normative appendix §1–2：pre-resume non-escapable containment、
-continuous loader/unload ledger、W^X/immutable backing，以及 kernel-enforced denial of
-ptrace、process-memory/proc-mem/Mach VM/Windows debug writes。attestation 绑定 descendant
-closure、policy/denial counters、executable-page and ledger roots；任何 escape、event gap、
-patch-then-restore 或 unsupported provider 都阻断。candidate reap 后仍按本节 protected
+native proof 必须完整实现 normative appendix §1–2：H-001-selected provider/policy、
+broker-isolated containment、continuous loader ledger、relocation-aware expected page roots，
+以及 target-side inbound/outbound process-memory denial。attestation 绑定 descendant/broker
+closure、policy/denial counters、expected/observed page and ledger roots；escape、COW divergence、
+inbound patch、event gap 或 unsupported provider 均阻断。candidate reap 后仍按本节 protected
 CAS + independently authenticated closed manifest 交付 exact subject blobs；OIDC signer
 先验签 manifest、逐 byte 重哈希并 exact-match inventory/version 后才签 subjects。
 
@@ -619,16 +623,16 @@ config/payload/log content。
 | B-016 | journal crash recovery/retry | `bash tests/test_setup.sh`；每个 transaction phase kill fixture 后重试，断言 safe rollback 或 needs_human 且无 duplicate registration |
 | B-017 | check/doctor bounded probe evidence | `bash tests/test_setup.sh`；对六个 evidence state 的 fixtures 运行 check/doctor |
 | B-018 | H-004-aware README renderer + dependency gates + journey | decision gate 与 README-claim gate；`strict_four`/`preserve_pr705_extras` positive fixtures 精确渲染，未选/双选/acceptance digest mismatch nonzero；维护者在 fresh home 计时 install → verify → real-host interception |
-| B-019 | decoder batch cap/deadline + non-escapable containment | runtime tests 覆盖 64/65/unknown count、setsid/double-fork/reparent/fork-bomb/nested-job/namespace escape、boundary empty+descendant reaped、无 late output 与 deadline 内 fail-closed response；normative appendix §1 |
+| B-019 | decoder batch cap/deadline + non-escapable containment | runtime tests 覆盖 64/65/unknown count、setsid/double-fork/reparent/fork-bomb、systemd/D-Bus/daemon broker、inherited external handle、nested-job/namespace escape、boundary+broker closure、无 late output；normative appendix §1 |
 | B-020 | deterministic complete decision aggregator | `cargo test --manifest-path vibeguard-runtime/Cargo.toml` 的 all pairwise mixed decisions（含 hook_error/complete）、`HookResult.failed`/hook_error normalization、hook_error/block/escalate/gate suppress correction、multi-block、fix dedupe/cap fixtures |
 | B-021 | batch/request/log/fix correlation | `cargo test --manifest-path vibeguard-runtime/Cargo.toml`；duplicate/missing/cross-batch ID 与 missing-primary-log negative fixtures |
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present/absent base、verified restore/deletion、held target+parent identity、watcher、planned/active/consumed receipt 与 safe supersession；byte-identical inode/parent swap、recreate/late-write/watcher gap 均 needs-human；normative appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present/absent base、held identities、zero-mutation watcher、planned/activating/active/consumed bundle+pointer recovery；temporary write-restore、inode/parent swap、orphan/torn pointer、recreate/late-write/gap 均 needs-human；normative appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 subject-blob rehash、sentinel scan、continuous loader + executable-page integrity；ptrace/proc-mem/process_vm_writev/Mach/Windows writes、patch-restore、RWX、trace gap/load-unload、manifest/blob drift 均 nonzero；normative appendix §2 |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy binding、continuous loader + relocation-normalized page equality；inbound/outbound memory writes、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；normative appendix §2 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
@@ -733,9 +737,9 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 present/absent base、restore/delete、held parent+target identity、watcher、
-  receipt retention/supersession positives，以及 byte-identical inode/parent swap、early
-  receipt delete、partial delete/recreate/old-FD/watcher-gap negatives；target write 全由用户执行。
+  verified-file 覆盖 present/absent、held identities、zero-mutation watcher、activating bundle/
+  pointer crash recovery/supersession，以及 temporary write-restore、inode/parent swap、orphan/
+  torn pointer、partial delete/recreate/old-FD/gap negatives；target write 全由用户执行。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
@@ -744,8 +748,8 @@ config/payload/log content。
   source/config matrix；supervisor-owned sentinel injection 与 exact sink-byte scan；
   execution VM credential absence、job separation、signing job no-candidate-code、
   authenticated subject blobs/manifest/re-hash，以及 missing/extra/substituted blob、
-  injection/sink/secret/nonzero/sink drift、containment escape/nonempty boundary/late output、
-  ptrace/proc-mem/process-memory/Mach/Windows write、patch-restore/RWX、trace gap/load-unload、
+  injection/sink/secret/nonzero/sink drift、broker escape/nonempty boundary/late output、
+  inbound/outbound memory write、private-COW exec/bad relocation/page mismatch、trace gap/load-unload、
   preload/DYLD/plugin/unknown image/JIT negatives；所有
   negative fixtures 先通过 schema 再被 semantic gate 拒绝。
 - [ ] Bootstrap tests：ordinary `plan_first` handoff、维护者 GitHub spec approval +
