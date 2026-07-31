@@ -377,15 +377,17 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     admission 原子预留 exact entitlement，full 时零写入，handoff/retirement 才转换/释放，aggregate
     只能 bounded 枚举该 index。global lag offset 不是 projection
     append offset，禁止预猜/reserve-before-claim。source route 在 ready/abort receipt 前若有 closed
-    permanent inaccessible proof，必须用预留 token 把 registration 原子隔离为 query-scoped admin ref
-    并释放 live slot；transient 仍保留 visible live lag。禁止
+    permanent inaccessible proof，必须用预留 token 把 registration 的完整 queue key/record digest/
+    eligibility epoch/body 同时写入 per-source admin root 与 runtime-owned alternate vault，两份 durable
+    replica 可独立重建 exact reservation 后才原子隔离为 query-scoped admin ref并释放 live slot；
+    transient 或任一 replica 不 durable 仍保留 visible live lag。禁止
     global→project lock inversion、覆盖或以 off project 永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
     applied 时禁止 later offset append。reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body。full reservation 必须在 allocator
-    commit 同时原子预留 exact shared-outbox entitlement，后续 rebind/admission 不得借用；释放 reservation 前必须在
+    commit 同时原子预留 exact shared-outbox、success-history entitlements，后续 rebind/admission 不得借用；释放 reservation 前必须在
     同一 lease/metadata generation 把 applied marker + allocator tail 与 checksummed global
     receipt-outbox intent 原子提交并把 entitlement 转成 live intent；只有 durable reservation
     cancellation 才可释放未转换 entitlement。outbox worker 取得 matching source delivery lease 后只按 exact route +
@@ -393,8 +395,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     slot file fsync、atomic create 与 route-directory fsync 全部成功后才可 global
     `receipt_applied`/reclaim，并发布保留 reservation-backed quarantine token 的
     `receipt_delivered` lag ref；该 ref 携带 canonical timestamp/bucket/global projection offset/query scope。
-    source coordinator fsync `projection_done` 后返回 digest-bound ack，global root 才转为保留全部 canonical
-    query metadata 的 `project_acknowledged` 并释放 unused token。ack 前 route 永久失效或 ref 到
+    source coordinator fsync `projection_done` 后返回 digest-bound ack，global root 才把 ref 原子转入独立
+    global-entry/byte-bounded、per-source-quota success-history plane 的 `project_acknowledged`，保留全部
+    canonical query metadata并释放 live completed/unused token。retained success 不占 live completed
+    capacity且不能跨 source 耗尽 partition。ack 前 route 永久失效或 ref 到
     retention boundary 时，必须用 retained token 原子转入 per-source `quarantine_ack_pending` 后才可
     释放 completed capacity。若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
     root 把 exact intent/lag/rebind key 转入 independently checksummed per-source durable quarantine，
@@ -414,8 +418,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     keyed-slot durability 完成 matching live outbox，再以 reservation-backed token fsync per-source
     `off_receipt_lag_ref` 并由 global CAS 发布 stub、reclaim outbox及释放 completed token；admin
     publication 失败保持 pending。shared completed index 中该 source 的 unacknowledged refs（handoff 前
-    必须 capacity-bearing）归零后才能 effective off；retained `project_acknowledged` history 无 token且不阻塞，
-    因此 off project 不能占用 shared live/completed capacity 阻塞其他 project。
+    必须 capacity-bearing）归零后才能 effective off；retained `project_acknowledged` history 只占独立
+    success-history partition且不阻塞 live work，因此 off project 不能占用 shared live/completed capacity
+    阻塞其他 project。absent-file off 必须绑定 trusted parent identity + runtime mutation fence/generation，
+    final no-follow ENOENT lookup 是线性化点；fenced commit 发布前的第二次 lookup/generation check 发现
+    create/drift 必须原子 rollback，之后完成的 create 是新 request且 worker 写入前重验。不同 off request
+    在任何 ref mutation 前把 `selected_mode`/policy digest/transaction ID 写入 durable supersession state；
+    `adopt_all` 先把全部 per-source primary/alternate entries inert stage，再由一个 global adoption-manifest
+    generation 原子切换整个 old admin set，commit 后只 roll-forward cleanup，禁止 partial/mixed adoption。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -443,7 +453,7 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
     `all_activated` barrier 渲染；project-local consumer join barrier，允许读取 project state 的
     enforcement/history 还必须 join local `projection_done`，global aggregate/status/observe 则只能
-    join completed index `project_acknowledged`。已持久化但 barrier 前的 failure 从 bounded WAL/queue
+    join success-history plane `project_acknowledged`。已持久化但 barrier 前的 failure 从 bounded WAL/queue
     渲染。lock/WAL open/initial prepare 之前的 failure，以 typed in-memory error 作为仅限
     当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
     empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
@@ -506,16 +516,17 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       timestamp/bucket/global offset/query scope，reconcile byte/time cap 的最小合法值能完成最大 atomic
       record，slow/hung I/O 的 cancellation teardown 也进 floor 且无返回后续写，concurrent global registration 串行且 orphan 可 completion/tombstone/reclaim，
       prepare/queue/sequencer 不丢 payload、不重用 offset 且 serialized append 无洞；normal reservation
-      在 allocator commit 原子预留 outbox entitlement，applied reservation 在释放前原子转入 exact-route keyed receipt
+      在 allocator commit 原子预留 outbox + success-history entitlements，applied reservation 在释放前原子转入 exact-route keyed receipt
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
       删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity，
       reservation-backed token 保留到 global ack，支持 ack 前故障/retention 原子转移、A/B replacement 与三阶段 retirement；
-      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；新 off request 以全量 adopt/retag 或全量逐项 source proof 二选一闭合旧 admin set；永久不可达 pre-barrier route 在释放 live slot 前 fsync token-backed bounded body admin entry，global stub 只带 query metadata并覆盖 in/out-window；
+      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；absent-file off 通过 parent-bound mutation fence + final/confirm lookup 线性化；新 off request 在 mutation 前持久化唯一 mode，adopt-all 以全量 staged admin replicas + one global manifest generation 原子切换并只 roll-forward；永久不可达 pre-barrier route 在释放 live slot 前 fsync 含 queue key/record digest/eligibility epoch/body 的 primary + runtime alternate replicas，global stub 只带 replica/query metadata并覆盖 in/out-window；
       effective off 前所有 receipt 必须转入受独立 global entry/byte maxima 与 admission entitlement
       约束的 query-scoped admin lag，且 shared unacknowledged completed capacity 为零，retained
-      `project_acknowledged` history 不阻塞；present config identity 或绑定 trusted parent capability、start/final ENOENT 的 stable absent-file identity 均可精确复核，TOCTOU/权限错误 fail visible，
+      `project_acknowledged` history 已转入独立 bounded/per-source-quota success-history plane 而不占 live
+      completed capacity；present config identity 或绑定 trusted parent capability、mutation fence、start/final/confirm ENOENT 的 stable absent-file identity 均可精确复核，TOCTOU/权限错误 fail visible，
       admin ref 只有 rebind+ack 或 source-bound terminal proof 后才退休；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
-      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 retained completed index + 全量 ordered barrier/lag refs + stable global root/five subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
+      false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 success-history + live indexes + 全量 ordered barrier/lag refs + stable global root/six subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
       使 approval/eligibility、cache、precision 与 status evidence 失效。

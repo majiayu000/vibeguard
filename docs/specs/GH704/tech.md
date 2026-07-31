@@ -372,7 +372,7 @@ H-014 Recommended reference path（未批准）不新增第三个 semantic statu
 - event log、precision 与 Learn 只消费上述 canonical project typed event。project-local canonical
   status 只 join barrier；bounded project enforcement/history 再 join local `projection_done`。doctor 的
   latest project status 也从该 event/status contract 读取；`observe-output` 以 discriminator
-  `oneOf` 保留 exact closed v1，v2 必需 `semantic_projection {state,finalized,barrier_refs,barrier_set_digest,projection_watermark,lag_refs}`；global 成功 refs 只来自 retention/capacity-bounded completed index 的 `project_acknowledged`，marker-before-ack 仍 lag。
+  `oneOf` 保留 exact closed v1，v2 必需 `semantic_projection {state,finalized,barrier_refs,barrier_set_digest,projection_watermark,lag_refs}`；global 成功 refs 只来自独立 retention/capacity-bounded、per-source-quota success-history plane 的 `project_acknowledged`，marker-before-ack 的 live completed ref 仍 lag。
   bounded sorted refs 逐 event 绑 source/event/barrier/receipt/offset，set digest 绑 query + ordered barrier/lag refs + global root 与 registry/allocator/outbox/completed-index subgenerations/tail，watermark 携带同一 snapshot；scan 前后 generations 必须不变，drift 只 bounded retry 或 lag/unavailable + empty；mixed lag/proof-overflow 全部 empty。
   current writer 只发 v2；v1 reader 映射 legacy-untracked/empty。project-local history 可 join `projection_done`；Codex/global status、quality grader、constraint-frequency 与 global Rust hook/log enforcement-history readers 只能 join `project_acknowledged`；pending/aborted/frozen/quarantined/receipt-delivered/lag 不得成为 success/grade/rule hit/history decision。`hook_orchestrator_learn.rs` 的 log-tail/metrics error 必须 typed fail-visible、`finalized=false`、零 suggestion/candidate，不得 `unwrap_or_default`。
 

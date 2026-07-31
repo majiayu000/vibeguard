@@ -128,21 +128,28 @@ queued，matching abort 则确认 durable `aborted`；coordinator 返回 digest-
 后释放 project/delivery locks，dispatcher 才重新取得 registry lease，以 compare-and-swap 提交
 ready，或在 abort tombstone/reclaim 的同一 root transition 释放 frozen-lag token。未知/损坏 entry fail visible 且禁止覆盖。
 source route 若在 ready/abort receipt 前由 closed identity/owner/ACL proof 证明永久删除、替换或不可达，
-dispatcher 必须用 admission 时已按 closed-max body bytes/time 预留的 frozen-lag token，先在 per-source
-admin root 写/fsync `unreachable_registration_entry {source,event,expected_barrier,projection_prepared_digest,
-bounded_derived_body,source_route_identity,canonical_event_timestamp,retention_bucket,global_lag_offset,
-query_scope_digest}`；body 及其 digest 都进入 entry digest。随后同一 global root CAS 才以
-`unreachable_registration_lag_stub {source,event,expected_barrier,admin_root_id,entry_digest,
-canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}` 替换 live registration 并
-释放 live slot，stub 不复制 body；CAS 前 crash 保持 live entry，CAS 后 stub 可全局枚举。transient/证据
-不全仍保留 live slot + visible lag。新 exact route bounded rebind 必须从 admin body 恢复 exact
+dispatcher 必须用 admission 时已按两份 closed-max body bytes/time 预留的 frozen-lag/global-admin
+entitlement，先把 identical `unreachable_registration_entry {source,event,expected_barrier,
+projection_prepared_digest,queue_key,record_digest,eligibility_epoch,bounded_derived_body,
+source_route_identity,canonical_event_timestamp,retention_bucket,global_lag_offset,query_scope_digest}`
+分别写/fsync 到 independently checksummed per-source admin root 与 runtime-owned alternate admin vault；
+全部 reconstruction fields/body 进入同一 entry digest，两份 root identity/generation 进入
+`replica_set_digest`。两份都 durable 后，同一 global root CAS 才以
+`unreachable_registration_lag_stub {source,event,expected_barrier,primary_root_id,
+alternate_root_id,entry_digest,replica_set_digest,canonical_event_timestamp,retention_bucket,
+global_lag_offset,query_scope_digest}` 替换 live registration 并释放 live slot，stub 不复制 body。
+CAS 前 crash 保持 live entry；CAS 后任一 copy 独立匹配 entry/replica digest 即可恢复完整 exact
+registration/reservation，但 rebind/retirement 前必须重建并 fsync 缺失 replica，两个 copy mismatch/
+corrupt 才 `needs_repair`。transient/证据不全、任一 replica write/fsync 或 reserved double-copy bytes
+不足都保留 live slot + visible lag。新 exact route bounded rebind 必须从 replica 恢复 exact
 registration/reservation；否则该 ref 只可由下述 source-bound terminal discard proof 退休，不能 age-delete。
 requested off 在 exclusive delivery lease → project lock 下先提交 durable `off_preparing {old_epoch,
-requested_off_identity, requested_config_digest, cursor}`：identity 是 existing config 的 no-follow file
+requested_off_identity, requested_config_digest, config_mutation_fence_id, cursor}`：identity 是 existing config 的 no-follow file
 identity+digest，或 `absent_file_identity {trusted_project_root_identity,canonical_parent_identity,
 config_basename,start_absence_proof_digest}`；后者从 retained trusted parent capability 对 exact basename 做
 `fstatat(..., NOFOLLOW)` 等价 lookup，只接受 `ENOENT`，不能从 ambient pathname 推断；symlink、`EACCES`/
-unreadable 与其他错误不是 absence。
+unreadable 与其他错误不是 absence。fence 绑定同一 trusted parent directory handle/identity、runtime
+requested-state writer lease 与 monotonic mutation generation；所有 runtime config writer 必须先取得它。
 它立即禁止新 L2/shared admission，但还不是 effective
 off。释放 project lock 后仍持 delivery lease，再取 global registration lease，将旧
 epoch 的 pre-barrier 或 barrier-ready-but-unclaimed registrations 以 digest/epoch/state CAS
@@ -184,7 +191,7 @@ canonical `projection_prepared`/barrier reference。matching reservation 必须�
 project-local canonical decision、project-local consumer/precision/Learn 与 per-run project status
 只在 `all_activated` barrier 后可见；它们不依赖 global mirror。允许读取 bounded project state 的
 enforcement/history reader 必须再 join matching durable `projection_done`；global status/aggregate/
-observe 与任何 global enforcement/history reader 不得扫描 project，只能 join completed index 的 `project_acknowledged`。缺各自第二层
+observe 与任何 global enforcement/history reader 不得扫描 project，只能 join success-history plane 的 `project_acknowledged`。缺各自第二层
 authority 统一为 `projection_lag` + empty/zero-use；marker 已 fsync 但 global ack 未 CAS 时 global
 reader 仍为 lag。project coordinator 最后在同一 lock 下消费 durable receipt slot 并提交
 `projection_done`。
@@ -241,17 +248,19 @@ append/fsync 与 durable applied/tail commit 完成**：
 
 1. 先从 allocator WAL oldest-first 恢复最早 committed reservation；存在未 applied reservation
    时不准分配或 append 更晚 offset；
-2. 先证明 completed index、shared live outbox、per-source route-quarantine，以及 global
-   administrative index 的一条 closed-max entry + bytes 均有容量；每个
+2. 先证明 live completed index、shared live outbox、per-source route-quarantine、global
+   administrative index，以及 independently bounded、按 source quota 隔离的 success-history plane
+   各有一条 closed-max entry + bytes 容量；每个
    quarantine token 还必须从初始 admission 起独占一个 closed-max inactive replacement generation
    （固定 A/B buffer，仍只计一个 logical entry），再在单一
    checksummed global metadata root generation 中原子提交 allocator reservation、completed-index、
-   outbox entitlement、quarantine 与 global-admin reserved tokens
+   outbox entitlement、quarantine、global-admin 与 success-history reserved tokens
    `{reservation_id, identity_key, expected_offset, barrier_digest, bounded_derived_body,
    record_digest, source_project_identity, receipt_route, bounded_receipt_body, new_tail,
    reservation_seed_digest, reservation_digest, completed_index_token_id,
    exact_completed_ref_identity, outbox_entitlement_id, exact_outbox_identity,
-   quarantine_token_id,global_admin_entitlement_id,global_admin_reserved_bytes}`；full reservation digest 绑定实际 allocated
+   quarantine_token_id,global_admin_entitlement_id,global_admin_reserved_bytes,
+   success_history_entitlement_id,success_history_reserved_bytes}`；full reservation digest 绑定实际 allocated
    offset/new tail；任一 capacity full 时在任何 durable write 前
    visible backpressure；
 3. 在同一 lease 下为 exact key durable 写 `projection_prepared`，只在 expected offset
@@ -266,8 +275,10 @@ append/fsync 与 durable applied/tail commit 完成**：
    原子转换为该 live intent；只有该 generation durable 后才释放 lease、回收 reservation body。
    conversion 前 entitlement 仍计 shared outbox capacity，rebind/admission 不得借用；crash recovery
    只能完成 matching conversion，只有 reservation 被 durable cancellation/tombstone 时才原子释放，
-   禁止留下 reservation 已占 offset 却没有可提交 outbox 的状态。reserved quarantine token 独立保留 exact identity，直到
-   `project_acknowledged` 释放或原子转入 pre-delivery/ack-pending quarantine；
+   禁止留下 reservation 已占 offset 却没有可提交 outbox 的状态。reserved quarantine token 与
+   success-history entitlement 独立保留 exact identity，跨 receipt-delivered、quarantine、admin 与 rebind
+   states 原样携带，直到 `project_acknowledged` 分别释放/转换，或 source-bound terminal discard 在同一
+   root transition 释放；
 6. `.vibeguard.json` 只是 requested state；runtime-owned eligibility registry 才是 effective
    state，并绑定 observed config identity/digest + epoch。projector/receipt/source worker 处理
    intent 前取 deadline-bounded shared delivery lease，以 no-follow 重开 config 并比较 digest。
@@ -283,23 +294,39 @@ append/fsync 与 durable applied/tail commit 完成**：
    retention_bucket,global_offset,query_scope_digest,registration_id,state_root_id,route_identity_digest,
    old_epoch,request_digest}`；随后单一 global root CAS 同时发布 bounded lag stub、提交
    `receipt_applied`、reclaim outbox并释放 completed-index token。admin root/stub 任一失败则保持 outbox
-   pending/error 且不得 effective off。只有 registry、reservation、live outbox 与 completed index 中该 source
+   pending/error 且不得 effective off。只有 registry、reservation、live outbox 与 live completed index 中该 source
    所有 unacknowledged refs 均为零（每个 ref 在 admin handoff 前必须保留 capacity token），才在仍持
    exclusive delivery lease、且已释放全部 global leases 后取得 project lock，并重验 saved
-   requested-off identity：present variant no-follow 重开并匹配 file identity+digest；absent variant 从同一
-   trusted parent capability 再做 exact no-follow lookup，只接受 `ENOENT`，并匹配 project root、parent
-   identity 与 start proof；file/symlink 出现、parent replacement、permission/error 或 identity drift 均拒绝。
-   retention-owned `project_acknowledged` success 保留在 completed index、无 capacity token且不参与 zero predicate。
-   final identity check 与同一 project-lock critical section 的 effective-state commit 组成线性化点；其后
-   创建 config 属于新 requested-state change，任一 worker 写入前仍须重验。若已变回 enabled，
+   requested-off identity：present variant no-follow 重开并匹配 file identity+digest；absent variant 必须仍持
+   matching `config_mutation_fence_id`，从同一 trusted parent capability 再做 exact no-follow lookup，只接受
+   `ENOENT`，并匹配 project root、parent identity、fence generation 与 start proof。该 final lookup 是
+   absence-off 的 linearization point：它与 durable `off_commit_fenced {absence_proof_digest,
+   config_mutation_fence_id,mutation_generation}` 属于同一 project-lock transaction；在释放 exclusive
+   delivery/fence 前必须再次 no-follow lookup 并读取 mutation generation。若 file/symlink 出现、generation
+   改变、parent replacement、permission/error 或 identity drift，必须在 state 对任何 worker 可用前原子
+   rollback 为 `enable_rebind`/pending；final lookup 后才完成的外部 create 线性化为新的 requested-state
+   change，且所有 worker 写入前仍重验同一 file/fence generation。project lock 单独不构成 filesystem
+   fence，禁止把 first ENOENT→commit 间窗口当作已关闭。
+   retention-owned `project_acknowledged` success 已原子转入独立 success-history plane、无 live capacity token
+   且不参与 zero predicate。若已变回 enabled，
    原子转为 durable `enable_rebind {new_identity,digest,cursor}`，保留 keyed slots/admin refs 并
    bounded rebind 全部 off-frozen/off-receipt canonical refs，完成前禁止新 L2；若是另一 off digest/identity，
-   必须先提交 `off_supersede_pending {old_admin_set_digest,new_epoch,new_request_digest,cursor}`，再以
-   policy-bound pass 选择 tagged completion mode：`adopt_all` 对每个旧 ref + stub 做同一 global-root CAS，
-   原子 adopt/retag 到 new request并保留 token/query scope/recovery locator，随后
-   `admin_adoption_complete {old_admin_set_digest}` 即可继续；`terminal_discard_all` 则为每项验证 source-bound
-   terminal proof并最终证明旧 ref/stub/token 为零。两模式不可串联，successful adoption 不再要求 terminal
-   proof；任一项 missing/mismatch 或 config invalid/unreadable 都保持 pending/error。
+   必须在任何 per-ref mutation 前提交 `off_supersede_pending {old_admin_set_digest,new_epoch,
+   new_request_digest,selected_mode,mode_policy_digest,transaction_id,stage_cursor}`；`selected_mode` 只能是
+   `adopt_all` 或 `terminal_discard_all`，进入 digest 后不可改变，每个 recovery pass/ref transition/completion
+   record 都必须匹配，否则 `needs_repair`。`adopt_all` 使用 journaled atomic generation：bounded passes 只在
+   每个 authoritative per-source primary/alternate admin root 写/fsync inert
+   `adopt_prepared {transaction_id,old_entry_digest,new_request_digest,new_entry_digest}`，不改变旧 ref 权威性；
+   全部 exact old-admin-set entries staged 后，写/fsync ordered adoption manifest，再由一个 global-root CAS
+   发布 `admin_adoption_committed {transaction_id,old_admin_set_digest,adoption_manifest_digest,
+   new_request_digest}`。该 generation 是全 set 唯一可见切换点：commit 前全部旧 request，commit 后 global
+   overlay 对全部 entries 原子解释为 new request，禁止 partial/mixed adoption。commit 后 bounded cleanup
+   按 journal cursor roll-forward 重写/repoint per-source entries/stubs并保留 token/query scope/recovery locator；
+   crash 只能继续同一 transaction，禁止 rollback 或换 mode。全部 root matching 后才提交
+   `admin_adoption_complete {transaction_id,old_admin_set_digest,adoption_manifest_digest}`；
+   `terminal_discard_all` 则按已持久化 mode 为每项验证 source-bound terminal proof并最终证明旧
+   ref/stub/token 为零。两模式不可串联，successful adoption 不再要求 terminal proof；任一项 missing/
+   mismatch、manifest overflow 或 config invalid/unreadable 都保持 pending/error。
    stale request 不得提交 effective off。任一 cap/deadline/route 失败保持 `opt_out_pending/error` + counts/
    oldest age，禁止新 L2 但不伪称 off，后续 bounded pass 续传；因而 effective off
    永不占 shared live registry/outbox/completed-index capacity。effective-off cleanup 只按 admin root
@@ -328,7 +355,9 @@ append/fsync 与 durable applied/tail commit 完成**：
    释放 project/delivery locks，再由 global root CAS 把 same entry 转为
    `project_acknowledged {source,event,barrier,projection_receipt_digest,canonical_event_timestamp,
    retention_bucket,global_offset,query_scope_digest,marker_digest,ack_epoch}`，完整保留并 digest-bind
-   receipt-delivered 的 canonical query metadata，同时释放仍未消费的 quarantine token。只有该 state
+   receipt-delivered 的 canonical query metadata，并在同一 root generation 把 reservation-backed
+   `success_history_entitlement_id` 转成 independently checksummed success-history ref、删除 live
+   completed entry/释放其 token，同时释放仍未消费的 quarantine token。只有 history plane 中该 state
    是 aggregate success；crash 在 marker/
    ack 间时 globally enumerable `receipt_delivered` 仍为 lag；即使 outbox 已 reclaim/source 未启动，
    dispatcher 仍用 retained registration ID 在 runtime-owned directory 精确解析 matching state-root/
@@ -339,9 +368,12 @@ append/fsync 与 durable applied/tail commit 完成**：
    禁止猜 pathname。只有 global ack CAS 成功才释放未使用 token。off 同样按 exclusive lease →
    project lock，因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
 
-allocator、outbox 与 completed index 各有独立 subgeneration，但所有跨 index transition 只由上述
+allocator、outbox、live completed index 与 success-history plane 各有独立 subgeneration，但所有跨 index transition 只由上述
 单一 global metadata root generation 原子发布；因此 receipt delivery 同时发布 lag ref、
-`receipt_applied` 与 outbox reclaim，ref 未 durable 时 reclaim 不可见；project ack 是后续 CAS。
+`receipt_applied` 与 outbox reclaim，ref 未 durable 时 reclaim 不可见；project ack + history transfer
+是后续单一 CAS。history plane 有独立 global entry/byte maxima 与 per-source quota；reservation admission
+预留 entitlement，因此 ack 不会在 marker durable 后因 history full 卡住。retained success 只计 history
+quota，永不计 live completed capacity，off project 的 history 不得消耗其它 source partition。
 recovery 只接受
 root 指向且 reservation/token ID + exact ref identity 全匹配的 pair：matching pair 幂等前进；
 旧 root 外的 token-only/reservation-only torn copy 回退到前一 committed root；matching claim binding
@@ -416,29 +448,29 @@ append。allocator/index/outbox full/corrupt/timeout 保持 `projection_lag` + �
 ### Aggregate snapshot proof
 
 summary/health 等 multi-event/project reader 只能从 bounded registry/allocator/outbox、global
-administrative index 与
-completed-projection indexes 构造 v2 proof，禁止扫描 log。completed index 以 generation-covered
-fixed entry/byte maximum 保留 H-014 批准的 query/retention window 内全部 refs；仅
-`project_acknowledged` 是 successful ref，`receipt_delivered` 必须进入 lag refs。GC 只能直接删除
+administrative index、live completed index 与 success-history plane 构造 v2 proof，禁止扫描 log。
+success-history 以独立 generation-covered global entry/byte maximum + per-source quota 保留 H-014
+批准的 query/retention window 内全部 acknowledged refs；只有其中 `project_acknowledged` 是 successful
+ref，live completed index 的 `receipt_delivered` 必须进入 lag refs。GC 只能直接删除
 已越过 retained window/watermark 且全部为 `project_acknowledged` 的完整 bucket；未 ack ref 到期时
 必须先用 retained quarantine token 按上述原子 `quarantine_ack_pending` handoff 转移 exact route/
 registration/state-root identity 与 query-scope metadata；handoff 未 durable 则 pin 原 bucket/ref/token
 并计 capacity/backpressure，绝不能 age-delete 唯一 recovery locator。过旧 query、retention gap、capacity/
 freshness overflow 必须 unavailable + empty，禁止回退扫描。reader 先读取 committed global
-metadata root generation + 其引用的五个 checksummed subgenerations +
+metadata root generation + 其引用的六个 checksummed subgenerations +
 allocator tail/watermark，再按 query identity/window 有界枚举全部 in-scope state，生成稳定
 ordered `barrier_refs` 与 ordered `lag_refs`（包括 live/frozen/unreachable registry、off-receipt admin、reservation、outbox 与
 route-quarantine lag）；每个 frozen/admin ref 的 timestamp/bucket/global lag 或 projection offset/query-scope
 metadata 必须 digest-bound 并用于 window inclusion，缺失或冲突即 proof unavailable；live
 registration 必须使用 initial admission 保存的 timestamp/bucket/global lag offset/query scope，
 successful `project_acknowledged` 必须使用 receipt-delivered 继承的 timestamp/bucket/global projection
-offset/query scope。successful refs 只来自 completed index 的 project-acknowledged state，最后重读
-root + registry/allocator/outbox/completed/admin subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
+offset/query scope。successful refs 只来自 success-history plane，最后重读
+root + registry/allocator/outbox/completed/admin/history subgenerations/tail。前后任一变化必须在同一 deadline 内 bounded
 retry；重试仍 drift 则 `projection_lag/unavailable` + 空 semantic aggregate。
 
 `barrier_set_digest = H(schema, query_identity, ordered barrier_refs, ordered lag_refs,
 root_generation, registry_generation, allocator_generation/tail, outbox_generation,
-completed_index_generation, admin_index_generation)`；`projection_watermark` 携带
+completed_index_generation, admin_index_generation, success_history_generation)`；`projection_watermark` 携带
 同一组 generations/tail，两者不得分别取样。任一 lag ref、ready/outbox state 遗漏/
 重排，digest 或 generation mismatch，proof 超 closed maximum，或无法证明全量集合时，
 必须 fail visible 并保持空数据；禁止 partial/synced aggregate。测试覆盖 omitted/
