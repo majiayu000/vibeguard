@@ -262,10 +262,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     pending count 与 oldest age（损坏时不可证明的字段为空），停止 provider 并停止追加
     新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
     repair 完成；禁止自动删除、猜测或无界 rebuild。
-    L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等，全部成功并
-    持久化 receipt 后，必须先写入并提交包含 finalized body/digest + expected offset 的
+    L1 仍运行且既有 L1 block 保留。各 consumer 按 event/signal ID 幂等写入不可见
+    `staged` record；任何 reader/aggregate/Learn 在 canonical finalization 前都必须拒绝
+    staged mutation。全部 stage 成功后，必须先写入并提交包含 finalized body/digest +
+    expected offset 的
     `finalize_prepared` WAL record，才可 append/fsync finalized receipt，再写 durable
-    `finalized`/`done` transitions；恢复只读该 expected offset 判定补 append 或补 marker。
+    `finalized` transition；随后按 finalized digest 幂等 activate consumer 并写 activation
+    receipts，全部 activation 完成才可 `done`/release eligible decision。恢复只读 expected
+    offset 判定补 append/marker/activation。
     完成前不得声称 GH-704 L2/新增 W-rule 的 tracked precision、Learn candidate 或 block
     eligibility；日志失败不得删除用户数据或无界扫描恢复。
 28. B-028: runtime、precision tracker、session metrics 与 Learn 必须消费同一 canonical
@@ -279,8 +283,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     digest 的 durable prepared state；跨 project/shard 的唯一 global allocator 必须先用
     deadline-bounded reservation 原子分配 offset 并留下可恢复 intent，append/fsync 后再
     提交 applied state 与 project projection receipt。project WAL 只有在 durable
-    `projection_queued` intent 落盘后才可完成 semantic `done`；projection receipt 前该
-    queue item 不得丢弃。恢复只按 exact key/offset/digest 判断，禁止扫描 global log。
+    `projection_queued` intent 落盘后才可完成 semantic `done`；该 item 必须保存 bounded
+    finalized/derived body，或其 exact project-journal offset + length + digest，并贯穿
+    allocator recovery；projection receipt 前不得丢弃。恢复只按 exact key/offset/digest
+    判断，禁止扫描 global log。
     derived projection 失败必须显示 `projection_lag` 并可重放、去重、最终收敛，不能
     反向推断 eligibility、重写 project journal 或伪称 global view 已同步。
 29. B-029: cross-session learning 只能把合格 correction 聚合成 project-scoped、
@@ -306,9 +312,11 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     run 使用同一状态和 identities，并区分 `off/unavailable/error/unknown/advisory/
     block/pass`。无数据为空值；不得隐藏 L2 error、raw source、secret、完整 HOME path
     或未脱敏 model output。completed advisory/block/pass 只能从 canonical project
-    finalized record 渲染；尚未 finalized 的 append/consumer/recovery failure 必须从同一
-    project 的 bounded WAL/queue record 渲染 `unavailable/error/backlog`，不能伪造
-    finalized decision 或进入 precision/Learn。global/aggregate view 若尚未投影同一 finalized digest，必须显示
+    finalized record 渲染；已持久化但尚未 finalized 的 failure 从 bounded WAL/queue
+    渲染。lock/WAL open/initial prepare 之前的 failure，以 typed in-memory error 作为仅限
+    当前 hook response 的权威源，标记 `persistence_unavailable`、`finalized=false`、
+    empty decision/event ID；后续 status 不得伪造历史，只显示 durable no-data + current
+    storage health。两类 failure 都不能进入 precision/Learn。global/aggregate view 若尚未投影同一 finalized digest，必须显示
     `projection_lag` 和空数据，不能沿用旧 mirror 结果。
 36. B-036: 正常、失败、timeout 与 interruption 都必须清理 GH-704 自建的 bounded
     temporary state；取消后停止新 inference，保留最小 structured audit，返回与 H-007

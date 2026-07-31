@@ -308,13 +308,18 @@ offset 的 bounded record 并比较 event ID + digest，匹配则补 marker，�
 - precision：exact identity 的 outcome/evidence record；
 - Learn：project-scoped `defense_gap` candidate input。
 
-每个 consumer 必须以 event/signal ID 幂等，并持久化自身 applied receipt；三个 consumer
-均成功后 projector 构造绑定 pending event ID、consumer schema/version 与 applied receipt
-digests 的 finalized body；先在 WAL 追加/提交 `finalize_prepared`（body、digest、expected
+每个 consumer 必须以 event/signal ID 幂等写入不可见 `staged` record + stage receipt；
+reader、aggregate、precision 与 Learn 必须 join canonical finalized digest，拒绝未
+finalized staged data。三个 stage 均成功后 projector 构造绑定 pending event ID、consumer
+schema/version 与 stage receipt digests 的 finalized body；先在 WAL 追加/提交
+`finalize_prepared`（body、digest、expected
 journal offset），再在该 offset append/fsync finalized receipt，随后追加/提交
-`finalized`。随后必须先追加/fsync 并提交
-`projection_queued {project_hash,event_id,finalized_digest,schema_version}` 到独立 bounded
-project projection queue，才可以 WAL `done` transition 推进 semantic head cursor；global
+`finalized`；再按 finalized digest 幂等 activate 三个 staged records 并写 activation receipts。
+任一 activation 未完成时 decision/precision/Learn 仍不可见且 recovery 继续 exact-key
+activation；全部 activation 后才追加/fsync
+`projection_queued {project_hash,event_id,finalized_digest,schema_version, bounded_body |
+project_journal_offset,record_length,digest}` 到独立 bounded project projection queue，
+才可以 WAL `done` transition 推进 semantic head cursor；global
 projection receipt durable 后才标记 `projection_done` 并推进 projection cursor。crash 在 finalized append
 前后都只读 expected offset 的 bounded record + digest，分别补 append 或补 marker，禁止
 扫描 journal、重复 finalized receipt。queue metadata 使用两个 checksummed generations，只保存 committed
@@ -375,9 +380,11 @@ H-014 Recommended reference path（未批准）不新增第三个 semantic statu
 - `vibeguard-runtime hook-status` 继续作为 per-run public status route；`HookStatusEntry`、
   human renderer、JSON renderer 与 `schemas/hook-status.schema.json` 增加同一份
   `semantic_status`、rule/signal/model/policy identities 与 evidence digest。finalized
-  outcome 从 project journal 渲染；pre-finalization `unavailable/error/backlog` 只按 exact
-  run/event key 从 bounded WAL/queue record 渲染，并显式标记 `finalized=false`、decision
-  为空，不进入 precision/Learn；
+  outcome 从 project journal 渲染；persisted pre-finalization failure 从 exact bounded
+  WAL/queue record 渲染。lock/WAL open/initial prepare 前没有 durable record 时，typed
+  in-memory error 是仅限当前 response 的权威源，带 `persistence_unavailable`、
+  `finalized=false` 与 empty decision/event ID；后续 status 显示 durable no-data + current
+  storage health，不重建不存在的历史。两者均不进入 precision/Learn；
 - event log、precision 与 Learn 只消费上述 canonical project typed event。doctor 的
   latest project status 也从该 event/status contract 读取；global derived view 只有
   finalized digest 匹配时才可显示数据，否则显示 `projection_lag`，不能从 free-text 或
@@ -647,15 +654,15 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-024 W-12 attribution | W-12 reducer | `bash tests/hooks/test_runtime_rule_signals.sh w12_signal_attribution`；三种 signal kind 与去重 precedence |
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
-| B-027 fail-visible writes | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog` 与 `bounded_project_lock`；在 pending prepare/metadata/journal/journaled、每个 consumer、finalize_prepared/finalized append/finalized marker/done 的前后逐边界注入 crash，按 expected offset + digest 补 append/marker且无重复；active holder、deadline、abandoned/malformed owner、PID reuse/nonmatching nonce fixtures证明 lock bounded 且不盲删；超大 WAL、corruption、batch/deadline/I/O caps、persistent failure、disable/kill-switch backlog 证明 oldest-first、冻结/恢复、停止新 L2 与零 full journal/other-project/HOME scan |
-| B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery` 与 `cross_project_offset_reservation`；crash 在 project finalized、projection_queued、semantic done、global reservation、key prepared、global append、index applied、project receipt 任一边界后仍有 durable work item；并发不同 project/shard 必须取得不同 offsets；exact key/offset/digest 补 marker/receipt且不重复 append，index/allocator failure 显示 lag + 空值 |
+| B-027 fail-visible writes | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog` 与 `bounded_project_lock`；在 pending、每个 consumer stage、finalize prepared/append/marker、每个 activation、projection queue/done 前后注入 crash，断言 staged 在 finalized 前不可见且 exact digest activation 可恢复；lock/open/initial-WAL failures 当次返回 typed in-memory `persistence_unavailable`，后续 status no-data 不伪造；lock contention/stale、caps、corruption、kill-switch fixtures 保持 bounded/L1 |
+| B-028 single authority + derived global projection | canonical project journal + global projector | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery` 与 `cross_project_offset_reservation`；projection queue 保存 bounded body 或 exact project offset/length/digest 并贯穿 allocator reservation；crash 在 finalized、queue、done、global reservation/prepare/append/applied/receipt 后仍可 exact-key 恢复；并发 shards offsets 唯一且无 scan/duplicate |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |
 | B-032 outcome verification | Learn outcome evaluator | `bash tests/test_learn_adoption.sh semantic_candidate_outcomes`；fresh/absent/regressed 与 raw-source export canary |
 | B-033 GH-700 boundary | production mapping contract | `python3 eval/test_semantic_eval.py gh700_core_mapping_boundary`；拒绝 headline/paired/aggregate precision 输入 |
 | B-034 GH-702 boundary | capability/policy contract | `bash tests/hooks/test_semantic_defense.sh gh702_sealed_core_boundary`；携带 executable/model/provider 或 unapproved policy 必须失败 |
-| B-035 truthful rendering | existing public doctor + hook-status routes | `bash tests/test_setup_check.sh`、`bash tests/test_hook_status.sh` 与 `bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`；finalized event 的 completed outcome/identities 同源；WAL prepare/journal/consumer/recovery failures 从 exact bounded WAL/queue record 渲染 `finalized=false` + empty decision，不进入 precision/Learn；global lag 显示空值且不沿用 mirror |
+| B-035 truthful rendering | existing public doctor + hook-status routes | `bash tests/test_setup_check.sh`、`bash tests/test_hook_status.sh` 与 `bash tests/hooks/test_semantic_defense.sh status_rendering_and_redaction`；finalized outcome同源；persisted pre-final failure 从 WAL/queue 渲染，pre-record volatile failure 仅在 current response 用 typed in-memory `persistence_unavailable` + empty IDs/decision，later status no-data + storage health；staged consumer data在 finalized digest join 前不可见，global lag 为空值 |
 | B-036 cleanup/rollback | provider/cache/hook lifecycle | `bash tests/hooks/test_semantic_defense.sh cleanup_interrupt_and_l1_rollback`；success/error/timeout/SIGINT matrix |
 
 ## 数据流
