@@ -517,8 +517,12 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
 generated patch是由 payload digest引用的 durable typed objects，不是额外 record kinds。非法 transition/
 fence/owner、缺失/截断/fork、过期 fence、checkout anchor或表外 kind均 fail closed。
-允许的 phase grammar也闭合：`owner_claimed` 后只可 heartbeat、mutation plan链、`draft_bound`或 takeover；
-`draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
+允许的 phase grammar对 folded publication phase 闭合：在任一尚有 non-terminal current owner 的
+frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neutral liveness edge。heartbeat
+只可由当前 generation 在 expiry 前追加；takeover 只可在 expiry 后以 new generation 追加；两者均保留
+candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
+terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
+`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
 `intent_written(intent_kind=publish_valid)`，prepared non-valid直接接
 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot bound才可相应 committed-pending，
 再经 generated PR planned→bound→merged/revoked/replacement链到 `record_kind=publication_terminal`。pre-intent cleanup
