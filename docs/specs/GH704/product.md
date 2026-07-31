@@ -169,11 +169,14 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    completed-index capacity；此阶段不写 project journal/marker，也不创建 `receipt_delivered`。
    只有 matching live registry/reservation/outbox/completed-index 均为零，且仍持 exclusive lease no-follow
    重读的 config file identity+digest 与 saved request 完全相等，才提交 effective off；若已
-   enabled 则转入 durable bounded rebind，若为另一 off request 则以新 epoch/cursor 重启 drain，
+   enabled 则转入 durable bounded rebind；若为另一 off request，必须先以 checksummed old-admin-set
+   digest + bounded cursor 原子 adopt/retag 所有旧 ref/stub 到新 request，或为每项提供 closed
+   source-bound terminal proof，确认无旧 token/ref 后才以新 epoch/cursor 重启 drain，
    invalid/unreadable 则保持 pending/error，任何 stale request 都不得关停。否则保持
    `opt_out_pending/error` + counts/oldest age，禁止伪称 off。生效后不得写 source
-   slot/marker 且不占 shared live/completed capacity；admin refs 只能在 retention watermark 越过
-   query scope 后 bounded oldest-first terminal cleanup，或由 re-enable 先重取容量再 rebind；每次
+   slot/marker 且不占 shared live/completed capacity；retention watermark 越过 query scope 不能删除
+   未 ack admin ref。它只能由 re-enable/approved maintenance 先重取容量完成 rebind+ack retirement，
+   或由 approved maintenance 在 source project lock 下 fsync digest-bound terminal discard proof 后退休；每次
    ref/stub/token handoff 必须 crash-safe，失败保持 visible lag。旧 epoch 只能 bounded rebind/drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
@@ -358,7 +361,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     frozen lag ref 后回收 live slot；ref 必须 digest-bind canonical event timestamp、retention bucket、
     registry-owned global lag offset 与 query-scope identity，使 bounded reader 无需 project scan 即可
     判断窗口成员，不删 canonical backlog、不从 aggregate proof 消失。global lag offset 不是 projection
-    append offset，禁止预猜/reserve-before-claim。禁止
+    append offset，禁止预猜/reserve-before-claim。source route 在 ready/abort receipt 前若有 closed
+    permanent inaccessible proof，必须用预留 token 把 registration 原子隔离为 query-scoped admin ref
+    并释放 live slot；transient 仍保留 visible live lag。禁止
     global→project lock inversion、覆盖或以 off project 永占 capacity。barrier + registration 后才写 `projection_queued` 并允许
     semantic `done`，因此 dormant source 不需被扫描/重启也可发现 work。global worker 必须使用跨 project/key/shard 的唯一 deadline-bounded
     append sequencer：同一 lease 从 allocator reservation 一直持有到该 expected offset 的
@@ -375,14 +380,16 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     retention boundary 时，必须用 retained token 原子转入 per-source `quarantine_ack_pending` 后才可
     释放 completed capacity。若 closed capability proof 表明 route 已永久删除/替换，则同一 metadata
     root 把 exact intent/lag/rebind key 转入 independently checksummed per-source durable quarantine，
-    发布全局 lag stub并释放 shared outbox/completed capacity；closed permanent ACL-denied proof 同样
+    发布携带 timestamp/retention bucket/global offset/query-scope 的全局 lag stub并释放 shared outbox/completed capacity；closed permanent ACL-denied proof 同样
     quarantine，corrupt source root 不得阻止 shared root advance。receipt delivery 后仍保留并计入
     quarantine token 到 `project_acknowledged`；route 永久失效或 ref 到 retention boundary 时，把
     completed ref 原子转入该 token 的 quarantine/admin lag，handoff 前 recovery locator 必须 pin。
     新 route/epoch 只能 bounded rebind 后完成，不能影响其他 project 或伪称 completed；每个 token
     从 initial admission 起预留 fixed A/B replacement generations，replacement 先写 inactive generation
     再 CAS repoint stub，one-entry-full 时不申请第二 entry/token。retirement 必须按 global
-    `retirement_pending`、source `retired` proof、global delete/release 三阶段完成。worker 不得写 project journal。只有 source coordinator/approved maintenance
+    `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；任一 crash 向前恢复。
+    未 ack recovery locator 必须 pin 或原子转入 lag index，retention GC 不得 age-delete；只有 matching
+    rebind+ack retirement 或 source-lock terminal discard proof 才可删除并释放 token。worker 不得写 project journal。只有 source coordinator/approved maintenance
     route 按 shared delivery lease → project lock 持有至 fsync 才可写 `projection_done`。恢复只按 earliest reservation 或 receipt
     intent 的 exact key/offset/digest 判断，禁止扫描 project/HOME/global log、跳洞、丢 receipt
     或释放 reservation 后由 per-key writer 乱序 append。off-preparing 必须先用同一
@@ -482,9 +489,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
       outbox，同 project 多 intent 不共享 offset，dormant source project 也可无扫描补 receipt；永久
       删除/替换的 route 进入 per-source durable rebindable quarantine 并释放 shared outbox capacity，
       reservation-backed token 保留到 global ack，支持 ack 前故障/retention 原子转移、A/B replacement 与三阶段 retirement；
-      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；
+      ready 先 claim 后 reserve，active absent-reservation claim 必须恢复 exact reservation；仅 matching off-preparing 可 freeze，且 config 反转/漂移不得用 stale request 提交 off；新 off request 原子 adopt/retag 旧 admin set；永久不可达 pre-barrier route 以 token-backed admin isolation 释放 live slot；
       effective off 前所有 receipt 必须转入 query-scoped admin lag 且 shared completed capacity 为零，
-      admin ref 具有 bounded terminal cleanup/re-enable proof；frozen ref 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
+      admin ref 只有 rebind+ack 或 source-bound terminal proof 后才退休；frozen/quarantine stub 的 timestamp/bucket/global lag offset/query scope 可独立判定窗口；
       false-positive report/triage 只接受 finalized typed identity，observe v1/v2 兼容且 aggregate proof 从 retained completed index + 全量 ordered barrier/lag refs + stable global root/four subgenerations/watermark 构造，health/Codex-status/quality-grader/constraint-frequency 与 Rust enforcement-history readers 对 lag/unfinalized 统一 degraded/empty/零计数；free-text/global mirror 不再是权威路径。
 - [ ] trusted session 不能由 inherited env/payload 选择；session spoof/conflict/rotation 均在
       cache/provider/state 前失败或失效。实际 sidecar artifact identity 的任一字段变化同时
