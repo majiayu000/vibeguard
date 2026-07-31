@@ -1,7 +1,8 @@
 # GH700 Publication Conformance Vectors
 
-本文件是 [publication_history_contract.md](publication_history_contract.md) 与
-[publication_ledger_contract.md](publication_ledger_contract.md) 的规范性组成部分，唯一拥有两个互不重叠的
+本文件是 [publication_history_contract.md](publication_history_contract.md)、
+[publication_ledger_contract.md](publication_ledger_contract.md) 与
+[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md) 的规范性组成部分，唯一拥有两个互不重叠的
 closed registries：下列十四项 hand-authored named vectors，以及本节定义的 43 项 schema-complete generated
 corpus（39 history kinds + 4 blocked-attempt kinds各恰一项）。fixture path是实现阶段必须创建的 canonical
 path；本 Draft冻结生成规则/object/bytes/digest/oracle，不宣称文件或 runner已实现。调用方不得维护第三份
@@ -48,12 +49,15 @@ contract的 attempt-record body；计算 frontier leaf前须包入其 exact `att
 `{mutation_kind:"missing_required",json_pointer}`、
 `{mutation_kind:"extra_member",json_pointer}`、
 `{mutation_kind:"null_nonnullable",json_pointer}`或
-`{mutation_kind:"unknown_enum_or_const",json_pointer}`，alias exact 为 `{kind,type,record_type}`。
+`{mutation_kind:"unknown_enum_or_const",json_pointer}`、
+`{mutation_kind:"inapplicable_value",json_pointer,value}`，alias exact 为 `{kind,type,record_type}`。
 `json_pointer`使用 RFC 6901 canonical encoding。unknown mutation把目标值替换 `"__unknown__"`；alias删除
 discriminator并以同值插入 alias；missing删除 member；extra在目标 object插入
 `"__unexpected__":true`；null替换为 null，除此之外 bytes不变。generator递归枚举 positive object及
-resolved schema，descriptor按 `(mutation_kind,json_pointer,alias_or_empty)` ASCII升序，且每个 candidate
-必须由 schema独立验证为 reject，否则生成失败。
+resolved schema。每个 conditional/applicability rule须枚举其 closed source union中除当前 branch允许集合外的
+**全部** inapplicable scalar value，不得任选一个；value先转 exact JCS scalar bytes、按 bytes ASCII升序，每项各生成
+一个 descriptor/candidate。descriptor统一按 `(mutation_kind,json_pointer,alias_or_empty,value_jcs_or_empty)` ASCII
+升序，且每个 candidate必须由 schema独立验证为 reject，否则生成失败。重复 value在 canonical去重后只生成一次。
 
 generated manifest exact 为
 `{schema_version,history_schema_digest,blocked_attempt_schema_digest,history_kind_count,

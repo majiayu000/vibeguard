@@ -1,11 +1,12 @@
 # GH700 Publication History Contract
 
-本文件与 [publication authority API / blocked-attempt contract](publication_ledger_contract.md) 及
+本文件与 [publication authority API / blocked-attempt contract](publication_ledger_contract.md)、
+[authority protocol contract](publication_authority_protocol_contract.md) 及
 [publication conformance vectors](publication_conformance_vectors.md) 共同构成 `product.md` B-017/B-018
 与 `tech.md` publication machine 的规范性组成部分，隔离 publication ownership、mutation-secret、
 append-only history、trusted time、trust/fold 与 owner-liveness 概念边界。引用方可以通过链接或行为场景引用这里已经定义的 identifier，
 但不得复制、改名或局部覆盖这里的字段集合、枚举、canonical bytes、secret boundary
-或 fail-closed 语义；冲突时三份 contract各自拥有的 exact machine-facing identifiers为唯一真源。
+或 fail-closed 语义；冲突时四份 contract各自拥有的 exact machine-facing identifiers为唯一真源。
 
 ## Concrete durable authority
 
@@ -29,27 +30,20 @@ signature_encoding:"base64url_nopad_v1",key_version_policy:"manifest_pinned_v1"}
 issuer_key_version,public_key_spki_der_b64url,public_key_spki_sha256}`；key version是非零 u64，SPKI字段是 RFC 5280
 Ed25519 DER的 RFC 4648 URL-safe无 padding编码且 decoded SHA-256须 byte-equal hash，所有 digest/hash为
 lowercase `sha256:<64hex>`并禁止 ambient lookup。reason/predicate闭集只由 [publication_ledger_contract.md](publication_ledger_contract.md)拥有；empty/duplicate/unknown/profile drift使 authority non-ready。
-`client_api` 与 `control_api` 是同一 authority 每次启动同时绑定的 required objects，不是 union/alias/fallback。
-`client_api` exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`：endpoint是 manifest-pinned absolute HTTPS origin+path且禁 redirect/userinfo/query/fragment，transport exact `tls13_mtls_http2_jcs_v1`，API version exact `GH700:publication-authority-client-api:v1`。`control_api` exact 为 `{socket_path,transport,api_version,server_process_identity_digest,peer_auth_policy_digest}`：socket是 manifest-pinned absolute
-Unix path，transport exact `unix_peercred_jcs_v1`，API version exact
-`GH700:publication-authority-control-api:v1`，只开放 bootstrap/migrate/recover/ready 方法且永不监听网络。
-两个 API 的每个 request/response/startup receipt都必须绑定相同 top-level `authority_id`、
-`authority_identity_digest`、strictly monotonic `policy_epoch` 与 `policy_bundle_digest`；该 bundle同时
-digest method partition、两端 auth policy、server identities及完整 `predicate_evaluator_roster`。client server bundle由 authority外的
-release-identity root锚定 exact service ID/issuer/SPKI；client auth policy闭合 repo/workflow/
-environment/ref/run/actor、cert issuer、role与允许 method；control peer policy闭合 executable digest、
-code-sign identity、uid/gid及允许 method。任一 API缺失、单边 rotation、四个 shared值不等、bundle
-内外不一致或 policy epoch回退使整个 authority non-ready；rotation必须由一份 signed manifest原子
-切换两端，旧新组合无 grace/fallback。每个 request还绑定对应 API version、frontier、operation/request
-digest及 anti-replay nonce。unknown endpoint/socket、ambient discovery/proxy/DNS trust、redirect、wrong
-transport/version/server/client/peer identity或 policy drift均拒绝。store path是唯一 absolute
-canonical SQLite file且必须位于该 volume，禁止默认/相对/temp路径。KMS policy由 manifest钉住；
+`client_api`与`control_api`是同一 authority每次启动同时绑定的 required objects，不是 union/alias/fallback。
+client transport exact 为 `{endpoint,transport,api_version,server_identity_bundle_digest,client_auth_policy_digest}`，
+其中 endpoint是 manifest-pinned absolute HTTPS path、transport exact `tls13_mtls_http2_jcs_v1`、API version exact
+`GH700:publication-authority-client-api:v1`；control transport/method/wire/replay/peer authorization只由
+[authority protocol contract](publication_authority_protocol_contract.md)定义。两 API request/response/startup receipt
+必须绑定相同 `authority_id/authority_identity_digest/policy_epoch/policy_bundle_digest`；bundle digest method partition、
+两端 auth/server identity与 evaluator roster。任一 API缺失、单边 rotation、shared值不等或 epoch回退使 authority
+non-ready；signed manifest原子切换且无 grace/fallback。store path是 volume内唯一 absolute canonical SQLite file；
+unknown endpoint/socket、ambient trust/credential、wrong transport/identity/policy或 relative/temp path拒绝。KMS由 manifest钉住；
 reconciler/workflow GitHub token始终 read-only，target write credential只存在于 authority sole broker的
 environment secret provider，client绝不接收、转发或记录它。
 
-`client_api` 的 method/request/result/error exact wire contract只由
-[publication_ledger_contract.md](publication_ledger_contract.md)定义；本文件只定义 authority transport、
-publication history与 shared durability boundary，不复制 method schema。
+client method wire只由 [publication_ledger_contract.md](publication_ledger_contract.md)定义；control wire只由
+[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md)定义；本文件只定义 history与 shared durability。
 
 service启动先取得同 manifest钉住的 process lock，验证 volume支持 kernel lock与 durable `fsync`，再以 SQLite WAL、`journal_mode=WAL`、`synchronous=FULL`、foreign keys及
 `BEGIN IMMEDIATE`运行。history head/leaf、operation/rotation/slot unique indexes、owner/fence、
@@ -216,37 +210,20 @@ client_auth_policy_digest}`，endpoint为无 redirect/query/fragment的 manifest
 exact `tls13_mtls_rfc3161_sha256_v1`，threshold至少二且不超过 source数。source须独立 administration/
 signing root；ambient DNS/proxy/CA、TOFU、同 root重复 signer、unknown policy/algorithm均拒绝。
 
-T10只提交 ledger contract的 proof-free `time_bound_intent/client_payload_core`与可重算
-`time_bound_request_id`。T3验证 method/kind/exact predecessor并从 signed fold取 prior high water；
-`owner_claimed`以 `claim_pre_nonce_core_digest` durable reserve operation为 `claim_reserved`，再按 operation ID
-幂等签发并 FULL-fsync唯一 draft nonce/capsule为 `claim_capsule_frozen`。三种 transition的
-`publication_payload_core`均由 authority构造：删除 final payload的 trusted-time-produced字段、保留 fold-owned
-high water，claim core另含 frozen capsule四字段；client hash/preimage不含 authority字段。然后生成 fresh
-256-bit trusted-time nonce，`nonce_b64u` 是其32 bytes的 canonical
-unpadded base64url encoding，并计算
-`nonce_digest=SHA256(JCS({v:"GH700:trusted-time-nonce:v1",authority_id,repo_node_id,
-owner_generation,run_id,run_attempt,transition_slot,record_kind,nonce_b64u}))`，再计算
-`trusted_time_proof_request_id=SHA256(JCS({v:"GH700:trusted-time-proof-request:v1",authority_id,repo_node_id,
-owner_generation,run_id,run_attempt,transition_slot,predecessor_frontier,record_kind,
-publication_payload_core_digest,prior_time_high_water,nonce_digest}))`；它与 payload core 先按下述 closed derivation
-生成 `transition_operation_id`，之后才请求每个 TSA 对
-`SHA256(JCS({v:"GH700:trusted-time-proof:v1",authority_id,repo_node_id,transition_operation_id,
-trusted_time_proof_request_id,predecessor_frontier,nonce_b64u}))` 签 RFC3161 token。验证 distinct threshold signer、message imprint、policy OID、
-certificate chain、`gen_time`与 accuracy后，将各 interval `[gen_time-accuracy,gen_time+accuracy]` 求交；无交集、
-accuracy超限、token replay或 signer不足即拒绝。`trusted_lower_bound`取交集下界，`trusted_upper_bound`取上界；
-只有 `trusted_lower_bound >= prior_time_high_water` 才接受，`accepted_at=trusted_upper_bound` 且
-`new_time_high_water=trusted_upper_bound`。claim/heartbeat/expiry/takeover payload或 committed envelope exact绑定
-`{trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound,prior_time_high_water,new_time_high_water}`及
-全部 token bytes/digests的 durable proof capsule；SQLite transaction提交 transition与新 high water后，释放
-receipt或 takeover权限前还须 CAS external anchor同一 high water/proof digest。restore不得回退它。
+T10只提交 ledger contract的 proof-free time-bound request；T3从 signed fold取 prior high water并按
+[authority protocol contract](publication_authority_protocol_contract.md)的 exact purpose/subject、domain-separated
+replay identity、nonce、proof request与 RFC3161 message imprint构造 proof。client不得提交或替换任一 proof字段。
+claim仍以 `claim_pre_nonce_core_digest`先 durable reserve并只签发一次 draft nonce/capsule；三种 transition的
+publication core均由 authority构造。accepted proof的 interval intersection、proof capsule、prior/new high water
+随 transition及 external anchor原子持久化，restore不得回退；crash/ack-loss只能恢复同一 replay row。
 
 heartbeat only-if-alive 判定要求 `trusted_upper_bound < prior lease_expires_at`；takeover only-if-expired判定要求
 `trusted_lower_bound > lease_expires_at`，边界相等或 uncertainty跨 expiry均拒绝。lease expiry仍按获批 H-006
 由 `accepted_at`计算。proof unavailable、anchor CAS不确定、source/policy/threshold drift、high-water rollback/
 fork或 SQLite↔anchor mismatch使所有 time-dependent transition fail closed；绝不 clamp到 host time、猜 expiry或
-以 job absence接管。T3独占 `trusted_time.rs` client/proof/high-water persistence及
-[client API contract](publication_ledger_contract.md)定义的 crash-safe preparation；T10只能提交 method-specific
-non-authoritative time-bound request；
+以 job absence接管。T3独占 `trusted_time.rs` persistence、[client API contract](publication_ledger_contract.md)的
+crash-safe preparation及 [authority protocol contract](publication_authority_protocol_contract.md)的 proof profile；
+T10只能提交 non-authoritative time-bound request；
 T12须用真实 RFC3161-compatible independent test signers覆盖 host forward/backward jump、replay、quorum split、
 accuracy overlap、restart/snapshot rollback、heartbeat-vs-takeover race与 anchor ack-loss。
 
@@ -309,7 +286,10 @@ approval同时签该 exact recovery contract；缺失、阈值不足、同管理
 恢复路径是 `trust_emergency_root_cutover`。authority先冻结 publication/broker与 normal governance，strong-read
 DynamoDB HEAD和其 exact encrypted backup set，完成 restore-grade AEAD/full-prefix/time-high-water验证；rollback、
 fork、pending anchor或 backup缺失时不得开始。然后构造 exact `incident_open_intent={schema_version:"GH700:break-glass-incident-open:v1",repo_node_id,recovery_incident_id,cause,current_anchor_digest,current_publication_frontier,current_blocked_attempt_frontier,current_trust_epoch,recovery_policy_digest}`；两 frontier须 byte-equal HEAD且含 full-prefix，digest exact `SHA256(JCS(incident_open_intent))`。
-T3以 normal RFC3161 quorum生成 proof/interval后，在 global `anchor_commit_gate`内 transaction+FULL fsync永久 unique `incident_open_index[(repo_node_id,recovery_incident_id)]`、exact intent/proof bytes与 `db_committed_anchor_pending`；plan保持两 frontier不变、单调推进 time high water，且 `privileged_transition_or_null={transition_kind:"break_glass_incident_open",recovery_incident_id,incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound}`。
+T3按 [authority protocol contract](publication_authority_protocol_contract.md)先以 purpose
+`break_glass_incident_open`完成独立 replay identity/nonce/request/message-imprint/proof；incident receipt锚定后，cutover
+另以 `break_glass_cutover`取得 fresh proof，二者不得复用。在 global `anchor_commit_gate`内 FULL fsync永久 unique
+incident index、proof replay row与 pending plan；plan保持两 frontier不变、推进 high water并绑定 intent/proof/interval。
 随后严格复用唯一 DB→encrypted snapshot/manifest/WAL exact-version backup→`break_glass_incident_open` threshold signature→同一 transaction append `EPOCH#<restore_epoch>`并 CAS `HEAD`→strong-read确认的 closed model；禁止 incident-specific DynamoDB row。exact `incident_open_receipt={incident_open_intent_digest,trusted_time_proof_digest,trusted_lower_bound,trusted_upper_bound,prior_time_high_water,new_time_high_water,anchor_plan_core_digest,backup_set_ref_digest,epoch_anchor_receipt_digest}`，digest为 `SHA256(JCS(incident_open_receipt))`。
 gate的 plan/finalized crash与 ack-loss规则原样适用；确认前零 receipt/cutover，same incident/same bytes返原 receipt，异值冲突。snapshot、recovery manifest、EPOCH signed payload与 restore replay必须完整包含并核验 incident index/state/proof/receipt及两 frontier。
 cutover须取得另一个 fresh trusted-time proof，exact
@@ -389,7 +369,9 @@ preimage/intent/history/operation ID/log/report/receipt；raw draft-claim nonce�
 broker须按 plan解封 exact mutation capsule及 draft-create的 exact claim capsule、重算各 typed
 digest、plan-core/slot-ID/final payload/operation derivation，并证明 canonical template对每个
 declared secret恰有一个 typed placeholder且无其它
-placeholder；只允许替换这些位置并使用 plan-pinned endpoint/method。signed send-once audit
+placeholder；只允许替换这些位置并使用 plan-pinned endpoint/method，并按
+[authority protocol contract](publication_authority_protocol_contract.md)从实际 canonical headers/body/transmitted bytes
+重算 domain-separated `effective_request_digest`。signed send-once audit
 绑定 plan/request commitment、`mutation_nonce_capsule_id`/draft-claim capsule IDs+ciphertext
 digests、endpoint/method、`mutation_slot_id`/`broker_delivery_id`、`effective_request_digest`与 delivery outcome，不含 raw secret；restart/takeover复用 same capsule/delivery，store/
 broker拒绝 same slot/delivery第二次 send。该 audit不证明 remote commit。normal response后
@@ -590,7 +572,8 @@ rotation 构造顺序唯一且无环。三种 normal kind 的 `rotation_core` �
 `trust_root_rotated:{current_trust_epoch,next_trust_epoch,old_bundle_digest,new_bundle_digest,
 old_threshold_signature_digest,new_threshold_signature_digest}` 及
 `trust_key_revoked:{current_trust_epoch,next_trust_epoch,revoked_key_id,revocation_reason_code,
-replacement_key_or_bundle_digest_or_null}`。先计算 `rotation_core_digest=SHA256(JCS(rotation_core))`；detached
+replacement_key_or_bundle_digest_or_null}`；reason union与 replacement applicability只由
+[authority protocol contract](publication_authority_protocol_contract.md)定义。先计算 `rotation_core_digest=SHA256(JCS(rotation_core))`；detached
 normal approval exact 签 `SHA256(JCS({v:"GH700:normal-rotation-approval:v1",repo_node_id,purpose,
 record_kind,rotation_core_digest}))` 并产生 `approval_digest`；再计算
 `rotation_id=SHA256(JCS({v:"GH700:rotation-id:v1",repo_node_id,purpose,record_kind,
@@ -608,22 +591,11 @@ ID/payload/approval并为 new predecessor/op重签 cutover certificate；store�
 actual successor为 predecessor的后续 record。governance suffix只改变 trust epoch/state；active publication
 owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
 `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
-复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
-authorization envelope与 store-signed committed envelope/receipt。`transition_operation_id` 是覆盖 39 kinds 的
-closed derivation：`owner_claimed` exact 为
-`SHA256(JCS({v:"GH700:claim-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
-transition_slot,predecessor_frontier,record_kind:"owner_claimed",claim_pre_nonce_core_digest,
-time_bound_request_id}))`；该 ID在 draft nonce/capsule签发前保留，client core/request ID均不含 authority字段。
-其余 publication-domain 34 kinds exact 为
-`SHA256(JCS({v:"GH700:publication-operation-id:v1",repo_node_id,owner_generation,run_id,run_attempt,
-transition_slot,predecessor_frontier,record_kind,publication_payload_core_digest,
-trusted_time_proof_request_id_or_null}))`；non-time kind 以完整 payload 作 core 且 request ID 为 literal null，
-heartbeat/takeover以上述 authority core/request ID构造 operation ID；三种 time-dependent kind都在取得 proof后才生成 final payload/payload digest/intent digest。三种 normal governance kinds exact 为
-`SHA256(JCS({v:"GH700:governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
-predecessor_frontier,rotation_cutover_certificate_digest}))`；`trust_emergency_root_cutover` exact 为
-`SHA256(JCS({v:"GH700:emergency-governance-operation-id:v1",repo_node_id,purpose,record_kind,rotation_id,
-recovery_incident_id,predecessor_frontier,rotation_cutover_certificate_digest}))`。三个分支均不含任何
-authorization fence/lease；unknown branch/field 或交叉使用拒绝。`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
+复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable authorization envelope与 store-signed
+envelope/receipt；39 kinds的 branch normalization及 operation-ID公式只由
+[authority protocol contract](publication_authority_protocol_contract.md)定义。takeover归一到
+`new_owner_generation`，terminal-no-publication归一到 `terminal_owner_generation`，不得从 prior/ambient generation猜值；
+所有 ID排除 fence/lease。`owner_generation`永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
 intent 固化 schema/canonicalization version、operation ID、owner generation、run/slot、exact
 predecessor/prior phase、`record_kind` 与 payload digest，`intent_digest=SHA256(JCS(intent))`；
 retry复用同一 intent bytes/digest。append request另携当前 `authorization_fence`、lease
@@ -738,16 +710,20 @@ replacement。`generated_pr_revoked`只关闭已 bound且确认未 merge的 PR�
 frontier，`owner_heartbeat` 与 `publication_owner_taken_over` 都是 phase-neutral liveness edge。heartbeat
 只可由当前 generation 在 expiry 前追加；`heartbeat_sequence=1` 的 `prior_liveness_operation_id` 必须是建立该 generation 的 `owner_claimed` 或 `publication_owner_taken_over`，后续 sequence 必须引用同 generation 紧邻的 sequence-1 heartbeat；takeover 只可在 expiry 后以 new generation 追加；两者均保留
 candidate、publication phase、slot/pending/blocked state，其 successor 继续按该被保留 phase 的 edge 校验。
-terminal/no-owner frontier 不允许二者。除这两种 liveness edge 及下述 phase-neutral governance edge 外，
-`owner_claimed` 后只可 mutation plan 链或 `draft_bound`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
+terminal/no-owner frontier 不允许二者。除 liveness/governance edge外，`owner_claimed`只可 mutation plan链、
+`draft_bound`，或在 fold证明已有 terminal current-valid publication且本 owner无 draft/mutation slot时直接到
+`generated_pr_planned(pr_kind=invalidate_current)`；`draft_bound`后闭合 upload/update slots才可 `prepared`。
 prepared valid只有两条互斥 pre-intent路径：`genesis_zero_receipt|post_invalidation_zero_receipt`→`intent_written(intent_kind=publish_valid,zero receipt non-null)`，或 rollover-one的
 `generated_pr_planned(pr_kind=decurrent)`→`generated_pr_bound`→`generated_pr_merged`→`intent_written(intent_kind=publish_valid,rollover receipt non-null)`；后者仅在 exact receipt提交且 fresh fold证明旧 current被原子移除后可写。
 planned无 effect只可 `generated_pr_not_applied`后以 new slot/head/nonce fresh-reviewed replacement，bound失败
 只可 revoke后 replacement或 `decurrent_pr_recovery_blocked`；merged取消只走 `valid_rollback_pending`，且最多
 一个未撤销 gate。prepared non-valid直接接 `intent_written(intent_kind=publish_nonvalid)`；intent后 publish slot
 bound才可相应 committed-pending，再经 generated PR链到 `record_kind=publication_terminal`。pre-intent cleanup
-只以 `publication_terminal_no_publication` 结束；invalidation只以 planned→bound→merged→
-`invalidate_current_merged_receipt`→`record_kind=publication_terminal, terminal_kind=invalidation_completed`结束。
+只以 `publication_terminal_no_publication`结束。invalidation exact edge为 `owner_claimed→generated_pr_planned
+(pr_kind=invalidate_current)→generated_pr_bound→generated_pr_merged→invalidate_current_merged_receipt→
+publication_terminal(terminal_kind=invalidation_completed)`；planned no-effect只可 not-applied后以 fresh slot/head/nonce/
+review replacement，bound failure只可 revoke+replacement或 `invalidation_recovery_blocked`，merged ack-loss按同一
+planned ID恢复 exact ordered bound/merged receipts；不得插入 draft/Release mutation或跳过 terminal。
 recovery pending只可到 bound/not-applied/compensation/对应 blocked；八 blocked kinds均保留 owner且非 terminal。
 四种 governance kinds可插入任一 frontier但只改变 trust state；emergency kind另须满足 special authorization。
 任何未列 edge或跳过 predecessor均拒绝。

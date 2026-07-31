@@ -1,6 +1,7 @@
 # GH700 Publication Authority API And Blocked-Attempt Contract
 
-本文件是 [publication_history_contract.md](publication_history_contract.md) 的规范性组成部分，唯一拥有
+本文件是 [publication_history_contract.md](publication_history_contract.md) 与
+[publication_authority_protocol_contract.md](publication_authority_protocol_contract.md) 的规范性组成部分，唯一拥有
 `client_api` wire schema与 B-029 blocked-attempt ledger。product/tech/tasks只可链接或引用这里的
 machine-facing identifier，不得复制、改名或局部覆盖字段集、canonical bytes、retention或 fail-closed语义。
 
@@ -35,6 +36,21 @@ operation_request_digest,body}`；`operation_request_digest` 是删除自身后�
 | `list_blocked_attempts` | `{source_identity_key,candidate_identity_or_null,run_id_or_null,run_attempt_or_null,attempt_record_kind_or_null,attempt_subject_key_or_null,page_cursor_or_null,page_size}` | `{attempt_records,next_page_cursor_or_null,enumeration_snapshot_receipt}` |
 | `commit_reconciliation_watermark` | `{reconciliation_watermark,terminal_listing_proof,ledger_append_authorization}` | `{watermark_receipt,blocked_attempt_frontier_receipt}` |
 | `get_blocked_attempt_frontier` | `{}` | `{blocked_attempt_frontier_receipt}` |
+
+`deliver_release_mutation.delivery_state` exact closed union为 `{bound,recovery_pending}`。
+`bound`只在 authenticated send后 exact post-state/postcheck成立且已 anchor `release_mutation_bound`时返回；
+`recovery_pending`只在 send/response/postcheck/bind不确定、已禁止重发且已 anchor
+`release_mutation_recovery_pending`时返回。两个 success state的 `transition_receipt_or_null`都必须 non-null并分别是
+上述 exact record receipt，`send_once_audit_digest`也必须 non-null且绑定同 plan/delivery/effective request；字段名中的
+`_or_null`不授权 null。若 pending record无法 durable append/anchor，只能 error `outcome_uncertain`且 error response无 result。
+
+`recover_release_mutation.recovery_state` exact closed union为
+`{bound_existing,not_applied,compensated,blocked}`；`transition_receipt`必须 non-null。mapping exact 为：
+`bound_existing→release_mutation_bound`且只接受唯一 exact post-state；`not_applied→release_mutation_not_applied`且只接受
+exact pre-state+exhaustive-negative+broker-quiescence；`compensated→compensated`且须完整 closed compensation chain及
+restored pre-state；`blocked`按 history contract precedence只接受 draft-create的 `draft_recovery_blocked`或其它五种
+mutation的 `release_mutation_recovery_blocked`。state/receipt kind、plan/slot/delivery、mutation applicability或 evidence
+不等均 `operation_conflict`；pending/in-flight不得伪装 not-applied，partial/multiple/conflicting state不得伪装 bound。
 
 `time_bound_intent` exact 为 `{record_kind,execution_identity,client_payload_core,predecessor_frontier}`；
 `execution_identity` exact 为 `{run_id,run_attempt,transition_slot}`，三字段分别是 canonical unsigned
