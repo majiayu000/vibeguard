@@ -95,7 +95,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
    `lease_expires_at=min(accepted_at+3600, claim_accepted_at+604800)`，不严格延长 expiry
    的 heartbeat 拒绝；到 7 日上限后禁止续租，待 expiry 后才可 takeover。获批值、批准者
    roster 与 approval digest 全部进入 `liveness_policy_digest`；缺失或未批准则 publication
-   preflight 为 `unavailable`。**
+   preflight 为 `unavailable`。accepted time只来自 [publication_history_contract.md](publication_history_contract.md)
+   的 RFC3161 quorum proof与外部 anchor high water；host/client clock、job absence或回退快照不授权 expiry。**
 
 ## Behavior Invariants
 
@@ -267,14 +268,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    publication ownership、mutation-secret、append-only history、trust/fold 与 owner-liveness
+    publication ownership、mutation-secret、append-only history、blocked-attempt ledger、trusted time、trust/fold 与 owner-liveness
     的完整规范性 contract 位于 [publication_history_contract.md](publication_history_contract.md)；
     该文档全部属于 B-017/B-018 acceptance surface。六种 Release mutation都只持久化唯一
     `mutation_nonce_digest`与 opaque `mutation_nonce_capsule_id`/`broker_delivery_id`；raw
     mutation nonce只走 authenticated secret channel，schema/goldens逐 kind拒绝 raw、可逆编码及
     secret-bearing request/history bytes。product/tech/tasks不得复制 alias或弱化该 contract。
     所有 generated PR及 replacement 统一使用
-    `generated_pr_planned(kind) → generated_pr_bound(kind)`，其中 `kind ∈
+    `record_kind=generated_pr_planned → record_kind=generated_pr_bound`，两者 payload 的 `pr_kind ∈
     {decurrent, rollback, new_current, nonvalid_row, invalidate_current}`。planned 必须早于首次 head-ref/commit/PR
     mutation，绑定 repo/owner_generation/kind/candidate、base ref/OID、head repo/ref、expected
     tree/OID、patch/nonce/ruleset digest、受信 App/installation identity及 replacement chain；
@@ -300,7 +301,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     valid plan只能是：
     `rollover_one`（CAS 证明每个 required surface恰有一个 eligible current valid row/marker，
     且所有 surface绑定同一 current release/version/summary identity，无缺失、重复、额外 marker
-    或 locale drift；以 `generated_pr_planned(decurrent)` 创建并 bind 一次原子更新全部
+    或 locale drift；以 `record_kind=generated_pr_planned, pr_kind=decurrent` 创建并 bind 一次原子更新全部
     required surfaces 的 PR node/head/base/review/queue identity。
     required merge gate 每次按最新 signed history frontier 验证 intent 的 owner_generation、
     committed store envelope 的 actual fence及 PR/head/base，
@@ -308,8 +309,9 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `genesis_zero`（CAS 证明每个 required surface均为零 marker、`publication_history` 没有历史 eligible valid
     publication，且除本次 exact current prepared owner
     `(repo_node_id, candidate, run_id, run_attempt, owner_generation)` 外没有 active owner；
-    current authorization fence只取 committed store envelope；history 证明
-    此前只有 non-valid/no publication；在 intent 前持久化绑定 history frontier 的
+    current authorization fence只取 committed store envelope；history从 manifest-pinned first frontier
+    重放，证明此前只有 terminal non-valid/no-publication与经 bootstrap root/roster/threshold验证且不改变
+    publication state的 phase-neutral `{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`；在 intent 前持久化绑定 history frontier 的
     zero-marker receipt，绑定 surface set及各 base blob，不制造 no-op PR）或
     `post_invalidation_zero`（每个 surface均零 marker，history证明最后一次 current-valid
     publication 已由 terminal `invalidate_current` receipt失效；其后 suffix closed union只允许 terminal
@@ -325,7 +327,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     zero/one、跨 surface version/summary不一致、缺 surface或闭集外 current marker均 fail closed。
     corpus ledger 只证明 artifact identities，
     不参与 publication 判定。
-    其它 zero-marker 状态都 fail closed。不可逆 `publish_intent` 必须绑定对应 receipt及
+    其它 zero-marker 状态都 fail closed。不可逆 `intent_written` 必须绑定对应 receipt及
     发布前已 human-approved 的 exact new-current patch/review/base digest；base/CAS 改变即
     重审。ownership 以 fenced CAS 推进 `valid_zero_marker → intent_written →
     release_committed_valid_marker_pending`；即使 worker 在 Release commit 后、状态推进前
@@ -334,7 +336,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     撤销旧 fence 的 merge authorization、disable auto-merge/dequeue、关闭 exact PR、
     compare-delete head ref并取得 server-authenticated revocation receipt，证明 PR closed/
     unmerged、queue absent、head absent、default branch/marker 未变、ruleset 无 bypass，才可删
-    draft并 terminal；竞争中已 merge则转 `valid_rollback_pending`。pending PR rejected/closed/
+    draft并 append `publication_terminal_no_publication`；竞争中已 merge则转 `valid_rollback_pending`。pending PR rejected/closed/
     stalled/branch-drift 但 candidate 继续时，必须先 higher-fence revoke旧 gate/queue/PR/head并
     取得 receipt，再以新 fence/head/PR/nonce回到 planned/bound并 fresh review；original/replacement
     不能同时获 merge authorization。任一证明失败进入 `decurrent_pr_recovery_blocked`。
@@ -343,16 +345,18 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     当前 generation可在重取 lease/current fence后恢复同 candidate、同 exact patch 的
     human-reviewed replacement；worker/owner消失本身不授权 supersede。任何 new-generation
     reconciler/scheduled-audit takeover都必须等 latest claim/heartbeat committed-envelope 的
-    store-auth `lease_expires_at`，再以 higher-fence exact-frontier CAS接管；无获批 replacement 则 attest 对应
+    RFC3161 quorum proof的 trusted lower bound严格晚于 store-auth `lease_expires_at`且 external
+    high-water CAS成功，再以 higher-fence exact-frontier CAS接管；无获批 replacement 则 attest 对应
     `rollback_recovery_blocked`/`marker_recovery_blocked`，active owner 继续阻断后续
-    publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，
-    ownership 才 terminal；所有 receipt、fenced transition 与 terminal record 均保留在
+    publication。只有 exact rollback 完成并删除 draft，或 exact new-current merge 后，才 append
+    `record_kind=publication_terminal, terminal_kind=rollback_restored|published_valid`；所有 receipt、fenced transition 与 terminal record 均保留在
     `publication_history`，不能因 owner terminal 而删除。
     `publish_nonvalid` 也必须从 prepared owner 先 CAS 至 `intent_written`，且只有该状态可
     推进 `release_committed_nonvalid_row_pending`；它不改 current marker，只能合并同 summary 的
     human-reviewed unmarked row。其 PR 的 reject/close/timeout/response-loss/crash 使用同一 higher-fence
     replacement/review 机制；无获批 replacement 为 `nonvalid_row_recovery_blocked`，不能
-    留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
+    留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 append
+    `record_kind=publication_terminal, terminal_kind=published_nonvalid`。
     已公开 current valid 被证实有缺陷时只能由 `invalidate_current` PR 原子更新全部 required
     surfaces：移除 exact current marker、将 exact row标为 invalid并绑定获批 reason/evidence；
     planned/bound envelope绑定 latest frontier、base/head ref+OID、reviewed commit、expected
@@ -392,14 +396,14 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     attestation 写权限外，只能取得 environment-protected、attempt-bound 的 Release
     mutation 权限：仅可按 durable claim 枚举/bind/delete exact draft；revoke owner gate、
     disable auto-merge/dequeue、close exact pending de-current PR并 compare-delete exact head；
-    按已验签 `publish_intent` 完成/验证同一 draft；或按 durable owner创建/supersede exact
+    按已验签 `intent_written` 完成/验证同一 draft；或按 durable owner创建/supersede exact
     de-current/rollback/new-current/nonvalid-row/invalidate-current recovery PR并等待 human review/merge；
     不得直接写 default branch，也不得创建或改写其他 tag/release。任何新 mutation 前必须
     审计 publish sentinels；post-intent 严格按 B-029 三分支真值表恢复，不能依赖已终止 job。
     发布路径必须使用 attempt-scoped draft two-phase commit：先按 B-017 唯一锁顺序 CAS
     `owner_claimed`，再创建并 bind private draft；只有 `draft_bound` 可上传
     assets/checksums/summary，完整重验后 CAS `prepared`。valid 选择并证明 `genesis_zero`、
-    `rollover_one` 或 `post_invalidation_zero` receipt 后再写不可变 `publish_intent`；`publish_nonvalid` 的 intent
+    `rollover_one` 或 `post_invalidation_zero` receipt 后再写不可变 `intent_written`；`publish_nonvalid` 的 intent
     绑定 exact unmarked-row plan。最后以唯一 draft→published 作为 commit point。prepared
     且无可见动作的取消可删 exact draft并 terminal；pending de-current PR 必须先撤销 merge
     authority并取得 revocation receipt，已 merge de-current 则进入可接管的 reviewed rollback；
@@ -558,6 +562,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     bytes 完全相同，每次 retry 也产生不同、不可覆盖且可独立检索的 attempt record；随后
     job 非零退出，GitHub Release、release page/assets 与 README candidate current row
     均不创建。
+
+    永久 store/API/retention/recovery 的唯一合同是
+    [publication_history_contract.md](publication_history_contract.md) 中的
+    `blocked_attempt_ledger_sqlite_v1`；T3拥有 backend/bootstrap/migration/recovery，completion client
+    只能调用 manifest-pinned ledger methods，短期 artifact、pointer或 mock均不能满足本条。
 
     required-platform 输入各自通过但 decision 不一致、缺输入或 aggregation 失败时，
     release-scoped 分支必须绑定 canonical failed-summary preimage/digest、完整
