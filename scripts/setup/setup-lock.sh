@@ -14,6 +14,10 @@ setup_preflight_and_lock() {
   disabled_skills >/dev/null || return 1
   setup_lock_acquire || return 1
   trap cleanup_install_lifecycle EXIT
+  if ! state_preflight; then
+    setup_lock_release || true
+    return 1
+  fi
 }
 
 setup_lock_acquire() {

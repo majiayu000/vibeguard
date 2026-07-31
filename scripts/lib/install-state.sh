@@ -75,9 +75,9 @@ state_runtime() {
   "${runtime}" "$@"
 }
 
-# Initialize or load state
-state_init() {
-  local profile="${1:-core}" languages="${2:-}" state_path snapshot_tmp=""
+# Validate both install-state generations before any active install mutation.
+state_preflight() {
+  local state_path
   for state_path in "$STATE_FILE" "$STATE_PREVIOUS_FILE"; do
     if [[ -L "$state_path" || (-e "$state_path" && ! -f "$state_path") ]]; then
       printf 'ERROR: install-state path must be a regular file or absent: %s\n' "$state_path" >&2
@@ -89,6 +89,12 @@ state_init() {
       return 1
     fi
   done
+}
+
+# Initialize or load state
+state_init() {
+  local profile="${1:-core}" languages="${2:-}" snapshot_tmp=""
+  state_preflight || return 1
 
   # Preserve the outgoing inventory before it is reset (see STATE_PREVIOUS_FILE).
   if [[ -f "$STATE_FILE" ]]; then

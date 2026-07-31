@@ -61,6 +61,28 @@ gh719_setup() {
 gh719_setup >/dev/null 2>&1
 assert_cmd "workflow skill installed by default" test -d "${gh719_home}/.codex/skills/plan-flow"
 
+cp "${gh719_home}/.vibeguard/install-state.json" \
+  "${gh719_home}/.vibeguard/install-state.valid.json"
+gh719_snapshot_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)"
+gh719_wrapper_hash="$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)"
+printf '%s\n' '{' > "${gh719_home}/.vibeguard/install-state.json"
+if gh719_bad_state_out="$(gh719_setup 2>&1)"; then
+  red "malformed install-state unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  TOTAL=$((TOTAL + 1))
+else
+  green "malformed install-state fails setup preflight"
+  PASS=$((PASS + 1))
+  TOTAL=$((TOTAL + 1))
+fi
+assert_contains "${gh719_bad_state_out}" "refusing to mutate malformed install-state" "malformed install-state failure is visible"
+assert_eq "$(shasum -a 256 "${gh719_home}/.vibeguard/installed/version" | cut -d ' ' -f1)" \
+  "${gh719_snapshot_hash}" "malformed state preserves installed snapshot"
+assert_eq "$(shasum -a 256 "${gh719_home}/.vibeguard/run-hook.sh" | cut -d ' ' -f1)" \
+  "${gh719_wrapper_hash}" "malformed state preserves active wrapper"
+mv "${gh719_home}/.vibeguard/install-state.valid.json" \
+  "${gh719_home}/.vibeguard/install-state.json"
+
 rm -rf "${gh719_home}/.codex/skills/plan-flow"
 gh719_restore_out="$(gh719_setup 2>&1)"
 assert_contains "${gh719_restore_out}" "RESTORING plan-flow" "reinstall reports restoring a deleted managed skill"
