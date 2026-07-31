@@ -13,15 +13,15 @@ Status: Draft；本文件只描述 **Recommended proposal（未批准）** 的�
 
 ## Codebase Context
 
-下表前 12 个 codebase anchor 均在历史 baseline
-`origin/main@05ea122083e6bc4cc0b9fd3e2c168e576e8f431c` 读取。最后两个相邻
+下表前 12 个 codebase anchor 均在本 corrective branch 的 current base
+`origin/main@1bf5018ec2de4d28e080f1f56be79d4d9e4f8120` 读取。最后两个相邻
 workstream anchor 不属于该 main tree，单独固定到可检出的完整 PR head SHA；不得把它们
 解释为 main-baseline 文件：
 
 | Area | Files | Current behavior | Why relevant |
 | --- | --- | --- | --- |
-| Runtime dependency/dispatch | `vibeguard-runtime/Cargo.toml:8-16`; `vibeguard-runtime/src/main.rs:68-167` | 仅有 JSON/regex/libc/toml 依赖和现有 hook/metrics 命令；没有 model、inference、network client 或 semantic-defense command | L2 是新 Core production capability，不能声称已有 provider |
-| Runtime config | `vibeguard-runtime/src/runtime_config.rs:11-75,77-124,127-162`; `schemas/vibeguard-runtime-config.schema.json:1-104` | config 被进程缓存；int/string getter 可由 env override；schema 没有 semantic tier/model/provider/network policy | 新配置必须 closed、fail-visible，并阻止未批准 env/provider 改 trust policy |
+| Runtime dependency/dispatch | `vibeguard-runtime/Cargo.toml:8-16`; `vibeguard-runtime/src/main.rs:68-516` | 仅有 JSON/regex/libc/toml 依赖和现有 hook/metrics/setup/config 命令；没有 model、inference、network client 或 semantic-defense command | L2 是新 Core production capability，不能声称已有 provider |
+| Runtime config | `vibeguard-runtime/src/runtime_config.rs:11-104,106-171,174-223`; `schemas/vibeguard-runtime-config.schema.json:1-114` | config 被进程缓存；int/string/list getter 可由 env override；schema 新增 managed-skill opt-out，但没有 semantic tier/model/provider/network policy | 新配置必须 closed、fail-visible，并阻止未批准 env/provider 改 trust policy |
 | Runtime event identity | `vibeguard-runtime/src/event_schema.rs:9-41`; `vibeguard-runtime/src/hook_orchestrator.rs:650-688` | `RULE_ID` 常量存在，但 canonical Rust append 没写 `rule_id`/`signal_id`，仍写 free-text reason/detail | precision、metrics、Learn 需要一条结构化权威投影 |
 | Existing W-12 | `vibeguard-runtime/src/hook_orchestrator.rs:231-241`; `guards/universal/check_test_weakening.sh:105-165,211-232`; `rules/claude-rules/common/workflow.md:100-125` | runtime 阻止 test-infra 写入；deterministic guard 识别 assertion/skip/source/test surface | L2 只能增加 baseline 未覆盖的 semantic delta，不能重复实现或降低 block |
 | Existing W-02/W-15 | `vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs:103-159,355-390` | edit count + consecutive build failures 给 W-02 相邻提示；shrinking radius 已给 W-15 runtime warning | H-010 必须选择 exact delta；edit count 本身不能证明同一 hypothesis 失败 |
@@ -31,7 +31,7 @@ workstream anchor 不属于该 main tree，单独固定到可检出的完整 PR 
 | Eval | `eval/run_paired_eval.py:13-40`; `eval/paired/thresholds.json:1-10`; `eval/model_baseline.py:17-21` | paired eval 是 commit-pinned prompt rule evaluator；thresholds 未 calibrated，Claude alias 是 eval provider | 不能当 production L2 provider、precision 或 latency 证据 |
 | Learn | `docs/specs/learn-first-class-signal-inbox.md:86-104,123-131,299-314`; `schemas/learn-signal.schema.json:7-24,44-67,119-147`; `scripts/learn/analyze.py:287-316,323-390`; `scripts/learn/adoption.py:17-25,92-122` | 已有 Signal Inbox → Adoption Compiler → Outcome Evaluator；stable ID 当前仍可能以 reason text 归一化；禁止自动 mutation | GH-704 必须扩展该合同，不建第二套 learning state |
 | Latency | `tests/bench_hook_latency.sh:1-67,360-458,460-506`; `tests/test_hook_perf_contract.sh:1-28`; `docs/reference/hook-latency-contract.md:5-23,27-47` | canonical runner 执行真实 direct/wrapper hook，记录 P50/P95/P99/max、budget 与 confirmation；contract test 固定 runner/gate 语义 | cold/warm L2 必须成为这个 runner 的具名 fixtures，并由 contract test 固定，不能只改 wrapper 或另造 microbench |
-| Doctor/status | `setup.sh:24-36,115-175`; `scripts/setup/check.sh:1-23,34-41,745-790`; `scripts/setup/runtime_config_health.sh:1-36`; `scripts/lib/status_report.sh:1-28,120-158,195-280`; `vibeguard-runtime/src/main.rs:168-173`; `vibeguard-runtime/src/hook_status.rs:1-90,428-459`; `vibeguard-runtime/src/hook_status_render.rs:7-39,159-209`; `schemas/hook-status.schema.json:1-82` | `doctor`/`--check` 是 public install/config health route；`hook-status` 已提供 per-run human/JSON 和 closed schema | H-014 推荐复用这两个 route；B-035 需要把 semantic state/identities 接入同一 canonical event/status renderer，而不是只在 hook 文本中显示 |
+| Doctor/status | `setup.sh:24-36,115-175`; `scripts/setup/check.sh:1-23,34-41,754-799`; `scripts/setup/runtime_config_health.sh:1-36`; `scripts/lib/status_report.sh:1-28,120-158,195-280`; `vibeguard-runtime/src/main.rs:168-173`; `vibeguard-runtime/src/hook_status.rs:1-90,428-459`; `vibeguard-runtime/src/hook_status_render.rs:7-39,159-209`; `schemas/hook-status.schema.json:1-82` | `doctor`/`--check` 是 public install/config health route；`hook-status` 已提供 per-run human/JSON 和 closed schema | H-014 推荐复用这两个 route；B-035 需要把 semantic state/identities 接入同一 canonical event/status renderer，而不是只在 hook 文本中显示 |
 | GH-700 (separate PR evidence) | PR #713 merged source head `215a45157b1e7de94fcd813c745f8ac70e047072`, `docs/specs/GH700/product.md:65-74,104-118` | Spec 明确真正的 dependency/API inventory detector 尚不存在，benchmark 禁止 test-only detector | GH-704 生产 detector 是 GH-700 后续消费依赖；spec merge 不是实现或 precision 批准 |
 | GH-702 (separate spec evidence) | PR #716 merged source head `4d431c22dcbe56b9d3ce10d96b28ed8c215d6f37`, `docs/specs/GH702/product.md:69-73,94-112,295-310,322-324,352-368` | pack executable/capability、precision/default、network/offline 仍是未批准 H 决策；current invariants 继续要求 per-rule eligibility、显式 feedback export 与 stale/offline 降级 | GH-704 只交付 sealed Core；不得提前批准 pack 暴露或第二套 policy |
 
@@ -127,9 +127,13 @@ semantic_defense/
   metrics.rs          latency/outcome projection without raw input
 ```
 
-`main.rs` 只注册一个 canonical semantic command/handler；Claude/Codex hook adapter 均
-调用同一 Rust orchestration。provider 不接受 arbitrary command/path/endpoint；模型输出
-先经 protocol validator，再经 deterministic policy reducer，不能直接选择最终 block。
+`vibeguard-runtime/src/lib.rs` 必须公开唯一
+`vibeguard_runtime::semantic_defense::evaluate_core` production entrypoint；`main.rs` 只注册
+canonical semantic command/handler 并调用该 library entrypoint，benchmark 也 import 同一
+entrypoint。binary-private duplicate module、`#[path]` 重载、复制 reducer 或 benchmark-only
+实现均禁止。Claude/Codex hook adapter 均调用同一 Rust orchestration。provider 不接受
+arbitrary command/path/endpoint；模型输出先经 protocol validator，再经 deterministic
+policy reducer，不能直接选择最终 block。
 
 ### 3. Hook data flow 与 precedence
 
@@ -304,7 +308,8 @@ storage partition 都包含 project hash + session ID + input/model/protocol/pol
 读写同一 result。kill switch 不删除 L1 state，关闭后不再启动任何 L2 request。
 
 独立 `core_us` 证据由 planned **tests/bench_semantic_core.sh** 驱动 planned
-**vibeguard-runtime/benches/semantic_defense_core_us.rs** 的同进程 harness；fixture ID
+**vibeguard-runtime/benches/semantic_defense_core_us.rs** 的同进程 harness，并 import
+`vibeguard_runtime::semantic_defense::evaluate_core`；fixture ID
 固定为 `semantic-defense-core-cold-cache` 与 `semantic-defense-core-warm-cache`。
 harness 必须调用 production `semantic_defense` core 入口，不得复制 reducer、按 case ID
 返回或使用 eval-only detector。计时边界只包含 inventory-bound semantic reducer、typed
@@ -364,7 +369,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 98 条唯一 repo paths：58 条 existing、40 条 planned。
+H-001–H-020 已批准。当前共 101 条唯一 repo paths：61 条 existing、40 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -378,6 +383,7 @@ H-001–H-020 已批准。当前共 98 条唯一 repo paths：58 条 existing、
     "vibeguard-runtime/Cargo.toml",
     "vibeguard-runtime/Cargo.lock",
     "vibeguard-runtime/benches/semantic_defense_core_us.rs",
+    "vibeguard-runtime/src/lib.rs",
     "vibeguard-runtime/src/main.rs",
     "vibeguard-runtime/src/project_config.rs",
     "vibeguard-runtime/src/runtime_config.rs",
@@ -427,6 +433,7 @@ H-001–H-020 已批准。当前共 98 条唯一 repo paths：58 条 existing、
     "scripts/precision-tracker.py",
     "scripts/learn/analyze.py",
     "scripts/learn/adoption.py",
+    "scripts/ci/self-application/check-u22-coverage.sh",
     "setup.sh",
     "scripts/setup/check.sh",
     "scripts/setup/install.sh",
@@ -448,6 +455,7 @@ H-001–H-020 已批准。当前共 98 条唯一 repo paths：58 条 existing、
     "tests/setup/semantic_asset_install_tests.sh",
     "tests/unit/test_sec11_review_guards.sh",
     "tests/test_runtime_config_schema.sh",
+    "tests/test_u22_coverage.sh",
     "tests/test_precision_tracker.sh",
     "tests/test_learn_adoption.sh",
     "tests/test_manifest_contract.sh",
@@ -487,7 +495,7 @@ Complete-path cross-check：
 | Concern | Planned affected files | Focused proof |
 | --- | --- | --- |
 | New product root | `semantic-sidecar/`; `docs/directory-map.md` | directory-map/doc-path validators plus semantic sidecar cargo checks |
-| Canonical L2 core latency | planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | in-process runner executes cold/warm `core_us` fixtures exactly once through the production semantic core；contract test fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
+| Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
 | Project-scoped opt-in | `schemas/vibeguard-project.schema.json`; `vibeguard-runtime/src/project_config.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/config.rs**; `vibeguard-runtime/src/hook_orchestrator.rs`; planned **tests/hooks/test_semantic_defense.sh** | schema/parser allowlists match；missing/false/true/unknown/type mismatch、same-HOME two-project matrix、`VIBEGUARD_PROJECT_CONFIG` external opt-in path 和 semantic enable env negatives prove only current git-root config true requests eligibility，while global config/env can only disable |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
@@ -495,6 +503,7 @@ Complete-path cross-check：
 | Observability schema migration | `schemas/event-log.schema.json`; `schemas/session-metrics.schema.json`; `docs/command-schemas.md`; `tests/test_observability_schemas.sh`; `tests/fixtures/observability-schemas/` | docs declare the new schema/version and typed signal/receipt fields；legacy/current positives plus missing/unknown/malformed negatives prove compatibility and fail-visible parsing |
 | Learn signal contract | `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path cases preserve the classification-bound action space before adoption |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
+| U-22 measured coverage | `scripts/ci/self-application/check-u22-coverage.sh`; `tests/test_u22_coverage.sh`; `vibeguard-runtime/Cargo.toml`; planned **semantic-sidecar/Cargo.toml**; `.github/workflows/ci.yml` | pinned `cargo-llvm-cov` runs runtime and sidecar manifests separately at ≥80% line coverage so aggregate coverage cannot hide either crate；JSON file coverage requires 100% for runtime `semantic_defense/{config,identity,protocol,provider}.rs` and sidecar `protocol.rs`/`sandbox.rs`；contract fixtures prove two-manifest invocation, missing/malformed report, aggregate-masking and every critical-file-under-100 failure |
 
 ## Product-to-Test Mapping
 
@@ -563,10 +572,11 @@ hook event + project/session/change
        ├─ latency/outcome metrics + applied receipt
        ├─ exact-identity precision evidence + applied receipt
        └─ deterministic Learn defense_gap candidate + applied receipt
+  → finalized receipt (all consumer receipt digests)
+       ├─ release finalized hook decision/status
+       └─ expose finalized Learn candidate as read-only
               → explicit human adopt
               → later outcome verify/regressed
-  → finalized receipt (all consumer receipt digests)
-  → release finalized hook decision/status
 ```
 
 外部调用在 Recommended path 中仅存在于显式 semantic asset install/update；runtime 与
@@ -613,7 +623,8 @@ H-020 批准。
 - [ ] Regression tests: 现有 W-12/W-16/W-02/W-13/W-14/W-15、runtime config/event schema、
       project opt-in schema/parser/isolation、precision tracker、Learn schema/adoption、
       observability legacy/current fixtures、release asset checksums/attestations/metadata、
-      payload、hook manifest 与 docs contracts。
+      payload、hook manifest、两 crate 独立 ≥80% line coverage、关键 security/process
+      modules 100% coverage 与 docs contracts。
 - [ ] Performance tests: cold/warm core 和 installed hook P50/P95/P99/max、large diff/
       inventory、parallel sessions、timeout/cancel；cold/warm L2 必须分别通过
       planned **tests/bench_semantic_core.sh** core runner、`tests/bench_hook_latency.sh` installed
@@ -626,6 +637,8 @@ H-020 批准。
       `cargo test --manifest-path vibeguard-runtime/Cargo.toml`;
       `cargo check --manifest-path semantic-sidecar/Cargo.toml`;
       `cargo test --manifest-path semantic-sidecar/Cargo.toml`;
+      `bash tests/test_u22_coverage.sh`;
+      `bash scripts/ci/self-application/check-u22-coverage.sh`;
       `bash scripts/ci/validate-hooks.sh`;
       `bash scripts/ci/validate-hooks-manifest.sh`;
       `bash tests/setup/semantic_asset_install_tests.sh`;
