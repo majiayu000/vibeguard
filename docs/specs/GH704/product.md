@@ -334,6 +334,15 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     pending count 与 oldest age（损坏时不可证明的字段为空），停止 provider 并停止追加
     新的 GH-704 L2 pending event，直到后续 bounded pass 排空或 H-016 批准的显式人工
     repair 完成；禁止自动删除、猜测或无界 rebuild。
+    project recovery WAL 还必须有独立 positive entry/byte/segment/segment-byte bounds；每个 group
+    在 semantic work 前预留足够的 WAL entitlement，terminal group 只有在所有仍引用它的 cursor、
+    expected offset、consumer/barrier/projection recovery proof 已转移后才可 unpin。checkpoint/compaction
+    必须用独立 fixed A/B scratch entitlement，先 fsync checkpoint + compacted manifest，再由一个
+    metadata-generation CAS 推进 WAL watermark并释放旧 capacity；任一 full/crash/pin mismatch 保留旧
+    authority并 backpressure，禁止 truncate/age-delete。semantic coordinator 还必须按 project lock →
+    所有 canonical journal writer 共用的 bounded append lease，在同一 lease 内完成 tail read → WAL
+    prepared/queue fsync → exact journal append/fsync → WAL journaled；legacy Rust/shell writer 也必须先取
+    该 lease，不能在两次操作之间抢占 expected offset。
     L1 仍运行且既有 L1 block 保留。projector 必须拥有单一 durable group-commit state
     machine；三个 consumer 只能按 group/event/digest 写不可见 staged/provisional version。
     closed transition 是 `prepared → journaled → staged → commit_prepared → activating →
@@ -388,7 +397,12 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     append/fsync、`projection_applied` 与 allocator tail commit 完成；earlier reservation 未
     applied 时禁止 later offset append。derived-record log 具有独立 closed entry/byte、segment
     byte/count 与 max-record bounds；在分配 offset 前，reservation 必须原子预留 exact log entitlement/
-    bytes/target segment，full 时零 reservation/offset/write。reservation 自身携带 bounded derived body、source
+    bytes/target segment，full 时零 reservation/offset/write。compaction 另需独立于 live log capacity 的
+    fixed A/B scratch entitlement，足以容纳
+    最大 legal compacted segment + retained-proof manifest + metadata generation；即使 live entry/byte/
+    segment 已满也能 write-before-release，最终 old tombstone/directory durability 后才按 digest 释放 scratch。
+    scratch full/crash 保留旧 manifest并 backpressure，禁止先释放 live capacity。
+    reservation 自身携带 bounded derived body、source
     project identity 与 independently routable receipt route/body，并从 live registration 复制
     canonical event timestamp、retention bucket、query-scope digest，同时绑定实际 allocated global
     projection offset；这些字段进入 full reservation digest。full reservation 必须在 allocator
@@ -406,7 +420,10 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     `receipt_delivered` lag ref；该 ref 从 intent 原样复制并 digest-bind canonical timestamp/bucket/global
     projection offset/query scope 与 `registration_id/state_root_id/route_identity_digest`，因此 outbox reclaim
     且 source dormant 后仍能由 runtime-owned directory 精确恢复 route，不需扫描 project/HOME/global log。
-    slot entitlement 从 file+directory fsync 起持续计 entry/bytes，直到 ack 或 terminal/admin handoff 已另存
+    slot entitlement 从 file+directory fsync 起持续计 entry/bytes；`receipt_delivered`、
+    `off_receipt_lag_ref` 与 `project_acknowledged` 都必须原样保留并 digest-bind entitlement ID、exact
+    receipt key、slot digest 及 registration/state-root/route/deletion-anchor locator，adoption/rebind 不得删字段。
+    ack CAS 必须原子发布完整 retirement-pending state，直到 ack 或 terminal/admin handoff 已另存
     完整 recovery proof 后，经过 global retirement-pending → exact slot unlink + directory fsync/retired proof →
     global release 的三阶段 protocol；lost acknowledgement 只按 nonce/root receipt 幂等恢复，不得 age-delete或双释。
     source coordinator fsync `projection_done` 后返回 digest-bound ack，global root 才把 ref 原子转入独立
@@ -427,7 +444,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
     再 CAS repoint stub，one-entry-full 时不申请第二 entry/token。retirement 必须按 global
     `retirement_pending`、source `retired` proof、global delete/release 三阶段完成；最终 CAS 必须同时释放
     consumed global-admin entry/bytes并保存 lost-response 可恢复 receipt；任一 crash 向前恢复。
-    未 ack recovery locator 必须 pin 或原子转入 lag index，retention GC 不得 age-delete；只有 matching
+    未 ack recovery locator、project WAL cursor/expected offset、barrier/projection marker 与 semantic
+    watermark 必须 pin；scheduled `gc-logs.sh` rotation/rewrite 也必须在同一 journal lease 下服从这些
+    pins/watermarks，不能移动仍被 exact-offset recovery 引用的 canonical row。retention GC 不得 age-delete；只有 matching
     rebind+ack retirement 或 terminal proof 才可删除并释放 token。仍存活 source 使用 source-lock terminal
     discard proof；initial registration 必须预留 runtime-owned identity-bearing source-object handle/capability，
     而非 path/digest anchor。旧 basename 的 ENOENT 只表示 route missing；若 handle identity 仍活着或 broker

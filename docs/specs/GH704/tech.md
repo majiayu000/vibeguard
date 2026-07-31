@@ -314,7 +314,10 @@ lock deadline 从首次 nonblocking `try_lock` 前开始，并覆盖 bounded bac
 owner liveness 明确不存在且 compare-and-swap 仍匹配同一 nonce 时才可接管 abandoned
 lock；活跃 holder、deadline、malformed owner 或无法证明 stale 都返回
 `reconciliation_backlog/unavailable`，保留 L1 且不启动 provider/append，禁止无限等待或
-按 mtime/PID 猜测后删除。取得同一 project journal lock 后的 append protocol固定为：
+按 mtime/PID 猜测后删除。取得同一 project journal lock 后，再按固定 project lock →
+canonical journal append lease 锁序取得所有 Rust/shell writer 共用的 bounded lease；semantic transaction
+从 tail read 持有到 WAL `journaled` durable，普通 L1 writer 只取 append lease且不得反取 project lock。
+append protocol固定为：
 
 1. 读取 journal tail offset，构造 bounded typed pending body/digest；
 2. 向 project `reconciliation.wal` 追加 `prepared` recovery intent，其中包含 event/signal
@@ -322,6 +325,13 @@ lock；活跃 holder、deadline、malformed owner 或无法证明 stale 都返�
    再提交新的 checksummed queue-metadata generation；
 3. 只在 expected offset 追加 typed `rule_signal` pending event 并 fsync project journal；
 4. 向 WAL 追加 `journaled` transition 并 fsync/提交 queue metadata，然后才投影 consumer。
+
+`reconciliation.wal` 不是无界 append file：closed policy 同时给 positive entry/byte/segment/
+segment-byte maxima，每个 group 在 semantic work 前预留最大 legal recovery record entitlement；pending/
+cursor/expected-offset/barrier/projection recovery refs pin 对应 segment。terminal groups 只在全部引用转入
+独立 durable authority 后，才可用 fixed A/B scratch 写/fsync checkpoint + compacted manifest，并由一个
+queue/WAL metadata CAS 推进 watermark/reclaim。full、pin、scratch 或 crash failure 保留旧 generation、
+停止新 L2并 visible backlog，不得 truncate、scan-rebuild 或 age-delete。
 
 crash 在 step 2 commit 前只会留下可截断的 uncommitted WAL tail，不存在 canonical event；
 step 2 commit 后/step 3 前由 recovery intent 补 append；step 3 后/step 4 前只读取 expected
@@ -470,7 +480,7 @@ budget 数值。
 `.github/workflows/semantic-assets.yml` 生成并绑定 release 的外部 asset。这样
 `complete: true` 只表示该 reference path 的 repo source、schema、policy、asset build/
 install、doctor/status、canonical latency runner、tests 与 docs surface 无遗漏，不表示
-H-001–H-020 已批准。当前共 147 条唯一 repo paths：106 条 existing、41 条 planned。
+H-001–H-020 已批准。当前共 153 条唯一 repo paths：112 条 existing、41 条 planned。
 `semantic-sidecar/` 是新 product root，因此 `docs/directory-map.md` 必须同步登记。任一
 决定改变 provider、ecosystem、host、packaging、policy、status route 或 tests 时，
 必须先修订此 manifest；`tasks.md` 不得增加未列 surface。
@@ -501,7 +511,7 @@ H-001–H-020 已批准。当前共 147 条唯一 repo paths：106 条 existing�
     "vibeguard-runtime/src/hook_orchestrator_context.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit.rs",
     "vibeguard-runtime/src/hook_orchestrator_post_edit_history.rs", "vibeguard-runtime/src/hook_orchestrator_post_edit_history_unit_tests.rs", "vibeguard-runtime/src/hook_orchestrator_post_edit_history_tests.rs",
-    "vibeguard-runtime/src/hook_orchestrator_stop.rs", "vibeguard-runtime/src/hook_orchestrator_learn.rs", "vibeguard-runtime/src/hook_checks.rs", "vibeguard-runtime/src/hook_checks_history.rs", "vibeguard-runtime/src/hook_checks_tests.rs", "vibeguard-runtime/src/log_query.rs",
+    "vibeguard-runtime/src/hook_orchestrator_stop.rs", "vibeguard-runtime/src/hook_orchestrator_learn.rs", "vibeguard-runtime/src/hook_checks.rs", "vibeguard-runtime/src/hook_checks_common.rs", "vibeguard-runtime/src/hook_checks_history.rs", "vibeguard-runtime/src/hook_checks_tests.rs", "vibeguard-runtime/src/log_append.rs", "vibeguard-runtime/src/log_query.rs",
     "vibeguard-runtime/src/session_metrics/signals.rs",
     "vibeguard-runtime/src/session_metrics/engine.rs",
     "vibeguard-runtime/src/hook_status.rs",
@@ -542,8 +552,9 @@ H-001–H-020 已批准。当前共 147 条唯一 repo paths：106 条 existing�
     "semantic-sidecar/src/protocol.rs",
     "semantic-sidecar/src/sandbox.rs",
     "guards/universal/check_test_weakening.sh",
+    "hooks/_lib/log_write.sh",
     "scripts/precision-tracker.py", "scripts/report-false-positive.py", "scripts/health-report.py", "scripts/quality-grader.sh", "scripts/constraints/count_active_constraints.py",
-    "scripts/gc/reflection_digest.py",
+    "scripts/gc/gc-logs.sh", "scripts/gc/reflection_digest.py",
     "scripts/stats.sh",
     "scripts/learn/analyze.py",
     "scripts/learn/adoption.py",
@@ -573,7 +584,7 @@ H-001–H-020 已批准。当前共 147 条唯一 repo paths：106 条 existing�
     "tests/unit/test_sec11_review_guards.sh",
     "tests/test_runtime_config_schema.sh",
     "tests/test_gc_config.sh",
-    "tests/test_gc_scheduled.sh",
+    "tests/test_gc_logs_concurrent.sh", "tests/test_gc_logs_rotation.sh", "tests/test_gc_scheduled.sh",
     "tests/test_observe.sh", "tests/test_stats.sh", "tests/test_health_report.sh", "tests/test_codex_status.sh", "tests/test_quality_grader.sh", "tests/hooks/test_count_active_constraints.sh",
     "tests/test_u22_coverage.sh",
     "tests/test_precision_tracker.sh", "tests/test_report_false_positive.sh",
@@ -620,13 +631,13 @@ Complete-path cross-check：
 | Canonical L2 core latency | `vibeguard-runtime/src/lib.rs`; planned **vibeguard-runtime/benches/semantic_defense_core_us.rs**; planned **tests/bench_semantic_core.sh**; `tests/test_hook_perf_contract.sh`; `docs/internal/benchmarks/benchmark-design.md`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | `main.rs` and in-process runner import the same public production entrypoint；runner executes cold/warm `core_us` fixtures exactly once；every initial/confirmation cold sample resets and proves empty cache/provider state outside timing, every warm sample prewarms and proves exact-identity hit；contract test rejects duplicate/path-loaded core implementations and fixes IDs/timing boundary/identity/cache/budget/confirmation/result/CI wiring and compile-only smoke |
 | Canonical L2 installed latency | `tests/bench_hook_latency.sh`; `tests/test_hook_perf_contract.sh`; `docs/reference/hook-latency-contract.md`; `.github/workflows/ci.yml` | canonical runner executes four path-specific direct/wrapper × cold/warm `hook_e2e_ms` installed-hook fixtures exactly once；every cold sample independently resets cache/provider-start state and every warm sample proves prewarm outside timing；contract test fixes IDs/path/budget/cache/confirmation/CI/result wiring |
 | Project-scoped opt-in + trusted execution identity | `schemas/vibeguard-project.schema.json`; `scripts/lib/project_config_validate.py`; `tests/test_gc_config.sh`; `tests/test_setup.sh`; `vibeguard-runtime/src/{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,codex_app_server_strategies_tests,hook_orchestrator,hook_orchestrator_context,hook_orchestrator_post_edit}.rs`; `vibeguard-runtime/tests/project_config_cli.rs`; planned **vibeguard-runtime/src/semantic_defense/{config,identity,cache,provider}.rs**; planned **tests/hooks/test_semantic_defense.sh** | actual wrapper owns `SharedState` session container/router；core owns capability semantics；pending-safe thread cap；Bash L1-only；Git executable + retained payload-directory identity；no-follow ancestry config |
-| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/hook_orchestrator.rs`; `vibeguard-runtime/src/hook_orchestrator_post_edit.rs`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_observability_schemas.sh`; `docs/specs/GH704/runtime-integrity.md` | one group writer；pre-barrier bounded global registration；serialized append；receipt worker never writes project marker；eligibility lease freezes off backlog；bounded recovery |
+| Canonical project journal + bounded reconciliation | `vibeguard-runtime/src/event_schema.rs`; `vibeguard-runtime/src/{hook_orchestrator,hook_orchestrator_post_edit,hook_checks_common,log_append}.rs`; `hooks/_lib/log_write.sh`; `scripts/gc/gc-logs.sh`; planned **vibeguard-runtime/src/semantic_defense/runtime_signal.rs**; `schemas/event-log.schema.json`; planned **tests/hooks/test_runtime_rule_signals.sh**; `tests/test_gc_logs_rotation.sh`; `tests/test_gc_logs_concurrent.sh`; `tests/test_observability_schemas.sh`; `docs/specs/GH704/runtime-integrity.md` | one group writer；all Rust/shell append owners share tail-read→WAL fsync→journal append lease；project WAL entry/byte/segment bounds + pinned checkpoint/compaction；GC honors recovery pins/watermarks；pre-barrier bounded global registration；receipt worker never writes project marker；eligibility lease freezes off backlog |
 | Install/config doctor | `setup.sh`; `scripts/setup/check.sh`; `scripts/setup/runtime_config_health.sh`; `scripts/lib/status_report.sh`; `tests/test_setup_check.sh`; `tests/test_setup.sh` | doctor/`--check` human/JSON/exit/no-data identity matrix and installed payload route |
 | Per-run status | `vibeguard-runtime/src/hook_status.rs`; `hook_status_render.rs`; `hook_status_tests.rs`; `schemas/hook-status.schema.json`; `tests/test_hook_status.sh` | human/JSON/schema carry exact semantic state and identities from one canonical event |
 | Typed reader/schema migration | `schemas/observe-output.schema.json`; schemas/fixtures；observe modules/CLI；`vibeguard-runtime/src/{hook_checks,hook_checks_history,hook_checks_tests,log_query,hook_orchestrator_learn,hook_orchestrator_post_edit_history,hook_orchestrator_post_edit_history_unit_tests,hook_orchestrator_post_edit_history_tests}.rs`; `vibeguard-runtime/tests/{cli_hook_checks,cli_log_commands}.rs`; `scripts/{stats.sh,health-report.py,quality-grader.sh,gc/reflection_digest.py,report-false-positive.py,constraints/count_active_constraints.py,setup/targets/codex-home.sh}` plus focused tests | exact v1 + aggregate-verifiable v2 fixtures；project canonical joins barrier；project history joins `projection_done`；global aggregate/status joins `project_acknowledged`；pending/aborted/lag empty；Learn errors typed/zero candidate |
 | Learn signal contract | `vibeguard-runtime/src/hook_orchestrator_learn.rs`; `schemas/learn-signal.schema.json`; `tests/test_workflow_contracts.sh`; `tests/test_learn_adoption.sh` | new semantic-defense signal/typed source positives and invalid classification/action/path preserve action space；log-tail/metrics errors fail-visible，never no-data |
 | Semantic release assets | `.github/workflows/release.yml`; `.github/workflows/semantic-assets.yml`; `tests/test_release_workflow.sh`; `tests/test_payload.sh`; `scripts/release/payload-manifest.txt` | release contract fixes same-tag checksums, attestations, dependency metadata, target matrix, explicit install provenance and revoke/rollback behavior for every semantic artifact |
-| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,hook_orchestrator_post_edit_history,hook_orchestrator_learn,hook_checks,hook_checks_history,log_query,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；每个 critical file 恰一次携带非空 exact `owner_suites`，gate 双向核对 [verification.md](verification.md) 的 Product-to-Test mapping/Cargo exact name/shell selector，missing/empty/unknown/duplicate/zero-match/rename-drift/无反向 owner、condition arms 与 aggregate masking 均失败；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
+| U-22 measured coverage | planned **scripts/ci/self-application/u22-critical-files.json**; `scripts/ci/self-application/check-u22-coverage.sh`; tests/manifests/Cargo/CI | runtime/sidecar each ≥80%；100% line+branch: runtime `{git_root,project_config,codex_app_server,codex_app_server_core,codex_app_server_file_changes,codex_app_server_hooks,codex_app_server_strategies,hook_orchestrator_context,hook_orchestrator,hook_orchestrator_post_edit,hook_orchestrator_post_edit_history,hook_orchestrator_learn,hook_checks,hook_checks_common,hook_checks_history,log_append,log_query,event_schema}.rs`、`observe/{aggregate,prometheus,read,render,stats_summary}.rs`、`semantic_defense/{mod,config,identity,protocol,provider,inventory,inventory_adapters/mod,inventory_adapters/typescript_npm,test_weakening,runtime_signal,cache,metrics}.rs`、sidecar `{protocol,sandbox}.rs`；每个 critical file 恰一次携带非空 exact `owner_suites`，gate 双向核对 [verification.md](verification.md) 的 Product-to-Test mapping/Cargo exact name/shell selector，missing/empty/unknown/duplicate/zero-match/rename-drift/无反向 owner、condition arms 与 aggregate masking 均失败；independent B-001/B-003/B-009/B-011–B-015/B-017–B-020/B-022–B-028/B-035/B-037 matrices map every branch ID |
 
 ## Verification contract and data flow
 
