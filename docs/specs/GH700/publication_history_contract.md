@@ -574,7 +574,7 @@ frontier字段唯一为 `{repo_node_id,history_length,history_root,full_prefix_d
 | `valid_rollback_pending` | `{owner_generation,decurrent_pr_merged_operation_id,rollback_pr_plan_digest,prior_marker_digest}` |
 | `invalidate_current_merged_receipt` | `{owner_generation,generated_pr_merged_operation_id,evidence_digest,invalidated_release_identity,zero_marker_surface_digest}` |
 | `recovered_publication` | `{owner_generation,intent_operation_id,recovery_truth_branch,release_node_id,generated_pr_chain_digest,finalization_receipt_digest}` |
-| `publication_terminal_no_publication` | `{candidate_tag_identity_digest,terminal_owner_generation,complete_generation_chain_digest,closed_slot_chain_digest,draft_deletion_receipt_digest,exhaustive_negative_discovery_digest}` |
+| `publication_terminal_no_publication` | `{candidate_tag_identity_digest,terminal_owner_generation,complete_generation_chain_digest,closed_slot_chain_digest,draft_cleanup_evidence,exhaustive_negative_discovery_digest}` |
 | `publication_terminal` | `{owner_generation,terminal_kind,release_identity_or_null,generated_pr_chain_digest,closed_slot_chain_digest,finalization_receipt_digest}` |
 | `release_mutation_planned` | `{owner_generation,mutation_kind,transition_slot,mutation_slot_id,plan_core_digest,request_commitment,mutation_nonce_digest,mutation_nonce_capsule_id,broker_delivery_id,capsule_ciphertext_digest,kms_key_version,tag_identity_digest,pre_state_digest,request_template_digest,expected_post_state_digest}` |
 | `release_mutation_bound` | `{owner_generation,mutation_kind,mutation_slot_id,planned_operation_id,request_commitment,broker_delivery_id,effective_request_digest,response_resource_digest,post_state_digest,completed_guard_receipt_digest}` |
@@ -608,6 +608,19 @@ closed enums exact 为 `intent_kind={publish_valid,publish_nonvalid}`、
 `draft_recovery_blocked`。broker audit、capsule、KMS refs、external anchor、time proof、PR/Release discovery与
 generated patch是由 payload digest引用的 durable typed objects，不是额外 record kinds。非法 transition/
 fence/owner、缺失/截断/fork、过期 fence、checkout anchor或表外 kind均 fail closed。
+`publication_terminal_no_publication.payload.draft_cleanup_evidence`是以 `cleanup_kind`判别的 exact
+closed union，且整个 payload恰有一个 branch：
+
+- `{cleanup_kind:"draft_never_existed",draft_create_slot_closure_digest,
+  broker_quiescence_receipt_digest,no_effect_receipt_digest}`；
+- `{cleanup_kind:"draft_deleted",draft_identity_digest,draft_preimage_digest,
+  deletion_or_compensation_receipt_digest,post_delete_discovery_digest,
+  broker_quiescence_receipt_digest}`。
+
+两 branch都禁止 extra/null字段。`draft_never_existed`不得携 draft identity/preimage/deletion/
+compensation字段；`draft_deleted`不得缺任一 deletion branch字段。外层
+`exhaustive_negative_discovery_digest`仍须绑定同一线性化快照的 Release/draft/PR/current-marker
+全量发现，不能由 nested evidence替代。
 允许的 phase grammar也闭合：`owner_claimed` 后只可 heartbeat、mutation plan链、`draft_bound`或 takeover；
 `draft_bound`后闭合 upload/update slots才可 `prepared`；prepared valid先接 exact zero receipt再
 `intent_written(intent_kind=publish_valid)`，prepared non-valid直接接
