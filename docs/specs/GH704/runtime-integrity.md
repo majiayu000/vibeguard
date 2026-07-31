@@ -175,8 +175,9 @@ append/fsync 与 durable applied/tail commit 完成**：
    atomic create-if-absent 写 keyed slot，再 fsync route directory。此后它只提交 global
    `receipt_applied`/reclaim；不得写 project journal/`projection_done`。slot 已存在且 digest 相同
    也必须证明 directory durability；不同 digest 才 `needs_repair`。project coordinator/approved
-   maintenance route 取得同一 project lock 后消费 slot并写 `projection_done`。同一 project 多个
-   keys 可任意 delivery order，不会产生多个 group-state writers。
+   maintenance route 必须按 shared delivery lease → project lock 的固定顺序取得 matching epoch，
+   并持有两者直到 slot 验证与 `projection_done` fsync；off 同样按 exclusive lease → project lock，
+   因而会等待 worker 与 marker writer。多个 keys 可任意 delivery order，仍只有一个 group writer。
 
 因此 reservation A 未 applied 时，reservation B 不能 append；不会出现 later offset 先落盘、
 earlier offset 留洞。crash recovery 只查 earliest reservation、exact key/offset/digest：缺 record

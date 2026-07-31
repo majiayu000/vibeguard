@@ -345,7 +345,8 @@ fsync、applied、tail 与 receipt outbox 原子 commit，earlier 未 applied �
 须持有 matching source eligibility epoch 的 shared delivery lease；off/drift 仅 defer，off 用
 exclusive lease，re-enable 由 source coordinator rebind 或 approved maintenance drain。receipt
 worker 只 fsync/create keyed slot、提交 global applied/reclaim，不写 project journal；source
-coordinator 在 project lock 下消费 slot并写 `projection_done`。crash 只按 registry/reservation/
+coordinator 按 shared delivery lease → project lock 持有 epoch 到 `projection_done` fsync；off 用
+exclusive lease → project lock，避免 late marker/deadlock。crash 只按 registry/reservation/
 outbox exact route/key/offset/digest 恢复，禁止扫描、跳洞或猜测；lag 保持空 global data。既有 L1 dual logging 不变；
 legacy free text 只可显示为 `legacy_untracked`。
 
@@ -635,7 +636,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | Behavior invariant | Implementation area | Verification |
 | --- | --- | --- |
 | B-001 approval gate | payload project identity + config/policy join | `bash tests/hooks/test_semantic_defense.sh project_scoped_opt_in`、`payload_directory_replacement` + config CLI/setup tests；missing cwd off；path swap/Git redirect/PATH/replacement/config race/external env/stale approval 全部零 provider/cache/metrics |
-| B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`、`bash tests/hooks/test_runtime_rule_signals.sh disable_freezes_pending_backlog`、`cross_project_receipt_freeze` + perf contract；off 令 cross-project worker 零 source write；epoch drift defer，rebind/maintenance only |
+| B-002 flag-off parity | hook orchestration | `bash tests/hooks/test_semantic_defense.sh flag_off_parity`、`bash tests/hooks/test_runtime_rule_signals.sh disable_freezes_pending_backlog`、`cross_project_receipt_freeze`；off-between-slot-and-consume proves lease→lock/zero late marker；epoch drift defer，rebind/maintenance only |
 | B-003 L1/L2 precedence | policy reducer | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::tests::l1_l2_precedence_total_function -- --exact` |
 | B-004 closed inputs | config/protocol schemas | `bash tests/hooks/test_semantic_defense.sh closed_schema_inputs` 与 `bash tests/test_runtime_config_schema.sh` |
 | B-005 exact model + sidecar identity | identity/provenance + release contract | `bash tests/hooks/test_semantic_defense.sh model_identity_provenance`、`sidecar_artifact_identity_invalidation`、`bash tests/setup/semantic_asset_install_tests.sh provenance` 与 `bash tests/test_release_workflow.sh`；逐字段 removal/digest/platform/license/protocol mismatch；sidecar byte/version/target/manifest/attestation/revoke 任一变化同时使 approval/eligibility、cache、precision 与 status evidence 失效；每个 same-tag asset 证明 checksum、attestation、dependency metadata、target matrix 与 install provenance |
@@ -661,7 +662,7 @@ focused Rust command 必须传 `-- --exact`，且 `tests/test_manifest_contract.
 | B-025 corrupt history | history reader | `bash tests/hooks/test_runtime_rule_signals.sh corrupt_and_cross_scope_history` |
 | B-026 W state machine | runtime signal module | `cargo test --manifest-path vibeguard-runtime/Cargo.toml semantic_defense::runtime_signal::tests::transition_replay_concurrency_matrix -- --exact` |
 | B-027 fail-visible group commit | project WAL/event writer + bounded reconciler | `bash tests/hooks/test_runtime_rule_signals.sh projection_write_failures_preserve_l1`、`bounded_reconciliation_backlog`、`atomic_recovery_io_floor`、`bounded_project_lock`、`pre_barrier_global_registration`；every state/registration/barrier crash pre-barrier invisible；floor-1 rejects/exact floor completes；failures visible/L1 |
-| B-028 single authority + serialized derived projection | project journal + global sequencer/keyed receipt outbox | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery`、`cross_project_offset_reservation`、`keyed_receipt_slots`、`receipt_directory_fsync_recovery`、`receipt_project_lock_ownership`、`source_off_receipt_defer`；dormant/two-intent/out-of-order/crash/off converge by exact registry/route/key/digest；worker never writes project marker |
+| B-028 single authority + serialized derived projection | project journal + global sequencer/keyed receipt outbox | `bash tests/hooks/test_runtime_rule_signals.sh one_canonical_projection`、`derived_global_projection_recovery`、`cross_project_offset_reservation`、`keyed_receipt_slots`、`receipt_directory_fsync_recovery`、`receipt_project_lock_ownership`、`source_off_receipt_defer`；exact recovery；worker never writes marker；coordinator lease→lock through fsync |
 | B-029 candidate identity | Learn schema/analyzer | `bash tests/test_workflow_contracts.sh` 与 `bash tests/test_learn_adoption.sh semantic_candidate_identity`；semantic-defense signal/typed source 的 valid fixture 与 invalid classification/action/path 全部固定，multi-session replay 后 ID/count/window/privacy 精确相等 |
 | B-030 deterministic Learn core | Learn analyzer/model adapter | `bash tests/test_learn_adoption.sh semantic_candidate_without_model`；provider disabled/crash 时 identity/count/state 不变 |
 | B-031 human adoption gate | Learn adoption | `bash tests/test_learn_adoption.sh semantic_candidate_human_gate`；preview read-only，仅 explicit adopt/skip/snooze 变更 |

@@ -159,8 +159,9 @@ stop advisory，W-02、W-13、W-14、W-15 也有相邻的会话历史信号。�
    latency gate 仍按原合同运行。off/kill switch 生效时不得打开或重放既有 L2 WAL/
    journal；pending backlog 原样冻结，只能由单独批准的 maintenance drain 处理。重新
    enable 后先 bounded reconciliation，排空前不得启动新 L2。跨项目 projector/receipt worker
-   也必须持有 matching eligibility epoch 的 bounded delivery lease；off 生效后不得写 source slot/
-   marker，旧 epoch 只能由 source coordinator 显式 rebind 或 approved maintenance drain。
+   与 source coordinator marker writer 都必须按 delivery lease → project lock 持有 matching epoch
+   直到 durable write；off 用同序 exclusive lease，生效后不得写 source slot/marker。旧 epoch
+   只能由 source coordinator 显式 rebind 或 approved maintenance drain。
 3. B-003: L1 与 L2 必须保留独立的 decision、reason、latency、error 与 evidence identity；
    最终组合 decision 只能来自获批的闭集 precedence table。L2 缺失、错误或超时不得
    被记录成 L2 pass，也不得覆盖 L1 block。
