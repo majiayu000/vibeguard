@@ -197,12 +197,19 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     broker/proxy/tracer/RPC 永不位于 timer 或 timed descendant 内，也不得从 baseline
     subtract。effectiveness 与独立的 untimed latency-conformance phase 使用 broker并签发同
     snapshot/case/full schedule/fresh-state的 `latency_exec_closure_receipt`。timed run另须使用
-    `timed_exec_guard_v1`：timer前加载、tree完成后封口的 OS-kernel authoritative exec allowlist，
-    它必须是 shipped production wrapper topology的同一 identity/policy与用户真实承担的开销，
-    不得是 benchmark-only interposition；kernel在 image执行前拒绝闭包外 identity，event loss/
+    `timed_exec_guard_v1`：它是 target-specific、registry/manifest绑定的 released production
+    capability，闭包包含 guard component/loader/service logical IDs、immutable policy version/
+    digest、production activation/invocation contract及 OS-attestation verifier/pinned issuer roots。
+    installer必须为普通 non-benchmark wrapper安装并激活它，持久化绑定 target/component/policy/
+    protection state的 authenticated receipt；official preflight重验 receipt并 challenge live
+    kernel/OS state。benchmark只能验证/使用已激活 guard，不得安装、激活、重配或通过 bench-only
+    flag启用；普通 wrapper每次 invocation所需 session setup属于用户真实路径并在 timer内，只有
+    持久 installation activation在 timer外。kernel在 image执行前拒绝闭包外 identity，event loss/
     overflow/无法证明完整 tree均 fail closed，受信 OS attestation issuer在完成后签
-    `timed_exec_guard_receipt` 绑定 policy、完整 event/root digest与 sample set。没有生产等价
-    guard的 target必须在采样前 unavailable；receipt 缺失/篡改或仅 timed run触发 undeclared
+    `timed_exec_guard_receipt` 绑定 registry/manifest/install receipt、live-state challenge、
+    policy/session identity、完整 event/root digest与 sample set。self-report/TOFU、bench-only
+    activation、policy/loader/service/issuer替换、preflight后停用或没有生产等价 guard的 target
+    必须在采样前 unavailable；receipt 缺失/篡改或仅 timed run触发 undeclared
     child 时整批零 headline samples。protocol/report 绑定 execution mode、production topology、
     空 interposition list、closure与 timed-guard receipts；`brokered_timed` 一律拒绝。每个 surface 必须独立
     公开 schedule/state/estimator identity、正整数
@@ -278,19 +285,36 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     `refs/tags/<name>`、ref node/OID、annotated tag object与完整 peel chain、peeled commit
     （必须等于 source）及 effective tag-protection/ruleset digest。official 候选必须已有受保护、
     不可更新/删除且无 actor/App bypass 的 tag；Release API 不得隐式创建或移动 tag。所有
-    normal/recovery Release 写（draft create/update/delete、每次 asset upload/delete、publish）
-    只能通过 environment-protected guard/broker；紧邻每次 API call 前从 server 重新读取并精确
-    匹配 tag identity、保护规则、current owner/fence/frontier，response 后再次读取；只有
-    postcheck通过才签发 completed `tag_guard_receipt`，绑定 mutation slot、request digest、
-    response/Release/asset identity、pre/post tag+ruleset tuples、owner generation、actual fence
-    与 frontier。API 不完整/缓存陈旧、tag
-    move/delete/recreate、peel/source/ruleset/bypass drift 都停止下一 mutation并进入对应 draft/
-    release blocked，保留 owner；`draft_bound`/`prepared`/publish/cleanup 绑定有序 receipt
-    digests。matching public Release 也必须匹配该 tuple；takeover 或 fence/frontier 前进使旧
-    receipt 失效；`recovered_publication` 前须重取 publication lease/latest frontier并另签 fresh
-    finalization guard receipt，绑定 current server tag/ref/peel/source/ruleset与完整 mutation
-    receipt chain。post-call或 publish receipt后/finalization前 drift均按 phase blocked，不写
-    recovered record或 README。
+    normal/recovery Release 写使用同一 closed slot machine，`kind∈{draft_create,draft_update,
+    draft_delete,asset_upload,asset_delete,publish}`。远程调用前须 fenced-CAS append
+    `release_mutation_planned(kind,slot)`，绑定 repo/tag identity/owner generation/kind/slot/
+    transition op/predecessor、protected one-time mutation nonce、trusted App/installation、
+    exact pre-state/request bytes/expected post-state digests及 kind-specific完整 tuple：create
+    绑定 claim nonce/tag/source/draft metadata；update绑定 release node与 full pre/post metadata；
+    upload绑定 canonical manifest entry/name/label/content-type/size/SHA-256；asset/draft delete绑定
+    exact node/full preimage与 expected absence；publish绑定 release node、exact asset set、
+    draft→published/make-latest policy。mutable fence/lease只在 authorization envelope。
+    只有 planned state可经 environment-protected sole broker调用；pre-call guard authorization
+    绑定 current tag/ruleset、owner、actual fence/frontier、plan digest与 broker delivery ID，
+    但不证明 remote commit。normal response后重取 server state，只有 postcheck通过才 append
+    `release_mutation_bound`与 completed guard receipt，绑定 request、response/resource IDs、
+    pre/post tag+ruleset tuples、owner/fence/frontier。
+    send/response/postcheck/bind任一不确定时禁止重发，先进入 `release_mutation_recovery_pending`，
+    重取 lease/fence/frontier并按 immutable plan完整分页枚举 Release/all states/assets及 broker
+    outbox/delivery/audit：唯一 exact post-state、正确 tag/source/App/delivery且无 extra时以 fresh
+    discovery/postcheck receipt恢复 bound；exact pre-state加 authenticated exhaustive negative
+    且 broker证明 request quiescent/not-in-flight时 append `release_mutation_not_applied`，之后才可
+    新 slot；zero但仍 in-flight不得重发。partial/conflicting/multiple state只能先 append
+    `compensation_planned`，其远程补偿本身也是新 planned/guarded/bound slot，完整证明恢复
+    pre-state且无 extra后才 `compensated`。不可逆或不可证明的 publish/update/delete、权限/分页/
+    audit不全、rate-limit/5xx、tag move/delete/recreate、peel/source/ruleset/bypass drift均进入
+    `release_mutation_recovery_blocked`并保留 owner；takeover只能引用旧 plan并 fresh authorize。
+    `draft_bound`/`prepared`/publish/cleanup/terminal/`recovered_publication` 只能在所有 predecessor
+    slots进入 closed terminal set `{bound,not_applied,compensated}` 后推进；每个 not-applied须携
+    exact-pre-state+exhaustive-negative+broker-quiescence receipt，每个 intended phase effect须由
+    恰一 later/effective bound slot满足或由 compensated显式恢复，且无 pending/blocked/in-flight/
+    extra resource。final recovery还须 fresh
+    finalization receipt绑定 current tag tuple与完整 slot chain。任何窗口 drift不写 recovered/README。
     `owner_claimed` append request须通过 authenticated secret channel另交由 store/HSM CSPRNG
     为该 proposed generation签发的 uniform 256-bit one-time nonce；未消费的 issuance不授权任何
     Release/PR/draft mutation。nonce跨 repo/candidate/generation全局不得复用，且不进入 JCS
@@ -327,10 +351,23 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     rotation 必须 old+new threshold共同签名，绑定 previous bundle digest、activation frontier
     与独立 governance attestation，history/store 不得自授权；历史 bundle/cert/key保留以验证
     旧 receipt。unknown/self-signed/wrong repo或purpose、epoch rollback/fork/gap、algorithm
-    downgrade、expired/revoked或缺 rotation chain 均 fail closed。store 对
+    downgrade、expired/revoked或缺 rotation chain 均 fail closed。
+    history append authorization 是 closed union：publication transition须 current owner
+    generation/publication lease/fence；`{trust_leaf_rotated,trust_root_rotated,trust_key_revoked}`
+    是 phase-neutral governance transition，不含 owner generation，使用独立 repository-governance
+    lease/fence、authenticated governance actor及 threshold approval，因此 prior owner terminal/
+    no active owner时仍可轮换，active owner期间也不伪造 takeover或改变其 phase/liveness。
+    immutable rotation payload绑定 repo/purpose/current→next epoch、old/new key或bundle/cert/
+    approval digests，stable `rotation_id=H(repo,purpose,current_epoch,next_epoch,kind,payload_digest,
+    approval_digest)` 不含 predecessor/fence。store先查永久 `(repo_node_id,rotation_id)`：same
+    payload/approval返原 receipt，异值冲突；absent才验 governance domain/fence/actor/threshold/
+    current epoch/exact predecessor并 append。publication suffix抢先时以相同 rotation ID/payload/
+    approval、new predecessor/op重规划；rotation由 pre-state trust验证，activation固定为其 successor
+    frontier，之后只接受 new trust。governance suffix只改变 trust epoch/state；active publication
+    owner重放 suffix并从新 predecessor重规划，两个 authorization fence绝不可互换。store 对
     `(expected_length, expected_root, expected_full_prefix_digest, current_fence)` 原子 CAS，
     复算并签发 successor frontier。每次 transition 分为 immutable intent、mutable append
-    authorization envelope与 store-signed committed envelope/receipt。跨进程稳定
+    authorization envelope与 store-signed committed envelope/receipt。publication transition的跨进程稳定
     `transition_operation_id = H(repo_node_id, owner_generation, run_id, run_attempt,
     transition_slot, predecessor_frontier, record_kind, payload_digest)`，不得包含 authorization
     fence；`owner_generation` 永不复用，首条 claim由 server-auth run tuple+frozen plan生成。
@@ -343,7 +380,8 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     append并签发 envelope/receipt，绑定 actual accepted fence、intent/store-envelope digest、
     predecessor/successor与 issuer/key version。stale fence对新 mutation失败，但已提交 old op
     只能取回原 receipt。
-    `owner_claimed` 是唯一的 absent-owner 创建 transition：其 intent声明 fresh、全局永不复用的
+    `owner_claimed` 是唯一的 publication-domain absent-owner 创建 transition；独立 governance
+    transition按上述规则不创建 owner或授权 Release/PR mutation。claim intent声明 fresh、全局永不复用的
     `owner_generation`，store仅在 exact predecessor fold 证明 length-zero/no owner 或 prior
     owner terminal、repository publication lease/current fence有效、server-auth run/candidate/
     frozen-plan tuple、nonce capsule与 predecessor frontier匹配时，才在同一事务创建 generation、
@@ -458,8 +496,12 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     留下无 row 的 public Release 后放行下一 candidate。exact unmarked row merge 后才 terminal。
     已公开 current valid 被证实有缺陷时只能由 `invalidate_current` PR 原子更新全部 required
     surfaces：移除 exact current marker、将 exact row标为 invalid并绑定获批 reason/evidence；
-    planned/bound envelope绑定 latest frontier、merge SHA预期与逐 surface before/after blobs，
-    合并后 append terminal invalidation receipt。response-loss/replacement/ABA沿用统一 generated
+    planned/bound envelope绑定 latest frontier、base/head ref+OID、reviewed commit、expected
+    head/default tree、patch、merge method/ruleset与逐 surface expected-after blobs，schema禁止
+    future merge commit OID/timestamp/server output。server确认 merge后才 append terminal
+    `invalidate_current_merged_receipt`，绑定 actual merge commit OID/PR node/method、default-ref
+    before/after OIDs、actual tree、逐 surface before/after blobs、owner/fence/frontier与 evidence。
+    merge response-loss须发现 exact merged PR/default ref并核对 actual tuple。response-loss/replacement/ABA沿用统一 generated
     PR协议；receipt缺失/不匹配、stale frontier、单一 locale更新、出现新 current或并发 CAS失败
     进入 `invalidation_recovery_blocked` 并保留 owner，不能以手工删 marker解锁后续 publication。
     intent 后 exact draft 缺失/不匹配且没有 matching public Release 时只能 attest

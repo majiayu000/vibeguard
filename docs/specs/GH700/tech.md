@@ -65,7 +65,8 @@ official preflight unavailable，不允许 runner/workflow 临时选择 workload
 `production_asset_registry`。前者按 executor ID 固定正整数 timeout/grace/stdout/stderr
 caps；后者按 target + logical ID 闭集登记 payload、wrappers、canonical
 config、environment-baseline workload、interpreters 与每条 mapped production path
-传递闭包内全部 external executables，并固定 kind、来源
+传递闭包内全部 external executables，以及 target-specific production timed-exec guard
+component/loader/service、immutable policy和 OS-attestation verifier/issuer roots；并固定 kind、来源
 `{release_payload, authenticated_host}`、asset/path ID、size、SHA-256、version、exec/argv
 contract。signed manifest 只直接声明并绑定 target runtime asset identity，同时绑定
 approved protocol digest 与 registry digest；其它资产 identity/exec/argv contract
@@ -83,6 +84,8 @@ trust-root set/version，不复制 asset identities。verified installer 还必�
 签名 release manifest；offline verifier 用 binary 内置/版本钉住的 trust roots 重验 bundle
 签名、issuer/workflow/repo/source/subject，再由 signed manifest 绑定 exact protocol/
 registry digests。receipt 只映射 registry logical IDs 到本地 handles，不能靠可改写字段自证。
+installer为普通 non-benchmark wrapper安装/激活 guard并持久化 target/component/policy/protection
+state receipt；preflight验签并 challenge live OS state，benchmark不得安装、启用或重配。
 现有 `runtime-provenance` 可继续供兼容显示，但不能单独建立 official 身份。
 
 真实 HOME 只通过一个身份专用的 preflight reader 访问。reader 以 no-follow 打开固定
@@ -213,7 +216,7 @@ child-exec audit 仅作预检。effectiveness 与 untimed latency-conformance �
 `runtime_execution_grant`，禁止 pathname lookup，闭包外 identity 在执行前拒绝。broker
 decisions/identities进入 report；无 pre-exec deny、失联/race或 undeclared exec 均 fail closed。
 timed latency 前须以同 snapshot/case/schedule/fresh-state取得 signed `latency_exec_closure_receipt`，
-再以无 benchmark broker/proxy/tracer/RPC 的 `production_direct_v1`计时；同一 shipped production topology须带 timer前加载的 kernel `timed_exec_guard_v1`，image前拒绝闭包外 identity，tree后由 trusted OS issuer签完整 event/root receipt；event loss/overflow/timed-only undeclared child整批无 headline sample，无生产等价 guard则 unavailable。
+再验 registry/manifest/install receipt与 live-state challenge；普通 non-benchmark wrapper已激活且每次都使用的 production guard才可随 `production_direct_v1`计时，per-invocation session setup在 timer内，benchmark不得 load/reconfigure。guard image前拒绝、tree后由 pinned OS issuer签 policy/session/event/root receipt；event loss/overflow/timed-only child整批无 headline sample。
 
 `dangerous_shell_or_git` fixture 只作为 hook stdin 分类，绝不执行 payload 中的 command。
 file/project fixtures 先在专用 temp root materialize 合成文件，再通过 installed
@@ -447,14 +450,14 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
 publication 使用 attempt-scoped draft 与一个统一 durable state machine：
 1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review用 H-006 heartbeat续活。H-006 唯一批准者为 repo release/security maintainer；未批准 publication unavailable。sequence 1的 `previous_accepted_at=claim_accepted_at`，之后取前一 heartbeat accepted-at；store仅在 prior expiry前、间隔≥300s续租，`expiry=min(accepted_at+3600,claim_accepted_at+604800)`且须严格延长；scheduler 900s，7日 cap后只可 expiry+takeover。
-2. frontier为 `(repo_node_id,length,root,full_prefix_digest)`；只信 digest-pinned `publication_history_trust_bundle`（repo/purpose/algorithms/root IDs/threshold/epoch）；genesis digest/repo/purpose/frontier须由 store/history外的 release-identity root验签 maintainer-governance attestation锚定，禁 TOFU。envelope绑定 bundle/leaf/epoch/cert-chain；leaf rotation由 root绑定 old/new+activation frontier+递增 epoch；root rotation须 old+new threshold co-sign、previous bundle/frontier+独立 governance attestation。保留历史材料；substitution/missing approval/self-signed/wrong scope、epoch rollback/fork/gap、downgrade、expired/revoked/missing chain fail closed。
-   immutable intent op ID绑定 repo/generation/run/slot/predecessor/kind/payload且不含 mutable fence；request另携 current fence/lease/actor。unique index先返回 same op+digest原 receipt，异 digest冲突；absent才验 owner/fence/predecessor并签 actual fence+successor。ack-loss复用 same JCS intent；advanced head不 rebase。union覆盖 trust rotation/tag guard/claim/heartbeat/draft/generated-PR/intent/commit/takeover/七类 blocked/invalidation/recovered/terminal；fold拒绝 ABA。
-3. 首次 Release API/PR mutation前原子 claim；绑定 immutable tag identity（repo、canonical ref、ref OID、annotated object/peel chain、peeled source commit、effective immutable/no-bypass ruleset）、plan/liveness/nonce digest。nonce是 store/HSM CSPRNG 256-bit typed-JCS secret，经 KMS capsule封装；current lease/frontier/exact actor才可 unwrap，capsule/key保留 successor chain terminal+audit window；restart复用 same nonce，失败 draft blocked。
-   所有 draft create/update/delete、asset upload/delete、publish及 recovery mutation经 sole tag guard：call前后重取 exact tag/ruleset/owner/fence/frontier，仅 postcheck后签 completed receipt，绑定 slot/request/response-resource/pre+post tuple/generation/actual fence/frontier；phase记录绑定 completed receipts。move/delete/recreate/peel/source/ruleset/bypass drift按 phase blocked。recovered publication须重取 lease/frontier并签 fresh finalization receipt，绑定 current tuple+完整 chain；publish后/finalize前 drift禁止 recovered/README。
-4. 五种 generated PR `kind∈{decurrent,rollback,new_current,nonvalid_row,invalidate_current}` 及 replacement在首次 ref/commit/PR mutation前 planned，绑定完整 attempt tuple；response loss全分页查 PR states+ref，唯一 active/merged/closed分别 bind/recover/revoke，只有线性化 exhaustive-negative可证明 absent；其它进入 kind-specific blocked。
-5. protocol surface闭集只绑定 stable `{id,path,locale/marker grammar,renderer logical-id/version/artifact digest,output schema}`，不绑定 mutable base OID。claim的 surface-plan绑定 protocol digest/default-ref及逐 surface base OID+sha256、marker-before、renderer、expected-after tree/blob、patch；每 attempt/replacement绑定 current base tuple，gate重取 ref/blobs，drift须新 slot/nonce/head/render/review，stable path/renderer变化才 bump protocol。
-   valid plan为 rollover、无历史 valid的 genesis，或 invalidation后的 suffix仅含 terminal nonvalid+exact current prepared owner的 post-invalidation；后者 intent前 fresh receipt绑定 current frontier、invalidation digest、owner与 all current blobs。mixed/locale drift/历史 valid却无 exact invalidation/fresh receipt均 blocked。invalidation原子移除全 surface current、标 row invalid并绑定 reason/evidence/frontier/merge SHA/blobs；恢复不完整进入第七 blocked。
-6. valid receipt/nonvalid prepared先 CAS `intent_written`。pending decurrent须 revoke；merged则 rollback。rollback/new-current/nonvalid/invalidation失败用 higher-fence exact reviewed replacement；无批准进入对应 blocked。claim/draft cleanup、revocation+delete、rollback、invalidation或 Release+README completion后才 terminal。
+2. frontier为 `(repo_node_id,length,root,full_prefix_digest)`；只信 independently anchored digest-pinned trust bundle。append authorization是 closed union：publication records用 owner/publication fence；trust leaf/root rotation/revocation用独立 governance actor/threshold/lease/fence且不含 owner。stable rotation ID绑定 repo/purpose/epochs/kind/payload/approval但不含 predecessor/fence；rotation index先幂等，同 approval遇 publication suffix可换 predecessor/op重规划。pre-state trust验证 rotation、successor起 new trust；governance fold不改 owner/phase/liveness，两域 fence禁互换。
+   publication immutable op绑定 repo/generation/run/slot/predecessor/kind/payload；union覆盖 governance rotation、release-mutation plan/bind/recovery/compensation、tag guard、claim/heartbeat/draft/generated-PR/intent/commit/takeover/七 blocked/invalidation/recovered/terminal。unique indexes、exact predecessor与 actual authorization fence事务验证；ack-loss返原 receipt，fork/ABA拒绝。
+3. 首次 Release API/PR mutation前原子 claim，绑定 immutable protected tag identity、plans/liveness/nonce；KMS capsule只供 current exact actor或 expiry后 successor恢复。所有 Release write kind `{draft_create,update,delete,asset_upload,asset_delete,publish}` 在 call前 append immutable planned slot（repo/tag/owner/kind/slot/op/predecessor/nonce/App、exact pre/request/expected-post及 kind-specific full tuple）与 pre-call guard authorization；fence/lease仅在 envelope。
+   response+postcheck后才 bind completed receipt。任一 uncertainty禁重发，完整发现 Release/assets+broker audit：唯一 post-state→recovered bind；exact pre-state+exhaustive negative+quiescence receipt→not-applied后新 slot；partial/conflict→planned guarded compensation；不可逆/不可证明→blocked。phase gate要求每 slot∈`{bound,not_applied,compensated}`、intended effect有唯一 bound或已恢复且无 pending/blocked/in-flight/extra；finalization fresh，takeover引用旧 plan fresh authorize。
+4. 五种 generated PR在首次 mutation前 planned/bound；response loss全分页查 PR/ref，唯一 active/merged/closed分别 bind/recover/revoke。invalidation plan只含 base/head/reviewed commit/expected tree/blobs/patch/method/ruleset，拒绝 future merge fields；post-merge receipt才绑定 actual merge OID/PR/method/default refs/tree/blobs/owner/fence/frontier/evidence。
+5. protocol surface只绑定 stable `{id,path,grammar,renderer,output schema}`；claim/attempt plan绑定 mutable default ref与逐 surface base/hash/marker/expected/patch，drift须新 slot/nonce/head/render/review。
+   valid plan为 rollover、true genesis或 post-invalidation（suffix仅 terminal nonvalid+exact prepared owner）；fresh receipt绑定 current frontier、terminal merged-invalidation digest、owner/all current blobs。mixed/drift或缺 exact receipts blocked。
+6. valid receipt/nonvalid prepared先 CAS `intent_written`。pending decurrent须 revoke，merged则 rollback；failed generated/mutation slots用 exact reviewed replacement/compensation或对应 blocked。只有 claim/draft cleanup、revocation、rollback/invalidation或 complete Release+README slot chain可 terminal。
 required target 不能原生执行时显式 `unavailable` 并使 summary non-valid；非 required
 target unavailable 只展示、不阻断。不得用 host/cross binary 贴 native 目标标签；若
 approved set 含四 target 就必须配置四个 native runners。required platforms 的
@@ -517,9 +520,9 @@ intent-bound draft则发布并完成 README；两者 append `recovered_publicati
    `missing_evidence` 为闭集，保留 provenance、policy、interruption 与 publication phase。
    它只能 takeover 已存在 claim：唯一 claim-nonce draft先 bind再删；pending de-current
    先撤销 gate/queue/PR/head并验 revocation receipt；`valid_rollback_pending` 恢复旧 marker再删；
-   post-intent 按上述三分支；每个 draft/asset/publish/delete call由 sole guard做 pre/post check并只在
-   response后追加 completed receipt；recovered append前另签 current-tag finalization receipt；
-   任一窗口 tag漂移保持 phase blocked，不继续 mutation/recovered/README。valid-marker/nonvalid-row/invalidation
+   post-intent 前先 fold并恢复每个 existing release-mutation slot：exact effect bind、proven
+   not-applied后新 slot、partial state经 planned compensation；禁止盲重发或 naked cleanup。
+   全部 slot terminal且 fresh current-tag finalization后才 recovered/README。valid-marker/nonvalid-row/invalidation
    rejection 可由 current generation重取 lease/fence恢复；new-generation 接管只能在 latest claim/heartbeat envelope 的 store-auth expiry
    后以 higher-fence exact-frontier CAS重建 exact reviewed replacement，不因 deadline/job absence抢占。它按
 `jcs-rfc8785-v1` 计算 attempt-bound digest并把完整 manifest
@@ -624,6 +627,7 @@ branch 跳过这两个 marker 动作，只添加无 marker row并保留 latest-v
 | Protocol/corpus truth/mapping/ledger/reviews | planned **data/public_benchmark/**, the eight **schemas/public_benchmark_*.schema.json** files including **schemas/public_benchmark_protocol.schema.json**, **scripts/ci/validate_public_benchmark.py** | protocol schema ownership; baseline boundary + JSONL framing goldens; signed reviewer records; published/genesis/blocked-frontier ledger mutation suite |
 | Installed release identity | planned **schemas/release_identity.schema.json**, persisted attestation bundle + signed manifest, `scripts/setup/runtime-install.sh`, `scripts/setup/install.sh`, `scripts/ci/generate_runtime_release_manifest.py` | offline trust-root/issuer/workflow/subject verification plus recomputed binary/payload/wrapper/canonical-config/baseline/all-executable digests rejects tampered receipt/assets |
 | Actual launcher | GH-699 merge 后探测真实 manifest-declared paths；GH-700 owns Homebrew/npm `bench` dispatch changes at those anchors | fresh HOME per-launcher smoke proves argv/stdin/stdout/stderr/exit forwarding to same current-exe and proves bootstrap/setup/init sentinels absent |
+| Production timed exec guard | planned **vibeguard-runtime/src/exec_guard.rs**（非 `bench/`）、`vibeguard-runtime/src/hook_orchestrator.rs`、`hooks/run-hook.sh`、`hooks/run-hook-codex.sh`、`scripts/setup/runtime-install.sh`、`scripts/setup/install.sh`、`scripts/ci/generate_runtime_release_manifest.py`、`.github/workflows/release.yml`、**schemas/release_identity.schema.json** | fresh install + ordinary non-`bench` wrapper proves same registry/policy/live guard; bench cannot activate/reconfigure; per-invocation delay remains in E2E |
 | Wrapper E2E | actual installed `~/.vibeguard/run-hook.sh`, `run-hook-codex.sh` contracts; production code materialize byte-identical readonly temp snapshot，不复制 detector | layout/digest/permission + fake/missing `git`/undeclared-exec matrix, baseline and wrapper timer spies, existing `bash tests/test_hook_perf_contract.sh` |
 | Report/readme | planned **schemas/public_benchmark_report.schema.json**, **schemas/public_benchmark_summary.schema.json**, **scripts/ci/render_public_benchmark.py**, `README.md`, configured locale README | exact summary inputs; valid de-current/zero-gap/new-current and nonvalid preserve-current/unmarked-row goldens; per-surface rows; invalid axis has no numeric cell |
 | Release/failure evidence | `.github/workflows/release.yml`, planned **.github/workflows/benchmark-failure-reconcile.yml**, **scripts/ci/package_benchmark_evidence.py**, **scripts/ci/publish_benchmark_failure_record.py**, **schemas/public_benchmark_failure_manifest.schema.json**, `tests/test_release_workflow.sh`, planned **tests/fixtures/public_benchmark/failure_records/** | missing-target null union、pre-attestation event/API branch、blocked ledger frontier、watermark/idempotency/conflict、deleted-bundle recovery与two-stage marker publish ordering |
@@ -784,7 +788,7 @@ temp fixtures/logs 在本次 run 内清理；删除或 retention 到期的短期
   开发入口标 official；它保持 `unofficial`/`unavailable`。
 - 若 current release 的 runner/corpus/report 有缺陷，只能用 reviewed `invalidate_current` PR
   原子更新全部 required surfaces、移除 marker并将 exact row标 invalid，receipt绑定原因、
-  evidence、frontier、merge SHA与 before/after blobs；旧 release evidence 不删除/改写。
+  evidence、frontier、server-observed post-merge SHA与 before/after blobs；旧 evidence 不删除/改写。
 - README 生成区可通过回滚生成 PR 恢复到最后一份**明确标注版本**的报告，但不得把该旧值
   标为当前 release。
 - runner 回滚不修改现有 hooks/guards policy；GH-686、behavior eval、
