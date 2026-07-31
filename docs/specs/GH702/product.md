@@ -119,9 +119,11 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     **Decision frame（未批准，无默认选项）**：维护者必须为每个受支持 OS/architecture 选择
     closed backend kind 与 conformance profile，或明确该平台不允许 official block；不得从
     recommendation、探测到的 TPM/Keychain/service 或环境变量自动选择。批准 artifact 必须分别
-    决定 backend/service owner、initial provision 权限与 user/Core/device identity、IPC endpoint 的
+    决定 backend/service owner、independent authenticated per-leaf authority conformance、initial
+    provision 权限与 user/Core/device identity、IPC endpoint 的
     server/client peer authentication/ACL/protocol/anti-replay、key/backend identity rotation、同设备
     reinstall 是 reattach 还是新 root、device replacement/backup restore 是否禁止或走显式迁移、
+    target authorizer profile/key/trust root 与每种 leaf 的 authorized-operation transition rules、
     backend/IPC unavailable 与 partial-CAS 的 repair authority/UX，以及 intentional reset 的确认、
     evidence retention 和旧 receipts 处置。每个 claimed platform 与每个 anchor-enabled Claude/Codex
     installed hook 还必须填写带单位的 `hook_e2e_p50_ms`、`hook_e2e_p95_ms`、
@@ -328,9 +330,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     必须来自 current approved `evaluation_policy_digest`，而不是 pack author、环境变量、
     README、install command 或 artifact-embedded publication policy 临时覆盖。policy
     更新必须在不改写 bundle/index identity 的前提下重算 eligibility；Core-owned
-    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次可能执行 committed/
-    promoted block 前比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed
-    generation；任一
+    authoritative local evaluation-policy pointer 一旦切换，runtime 必须在下一次可能执行
+    committed/promoted block 前
+    比较其 exact `(digest, generation, validity_evidence_digest)` 与 committed generation；任一
     identity drift 即使 digest 后来相同，也立即使用 warn/off fallback、durably latch
     `policy_changed + audit_required`；pointer/floor
     缺失、malformed 或 pointer generation 低于 floor 时则是 `runtime_guard_unavailable`；候选 block
@@ -343,9 +345,9 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     fsync pointer 与 parent directory；只有两次 fsync 成功才可标 journal complete/清理。其间崩溃
     必须从 intent 确定性重放同一 pointer+fsync roll-forward，不能凭新 floor 猜目标 policy。
     runtime 同时验证 pointer generation 不低于该 floor。floor mirror 必须绑定 Core installation、
-    user principal、anchor schema、policy leaf identity 及独立单调 `(leaf_counter, leaf_digest)`；fresh
-    backend root proof 必须认证该 exact leaf state，但 sibling leaf 推进 shared root 只刷新 proof，
-    不得使未变的 policy mirror 失效。旧 user-state snapshot 即使 coherent 也因 leaf authority
+    user principal、anchor schema、root identity 与独立 policy `per_leaf_authority_id`，并与
+    `core_monotonic_anchor_v1` backend 当前 leaf counter/digest/attestation exact 相等；同 root 的
+    unrelated leaf 推进不得使 policy recovery 失败，但旧 policy leaf snapshot 必因该 leaf authority
     不回退而失配。旧 pointer replay 即使 digest 再次
     匹配 committed generation 也必须按 unavailable 拒绝，floor 缺失/损坏同样 fail closed。
     management commit 必须在最终校验前取得同一 policy lock，并持有到 active-generation
@@ -361,14 +363,12 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     local override，不能改写该 official default。任何 committed block 必须带 finite、
     本地可检查的 `decision_valid_until` 与预先计算的 warn/off expiry fallback；runtime
     每次 enforcement 都检查该 horizon，并通过 Core-owned、per-installation durable trusted
-    time high-water 检测回退。该 anchor path 只适用于 committed record 带 official/local block
-    basis 且 pre-runtime decision 为 block 的候选；即使本次随后因 expiry/rollback 选择 fallback，
-    仍须推进 high-water 并锁存 reason，防止旧 block 复活。committed decision 本就是
-    warn/off（包括 no-data/below-floor）的规则不访问 anchor，anchor failure 也不得把它升级为 denial。
-    候选 block 遇到任意
-    `runtime_time < last_trusted_runtime_time`，即使仍位于
+    time high-water 检测回退：任意 `runtime_time < last_trusted_runtime_time`，即使仍位于
     evaluation/expiry interval 内，也必须立即忽略旧 block、使用 fallback 并显示
-    `clock_rollback + audit_required`。high-water state 必须按 active generation 隔离并由同一
+    `clock_rollback + audit_required`。该 anchor path 只适用于 committed record 带 official/local
+    block basis 且 pre-runtime decision 为 block 的候选；即使本次随后因 expiry/rollback 选择 fallback，
+    仍须推进 high-water 并锁存 reason，防止旧 block 复活。committed decision 本就是 warn/off（包括
+    no-data/below-floor）的规则不访问 anchor，anchor failure 也不得把它升级为 denial。high-water state 必须按 active generation 隔离并由同一
     installation-scope pointer 选择；runtime 必须按 canonical order 取得 policy lock 与
     installation runtime-state lock，在锁内读取并直到 decision 执行后持续重验 policy
     pointer/floor、active pointer/state，
@@ -379,12 +379,13 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     switch 前不可影响旧 generation。
     management commit 必须在读取旧 high-water/sequence 前取得 installation runtime-state lock，
     并持锁直到新 state fsync 与 active pointer switch 完成，禁止 runtime 在交接窗口推进旧 state。
-    high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
+    候选 block 的 high-water 缺失、损坏、身份不匹配或 bounded retry 后仍无法锁定/原子推进时必须拒绝本次
     操作并非零返回，不能降为 warn/off 后放行，也不能因进程重启静默降低 high-water。
-    high-water/`clock_epoch`/sequence 每次推进都须以独立单调 time leaf CAS 为 authority，本地
-    runtime-state 只是 authenticated mirror；shared root 上 sibling leaf 的合法推进只刷新 inclusion
-    proof。候选 block 遇到 backend 缺失、proof 不可验证或 restore 后 leaf counter/digest 不等必须
-    `runtime_guard_unavailable`，不得执行旧 block；既有 warn/off 仍保持其 precision semantics。
+    high-water/`clock_epoch`/sequence 每次推进都须以 external root 内独立 authenticated time leaf
+    CAS 为 authority，本地 runtime-state 只是 mirror；其他 leaf 合法推进不影响本 leaf equality，
+    但 backend 缺失/不可验证或 restore 后本 leaf counter/digest/attestation 不等必须
+    `runtime_guard_unavailable`，不得执行旧 block。每个 CAS target 必须由 Core service 从 authenticated
+    operation 重构、逐 leaf 验证并以 H-010 approved authorizer 签名；客户端 hash 不具有授权效力。
     rollback 后普通 fresh audit 不能降低同一 clock epoch 的 high-water；恢复必须走显式
     trusted-clock reconciliation，在 locks 下验证 Core-approved time evidence、重新 audit，
     递增 `clock_epoch` 并把 reconciliation evidence 与新 generation/runtime state 通过同一
@@ -462,7 +463,7 @@ GH-702 要把这条内部演示合同升级为外部贡献者可用的发布合�
     与 precision reason、`decision_valid_until`/expiry state/`audit_required`，以及
     publication policy identity、committed 与 authoritative evaluation policy 各自的 exact
     digest/generation/validity-evidence identity、policy generation floor、active installation
-    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/leaf/counter、source-applicable `override_valid_until`、
+    generation/floor、runtime-state sequence/latch、monotonic anchor backend/root/per-leaf authority/counter、source-applicable `override_valid_until`、
     trusted-time high-water 与 `clock_epoch`，并以
     nonzero 区分 `{invalid, incompatible, revoked, needs_repair, protection_suspended,
     runtime_guard_unavailable}`；任何 `audit_required` 或 active protection 降级/暂停也必须
