@@ -1,25 +1,11 @@
 mod common;
 
-use common::{bin, unique_temp_dir};
+use common::{
+    assert_output, bin, path_text, read_json, run_with_home as run, unique_temp_dir, write_json,
+};
 use serde_json::{Value, json};
 use std::fs;
-use std::path::Path;
 use std::process::Output;
-
-fn run(root: &Path, args: &[&str]) -> Output {
-    bin()
-        .args(args)
-        .env("HOME", root.join("home"))
-        .current_dir(root)
-        .output()
-        .expect("vibeguard-runtime command should run")
-}
-
-fn assert_output(output: &Output, code: i32, stdout: &str, stderr: &str) {
-    assert_eq!(output.status.code(), Some(code));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout);
-    assert_eq!(String::from_utf8_lossy(&output.stderr), stderr);
-}
 
 fn assert_io_error(output: &Output) {
     assert_eq!(output.status.code(), Some(1));
@@ -27,31 +13,6 @@ fn assert_io_error(output: &Output) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.starts_with("vibeguard-runtime error: "));
     assert!(stderr.trim().len() > "vibeguard-runtime error:".len());
-}
-
-fn write_json(path: &Path, value: &Value) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("JSON parent should be created");
-    }
-    fs::write(
-        path,
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(value).expect("fixture should serialize")
-        ),
-    )
-    .expect("JSON fixture should be written");
-}
-
-fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&fs::read(path).expect("state file should be readable"))
-        .expect("state file should contain JSON")
-}
-
-fn path_text(path: &Path) -> String {
-    path.to_str()
-        .expect("temporary paths should be UTF-8")
-        .to_string()
 }
 
 #[test]
@@ -761,74 +722,5 @@ fn managed_tree_lookup_fails_on_bad_state_and_verifies_exact_ownership() {
     assert_eq!(unsupported.status.code(), Some(1));
     assert!(unsupported.stdout.is_empty());
 
-    fs::remove_dir_all(root).expect("temp root should be removed");
-}
-
-#[test]
-fn project_hook_cleanup_listing_handles_bad_state_and_filters_rows() {
-    let root = unique_temp_dir("install_state_project_hooks");
-    let home = root.join("home");
-    fs::create_dir_all(&home).expect("temp root should be created");
-    let state = root.join("state.json");
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
-
-    fs::write(&state, "{").expect("corrupt state should be written");
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
-
-    write_json(&state, &json!({"version": 1, "project_hooks": []}));
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(&output, 0, "", "");
-
-    write_json(&state, &json!({"version": 3, "project_hooks": {}}));
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(
-        &output,
-        0,
-        "",
-        "WARN: unsupported install-state version; skipping project hook cleanup\n",
-    );
-
-    let absolute_hook = root.join("project/.git/hooks/pre-push");
-    write_json(
-        &state,
-        &json!({
-            "version": 1,
-            "project_hooks": {
-                "": {"repo_dir": "/ignored", "hook_name": "pre-commit"},
-                "/missing-name": {"repo_dir": "/ignored"},
-                path_text(&absolute_hook): {"repo_dir": path_text(&root.join("project")), "hook_name": "pre-push"},
-                "~/project/.git/hooks/pre-commit": {"repo_dir": "~/project", "hook_name": "pre-commit"}
-            }
-        }),
-    );
-    let output = run(
-        &root,
-        &["setup-state-list-project-hooks", &path_text(&state)],
-    );
-    assert_output(
-        &output,
-        0,
-        &format!(
-            "{}\tpre-push\t{}\n{}\tpre-commit\t~/project\n",
-            absolute_hook.display(),
-            root.join("project").display(),
-            home.join("project/.git/hooks/pre-commit").display()
-        ),
-        "",
-    );
     fs::remove_dir_all(root).expect("temp root should be removed");
 }
