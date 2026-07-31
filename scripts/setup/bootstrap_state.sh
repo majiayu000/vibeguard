@@ -69,6 +69,48 @@ bootstrap_reap_transaction_write_temporaries() {
   done <<< "${entries}"
 }
 
+bootstrap_reap_orphaned_work_directories() {
+  local dist_root="$1" protected_work_dir="${2:-}"
+  local entries entry name candidate version nonce
+  if ! entries="$(
+    find "${dist_root}" -mindepth 1 -maxdepth 1 \
+      -name '.bootstrap-*.*' -print | LC_ALL=C sort
+  )"; then
+    bootstrap_error "could not enumerate bootstrap work directories."
+    return 1
+  fi
+  while IFS= read -r entry; do
+    [[ -n "${entry}" ]] || continue
+    name="${entry##*/}"
+    case "${name}" in
+      .bootstrap-transaction-*|.bootstrap.lock.owner.*)
+        continue
+        ;;
+    esac
+    candidate="${name#.bootstrap-}"
+    version="${candidate%.*}"
+    nonce="${candidate##*.}"
+    if [[ "${version}" == "${candidate}" \
+      || ! "${nonce}" =~ ^[[:alnum:]]{6}$ ]] \
+      || ! bootstrap_validate_version "${version}"; then
+      bootstrap_error "bootstrap work path has ambiguous ownership metadata: ${entry}"
+      return 1
+    fi
+    if [[ -L "${entry}" || ! -d "${entry}" ]]; then
+      bootstrap_error "bootstrap work path is not a real directory: ${entry}"
+      return 1
+    fi
+    if [[ -n "${protected_work_dir}" && "${entry}" == "${protected_work_dir}" ]]; then
+      continue
+    fi
+    if ! rm -rf -- "${entry}" \
+      || [[ -e "${entry}" || -L "${entry}" ]]; then
+      bootstrap_error "could not remove orphaned bootstrap work directory: ${entry}"
+      return 1
+    fi
+  done <<< "${entries}"
+}
+
 bootstrap_prepare_clean_plan() {
   local dist_root="$1" current_link="$2"
   local entries entry name version final_dir all_entries found index
@@ -76,6 +118,8 @@ bootstrap_prepare_clean_plan() {
   BOOTSTRAP_CLEAN_OWNED_VERSION_COUNT=0
   bootstrap_prepare_clean_selection "${dist_root}" "${current_link}" || return 1
   bootstrap_reap_transaction_write_temporaries "${dist_root}" || return 1
+  bootstrap_reap_orphaned_work_directories \
+    "${dist_root}" "${BOOTSTRAP_TMP:-}" || return 1
 
   if ! entries="$(
     find "${dist_root}" -mindepth 1 -maxdepth 1 \

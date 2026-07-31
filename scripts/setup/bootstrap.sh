@@ -357,6 +357,9 @@ bootstrap_acquire_owner_lock || lock_rc=$?
 if [[ "${lock_rc}" -ne 0 ]]; then
   exit "${lock_rc}"
 fi
+# Holding the single bootstrap owner lock proves no live transaction can own
+# a canonical work directory left by an earlier SIGKILL or power loss.
+bootstrap_reap_orphaned_work_directories "${DIST_ROOT}" || exit 73
 
 if [[ -e "${CURRENT_LINK}" && ! -L "${CURRENT_LINK}" ]]; then
   bootstrap_error "dist/current exists and is not a symlink; refusing to overwrite it."
