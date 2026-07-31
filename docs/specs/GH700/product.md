@@ -268,9 +268,11 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     interception 口径与 rate、false-positive rate、状态及报告链接；latency 不允许静默
     reduction，每个 production surface 必须有独立 P95/status 列（或独立子行），列集合与
     顺序来自 protocol schedule。数字不得手工编辑；表格必须明确它代表哪个 release。
-    publication ownership、mutation-secret、append-only history、blocked-attempt ledger、trusted time、trust/fold 与 owner-liveness
-    的完整规范性 contract 位于 [publication_history_contract.md](publication_history_contract.md)；
-    该文档全部属于 B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
+    publication ownership、mutation-secret、append-only history、trusted time、trust/fold与 owner-liveness的
+    完整规范性 contract由 [publication_history_contract.md](publication_history_contract.md)、blocked-ledger/API
+    单一真源 [publication_ledger_contract.md](publication_ledger_contract.md)及 named-vector注册表
+    [publication_conformance_vectors.md](publication_conformance_vectors.md)共同组成；三文档全部属于
+    B-017/B-018 acceptance surface；product/tech/tasks只引用其 machine-facing
     identifiers、secret boundary与 conformance vectors，不在调用方复制字段集合、枚举、canonical
     bytes、alias规则或局部覆盖 fail-closed 语义。
     generated PR、documentation surface plan、zero-marker plan、publication phase、invalidation
@@ -467,7 +469,7 @@ payload contract，但在实际 launcher 与 no-clone smoke 合并并被探测�
     均不创建。
 
     永久 store/API/retention/recovery 的唯一合同是
-    [publication_history_contract.md](publication_history_contract.md) 中的
+    [publication_ledger_contract.md](publication_ledger_contract.md) 中的
     `blocked_attempt_ledger_sqlite_v1`；T3拥有 backend/bootstrap/migration/recovery，completion client
     只能调用 manifest-pinned ledger methods，短期 artifact、pointer或 mock均不能满足本条。
 

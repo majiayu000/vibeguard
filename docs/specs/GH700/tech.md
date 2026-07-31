@@ -448,7 +448,7 @@ typing。`--json` stdout 只输出 JSON，diagnostic 到 stderr 且同样脱敏�
    de-current 则 exact rollback merge 后才删 draft。各路径均禁止 publish。
    post-intent：matching public Release→verify+README；否则 matching intent-bound draft→
    publish+README；否则 `release_recovery_blocked` 并保留 owner。
-publication 使用 attempt-scoped draft 与统一 durable state machine；唯一 backend、deployment/bootstrap、lock/fsync/recovery、blocked-attempt ledger、trusted-time/high-water、encrypted backup、anchor quorum、canonical schema、secret boundary、closed unions与 conformance vectors均由 [publication_history_contract.md](publication_history_contract.md) 定义，本文不复制 machine-facing identifiers：
+publication 使用 attempt-scoped draft 与统一 durable state machine；唯一 backend、deployment/bootstrap、lock/fsync/recovery、trusted-time/high-water、encrypted backup、anchor quorum、canonical schema、secret boundary与 closed unions由 [publication_history_contract.md](publication_history_contract.md)，blocked-attempt ledger/API由 [publication_ledger_contract.md](publication_ledger_contract.md)，named vectors由 [publication_conformance_vectors.md](publication_conformance_vectors.md) 定义，本文不复制 machine-facing identifiers：
 1. actors 只按 source/candidate→ledger lease→publication lease→branch CAS；等待 review只消费 contract的
    owner-liveness/trusted-time protocol；H-006 的值与 approval/roster digest未全部批准并进入 policy digest前，
    或仅有 host/client clock与 job absence时，claim/heartbeat/takeover均 unavailable。
@@ -671,8 +671,8 @@ planned **tests/test_public_benchmark.sh** 的最终产物断言不能只看 exi
   report 的 retry 仍有不同 run/attempt-bound identity。最终 workflow 非零且
   Release/candidate-row sentinel 均不存在；
   publish_nonvalid fixture 则最终产生同版本 non-valid report/row。
-- publication-history goldens须由 Rust/Python/shell共同消费 [publication history contract](publication_history_contract.md)
-  拥有的 exact vectors，不得复制 enum/字段/canonical bytes；覆盖 no-draft/deleted-draft、双 API、encrypted backup、online quorum、pending gate、normal/emergency rotation、DynamoDB CAS/restore、blocked precedence与 credential boundary反例。
+- publication-history goldens须由 Rust/Python/shell共同消费 [publication vector registry](publication_conformance_vectors.md)
+  拥有的 exact vectors，并按 [ledger/API contract](publication_ledger_contract.md)验证双 API；不得复制 enum/字段/canonical bytes，覆盖 no-draft/deleted-draft、encrypted backup、online quorum、pending gate、normal/emergency rotation、DynamoDB CAS/restore、blocked precedence与 credential boundary反例。
 - integration fixture另覆盖 claim/binding、genesis、rollover、pending de-current cancel、draft/generated PR恢复、
   break-glass审计与 backup/anchor rollback。
 
