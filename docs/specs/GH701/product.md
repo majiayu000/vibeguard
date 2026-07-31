@@ -240,7 +240,9 @@ GH-701 已完成。
     loaded bytes、post-load watcher barrier 与 pointer CAS re-read，再 atomic use-release ack。
     ack commit 前不得 host dispatch/side effect；lazy/unattested load 禁止。所有失败/崩溃/orphan
     必须 atomic abort-release-record 后解锁；owner-death/有界 expiry 保证 fail-closed 但不永久锁 host。
-    completed→consumed 只允许 verified clean 或 exact completed successor ancestry。
+    reverse/clean 必须在 fresh exclusion 内把 final barrier+identity/bytes/absence re-read、
+    completed→consumed CAS、consume receipt 与 release 原子绑定；任一 drift/gap 保留 completed。
+    supersession 只允许 exact completed successor ancestry 并在同一 protected transaction 消费。
     present-base reverse 必须由用户恢复并按同一 identity/bytes/metadata 验证；
     absent-base reverse/clean 必须由用户删除 exact target，并以 watcher 连续性、两次
     bounded absence observation 与 host-native unregistration 验证。VibeGuard 不得写或
@@ -296,12 +298,14 @@ GH-701 已完成。
     非零匹配或扫描后 sink digest 漂移都阻断。
     supervisor 必须输出固定 schema/path 的 detached attestation；验证器 exact-match
     protected workflow issuer/identity/ref/SHA，并把 runtime proof SHA、candidate
-    head、event/nonce/process/distribution digests 与 redaction inventory digest
+    head、event/nonce/process/distribution、host-acquisition-ack/use-release receipt digests
+    与 redaction inventory digest
     绑定为 attested subjects，缺任一绑定都阻断。
     H-001 closed selection 还必须批准 security provider kind/version、containment/
-    executable-memory policy digests、mutation-exclusion provider kind/version/policy digest，
+    executable-memory policy digests、mutation-exclusion provider kind/version/policy digest、
+    host-acquisition-ack/use-release subject schema digests，
     以及 relocation manifest digest/signing identity；lifecycle gate 必须 exact-match exclusion
-    selection 并把 decision-record digest 绑定所有 publish/abort/use records；
+    selection 并把 decision-record digest 绑定所有 publish/abort/use/consume records；
     gate 必须把 signer trust chain/provenance exact-match approved distribution。
     native binary 须完整实现 appendix §§1–2：在不可逃逸 execution
     containment 内拒绝 `LD_PRELOAD`、library-path、危险 `DYLD_*`、debugger/plugin/
@@ -419,15 +423,17 @@ GH-701 已完成。
   额外编辑或 late write 都保持 partial。
 - [ ] verified-file failed-probe 与 clean/disable fixtures 仅在 current candidate /
   receipt 精确匹配时提供用户应用的 reverse diff；present base 的 identity/bytes/
-  metadata 重验通过后才 restored/not-installed；atomic success/abort release、owner-death/
-  expiry、publishing/completed/consumed 各 crash 窗口必须确定性；只有 verified
+  metadata 重验通过后才 restored/not-installed；fresh exclusion 下 final barrier/re-read、
+  consume CAS/receipt/release 必须一个 durable transaction；任何 drift/gap/crash 保留 completed。
+  atomic success/abort release、owner-death/expiry 各 crash 窗口必须确定性；只有 verified
   removal 或保留原 clean ancestry 的 superseding receipt 生效后才消费；absent base
   不得伪造空 base，clean 必须由用户删除 exact target 并经两次 bounded absence、
   watcher continuity 与 host-native unregistration 验证；任一第三方 drift 都不覆盖并
   保持 needs-human。
 - [ ] 每次 verified-file host use 在 completed tuple read 前取得 H-001-bound exclusion，
   exact loaded-byte acquisition ack 后 drain post-load barrier 并 CAS re-read pointer，再 atomic
-  use-release；provider drift、tuple-read 后 write-restore、lazy/missing ack、crash 均零 proof。
+  use-release；ack/release exact bytes 必须是 manifest+attestation authenticated proof subjects，
+  exact-match event/nonce/process/tuple；drift、write-restore、lazy/missing/cross-event 均零 proof。
 - [ ] GH-699/GH-700 README claims 与第三 host proof 各由固定 gate 消费；缺失、
   tampered、stale、wrong-head/event/digest/witness、candidate 可见 credential、
   signing job 执行 candidate、subject blob/认证 manifest 缺失替换或重哈希不符、

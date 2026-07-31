@@ -198,7 +198,7 @@ results and the evidence payload.
 The exclusion provider is authorization-conferring: the H-001 closed selection must
 approve its kind, version, and raw policy digest in addition to the execution provider.
 The lifecycle gate exact-matches those fields and binds the decision-record digest into
-the provider record, intent, completion, and every success/abort/use release record.
+the provider record, intent, completion, and every success/abort/use/consume release record.
 Self-selected, missing, substituted, or drifted provider/policy fields are unsupported.
 The writer may then CAS the current pointer from the expected generation+digest to the
 exact intent with state `publishing` and fsync the directory. This pointer is durable
@@ -256,6 +256,14 @@ separate gap-free exclusion epochs, release-to-acquisition TOCTOU cannot authori
 bytes. Publishing remains unacceptable evidence, and bundles remain durable for the
 lifetime of completed evidence.
 
+For protected proof, the exact `host_acquisition_ack` and `use_release_and_record`
+receipt bytes are mandatory content-addressed handoff subjects. Their manifest roles and
+digests are closed by the H-001-approved subject-schema digests; the supervisor
+attestation exact-binds both to the same event, nonce, measured host process, completed
+tuple, watcher roots, and candidate head. The proof gate rehashes both subjects and
+exact-matches every binding before `proof_accepted`. A current config digest, self-report,
+missing/substituted subject, or ack/release from another event cannot substitute.
+
 Recovery takes the target lock and reconciles immutable bundles, pointer, completion,
 abort/tombstone, exclusion status, and success/abort release records.
 An unpointed `activating` bundle is never assumed completed or consumed: retry must open
@@ -278,18 +286,23 @@ restores the original unmanaged clean base carried through superseding generatio
 For an absent base, both operations are an exact-target deletion instruction for the
 user, not creation of an empty file. VibeGuard never writes or deletes the host target.
 
-After user-applied deletion, the verifier uses the retained parent handle and
-no-follow `fstatat`/platform equivalent to require the entry to remain absent across
-two bounded observations and the filesystem-watcher interval. It then performs
-host-native discovery to prove the VibeGuard registration is absent. There are no
-base bytes to parse. Parent identity drift, target recreation, late old-FD write,
-watcher loss, or a remaining managed registration is `needs_human`.
+After the user applies either operation, the verifier takes the target lock, starts a
+new loss-detecting watcher, and acquires the H-001-approved mandatory exclusion against
+the restored target or absent directory entry before the first bounded observation.
+For absent base it uses the retained parent handle and no-follow `fstatat`/equivalent to
+require stable absence across two observations and proves host-native unregistration.
+For present base it pins the restored target, requires exact original bytes/semantics
+and stable parent/target identities across the same observations, and confirms the
+receipt-specified restored/unmanaged state.
 
-For a present-base reverse, the verifier pins the newly restored target identity,
-requires exact base bytes/semantics and stable parent/target identities across the
-same bounded observations, and confirms the VibeGuard entry is restored/removed as
-the receipt specifies. Only then does it invalidate candidate evidence, mark the
-receipt consumed, and report `restored` or `not_installed`.
+While exclusion remains enforced, `consume_release_and_record` drains a final watcher/
+provider barrier, repeats the held-handle identity+byte read or absence+unregistration
+proof, CASes the exact completed generation/digest to `consumed`, persists the consume
+record, invalidates candidate evidence, and removes the policy at one durable
+linearization point. Only then may it report `restored` or `not_installed` and later
+delete receipt data. Any event, denied attempt, gap, drift, recreation, late old-FD write,
+remaining registration, stale CAS, crash, or timeout atomically abort-releases the
+exclusion and leaves the completed receipt unconsumed; owner-death/expiry remains live.
 
 A superseding plan carries two ancestries: immediate rollback base for failed update,
 and original unmanaged clean base/presence for later clean. The old completed receipt is
@@ -298,10 +311,12 @@ passes, and the new completion tuple is exact. Failure leaves the old completed 
 intact. Consumed receipts may then be deleted; planned/activating/publishing/completed
 or drifted receipts must remain available with only path+digest shown to the user.
 
-`completed → consumed` is the only consume transition. Its atomic CAS record binds the
+`completed → consumed` is the only consume transition. Its atomic CAS/release record binds the
 exact completed receipt digest, original clean ancestry/presence, verified restore or
 absent-base deletion evidence, and either the clean operation or exact successor
-completed generation/digest. Direct publishing/abort-to-consumed, missing successor
+completed generation/digest. Supersession performs the predecessor consume in the same
+new-completion exclusion transaction; it cannot consume after that protection releases.
+Direct publishing/abort-to-consumed, missing successor
 ancestry, replay, or consuming the predecessor before successor completion is rejected.
 
 ### 3.3 Required fixtures
@@ -323,6 +338,10 @@ Host-use fixtures require the H-001-approved exclusion, exact immutable acquisit
 post-acquisition barrier, CAS pointer re-read, and atomic use-release receipt; they reject
 provider/policy drift, a write or restore between tuple read and host acquisition, lazy
 reads, missing/mismatched loaded-byte evidence, use-release crash, and permanent lock.
+Proof fixtures require authenticated exact ack/use-release subjects bound to the same
+event/nonce/process/completed tuple and reject missing, substituted, stale, or cross-event
+subjects. Reverse/clean fixtures mutate at every final-observation→consume boundary and
+require atomic abort-release with the completed receipt retained.
 Consume fixtures accept only completed→consumed with exact clean/successor ancestry and
 reject every direct, early, replayed, or mismatched transition.
 

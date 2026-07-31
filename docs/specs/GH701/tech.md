@@ -217,6 +217,7 @@ acceptance snapshot rules 与 collector trust identity：
         "containment_policy_sha256", "executable_memory_policy_sha256",
         "mutation_exclusion_provider_kind", "mutation_exclusion_provider_version",
         "mutation_exclusion_policy_sha256",
+        "host_acquisition_ack_schema_sha256", "use_release_receipt_schema_sha256",
         "relocation_manifest_sha256", "relocation_signing_identity"
       ]
     },
@@ -573,11 +574,11 @@ gate 还必须消费当前 protected CI run 的
 的 `host_id` 按 `host_id_by_option` 闭集 exact-match H-001 selected option，再逐项
 exact-match H-001 的
 `host_release`、`host_distribution_provenance`、`protocol_snapshot_sha256`、
-`native_blocking_event` 与 candidate head。distribution provenance 是 closed
+`native_blocking_event`、两个 host-use subject schema digests 与 candidate head。distribution provenance 是 closed
 union：签名 package identity + registry integrity，或 signed release manifest +
 platform asset digest；两者都绑定 issuer/subject/release/platform 与 expected
 binary SHA-256。gate 从受信 metadata/H-001 attestation 取得 identity，并验证 supervisor bundle 的固定 schema/path/issuer/workflow/ref/SHA/run/subjects/predicate、
-event/nonce/process/redaction/scanned-sink 绑定；native 绑定 executable，
+event/nonce/process/redaction/scanned-sink、host-acquisition-ack/use-release receipt digests 绑定；native 绑定 executable，
 interpreted CLI 同时绑定 interpreter/argv/entrypoint/package snapshot。gate-time
 重读只检测 drift；拒绝 self-report/pathname/unsigned checksum、运行后替换或
 snapshot 外代码。其他第三 host proof 不能替代获批 host。之后 gate 分别
@@ -629,10 +630,10 @@ config/payload/log content。
 | B-022 | v2 top-level hosts/per-hook mappings/non-host entries | `bash tests/test_manifest_contract.sh`；`bash scripts/ci/validate-hooks-manifest.sh` 的 key-set、non-host、contradiction negative fixtures |
 | B-023 | v1 compatibility/deprecation | `bash tests/test_manifest_contract.sh`：v1 read+warning、v1 third-host reject、v2-only writer 与 v1/v2 Claude/Codex golden parity |
 | B-024 | complete unknown matrix | `bash tests/test_manifest_contract.sh`；`bash tests/test_setup.sh`；`cargo test --manifest-path vibeguard-runtime/Cargo.toml` 分别固定 contract/discovery/protocol/runtime outcomes |
-| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 present restore/absent delete、H-001-bound exclusion、atomic publish/abort/use release、exact host acquisition+post-load barrier、owner-death unlock、completed→consumed ancestry；gap/lazy-load/permanent-lock/direct/replay 均 blocked；appendix §3 |
+| B-025 | versioned transaction + verified-file lifecycle | setup tests 覆盖 exclusion 下 present restore/absent delete→atomic consume CAS、H-001-bound provider、atomic publish/abort/use release、exact host acquisition+post-load barrier、owner-death unlock；gap/lazy-load/permanent-lock/direct/replay 均 blocked；appendix §3 |
 | B-026 | lock/deadlock/crash/external-drift recovery | `bash tests/test_setup.sh`：bounded contention/order、partial API commit crash、token/version/digest CAS rollback；byte-identical newer version 和任一 external drift 均 needs_human |
 | B-027 | authenticated GH-699/GH-700 evidence schema/gate | 运行 README-claim negative harness；GH-699 protected producer attestation + exact SHA/argv 与 GH-700 committed Release `public_benchmark_summary`/reports/`publish_intent` positive fixtures 精确渲染 README；standalone rerun、draft/unpublished Release、unsigned/self-reported/wrong workflow/ref/run/producer 与 semantic negative matrix 全部 nonzero |
-| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy + relocation signer/digest binding、normalized page equality；self/implementer-signed manifest、inbound/outbound write、private-COW exec、bad relocation、patch-restore、RWX、trace gap/load-unload 均 nonzero；appendix §2 |
+| B-028 | H-001-bound runtime-proof/witness schemas and gate | harness 验证 H-001 provider/policy/use-subject schemas、ack/release exact event binding、relocation signer/digest 与 page equality；missing/substituted subject、in/out write、private-COW、patch-restore、RWX、trace gap 均 nonzero；appendix §§2–3 |
 | B-029 | stale branch closure gate | protected GitHub ruleset API fixture：deleted allowed；readonly retain 仅 exact head/owner/unexpired/exact-target update+delete deny/zero bypass allowed；retain→delete without fresh H-003、`ls-remote` only、rule/head drift/new push blocked |
 | B-030 | H-004 mutually exclusive decision + issue acceptance binding | decision-gate fixtures：strict-four allowed；preserve only with matching immutable issue node/digest allowed；missing/double/unsynced/re-witness-missing blocked |
 | B-031 | live-source decision record/attestation + task binding | `bash tests/test_gh701_decision_gate.sh`；current protected run + latest generation 对 eligible descendant HEAD/digests allowed，source edit/delete/revoke/newer selection、offline preview、self-filled/stale/cached/wrong-spec records blocked |
@@ -737,8 +738,8 @@ config/payload/log content。
   oversize primary closed fallback、
   malformed/privacy 与 encode failure。
 - [ ] Lifecycle tests：全 phase、lock/deadlock、versioned CAS/lease 与 crash rollback；
-  verified-file 覆盖 present restore/absent delete、H-001-bound exclusion、atomic publish/abort/use
-  release、exact host acquisition/post-load barrier、owner-death unlock 与 consume ancestry negatives。
+  verified-file 覆盖 exclusion 下 present restore/absent delete→atomic consume CAS、H-001-bound
+  publish/abort/use release、authenticated ack/use proof subjects、owner-death 与 ancestry negatives。
 - [ ] Evidence tests：README-claim schema/gate 的 protected producer attestation、
   GH-699 exact producer SHA/argv，以及 GH-700 committed Release summary/report/
   publish-intent binding 与 standalone rerun/draft/unsigned/wrong-workflow matrices；
